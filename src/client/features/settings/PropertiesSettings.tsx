@@ -176,7 +176,7 @@ export function PropertiesSettings() {
 function Heading({ titleKey }: {
     titleKey: MessageKey;
 }) {
-    return (<h3 data-setting-title={t(titleKey)} className="mb-1 text-[11px] font-semibold tracking-[0.06em] text-[var(--text-quaternary)]">
+    return (<h3 data-setting-title={t(titleKey)} className="mb-1 text-[length:var(--text-11)] font-semibold tracking-[0.06em] text-[var(--text-quaternary)]">
         {t(titleKey)}
       </h3>);
 }
@@ -224,13 +224,13 @@ function NameList({ names, limit, onChange, label }: {
             onChange(withName(names, name, true).slice(0, limit));
     };
     return (<div role="group" aria-label={label} className="flex w-full max-w-full flex-wrap items-center justify-end gap-1 md:w-80">
-        {names.map(name => (<span key={name} className="flex max-w-full items-center rounded-[var(--r-sm)] bg-[var(--bg-inset)] py-0.5 pl-1.5 text-[11.5px] text-[var(--text-primary)]">
+        {names.map(name => (<span key={name} className="flex max-w-full items-center rounded-[var(--r-sm)] bg-[var(--bg-inset)] py-0.5 pl-1.5 text-[length:var(--text-11-5)] text-[var(--text-primary)]">
             <span className="truncate font-mono">{name}</span>
             <button type="button" aria-label={`${name} · ${t('common.remove')}`} onClick={() => onChange(withName(names, name, false))} className="flex size-5 items-center justify-center text-[var(--text-quaternary)] hover:text-[var(--danger)]">
               <X size={10}/>
             </button>
           </span>))}
-        {!names.length && <span className="text-[11.5px] text-[var(--text-quaternary)]">{t('settings.list_empty')}</span>}
+        {!names.length && <span className="text-[length:var(--text-11-5)] text-[var(--text-quaternary)]">{t('settings.list_empty')}</span>}
         <Input aria-label={t('settings.list_add')} value={draft} placeholder={t('settings.list_add')} onChange={event => setDraft(event.target.value)} onKeyDown={(event) => {
             if (event.key === 'Enter') {
                 event.preventDefault();
@@ -247,7 +247,7 @@ function RuleShell({ label, children, onAdd }: {
 }) {
     return (<div role="group" aria-label={label} className="flex w-full max-w-full flex-col items-stretch gap-1.5 md:w-80">
         {children}
-        <button type="button" onClick={onAdd} className="flex items-center gap-1 self-start rounded px-1.5 py-1 text-[11.5px] text-[var(--text-quaternary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-secondary)]">
+        <button type="button" onClick={onAdd} className="flex items-center gap-1 self-start rounded px-1.5 py-1 text-[length:var(--text-11-5)] text-[var(--text-quaternary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-secondary)]">
           <Plus size={11}/>
           <span>{t('settings.rule_add')}</span>
         </button>
@@ -272,7 +272,7 @@ function RuleRow({ name, onRename, onRemove, children }: {
 function EmptyRule({ label }: {
     label: string;
 }) {
-    return <span className="text-[11.5px] text-[var(--text-quaternary)]">{label}</span>;
+    return <span className="text-[length:var(--text-11-5)] text-[var(--text-quaternary)]">{label}</span>;
 }
 
 function FormatRules({ rules, patch }: {
@@ -283,7 +283,7 @@ function FormatRules({ rules, patch }: {
     return (<RuleShell label={t('settings.property_formats')} onAdd={() => patch(withFormatRule(rules, newRuleName(entries), { template: '{{propertyValue}}' }))}>
         {!entries.length && <EmptyRule label={t('settings.rules_empty')}/>}
         {entries.map(([name, rule]) => (<RuleRow key={name} name={name} onRename={(next) => patch(renamedRule(rules, name, next, rule))} onRemove={() => patch(withFormatRule(rules, name, null))}>
-              <Input aria-label={name + ' · ' + t('settings.property_formats')} value={rule.template ?? ''} placeholder={t('settings.format_placeholder')} onChange={event => patch(withFormatRule(rules, name, { template: event.target.value }))} className="min-w-0 flex-1 font-mono text-[11px]"/>
+              <Input aria-label={name + ' · ' + t('settings.property_formats')} value={rule.template ?? ''} placeholder={t('settings.format_placeholder')} onChange={event => patch(withFormatRule(rules, name, { template: event.target.value }))} className="min-w-0 flex-1 font-mono text-[length:var(--text-11)]"/>
               <Switch checked={rule.markdown === true} onChange={value => patch(withFormatRule(rules, name, { markdown: value }))} label={name + ' · ' + t('properties.markdown_on')}/>
             </RuleRow>))}
       </RuleShell>);
@@ -325,7 +325,7 @@ function OptionRules({ rules, patch }: {
     return (<RuleShell label={t('settings.property_options')} onAdd={() => patch(withSelectOptions(rules, newRuleName(entries), ['1', '2', '3']))}>
         {!entries.length && <EmptyRule label={t('settings.rules_empty')}/>}
         {entries.map(([name, options]) => (<RuleRow key={name} name={name} onRename={(next) => patch(renamedRule(rules, name, next, options))} onRemove={() => patch(withSelectOptions(rules, name, null))}>
-              <Input aria-label={name + ' · ' + t('settings.property_options')} value={options.join(', ')} placeholder={t('settings.options_placeholder')} onChange={event => patch(withSelectOptions(rules, name, event.target.value.split(/[,\uFF0C]/)))} className="min-w-0 flex-1 font-mono text-[11px]"/>
+              <Input aria-label={name + ' · ' + t('settings.property_options')} value={options.join(', ')} placeholder={t('settings.options_placeholder')} onChange={event => patch(withSelectOptions(rules, name, event.target.value.split(/[,\uFF0C]/)))} className="min-w-0 flex-1 font-mono text-[length:var(--text-11)]"/>
             </RuleRow>))}
       </RuleShell>);
 }

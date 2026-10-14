@@ -155,7 +155,7 @@ export function ManageFoldersPanel({ onClose }: { onClose: () => void }) {
           : (<ul className="space-y-1">
             {choices.map(({ folder, path }) => (<li key={folder.id} className="rounded-[var(--r-md)] border border-[var(--border-subtle)] bg-[var(--bg-base)] px-2 py-1.5">
               <div className="flex items-center gap-2">
-                <span className="flex size-6 shrink-0 items-center justify-center text-[15px] leading-none" style={{ color: folder.color ?? 'var(--text-tertiary)' }}>
+                <span className="flex size-6 shrink-0 items-center justify-center text-[length:var(--text-15)] leading-none" style={{ color: folder.color ?? 'var(--text-tertiary)' }}>
                   {folder.icon || <FolderOpen size={15}/>}
                 </span>
                 {renamingId === folder.id
@@ -174,10 +174,10 @@ export function ManageFoldersPanel({ onClose }: { onClose: () => void }) {
                     openFolderView(folders, folder.id);
                     onClose();
                 }} className="min-w-0 flex-1 text-left">
-                    <span className="block truncate text-[12.5px] font-medium text-[var(--text-primary)]">{folder.name}</span>
-                    <span className="block truncate text-[11px] text-[var(--text-quaternary)]">{path}</span>
+                    <span className="block truncate text-[length:var(--text-12-5)] font-medium text-[var(--text-primary)]">{folder.name}</span>
+                    <span className="block truncate text-[length:var(--text-11)] text-[var(--text-quaternary)]">{path}</span>
                   </button>)}
-                <span className="shrink-0 text-[11px] tabular text-[var(--text-quaternary)]">{t("folders.notes_count", { value0: counts.get(folder.id) ?? 0 })}</span>
+                <span className="shrink-0 text-[length:var(--text-11)] tabular text-[var(--text-quaternary)]">{t("folders.notes_count", { value0: counts.get(folder.id) ?? 0 })}</span>
                 <span className="flex shrink-0 items-center gap-0.5">
                   <Tooltip label={inboxFolderId === folder.id ? t("folders.unset_inbox") : t("folders.set_as_inbox")} side="left">
                     <IconButton label={inboxFolderId === folder.id ? t("folders.unset_inbox") : t("folders.set_as_inbox")} size="sm" active={inboxFolderId === folder.id} onClick={() => toggleInbox(folder)}>

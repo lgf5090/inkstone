@@ -62,24 +62,24 @@ export function SidebarOutlinks() {
     }, [activeId, content, byKey]);
 
     if (!activeId)
-        return <p className="px-2 py-3 text-[12px] leading-relaxed text-[var(--text-quaternary)]">{t('sidebar.links_no_note')}</p>;
+        return <p className="px-2 py-3 text-[length:var(--text-12)] leading-relaxed text-[var(--text-quaternary)]">{t('sidebar.links_no_note')}</p>;
     if (content === undefined)
-        return <p className="px-2 py-3 text-[12px] text-[var(--text-quaternary)]">{t('common.loading')}</p>;
+        return <p className="px-2 py-3 text-[length:var(--text-12)] text-[var(--text-quaternary)]">{t('common.loading')}</p>;
     return (<>
-      {linked.length === 0 && missing.length === 0 ? (<p className="px-2 py-3 text-[12px] leading-relaxed text-[var(--text-quaternary)]">{t('sidebar.outlinks_empty')}</p>) : null}
+      {linked.length === 0 && missing.length === 0 ? (<p className="px-2 py-3 text-[length:var(--text-12)] leading-relaxed text-[var(--text-quaternary)]">{t('sidebar.outlinks_empty')}</p>) : null}
       {linked.length > 0 && (<div role="list" aria-label={t('sidebar.tab_outlinks')} data-outlink-list className="space-y-px">
-        {linked.map(({ note, alias }) => (<button key={note.id} type="button" role="listitem" data-outlink-id={note.id} onClick={() => void openNote(note.id)} className="flex w-full items-center gap-2 rounded-[var(--r-md)] px-2 py-1.5 text-left text-[12.5px] text-[var(--text-primary)] transition-colors hover:bg-[var(--bg-hover)]">
+        {linked.map(({ note, alias }) => (<button key={note.id} type="button" role="listitem" data-outlink-id={note.id} onClick={() => void openNote(note.id)} className="flex w-full items-center gap-2 rounded-[var(--r-md)] px-2 py-1.5 text-left text-[length:var(--text-12-5)] text-[var(--text-primary)] transition-colors hover:bg-[var(--bg-hover)]">
               <Link size={12} className="shrink-0 text-[var(--text-quaternary)]"/>
               <span className="min-w-0 flex-1 truncate">{note.title || t('common.untitled_note')}</span>
-              {alias && <span className="shrink-0 truncate text-[11px] text-[var(--text-quaternary)]">{alias}</span>}
+              {alias && <span className="shrink-0 truncate text-[length:var(--text-11)] text-[var(--text-quaternary)]">{alias}</span>}
             </button>))}
       </div>)}
       {missing.length > 0 && (<>
-          <div className="mt-2 flex items-center gap-1.5 px-2 pt-1 text-[10.5px] font-semibold tracking-[0.06em] text-[var(--text-quaternary)]">
+          <div className="mt-2 flex items-center gap-1.5 px-2 pt-1 text-[length:var(--text-10-5)] font-semibold tracking-[0.06em] text-[var(--text-quaternary)]">
             <Link2 size={11}/>{t('sidebar.outlinks_unresolved')}<span className="tabular">· {missing.length}</span>
           </div>
           <div role="list" aria-label={t('sidebar.outlinks_unresolved')} data-unresolved-list>
-            {missing.map((target) => (<p key={target} role="listitem" className="truncate px-2 py-1 text-[12px] text-[var(--text-quaternary)]">{target}</p>))}
+            {missing.map((target) => (<p key={target} role="listitem" className="truncate px-2 py-1 text-[length:var(--text-12)] text-[var(--text-quaternary)]">{target}</p>))}
           </div>
         </>)}
     </>);

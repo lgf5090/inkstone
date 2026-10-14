@@ -177,16 +177,16 @@ export function FolderMoveMenu({ tree, subject, currentParentId, excludedIds, in
 
     return (<div ref={rootRef} className="rounded-[var(--r-lg)] border border-[var(--border-default)] bg-[var(--bg-overlay)] p-1 shadow-[var(--shadow-pop)] outline-none" onKeyDown={onKeyDown}>
       <div className="flex min-w-0 items-center gap-1.5 px-1 pb-1">
-        <span className="flex size-4 shrink-0 items-center justify-center text-[13px] leading-none" style={{ color: subject.color ?? 'var(--text-tertiary)' }} aria-hidden="true">
+        <span className="flex size-4 shrink-0 items-center justify-center text-[length:var(--text-13)] leading-none" style={{ color: subject.color ?? 'var(--text-tertiary)' }} aria-hidden="true">
           {subject.icon || <FolderClosed size={13}/>}
         </span>
-        <span className="min-w-0 flex-1 truncate text-[11.5px] text-[var(--text-tertiary)]">{t("folders.move_subject_value0", { value0: subject.name })}</span>
+        <span className="min-w-0 flex-1 truncate text-[length:var(--text-11-5)] text-[var(--text-tertiary)]">{t("folders.move_subject_value0", { value0: subject.name })}</span>
       </div>
       <div className="max-h-[252px] overflow-y-auto border-t border-[var(--border-subtle)] pt-1" onScroll={reanchor} role="group" aria-label={t("folders.move_to")}>
         <MoveRow depth={0} id={null} label={rootLabel ?? t("folders.move_unfiled")} glyph={<Inbox size={13}/>} count={0} isCurrent={currentParentId === null} hasChildren={levels.length > 0} onHover={(rect) => hover(0, null, rect)} onSelect={() => onSelect(null)}/>
         {inbox && (<MoveRow depth={0} id={inbox.id} label={t("folders.move_inbox_value0", { value0: inbox.name })} glyph={inbox.icon || null} color={inbox.color} count={inbox.directNotes} isCurrent={currentParentId === inbox.id} hasChildren={false} shortcut onHover={(rect) => hover(0, null, rect)} onSelect={() => onSelect(inbox.id)}/>)}
         {levels.map((node) => <FolderBranch key={node.id} node={node} depth={0} currentParentId={currentParentId} onHover={hover} onSelect={onSelect}/>)}
-        {levels.length === 0 && currentParentId === null && (<p className="px-2 py-4 text-center text-[11.5px] text-[var(--text-quaternary)]">{t("folders.move_empty")}</p>)}
+        {levels.length === 0 && currentParentId === null && (<p className="px-2 py-4 text-center text-[length:var(--text-11-5)] text-[var(--text-quaternary)]">{t("folders.move_empty")}</p>)}
       </div>
       {open.map((level, index) => (<div key={level.id} ref={(element) => {
         levelRefs.current[index] = element;
@@ -224,18 +224,18 @@ function MoveRow({ depth, id, label, glyph, color, count, isCurrent, hasChildren
     onHover: (rect: DOMRect) => void;
     onSelect: () => void;
 }) {
-    return (<button type="button" data-move-row data-move-depth={depth} data-move-id={id ?? ''} data-move-shortcut={shortcut ? '1' : undefined} data-move-has-children={hasChildren ? '1' : '0'} disabled={isCurrent} aria-current={isCurrent ? 'true' : undefined} onMouseEnter={(event) => onHover(event.currentTarget.getBoundingClientRect())} onFocus={(event) => onHover(event.currentTarget.getBoundingClientRect())} onClick={onSelect} className={cn('flex h-10 w-full items-center gap-2 rounded-[var(--r-sm)] pr-1 text-left text-[12.5px] transition-colors md:h-[30px]', isCurrent
+    return (<button type="button" data-move-row data-move-depth={depth} data-move-id={id ?? ''} data-move-shortcut={shortcut ? '1' : undefined} data-move-has-children={hasChildren ? '1' : '0'} disabled={isCurrent} aria-current={isCurrent ? 'true' : undefined} onMouseEnter={(event) => onHover(event.currentTarget.getBoundingClientRect())} onFocus={(event) => onHover(event.currentTarget.getBoundingClientRect())} onClick={onSelect} className={cn('flex h-10 w-full items-center gap-2 rounded-[var(--r-sm)] pr-1 text-left text-[length:var(--text-12-5)] transition-colors md:h-[30px]', isCurrent
             ? 'text-[var(--text-quaternary)]'
             // Every row sits at the tree's base column: this cascade already places each level in its
             // own floating panel offset by `levelLeft`, so indenting a row by its `depth` as well would
             // shift it a second time. `depth` is kept only for the `data-move-depth` focus walk.
             : 'text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]')} style={{ paddingLeft: treeIndent(0) }}>
-      <span className="flex size-4 shrink-0 items-center justify-center text-[13px] leading-none" style={{ color: typeof glyph === 'string' ? color ?? undefined : 'var(--text-tertiary)' }} aria-hidden="true">
+      <span className="flex size-4 shrink-0 items-center justify-center text-[length:var(--text-13)] leading-none" style={{ color: typeof glyph === 'string' ? color ?? undefined : 'var(--text-tertiary)' }} aria-hidden="true">
         {typeof glyph === 'string' ? glyph : glyph ?? <FolderClosed size={13}/>}
       </span>
       <span className="min-w-0 flex-1 truncate">{label}</span>
-      {isCurrent && (<span className="shrink-0 text-[10.5px] text-[var(--text-quaternary)]">{t("folders.current_location")}</span>)}
-      {!isCurrent && count > 0 && (<span className="shrink-0 text-[10.5px] tabular-nums text-[var(--text-quaternary)]">{count}</span>)}
+      {isCurrent && (<span className="shrink-0 text-[length:var(--text-10-5)] text-[var(--text-quaternary)]">{t("folders.current_location")}</span>)}
+      {!isCurrent && count > 0 && (<span className="shrink-0 text-[length:var(--text-10-5)] tabular-nums text-[var(--text-quaternary)]">{count}</span>)}
       {isCurrent ? <Check size={13} aria-hidden="true" className="shrink-0 text-[var(--accent)]"/> : hasChildren && <ChevronRight size={13} aria-hidden="true" className="shrink-0 text-[var(--text-quaternary)]"/>}
     </button>);
 }

@@ -124,7 +124,7 @@ export function PropertyImagePicker({ request, noteId, onClose, onPick }: {
       <div className="flex min-h-0 flex-col gap-3">
         <div className="flex items-center gap-2">
           <FilterInput size="panel" value={query} onChange={setQuery} query={filter} label={t('properties.image_search')} placeholder={t('properties.image_search')} className="mt-0 min-w-0 flex-1"/>
-          <button type="button" onClick={() => fileInput.current?.click()} disabled={busy} className="flex shrink-0 items-center gap-1.5 rounded-[var(--r-sm)] border border-[var(--border-subtle)] px-2.5 py-1.5 text-[12.5px] text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-hover)] disabled:opacity-50">
+          <button type="button" onClick={() => fileInput.current?.click()} disabled={busy} className="flex shrink-0 items-center gap-1.5 rounded-[var(--r-sm)] border border-[var(--border-subtle)] px-2.5 py-1.5 text-[length:var(--text-12-5)] text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-hover)] disabled:opacity-50">
             {busy ? <Loader2 size={13} className="animate-spin"/> : <Upload size={13}/>}
             <span>{t('properties.image_upload')}</span>
           </button>
@@ -136,18 +136,18 @@ export function PropertyImagePicker({ request, noteId, onClose, onPick }: {
             }}/>
         </div>
         {files === null
-            ? <p className="py-6 text-center text-[12.5px] text-[var(--text-quaternary)]">{t('properties.image_loading')}</p>
+            ? <p className="py-6 text-center text-[length:var(--text-12-5)] text-[var(--text-quaternary)]">{t('properties.image_loading')}</p>
             : images.length === 0
-                ? <p className="py-6 text-center text-[12.5px] text-[var(--text-quaternary)]">{t('properties.image_none')}</p>
+                ? <p className="py-6 text-center text-[length:var(--text-12-5)] text-[var(--text-quaternary)]">{t('properties.image_none')}</p>
                 : shown.length === 0
-                    ? <p className="py-6 text-center text-[12.5px] text-[var(--text-quaternary)]">{t('properties.image_no_match')}</p>
+                    ? <p className="py-6 text-center text-[length:var(--text-12-5)] text-[var(--text-quaternary)]">{t('properties.image_no_match')}</p>
                     : (<div role="group" aria-label={t('properties.image_library')} className="grid max-h-64 grid-cols-[repeat(auto-fill,minmax(84px,1fr))] gap-2 overflow-y-auto p-0.5">
                         {shown.map(file => (<button key={file.id} type="button" title={file.filename} aria-label={file.filename} onClick={() => choose(`[[${file.filename}]]`)} className={cn('flex aspect-3/2 min-w-0 flex-col overflow-hidden rounded-[var(--r-sm)] border border-[var(--border-subtle)] bg-[var(--bg-inset)] transition-shadow hover:ring-2 hover:ring-[var(--accent-ring)]')}>
                               <img src={file.url} alt="" loading="lazy" decoding="async" className="size-full object-contain"/>
-                              <span className="truncate px-1 pb-1 text-[10.5px] text-[var(--text-tertiary)]">{file.filename}</span>
+                              <span className="truncate px-1 pb-1 text-[length:var(--text-10-5)] text-[var(--text-tertiary)]">{file.filename}</span>
                             </button>))}
                       </div>)}
-        {nextCursor && files !== null && (<button type="button" onClick={() => void loadPage(nextCursor ?? undefined, epoch.current)} className="self-start rounded-[var(--r-sm)] px-2 py-1 text-[12px] text-[var(--text-tertiary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-secondary)]">
+        {nextCursor && files !== null && (<button type="button" onClick={() => void loadPage(nextCursor ?? undefined, epoch.current)} className="self-start rounded-[var(--r-sm)] px-2 py-1 text-[length:var(--text-12)] text-[var(--text-tertiary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-secondary)]">
             {t('properties.image_more')}
           </button>)}
         <div className="flex items-center gap-2 border-t border-[var(--border-subtle)] pt-3">
@@ -156,11 +156,11 @@ export function PropertyImagePicker({ request, noteId, onClose, onPick }: {
                 setLink(event.target.value);
                 setLinkRejected(false);
             }} onKeyDown={event => commitOnEnter(event, offerLink)} className={cn('min-w-0 flex-1', linkRejected && 'border-[var(--danger)]')}/>
-          <button type="button" onClick={offerLink} className="shrink-0 rounded-[var(--r-sm)] bg-[var(--accent)] px-2.5 py-1.5 text-[12.5px] font-medium text-[var(--accent-contrast)] transition-colors hover:bg-[var(--accent-hover)]">
+          <button type="button" onClick={offerLink} className="shrink-0 rounded-[var(--r-sm)] bg-[var(--accent)] px-2.5 py-1.5 text-[length:var(--text-12-5)] font-medium text-[var(--accent-contrast)] transition-colors hover:bg-[var(--accent-hover)]">
             {t('properties.image_use_link')}
           </button>
         </div>
-        <p className={cn('text-[11.5px]', linkRejected ? 'text-[var(--danger)]' : 'text-[var(--text-quaternary)]')}>
+        <p className={cn('text-[length:var(--text-11-5)]', linkRejected ? 'text-[var(--danger)]' : 'text-[var(--text-quaternary)]')}>
           {linkRejected ? t('properties.image_link_invalid') : t('properties.image_link_hint')}
         </p>
       </div>

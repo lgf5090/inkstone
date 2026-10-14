@@ -165,7 +165,7 @@ export function RssChannelRail({ onPick }: { onPick?: () => void }) {
         )}
 
         <div className="mt-4 mb-1 flex items-center gap-1 px-2">
-          <span className="min-w-0 flex-1 text-[10.5px] font-semibold tracking-[0.06em] text-[var(--text-quaternary)] uppercase">
+          <span className="min-w-0 flex-1 text-[length:var(--text-10-5)] font-semibold tracking-[0.06em] text-[var(--text-quaternary)] uppercase">
             {t('rss.subscriptions')}
           </span>
           <Tooltip label={t('rss.new_folder')}>
@@ -222,7 +222,7 @@ export function RssChannelRail({ onPick }: { onPick?: () => void }) {
 
         {vault.length > 0 && (
           <>
-            <div className="mt-4 mb-1 px-2 text-[10.5px] font-semibold tracking-[0.06em] text-[var(--text-quaternary)] uppercase">
+            <div className="mt-4 mb-1 px-2 text-[length:var(--text-10-5)] font-semibold tracking-[0.06em] text-[var(--text-quaternary)] uppercase">
               {t('rss.vault_channels')}
             </div>
             {vault.map(folder => (
@@ -240,7 +240,7 @@ export function RssChannelRail({ onPick }: { onPick?: () => void }) {
 
         {tags.length > 0 && (
           <>
-            <div className="mt-4 mb-1 px-2 text-[10.5px] font-semibold tracking-[0.06em] text-[var(--text-quaternary)] uppercase">
+            <div className="mt-4 mb-1 px-2 text-[length:var(--text-10-5)] font-semibold tracking-[0.06em] text-[var(--text-quaternary)] uppercase">
               {t('rss.tags')}
             </div>
             {tags.map(([tag, total]) => (
@@ -317,7 +317,7 @@ function FolderBranch({ node, depth, setSize, posInSet, shelfFeeds, counts, arti
           dropOnGroup(event, node.id)
         }}
         className={cn(
-          'flex h-8 w-full min-w-0 items-center gap-1.5 rounded-[var(--r-md)] pr-1.5 text-left text-[12.5px]',
+          'flex h-8 w-full min-w-0 items-center gap-1.5 rounded-[var(--r-md)] pr-1.5 text-left text-[length:var(--text-12-5)]',
           'transition-colors duration-[var(--dur-fast)] ease-[var(--ease-out)]',
           active === key
             ? 'bg-[var(--accent-soft)] font-medium text-[var(--accent)]'
@@ -346,13 +346,13 @@ function FolderBranch({ node, depth, setSize, posInSet, shelfFeeds, counts, arti
           className="flex min-w-0 flex-1 items-center gap-1.5 text-left focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--accent)]"
         >
           {node.icon
-            ? <span aria-hidden="true" className="shrink-0 text-[13px] leading-none" style={{ color: node.color ?? undefined }}>{node.icon}</span>
+            ? <span aria-hidden="true" className="shrink-0 text-[length:var(--text-13)] leading-none" style={{ color: node.color ?? undefined }}>{node.icon}</span>
             : node.color
               ? <CircleDot size={13} className="shrink-0" style={{ color: node.color }} aria-hidden="true" />
               : (collapsed ? <FolderClosed size={13} className="shrink-0 opacity-70" /> : <FolderOpen size={13} className="shrink-0 opacity-70" />)}
           <span className="min-w-0 flex-1 truncate">{node.name}</span>
           {(counts.groups.get(node.id) ?? 0) > 0 && (
-            <span className="shrink-0 text-[10.5px] font-medium tabular-nums text-[var(--text-quaternary)]">
+            <span className="shrink-0 text-[length:var(--text-10-5)] font-medium tabular-nums text-[var(--text-quaternary)]">
               {(counts.groups.get(node.id) ?? 0) > 99 ? '99+' : counts.groups.get(node.id)}
             </span>
           )}
@@ -457,7 +457,7 @@ function FeedRow({ feed, unread, loaded, active, depth, setSize, posInSet, dropT
         dropOnFeed(event, feed)
       }}
       className={cn(
-        'flex h-8 w-full min-w-0 items-center gap-1.5 rounded-[var(--r-md)] pr-1.5 text-left text-[12.5px]',
+        'flex h-8 w-full min-w-0 items-center gap-1.5 rounded-[var(--r-md)] pr-1.5 text-left text-[length:var(--text-12-5)]',
         'transition-colors duration-[var(--dur-fast)] ease-[var(--ease-out)]',
         'focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--accent)]',
         active
@@ -473,7 +473,7 @@ function FeedRow({ feed, unread, loaded, active, depth, setSize, posInSet, dropT
       <span className="min-w-0 flex-1 truncate">{feed.title}</span>
       {feed.tags.length > 0 && <Hash size={10} className="shrink-0 opacity-45" aria-hidden="true" />}
       {loaded && unread > 0 && (
-        <span className="shrink-0 text-[10.5px] font-medium tabular-nums text-[var(--text-quaternary)]">{unread > 99 ? '99+' : unread}</span>
+        <span className="shrink-0 text-[length:var(--text-10-5)] font-medium tabular-nums text-[var(--text-quaternary)]">{unread > 99 ? '99+' : unread}</span>
       )}
     </button>
   )
@@ -530,7 +530,7 @@ function Row({ icon: Icon, label, count, active, onSelect, trailing, hint, muted
       // shortcuts line up with the folders below them instead of a Tailwind step of their own.
       style={{ paddingLeft: treeIndent(0) }}
       className={cn(
-        'flex h-8 w-full min-w-0 items-center gap-2 rounded-[var(--r-md)] pr-1.5 text-left text-[12.5px]',
+        'flex h-8 w-full min-w-0 items-center gap-2 rounded-[var(--r-md)] pr-1.5 text-left text-[length:var(--text-12-5)]',
         'transition-colors duration-[var(--dur-fast)] ease-[var(--ease-out)]',
         'focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--accent)]',
         active
@@ -542,7 +542,7 @@ function Row({ icon: Icon, label, count, active, onSelect, trailing, hint, muted
       {Icon && <Icon size={13} className="shrink-0 opacity-70" />}
       <span className="min-w-0 flex-1 truncate">{label}</span>
       {showCount && count > 0 && (
-        <span className="shrink-0 text-[10.5px] font-medium tabular-nums text-[var(--text-quaternary)]">{count > 99 ? '99+' : count}</span>
+        <span className="shrink-0 text-[length:var(--text-10-5)] font-medium tabular-nums text-[var(--text-quaternary)]">{count > 99 ? '99+' : count}</span>
       )}
       {trailing}
     </button>

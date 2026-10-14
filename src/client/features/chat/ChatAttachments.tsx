@@ -97,7 +97,7 @@ export function AttachmentStrip({
               ) : (
                 <span className="flex h-full w-full flex-col items-center justify-center gap-0.5 px-1">
                   <FileText size={16} className="shrink-0 text-[var(--text-tertiary)]" />
-                  <span className="w-full truncate text-center text-[9.5px] text-[var(--text-tertiary)]">{entry.filename}</span>
+                  <span className="w-full truncate text-center text-[length:var(--text-9-5)] text-[var(--text-tertiary)]">{entry.filename}</span>
                 </span>
               )}
               {entry.status !== 'ready' && <ProgressBar value={entry.progress} failed={entry.status === 'error'} />}
@@ -160,7 +160,7 @@ export function AttachmentViewer({ attachment, onClose }: { attachment: ChatAtta
       footer={(
         <a
           href={`${attachmentUrl(attachment.id)}?download=1`}
-          className="inline-flex h-8 items-center gap-1.5 rounded-[var(--r-sm)] border border-[var(--border-default)] px-2.5 text-[12px] text-[var(--text-primary)] hover:bg-[var(--bg-hover)]"
+          className="inline-flex h-8 items-center gap-1.5 rounded-[var(--r-sm)] border border-[var(--border-default)] px-2.5 text-[length:var(--text-12)] text-[var(--text-primary)] hover:bg-[var(--bg-hover)]"
         >
           {t('assistant.attach.download')}
         </a>
@@ -170,11 +170,11 @@ export function AttachmentViewer({ attachment, onClose }: { attachment: ChatAtta
         <div className="h-full bg-[var(--accent)] transition-[width] duration-150" style={{ width: `${Math.round(progress * 100)}%` }} />
       </div>
       {error ? (
-        <p className="p-4 text-[12.5px] text-[var(--danger)]">{error}</p>
+        <p className="p-4 text-[length:var(--text-12-5)] text-[var(--danger)]">{error}</p>
       ) : text === null ? (
-        <p className="p-4 text-[12.5px] text-[var(--text-quaternary)]">{t('common.loading')}</p>
+        <p className="p-4 text-[length:var(--text-12-5)] text-[var(--text-quaternary)]">{t('common.loading')}</p>
       ) : (
-        <pre className="max-h-[60vh] overflow-auto whitespace-pre-wrap break-words p-4 font-mono text-[12px] leading-relaxed text-[var(--text-primary)]">
+        <pre className="max-h-[60vh] overflow-auto whitespace-pre-wrap break-words p-4 font-mono text-[length:var(--text-12)] leading-relaxed text-[var(--text-primary)]">
           {text}
         </pre>
       )}
@@ -200,7 +200,7 @@ export function MessageAttachments({ ids, index }: { ids: string[], index: Recor
           }}
           aria-label={t('assistant.attach.view', { name: row.filename })}
           title={t('assistant.attach.view', { name: row.filename })}
-          className="inline-flex max-w-[220px] items-center gap-1 rounded-[var(--r-sm)] border border-[var(--border-default)] bg-[var(--bg-surface)] px-1.5 py-[2px] text-[11px] text-[var(--text-secondary)] hover:border-[var(--border-strong)]"
+          className="inline-flex max-w-[220px] items-center gap-1 rounded-[var(--r-sm)] border border-[var(--border-default)] bg-[var(--bg-surface)] px-1.5 py-[2px] text-[length:var(--text-11)] text-[var(--text-secondary)] hover:border-[var(--border-strong)]"
         >
           {row.kind === 'image'
             ? <img src={attachmentUrl(row.id)} alt="" className="size-4 shrink-0 rounded-[2px] object-cover" />

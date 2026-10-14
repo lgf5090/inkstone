@@ -75,10 +75,10 @@ export function AutomationsView() {
       <div className="mx-auto flex w-full max-w-[720px] flex-col gap-6 px-4 py-5 md:px-8">
         <header className="flex flex-wrap items-end justify-between gap-3">
           <div className="min-w-0">
-            <h2 className="font-serif text-[18px] font-semibold tracking-[var(--tracking-title)] text-[var(--text-primary)]">
+            <h2 className="font-serif text-[length:var(--text-18)] font-semibold tracking-[var(--tracking-title)] text-[var(--text-primary)]">
               {t('assistant.automations.title')}
             </h2>
-            <p className="mt-1 text-[12px] leading-relaxed text-[var(--text-tertiary)]">
+            <p className="mt-1 text-[length:var(--text-12)] leading-relaxed text-[var(--text-tertiary)]">
               {t('assistant.automations.description', { timezone: timezone ?? '' })}
             </p>
           </div>
@@ -98,15 +98,15 @@ export function AutomationsView() {
           <>
             {upcoming.length > 0 && (
               <section>
-                <p className="mb-1.5 text-[10.5px] font-semibold uppercase tracking-[var(--tracking-label)] text-[var(--text-quaternary)]">
+                <p className="mb-1.5 text-[length:var(--text-10-5)] font-semibold uppercase tracking-[var(--tracking-label)] text-[var(--text-quaternary)]">
                   {t('assistant.automations.upcoming')}
                 </p>
                 <ul className="no-scrollbar flex gap-2 overflow-x-auto pb-1">
                   {upcoming.map((automation) => (
                     <li key={automation.id} className="min-w-[160px] shrink-0 rounded-[var(--r-lg)] border border-[var(--border-subtle)] bg-[var(--bg-surface)] px-3 py-2.5">
                       <AlarmClock size={14} className="text-[var(--accent)]" />
-                      <p className="mt-1.5 truncate text-[12.5px] font-medium text-[var(--text-primary)]">{automation.name}</p>
-                      <p className="text-[11px] text-[var(--text-quaternary)]">{relativeTime(automation.nextRun ?? 0)}</p>
+                      <p className="mt-1.5 truncate text-[length:var(--text-12-5)] font-medium text-[var(--text-primary)]">{automation.name}</p>
+                      <p className="text-[length:var(--text-11)] text-[var(--text-quaternary)]">{relativeTime(automation.nextRun ?? 0)}</p>
                     </li>
                   ))}
                 </ul>
@@ -117,11 +117,11 @@ export function AutomationsView() {
             {inactive.length > 0 && <Section heading="assistant.automations.paused" automations={inactive} timezone={timezone} onToggle={toggleAutomation} onDelete={removeAutomation} />}
 
             <section>
-              <p className="mb-1.5 text-[10.5px] font-semibold uppercase tracking-[var(--tracking-label)] text-[var(--text-quaternary)]">
+              <p className="mb-1.5 text-[length:var(--text-10-5)] font-semibold uppercase tracking-[var(--tracking-label)] text-[var(--text-quaternary)]">
                 {t('assistant.automations.recent')}
               </p>
               {!runs.length ? (
-                <p className="text-[12px] text-[var(--text-quaternary)]">{t('assistant.automations.no_runs')}</p>
+                <p className="text-[length:var(--text-12)] text-[var(--text-quaternary)]">{t('assistant.automations.no_runs')}</p>
               ) : (
                 <ul className="overflow-hidden rounded-[var(--r-lg)] border border-[var(--border-subtle)] bg-[var(--bg-surface)]">
                   {runs.slice(0, 12).map((run) => <RunRow key={run.id} run={run} timezone={timezone} />)}
@@ -131,7 +131,7 @@ export function AutomationsView() {
 
             {failedRuns.length > 0 && (
               <section>
-                <p className="mb-1.5 text-[10.5px] font-semibold uppercase tracking-[var(--tracking-label)] text-[var(--danger)]">
+                <p className="mb-1.5 text-[length:var(--text-10-5)] font-semibold uppercase tracking-[var(--tracking-label)] text-[var(--danger)]">
                   {t('assistant.automations.failed')}
                 </p>
                 <ul className="overflow-hidden rounded-[var(--r-lg)] border border-[color-mix(in_oklab,var(--danger)_30%,transparent)] bg-[var(--bg-surface)]">
@@ -163,7 +163,7 @@ function Section({
 }) {
   return (
     <section>
-      <p className="mb-1.5 text-[10.5px] font-semibold uppercase tracking-[var(--tracking-label)] text-[var(--text-quaternary)]">{t(heading)}</p>
+      <p className="mb-1.5 text-[length:var(--text-10-5)] font-semibold uppercase tracking-[var(--tracking-label)] text-[var(--text-quaternary)]">{t(heading)}</p>
       <ul className="overflow-hidden rounded-[var(--r-lg)] border border-[var(--border-subtle)] bg-[var(--bg-surface)]">
         {automations.map((automation) => {
           const meta = KIND_META[automation.kind]
@@ -176,12 +176,12 @@ function Section({
               </span>
               <div className="min-w-0 flex-1">
                 <div className="flex flex-wrap items-center gap-1.5">
-                  <p className="min-w-0 truncate text-[13px] font-medium text-[var(--text-primary)]">{automation.name}</p>
+                  <p className="min-w-0 truncate text-[length:var(--text-13)] font-medium text-[var(--text-primary)]">{automation.name}</p>
                   {automation.status === 'failed' && <Tag tone="danger">{t('assistant.automations.status_failed')}</Tag>}
                   {automation.status === 'completed' && <Tag>{t('assistant.automations.status_completed')}</Tag>}
                 </div>
-                <p className="mt-0.5 text-[12px] text-[var(--text-secondary)]">{t(summary.key, summary.params ?? {})}</p>
-                <p className="mt-0.5 text-[11px] text-[var(--text-quaternary)]">
+                <p className="mt-0.5 text-[length:var(--text-12)] text-[var(--text-secondary)]">{t(summary.key, summary.params ?? {})}</p>
+                <p className="mt-0.5 text-[length:var(--text-11)] text-[var(--text-quaternary)]">
                   {automation.enabled && automation.nextRun !== null
                     ? `${t('assistant.automations.next')} ${formatInZone(automation.nextRun, timezone)}`
                     : automation.status === 'completed'
@@ -192,7 +192,7 @@ function Section({
                   {automation.lastRun !== null && ` · ${t('assistant.automations.last_run', { when: relativeTime(automation.lastRun) })}`}
                   {automation.runCount > 0 && ` · ${t('assistant.automations.runs_count', { count: automation.runCount })}`}
                 </p>
-                {automation.lastError && <p className="mt-0.5 text-[11px] text-[var(--danger)]">{automation.lastError}</p>}
+                {automation.lastError && <p className="mt-0.5 text-[length:var(--text-11)] text-[var(--danger)]">{automation.lastError}</p>}
               </div>
               <div className="flex shrink-0 items-center gap-1">
                 {automation.status !== 'completed' && (
@@ -231,7 +231,7 @@ function Tag({ children, tone = 'neutral' }: { children: ReactNode, tone?: 'neut
   return (
     <span
       className={cn(
-        'rounded-full px-1.5 py-px text-[10px]',
+        'rounded-full px-1.5 py-px text-[length:var(--text-10)]',
         tone === 'danger' ? 'bg-[var(--danger-soft)] text-[var(--danger)]' : 'bg-[var(--bg-inset)] text-[var(--text-quaternary)]',
       )}
     >
@@ -242,10 +242,10 @@ function Tag({ children, tone = 'neutral' }: { children: ReactNode, tone?: 'neut
 
 function RunRow({ run, timezone }: { run: AutomationRun, timezone?: string }) {
   return (
-    <li className="flex items-start justify-between gap-3 border-b border-[var(--border-subtle)] px-3 py-2 text-[12.5px] last:border-b-0">
+    <li className="flex items-start justify-between gap-3 border-b border-[var(--border-subtle)] px-3 py-2 text-[length:var(--text-12-5)] last:border-b-0">
       <div className="min-w-0">
         <p className="truncate text-[var(--text-primary)]">{run.automationName}</p>
-        <p className={cn('truncate text-[11px]', run.status === 'error' ? 'text-[var(--danger)]' : 'text-[var(--text-quaternary)]')}>
+        <p className={cn('truncate text-[length:var(--text-11)]', run.status === 'error' ? 'text-[var(--danger)]' : 'text-[var(--text-quaternary)]')}>
           {run.error ?? run.result ?? (run.status === 'running' ? t('assistant.automations.running') : '')}
         </p>
       </div>
@@ -253,7 +253,7 @@ function RunRow({ run, timezone }: { run: AutomationRun, timezone?: string }) {
         <Tag tone={run.status === 'error' ? 'danger' : 'neutral'}>
           {t(run.status === 'success' ? 'assistant.automations.run_success' : run.status === 'error' ? 'assistant.automations.run_error' : run.status === 'skipped' ? 'assistant.automations.run_skipped' : 'assistant.automations.running')}
         </Tag>
-        <p className="mt-0.5 text-[11px] text-[var(--text-quaternary)]">{formatInZone(run.startedAt, timezone, { dateOnly: false })}</p>
+        <p className="mt-0.5 text-[length:var(--text-11)] text-[var(--text-quaternary)]">{formatInZone(run.startedAt, timezone, { dateOnly: false })}</p>
       </div>
     </li>
   )
@@ -329,7 +329,7 @@ function AutomationForm({ open, onClose, timezone }: { open: boolean, onClose: (
                 aria-pressed={active}
                 onClick={() => setKind(entry)}
                 className={cn(
-                  'flex flex-col items-center gap-1 rounded-[var(--r-md)] border px-2 py-2.5 text-[11px] font-medium',
+                  'flex flex-col items-center gap-1 rounded-[var(--r-md)] border px-2 py-2.5 text-[length:var(--text-11)] font-medium',
                   'transition-colors duration-[var(--dur-fast)]',
                   active
                     ? 'border-[var(--accent)] bg-[var(--accent-soft)] text-[var(--accent)]'
@@ -342,7 +342,7 @@ function AutomationForm({ open, onClose, timezone }: { open: boolean, onClose: (
             )
           })}
         </div>
-        <p className="text-[11px] leading-relaxed text-[var(--text-quaternary)]">{t(KIND_META[kind].hint)}</p>
+        <p className="text-[length:var(--text-11)] leading-relaxed text-[var(--text-quaternary)]">{t(KIND_META[kind].hint)}</p>
 
         <Field label={t('assistant.automations.name')} hint={t('assistant.automations.name_optional')}>
           <Input value={name} maxLength={200} onChange={(event) => setName(event.target.value)} />
@@ -389,7 +389,7 @@ function AutomationForm({ open, onClose, timezone }: { open: boolean, onClose: (
                   aria-pressed={on}
                   onClick={() => setDays(on ? days.filter((entry) => entry !== index) : [...days, index])}
                   className={cn(
-                    'h-8 w-12 rounded-[var(--r-sm)] border text-[11px] font-medium',
+                    'h-8 w-12 rounded-[var(--r-sm)] border text-[length:var(--text-11)] font-medium',
                     on
                       ? 'border-[var(--accent)] bg-[var(--accent-soft)] text-[var(--accent)]'
                       : 'border-[var(--border-default)] text-[var(--text-tertiary)] hover:bg-[var(--bg-hover)]',
@@ -407,7 +407,7 @@ function AutomationForm({ open, onClose, timezone }: { open: boolean, onClose: (
           </Field>
         )}
 
-        <p className="rounded-[var(--r-md)] bg-[var(--bg-inset)] px-2.5 py-1.5 text-[11.5px] text-[var(--text-secondary)]">
+        <p className="rounded-[var(--r-md)] bg-[var(--bg-inset)] px-2.5 py-1.5 text-[length:var(--text-11-5)] text-[var(--text-secondary)]">
           {t(summary.key, summary.params ?? {})}
           {timezone && ` · ${timezone}`}
           {missingAt && <span className="ml-1 text-[var(--danger)]">{t('assistant.automations.when_required')}</span>}

@@ -46,7 +46,7 @@ export function EditorSettings() {
       </section>
 
       <section>
-        <h3 data-setting-title={t("settings.writing_mode")} className="mb-1 text-[11px] font-semibold tracking-[0.06em] text-[var(--text-quaternary)]">{t("settings.writing_mode")}</h3>
+        <h3 data-setting-title={t("settings.writing_mode")} className="mb-1 text-[length:var(--text-11)] font-semibold tracking-[0.06em] text-[var(--text-quaternary)]">{t("settings.writing_mode")}</h3>
 
         <SettingRow title={t("settings.typewriter_mode")} description={t("settings.keep_the_cursor_line_centered_on_screen")}>
           <Switch checked={editor.typewriter} onChange={(typewriter) => void update({ editor: { typewriter } })} label={t("settings.typewriter_mode")}/>
@@ -58,7 +58,7 @@ export function EditorSettings() {
       </section>
 
       <section>
-        <h3 data-setting-title={t("settings.outliner_group")} className="mb-1 text-[11px] font-semibold tracking-[0.06em] text-[var(--text-quaternary)]">{t("settings.outliner_group")}</h3>
+        <h3 data-setting-title={t("settings.outliner_group")} className="mb-1 text-[length:var(--text-11)] font-semibold tracking-[0.06em] text-[var(--text-quaternary)]">{t("settings.outliner_group")}</h3>
 
         <SettingRow title={t("settings.outliner")} description={t("settings.outliner_hint")}>
           <Switch checked={editor.outliner} onChange={(outliner) => void update({ editor: { outliner } })} label={t("settings.outliner")}/>
@@ -117,7 +117,7 @@ export function EditorSettings() {
       <DraggerSettings/>
 
       <section>
-        <h3 data-setting-title={t("settings.link_editor_group")} className="mb-1 text-[11px] font-semibold tracking-[0.06em] text-[var(--text-quaternary)]">{t("settings.link_editor_group")}</h3>
+        <h3 data-setting-title={t("settings.link_editor_group")} className="mb-1 text-[length:var(--text-11)] font-semibold tracking-[0.06em] text-[var(--text-quaternary)]">{t("settings.link_editor_group")}</h3>
 
         <SettingRow title={t("settings.link_editor")} description={t("settings.link_editor_description")}>
           <Switch checked={editor.linkEditor} onChange={(linkEditor) => void update({ editor: { linkEditor } })} label={t("settings.link_editor")}/>
@@ -185,7 +185,7 @@ export function EditorSettings() {
       </section>
 
       <section>
-        <h3 data-setting-title={t("settings.paste_link_group")} className="mb-1 text-[11px] font-semibold tracking-[0.06em] text-[var(--text-quaternary)]">{t("settings.paste_link_group")}</h3>
+        <h3 data-setting-title={t("settings.paste_link_group")} className="mb-1 text-[length:var(--text-11)] font-semibold tracking-[0.06em] text-[var(--text-quaternary)]">{t("settings.paste_link_group")}</h3>
 
         <SettingRow title={t("settings.paste_link")} description={t("settings.paste_link_description")}>
           <Switch checked={editor.pasteLink} onChange={(pasteLink) => void update({ editor: { pasteLink } })} label={t("settings.paste_link")}/>
@@ -224,7 +224,7 @@ export function EditorSettings() {
       </section>
 
       <section>
-        <h3 className="mb-1 text-[11px] font-semibold tracking-[0.06em] text-[var(--text-quaternary)]">{t("settings.emoji")}</h3>
+        <h3 className="mb-1 text-[length:var(--text-11)] font-semibold tracking-[0.06em] text-[var(--text-quaternary)]">{t("settings.emoji")}</h3>
 
         <SettingRow title={t("settings.emoji_button")} description={t("settings.emoji_button_description")}>
           <Switch checked={editor.emojiToolbarButton} onChange={(emojiToolbarButton) => void update({ editor: { emojiToolbarButton } })} label={t("settings.emoji_button")}/>
@@ -241,7 +241,7 @@ export function EditorSettings() {
           <Segmented<string> label={t("settings.emoji_skin_tone")} value={String(editor.emojiSkinTone)} onChange={(value) => void update({ editor: { emojiSkinTone: Number(value) as SkinTone } })} options={EMOJI_TONE_SLOTS.map((slot) => ({
             value: String(slot),
             title: t(EMOJI_TONE_LABEL_KEYS[slot]!),
-            label: <span aria-hidden="true" className="text-[15px] leading-none">{emojiToneHand(slot)}</span>,
+            label: <span aria-hidden="true" className="text-[length:var(--text-15)] leading-none">{emojiToneHand(slot)}</span>,
           }))}/>
         </SettingRow>
 
@@ -251,7 +251,7 @@ export function EditorSettings() {
 
         <SettingRow title={t("settings.emoji_recent")} description={t("settings.emoji_recent_description")}>
           <div className="flex min-w-0 items-center gap-2">
-            <span className="min-w-0 flex-1 truncate text-right text-[15px] leading-none text-[var(--text-quaternary)]" aria-label={t("settings.emoji_recent")}>
+            <span className="min-w-0 flex-1 truncate text-right text-[length:var(--text-15)] leading-none text-[var(--text-quaternary)]" aria-label={t("settings.emoji_recent")}>
               {recentEmojis.length ? recentEmojis.slice(0, 12).join(' ') : `${recentEmojis.length}/${RECENT_EMOJI_LIMIT}`}
             </span>
             <Button variant="ghost" size="sm" disabled={!recentEmojis.length} onClick={() => clearRecentEmojis()}>
@@ -262,7 +262,7 @@ export function EditorSettings() {
       </section>
 
       <section>
-        <h3 className="mb-1 text-[11px] font-semibold tracking-[0.06em] text-[var(--text-quaternary)]">{t("common.preview")}</h3>
+        <h3 className="mb-1 text-[length:var(--text-11)] font-semibold tracking-[0.06em] text-[var(--text-quaternary)]">{t("common.preview")}</h3>
 
         <SettingRow title={t("settings.scroll_sync")} description={t("settings.keep_the_editor_and_preview_scrolled_together")}>
           <Switch checked={preview.syncScroll} onChange={(syncScroll) => void update({ preview: { syncScroll } })} label={t("settings.scroll_sync")}/>

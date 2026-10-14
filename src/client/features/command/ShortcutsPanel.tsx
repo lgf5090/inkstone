@@ -50,12 +50,12 @@ export function ShortcutsPanel({ onClose }: {
     return (<Modal open onClose={onClose} title={t("command.keyboard_shortcuts_021cf9")} description={t("command.shortcut_scope_hint", { shortcut: prettyCombo(NOTE_LIST_SHORTCUTS.delete).join(' + ') })} width={720}>
       <div className="grid grid-cols-1 gap-x-8 gap-y-5 pr-1 md:max-h-[62vh] md:grid-cols-2 md:overflow-y-auto">
         {groups.map(([group, items]) => (<section key={group}>
-            <h3 className="mb-2 text-[10.5px] font-semibold tracking-[0.07em] text-[var(--text-quaternary)]">
+            <h3 className="mb-2 text-[length:var(--text-10-5)] font-semibold tracking-[0.07em] text-[var(--text-quaternary)]">
               {group}
             </h3>
             <ul className="space-y-0.5">
               {items.map((item, index) => (<li key={`${item.combo}-${index}`} className="flex min-h-10 items-center justify-between gap-4 rounded-[var(--r-sm)] px-1.5 py-[5px] transition-colors hover:bg-[var(--bg-hover)] md:min-h-0">
-                  <span className="min-w-0 text-[12.5px] leading-snug text-[var(--text-secondary)] md:truncate">
+                  <span className="min-w-0 text-[length:var(--text-12-5)] leading-snug text-[var(--text-secondary)] md:truncate">
                     {item.description}
                   </span>
                   <Kbd combo={item.combo}/>
@@ -64,10 +64,10 @@ export function ShortcutsPanel({ onClose }: {
           </section>))}
 
         <section>
-          <h3 className="mb-2 text-[10.5px] font-semibold tracking-[0.07em] text-[var(--text-quaternary)]">{t("command.triggered_as_you_type")}</h3>
+          <h3 className="mb-2 text-[length:var(--text-10-5)] font-semibold tracking-[0.07em] text-[var(--text-quaternary)]">{t("command.triggered_as_you_type")}</h3>
           <ul className="space-y-0.5">
             {INPUT_HINTS.map((item, index) => (<li key={index} className="flex min-h-10 items-center justify-between gap-4 rounded-[var(--r-sm)] px-1.5 py-[5px] transition-colors hover:bg-[var(--bg-hover)] md:min-h-0">
-                <span className="min-w-0 text-[12.5px] leading-snug text-[var(--text-secondary)] md:truncate">
+                <span className="min-w-0 text-[length:var(--text-12-5)] leading-snug text-[var(--text-secondary)] md:truncate">
                   {item.description()}
                 </span>
                 <Kbd keys={item.keys}/>

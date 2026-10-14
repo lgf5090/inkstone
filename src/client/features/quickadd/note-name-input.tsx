@@ -189,12 +189,12 @@ export function NoteNameInput({ value, onChange, notes, id, className, ...aria }
         onKeyDown={onKeyDown}
       />
       {open && error && (
-        <p role="status" className="text-[10.5px] text-[var(--danger)]">
+        <p role="status" className="text-[length:var(--text-10-5)] text-[var(--danger)]">
           {error === 'syntax' ? t('filter.regex_syntax') : t('filter.regex_unsafe')}
         </p>
       )}
       {open && asking && (
-        <p className="text-[11.5px] leading-relaxed text-[var(--text-quaternary)]">
+        <p className="text-[length:var(--text-11-5)] leading-relaxed text-[var(--text-quaternary)]">
           {t('quickadd.suggest_filter_note')}
         </p>
       )}
@@ -213,7 +213,7 @@ export function NoteNameInput({ value, onChange, notes, id, className, ...aria }
           data-placement={placement}
         >
           {rows.length === 0 && (
-            <p className="px-3 py-4 text-center text-[11.5px] text-[var(--text-quaternary)]">
+            <p className="px-3 py-4 text-center text-[length:var(--text-11-5)] text-[var(--text-quaternary)]">
               {notes.length === 0 ? t('quickadd.suggest_none_yet') : t('quickadd.suggest_no_match')}
             </p>
           )}
@@ -236,7 +236,7 @@ export function NoteNameInput({ value, onChange, notes, id, className, ...aria }
                 // A finger needs the 44px the app gives every other touch row; a mouse does not, and the
                 // settings panel is dense enough that the desktop row stays at its text height.
                 'block w-full truncate px-2.5 py-1.5 text-left transition-colors min-h-[44px] md:min-h-0',
-                'text-[12.5px]',
+                'text-[length:var(--text-12-5)]',
                 index === cursor ? 'bg-[var(--accent-soft)] text-[var(--text-primary)]' : 'text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]',
               )}
             >
@@ -244,7 +244,7 @@ export function NoteNameInput({ value, onChange, notes, id, className, ...aria }
             </button>
           ))}
           {hidden > 0 && (
-            <p className="px-2.5 py-1.5 text-[11px] text-[var(--text-quaternary)]">
+            <p className="px-2.5 py-1.5 text-[length:var(--text-11)] text-[var(--text-quaternary)]">
               {t('quickadd.suggest_more', { count: String(hidden) })}
             </p>
           )}

@@ -146,7 +146,7 @@ export function EmojiPicker({ tone, onTone, onInsert }: {
         ...groups.map((item) => ({
             id: item.id,
             label: t(GROUP_META[item.id]?.labelKey ?? 'emoji.category.people'),
-            icon: <span aria-hidden="true" className="text-[14px] leading-none">{GROUP_META[item.id]?.icon ?? '😀'}</span>,
+            icon: <span aria-hidden="true" className="text-[length:var(--text-14)] leading-none">{GROUP_META[item.id]?.icon ?? '😀'}</span>,
             tone: false,
         })),
     ];
@@ -162,13 +162,13 @@ export function EmojiPicker({ tone, onTone, onInsert }: {
         <label className="relative min-w-0 flex-1">
           <span className="sr-only">{t('emoji.search')}</span>
           <Search size={13} aria-hidden="true" className="pointer-events-none absolute top-1/2 left-2 -translate-y-1/2 text-[var(--text-quaternary)]"/>
-          <input {...field} data-owns-escape={query ? '1' : undefined} type="text" value={query} onChange={(event) => setQuery(event.target.value)} placeholder={t('emoji.search')} role="combobox" aria-expanded={true} aria-controls="emoji-grid" aria-activedescendant={tiles.length ? `${uid}-${active}` : undefined} autoComplete="off" spellCheck={false} className="h-8 w-full rounded-[var(--r-md)] border border-[var(--border-subtle)] bg-[var(--bg-base)] pr-7 pl-7 text-[12.5px] text-[var(--text-primary)] placeholder:text-[var(--text-quaternary)] transition-[border-color,box-shadow] duration-[var(--dur-fast)] focus:border-[var(--accent)] focus:shadow-[var(--shadow-ring-focus)] focus:outline-none"/>
+          <input {...field} data-owns-escape={query ? '1' : undefined} type="text" value={query} onChange={(event) => setQuery(event.target.value)} placeholder={t('emoji.search')} role="combobox" aria-expanded={true} aria-controls="emoji-grid" aria-activedescendant={tiles.length ? `${uid}-${active}` : undefined} autoComplete="off" spellCheck={false} className="h-8 w-full rounded-[var(--r-md)] border border-[var(--border-subtle)] bg-[var(--bg-base)] pr-7 pl-7 text-[length:var(--text-12-5)] text-[var(--text-primary)] placeholder:text-[var(--text-quaternary)] transition-[border-color,box-shadow] duration-[var(--dur-fast)] focus:border-[var(--accent)] focus:shadow-[var(--shadow-ring-focus)] focus:outline-none"/>
           {query && (<IconButton label={t('emoji.clear_search')} size="sm" onClick={clear} className="absolute top-1/2 right-1.5 -translate-y-1/2">
             <X size={11}/>
           </IconButton>)}
         </label>
         <Tooltip label={t('emoji.skin_tone')} side="bottom">
-          <button type="button" aria-label={t('emoji.skin_tone')} aria-haspopup="true" aria-expanded={toneOpen} onClick={() => setToneOpen((current) => !current)} className="flex h-8 shrink-0 items-center gap-0.5 rounded-[var(--r-md)] border border-[var(--border-subtle)] px-1.5 text-[14px] leading-none text-[var(--text-secondary)] transition-colors hover:border-[var(--border-default)] hover:bg-[var(--bg-hover)]">
+          <button type="button" aria-label={t('emoji.skin_tone')} aria-haspopup="true" aria-expanded={toneOpen} onClick={() => setToneOpen((current) => !current)} className="flex h-8 shrink-0 items-center gap-0.5 rounded-[var(--r-md)] border border-[var(--border-subtle)] px-1.5 text-[length:var(--text-14)] leading-none text-[var(--text-secondary)] transition-colors hover:border-[var(--border-default)] hover:bg-[var(--bg-hover)]">
               {emojiToneHand(tone)}<ChevronDown size={10} className="opacity-60"/>
             </button>
         </Tooltip>
@@ -186,21 +186,21 @@ export function EmojiPicker({ tone, onTone, onInsert }: {
                     onTone(slot as SkinTone);
                     setToneOpen(false);
                     inputRef.current?.focus();
-                }} className={cn('flex size-7 shrink-0 items-center justify-center rounded-[var(--r-md)] text-[15px] leading-none transition-colors hover:bg-[var(--bg-hover)]', tone === slot ? 'bg-[var(--accent-soft)] ring-1 ring-[var(--accent-ring)]' : 'text-[var(--text-secondary)]')}>
+                }} className={cn('flex size-7 shrink-0 items-center justify-center rounded-[var(--r-md)] text-[length:var(--text-15)] leading-none transition-colors hover:bg-[var(--bg-hover)]', tone === slot ? 'bg-[var(--accent-soft)] ring-1 ring-[var(--accent-ring)]' : 'text-[var(--text-secondary)]')}>
                   {emojiToneHand(slot)}
                 </button>))}
-          <span className="min-w-0 flex-1 truncate text-right text-[11px] text-[var(--text-quaternary)]">{t('emoji.skin_tone_hint')}</span>
+          <span className="min-w-0 flex-1 truncate text-right text-[length:var(--text-11)] text-[var(--text-quaternary)]">{t('emoji.skin_tone_hint')}</span>
         </div>)}
       <div id="emoji-grid" role="listbox" aria-label={t('emoji.results')} onMouseLeave={() => setHovered(null)} className="max-h-[252px] min-h-[188px] overflow-y-auto px-2 pb-1">
-        {groups.length === 0 && (<p className="px-1 py-10 text-center text-[12px] text-[var(--text-quaternary)]">{t('emoji.loading')}</p>)}
+        {groups.length === 0 && (<p className="px-1 py-10 text-center text-[length:var(--text-12)] text-[var(--text-quaternary)]">{t('emoji.loading')}</p>)}
         {groups.length > 0 && tiles.length === 0 && (<div className="px-2 py-10 text-center">
-              <p className="text-[12px] text-[var(--text-tertiary)]">{t('emoji.no_match')}</p>
-              <p className="mt-1 text-[11px] text-[var(--text-quaternary)]">{t('emoji.no_match_hint')}</p>
+              <p className="text-[length:var(--text-12)] text-[var(--text-tertiary)]">{t('emoji.no_match')}</p>
+              <p className="mt-1 text-[length:var(--text-11)] text-[var(--text-quaternary)]">{t('emoji.no_match_hint')}</p>
             </div>)}
         {tiles.length > 0 && (<div className="grid grid-cols-8 gap-1">
               {tiles.map((tile, index) => {
                 const label = emojiDisplayName(tile.entry, locale);
-                return (<button key={`${tile.glyph}-${index}`} id={`${uid}-${index}`} type="button" role="option" aria-selected={index === active} aria-label={label || tile.glyph} title={label || undefined} tabIndex={-1} onMouseEnter={() => setHovered(tile)} onMouseDown={(event) => event.preventDefault()} onClick={() => insert(tile)} className={cn('flex aspect-square items-center justify-center rounded-[var(--r-sm)] text-[17px] leading-none transition-colors', index === active
+                return (<button key={`${tile.glyph}-${index}`} id={`${uid}-${index}`} type="button" role="option" aria-selected={index === active} aria-label={label || tile.glyph} title={label || undefined} tabIndex={-1} onMouseEnter={() => setHovered(tile)} onMouseDown={(event) => event.preventDefault()} onClick={() => insert(tile)} className={cn('flex aspect-square items-center justify-center rounded-[var(--r-sm)] text-[length:var(--text-17)] leading-none transition-colors', index === active
                             ? 'bg-[var(--bg-hover)] ring-1 ring-[var(--accent-ring)]'
                             : 'hover:bg-[var(--bg-hover)]')}>
                       {tile.glyph}
@@ -209,9 +209,9 @@ export function EmojiPicker({ tone, onTone, onInsert }: {
             </div>)}
       </div>
       <div className="flex min-w-0 items-center gap-2 border-t border-[var(--border-subtle)] px-2.5 py-2">
-        <span aria-hidden="true" className="flex size-7 shrink-0 items-center justify-center text-[22px] leading-none">{preview?.glyph}</span>
-        <span className="min-w-0 flex-1 truncate text-[12px] text-[var(--text-primary)]">{preview ? emojiDisplayName(preview.entry, locale) || preview.glyph : t('emoji.hint')}</span>
-        {preview?.entry?.code && (<code className="shrink-0 rounded-[var(--r-sm)] bg-[var(--bg-sunken)] px-1.5 py-0.5 text-[11px] text-[var(--text-tertiary)]">:{preview.entry.code}:</code>)}
+        <span aria-hidden="true" className="flex size-7 shrink-0 items-center justify-center text-[length:var(--text-22)] leading-none">{preview?.glyph}</span>
+        <span className="min-w-0 flex-1 truncate text-[length:var(--text-12)] text-[var(--text-primary)]">{preview ? emojiDisplayName(preview.entry, locale) || preview.glyph : t('emoji.hint')}</span>
+        {preview?.entry?.code && (<code className="shrink-0 rounded-[var(--r-sm)] bg-[var(--bg-sunken)] px-1.5 py-0.5 text-[length:var(--text-11)] text-[var(--text-tertiary)]">:{preview.entry.code}:</code>)}
       </div>
     </div>);
 }

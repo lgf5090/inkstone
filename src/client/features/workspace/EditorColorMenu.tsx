@@ -65,8 +65,8 @@ export function EditorColorPanel({ kind, current, onPick }: {
             : t('color.contrast_ratio_value0', { value0: ratio.toFixed(1) });
     return (<div ref={panelRef} className="p-1" style={{ width: PANEL_WIDTH }}>
       <div className="flex min-w-0 items-baseline justify-between gap-2 px-0.5 pt-0.5 pb-2">
-        <span className="text-[12px] font-medium text-[var(--text-secondary)]">{t(kind === 'text' ? 'workspace.text_color' : 'workspace.highlight_color')}</span>
-        {shown && (<span className="flex min-w-0 items-center gap-1 text-[11px] text-[var(--text-quaternary)]">
+        <span className="text-[length:var(--text-12)] font-medium text-[var(--text-secondary)]">{t(kind === 'text' ? 'workspace.text_color' : 'workspace.highlight_color')}</span>
+        {shown && (<span className="flex min-w-0 items-center gap-1 text-[length:var(--text-11)] text-[var(--text-quaternary)]">
             <span className="size-2 shrink-0 rounded-full" style={{ backgroundColor: swatchColor(kind, shown) }} aria-hidden="true"/>
             <span className="truncate">{shown.toLocaleUpperCase()}</span>
           </span>)}
@@ -76,7 +76,7 @@ export function EditorColorPanel({ kind, current, onPick }: {
       </div>
       {recent.length > 0 && (<>
           <div role="separator" className="my-2 h-px bg-[var(--border-subtle)]"/>
-          <div className="px-0.5 pb-1.5 text-[11px] font-medium text-[var(--text-tertiary)]">{t('workspace.recent_colors')}</div>
+          <div className="px-0.5 pb-1.5 text-[length:var(--text-11)] font-medium text-[var(--text-tertiary)]">{t('workspace.recent_colors')}</div>
           <div role="group" aria-label={t('workspace.recent_colors')} className="grid grid-cols-6 gap-1.5 px-0.5">
             {recent.map(color => <Swatch key={color} color={color} label={colorName(kind, color)} active={shown === color} background={swatchColor(kind, color)} variant="format" checkClassName={kind === 'text' ? 'text-white' : 'text-[var(--text-primary)]'} onPick={() => pick(color)}/>)}
           </div>
@@ -91,12 +91,12 @@ export function EditorColorPanel({ kind, current, onPick }: {
                     event.preventDefault();
                     event.currentTarget.blur();
                 }
-            }} placeholder="#rrggbb" spellCheck={false} autoComplete="off" aria-label={t('workspace.color_custom_value')} className={cn('h-7 min-w-0 flex-1 rounded-[var(--r-sm)] border bg-[var(--bg-base)] px-2 font-mono text-[11.5px] uppercase text-[var(--text-primary)] outline-none placeholder:text-[var(--text-quaternary)]', refused
+            }} placeholder="#rrggbb" spellCheck={false} autoComplete="off" aria-label={t('workspace.color_custom_value')} className={cn('h-7 min-w-0 flex-1 rounded-[var(--r-sm)] border bg-[var(--bg-base)] px-2 font-mono text-[length:var(--text-11-5)] uppercase text-[var(--text-primary)] outline-none placeholder:text-[var(--text-quaternary)]', refused
                 ? 'border-[var(--danger)]'
                 : 'border-[var(--border-subtle)] focus:border-[var(--accent)]')}/>
       </div>
-      <p className={cn('px-0.5 pt-1 text-[11px]', refused ? 'text-[var(--danger)]' : 'text-[var(--text-quaternary)]')}>{hint}</p>
-      <button type="button" onClick={() => onPick(null)} className="mt-1.5 flex w-full items-center gap-2 rounded-[var(--r-sm)] px-2 py-1.5 text-left text-[12.5px] text-[var(--text-primary)] transition-colors hover:bg-[var(--bg-hover)]">
+      <p className={cn('px-0.5 pt-1 text-[length:var(--text-11)]', refused ? 'text-[var(--danger)]' : 'text-[var(--text-quaternary)]')}>{hint}</p>
+      <button type="button" onClick={() => onPick(null)} className="mt-1.5 flex w-full items-center gap-2 rounded-[var(--r-sm)] px-2 py-1.5 text-left text-[length:var(--text-12-5)] text-[var(--text-primary)] transition-colors hover:bg-[var(--bg-hover)]">
         <Ban size={13} className="shrink-0 text-[var(--text-tertiary)]"/>
         <span className="truncate">{t('workspace.clear_color')}</span>
       </button>

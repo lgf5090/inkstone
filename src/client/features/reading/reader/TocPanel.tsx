@@ -40,7 +40,7 @@ export function TocPanel({ handle, onJump }: TocPanelProps) {
   }, [filter, handle, pinyinVersion])
 
   if (!handle?.pkg.toc.length) {
-    return <p className="px-3 py-6 text-center text-[12px] opacity-60">{t('reading.no_contents')}</p>
+    return <p className="px-3 py-6 text-center text-[length:var(--text-12)] opacity-60">{t('reading.no_contents')}</p>
   }
 
   return (
@@ -57,7 +57,7 @@ export function TocPanel({ handle, onJump }: TocPanelProps) {
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto px-1 pb-2">
         {entries.length === 0 ? (
-          <p className="px-3 py-6 text-center text-[12px] opacity-60">{t('reading.no_contents_match')}</p>
+          <p className="px-3 py-6 text-center text-[length:var(--text-12)] opacity-60">{t('reading.no_contents_match')}</p>
         ) : (
           <ul className="space-y-px">
             {entries.map((entry, index) => (
@@ -65,14 +65,14 @@ export function TocPanel({ handle, onJump }: TocPanelProps) {
                 <button
                   type="button"
                   onClick={() => onJump({ kind: 'epub', chapter: entry.slot, offset: 0 }, entry.fragment || undefined)}
-                  className="flex w-full items-start gap-2 rounded-[var(--r-sm)] px-2 py-1.5 text-left text-[12.5px] leading-snug hover:bg-[color-mix(in_oklab,currentColor_10%,transparent)]"
+                  className="flex w-full items-start gap-2 rounded-[var(--r-sm)] px-2 py-1.5 text-left text-[length:var(--text-12-5)] leading-snug hover:bg-[color-mix(in_oklab,currentColor_10%,transparent)]"
                   // The nav and NCX walkers descend to whatever depth the book nests, so TOC levels have
                   // no ceiling to clamp to; the `min-w-0` label absorbs the indent the way every other
                   // tree row in the app does.
                   style={{ paddingLeft: treeIndent(entry.level) }}
                 >
                   <span className="min-w-0 flex-1">{entry.label}</span>
-                  <span className="shrink-0 text-[10.5px] tabular opacity-50">{entry.slot + 1}</span>
+                  <span className="shrink-0 text-[length:var(--text-10-5)] tabular opacity-50">{entry.slot + 1}</span>
                 </button>
               </li>
             ))}

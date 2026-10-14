@@ -410,7 +410,7 @@ export function MindmapStandaloneEditor({ note, content, onChange, onTitleChange
                 data-mindmap-save-state={isSynced ? 'saved' : 'pending'}
               >
                 {isSynced ? <Check size={13} className="text-[var(--accent)]"/> : <Save size={13} className="text-[var(--warning)]"/>}
-                <span className="hidden text-[11px] sm:inline">{isSynced ? t('workspace.mindmap_saved') : t('workspace.save_mindmap')}</span>
+                <span className="hidden text-[length:var(--text-11)] sm:inline">{isSynced ? t('workspace.mindmap_saved') : t('workspace.save_mindmap')}</span>
               </span>
             </Tooltip>
 

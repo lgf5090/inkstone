@@ -112,7 +112,7 @@ export function ChatApp() {
 
       <div className="flex min-w-0 flex-1 flex-col">
         <header className="flex h-11 shrink-0 items-center gap-2 border-b border-[var(--border-subtle)] bg-[var(--bg-sunken)] px-3">
-          <span className="min-w-0 truncate text-[13.5px] font-semibold text-[var(--text-primary)]">{title}</span>
+          <span className="min-w-0 truncate text-[length:var(--text-13-5)] font-semibold text-[var(--text-primary)]">{title}</span>
           <div className="ml-auto flex shrink-0 items-center gap-1">
             <Tooltip label={unread ? t('assistant.notifications.unread', { count: unread }) : t('assistant.notifications.title')}>
               <IconButton label={t('assistant.notifications.title')} size="sm" onClick={() => setNotificationsOpen(true)}>
@@ -120,7 +120,7 @@ export function ChatApp() {
                   <Bell size={15} />
                   {unread > 0 && (
                     <span
-                      className="absolute -right-1.5 -top-1.5 flex h-3.5 min-w-3.5 items-center justify-center rounded-full bg-[var(--danger)] px-[3px] text-[9px] font-semibold text-white"
+                      className="absolute -right-1.5 -top-1.5 flex h-3.5 min-w-3.5 items-center justify-center rounded-full bg-[var(--danger)] px-[3px] text-[length:var(--text-9)] font-semibold text-white"
                     >
                       {unread > 9 ? '9+' : unread}
                     </span>
@@ -132,7 +132,7 @@ export function ChatApp() {
         </header>
 
         {error && !loaded && (
-          <div role="alert" className="border-b border-[var(--border-subtle)] bg-[color-mix(in_oklab,var(--danger)_12%,transparent)] px-3 py-2 text-[12px] text-[var(--danger)]">
+          <div role="alert" className="border-b border-[var(--border-subtle)] bg-[color-mix(in_oklab,var(--danger)_12%,transparent)] px-3 py-2 text-[length:var(--text-12)] text-[var(--danger)]">
             {error}
           </div>
         )}
@@ -161,7 +161,7 @@ export function ChatApp() {
                 aria-current={entry === view ? 'page' : undefined}
                 onClick={() => setView(entry)}
                 className={cn(
-                  'flex min-w-0 flex-1 items-center justify-center text-[12px] transition-colors',
+                  'flex min-w-0 flex-1 items-center justify-center text-[length:var(--text-12)] transition-colors',
                   entry === view ? 'text-[var(--accent)]' : 'text-[var(--text-tertiary)]',
                 )}
               >

@@ -76,7 +76,7 @@ export function TemplateEditorModal({ template, initial, categories, onClose }: 
         <Textarea value={draft.content} aria-invalid={bodyError} onChange={(event) => {
           setDraft({ ...draft, content: event.target.value })
           setBodyError(false)
-        }} rows={16} spellCheck={false} className='min-h-70 font-mono text-[12.5px]'/>
+        }} rows={16} spellCheck={false} className='min-h-70 font-mono text-[length:var(--text-12-5)]'/>
       </Field>
     </div>
   </Modal>)
@@ -134,7 +134,7 @@ function MoveChoice({ label, selected, onClick }: {
   selected: boolean
   onClick: () => void
 }) {
-  return (<button type='button' aria-pressed={selected} onClick={onClick} className={cn('flex min-h-10 w-full items-center gap-2.5 rounded-[var(--r-md)] px-2.5 text-left text-[13px] transition-colors', selected ? 'bg-[var(--accent-soft)] text-[var(--accent)]' : 'text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]')}>
+  return (<button type='button' aria-pressed={selected} onClick={onClick} className={cn('flex min-h-10 w-full items-center gap-2.5 rounded-[var(--r-md)] px-2.5 text-left text-[length:var(--text-13)] transition-colors', selected ? 'bg-[var(--accent-soft)] text-[var(--accent)]' : 'text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]')}>
     <span className='min-w-0 flex-1 truncate'>{label}</span>
     {selected && <Check size={14} className='shrink-0'/>}
   </button>)
@@ -226,12 +226,12 @@ export function ImportTemplatesModal({ onClose }: {
       <Button variant='primary' onClick={importJson} disabled={!text.trim()}>{t('templates.import_templates')}</Button>
     </>}>
     <div className='space-y-3'>
-      <p className='text-[12px] leading-relaxed text-[var(--text-tertiary)]'>{t('templates.import_hint')}</p>
+      <p className='text-[length:var(--text-12)] leading-relaxed text-[var(--text-tertiary)]'>{t('templates.import_hint')}</p>
       <Textarea value={text} aria-invalid={isError} aria-describedby={isError ? errorId : undefined} id={errorId} onChange={(event) => {
         setText(event.target.value)
         setIsError(false)
-      }} rows={10} spellCheck={false} placeholder={t('templates.import_paste_placeholder')} className='min-h-45 font-mono text-[12px]'/>
-      {isError && <p id={errorId} className='text-[11.5px] text-[var(--danger)]'>{t('templates.import_invalid')}</p>}
+      }} rows={10} spellCheck={false} placeholder={t('templates.import_paste_placeholder')} className='min-h-45 font-mono text-[length:var(--text-12)]'/>
+      {isError && <p id={errorId} className='text-[length:var(--text-11-5)] text-[var(--danger)]'>{t('templates.import_invalid')}</p>}
       <input ref={fileRef} type='file' accept='.json,application/json' className='hidden' onChange={pickFile}/>
       <Button variant='secondary' icon={<Upload size={13}/>} onClick={() => fileRef.current?.click()}>{t('templates.import_file')}</Button>
     </div>
@@ -264,12 +264,12 @@ export function TemplatePreviewModal({ template, categoryName, onUse, onClose }:
     <Button variant='primary' onClick={onUse}>{t('templates.use_template')}</Button>
   </>}>
     <div className='space-y-2'>
-      {template.description && <p className='text-[12px] leading-relaxed text-[var(--text-tertiary)]'>{template.description}</p>}
+      {template.description && <p className='text-[length:var(--text-12)] leading-relaxed text-[var(--text-tertiary)]'>{template.description}</p>}
       {template.tags.length > 0 && (<div className='flex flex-wrap gap-1'>
         {template.tags.map((tag) => (<TemplateTag key={tag} tag={tag}/>))}
       </div>)}
-      <pre className='max-h-[min(46vh,420px)] overflow-auto rounded-[var(--r-md)] border border-[var(--border-subtle)] bg-[var(--bg-inset)] p-3 text-[11.5px] leading-relaxed whitespace-pre font-mono text-[var(--text-secondary)]'>{template.content}</pre>
-      <p className='text-[11px] text-[var(--text-quaternary)]'>{t('templates.preview_lines_value0', { value0: lines.length })}</p>
+      <pre className='max-h-[min(46vh,420px)] overflow-auto rounded-[var(--r-md)] border border-[var(--border-subtle)] bg-[var(--bg-inset)] p-3 text-[length:var(--text-11-5)] leading-relaxed whitespace-pre font-mono text-[var(--text-secondary)]'>{template.content}</pre>
+      <p className='text-[length:var(--text-11)] text-[var(--text-quaternary)]'>{t('templates.preview_lines_value0', { value0: lines.length })}</p>
     </div>
   </Modal>)
 }

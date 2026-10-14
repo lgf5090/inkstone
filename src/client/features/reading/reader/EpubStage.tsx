@@ -749,7 +749,7 @@ export const EpubStage = forwardRef<EpubStageHandle, EpubStageProps>(function Ep
         />
       </div>
       {failed ? (
-        <p className="absolute inset-x-6 top-1/2 -translate-y-1/2 text-center text-[13px] text-[var(--reader-muted)]">
+        <p className="absolute inset-x-6 top-1/2 -translate-y-1/2 text-center text-[length:var(--text-13)] text-[var(--reader-muted)]">
           {t('reading.chapter_missing')}
         </p>
       ) : null}

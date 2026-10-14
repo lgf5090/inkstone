@@ -49,6 +49,9 @@
      `@media (pointer: coarse)` so desktop density is never paid for it. */
   --tap-target: 44px;
 
+  /* Every size the interface sets, in one ordered scale: a class names a step, never a pixel.
+     The half steps exist because dense chrome is retuned in half-pixel increments, where a whole
+     pixel reads as a different weight rather than a different size. */
   --text-6: 6px;
   --text-8-5: 8.5px;
   --text-9: 9px;
@@ -58,9 +61,22 @@
   --text-11: 11px;
   --text-11-5: 11.5px;
   --text-12: 12px;
+  --text-12-5: 12.5px;
   --text-13: 13px;
+  --text-13-5: 13.5px;
   --text-14: 14px;
+  --text-14-5: 14.5px;
+  --text-15: 15px;
+  --text-15-5: 15.5px;
+  --text-16: 16px;
+  --text-17: 17px;
   --text-18: 18px;
+  /* The kanban chart's headline numbers already asked for this step; the scale never defined it, so
+     they rendered at the inherited 13px until the step arrived. */
+  --text-20: 20px;
+  --text-22: 22px;
+  --text-26: 26px;
+  --text-30: 30px;
 
   /* The leading every dense UI stack shares, so a card and its column header agree. */
   --ui-line: 1.55;
@@ -115,8 +131,6 @@
   --sp-8: 32px;
   --sp-9: 36px;
   --sp-10: 40px;
-  --text-15: 15px;
-  --text-16: 16px;
   /* The tracking scale, ordered by how wide the letters are set. `micro` is the
      tightest small caps and dense monospace labels, `caps` the uppercase chip and
      tool-button labels; both existed as magic numbers in prose.css before. */

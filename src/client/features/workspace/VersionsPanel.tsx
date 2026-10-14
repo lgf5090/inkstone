@@ -128,11 +128,11 @@ export function VersionsPanel({ onClose }: {
                 <button type="button" aria-pressed={selectedId === version.id} onClick={() => setSelected({ noteId: note!.id, versionId: version.id })} className={cn('w-full rounded-[var(--r-md)] px-2 py-2 text-left transition-colors', selectedId === version.id
                     ? 'bg-[var(--accent-soft)]'
                     : 'hover:bg-[var(--bg-hover)]')}>
-                  <div className="flex items-center gap-1.5 text-[12px] font-medium text-[var(--text-primary)]">
+                  <div className="flex items-center gap-1.5 text-[length:var(--text-12)] font-medium text-[var(--text-primary)]">
                     <History size={11} className="shrink-0 text-[var(--text-quaternary)]"/>
                     {index === 0 ? t("workspace.latest") : <VersionAge timestamp={version.createdAt}/>}
                   </div>
-                  <div className="mt-0.5 pl-4 text-[10.5px] text-[var(--text-quaternary)]">
+                  <div className="mt-0.5 pl-4 text-[length:var(--text-10-5)] text-[var(--text-quaternary)]">
                     {fullTime(version.createdAt)} · {formatBytes(version.size)}
                   </div>
                 </button>
@@ -140,13 +140,13 @@ export function VersionsPanel({ onClose }: {
           </ul>
 
           <div className="min-w-0 flex-1 overflow-y-auto rounded-[var(--r-md)] border border-[var(--border-subtle)] bg-[var(--bg-inset)]">
-            {previewError ? (<Empty art="notes" compact title={t("workspace.could_not_load_version")} description={previewError} action={<Button size="sm" variant="secondary" onClick={() => setPreviewReload((value) => value + 1)}>{t("common.retry")}</Button>}/>) : preview === null || !diff ? (<LoadingBlock />) : (<><div className="sticky top-0 flex items-center gap-3 border-b border-[var(--border-subtle)] bg-[var(--bg-inset)] px-3 py-1.5 text-[10.5px] text-[var(--text-quaternary)]">
+            {previewError ? (<Empty art="notes" compact title={t("workspace.could_not_load_version")} description={previewError} action={<Button size="sm" variant="secondary" onClick={() => setPreviewReload((value) => value + 1)}>{t("common.retry")}</Button>}/>) : preview === null || !diff ? (<LoadingBlock />) : (<><div className="sticky top-0 flex items-center gap-3 border-b border-[var(--border-subtle)] bg-[var(--bg-inset)] px-3 py-1.5 text-[length:var(--text-10-5)] text-[var(--text-quaternary)]">
               <span>{t("workspace.differences_from_current_content")}</span>
               <span className="text-[var(--success)]">+{diff.added}</span>
               <span className="text-[var(--danger)]">-{diff.removed}</span>
               {diff.simplified && <span>{t("workspace.large_content_using_a_faster_comparison")}</span>}
             </div>
-            <pre className="p-3 font-mono text-[11.5px] leading-[1.65] whitespace-pre-wrap">
+            <pre className="p-3 font-mono text-[length:var(--text-11-5)] leading-[1.65] whitespace-pre-wrap">
               {diff.lines.map((line, i) => (<div key={i} className={cn('px-1', line.kind === 'add' && 'bg-[color-mix(in_oklab,var(--success)_14%,transparent)]', line.kind === 'remove' && 'bg-[color-mix(in_oklab,var(--danger)_14%,transparent)]', line.kind === 'same' && 'text-[var(--text-tertiary)]')}>
                   <span className="mr-2 inline-block w-2 text-[var(--text-quaternary)]">
                     {line.kind === 'add' ? '+' : line.kind === 'remove' ? '-' : ' '}

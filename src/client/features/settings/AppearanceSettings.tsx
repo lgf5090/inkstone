@@ -102,7 +102,7 @@ export function AppearanceSettings({
                 onClick={() => void update({ appearance: { background: background.name } })}
                 aria-pressed={appearance.background === background.name}
                 className={cn(
-                  'flex h-8 min-w-[84px] items-center gap-2 rounded-[var(--r-md)] border px-2.5 text-[11.5px] transition-[border-color,background-color,box-shadow] duration-[var(--dur-fast)]',
+                  'flex h-8 min-w-[84px] items-center gap-2 rounded-[var(--r-md)] border px-2.5 text-[length:var(--text-11-5)] transition-[border-color,background-color,box-shadow] duration-[var(--dur-fast)]',
                   appearance.background === background.name
                     ? 'border-[var(--accent)] bg-[var(--accent-softer)] shadow-[0_0_0_2px_var(--accent-ring)]'
                     : 'border-[var(--border-default)] bg-[var(--bg-base)] hover:bg-[var(--bg-hover)]',
@@ -151,7 +151,7 @@ export function AppearanceSettings({
       <CalendarDisplaySettings locale={locale}/>
 
       <section>
-        <h3 data-setting-title={t("settings.preview_typography")} className="mb-1 text-[11px] font-semibold tracking-[0.06em] text-[var(--text-quaternary)]">
+        <h3 data-setting-title={t("settings.preview_typography")} className="mb-1 text-[length:var(--text-11)] font-semibold tracking-[0.06em] text-[var(--text-quaternary)]">
           {t("settings.preview_typography")}
         </h3>
 
@@ -216,7 +216,7 @@ function PreviewSample() {
   const appearance = useSession((s) => s.settings.appearance)
   return (
     <section>
-      <h3 className="mb-2 text-[11px] font-semibold tracking-[0.06em] text-[var(--text-quaternary)]">
+      <h3 className="mb-2 text-[length:var(--text-11)] font-semibold tracking-[0.06em] text-[var(--text-quaternary)]">
         {t("settings.preview")}
       </h3>
       <div className="rounded-[var(--r-lg)] border border-[var(--border-subtle)] bg-[var(--bg-base)] px-4 py-3">
@@ -306,7 +306,7 @@ export function CalendarDisplaySettings({ locale }: { locale: string }) {
   const dayLabels = useMemo(() => narrowWeekdayLabels(locale, 0), [locale])
   return (
     <section>
-      <h3 data-setting-title={t('settings.calendar_display')} className="mb-1 text-[11px] font-semibold tracking-[0.06em] text-[var(--text-quaternary)]">
+      <h3 data-setting-title={t('settings.calendar_display')} className="mb-1 text-[length:var(--text-11)] font-semibold tracking-[0.06em] text-[var(--text-quaternary)]">
         {t('settings.calendar_display')}
       </h3>
 

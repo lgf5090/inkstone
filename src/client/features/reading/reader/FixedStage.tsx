@@ -311,7 +311,7 @@ export const FixedStage = forwardRef<FixedStageHandle, FixedStageProps>(function
 
   if (error) {
     return (
-      <div className="reader-stage flex items-center justify-center px-6 text-center text-[13px]" style={{ background: theme.background, color: theme.muted }}>
+      <div className="reader-stage flex items-center justify-center px-6 text-center text-[length:var(--text-13)]" style={{ background: theme.background, color: theme.muted }}>
         {error === 'missing' ? t('reading.book_missing_hint') : t('reading.book_corrupt_hint')}
       </div>
     )
@@ -324,7 +324,7 @@ export const FixedStage = forwardRef<FixedStageHandle, FixedStageProps>(function
       data-mode={settings.readMode}
       style={{ background: theme.background, '--reader-fg': theme.foreground } as React.CSSProperties}
     >
-      {!ready ? <div className="reader-fixed-row"><p className="text-[12px] opacity-60">{t('reading.opening_book')}</p></div> : null}
+      {!ready ? <div className="reader-fixed-row"><p className="text-[length:var(--text-12)] opacity-60">{t('reading.opening_book')}</p></div> : null}
       {ready && settings.readMode === 'scroll' ? (
         <div className="reader-fixed-stack">
           {scrollPages.map((index) => (

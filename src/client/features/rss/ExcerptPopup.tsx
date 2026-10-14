@@ -226,18 +226,18 @@ export function ExcerptPopup({ rootRef }: { rootRef: RefObject<HTMLElement | nul
         >
           <div className="flex shrink-0 items-center gap-2 border-b border-[var(--border-subtle)] bg-[var(--bg-sunken)] px-3 py-1.5">
             <Sparkles size={13} className="shrink-0 text-[var(--accent)]" aria-hidden="true" />
-            <span className="min-w-0 flex-1 truncate text-[12px] font-medium text-[var(--text-primary)]">{ask.question}</span>
+            <span className="min-w-0 flex-1 truncate text-[length:var(--text-12)] font-medium text-[var(--text-primary)]">{ask.question}</span>
             {ask.running && (
-              <button type="button" onClick={() => abortRef.current?.()} className="shrink-0 rounded-[var(--r-sm)] px-1.5 py-0.5 text-[11.5px] text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]">{t('rss.ai.stop')}</button>
+              <button type="button" onClick={() => abortRef.current?.()} className="shrink-0 rounded-[var(--r-sm)] px-1.5 py-0.5 text-[length:var(--text-11-5)] text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]">{t('rss.ai.stop')}</button>
             )}
             <button type="button" onClick={closeAsk} aria-label={t('common.close')} className="shrink-0 rounded-[var(--r-sm)] p-1 text-[var(--text-tertiary)] hover:bg-[var(--bg-hover)]"><X size={13} /></button>
           </div>
           <div className="min-h-0 flex-1 overflow-y-auto px-3 py-2">
             {ask.error
-              ? <p className="text-[12px] text-[var(--danger)]">{ask.error}</p>
+              ? <p className="text-[length:var(--text-12)] text-[var(--danger)]">{ask.error}</p>
               : ask.text
-                ? <p className="text-[12.5px] leading-[1.65] whitespace-pre-wrap text-[var(--text-primary)]">{ask.text}</p>
-                : <p className="text-[12px] text-[var(--text-tertiary)]">{t('rss.ai.thinking')}</p>}
+                ? <p className="text-[length:var(--text-12-5)] leading-[1.65] whitespace-pre-wrap text-[var(--text-primary)]">{ask.text}</p>
+                : <p className="text-[length:var(--text-12)] text-[var(--text-tertiary)]">{t('rss.ai.thinking')}</p>}
           </div>
           {ask.text && !ask.running && (
             <div className="flex shrink-0 items-center gap-1 border-t border-[var(--border-subtle)] px-2 py-1.5">
@@ -259,7 +259,7 @@ function Bar({ onClick, label, icon }: { onClick: () => void, label: string, ico
       onClick={onClick}
       title={label}
       aria-label={label}
-      className="flex h-7 items-center gap-1.5 rounded-[var(--r-sm)] px-2 text-[11.5px] text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--accent)]"
+      className="flex h-7 items-center gap-1.5 rounded-[var(--r-sm)] px-2 text-[length:var(--text-11-5)] text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--accent)]"
     >
       {icon}
       {label}

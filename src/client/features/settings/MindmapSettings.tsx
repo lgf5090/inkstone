@@ -18,7 +18,7 @@ export function MindmapSettings() {
   return (
     <div className="space-y-1">
       <div className="pb-2">
-        <p className="text-[12.5px] leading-relaxed text-[var(--text-secondary)]">{t('settings.mindmap_desc')}</p>
+        <p className="text-[length:var(--text-12-5)] leading-relaxed text-[var(--text-secondary)]">{t('settings.mindmap_desc')}</p>
       </div>
 
       <SettingRow title={t('settings.mindmap_folder')} description={t('settings.mindmap_folder_desc')}>

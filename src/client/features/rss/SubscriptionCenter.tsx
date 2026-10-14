@@ -70,7 +70,7 @@ function TabButton({ active, onClick, label }: { active: boolean, onClick: () =>
       onClick={onClick}
       aria-current={active ? 'true' : undefined}
       className={cn(
-        '-mb-px border-b-2 px-3 py-2.5 text-[12.5px] font-medium transition-colors duration-[var(--dur-fast)]',
+        '-mb-px border-b-2 px-3 py-2.5 text-[length:var(--text-12-5)] font-medium transition-colors duration-[var(--dur-fast)]',
         active
           ? 'border-[var(--accent)] text-[var(--text-primary)]'
           : 'border-transparent text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]',
@@ -148,7 +148,7 @@ function ManagePanel({ adding, onAdded }: { adding: boolean, onAdded: () => void
         <Button size="sm" icon={<Plus size={13} />} onClick={() => setShowAdd(true)}>{t('rss.add_subscription')}</Button>
         <Button size="sm" icon={<Upload size={13} />} onClick={() => setImporting('')}>{t('rss.opml_import')}</Button>
         <Button size="sm" icon={<Download size={13} />} onClick={exportOpmlFile}>{t('rss.opml_export')}</Button>
-        <span className="ml-auto text-[11px] text-[var(--text-quaternary)]">
+        <span className="ml-auto text-[length:var(--text-11)] text-[var(--text-quaternary)]">
           {t('rss.subscriptions_count', { n: library.feeds.length })}
           {library.feeds.length >= RSS_LIMITS.feeds ? ` · ${t('rss.error.feed_limit', { n: RSS_LIMITS.feeds })}` : ''}
         </span>
@@ -158,10 +158,10 @@ function ManagePanel({ adding, onAdded }: { adding: boolean, onAdded: () => void
 
       {selected.size > 0 && (
         <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-[var(--border-subtle)] bg-[var(--bg-sunken)] px-3 py-1.5">
-          <span className="text-[11.5px] font-medium text-[var(--text-secondary)]">{t('rss.selected_n', { n: selected.size })}</span>
+          <span className="text-[length:var(--text-11-5)] font-medium text-[var(--text-secondary)]">{t('rss.selected_n', { n: selected.size })}</span>
           <Button size="sm" onClick={() => void bulkRefresh()}>{t('rss.refresh')}</Button>
           <Button size="sm" variant="danger" onClick={() => void bulkUnsubscribe()}>{t('rss.unsubscribe')}</Button>
-          <button type="button" onClick={() => setSelected(new Set())} className="ml-auto text-[11.5px] text-[var(--text-tertiary)] hover:text-[var(--text-primary)]">
+          <button type="button" onClick={() => setSelected(new Set())} className="ml-auto text-[length:var(--text-11-5)] text-[var(--text-tertiary)] hover:text-[var(--text-primary)]">
             {t('rss.clear_selection')}
           </button>
         </div>
@@ -169,20 +169,20 @@ function ManagePanel({ adding, onAdded }: { adding: boolean, onAdded: () => void
 
       <div className="min-h-0 flex-1 overflow-y-auto px-3 py-2">
         {!visible.length && (
-          <p className="py-10 text-center text-[12.5px] text-[var(--text-tertiary)]">
+          <p className="py-10 text-center text-[length:var(--text-12-5)] text-[var(--text-tertiary)]">
             {query.trim() ? t('rss.no_results', { query }) : t('rss.no_subscriptions')}
           </p>
         )}
         {visible.map(({ group, feeds }) => (
           <section key={group?.id ?? 'ungrouped'} className="mb-3">
             <div className="flex items-center gap-2 px-1 py-1">
-              <h3 className="min-w-0 flex-1 truncate text-[11.5px] font-semibold text-[var(--text-secondary)]">
+              <h3 className="min-w-0 flex-1 truncate text-[length:var(--text-11-5)] font-semibold text-[var(--text-secondary)]">
                 {group?.name ?? t('rss.ungrouped')}
               </h3>
               <button
                 type="button"
                 onClick={() => setSelected(current => new Set([...current, ...feeds.map(feed => feed.id)]))}
-                className="rounded-[var(--r-sm)] px-1.5 py-0.5 text-[11px] text-[var(--text-tertiary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]"
+                className="rounded-[var(--r-sm)] px-1.5 py-0.5 text-[length:var(--text-11)] text-[var(--text-tertiary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]"
               >
                 {t('rss.select_all')}
               </button>
@@ -191,14 +191,14 @@ function ManagePanel({ adding, onAdded }: { adding: boolean, onAdded: () => void
                   <button
                     type="button"
                     onClick={() => void renameGroup(group.id, group.name)}
-                    className="rounded-[var(--r-sm)] px-1.5 py-0.5 text-[11px] text-[var(--text-tertiary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]"
+                    className="rounded-[var(--r-sm)] px-1.5 py-0.5 text-[length:var(--text-11)] text-[var(--text-tertiary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]"
                   >
                     {t('rss.rename_group')}
                   </button>
                   <button
                     type="button"
                     onClick={() => void removeGroup(group.id, group.name)}
-                    className="rounded-[var(--r-sm)] px-1.5 py-0.5 text-[11px] text-[var(--text-tertiary)] hover:bg-[var(--bg-hover)] hover:text-[var(--danger)]"
+                    className="rounded-[var(--r-sm)] px-1.5 py-0.5 text-[length:var(--text-11)] text-[var(--text-tertiary)] hover:bg-[var(--bg-hover)] hover:text-[var(--danger)]"
                   >
                     {t('rss.delete_group')}
                   </button>
@@ -324,10 +324,10 @@ function FeedRow({ feed, group, selected, menuOpen, onToggleSelect, onMenu }: {
       <Checkbox checked={selected} onChange={() => onToggleSelect(feed.id)} label={`${t('rss.subscriptions')}: ${feed.title}`} />
       <div className="min-w-0 flex-1">
         <div className="flex min-w-0 items-center gap-1.5">
-          <span className="min-w-0 truncate text-[12.5px] font-medium text-[var(--text-primary)]">{feed.title}</span>
-          {feed.paused && <span className="shrink-0 text-[10px] text-[var(--text-quaternary)]">{t('rss.paused')}</span>}
+          <span className="min-w-0 truncate text-[length:var(--text-12-5)] font-medium text-[var(--text-primary)]">{feed.title}</span>
+          {feed.paused && <span className="shrink-0 text-[length:var(--text-10)] text-[var(--text-quaternary)]">{t('rss.paused')}</span>}
         </div>
-        <div className="min-w-0 truncate text-[10.5px] text-[var(--text-quaternary)]">
+        <div className="min-w-0 truncate text-[length:var(--text-10-5)] text-[var(--text-quaternary)]">
           {feed.error
             ? <span className="text-[var(--danger)]">{feed.error}</span>
             : feedCacheLine(cache[feed.id])}
@@ -426,14 +426,14 @@ function AddFeedForm({ onDone, onAdded }: { onDone: () => void, onAdded: () => v
       <datalist id="rss-group-names">
         {library.groups.map(entry => <option key={entry.id} value={entry.name} />)}
       </datalist>
-      {duplicate && <p className="mt-1.5 text-[11.5px] text-[var(--danger)]">{t('rss.error.already_subscribed')}</p>}
-      {error && !duplicate && <p className="mt-1.5 text-[11.5px] text-[var(--danger)]">{error}</p>}
+      {duplicate && <p className="mt-1.5 text-[length:var(--text-11-5)] text-[var(--danger)]">{t('rss.error.already_subscribed')}</p>}
+      {error && !duplicate && <p className="mt-1.5 text-[length:var(--text-11-5)] text-[var(--danger)]">{error}</p>}
       {preview && (
-        <p className="mt-1.5 text-[11.5px] text-[var(--text-secondary)]">
+        <p className="mt-1.5 text-[length:var(--text-11-5)] text-[var(--text-secondary)]">
           {preview.name} · {t('rss.preview_count', { n: preview.count, date: preview.newest ? shortSince(preview.newest) : '—' })}
         </p>
       )}
-      {!preview && !error && <p className="mt-1.5 text-[11.5px] text-[var(--text-quaternary)]">{t('rss.add_subscription_hint')}</p>}
+      {!preview && !error && <p className="mt-1.5 text-[length:var(--text-11-5)] text-[var(--text-quaternary)]">{t('rss.add_subscription_hint')}</p>}
     </div>
   )
 }
@@ -462,7 +462,7 @@ function OpmlImport({ initial, onClose, onFile }: { initial: string, onClose: ()
     <div className="shrink-0 border-b border-[var(--border-subtle)] bg-[var(--bg-sunken)] px-3 py-3">
       <div className="mb-2 flex flex-wrap items-center gap-2">
         <Button size="sm" icon={<Upload size={13} />} onClick={onFile}>{t('rss.opml_import')}</Button>
-        <span className="text-[11.5px] text-[var(--text-quaternary)]">{t('rss.opml_paste')}</span>
+        <span className="text-[length:var(--text-11-5)] text-[var(--text-quaternary)]">{t('rss.opml_paste')}</span>
         <IconButton label={t('common.close')} size="sm" className="ml-auto" onClick={onClose}>
           <ChevronDown size={15} />
         </IconButton>
@@ -473,11 +473,11 @@ function OpmlImport({ initial, onClose, onFile }: { initial: string, onClose: ()
         rows={5}
         spellCheck={false}
         aria-label={t('rss.opml_paste')}
-        className="w-full rounded-[var(--r-md)] border border-[var(--border-default)] bg-[var(--bg-base)] p-2 font-mono text-[11.5px] text-[var(--text-primary)] focus:border-[var(--accent)] focus:outline-none"
+        className="w-full rounded-[var(--r-md)] border border-[var(--border-default)] bg-[var(--bg-base)] p-2 font-mono text-[length:var(--text-11-5)] text-[var(--text-primary)] focus:border-[var(--accent)] focus:outline-none"
       />
       {parsed && (
         <div className="mt-2 flex items-center gap-2">
-          <span className="text-[11.5px] text-[var(--text-secondary)]">
+          <span className="text-[length:var(--text-11-5)] text-[var(--text-secondary)]">
             {parsed.feeds.length ? t('rss.opml_preview', { n: parsed.feeds.length, skipped: parsed.skipped }) : t('rss.opml_empty')}
           </span>
           <Button size="sm" className="ml-auto" disabled={!parsed.feeds.length} onClick={() => void run()}>{t('rss.add')}</Button>
@@ -519,8 +519,8 @@ function DiscoverPanel(): ReactElement {
       : { title: result.error ?? t('rss.error.unreachable'), tone: 'danger' })
   }
 
-  if (failed) return <p className="p-8 text-center text-[12.5px] text-[var(--danger)]">{t('rss.discover.failed')}</p>
-  if (!catalog) return <p className="p-8 text-center text-[12.5px] text-[var(--text-tertiary)]">{t('rss.loading')}</p>
+  if (failed) return <p className="p-8 text-center text-[length:var(--text-12-5)] text-[var(--danger)]">{t('rss.discover.failed')}</p>
+  if (!catalog) return <p className="p-8 text-center text-[length:var(--text-12-5)] text-[var(--text-tertiary)]">{t('rss.loading')}</p>
 
   return (
     <div className="flex h-full min-h-0 flex-col">
@@ -543,25 +543,25 @@ function DiscoverPanel(): ReactElement {
             value={tag}
             onChange={event => setTag(event.target.value)}
             aria-label={t('rss.discover.tag')}
-            className="h-8 rounded-[var(--r-md)] border border-[var(--border-default)] bg-[var(--bg-base)] px-2 text-[12px] text-[var(--text-primary)]"
+            className="h-8 rounded-[var(--r-md)] border border-[var(--border-default)] bg-[var(--bg-base)] px-2 text-[length:var(--text-12)] text-[var(--text-primary)]"
           >
             <option value="">{t('rss.discover.tag_any')}</option>
             {tags.map(entry => <option key={entry} value={entry}>{entry}</option>)}
           </select>
         )}
-        <span className="ml-auto text-[11px] text-[var(--text-quaternary)]">{t('rss.discover.results', { n: matches.length })}</span>
+        <span className="ml-auto text-[length:var(--text-11)] text-[var(--text-quaternary)]">{t('rss.discover.results', { n: matches.length })}</span>
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto px-3 py-2">
         {matches.slice(0, limit).map(source => (
           <div key={source.id} className="flex items-center gap-2 rounded-[var(--r-md)] px-1.5 py-1.5 hover:bg-[var(--bg-hover)]">
             <div className="min-w-0 flex-1">
-              <div className="min-w-0 truncate text-[12.5px] font-medium text-[var(--text-primary)]">{source.name}</div>
-              <div className="min-w-0 truncate text-[10.5px] text-[var(--text-quaternary)]">
+              <div className="min-w-0 truncate text-[length:var(--text-12-5)] font-medium text-[var(--text-primary)]">{source.name}</div>
+              <div className="min-w-0 truncate text-[length:var(--text-10-5)] text-[var(--text-quaternary)]">
                 {[source.category, source.tags.join(' / '), host(source.url)].filter(Boolean).join(' · ')}
               </div>
             </div>
             {subscribed.has(canonicalFeedUrl(source.url))
-              ? <span className="shrink-0 text-[11px] text-[var(--text-quaternary)]">{t('rss.subscribed')}</span>
+              ? <span className="shrink-0 text-[length:var(--text-11)] text-[var(--text-quaternary)]">{t('rss.subscribed')}</span>
               : <Button size="sm" icon={<Plus size={12} />} onClick={() => void subscribe(source)}>{t('rss.subscribe')}</Button>}
           </div>
         ))}
@@ -571,7 +571,7 @@ function DiscoverPanel(): ReactElement {
           </div>
         )}
       </div>
-      <p className="shrink-0 border-t border-[var(--border-subtle)] px-3 py-2 text-[10.5px] leading-relaxed text-[var(--text-quaternary)]">
+      <p className="shrink-0 border-t border-[var(--border-subtle)] px-3 py-2 text-[length:var(--text-10-5)] leading-relaxed text-[var(--text-quaternary)]">
         {t('rss.discover.provenance', { source: catalog[shelf].source, revision: catalog[shelf].revision })}
       </p>
     </div>

@@ -21,7 +21,7 @@ export function TagNameHighlight({ name, query }: { name: string; query: Query }
 
 /** The one box a tag row draws in place of its name while it is being renamed. */
 export const TAG_RENAME_INPUT_CLASS =
-    'min-w-0 flex-1 rounded-[var(--r-xs)] border border-[var(--accent)] bg-[var(--bg-surface)] px-1 py-px text-[12.5px] outline-none';
+    'min-w-0 flex-1 rounded-[var(--r-xs)] border border-[var(--accent)] bg-[var(--bg-surface)] px-1 py-px text-[length:var(--text-12-5)] outline-none';
 
 /**
  * The uncontrolled rename box both tag rows edit in place: it commits once on Enter or blur, drops the

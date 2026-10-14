@@ -112,10 +112,10 @@ export function AvatarPicker({
         <div className="flex items-center gap-4 rounded-[var(--r-lg)] border border-[var(--border-subtle)] bg-[var(--bg-base)] p-4">
           <Avatar src={selected} name={displayName} size={72} />
           <div className="min-w-0 flex-1">
-            <div className="text-[12px] font-semibold text-[var(--text-primary)]">
+            <div className="text-[length:var(--text-12)] font-semibold text-[var(--text-primary)]">
               {t('settings.selected_avatar')}
             </div>
-            <div className="mt-1 text-[11.5px] text-[var(--text-tertiary)]">{selectionLabel}</div>
+            <div className="mt-1 text-[length:var(--text-11-5)] text-[var(--text-tertiary)]">{selectionLabel}</div>
           </div>
           <Button
             size="sm"
@@ -130,7 +130,7 @@ export function AvatarPicker({
 
         <section>
           <div className="mb-2.5 flex items-center justify-between gap-3">
-            <h3 className="text-[12px] font-semibold text-[var(--text-secondary)]">
+            <h3 className="text-[length:var(--text-12)] font-semibold text-[var(--text-secondary)]">
               {t('settings.random_avatars')}
             </h3>
             <Button
@@ -180,10 +180,10 @@ export function AvatarPicker({
         <section className="rounded-[var(--r-lg)] border border-dashed border-[var(--border-default)] bg-[var(--bg-inset)] p-4">
           <div className="flex flex-col items-start justify-between gap-3 sm:flex-row sm:items-center">
             <div>
-              <h3 className="text-[12px] font-semibold text-[var(--text-secondary)]">
+              <h3 className="text-[length:var(--text-12)] font-semibold text-[var(--text-secondary)]">
                 {t('settings.upload_local_image')}
               </h3>
-              <p className="mt-1 text-[11px] leading-relaxed text-[var(--text-quaternary)]">
+              <p className="mt-1 text-[length:var(--text-11)] leading-relaxed text-[var(--text-quaternary)]">
                 {t('settings.avatar_upload_hint')}
               </p>
             </div>
@@ -207,7 +207,7 @@ export function AvatarPicker({
           />
         </section>
 
-        {error && <p role="alert" className="text-[12px] text-[var(--danger)]">{error}</p>}
+        {error && <p role="alert" className="text-[length:var(--text-12)] text-[var(--danger)]">{error}</p>}
       </div>
     </Modal>
   )

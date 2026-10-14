@@ -105,7 +105,7 @@ export function SearchPanel({ search, start, onJump, unitLabel, fixedMode }: Sea
               onChange={(event) => setQuery(event.target.value)}
               placeholder={t('reading.search_book_placeholder')}
               aria-label={t('reading.search_book')}
-              className="h-8 w-full ps-7 pe-7 text-[12.5px]"
+              className="h-8 w-full ps-7 pe-7 text-[length:var(--text-12-5)]"
             />
             {query ? (
               <IconButton
@@ -118,7 +118,7 @@ export function SearchPanel({ search, start, onJump, unitLabel, fixedMode }: Sea
               </IconButton>
             ) : null}
           </div>
-          <span className="shrink-0 text-[10.5px] tabular opacity-60">
+          <span className="shrink-0 text-[length:var(--text-10-5)] tabular opacity-60">
             {hits?.length ? `${index + 1}/${hits.length}` : ''}
           </span>
         </div>
@@ -126,11 +126,11 @@ export function SearchPanel({ search, start, onJump, unitLabel, fixedMode }: Sea
 
       <div className="min-h-0 flex-1 overflow-y-auto px-1 pb-2">
         {!search ? (
-          <p className="px-3 py-6 text-center text-[12px] opacity-60">{t('reading.search_unavailable')}</p>
+          <p className="px-3 py-6 text-center text-[length:var(--text-12)] opacity-60">{t('reading.search_unavailable')}</p>
         ) : !query.trim() ? (
-          <p className="px-3 py-6 text-center text-[12px] opacity-60">{t('reading.search_hint')}</p>
+          <p className="px-3 py-6 text-center text-[length:var(--text-12)] opacity-60">{t('reading.search_hint')}</p>
         ) : hits?.length === 0 ? (
-          <p className="px-3 py-6 text-center text-[12px] opacity-60">{t('reading.no_results')}</p>
+          <p className="px-3 py-6 text-center text-[length:var(--text-12)] opacity-60">{t('reading.no_results')}</p>
         ) : (
           <ul className="space-y-px">
             {(hits ?? []).slice(0, 200).map((hit, at) => (
@@ -141,14 +141,14 @@ export function SearchPanel({ search, start, onJump, unitLabel, fixedMode }: Sea
                     setIndex(at)
                     jumpTo(hit)
                   }}
-                  className={`w-full rounded-[var(--r-sm)] px-2 py-1.5 text-start text-[12px] leading-snug ${at === index ? 'bg-[var(--accent-softer)]' : 'hover:bg-[color-mix(in_oklab,currentColor_8%,transparent)]'}`}
+                  className={`w-full rounded-[var(--r-sm)] px-2 py-1.5 text-start text-[length:var(--text-12)] leading-snug ${at === index ? 'bg-[var(--accent-softer)]' : 'hover:bg-[color-mix(in_oklab,currentColor_8%,transparent)]'}`}
                 >
                   <span className="block truncate opacity-75">
                     {hit.before}
                     <mark className="bg-transparent font-semibold text-[var(--accent)]">{hit.match}</mark>
                     {hit.after}
                   </span>
-                  <span className="block text-[10.5px] tabular opacity-45">{unitLabel(hit.unit)}</span>
+                  <span className="block text-[length:var(--text-10-5)] tabular opacity-45">{unitLabel(hit.unit)}</span>
                 </button>
               </li>
             ))}
@@ -161,7 +161,7 @@ export function SearchPanel({ search, start, onJump, unitLabel, fixedMode }: Sea
           <button
             type="button"
             onClick={() => onJump(start)}
-            className="h-8 w-full rounded-[var(--r-sm)] border border-[var(--border-default)] text-[12px]"
+            className="h-8 w-full rounded-[var(--r-sm)] border border-[var(--border-default)] text-[length:var(--text-12)]"
           >
             {t('reading.back_to_reading_position')}
           </button>

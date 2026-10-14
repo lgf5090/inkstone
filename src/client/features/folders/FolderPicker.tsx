@@ -57,7 +57,7 @@ export function FolderPicker({
       <div className="space-y-1 p-2">
         {allowRoot && !query.trim() && (<FolderChoice label={rootLabel ?? t("folders.top_level")} selected={currentId === null} onClick={() => choose(null)}/>)}
         {choices.map(({ folder, path }) => (<FolderChoice key={folder.id} label={path} icon={folder.icon} color={folder.color} selected={currentId === folder.id} onClick={() => choose(folder.id)}/>))}
-        {choices.length === 0 && (query.trim() || !allowRoot) && (<p className="px-3 py-10 text-center text-[12.5px] text-[var(--text-quaternary)]">{t("folders.no_match")}</p>)}
+        {choices.length === 0 && (query.trim() || !allowRoot) && (<p className="px-3 py-10 text-center text-[length:var(--text-12-5)] text-[var(--text-quaternary)]">{t("folders.no_match")}</p>)}
       </div>
     </Drawer>);
 }
@@ -72,10 +72,10 @@ function FolderChoice({ label, icon, color, selected, onClick }: {
     return (<button type="button" aria-pressed={selected} onClick={onClick} className={cn('flex min-h-11 w-full items-center gap-3 rounded-[var(--r-md)] px-3 text-left transition-colors', selected ? 'bg-[var(--accent-soft)] text-[var(--text-primary)]' : 'text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]')}>
       <span className="flex size-6 shrink-0 items-center justify-center" style={{ color: color ?? 'var(--text-tertiary)' }}>
         {icon
-            ? <span className="text-[15px] leading-none">{icon}</span>
+            ? <span className="text-[length:var(--text-15)] leading-none">{icon}</span>
             : <FolderClosed size={16}/>}
       </span>
-      <span className="min-w-0 flex-1 break-words text-[13px]">{label}</span>
+      <span className="min-w-0 flex-1 break-words text-[length:var(--text-13)]">{label}</span>
       {selected && <Check size={15} className="shrink-0 text-[var(--accent)]"/>}
     </button>);
 }

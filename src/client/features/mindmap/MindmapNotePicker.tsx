@@ -108,7 +108,7 @@ export function MindmapNotePicker({ open, title, initialQuery, excludeNoteId, on
                             }}
             />
           ))}
-          {visible.length === 0 && <p className="px-3 py-10 text-center text-[12.5px] text-[var(--text-quaternary)]">{t('folders.no_match')}</p>}
+          {visible.length === 0 && <p className="px-3 py-10 text-center text-[length:var(--text-12-5)] text-[var(--text-quaternary)]">{t('folders.no_match')}</p>}
         </div>
       </Drawer>
     );
@@ -121,8 +121,8 @@ function NoteChoice({ label, path, onClick }: { label: string; path: string; onC
           <FileText size={16}/>
         </span>
         <span className="min-w-0 flex-1">
-          <span className="block truncate text-[13px] text-[var(--text-primary)]">{label}</span>
-          {path && <span className="block truncate text-[11.5px] text-[var(--text-quaternary)]">{path}</span>}
+          <span className="block truncate text-[length:var(--text-13)] text-[var(--text-primary)]">{label}</span>
+          {path && <span className="block truncate text-[length:var(--text-11-5)] text-[var(--text-quaternary)]">{path}</span>}
         </span>
       </button>
     );

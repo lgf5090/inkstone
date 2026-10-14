@@ -178,18 +178,18 @@ export function AttachmentManager({ open, onClose, onChanged, }: {
         </div>
 
         <div className="min-h-0 flex-1 overflow-y-auto p-2">
-          {error ? (<div className="px-3 py-8 text-center text-[12px] text-[var(--danger)]">
+          {error ? (<div className="px-3 py-8 text-center text-[length:var(--text-12)] text-[var(--danger)]">
               {error}
-            </div>) : files === null ? (<LoadingBlock label={t("common.loading")}/>) : files.length === 0 ? (<div className="px-3 py-10 text-center text-[12px] text-[var(--text-quaternary)]">
+            </div>) : files === null ? (<LoadingBlock label={t("common.loading")}/>) : files.length === 0 ? (<div className="px-3 py-10 text-center text-[length:var(--text-12)] text-[var(--text-quaternary)]">
               {t("attachments.empty")}
-            </div>) : filtered.length === 0 ? (<div className="px-3 py-10 text-center text-[12px] text-[var(--text-quaternary)]">
+            </div>) : filtered.length === 0 ? (<div className="px-3 py-10 text-center text-[length:var(--text-12)] text-[var(--text-quaternary)]">
               {t("attachments.none_match")}
             </div>) : (<div className="grid grid-cols-2 gap-2">
               {filtered.map((file) => (<div key={file.id} className="group overflow-hidden rounded-[var(--r-md)] border border-[var(--border-subtle)] bg-[var(--bg-base)]">
                   <div className="relative flex aspect-[4/3] items-center justify-center overflow-hidden bg-[var(--bg-sunken)]">
                     {isImage(file) ? (<img src={file.url} alt={file.filename} loading="lazy" className="h-full w-full object-cover"/>) : (<div className="flex flex-col items-center gap-1 text-[var(--text-tertiary)]">
                         <FileText size={26}/>
-                        <span className="max-w-[80%] truncate text-[10px]">{file.filename}</span>
+                        <span className="max-w-[80%] truncate text-[length:var(--text-10)]">{file.filename}</span>
                       </div>)}
                     <div className="absolute top-1.5 right-1.5 opacity-100 transition-opacity md:opacity-0 md:group-hover:opacity-100 md:focus-within:opacity-100">
                       <Tooltip label={t("attachments.delete")} side="left">
@@ -200,10 +200,10 @@ export function AttachmentManager({ open, onClose, onChanged, }: {
                     </div>
                   </div>
                   <div className="space-y-0.5 px-2 py-1.5">
-                    <div className="truncate text-[11.5px] text-[var(--text-secondary)]">
+                    <div className="truncate text-[length:var(--text-11-5)] text-[var(--text-secondary)]">
                       {file.filename}
                     </div>
-                    <div className={cn('flex items-center gap-1 text-[10.5px]', file.references > 0 ? 'text-[var(--text-quaternary)]' : 'text-[var(--warning)]')}>
+                    <div className={cn('flex items-center gap-1 text-[length:var(--text-10-5)]', file.references > 0 ? 'text-[var(--text-quaternary)]' : 'text-[var(--warning)]')}>
                       <span className="tabular">{formatBytes(file.size)}</span>
                       <span aria-hidden="true">·</span>
                       <span>{file.references > 0 ? t("attachments.referenced_value0", { value0: file.references }) : t("attachments.unreferenced")}</span>
@@ -214,7 +214,7 @@ export function AttachmentManager({ open, onClose, onChanged, }: {
         </div>
 
         <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-t border-[var(--border-subtle)] px-3 py-2">
-          <span className="text-[11px] text-[var(--text-quaternary)]">
+          <span className="text-[length:var(--text-11)] text-[var(--text-quaternary)]">
             {files ? (nextCursor
                 ? t("attachments.shown_value0", { value0: filtered.length })
                 : t("attachments.total_value0", { value0: filtered.length })) : ''}

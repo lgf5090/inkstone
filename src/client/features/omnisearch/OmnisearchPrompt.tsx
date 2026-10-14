@@ -56,7 +56,7 @@ function ExcerptBody({ excerpt, terms, ignoreDiacritics }: {
     ignoreDiacritics: boolean;
 }) {
     if (!excerpt.lines.length) return null;
-    return (<div className="mt-0.5 space-y-px text-[11.5px] leading-relaxed text-[var(--text-quaternary)]">
+    return (<div className="mt-0.5 space-y-px text-[length:var(--text-11-5)] leading-relaxed text-[var(--text-quaternary)]">
         {excerpt.leading && <span aria-hidden="true">…</span>}
         {excerpt.lines.slice(0, 4).map((line, index) => (<div key={index} className="overflow-hidden text-ellipsis whitespace-nowrap">
             <Highlighted text={line.text} terms={terms} ignoreDiacritics={ignoreDiacritics}/>
@@ -97,17 +97,17 @@ const ResultRow = memo(function ResultRow({ result, active, index, listId, terms
             {result.isEmbed && (<Tooltip label={t('omnisearch.embedded_in')}>
                 <CornerDownRight size={12} className="shrink-0 text-[var(--text-quaternary)]"/>
               </Tooltip>)}
-            <span className="min-w-0 truncate text-[13px] text-[var(--text-primary)]">
+            <span className="min-w-0 truncate text-[length:var(--text-13)] text-[var(--text-primary)]">
               <Highlighted text={title} terms={terms} ignoreDiacritics={ignoreDiacritics}/>
               {!doc.displayTitle && !isFile && (<span className="text-[var(--text-quaternary)]">.{doc.ext}</span>)}
             </span>
-            {result.matchCount > 1 && (<span className="shrink-0 text-[10.5px] tabular text-[var(--text-quaternary)]">
+            {result.matchCount > 1 && (<span className="shrink-0 text-[length:var(--text-10-5)] tabular text-[var(--text-quaternary)]">
                 {t('omnisearch.match_count', {
                     value0: result.matchCount,
                 })}
               </span>)}
           </span>
-          {doc.folder && !isFile && (<span className="mt-0.5 flex min-w-0 items-center gap-1 text-[11px] text-[var(--text-quaternary)]">
+          {doc.folder && !isFile && (<span className="mt-0.5 flex min-w-0 items-center gap-1 text-[length:var(--text-11)] text-[var(--text-quaternary)]">
               <FolderOpen size={11} className="shrink-0"/>
               <span className="min-w-0 truncate">
                 <Highlighted text={doc.folder} terms={terms} ignoreDiacritics={ignoreDiacritics}/>
@@ -415,21 +415,21 @@ export function OmnisearchPrompt({ mode, seed, noteId }: {
           <h2 id={labelId} className="sr-only">{placeholder}</h2>
           <div className="flex items-center gap-2 border-b border-[var(--border-subtle)] px-3 py-2 md:px-4">
             <ScanSearch size={16} className="shrink-0 text-[var(--text-quaternary)]"/>
-            <input {...field} role="combobox" aria-label={placeholder} aria-expanded="true" aria-controls={listId} aria-activedescendant={activeRowId} aria-autocomplete="list" autoComplete="off" spellCheck={false} value={query} onChange={(event) => setQuery(event.target.value)} placeholder={placeholder} className="h-9 min-w-0 flex-1 bg-transparent text-[14.5px] text-[var(--text-primary)] placeholder:text-[var(--text-quaternary)] focus:outline-none"/>
+            <input {...field} role="combobox" aria-label={placeholder} aria-expanded="true" aria-controls={listId} aria-activedescendant={activeRowId} aria-autocomplete="list" autoComplete="off" spellCheck={false} value={query} onChange={(event) => setQuery(event.target.value)} placeholder={placeholder} className="h-9 min-w-0 flex-1 bg-transparent text-[length:var(--text-14-5)] text-[var(--text-primary)] placeholder:text-[var(--text-quaternary)] focus:outline-none"/>
             {query && (<IconButton label={t('common.clear')} size="sm" onClick={clear}>
                 <X size={14}/>
               </IconButton>)}
-            <span className="hidden shrink-0 rounded-[var(--r-sm)] border border-[var(--border-subtle)] bg-[var(--bg-inset)] px-1.5 py-0.5 text-[10.5px] text-[var(--text-tertiary)] md:inline-flex">
+            <span className="hidden shrink-0 rounded-[var(--r-sm)] border border-[var(--border-subtle)] bg-[var(--bg-inset)] px-1.5 py-0.5 text-[length:var(--text-10-5)] text-[var(--text-tertiary)] md:inline-flex">
               {scope === 'file' ? t('omnisearch.scope_file') : t('omnisearch.scope_vault')}
             </span>
           </div>
 
-          {statusLine && (<p role="status" className="border-b border-[var(--border-subtle)] bg-[var(--bg-inset)] px-4 py-1.5 text-[11px] text-[var(--text-tertiary)]">
+          {statusLine && (<p role="status" className="border-b border-[var(--border-subtle)] bg-[var(--bg-inset)] px-4 py-1.5 text-[length:var(--text-11)] text-[var(--text-tertiary)]">
               {statusLine}
             </p>)}
 
           <div ref={listRef} id={listId} role="listbox" aria-label={placeholder} className="min-h-0 flex-1 overflow-y-auto p-1.5">
-            {scope === 'file' && fileNoteId && (<div className="px-2.5 py-1 text-[10.5px] font-semibold tracking-[0.06em] text-[var(--text-quaternary)]">
+            {scope === 'file' && fileNoteId && (<div className="px-2.5 py-1 text-[length:var(--text-10-5)] font-semibold tracking-[0.06em] text-[var(--text-quaternary)]">
                 {notes[fileNoteId]?.title || t('common.untitled_note')}
               </div>)}
             {scope === 'file' ? fileRows.map((row, index) => (<FileRowView key={`${row.offset}-${index}`} row={row} index={index} active={index === cursor.index} listId={listId} terms={terms} ignoreDiacritics={search.ignoreDiacritics} onHover={(next) => setCursor({
@@ -443,14 +443,14 @@ export function OmnisearchPrompt({ mode, seed, noteId }: {
                     })} onHold={(item) => openResult(item, {
                         pane: true,
                     })}/>))}
-            {empty && (<div className="px-3 py-10 text-center text-[12.5px] text-[var(--text-quaternary)]">
+            {empty && (<div className="px-3 py-10 text-center text-[length:var(--text-12-5)] text-[var(--text-quaternary)]">
                 {query.trim() ? t('omnisearch.no_results') : t('omnisearch.type_to_search')}
-                {parsed?.trash && (<p className="mt-1 text-[11.5px]">{t('omnisearch.trash_hint')}</p>)}
+                {parsed?.trash && (<p className="mt-1 text-[length:var(--text-11-5)]">{t('omnisearch.trash_hint')}</p>)}
               </div>)}
-            {searching && rows > 0 && (<div className="px-3 py-2 text-center text-[11.5px] text-[var(--text-quaternary)]">{t('navigation.searching')}</div>)}
+            {searching && rows > 0 && (<div className="px-3 py-2 text-center text-[length:var(--text-11-5)] text-[var(--text-quaternary)]">{t('navigation.searching')}</div>)}
           </div>
 
-          <div className="flex items-center gap-2 border-t border-[var(--border-subtle)] px-3 py-2 text-[10.5px] text-[var(--text-quaternary)]">
+          <div className="flex items-center gap-2 border-t border-[var(--border-subtle)] px-3 py-2 text-[length:var(--text-10-5)] text-[var(--text-quaternary)]">
             {breakpoint === 'mobile' ? (<div className="flex min-w-0 flex-1 flex-wrap items-center gap-1.5">
                 <button type="button" onClick={switchScope} className="rounded-[var(--r-sm)] border border-[var(--border-subtle)] px-2 py-1">
                   {scope === 'file' ? t('omnisearch.scope_vault') : t('omnisearch.scope_file')}
@@ -502,7 +502,7 @@ function FileRowView({ row, index, active, listId, terms, ignoreDiacritics, onHo
 }) {
     return (<button id={`${listId}-option-${index}`} type="button" role="option" aria-selected={active} tabIndex={-1} data-index={index} onMouseEnter={() => onHover(index)} onClick={(event) => onInvoke(event.metaKey || event.ctrlKey)} className={active ? ROW_ACTIVE_CLASS : ROW_CLASS}>
         <span className="min-w-0 flex-1">
-          <span className="block text-[10.5px] tabular text-[var(--text-quaternary)]">
+          <span className="block text-[length:var(--text-10-5)] tabular text-[var(--text-quaternary)]">
             {t('omnisearch.at_offset', {
                 value0: row.offset,
             })}

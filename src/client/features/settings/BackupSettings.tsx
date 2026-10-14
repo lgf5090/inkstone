@@ -94,8 +94,8 @@ export function BackupSettings() {
           <div className="flex items-start gap-3">
             <AlertCircle size={16} className="mt-0.5 shrink-0 text-[var(--danger)]"/>
             <div className="min-w-0 flex-1">
-              <div className="text-[13px] font-medium text-[var(--text-primary)]">{t("settings.could_not_load_backup_settings")}</div>
-              <p className="mt-1 break-words text-[11.5px] text-[var(--text-tertiary)]">{loadError}</p>
+              <div className="text-[length:var(--text-13)] font-medium text-[var(--text-primary)]">{t("settings.could_not_load_backup_settings")}</div>
+              <p className="mt-1 break-words text-[length:var(--text-11-5)] text-[var(--text-tertiary)]">{loadError}</p>
             </div>
             <Button size="sm" variant="secondary" onClick={() => void reload()}>{t("common.retry")}</Button>
           </div>
@@ -104,7 +104,7 @@ export function BackupSettings() {
         return <LoadingBlock label={t("settings.loading_backup_configuration")}/>;
     const enabled = targets.filter((t) => t.enabled).length;
     return (<div className="space-y-6">
-      {loadError && (<div className="flex items-start gap-2 rounded-[var(--r-md)] border border-[color-mix(in_oklab,var(--danger)_25%,var(--border-subtle))] bg-[var(--bg-base)] px-3 py-2 text-[11.5px] text-[var(--danger)]">
+      {loadError && (<div className="flex items-start gap-2 rounded-[var(--r-md)] border border-[color-mix(in_oklab,var(--danger)_25%,var(--border-subtle))] bg-[var(--bg-base)] px-3 py-2 text-[length:var(--text-11-5)] text-[var(--danger)]">
           <AlertCircle size={13} className="mt-0.5 shrink-0"/>
           <span className="min-w-0 flex-1 break-words">{loadError}</span>
           <button type="button" className="shrink-0 font-medium underline underline-offset-2" onClick={() => void reload()}>{t("common.retry")}</button>
@@ -116,10 +116,10 @@ export function BackupSettings() {
             <CloudUpload size={18}/>
           </span>
           <div className="min-w-0 flex-1">
-            <div className="text-[13px] font-medium text-[var(--text-primary)]">
+            <div className="text-[length:var(--text-13)] font-medium text-[var(--text-primary)]">
               {enabled > 0 ? t("settings.value0_backup_targets_active", { value0: enabled }) : t("settings.no_backup_configured_yet")}
             </div>
-            <p className="mt-1 text-[11.5px] leading-relaxed text-[var(--text-tertiary)]">{t("settings.each_backup_goes_independently_to_every_enabled_target_it_includes_notes")}</p>
+            <p className="mt-1 text-[length:var(--text-11-5)] leading-relaxed text-[var(--text-tertiary)]">{t("settings.each_backup_goes_independently_to_every_enabled_target_it_includes_notes")}</p>
           </div>
           <Button data-setting-title={t("settings.back_up_now")} size="sm" variant="primary" icon={running ? undefined : <Zap size={13}/>} loading={running} disabled={!enabled} onClick={() => void runBackup()}>{t("settings.back_up_now")}</Button>
         </div>
@@ -128,7 +128,7 @@ export function BackupSettings() {
       { }
       <section>
         <div className="mb-2 flex items-center justify-between">
-          <h3 data-setting-title={t("settings.backup_target")} className="text-[11px] font-semibold tracking-[0.06em] text-[var(--text-quaternary)]">{t("settings.backup_target")}</h3>
+          <h3 data-setting-title={t("settings.backup_target")} className="text-[length:var(--text-11)] font-semibold tracking-[0.06em] text-[var(--text-quaternary)]">{t("settings.backup_target")}</h3>
           <Button size="sm" variant="secondary" icon={<Plus size={13}/>} onClick={() => setEditing('new')}>{t("settings.add_target")}</Button>
         </div>
 
@@ -141,7 +141,7 @@ export function BackupSettings() {
 
       { }
       <section>
-        <h3 className="mb-1 text-[11px] font-semibold tracking-[0.06em] text-[var(--text-quaternary)]">{t("settings.automatic_backups")}</h3>
+        <h3 className="mb-1 text-[length:var(--text-11)] font-semibold tracking-[0.06em] text-[var(--text-quaternary)]">{t("settings.automatic_backups")}</h3>
         <SettingRow title={t("settings.frequency")} description={t("settings.runs_from_cloudflare_cron_the_page_does_not_need_to_stay_open")}>
           <Select aria-label={t("settings.frequency")} className="min-w-36" value={backup.schedule} onChange={(event) => void update({ backup: { schedule: event.target.value as BackupSchedule } })}>
             <option value="off">{t("common.close")}</option>
@@ -164,8 +164,8 @@ export function BackupSettings() {
 
       { }
       <section>
-        <h3 data-setting-title={t("settings.latest_backups")} className="mb-2 text-[11px] font-semibold tracking-[0.06em] text-[var(--text-quaternary)]">{t("settings.latest_backups")}</h3>
-        {runs.length === 0 ? (<p className="rounded-[var(--r-md)] border border-[var(--border-subtle)] bg-[var(--bg-inset)] px-3 py-4 text-center text-[12px] text-[var(--text-quaternary)]">{t("settings.no_backup_record_yet")}</p>) : (<ul className="space-y-1">
+        <h3 data-setting-title={t("settings.latest_backups")} className="mb-2 text-[length:var(--text-11)] font-semibold tracking-[0.06em] text-[var(--text-quaternary)]">{t("settings.latest_backups")}</h3>
+        {runs.length === 0 ? (<p className="rounded-[var(--r-md)] border border-[var(--border-subtle)] bg-[var(--bg-inset)] px-3 py-4 text-center text-[length:var(--text-12)] text-[var(--text-quaternary)]">{t("settings.no_backup_record_yet")}</p>) : (<ul className="space-y-1">
             {runs.slice(0, 12).map((run) => (<RunRow key={run.id} run={run}/>))}
           </ul>)}
       </section>
@@ -206,20 +206,20 @@ function TargetCard({ target, onEdit, onChanged, onPatch, onRemove, onRestore, }
 
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
-            <span className="truncate text-[13px] font-medium text-[var(--text-primary)]">
+            <span className="truncate text-[length:var(--text-13)] font-medium text-[var(--text-primary)]">
               {target.name}
             </span>
             <Badge tone="neutral">{target.type === 's3' ? 'S3' : 'WebDAV'}</Badge>
           </div>
-          <div className="mt-0.5 truncate text-[11.5px] text-[var(--text-quaternary)]">{location}</div>
+          <div className="mt-0.5 truncate text-[length:var(--text-11-5)] text-[var(--text-quaternary)]">{location}</div>
 
-          {target.lastRunAt && (<div className={cn('mt-1.5 flex items-center gap-1.5 text-[11px]', target.lastStatus === 'success' ? 'text-[var(--success)]' : 'text-[var(--danger)]')}>
+          {target.lastRunAt && (<div className={cn('mt-1.5 flex items-center gap-1.5 text-[length:var(--text-11)]', target.lastStatus === 'success' ? 'text-[var(--success)]' : 'text-[var(--danger)]')}>
               {target.lastStatus === 'success' ? (<CheckCircle2 size={11}/>) : (<AlertCircle size={11}/>)}
               {target.lastStatus === 'success' ? t("settings.last_backup_succeeded") : translateServiceMessage(target.lastError) || t("settings.last_backup_failed")}
               <span className="text-[var(--text-quaternary)]">· {lastRunTime}</span>
             </div>)}
 
-          {result && (<div className={cn('mt-1.5 flex items-start gap-1.5 rounded-[var(--r-sm)] px-2 py-1.5 text-[11px]', result.ok
+          {result && (<div className={cn('mt-1.5 flex items-start gap-1.5 rounded-[var(--r-sm)] px-2 py-1.5 text-[length:var(--text-11)]', result.ok
                 ? 'bg-[color-mix(in_oklab,var(--success)_12%,transparent)] text-[var(--success)]'
                 : 'bg-[color-mix(in_oklab,var(--danger)_11%,transparent)] text-[var(--danger)]')}>
               {result.ok ? <CheckCircle2 size={11} className="mt-px"/> : <AlertCircle size={11} className="mt-px"/>}
@@ -434,7 +434,7 @@ function TargetForm({ target, onClose, onSaved, }: {
           <Button variant="primary" loading={saving} disabled={testing} onClick={() => void save()}>{t("common.save")}</Button>
         </>}>
       <fieldset disabled={saving || testing} aria-busy={saving || testing} className="min-w-0 space-y-3.5 border-0 p-0">
-        {target && type !== target.type && (<div className="flex items-start gap-2 rounded-[var(--r-md)] border border-[color-mix(in_oklab,var(--warning)_28%,var(--border-subtle))] bg-[var(--bg-inset)] px-3 py-2 text-[11.5px] text-[var(--warning)]">
+        {target && type !== target.type && (<div className="flex items-start gap-2 rounded-[var(--r-md)] border border-[color-mix(in_oklab,var(--warning)_28%,var(--border-subtle))] bg-[var(--bg-inset)] px-3 py-2 text-[length:var(--text-11-5)] text-[var(--warning)]">
             <AlertCircle size={13} className="mt-0.5 shrink-0"/>
             <span>{t("settings.enter_the_complete_credentials_for_the_new_backup_type_after_switching_t")}</span>
           </div>)}
@@ -446,35 +446,35 @@ function TargetForm({ target, onClose, onSaved, }: {
         </Field>
 
         {!target && (<div className="space-y-2.5">
-            <p className="text-[11px] font-medium tracking-[0.04em] text-[var(--text-quaternary)]">
+            <p className="text-[length:var(--text-11)] font-medium tracking-[0.04em] text-[var(--text-quaternary)]">
               {type === 'webdav' ? 'WebDAV' : 'S3'} · {t("settings.common_provider_presets_optional_click_to_autofill")}</p>
             <div className="grid grid-cols-3 gap-1.5">
               {recommendedPresets.map((preset) => (<button key={preset.id} type="button" onClick={() => applyBackupPreset(preset)} className={cn('flex flex-col gap-0.5 rounded-[var(--r-md)] border px-2.5 py-2 text-left', 'transition-colors duration-[var(--dur-fast)]', activePreset === preset.id
                     ? 'border-[var(--accent)] bg-[var(--accent-softer)]'
                     : 'border-[var(--border-default)] hover:border-[var(--border-strong)] hover:bg-[var(--bg-hover)]')}>
                   <span className="flex w-full items-center justify-between gap-1">
-                    <span className={cn('truncate text-[12px] font-medium', activePreset === preset.id ? 'text-[var(--accent)]' : 'text-[var(--text-primary)]')}>
+                    <span className={cn('truncate text-[length:var(--text-12)] font-medium', activePreset === preset.id ? 'text-[var(--accent)]' : 'text-[var(--text-primary)]')}>
                       {preset.name}
                     </span>
-                    <span className="shrink-0 text-[9.5px] uppercase tracking-wide text-[var(--text-quaternary)]">
+                    <span className="shrink-0 text-[length:var(--text-9-5)] uppercase tracking-wide text-[var(--text-quaternary)]">
                       {preset.type === 'webdav' ? 'DAV' : 'S3'}
                     </span>
                   </span>
-                  <span className="text-[10.5px] text-[var(--success)]">{preset.quota}</span>
+                  <span className="text-[length:var(--text-10-5)] text-[var(--success)]">{preset.quota}</span>
                 </button>))}
             </div>
 
             {guide && (<div className="anim-rise rounded-[var(--r-md)] border border-[color-mix(in_oklab,var(--accent)_28%,transparent)] bg-[var(--accent-softer)] px-3 py-2.5">
                 <div className="flex flex-wrap items-center justify-between gap-2">
-                  <span className="text-[12px] font-medium text-[var(--text-primary)]">
+                  <span className="text-[length:var(--text-12)] font-medium text-[var(--text-primary)]">
                     {guide.name} · {guide.tagline}
                   </span>
-                  <a href={guide.signupUrl} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 rounded-[var(--r-sm)] border border-[var(--border-default)] bg-[var(--bg-surface)] px-2 py-0.5 text-[11px] text-[var(--text-secondary)] transition-colors hover:border-[var(--accent)] hover:text-[var(--accent)]">
+                  <a href={guide.signupUrl} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 rounded-[var(--r-sm)] border border-[var(--border-default)] bg-[var(--bg-surface)] px-2 py-0.5 text-[length:var(--text-11)] text-[var(--text-secondary)] transition-colors hover:border-[var(--accent)] hover:text-[var(--accent)]">
                     {guide.signupLabel ?? t("settings.sign_up")}
                     <ExternalLink size={10}/>
                   </a>
                 </div>
-                <ol className="mt-1.5 list-decimal space-y-1 pl-4 text-[11.5px] leading-relaxed text-[var(--text-secondary)] marker:text-[var(--accent)]">
+                <ol className="mt-1.5 list-decimal space-y-1 pl-4 text-[length:var(--text-11-5)] leading-relaxed text-[var(--text-secondary)] marker:text-[var(--accent)]">
                   {guide.steps.map((step, index) => (<li key={index}>
                       {step.map((part, partIndex) => part.href ? (<a key={partIndex} href={part.href} target="_blank" rel="noopener noreferrer" className="font-medium text-[var(--accent)] underline decoration-[color-mix(in_oklab,var(--accent)_35%,transparent)] underline-offset-2 hover:decoration-[var(--accent)]">
                           {part.text}
@@ -482,11 +482,11 @@ function TargetForm({ target, onClose, onSaved, }: {
                     </li>))}
                 </ol>
                 {guide.addressIntro && guide.addresses && (<div className="mt-2 border-t border-[color-mix(in_oklab,var(--accent)_18%,transparent)] pt-2">
-                    <p className="text-[11px] leading-relaxed text-[var(--text-tertiary)]">{guide.addressIntro}</p>
+                    <p className="text-[length:var(--text-11)] leading-relaxed text-[var(--text-tertiary)]">{guide.addressIntro}</p>
                     <dl className="mt-1.5 grid gap-1 sm:grid-cols-2">
                       {guide.addresses.map((address) => (<div key={address.label} className="min-w-0 rounded-[var(--r-sm)] bg-[var(--bg-surface)] px-2 py-1.5">
-                          <dt className="text-[10.5px] font-medium text-[var(--text-secondary)]">{address.label}</dt>
-                          <dd className="mt-0.5 overflow-x-auto whitespace-nowrap font-mono text-[10px] text-[var(--text-quaternary)]">{address.url}</dd>
+                          <dt className="text-[length:var(--text-10-5)] font-medium text-[var(--text-secondary)]">{address.label}</dt>
+                          <dd className="mt-0.5 overflow-x-auto whitespace-nowrap font-mono text-[length:var(--text-10)] text-[var(--text-quaternary)]">{address.url}</dd>
                         </div>))}
                     </dl>
                   </div>)}
@@ -536,7 +536,7 @@ function TargetForm({ target, onClose, onSaved, }: {
           <Input value={form.prefix} onChange={(e) => setForm({ ...form, prefix: e.target.value })} placeholder="inkstone"/>
         </Field>
 
-        {result && (<div role={result.ok ? 'status' : 'alert'} className={cn('flex items-start gap-2 rounded-[var(--r-md)] px-3 py-2.5 text-[12px] leading-relaxed', result.ok
+        {result && (<div role={result.ok ? 'status' : 'alert'} className={cn('flex items-start gap-2 rounded-[var(--r-md)] px-3 py-2.5 text-[length:var(--text-12)] leading-relaxed', result.ok
                 ? 'bg-[color-mix(in_oklab,var(--success)_12%,transparent)] text-[var(--success)]'
                 : 'bg-[color-mix(in_oklab,var(--danger)_11%,transparent)] text-[var(--danger)]')}>
             {result.ok ? (<CheckCircle2 size={13} className="mt-px shrink-0"/>) : (<AlertCircle size={13} className="mt-px shrink-0"/>)}
@@ -558,17 +558,17 @@ function RunRow({ run }: {
             : tone === 'warning'
                 ? 'bg-[var(--warning)]'
                 : 'bg-[var(--danger)]')}/>
-        <span className="min-w-0 flex-1 truncate text-[12px] text-[var(--text-secondary)]">
+        <span className="min-w-0 flex-1 truncate text-[length:var(--text-12)] text-[var(--text-secondary)]">
           {startedTime} · {run.trigger === 'cron' ? t("settings.scheduled") : t("settings.manual")}
         </span>
-        <span className="shrink-0 text-[11px] tabular text-[var(--text-quaternary)]">
+        <span className="shrink-0 text-[length:var(--text-11)] tabular text-[var(--text-quaternary)]">
           {run.noteCount}{t("settings.notes")}{formatBytes(run.bytes)}
           {run.finishedAt ? ` · ${formatDuration(run.finishedAt - run.startedAt)}` : ''}
         </span>
       </button>
 
       {open && run.results.length > 0 && (<ul className="border-t border-[var(--border-subtle)] bg-[var(--bg-inset)] px-3 py-2">
-          {run.results.map((result, index) => (<li key={`${result.targetId}-${index}`} className="flex items-start gap-2 py-1 text-[11.5px]">
+          {run.results.map((result, index) => (<li key={`${result.targetId}-${index}`} className="flex items-start gap-2 py-1 text-[length:var(--text-11-5)]">
               {result.ok ? (<CheckCircle2 size={11} className="mt-0.5 shrink-0 text-[var(--success)]"/>) : (<AlertCircle size={11} className="mt-0.5 shrink-0 text-[var(--danger)]"/>)}
               <span className="shrink-0 text-[var(--text-secondary)]">{result.targetName}</span>
               <span className="min-w-0 flex-1 text-[var(--text-quaternary)]">

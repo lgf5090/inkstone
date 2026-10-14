@@ -53,7 +53,7 @@ export function PageStatus({ book, page, fraction, minutesLeft, onJump }: PageSt
         }}
         aria-label={t('reading.jump_to_hint')}
         placeholder={`${percent}%`}
-        className="h-8 w-28 bg-[var(--reader-bg)] px-2 text-center text-[12px] tabular text-[var(--reader-fg)]"
+        className="h-8 w-28 bg-[var(--reader-bg)] px-2 text-center text-[length:var(--text-12)] tabular text-[var(--reader-fg)]"
       />
     )
   }

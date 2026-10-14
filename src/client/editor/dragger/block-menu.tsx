@@ -59,7 +59,7 @@ function icon(name: DraggerIconName) {
 
 /** A style the reader wrote carries its own glyph; a built-in row keeps the mapped lucide mark. */
 function rowIcon(option: { icon: DraggerIconName; glyph?: string }) {
-  return option.glyph ? <span className="text-[15px] leading-none" aria-hidden="true">{option.glyph}</span> : icon(option.icon)
+  return option.glyph ? <span className="text-[length:var(--text-15)] leading-none" aria-hidden="true">{option.glyph}</span> : icon(option.icon)
 }
 
 /**

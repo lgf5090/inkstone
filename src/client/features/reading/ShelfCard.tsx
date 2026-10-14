@@ -75,7 +75,7 @@ export function ShelfCard({
         ) : (
           <span className="reader-shelf-cover flex flex-col items-center justify-center gap-1.5 border border-[var(--border-subtle)] bg-[var(--bg-sunken)] px-2 text-center">
             <BookOpen size={22} className="text-[var(--text-quaternary)]" />
-            <span className="line-clamp-4 font-serif text-[12px] leading-snug text-[var(--text-secondary)]">{book.title}</span>
+            <span className="line-clamp-4 font-serif text-[length:var(--text-12)] leading-snug text-[var(--text-secondary)]">{book.title}</span>
           </span>
         )}
         <span
@@ -84,11 +84,11 @@ export function ShelfCard({
           aria-hidden="true"
         />
         {finished ? (
-          <span className="absolute top-1.5 left-1.5 rounded-[var(--r-sm)] bg-[var(--bg-overlay)] px-1.5 py-0.5 text-[10px] font-semibold text-[var(--success)] shadow-[var(--shadow-xs)]">
+          <span className="absolute top-1.5 left-1.5 rounded-[var(--r-sm)] bg-[var(--bg-overlay)] px-1.5 py-0.5 text-[length:var(--text-10)] font-semibold text-[var(--success)] shadow-[var(--shadow-xs)]">
             {t('reading.finished')}
           </span>
         ) : percent > 0 ? (
-          <span className="absolute top-1.5 left-1.5 rounded-[var(--r-sm)] bg-[var(--bg-overlay)] px-1.5 py-0.5 text-[10px] font-medium tabular text-[var(--text-secondary)] shadow-[var(--shadow-xs)]">
+          <span className="absolute top-1.5 left-1.5 rounded-[var(--r-sm)] bg-[var(--bg-overlay)] px-1.5 py-0.5 text-[length:var(--text-10)] font-medium tabular text-[var(--text-secondary)] shadow-[var(--shadow-xs)]">
             {percent}%
           </span>
         ) : null}
@@ -97,24 +97,24 @@ export function ShelfCard({
       {captionless ? <span className="reader-shelf-hover-title">{book.title}</span> : null}
       <div className={captionless ? 'sr-only' : 'mt-1.5 min-w-0'}>
         <Tooltip label={book.title} side="top">
-          <p className="truncate text-[12.5px] font-medium text-[var(--text-primary)]">{book.title}</p>
+          <p className="truncate text-[length:var(--text-12-5)] font-medium text-[var(--text-primary)]">{book.title}</p>
         </Tooltip>
-        <p className="truncate text-[11px] text-[var(--text-tertiary)]">
+        <p className="truncate text-[length:var(--text-11)] text-[var(--text-tertiary)]">
           {book.author || t('reading.unknown_author')}
         </p>
         {groupNames.length ? (
           <p className="mt-0.5 flex gap-1 overflow-hidden">
             {groupNames.slice(0, 2).map((name) => (
-              <span key={name} className="max-w-full truncate rounded-full border border-[var(--border-subtle)] px-1.5 text-[10px] text-[var(--text-quaternary)]">
+              <span key={name} className="max-w-full truncate rounded-full border border-[var(--border-subtle)] px-1.5 text-[length:var(--text-10)] text-[var(--text-quaternary)]">
                 {name}
               </span>
             ))}
             {groupNames.length > 2 ? (
-              <span className="text-[10px] tabular text-[var(--text-quaternary)]">+{groupNames.length - 2}</span>
+              <span className="text-[length:var(--text-10)] tabular text-[var(--text-quaternary)]">+{groupNames.length - 2}</span>
             ) : null}
           </p>
         ) : null}
-        <p className="mt-0.5 flex items-center gap-1 truncate text-[10.5px] text-[var(--text-quaternary)]">
+        <p className="mt-0.5 flex items-center gap-1 truncate text-[length:var(--text-10-5)] text-[var(--text-quaternary)]">
           {highlightCount > 0 ? (
             <span className="inline-flex items-center gap-0.5">
               <PenLine size={10} />

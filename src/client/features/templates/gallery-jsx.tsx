@@ -53,7 +53,7 @@ export function GallerySidebar({ g }: { g: GalleryController }) {
       <SidebarButton icon={<Globe size={14}/>} label={t('templates.community')} count={g.community.community.length} active={filter.kind === 'community'} onClick={() => setFilter({ kind: 'community' })}/>
       {derived.counts.uncategorized > 0 && <SidebarButton icon={<FolderPlus size={14}/>} label={t('templates.uncategorized')} count={derived.counts.uncategorized} active={filter.kind === 'uncategorized'} onClick={() => setFilter({ kind: 'uncategorized' })}/>}
       <div className='mt-[var(--sp-3)] mb-[var(--sp-1)] flex items-center justify-between px-[var(--sp-2)]'>
-        <span className='text-[10.5px] font-semibold tracking-[0.06em] text-[var(--text-quaternary)]'>{t('templates.categories')}</span>
+        <span className='text-[length:var(--text-10-5)] font-semibold tracking-[0.06em] text-[var(--text-quaternary)]'>{t('templates.categories')}</span>
         <Tooltip label={t('templates.new_category')} side='right'>
           <button type='button' aria-label={t('templates.new_category')} onClick={() => state.setCategoryDialog({ mode: 'create' })} className='flex size-6 items-center justify-center rounded-md text-[var(--text-quaternary)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-secondary)]'>
             <Plus size={13}/>
@@ -71,12 +71,12 @@ export function GallerySidebar({ g }: { g: GalleryController }) {
         }}/>))}
       </div>
       {derived.tagList.length > 0 && (<>
-        <div className='mt-[var(--sp-3)] mb-[var(--sp-1)] px-[var(--sp-2)] text-[10.5px] font-semibold tracking-[0.06em] text-[var(--text-quaternary)]'>{t('templates.tags')}</div>
+        <div className='mt-[var(--sp-3)] mb-[var(--sp-1)] px-[var(--sp-2)] text-[length:var(--text-10-5)] font-semibold tracking-[0.06em] text-[var(--text-quaternary)]'>{t('templates.tags')}</div>
         <div className='space-y-0.5'>
           {derived.tagList.map(([tag, count]) => (<SidebarButton key={tag} icon={<Hash size={14}/>} label={tag} count={count} active={filter.kind === 'tag' && filter.tag === tag} onClick={() => filterActions.toggleTagFilter(tag)}/>))}
         </div>
       </>)}
-      <button type='button' onClick={() => state.setCategoryDialog({ mode: 'create' })} className='mt-[var(--sp-2)] flex h-8 w-full items-center gap-1.5 rounded-[var(--r-md)] px-[var(--sp-2)] text-[12px] text-[var(--text-tertiary)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-secondary)]'>
+      <button type='button' onClick={() => state.setCategoryDialog({ mode: 'create' })} className='mt-[var(--sp-2)] flex h-8 w-full items-center gap-1.5 rounded-[var(--r-md)] px-[var(--sp-2)] text-[length:var(--text-12)] text-[var(--text-tertiary)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-secondary)]'>
         <Plus size={13}/>{t('templates.new_category')}
       </button>
     </aside>
@@ -107,19 +107,19 @@ export function GalleryMain({ g }: { g: GalleryController }) {
   return (
     <main className='min-h-0 flex-1 overflow-y-auto p-[var(--sp-3)] md:p-4'>
       {filter.kind === 'community' && <CommunityPanel items={community.community} query={state.query} hasMore={community.hasMoreCommunity} onLoadMore={community.loadMoreCommunity} loading={community.isCommunityLoading} isError={community.isCommunityError} myId={state.currentUserId} onRefresh={() => void community.refreshCommunity()} onUse={templateActions.useCommunityTemplate} onImport={templateActions.importCommunityTemplate} onUnpublish={(item) => void communityActions.unpublishCommunityTemplate(item)}/>}
-      {filter.kind !== 'community' && derived.visible.some((item) => item.isPinned) && (<div className='mb-[var(--sp-3)] flex items-center gap-1.5 text-[10.5px] font-semibold tracking-[0.06em] text-[var(--text-quaternary)]'>
+      {filter.kind !== 'community' && derived.visible.some((item) => item.isPinned) && (<div className='mb-[var(--sp-3)] flex items-center gap-1.5 text-[length:var(--text-10-5)] font-semibold tracking-[0.06em] text-[var(--text-quaternary)]'>
         <Pin size={11}/>{t('notes.pin')}
       </div>)}
       {filter.kind !== 'community' && derived.visible.length === 0 ? (<div className='flex h-full min-h-[240px] flex-col items-center justify-center gap-[var(--sp-2)] text-center'>
         <LayoutTemplate size={26} className='text-[var(--text-quaternary)]'/>
-        <p className='text-[13px] font-medium text-[var(--text-secondary)]'>
+        <p className='text-[length:var(--text-13)] font-medium text-[var(--text-secondary)]'>
           {state.filter.kind === 'category'
             ? t('templates.no_in_category_value0', { value0: filterActions.categoryName(state.filter.id) })
             : state.filter.kind === 'tag'
               ? t('templates.no_in_tag_value0', { value0: state.filter.tag })
               : t(GALLERY_EMPTY_TITLE[derived.emptyState])}
         </p>
-        <p className='text-[11.5px] text-[var(--text-quaternary)]'>{t(GALLERY_EMPTY_HINT[derived.emptyState])}</p>
+        <p className='text-[length:var(--text-11-5)] text-[var(--text-quaternary)]'>{t(GALLERY_EMPTY_HINT[derived.emptyState])}</p>
       </div>) : filter.kind !== 'community' && (<div ref={state.gridRef} className='grid grid-cols-1 gap-2.5 sm:grid-cols-2 xl:grid-cols-3'>
         {derived.visible.map((template) => (<TemplateCard key={template.id} template={template} categoryName={filterActions.categoryName(template.categoryId)} selectMode={selectMode} selected={selectedIds.has(template.id)} focused={focusedId === template.id} dragging={draggingId === template.id} dropHint={dropHint?.id === template.id ? dropHint.after : null} onToggleSelect={() => selectActions.toggleSelect(template.id)} onDragStart={(id) => state.setDraggingId(id)} onDragOver={(id, after) => state.setDropHint({ id, after })} onDrop={(card, after) => dragActions.handleCardDrop(card, after)} onDragEnd={() => {
             state.setDraggingId(null)
@@ -134,7 +134,7 @@ export function GallerySelectBar({ g }: { g: GalleryController }) {
   const { state, derived, selectActions, batchActions } = g
   return (
     <div className='flex shrink-0 flex-wrap items-center gap-[var(--sp-2)] border-t border-[var(--border-subtle)] bg-[var(--bg-overlay)] px-[var(--sp-4)] py-2.5'>
-      <span className='text-[12.5px] font-semibold text-[var(--text-secondary)]'>{t('templates.selected_count_value0', { value0: state.selectedIds.size })}</span>
+      <span className='text-[length:var(--text-12-5)] font-semibold text-[var(--text-secondary)]'>{t('templates.selected_count_value0', { value0: state.selectedIds.size })}</span>
       <div className='ml-auto flex flex-wrap items-center gap-1.5'>
         <Button size='sm' variant='ghost' onClick={selectActions.toggleSelectAll}>{derived.allVisibleSelected ? t('templates.clear_selection') : t('templates.select_all')}</Button>
         <Button size='sm' variant='secondary' icon={<Star size={13}/>} disabled={state.selectedIds.size === 0} onClick={batchActions.batchToggleStar}>{derived.allSelectedStarred ? t('common.remove_from_favorites') : t('navigation.favorites')}</Button>

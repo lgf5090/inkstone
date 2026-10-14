@@ -109,7 +109,7 @@ function OtherColors({ colors, onPick }: { colors: readonly HighlightColor[]; on
   return (
     <div ref={ref} className="relative">
       <Tooltip label={t('reading.more_colors')} side="top">
-        <button type="button" aria-label={t('reading.more_colors')} aria-expanded={open} onClick={() => setOpen((current) => !current)} className="inline-flex items-center justify-center text-[13px] font-semibold">
+        <button type="button" aria-label={t('reading.more_colors')} aria-expanded={open} onClick={() => setOpen((current) => !current)} className="inline-flex items-center justify-center text-[length:var(--text-13)] font-semibold">
           ⋯
         </button>
       </Tooltip>

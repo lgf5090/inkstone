@@ -25,11 +25,11 @@ export function MarksPanel({ bookId, onJump, onRemove }: MarksPanelProps) {
 
   if (!marks.length) {
     return (
-      <div className="px-3 py-6 text-center text-[12px] opacity-60">
+      <div className="px-3 py-6 text-center text-[length:var(--text-12)] opacity-60">
         <p>{t('reading.no_marks')}</p>
         <p className="mt-1">{t('reading.no_marks_hint')}</p>
         {progress?.position ? (
-          <p className="mt-2 text-[11px]">{t('reading.current_position_value0', { value0: formatPercent(progress.fraction) })}</p>
+          <p className="mt-2 text-[length:var(--text-11)]">{t('reading.current_position_value0', { value0: formatPercent(progress.fraction) })}</p>
         ) : null}
       </div>
     )
@@ -44,8 +44,8 @@ export function MarksPanel({ bookId, onJump, onRemove }: MarksPanelProps) {
             className="min-w-0 flex-1 px-1 py-1.5 text-left"
             onClick={() => onJump(mark.position)}
           >
-            <span className="block truncate text-[12.5px]">{mark.label}</span>
-            <span className="block text-[10.5px] tabular opacity-55">
+            <span className="block truncate text-[length:var(--text-12-5)]">{mark.label}</span>
+            <span className="block text-[length:var(--text-10-5)] tabular opacity-55">
               {mark.position.kind === 'epub'
                 ? t('reading.chapter_value0', { value0: mark.position.chapter + 1 })
                 : t('reading.page_value0', { value0: mark.position.page })}

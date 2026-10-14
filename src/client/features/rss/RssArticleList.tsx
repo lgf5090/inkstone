@@ -317,7 +317,7 @@ export function RssArticleList({ onOpen, onManage }: { onOpen: () => void, onMan
         </div>
       </div>
       {cachedSince !== null && entries.length > 0 && (
-        <p className="shrink-0 px-2 pb-2 text-[11px] leading-snug text-[var(--text-quaternary)]">
+        <p className="shrink-0 px-2 pb-2 text-[length:var(--text-11)] leading-snug text-[var(--text-quaternary)]">
           {t('rss.showing_cached', { time: shortSince(cachedSince) })}
         </p>
       )}

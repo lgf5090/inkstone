@@ -61,7 +61,7 @@ export function SearchSettings() {
                 showPreviousQueryResults,
             })} label={t('settings.search_show_previous')}/>
         </SettingRow>
-        <div className="mt-3 flex flex-wrap items-center gap-2 rounded-[var(--r-md)] border border-[var(--border-subtle)] bg-[var(--bg-inset)] px-3 py-2 text-[11.5px] text-[var(--text-tertiary)]">
+        <div className="mt-3 flex flex-wrap items-center gap-2 rounded-[var(--r-md)] border border-[var(--border-subtle)] bg-[var(--bg-inset)] px-3 py-2 text-[length:var(--text-11-5)] text-[var(--text-tertiary)]">
           <ScanSearch size={14} className="shrink-0 text-[var(--text-quaternary)]"/>
           <span>{t('settings.search_indexed_notes', {
                 value0: status.indexed,
@@ -80,7 +80,7 @@ export function SearchSettings() {
       </section>
 
       <section>
-        <h3 data-setting-title={t('settings.search_index_limits')} className="mb-1 text-[11px] font-semibold tracking-[0.06em] text-[var(--text-quaternary)]">
+        <h3 data-setting-title={t('settings.search_index_limits')} className="mb-1 text-[length:var(--text-11)] font-semibold tracking-[0.06em] text-[var(--text-quaternary)]">
           {t('settings.search_index_limits')}
         </h3>
         <SettingRow title={t('settings.search_use_cache')} description={t('settings.search_use_cache_desc')}>
@@ -112,7 +112,7 @@ export function SearchSettings() {
       </section>
 
       <section>
-        <h3 data-setting-title={t('settings.search_query_behaviour')} className="mb-1 text-[11px] font-semibold tracking-[0.06em] text-[var(--text-quaternary)]">
+        <h3 data-setting-title={t('settings.search_query_behaviour')} className="mb-1 text-[length:var(--text-11)] font-semibold tracking-[0.06em] text-[var(--text-quaternary)]">
           {t('settings.search_query_behaviour')}
         </h3>
         <SettingRow title={t('settings.search_fuzziness')} description={t('settings.search_fuzziness_desc')}>
@@ -172,7 +172,7 @@ export function SearchSettings() {
       </section>
 
       <section>
-        <h3 data-setting-title={t('settings.search_results_presentation')} className="mb-1 text-[11px] font-semibold tracking-[0.06em] text-[var(--text-quaternary)]">
+        <h3 data-setting-title={t('settings.search_results_presentation')} className="mb-1 text-[length:var(--text-11)] font-semibold tracking-[0.06em] text-[var(--text-quaternary)]">
           {t('settings.search_results_presentation')}
         </h3>
         <SettingRow title={t('settings.search_show_excerpt')} description={t('settings.search_show_excerpt_desc')}>
@@ -213,7 +213,7 @@ export function SearchSettings() {
       </section>
 
       <section>
-        <h3 data-setting-title={t('settings.search_weighting')} className="mb-1 text-[11px] font-semibold tracking-[0.06em] text-[var(--text-quaternary)]">
+        <h3 data-setting-title={t('settings.search_weighting')} className="mb-1 text-[length:var(--text-11)] font-semibold tracking-[0.06em] text-[var(--text-quaternary)]">
           {t('settings.search_weighting')}
         </h3>
         <SettingRow title={t('settings.search_weight_title')} description={t('settings.search_weight_default', {
@@ -272,7 +272,7 @@ export function SearchSettings() {
                         weightCustomProperties: next,
                     });
                 }}/>
-                <span className="shrink-0 text-[11px] tabular text-[var(--text-quaternary)]">×{item.weight.toFixed(1)}</span>
+                <span className="shrink-0 text-[length:var(--text-11)] tabular text-[var(--text-quaternary)]">×{item.weight.toFixed(1)}</span>
                 <Slider className="w-[90px] shrink-0" label={t('settings.search_weight_property_name')} value={item.weight} min={SEARCH_PROPERTY_WEIGHT_RANGE[0]} max={SEARCH_PROPERTY_WEIGHT_RANGE[1]} step={0.1} onChange={(weight) => {
                     const next = [...search.weightCustomProperties];
                     next[index] = {

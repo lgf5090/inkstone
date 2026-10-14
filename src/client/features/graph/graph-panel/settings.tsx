@@ -76,7 +76,7 @@ function GraphFilterSection({ prefs, onPref, folders, tags }: {
         {folders.map((folder) => <option key={folder.id} value={folder.id}>{folder.name}</option>)}
       </Select>
     </GraphRow>
-    {tags.length > 0 && <div className="text-[12px] text-[var(--text-secondary)]">
+    {tags.length > 0 && <div className="text-[length:var(--text-12)] text-[var(--text-secondary)]">
       <span className="mb-1.5 block">{t('graph.tag')}</span>
       <div className="flex max-h-36 flex-wrap gap-1 overflow-y-auto">
         {tags.map((tag) => {
@@ -101,7 +101,7 @@ function GraphFilterSection({ prefs, onPref, folders, tags }: {
         onChange={(value) => onPref(control.prefKey, value)}/>
     </GraphRow>)}
     {prefs.excludedNoteIds.length > 0 && <div className="flex items-center justify-between gap-2">
-      <span className="text-[11.5px] text-[var(--text-tertiary)]">
+      <span className="text-[length:var(--text-11-5)] text-[var(--text-tertiary)]">
         {t('graph.excluded_notes', { value: prefs.excludedNoteIds.length })}
       </span>
       <Button size="sm" variant="ghost" onClick={() => onPref('excludedNoteIds', [])}>
@@ -162,7 +162,7 @@ function GraphColorRules({ groups, onChange }: {
   }
   return <div className="space-y-2.5">
     <div className="flex items-center justify-between gap-2">
-      <span className="text-[12px] text-[var(--text-secondary)]">{t('graph.color_rules')}</span>
+      <span className="text-[length:var(--text-12)] text-[var(--text-secondary)]">{t('graph.color_rules')}</span>
       <IconButton size="sm" label={t('graph.add_color_rule')} disabled={groups.length >= GRAPH_COLOR_GROUP_LIMIT}
         onClick={() => onChange([...groups, {
           id: randomLocalId('rule'),
@@ -201,7 +201,7 @@ function ColorRuleRow({ group, onChange, onRemove }: {
       <label htmlFor={labelId} className="sr-only">{t('graph.color_rule_query')}</label>
       <input id={labelId} type="text" {...field} value={group.query} placeholder={t('graph.color_rule_query_hint')}
         onChange={(event) => onChange({ query: truncateText(event.target.value, GRAPH_COLOR_QUERY_MAX) })}
-        className="h-8 min-w-0 flex-1 rounded-[var(--r-md)] border border-[var(--border-default)] bg-[var(--bg-inset)] px-2 text-[12px] outline-none placeholder:text-[var(--text-tertiary)]"/>
+        className="h-8 min-w-0 flex-1 rounded-[var(--r-md)] border border-[var(--border-default)] bg-[var(--bg-inset)] px-2 text-[length:var(--text-12)] outline-none placeholder:text-[var(--text-tertiary)]"/>
       <IconButton size="sm" label={t('common.delete')} onClick={onRemove}><Trash2 size={12}/></IconButton>
     </div>
     <div className="flex flex-wrap items-center gap-1">
@@ -235,14 +235,14 @@ function GraphForceSection({ prefs, onPref, onRestoreDefaults }: {
       min={control.min} max={control.max} step={control.step} value={prefs[control.prefKey]}
       onChange={(value) => onPref(control.prefKey, value)}/>)}
     <button type="button" onClick={onRestoreDefaults}
-      className="mt-1 flex h-8 w-full items-center justify-center gap-2 rounded-[var(--r-md)] border border-[var(--border-default)] text-[11.5px] text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]">
+      className="mt-1 flex h-8 w-full items-center justify-center gap-2 rounded-[var(--r-md)] border border-[var(--border-default)] text-[length:var(--text-11-5)] text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]">
       <ArrowDownToLine size={13}/>{t('graph.restore_defaults')}
     </button>
   </GraphSection>
 }
 
 function GraphRow({ label, children }: { label: string; children: ReactNode }) {
-  return <div className="flex items-center justify-between gap-3 text-[12px] text-[var(--text-secondary)]">
+  return <div className="flex items-center justify-between gap-3 text-[length:var(--text-12)] text-[var(--text-secondary)]">
     <span className="min-w-0 truncate">{label}</span>
     <span className="flex min-w-0 shrink-0 items-center">{children}</span>
   </div>
@@ -250,7 +250,7 @@ function GraphRow({ label, children }: { label: string; children: ReactNode }) {
 
 function GraphSection({ icon, title, children }: { icon: ReactNode; title: string; children: ReactNode }) {
   return <section className="mb-5">
-    <h4 className="mb-2 flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-[.06em] text-[var(--text-tertiary)]">
+    <h4 className="mb-2 flex items-center gap-1.5 text-[length:var(--text-11)] font-semibold uppercase tracking-[.06em] text-[var(--text-tertiary)]">
       {icon}{title}
     </h4>
     <div className="space-y-2.5">{children}</div>

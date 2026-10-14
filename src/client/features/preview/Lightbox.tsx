@@ -40,7 +40,7 @@ export function Lightbox() {
             <ZoomOut size={16}/>
           </IconButton>
         </Tooltip>
-        <span aria-live="polite" className="w-11 text-center text-[11.5px] tabular text-white/60">
+        <span aria-live="polite" className="w-11 text-center text-[length:var(--text-11-5)] tabular text-white/60">
           {Math.round(scale * 100)}%
         </span>
         <Tooltip label={t("common.zoom_in")} side="bottom">
@@ -62,12 +62,12 @@ export function Lightbox() {
         </Tooltip>
       </div>
 
-      {failed ? (<div role="status" className="flex max-w-[80vw] flex-col items-center gap-2 rounded-[var(--r-lg)] bg-black/35 px-5 py-4 text-center text-[12px] text-white/75">
+      {failed ? (<div role="status" className="flex max-w-[80vw] flex-col items-center gap-2 rounded-[var(--r-lg)] bg-black/35 px-5 py-4 text-center text-[length:var(--text-12)] text-white/75">
           <ImageOff size={24}/>
           {t("preview.could_not_load_image")}
         </div>) : (<img src={lightbox.src} alt={lightbox.alt} onError={() => setFailed(true)} onClick={(e) => e.stopPropagation()} onDoubleClick={() => setScale((s) => (s === 1 ? 2 : 1))} style={{ transform: `scale(${scale})` }} className={`max-h-[86vh] max-w-[92vw] rounded-[var(--r-md)] object-contain transition-transform duration-200 ease-[var(--ease-out)] ${scale === 1 ? 'cursor-zoom-in' : 'cursor-zoom-out'}`}/>)}
 
-      {lightbox.alt && (<div className="absolute bottom-[calc(16px+env(safe-area-inset-bottom))] left-1/2 max-w-[82vw] -translate-x-1/2 truncate rounded-full bg-black/50 px-3 py-1.5 text-[12px] text-white/80 md:bottom-6 md:max-w-[70vw]">
+      {lightbox.alt && (<div className="absolute bottom-[calc(16px+env(safe-area-inset-bottom))] left-1/2 max-w-[82vw] -translate-x-1/2 truncate rounded-full bg-black/50 px-3 py-1.5 text-[length:var(--text-12)] text-white/80 md:bottom-6 md:max-w-[70vw]">
           {lightbox.alt}
         </div>)}
     </div>, document.body);

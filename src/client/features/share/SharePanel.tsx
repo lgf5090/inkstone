@@ -218,7 +218,7 @@ export function SharePanel({ onClose, targetNote, onChanged }: {
           {share && (<div className="rounded-[var(--r-lg)] border border-[var(--border-subtle)] bg-[var(--bg-inset)] p-3">
               <div className="flex items-center gap-2">
                 <Link2 size={13} className="shrink-0 text-[var(--accent)]"/>
-                <input aria-label={t("share.public_link")} readOnly value={share.url} onFocus={(e) => e.currentTarget.select()} className="min-w-0 flex-1 rounded-[var(--r-sm)] bg-transparent font-mono text-[11.5px] text-[var(--text-secondary)] transition-[box-shadow] duration-[var(--dur-fast)] focus:shadow-[var(--shadow-ring-focus)] focus:outline-none"/>
+                <input aria-label={t("share.public_link")} readOnly value={share.url} onFocus={(e) => e.currentTarget.select()} className="min-w-0 flex-1 rounded-[var(--r-sm)] bg-transparent font-mono text-[length:var(--text-11-5)] text-[var(--text-secondary)] transition-[box-shadow] duration-[var(--dur-fast)] focus:shadow-[var(--shadow-ring-focus)] focus:outline-none"/>
                 <Button size="sm" variant={copied ? 'ghost' : 'secondary'} icon={copied ? <Check size={12} className="text-[var(--success)]"/> : <Copy size={12}/>} onClick={() => void copy()}>
                   {copied ? t("common.copied") : t("common.copy")}
                 </Button>
@@ -229,7 +229,7 @@ export function SharePanel({ onClose, targetNote, onChanged }: {
                 </Tooltip>
               </div>
 
-              <div className="mt-2.5 flex flex-wrap items-center gap-2 border-t border-[var(--border-subtle)] pt-2.5 text-[11px] text-[var(--text-quaternary)]">
+              <div className="mt-2.5 flex flex-wrap items-center gap-2 border-t border-[var(--border-subtle)] pt-2.5 text-[length:var(--text-11)] text-[var(--text-quaternary)]">
                 <span className="flex items-center gap-1">
                   <Eye size={11}/>
                   {share.views}{t("share.visits")}</span>
@@ -244,9 +244,9 @@ export function SharePanel({ onClose, targetNote, onChanged }: {
 
           <div className="flex items-center justify-between gap-4 py-1">
             <div className="min-w-0">
-              <div className="flex items-center gap-1.5 text-[13px] font-medium">
+              <div className="flex items-center gap-1.5 text-[length:var(--text-13)] font-medium">
                 <Lock size={12} className="text-[var(--text-tertiary)]"/>{t("common.access_passcode")}</div>
-              <p className="mt-0.5 text-[11.5px] text-[var(--text-tertiary)]">{t("share.require_a_passcode_to_view_this_note")}</p>
+              <p className="mt-0.5 text-[length:var(--text-11-5)] text-[var(--text-tertiary)]">{t("share.require_a_passcode_to_view_this_note")}</p>
             </div>
             <Switch checked={usePassword} disabled={busy !== null} onChange={setUsePassword} label={t("common.access_passcode")}/>
           </div>
@@ -265,7 +265,7 @@ export function SharePanel({ onClose, targetNote, onChanged }: {
             ]}/>
           </Field>
 
-          <p className="rounded-[var(--r-md)] bg-[var(--bg-inset)] px-3 py-2.5 text-[11.5px] leading-relaxed text-[var(--text-tertiary)]">{t("share.public_links_are_read_only_visitors_can_see_only_the_latest_version_of_t")}</p>
+          <p className="rounded-[var(--r-md)] bg-[var(--bg-inset)] px-3 py-2.5 text-[length:var(--text-11-5)] leading-relaxed text-[var(--text-tertiary)]">{t("share.public_links_are_read_only_visitors_can_see_only_the_latest_version_of_t")}</p>
         </div>)}
     </Modal>);
 }

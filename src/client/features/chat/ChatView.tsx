@@ -118,7 +118,7 @@ export function ChatView() {
           <IconButton label={t('assistant.chat.history')} size="sm" className="lg:hidden" onClick={() => setListOpen(true)}>
             <History size={15} />
           </IconButton>
-          <span className="min-w-0 truncate text-[12px] text-[var(--text-tertiary)]">
+          <span className="min-w-0 truncate text-[length:var(--text-12)] text-[var(--text-tertiary)]">
             {activeId
               ? conversations.find((conversation) => conversation.id === activeId)?.title || t('assistant.chat.untitled')
               : t('assistant.chat.new_title')}
@@ -240,7 +240,7 @@ export function UserBubble({
       <div className="flex max-w-[85%] flex-col items-end gap-1">
         {attachments.length > 0 && <MessageAttachments ids={attachments} index={fileIndex} />}
         {text && (
-          <div className="whitespace-pre-wrap break-words rounded-[var(--r-lg)] rounded-br-[var(--r-xs)] bg-[var(--accent-soft)] px-3 py-2 text-[13.5px] leading-relaxed text-[var(--text-primary)]">
+          <div className="whitespace-pre-wrap break-words rounded-[var(--r-lg)] rounded-br-[var(--r-xs)] bg-[var(--accent-soft)] px-3 py-2 text-[length:var(--text-13-5)] leading-relaxed text-[var(--text-primary)]">
             {text}
           </div>
         )}
@@ -320,7 +320,7 @@ export function ConversationList({ activeId, onPick }: { activeId: string | null
       <ConversationTaxonomyPanel onOpen={onPick} />
       <nav aria-label={t('assistant.chat.list')} className="no-scrollbar min-h-0 w-full min-w-0 flex-1 overflow-x-hidden overflow-y-auto px-1.5 pb-2">
         {!ordered.length ? (
-          <p className="px-2 py-6 text-center text-[12px] text-[var(--text-quaternary)]">
+          <p className="px-2 py-6 text-center text-[length:var(--text-12)] text-[var(--text-quaternary)]">
             {query.trim() ? t('assistant.chat.no_matches') : t('assistant.chat.empty')}
           </p>
         ) : (
@@ -466,15 +466,15 @@ function ConversationRow({
         )}
       >
         <span className="flex w-full min-w-0 items-center gap-1">
-          {conversation.pinned && <span aria-hidden className="text-[9px] text-[var(--accent)]">●</span>}
+          {conversation.pinned && <span aria-hidden className="text-[length:var(--text-9)] text-[var(--accent)]">●</span>}
           {conversation.starred && (
             <span aria-label={t('assistant.chat.tab.starred')} role="img" className="shrink-0 text-[var(--warning)]">
               <Star size={10} className="fill-current" />
             </span>
           )}
-          <span className="min-w-0 flex-1 truncate text-[12.5px]">{title}</span>
+          <span className="min-w-0 flex-1 truncate text-[length:var(--text-12-5)]">{title}</span>
         </span>
-        <span className="text-[10.5px] text-[var(--text-quaternary)]">{relativeTime(conversation.updatedAt)}</span>
+        <span className="text-[length:var(--text-10-5)] text-[var(--text-quaternary)]">{relativeTime(conversation.updatedAt)}</span>
       </button>
       <span ref={anchor} className="absolute right-1 top-1.5">
         <IconButton
@@ -557,13 +557,13 @@ function EmptyChat({ onPick }: { onPick: (text: string) => void }) {
   const greeting = hourGreeting()
   return (
     <div className="mx-auto flex min-h-full w-full max-w-[620px] flex-col justify-center px-5 py-8">
-      <p className="text-[11px] font-semibold uppercase tracking-[var(--tracking-label)] text-[var(--text-quaternary)]">
+      <p className="text-[length:var(--text-11)] font-semibold uppercase tracking-[var(--tracking-label)] text-[var(--text-quaternary)]">
         {agentName || t('assistant.app.title')}
       </p>
-      <h2 className="mt-2 font-serif text-[22px] font-semibold tracking-[var(--tracking-title)] text-[var(--text-primary)]">
+      <h2 className="mt-2 font-serif text-[length:var(--text-22)] font-semibold tracking-[var(--tracking-title)] text-[var(--text-primary)]">
         {greeting}
       </h2>
-      <p className="mt-1 text-[13px] text-[var(--text-secondary)]">{t('assistant.chat.prompt')}</p>
+      <p className="mt-1 text-[length:var(--text-13)] text-[var(--text-secondary)]">{t('assistant.chat.prompt')}</p>
       <ul className="mt-5 flex flex-col gap-1.5">
         {SUGGESTION_KEYS.map((key) => (
           <li key={key}>
@@ -571,7 +571,7 @@ function EmptyChat({ onPick }: { onPick: (text: string) => void }) {
               type="button"
               onClick={() => onPick(t(key))}
               className={cn(
-                'w-full rounded-[var(--r-md)] border border-[var(--border-subtle)] bg-[var(--bg-surface)] px-3 py-2 text-left text-[12.5px]',
+                'w-full rounded-[var(--r-md)] border border-[var(--border-subtle)] bg-[var(--bg-surface)] px-3 py-2 text-left text-[length:var(--text-12-5)]',
                 'text-[var(--text-secondary)] transition-colors duration-[var(--dur-fast)]',
                 'hover:border-[var(--border-strong)] hover:text-[var(--text-primary)]',
               )}
@@ -583,7 +583,7 @@ function EmptyChat({ onPick }: { onPick: (text: string) => void }) {
       </ul>
       {conversations.length > 0 && (
         <div className="mt-7">
-          <p className="mb-1.5 text-[10.5px] font-semibold uppercase tracking-[var(--tracking-label)] text-[var(--text-quaternary)]">
+          <p className="mb-1.5 text-[length:var(--text-10-5)] font-semibold uppercase tracking-[var(--tracking-label)] text-[var(--text-quaternary)]">
             {t('assistant.chat.recent')}
           </p>
           <ul className="flex flex-col">
@@ -592,10 +592,10 @@ function EmptyChat({ onPick }: { onPick: (text: string) => void }) {
                 <button
                   type="button"
                   onClick={() => void openConversation(conversation.id)}
-                  className="flex w-full items-baseline justify-between gap-3 rounded-[var(--r-sm)] px-2 py-1 text-left text-[12px] text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]"
+                  className="flex w-full items-baseline justify-between gap-3 rounded-[var(--r-sm)] px-2 py-1 text-left text-[length:var(--text-12)] text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]"
                 >
                   <span className="min-w-0 truncate">{conversation.title || t('assistant.chat.untitled')}</span>
-                  <span className="shrink-0 text-[10.5px] text-[var(--text-quaternary)]">{relativeTime(conversation.updatedAt)}</span>
+                  <span className="shrink-0 text-[length:var(--text-10-5)] text-[var(--text-quaternary)]">{relativeTime(conversation.updatedAt)}</span>
                 </button>
               </li>
             ))}
@@ -861,7 +861,7 @@ function Composer({
             aria-label={t('assistant.chat.placeholder')}
             placeholder={t('assistant.chat.placeholder')}
             className={cn(
-              'max-h-[180px] min-h-[36px] w-full resize-none bg-transparent px-2 py-1.5 text-[13.5px] leading-relaxed',
+              'max-h-[180px] min-h-[36px] w-full resize-none bg-transparent px-2 py-1.5 text-[length:var(--text-13-5)] leading-relaxed',
               'text-[var(--text-primary)] placeholder:text-[var(--text-quaternary)] focus:outline-none',
             )}
           />
@@ -945,7 +945,7 @@ function Composer({
             return response.results.map((hit) => ({ id: hit.note.id, title: hit.note.title }))
           }}
         />
-        <p className="mt-1.5 hidden text-center text-[10.5px] text-[var(--text-quaternary)] md:block">
+        <p className="mt-1.5 hidden text-center text-[length:var(--text-10-5)] text-[var(--text-quaternary)] md:block">
           {t('assistant.chat.disclaimer')}
         </p>
       </div>

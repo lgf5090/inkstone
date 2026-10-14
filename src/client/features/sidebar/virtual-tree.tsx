@@ -194,11 +194,11 @@ function VirtualRow({ ns, rootIcon, node, allIds, showEmptyToggle }: {
           {isRoot ? rootIcon : <FolderMotionIcon open={expanded && hasChildren} drawing={false}/>}
         </span>
         <Tooltip label={hint ? `${tooltip} · ${hint}` : tooltip} side="right">
-          <button data-tree-row type="button" aria-current={active ? 'page' : undefined} onClick={open} onKeyDown={onKeyDown} className="min-w-0 flex-1 truncate py-1 pl-1 text-left text-[12.5px] font-medium">
+          <button data-tree-row type="button" aria-current={active ? 'page' : undefined} onClick={open} onKeyDown={onKeyDown} className="min-w-0 flex-1 truncate py-1 pl-1 text-left text-[length:var(--text-12-5)] font-medium">
             {isRoot ? rootLabel : node.name}
           </button>
         </Tooltip>
-        {node.count > 0 && (<span className="shrink-0 text-[11px] tabular text-[var(--text-quaternary)] transition-opacity md:group-hover:opacity-0">
+        {node.count > 0 && (<span className="shrink-0 text-[length:var(--text-11)] tabular text-[var(--text-quaternary)] transition-opacity md:group-hover:opacity-0">
           {node.count}
         </span>)}
         <Tooltip label={t("common.more_actions")} side="left">
@@ -274,11 +274,11 @@ export function InboxTree() {
           <Inbox size={14}/>
         </span>
         <Tooltip label={t("sidebar.inbox_hint")} side="right">
-          <button data-tree-row type="button" aria-current={active ? 'page' : undefined} onClick={open} onKeyDown={onKeyDown} className="min-w-0 flex-1 truncate py-1 pl-1 text-left text-[12.5px] font-medium">
+          <button data-tree-row type="button" aria-current={active ? 'page' : undefined} onClick={open} onKeyDown={onKeyDown} className="min-w-0 flex-1 truncate py-1 pl-1 text-left text-[length:var(--text-12-5)] font-medium">
             {t("sidebar.inbox_folder")}
           </button>
         </Tooltip>
-        {unfiled.length > 0 && (<span className="shrink-0 text-[11px] tabular text-[var(--text-quaternary)] transition-opacity md:group-hover:opacity-0">
+        {unfiled.length > 0 && (<span className="shrink-0 text-[length:var(--text-11)] tabular text-[var(--text-quaternary)] transition-opacity md:group-hover:opacity-0">
           {unfiled.length}
         </span>)}
         <Tooltip label={t("common.more_actions")} side="left">

@@ -133,9 +133,9 @@ export function RssApp(): ReactElement {
           {railOpen ? <PanelLeftClose size={15} /> : <PanelLeftOpen size={15} />}
         </IconButton>
         <Rss size={15} className="shrink-0 text-[var(--text-secondary)]" aria-hidden="true" />
-        <h1 className="min-w-0 truncate text-[13.5px] font-semibold text-[var(--text-primary)]">{title}</h1>
+        <h1 className="min-w-0 truncate text-[length:var(--text-13-5)] font-semibold text-[var(--text-primary)]">{title}</h1>
         {progress && (
-          <span className="shrink-0 text-[11px] text-[var(--text-quaternary)]">
+          <span className="shrink-0 text-[length:var(--text-11)] text-[var(--text-quaternary)]">
             {t('rss.refreshing', { done: progress.done, total: progress.total })}
           </span>
         )}
@@ -144,7 +144,7 @@ export function RssApp(): ReactElement {
             <button
               type="button"
               onClick={retrySave}
-              className="h-7 rounded-[var(--r-md)] px-2 text-[11.5px] text-[var(--danger)] hover:bg-[var(--bg-hover)]"
+              className="h-7 rounded-[var(--r-md)] px-2 text-[length:var(--text-11-5)] text-[var(--danger)] hover:bg-[var(--bg-hover)]"
             >
               {t('rss.error.save_pending')}
             </button>
@@ -187,8 +187,8 @@ export function RssApp(): ReactElement {
         ? (
             <div className="flex min-h-0 flex-1 items-center justify-center px-6">
               <div className="max-w-sm text-center">
-                <p className="text-[13px] font-medium text-[var(--text-primary)]">{t('app.tabs.rss')}</p>
-                <p className="mt-1.5 text-[12.5px] leading-relaxed text-[var(--text-tertiary)]">{t('rss.demo_notice')}</p>
+                <p className="text-[length:var(--text-13)] font-medium text-[var(--text-primary)]">{t('app.tabs.rss')}</p>
+                <p className="mt-1.5 text-[length:var(--text-12-5)] leading-relaxed text-[var(--text-tertiary)]">{t('rss.demo_notice')}</p>
               </div>
             </div>
           )
@@ -250,7 +250,7 @@ export function RssApp(): ReactElement {
       <RssKeys open={keys} onClose={() => setKeys(false)} />
       {status === 'error' && (
         <div className="flex items-center gap-2 border-t border-[var(--border-subtle)] bg-[var(--bg-sunken)] px-3 py-2">
-          <span className="min-w-0 flex-1 truncate text-[12px] text-[var(--danger)]">{saveError ?? t('rss.error.load_failed')}</span>
+          <span className="min-w-0 flex-1 truncate text-[length:var(--text-12)] text-[var(--danger)]">{saveError ?? t('rss.error.load_failed')}</span>
           <Button size="sm" onClick={() => void useRss.getState().load()}>{t('rss.retry')}</Button>
         </div>
       )}

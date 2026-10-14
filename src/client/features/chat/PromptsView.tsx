@@ -52,10 +52,10 @@ function PromptEditor({ prompt, onClose, onSubmit }: {
         rows={9}
         aria-label={t('assistant.prompts.field_content')}
         placeholder={t('assistant.prompts.field_content')}
-        className="w-full resize-y font-mono text-[12.5px]"
+        className="w-full resize-y font-mono text-[length:var(--text-12-5)]"
         onChange={(event) => setContent(event.target.value)}
       />
-      <p className="text-[11px] text-[var(--text-quaternary)]">{content.length} / {MAX_PROMPT_CONTENT_CHARS}</p>
+      <p className="text-[length:var(--text-11)] text-[var(--text-quaternary)]">{content.length} / {MAX_PROMPT_CONTENT_CHARS}</p>
     </Modal>
   )
 }
@@ -114,17 +114,17 @@ export function PromptsView() {
         <Button size="sm" variant="primary" icon={<Plus size={14} />} onClick={() => setCreating(true)}>{t('assistant.prompts.new')}</Button>
       </div>
       <div className="no-scrollbar min-h-0 flex-1 overflow-y-auto px-2 pb-3">
-        {!prompts.length && <p className="px-2 py-6 text-center text-[12.5px] text-[var(--text-quaternary)]">{t('assistant.prompts.empty')}</p>}
+        {!prompts.length && <p className="px-2 py-6 text-center text-[length:var(--text-12-5)] text-[var(--text-quaternary)]">{t('assistant.prompts.empty')}</p>}
         {groups.map((bucket) => (
           <section key={bucket.key} className="mb-2">
-            <h3 className="px-2 py-1 text-[11px] uppercase tracking-wide text-[var(--text-quaternary)]">{bucket.label}</h3>
+            <h3 className="px-2 py-1 text-[length:var(--text-11)] uppercase tracking-wide text-[var(--text-quaternary)]">{bucket.label}</h3>
             <ul className="space-y-1">
               {bucket.rows.map((prompt) => (
                 <li key={prompt.id} className="group flex items-start gap-2 rounded-[var(--r-md)] border border-[var(--border-subtle)] px-2.5 py-2 hover:border-[var(--border-default)]">
                   <FileText size={13} className="mt-0.5 shrink-0 text-[var(--text-quaternary)]" />
                   <button type="button" className="min-w-0 flex-1 text-left" onClick={() => setEditing(prompt)}>
-                    <span className="block truncate text-[12.5px] text-[var(--text-primary)]">{prompt.title}</span>
-                    <span className={cn('block truncate text-[11.5px] text-[var(--text-quaternary)]')}>{prompt.content.replace(/\s+/g, ' ')}</span>
+                    <span className="block truncate text-[length:var(--text-12-5)] text-[var(--text-primary)]">{prompt.title}</span>
+                    <span className={cn('block truncate text-[length:var(--text-11-5)] text-[var(--text-quaternary)]')}>{prompt.content.replace(/\s+/g, ' ')}</span>
                   </button>
                   <IconButton label={t('assistant.prompts.edit')} size="xs" onClick={() => setEditing(prompt)}><Pencil size={12} /></IconButton>
                   <IconButton label={t('assistant.prompts.delete')} size="xs" onClick={() => void remove(prompt)}><Trash2 size={12} /></IconButton>

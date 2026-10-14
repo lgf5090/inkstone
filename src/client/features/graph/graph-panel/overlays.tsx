@@ -52,13 +52,13 @@ export function GraphOverlays({
 }
 
 export function GraphTruncatedBadge({ shown, total }: { shown: number; total: number }) {
-  return <div role="status" className="absolute top-3 left-1/2 -translate-x-1/2 rounded-full border border-[var(--border-default)] bg-[var(--bg-overlay)] px-3 py-1 text-[11px] text-[var(--text-secondary)] shadow-sm">
+  return <div role="status" className="absolute top-3 left-1/2 -translate-x-1/2 rounded-full border border-[var(--border-default)] bg-[var(--bg-overlay)] px-3 py-1 text-[length:var(--text-11)] text-[var(--text-secondary)] shadow-sm">
     {t('graph.showing_limit', { shown, total })}
   </div>
 }
 
 export function GraphHint({ hint, hintBrief }: { hint: string; hintBrief: string }) {
-  return <div className="pointer-events-none absolute top-3 left-4 text-[11px] text-[var(--text-tertiary)]">
+  return <div className="pointer-events-none absolute top-3 left-4 text-[length:var(--text-11)] text-[var(--text-tertiary)]">
     <span className="hidden md:block">{hint}</span>
     <span aria-hidden="true" className="md:hidden">{hintBrief}</span>
   </div>
@@ -72,9 +72,9 @@ export function GraphLegend({ items, isActive, onSelect, unresolvedCount = 0 }: 
 }) {
   if (!items.length && !unresolvedCount) return null
   return <div role="list" aria-label={t('graph.legend')}
-    className="pointer-events-auto flex max-h-36 max-w-[min(100%,224px)] flex-col gap-0.5 overflow-y-auto rounded-[var(--r-md)] border border-[var(--border-default)] bg-[var(--bg-overlay)] px-2 py-1.5 text-[11px] text-[var(--text-secondary)] shadow-[var(--shadow-pop)]">
+    className="pointer-events-auto flex max-h-36 max-w-[min(100%,224px)] flex-col gap-0.5 overflow-y-auto rounded-[var(--r-md)] border border-[var(--border-default)] bg-[var(--bg-overlay)] px-2 py-1.5 text-[length:var(--text-11)] text-[var(--text-secondary)] shadow-[var(--shadow-pop)]">
     {items.map((item) => <div key={`${item.kind}:${item.value}`} role="listitem" className="min-w-0">
-      <Button variant="ghost" size="sm" className="w-full justify-start gap-1.5 px-1 text-[11px] aria-pressed:bg-[var(--bg-active)] aria-pressed:text-[var(--accent)]"
+      <Button variant="ghost" size="sm" className="w-full justify-start gap-1.5 px-1 text-[length:var(--text-11)] aria-pressed:bg-[var(--bg-active)] aria-pressed:text-[var(--accent)]"
         aria-pressed={isActive(item)} title={t('graph.legend_filter')}
         onClick={() => onSelect(item)}>
         <span aria-hidden="true" className="size-2.5 shrink-0 rounded-full" style={{ background: item.color }}/>
@@ -94,7 +94,7 @@ export function GraphNodeBadge({ node, data, onOpenNote, onFocusNode }: {
   onOpenNote: (id: string) => void
   onFocusNode: (id: string) => void
 }) {
-  return <div data-graph-detail="" className="pointer-events-auto flex max-w-[80vw] items-center rounded-full border border-[var(--border-default)] bg-[var(--bg-overlay)] py-1.5 pr-2 pl-3.5 text-[12px] shadow-[var(--shadow-pop)]">
+  return <div data-graph-detail="" className="pointer-events-auto flex max-w-[80vw] items-center rounded-full border border-[var(--border-default)] bg-[var(--bg-overlay)] py-1.5 pr-2 pl-3.5 text-[length:var(--text-12)] shadow-[var(--shadow-pop)]">
     <span className="max-w-[50vw] truncate">{node.title || t('common.untitled_note')}</span>
     <span className="ml-2 shrink-0 text-[var(--text-tertiary)]">
       {t('graph.direction_counts', { incoming: node.inDegree, outgoing: node.outDegree })}
@@ -150,8 +150,8 @@ export function GraphPreviewCardView({ card }: { card: GraphPreviewCard }) {
   return <div data-graph-preview="" role="tooltip"
     className="pointer-events-none fixed z-[240] w-[min(260px,70vw)] rounded-[var(--r-md)] border border-[var(--border-default)] bg-[var(--bg-overlay)] px-3 py-2 shadow-[var(--shadow-pop)]"
     style={{ left, top: card.y, transform: `translate(-50%, ${flipUp ? `-${GRAPH_PREVIEW_CARD_HEIGHT}px` : '12px'})` }}>
-    <div className="truncate text-[12px] font-medium">{card.node.title || t('common.untitled_note')}</div>
-    <p className="mt-1 line-clamp-4 text-[11.5px] leading-relaxed text-[var(--text-tertiary)]">
+    <div className="truncate text-[length:var(--text-12)] font-medium">{card.node.title || t('common.untitled_note')}</div>
+    <p className="mt-1 line-clamp-4 text-[length:var(--text-11-5)] leading-relaxed text-[var(--text-tertiary)]">
       {card.excerpt ?? t('graph.building_graph')}
     </p>
   </div>

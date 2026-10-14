@@ -17,7 +17,7 @@ export function MobileAccount() {
     if (section) return <section className="mobile-settings-detail flex h-full min-h-0 flex-col bg-[var(--bg-surface)]">
         <header className="relative flex min-h-14 shrink-0 items-center border-b border-[var(--border-subtle)] bg-[var(--bg-surface)] px-3">
             <button type="button" aria-label={t('mobile.back_to_account')} onClick={() => setSection(null)} className="flex size-11 items-center justify-center rounded-lg active:bg-[var(--bg-active)]"><ArrowLeft size={20}/></button>
-            <h1 className="pointer-events-none absolute inset-x-14 text-center text-[15px] font-semibold">{SECTIONS.find((item) => item.id === section)?.label()}</h1>
+            <h1 className="pointer-events-none absolute inset-x-14 text-center text-[length:var(--text-15)] font-semibold">{SECTIONS.find((item) => item.id === section)?.label()}</h1>
         </header>
         <div className="mobile-settings-content min-h-0 flex-1 overflow-y-auto px-4 pt-4 pb-[calc(24px+env(safe-area-inset-bottom))]">{section === 'appearance' ? <AppearanceSettings accents={ACCENTS}/> : <SettingsPage section={section}/>}</div>
     </section>;

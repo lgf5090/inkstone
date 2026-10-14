@@ -20,7 +20,7 @@ export function TemplateGallery({ onClose }: { onClose: () => void }) {
     }} className='anim-pop relative flex h-[min(88dvh,var(--app-viewport-height,100dvh))] w-full max-w-235 flex-col overflow-hidden rounded-t-[var(--r-2xl)] border border-b-0 border-[var(--border-default)] bg-[var(--bg-overlay)] pb-[env(safe-area-inset-bottom)] shadow-[var(--shadow-modal)] outline-none md:rounded-[var(--r-2xl)] md:border-b md:pb-0'>
       <GalleryHeader query={state.query} onQueryChange={state.setQuery} searchRef={state.searchRef} onSearchFocusChange={state.setSearchFocused} onSearchKeyDown={g.handleKeyDown} selectMode={state.selectMode} onToggleSelectMode={g.selectActions.toggleSelectMode} onOpenHelp={() => state.setIsHelpOpen(true)} onNewTemplate={() => state.setEditing('new')} moreButtonRef={state.moreButtonRef} onOpenMore={() => state.setIsMoreOpen(true)} onClose={onClose}/>
 
-      <div className={cn('hidden shrink-0 items-center gap-3 border-b border-[var(--border-subtle)] px-4 py-1.5 text-[10.5px] text-[var(--text-quaternary)] md:flex', state.searchFocused && 'opacity-60')}>
+      <div className={cn('hidden shrink-0 items-center gap-3 border-b border-[var(--border-subtle)] px-4 py-1.5 text-[length:var(--text-10-5)] text-[var(--text-quaternary)] md:flex', state.searchFocused && 'opacity-60')}>
         <span>{t(state.searchFocused ? 'templates.kbd_hint_search' : 'templates.kbd_hint')}</span>
         {state.selectMode && <span className='text-[var(--accent)]'>{t('templates.select_hint')}</span>}
       </div>

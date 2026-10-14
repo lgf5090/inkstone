@@ -74,7 +74,7 @@ export function Sidebar({ collapsed = false, onCollapse, }: {
       <header className="flex h-11 shrink-0 items-center justify-between border-b border-[var(--border-subtle)] px-3">
         <div className="flex min-w-0 items-center gap-[9px] select-none">
           <Logo size={24}/>
-          <span className="min-w-0 truncate font-serif text-[15.5px] font-semibold tracking-[0.02em] text-[var(--text-primary)]">
+          <span className="min-w-0 truncate font-serif text-[length:var(--text-15-5)] font-semibold tracking-[0.02em] text-[var(--text-primary)]">
             {t("common.product_name")}
           </span>
         </div>
@@ -130,11 +130,11 @@ function NoNotePanel({ label, message }: {
 }) {
     return (<>
       <SectionLabel>{label}</SectionLabel>
-      <p className="px-2 py-3 text-[12px] leading-relaxed text-[var(--text-quaternary)]">{message}</p>
+      <p className="px-2 py-3 text-[length:var(--text-12)] leading-relaxed text-[var(--text-quaternary)]">{message}</p>
     </>);
 }
 function PanelLoading() {
-    return <p className="px-2 py-3 text-[12px] text-[var(--text-quaternary)]">{t("common.loading")}</p>;
+    return <p className="px-2 py-3 text-[length:var(--text-12)] text-[var(--text-quaternary)]">{t("common.loading")}</p>;
 }
 function SidebarRail({ onExpand }: {
     onExpand?: () => void;
@@ -273,10 +273,10 @@ function SidebarAccount({ rail = false }: {
           <button ref={buttonRef} type="button" onClick={() => setMenuOpen(true)} aria-label={t("sidebar.account_and_settings")} className="flex h-full min-w-0 flex-1 items-center gap-2.5 rounded-l-[var(--r-md)] pl-2 text-left">
             <Avatar src={user.avatarUrl} name={displayName} size={28}/>
             <span className="min-w-0 flex-1">
-              <span className="block truncate text-[12.5px] font-semibold text-[var(--text-primary)]">
+              <span className="block truncate text-[length:var(--text-12-5)] font-semibold text-[var(--text-primary)]">
                 {displayName}
               </span>
-              <span className="block truncate text-[10.5px] text-[var(--text-quaternary)]">
+              <span className="block truncate text-[length:var(--text-10-5)] text-[var(--text-quaternary)]">
                 @{user.username}
               </span>
             </span>
@@ -356,8 +356,8 @@ function ViewItem({ icon, label, view, count, active, onSelect, }: {
       <span className={cn('shrink-0', active ? 'text-[var(--accent)]' : 'text-[var(--text-tertiary)]')}>
         {icon}
       </span>
-      <span className="min-w-0 flex-1 truncate text-[12.5px] font-medium">{label}</span>
-      {count != null && count > 0 && (<span className="shrink-0 text-[11px] tabular text-[var(--text-quaternary)]">{count}</span>)}
+      <span className="min-w-0 flex-1 truncate text-[length:var(--text-12-5)] font-medium">{label}</span>
+      {count != null && count > 0 && (<span className="shrink-0 text-[length:var(--text-11)] tabular text-[var(--text-quaternary)]">{count}</span>)}
     </button>);
 }
 export function FolderSection({ mobile = false }: { mobile?: boolean }) {
@@ -561,7 +561,7 @@ export function FolderSection({ mobile = false }: { mobile?: boolean }) {
             setHeaderMenuOpen(false);
             headerMenu.onContextMenu(event);
         }}>
-        {mobile && <button data-navigation-item type="button" onClick={() => useUi.getState().openView('all')} className="min-h-11 rounded-lg px-2 text-left text-[13px] text-[var(--accent)]">{t('navigation.all_notes')}</button>}
+        {mobile && <button data-navigation-item type="button" onClick={() => useUi.getState().openView('all')} className="min-h-11 rounded-lg px-2 text-left text-[length:var(--text-13)] text-[var(--accent)]">{t('navigation.all_notes')}</button>}
         <div className="flex shrink-0 items-center">
         <TemplateQuickActions iconSize={13}/>
         <Tooltip label={t("common.new_note")} combo={APP_SHORTCUTS.newNote}>
@@ -609,7 +609,7 @@ export function FolderSection({ mobile = false }: { mobile?: boolean }) {
                             void useNotes.getState().openNote(note!.id);
                     }}
         />
-        {filtering && (searchedFolders.shown > 0 || notesMatched > 0) && (<p data-folder-match-count className="px-2 pt-1 text-[10.5px] tabular text-[var(--text-quaternary)]">{notesMatched > 0 ? t("folders.note_match_count", { value0: searchedFolders.shown, value1: notesMatched }) : t("folders.match_count", { value0: searchedFolders.shown })}</p>)}
+        {filtering && (searchedFolders.shown > 0 || notesMatched > 0) && (<p data-folder-match-count className="px-2 pt-1 text-[length:var(--text-10-5)] tabular text-[var(--text-quaternary)]">{notesMatched > 0 ? t("folders.note_match_count", { value0: searchedFolders.shown, value1: notesMatched }) : t("folders.match_count", { value0: searchedFolders.shown })}</p>)}
       </>)}
       </div>
 
@@ -618,13 +618,13 @@ export function FolderSection({ mobile = false }: { mobile?: boolean }) {
         <CalendarTree />
         <InboxTree />
       </>)}
-      {tree.length === 0 && !filtering ? (<button type="button" disabled={creating} onClick={() => void create(null)} className="mt-0.5 flex h-10 w-full items-center gap-2 rounded-[var(--r-md)] px-2 text-[12px] text-[var(--text-quaternary)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-secondary)] disabled:pointer-events-none disabled:opacity-45 md:h-[30px]">
+      {tree.length === 0 && !filtering ? (<button type="button" disabled={creating} onClick={() => void create(null)} className="mt-0.5 flex h-10 w-full items-center gap-2 rounded-[var(--r-md)] px-2 text-[length:var(--text-12)] text-[var(--text-quaternary)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-secondary)] disabled:pointer-events-none disabled:opacity-45 md:h-[30px]">
         <FolderPlus size={13}/>{t("sidebar.create_first_folder")}</button>) : null}
-      {filtering && searchedFolders.nodes.length === 0 && unfiledMatches.length === 0 ? (<p data-folder-no-match className="px-2 py-2 text-[11.5px] text-[var(--text-quaternary)]">{t("folders.no_match")}</p>) : null}
+      {filtering && searchedFolders.nodes.length === 0 && unfiledMatches.length === 0 ? (<p data-folder-no-match className="px-2 py-2 text-[length:var(--text-11-5)] text-[var(--text-quaternary)]">{t("folders.no_match")}</p>) : null}
         <div role="tree" aria-label={t("navigation.folder")} className="mt-0.5 space-y-px">
           {searchedFolders.nodes.map((node, index) => (<FolderRow key={node.id} node={node} notesByFolder={notesByFolder} mobile={mobile} canOpenToSide={canOpenToSide} siblings={searchedFolders.nodes} index={index} parentNode={null} parentSiblings={[]} onCreateChild={create} onMove={move} onChooseParent={setMovingId} rootTree={tree} onSortSiblings={sortSiblings} onExportZip={exportZip} onDropNotes={dropNotes} onToggleInbox={toggleInbox} createdFolderId={createdFolderId} renamingId={renamingId} onStartRename={setRenamingId} onFinishRename={() => setRenamingId(null)} search={folderSearch}/>))}
         </div>
-      {unfiledMatches.length > 0 && (<><p data-unfiled-label className="px-2 pt-2 text-[10.5px] text-[var(--text-quaternary)]">{t("navigation.unfiled")}</p>
+      {unfiledMatches.length > 0 && (<><p data-unfiled-label className="px-2 pt-2 text-[length:var(--text-10-5)] text-[var(--text-quaternary)]">{t("navigation.unfiled")}</p>
         <div role="tree" aria-label={t("navigation.unfiled")} className="mt-0.5 space-y-px" data-unfiled-matches>
           {unfiledMatches.map((note, index) => <ExplorerNote key={note.id} note={note} depth={0} canOpenToSide={canOpenToSide} setSize={unfiledMatches.length} posInSet={index + 1} highlight={folderQuery}/>)}
         </div></>)}
@@ -907,7 +907,7 @@ function FolderRow({ node, notesByFolder, mobile, canOpenToSide, siblings, index
         </Tooltip>
 
         <span className={cn('shrink-0', active && !node.color ? 'text-[var(--accent)]' : !node.color && 'text-[var(--text-tertiary)]')} style={{ color: node.color ?? undefined }}>
-          {node.icon ? (<span className={cn('text-[13px] leading-none', justCreated && 'anim-mark-enter')}>{node.icon}</span>) : (<FolderMotionIcon open={expanded && hasChildren} drawing={justCreated}/>)}
+          {node.icon ? (<span className={cn('text-[length:var(--text-13)] leading-none', justCreated && 'anim-mark-enter')}>{node.icon}</span>) : (<FolderMotionIcon open={expanded && hasChildren} drawing={justCreated}/>)}
         </span>
 
         {renaming ? (<input aria-label={t("sidebar.rename")} autoFocus defaultValue={node.name} onBlur={(e) => void rename(e.target.value)} onKeyDown={(e) => {
@@ -917,14 +917,14 @@ function FolderRow({ node, notesByFolder, mobile, canOpenToSide, siblings, index
                     onFinishRename();
                 }
                 e.stopPropagation();
-            }} className="min-w-0 flex-1 rounded-[var(--r-xs)] border border-[var(--accent)] bg-[var(--bg-surface)] px-1 py-px text-[12.5px] outline-none"/>) : (<Tooltip label={folderPathLabel(folders, node.id)} side="right">
+            }} className="min-w-0 flex-1 rounded-[var(--r-xs)] border border-[var(--accent)] bg-[var(--bg-surface)] px-1 py-px text-[length:var(--text-12-5)] outline-none"/>) : (<Tooltip label={folderPathLabel(folders, node.id)} side="right">
             <button data-navigation-item={mobile || undefined} data-tree-row type="button" aria-label={node.name} aria-current={active ? 'page' : undefined} onClick={() => {
                 if (mobile) openFolderView(folders, node.id);
                 else {
                     useUi.getState().openExplorer(node.id);
                     toggleFolder(node.id);
                 }
-            }} onDoubleClick={() => onStartRename(node.id)} onKeyDown={onKeyDown} className="flex min-w-0 flex-1 items-center gap-1.5 truncate py-1 pl-1 text-left text-[12.5px] font-medium">
+            }} onDoubleClick={() => onStartRename(node.id)} onKeyDown={onKeyDown} className="flex min-w-0 flex-1 items-center gap-1.5 truncate py-1 pl-1 text-left text-[length:var(--text-12-5)] font-medium">
               <span className="min-w-0 truncate"><FolderNameText name={node.name} search={search}/></span>
               {isInbox && (<Tooltip label={t("folders.inbox")} side="right">
                 <Inbox size={11} aria-label={t("folders.inbox")} className="shrink-0 text-[var(--accent)]"/>
@@ -933,7 +933,7 @@ function FolderRow({ node, notesByFolder, mobile, canOpenToSide, siblings, index
           </Tooltip>)}
 
         {!renaming && (<>
-            <span className="shrink-0 text-[11px] tabular text-[var(--text-quaternary)] transition-opacity md:group-hover:opacity-0">
+            <span className="shrink-0 text-[length:var(--text-11)] tabular text-[var(--text-quaternary)] transition-opacity md:group-hover:opacity-0">
               {node.totalNotes > 0 ? node.totalNotes : ''}
             </span>
             <Tooltip label={t("common.more_actions")} side="left">

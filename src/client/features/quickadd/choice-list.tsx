@@ -126,7 +126,7 @@ export function QuickAddChoiceList() {
   return (
     <div className="space-y-2">
       <div className="flex flex-wrap items-center gap-1.5">
-        <span className="text-[12px] text-[var(--text-tertiary)]">{t('quickadd.choice_count', { value0: String(choices.length) })}</span>
+        <span className="text-[length:var(--text-12)] text-[var(--text-tertiary)]">{t('quickadd.choice_count', { value0: String(choices.length) })}</span>
         <span className="flex-1"/>
         <Button size="sm" icon={<Plus size={13}/>} onClick={() => add('template')} disabled={choices.length >= QUICKADD_LIMITS.maxChoices}>
           {t('quickadd.new_template_choice')}
@@ -142,7 +142,7 @@ export function QuickAddChoiceList() {
         </Button>
       </div>
 
-      {rows.length === 0 && <p className="text-[12px] text-[var(--text-quaternary)]">{t('quickadd.no_choices')}</p>}
+      {rows.length === 0 && <p className="text-[length:var(--text-12)] text-[var(--text-quaternary)]">{t('quickadd.no_choices')}</p>}
 
       <ul className="space-y-1">
         {rows.map((row) => (
@@ -202,13 +202,13 @@ function ChoiceRow({ row, rows, allChoices, onRun, onEdit, onDuplicate, onDelete
         </button>
       ) : <span aria-hidden="true" className="size-[14px] shrink-0"/>}
       {choice.icon
-        ? <span className="shrink-0 text-[13px] leading-none" style={{ color: choice.color ?? undefined }}>{choice.icon}</span>
+        ? <span className="shrink-0 text-[length:var(--text-13)] leading-none" style={{ color: choice.color ?? undefined }}>{choice.icon}</span>
         : <span aria-hidden="true" className="size-[13px] shrink-0 rounded-full" style={{ backgroundColor: choice.color ?? 'var(--border-default)' }}/>}
       <span className="min-w-0 flex-1">
-        <span className={`block truncate text-[12.5px] ${choice.enabled ? 'text-[var(--text-primary)]' : 'text-[var(--text-quaternary)] line-through'}`}>
+        <span className={`block truncate text-[length:var(--text-12-5)] ${choice.enabled ? 'text-[var(--text-primary)]' : 'text-[var(--text-quaternary)] line-through'}`}>
           {choice.name}
         </span>
-        <span className="block truncate text-[11px] text-[var(--text-quaternary)]">{choiceSummary(choice, allChoices)}</span>
+        <span className="block truncate text-[length:var(--text-11)] text-[var(--text-quaternary)]">{choiceSummary(choice, allChoices)}</span>
       </span>
         <Switch checked={choice.enabled} onChange={onEnabled} label={t('quickadd.field_enabled')}/>
         <div className="flex shrink-0 items-center gap-0.5">

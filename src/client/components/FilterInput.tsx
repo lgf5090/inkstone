@@ -139,7 +139,7 @@ const BOX = {
     },
     drawer: {
         icon: 'left-3',
-        input: 'h-10 bg-[var(--bg-base)] px-9 text-[13px]',
+        input: 'h-10 bg-[var(--bg-base)] px-9 text-[length:var(--text-13)]',
         border: 'border-[var(--border-default)] focus:border-[var(--accent)]',
         clear: 'right-2',
     },
@@ -186,7 +186,7 @@ export function FilterInput({
           title={t("filter.regex_hint")}
           value={value}
           onChange={(event) => onChange(event.target.value)}
-          className={cn('w-full rounded-[var(--r-md)] border bg-[var(--bg-inset)] text-[12.5px] text-[var(--text-primary)]', 'placeholder:text-[var(--text-quaternary)]', '[&::-webkit-search-cancel-button]:hidden [&::-webkit-search-results-button]:hidden', 'transition-[border-color,box-shadow] duration-[var(--dur-fast)]', 'focus:shadow-[var(--shadow-ring-focus)] focus:outline-none', box.input,
+          className={cn('w-full rounded-[var(--r-md)] border bg-[var(--bg-inset)] text-[length:var(--text-12-5)] text-[var(--text-primary)]', 'placeholder:text-[var(--text-quaternary)]', '[&::-webkit-search-cancel-button]:hidden [&::-webkit-search-results-button]:hidden', 'transition-[border-color,box-shadow] duration-[var(--dur-fast)]', 'focus:shadow-[var(--shadow-ring-focus)] focus:outline-none', box.input,
               error ? 'border-[var(--danger)] focus:border-[var(--danger)]' : box.border)}
         />
         {value && (<IconButton label={t("notes.clear_filters")} size="sm" onClick={clear} className={cn('absolute top-1/2 -translate-y-1/2', box.clear)}>
@@ -194,6 +194,6 @@ export function FilterInput({
         </IconButton>)}
         {trailing}
       </div>
-      {error && (<p id={hintId} role="status" className="px-2 pt-1 text-[10.5px] text-[var(--danger)]">{error === 'syntax' ? t("filter.regex_syntax") : t("filter.regex_unsafe")}</p>)}
+      {error && (<p id={hintId} role="status" className="px-2 pt-1 text-[length:var(--text-10-5)] text-[var(--danger)]">{error === 'syntax' ? t("filter.regex_syntax") : t("filter.regex_unsafe")}</p>)}
     </div>);
 }

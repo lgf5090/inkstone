@@ -94,10 +94,10 @@ export function MemoryView() {
     <div className="no-scrollbar h-full overflow-y-auto">
       <div className="mx-auto flex w-full max-w-[720px] flex-col gap-4 px-4 py-5 md:px-8">
         <header>
-          <h2 className="font-serif text-[18px] font-semibold tracking-[var(--tracking-title)] text-[var(--text-primary)]">
+          <h2 className="font-serif text-[length:var(--text-18)] font-semibold tracking-[var(--tracking-title)] text-[var(--text-primary)]">
             {t('assistant.memory.title')}
           </h2>
-          <p className="mt-1 text-[12px] leading-relaxed text-[var(--text-tertiary)]">
+          <p className="mt-1 text-[length:var(--text-12)] leading-relaxed text-[var(--text-tertiary)]">
             {t('assistant.memory.description', { count: total })}
           </p>
         </header>
@@ -122,7 +122,7 @@ export function MemoryView() {
               onChange={(event) => setDraft(event.target.value)}
               placeholder={t('assistant.memory.search')}
               aria-label={t('assistant.memory.search')}
-              className="h-8 pl-8 text-[12px]"
+              className="h-8 pl-8 text-[length:var(--text-12)]"
             />
           </div>
           <Button size="sm" variant="primary" icon={<Plus size={14} />} onClick={() => setEditing('new')}>
@@ -132,14 +132,14 @@ export function MemoryView() {
 
         {(status === 'review' || status === 'all') && reviews.length > 0 && (
           <section aria-label={t('assistant.memory.conflicts')} className="flex flex-col gap-2">
-            <p className="flex items-center gap-1.5 text-[10.5px] font-semibold uppercase tracking-[var(--tracking-label)] text-[var(--text-quaternary)]">
+            <p className="flex items-center gap-1.5 text-[length:var(--text-10-5)] font-semibold uppercase tracking-[var(--tracking-label)] text-[var(--text-quaternary)]">
               <GitCompare size={11} />
               {t('assistant.memory.conflicts')} · {reviews.length}
             </p>
             {reviews.map((review) => (
               <div key={review.id} className="rounded-[var(--r-lg)] border border-[color-mix(in_oklab,var(--warning)_40%,transparent)] bg-[var(--bg-surface)] px-3 py-2.5">
-                <p className="text-[11px] text-[var(--text-tertiary)]">{reasonText(review.reason)}</p>
-                <dl className="mt-1.5 flex flex-col gap-1 text-[12.5px]">
+                <p className="text-[length:var(--text-11)] text-[var(--text-tertiary)]">{reasonText(review.reason)}</p>
+                <dl className="mt-1.5 flex flex-col gap-1 text-[length:var(--text-12-5)]">
                   <div className="flex gap-2">
                     <dt className="w-14 shrink-0 text-[var(--text-quaternary)]">{t('assistant.memory.newer')}</dt>
                     <dd className="min-w-0 text-[var(--text-primary)]">{review.memory.content}</dd>
@@ -170,19 +170,19 @@ export function MemoryView() {
         ) : (
           grouped.map(([category, items]) => (
             <section key={category}>
-              <p className="mb-1 text-[10.5px] font-semibold uppercase tracking-[var(--tracking-label)] text-[var(--text-quaternary)]">
+              <p className="mb-1 text-[length:var(--text-10-5)] font-semibold uppercase tracking-[var(--tracking-label)] text-[var(--text-quaternary)]">
                 {CATEGORY_LABELS[category]?.() ?? category} · {items.length}
               </p>
               <ul className="overflow-hidden rounded-[var(--r-lg)] border border-[var(--border-subtle)] bg-[var(--bg-surface)]">
                 {items.map((memory) => (
                   <li key={memory.id} className="group flex items-start gap-2 border-b border-[var(--border-subtle)] px-3 py-2 last:border-b-0">
                     <div className="min-w-0 flex-1">
-                      <p className={memory.status === 'historical' ? 'text-[13px] leading-relaxed text-[var(--text-tertiary)]' : 'text-[13px] leading-relaxed text-[var(--text-primary)]'}>
+                      <p className={memory.status === 'historical' ? 'text-[length:var(--text-13)] leading-relaxed text-[var(--text-tertiary)]' : 'text-[length:var(--text-13)] leading-relaxed text-[var(--text-primary)]'}>
                         {memory.content}
-                        {memory.status === 'historical' && <span className="ml-1.5 rounded-full bg-[var(--bg-inset)] px-1.5 py-px text-[10px] text-[var(--text-quaternary)]">{t('assistant.memory.past')}</span>}
-                        {memory.status === 'uncertain' && <span className="ml-1.5 rounded-full bg-[color-mix(in_oklab,var(--warning)_16%,transparent)] px-1.5 py-px text-[10px] text-[var(--warning)]">{t('assistant.memory.unsure')}</span>}
+                        {memory.status === 'historical' && <span className="ml-1.5 rounded-full bg-[var(--bg-inset)] px-1.5 py-px text-[length:var(--text-10)] text-[var(--text-quaternary)]">{t('assistant.memory.past')}</span>}
+                        {memory.status === 'uncertain' && <span className="ml-1.5 rounded-full bg-[color-mix(in_oklab,var(--warning)_16%,transparent)] px-1.5 py-px text-[length:var(--text-10)] text-[var(--warning)]">{t('assistant.memory.unsure')}</span>}
                       </p>
-                      <p className="mt-0.5 text-[10.5px] text-[var(--text-quaternary)]">
+                      <p className="mt-0.5 text-[length:var(--text-10-5)] text-[var(--text-quaternary)]">
                         {t(memory.source === 'assistant' ? 'assistant.memory.source_agent' : memory.source === 'import' ? 'assistant.memory.source_import' : 'assistant.memory.source_manual')}
                         {' · '}
                         {relativeTime(memory.updatedAt)}
@@ -296,7 +296,7 @@ function MemoryEditor({ memory, onClose }: { memory: AssistantMemory | 'new' | n
           </Select>
         </Field>
         {memory && memory !== 'new' && (
-          <p className="text-[11px] leading-relaxed text-[var(--text-quaternary)]">{t('assistant.memory.edit_hint')}</p>
+          <p className="text-[length:var(--text-11)] leading-relaxed text-[var(--text-quaternary)]">{t('assistant.memory.edit_hint')}</p>
         )}
       </div>
     </Modal>
@@ -330,7 +330,7 @@ function CorrectDialog({ memory, onClose }: { memory: AssistantMemory | null, on
         </>
       )}
     >
-      <p className="mb-3 text-[12px] leading-relaxed text-[var(--text-tertiary)]">
+      <p className="mb-3 text-[length:var(--text-12)] leading-relaxed text-[var(--text-tertiary)]">
         {t('assistant.memory.correct_hint', { content: memory?.content ?? '' })}
       </p>
       <Field label={t('assistant.memory.what_now')}>
@@ -363,9 +363,9 @@ function HistoryDialog({ memory, onClose }: { memory: AssistantMemory | null, on
       {!data ? (
         <div className="flex justify-center py-6"><Spinner /></div>
       ) : (
-        <div className="flex flex-col gap-3 text-[12.5px]">
+        <div className="flex flex-col gap-3 text-[length:var(--text-12-5)]">
           <div>
-            <p className="text-[10.5px] font-semibold uppercase tracking-[var(--tracking-label)] text-[var(--text-quaternary)]">
+            <p className="text-[length:var(--text-10-5)] font-semibold uppercase tracking-[var(--tracking-label)] text-[var(--text-quaternary)]">
               {t('assistant.memory.current')}
             </p>
             <p className="mt-1 leading-relaxed text-[var(--text-primary)]">{memory?.content}</p>
@@ -374,14 +374,14 @@ function HistoryDialog({ memory, onClose }: { memory: AssistantMemory | null, on
             <p className="text-[var(--text-quaternary)]">{t('assistant.memory.no_earlier')}</p>
           ) : (
             <div>
-              <p className="text-[10.5px] font-semibold uppercase tracking-[var(--tracking-label)] text-[var(--text-quaternary)]">
+              <p className="text-[length:var(--text-10-5)] font-semibold uppercase tracking-[var(--tracking-label)] text-[var(--text-quaternary)]">
                 {t('assistant.memory.earlier')}
               </p>
               <ul className="mt-1 flex flex-col gap-1.5">
                 {data.previous.map((entry) => (
                   <li key={entry.id} className="text-[var(--text-tertiary)]">
                     {entry.content}
-                    <span className="block text-[10.5px] text-[var(--text-quaternary)]">{relativeTime(entry.createdAt)}</span>
+                    <span className="block text-[length:var(--text-10-5)] text-[var(--text-quaternary)]">{relativeTime(entry.createdAt)}</span>
                   </li>
                 ))}
               </ul>

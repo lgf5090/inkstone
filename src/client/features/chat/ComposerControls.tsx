@@ -70,7 +70,7 @@ export function ControlChip({
       {...(pressed === undefined ? {} : { 'aria-pressed': pressed })}
       onClick={onClick}
       className={cn(
-        'flex h-7 max-w-[46%] items-center gap-1 rounded-[var(--r-md)] border px-1.5 text-[11.5px]',
+        'flex h-7 max-w-[46%] items-center gap-1 rounded-[var(--r-md)] border px-1.5 text-[length:var(--text-11-5)]',
         'transition-colors duration-[var(--dur-fast)]',
         active
           ? 'border-[var(--accent)] bg-[var(--accent-soft)] text-[var(--accent)]'
@@ -362,7 +362,7 @@ export function NotePicker({
         autoFocus
       />
       <div className="mt-2 max-h-[320px] overflow-y-auto">
-        {!rows.length && !busy && <p className="px-1 py-3 text-[12px] text-[var(--text-quaternary)]">{t('assistant.attach.note_none')}</p>}
+        {!rows.length && !busy && <p className="px-1 py-3 text-[length:var(--text-12)] text-[var(--text-quaternary)]">{t('assistant.attach.note_none')}</p>}
         {rows.map((row) => (
           <button
             key={row.id}
@@ -371,7 +371,7 @@ export function NotePicker({
               onPick(row.title)
               onClose()
             }}
-            className="block w-full truncate rounded-[var(--r-sm)] px-2 py-1.5 text-left text-[12.5px] text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]"
+            className="block w-full truncate rounded-[var(--r-sm)] px-2 py-1.5 text-left text-[length:var(--text-12-5)] text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]"
           >
             {row.title}
           </button>

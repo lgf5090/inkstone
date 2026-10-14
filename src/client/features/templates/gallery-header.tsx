@@ -64,10 +64,10 @@ export function GalleryHeader({
   return (
     <header className='flex shrink-0 items-center gap-1.5 border-b border-[var(--border-subtle)] px-[var(--sp-4)] py-2.5 sm:gap-2.5'>
       <LayoutTemplate size={16} className='shrink-0 text-[var(--text-quaternary)]'/>
-      {roomy && <h2 className='shrink-0 text-[14px] font-semibold tracking-[-0.012em] text-[var(--text-primary)]'>{t('templates.template_library')}</h2>}
+      {roomy && <h2 className='shrink-0 text-[length:var(--text-14)] font-semibold tracking-[-0.012em] text-[var(--text-primary)]'>{t('templates.template_library')}</h2>}
       <div className='relative min-w-0 flex-1'>
         <Search size={13} aria-hidden='true' className='pointer-events-none absolute top-1/2 left-2.5 -translate-y-1/2 text-[var(--text-quaternary)]'/>
-        <input {...field} data-owns-escape={query ? '1' : undefined} type='search' aria-label={t('templates.search_templates')} value={query} onChange={(event) => onQueryChange(event.target.value)} onFocus={() => onSearchFocusChange(true)} onBlur={() => onSearchFocusChange(false)} placeholder={t('templates.search_templates')} className='h-10 w-full rounded-[var(--r-md)] border border-transparent bg-[var(--bg-inset)] pr-8 pl-8 text-[13px] text-[var(--text-primary)] placeholder:text-[var(--text-quaternary)] transition-[border-color,box-shadow] duration-[var(--dur-fast)] focus:border-[var(--accent)] focus:shadow-[var(--shadow-ring-focus)] focus:outline-none [&::-webkit-search-cancel-button]:hidden'/>
+        <input {...field} data-owns-escape={query ? '1' : undefined} type='search' aria-label={t('templates.search_templates')} value={query} onChange={(event) => onQueryChange(event.target.value)} onFocus={() => onSearchFocusChange(true)} onBlur={() => onSearchFocusChange(false)} placeholder={t('templates.search_templates')} className='h-10 w-full rounded-[var(--r-md)] border border-transparent bg-[var(--bg-inset)] pr-8 pl-8 text-[length:var(--text-13)] text-[var(--text-primary)] placeholder:text-[var(--text-quaternary)] transition-[border-color,box-shadow] duration-[var(--dur-fast)] focus:border-[var(--accent)] focus:shadow-[var(--shadow-ring-focus)] focus:outline-none [&::-webkit-search-cancel-button]:hidden'/>
         {query && (<IconButton label={t('common.clear')} size='sm' onClick={clear} className='absolute top-1/2 right-1.5 -translate-y-1/2'>
           <X size={13}/>
         </IconButton>)}

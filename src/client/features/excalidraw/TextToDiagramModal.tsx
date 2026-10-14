@@ -460,7 +460,7 @@ export const TextToDiagramModal: React.FC<TextToDiagramModalProps> = ({
             >
               <Sparkles size={14} />
               <span>{t('excalidraw.text_to_diagram')}</span>
-              <span className="rounded-md bg-white/20 px-1.5 py-0.2 text-[10px] font-semibold tracking-wide">
+              <span className="rounded-md bg-white/20 px-1.5 py-0.2 text-[length:var(--text-10)] font-semibold tracking-wide">
                 {t('excalidraw.ai_beta')}
               </span>
             </button>
@@ -505,7 +505,7 @@ export const TextToDiagramModal: React.FC<TextToDiagramModalProps> = ({
 
             {isHistoryOpen && (
               <div className="absolute right-10 top-10 z-50 w-64 rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-surface)] p-2 shadow-xl anim-pop">
-                <div className="mb-2 px-2 text-[11px] font-semibold uppercase tracking-wider text-[var(--text-tertiary)]">
+                <div className="mb-2 px-2 text-[length:var(--text-11)] font-semibold uppercase tracking-wider text-[var(--text-tertiary)]">
                   {t('excalidraw.chat_history')}
                 </div>
                 <div className="max-h-60 overflow-y-auto space-y-1">
@@ -562,7 +562,7 @@ export const TextToDiagramModal: React.FC<TextToDiagramModalProps> = ({
             <div className="flex flex-1 flex-col min-w-0 bg-[var(--bg-surface)]">
               {activeTab === 'mermaid' && (
                 <div className="flex h-10 items-center justify-between border-b border-[var(--border-subtle)] px-3 bg-[var(--bg-raised)]/40 text-xs shrink-0">
-                  <span className="font-mono text-[11px] font-semibold text-[var(--text-secondary)] uppercase tracking-wider">
+                  <span className="font-mono text-[length:var(--text-11)] font-semibold text-[var(--text-secondary)] uppercase tracking-wider">
                     {t('excalidraw.mermaid_editor')}
                   </span>
                   <div className="flex items-center gap-1.5">
@@ -626,13 +626,13 @@ export const TextToDiagramModal: React.FC<TextToDiagramModalProps> = ({
                   <button
                     type="button"
                     onClick={handleCopyCode}
-                    className="flex items-center gap-1 px-2 py-0.5 rounded text-[11px] text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)] transition-colors"
+                    className="flex items-center gap-1 px-2 py-0.5 rounded text-[length:var(--text-11)] text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)] transition-colors"
                   >
                     {copied ? <Check size={12} className="text-emerald-500" /> : <Copy size={12} />}
                     <span>{copied ? t('excalidraw.copied') : t('common.copy')}</span>
                   </button>
                 </div>
-                <div className="text-[11px] text-[var(--text-quaternary)] font-mono">
+                <div className="text-[length:var(--text-11)] text-[var(--text-quaternary)] font-mono">
                   {mermaidCode.split('\n').length}
                 </div>
               </div>
@@ -689,7 +689,7 @@ export const TextToDiagramModal: React.FC<TextToDiagramModalProps> = ({
                       <AlertCircle size={14} />
                       <span>{t('excalidraw.syntax_error')}</span>
                     </div>
-                    <pre className="font-mono text-[11px] whitespace-pre-wrap">{previewError}</pre>
+                    <pre className="font-mono text-[length:var(--text-11)] whitespace-pre-wrap">{previewError}</pre>
                   </div>
                 ) : previewSvg ? (
                   <div

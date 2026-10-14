@@ -202,7 +202,7 @@ export function SharePage({ slug }: {
           <span className="flex items-center gap-1.5 text-[var(--accent)]">
             <Logo size={15}/>
           </span>
-          <span className="text-[12.5px] font-semibold tracking-[-0.01em] text-[var(--text-primary)]">
+          <span className="text-[length:var(--text-12-5)] font-semibold tracking-[-0.01em] text-[var(--text-primary)]">
             {note?.site.name ?? 'Inkstone'}
           </span>
           <span className="flex-1"/>
@@ -223,25 +223,25 @@ export function SharePage({ slug }: {
             <div className="mx-auto mb-4 flex size-12 items-center justify-center rounded-[16px] border border-[var(--border-default)] bg-[var(--bg-surface)] text-[var(--text-tertiary)]">
               <Lock size={20}/>
             </div>
-            <h1 className="text-[16px] font-semibold text-[var(--text-primary)]">{t("share.this_note_requires_a_password")}</h1>
-            <p className="mt-1.5 text-[12.5px] text-[var(--text-tertiary)]">{t("share.ask_the_person_who_shared_this_note_for_its_passcode")}</p>
+            <h1 className="text-[length:var(--text-16)] font-semibold text-[var(--text-primary)]">{t("share.this_note_requires_a_password")}</h1>
+            <p className="mt-1.5 text-[length:var(--text-12-5)] text-[var(--text-tertiary)]">{t("share.ask_the_person_who_shared_this_note_for_its_passcode")}</p>
             <form className="mt-5 space-y-2.5" onSubmit={(event) => {
                 event.preventDefault();
                 void load(password);
             }}>
               <Input aria-label={t("common.access_passcode")} type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder={t("common.access_passcode")} autoComplete="current-password" maxLength={LIMITS.passwordMaxLength} autoFocus leading={<KeyRound size={13}/>} invalid={Boolean(error)}/>
-              {error && <p role="alert" className="text-[12px] text-[var(--danger)]">{error}</p>}
+              {error && <p role="alert" className="text-[length:var(--text-12)] text-[var(--danger)]">{error}</p>}
               <Button type="submit" variant="primary" block loading={loading}>{t("share.view_content")}</Button>
             </form>
           </div>) : error ? (<div className="mx-auto max-w-[380px] pt-[18vh] text-center">
-            <h1 className="text-[16px] font-semibold text-[var(--text-primary)]">{t("share.content_unavailable")}</h1>
-            <p role="alert" className="mt-2 text-[13px] leading-relaxed text-[var(--text-tertiary)]">{error}</p>
+            <h1 className="text-[length:var(--text-16)] font-semibold text-[var(--text-primary)]">{t("share.content_unavailable")}</h1>
+            <p role="alert" className="mt-2 text-[length:var(--text-13)] leading-relaxed text-[var(--text-tertiary)]">{error}</p>
           </div>) : presentToken && note ? (<AudienceView slug={slug} token={presentToken} source={note.content}/>) : note ? (<article className="pt-7 md:pt-10">
             <header className="mb-6 md:mb-8">
-              <h1 className="text-[26px] leading-[1.25] font-bold tracking-[-0.03em] text-[var(--text-primary)] md:text-[30px]">
+              <h1 className="text-[length:var(--text-26)] leading-[1.25] font-bold tracking-[-0.03em] text-[var(--text-primary)] md:text-[length:var(--text-30)]">
                 {note.title || t("common.untitled_note")}
               </h1>
-              <div className="mt-4 flex flex-wrap items-center gap-x-3 gap-y-1.5 text-[12px] text-[var(--text-quaternary)]">
+              <div className="mt-4 flex flex-wrap items-center gap-x-3 gap-y-1.5 text-[length:var(--text-12)] text-[var(--text-quaternary)]">
                 <span className="flex items-center gap-1.5">
                   <Avatar src={note.author.avatarUrl} name={note.author.name} size={18}/>
                   {note.author.name}
@@ -260,7 +260,7 @@ export function SharePage({ slug }: {
             <div ref={hostRef} onClick={onContentClick} onKeyDown={onContentKeyDown} className="ink-prose" style={{ maxWidth: 'none' }} dangerouslySetInnerHTML={htmlObj}/>
 
             <footer className="mt-16 border-t border-[var(--border-subtle)] pt-6 text-center">
-              <a href="/" className="inline-flex items-center gap-1.5 text-[11.5px] text-[var(--text-quaternary)] transition-colors hover:text-[var(--accent)]">
+              <a href="/" className="inline-flex items-center gap-1.5 text-[length:var(--text-11-5)] text-[var(--text-quaternary)] transition-colors hover:text-[var(--accent)]">
                 <Logo size={12}/>{t("share.shared_via_site", { site: note.site.name })}</a>
             </footer>
           </article>) : null}

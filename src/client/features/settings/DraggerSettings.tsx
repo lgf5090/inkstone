@@ -49,7 +49,7 @@ export function DraggerSettings() {
   const [styleDraft, setStyleDraft] = useState<DraggerBlockStyle | 'new' | null>(null)
   return (<div className="space-y-6">
     <section>
-      <h3 data-setting-title={t('settings.dragger_group')} className="mb-1 text-[11px] font-semibold tracking-[0.06em] text-[var(--text-quaternary)]">{t('settings.dragger_group')}</h3>
+      <h3 data-setting-title={t('settings.dragger_group')} className="mb-1 text-[length:var(--text-11)] font-semibold tracking-[0.06em] text-[var(--text-quaternary)]">{t('settings.dragger_group')}</h3>
 
       <SettingRow title={t('settings.dragger')} description={t('settings.dragger_hint')}>
         <Switch checked={editor.dragger} onChange={(dragger) => set({ dragger })} label={t('settings.dragger')}/>
@@ -77,7 +77,7 @@ export function DraggerSettings() {
         </SettingRow>
 
         {editor.draggerHandleIcon === 'custom' && (<SettingRow title={t('settings.dragger_handle_glyph')} description={t('settings.dragger_handle_glyph_hint')}>
-            <Input aria-label={t('settings.dragger_handle_glyph')} value={editor.draggerHandleGlyph} maxLength={DRAGGER_HANDLE_GLYPH_MAX} className="w-24 text-center text-[18px]" onChange={(event) => set({ draggerHandleGlyph: event.target.value })}/>
+            <Input aria-label={t('settings.dragger_handle_glyph')} value={editor.draggerHandleGlyph} maxLength={DRAGGER_HANDLE_GLYPH_MAX} className="w-24 text-center text-[length:var(--text-18)]" onChange={(event) => set({ draggerHandleGlyph: event.target.value })}/>
           </SettingRow>)}
 
         <SettingRow title={t('settings.dragger_handle_size')}>
@@ -130,7 +130,7 @@ export function DraggerSettings() {
     </section>
 
     {editor.dragger && (<section>
-        <h3 data-setting-title={t('settings.dragger_menu_group')} className="mb-1 text-[11px] font-semibold tracking-[0.06em] text-[var(--text-quaternary)]">{t('settings.dragger_menu_group')}</h3>
+        <h3 data-setting-title={t('settings.dragger_menu_group')} className="mb-1 text-[length:var(--text-11)] font-semibold tracking-[0.06em] text-[var(--text-quaternary)]">{t('settings.dragger_menu_group')}</h3>
 
         <SettingRow title={t('settings.dragger_multi_select')} description={t('settings.dragger_multi_select_hint')}>
           <Switch checked={editor.draggerMultiSelect} onChange={(draggerMultiSelect) => set({ draggerMultiSelect })} label={t('settings.dragger_multi_select')}/>
@@ -161,7 +161,7 @@ export function DraggerSettings() {
       </section>)}
 
     {editor.dragger && (<section>
-        <h3 data-setting-title={t('settings.dragger_behavior')} className="mb-1 text-[11px] font-semibold tracking-[0.06em] text-[var(--text-quaternary)]">{t('settings.dragger_behavior')}</h3>
+        <h3 data-setting-title={t('settings.dragger_behavior')} className="mb-1 text-[length:var(--text-11)] font-semibold tracking-[0.06em] text-[var(--text-quaternary)]">{t('settings.dragger_behavior')}</h3>
 
         <SettingRow title={t('settings.dragger_auto_scroll')} description={t('settings.dragger_auto_scroll_hint')}>
           <Switch checked={editor.draggerAutoScroll} onChange={(draggerAutoScroll) => set({ draggerAutoScroll })} label={t('settings.dragger_auto_scroll')}/>

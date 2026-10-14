@@ -266,8 +266,8 @@ function MindmapHeader(props: {
     return (
       <header className="mindmap-fullscreen-head">
         <div className="min-w-0">
-          <h2 className="truncate text-[15px] font-semibold tracking-[-0.012em] text-[var(--text-primary)]">{title}</h2>
-          <p className="text-[12px] text-[var(--text-secondary)]">
+          <h2 className="truncate text-[length:var(--text-15)] font-semibold tracking-[-0.012em] text-[var(--text-primary)]">{title}</h2>
+          <p className="text-[length:var(--text-12)] text-[var(--text-secondary)]">
             {mode === 'json' ? t('preview.mindmap_mode_json') : t('preview.mindmap_mode_outline')}
             {!editable && ` · ${t('preview.mindmap_readonly')}`}
           </p>

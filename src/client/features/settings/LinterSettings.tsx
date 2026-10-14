@@ -250,7 +250,7 @@ export function LinterSettings() {
           <Button variant="secondary" onClick={() => switchAll(true)}>{t('linter.enable_all')}</Button>
           <Button variant="secondary" onClick={() => switchAll(false)}>{t('linter.disable_all')}</Button>
         </div>
-        <p className="mb-1 text-[11.5px] text-[var(--text-tertiary)]">
+        <p className="mb-1 text-[length:var(--text-11-5)] text-[var(--text-tertiary)]">
           {t('linter.rules_on_count', { on: enabledCount, total: rules.length, shown: visible.length })}
         </p>
         {visible.map((rule) => {
@@ -262,8 +262,8 @@ export function LinterSettings() {
               <div className="flex flex-col items-stretch gap-2 py-3 md:flex-row md:items-center md:gap-4">
                 <div className="min-w-0 flex-1">
                   <LinterRuleTitle alias={rule.alias} runtimeName={rule.getName()} />
-                  <div className="mt-0.5 break-words text-[11.5px] leading-relaxed text-[var(--text-tertiary)]">{asPlainText(rule.getDescription())}</div>
-                  <code className="mt-1 block text-[10.5px] text-[var(--text-tertiary)]">{rule.alias}</code>
+                  <div className="mt-0.5 break-words text-[length:var(--text-11-5)] leading-relaxed text-[var(--text-tertiary)]">{asPlainText(rule.getDescription())}</div>
+                  <code className="mt-1 block text-[length:var(--text-10-5)] text-[var(--text-tertiary)]">{rule.alias}</code>
                 </div>
                 <div className="flex shrink-0 items-center gap-1">
                   {rule.options.length > 0 && (
@@ -366,7 +366,7 @@ function RuleOptionRow({ option, config, onChange }: {
       {(option.kind === 'text' || option.kind === 'date-format') && (
         <Input
           aria-label={t(option.nameKey)}
-          className="w-[260px] max-w-full font-mono text-[12px]"
+          className="w-[260px] max-w-full font-mono text-[length:var(--text-12)]"
           value={String(value)}
           spellCheck={false}
           onChange={(event) => onChange(event.target.value)} />
@@ -375,7 +375,7 @@ function RuleOptionRow({ option, config, onChange }: {
         <Input
           aria-label={t(option.nameKey)}
           type="number"
-          className="w-[110px] font-mono text-[12px]"
+          className="w-[110px] font-mono text-[length:var(--text-12)]"
           value={String(value)}
           onChange={(event) => onChange(event.target.value === '' ? option.defaultValue : Number(event.target.value))} />
       )}
@@ -426,13 +426,13 @@ function ArrayStyleSelect({ kind, value, onChange }: {
 function ExampleBlock({ description, before, after }: { description: string, before: string, after: string }) {
   return (
     <div className="rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-sunken)] p-2">
-      <p className="mb-2 break-words text-[11.5px] text-[var(--text-secondary)]">{description}</p>
+      <p className="mb-2 break-words text-[length:var(--text-11-5)] text-[var(--text-secondary)]">{description}</p>
       <div className="grid gap-2 md:grid-cols-2">
         {[before, after].map((body, index) => (
           <pre
             key={index}
-            className="max-h-52 overflow-auto whitespace-pre-wrap break-words rounded-md bg-[var(--bg-inset)] p-2 font-mono text-[11px] leading-relaxed text-[var(--text-secondary)]">
-            <span className="mb-1 block font-sans text-[10px] uppercase text-[var(--text-tertiary)]">
+            className="max-h-52 overflow-auto whitespace-pre-wrap break-words rounded-md bg-[var(--bg-inset)] p-2 font-mono text-[length:var(--text-11)] leading-relaxed text-[var(--text-secondary)]">
+            <span className="mb-1 block font-sans text-[length:var(--text-10)] uppercase text-[var(--text-tertiary)]">
               {index === 0 ? t('linter.example.before') : t('linter.example.after')}
             </span>{body}
           </pre>
@@ -477,11 +477,11 @@ function EntryList({ values, placeholder, emptyLabel, allowReorder, validator, o
 
   return (
     <div className="w-[320px] max-w-full">
-      {values.length === 0 && <p className="mb-1 text-[11.5px] text-[var(--text-tertiary)]">{emptyLabel}</p>}
+      {values.length === 0 && <p className="mb-1 text-[length:var(--text-11-5)] text-[var(--text-tertiary)]">{emptyLabel}</p>}
       <ul className="space-y-1">
         {values.map((value, index) => (
           <li key={`${value}:${index}`} className="flex items-center gap-2">
-            <code className="min-w-0 flex-1 truncate rounded bg-[var(--bg-sunken)] px-2 py-1 font-mono text-[11.5px]">{value}</code>
+            <code className="min-w-0 flex-1 truncate rounded bg-[var(--bg-sunken)] px-2 py-1 font-mono text-[length:var(--text-11-5)]">{value}</code>
             {allowReorder && index > 0 && (
               <IconButton label={t('linter.list.move_up')} onClick={() => {
                 const next = [...values]
@@ -502,7 +502,7 @@ function EntryList({ values, placeholder, emptyLabel, allowReorder, validator, o
         <Input
           ref={input}
           aria-label={placeholder || emptyLabel}
-          className="min-w-0 flex-1 font-mono text-[12px]"
+          className="min-w-0 flex-1 font-mono text-[length:var(--text-12)]"
           value={draft}
           placeholder={placeholder}
           spellCheck={false}
@@ -520,7 +520,7 @@ function EntryList({ values, placeholder, emptyLabel, allowReorder, validator, o
           <Plus size={14} aria-hidden="true" />
         </IconButton>
       </div>
-      {problem && <p className="mt-1 text-[11px] text-[var(--danger)]">{problem}</p>}
+      {problem && <p className="mt-1 text-[length:var(--text-11)] text-[var(--danger)]">{problem}</p>}
     </div>
   )
 }
@@ -556,7 +556,7 @@ function CustomRegexes({ linter, patch }: { linter: LinterSettingsValue, patch: 
           {t('linter.custom_regexes.add')}
         </Button>
       </SettingRow>
-      {rows.length === 0 && <p className="py-2 text-[11.5px] text-[var(--text-tertiary)]">{t('linter.custom_regexes.empty')}</p>}
+      {rows.length === 0 && <p className="py-2 text-[length:var(--text-11-5)] text-[var(--text-tertiary)]">{t('linter.custom_regexes.empty')}</p>}
       {rows.map((row, index) => {
         const problem = problemFor(row.find, row.flags)
 
@@ -571,21 +571,21 @@ function CustomRegexes({ linter, patch }: { linter: LinterSettingsValue, patch: 
                 onChange={(event) => update(index, { label: event.target.value })} />
               <Input
                 aria-label={t('linter.custom_regexes.find')}
-                className="min-w-[160px] flex-1 font-mono text-[12px]"
+                className="min-w-[160px] flex-1 font-mono text-[length:var(--text-12)]"
                 value={row.find}
                 placeholder={t('linter.custom_regexes.find')}
                 spellCheck={false}
                 onChange={(event) => update(index, { find: event.target.value })} />
               <Input
                 aria-label={t('linter.custom_regexes.replace')}
-                className="min-w-[140px] flex-1 font-mono text-[12px]"
+                className="min-w-[140px] flex-1 font-mono text-[length:var(--text-12)]"
                 value={row.replace}
                 placeholder={t('linter.custom_regexes.replace')}
                 spellCheck={false}
                 onChange={(event) => update(index, { replace: event.target.value })} />
               <Input
                 aria-label={t('linter.custom_regexes.flags')}
-                className="w-[72px] font-mono text-[12px]"
+                className="w-[72px] font-mono text-[length:var(--text-12)]"
                 value={row.flags}
                 onChange={(event) => update(index, { flags: event.target.value })} />
               <Switch checked={row.enabled} onChange={(enabled) => update(index, { enabled })} label={t('linter.options.custom_replace.enabled')} />
@@ -593,7 +593,7 @@ function CustomRegexes({ linter, patch }: { linter: LinterSettingsValue, patch: 
                 <Trash2 size={13} aria-hidden="true" />
               </IconButton>
             </div>
-            {problem && <p className="text-[11px] text-[var(--danger)]">{problem}</p>}
+            {problem && <p className="text-[length:var(--text-11)] text-[var(--danger)]">{problem}</p>}
           </div>
         )
       })}

@@ -76,21 +76,21 @@ export function ArticlePreviewCard({ entry, feed, anchor, images, onDismiss }: {
       )}
       <div className="flex min-w-0 items-center gap-1.5">
         <FeedMark src={mark} title={feed?.title || entry.title} size={16} />
-        <span className="min-w-0 flex-1 truncate text-[11px] font-medium text-[var(--text-tertiary)]">
+        <span className="min-w-0 flex-1 truncate text-[length:var(--text-11)] font-medium text-[var(--text-tertiary)]">
           {feed?.title || t('rss.source_unknown')}
         </span>
-        {entry.publishedTs && <span className="shrink-0 text-[10.5px] tabular-nums text-[var(--text-quaternary)]">{shortSince(entry.publishedTs)}</span>}
+        {entry.publishedTs && <span className="shrink-0 text-[length:var(--text-10-5)] tabular-nums text-[var(--text-quaternary)]">{shortSince(entry.publishedTs)}</span>}
       </div>
-      <p className="mt-1 line-clamp-3 text-[13px] font-semibold leading-[19px] text-[var(--text-primary)]">
+      <p className="mt-1 line-clamp-3 text-[length:var(--text-13)] font-semibold leading-[19px] text-[var(--text-primary)]">
         {entry.title || t('rss.untitled')}
       </p>
-      {text && <p className="mt-1 line-clamp-4 text-[11.5px] leading-[16px] text-[var(--text-tertiary)]">{text}</p>}
+      {text && <p className="mt-1 line-clamp-4 text-[length:var(--text-11-5)] leading-[16px] text-[var(--text-tertiary)]">{text}</p>}
       {entry.link && (
         <a
           href={entry.link}
           target="_blank"
           rel="noopener noreferrer nofollow"
-          className="mt-2 inline-flex items-center gap-1 text-[11.5px] font-medium text-[var(--accent)] hover:underline"
+          className="mt-2 inline-flex items-center gap-1 text-[length:var(--text-11-5)] font-medium text-[var(--accent)] hover:underline"
         >
           <ExternalLink size={11} aria-hidden="true" />
           {t('rss.open_original')}

@@ -298,7 +298,7 @@ export function CommandPalette({ onClose, initialQuery = '' }: {
         <h2 id={labelId} className="sr-only">{t("common.search_notes_or_run_a_command")}</h2>
         <div className="flex items-center gap-2.5 border-b border-[var(--border-subtle)] px-4">
           <Search size={16} className="shrink-0 text-[var(--text-quaternary)]"/>
-          <input {...field} role="combobox" aria-label={t("common.search_notes_or_run_a_command")} aria-expanded="true" aria-controls={listId} aria-activedescendant={items[cursor.index] ? `${listId}-option-${cursor.index}` : undefined} aria-autocomplete="list" autoComplete="off" value={query} onChange={(e) => setQuery(e.target.value)} placeholder={t("command.search_notes_or_type_a_command")} className="h-[52px] flex-1 bg-transparent text-[15px] text-[var(--text-primary)] placeholder:text-[var(--text-quaternary)] focus:outline-none"/>
+          <input {...field} role="combobox" aria-label={t("common.search_notes_or_run_a_command")} aria-expanded="true" aria-controls={listId} aria-activedescendant={items[cursor.index] ? `${listId}-option-${cursor.index}` : undefined} aria-autocomplete="list" autoComplete="off" value={query} onChange={(e) => setQuery(e.target.value)} placeholder={t("command.search_notes_or_type_a_command")} className="h-[52px] flex-1 bg-transparent text-[length:var(--text-15)] text-[var(--text-primary)] placeholder:text-[var(--text-quaternary)] focus:outline-none"/>
           <span className="hidden md:inline-flex"><Kbd keys={['Esc']}/></span>
           <span className="md:hidden">
             <Tooltip label={t("common.close")} side="left">
@@ -310,8 +310,8 @@ export function CommandPalette({ onClose, initialQuery = '' }: {
         </div>
 
         <div ref={listRef} id={listId} role="listbox" aria-labelledby={labelId} className="min-h-0 flex-1 overflow-y-auto p-1.5 md:max-h-[54vh] md:flex-none">
-          {groups.length === 0 ? (<div className="px-3 py-10 text-center text-[12.5px] text-[var(--text-quaternary)]">{t("command.no_matching_results")}</div>) : (groups.map(([group, groupItems]) => (<div key={group} role="group" aria-label={group} className="mb-1">
-                <div className="px-2.5 pt-2 pb-1 text-[10.5px] font-semibold tracking-[0.06em] text-[var(--text-quaternary)]">
+          {groups.length === 0 ? (<div className="px-3 py-10 text-center text-[length:var(--text-12-5)] text-[var(--text-quaternary)]">{t("command.no_matching_results")}</div>) : (groups.map(([group, groupItems]) => (<div key={group} role="group" aria-label={group} className="mb-1">
+                <div className="px-2.5 pt-2 pb-1 text-[length:var(--text-10-5)] font-semibold tracking-[0.06em] text-[var(--text-quaternary)]">
                   {group}
                 </div>
                 {groupItems.map((item) => {
@@ -321,7 +321,7 @@ export function CommandPalette({ onClose, initialQuery = '' }: {
               </div>)))}
         </div>
 
-        <div className="hidden items-center gap-4 border-t border-[var(--border-subtle)] px-4 py-2 text-[10.5px] text-[var(--text-quaternary)] md:flex">
+        <div className="hidden items-center gap-4 border-t border-[var(--border-subtle)] px-4 py-2 text-[length:var(--text-10-5)] text-[var(--text-quaternary)] md:flex">
           <span className="flex items-center gap-1.5">
             <Kbd keys={['↑', '↓']}/>{t("command.select")}</span>
           <span className="flex items-center gap-1.5">
@@ -346,14 +346,14 @@ const PaletteRow = memo(function PaletteRow({ item, index, active, listId, onHov
           {item.icon}
         </span>
         <span className="min-w-0 flex-1">
-          <span className="block truncate text-[13px] text-[var(--text-primary)]">
+          <span className="block truncate text-[length:var(--text-13)] text-[var(--text-primary)]">
             {parts
           ? parts.map((part, i) => part.hit ? (<mark key={i} className="ink-hit">
                     {part.text}
                   </mark>) : (<span key={i}>{part.text}</span>))
           : item.label}
           </span>
-          {item.detail && (<span className="mt-0.5 block truncate text-[11px] text-[var(--text-quaternary)]">
+          {item.detail && (<span className="mt-0.5 block truncate text-[length:var(--text-11)] text-[var(--text-quaternary)]">
               {item.detail}
             </span>)}
         </span>

@@ -142,7 +142,7 @@ export function SidebarTags({ mobile = false }: { mobile?: boolean }) {
           const source = name ? findDroppedTag(tags, name) : null;
           if (source) void moveTag(source, null);
         }}>
-        {mobile && <button data-navigation-item type="button" onClick={() => openView('all')} className="min-h-11 rounded-lg px-2 text-left text-[13px] text-[var(--accent)]">{t('navigation.all_notes')}</button>}
+        {mobile && <button data-navigation-item type="button" onClick={() => openView('all')} className="min-h-11 rounded-lg px-2 text-left text-[length:var(--text-13)] text-[var(--accent)]">{t('navigation.all_notes')}</button>}
         <div className="flex shrink-0 items-center">
           {parentPaths.length > 0 && (<Tooltip label={allExpanded ? t('tags.collapse_all') : t('tags.expand_all')} side="left">
               <IconButton label={allExpanded ? t('tags.collapse_all') : t('tags.expand_all')} size="sm" onClick={() => {
@@ -176,7 +176,7 @@ export function SidebarTags({ mobile = false }: { mobile?: boolean }) {
                 if (event.key === 'Enter' && rows[cursor])
                     open(rows[cursor]!.fullPath, false);
             }}/>
-        {searching && rows.length > 0 && <p className="px-2 pt-1 text-[10.5px] tabular text-[var(--text-quaternary)]">{t('tags.match_count', { value0: searched.hitCount })}</p>}
+        {searching && rows.length > 0 && <p className="px-2 pt-1 text-[length:var(--text-10-5)] tabular text-[var(--text-quaternary)]">{t('tags.match_count', { value0: searched.hitCount })}</p>}
       </>)}
       </div>
 
@@ -184,18 +184,18 @@ export function SidebarTags({ mobile = false }: { mobile?: boolean }) {
         {!searching && tags.length > 0 && (<button data-navigation-item type="button" aria-current={view === 'untagged' ? 'page' : undefined} onClick={() => {
                     setCursor(-1);
                     openView('untagged');
-                }} className={cn('flex h-11 w-full items-center gap-2 rounded-[var(--r-md)] px-2 text-left text-[12.5px] font-medium transition-colors duration-[var(--dur-fast)] md:h-[30px]', view === 'untagged'
+                }} className={cn('flex h-11 w-full items-center gap-2 rounded-[var(--r-md)] px-2 text-left text-[length:var(--text-12-5)] font-medium transition-colors duration-[var(--dur-fast)] md:h-[30px]', view === 'untagged'
                     ? 'bg-[var(--accent-soft)] text-[var(--text-primary)]'
                     : 'text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]')}>
             <Tag size={13} className="shrink-0 text-[var(--text-quaternary)]"/>
             <span className="min-w-0 flex-1 truncate">{t('navigation.untagged')}</span>
-            <span className="shrink-0 text-[11px] tabular text-[var(--text-quaternary)] transition-opacity md:group-hover:opacity-0">{counts.untagged || ''}</span>
+            <span className="shrink-0 text-[length:var(--text-11)] tabular text-[var(--text-quaternary)] transition-opacity md:group-hover:opacity-0">{counts.untagged || ''}</span>
           </button>)}
         {draftParent !== null && <TagDraftRow leaf={draftParent} onFinish={finishCreate} onCancel={() => setDraftParent(null)}/>}
-        {!tags.length && draftParent === null && <button type="button" onClick={() => startDraft('')} className="flex h-10 w-full items-center gap-2 rounded-[var(--r-md)] px-2 text-left text-[11.5px] text-[var(--text-quaternary)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-secondary)] md:h-[30px]">
+        {!tags.length && draftParent === null && <button type="button" onClick={() => startDraft('')} className="flex h-10 w-full items-center gap-2 rounded-[var(--r-md)] px-2 text-left text-[length:var(--text-11-5)] text-[var(--text-quaternary)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-secondary)] md:h-[30px]">
             <Plus size={13}/>{t('tags.create_first')}
           </button>}
-        {searching && !rows.length && <p className="flex items-center gap-2 px-2 py-2 text-[11.5px] text-[var(--text-quaternary)]">
+        {searching && !rows.length && <p className="flex items-center gap-2 px-2 py-2 text-[length:var(--text-11-5)] text-[var(--text-quaternary)]">
             <X size={12}/>{t('tags.no_match')}
             <button type="button" onClick={() => {
                     setQuery('');
@@ -232,7 +232,7 @@ export function SidebarTags({ mobile = false }: { mobile?: boolean }) {
                     const source = name ? findDroppedTag(tags, name) : null;
                     if (source) void moveTag(source, node.fullPath);
                 }}/>))}
-        {(activeTags.length > 1 || excludedTags.length > 0) && (<div className="flex flex-wrap items-center gap-1 pt-1 text-[11px]">
+        {(activeTags.length > 1 || excludedTags.length > 0) && (<div className="flex flex-wrap items-center gap-1 pt-1 text-[length:var(--text-11)]">
             {activeTags.length > 1 && <span className="shrink-0 text-[var(--text-quaternary)]">{t('tags.matching_all', { value0: activeTags.length })}</span>}
             {activeTags.map((name) => (<button key={name} type="button" onClick={() => toggleTagFilter(name, true)} className="flex max-w-[10rem] items-center gap-0.5 rounded-[var(--r-sm)] bg-[var(--accent-soft)] px-1.5 py-0.5 text-[var(--text-primary)] hover:bg-[var(--bg-hover)]">
                 <span className="truncate">#{name}</span>
@@ -247,7 +247,7 @@ export function SidebarTags({ mobile = false }: { mobile?: boolean }) {
                     for (const name of excludedTags) toggleTagExclusion(name);
                 }} className="px-1 text-[var(--accent)] hover:underline">{t('common.clear')}</button>
           </div>)}
-        {!searching && flattened.length > COLLAPSED_ROW_LIMIT && (<button type="button" onClick={() => setListOpen((value) => !value)} className="h-10 w-full rounded-[var(--r-md)] px-2 text-left text-[11.5px] text-[var(--text-quaternary)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-secondary)] md:h-[26px]">
+        {!searching && flattened.length > COLLAPSED_ROW_LIMIT && (<button type="button" onClick={() => setListOpen((value) => !value)} className="h-10 w-full rounded-[var(--r-md)] px-2 text-left text-[length:var(--text-11-5)] text-[var(--text-quaternary)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-secondary)] md:h-[26px]">
             {listOpen ? t('common.collapse') : t('sidebar.show_all_value0_tags', { value0: flattened.length })}
           </button>)}
       </div>
@@ -283,7 +283,7 @@ function TagDraftRow({ leaf, onFinish, onCancel }: {
     };
     return (<div className="flex h-10 items-center gap-2 rounded-[var(--r-md)] px-2 md:h-[30px]">
       <Hash size={13} className="shrink-0 text-[var(--text-quaternary)]"/>
-      {leaf && <span className="shrink-0 text-[12.5px] text-[var(--text-quaternary)]">{leaf}/</span>}
+      {leaf && <span className="shrink-0 text-[length:var(--text-12-5)] text-[var(--text-quaternary)]">{leaf}/</span>}
       <input aria-label={t('tags.new')} autoFocus placeholder={leaf ? t('tags.new_leaf_placeholder') : t('tags.new_placeholder')} onBlur={(event) => {
             if (event.currentTarget.value.trim())
                 finish(event.currentTarget.value);
@@ -345,7 +345,7 @@ function TagTreeRow({ node, query, expanded, active, highlighted, renaming, onTo
     return (<div ref={rowRef} role="treeitem" aria-level={node.depth + 1} aria-expanded={hasChildren ? expanded : undefined} aria-selected={active} data-tag={encodeDataValue(node.fullPath)} data-tag-row data-row-index={node.isVirtual ? undefined : node.tag.id} onContextMenu={(event) => {
             setMenuOpen(false);
             menu.onContextMenu(event);
-        }} draggable={!node.isVirtual} onDragStart={onDragStart} onDragEnd={onDragEnd} onDragOver={onDragOver} onDragLeave={onDragLeave} onDrop={onDrop} className={cn('group relative flex h-11 items-center gap-1 rounded-[var(--r-md)] pr-1 text-[12.5px] transition-colors duration-[var(--dur-fast)] md:h-[30px]', highlighted && 'ring-1 ring-[var(--accent-ring)]', dropTarget && 'ring-1 ring-[var(--accent)] bg-[var(--accent-soft)]', dragging && 'opacity-45', active
+        }} draggable={!node.isVirtual} onDragStart={onDragStart} onDragEnd={onDragEnd} onDragOver={onDragOver} onDragLeave={onDragLeave} onDrop={onDrop} className={cn('group relative flex h-11 items-center gap-1 rounded-[var(--r-md)] pr-1 text-[length:var(--text-12-5)] transition-colors duration-[var(--dur-fast)] md:h-[30px]', highlighted && 'ring-1 ring-[var(--accent-ring)]', dropTarget && 'ring-1 ring-[var(--accent)] bg-[var(--accent-soft)]', dragging && 'opacity-45', active
             ? 'bg-[var(--accent-soft)] text-[var(--text-primary)]'
             : 'text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]')} style={{ paddingLeft: treeIndent(node.depth) }}>
       {hasChildren ? (<button type="button" aria-label={expanded ? t('tags.collapse_children') : t('tags.expand_children')} onClick={onToggle} className="flex size-6 shrink-0 items-center justify-center rounded text-[var(--text-quaternary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-secondary)] md:size-5">
@@ -353,12 +353,12 @@ function TagTreeRow({ node, query, expanded, active, highlighted, renaming, onTo
           </button>) : <span className="size-6 shrink-0 md:size-5"/>}
       <Hash size={13} className="shrink-0" style={{ color: node.tag.color ?? (active ? 'var(--accent)' : 'var(--text-quaternary)') }}/>
       {node.tag.isPinned && <Pin size={10} className="shrink-0 text-[var(--text-quaternary)]"/>}
-      {excluded && <span aria-hidden="true" className="shrink-0 text-[11px] text-[var(--danger)]">−</span>}
+      {excluded && <span aria-hidden="true" className="shrink-0 text-[length:var(--text-11)] text-[var(--danger)]">−</span>}
       {renaming ? (<TagRenameField initial={node.name} onCommit={onFinishRename} onCancel={onCancelRename}/>) : (<button data-navigation-item type="button" title={t('tags.cmd_click')} aria-current={active ? 'page' : undefined} onClick={onOpen} onDoubleClick={node.isVirtual ? undefined : onStartRename} className="min-w-0 flex-1 truncate py-1 text-left font-medium">
           <TagNameHighlight name={node.name} query={query}/>
         </button>)}
       {!renaming && (<>
-          <span className="shrink-0 text-[11px] tabular text-[var(--text-quaternary)] transition-opacity md:group-hover:opacity-0">
+          <span className="shrink-0 text-[length:var(--text-11)] tabular text-[var(--text-quaternary)] transition-opacity md:group-hover:opacity-0">
             {node.count > 0 || hasChildren ? (hasChildren ? node.totalCount : node.count) : ''}
           </span>
           <Tooltip label={t('common.more_actions')} side="left">
@@ -371,7 +371,7 @@ function TagTreeRow({ node, query, expanded, active, highlighted, renaming, onTo
             </IconButton>
           </Tooltip>
         </>)}
-      {dropHint && (<span className="pointer-events-none absolute top-1/2 right-1 max-w-[72%] -translate-y-1/2 truncate rounded-[var(--r-sm)] bg-[var(--accent)] px-1.5 py-0.5 text-[10.5px] text-[var(--accent-contrast)]">
+      {dropHint && (<span className="pointer-events-none absolute top-1/2 right-1 max-w-[72%] -translate-y-1/2 truncate rounded-[var(--r-sm)] bg-[var(--accent)] px-1.5 py-0.5 text-[length:var(--text-10-5)] text-[var(--accent-contrast)]">
             {t('tags.move_to_value0', { value0: dropHint })}
           </span>)}
       <Menu anchor={rowRef} open={menuOpen} onClose={() => setMenuOpen(false)} items={menuItems}/>

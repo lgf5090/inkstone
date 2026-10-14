@@ -112,38 +112,38 @@ export function SharedNotes() {
   return <section>
     <div className="mb-2 flex items-center justify-between gap-2">
       <div>
-        <h3 data-setting-title={t('share.shared_notes')} className="text-[11px] font-semibold tracking-[0.06em] text-[var(--text-quaternary)]">{t('share.shared_notes')}</h3>
-        <p className="mt-0.5 text-[11.5px] text-[var(--text-tertiary)]">{t('share.shared_notes_description')}</p>
+        <h3 data-setting-title={t('share.shared_notes')} className="text-[length:var(--text-11)] font-semibold tracking-[0.06em] text-[var(--text-quaternary)]">{t('share.shared_notes')}</h3>
+        <p className="mt-0.5 text-[length:var(--text-11-5)] text-[var(--text-tertiary)]">{t('share.shared_notes_description')}</p>
       </div>
       <Button size="sm" variant="ghost" icon={<RefreshCw size={13}/>} loading={refreshing} onClick={() => void load(true)} aria-label={t('share.refresh_list')} title={t('share.refresh_list')} />
     </div>
 
     {shares && shares.length > 0 && <FilterInput size="panel" className="mb-2" value={query} onChange={setQuery} query={filter} label={t('share.search_shared_notes')} placeholder={t('share.search_shared_notes')}/>}
 
-    {error && <div role="alert" className="mb-2 flex items-center justify-between gap-2 rounded-[var(--r-md)] border border-[var(--border-subtle)] px-3 py-2 text-[12px] text-[var(--danger)]">
+    {error && <div role="alert" className="mb-2 flex items-center justify-between gap-2 rounded-[var(--r-md)] border border-[var(--border-subtle)] px-3 py-2 text-[length:var(--text-12)] text-[var(--danger)]">
       <span>{t('share.could_not_load_list')}: {error}</span>
       <Button size="sm" variant="secondary" onClick={() => void load(true)}>{t('common.retry')}</Button>
     </div>}
 
-    {shares === null ? (refreshing && <p role="status" className="py-4 text-center text-[12px] text-[var(--text-tertiary)]">{t('common.loading')}</p>) :
-      shares?.length === 0 ? <p className="rounded-[var(--r-md)] border border-[var(--border-subtle)] bg-[var(--bg-base)] px-3 py-4 text-center text-[12px] text-[var(--text-tertiary)]">{t('share.no_shared_notes')}</p> :
-      visible.length === 0 ? <p className="py-4 text-center text-[12px] text-[var(--text-tertiary)]">{t('share.no_matching_shares')}</p> :
+    {shares === null ? (refreshing && <p role="status" className="py-4 text-center text-[length:var(--text-12)] text-[var(--text-tertiary)]">{t('common.loading')}</p>) :
+      shares?.length === 0 ? <p className="rounded-[var(--r-md)] border border-[var(--border-subtle)] bg-[var(--bg-base)] px-3 py-4 text-center text-[length:var(--text-12)] text-[var(--text-tertiary)]">{t('share.no_shared_notes')}</p> :
+      visible.length === 0 ? <p className="py-4 text-center text-[length:var(--text-12)] text-[var(--text-tertiary)]">{t('share.no_matching_shares')}</p> :
       <div className="divide-y divide-[var(--border-subtle)] overflow-hidden rounded-[var(--r-md)] border border-[var(--border-subtle)] bg-[var(--bg-base)]">
         {visible.map((share) => {
           const expired = share.expiresAt !== null && share.expiresAt <= Date.now()
           const trashed = share.deletedAt !== null
           return <div key={share.noteId} className="px-3 py-3">
             <div className="flex items-start justify-between gap-2">
-              <button type="button" disabled={trashed} onClick={() => void visitNote(share)} className="min-w-0 truncate text-left text-[13px] font-medium text-[var(--text-primary)] hover:text-[var(--accent)] disabled:cursor-default disabled:hover:text-[var(--text-primary)]" title={share.noteTitle || t('common.untitled_note')}>{share.noteTitle || t('common.untitled_note')}</button>
-              <span className={`shrink-0 rounded-full px-2 py-0.5 text-[10.5px] font-medium ${trashed || expired ? 'bg-[var(--bg-inset)] text-[var(--text-tertiary)]' : 'bg-[var(--accent-soft)] text-[var(--accent)]'}`}>
+              <button type="button" disabled={trashed} onClick={() => void visitNote(share)} className="min-w-0 truncate text-left text-[length:var(--text-13)] font-medium text-[var(--text-primary)] hover:text-[var(--accent)] disabled:cursor-default disabled:hover:text-[var(--text-primary)]" title={share.noteTitle || t('common.untitled_note')}>{share.noteTitle || t('common.untitled_note')}</button>
+              <span className={`shrink-0 rounded-full px-2 py-0.5 text-[length:var(--text-10-5)] font-medium ${trashed || expired ? 'bg-[var(--bg-inset)] text-[var(--text-tertiary)]' : 'bg-[var(--accent-soft)] text-[var(--accent)]'}`}>
                 {trashed ? t('share.in_trash') : expired ? t('share.expired') : t('share.active')}
               </span>
             </div>
-            <div className="mt-1.5 flex items-center gap-1.5 text-[11px] text-[var(--text-tertiary)]">
+            <div className="mt-1.5 flex items-center gap-1.5 text-[length:var(--text-11)] text-[var(--text-tertiary)]">
               <Link2 size={12} className="shrink-0" />
-              <input readOnly value={share.url} aria-label={`${t('share.public_link')}: ${share.noteTitle || t('common.untitled_note')}`} onFocus={(event) => event.currentTarget.select()} className="min-w-0 flex-1 truncate rounded-[var(--r-sm)] bg-transparent text-[11px] text-[var(--text-secondary)] transition-[box-shadow] duration-[var(--dur-fast)] focus:shadow-[var(--shadow-ring-focus)] focus:outline-none" />
+              <input readOnly value={share.url} aria-label={`${t('share.public_link')}: ${share.noteTitle || t('common.untitled_note')}`} onFocus={(event) => event.currentTarget.select()} className="min-w-0 flex-1 truncate rounded-[var(--r-sm)] bg-transparent text-[length:var(--text-11)] text-[var(--text-secondary)] transition-[box-shadow] duration-[var(--dur-fast)] focus:shadow-[var(--shadow-ring-focus)] focus:outline-none" />
             </div>
-            <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-[var(--text-quaternary)]">
+            <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[length:var(--text-11)] text-[var(--text-quaternary)]">
               <span className="inline-flex items-center gap-1"><Eye size={11} />{share.views}{t('share.visits')}</span>
               {share.hasPassword && <span>{t('share.passcode_protected')}</span>}
               <span>{share.expiresAt ? t('share.expires_value0', { value0: fullTime(share.expiresAt) }) : t('share.never_expires_71ab34')}</span>
@@ -151,7 +151,7 @@ export function SharedNotes() {
             </div>
             <div className="mt-2 flex flex-wrap items-center gap-1.5">
               <Button size="sm" variant="secondary" icon={copied === share.noteId ? <Check size={12} /> : <Copy size={12} />} onClick={() => void copy(share)}>{copied === share.noteId ? t('common.copied') : t('common.copy')}</Button>
-              <a href={share.url} target="_blank" rel="noreferrer" className="inline-flex h-7 items-center gap-1 rounded-[var(--r-sm)] px-2 text-[11.5px] font-medium text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]"><ExternalLink size={12} />{t('share.open_link')}</a>
+              <a href={share.url} target="_blank" rel="noreferrer" className="inline-flex h-7 items-center gap-1 rounded-[var(--r-sm)] px-2 text-[length:var(--text-11-5)] font-medium text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]"><ExternalLink size={12} />{t('share.open_link')}</a>
               {!trashed && <Button size="sm" variant="ghost" icon={<Settings2 size={12} />} onClick={() => setSelected(share)}>{t('share.manage')}</Button>}
               <Button size="sm" variant="ghost" icon={<Trash2 size={12} />} loading={revoking === share.noteId} disabled={revoking !== null} className="text-[var(--danger)]" onClick={() => void revoke(share)}>{t('share.revoke_link')}</Button>
             </div>

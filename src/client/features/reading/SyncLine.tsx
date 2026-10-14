@@ -59,11 +59,11 @@ export function SyncLine() {
       >
         {t('reading.sync_now')}
       </Button>
-      <span className={`min-w-0 flex-1 truncate text-[11.5px] ${sync.message ? 'text-[var(--danger)]' : 'text-[var(--text-tertiary)]'}`}>
+      <span className={`min-w-0 flex-1 truncate text-[length:var(--text-11-5)] ${sync.message ? 'text-[var(--danger)]' : 'text-[var(--text-tertiary)]'}`}>
         {label}
       </span>
       {busy && sync.total > 0 ? (
-        <span className="shrink-0 text-[11px] tabular text-[var(--text-tertiary)]">{formatPercent(percent)}</span>
+        <span className="shrink-0 text-[length:var(--text-11)] tabular text-[var(--text-tertiary)]">{formatPercent(percent)}</span>
       ) : null}
       {busy ? (
         <span className="reader-sync-track h-[3px] w-24 shrink-0 overflow-hidden rounded-full bg-[var(--border-default)]">
@@ -71,7 +71,7 @@ export function SyncLine() {
         </span>
       ) : null}
       {!busy && usage ? (
-        <span className="shrink-0 text-[11px] tabular text-[var(--text-quaternary)]">
+        <span className="shrink-0 text-[length:var(--text-11)] tabular text-[var(--text-quaternary)]">
           {t('reading.usage_value0_value1', {
             value0: formatBytes(usage.bytes + usage.covers),
             value1: formatBytes(usage.quotaBytes),

@@ -22,7 +22,7 @@ export const ToolChip: React.FC<ToolChipProps> = ({
       onClick={onClick}
       disabled={!onClick}
       className={cn(
-        'inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-medium transition-colors select-none',
+        'inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[length:var(--text-11)] font-medium transition-colors select-none',
         active
           ? 'bg-[var(--accent-soft)] text-[var(--accent)] border border-[var(--accent)]/30'
           : 'bg-[var(--bg-raised)] text-[var(--text-secondary)] border border-[var(--border-subtle)] hover:bg-[var(--bg-hover)]',

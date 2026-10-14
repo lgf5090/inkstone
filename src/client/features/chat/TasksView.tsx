@@ -73,10 +73,10 @@ export function TasksView() {
     <div className="no-scrollbar h-full overflow-y-auto">
       <div className="mx-auto flex w-full max-w-[720px] flex-col gap-4 px-4 py-5 md:px-8">
         <header>
-          <h2 className="font-serif text-[18px] font-semibold tracking-[var(--tracking-title)] text-[var(--text-primary)]">
+          <h2 className="font-serif text-[length:var(--text-18)] font-semibold tracking-[var(--tracking-title)] text-[var(--text-primary)]">
             {t('assistant.tasks.title')}
           </h2>
-          <p className="mt-1 text-[12px] leading-relaxed text-[var(--text-tertiary)]">{t('assistant.tasks.description')}</p>
+          <p className="mt-1 text-[length:var(--text-12)] leading-relaxed text-[var(--text-tertiary)]">{t('assistant.tasks.description')}</p>
         </header>
 
         <Segmented
@@ -103,7 +103,7 @@ export function TasksView() {
               placeholder={tab === 'today' ? t('assistant.tasks.add_today') : t('assistant.tasks.add')}
               maxLength={300}
               aria-label={t('assistant.tasks.add')}
-              className="h-8 flex-1 text-[12.5px]"
+              className="h-8 flex-1 text-[length:var(--text-12-5)]"
             />
             <Button type="submit" size="sm" variant="primary" icon={<Plus size={14} />} disabled={!quick.trim()} aria-label={t('assistant.tasks.add')}>
               {t('assistant.tasks.add_short')}
@@ -136,11 +136,11 @@ export function TasksView() {
                         : <Circle size={16} />}
                   </button>
                   <button type="button" onClick={() => setEditing(task)} className="min-w-0 flex-1 text-left">
-                    <p className={cn('text-[13px] leading-relaxed', task.status === 'done' ? 'text-[var(--text-quaternary)] line-through' : 'text-[var(--text-primary)]')}>
+                    <p className={cn('text-[length:var(--text-13)] leading-relaxed', task.status === 'done' ? 'text-[var(--text-quaternary)] line-through' : 'text-[var(--text-primary)]')}>
                       {task.title}
                     </p>
                     {(task.dueAt !== null || task.description) && (
-                      <div className="mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[11px] text-[var(--text-quaternary)]">
+                      <div className="mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[length:var(--text-11)] text-[var(--text-quaternary)]">
                         {task.dueAt !== null && (
                           <span className={cn('inline-flex items-center gap-1', overdue && 'font-medium text-[var(--danger)]')}>
                             <CalendarDays size={11} />
@@ -155,7 +155,7 @@ export function TasksView() {
                   {(task.priority === 'high' || task.priority === 'urgent') && task.status !== 'done' && (
                     <span
                       className={cn(
-                        'mt-0.5 inline-flex shrink-0 items-center gap-1 rounded-full px-1.5 py-px text-[10px]',
+                        'mt-0.5 inline-flex shrink-0 items-center gap-1 rounded-full px-1.5 py-px text-[length:var(--text-10)]',
                         task.priority === 'urgent'
                           ? 'bg-[var(--danger-soft)] text-[var(--danger)]'
                           : 'bg-[color-mix(in_oklab,var(--warning)_16%,transparent)] text-[var(--warning)]',

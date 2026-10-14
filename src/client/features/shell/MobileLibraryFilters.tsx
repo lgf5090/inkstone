@@ -44,7 +44,7 @@ export function MobileLibraryFilters() {
         <div className="grid grid-cols-3 gap-1">
             {controls.map(({ id: key, icon: Icon, label, active }) => <button key={key} type="button" aria-haspopup="dialog" aria-expanded={open === key} aria-controls={open === key ? id : undefined} onClick={() => {
                 setOpen(open === key ? null : key);
-            }} className={cn('flex min-h-11 min-w-0 items-center gap-1.5 rounded-[var(--r-md)] px-2 text-[12px] transition-colors active:bg-[var(--bg-active)]', open === key ? 'bg-[var(--bg-hover)] text-[var(--text-primary)]' : active ? 'font-medium text-[var(--text-primary)]' : 'text-[var(--text-tertiary)]')}>
+            }} className={cn('flex min-h-11 min-w-0 items-center gap-1.5 rounded-[var(--r-md)] px-2 text-[length:var(--text-12)] transition-colors active:bg-[var(--bg-active)]', open === key ? 'bg-[var(--bg-hover)] text-[var(--text-primary)]' : active ? 'font-medium text-[var(--text-primary)]' : 'text-[var(--text-tertiary)]')}>
                 <Icon size={14} aria-hidden="true" className="shrink-0"/><span className="min-w-0 flex-1 truncate text-left">{label}</span><ChevronDown size={12} aria-hidden="true" className="shrink-0"/>
             </button>)}
         </div>
@@ -59,13 +59,13 @@ export function MobileLibraryFilters() {
                 dragStart.current = null;
             }} onPointerCancel={() => { dragStart.current = null; }}><span className="h-1 w-8 rounded-full bg-[var(--border-strong)]"/></button>
             <div className="flex shrink-0 items-center justify-between px-4 pb-2">
-                <h2 id={`${id}-title`} className="text-[15px] font-semibold">{open === 'menu' ? t('navigation.note_views') : open === 'folder' ? t('navigation.folder') : t('navigation.tag')}</h2>
+                <h2 id={`${id}-title`} className="text-[length:var(--text-15)] font-semibold">{open === 'menu' ? t('navigation.note_views') : open === 'folder' ? t('navigation.folder') : t('navigation.tag')}</h2>
                 <IconButton label={t('common.close')} onClick={close}><X size={16}/></IconButton>
             </div>
             <div className="min-h-0 overflow-y-auto overscroll-contain px-3 pb-[calc(16px+env(safe-area-inset-bottom))]" onClick={(event) => {
             if ((event.target as HTMLElement).closest('[data-navigation-item]')) close();
         }}>
-            {open === 'menu' ? items.map(({ view: key, label, icon: Icon, count }) => <button key={key} type="button" aria-current={view === key ? 'page' : undefined} onClick={() => { openView(key); close(); }} className={cn('flex min-h-11 w-full items-center gap-3 rounded-lg px-3 text-left text-[13px] active:bg-[var(--bg-active)]', key === 'archived' && 'mt-3 border-t border-[var(--border-subtle)]', view === key && 'bg-[var(--accent-soft)] text-[var(--accent)]')}>
+            {open === 'menu' ? items.map(({ view: key, label, icon: Icon, count }) => <button key={key} type="button" aria-current={view === key ? 'page' : undefined} onClick={() => { openView(key); close(); }} className={cn('flex min-h-11 w-full items-center gap-3 rounded-lg px-3 text-left text-[length:var(--text-13)] active:bg-[var(--bg-active)]', key === 'archived' && 'mt-3 border-t border-[var(--border-subtle)]', view === key && 'bg-[var(--accent-soft)] text-[var(--accent)]')}>
                 <Icon size={16} aria-hidden="true"/><span className="flex-1">{label}</span><span className="text-[var(--text-tertiary)]">{count}</span>
             </button>) : open === 'folder' ? <FolderSection mobile/> : <SidebarTags mobile/>}
             </div>

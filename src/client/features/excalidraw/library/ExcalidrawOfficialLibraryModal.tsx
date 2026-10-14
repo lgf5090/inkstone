@@ -87,7 +87,7 @@ const OfficialLibraryCard = React.memo(function OfficialLibraryCard({
             </p>
           )}
           {typeof item.totalDownloads === 'number' && (
-            <p className="text-[11px] text-[var(--text-quaternary)] mt-auto pt-1 flex items-center gap-1">
+            <p className="text-[length:var(--text-11)] text-[var(--text-quaternary)] mt-auto pt-1 flex items-center gap-1">
               <Download size={11} />
               <span>
                 {item.totalDownloads} {t('excalidraw.downloads')}

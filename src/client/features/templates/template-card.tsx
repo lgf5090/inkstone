@@ -166,12 +166,12 @@ function CardTitleRow({
     <div className='pointer-events-none relative z-10 flex items-start justify-between gap-2'>
       <div className={cn('flex min-w-0 items-center gap-1.5', selectMode && 'pl-6')}>
         {template.isPinned && <Pin size={11} className='shrink-0 text-[var(--accent)]'/>}
-        <h3 className='min-w-0 flex-1 truncate text-[13px] font-semibold tracking-[-0.01em] text-[var(--text-primary)]'>
+        <h3 className='min-w-0 flex-1 truncate text-[length:var(--text-13)] font-semibold tracking-[-0.01em] text-[var(--text-primary)]'>
           {template.name}
         </h3>
         {template.isStarred && <Star size={11} className='shrink-0 fill-current text-[var(--warning)]'/>}
         {template.builtin && (
-          <span className='shrink-0 rounded-full bg-[var(--bg-raised)] px-1.5 py-px text-[10px] font-medium text-[var(--text-quaternary)]'>
+          <span className='shrink-0 rounded-full bg-[var(--bg-raised)] px-1.5 py-px text-[length:var(--text-10)] font-medium text-[var(--text-quaternary)]'>
             {t('templates.builtin')}
           </span>
         )}
@@ -211,10 +211,10 @@ function CardTitleRow({
 function CardMetaFooter({ categoryName, lineCount }: { categoryName: string; lineCount: number }) {
   return (
     <div className='pointer-events-none relative z-10 mt-auto flex items-center gap-2 pt-2.5'>
-      <span className='text-[10.5px] text-[var(--text-quaternary)]'>{categoryName}</span>
-      <span className='text-[10.5px] text-[var(--text-quaternary)]'>·</span>
-      <span className='text-[10.5px] text-[var(--text-quaternary)]'>{t('templates.lines_count', { value0: lineCount })}</span>
-      <span className='ml-auto text-[10.5px] font-medium text-[var(--accent)] opacity-0 transition-opacity group-hover:opacity-100'>{t('templates.use_template')} →</span>
+      <span className='text-[length:var(--text-10-5)] text-[var(--text-quaternary)]'>{categoryName}</span>
+      <span className='text-[length:var(--text-10-5)] text-[var(--text-quaternary)]'>·</span>
+      <span className='text-[length:var(--text-10-5)] text-[var(--text-quaternary)]'>{t('templates.lines_count', { value0: lineCount })}</span>
+      <span className='ml-auto text-[length:var(--text-10-5)] font-medium text-[var(--accent)] opacity-0 transition-opacity group-hover:opacity-100'>{t('templates.use_template')} →</span>
     </div>
   )
 }
@@ -307,7 +307,7 @@ export function TemplateCard(props: TemplateCardProps) {
       {selectMode && <SelectionBadge selected={selected}/>}
       <CardTitleRow template={template} selectMode={selectMode} menuButtonRef={menuButtonRef} onToggleStar={onToggleStar} onTogglePin={onTogglePin} onOpenMenu={() => setIsMenuOpen(true)}/>
       {template.description && (
-        <p className='pointer-events-none relative z-10 mt-1.5 line-clamp-2 text-[11.5px] leading-relaxed text-[var(--text-tertiary)]'>{template.description}</p>
+        <p className='pointer-events-none relative z-10 mt-1.5 line-clamp-2 text-[length:var(--text-11-5)] leading-relaxed text-[var(--text-tertiary)]'>{template.description}</p>
       )}
       {template.tags.length > 0 && <CardTagList tags={template.tags}/>}
       <CardMetaFooter categoryName={categoryName} lineCount={lineCount}/>

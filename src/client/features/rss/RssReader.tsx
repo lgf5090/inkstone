@@ -186,7 +186,7 @@ export function RssReader({ onBack, focus, onToggleFocus }: { onBack?: () => voi
       // Saying so, with the way there, beats drawing a worse copy of the notebook.
       return (
         <div className="flex h-full min-h-0 flex-1 flex-col items-center justify-center gap-3 bg-[var(--bg-base)] px-6 text-center">
-          <p className="max-w-xs text-[13px] leading-relaxed text-[var(--text-tertiary)]">{t('rss.vault_reader_hint')}</p>
+          <p className="max-w-xs text-[length:var(--text-13)] leading-relaxed text-[var(--text-tertiary)]">{t('rss.vault_reader_hint')}</p>
           <Button
             size="sm"
             onClick={() => {
@@ -201,7 +201,7 @@ export function RssReader({ onBack, focus, onToggleFocus }: { onBack?: () => voi
     }
     return (
       <div className="flex h-full min-h-0 flex-1 items-center justify-center bg-[var(--bg-base)] px-6">
-        <p className="max-w-xs text-center text-[13px] leading-relaxed text-[var(--text-tertiary)]">
+        <p className="max-w-xs text-center text-[length:var(--text-13)] leading-relaxed text-[var(--text-tertiary)]">
           {entries.length ? t('rss.select_article') : library.feeds.length ? t('rss.no_articles') : t('rss.no_subscriptions')}
         </p>
       </div>
@@ -266,8 +266,8 @@ export function RssReader({ onBack, focus, onToggleFocus }: { onBack?: () => voi
         {/* Nine one-article actions do not fit beside a title on a phone, and a control that is off
             screen is a control that does not exist. So the row wraps instead of scrolling. */}
         <div className="min-w-0 flex-1 basis-40">
-          <div className="truncate text-[12.5px] font-medium text-[var(--text-primary)]">{feed?.title || t('rss.source_unknown')}</div>
-          <div className="truncate text-[10.5px] text-[var(--text-quaternary)]">
+          <div className="truncate text-[length:var(--text-12-5)] font-medium text-[var(--text-primary)]">{feed?.title || t('rss.source_unknown')}</div>
+          <div className="truncate text-[length:var(--text-10-5)] text-[var(--text-quaternary)]">
             {entry.publishedTs ? fullTime(entry.publishedTs) : ''}
             {entry.author ? ` · ${entry.author}` : ''}
             {readingMinutes(entry) > 0 ? ` · ${t('rss.read_minutes', { n: readingMinutes(entry) })}` : ''}
@@ -464,7 +464,7 @@ export function RssReader({ onBack, focus, onToggleFocus }: { onBack?: () => voi
           rel="noopener noreferrer nofollow"
           aria-disabled={!entry.link}
           className={cn(
-            'inline-flex h-9 items-center gap-1.5 rounded-[var(--r-md)] px-2 text-[12px] font-medium',
+            'inline-flex h-9 items-center gap-1.5 rounded-[var(--r-md)] px-2 text-[length:var(--text-12)] font-medium',
             'text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]',
             !entry.link && 'pointer-events-none opacity-45',
           )}
@@ -475,7 +475,7 @@ export function RssReader({ onBack, focus, onToggleFocus }: { onBack?: () => voi
         <button
           type="button"
           onClick={() => void copy()}
-          className="inline-flex h-9 items-center gap-1.5 rounded-[var(--r-md)] px-2 text-[12px] font-medium text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--accent)]"
+          className="inline-flex h-9 items-center gap-1.5 rounded-[var(--r-md)] px-2 text-[length:var(--text-12)] font-medium text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--accent)]"
         >
           <Link2 size={13} aria-hidden="true" />
           {t('rss.copy_link')}
@@ -521,7 +521,7 @@ function ToolButton({ label, icon, onClick }: { label: string, icon: ReactNode, 
     <button
       type="button"
       onClick={onClick}
-      className="inline-flex h-9 items-center gap-1.5 rounded-[var(--r-md)] px-2 text-[12px] font-medium text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--accent)]"
+      className="inline-flex h-9 items-center gap-1.5 rounded-[var(--r-md)] px-2 text-[length:var(--text-12)] font-medium text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--accent)]"
     >
       {icon}
       {label}
@@ -607,7 +607,7 @@ function TypographyPanel(): ReactElement {
           options={RSS_COLUMN_WIDTHS.map(width => ({ value: String(width), label: t('rss.measure_n', { n: width }) }))}
         />
       </Field>
-      <p className="text-[11.5px] leading-relaxed text-[var(--text-quaternary)]">{t('rss.keys.help')}</p>
+      <p className="text-[length:var(--text-11-5)] leading-relaxed text-[var(--text-quaternary)]">{t('rss.keys.help')}</p>
     </div>
   )
 }
@@ -630,7 +630,7 @@ function VersionBody({ kind, answer, generatedAt, run, onAsk, onStop, onForget }
         <Sparkles size={13} className="text-[var(--accent)]" aria-hidden="true" />
         {/* A span, not a heading: the prose sheet sizes every h2 in the article, and this label is
             chrome beside the answer rather than one of the article's own headings. */}
-        <span className="text-[12.5px] font-semibold text-[var(--text-primary)]">
+        <span className="text-[length:var(--text-12-5)] font-semibold text-[var(--text-primary)]">
           {kind === 'summary' ? t('rss.ai.summary') : t('rss.ai.translation')}
         </span>
         <div className="ml-auto flex items-center gap-2">

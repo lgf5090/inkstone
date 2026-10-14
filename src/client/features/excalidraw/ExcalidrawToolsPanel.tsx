@@ -359,7 +359,7 @@ export const ExcalidrawToolsPanel: React.FC<ExcalidrawToolsPanelProps> = ({
 
             <div className="flex flex-col gap-3 text-xs">
                 <div>
-                    <div className="mb-1.5 px-0.5 text-[11px] font-medium text-[var(--text-tertiary)]">
+                    <div className="mb-1.5 px-0.5 text-[length:var(--text-11)] font-medium text-[var(--text-tertiary)]">
                         {t('excalidraw.utility_actions')}
                     </div>
                     <div className="grid grid-cols-5 gap-1.5">
@@ -488,7 +488,7 @@ export const ExcalidrawToolsPanel: React.FC<ExcalidrawToolsPanelProps> = ({
                 </div>
 
                 <div>
-                    <div className="mb-1.5 px-0.5 text-[11px] font-medium text-[var(--text-tertiary)]">
+                    <div className="mb-1.5 px-0.5 text-[length:var(--text-11)] font-medium text-[var(--text-tertiary)]">
                         {t('excalidraw.export_actions')}
                     </div>
                     <div className="grid grid-cols-5 gap-1.5">
@@ -536,7 +536,7 @@ export const ExcalidrawToolsPanel: React.FC<ExcalidrawToolsPanelProps> = ({
                 </div>
 
                 <div>
-                    <div className="mb-1.5 px-0.5 text-[11px] font-medium text-[var(--text-tertiary)]">
+                    <div className="mb-1.5 px-0.5 text-[length:var(--text-11)] font-medium text-[var(--text-tertiary)]">
                         {t('excalidraw.insert_actions')}
                     </div>
                     <div className="grid grid-cols-5 gap-1.5">
