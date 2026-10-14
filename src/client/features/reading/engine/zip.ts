@@ -140,6 +140,10 @@ async function inflate(bytes: Uint8Array, expected: number): Promise<Uint8Array>
   const decompressor = new DecompressionStream('deflate-raw')
   const writer = decompressor.writable.getWriter()
   // A member that fails to inflate leaves the readable side erroring, which the loop below surfaces.
+  // Both writes are pipelined into that readable, so neither rejection can carry information the read
+  // does not already have: a rejected `write` and a rejected `close` are the same broken stream seen
+  // from the other end, and the reader is what the caller is waiting on. Swallowing them keeps an
+  // unobserved rejection off the console without losing the error.
   // The slice above always sits over a plain ArrayBuffer; the type only knows it is "ArrayBufferLike".
   void writer.write(bytes as Uint8Array<ArrayBuffer>).catch(() => {})
   void writer.close().catch(() => {})
@@ -151,6 +155,8 @@ async function inflate(bytes: Uint8Array, expected: number): Promise<Uint8Array>
     if (done) break
     total += value.byteLength
     if (total > MAX_INFLATED_BYTES) {
+      // Discarding a stream the member is being walked away from: the `throw` below is the outcome the
+      // caller reads, and a failed cancel of a reader nobody will touch again has nothing to add to it.
       reader.cancel().catch(() => {})
       throw new ZipFormatError('A member of the archive expands past what the reader will hold')
     }

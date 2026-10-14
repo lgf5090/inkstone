@@ -305,6 +305,9 @@ export const useReaderSettings = create<ReaderSettingsState>((set, get) => {
       return font
     },
     async removeFont(id) {
+      // Evicting the imported bytes. The font is taken out of state below and the settings persisted with
+      // it, so the reader's choice is applied whatever this write answers; a failure leaves bytes in the
+      // cache under a key the font list no longer names.
       await idbRemove(fontStorageKey(id), fontStore).catch(() => {})
       set((state) => {
         const fontUrls = { ...state.fontUrls }

@@ -170,6 +170,10 @@ async function rewriteReferences(
       const usable = candidates.map((one) => joinPackagePath(baseDir, one)).filter(available)
       if (usable.length) {
         element.setAttribute('srcset', '')
+        // An enhancement that did not arrive, not a failure that was hidden: `srcset` was blanked above and
+        // stays blank, so the element paints from its own `src` — which that attribute's own handler either
+        // resolved or took the element out of the page. Nothing about the chapter reads worse than a picture
+        // at one resolution instead of several.
         pending.push(Promise.all(usable.map((one) => pool.urlFor(one))).then((urls) => {
           element.setAttribute('srcset', urls.join(', '))
         }).catch(() => {}))

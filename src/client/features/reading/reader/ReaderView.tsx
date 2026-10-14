@@ -167,6 +167,9 @@ export function ReaderView({ book }: { book: BookRecord }) {
   const toggleFullscreen = useCallback(() => {
     const node = rootRef.current
     if (document.fullscreenElement) {
+      // Unreachable rejection, not a swallowed one: `exitFullscreen()` refuses only when the document is
+      // not fullscreen, which the line above has just established it is. The reader's own request — the
+      // branch below — is the one that can genuinely be refused, and that one says so out loud.
       void document.exitFullscreen().catch(() => {})
       return
     }
