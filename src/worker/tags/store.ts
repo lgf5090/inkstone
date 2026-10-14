@@ -173,6 +173,43 @@ export class TagsStore {
     return row ?? null
   }
 
+  /** The two columns a delete guards on: the tag's name and nothing else. */
+  async tagName(id: string): Promise<{ id: string; name: string } | null> {
+    const row = await this.db
+      .prepare(`SELECT id, name FROM tags WHERE id = ?1 AND user_id = ?2`)
+      .bind(id, this.userId)
+      .first<{ id: string; name: string }>()
+    return row ?? null
+  }
+
+  /**
+   * Drop one tag, its memberships and the change record that tells other devices about it.
+   *
+   * Three statements, one batch: all three are guarded on the same name the route read, so a tag that
+   * was renamed underneath keeps its memberships and its row. The caller reads the last statement's
+   * `meta.changes` as "the tag was still there to delete" and rolls its body rewrite back when not.
+   */
+  async deleteTag(input: { id: string; name: string; now: number }): Promise<boolean> {
+    const guard = `EXISTS (SELECT 1 FROM tags WHERE id = ?1 AND user_id = ?2 AND name = ?3)`
+    const statements = [
+      this.db.prepare(`DELETE FROM note_tags WHERE tag_id = ?1 AND ${guard}`)
+        .bind(input.id, this.userId, input.name),
+      this.db.prepare(
+        `INSERT INTO changes (user_id, entity, entity_id, op, at)
+         SELECT ?2, 'tag', ?1, 'delete', ?4 WHERE ${guard}`,
+      ).bind(input.id, this.userId, input.name, input.now),
+      this.deleteTagStatement(input.id, input.name),
+    ]
+    const outcomes = await this.db.batch(statements)
+    return Boolean(outcomes.at(-1)?.meta.changes)
+  }
+
+  /** The source-tag delete that ends both the delete and the merge batch, guarded on the name as read. */
+  private deleteTagStatement(id: string, name: string): D1PreparedStatement {
+    return this.db.prepare(`DELETE FROM tags WHERE id = ?1 AND user_id = ?2 AND name = ?3`)
+      .bind(id, this.userId, name)
+  }
+
   /**
    * The tag this account would rename onto, ignoring the tag being renamed.
    *
@@ -270,8 +307,7 @@ export class TagsStore {
         `INSERT INTO changes (user_id, entity, entity_id, op, at)
          SELECT ?2, 'tag', ?1, 'delete', ?4 WHERE ${sourceGuard}`,
       ).bind(input.sourceId, this.userId, input.from, input.now),
-      this.db.prepare(`DELETE FROM tags WHERE id = ?1 AND user_id = ?2 AND name = ?3`)
-        .bind(input.sourceId, this.userId, input.from),
+      this.deleteTagStatement(input.sourceId, input.from),
     ]
     const results = await this.db.batch(statements)
     return Boolean(results.at(-1)?.meta.changes)

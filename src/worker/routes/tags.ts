@@ -281,29 +281,16 @@ tagsRoutes.post('/:id/move', async (c) => {
 tagsRoutes.delete('/:id', async (c) => {
   const userId = c.get('userId')
   const id = c.req.param('id')
+  const s = store(c)
 
-  const tag = await c.env.DB.prepare(`SELECT id, name FROM tags WHERE id = ?1 AND user_id = ?2`)
-    .bind(id, userId)
-    .first<{ id: string; name: string }>()
+  const tag = await s.tagName(id)
   if (!tag) throw ApiError.notFound('Tag not found')
 
   const rewrite = await rewriteTagInNotes(c.env, c.get('database').ftsEnabled, userId, id, tag.name, null)
 
   const now = Date.now()
-  const guard = `EXISTS (SELECT 1 FROM tags WHERE id = ?1 AND user_id = ?2 AND name = ?3)`
-  const statements = [
-    c.env.DB.prepare(`DELETE FROM note_tags WHERE tag_id = ?1 AND ${guard}`)
-      .bind(id, userId, tag.name),
-    c.env.DB.prepare(
-      `INSERT INTO changes (user_id, entity, entity_id, op, at)
-       SELECT ?2, 'tag', ?1, 'delete', ?4 WHERE ${guard}`,
-    ).bind(id, userId, tag.name, now),
-    c.env.DB.prepare(`DELETE FROM tags WHERE id = ?1 AND user_id = ?2 AND name = ?3`)
-      .bind(id, userId, tag.name),
-  ]
   try {
-    const outcomes = await c.env.DB.batch(statements)
-    if (!outcomes.at(-1)?.meta.changes) {
+    if (!await s.deleteTag({ id, name: tag.name, now })) {
       throw ApiError.conflict('The tag changed elsewhere. Refresh and try again')
     }
   } catch (error) {
