@@ -7,7 +7,7 @@
  */
 import { EditorState } from '@codemirror/state';
 import { EditorView } from '@codemirror/view';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { DEFAULT_SETTINGS, mergeSettings } from '@shared/constants';
 import type { LinterSettings } from '@shared/linter';
 import { useSession } from '../store/session';
@@ -39,6 +39,14 @@ function setLinter(patch: Partial<LinterSettings>): void {
     settings: mergeSettings({ linter: { ...DEFAULT_SETTINGS.linter, lintOnPaste: true, ruleConfigs: ELLIPSIS, ...patch } }),
   });
 }
+
+beforeAll(async () => {
+  // `paste.ts` reaches the rules through `await import('../lib/linter')`. Cold, that import waits on
+  // the bundler's transform queue, and a full-suite run is contended enough for the wait to outlast
+  // any timeout this file could reasonably carry — the paste then lands after the case has given up.
+  // Loading it once here puts it in the module graph, so the handler's own import resolves on a tick.
+  await import('../lib/linter');
+});
 
 beforeEach(() => {
   localStorage.clear();
