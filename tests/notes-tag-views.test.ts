@@ -1,5 +1,6 @@
 import { DatabaseSync } from 'node:sqlite'
 import { Hono } from 'hono'
+import type { ExecutionContext } from 'hono'
 import { beforeEach, describe, expect, it } from 'vitest'
 import { notesCarryEveryTag } from '../src/shared/markdown-utils'
 import { errorResponse } from '../src/worker/lib/errors'
@@ -15,7 +16,13 @@ const OTHER = 'user-b'
 let sqlite: DatabaseSync
 let app: Hono<AppBindings>
 let env: { DB: D1Database }
-const ctx = { waitUntil: () => {} } as ExecutionContext
+// Typed as the context `app.fetch` actually declares, so every field the route may read has to be
+// there: the ambient Workers interface is wider than hono needs and cannot be faked outside a Worker.
+const ctx: ExecutionContext = {
+  waitUntil: () => {},
+  passThroughOnException: () => {},
+  props: {},
+}
 
 function note(id: string, userId = USER, flags: { archived?: boolean; deleted?: number } = {}) {
   sqlite.prepare(
