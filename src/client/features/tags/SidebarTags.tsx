@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { ChevronRight, ChevronsUpDown, Hash, MoreHorizontal, Pin, Plus, Tag, X } from 'lucide-react';
 import { cn } from '../../lib/cn';
 import { compileQuery, type Query } from '../../lib/query-match';
+import { isImeComposing } from '../../lib/ime';
 import { FilterInput } from '../../components/FilterInput';
 import { stepIndex, treeIndent, useExpandedSet } from '../../lib/tree';
 import { buildTagTree, childTagPath, collectParentPaths, flattenTagTree, renameTagSegment, searchTagTree, siblingParentPaths } from '../../lib/tag-tree';
@@ -165,6 +166,7 @@ export function SidebarTags({ mobile = false }: { mobile?: boolean }) {
                 setQuery(next);
                 setCursor(-1);
             }} query={tagQuery} label={t('tags.filter')} placeholder={t('tags.filter_placeholder')} inputRef={inputRef} data-tag-filter onKeyDown={(event) => {
+                if (isImeComposing(event)) return;
                 if (event.key === 'ArrowDown') {
                     event.preventDefault();
                     moveCursor(1);
@@ -290,6 +292,7 @@ function TagDraftRow({ leaf, onFinish, onCancel }: {
             else
                 onCancel();
         }} onKeyDown={(event) => {
+            if (isImeComposing(event)) return;
             commitOnEnter(event, () => finish(event.currentTarget.value));
             if (event.key === 'Escape') {
                 finishedRef.current = true;

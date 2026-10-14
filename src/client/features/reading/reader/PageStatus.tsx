@@ -9,6 +9,7 @@ import { useState } from 'react'
 import { Input } from '../../../components/form'
 import { Tooltip as OverlayTooltip } from '../../../components/overlay'
 import { t } from '../../../lib/i18n'
+import { isImeComposing } from '../../../lib/ime'
 import { parsePositionInput, type BookPosition } from '../position'
 import type { BookRecord } from '../types'
 
@@ -45,6 +46,7 @@ export function PageStatus({ book, page, fraction, minutesLeft, onJump }: PageSt
         onChange={(event) => setDraft(event.target.value)}
         onBlur={commit}
         onKeyDown={(event) => {
+          if (isImeComposing(event)) return
           if (event.key === 'Enter') commit()
           if (event.key === 'Escape') {
             setEditing(false)

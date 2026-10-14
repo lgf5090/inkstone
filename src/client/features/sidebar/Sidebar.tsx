@@ -17,6 +17,7 @@ import { folderMoveExclusions, folderPath, folderPathLabel, openFolderView } fro
 import { searchFolders } from '../../lib/folder-search';
 import { splitByRanges } from '../../lib/fuzzy';
 import { compileQuery, queryMatches, type Query } from '../../lib/query-match';
+import { isImeComposing } from '../../lib/ime';
 import { FilterInput } from '../../components/FilterInput';
 import { usePinyinVersion } from '../../lib/pinyin';
 import { setInboxFolderId, useFolderPreferences } from '../../lib/folder-prefs';
@@ -595,6 +596,8 @@ export function FolderSection({ mobile = false }: { mobile?: boolean }) {
           placeholder={t("folders.filter_placeholder")}
           data-folder-filter
           onKeyDown={(event) => {
+                        if (isImeComposing(event))
+                            return;
                         // Enter opens what the reader was about to click: the first row the filter has.
                         if (event.key !== 'Enter')
                             return;
@@ -911,6 +914,8 @@ function FolderRow({ node, notesByFolder, mobile, canOpenToSide, siblings, index
         </span>
 
         {renaming ? (<input aria-label={t("sidebar.rename")} autoFocus defaultValue={node.name} onBlur={(e) => void rename(e.target.value)} onKeyDown={(e) => {
+                if (isImeComposing(e))
+                    return;
                 commitOnEnter(e, () => void rename(e.currentTarget.value));
                 if (e.key === 'Escape') {
                     e.currentTarget.value = node.name;
