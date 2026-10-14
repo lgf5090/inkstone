@@ -11,15 +11,20 @@
 import { type ClipboardEvent as ReactClipboardEvent, type KeyboardEvent, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { ArrowUp, History, MoreHorizontal, Paperclip, Plus, Square, Star } from 'lucide-react'
 import type { AssistantConversation, AssistantMessage, ChatAttachment } from '@shared/assistant'
+import { DEBOUNCE } from '@shared/constants'
 import { cn } from '../../lib/cn'
 import { t } from '../../lib/i18n'
 import { relativeTime } from '../../lib/time'
 import { useDebouncedDraft } from '../../lib/hooks'
+import { compileQuery } from '../../lib/query-match'
+import type { MoveMenuFolder } from '../../lib/tree'
 import { Button, IconButton, Spinner } from '../../components/primitives'
+import { FilterInput } from '../../components/FilterInput'
 import { Input } from '../../components/form'
 import { Menu, Modal, confirm, prompt, submenuFor } from '../../components/overlay'
 import { api } from '../../lib/api'
-import { ConversationTabStrip, ConversationTaxonomyPanel, orderedFolders } from './ChatTaxonomy'
+import { FolderMoveMenu } from '../folders/FolderMoveMenu'
+import { ConversationTabStrip, ConversationTaxonomyPanel, moveMenuTree } from './ChatTaxonomy'
 import { AttachmentStrip, MessageAttachments } from './ChatAttachments'
 import {
   detectTrigger,
@@ -53,6 +58,14 @@ const SUGGESTION_KEYS = [
   'assistant.chat.ask_3',
   'assistant.chat.ask_4',
 ] as const
+
+/**
+ * Nothing is off-limits when a conversation is filed.
+ *
+ * The picker takes an exclusion set because moving a folder under its own descendant would delete a
+ * subtree; a conversation is one row that goes where it is told, so every branch is a destination.
+ */
+const NOTHING_EXCLUDED: ReadonlySet<string> = new Set<string>()
 
 export function ChatView() {
   const conversations = useAssistant((state) => state.conversations)
@@ -236,13 +249,8 @@ export function UserBubble({
   )
 }
 
-/**
- * How long the conversation box stops typing before the settled text reaches the store. The query lives
- * in the assistant store, so a keystroke that commits it there re-filters every row in the list.
- */
-const CONVERSATION_SEARCH_DEBOUNCE_MS = 200
-
-function ConversationList({ activeId, onPick }: { activeId: string | null, onPick: () => void }) {
+/** Exported so a test can pin the conversation box to the shared filter box; `ChatView` draws it twice. */
+export function ConversationList({ activeId, onPick }: { activeId: string | null, onPick: () => void }) {
   const conversations = useAssistant((state) => state.conversations)
   const query = useAssistant((state) => state.conversationQuery)
   const setQuery = useAssistant((state) => state.setConversationQuery)
@@ -253,14 +261,26 @@ function ConversationList({ activeId, onPick }: { activeId: string | null, onPic
   const [menuFor, setMenuFor] = useState<string | null>(null)
   const [renaming, setRenaming] = useState<AssistantConversation | null>(null)
   const [draft, setDraft] = useState('')
+  // The box stops typing for `DEBOUNCE.search` before the settled text reaches the store, because a
+  // keystroke that commits it there asks the server for the whole list again.
   const { draft: searchDraft, setDraft: setSearchDraft } = useDebouncedDraft(query, (next) => {
     void setQuery(next)
-  }, CONVERSATION_SEARCH_DEBOUNCE_MS)
+  }, DEBOUNCE.search)
+  // The shared box's own grammar check. Matching is the server's, so what the box can answer here is
+  // whether what was typed is a pattern at all — see the note on `FilterInput` below.
+  const searchQuery = useMemo(() => compileQuery(searchDraft), [searchDraft])
 
   // Counts move whenever a conversation is filed or a turn adds one, so the tree rides along with it.
   useEffect(() => {
     void loadTaxonomy()
   }, [loadTaxonomy, conversations.length])
+
+  // A restored flag tab is already drawing its shortlist, and `setListTab` only asks for one when the
+  // reader clicks, so the list they left open has to be fetched here, once, on the way in.
+  useEffect(() => {
+    const state = useAssistant.getState()
+    if (state.listTab === 'starred' || state.listTab === 'pinned') void state.loadFlagged()
+  }, [])
 
   // The list is sorted by the server; a pinned row would reappear on every page of a keyset cursor,
   // so the order is applied here where the whole set is in hand.
@@ -279,12 +299,21 @@ function ConversationList({ activeId, onPick }: { activeId: string | null, onPic
         <Button size="sm" variant="secondary" block icon={<Plus size={14} />} onClick={() => { newConversation(); onPick() }}>
           {t('assistant.chat.new')}
         </Button>
-        <Input
+        {/* The same box the notebook's rails draw: search icon, clear control, Escape that takes the text
+            back out, and the shared refusal when what was typed is not a pattern. The chrome is shared,
+            the matching is not — this list is answered by the server's `LIKE` over the title and the
+            message bodies (`src/worker/assistant/store.ts`), and conversations are not in the omnisearch
+            index, which covers `notes` only. So the settled text is handed on verbatim, exactly as the
+            bare `Input` did: `/expression/` is a promise the conversation endpoint has yet to keep, and
+            the grammar check is the part a box with a server behind it can honestly offer. */}
+        <FilterInput
+          size="sidebar"
+          className="mt-0"
           value={searchDraft}
-          onChange={(event) => setSearchDraft(event.target.value)}
+          onChange={setSearchDraft}
+          query={searchQuery}
+          label={t('assistant.chat.search')}
           placeholder={t('assistant.chat.search')}
-          aria-label={t('assistant.chat.search')}
-          className="h-8 text-[12px]"
         />
       </div>
       <ConversationTabStrip />
@@ -386,26 +415,14 @@ function ConversationRow({
   const moveConversation = useAssistant((state) => state.moveConversation)
   const toggleConversationTag = useAssistant((state) => state.toggleConversationTag)
   const starConversation = useAssistant((state) => state.starConversation)
-  const loadTaxonomy = useAssistant((state) => state.loadTaxonomy)
+  const attachNewTag = useAssistant((state) => state.attachNewTag)
   const anchor = useRef<HTMLSpanElement>(null)
   const title = conversation.title || t('assistant.chat.untitled')
   const assigned = new Set((conversation.tags ?? []).map((tag) => tag.id))
 
-  const folderItems = [
-    {
-      id: 'folder-none',
-      label: t('assistant.chat.unfiled'),
-      checked: !conversation.folderId,
-      onSelect: () => void moveConversation(conversation.id, null),
-    },
-    ...orderedFolders(folderNodes).map(({ node, depth }) => ({
-      id: `folder-${node.id}`,
-      // The level is part of the label because the submenu is one flat list of rows.
-      label: `${' '.repeat(depth * 3)}${node.name}`,
-      checked: conversation.folderId === node.id,
-      onSelect: () => void moveConversation(conversation.id, node.id),
-    })),
-  ]
+  // The picker names the thing being moved. A conversation carries no folder mark of its own, and it
+  // moves whole, so — unlike a folder being moved into its own descendant — no branch is off-limits.
+  const moveSubject: MoveMenuFolder = { id: conversation.id, name: title, children: [], directNotes: 0 }
 
   const tagItems = [
     ...tagNodes.map((tag) => ({
@@ -419,12 +436,18 @@ function ConversationRow({
       label: t('assistant.chat.new_tag'),
       separatorBefore: tagNodes.length > 0,
       onSelect: () => {
-        void prompt({ title: t('assistant.chat.new_tag'), placeholder: t('assistant.chat.tag_name') }).then(async (name) => {
-          if (!name?.trim()) return
-          const created = await api.tags.create({ name: name.trim() }).catch(() => null)
-          if (created) await toggleConversationTag(conversation.id, created.id, true)
-          await loadTaxonomy()
-        })
+        void prompt({ title: t('assistant.chat.new_tag'), placeholder: t('assistant.chat.tag_name') })
+          .then(async (name) => {
+            if (!name?.trim()) return
+            // Brought in on the click rather than with the row: the tags module's own graph reaches the
+            // note store and the drawing editors, and none of that is something this menu needs to draw.
+            const { createTag } = await import('../tags/tagMutations')
+            // The tags feature's own entry point, which is the part that can say what went wrong: it
+            // refuses a name a tag cannot be called, answers a name already taken with the tag that
+            // exists, and toasts either way. Nothing here catches the server's answer and hides it.
+            const tagId = createTag(name)
+            if (tagId) void attachNewTag(conversation.id, tagId)
+          })
       },
     },
   ]
@@ -483,8 +506,22 @@ function ConversationRow({
             id: 'folder',
             label: t('assistant.chat.move_to'),
             separatorBefore: true,
-            submenu: submenuFor(folderItems),
-            subItems: folderItems,
+            // The notes rail's own picker: a cascade that puts each level beside the row that opens it,
+            // walks it with the arrows, marks where the conversation already sits and refuses to choose
+            // it again. The submenu used to be one flat list with the depth written into the label, which
+            // looked like a tree and was not one.
+            submenu: ({ closeMenu }) => (
+              <FolderMoveMenu
+                tree={moveMenuTree(folderNodes)}
+                subject={moveSubject}
+                currentParentId={conversation.folderId ?? null}
+                excludedIds={NOTHING_EXCLUDED}
+                onSelect={(parentId) => {
+                  void moveConversation(conversation.id, parentId)
+                  closeMenu()
+                }}
+              />
+            ),
           },
           {
             id: 'tags',
