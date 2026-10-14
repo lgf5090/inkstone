@@ -11,23 +11,11 @@ import type { AssistantConversation, ChatFolderNode, ConversationTag } from '@sh
 import { cn } from '../../lib/cn'
 import { t, type MessageKey } from '../../lib/i18n'
 import { relativeTime } from '../../lib/time'
-import { treeIndent, treeItemProps, useTreeKeyboard } from '../../lib/tree'
+import { treeIndent, treeItemProps, useTreeKeyboard, type MoveMenuFolder } from '../../lib/tree'
 import { TagChip } from '../../components/TagChip'
 import { FolderMotionIcon } from '../sidebar/FolderMotionIcon'
 import { useUi } from '../../store/ui'
 import { useAssistant, CONVERSATION_LIST_TABS, type ConversationListTab } from './assistant-store'
-
-/** Depth-first order with the level each node sits at, so a flat list can indent it. */
-export function orderedFolders(nodes: ChatFolderNode[]): { node: ChatFolderNode, depth: number }[] {
-  const roots = folderBranches(nodes)
-  const out: { node: ChatFolderNode, depth: number }[] = []
-  const walk = (branch: ChatFolderBranch) => {
-    out.push({ node: branch.node, depth: branch.depth })
-    for (const child of branch.children) walk(child)
-  }
-  for (const branch of roots) walk(branch)
-  return out
-}
 
 /** One folder, its children, and where it sits among its siblings — what a tree row and a picker both read. */
 export interface ChatFolderBranch {
@@ -68,6 +56,26 @@ export function folderBranches(nodes: ChatFolderNode[]): ChatFolderBranch[] {
     }))
   }
   return build(null, 0)
+}
+
+/**
+ * The same tree the move picker reads.
+ *
+ * `MoveMenuFolder` asks for a name, its children and how many things sit directly inside — and a
+ * conversation count is exactly that, read against the same `folders` rows a note count is. So the chat
+ * hands the notes picker a projection rather than drawing a second picker with the hierarchy faked out
+ * of leading spaces.
+ */
+export function moveMenuTree(nodes: ChatFolderNode[]): MoveMenuFolder[] {
+  const project = (branch: ChatFolderBranch): MoveMenuFolder => ({
+    id: branch.node.id,
+    name: branch.node.name,
+    children: branch.children.map(project),
+    directNotes: branch.node.count,
+    icon: branch.node.icon,
+    color: branch.node.color,
+  })
+  return folderBranches(nodes).map(project)
 }
 
 /** Every folder id that contains this one, roots first — used to keep an open branch visible. */

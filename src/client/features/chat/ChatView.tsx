@@ -17,12 +17,14 @@ import { t } from '../../lib/i18n'
 import { relativeTime } from '../../lib/time'
 import { useDebouncedDraft } from '../../lib/hooks'
 import { compileQuery } from '../../lib/query-match'
+import type { MoveMenuFolder } from '../../lib/tree'
 import { Button, IconButton, Spinner } from '../../components/primitives'
 import { FilterInput } from '../../components/FilterInput'
 import { Input } from '../../components/form'
 import { Menu, Modal, confirm, prompt, submenuFor } from '../../components/overlay'
 import { api } from '../../lib/api'
-import { ConversationTabStrip, ConversationTaxonomyPanel, orderedFolders } from './ChatTaxonomy'
+import { FolderMoveMenu } from '../folders/FolderMoveMenu'
+import { ConversationTabStrip, ConversationTaxonomyPanel, moveMenuTree } from './ChatTaxonomy'
 import { AttachmentStrip, MessageAttachments } from './ChatAttachments'
 import {
   detectTrigger,
@@ -56,6 +58,14 @@ const SUGGESTION_KEYS = [
   'assistant.chat.ask_3',
   'assistant.chat.ask_4',
 ] as const
+
+/**
+ * Nothing is off-limits when a conversation is filed.
+ *
+ * The picker takes an exclusion set because moving a folder under its own descendant would delete a
+ * subtree; a conversation is one row that goes where it is told, so every branch is a destination.
+ */
+const NOTHING_EXCLUDED: ReadonlySet<string> = new Set<string>()
 
 export function ChatView() {
   const conversations = useAssistant((state) => state.conversations)
@@ -410,21 +420,9 @@ function ConversationRow({
   const title = conversation.title || t('assistant.chat.untitled')
   const assigned = new Set((conversation.tags ?? []).map((tag) => tag.id))
 
-  const folderItems = [
-    {
-      id: 'folder-none',
-      label: t('assistant.chat.unfiled'),
-      checked: !conversation.folderId,
-      onSelect: () => void moveConversation(conversation.id, null),
-    },
-    ...orderedFolders(folderNodes).map(({ node, depth }) => ({
-      id: `folder-${node.id}`,
-      // The level is part of the label because the submenu is one flat list of rows.
-      label: `${' '.repeat(depth * 3)}${node.name}`,
-      checked: conversation.folderId === node.id,
-      onSelect: () => void moveConversation(conversation.id, node.id),
-    })),
-  ]
+  // The picker names the thing being moved. A conversation carries no folder mark of its own, and it
+  // moves whole, so — unlike a folder being moved into its own descendant — no branch is off-limits.
+  const moveSubject: MoveMenuFolder = { id: conversation.id, name: title, children: [], directNotes: 0 }
 
   const tagItems = [
     ...tagNodes.map((tag) => ({
@@ -508,8 +506,22 @@ function ConversationRow({
             id: 'folder',
             label: t('assistant.chat.move_to'),
             separatorBefore: true,
-            submenu: submenuFor(folderItems),
-            subItems: folderItems,
+            // The notes rail's own picker: a cascade that puts each level beside the row that opens it,
+            // walks it with the arrows, marks where the conversation already sits and refuses to choose
+            // it again. The submenu used to be one flat list with the depth written into the label, which
+            // looked like a tree and was not one.
+            submenu: ({ closeMenu }) => (
+              <FolderMoveMenu
+                tree={moveMenuTree(folderNodes)}
+                subject={moveSubject}
+                currentParentId={conversation.folderId ?? null}
+                excludedIds={NOTHING_EXCLUDED}
+                onSelect={(parentId) => {
+                  void moveConversation(conversation.id, parentId)
+                  closeMenu()
+                }}
+              />
+            ),
           },
           {
             id: 'tags',

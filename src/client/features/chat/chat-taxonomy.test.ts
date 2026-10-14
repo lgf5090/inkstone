@@ -12,7 +12,7 @@ import { initI18n, t } from '../../lib/i18n'
 import { TREE_INDENT_BASE, TREE_INDENT_STEP } from '../../lib/tree'
 import { installTestGlobals } from '../../lib/test-render'
 import { useUi } from '../../store/ui'
-import { CHAT_TAXONOMY_PANEL_ID, ConversationTabStrip, ConversationTaxonomyPanel, chatTaxonomyTabId } from './ChatTaxonomy'
+import { CHAT_TAXONOMY_PANEL_ID, ConversationTabStrip, ConversationTaxonomyPanel, chatTaxonomyTabId, moveMenuTree } from './ChatTaxonomy'
 import { useAssistant, CONVERSATION_LIST_TABS } from './assistant-store'
 
 const original = useAssistant.getState()
@@ -312,5 +312,30 @@ describe('the conversation folder tree', () => {
     const indentOf = (index: number) => rowAt(index)?.parentElement?.style.paddingLeft
     expect(indentOf(0)).toBe(`${TREE_INDENT_BASE}px`)
     expect(indentOf(1)).toBe(`${TREE_INDENT_BASE + TREE_INDENT_STEP}px`)
+  })
+})
+
+/**
+ * The move picker is the notes rail's, so the chat hands it the nesting rather than a flat list with the
+ * depth written into the label: children under their parent, the count of what sits directly inside, and
+ * the folder's own mark and colour, which is what the picker draws beside each row.
+ */
+describe('the tree handed to the move picker', () => {
+  it('keeps the hierarchy and the marks a folder owns', () => {
+    expect(moveMenuTree(NESTED)).toEqual([
+      {
+        id: 'ship', name: 'Ship-it', directNotes: 2, icon: '🚀', color: '#e5484d',
+        children: [{ id: 'drafts', name: 'Drafts', directNotes: 1, icon: null, color: null, children: [] }],
+      },
+    ])
+  })
+
+  it('keeps a folder whose parent is gone as a root instead of losing it', () => {
+    const orphans: ChatFolderNode[] = [
+      { id: 'drafts', name: 'Drafts', parentId: 'gone', icon: null, color: null, count: 1 },
+      { id: 'inbox', name: 'Alpha', parentId: null, icon: null, color: null, count: 0 },
+    ]
+    // Roots sort by name, and the orphan joins them rather than vanishing with its missing parent.
+    expect(moveMenuTree(orphans).map((node) => node.id)).toEqual(['inbox', 'drafts'])
   })
 })
