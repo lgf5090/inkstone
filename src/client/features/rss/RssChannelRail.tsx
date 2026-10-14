@@ -49,6 +49,7 @@ import {
 import { cn } from '../../lib/cn'
 import { t } from '../../lib/i18n'
 import { confirm, prompt, Tooltip, type MenuItem } from '../../components/overlay'
+import { treeItemProps, useTreeKeyboard } from '../../lib/tree'
 import { FolderColorMenu, FolderIconMenu } from '../folders/FolderAppearanceMenus'
 import { buildFolderTree, type FolderNode } from '../../store/notes'
 import { leftDropTarget } from '../../lib/note-drag'
@@ -99,6 +100,10 @@ export function RssChannelRail({ onPick }: { onPick?: () => void }) {
   const tree = buildFolderTree(library.groups, feedsByGroup)
   const shelfFeeds = (groupId: string): RssFeed[] =>
     library.feeds.filter(feed => feed.groupId === groupId).sort(feedShelfOrder)
+  // Root folders and unfiled feeds are one sibling set: the tree reads them as one level, so their
+  // `aria-setsize`/`aria-posinset` have to count both.
+  const rootFeeds = shelfFeeds('')
+  const rootSetSize = tree.length + rootFeeds.length
   const tagDisplay = new Map<string, string>()
   for (const feed of library.feeds) {
     for (const tag of feed.tags) if (!tagDisplay.has(tagKey(tag))) tagDisplay.set(tagKey(tag), tag)
@@ -166,35 +171,45 @@ export function RssChannelRail({ onPick }: { onPick?: () => void }) {
           </Tooltip>
         </div>
 
-        {tree.map(node => (
-          <FolderBranch
-            key={node.id}
-            node={node}
-            depth={0}
-            counts={counts}
-            articles={state.articles}
-            active={active}
-            dropTarget={dropTarget}
-            go={go}
-            openMenu={openMenu}
-            setDropTarget={setDropTarget}
-            shelfFeeds={shelfFeeds}
-          />
-        ))}
-        {shelfFeeds('').map(feed => (
-          <FeedRow
-            key={feed.id}
-            feed={feed}
-            unread={counts.feeds.get(feed.id) ?? 0}
-            loaded={!!state.articles[feed.id]}
-            active={active === `feed:${feed.id}`}
-            go={go}
-            openMenu={openMenu}
-            setDropTarget={setDropTarget}
-            dropTarget={dropTarget}
-            depth={0}
-          />
-        ))}
+        {/* The shelf is a tree, not a list of buttons: folders nest feeds, and a screen reader has
+            to be told which level each row sits at and which branch it is inside. Everything under
+            this heading is one tree, so `useTreeKeyboard` walks the unfiled feeds and the folders
+            with the same arrow keys. */}
+        <div role="tree" aria-label={t('rss.subscriptions')}>
+          {tree.map((node, index) => (
+            <FolderBranch
+              key={node.id}
+              node={node}
+              depth={0}
+              setSize={rootSetSize}
+              posInSet={index + 1}
+              counts={counts}
+              articles={state.articles}
+              active={active}
+              dropTarget={dropTarget}
+              go={go}
+              openMenu={openMenu}
+              setDropTarget={setDropTarget}
+              shelfFeeds={shelfFeeds}
+            />
+          ))}
+          {rootFeeds.map((feed, index) => (
+            <FeedRow
+              key={feed.id}
+              feed={feed}
+              unread={counts.feeds.get(feed.id) ?? 0}
+              loaded={!!state.articles[feed.id]}
+              active={active === `feed:${feed.id}`}
+              go={go}
+              openMenu={openMenu}
+              setDropTarget={setDropTarget}
+              dropTarget={dropTarget}
+              depth={0}
+              setSize={rootSetSize}
+              posInSet={tree.length + index + 1}
+            />
+          ))}
+        </div>
 
         {vault.length > 0 && (
           <>
@@ -244,9 +259,11 @@ async function newFolder(state: ReturnType<typeof useRss.getState>, parentId: st
   if (name?.trim()) state.addGroup(name.trim(), parentId)
 }
 
-function FolderBranch({ node, depth, shelfFeeds, counts, articles, active, dropTarget, go, openMenu, setDropTarget }: {
+function FolderBranch({ node, depth, setSize, posInSet, shelfFeeds, counts, articles, active, dropTarget, go, openMenu, setDropTarget }: {
   node: FolderNode
   depth: number
+  setSize: number
+  posInSet: number
   shelfFeeds: (groupId: string) => RssFeed[]
   counts: ReturnType<typeof unreadCounts>
   articles: Record<string, RssEntry[]>
@@ -263,8 +280,12 @@ function FolderBranch({ node, depth, shelfFeeds, counts, articles, active, dropT
   const feeds = shelfFeeds(node.id)
   const key = `group:${node.id}`
   const isDrop = dropTarget === key
+  const onKeyDown = useTreeKeyboard()
   return (
-    <div className="mb-0.5">
+    <div
+      className="mb-0.5"
+      {...treeItemProps({ level: depth + 1, expanded: !collapsed, selected: active === key, setSize, posInSet })}
+    >
       <div
         draggable
         data-menu-target={`group:${node.id}`}
@@ -298,6 +319,7 @@ function FolderBranch({ node, depth, shelfFeeds, counts, articles, active, dropT
       >
         <button
           type="button"
+          data-tree-toggle
           aria-expanded={!collapsed}
           aria-controls={`${node.id}-children`}
           aria-label={`${collapsed ? t('rss.expand') : t('rss.collapse')} ${node.name}`}
@@ -308,6 +330,8 @@ function FolderBranch({ node, depth, shelfFeeds, counts, articles, active, dropT
         </button>
         <button
           type="button"
+          data-tree-row
+          onKeyDown={onKeyDown}
           aria-current={active === key ? 'page' : undefined}
           onClick={() => go({ kind: 'group', groupId: node.id })}
           className="flex min-w-0 flex-1 items-center gap-1.5 text-left focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--accent)]"
@@ -327,15 +351,19 @@ function FolderBranch({ node, depth, shelfFeeds, counts, articles, active, dropT
       </div>
       {/* The collapse toggle names the region it opens, so that region is an element that exists
           while it is closed too — a fragment that mounts and unmounts leaves `aria-controls`
-          pointing at nothing. Each row indents itself, so the wrapper changes no geometry. */}
-      <div id={`${node.id}-children`}>
+          pointing at nothing. Each row indents itself, so the wrapper changes no geometry.
+          `role="group"` is only stated while the branch is open: an empty group would tell a screen
+          reader the folder has children it cannot hear. */}
+      <div id={`${node.id}-children`} role={collapsed ? undefined : 'group'}>
         {!collapsed && (
           <>
-            {node.children.map(child => (
+            {node.children.map((child, index) => (
               <FolderBranch
                 key={child.id}
                 node={child}
                 depth={depth + 1}
+                setSize={node.children.length + feeds.length}
+                posInSet={index + 1}
                 shelfFeeds={shelfFeeds}
                 counts={counts}
                 articles={articles}
@@ -346,7 +374,7 @@ function FolderBranch({ node, depth, shelfFeeds, counts, articles, active, dropT
                 setDropTarget={setDropTarget}
               />
             ))}
-            {feeds.map(feed => (
+            {feeds.map((feed, index) => (
               <FeedRow
                 key={feed.id}
                 feed={feed}
@@ -358,6 +386,8 @@ function FolderBranch({ node, depth, shelfFeeds, counts, articles, active, dropT
                 setDropTarget={setDropTarget}
                 dropTarget={dropTarget}
                 depth={depth + 1}
+                setSize={node.children.length + feeds.length}
+                posInSet={node.children.length + index + 1}
               />
             ))}
           </>
@@ -368,12 +398,14 @@ function FolderBranch({ node, depth, shelfFeeds, counts, articles, active, dropT
 }
 
 
-function FeedRow({ feed, unread, loaded, active, depth, dropTarget, go, openMenu, setDropTarget }: {
+function FeedRow({ feed, unread, loaded, active, depth, setSize, posInSet, dropTarget, go, openMenu, setDropTarget }: {
   feed: RssFeed
   unread: number
   loaded: boolean
   active: boolean
   depth: number
+  setSize: number
+  posInSet: number
   dropTarget: string | null
   go: (channel: RssChannel) => void
   openMenu: (event: React.MouseEvent, target: MenuTarget) => void
@@ -381,6 +413,7 @@ function FeedRow({ feed, unread, loaded, active, depth, dropTarget, go, openMenu
 }) {
   const settings = useSession(session => session.settings.rss)
   const cache = useRss(state => state.cache)
+  const onKeyDown = useTreeKeyboard()
   const src = displayImageUrl(feed.imageUrl || feedIconUrl(feed), {
     images: settings.images,
     relay: url => api.rss.relayUrl(url),
@@ -390,6 +423,9 @@ function FeedRow({ feed, unread, loaded, active, depth, dropTarget, go, openMenu
     <button
       type="button"
       draggable
+      data-tree-row
+      onKeyDown={onKeyDown}
+      {...treeItemProps({ level: depth + 1, selected: active, setSize, posInSet })}
       aria-current={active ? 'page' : undefined}
       onClick={() => go({ kind: 'feed', feedId: feed.id })}
       data-menu-target={`feed:${feed.id}`}
