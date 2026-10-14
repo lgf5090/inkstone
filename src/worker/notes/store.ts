@@ -20,14 +20,16 @@
  */
 
 import { LIMITS } from '@shared/constants'
-import { likePattern } from '@shared/markdown-utils'
+import { extractTags, likePattern, normalizeLinkKey } from '@shared/markdown-utils'
 import { utf8ByteLength } from '@shared/text-utils'
 import type { SortKey, SortOrder, ViewKind } from '@shared/types'
 import {
   NOTE_COLUMNS_FULL,
   NOTE_COLUMNS_NOTAGS,
+  TAG_SEP_CODE,
   attachNoteTags,
   noteTagsQueryForPage,
+  splitTags,
   tagScopePredicate,
   type NoteRow,
   type NoteTagRow,
@@ -175,6 +177,53 @@ export interface NoteRestoreInput {
   current: NoteRow
   now: number
   nextRev: number
+}
+
+/** How long a note's previous text is kept only when the edit was big or asked for it. */
+const SNAPSHOT_INTERVAL_MS = 5 * 60 * 1000
+
+/** The columns an edit writes, named as the table names them; `updated_at` and `rev` are not the caller's. */
+export interface NotePatchColumns {
+  content?: string
+  content_hash?: string
+  title?: string
+  excerpt?: string
+  word_count?: number
+  char_count?: number
+  folder_id?: string | null
+  is_pinned?: number
+  is_starred?: number
+  is_archived?: number
+}
+
+/**
+ * One edit, decided by the route: which columns differ, what the note says afterwards, and whether the
+ * text it stops saying is worth keeping.
+ */
+export interface NotePatchInput {
+  current: NoteRow
+  /** The revision the client sent; the update matches it so a stale editor cannot overwrite a newer one. */
+  expectedRev: number
+  columns: NotePatchColumns
+  title: string
+  content: string
+  contentHash: string
+  now: number
+  contentChanged: boolean
+  titleChanged: boolean
+  /** Rebuild tags, links and index rows: skipped for a note that is already in the trash. */
+  derive: boolean
+  /** `null` when the previous text is not kept; the route owns that rule. */
+  snapshot: { preserve: boolean; bigChange: boolean } | null
+}
+
+export interface NotePatchResult {
+  applied: boolean
+  changeSeq: number | undefined
+  /** The note as this batch leaves it, so the caller can answer without reading it back. */
+  next: NoteRow
+  /** Another live note already answers to either title, so wiki links must not be rewritten. */
+  ambiguous: boolean
 }
 
 export class NotesStore {
@@ -629,6 +678,169 @@ export class NotesStore {
     }
   }
 
+  // ----------------------------------------------------------------- updates
+
+  /**
+   * Apply one validated edit to a note, with the revision, derived rows and change record it implies.
+   *
+   * `columns` is the update's SET list, in the order the caller wrote it: the route decides which
+   * columns actually differ from the row it read, and this decides how they reach the database.
+   * `updated_at` and `rev` are appended here because every guarded write of this method ends with the
+   * same revision the change record is later matched against.
+   */
+  async patch(input: NotePatchInput): Promise<NotePatchResult> {
+    const { current, now } = input
+    const id = current.id
+    const nextRev = current.rev + 1
+    const sets: string[] = []
+    const binds: unknown[] = []
+    for (const [column, value] of Object.entries(input.columns)) {
+      binds.push(value)
+      sets.push(`${column} = ?${binds.length}`)
+    }
+    binds.push(now)
+    sets.push(`updated_at = ?${binds.length}`)
+    binds.push(nextRev)
+    sets.push(`rev = ?${binds.length}`)
+    binds.push(id, this.userId, input.expectedRev)
+
+    const mutationGuard = `EXISTS (SELECT 1 FROM notes
+      WHERE id = ?1 AND user_id = ?2 AND rev = ?3
+        AND content_hash = ?4 AND title = ?5 AND updated_at = ?6)`
+    const mutationValues = [id, this.userId, nextRev, input.contentHash, input.title, now] as const
+
+    const update = this.db.prepare(
+      `UPDATE notes SET ${sets.join(', ')}
+        WHERE id = ?${binds.length - 2} AND user_id = ?${binds.length - 1} AND rev = ?${binds.length}`,
+    ).bind(...binds)
+
+    const statements: D1PreparedStatement[] = [update]
+    let tags: string[] | null = null
+
+    if (input.snapshot) {
+      const snapshotId = newId()
+      statements.push(
+        this.db.prepare(
+          `INSERT INTO note_versions (id, note_id, user_id, title, content, size, created_at)
+           SELECT ?1, ?2, ?3, ?4, ?5, ?6, ?7
+            WHERE ${shiftSqlPlaceholders(mutationGuard, 7)}
+              AND (?14 = 1
+                   OR NOT EXISTS (SELECT 1 FROM note_versions WHERE note_id = ?2)
+                   OR ?15 - COALESCE((SELECT MAX(created_at) FROM note_versions WHERE note_id = ?2), 0) > ?16
+                   OR ?17 = 1)`,
+        ).bind(
+          snapshotId, id, this.userId, current.title, current.content, utf8ByteLength(current.content), now,
+          ...mutationValues,
+          input.snapshot.preserve ? 1 : 0, now, SNAPSHOT_INTERVAL_MS, input.snapshot.bigChange ? 1 : 0,
+        ),
+        this.db.prepare(
+          `DELETE FROM note_versions WHERE note_id = ?1
+             AND EXISTS (SELECT 1 FROM note_versions WHERE id = ?9)
+             AND ${shiftSqlPlaceholders(mutationGuard, 1)}
+             AND id IN (
+               SELECT id FROM note_versions WHERE note_id = ?1 ORDER BY created_at DESC, id DESC LIMIT -1 OFFSET ?8)`,
+        ).bind(id, ...mutationValues, LIMITS.versionsPerNote, snapshotId),
+      )
+    }
+
+    if (input.derive) {
+      const derived = buildNoteDerivedStatements({
+        db: this.db,
+        userId: this.userId,
+        noteId: id,
+        title: input.title,
+        content: input.content,
+        ftsEnabled: this.ftsEnabled,
+        titleChanged: input.titleChanged,
+        previousTitle: current.title,
+        expectedRev: nextRev,
+        expectedContentHash: input.contentHash,
+        expectedTitle: input.title,
+        expectedUpdatedAt: now,
+      })
+      statements.push(...derived.statements)
+      tags = derived.tags
+      // The automatic tags are rebuilt from the new body, so the ones this note no longer uses can go
+      // — but only when the set really moved, or an unrelated save would prune tags another note needs.
+      if (input.contentChanged && !sameTagSet(splitTags(current.tag_names), derived.tags)) {
+        statements.push(
+          this.db.prepare(
+            `DELETE FROM tags WHERE user_id = ?1 AND is_manual = 0
+               AND ${shiftSqlPlaceholders(mutationGuard, 1)}
+               AND NOT EXISTS (SELECT 1 FROM note_tags WHERE tag_id = tags.id)`,
+          ).bind(this.userId, ...mutationValues),
+        )
+      }
+    }
+
+    if (input.contentChanged || input.titleChanged) {
+      statements.push(noteIndexQueueStatement(this.db, this.userId, id, 'embed', now))
+    }
+
+    // Whether another note already answers to either title decides the wiki-link rewrite, so
+    // it rides along with the mutation instead of costing the rename path its own round trip.
+    let ambiguityIndex = -1
+    if (input.titleChanged) {
+      ambiguityIndex = statements.length
+      statements.push(this.db.prepare(
+        `SELECT 1 AS found FROM notes
+          WHERE user_id = ?1 AND id <> ?2 AND deleted_at IS NULL AND title_key IN (?3, ?4)
+          LIMIT 1`,
+      ).bind(this.userId, id, normalizeLinkKey(current.title), normalizeLinkKey(input.title)))
+    }
+
+    statements.push(
+      this.db.prepare(
+        `INSERT INTO changes (user_id, entity, entity_id, op, at)
+         SELECT ?1, 'note', ?2, 'upsert', ?3
+          WHERE ${shiftSqlPlaceholders(mutationGuard, 3)}
+         RETURNING seq`,
+      ).bind(this.userId, id, now, ...mutationValues),
+    )
+
+    const results = await this.db.batch(statements)
+    // The route answers with the row it already holds, patched with exactly what this batch wrote, so a
+    // save costs one read rather than two — and the client's revision matches the server's either way.
+    const nextTags = input.contentChanged ? (tags ?? extractTags(input.content)) : null
+    const next: NoteRow = { ...current, ...input.columns, updated_at: now, rev: nextRev }
+    if (nextTags !== null) next.tag_names = nextTags.join(String.fromCharCode(TAG_SEP_CODE))
+    return {
+      applied: Boolean(results[0]?.meta.changes),
+      changeSeq: (results.at(-1) as D1Result<{ seq: number }>).results?.[0]?.seq,
+      next,
+      ambiguous: input.titleChanged && (results[ambiguityIndex]?.results?.length ?? 0) > 0,
+    }
+  }
+
+  /**
+   * Re-point the saved links at this note when its new title collides with another note's.
+   *
+   * The rename cannot rewrite other people's text — both titles would mean the same `[[link]]` — so
+   * only the link table's resolved target moves, and only while the guarded row is still as written.
+   */
+  async retargetAmbiguousLinks(input: {
+    noteId: string
+    previousTitle: string
+    title: string
+    nextRev: number
+    now: number
+  }): Promise<void> {
+    await this.db.prepare(
+      `UPDATE links SET target_note_id = ${LINK_TARGET_SUBQUERY}
+        WHERE user_id = ?1 AND target_key = ?2
+          AND EXISTS (SELECT 1 FROM notes
+            WHERE id = ?3 AND user_id = ?1 AND rev = ?4
+              AND title = ?5 AND updated_at = ?6 AND deleted_at IS NULL)`,
+    ).bind(
+      this.userId,
+      normalizeLinkKey(input.previousTitle),
+      input.noteId,
+      input.nextRev,
+      input.title,
+      input.now,
+    ).run()
+  }
+
   // ------------------------------------------------------------ trash, restore
 
   /** The next page of trashed ids, keyset-paged: a bulk purge must never hold the whole trash. */
@@ -848,6 +1060,13 @@ export class NotesStore {
       deleted: Boolean(results.at(-2)?.meta.changes),
     }
   }
+}
+
+/** Whether two tag listings hold the same names, ignoring order. */
+function sameTagSet(left: string[], right: string[]): boolean {
+  if (left.length !== right.length) return false
+  const set = new Set(left)
+  return right.every((name) => set.has(name))
 }
 
 /**
