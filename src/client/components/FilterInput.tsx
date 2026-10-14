@@ -40,7 +40,9 @@ export interface FilterInputBindings {
  * chrome — which is the only reason a box would rather not use {@link FilterInput}.
  *
  * Escape clears a box that has something to clear and swallows the key, so the panel behind it does not
- * close underneath the reader; an empty box does what `escapeWhenEmpty` says. Every other key is
+ * close underneath the reader; an empty box does what `escapeWhenEmpty` says. A key that arrives while
+ * an input method is composing an answer is not a key the box answers to at all — see `onKeyDown` — so
+ * Escape cancels the syllable rather than the query. Every other key is
  * stopped here, because a shortcut that fires while the reader is typing a name would take the
  * keystroke, and the listing above answers arrows of its own. Spread the result onto the `input` and
  * call `clear` from the box's own clear control, which puts the caret back where the reader was.
@@ -65,6 +67,12 @@ export function useFilterInput(options: FilterInputOptions): { field: FilterInpu
         own.current?.focus();
     }, []);
     const onKeyDown = useCallback((event: KeyboardEvent<HTMLInputElement>): void => {
+        // A pinyin IME answers Escape by dropping the half-built syllable, and it delivers the arrows
+        // and Enter a reader presses to pick a candidate as keydowns carrying those same names. Bail
+        // while a composition is open so Escape costs the syllable, not the whole query — the guard
+        // the tree keyboard, the chat composer, the palette and the omnisearch prompt already answer.
+        if (event.nativeEvent.isComposing)
+            return;
         live.current.onKeyDown?.(event);
         if (event.defaultPrevented)
             return;
