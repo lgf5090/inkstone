@@ -1252,8 +1252,9 @@ const initializationCache = new WeakMap<D1Database, Promise<DatabaseState>>()
 /**
  * D1 refuses a batch of more than about a hundred statements, and the schema list is now well past
  * that with the assistant's tables. Local doubles accept any size, so the ceiling only shows up on a
- * real deployment — which is why the chunking lives here rather than at each call site, and why
- * `tests/schema-batch-size.test.ts` counts the calls instead of trusting the outcome.
+ * real deployment — which is why the chunking lives here rather than at each call site, and why the
+ * `schema batching` block in `tests/assistant-rules.test.ts` counts the calls instead of trusting the
+ * outcome.
  */
 const SCHEMA_BATCH_STATEMENTS = 40
 
