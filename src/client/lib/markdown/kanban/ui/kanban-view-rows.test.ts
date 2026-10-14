@@ -13,10 +13,11 @@ import { KanbanTimelineView } from './kanban-timeline-view'
  * are controls a keyboard can reach, and the rows open the detail when they are activated. In the
  * gantt and timeline views the row and the bar are one control with nothing inside them, so they are
  * real buttons — the browser's own Enter and Space activation is then what opens the detail, and
- * `scripts/e2e-visual.mjs` presses Enter on one to read that. The calendar's day cell is a container
- * of two controls (the number and the hover `+`), which is the shape the board's card has: as a cell
- * header that opened the day from a click handler it was both unreachable without a pointer and a
- * click target holding a button of its own.
+ * nothing here presses that Enter: this repo drives no browser, so the cases below assert the halves
+ * jsdom can hold — the control is a real `button`, it takes focus, and clicking it opens the detail.
+ * The calendar's day cell is a container of two controls (the number and the hover `+`), which is the
+ * shape the board's card has: as a cell header that opened the day from a click handler it was both
+ * unreachable without a pointer and a click target holding a button of its own.
  */
 beforeAll(async () => {
   ;(globalThis as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = true
@@ -101,8 +102,9 @@ describe('the gantt view draws its rows and bars as real controls (SH-110)', () 
 
   // What Enter does with a focused button is the browser's own activation, and jsdom does not run it:
   // this asserts the part that can be asserted here (the row takes focus, which the `div` it used to
-  // be could not) and `scripts/e2e-visual.mjs` presses Enter on a real one and reads the detail that
-  // opens.
+  // be could not). No gate presses the real Enter, because this repo drives no browser, so that step
+  // is a manual check for whoever reviews a change here — which is why the click path that activation
+  // ends up driving has its own case above.
   it('takes focus, and it is the browser that activates it', () => {
     mount(createElement(KanbanGanttView, { data: data(), onOpenDetail: vi.fn(), onAddItem: vi.fn(), onUpdateProgress: vi.fn(), onReschedule: vi.fn() }))
     const row = itemControls().find((control) => control.textContent?.includes('%'))

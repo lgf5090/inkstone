@@ -5,10 +5,14 @@ import { alignWeekStart } from './range'
 
 
 // The darkest level is capped by contrast rather than by taste: a day number is primary text on
-// this tint, and the cap has to hold for every accent the appearance setting offers, in both
-// themes — at 70% the darkest cells read 3.58:1 under indigo (dark) and 3.90:1 under graphite
-// (light), where AA needs 4.5. 50% is the highest level all fourteen measure above it
-// (scripts/check-contrast.mjs re-measures the cells for each accent and theme).
+// this tint (the month grid paints it `--text-primary` the moment the day has a note), and the cap
+// has to hold for every accent the appearance setting offers, in both themes. At 70% it holds for
+// none of them — every accent falls under AA 4.5 in the dark theme, graphite at 2.64:1 on the
+// `--bg-surface` base `heatCell` mixes into. Nothing enforces even that: this repo drives no
+// browser and no token gate reads a heat ramp, so 50% is a calibration recorded here rather than
+// an invariant a gate holds. Re-measuring it the same way puts the light theme at AA (worst
+// graphite 6.82:1) but leaves terracotta 4.40:1, amber 4.09:1 and graphite 4.07:1 under 4.5 in the
+// dark one, so a token pass has to settle this cap together with the accent set.
 export const HEAT_PERCENTS = [0, 12, 24, 36, 50] as const
 
 

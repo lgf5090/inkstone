@@ -170,8 +170,10 @@ describe('SlidePreflight — a page is listed only once its drawings answered', 
 // A flip of the account's display settings invalidates the markup every page was drawn from, so it has
 // to invalidate the listing too: the pass restarts and walks the deck again. Without that, a page
 // re-prepared under the new settings keeps the old capture and the old page count for the rest of the
-// show — which is what the projector scenario in `scripts/e2e-visual.mjs` measures from the other side
-// (L-17).
+// show (L-17). Both halves are asserted from the pass side below: the restart itself, and a page whose
+// markup lands while the pass is already waiting on it — the second one reproduces the projector's own
+// write instead of watching a screen, because this repo drives no browser and nothing measures the
+// projector's painted page from the other side.
 describe('SlidePreflight — what a settings flip does to a pass that finished', () => {
   const currentFlags = () => slideSettingFlags(useSession.getState().settings.preview)
 

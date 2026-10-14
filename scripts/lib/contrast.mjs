@@ -1,8 +1,11 @@
-// The colour maths behind the contrast gates, shared by the browser gate
-// (scripts/check-contrast.mjs, which measures the painted pairs) and the token
-// gate (tests/kanban-tag-contrast.test.ts, which has to judge a palette before
-// anything paints it). Both ask the same WCAG question, so neither may keep its
-// own copy of what a contrast ratio is.
+// The colour maths behind the contrast gates. Every gate that reads this file
+// judges colours from the declarations in `src/client/styles/tokens.css` rather
+// than from a painted screen, because this repo drives no browser:
+// tests/kanban-tag-contrast.test.ts and tests/kanban-contrast-tokens.test.ts for
+// the board's palette, tests/contrast-dark-text-quaternary.test.ts and
+// tests/contrast-light-text-ladder.test.ts for the text ladder. Those four are
+// the whole of the contrast verification that runs, so they ask the same WCAG
+// question and share one copy of what a contrast ratio is.
 // Colours travel as {rgb:[r,g,b], alpha} so a translucent tint can be composited
 // over the surface underneath it (`over`) before it is compared (`contrastRatio`).
 
