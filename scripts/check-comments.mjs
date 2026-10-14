@@ -5770,6 +5770,17 @@ const allowed = new Map([
     "/**\n * The handle menu's own rows, in the reader's order.\n *\n * Nothing can be deleted here — a menu that lost a command would leave the reader unable to make a\n * heading again — so the rows only move, and the default is one button away.\n */",
     "/** The canonical root order, with the reader's own submenus kept. */",
   ]],
+  ["src/client/features/settings/ExcalidrawSettings.test.ts", [
+    "/** The group's own radios, in the order the settings draw them. */",
+    "// The edit controls live beside the group, labelled by the same heading rather than nested in it.",
+  ]],
+  ["src/client/features/settings/ExcalidrawSettings.tsx", [
+    "// The providers are cards with a badge and a status line, which a `Segmented` pill cannot draw, so",
+    "// this group keeps its own elements and borrows its keyboard from the one implementation the",
+    "// segmented control also uses.",
+    "/*\n                `aria-required-children` reads a radiogroup's owned children, so the group holds the\n                mutually exclusive choices and nothing else: the per-provider edit control and its two\n                fields sit beside it, labelled by the same heading rather than nested in it.\n              */",
+    "/* One named region the five toggles write into. The region stays in the DOM even\n                    when it holds nothing, so every `aria-controls` has something to point at; the\n                    box it draws belongs to the content, so an empty region shows nothing. */",
+  ]],
   ["src/client/features/settings/LinterRuleTitles.tsx", [
     "/**\n * One jump target per lint rule.\n *\n * The rule list is drawn from the loaded rule library, so its titles are computed at run time, and a\n * static scan of this folder cannot attach a settings-search hit to one of them. This spells out every\n * label the index promises, as literal keys, so the row a reader lands on is the row they were looking\n * for. The keys come from `rule-search-index.ts`, which is what keeps the two in step.\n */",
   ]],

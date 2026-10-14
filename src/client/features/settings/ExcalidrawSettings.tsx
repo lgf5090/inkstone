@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react';
+import { useId, useRef, useState } from 'react';
 import {
   Check,
   Cpu,
@@ -17,8 +17,8 @@ import {
   Type,
   Zap,
 } from 'lucide-react';
-import { Button, IconButton } from '../../components/primitives';
-import { Input, Segmented, SettingRow, Slider, Switch } from '../../components/form';
+import { Button } from '../../components/primitives';
+import { Input, Segmented, SettingRow, Slider, Switch, useRovingRadio } from '../../components/form';
 import { t } from '../../lib/i18n';
 import { useExcalidrawSettings } from '../excalidraw/excalidraw-settings-store';
 import type { AIProvider, AIProviderConfig } from '../../lib/ai/types';
@@ -102,22 +102,15 @@ export function ExcalidrawSettings() {
   }>({ loading: false });
 
   const containerRef = useRef<HTMLDivElement>(null);
-  const providerRefs = useRef<Record<string, HTMLButtonElement | null>>({});
   const providerIds = Object.keys(PROVIDER_INFO);
-  const hasSelectedProvider = providerIds.includes(settings.aiDefaultProvider);
-
-  const moveProviderSelection = (id: string, key: string) => {
-    const index = providerIds.indexOf(id);
-    if (index < 0) return;
-    let next = index;
-    if (key === 'ArrowDown' || key === 'ArrowRight') next = (index + 1) % providerIds.length;
-    else if (key === 'ArrowUp' || key === 'ArrowLeft') next = (index - 1 + providerIds.length) % providerIds.length;
-    else if (key === 'Home') next = 0;
-    else if (key === 'End') next = providerIds.length - 1;
-    const nextId = providerIds[next]!;
-    update({ aiDefaultProvider: nextId });
-    providerRefs.current[nextId]?.focus();
-  };
+  const providerLabelId = useId();
+  const providerConfigId = `${providerLabelId}-config`;
+  // The providers are cards with a badge and a status line, which a `Segmented` pill cannot draw, so
+  // this group keeps its own elements and borrows its keyboard from the one implementation the
+  // segmented control also uses.
+  const providerRadios = useRovingRadio(providerIds, settings.aiDefaultProvider, (id) =>
+    update({ aiDefaultProvider: id }),
+  );
 
   const handleTestConnection = async () => {
     setTestResult({ loading: true });
@@ -377,7 +370,10 @@ export function ExcalidrawSettings() {
           {settings.aiEnabled && (
             <div className="space-y-3 rounded-2xl border border-[var(--border-subtle)] bg-[var(--bg-inset)]/40 p-4">
               <div className="flex items-center justify-between">
-                <span className="text-[12.5px] font-medium text-[var(--text-secondary)]">
+                <span
+                  id={providerLabelId}
+                  className="text-[12.5px] font-medium text-[var(--text-secondary)]"
+                >
                   {t('settings.excalidraw_ai_provider')}
                 </span>
                 <div className="flex items-center gap-2">
@@ -418,9 +414,14 @@ export function ExcalidrawSettings() {
                 </div>
               )}
 
+              {/*
+                `aria-required-children` reads a radiogroup's owned children, so the group holds the
+                mutually exclusive choices and nothing else: the per-provider edit control and its two
+                fields sit beside it, labelled by the same heading rather than nested in it.
+              */}
               <div
                 role="radiogroup"
-                aria-label={t('settings.excalidraw_ai_provider')}
+                aria-labelledby={providerLabelId}
                 data-setting-title={t('settings.excalidraw_ai_provider')}
                 className="space-y-2 pt-1"
               >
@@ -428,106 +429,109 @@ export function ExcalidrawSettings() {
                   const conf = settings.aiProviders[id];
                   const isSelected = settings.aiDefaultProvider === id;
                   const hasKey = Boolean(conf?.apiKey?.trim());
-                  const isEditing = editingProvider === id;
 
                   return (
-                    <div
+                    <button
                       key={id}
-                      className={`rounded-xl border transition-all ${
+                      ref={providerRadios.setItemRef(index)}
+                      type="button"
+                      role="radio"
+                      aria-checked={isSelected}
+                      tabIndex={providerRadios.tabIndexFor(index)}
+                      onClick={() => update({ aiDefaultProvider: id })}
+                      onKeyDown={providerRadios.keyHandlerFor(index)}
+                      className={`w-full cursor-pointer rounded-xl border p-3 text-left transition-all focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--accent)] ${
                         isSelected
                           ? 'border-[var(--accent)] bg-[var(--bg-surface)] shadow-xs'
                           : 'border-[var(--border-subtle)] bg-[var(--bg-surface)]/60'
                       }`}
                     >
-                      <div className="flex items-center justify-between p-3">
-                        <button
-                          ref={(element) => {
-                            providerRefs.current[id] = element;
-                          }}
-                          type="button"
-                          role="radio"
-                          aria-checked={isSelected}
-                          tabIndex={isSelected || (!hasSelectedProvider && index === 0) ? 0 : -1}
-                          onClick={() => update({ aiDefaultProvider: id })}
-                          onKeyDown={(event) => {
-                            if (
-                              !['ArrowDown', 'ArrowRight', 'ArrowUp', 'ArrowLeft', 'Home', 'End'].includes(
-                                event.key,
-                              )
-                            )
-                              return;
-                            event.preventDefault();
-                            moveProviderSelection(id, event.key);
-                          }}
-                          className="flex-1 cursor-pointer rounded-lg text-left focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--accent)]"
-                        >
-                          <div className="flex items-center gap-2">
-                            <span className="font-semibold text-[13px] text-[var(--text-primary)]">
-                              {info.name}
-                            </span>
-                            {isSelected && (
-                              <span className="rounded-full bg-[var(--accent-soft)] px-2 py-0.5 text-[10px] font-medium text-[var(--accent)]">
-                                {t('settings.excalidraw_current_default')}
-                              </span>
-                            )}
-                          </div>
-                          <div className="mt-0.5 text-[11px] text-[var(--text-tertiary)]">
-                            {t('settings.excalidraw_type')}: {t(info.typeDescKey)} · {t('settings.excalidraw_api')}:{' '}
-                            <span
-                              className={hasKey ? 'text-emerald-600 font-medium' : 'text-rose-500 font-medium'}
-                            >
-                              {hasKey
-                                ? t('settings.excalidraw_status_configured')
-                                : t('settings.excalidraw_status_not_configured')}
-                            </span>
-                          </div>
-                        </button>
-
-                        <div className="flex items-center gap-1">
-                          <IconButton
-                            label={t('settings.excalidraw_edit_provider')}
-                            size="sm"
-                            onClick={() => setEditingProvider(isEditing ? null : id)}
-                          >
-                            <Edit2 size={13} />
-                          </IconButton>
-                        </div>
+                      <div className="flex items-center gap-2">
+                        <span className="font-semibold text-[13px] text-[var(--text-primary)]">
+                          {info.name}
+                        </span>
+                        {isSelected && (
+                          <span className="rounded-full bg-[var(--accent-soft)] px-2 py-0.5 text-[10px] font-medium text-[var(--accent)]">
+                            {t('settings.excalidraw_current_default')}
+                          </span>
+                        )}
                       </div>
-
-                      {isEditing && (
-                        <div className="border-t border-[var(--border-subtle)] bg-[var(--bg-inset)]/60 p-3 space-y-3 rounded-b-xl">
-                          <div>
-                            <label className="block text-[11px] font-medium text-[var(--text-tertiary)] mb-1">
-                              {t('settings.excalidraw_ai_base_url')}
-                            </label>
-                            <Input
-                              value={conf?.baseURL || info.defaultBaseURL}
-                              onChange={(e) =>
-                                handleProviderConfigChange(id, 'baseURL', e.target.value)
-                              }
-                              placeholder={info.defaultBaseURL}
-                              className="text-xs"
-                            />
-                          </div>
-                          <div>
-                            <label className="block text-[11px] font-medium text-[var(--text-tertiary)] mb-1">
-                              {t('settings.excalidraw_ai_api_key')}
-                            </label>
-                            <Input
-                              type="password"
-                              value={conf?.apiKey || ''}
-                              onChange={(e) =>
-                                handleProviderConfigChange(id, 'apiKey', e.target.value)
-                              }
-                              placeholder="sk-..."
-                              className="text-xs"
-                            />
-                          </div>
-                        </div>
-                      )}
-                    </div>
+                      <div className="mt-0.5 text-[11px] text-[var(--text-tertiary)]">
+                        {t('settings.excalidraw_type')}: {t(info.typeDescKey)} · {t('settings.excalidraw_api')}:{' '}
+                        <span
+                          className={hasKey ? 'text-emerald-600 font-medium' : 'text-rose-500 font-medium'}
+                        >
+                          {hasKey
+                            ? t('settings.excalidraw_status_configured')
+                            : t('settings.excalidraw_status_not_configured')}
+                        </span>
+                      </div>
+                    </button>
                   );
                 })}
+              </div>
+
+              <div role="group" aria-labelledby={providerLabelId}>
+                <div className="flex flex-wrap items-center gap-1.5">
+                  {Object.entries(PROVIDER_INFO).map(([id, info]) => {
+                    const isEditing = editingProvider === id;
+                    return (
+                      <Button
+                        key={id}
+                        size="sm"
+                        variant={isEditing ? 'primary' : 'secondary'}
+                        aria-label={`${t('settings.excalidraw_edit_provider')} ${info.name}`}
+                        aria-expanded={isEditing}
+                        aria-controls={providerConfigId}
+                        onClick={() => setEditingProvider(isEditing ? null : id)}
+                        className="h-7 text-xs"
+                      >
+                        <Edit2 size={13} className="mr-1" />
+                        {info.name}
+                      </Button>
+                    );
+                  })}
+                </div>
+
+                {/* One named region the five toggles write into. The region stays in the DOM even
+                    when it holds nothing, so every `aria-controls` has something to point at; the
+                    box it draws belongs to the content, so an empty region shows nothing. */}
+                <div id={providerConfigId}>
+                  {editingProvider && (
+                    <div className="mt-3 space-y-3 rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-inset)]/60 p-3">
+                      <div>
+                        <label className="block text-[11px] font-medium text-[var(--text-tertiary)] mb-1">
+                          {t('settings.excalidraw_ai_base_url')}
+                        </label>
+                        <Input
+                          value={
+                            settings.aiProviders[editingProvider]?.baseURL ||
+                            PROVIDER_INFO[editingProvider]!.defaultBaseURL
+                          }
+                          onChange={(e) =>
+                            handleProviderConfigChange(editingProvider, 'baseURL', e.target.value)
+                          }
+                          placeholder={PROVIDER_INFO[editingProvider]!.defaultBaseURL}
+                          className="text-xs"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-[11px] font-medium text-[var(--text-tertiary)] mb-1">
+                          {t('settings.excalidraw_ai_api_key')}
+                        </label>
+                        <Input
+                          type="password"
+                          value={settings.aiProviders[editingProvider]?.apiKey || ''}
+                          onChange={(e) =>
+                            handleProviderConfigChange(editingProvider, 'apiKey', e.target.value)
+                          }
+                          placeholder="sk-..."
+                          className="text-xs"
+                        />
+                      </div>
+                    </div>
+                  )}
+                </div>
               </div>
 
               <div className="pt-2 space-y-4">
