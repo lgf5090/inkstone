@@ -98,7 +98,10 @@ export function runUserCode(code: string, injections: Record<string, unknown> = 
   let errorText = ''
   try {
     const fn = new Function(...SHADOWED_GLOBALS, ...names, `"use strict";\n${code}`)
-    result = fn(fakeConsole, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, ...values)
+    // One argument per shadowed name, generated from the list itself: a hand-typed row of `undefined`s
+    // silently misaligns the moment the list grows, and a shifted parameter hands the note back one of
+    // the globals this call exists to take away.
+    result = fn(...SHADOWED_GLOBALS.map((name) => (name === 'console' ? fakeConsole : undefined)), ...values)
   } catch (err) {
     errorText = formatJsError(err)
   }

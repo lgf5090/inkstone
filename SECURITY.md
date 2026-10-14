@@ -21,6 +21,46 @@ Please avoid accessing data that is not yours, degrading a production service, o
 Inkstone is self-hosted software, not a hosted service. Deployment owners are responsible for their Cloudflare account, custom domains, access policies, backup destinations, and timely updates. Inkstone does not provide a password-reset bypass; losing the owner password requires restoring from a trusted backup or reinitializing the instance.
 
 
+## Reviewed code-execution exception
+
+`AGENTS.md` rule 1 forbids unreviewed `eval` / `new Function`. Inkstone has one
+such call, and it is here on purpose rather than by oversight: a note's JavaScript
+block is a feature, and the only way to run a reader's own snippet in their own
+browser is to build a function from text (`src/client/features/preview/js-runner-core.ts`).
+
+What the review concluded, and what the code actually does:
+
+- **Where it runs.** In a dedicated Web Worker (`js-runner.worker.ts`,
+  `lib/dataview/js.worker.ts`), not in the page. A worker has no `document` and
+  no `window`, so a snippet cannot touch the DOM, the cookies, or the session
+  cookie by construction — and `hardenWorkerScope` additionally removes the
+  ways out of that thread that a worker *does* have: `fetch`, `XMLHttpRequest`,
+  `WebSocket`, `EventSource`, `RTCPeerConnection`, `indexedDB`, `caches`,
+  `importScripts`, `postMessage`, `close`, `Worker`, `SharedWorker`,
+  `ServiceWorker`.
+- **The shadowing is not the boundary.** Shadowed parameter names only cover
+  direct references; `Function('return this')()` still hands back the real
+  scope, so the same names are taken off that object too. That is why
+  `hardenWorkerScope` exists and is exported: the parameter list is a
+  convenience, the neutralised worker scope is the guard.
+- **Nothing the snippet produces is ever read as markup.** The outcome is
+  written with `textContent` (`js-runner.ts`), so the output cannot become HTML.
+  The only `innerHTML` on that path builds the Run / line-numbers controls from
+  escaped translated strings.
+- **It does not run by itself.** A block shows a "click to execute" placeholder
+  until the reader presses Run, so loading a note is not execution.
+- **What it does not protect against, stated plainly.** This is not a defence
+  against the author of the note: they can open developer tools and run the same
+  code with more privileges. What it defends is the much more likely accident —
+  a snippet reaching the network, the account's stored data, or the page, and a
+  shared page executing its author's code in a visitor's browser with DOM access.
+  A visitor of a public share can still choose to run the author's snippet and
+  watch it compute inside their own neutralised worker; that is the residual, and
+  it is the same residual as pasting unknown code into a console.
+
+Any second `new Function` / `eval` / `dangerouslySetInnerHTML` path needs its own
+entry here before it merges.
+
 ## Deployment security notes
 
 - **Keep `global_fetch_strictly_public` enabled.** The Worker makes outbound
