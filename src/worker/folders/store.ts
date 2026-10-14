@@ -19,7 +19,8 @@
 
 import { LIMITS } from '@shared/constants'
 import { FOLDER_SELECT, type FolderRow } from '../db/rows'
-import { MAX_BATCH_STATEMENTS, runBatched, shiftSqlPlaceholders } from '../db/writes'
+import { FTS_QUEUE_CONFLICT_SQL, MAX_BATCH_STATEMENTS, runBatched, shiftSqlPlaceholders } from '../db/writes'
+import { aiDeleteNeededSql } from '../mcp/ai-search'
 
 /** The live tree reduced to what the route's hierarchy rules need. */
 export interface FolderGraph {
@@ -90,6 +91,14 @@ export interface FolderPatchInput {
 /** The rows a promotion read returns: siblings and children of one folder, in one pass. */
 export interface FolderPromotionRow extends FolderOrderRow {
   parent_id: string | null
+}
+
+/** The live folder a delete was asked for: where it hangs and the timestamp its batch guards on. */
+export interface FolderDeleteRow {
+  id: string
+  parent_id: string | null
+  position: number
+  updated_at: number
 }
 
 export class FoldersStore {
@@ -377,4 +386,166 @@ export class FoldersStore {
       row: (results.at(-1) as D1Result<FolderRow>).results?.[0] ?? null,
     }
   }
+
+  /** The columns a delete reads: where the folder hangs, and the timestamp its statements guard on. */
+  async deleteState(id: string): Promise<FolderDeleteRow | null> {
+    const row = await this.db
+      .prepare(
+        `SELECT id, parent_id, position, updated_at FROM folders WHERE id = ?1 AND user_id = ?2 AND deleted_at IS NULL`,
+      )
+      .bind(id, this.userId)
+      .first<FolderDeleteRow>()
+    return row ?? null
+  }
+
+  /**
+   * Delete one folder by promoting its children into its own place in the parent's run.
+   *
+   * Seven statements, one batch, and the same `guard` spliced into all of them: the folder must still
+   * be live at the timestamp the route read, and no promoted child may collide with a surviving
+   * sibling of the same folded name. The order and the positions the children land on came from
+   * `promotionJson`, which the route computed from a fresh read, because a half-applied promotion
+   * would leave the tree pointing at a folder that is about to disappear.
+   */
+  async deleteMoveUp(input: { current: FolderDeleteRow; promotionJson: string; now: number }): Promise<boolean> {
+    const { current, promotionJson, now } = input
+    const id = current.id
+    const guard = `EXISTS (SELECT 1 FROM folders
+      WHERE id = ?1 AND user_id = ?2 AND updated_at = ?3 AND deleted_at IS NULL)
+      AND NOT EXISTS (
+        SELECT 1 FROM folders child
+        JOIN folders sibling
+          ON sibling.user_id = child.user_id
+         AND sibling.parent_id IS (
+           SELECT parent_id FROM folders WHERE id = ?1 AND user_id = ?2
+         )
+         AND lower(sibling.name) = lower(child.name)
+         AND sibling.deleted_at IS NULL
+         AND sibling.id != ?1
+         AND sibling.id != child.id
+       WHERE child.parent_id = ?1 AND child.user_id = ?2 AND child.deleted_at IS NULL
+      )`
+    const statements = [
+      this.db.prepare(
+        `INSERT INTO changes (user_id, entity, entity_id, op, at)
+         SELECT ?2, 'folder', json_extract(item.value, '$.id'), 'upsert', ?4
+           FROM json_each(?5) item WHERE ${guard}`,
+      ).bind(id, this.userId, current.updated_at, now, promotionJson),
+      this.db.prepare(
+        `INSERT INTO changes (user_id, entity, entity_id, op, at)
+         SELECT ?2, 'note', id, 'upsert', ?4 FROM notes
+          WHERE folder_id = ?1 AND user_id = ?2 AND ${guard}`,
+      ).bind(id, this.userId, current.updated_at, now),
+      this.db.prepare(
+        `INSERT INTO changes (user_id, entity, entity_id, op, at)
+         SELECT ?2, 'folder', ?1, 'delete', ?4 WHERE ${guard}`,
+      ).bind(id, this.userId, current.updated_at, now),
+      this.db.prepare(
+        `UPDATE folders SET deleted_at = ?4
+          WHERE id = ?1 AND user_id = ?2 AND updated_at = ?3
+            AND deleted_at IS NULL AND ${guard}`,
+      ).bind(id, this.userId, current.updated_at, now),
+      this.db.prepare(
+        `UPDATE folders SET
+           parent_id = CASE WHEN parent_id = ?1 THEN ?4 ELSE parent_id END,
+           position = COALESCE((
+             SELECT json_extract(item.value, '$.position') FROM json_each(?6) item
+              WHERE json_extract(item.value, '$.id') = folders.id
+           ), position),
+           updated_at = MAX(updated_at + 1, ?5)
+          WHERE id IN (SELECT json_extract(item.value, '$.id') FROM json_each(?6) item)
+            AND user_id = ?2 AND deleted_at IS NULL
+            AND EXISTS (SELECT 1 FROM folders
+              WHERE id = ?1 AND user_id = ?2 AND updated_at = ?3 AND deleted_at = ?5)`,
+      ).bind(id, this.userId, current.updated_at, current.parent_id, now, promotionJson),
+      this.db.prepare(
+        `UPDATE notes SET folder_id = ?4, updated_at = MAX(updated_at + 1, ?5), rev = rev + 1
+          WHERE folder_id = ?1 AND user_id = ?2
+            AND EXISTS (SELECT 1 FROM folders
+              WHERE id = ?1 AND user_id = ?2 AND updated_at = ?3 AND deleted_at = ?5)`,
+      ).bind(id, this.userId, current.updated_at, current.parent_id, now),
+      this.db.prepare(
+        `DELETE FROM folders WHERE id = ?1 AND user_id = ?2 AND updated_at = ?3
+          AND deleted_at = ?4`,
+      ).bind(id, this.userId, current.updated_at, now),
+    ]
+    const results = await this.db.batch(statements)
+    return Boolean(results.at(-1)?.meta.changes)
+  }
+
+  /**
+   * Delete one folder and everything below it, trashing the notes it held.
+   *
+   * The `subtree` walk is guarded on the timestamp the route read, so a folder that was moved or edited
+   * underneath deletes nothing at all. Every statement repeats that walk rather than passing ids
+   * through JavaScript: a subtree can be far bigger than a bind list, and the walk is index-bound. The
+   * change records, the AI and full-text queue rows and the link cleanup ride in the same batch as the
+   * folder and note updates, because a half-deleted subtree would leave notes searchable that no reader
+   * can reach. The final folder delete is what the caller reads as "the subtree was really gone".
+   */
+  async deleteSubtree(input: { id: string; updatedAt: number; now: number; ftsEnabled: boolean }): Promise<boolean> {
+    const { id, updatedAt, now, ftsEnabled } = input
+    const tree = subtreeCteWithRevision()
+    const noteIds = `SELECT n.id FROM notes n WHERE n.user_id = ?2 AND n.folder_id IN (SELECT id FROM subtree)`
+    const statements: D1PreparedStatement[] = [
+      this.db.prepare(
+        `${tree} INSERT INTO changes (user_id, entity, entity_id, op, at)
+         SELECT ?2, 'folder', id, 'delete', ?4 FROM subtree`,
+      ).bind(id, this.userId, updatedAt, now),
+      this.db.prepare(
+        `${tree} INSERT INTO changes (user_id, entity, entity_id, op, at)
+         SELECT ?2, 'note', id, 'upsert', ?4 FROM notes
+          WHERE user_id = ?2 AND folder_id IN (SELECT id FROM subtree)`,
+      ).bind(id, this.userId, updatedAt, now),
+      this.db.prepare(
+        `${tree} INSERT OR REPLACE INTO ai_index_queue (user_id, note_id, kind, created_at)
+         SELECT ?2, id, 'delete', ?4 FROM notes
+          WHERE user_id = ?2 AND folder_id IN (SELECT id FROM subtree)
+            AND ${aiDeleteNeededSql('?2', 'notes.id')}`,
+      ).bind(id, this.userId, updatedAt, now),
+      this.db.prepare(`${tree} DELETE FROM links WHERE source_note_id IN (${noteIds})`)
+        .bind(id, this.userId, updatedAt),
+      this.db.prepare(
+        `${tree} UPDATE links SET target_note_id = (
+           SELECT candidate.id FROM notes candidate
+            WHERE candidate.user_id = links.user_id AND candidate.deleted_at IS NULL
+              AND candidate.title_key = links.target_key
+              AND candidate.id NOT IN (${noteIds})
+            ORDER BY candidate.created_at ASC, candidate.id ASC LIMIT 1
+         ) WHERE user_id = ?2 AND target_note_id IN (${noteIds})`,
+      ).bind(id, this.userId, updatedAt),
+    ]
+    if (ftsEnabled) {
+      statements.push(
+        this.db.prepare(`${tree}
+          INSERT INTO fts_index_queue (user_id, note_id, kind, created_at)
+          SELECT ?2, id, 'delete', ?4 FROM notes WHERE id IN (${noteIds})
+          ${FTS_QUEUE_CONFLICT_SQL}`)
+          .bind(id, this.userId, updatedAt, now),
+      )
+    }
+    statements.push(
+      this.db.prepare(
+        `${tree} UPDATE notes SET folder_id = NULL, deleted_at = COALESCE(deleted_at, ?4),
+          updated_at = MAX(updated_at + 1, ?4), rev = rev + 1
+          WHERE user_id = ?2 AND folder_id IN (SELECT id FROM subtree)`,
+      ).bind(id, this.userId, updatedAt, now),
+      this.db.prepare(
+        `${tree} DELETE FROM folders WHERE user_id = ?2 AND id IN (SELECT id FROM subtree)`,
+      ).bind(id, this.userId, updatedAt),
+    )
+    const results = await this.db.batch(statements)
+    return Boolean(results.at(-1)?.meta.changes)
+  }
+}
+
+/** The recursive subtree walk every cascade statement in a subtree delete repeats, guarded on `updated_at`. */
+function subtreeCteWithRevision(): string {
+  return `WITH RECURSIVE subtree(id) AS (
+    SELECT id FROM folders
+     WHERE id = ?1 AND user_id = ?2 AND updated_at = ?3 AND deleted_at IS NULL
+    UNION
+    SELECT f.id FROM folders f JOIN subtree s ON f.parent_id = s.id
+     WHERE f.user_id = ?2 AND f.deleted_at IS NULL
+  )`
 }
