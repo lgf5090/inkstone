@@ -3,6 +3,7 @@ import { Check, Upload } from 'lucide-react'
 import type { NoteTemplate, NoteTemplateCategory } from '@shared/types'
 import { TEMPLATE_IMPORT_LIMITS, parseTemplateLibraryExport } from '@shared/note-templates'
 import { EMPTY_DRAFT, splitTagInput, type TemplateDraft } from './gallery-persist'
+import { TemplateTag } from './template-tag'
 import { cn } from '../../lib/cn'
 import { Button } from '../../components/primitives'
 import { Field, Input, Select, Textarea } from '../../components/form'
@@ -265,7 +266,7 @@ export function TemplatePreviewModal({ template, categoryName, onUse, onClose }:
     <div className='space-y-2'>
       {template.description && <p className='text-[12px] leading-relaxed text-[var(--text-tertiary)]'>{template.description}</p>}
       {template.tags.length > 0 && (<div className='flex flex-wrap gap-1'>
-        {template.tags.map((tag) => (<span key={tag} className='rounded-full bg-[var(--bg-raised)] px-1.5 py-px text-[10px] text-[var(--text-tertiary)]'>#{tag}</span>))}
+        {template.tags.map((tag) => (<TemplateTag key={tag} tag={tag}/>))}
       </div>)}
       <pre className='max-h-[min(46vh,420px)] overflow-auto rounded-[var(--r-md)] border border-[var(--border-subtle)] bg-[var(--bg-inset)] p-3 text-[11.5px] leading-relaxed whitespace-pre font-mono text-[var(--text-secondary)]'>{template.content}</pre>
       <p className='text-[11px] text-[var(--text-quaternary)]'>{t('templates.preview_lines_value0', { value0: lines.length })}</p>
