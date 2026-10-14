@@ -1,6 +1,7 @@
 import { useMemo, useRef, useState } from 'react'
 import { Link2, Plus, X } from 'lucide-react'
 import { useClickOutside, useEscape } from '../../../../components/overlay'
+import { useFilterInput } from '../../../../components/FilterInput'
 import { t } from '../../../i18n'
 import { kanbanDependencyIds, kanbanDependencyWouldCycle } from '../dependencies'
 import type { KanbanItem } from '../types'
@@ -58,13 +59,38 @@ function DependencyChoiceList({
   choices,
   onQuery,
   onPick,
+  onClose,
 }: {
   panelId: string
   query: string
   choices: DependencyChoice[]
   onQuery: (query: string) => void
   onPick: (id: string) => void
+  /** Puts the picker away the way the overlay's own Escape handler would. */
+  onClose: () => void
 }) {
+  // Enter still picks the first card the search leaves, so the picker stays one keystroke from a
+  // blocker. Everything else about the keys is the app-wide filter contract, asked for through its
+  // `onKeyDown` so the contract only answers what this handler leaves alone — which is what stops an
+  // IME candidate keystroke from filing a dependency.
+  const { field } = useFilterInput({
+    value: query,
+    onClear: () => onQuery(''),
+    escapeWhenEmpty: 'release',
+    onKeyDown: (event) => {
+      if (event.key === 'Escape') {
+        // Text in the box belongs to the contract, which takes it out; an empty box closes the picker
+        // here, because the field marks itself `data-owns-escape` and the overlay layers stand aside.
+        if (query) return
+        event.preventDefault()
+        event.stopPropagation()
+        onClose()
+        return
+      }
+      if (event.key === 'Enter' && choices.length > 0) onPick(choices[0]!.id)
+    },
+  })
+
   return (
     <div
       id={panelId}
@@ -75,14 +101,13 @@ function DependencyChoiceList({
       <input
         type='search'
         autoFocus
+        data-owns-escape='true'
         value={query}
+        {...field}
         onChange={(e) => onQuery(e.target.value)}
-        onKeyDown={(e) => {
-          if (e.key === 'Enter' && choices.length > 0) onPick(choices[0]!.id)
-        }}
         aria-label={t('preview.kanban_dependency_add')}
         placeholder={t('preview.kanban_dependency_add')}
-        className='h-7 w-full rounded-[var(--r-xs)] border border-[var(--border-default)] bg-[var(--bg-surface)] px-2 text-[length:var(--text-12)] text-[var(--text-primary)] outline-none focus:border-[var(--accent)]'
+        className='h-7 w-full rounded-[var(--r-xs)] border border-[var(--border-default)] bg-[var(--bg-surface)] px-2 text-[length:var(--text-12)] text-[var(--text-primary)] outline-none focus:border-[var(--accent)] [&::-webkit-search-cancel-button]:hidden'
       />
       {choices.map((choice) => (
         <button
@@ -152,6 +177,7 @@ function DependencyAddRow({
           choices={choices}
           onQuery={setQuery}
           onPick={pick}
+          onClose={close}
         />
       )}
     </div>

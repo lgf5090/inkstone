@@ -1,6 +1,7 @@
 import { useId, useRef, useState } from 'react'
 import { Plus, X } from 'lucide-react'
 import { useClickOutside, useEscape } from '../../../../components/overlay'
+import { TagChip } from '../../../../components/TagChip'
 import { t } from '../../../i18n'
 import { getKanbanTagStyle, KANBAN_COLOR_NAMES, resolveKanbanTagColor } from '../colors'
 import { formatKanbanColorName, formatKanbanOptionLabel } from '../i18n-helpers'
@@ -25,7 +26,12 @@ export function computeTagAddition(
   return { nextTags, newOption }
 }
 
-function TagChip({
+/**
+ * A tag the card already wears, drawn as the shared chip. The chip *is* the remove control: the old
+ * shape was a nameless span holding a nested button, so the box took a Tab to reach and gave the row
+ * no name of its own. The colour stays a style because it is data written in the note.
+ */
+function TagRemoveChip({
   tag,
   options,
   onRemove,
@@ -39,23 +45,14 @@ function TagChip({
   const name = formatKanbanOptionLabel(opt?.label ?? tag, 'tags')
 
   return (
-    <span
+    <TagChip
+      label={name}
+      onPress={() => onRemove(tag)}
+      ariaLabel={t('preview.kanban_remove_tag_named', { name })}
       style={getKanbanTagStyle(color)}
-      className='inline-flex items-center gap-1 rounded-[var(--r-xs)] px-2 py-0.5 text-[length:var(--text-11)] font-semibold'
-    >
-      <span>{name}</span>
-      <button
-        type='button'
-        onClick={(e) => {
-          e.stopPropagation()
-          onRemove(tag)
-        }}
-        className='opacity-60 transition-opacity hover:opacity-100'
-        aria-label={t('preview.kanban_remove_tag_named', { name })}
-      >
-        <X size={10} />
-      </button>
-    </span>
+      trailing={<X size={10} aria-hidden className='shrink-0 opacity-60' />}
+      className='rounded-[var(--r-xs)] px-[var(--sp-2)] font-semibold'
+    />
   )
 }
 
@@ -252,7 +249,7 @@ export function KanbanTagPicker({
   return (
     <div className='relative flex flex-wrap items-center gap-1.5'>
       {tags.map((tag) => (
-        <TagChip key={tag} tag={tag} options={options} onRemove={handleRemove} />
+        <TagRemoveChip key={tag} tag={tag} options={options} onRemove={handleRemove} />
       ))}
       <button
         ref={addBtnRef}

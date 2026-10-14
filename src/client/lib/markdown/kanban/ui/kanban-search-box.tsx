@@ -1,11 +1,10 @@
 import { useState } from 'react'
 import { Search, X } from 'lucide-react'
+import { DEBOUNCE } from '@shared/constants'
+import { useFilterInput } from '../../../../components/FilterInput'
+import { IconButton } from '../../../../components/primitives'
 import { t } from '../../../i18n'
 import { useDebouncedDraft } from '../../../hooks'
-
-// Each keystroke used to commit the whole dataset, so filtering re-ran and the
-// undo history grew per character; the draft holds the box, the parent the query.
-const SEARCH_DEBOUNCE_MS = 200
 
 /**
  * What a collapsed box shows while it is still filtering. The query is view state, so a board can open
@@ -28,14 +27,16 @@ function ActiveSearchChip({ query, onOpen, onClear }: { query: string; onOpen: (
       >
         {query}
       </button>
-      <button
-        type='button'
+      {/* The same clear control every other filter box draws. It keeps the primitives' phone-sized
+          target — the header gate measures every icon-only control in this row — and the pill's height
+          is its own, so only the button inside it comes from the component system. */}
+      <IconButton
+        label={t('preview.kanban_clear_search')}
         onClick={onClear}
-        className='inline-flex size-9 shrink-0 items-center justify-center rounded-[var(--r-sm)] text-[var(--text-tertiary)] hover:text-[var(--text-primary)] md:size-5'
-        aria-label={t('preview.kanban_clear_search')}
+        className='shrink-0'
       >
         <X size={11} aria-hidden />
-      </button>
+      </IconButton>
     </div>
   )
 }
@@ -48,7 +49,26 @@ export function KanbanSearchBox({
   onSearchChange: (q: string) => void
 }) {
   const [isOpen, setIsOpen] = useState(false)
-  const { draft, setDraft } = useDebouncedDraft(searchQuery, onSearchChange, SEARCH_DEBOUNCE_MS)
+  // Each keystroke used to commit the whole dataset, so filtering re-ran and the
+  // undo history grew per character; the draft holds the box, the parent the query.
+  const { draft, setDraft } = useDebouncedDraft(searchQuery, onSearchChange, DEBOUNCE.search)
+
+  // The box's own keys are the app-wide filter contract: Escape takes the text back out of the draft —
+  // and so out of the board, one debounce later — while a key that arrives mid-composition belongs to
+  // the input method, not to the box. The field marks itself `data-owns-escape` because Escape does
+  // carry a meaning here: with nothing left to take out, the box goes back to the icon it opened from,
+  // and the key stops there rather than dismissing whatever surface stands behind the board.
+  const { field } = useFilterInput({
+    value: draft,
+    onClear: () => setDraft(''),
+    escapeWhenEmpty: 'release',
+    onKeyDown: (event) => {
+      if (event.key !== 'Escape' || draft) return
+      event.preventDefault()
+      event.stopPropagation()
+      setIsOpen(false)
+    },
+  })
 
   // The query is view state, so a board can open with a filter already in force while the box itself
   // starts closed. A bare icon then gives the reader no hint that what they see is not the whole board
@@ -74,13 +94,16 @@ export function KanbanSearchBox({
     <div className='flex h-9 items-center rounded-[var(--r-md)] border border-[var(--border-default)] bg-[var(--bg-inset)] px-2 md:h-7'>
       <Search size={13} aria-hidden className='text-[var(--text-tertiary)]' />
       <input
-        type='text'
+        type='search'
         autoFocus
         data-kanban-search-input
+        data-owns-escape='true'
+        aria-label={t('preview.kanban_search')}
+        {...field}
         value={draft}
         onChange={(e) => setDraft(e.target.value)}
         placeholder={t('preview.kanban_search_placeholder')}
-        className='h-full w-28 border-0 bg-transparent px-1.5 text-[length:var(--text-12)] text-[var(--text-primary)] outline-none transition-[width] duration-200 ease-out focus:w-48'
+        className='h-full w-28 border-0 bg-transparent px-1.5 text-[length:var(--text-12)] text-[var(--text-primary)] outline-none transition-[width] duration-200 ease-out focus:w-48 [&::-webkit-search-cancel-button]:hidden'
       />
     </div>
   )

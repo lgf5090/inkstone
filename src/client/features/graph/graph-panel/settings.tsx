@@ -15,6 +15,8 @@ import { truncateText } from '@shared/text-utils'
 import type { Folder, Tag } from '@shared/types'
 import { Button, IconButton } from '../../../components/primitives'
 import { Swatch } from '../../../components/color-swatch'
+import { useFilterInput } from '../../../components/FilterInput'
+import { TagChip } from '../../../components/TagChip'
 import { Select, Segmented, Slider, Switch } from '../../../components/form'
 import { Drawer } from '../../../components/overlay'
 import { t } from '../../../lib/i18n'
@@ -77,8 +79,13 @@ function GraphFilterSection({ prefs, onPref, folders, tags }: {
     {tags.length > 0 && <div className="text-[12px] text-[var(--text-secondary)]">
       <span className="mb-1.5 block">{t('graph.tag')}</span>
       <div className="flex max-h-36 flex-wrap gap-1 overflow-y-auto">
-        {tags.map((tag) => <TagChip key={tag.name} name={tag.name} active={active.includes(tag.name)}
-          onToggle={() => onPref('tags', toggleTag(active, tag.name))}/>)}
+        {tags.map((tag) => {
+          const isActive = active.includes(tag.name)
+          return <TagChip key={tag.name} label={tag.name} pressed={isActive}
+            onPress={() => onPref('tags', toggleTag(active, tag.name))}
+            trailing={isActive ? <X size={10} className="shrink-0"/> : undefined}
+            className="h-6 px-[var(--sp-2)]"/>
+        })}
       </div>
     </div>}
     {active.length > 1 && <GraphRow label={t('graph.tags_match')}>
@@ -177,10 +184,22 @@ function ColorRuleRow({ group, onChange, onRemove }: {
   onRemove: () => void
 }) {
   const labelId = useId()
+  // The rule's own box keeps the `<label htmlFor>` it already answers to and the row's geometry, and
+  // takes only the app-wide filter contract's keys: a key that arrives while an input method is
+  // composing an answer is not the drawer's to answer, and a keystroke spent writing a rule must not
+  // reach the graph's shortcuts behind it. Escape stays the drawer's — its `useEscape` listens on
+  // window in the capture phase and answers before this field is reached — so the field says
+  // `release` from its own side, and clearing is the delete control at the row's end rather than a
+  // second `X` inside the box.
+  const { field } = useFilterInput({
+    value: group.query,
+    onClear: () => onChange({ query: '' }),
+    escapeWhenEmpty: 'release',
+  })
   return <div className="space-y-1.5">
     <div className="flex items-center gap-1.5">
       <label htmlFor={labelId} className="sr-only">{t('graph.color_rule_query')}</label>
-      <input id={labelId} type="text" value={group.query} placeholder={t('graph.color_rule_query_hint')}
+      <input id={labelId} type="text" {...field} value={group.query} placeholder={t('graph.color_rule_query_hint')}
         onChange={(event) => onChange({ query: truncateText(event.target.value, GRAPH_COLOR_QUERY_MAX) })}
         className="h-8 min-w-0 flex-1 rounded-[var(--r-md)] border border-[var(--border-default)] bg-[var(--bg-inset)] px-2 text-[12px] outline-none placeholder:text-[var(--text-tertiary)]"/>
       <IconButton size="sm" label={t('common.delete')} onClick={onRemove}><Trash2 size={12}/></IconButton>
@@ -220,14 +239,6 @@ function GraphForceSection({ prefs, onPref, onRestoreDefaults }: {
       <ArrowDownToLine size={13}/>{t('graph.restore_defaults')}
     </button>
   </GraphSection>
-}
-
-function TagChip({ name, active, onToggle }: { name: string; active: boolean; onToggle: () => void }) {
-  return <button type="button" onClick={onToggle} aria-pressed={active}
-    className="flex h-6 max-w-full items-center gap-1 rounded-full border border-[var(--border-default)] bg-[var(--bg-inset)] px-2 text-[11px] text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] aria-pressed:border-[var(--accent)] aria-pressed:text-[var(--accent)]">
-    <span className="min-w-0 truncate">{name}</span>
-    {active && <X size={10} className="shrink-0"/>}
-  </button>
 }
 
 function GraphRow({ label, children }: { label: string; children: ReactNode }) {

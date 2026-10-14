@@ -1,5 +1,6 @@
 import { useId, useMemo, useState } from 'react'
 import { Tag } from 'lucide-react'
+import { TagChip } from '../../../../components/TagChip'
 import { t } from '../../../i18n'
 import { getKanbanTagStyle } from '../colors'
 import { formatKanbanOptionLabel } from '../i18n-helpers'
@@ -76,8 +77,22 @@ function TagBarChip({ selected, total, expanded, controls, onToggle }: {
   )
 }
 
-/** One tag of the strip, with the count of the live cards that wear it. */
-function TagChip({
+/**
+ * One tag of the strip, with the count of the live cards that wear it. The box, the pressed state and
+ * its `aria-pressed` are the shared chip's; what this strip still owns is the palette — a kanban tag's
+ * colour is data written in the note, so it arrives as a style and keeps its own corner radius and
+ * padding.
+ *
+ * The count is written into the label rather than through the chip's `count` slot, and that is a
+ * contrast decision, not a taste one: the slot paints the digits `--text-quaternary`, which is a grey
+ * calibrated for text sitting on a theme surface. Measured against the label tints this palette is
+ * composited on, it lands at 4.20:1 (light, red on `--bg-inset`) and 1.37:1 (dark, gray on
+ * `--bg-overlay`) — under AA, and `kanban-tag-contrast.test.ts` is the gate that says this palette is
+ * the one the accent system does not guard. Only a tag's own foreground clears AA over its own tint,
+ * so the count inherits it, exactly as it did before the chip was shared. The shared slot becomes
+ * usable here once `TagChip` gives a tinted surface a way to keep the count in `currentColor`.
+ */
+function TagFilterChip({
   tag,
   isSelected,
   onToggle,
@@ -87,17 +102,18 @@ function TagChip({
   onToggle: (tag: string) => void
 }) {
   return (
-    <button
-      type='button'
-      onClick={() => onToggle(tag.id)}
+    <TagChip
+      label={
+        <>
+          {formatKanbanOptionLabel(tag.label, 'tags')}
+          <span className='tabular pl-[var(--sp-1)] text-[length:var(--text-10)]'>({tag.count})</span>
+        </>
+      }
+      onPress={() => onToggle(tag.id)}
+      pressed={isSelected}
       style={getKanbanTagStyle(tag.color || 'blue')}
-      className={`inline-flex items-center gap-[var(--sp-1)] rounded-[var(--r-xs)] px-[var(--sp-2)] py-[var(--sp-0-5)] font-medium transition-all ${
-        isSelected ? 'ring-2 ring-[var(--accent)] shadow-2xs font-semibold' : 'hover:ring-1 hover:ring-[var(--border-strong)]'
-      }`}
-    >
-      <span>{formatKanbanOptionLabel(tag.label, 'tags')}</span>
-      <span className='text-[length:var(--text-10)]'>({tag.count})</span>
-    </button>
+      className='rounded-[var(--r-xs)] px-[var(--sp-2)]'
+    />
   )
 }
 
@@ -127,7 +143,7 @@ function TagStrip({
         <span>{t('preview.kanban_prop_tags')}:</span>
       </span>
       {tagList.map((tag) => (
-        <TagChip
+        <TagFilterChip
           key={tag.id}
           tag={tag}
           isSelected={selectedTags.includes(tag.id) || selectedTags.includes(tag.label)}
