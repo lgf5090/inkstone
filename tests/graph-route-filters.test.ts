@@ -1,7 +1,7 @@
 // @vitest-environment node
 import { DatabaseSync } from 'node:sqlite'
 import { beforeEach, describe, expect, it } from 'vitest'
-import { buildUserGraph, type GraphParams } from '../src/worker/routes/search'
+import { buildUserGraph, type GraphParams } from '../src/worker/search/service'
 import { SCHEMA_STATEMENTS } from '../src/worker/db/schema'
 import { makeD1 } from './doubles/d1-sqlite'
 

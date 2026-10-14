@@ -6,7 +6,7 @@ import { NOTE_COLUMNS, NOTE_COLUMNS_FULL, toNote, toNoteSummary, type NoteRow } 
 import type { Env } from '../env'
 import { ApiError } from '../lib/errors'
 import { isValidId } from '../lib/id'
-import { searchUserNotes } from '../routes/search'
+import { searchUserNotes } from '../search/service'
 import {
   fuseByRrf,
   searchSemanticNotes,

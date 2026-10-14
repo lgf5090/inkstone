@@ -2,7 +2,7 @@
 import { DatabaseSync } from 'node:sqlite'
 import { beforeEach, describe, expect, it } from 'vitest'
 import { LIMITS } from '@shared/constants'
-import { fetchSearchDocuments } from '../src/worker/routes/search'
+import { fetchSearchDocuments } from '../src/worker/search/service'
 import { SCHEMA_STATEMENTS } from '../src/worker/db/schema'
 import { makeD1 } from './doubles/d1-sqlite'
 
