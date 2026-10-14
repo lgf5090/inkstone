@@ -912,6 +912,11 @@ const allowed = new Map([
     "// The shared box's own grammar check. Matching is the server's, so what the box can answer here is",
     "// whether what was typed is a pattern at all — see the note on `FilterInput` below.",
     "/* The same box the notebook's rails draw: search icon, clear control, Escape that takes the text\n            back out, and the shared refusal when what was typed is not a pattern. The chrome is shared,\n            the matching is not — this list is answered by the server's `LIKE` over the title and the\n            message bodies (`src/worker/assistant/store.ts`), and conversations are not in the omnisearch\n            index, which covers `notes` only. So the settled text is handed on verbatim, exactly as the\n            bare `Input` did: `/expression/` is a promise the conversation endpoint has yet to keep, and\n            the grammar check is the part a box with a server behind it can honestly offer. */",
+    "// The tags feature's own entry point, which is the part that can say what went wrong: it",
+    "// refuses a name a tag cannot be called, answers a name already taken with the tag that",
+    "// exists, and toasts either way. Nothing here catches the server's answer and hides it.",
+    "// Brought in on the click rather than with the row: the tags module's own graph reaches the",
+    "// note store and the drawing editors, and none of that is something this menu needs to draw.",
   ]],
   ["src/client/features/chat/ComposerControls.tsx", [
     "/**\n * The composer's control row.\n *\n * Each control is a menu anchored to a chip that names what it currently selects, so the state is\n * readable without opening anything: which model answers, how much it is asked to think, how much\n * context it is given, and whether a write waits for a click. All four are per-conversation settings\n * the assistant already stores — the chips are the same switches the settings page has, moved to where\n * the decision is actually made.\n */",
@@ -1041,6 +1046,10 @@ const allowed = new Map([
     "// another machine. Left alone it answers \"no conversations\" forever, with no row in the picker",
     "// left to click it off, so a choice the real tree no longer offers is dropped as soon as the",
     "// tree is known.",
+    "/**\n   * File a conversation under a tag `createTag` has only just asked the server for.\n   *\n   * `createTag` is optimistic by design — it validates, dedupes, seeds the local cache and posts the row\n   * without waiting — so its id is in hand a round trip before the row exists, and the attach route\n   * refuses an unknown tag. Waiting for the row is what turns \"click new tag, nothing happens\" into\n   * either the label appearing or a word about why it did not.\n   */",
+    "/**\n * How long filing a conversation under a brand-new tag waits for the tag itself — see `attachNewTag`.\n * The pair is chosen with the same arithmetic as `ADOPT_*`: one read per wait, long enough to span the\n * POST the tag came from, short enough that a reader who moved on is not left with a pending write.\n */",
+    "// The row never came back. `createTag` has already said so if the server refused it; this is the",
+    "// case where it is simply not there yet, and the label did not reach the conversation.",
   ]],
   ["src/client/features/chat/chat-taxonomy.test.ts", [
     "/**\n * The conversation list's four pickers live in one tab container, the same shape the notebook's sidebar\n * uses. What is pinned here is the coupling between the strip and the panel: exactly one tab is\n * selected, the panel answers to that tab, and the two shortlists reach the store's flag endpoints\n * rather than re-reading the whole conversation list.\n */",
@@ -1118,6 +1127,10 @@ const allowed = new Map([
     "/** Tools the reader asked for with `/`, by name. */",
     "/** Note tags and folders the reader pinned with `#`. */",
     "/** The web-search switch: ask this model for a live search this turn. */",
+  ]],
+  ["src/client/features/chat/tag-attach.test.ts", [
+    "/**\n * A new tag has to reach the conversation it was made for, or say why it did not.\n *\n * `createTag` is optimistic — it validates the name, answers a duplicate with the tag that already\n * exists, seeds the local cache and posts the row without waiting — so its id is in hand before the\n * server has a row to point at, and the attach route refuses an unknown tag. The old path caught that\n * refusal and threw the answer away: the reader typed a name, nothing appeared, and no one said so.\n * What is pinned here is the two honest outcomes: the conversation is filed once the row is back, or a\n * danger toast says it was not.\n */",
+    "// The row lands on the second read, which is what a POST still on the wire looks like from here.",
   ]],
   ["src/client/features/chat/time-format.ts", [
     "/**\n * Instants in the assistant's own timezone.\n *\n * The reader's browser and the assistant's configured zone are usually the same, but the whole point of\n * the setting is that they need not be: a reminder set for 09:00 in Shanghai has to read as 09:00 in\n * the list even when the laptop is in Berlin. The notebook's own date helpers deliberately follow the\n * browser, so this surface keeps its own two formatters rather than changing theirs.\n */",

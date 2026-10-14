@@ -405,7 +405,7 @@ function ConversationRow({
   const moveConversation = useAssistant((state) => state.moveConversation)
   const toggleConversationTag = useAssistant((state) => state.toggleConversationTag)
   const starConversation = useAssistant((state) => state.starConversation)
-  const loadTaxonomy = useAssistant((state) => state.loadTaxonomy)
+  const attachNewTag = useAssistant((state) => state.attachNewTag)
   const anchor = useRef<HTMLSpanElement>(null)
   const title = conversation.title || t('assistant.chat.untitled')
   const assigned = new Set((conversation.tags ?? []).map((tag) => tag.id))
@@ -438,12 +438,18 @@ function ConversationRow({
       label: t('assistant.chat.new_tag'),
       separatorBefore: tagNodes.length > 0,
       onSelect: () => {
-        void prompt({ title: t('assistant.chat.new_tag'), placeholder: t('assistant.chat.tag_name') }).then(async (name) => {
-          if (!name?.trim()) return
-          const created = await api.tags.create({ name: name.trim() }).catch(() => null)
-          if (created) await toggleConversationTag(conversation.id, created.id, true)
-          await loadTaxonomy()
-        })
+        void prompt({ title: t('assistant.chat.new_tag'), placeholder: t('assistant.chat.tag_name') })
+          .then(async (name) => {
+            if (!name?.trim()) return
+            // Brought in on the click rather than with the row: the tags module's own graph reaches the
+            // note store and the drawing editors, and none of that is something this menu needs to draw.
+            const { createTag } = await import('../tags/tagMutations')
+            // The tags feature's own entry point, which is the part that can say what went wrong: it
+            // refuses a name a tag cannot be called, answers a name already taken with the tag that
+            // exists, and toasts either way. Nothing here catches the server's answer and hides it.
+            const tagId = createTag(name)
+            if (tagId) void attachNewTag(conversation.id, tagId)
+          })
       },
     },
   ]

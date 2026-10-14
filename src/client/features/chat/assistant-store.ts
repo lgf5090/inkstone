@@ -178,6 +178,15 @@ interface AssistantState {
   starConversation: (id: string, starred: boolean) => Promise<void>
   moveConversation: (id: string, folderId: string | null) => Promise<void>
   toggleConversationTag: (id: string, tagId: string, on: boolean) => Promise<void>
+  /**
+   * File a conversation under a tag `createTag` has only just asked the server for.
+   *
+   * `createTag` is optimistic by design — it validates, dedupes, seeds the local cache and posts the row
+   * without waiting — so its id is in hand a round trip before the row exists, and the attach route
+   * refuses an unknown tag. Waiting for the row is what turns "click new tag, nothing happens" into
+   * either the label appearing or a word about why it did not.
+   */
+  attachNewTag: (id: string, tagId: string) => Promise<void>
   openConversation: (id: string | null) => Promise<void>
   newConversation: () => void
   send: (text: string, opts?: { retry?: boolean }) => Promise<void>
@@ -277,6 +286,14 @@ function toast(error: unknown): void {
  */
 const ADOPT_ATTEMPTS = 6
 const ADOPT_POLL_MS = 400
+
+/**
+ * How long filing a conversation under a brand-new tag waits for the tag itself — see `attachNewTag`.
+ * The pair is chosen with the same arithmetic as `ADOPT_*`: one read per wait, long enough to span the
+ * POST the tag came from, short enough that a reader who moved on is not left with a pending write.
+ */
+const TAG_ROW_ATTEMPTS = 6
+const TAG_ROW_POLL_MS = 200
 
 async function adoptThread(conversationId: string): Promise<void> {
   for (let attempt = 0; attempt < ADOPT_ATTEMPTS; attempt++) {
@@ -643,6 +660,20 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
     } catch (error) {
       toast(error)
     }
+  },
+
+  attachNewTag: async (id, tagId) => {
+    for (let attempt = 0; attempt < TAG_ROW_ATTEMPTS; attempt++) {
+      await get().loadTaxonomy()
+      if (get().tagNodes.some((tag) => tag.id === tagId)) {
+        await get().toggleConversationTag(id, tagId, true)
+        return
+      }
+      await new Promise((resolve) => setTimeout(resolve, TAG_ROW_POLL_MS))
+    }
+    // The row never came back. `createTag` has already said so if the server refused it; this is the
+    // case where it is simply not there yet, and the label did not reach the conversation.
+    useUi.getState().toast({ title: t('assistant.toast.failed'), tone: 'danger' })
   },
 
   openConversation: async (id) => {
