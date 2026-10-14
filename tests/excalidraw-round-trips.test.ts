@@ -2,15 +2,30 @@ import { describe, expect, it, beforeEach } from 'vitest';
 import fs from 'node:fs';
 import { parseExcalidrawBody, serializeExcalidrawBody } from '../src/client/lib/markdown/excalidraw/body';
 import { applyExcalidrawPatches, EXCALIDRAW_PATCHES } from '../scripts/excalidraw-patch.mjs';
+import type { ExcalidrawPatch } from '../scripts/excalidraw-patch.mjs';
 import { useExcalidrawLibraryStore } from '../src/client/features/excalidraw/library/library-store';
 
 const LOCAL_KEY = 'inkstone_excalidraw_library_manifest_v2';
 
 /**
- * One row of the patch table, as this gate reads it. The table itself is plain JavaScript with no
- * declaration file, so the shape the assertions depend on is stated here rather than left `any`.
+ * One row of the table, or the test stops.
+ *
+ * A row this gate cannot find is not a passing check: it is the build silently no longer applying an
+ * edit to the vendored engine. `expect(entry).toBeDefined()` does not narrow anything, so the read
+ * that follows would run against `undefined` and the miss would look like a different failure.
  */
-type Patch = { id: string; target: string; replacement: string; superseded?: string[] };
+function patchRow(id: string): ExcalidrawPatch {
+  const found = EXCALIDRAW_PATCHES.find((patch) => patch.id === id)
+  if (!found) throw new Error(`the patch table no longer carries ${id}`)
+  return found
+}
+
+/** The older spellings a row replaces, or the test stops for the same reason. */
+function supersededForms(patch: ExcalidrawPatch): string[] {
+  const forms = patch.superseded ?? []
+  if (!forms.length) throw new Error(`patch ${patch.id} no longer lists a superseded spelling`)
+  return forms
+}
 
 describe('scene round-trips without inventing fields', () => {
   it('keeps the version and source the note author wrote', () => {
@@ -54,13 +69,19 @@ describe('the persisted library manifest carries no derived renders', () => {
   })
 })
 
+/** The first row that carries an older spelling, which is what the migration check below needs. */
+function rowWithSupersededForm(): ExcalidrawPatch {
+  const found = EXCALIDRAW_PATCHES.find((patch) => (patch.superseded?.length ?? 0) > 0)
+  if (!found) throw new Error('no patch row lists a superseded spelling any more')
+  return found
+}
+
 describe('the engine patch table migrates rather than misreports', () => {
   it('treats a superseded replacement as work still to do', () => {
-    const entry = EXCALIDRAW_PATCHES.find((p: Patch) => p.superseded?.length)
-    expect(entry, 'the unmount entry must list the form it replaces').toBeDefined()
+    const entry = rowWithSupersededForm()
     const once = applyExcalidrawPatches('X ' + entry.target + ' Y')
     expect(once.applied).toEqual([entry.id])
-    const stale = applyExcalidrawPatches('X ' + entry.superseded[0] + ' Y')
+    const stale = applyExcalidrawPatches('X ' + supersededForms(entry)[0] + ' Y')
     expect(stale.applied).toEqual([entry.id])
     expect(stale.content).toContain(entry.replacement)
     const current = applyExcalidrawPatches('X ' + entry.replacement + ' Y')
@@ -69,8 +90,8 @@ describe('the engine patch table migrates rather than misreports', () => {
   })
 
   it('releases the engine state but leaves the canvas React owns alone', () => {
-    const entry = EXCALIDRAW_PATCHES.find((p: Patch) => p.id === 'unmount-releases-fields')
-    const mount = EXCALIDRAW_PATCHES.find((p: Patch) => p.id === 'mount-recreates-fields')
+    const entry = patchRow('unmount-releases-fields')
+    const mount = patchRow('mount-recreates-fields')
     expect(entry.replacement).toContain('this.store=null,this.library=null')
     expect(entry.replacement).toContain('this.excalidrawContainerRef.current=void 0')
     // Nulling or zeroing the canvas is what made a StrictMode remount paint into an orphan: the element

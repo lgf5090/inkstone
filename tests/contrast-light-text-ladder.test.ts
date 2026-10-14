@@ -36,6 +36,20 @@ const OLD_QUATERNARY = 'oklch(51% 0.008 265)'
 
 const TOKENS = fs.readFileSync(TOKENS_PATH, 'utf8')
 
+/**
+ * A colour this gate cannot read has to stop the gate.
+ *
+ * Comparing `undefined` against `undefined` passes, and a step that stopped being declared — or
+ * stopped being a colour the maths understands — is precisely what this file exists to catch.
+ */
+function rgbOf(vars: Map<string, string>, token: string): number[] {
+  const declared = vars.get(token)
+  if (declared === undefined) throw new Error(`the light ladder no longer declares ${token}`)
+  const parsed = parseColor(declared)
+  if (!parsed) throw new Error(`this gate cannot read ${token} (${declared}) as a colour`)
+  return parsed.rgb
+}
+
 // `themeVars` returns the effective cascade, which already folds the
 // `[data-background='white']` override in. Both background settings are shipped,
 // so a step is judged twice: once against the surfaces the theme block declares,
@@ -135,7 +149,7 @@ describe('light text ladder keeps WCAG AA and its rank order', () => {
       const step = lightnesses[index]! - lightnesses[index - 1]!
       expect(step, `${TEXT_STEPS[index]} vs ${TEXT_STEPS[index - 1]} in declared lightness`).toBeGreaterThanOrEqual(MIN_LIGHTNESS_STEP)
     }
-    const rgbs = TEXT_STEPS.map((token) => parseColor(vars.get(token)!).rgb)
+    const rgbs = TEXT_STEPS.map((token) => rgbOf(vars, token))
     for (let index = 1; index < rgbs.length; index += 1) {
       expect(rgbs[index], `${TEXT_STEPS[index]} aliases ${TEXT_STEPS[index - 1]}`).not.toEqual(rgbs[index - 1])
     }

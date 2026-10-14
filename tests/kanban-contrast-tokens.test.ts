@@ -28,14 +28,19 @@ function walkSources(directory: string, out: string[] = []): string[] {
   return out
 }
 
-const rgbOf = (vars: Map<string, string>, name: string): number[] => parseColor(vars.get(name)).rgb
+/** A token this gate cannot turn into a colour stops the gate rather than passing on `undefined`. */
+const rgbOf = (vars: Map<string, string>, name: string): number[] => {
+  const parsed = parseColor(vars.get(name) ?? '')
+  if (!parsed) throw new Error(`kanban token ${name} is not a colour this gate can read`)
+  return parsed.rgb
+}
 
 describe('kanban fill/text contrast pairs', () => {
   it('keeps the accent contrast legible on every accent, in both themes', () => {
     const accents = accentNames(TOKENS)
     expect(accents.length).toBeGreaterThan(1)
     const failures: string[] = []
-    for (const theme of ['light', 'dark']) {
+    for (const theme of ['light', 'dark'] as const) {
       for (const accent of accents) {
         const vars = accentVars(theme, accent, TOKENS)
         const ratio = contrastRatio(rgbOf(vars, '--accent-contrast'), rgbOf(vars, '--accent'))
@@ -47,7 +52,7 @@ describe('kanban fill/text contrast pairs', () => {
 
   it('keeps the contrast colour legible on every label colour the picker offers', () => {
     const failures: string[] = []
-    for (const theme of ['light', 'dark']) {
+    for (const theme of ['light', 'dark'] as const) {
       const vars = themeVars(theme, TOKENS)
       for (const name of KANBAN_COLOR_NAMES) {
         const ratio = contrastRatio(rgbOf(vars, '--accent-contrast'), rgbOf(vars, `--kanban-tag-${name}-fg`))

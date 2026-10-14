@@ -23,6 +23,18 @@ const SURFACE_TOKENS = ['--bg-sunken', '--bg-base', '--bg-editor', '--bg-surface
 
 const TOKENS = fs.readFileSync(TOKENS_PATH, 'utf8')
 
+/**
+ * A colour this gate cannot read has to stop the gate.
+ *
+ * Comparing `undefined` against a surface would pass, and a token that stopped being a colour the
+ * maths understands is exactly the kind of change this file exists to catch.
+ */
+function rgbOf(value: string): number[] {
+  const parsed = parseColor(value)
+  if (!parsed) throw new Error(`this gate cannot read ${value} as a colour`)
+  return parsed.rgb
+}
+
 // `themeVars` returns the effective cascade, which already folds the
 // `[data-background='white']` override in. Both background settings are shipped,
 // so a surface is judged twice: once as the theme block declares it, once under
@@ -123,7 +135,7 @@ describe('dark text ladder keeps WCAG AA at the de-emphasis floor', () => {
   it('catches an AA failure instead of reporting one vacuously', () => {
     // Positive control: the value this branch replaced, measured through the same
     // path. If this stopped failing, the gate above has lost its teeth.
-    const oldDarkQuaternary = { rgb: parseColor('oklch(43% 0.008 265)').rgb }
+    const oldDarkQuaternary = { rgb: rgbOf('oklch(43% 0.008 265)') }
     const worst = surfaces
       .map((surface) => contrastRatio(oldDarkQuaternary.rgb, surface.rgb))
       .reduce((acc, ratio) => Math.min(acc, ratio), Infinity)

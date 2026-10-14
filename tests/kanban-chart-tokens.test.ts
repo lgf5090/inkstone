@@ -30,7 +30,7 @@ describe('kanban chart palette wiring', () => {
     expect(roles.length).toBeGreaterThan(0)
     const undeclared: string[] = []
     for (const [role, token] of roles) {
-      for (const theme of ['light', 'dark']) {
+      for (const theme of ['light', 'dark'] as const) {
         if (!themeVars(theme, TOKENS).has(token)) undeclared.push(`${theme} ${role} → ${token}`)
       }
     }
