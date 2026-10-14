@@ -16001,6 +16001,9 @@ const allowed = new Map([
   ]],
   ["tests/phase4-regressions.test.ts", [
     "// The curated hints stay, because they are what tells an operator what to fix.",
+    "// Read the route and the persistence layer together: the claim is that both purge paths carry the",
+    "// delete, not which file the SQL sits in. Pinning the file would fail every future move toward the",
+    "// service layer, which is the direction AGENTS.md rule 3 asks for.",
   ]],
   ["tests/pinyin-search-coverage.test.ts", [
     "/**\n * Chinese first-letter search lives in a chunk that arrives after boot, so a listing that memoises on\n * the query alone can freeze on the answer computed before the dictionary landed and stay wrong until\n * the reader types another character.\n *\n * Every such listing has to subscribe with `usePinyinVersion()` and list it in that memo's\n * dependencies. A render test cannot see this — by then the dictionary is always loaded — so the gate\n * reads the source instead: a memo that calls the fuzzy matcher, or calls any helper that reaches it,\n * must name `pinyinVersion` in its dependency array.\n */",

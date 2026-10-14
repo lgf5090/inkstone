@@ -76,7 +76,10 @@ it('falls back to read-only when a consent form submits no usable scope', () => 
 })
 
 it('deletes note copies from mcp_operations on both purge paths', () => {
-    const notes = read('../src/worker/routes/notes.ts')
+    // Read the route and the persistence layer together: the claim is that both purge paths carry the
+    // delete, not which file the SQL sits in. Pinning the file would fail every future move toward the
+    // service layer, which is the direction AGENTS.md rule 3 asks for.
+    const notes = read('../src/worker/routes/notes.ts') + read('../src/worker/notes/store.ts')
     expect(notes.match(/DELETE FROM mcp_operations/g)?.length).toBe(2)
     expect(notes).toContain('instr(mcp_operations.response_json, e.value) > 0')
     expect(notes).toContain('WHERE user_id = ?1 AND instr(response_json, ?2) > 0')
