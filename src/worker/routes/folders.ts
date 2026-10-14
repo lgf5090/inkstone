@@ -1,11 +1,13 @@
 import { Hono } from 'hono'
+import type { Context } from 'hono'
 import { LIMITS } from '@shared/constants'
 import { normalizeOrganizerIcon, organizerColorOrNull } from '@shared/organizer-colors'
 import type { Folder } from '@shared/types'
 import type { AppBindings } from '../env'
-import { toFolder, type FolderRow } from '../db/rows'
+import { FOLDER_SELECT, toFolder, type FolderRow } from '../db/rows'
 import { assertOrganizerQuota } from '../db/quota'
 import { FTS_QUEUE_CONFLICT_SQL } from '../db/writes'
+import { FoldersStore, type FolderGraph, type FolderOrderRow } from '../folders/store'
 import { ApiError } from '../lib/errors'
 import { isValidId, newId } from '../lib/id'
 import { broadcastCursor } from '../lib/notify'
@@ -13,21 +15,23 @@ import { JSON_BODY_LIMITS, readJson } from '../lib/request'
 import { requireAuth } from '../middleware/auth'
 import { aiDeleteNeededSql } from '../mcp/ai-search'
 
+/**
+ * The persistence layer for these routes, bound to the account the request authenticated as.
+ *
+ * Same shape as `routes/notes.ts`: the route parses and validates, asks the store for a record, and
+ * turns that record into a response; no statement is built here.
+ */
+function store(c: Context<AppBindings>): FoldersStore {
+  return new FoldersStore(c.env.DB, c.get('userId'))
+}
+
 export const foldersRoutes = new Hono<AppBindings>()
 
 foldersRoutes.use('*', requireAuth)
 
-const FOLDER_SELECT = `f.id, f.parent_id, f.name, f.icon, f.color, f.position, f.created_at, f.updated_at`
-
 foldersRoutes.get('/', async (c) => {
-  const { results } = await c.env.DB.prepare(
-    `SELECT ${FOLDER_SELECT} FROM folders f
-      WHERE f.user_id = ?1 AND f.deleted_at IS NULL
-      ORDER BY f.position ASC, f.created_at ASC, f.id ASC`,
-  )
-    .bind(c.get('userId'))
-    .all<FolderRow>()
-  return c.json({ folders: results.map(toFolder) })
+  const rows = await store(c).listFolders()
+  return c.json({ folders: rows.map(toFolder) })
 })
 
 foldersRoutes.post('/', async (c) => {
@@ -56,17 +60,13 @@ foldersRoutes.post('/', async (c) => {
     throw ApiError.badRequest('id must be a valid folder id')
   }
   const id = body.id ?? newId()
+  const s = store(c)
   if (body.id) {
-    const existing = await c.env.DB.prepare(
-      `SELECT ${FOLDER_SELECT} FROM folders f WHERE f.id = ?1 AND f.user_id = ?2 AND f.deleted_at IS NULL`,
-    ).bind(id, userId).first<FolderRow>()
+    const existing = await s.liveFolderRow(id)
     if (existing) return c.json(toFolder(existing))
-    const collision = await c.env.DB.prepare(`SELECT user_id FROM folders WHERE id = ?1`)
-      .bind(id)
-      .first<{ user_id: string }>()
-    if (collision) throw ApiError.conflict('This folder id is already in use')
+    if (await s.idTakenByAnyone(id)) throw ApiError.conflict('This folder id is already in use')
   }
-  const graph = await loadFolderGraph(c.env.DB, userId)
+  const graph = await s.graph()
   const parentId = validateParent(graph, body.parentId ?? null)
   const requestedName = (body.name ?? '').trim()
   const name = requestedName || availableFolderName(graph, parentId, "New folder")
@@ -77,48 +77,17 @@ foldersRoutes.post('/', async (c) => {
 
   await assertOrganizerQuota(c.env.DB, userId, 'folder')
   const now = Date.now()
-  const insert = c.env.DB.prepare(
-    `WITH RECURSIVE ancestors(id, parent_id, depth) AS (
-       SELECT id, parent_id, 1 FROM folders
-        WHERE id = ?3 AND user_id = ?2 AND deleted_at IS NULL
-       UNION ALL
-       SELECT f.id, f.parent_id, a.depth + 1
-         FROM folders f JOIN ancestors a ON f.id = a.parent_id
-        WHERE f.user_id = ?2 AND f.deleted_at IS NULL AND a.depth < ?9
-     )
-     INSERT OR IGNORE INTO folders (id, user_id, parent_id, name, icon, color, position, created_at, updated_at)
-     SELECT ?1, ?2, ?3, ?4, ?5, ?6,
-            COALESCE((SELECT MAX(position) FROM folders
-                       WHERE user_id = ?2 AND parent_id IS ?3 AND deleted_at IS NULL), 0) + 1000,
-            ?7, ?7
-      WHERE (?3 IS NULL OR EXISTS (
-               SELECT 1 FROM folders WHERE id = ?3 AND user_id = ?2 AND deleted_at IS NULL
-             ))
-        AND COALESCE((SELECT MAX(depth) FROM ancestors), 0) < ?8`,
-  ).bind(
+  const { applied, changeSeq, row } = await s.createFolder({
     id,
-    userId,
     parentId,
     name,
-    normalizeOrganizerIcon(body.icon),
-    organizerColorOrNull(body.color),
+    icon: normalizeOrganizerIcon(body.icon),
+    color: organizerColorOrNull(body.color),
     now,
-    LIMITS.folderDepthMax,
-    LIMITS.folderDepthMax + 1,
-  )
-  const change = c.env.DB.prepare(
-    `INSERT INTO changes (user_id, entity, entity_id, op, at)
-     SELECT ?1, 'folder', ?2, 'upsert', ?3
-      WHERE EXISTS (SELECT 1 FROM folders WHERE id = ?2 AND user_id = ?1)
-     RETURNING seq`,
-  ).bind(userId, id, now)
-  const folderReadback = c.env.DB.prepare(
-    `SELECT ${FOLDER_SELECT} FROM folders f WHERE f.id = ?1 AND f.user_id = ?2`,
-  ).bind(id, userId)
-  const createdBatch = await c.env.DB.batch([insert, change, folderReadback])
-  if (!createdBatch[0]?.meta.changes) throw ApiError.conflict('The parent folder changed or a sibling already uses this name')
-  await broadcastCursor(c, (createdBatch.at(-2) as D1Result<{ seq: number }>).results?.[0]?.seq)
-  return c.json(toFolder((createdBatch.at(-1) as D1Result<FolderRow>).results[0]!), 201)
+  })
+  if (!applied) throw ApiError.conflict('The parent folder changed or a sibling already uses this name')
+  await broadcastCursor(c, changeSeq)
+  return c.json(toFolder(row!), 201)
 })
 
 foldersRoutes.patch('/:id', async (c) => {
@@ -176,7 +145,7 @@ foldersRoutes.patch('/:id', async (c) => {
     binds.push(organizerColorOrNull(body.color))
     sets.push(`color = ?${binds.length}`)
   }
-  const graph = await loadFolderGraph(c.env.DB, userId)
+  const graph = await store(c).graph()
   let parentId = existing.parent_id
   if (body.parentId !== undefined) {
     parentId = validateParent(graph, body.parentId, id)
@@ -205,7 +174,7 @@ foldersRoutes.patch('/:id', async (c) => {
       sets.push(`position = ?${binds.length}`)
     }
   }
-  if (!sets.length) return c.json(await loadFolder(c.env.DB, userId, id))
+  if (!sets.length) return c.json(await loadFolder(store(c), id))
 
   const updatedAt = Math.max(Date.now(), existing.updated_at + 1)
   binds.push(updatedAt)
@@ -401,50 +370,14 @@ foldersRoutes.delete('/:id', async (c) => {
 })
 
 
-async function loadFolder(db: D1Database, userId: string, id: string): Promise<Folder> {
-  const row = await db
-    .prepare(`SELECT ${FOLDER_SELECT} FROM folders f WHERE f.id = ?1 AND f.user_id = ?2`)
-    .bind(id, userId)
-    .first<FolderRow>()
+async function loadFolder(s: FoldersStore, id: string): Promise<Folder> {
+  const row = await s.folderRow(id)
   if (!row) throw ApiError.notFound('Folder not found')
   return toFolder(row)
 }
 
-interface FolderGraph {
-  parents: Map<string, string | null>
-  children: Map<string, string[]>
-  siblingNames: Map<string, Set<string>>
-}
-
-interface FolderOrderRow {
-  id: string
-  position: number
-  created_at: number
-}
-
 interface FolderPromotionRow extends FolderOrderRow {
   parent_id: string | null
-}
-
-async function loadFolderGraph(db: D1Database, userId: string): Promise<FolderGraph> {
-  const { results } = await db
-    .prepare(`SELECT id, parent_id, name FROM folders WHERE user_id = ?1 AND deleted_at IS NULL`)
-    .bind(userId)
-    .all<{ id: string; parent_id: string | null; name: string }>()
-  const parents = new Map<string, string | null>()
-  const children = new Map<string, string[]>()
-  const siblingNames = new Map<string, Set<string>>()
-  for (const row of results) {
-    parents.set(row.id, row.parent_id)
-    const key = row.parent_id ?? ''
-    const list = children.get(key) ?? []
-    list.push(row.id)
-    children.set(key, list)
-    const names = siblingNames.get(key) ?? new Set<string>()
-    names.add(row.name.toLocaleLowerCase())
-    siblingNames.set(key, names)
-  }
-  return { parents, children, siblingNames }
 }
 
 function availableFolderName(graph: FolderGraph, parentId: string | null, base: string): string {

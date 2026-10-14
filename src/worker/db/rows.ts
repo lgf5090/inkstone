@@ -36,6 +36,14 @@ export interface FolderRow {
   note_count?: number
 }
 
+/**
+ * The folder columns a `Folder` response is built from, aliased for `folders f`.
+ *
+ * Lives beside `FolderRow` because every folder read has to project exactly the fields `toFolder`
+ * maps, and `note_count` is the one extra a listing may add on its own.
+ */
+export const FOLDER_SELECT = `f.id, f.parent_id, f.name, f.icon, f.color, f.position, f.created_at, f.updated_at`
+
 export interface TagRow {
   id: string
   name: string
