@@ -12,12 +12,15 @@
  */
 const PRINTING = 'rss-printing'
 
+/** Backstop for the browser that never fires `afterprint`, which would otherwise leave the app printing chrome-less. */
+const PRINTING_CLEANUP_MS = 1500
+
 export function printArticle(): void {
   const root = document.documentElement
   if (root.classList.contains(PRINTING)) return
   const done = (): void => root.classList.remove(PRINTING)
   root.classList.add(PRINTING)
   window.addEventListener('afterprint', done, { once: true })
-  window.setTimeout(done, 1500)
+  window.setTimeout(done, PRINTING_CLEANUP_MS)
   window.print()
 }

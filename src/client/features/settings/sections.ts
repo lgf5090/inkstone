@@ -61,16 +61,24 @@ export function warmSettingsSection(section: SettingsSection): void {
 const warmupQueue: SettingsSection[] = []
 const queuedWarmup = new Set<SettingsSection>()
 let warmupTimer: number | undefined
+/** Spacing between warming two sections, so a warm-up queue never floods the network. */
+const WARMUP_STAGGER_MS = 150
 
 function drainWarmupQueue(): void {
   warmupTimer = undefined
   const section = warmupQueue.shift()
   if (!section) return
   warmSettingsSection(section)
-  if (warmupQueue.length) warmupTimer = window.setTimeout(drainWarmupQueue, 150)
+  if (warmupQueue.length) warmupTimer = window.setTimeout(drainWarmupQueue, WARMUP_STAGGER_MS)
 }
 
-export function scheduleSettingsWarmup(delay = 1200): void {
+/**
+ * The delay a caller gets when it names none: long enough for the panel's own first paint and the
+ * route it came in on to finish before the warm-up starts taking bandwidth from them.
+ */
+const DEFAULT_WARMUP_DELAY_MS = 1200
+
+export function scheduleSettingsWarmup(delay = DEFAULT_WARMUP_DELAY_MS): void {
   (Object.keys(settingsLoaders) as SettingsSection[]).forEach((section) => {
     if (queuedWarmup.has(section)) return
     queuedWarmup.add(section)

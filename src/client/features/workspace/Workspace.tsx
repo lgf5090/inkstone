@@ -46,6 +46,10 @@ const LocalGraphPanel = lazy(() => import('../graph/LocalGraphPanel').then((m) =
 const SPLIT_HANDLE_WIDTH = 1;
 const PREVIEW_BORDER_WIDTH = 1;
 const OUTLINE_WIDTH = 168;
+/** How long scrolling in a note must settle before its reading position is written. */
+const READING_POSITION_SAVE_MS = 180;
+/** How many most-recently-edited notes are offered as link targets under the editor. */
+const LINK_SUGGESTION_LIMIT = 300;
 export function Workspace({ onMobileBack, pane = 'active', grouped = false, }: {
     onMobileBack?: () => void;
     pane?: WorkspacePane | 'active';
@@ -102,7 +106,7 @@ export function Workspace({ onMobileBack, pane = 'active', grouped = false, }: {
         if (!key || !scroller.clientHeight) return;
         pendingReadingRef.current = { key, position: captureReadingPosition(scroller) };
         window.clearTimeout(readingTimerRef.current);
-        readingTimerRef.current = window.setTimeout(flushReadingPosition, 180);
+        readingTimerRef.current = window.setTimeout(flushReadingPosition, READING_POSITION_SAVE_MS);
     }, [flushReadingPosition]);
     const restoreReading = useCallback((scroller: HTMLElement, key: string | null) => {
         if (!key) return;
@@ -226,7 +230,7 @@ export function Workspace({ onMobileBack, pane = 'active', grouped = false, }: {
         notes: () => Object.values(useNotes.getState().notes ?? {})
             .filter((n) => !n.deletedAt && n.id !== note?.id)
             .sort((a, b) => b.updatedAt - a.updatedAt)
-            .slice(0, 300)
+            .slice(0, LINK_SUGGESTION_LIMIT)
             .map((n) => ({ id: n.id, title: n.title, excerpt: n.excerpt })),
         tags: () => useNotes.getState().tags.map((t) => ({ name: t.name, count: t.count })),
     }), [note?.id]);

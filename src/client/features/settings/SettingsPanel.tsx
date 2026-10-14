@@ -20,6 +20,16 @@ import { t } from "../../lib/i18n";
 import { usePinyinVersion } from '../../lib/pinyin'
 type Section = SettingsSection;
 const AppearancePage = memo(AppearanceSettings);
+/**
+ * How long the row a search jumped to keeps its flash.
+ *
+ * This is the duration `ink-settings-target` and `ink-settings-outline` are given in `app.css`, not a
+ * matter of taste: the attribute those selectors hang on has to outlive the animation that reads it, or
+ * the row stops mid-fade and reads as a highlight that was interrupted.
+ */
+const TARGET_FLASH_MS = 1600;
+/** How often the panel looks again for a row whose page is still arriving. */
+const TARGET_LOCATE_POLL_MS = 80;
 export const SECTIONS: {
     id: Section;
     label: () => string;
@@ -131,7 +141,7 @@ export function SettingsPanel({ onClose }: {
             if (scroll)
                 node.scrollIntoView({ block: 'center', behavior: 'smooth' });
             node.dataset.settingsTarget = kind;
-            window.setTimeout(() => { delete node.dataset.settingsTarget; }, 1600);
+            window.setTimeout(() => { delete node.dataset.settingsTarget; }, TARGET_FLASH_MS);
         };
         const attempt = () => {
             const page = panelRef.current?.querySelector<HTMLElement>(`[data-settings-page="${target.page}"]`);
@@ -153,7 +163,7 @@ export function SettingsPanel({ onClose }: {
                 setTarget(null);
                 return;
             }
-            timer = window.setTimeout(attempt, 80);
+            timer = window.setTimeout(attempt, TARGET_LOCATE_POLL_MS);
         };
         attempt();
         return () => window.clearTimeout(timer);

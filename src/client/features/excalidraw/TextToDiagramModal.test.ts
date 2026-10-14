@@ -168,4 +168,39 @@ describe('TextToDiagramModal', () => {
     expect(elements.length).toBeGreaterThan(0);
     expect(onClose).toHaveBeenCalled();
   });
+
+  /**
+   * The entrance animation is the part a class name can lose silently.
+   *
+   * Both overlays here used to carry `animate-in fade-in zoom-in-95` — the vocabulary of an animation
+   * plugin that is not a dependency of this project, so no rule defined those classes and the modal
+   * simply appeared. The half a component test can see is that the elements now carry the classes the
+   * app's own stylesheet defines; `tests/excalidraw-modal-entrance.test.ts` is the other half, that the
+   * stylesheet really animates them.
+   */
+  it('enters with the animations the app defines rather than names it only thinks it has', () => {
+    act(() => {
+      root.render(
+        createElement(TextToDiagramModal, {
+          isOpen: true,
+          onClose: vi.fn(),
+          onInsert: vi.fn(),
+          initialTab: 'ai',
+        }),
+      );
+    });
+
+    const clockLabel = t('excalidraw.chat_history');
+    const clockBtn = container.querySelector(`button[aria-label="${clockLabel}"], button[title="${clockLabel}"]`);
+    act(() => {
+      (clockBtn as HTMLButtonElement).click();
+    });
+
+    const overlay = container.firstElementChild as HTMLElement | null;
+    expect(overlay?.classList.contains('anim-fade')).toBe(true);
+    expect(overlay?.classList.contains('animate-in')).toBe(false);
+    const popover = container.querySelector('.anim-pop');
+    expect(popover).not.toBeNull();
+    expect(popover?.classList.contains('zoom-in-95')).toBe(false);
+  });
 });

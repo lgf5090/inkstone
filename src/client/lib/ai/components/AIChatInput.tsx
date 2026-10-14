@@ -79,7 +79,7 @@ export const AIChatInput: React.FC<AIChatInputProps> = ({
             className={cn(
               'flex h-8 w-8 items-center justify-center rounded-full transition-all shadow-md',
               value.trim() && !disabled
-                ? 'bg-[#8b5cf6] text-white hover:bg-[#7c3aed] active:scale-95'
+                ? 'bg-[var(--accent)] text-white hover:bg-[var(--accent-hover)] active:scale-95'
                 : 'bg-[var(--bg-hover)] text-[var(--text-quaternary)] cursor-not-allowed',
             )}
             title={t('excalidraw.send')}

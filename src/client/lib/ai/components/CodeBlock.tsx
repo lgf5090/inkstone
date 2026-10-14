@@ -3,6 +3,16 @@ import { Check, Copy } from 'lucide-react';
 import { cn } from '../../cn';
 import { t } from '../../i18n';
 
+/**
+ * How long this block keeps its "copied" mark before the button returns to "copy".
+ *
+ * `COPY_RESET_MS` in `lib/motion` is the dwell the copy affordances elsewhere share. This one is named
+ * rather than folded into that value because naming a number is a different change from retiming one,
+ * and a reader has no way to notice 2000 becoming 1500; it should join the shared constant the next
+ * time the affordance itself is worked on.
+ */
+const CODE_COPY_RESET_MS = 2000;
+
 export interface CodeBlockProps {
   code: string;
   language?: string;
@@ -24,7 +34,7 @@ export const CodeBlock: React.FC<CodeBlockProps> = ({
     try {
       await navigator.clipboard.writeText(code);
       setCopied(true);
-      window.setTimeout(() => setCopied(false), 2000);
+      window.setTimeout(() => setCopied(false), CODE_COPY_RESET_MS);
     } catch {
     }
   };

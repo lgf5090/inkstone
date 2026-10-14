@@ -27,6 +27,7 @@ import {
 import type { AssistantAnswerVersion, ToolActivity } from '@shared/assistant'
 import { ASSISTANT_TOOL_BY_NAME } from '@shared/assistant'
 import { cn } from '../../lib/cn'
+import { COPY_RESET_MS } from '../../lib/motion'
 import { t } from '../../lib/i18n'
 import { renderMarkdown } from '../../lib/markdown/renderer'
 import { useLocale } from '../../lib/i18n'
@@ -335,7 +336,7 @@ export function AssistantBubble({
                 onClick={() => {
                   void navigator.clipboard.writeText(body).then(() => {
                     setCopied(true)
-                    window.setTimeout(() => setCopied(false), 1500)
+                    window.setTimeout(() => setCopied(false), COPY_RESET_MS)
                   })
                 }}
                 aria-label={t('assistant.chat.copy')}
