@@ -1,0 +1,40 @@
+{
+  "//": "Typechecks tests/, which no project covered: esbuild strips types, so a test could reference a name it never imported and still run. Not yet in tsconfig.json references — `tsc -b` also feeds `npm run build`, and the backlog below has to be cleared first. Run it with `npm run typecheck:tests`; each fixed file moves into the green set.",
+  "compilerOptions": {
+    "composite": true,
+    "emitDeclarationOnly": true,
+    "declaration": true,
+    "outDir": "./node_modules/.tmp/tsc/tests",
+    "tsBuildInfoFile": "./node_modules/.tmp/tsc/tests.tsbuildinfo",
+
+    "target": "ES2022",
+    "lib": ["ES2023", "DOM", "DOM.Iterable"],
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "moduleDetection": "force",
+    "jsx": "react-jsx",
+    "types": ["node", "vite/client", "@cloudflare/workers-types"],
+
+    "strict": true,
+    "skipLibCheck": true,
+    "isolatedModules": true,
+    "verbatimModuleSyntax": false,
+    "allowSyntheticDefaultImports": true,
+    "esModuleInterop": true,
+    "resolveJsonModule": true,
+    "useDefineForClassFields": true,
+
+    "paths": {
+      "@/*": ["./src/client/*"],
+      "@shared/*": ["./src/shared/*"],
+      "@codemirror/state": ["./node_modules/@codemirror/state/dist/index.d.ts"]
+    }
+  },
+  "include": ["tests/**/*.ts", "tests/**/*.tsx"],
+  "exclude": ["**/*.tmp.*", "tests/no-scratch-test-files.test.ts"],
+  "references": [
+    { "path": "./tsconfig.client.json" },
+    { "path": "./tsconfig.worker.json" },
+    { "path": "./tsconfig.node.json" }
+  ]
+}

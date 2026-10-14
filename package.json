@@ -32,6 +32,7 @@
     "deploy:demo": "npm run build:demo && npx wrangler deploy --config wrangler.demo.toml",
     "typecheck": "tsc -b",
     "typecheck:force": "tsc -b --force",
+    "typecheck:tests": "tsc -b tsconfig.tests.json",
     "test:unit": "vitest run --config vitest.config.ts",
     "i18n:check": "node scripts/check-i18n.mjs",
     "comments:check": "node scripts/check-comments.mjs",

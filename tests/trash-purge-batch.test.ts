@@ -10,7 +10,9 @@ const OTHER = 'user-b'
 let sqlite: DatabaseSync
 let db: D1Database
 
-const count = (sql: string, ...args: unknown[]) => Number(
+// node:sqlite's `get()` takes SQLInputValue, not unknown: the helper keeps the same accepted set so
+// a caller that passes an unsupported value fails here instead of at run time.
+const count = (sql: string, ...args: Array<string | number | bigint | null | Uint8Array>) => Number(
   (sqlite.prepare(sql).get(...args) as { n: number }).n,
 )
 
