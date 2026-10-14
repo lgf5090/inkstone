@@ -6,7 +6,7 @@
  * Escape as "clear the search" took the whole query with it, and nothing on the screen said so.
  */
 import { act, createElement, type KeyboardEvent as ReactKeyboardEvent } from 'react'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { renderElement } from '../lib/test-render'
 import { compileQuery } from '../lib/query-match'
 import { FilterInput } from './FilterInput'
