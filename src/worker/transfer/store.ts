@@ -43,8 +43,18 @@ export interface AttachmentNoteLink {
   noteId: string | null
 }
 
+/** An existing note an export id resolves to, reduced to what the conflict rules read. */
+export interface ExistingNoteIndex {
+  id: string
+  title: string
+  rev: number
+  updated_at: number
+}
+
 /** Ids per lookup chunk: D1 binds every placeholder, so a restore's id list is paged. */
 const LOOKUP_CHUNK = 80
+/** Note indexes per lookup chunk; smaller, because the mapped pass reads its targets back a second time. */
+const NOTE_INDEX_CHUNK = 50
 /** Attachment links per batch: one statement per row, and a batch cannot grow without bound. */
 const LINK_BATCH = 100
 
@@ -215,5 +225,82 @@ export class TransferStore {
         ).bind(this.userId, entity, sourceId, targetId, now),
       ),
     )
+  }
+
+  /**
+   * Every note this account already owns that the listed export ids resolve to.
+   *
+   * Three sequential reads per chunk, in the order they have always run: the ids themselves, the
+   * mappings for those ids, and the notes the mappings point at. A source id that is also a live note
+   * id ends up answered by the mapping, because that pass writes its entry last — a restore has to
+   * follow a re-parented note rather than trust the id it was handed. Keys of the returned map are
+   * export-side ids; ids nobody owns are simply absent.
+   */
+  async noteIndexesBySourceIds(sourceIds: readonly string[]): Promise<Map<string, ExistingNoteIndex>> {
+    const found = new Map<string, ExistingNoteIndex>()
+    for (let i = 0; i < sourceIds.length; i += NOTE_INDEX_CHUNK) {
+      const chunk = sourceIds.slice(i, i + NOTE_INDEX_CHUNK)
+      const placeholders = chunk.map((_, idx) => `?${idx + 2}`).join(', ')
+
+      const directRows = await this.db.prepare(
+        `SELECT n.id, n.title, n.rev, n.updated_at
+           FROM notes n
+          WHERE n.user_id = ?1 AND n.id IN (${placeholders})`,
+      ).bind(this.userId, ...chunk).all<ExistingNoteIndex>()
+      for (const note of directRows.results) {
+        found.set(note.id, note)
+      }
+
+      const mappingRows = await this.db.prepare(
+        `SELECT source_id, target_id
+           FROM import_mappings
+          WHERE user_id = ?1 AND entity = 'note' AND source_id IN (${placeholders})`,
+      ).bind(this.userId, ...chunk).all<{ source_id: string; target_id: string }>()
+
+      if (mappingRows.results.length) {
+        const targetIds = Array.from(new Set(mappingRows.results.map((m) => m.target_id)))
+        const targetPlaceholders = targetIds.map((_, idx) => `?${idx + 2}`).join(', ')
+        const targetNotes = await this.db.prepare(
+          `SELECT n.id, n.title, n.rev, n.updated_at
+             FROM notes n
+            WHERE n.user_id = ?1 AND n.id IN (${targetPlaceholders})`,
+        ).bind(this.userId, ...targetIds).all<ExistingNoteIndex>()
+        const targetMap = new Map(targetNotes.results.map((n) => [n.id, n]))
+        for (const m of mappingRows.results) {
+          const note = targetMap.get(m.target_id)
+          if (note) {
+            found.set(m.source_id, note)
+          }
+        }
+      }
+    }
+    return found
+  }
+
+  /**
+   * The one note this account owns that an export id resolves to.
+   *
+   * The `ORDER BY CASE` is what makes a mapping target win over a row that happens to carry the same
+   * id: a note restored once and re-imported updates the copy the mapping names, not the stranger that
+   * claimed the id in between.
+   */
+  async noteIndexBySourceId(id: string): Promise<ExistingNoteIndex | null> {
+    const row = await this.db.prepare(
+      `SELECT n.id, n.title, n.rev, n.updated_at
+         FROM notes n
+        WHERE n.user_id = ?1
+          AND (
+            n.id = ?2 OR n.id = (
+              SELECT target_id FROM import_mappings
+               WHERE user_id = ?1 AND entity = 'note' AND source_id = ?2
+            )
+          )
+        ORDER BY CASE WHEN n.id = (
+          SELECT target_id FROM import_mappings
+           WHERE user_id = ?1 AND entity = 'note' AND source_id = ?2
+        ) THEN 0 ELSE 1 END
+        LIMIT 1`,
+    ).bind(this.userId, id).first<ExistingNoteIndex>()
+    return row ?? null
   }
 }

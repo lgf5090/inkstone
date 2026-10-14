@@ -121,6 +121,12 @@ function one<T = Record<string, unknown>>(sql: string, ...params: unknown[]): T 
   return sqlite.prepare(sql).get(...(params as never[])) as T | undefined
 }
 
+function insertNote(id: string, userId: string, title: string, rev: number, updatedAt: number) {
+  sqlite.prepare(
+    'INSERT INTO notes (id, user_id, title, content, rev, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
+  ).run(id, userId, title, 'body', rev, 1000, updatedAt)
+}
+
 beforeEach(async () => {
   sqlite = new DatabaseSync(':memory:')
   for (const statement of SCHEMA_STATEMENTS) sqlite.exec(statement)
@@ -287,5 +293,31 @@ describe('the transfer store', () => {
     expect(alice).toHaveLength(1)
     expect(alice[0]).toContain(ALICE)
     expect(await new TransferStore(db, BOB, false).pendingCleanupObjectKeys([])).toEqual([])
+  })
+
+  it('answers an export id only for the account that owns the note', async () => {
+    insertNote(NOTE_ID, ALICE, 'Alice text', 1, 1000)
+
+    const other = new TransferStore(db, BOB, false)
+    expect([...await other.noteIndexesBySourceIds([NOTE_ID])]).toEqual([])
+    expect(await other.noteIndexBySourceId(NOTE_ID)).toBeNull()
+
+    const own = new TransferStore(db, ALICE, false)
+    expect((await own.noteIndexesBySourceIds([NOTE_ID])).get(NOTE_ID)?.title).toBe('Alice text')
+    expect((await own.noteIndexBySourceId(NOTE_ID))?.rev).toBe(1)
+  })
+
+  it('follows a mapping to the note it names rather than the id an export carried', async () => {
+    // The exported id belongs to a live note of this account, and the account's own mapping says the
+    // export really restored into a different one. The mapping is what a re-import has to update.
+    insertNote(NOTE_ID, ALICE, 'Stranger', 1, 1000)
+    insertNote('0123456789abcdefghjkmnpqrt', ALICE, 'Restored copy', 4, 4000)
+    await new TransferStore(db, ALICE, false).upsertImportMappings('note', [
+      { sourceId: NOTE_ID, targetId: '0123456789abcdefghjkmnpqrt' },
+    ])
+
+    const own = new TransferStore(db, ALICE, false)
+    expect((await own.noteIndexBySourceId(NOTE_ID))?.title).toBe('Restored copy')
+    expect((await own.noteIndexesBySourceIds([NOTE_ID])).get(NOTE_ID)?.title).toBe('Restored copy')
   })
 })
