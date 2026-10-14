@@ -1,7 +1,7 @@
 import { act, createElement } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { Slider, commitOnEnter } from './form'
+import { Segmented, Slider, commitOnEnter } from './form'
 
 const nextFrame = () => new Promise((resolve) => window.requestAnimationFrame(() => resolve(undefined)))
 
@@ -114,5 +114,86 @@ describe('commitOnEnter', () => {
   it('leaves every other key to the field', () => {
     const other = { key: 'a', preventDefault: () => undefined } as unknown as Parameters<typeof commitOnEnter>[0]
     expect(commitOnEnter(other, () => undefined)).toBe(false)
+  })
+})
+
+const MODE_OPTIONS = [
+  { value: 'day', label: 'Day' },
+  { value: 'week', label: 'Week' },
+  { value: 'month', label: 'Month' },
+]
+
+/** The group's own radios, in visual order. */
+function renderSegmented(value: string, onChange = vi.fn()): { radios: HTMLButtonElement[]; group: HTMLElement; onChange: ReturnType<typeof vi.fn> } {
+  act(() => {
+    root.render(createElement(Segmented, { value, options: MODE_OPTIONS, onChange, label: 'Mode' }))
+  })
+  return {
+    radios: [...host.querySelectorAll<HTMLButtonElement>('[role="radio"]')],
+    group: host.querySelector<HTMLElement>('[role="radiogroup"]')!,
+    onChange,
+  }
+}
+
+function press(element: Element, key: string): KeyboardEvent {
+  const event = new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true })
+  act(() => {
+    element.dispatchEvent(event)
+  })
+  return event
+}
+
+describe('Segmented keyboard and roles', () => {
+  it('is one named radiogroup', () => {
+    const { group, radios } = renderSegmented('week')
+    expect(group.getAttribute('aria-label')).toBe('Mode')
+    expect(radios).toHaveLength(3)
+    expect(radios.map((radio) => radio.getAttribute('aria-checked'))).toEqual(['false', 'true', 'false'])
+    for (const radio of radios) expect(radio.textContent?.trim()).not.toBe('')
+  })
+
+  it('keeps only the selected radio in the tab order', () => {
+    const { radios } = renderSegmented('week')
+    expect(radios.map((radio) => radio.tabIndex)).toEqual([-1, 0, -1])
+  })
+
+  it('falls back to the first radio as the tab stop when nothing is selected', () => {
+    const { radios } = renderSegmented('quarter')
+    expect(radios.map((radio) => radio.tabIndex)).toEqual([0, -1, -1])
+  })
+
+  it('steps the selection with the arrows, wraps at the ends, and moves the focus with it', () => {
+    const { radios, onChange } = renderSegmented('week')
+    radios[1]!.focus()
+    expect(press(document.activeElement!, 'ArrowRight').defaultPrevented).toBe(true)
+    expect(onChange).toHaveBeenLastCalledWith('month')
+    expect(document.activeElement).toBe(radios[2])
+    press(document.activeElement!, 'ArrowRight')
+    expect(onChange).toHaveBeenLastCalledWith('day')
+    expect(document.activeElement).toBe(radios[0])
+    press(document.activeElement!, 'ArrowLeft')
+    expect(onChange).toHaveBeenLastCalledWith('month')
+    expect(document.activeElement).toBe(radios[2])
+  })
+
+  it('jumps to the ends with Home and End', () => {
+    const { radios, onChange } = renderSegmented('week')
+    radios[1]!.focus()
+    press(document.activeElement!, 'Home')
+    expect(onChange).toHaveBeenLastCalledWith('day')
+    expect(document.activeElement).toBe(radios[0])
+    press(document.activeElement!, 'End')
+    expect(onChange).toHaveBeenLastCalledWith('month')
+    expect(document.activeElement).toBe(radios[2])
+  })
+
+  it('leaves a key the group does not answer to alone', () => {
+    const { radios, onChange } = renderSegmented('week')
+    radios[1]!.focus()
+    const event = press(document.activeElement!, 'ArrowRight')
+    expect(event.defaultPrevented).toBe(true)
+    const letter = press(document.activeElement!, 'a')
+    expect(letter.defaultPrevented).toBe(false)
+    expect(onChange).toHaveBeenCalledTimes(1)
   })
 })

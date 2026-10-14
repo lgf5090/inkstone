@@ -271,12 +271,19 @@ const allowed = new Map([
     "/**\n * How far a panel may reach sideways before its own scroll container would cut it off.\n *\n * A field inside a modal body that scrolls gets a panel that widens that body by a few pixels, and the\n * reader sees a horizontal scrollbar appear under the form. The vertical axis is left to the viewport\n * because a scroll container is expected to scroll there; sideways it is only ever an accident.\n */",
     "// Comparing by value keeps a stable result from re-rendering, which would re-measure forever.",
   ]],
+  ["src/client/components/form.test.ts", [
+    "/** The group's own radios, in visual order. */",
+  ]],
   ["src/client/components/form.tsx", [
     "/**\n * Enter inside a text field has to be cancelled before it commits. Committing can mount a confirm\n * dialog, and the browser runs the keydown's default action after our handler returns, so the very\n * keystroke that asked would otherwise press the dialog's own button and answer it.\n */",
     "/** The box every text field in a dialog wears; `overlay`'s prompt reads it rather than importing\n * `Input`, because form already imports overlay and a component cycle would resolve at render. */",
     "/**\n   * Hand every step straight to the caller instead of coalescing to one write per frame. For a caller\n   * that batches on its own — the gantt's progress bar holds a draft and commits one undo step on\n   * release — the coalescing would swallow the last value, because its own commit runs in the same\n   * event, before the frame that would have delivered it.\n   */",
     "// An immediate slider has no draft of its own: the caller's `value` is the only answer, and a local",
     "// copy would go stale the moment the caller batches and settles on something else.",
+    "/** What each key a roving radio group answers to does to the selection. */",
+    "/**\n * The tab order and arrow-key behaviour a `role=\"radiogroup\"` of hand-drawn radios has to provide for\n * itself: one stop in the tab sequence (the selected radio, or the first when nothing is selected),\n * and the arrows that move the selection while keeping focus on what was just selected.\n *\n * A native radio group gets all of this from the browser, but a native radio cannot be drawn as the\n * shapes these groups wear — the segmented control's pill and a settings card holding a badge, a\n * status line and a configuration panel. So the two implementations share this one rather than each\n * writing the same stepping again.\n *\n * `values` is the group's options in visual order, `value` the selected one, and `onSelect` what\n * applies a choice; the caller writes the returned handlers onto each radio element it renders.\n */",
+    "// Only the selected radio is a tab stop, so one Tab lands the user on the group's current answer",
+    "// and the arrows take it from there — the pattern the radiogroup role tells a screen reader to expect.",
   ]],
   ["src/client/components/overlay-search.test.ts", [
     "/** What the user sees after typing: the field's own value plus whatever the list kept. */",
@@ -5482,6 +5489,13 @@ const allowed = new Map([
     "// top edge, so a long morning of reading does not end with forty rows still showing as new.",
     "// Every item in that menu is a question about an article; a note answers to the notebook.",
   ]],
+  ["src/client/features/rss/RssChannelRail.test.ts", [
+    "/**\n * The channel rail's folder row: two controls in one box, and the pair has to stay two.\n *\n * The row used to be a `div` with a click handler wearing a chevron `span`, so a keyboard could not\n * reach either act and a screen reader read the folder as one unlabeled block. The row is a plain\n * container now, holding a disclosure button and a navigation button, and that split is exactly what\n * regresses quietly: a click that bubbles from the toggle into the row's own activation opens the\n * folder while trying to close it, and a toggle dropped out of the tab order leaves the children\n * unreachable. These cases hold the two acts apart, name both controls, and keep `aria-controls`\n * pointed at a region that exists even while the folder is shut.\n */",
+    "/** The folder's own row, which is the only thing holding its two buttons. */",
+    "// The name is the act the button performs, the state is what `aria-expanded` carries.",
+    "// A region the toggle controls has to be in the DOM while it holds nothing, or the relation dangles.",
+    "// What Enter and Space do to a focused button in a browser is a click on that button.",
+  ]],
   ["src/client/features/rss/RssChannelRail.tsx", [
     "/**\n * The channel rail: where the reader is, and the whole subscription library that can be reached.\n *\n * It used to be a list of buttons and nothing else, on the theory that every other question about a\n * subscription belongs to the management dialog. That theory cost the reader two round trips for\n * every ordinary act — move a feed, rename a folder, pause a source — and the dialog has no more\n * room for a folder's colour than the rail does. So the rail now carries the three things a reader\n * does with a subscription without leaving the list of them: a right-click, a drag onto a folder,\n * and a name that can be typed in place.\n *\n * Folders nest, and the nesting is the note folders' own: `RssGroup` is shaped like `Folder` so\n * `buildFolderTree` can arrange both trees, and the colour and icon pickers are the same panels the\n * sidebar uses. Two implementations of \"which folder can this not go into\" is how a subscription\n * ends up inside its own descendant.\n *\n * An unread badge only appears for a feed this device has actually read from. A zero would be a\n * claim about the world the rail has no way to make.\n */",
     "// The reader's own notes, as channels. Derived from the notebook's store rather than synced: the",
@@ -5499,6 +5513,7 @@ const allowed = new Map([
     "/** The rail's whole right-click surface: a feed, a folder, a tag, or the empty space below them. */",
     "// The address came out of somebody else's document, so it is asked again before a window is",
     "// opened with it — the same rule the article menu follows.",
+    "/* The collapse toggle names the region it opens, so that region is an element that exists\n          while it is closed too — a fragment that mounts and unmounts leaves `aria-controls`\n          pointing at nothing. Each row indents itself, so the wrapper changes no geometry. */",
   ]],
   ["src/client/features/rss/RssKeys.tsx", [
     "/**\n * The shortcut sheet.\n *\n * A reader who has never used an RSS app does not know that `j` and `k` are the whole point of one,\n * and a reader who has used three of them does not want to learn a fourth set. So the keys are\n * listed where they are used, on the surface that answers to them, and every row is a key this app\n * actually handles — a sheet with a key that does nothing is worse than no sheet.\n */",
@@ -5803,6 +5818,17 @@ const allowed = new Map([
     "/** The handle as the reader is choosing it, drawn from the same custom properties the editor uses. */",
     "/**\n * The handle menu's own rows, in the reader's order.\n *\n * Nothing can be deleted here — a menu that lost a command would leave the reader unable to make a\n * heading again — so the rows only move, and the default is one button away.\n */",
     "/** The canonical root order, with the reader's own submenus kept. */",
+  ]],
+  ["src/client/features/settings/ExcalidrawSettings.test.ts", [
+    "/** The group's own radios, in the order the settings draw them. */",
+    "// The edit controls live beside the group, labelled by the same heading rather than nested in it.",
+  ]],
+  ["src/client/features/settings/ExcalidrawSettings.tsx", [
+    "// The providers are cards with a badge and a status line, which a `Segmented` pill cannot draw, so",
+    "// this group keeps its own elements and borrows its keyboard from the one implementation the",
+    "// segmented control also uses.",
+    "/*\n                `aria-required-children` reads a radiogroup's owned children, so the group holds the\n                mutually exclusive choices and nothing else: the per-provider edit control and its two\n                fields sit beside it, labelled by the same heading rather than nested in it.\n              */",
+    "/* One named region the five toggles write into. The region stays in the DOM even\n                    when it holds nothing, so every `aria-controls` has something to point at; the\n                    box it draws belongs to the content, so an empty region shows nothing. */",
   ]],
   ["src/client/features/settings/LinterRuleTitles.tsx", [
     "/**\n * One jump target per lint rule.\n *\n * The rule list is drawn from the loaded rule library, so its titles are computed at run time, and a\n * static scan of this folder cannot attach a settings-search hit to one of them. This spells out every\n * label the index promises, as literal keys, so the row a reader lands on is the row they were looking\n * for. The keys come from `rule-search-index.ts`, which is what keeps the two in step.\n */",
