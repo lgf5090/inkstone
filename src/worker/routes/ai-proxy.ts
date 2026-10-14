@@ -63,7 +63,11 @@ aiProxyRoutes.post('/proxy', async (c) => {
     })
   } catch (err: unknown) {
     if (err instanceof ApiError) throw err
-    const message = err instanceof Error ? err.message : String(err)
-    throw new ApiError(502, 'internal', `AI upstream request failed: ${message}`)
+    // The upstream failure text can name an internal host, a port or a retry hint, so it belongs in
+    // the server log and not in a response body the caller sees — same rule as `errorResponse`,
+    // which answers an unknown error as a generic 500 without the stack. A real upstream status never
+    // reaches here: a non-2xx answer from the provider is piped through untouched above.
+    console.warn('[inkstone] AI upstream request failed:', err)
+    throw new ApiError(502, 'internal', 'The AI upstream request failed')
   }
 })

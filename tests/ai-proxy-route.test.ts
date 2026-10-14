@@ -86,8 +86,11 @@ describe('ai proxy route', () => {
     expect(json.choices[0].text).toBe('hi')
   })
 
-  it('handles upstream fetch exception with 502', async () => {
-    globalThis.fetch = vi.fn().mockRejectedValue(new Error('connection timeout')) as any
+  it('answers an upstream fetch exception with 502 that leaks nothing', async () => {
+    const logged: unknown[] = []
+    vi.spyOn(console, 'warn').mockImplementation((_prefix: string, cause: unknown) => { logged.push(cause) })
+    // The text a relay must never repeat back: it names a host the caller could not reach on its own.
+    globalThis.fetch = vi.fn().mockRejectedValue(new Error('connection timeout to 10.0.0.5:8788')) as any
 
     const res = await app.request('/api/ai/proxy', {
       method: 'POST',
@@ -99,8 +102,12 @@ describe('ai proxy route', () => {
     })
 
     expect(res.status).toBe(502)
-    const json = await res.json() as any
-    expect(json.error.message).toContain('connection timeout')
+    const text = await res.text()
+    expect((JSON.parse(text) as { error: { code: string; message: string } }).error.code).toBe('internal')
+    expect(text).not.toContain('connection timeout')
+    expect(text).not.toContain('10.0.0.5')
+    expect(logged).toHaveLength(1)
+    expect(String(logged[0])).toContain('connection timeout')
   })
 
   it.each([

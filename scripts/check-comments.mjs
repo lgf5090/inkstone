@@ -14478,6 +14478,12 @@ const allowed = new Map([
     "/** The same row without `content`: a 1.9 MB body a flag flip never looks at. */",
     "// The conflict payload keeps carrying the body even when the pre-read was metadata only.",
   ]],
+  ["src/worker/routes/ai-proxy.ts", [
+    "// The upstream failure text can name an internal host, a port or a retry hint, so it belongs in",
+    "// the server log and not in a response body the caller sees — same rule as `errorResponse`,",
+    "// which answers an unknown error as a generic 500 without the stack. A real upstream status never",
+    "// reaches here: a non-2xx answer from the provider is piped through untouched above.",
+  ]],
   ["src/worker/routes/assistant.ts", [
     "/**\n * The assistant's HTTP API.\n *\n * Everything lives under `/api/assistant` and behind the app's own session, so the assistant inherits\n * the sign-in, the CSRF posture and the per-account scoping instead of inventing a second one — the\n * reference project had to build all of that itself because it was a standalone deployment.\n *\n * Two things never leave this file: the provider API key, which is decrypted only inside the worker to\n * sign one upstream call, and the model's instructions, which are assembled server-side so a reader's\n * own client cannot edit the rules about what the assistant may touch.\n */",
     "/**\n * Hono types the request context as only what a middleware can see; workerd hands over the full\n * `ExecutionContext`, so the widening cast here is a type-level statement about the platform, not a\n * runtime one.\n */",
@@ -14821,6 +14827,7 @@ const allowed = new Map([
   ]],
   ["tests/ai-proxy-route.test.ts", [
     "// workerd has no `redirect: 'error'`, so the relay must ask for 'manual' and read the status.",
+    "// The text a relay must never repeat back: it names a host the caller could not reach on its own.",
   ]],
   ["tests/almanac-loader.test.ts", [
     "// Han here is almanac output, so it is spelled out in the same vocabulary the calendar prints.",
