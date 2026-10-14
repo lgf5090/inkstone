@@ -5,6 +5,7 @@
  * The bodies arrive as Markdown from the digest and from an AI routine, so they are rendered through
  * the same sanitized pipeline as a reply rather than as raw text.
  */
+import { Z_INDEX } from '../../lib/z-index'
 import { useEffect, useMemo, useState } from 'react'
 import { Check, Trash2 } from 'lucide-react'
 import type { AssistantNotification } from '@shared/assistant'
@@ -28,7 +29,7 @@ export function NotificationCenter({ open, onClose }: { open: boolean, onClose: 
   }, [open, loadNotifications])
 
   return (
-    <Drawer open={open} onClose={onClose} side="right" width={380} title={t('assistant.notifications.title')} zIndex={300}>
+    <Drawer open={open} onClose={onClose} side="right" width={380} title={t('assistant.notifications.title')} zIndex={Z_INDEX.pinnedMenu}>
       <div className="flex h-full min-h-0 flex-col">
         {notifications.length === 0 ? (
           <Empty art="select" title={t('assistant.notifications.empty')} description={t('assistant.notifications.empty_hint')} compact />

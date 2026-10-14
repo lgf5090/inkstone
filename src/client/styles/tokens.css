@@ -149,10 +149,9 @@
      The scale is strictly increasing. Below `--z-drawer` the numbers are counters inside one
      surface's own stacking context — a slide stage, a kanban column, a prose widget — so they read
      small and never meet the viewport-fixed tiers above them.
-     Two of these bands are named twice over, and both are debt with a pending rename rather than a
-     second tier: `--z-pop` (260) is the floating-menu tier `Z_INDEX.menu` calls "menu", and
-     `--z-pinned` (280) is what `Z_INDEX.hoverPinned` calls the pinned-card tier. The scale keeps the
-     CSS spelling; the JS keys change with their call sites. ─────────────────────────────────── */
+     Every band now has one name on each side. The two that used to disagree — a JS key called `menu`
+     on the `--z-pop` tier, and `hoverPinned` on `--z-pinned` — were renamed at their call sites, so a
+     key here and the band it mirrors are the same tier, and nothing carries a legacy alias. ───── */
 
   /* The projector's stage counter: beats a slide's own stacking context, never its controls. */
   --z-sticky: 10;
@@ -177,13 +176,13 @@
   --z-modal: 250;
   /* A picker that has to beat the dialog it was opened from (the emoji picker). */
   --z-picker: 255;
-  /* The floating `Menu` tier, and the image lightbox. `Z_INDEX.menu` names this band "menu". */
+  /* The floating `Menu` tier, and the image lightbox. */
   --z-pop: 260;
   /* A submenu flyout: one above the menu that opened it. */
   --z-submenu: 265;
   /* A wiki-link hover card, and a context menu opened over one. */
   --z-hover-card: 270;
-  /* A pinned hover card and the menus it owns. `Z_INDEX.hoverPinned` names this band. */
+  /* A pinned hover card and the menus it owns. */
   --z-pinned: 280;
   /* A menu opened from a pinned card. The shelf's full-viewport drop veil rides this tier. */
   --z-pinned-menu: 300;

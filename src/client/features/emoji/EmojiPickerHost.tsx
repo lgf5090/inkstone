@@ -80,7 +80,7 @@ function AnchoredPanel({ anchor, onClose, children }: {
 }
 
 function panelGeometry(placement: PanelPlacement | null, width: number): { style: React.CSSProperties; className: string } {
-    const base = 'fixed z-[255] overflow-hidden rounded-[var(--r-lg)] border border-[var(--border-default)] bg-[var(--bg-overlay)] shadow-[var(--shadow-pop)]';
+    const base = 'fixed z-[var(--z-picker)] overflow-hidden rounded-[var(--r-lg)] border border-[var(--border-default)] bg-[var(--bg-overlay)] shadow-[var(--shadow-pop)]';
     if (!placement)
         return { style: { width, top: 0, left: -9999 }, className: `${base} invisible` };
     return {

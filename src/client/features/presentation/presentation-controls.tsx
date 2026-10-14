@@ -249,7 +249,7 @@ function ViewDoor({ items, exporting }: { items: MenuItem[]; exporting: boolean 
           <EllipsisVertical size={14} />
         </IconButton>
       </Tooltip>
-      <Menu anchor={buttonRef} open={open} onClose={() => setOpen(false)} items={rows} align='end' width={DOOR_WIDTH} container={container} zIndex={Z_INDEX.menu + 1} label={t('common.more_actions')} />
+      <Menu anchor={buttonRef} open={open} onClose={() => setOpen(false)} items={rows} align='end' width={DOOR_WIDTH} container={container} zIndex={Z_INDEX.pop + 1} label={t('common.more_actions')} />
     </>
   )
 }

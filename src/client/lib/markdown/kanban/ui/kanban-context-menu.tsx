@@ -358,7 +358,7 @@ export function KanbanContextMenu(props: KanbanContextMenuProps) {
       onClose={onClose}
       items={items}
       width={MENU_WIDTH}
-      zIndex={Z_INDEX.hoverPinned}
+      zIndex={Z_INDEX.pinned}
     />
   )
 }

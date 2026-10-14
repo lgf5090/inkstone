@@ -148,7 +148,7 @@ export function GraphPreviewCardView({ card }: { card: GraphPreviewCard }) {
   const left = Math.min(Math.max(card.x, width / 2 + 8), window.innerWidth - width / 2 - 8)
   const flipUp = card.y + GRAPH_PREVIEW_CARD_HEIGHT > window.innerHeight
   return <div data-graph-preview="" role="tooltip"
-    className="pointer-events-none fixed z-[240] w-[min(260px,70vw)] rounded-[var(--r-md)] border border-[var(--border-default)] bg-[var(--bg-overlay)] px-3 py-2 shadow-[var(--shadow-pop)]"
+    className="pointer-events-none fixed z-[var(--z-prompt)] w-[min(260px,70vw)] rounded-[var(--r-md)] border border-[var(--border-default)] bg-[var(--bg-overlay)] px-3 py-2 shadow-[var(--shadow-pop)]"
     style={{ left, top: card.y, transform: `translate(-50%, ${flipUp ? `-${GRAPH_PREVIEW_CARD_HEIGHT}px` : '12px'})` }}>
     <div className="truncate text-[length:var(--text-12)] font-medium">{card.node.title || t('common.untitled_note')}</div>
     <p className="mt-1 line-clamp-4 text-[length:var(--text-11-5)] leading-relaxed text-[var(--text-tertiary)]">

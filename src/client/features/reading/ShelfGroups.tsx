@@ -6,6 +6,7 @@
  * are in it — not the number the group remembers — because a book a reader deleted should not keep
  * inflating a group they can still see.
  */
+import { Z_INDEX } from '../../lib/z-index'
 import { useState } from 'react'
 import { Folder, FolderPlus } from 'lucide-react'
 import { Button } from '../../components/primitives'
@@ -108,7 +109,7 @@ export function ShelfGroups({ active, onSelect, shelfBookIds }: {
           anchor={menu.point ?? { x: 0, y: 0 }}
           open={Boolean(menu.point) && Boolean(target)}
           onClose={menu.close}
-          zIndex={240}
+          zIndex={Z_INDEX.prompt}
           items={target ? menuFor(target) : []}
         />
       ) : null}

@@ -343,7 +343,7 @@ export function PresentationContextMenu(props: PresentationContextMenuProps) {
         <div
           data-presentation-menu-backdrop
           tabIndex={-1}
-          style={{ zIndex: Z_INDEX.menu }}
+          style={{ zIndex: Z_INDEX.pop }}
           className='fixed top-0 left-0 w-full h-full z-[var(--z-pop)] cursor-default select-none'
           onMouseDown={(e) => {
             e.stopPropagation()
@@ -368,7 +368,7 @@ export function PresentationContextMenu(props: PresentationContextMenuProps) {
         items={items}
         onClose={onClose}
         container={targetContainer}
-        zIndex={Z_INDEX.menu + 1}
+        zIndex={Z_INDEX.pop + 1}
         label={t('workspace.presentation_context_menu')}
       />
     </>

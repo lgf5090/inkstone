@@ -8,6 +8,7 @@
  * 42vh tail padding, which turns a one-line reply into a screen of whitespace. `ink-chat-prose` in
  * `styles/chat.css` keeps the typography and drops the page furniture.
  */
+import { Z_INDEX } from '../../lib/z-index'
 import { type ClipboardEvent as ReactClipboardEvent, type KeyboardEvent, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { ArrowUp, History, MoreHorizontal, Paperclip, Plus, Square, Star } from 'lucide-react'
 import type { AssistantConversation, AssistantMessage, ChatAttachment } from '@shared/assistant'
@@ -489,7 +490,7 @@ function ConversationRow({
         anchor={anchor}
         open={menuOpen}
         onClose={onCloseMenu}
-        zIndex={300}
+        zIndex={Z_INDEX.pinnedMenu}
         items={[
           {
             id: 'pin',

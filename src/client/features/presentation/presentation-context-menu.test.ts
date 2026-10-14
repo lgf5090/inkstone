@@ -420,7 +420,7 @@ describe('PresentationContextMenu — backdrop link and stacking', () => {
     panel.remove()
   })
 
-  it('sets backdrop z-index to Z_INDEX.menu to ensure it stacks above slide overlays and overview grid', () => {
+  it('sets backdrop z-index to Z_INDEX.pop to ensure it stacks above slide overlays and overview grid', () => {
     const props: PresentationContextMenuProps = {
       ...menuOptions(),
       point: { x: 50, y: 50 },

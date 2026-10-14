@@ -11,7 +11,7 @@ const MORE_MENU_WIDTH = 200
 export function TemplateGallery({ onClose }: { onClose: () => void }) {
   const g = useGalleryController({ onClose })
   const { state } = g
-  return createPortal(<div className='app-viewport-fixed fixed z-[240] flex items-end justify-center md:items-center md:p-6'>
+  return createPortal(<div className='app-viewport-fixed fixed z-[var(--z-prompt)] flex items-end justify-center md:items-center md:p-6'>
     <div className='anim-fade absolute inset-0 bg-[var(--scrim)]' onClick={onClose} aria-hidden='true'/>
     <div ref={state.panelRef} role='dialog' aria-modal='true' aria-label={t('templates.template_library')} tabIndex={-1} data-surface='templates' onKeyDown={(event) => {
       // The search box asks for these keys itself before the shared filter contract decides, so a key

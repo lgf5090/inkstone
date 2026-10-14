@@ -21,7 +21,7 @@ export const DETAIL_MODAL_WIDTH = 640
  *
  * It carries its own head and foot so the card's name stays editable at the top and the destructive
  * action stays reachable at the bottom while the middle scrolls, which a drawer's single scroll area
- * does not do on its own. `Z_INDEX.menu` is the tier an overlay takes above a full screen surface —
+ * does not do on its own. `Z_INDEX.pop` is the tier an overlay takes above a full screen surface —
  * the same move the music hub's drawers make — and it is required rather than decorative here: the
  * board itself is a modal at `--z-modal`, so a drawer at the default `--z-drawer` would be painted
  * behind the very board it peeks from.
@@ -33,7 +33,7 @@ export function KanbanCardPeek({ onClose, header, content, footer }: DetailShell
       onClose={onClose}
       side='right'
       width={DETAIL_PEEK_WIDTH}
-      zIndex={Z_INDEX.menu}
+      zIndex={Z_INDEX.pop}
       ariaLabel={t('preview.kanban_card_details')}
     >
       <div className='flex h-full flex-col'>

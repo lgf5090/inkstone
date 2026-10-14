@@ -6,6 +6,7 @@
  * because reserving one would re-paginate the book every time they appear — which reads as the text
  * jumping under the reader's finger.
  */
+import { Z_INDEX } from '../../../lib/z-index'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { ArrowLeft, ArrowRight, Bookmark, Clock, FileText, List, Maximize2, MoreHorizontal, PenLine, Search, Settings2 } from 'lucide-react'
 import { Button, IconButton } from '../../../components/primitives'
@@ -791,7 +792,7 @@ export function ReaderView({ book }: { book: BookRecord }) {
         anchor={moreAt ?? { x: 0, y: 0 }}
         open={Boolean(moreAt)}
         onClose={() => setMoreAt(null)}
-        zIndex={240}
+        zIndex={Z_INDEX.prompt}
         items={moreItems()}
       />
 

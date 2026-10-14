@@ -1,3 +1,4 @@
+import { Z_INDEX } from '../../lib/z-index'
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { Check, ChevronRight, FolderClosed, Inbox } from 'lucide-react';
 import { cn } from '../../lib/cn';
@@ -194,7 +195,7 @@ export function FolderMoveMenu({ tree, subject, currentParentId, excludedIds, in
         top: level.top,
         left: level.left,
         width: LEVEL_WIDTH,
-        zIndex: 270,
+        zIndex: Z_INDEX.hoverCard,
     }} role="group" aria-label={level.label}>
           {level.nodes.map((node) => <FolderBranch key={node.id} node={node} depth={index + 1} currentParentId={currentParentId} onHover={hover} onSelect={onSelect}/>)}
         </div>))}

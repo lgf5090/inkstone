@@ -617,7 +617,7 @@ export function Outline({ headings, onSelect, scrollerRef, className, noteId, de
           {t('outline.reading_time', { minutes: readingMinutes(wordCount, readingSpeed) })}
         </div>)}
       </nav>
-      {peek && peekAt && createPortal((<aside data-outline-peek role="note" aria-label={t('outline.peek_label', { title: peek.title })} className="ink-prose fixed z-[520] overflow-y-auto rounded-[var(--r-lg)] border border-[var(--border-default)] bg-[var(--bg-overlay)] text-[length:var(--text-11)] shadow-[var(--shadow-pop)]" style={{ left: peekAt.left, top: peekAt.top, width: PEEK_BOX.width, maxHeight: PEEK_BOX.height, padding: 8, margin: 0 }} dangerouslySetInnerHTML={{ __html: peek.html }}/>), document.body)}
+      {peek && peekAt && createPortal((<aside data-outline-peek role="note" aria-label={t('outline.peek_label', { title: peek.title })} className="ink-prose fixed z-[var(--z-peek)] overflow-y-auto rounded-[var(--r-lg)] border border-[var(--border-default)] bg-[var(--bg-overlay)] text-[length:var(--text-11)] shadow-[var(--shadow-pop)]" style={{ left: peekAt.left, top: peekAt.top, width: PEEK_BOX.width, maxHeight: PEEK_BOX.height, padding: 8, margin: 0 }} dangerouslySetInnerHTML={{ __html: peek.html }}/>), document.body)}
     </>);
 }
 

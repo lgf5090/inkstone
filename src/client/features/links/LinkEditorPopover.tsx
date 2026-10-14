@@ -425,7 +425,7 @@ function LinkEditorPanel({ request }: { request: LinkEditorRequest }) {
         'anim-pop fixed flex w-[330px] max-w-[calc(100vw-16px)] flex-col overflow-hidden rounded-[var(--r-lg)]',
         'border border-[var(--border-default)] bg-[var(--bg-overlay)] shadow-[var(--shadow-pop)]',
       )}
-      style={{ top: placement.top, left: placement.left, transformOrigin: placement.origin, zIndex: Z_INDEX.hoverPinned + 1 }}
+      style={{ top: placement.top, left: placement.left, transformOrigin: placement.origin, zIndex: Z_INDEX.pinned + 1 }}
     >
       <div className="flex items-center gap-1.5 border-b border-[var(--border-subtle)] px-2.5 py-1.5">
         <span className="min-w-0 flex-1 truncate text-[length:var(--text-11)] font-semibold tracking-[0.04em] text-[var(--text-tertiary)]">

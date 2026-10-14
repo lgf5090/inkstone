@@ -195,7 +195,7 @@ export function SettingsPanel({ onClose }: {
         attempt();
         return () => window.clearTimeout(timer);
     }, [target]);
-    return createPortal(<div className="app-viewport-fixed fixed z-[210] flex items-center justify-center md:p-8">
+    return createPortal(<div className="app-viewport-fixed fixed z-[var(--z-panel)] flex items-center justify-center md:p-8">
       <div className="anim-fade absolute inset-0 bg-[var(--scrim)]" onClick={onClose} aria-hidden="true"/>
 
       <div ref={panelRef} role="dialog" aria-modal="true" aria-labelledby={titleId} tabIndex={-1} onKeyDown={(event) => {

@@ -377,7 +377,7 @@ export const ExcalidrawOfficialLibraryModal: React.FC<ExcalidrawOfficialLibraryM
   if (!isOpen) return null
 
   return (
-    <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/60 p-4 anim-fade">
+    <div className="fixed inset-0 z-[var(--z-top)] flex items-center justify-center bg-black/60 p-4 anim-fade">
       <div className="relative flex flex-col h-[88vh] max-h-[820px] w-full max-w-4xl rounded-xl border border-[var(--border-default)] bg-[var(--bg-surface)] text-[var(--text-primary)] shadow-2xl overflow-hidden">
         <header className="flex h-14 shrink-0 items-center justify-between border-b border-[var(--border-subtle)] px-6 bg-[var(--bg-sunken)]">
           <div className="flex items-center gap-3">

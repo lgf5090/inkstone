@@ -24,7 +24,7 @@ export function EditorContextMenu(props: EditorContextMenuProps) {
       onClose={onClose}
       items={items}
       width={MENU_WIDTH}
-      zIndex={Z_INDEX.hoverPinned}
+      zIndex={Z_INDEX.pinned}
       header={showToolbar ? <ContextMenuToolbar {...toolbar} /> : undefined}
       searchable={searchable}
       searchActions={searchable ? toolbarSearchActions(toolbar) : undefined}

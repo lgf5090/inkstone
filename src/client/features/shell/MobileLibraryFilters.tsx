@@ -48,7 +48,7 @@ export function MobileLibraryFilters() {
                 <Icon size={14} aria-hidden="true" className="shrink-0"/><span className="min-w-0 flex-1 truncate text-left">{label}</span><ChevronDown size={12} aria-hidden="true" className="shrink-0"/>
             </button>)}
         </div>
-        {open && createPortal(<div className="app-viewport-fixed fixed z-[240] flex items-end">
+        {open && createPortal(<div className="app-viewport-fixed fixed z-[var(--z-prompt)] flex items-end">
           <div aria-hidden="true" className="anim-fade absolute inset-0 bg-[var(--scrim)]" onClick={close}/>
           <div ref={panelRef} id={id} role="dialog" aria-modal="true" aria-labelledby={`${id}-title`} tabIndex={-1} className="mobile-library-sheet anim-pop relative flex max-h-[85dvh] w-full flex-col rounded-t-[var(--r-2xl)] border border-b-0 border-[var(--border-default)] bg-[var(--bg-overlay)] shadow-[var(--shadow-modal)] outline-none">
             <button type="button" aria-label={t('common.close')} className="flex h-7 w-full shrink-0 touch-none items-center justify-center" onClick={close} onPointerDown={(event) => {

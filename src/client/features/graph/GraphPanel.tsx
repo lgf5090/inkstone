@@ -363,7 +363,7 @@ export function GraphPanel({ onClose }: { onClose: () => void }) {
   })
 
   return createPortal(<div ref={panelRef} role="dialog" aria-modal="true" aria-labelledby={titleId} tabIndex={-1}
-    className="app-viewport-fixed fixed z-[230] flex flex-col bg-[var(--bg-base)] pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)] outline-none md:py-0">
+    className="app-viewport-fixed fixed z-[var(--z-workspace)] flex flex-col bg-[var(--bg-base)] pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)] outline-none md:py-0">
     <header className="flex min-h-12 shrink-0 flex-wrap items-center gap-2 border-b border-[var(--border-subtle)] px-3 py-2 md:px-4">
       <div className="mr-1 flex min-w-0 items-baseline gap-2.5">
         <h2 id={titleId} className="text-[length:var(--text-14)] font-semibold tracking-[-0.014em]">{t('common.graph')}</h2>

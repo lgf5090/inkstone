@@ -6,6 +6,7 @@
  * `store/library.ts` for why the files cannot live on the server — so the export/import pair here is
  * what carries a reader's marks and positions to another machine.
  */
+import { Z_INDEX } from '../../lib/z-index'
 import { useMemo, useRef, useState, type DragEvent } from 'react'
 import { BookOpen, Download, FolderInput, Globe, Images, Inbox, LayoutGrid, List, Maximize2, MessageSquareQuote, Pencil, Plus, Sparkles, Star, Trash2, Upload } from 'lucide-react'
 import { Button } from '../../components/primitives'
@@ -513,12 +514,12 @@ export function LibraryView() {
         anchor={menu.point ?? { x: 0, y: 0 }}
         open={Boolean(menu.point) && Boolean(active)}
         onClose={menu.close}
-        zIndex={240}
+        zIndex={Z_INDEX.prompt}
         items={active ? menuFor(active) : []}
       />
 
       {dragging ? (
-        <div className="app-viewport-fixed pointer-events-none fixed inset-0 z-[300] flex items-center justify-center bg-[var(--scrim)]">
+        <div className="app-viewport-fixed pointer-events-none fixed inset-0 z-[var(--z-pinned-menu)] flex items-center justify-center bg-[var(--scrim)]">
           <p className="rounded-[var(--r-lg)] border-2 border-dashed border-[var(--accent)] bg-[var(--bg-surface)] px-6 py-5 text-center text-[length:var(--text-13)] font-medium">
             {t('reading.drop_files_here')}
           </p>

@@ -1,3 +1,4 @@
+import { Z_INDEX } from '../../lib/z-index'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { FileText, Sparkles, Trash2 } from 'lucide-react';
 import type { AttachmentWithUsage } from '@shared/types';
@@ -166,7 +167,7 @@ export function AttachmentManager({ open, onClose, onChanged, }: {
                 setLoadingMore(false);
         }
     };
-    return (<Drawer open={open} onClose={onClose} title={t("attachments.manage")} width={420} zIndex={230}>
+    return (<Drawer open={open} onClose={onClose} title={t("attachments.manage")} width={420} zIndex={Z_INDEX.workspace}>
       <div className="flex h-full flex-col">
         <div className="shrink-0 space-y-2 border-b border-[var(--border-subtle)] p-2">
           <Segmented value={filter} onChange={setFilter} size="sm" options={[

@@ -11,6 +11,7 @@
  * monitor. Placement is the wiki-link card's own rule — beside the row, flipped up when the viewport
  * runs out below — so the two popovers in this app do not disagree about the screen's edges.
  */
+import { Z_INDEX } from '../../lib/z-index'
 import { useEffect, useLayoutEffect, useRef, useState, type ReactElement } from 'react'
 import { createPortal } from 'react-dom'
 import { ExternalLink } from 'lucide-react'
@@ -61,7 +62,7 @@ export function ArticlePreviewCard({ entry, feed, anchor, images, onDismiss }: {
       style={{
         top: box?.top ?? anchor.bottom + 8,
         left: box?.left ?? anchor.left,
-        zIndex: 240,
+        zIndex: Z_INDEX.prompt,
         visibility: box ? 'visible' : 'hidden',
       }}
     >
