@@ -200,6 +200,13 @@ describe('RssChannelRail tree', () => {
     // A feed has nothing to fold, so it must not claim an expansion state.
     expect(feed.hasAttribute('aria-expanded')).toBe(false)
     expect(item.getAttribute('aria-level')).toBe('1')
+
+    // Indent is the shared `treeIndent` step and nothing else: a depth-0 folder is `6 + 0 * 13`,
+    // and the feed under it is one level deeper plus the rail's own extra step, `6 + 13 + 13`.
+    expect(folderRow(container).style.paddingLeft).toBe('6px')
+    expect(feed.style.paddingLeft).toBe('32px')
+    // The fold glyph is one icon that turns, not a pair that swaps — the convention every tree draws.
+    expect(toggleOf(folderRow(container)).querySelector('svg')!.getAttribute('class')).toContain('rotate-90')
   })
 
   it('walks the visible rows with the arrow keys and folds the branch back from the child', () => {

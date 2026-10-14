@@ -21,7 +21,6 @@ import {
   ArrowDown,
   ArrowUp,
   Bookmark,
-  ChevronDown,
   ChevronRight,
   CircleDot,
   Clock,
@@ -49,7 +48,7 @@ import {
 import { cn } from '../../lib/cn'
 import { t } from '../../lib/i18n'
 import { confirm, prompt, Tooltip, type MenuItem } from '../../components/overlay'
-import { treeItemProps, useTreeKeyboard } from '../../lib/tree'
+import { TREE_INDENT_STEP, treeIndent, treeItemProps, useTreeKeyboard } from '../../lib/tree'
 import { FolderColorMenu, FolderIconMenu } from '../folders/FolderAppearanceMenus'
 import { buildFolderTree, type FolderNode } from '../../store/notes'
 import { leftDropTarget } from '../../lib/note-drag'
@@ -70,6 +69,16 @@ import { feedCacheLine } from './cacheLine'
 
 export const RSS_FEED_DRAG = 'application/x-inkstone-rss-feed'
 export const RSS_GROUP_DRAG = 'application/x-inkstone-rss-group'
+
+/**
+ * How much deeper a feed row sits than the folder holding it.
+ *
+ * A row's own level already comes from `treeIndent`, and a feed is drawn one level below its
+ * folder. This is the deliberate extra step on top of that: a folder row spends its first
+ * `size-4` on the collapse chevron and a feed row spends it on the favicon, so a feed lined up at
+ * plain `treeIndent` would read as its folder's sibling rather than its content.
+ */
+const FEED_INDENT_STEP = TREE_INDENT_STEP
 
 type MenuTarget
   = | { kind: 'feed', id: string }
@@ -315,7 +324,7 @@ function FolderBranch({ node, depth, setSize, posInSet, shelfFeeds, counts, arti
             : 'text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]',
           isDrop && 'ring-1 ring-[var(--accent)]',
         )}
-        style={{ paddingLeft: 4 + depth * 12 }}
+        style={{ paddingLeft: treeIndent(depth) }}
       >
         <button
           type="button"
@@ -326,7 +335,7 @@ function FolderBranch({ node, depth, setSize, posInSet, shelfFeeds, counts, arti
           onClick={() => toggle(node.id)}
           className="grid size-4 shrink-0 place-items-center rounded-[var(--r-sm)] text-[var(--text-quaternary)] hover:bg-[var(--bg-hover)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--accent)]"
         >
-          {collapsed ? <ChevronRight size={12} /> : <ChevronDown size={12} />}
+          <ChevronRight size={12} className={cn('transition-transform duration-[var(--dur-base)] ease-[var(--ease-out)]', !collapsed && 'rotate-90')} />
         </button>
         <button
           type="button"
@@ -457,7 +466,7 @@ function FeedRow({ feed, unread, loaded, active, depth, setSize, posInSet, dropT
         feed.paused && 'opacity-60',
         isDrop && 'ring-1 ring-[var(--accent)]',
       )}
-      style={{ paddingLeft: 22 + depth * 12 }}
+      style={{ paddingLeft: treeIndent(depth) + FEED_INDENT_STEP }}
     >
       <FeedMark src={src} title={feed.title} size={16} />
       {feed.pinned && <Pin size={10} className="shrink-0 opacity-55" aria-hidden="true" />}
@@ -497,14 +506,13 @@ function dropOnGroup(event: React.DragEvent, groupId: string): void {
   if (moved && moved !== groupId) state.moveGroupTo(moved, groupId)
 }
 
-function Row({ icon: Icon, label, count, active, onSelect, trailing, indent, hint, muted, showCount = true, menuTarget, onContextMenu }: {
+function Row({ icon: Icon, label, count, active, onSelect, trailing, hint, muted, showCount = true, menuTarget, onContextMenu }: {
   icon?: typeof Rss
   label: string
   count: number
   active: boolean
   onSelect: () => void
   trailing?: React.ReactNode
-  indent?: boolean
   hint?: string
   muted?: boolean
   showCount?: boolean
@@ -518,11 +526,13 @@ function Row({ icon: Icon, label, count, active, onSelect, trailing, indent, hin
       onContextMenu={onContextMenu}
       data-menu-target={menuTarget}
       aria-current={active ? 'page' : undefined}
+      // A flat row is a depth-0 row: the same `treeIndent` the folder rows use, so the shelf's
+      // shortcuts line up with the folders below them instead of a Tailwind step of their own.
+      style={{ paddingLeft: treeIndent(0) }}
       className={cn(
         'flex h-8 w-full min-w-0 items-center gap-2 rounded-[var(--r-md)] pr-1.5 text-left text-[12.5px]',
         'transition-colors duration-[var(--dur-fast)] ease-[var(--ease-out)]',
         'focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--accent)]',
-        indent ? 'pl-6' : 'pl-2',
         active
           ? 'bg-[var(--accent-soft)] font-medium text-[var(--accent)]'
           : 'text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]',
