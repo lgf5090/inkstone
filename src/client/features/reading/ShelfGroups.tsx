@@ -9,6 +9,7 @@
 import { useState } from 'react'
 import { Folder, FolderPlus } from 'lucide-react'
 import { Button } from '../../components/primitives'
+import { TagChip } from '../../components/TagChip'
 import { Menu, prompt, useContextMenu, type MenuItem } from '../../components/overlay'
 import { t } from '../../lib/i18n'
 import { useUi } from '../../store/ui'
@@ -79,25 +80,19 @@ export function ShelfGroups({ active, onSelect, shelfBookIds }: {
         const count = group.bookIds.filter((bookId) => shelfBookIds.has(bookId)).length
         const isActive = active === group.id
         return (
-          <button
+          <TagChip
             key={group.id}
-            type="button"
-            aria-pressed={isActive}
-            onClick={() => onSelect(isActive ? null : group.id)}
+            label={<span className="max-w-[12rem] truncate">{group.name}</span>}
+            pressed={isActive}
+            glyph={<Folder size={11} />}
+            count={count}
+            onPress={() => onSelect(isActive ? null : group.id)}
             onContextMenu={(event) => {
               setTarget(group)
               menu.onContextMenu(event)
             }}
-            className={
-              isActive
-                ? 'inline-flex items-center gap-1 rounded-full border border-[var(--accent)] bg-[var(--accent-soft)] px-2 py-0.5 text-[11.5px] text-[var(--text-primary)]'
-                : 'inline-flex items-center gap-1 rounded-full border border-[var(--border-subtle)] px-2 py-0.5 text-[11.5px] text-[var(--text-tertiary)] hover:border-[var(--border-default)] hover:text-[var(--text-secondary)]'
-            }
-          >
-            <Folder size={11} aria-hidden="true" />
-            <span className="max-w-[12rem] truncate">{group.name}</span>
-            <span className="tabular text-[var(--text-quaternary)]">{count}</span>
-          </button>
+            className="px-[var(--sp-2)] text-[length:var(--text-11-5)]"
+          />
         )
       })}
       <Button
