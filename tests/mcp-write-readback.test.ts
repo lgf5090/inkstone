@@ -1,4 +1,5 @@
 import { DatabaseSync } from 'node:sqlite'
+import type { ExecutionContext as HonoExecutionContext } from 'hono'
 import { beforeEach, describe, expect, it } from 'vitest'
 import { organizeMcpNote, trashMcpNote, type McpWriteContext } from '../src/worker/mcp/writes'
 import { SCHEMA_STATEMENTS } from '../src/worker/db/schema'
@@ -19,6 +20,15 @@ function seedNote(id: string, rev: number, content: string) {
   ).run(id, USER, `Note ${id}`, `note ${id}`, content, rev)
 }
 
+// `McpWriteContext.executionCtx` is the ambient Workers interface, which also demands `tracing` and
+// `exports`; neither can be built outside a Worker. The fake is checked field by field against hono's
+// context — everything the write path actually reads — and only then widened, one comparable assertion.
+const executionCtx: HonoExecutionContext = {
+  waitUntil: () => {},
+  passThroughOnException: () => {},
+  props: {},
+}
+
 beforeEach(() => {
   sqlite = new DatabaseSync(':memory:')
   sqlite.exec(SCHEMA_STATEMENTS.join(';'))
@@ -37,7 +47,7 @@ beforeEach(() => {
     env: { DB: db } as unknown as Env,
     userId: USER,
     ftsEnabled: false,
-    executionCtx: { waitUntil: () => {} } as ExecutionContext,
+    executionCtx: executionCtx as ExecutionContext,
   }
 })
 
