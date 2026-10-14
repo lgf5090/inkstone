@@ -4,10 +4,10 @@ import { LIMITS } from '@shared/constants'
 import { normalizeOrganizerIcon, organizerColorOrNull } from '@shared/organizer-colors'
 import type { Folder } from '@shared/types'
 import type { AppBindings } from '../env'
-import { FOLDER_SELECT, toFolder, type FolderRow } from '../db/rows'
+import { toFolder } from '../db/rows'
 import { assertOrganizerQuota } from '../db/quota'
 import { FTS_QUEUE_CONFLICT_SQL } from '../db/writes'
-import { FoldersStore, type FolderGraph, type FolderOrderRow } from '../folders/store'
+import { FoldersStore, type FolderGraph, type FolderOrderRow, type FolderPatchColumns } from '../folders/store'
 import { ApiError } from '../lib/errors'
 import { isValidId, newId } from '../lib/id'
 import { broadcastCursor } from '../lib/notify'
@@ -91,8 +91,8 @@ foldersRoutes.post('/', async (c) => {
 })
 
 foldersRoutes.patch('/:id', async (c) => {
-  const userId = c.get('userId')
   const id = c.req.param('id')
+  const s = store(c)
   const body = await readJson<{
     name?: string
     parentId?: string | null
@@ -101,15 +101,12 @@ foldersRoutes.patch('/:id', async (c) => {
     color?: string | null
   }>(c, JSON_BODY_LIMITS.small)
 
-  const existing = await c.env.DB.prepare(
-    `SELECT id, parent_id, updated_at FROM folders WHERE id = ?1 AND user_id = ?2 AND deleted_at IS NULL`,
-  )
-    .bind(id, userId)
-    .first<{ id: string; parent_id: string | null; updated_at: number }>()
+  const existing = await s.folderState(id)
   if (!existing) throw ApiError.notFound('Folder not found')
 
-  const sets: string[] = []
-  const binds: unknown[] = []
+  // The columns are named in the order the update writes them, which is the order the guard
+  // placeholders are counted against; `updated_at` is appended by the store.
+  const columns: FolderPatchColumns = {}
 
   if (body.name !== undefined && typeof body.name !== 'string') {
     throw ApiError.badRequest('name must be a string')
@@ -131,21 +128,18 @@ foldersRoutes.patch('/:id', async (c) => {
     const name = body.name.trim()
     if (!name) throw ApiError.badRequest('Folder name cannot be empty')
     if (name.length > LIMITS.folderNameMaxLength) throw ApiError.badRequest('Folder name is too long')
-    binds.push(name)
-    sets.push(`name = ?${binds.length}`)
+    columns.name = name
   }
   if (body.icon !== undefined) {
-    binds.push(normalizeOrganizerIcon(body.icon))
-    sets.push(`icon = ?${binds.length}`)
+    columns.icon = normalizeOrganizerIcon(body.icon)
   }
   if (body.color !== undefined) {
     if (body.color !== null && !organizerColorOrNull(body.color)) {
       throw ApiError.badRequest('Folder color is not supported')
     }
-    binds.push(organizerColorOrNull(body.color))
-    sets.push(`color = ?${binds.length}`)
+    columns.color = organizerColorOrNull(body.color)
   }
-  const graph = await store(c).graph()
+  const graph = await s.graph()
   let parentId = existing.parent_id
   if (body.parentId !== undefined) {
     parentId = validateParent(graph, body.parentId, id)
@@ -154,83 +148,37 @@ foldersRoutes.patch('/:id', async (c) => {
       throw ApiError.badRequest(`Folder depth cannot exceed ${LIMITS.folderDepthMax} levels`)
     }
     if (parentId !== existing.parent_id) {
-      binds.push(parentId)
-      sets.push(`parent_id = ?${binds.length}`)
+      columns.parent_id = parentId
     }
   }
   const parentChanged = parentId !== existing.parent_id
   const shouldPlace = body.beforeId !== undefined || parentChanged
   if (shouldPlace) {
     const position = await resolveFolderPosition(
-      c.env.DB,
-      userId,
+      s,
       id,
       existing.parent_id,
       parentId,
       body.beforeId ?? null,
     )
     if (position !== null) {
-      binds.push(position)
-      sets.push(`position = ?${binds.length}`)
+      columns.position = position
     }
   }
-  if (!sets.length) return c.json(await loadFolder(store(c), id))
+  if (!Object.keys(columns).length) return c.json(await loadFolder(s, id))
 
   const updatedAt = Math.max(Date.now(), existing.updated_at + 1)
-  binds.push(updatedAt)
-  sets.push(`updated_at = ?${binds.length}`)
-  const shiftedSets = sets.map((set) => set.replace(/\?(\d+)/g, (_m, n: string) => `?${Number(n) + 3}`))
-  const update = c.env.DB.prepare(
-    `WITH RECURSIVE
-       descendants(id, depth) AS (
-         SELECT id, 1 FROM folders WHERE id = ?1 AND user_id = ?2 AND deleted_at IS NULL
-         UNION ALL
-         SELECT f.id, d.depth + 1 FROM folders f JOIN descendants d ON f.parent_id = d.id
-          WHERE f.user_id = ?2 AND f.deleted_at IS NULL AND d.depth < ?${binds.length + 5}
-       ),
-       ancestors(id, parent_id, depth) AS (
-         SELECT id, parent_id, 1 FROM folders WHERE id = ?3 AND user_id = ?2 AND deleted_at IS NULL
-         UNION ALL
-         SELECT f.id, f.parent_id, a.depth + 1 FROM folders f JOIN ancestors a ON f.id = a.parent_id
-          WHERE f.user_id = ?2 AND f.deleted_at IS NULL AND a.depth < ?${binds.length + 5}
-       )
-     UPDATE OR IGNORE folders SET ${shiftedSets.join(', ')}
-      WHERE id = ?1 AND user_id = ?2 AND deleted_at IS NULL
-        AND updated_at = ?${binds.length + 4}
-        AND (?3 IS NULL OR EXISTS (
-          SELECT 1 FROM folders WHERE id = ?3 AND user_id = ?2 AND deleted_at IS NULL
-        ))
-        AND NOT EXISTS (SELECT 1 FROM descendants WHERE id = ?3)
-        AND COALESCE((SELECT MAX(depth) FROM ancestors), 0)
-            + COALESCE((SELECT MAX(depth) FROM descendants), 1) <= ?${binds.length + 5}
-        AND (?${binds.length + 6} IS NULL OR EXISTS (
-          SELECT 1 FROM folders before_folder
-           WHERE before_folder.id = ?${binds.length + 6}
-             AND before_folder.user_id = ?2 AND before_folder.parent_id IS ?3
-             AND before_folder.deleted_at IS NULL
-        ))`,
-  ).bind(
+  const { applied, changeSeq, row } = await s.patchFolder({
     id,
-    userId,
+    current: existing,
     parentId,
-    ...binds,
-    existing.updated_at,
-    LIMITS.folderDepthMax,
-    body.beforeId ?? null,
-  )
-  const change = c.env.DB.prepare(
-    `INSERT INTO changes (user_id, entity, entity_id, op, at)
-     SELECT ?1, 'folder', ?2, 'upsert', ?3
-      WHERE EXISTS (SELECT 1 FROM folders WHERE id = ?2 AND user_id = ?1 AND updated_at = ?3)
-     RETURNING seq`,
-  ).bind(userId, id, updatedAt)
-  const patchReadback = c.env.DB.prepare(
-    `SELECT ${FOLDER_SELECT} FROM folders f WHERE f.id = ?1 AND f.user_id = ?2`,
-  ).bind(id, userId)
-  const updatedBatch = await c.env.DB.batch([update, change, patchReadback])
-  if (!updatedBatch[0]?.meta.changes) throw ApiError.conflict('The folder changed elsewhere or a sibling already uses this name')
-  await broadcastCursor(c, (updatedBatch.at(-2) as D1Result<{ seq: number }>).results?.[0]?.seq)
-  return c.json(toFolder((updatedBatch.at(-1) as D1Result<FolderRow>).results[0]!))
+    columns,
+    updatedAt,
+    beforeId: body.beforeId ?? null,
+  })
+  if (!applied) throw ApiError.conflict('The folder changed elsewhere or a sibling already uses this name')
+  await broadcastCursor(c, changeSeq)
+  return c.json(toFolder(row!))
 })
 
 foldersRoutes.delete('/:id', async (c) => {
@@ -376,10 +324,6 @@ async function loadFolder(s: FoldersStore, id: string): Promise<Folder> {
   return toFolder(row)
 }
 
-interface FolderPromotionRow extends FolderOrderRow {
-  parent_id: string | null
-}
-
 function availableFolderName(graph: FolderGraph, parentId: string | null, base: string): string {
   const names = graph.siblingNames.get(parentId ?? '') ?? new Set<string>()
   if (!names.has(base.toLocaleLowerCase())) return base
@@ -389,14 +333,13 @@ function availableFolderName(graph: FolderGraph, parentId: string | null, base: 
 }
 
 async function resolveFolderPosition(
-  db: D1Database,
-  userId: string,
+  s: FoldersStore,
   id: string,
   currentParentId: string | null,
   parentId: string | null,
   beforeId: string | null,
 ): Promise<number | null> {
-  let rows = await loadSiblingOrder(db, userId, parentId)
+  let rows = await s.siblingOrder(parentId)
   const currentOrder = rows.map((row) => row.id)
   let siblings = rows.filter((row) => row.id !== id)
   let index = beforeId === null ? siblings.length : siblings.findIndex((row) => row.id === beforeId)
@@ -415,27 +358,14 @@ async function resolveFolderPosition(
   let position = insertionPosition(siblings[index - 1]?.position, siblings[index]?.position)
   if (position !== null) return position
 
-  await normalizeSiblingPositions(db, userId, siblings)
-  rows = await loadSiblingOrder(db, userId, parentId)
+  await s.normalizeSiblings(siblings)
+  rows = await s.siblingOrder(parentId)
   siblings = rows.filter((row) => row.id !== id)
   index = beforeId === null ? siblings.length : siblings.findIndex((row) => row.id === beforeId)
   if (index < 0) throw ApiError.conflict('The destination folder order changed. Try again')
   position = insertionPosition(siblings[index - 1]?.position, siblings[index]?.position)
   if (position === null) throw ApiError.conflict('The folder order changed. Try again')
   return position
-}
-
-async function loadSiblingOrder(
-  db: D1Database,
-  userId: string,
-  parentId: string | null,
-): Promise<FolderOrderRow[]> {
-  const { results } = await db.prepare(
-    `SELECT id, position, created_at FROM folders
-      WHERE user_id = ?1 AND parent_id IS ?2 AND deleted_at IS NULL
-      ORDER BY position ASC, created_at ASC, id ASC`,
-  ).bind(userId, parentId).all<FolderOrderRow>()
-  return results
 }
 
 function insertionPosition(previous: number | undefined, next: number | undefined): number | null {
@@ -446,45 +376,12 @@ function insertionPosition(previous: number | undefined, next: number | undefine
   return Number.isFinite(position) && position > previous && position < next ? position : null
 }
 
-async function normalizeSiblingPositions(
-  db: D1Database,
-  userId: string,
-  siblings: FolderOrderRow[],
-): Promise<void> {
-  const MAX_BATCH_STATEMENTS = 80
-  const now = Date.now()
-  const statements: D1PreparedStatement[] = []
-  for (let index = 0; index < siblings.length; index++) {
-    const sibling = siblings[index]!
-    const position = (index + 1) * 1000
-    if (sibling.position === position) continue
-    statements.push(
-      db.prepare(
-        `UPDATE folders SET position = ?3, updated_at = MAX(updated_at + 1, ?4)
-          WHERE id = ?1 AND user_id = ?2 AND deleted_at IS NULL`,
-      ).bind(sibling.id, userId, position, now),
-      db.prepare(
-        `INSERT INTO changes (user_id, entity, entity_id, op, at)
-         SELECT ?2, 'folder', ?1, 'upsert', ?3
-          WHERE EXISTS (SELECT 1 FROM folders WHERE id = ?1 AND user_id = ?2 AND deleted_at IS NULL)`,
-      ).bind(sibling.id, userId, now),
-    )
-  }
-  for (let start = 0; start < statements.length; start += MAX_BATCH_STATEMENTS) {
-    await db.batch(statements.slice(start, start + MAX_BATCH_STATEMENTS))
-  }
-}
-
 export async function folderPromotionOrder(
   db: D1Database,
   userId: string,
   folder: { id: string; parent_id: string | null; position: number },
 ): Promise<Array<{ id: string; position: number }>> {
-  const { results } = await db.prepare(
-    `SELECT id, parent_id, position, created_at FROM folders
-      WHERE user_id = ?1 AND deleted_at IS NULL
-        AND (parent_id IS ?2 OR parent_id = ?3)`,
-  ).bind(userId, folder.parent_id, folder.id).all<FolderPromotionRow>()
+  const results = await new FoldersStore(db, userId).promotionRows(folder)
   const compare = (left: FolderOrderRow, right: FolderOrderRow) =>
     left.position - right.position || left.created_at - right.created_at || left.id.localeCompare(right.id)
   const siblings = results.filter((row) => row.parent_id === folder.parent_id).sort(compare)

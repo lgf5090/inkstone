@@ -33,6 +33,14 @@ export const REWRITE_LOAD_CHUNK = 10
 /** Guarded rewrites run at once inside one window — the same number the two rename paths used to each spell out. */
 export const REWRITE_CONCURRENCY = 5
 
+/**
+ * Statements one D1 batch may carry.
+ *
+ * Every chunked write in this worker respects it: a batch is a transaction, so a family rename or a
+ * sibling renumbering that outgrew the ceiling has to be split, and each chunk then lands on its own.
+ */
+export const MAX_BATCH_STATEMENTS = 80
+
 export type RewriteQueueKind = 'note-title' | 'tag-rename' | 'tag-delete'
 
 export function rewriteQueueStatement(

@@ -19,6 +19,7 @@
 
 import { LIMITS } from '@shared/constants'
 import { FOLDER_SELECT, type FolderRow } from '../db/rows'
+import { MAX_BATCH_STATEMENTS, runBatched, shiftSqlPlaceholders } from '../db/writes'
 
 /** The live tree reduced to what the route's hierarchy rules need. */
 export interface FolderGraph {
@@ -50,6 +51,45 @@ export interface FolderWriteResult {
   applied: boolean
   changeSeq: number | undefined
   row: FolderRow | null
+}
+
+/** The columns a PATCH reads before deciding what may change: the guard is the row's own timestamp. */
+export interface FolderStateRow {
+  id: string
+  parent_id: string | null
+  updated_at: number
+}
+
+/** The columns a folder PATCH writes. `updated_at` and the guard are added by `patchFolder`. */
+export interface FolderPatchColumns {
+  name?: string
+  icon?: string | null
+  color?: string | null
+  parent_id?: string | null
+  position?: number
+}
+
+/**
+ * One folder edit the route has decided: which columns differ, where the folder is going and which
+ * sibling it is going before.
+ *
+ * `parentId` is bound even when unchanged, because the recursive `ancestors` walk and the
+ * `before_folder` existence check both read slot `?3`; `beforeId` is the same whether or not the
+ * request reordering asked for one.
+ */
+export interface FolderPatchInput {
+  id: string
+  /** The row the route read, which supplies the `updated_at` the update is matched against. */
+  current: FolderStateRow
+  parentId: string | null
+  columns: FolderPatchColumns
+  updatedAt: number
+  beforeId: string | null
+}
+
+/** The rows a promotion read returns: siblings and children of one folder, in one pass. */
+export interface FolderPromotionRow extends FolderOrderRow {
+  parent_id: string | null
 }
 
 export class FoldersStore {
@@ -188,6 +228,149 @@ export class FoldersStore {
       `SELECT ${FOLDER_SELECT} FROM folders f WHERE f.id = ?1 AND f.user_id = ?2`,
     ).bind(input.id, this.userId)
     const results = await this.db.batch([insert, change, readback])
+    return {
+      applied: Boolean(results[0]?.meta.changes),
+      changeSeq: (results.at(-2) as D1Result<{ seq: number }>).results?.[0]?.seq,
+      row: (results.at(-1) as D1Result<FolderRow>).results?.[0] ?? null,
+    }
+  }
+
+  /** The live folder's guard columns — all a PATCH needs before it decides what to write. */
+  async folderState(id: string): Promise<FolderStateRow | null> {
+    const row = await this.db
+      .prepare(
+        `SELECT id, parent_id, updated_at FROM folders WHERE id = ?1 AND user_id = ?2 AND deleted_at IS NULL`,
+      )
+      .bind(id, this.userId)
+      .first<FolderStateRow>()
+    return row ?? null
+  }
+
+  /** One parent's children in display order, which is the only thing the position maths reads. */
+  async siblingOrder(parentId: string | null): Promise<FolderOrderRow[]> {
+    const { results } = await this.db.prepare(
+      `SELECT id, position, created_at FROM folders
+        WHERE user_id = ?1 AND parent_id IS ?2 AND deleted_at IS NULL
+        ORDER BY position ASC, created_at ASC, id ASC`,
+    ).bind(this.userId, parentId).all<FolderOrderRow>()
+    return results
+  }
+
+  /**
+   * Siblings and children of one folder, the read the promotion maths needs in a single pass.
+   *
+   * `parent_id IS ?2 OR parent_id = ?3` covers both lists at once: the folder keeps its own place in
+   * its parent's run, and its children are the ones that move up when it is deleted.
+   */
+  async promotionRows(folder: { parent_id: string | null; id: string }): Promise<FolderPromotionRow[]> {
+    const { results } = await this.db.prepare(
+      `SELECT id, parent_id, position, created_at FROM folders
+        WHERE user_id = ?1 AND deleted_at IS NULL
+          AND (parent_id IS ?2 OR parent_id = ?3)`,
+    ).bind(this.userId, folder.parent_id, folder.id).all<FolderPromotionRow>()
+    return results
+  }
+
+  /**
+   * Renumber a sibling run to whole thousands, so the next insertion can find a gap again.
+   *
+   * Two statements per moved row — the update and its change record — chunked at
+   * `MAX_BATCH_STATEMENTS`, because a run long enough to need this is long enough to outgrow one
+   * batch. Rows already at the wanted position are skipped, which is what keeps a reorder that
+   * changed nothing from broadcasting a change for everything.
+   */
+  async normalizeSiblings(siblings: FolderOrderRow[]): Promise<void> {
+    const now = Date.now()
+    const statements: D1PreparedStatement[] = []
+    for (let index = 0; index < siblings.length; index++) {
+      const sibling = siblings[index]!
+      const position = (index + 1) * 1000
+      if (sibling.position === position) continue
+      statements.push(
+        this.db.prepare(
+          `UPDATE folders SET position = ?3, updated_at = MAX(updated_at + 1, ?4)
+            WHERE id = ?1 AND user_id = ?2 AND deleted_at IS NULL`,
+        ).bind(sibling.id, this.userId, position, now),
+        this.db.prepare(
+          `INSERT INTO changes (user_id, entity, entity_id, op, at)
+           SELECT ?2, 'folder', ?1, 'upsert', ?3
+            WHERE EXISTS (SELECT 1 FROM folders WHERE id = ?1 AND user_id = ?2 AND deleted_at IS NULL)`,
+        ).bind(sibling.id, this.userId, now),
+      )
+    }
+    await runBatched(this.db, statements, MAX_BATCH_STATEMENTS)
+  }
+
+  /**
+   * Apply one folder edit, with the hierarchy guards that decide whether it is allowed at all.
+   *
+   * `sets` is the update's column list in the order the route wrote it, and the whole statement's
+   * parameters are counted by hand: `?1` is the folder, `?2` the account and `?3` the destination
+   * parent, so every column bind shifts by three. The recursive `descendants` and `ancestors` walks
+   * are what make a single statement refuse both a move into one's own subtree and a move that would
+   * push the tree past `LIMITS.folderDepthMax`, and the `before_folder` existence check refuses a
+   * reorder whose neighbour has gone away. Everything is guarded on the `updated_at` the route read,
+   * so a concurrent edit shows up as `applied: false` instead of a lost update.
+   */
+  async patchFolder(input: FolderPatchInput): Promise<FolderWriteResult> {
+    const sets: string[] = []
+    const binds: unknown[] = []
+    for (const [column, value] of Object.entries(input.columns)) {
+      binds.push(value)
+      sets.push(`${column} = ?${binds.length}`)
+    }
+    binds.push(input.updatedAt)
+    sets.push(`updated_at = ?${binds.length}`)
+    const shiftedSets = sets.map((set) => shiftSqlPlaceholders(set, 3))
+
+    const update = this.db.prepare(
+      `WITH RECURSIVE
+         descendants(id, depth) AS (
+           SELECT id, 1 FROM folders WHERE id = ?1 AND user_id = ?2 AND deleted_at IS NULL
+           UNION ALL
+           SELECT f.id, d.depth + 1 FROM folders f JOIN descendants d ON f.parent_id = d.id
+            WHERE f.user_id = ?2 AND f.deleted_at IS NULL AND d.depth < ?${binds.length + 5}
+         ),
+         ancestors(id, parent_id, depth) AS (
+           SELECT id, parent_id, 1 FROM folders WHERE id = ?3 AND user_id = ?2 AND deleted_at IS NULL
+           UNION ALL
+           SELECT f.id, f.parent_id, a.depth + 1 FROM folders f JOIN ancestors a ON f.id = a.parent_id
+            WHERE f.user_id = ?2 AND f.deleted_at IS NULL AND a.depth < ?${binds.length + 5}
+         )
+       UPDATE OR IGNORE folders SET ${shiftedSets.join(', ')}
+        WHERE id = ?1 AND user_id = ?2 AND deleted_at IS NULL
+          AND updated_at = ?${binds.length + 4}
+          AND (?3 IS NULL OR EXISTS (
+            SELECT 1 FROM folders WHERE id = ?3 AND user_id = ?2 AND deleted_at IS NULL
+          ))
+          AND NOT EXISTS (SELECT 1 FROM descendants WHERE id = ?3)
+          AND COALESCE((SELECT MAX(depth) FROM ancestors), 0)
+              + COALESCE((SELECT MAX(depth) FROM descendants), 1) <= ?${binds.length + 5}
+          AND (?${binds.length + 6} IS NULL OR EXISTS (
+            SELECT 1 FROM folders before_folder
+             WHERE before_folder.id = ?${binds.length + 6}
+               AND before_folder.user_id = ?2 AND before_folder.parent_id IS ?3
+               AND before_folder.deleted_at IS NULL
+          ))`,
+    ).bind(
+      input.id,
+      this.userId,
+      input.parentId,
+      ...binds,
+      input.current.updated_at,
+      LIMITS.folderDepthMax,
+      input.beforeId,
+    )
+    const change = this.db.prepare(
+      `INSERT INTO changes (user_id, entity, entity_id, op, at)
+       SELECT ?1, 'folder', ?2, 'upsert', ?3
+        WHERE EXISTS (SELECT 1 FROM folders WHERE id = ?2 AND user_id = ?1 AND updated_at = ?3)
+       RETURNING seq`,
+    ).bind(this.userId, input.id, input.updatedAt)
+    const readback = this.db.prepare(
+      `SELECT ${FOLDER_SELECT} FROM folders f WHERE f.id = ?1 AND f.user_id = ?2`,
+    ).bind(input.id, this.userId)
+    const results = await this.db.batch([update, change, readback])
     return {
       applied: Boolean(results[0]?.meta.changes),
       changeSeq: (results.at(-2) as D1Result<{ seq: number }>).results?.[0]?.seq,
