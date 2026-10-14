@@ -5448,6 +5448,13 @@ const allowed = new Map([
     "// top edge, so a long morning of reading does not end with forty rows still showing as new.",
     "// Every item in that menu is a question about an article; a note answers to the notebook.",
   ]],
+  ["src/client/features/rss/RssChannelRail.test.ts", [
+    "/**\n * The channel rail's folder row: two controls in one box, and the pair has to stay two.\n *\n * The row used to be a `div` with a click handler wearing a chevron `span`, so a keyboard could not\n * reach either act and a screen reader read the folder as one unlabeled block. The row is a plain\n * container now, holding a disclosure button and a navigation button, and that split is exactly what\n * regresses quietly: a click that bubbles from the toggle into the row's own activation opens the\n * folder while trying to close it, and a toggle dropped out of the tab order leaves the children\n * unreachable. These cases hold the two acts apart, name both controls, and keep `aria-controls`\n * pointed at a region that exists even while the folder is shut.\n */",
+    "/** The folder's own row, which is the only thing holding its two buttons. */",
+    "// The name is the act the button performs, the state is what `aria-expanded` carries.",
+    "// A region the toggle controls has to be in the DOM while it holds nothing, or the relation dangles.",
+    "// What Enter and Space do to a focused button in a browser is a click on that button.",
+  ]],
   ["src/client/features/rss/RssChannelRail.tsx", [
     "/**\n * The channel rail: where the reader is, and the whole subscription library that can be reached.\n *\n * It used to be a list of buttons and nothing else, on the theory that every other question about a\n * subscription belongs to the management dialog. That theory cost the reader two round trips for\n * every ordinary act — move a feed, rename a folder, pause a source — and the dialog has no more\n * room for a folder's colour than the rail does. So the rail now carries the three things a reader\n * does with a subscription without leaving the list of them: a right-click, a drag onto a folder,\n * and a name that can be typed in place.\n *\n * Folders nest, and the nesting is the note folders' own: `RssGroup` is shaped like `Folder` so\n * `buildFolderTree` can arrange both trees, and the colour and icon pickers are the same panels the\n * sidebar uses. Two implementations of \"which folder can this not go into\" is how a subscription\n * ends up inside its own descendant.\n *\n * An unread badge only appears for a feed this device has actually read from. A zero would be a\n * claim about the world the rail has no way to make.\n */",
     "// The reader's own notes, as channels. Derived from the notebook's store rather than synced: the",
@@ -5465,6 +5472,7 @@ const allowed = new Map([
     "/** The rail's whole right-click surface: a feed, a folder, a tag, or the empty space below them. */",
     "// The address came out of somebody else's document, so it is asked again before a window is",
     "// opened with it — the same rule the article menu follows.",
+    "/* The collapse toggle names the region it opens, so that region is an element that exists\n          while it is closed too — a fragment that mounts and unmounts leaves `aria-controls`\n          pointing at nothing. Each row indents itself, so the wrapper changes no geometry. */",
   ]],
   ["src/client/features/rss/RssKeys.tsx", [
     "/**\n * The shortcut sheet.\n *\n * A reader who has never used an RSS app does not know that `j` and `k` are the whole point of one,\n * and a reader who has used three of them does not want to learn a fourth set. So the keys are\n * listed where they are used, on the surface that answers to them, and every row is a key this app\n * actually handles — a sheet with a key that does nothing is worse than no sheet.\n */",

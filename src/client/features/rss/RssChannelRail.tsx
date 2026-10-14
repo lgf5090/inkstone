@@ -299,11 +299,9 @@ function FolderBranch({ node, depth, shelfFeeds, counts, articles, active, dropT
         <button
           type="button"
           aria-expanded={!collapsed}
+          aria-controls={`${node.id}-children`}
           aria-label={`${collapsed ? t('rss.expand') : t('rss.collapse')} ${node.name}`}
-          onClick={(event) => {
-            event.stopPropagation()
-            toggle(node.id)
-          }}
+          onClick={() => toggle(node.id)}
           className="grid size-4 shrink-0 place-items-center rounded-[var(--r-sm)] text-[var(--text-quaternary)] hover:bg-[var(--bg-hover)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--accent)]"
         >
           {collapsed ? <ChevronRight size={12} /> : <ChevronDown size={12} />}
@@ -327,39 +325,44 @@ function FolderBranch({ node, depth, shelfFeeds, counts, articles, active, dropT
           )}
         </button>
       </div>
-      {!collapsed && (
-        <>
-          {node.children.map(child => (
-            <FolderBranch
-              key={child.id}
-              node={child}
-              depth={depth + 1}
-              shelfFeeds={shelfFeeds}
-              counts={counts}
-              articles={articles}
-              active={active}
-              dropTarget={dropTarget}
-              go={go}
-              openMenu={openMenu}
-              setDropTarget={setDropTarget}
-            />
-          ))}
-          {feeds.map(feed => (
-            <FeedRow
-              key={feed.id}
-              feed={feed}
-              unread={counts.feeds.get(feed.id) ?? 0}
-              loaded={!!articles[feed.id]}
-              active={active === `feed:${feed.id}`}
-              go={go}
-              openMenu={openMenu}
-              setDropTarget={setDropTarget}
-              dropTarget={dropTarget}
-              depth={depth + 1}
-            />
-          ))}
-        </>
-      )}
+      {/* The collapse toggle names the region it opens, so that region is an element that exists
+          while it is closed too — a fragment that mounts and unmounts leaves `aria-controls`
+          pointing at nothing. Each row indents itself, so the wrapper changes no geometry. */}
+      <div id={`${node.id}-children`}>
+        {!collapsed && (
+          <>
+            {node.children.map(child => (
+              <FolderBranch
+                key={child.id}
+                node={child}
+                depth={depth + 1}
+                shelfFeeds={shelfFeeds}
+                counts={counts}
+                articles={articles}
+                active={active}
+                dropTarget={dropTarget}
+                go={go}
+                openMenu={openMenu}
+                setDropTarget={setDropTarget}
+              />
+            ))}
+            {feeds.map(feed => (
+              <FeedRow
+                key={feed.id}
+                feed={feed}
+                unread={counts.feeds.get(feed.id) ?? 0}
+                loaded={!!articles[feed.id]}
+                active={active === `feed:${feed.id}`}
+                go={go}
+                openMenu={openMenu}
+                setDropTarget={setDropTarget}
+                dropTarget={dropTarget}
+                depth={depth + 1}
+              />
+            ))}
+          </>
+        )}
+      </div>
     </div>
   )
 }
