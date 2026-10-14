@@ -77,18 +77,22 @@ export function DataSettings() {
     const reportImport = async (result: Awaited<ReturnType<typeof api.transfer.import>>) => {
         const refreshed = await pull({ force: true }).then(() => true, () => false);
         const owner = useSession.getState().user?.id ?? '';
-        await useNoteTemplates.getState().reloadFromAccount(owner).catch(() => {});
+        // An import rewrites the template library too, and that reload is reported exactly like the note
+        // refresh beside it: the toast already owns a sentence for "the action happened, the screen may not
+        // show it", and swallowing here would leave the reader told the import is done while the templates
+        // it just wrote are not on screen.
+        const templatesRefreshed = await useNoteTemplates.getState().reloadFromAccount(owner).then(() => true, () => false);
         void loadStats();
         const summary = t("settings.created_value0_updated_value1_skipped_value2_restored_value3_attachments", { value0: result.createdNotes, value1: result.updatedNotes, value2: result.skippedNotes, value3: result.createdAttachments, value4: result.skippedAttachments });
         const details = [summary];
         if (result.warnings.length)
             details.push(result.warnings[0]);
-        if (!refreshed)
+        if (!refreshed || !templatesRefreshed)
             details.push(t("settings.operation_completed_but_refresh_failed"));
         toast({
             title: t("settings.import_completed"),
             description: details.join('\uFF1B'),
-            tone: result.warnings.length || !refreshed ? 'warning' : 'success',
+            tone: result.warnings.length || !refreshed || !templatesRefreshed ? 'warning' : 'success',
             duration: 7000,
         });
         if (result.warnings.length)

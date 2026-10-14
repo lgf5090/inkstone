@@ -52,6 +52,9 @@ export function saveCalendarPrefs(patch: Partial<CalendarTreePreferences>): void
     currentPreferences = { ...currentPreferences, ...patch };
     const storage = readStorage();
     if (storage) {
+        // Persistence only: the value the panels read is `currentPreferences`, replaced above, and the
+        // listeners below are notified whatever this write answers. A refused write costs the next load
+        // its remembered tree state, not the fold the reader just performed.
         try {
             storage.setItem(CALENDAR_PREFS_STORAGE_KEY, JSON.stringify(currentPreferences));
         }

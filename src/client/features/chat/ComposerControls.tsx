@@ -397,6 +397,9 @@ export function VoiceButton({ onText }: { onText: (chunk: string) => void }) {
 
   const toggle = () => {
     if (!supported) {
+      // Redundant rather than silent: `prompt()` in `components/overlay` only ever resolves — it answers
+      // null with no host mounted and null on dismiss — so there is no rejection for this catch to
+      // swallow. Recorded here and baselined; deleting it is a call for the gate's owner, not this slice.
       void prompt({ title: t('assistant.composer.voice_unsupported') }).catch(() => undefined)
       return
     }

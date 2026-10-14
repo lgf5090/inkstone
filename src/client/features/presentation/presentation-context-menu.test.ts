@@ -2,6 +2,7 @@ import { createElement } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { t } from '../../lib/i18n'
 import { renderElement } from '../../lib/test-render'
+import { useUi } from '../../store/ui'
 import { menuOptions } from './presentation-menu-options.test-helpers'
 import {
   buildPresentationMenuItems,
@@ -69,6 +70,27 @@ describe('buildPresentationMenuItems — link actions', () => {
     const linkCopy = items.find((i) => i.id === 'link-copy')
     linkCopy?.onSelect?.()
     expect(writeText).toHaveBeenCalledWith('https://example.com/copy-me')
+  })
+
+  // The row is an offer to paste, so a refused write has to be said: a toast is the only place the
+  // presenter would otherwise learn that the address never reached the clipboard.
+  it('reports a refused clipboard write instead of saying nothing', async () => {
+    useUi.setState({ toasts: [] })
+    Object.assign(navigator, { clipboard: { writeText: vi.fn().mockRejectedValue(new Error('NotAllowedError')) } })
+    const items = buildPresentationMenuItems({ ...menuOptions(), linkUrl: 'https://example.com/copy-me' })
+    items.find((i) => i.id === 'link-copy')?.onSelect?.()
+    await Promise.resolve()
+    const toasts = useUi.getState().toasts
+    expect(toasts).toHaveLength(1)
+    expect(toasts[0]).toMatchObject({ title: t('preview.could_not_copy'), tone: 'danger' })
+  })
+
+  it('reports a clipboard the browser does not expose at all', () => {
+    useUi.setState({ toasts: [] })
+    Object.assign(navigator, { clipboard: undefined })
+    const items = buildPresentationMenuItems({ ...menuOptions(), linkUrl: 'https://example.com/copy-me' })
+    items.find((i) => i.id === 'link-copy')?.onSelect?.()
+    expect(useUi.getState().toasts[0]).toMatchObject({ title: t('preview.could_not_copy'), tone: 'danger' })
   })
 
   it('extracts link href safely from DOM anchor, SVG anchor, or returns null', () => {

@@ -163,6 +163,9 @@ export function LibraryFolderRow({ node, ctx }: { node: LibraryFolderNode; ctx: 
     // The confirmation is a body-level portal, and a fullscreen element paints nothing of the body
     // that is not inside it: asked while the drawing surface owns the screen, the answer never shows.
     if (document.fullscreenElement && typeof document.exitFullscreen === 'function') {
+      // Unreachable rejection, not a swallowed one: `exitFullscreen()` refuses only when the document is
+      // not fullscreen, which the guard on this very line has just established it is. The delete goes on to
+      // its confirmation either way, so the reader's action is never left unacknowledged.
       await document.exitFullscreen().catch(() => {})
     }
     const removed = node.itemCount

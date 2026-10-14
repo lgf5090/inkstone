@@ -278,6 +278,10 @@ async function pushLibrary(): Promise<void> {
   const { owner, categories, templates } = useNoteTemplates.getState()
   if (!owner || !templates.length) return
   const at = mutations
+  // A debounced background push and the local mirror of the answer. This is the retry mechanism the
+  // comment above `lastSyncedAt` describes: a failure here leaves `pendingPush` set, which is what makes
+  // the next change — or the next boot, at the `if (next.pendingPush) schedulePush()` below — push again.
+  // Nothing awaited this call, so there is no error state to put the reason in.
   try {
     const saved = await api.templateLibrary.save(JSON.stringify(buildTemplateLibraryExport(categories, templates)))
     lastSyncedAt = saved.savedAt

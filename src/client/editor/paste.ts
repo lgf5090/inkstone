@@ -197,6 +197,10 @@ async function settleUploads(
     handlers: PasteHandlers,
 ): Promise<void> {
     await Promise.all(pending.map(async ({ file, placeholder }) => {
+        // A refused upload and an upload that answered with nothing take the same road below: the
+        // placeholder is replaced by the in-document failure marker naming the file, which is what the
+        // reader sees in the note. Letting this rejection out would leave the placeholder sitting there
+        // instead, and every sibling upload in the same paste would lose its replacement too.
         let result: Awaited<ReturnType<PasteHandlers['uploadFile']>> = null;
         try {
             result = await handlers.uploadFile(file);

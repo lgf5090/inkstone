@@ -114,6 +114,9 @@ async function pushLibrary(): Promise<void> {
   const { owner, settings, choices } = useQuickAdd.getState()
   if (!owner) return
   const at = mutations
+  // A debounced background push and the mirror of its answer, in the same shape as the template library's:
+  // a failure leaves `pendingPush` set above, and the boot path that reads it calls `schedulePush()`, so
+  // the next change or the next load tries again. No caller awaited this one to carry a reason to.
   try {
     const saved = await api.quickadd.save(JSON.stringify(buildQuickAddPayload(settings, choices)))
     lastSyncedAt = saved.savedAt

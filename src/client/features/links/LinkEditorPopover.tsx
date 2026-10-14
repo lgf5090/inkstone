@@ -235,6 +235,9 @@ function LinkEditorPanel({ request }: { request: LinkEditorRequest }) {
           if (settled || !body) return
           setTargetState(headingsIn(body).some((row) => row.text === heading) ? 'ok' : 'missing-heading')
         })
+        // Best-effort heading check, and it fails honest: a rejected read leaves the state `idle`, which
+        // the popover renders as "not checked" and never as a link that was verified. The target the
+        // reader saves is theirs either way, and `settled` drops a read that arrives after they moved on.
         .catch(() => undefined)
     }, VALIDATION_DELAY)
     return () => {

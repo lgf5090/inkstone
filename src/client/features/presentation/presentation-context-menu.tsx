@@ -23,6 +23,7 @@ import {
 import { t } from '../../lib/i18n'
 import { IS_DEMO_MODE } from '../../lib/runtime'
 import { Z_INDEX } from '../../lib/z-index'
+import { useUi } from '../../store/ui'
 import { Menu, type MenuItem } from '../../components/overlay'
 import { presentationKeyCombo } from './presentation-keys'
 import { hasBackwardMove, hasForwardMove, isSafeSlideLinkHref } from './presentation-state'
@@ -82,8 +83,17 @@ function buildLinkItems(linkUrl: string | null): MenuItem[] {
       label: t('workspace.presentation_link_copy'),
       icon: <Copy size={14} />,
       onSelect: () => {
-        // Best-effort clipboard copy: environment or permission restrictions may reject writing.
-        navigator.clipboard?.writeText(linkUrl).catch(() => {})
+        // The row promises an address on the pasteboard, so it has to say when the promise was not kept:
+        // a browser can refuse the clipboard permission, and an embedding surface can withhold the API
+        // entirely. The menu closes either way, and a row that vanishes without a word leaves the
+        // presenter believing the link is ready to paste. Same toast the other copy affordances use.
+        if (!navigator.clipboard) {
+          useUi.getState().toast({ title: t('preview.could_not_copy'), tone: 'danger' })
+          return
+        }
+        navigator.clipboard.writeText(linkUrl).catch(() => {
+          useUi.getState().toast({ title: t('preview.could_not_copy'), tone: 'danger' })
+        })
       },
     },
   ]

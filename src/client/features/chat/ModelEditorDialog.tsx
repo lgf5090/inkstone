@@ -24,6 +24,7 @@ import { t } from '../../lib/i18n'
 import { Field, Input, Segmented, Select, SettingRow, Slider, Switch } from '../../components/form'
 import { Button } from '../../components/primitives'
 import { Modal } from '../../components/overlay'
+import { useUi } from '../../store/ui'
 
 const PURPOSE_KEYS: Record<AssistantModelPurpose, Parameters<typeof t>[0]> = {
   chat: 'assistant.model.purpose.chat',
@@ -141,10 +142,24 @@ export function ModelEditorDialog({
   const [draft, setDraft] = useState<ModelDraft>(() => draftFromModel(model))
   const [more, setMore] = useState(false)
   const [copied, setCopied] = useState(false)
+  const toast = useUi((state) => state.toast)
   const patch = (part: Partial<ModelDraft>) => setDraft((current) => ({ ...current, ...part }))
 
+  // The inline "copied" mark is a claim about the clipboard, so it is drawn only when the write
+  // answered: a browser can refuse the permission, or have no clipboard at all in an insecure context,
+  // and a mark that appears anyway tells the reader the id is in their pasteboard when it is not.
+  // The failure goes to a toast, which is how every other copy affordance in the app reports one.
   const copyId = async () => {
-    await navigator.clipboard?.writeText(model.model).catch(() => undefined)
+    if (!navigator.clipboard) {
+      toast({ title: t('preview.could_not_copy'), tone: 'danger' })
+      return
+    }
+    try {
+      await navigator.clipboard.writeText(model.model)
+    } catch {
+      toast({ title: t('preview.could_not_copy'), tone: 'danger' })
+      return
+    }
     setCopied(true)
     window.setTimeout(() => setCopied(false), COPY_RESET_MS)
   }

@@ -247,6 +247,9 @@ export const useLibrary = create<LibraryState>((set, get) => {
         // lied, so look at the header; the bytes are re-derivable from the book, so the bad one goes.
         const head = new Uint8Array(await blob.slice(0, 16).arrayBuffer())
         if (!coverMediaType(head, null)) {
+          // Eviction of a cache entry that was just refused above: the `return` is what decides the shelf,
+          // so a failed remove leaves a bad blob on disk that no code path reads again — the next bind
+          // re-checks the header and drops it once more.
           await idbRemove(key, store).catch(() => {})
           return
         }
@@ -323,6 +326,9 @@ export const useLibrary = create<LibraryState>((set, get) => {
       const userId = get().userId
       const url = get().covers[id]
       if (url) URL.revokeObjectURL(url)
+      // Evicting this device's cached bytes. The shelf itself is dropped from state below and persisted
+      // with it, so the book is gone from the reader's library whatever these two writes answer; a failed
+      // eviction leaves bytes in the cache under a key nothing reads any more.
       await idbRemove(keyFor(userId, `book:${id}`), store).catch(() => {})
       await idbRemove(keyFor(userId, `cover:${id}`), store).catch(() => {})
       set((state) => {
@@ -351,7 +357,9 @@ export const useLibrary = create<LibraryState>((set, get) => {
         }
       })
       // The server copy goes with it. A failure is reported by the next push, which re-sends the shelf
-      // without this book anyway.
+      // without this book anyway. Checked rather than assumed: the shelf store's `replace()` clears the
+      // user's rows and re-inserts only what the payload holds, so the row this call did not remove is
+      // taken out by that push, and the book cannot arrive back on a pull.
       void deleteBookOnServer(id).catch(() => {})
       schedulePersist(get)
     },
@@ -632,6 +640,9 @@ export async function readBookBlob(userId: string | null, bookId: string): Promi
     const blob = await downloadBookBytes(bookId, (sent, total) => {
       setSync({ ...IDLE_SYNC, phase: 'downloading', bookId, sent, total, at: before.at })
     })
+    // Caching what the caller already has in hand. The blob is returned from this function either way, so
+    // the read the reader asked for is complete; what a failed write costs is the offline copy, and the
+    // next open of this book asks the server again.
     await idbSet(keyFor(userId, `book:${bookId}`), blob, store).catch(() => {})
     setSync({ ...IDLE_SYNC, at: Date.now() })
     return blob

@@ -111,6 +111,10 @@ export async function testAIConnection(
     const latencyMs = Date.now() - startTime;
     if (!res.ok) {
       let errText = `HTTP ${res.status} ${res.statusText}`;
+      // Reading the body only buys a better sentence about a failure that is already certain: `errText`
+      // above is the answer the caller gets when the server sent no JSON, and the `{ ok: false }` below
+      // reports the failure either way. Re-throwing here would replace a status the reader can act on with
+      // a parse error.
       try {
         const errJson = await res.json();
         if (errJson?.error?.message) {
@@ -189,6 +193,8 @@ export async function streamChatCompletion(
 
   if (!res.ok) {
     let errMessage = `Request failed with HTTP ${res.status}`;
+    // As above: the status sentence is the report, the body is only ever a refinement of it, and the
+    // error thrown below reaches `onError` either way.
     try {
       const errJson = await res.json();
       if (errJson?.error?.message) {

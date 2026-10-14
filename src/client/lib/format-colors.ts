@@ -114,6 +114,9 @@ export function pushRecentColor(kind: ColorKind, color: string): void {
         return;
     recent = { ...recent, [kind]: [color, ...recent[kind].filter(item => item !== color)].slice(0, RECENT_COLOR_LIMIT) };
     const storage = readStorage();
+    // The recents the swatch row draws are `recent`, rebuilt above, and the listeners below repaint from
+    // it; this write only remembers them for the next session. Nothing about the colour the reader just
+    // applied depends on it.
     try {
         storage?.setItem(FORMAT_COLOR_STORAGE_KEY, JSON.stringify(recent));
     }

@@ -81,6 +81,9 @@ export function SettingsPanel({ onClose }: {
         warmSettingsSection(next);
         setVisited((current) => current.includes(next) ? current : [...current, next]);
         setSection(next);
+        // Remembering which panel was last open, after `setSection` has switched to it and
+        // `warmSettingsSection` has started the load. A refused write only means the next open starts at
+        // the fallback the read above already answers with.
         try { localStorage.setItem(storageKey, next); } catch { }
     };
     const openPanel = useUi((s) => s.openPanel);

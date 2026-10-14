@@ -389,6 +389,9 @@ function schedulePersist(): void {
   persistTimer = window.setTimeout(() => {
     const serialized = serializedPersistedState(useUi.getState())
     if (serialized === lastPersisted) return
+    // Persistence of state the store already holds: these keys are read back out of the store at runtime,
+    // and `lastPersisted` only advances on a successful write, so the next change retries this one. The
+    // reader's action is reflected on screen whether or not the browser accepts the quota.
     try {
       localStorage.setItem(STORAGE_KEY, serialized)
       lastPersisted = serialized
@@ -697,6 +700,9 @@ export function switchThemeWithTransition(
     apply()
   })
 
+  // The reveal is decoration over a change already made: `apply()` ran inside the transition callback, so
+  // the theme is on screen. `ready` rejects when the browser skips or supersedes the transition, and the
+  // only thing a reader loses then is the circle growing from the button they pressed.
   void transition.ready.then(() => {
     const radius = Math.hypot(
       Math.max(origin.x, innerWidth - origin.x),

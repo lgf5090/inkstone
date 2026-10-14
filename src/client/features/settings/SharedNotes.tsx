@@ -95,6 +95,9 @@ export function SharedNotes() {
 
   const visitNote = async (share: ShareListItem) => {
     if (!useNotes.getState().notes[share.noteId]) {
+      // The line below is this call's error path: a pull that fails leaves the note out of the index, and
+      // the same check then says `source_note_unavailable` out loud. Swallowing here only avoids reporting
+      // the missing note twice — once as a failed sync and once as the truth about the note.
       await pull({ force: true }).catch(() => {})
     }
     if (!useNotes.getState().notes[share.noteId]) {

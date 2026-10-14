@@ -4844,6 +4844,7 @@ console.log(\`Hello, \${name}!\`)
     "mindmap.source": "导图源码",
     "mindmap.search_notes": "搜索笔记",
     "mindmap.fullscreen": "全屏",
+    "mindmap.fullscreen_unavailable": "这个浏览器或界面不支持全屏",
     "mindmap.exit_fullscreen": "退出全屏",
     "mindmap.clear_history": "清空撤销历史",
     "mindmap.history_cleared": "已清空撤销历史",

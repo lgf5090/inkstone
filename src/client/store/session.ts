@@ -260,6 +260,9 @@ export const useSession = create<SessionState>((set, get) => ({
       sessionCacheEpoch++
       const pendingSessionCache = sessionCacheTask
       resetSettingsPersistence(null)
+      // Waiting only for the queue to drain, not for its answer: `localDb.clear()` on the next line wipes
+      // exactly what that write would have written, and the epoch above already turned any task that has
+      // not started into a no-op. Reporting its failure would describe a cache about to be destroyed.
       await pendingSessionCache.catch(() => {})
       await localDb.clear()
       set({ status: 'anonymous', user: null, settings: DEFAULT_SETTINGS })
@@ -408,6 +411,8 @@ async function persistSession(info: SessionInfo): Promise<void> {
   if (info.user) await queueSessionCache(info)
   else {
     sessionCacheEpoch++
+    // Same as the sign-out path: this await exists so no queued write lands after the `clearSession`
+    // below, and the epoch above makes any write that has not started do nothing.
     await sessionCacheTask.catch(() => {})
     await localDb.clearSession()
   }
@@ -437,6 +442,9 @@ function queueSessionCache(info: SessionInfo): Promise<void> {
   const task = sessionCacheTask.then(async () => {
     if (epoch === sessionCacheEpoch) await localDb.saveSession(info)
   })
+  // The chain's own copy of this link. `task` is what the caller above awaits, so a real failure still
+  // reaches it; this handler is what keeps the next queued write chained to a settled promise instead of
+  // to one that already reported, and it is also the handler that marks `task` observed.
   sessionCacheTask = task.catch(() => {})
   return task
 }

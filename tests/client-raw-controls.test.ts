@@ -727,7 +727,7 @@ function rawZIndexSites(): Array<{ key: string; file: string; value: string; for
  * checked by value, so moving one does not clear the entry and changing one fails.
  */
 const RAW_Z_INDEX_BASELINE = new Map<string, { value: string; reason: string }>([
-  ['src/client/features/excalidraw/TextToDiagramModal.tsx:442', { value: '100', reason: 'Inside the Excalidraw host, whose canvas already fixes its own stacking context; the app scale governs the viewport-fixed tiers and reaching for one here would fight the vendor surface.' }],
+  ['src/client/features/excalidraw/TextToDiagramModal.tsx:446', { value: '100', reason: 'Inside the Excalidraw host, whose canvas already fixes its own stacking context; the app scale governs the viewport-fixed tiers and reaching for one here would fight the vendor surface.' }],
   ['src/client/features/graph/graph-panel/overlays.tsx:44', { value: '1', reason: 'Local stacking lift inside the graph panel, not a shell layer.' }],
   ['src/client/features/graph/graph-panel/overlays.tsx:161', { value: '3', reason: 'Local stacking lift inside the graph panel, not a shell layer.' }],
   ['src/client/features/graph/graph-panel/settings.tsx:53', { value: '235', reason: 'The panel’s own settings drawer: deliberately above the workspace tier it opens from and below every prompt, which no band in the scale names. A band would be invented for one site; arithmetic on two bands would be a tier nobody can look up.' }],
@@ -804,15 +804,39 @@ const WORKER_CATCH_BASELINE = new Map<string, { sites: number; reason: string }>
   ['src/worker/routes/transfer.ts', { sites: 1, reason: 'Line 580 rolls attachments back after a failed mapping write; the mapping SQL now lives in transfer/store.ts, but this swallow is the route\'s and a failed rollback has nowhere to report.' }],
 ])
 
-/** Worker swallows with nothing between the braces: an empty `catch {}` or `.catch(() => {})`. */
-function silentWorkerCatches(): string[] {
+/**
+ * One walker for both rules below, so the Worker and the client cannot drift into two different policies.
+ * A site is a rejection discarded with nothing between the braces:
+ *
+ *  - `try { … } catch { }` — a catch clause whose block holds no statement and no character;
+ *  - `.catch(() => {})`, `.catch(function () {})` — the same, in promise form;
+ *  - `.catch(() => undefined)` when `voidHandler` is on: the same no-op written with an expression body,
+ *    which the block test above cannot see. `.catch(() => null)` is deliberately not a site — there the
+ *    handler hands the caller a value it then branches on (the mindmap export's `if (!blob)` and the PDF
+ *    engine's optional metadata both do this), so the rejection was answered, not discarded.
+ *
+ * What makes a block non-blank is anything written inside the braces, so a comment inside it is accepted
+ * as the reason. The client does not use that door — the reason goes above the line, in English, and the
+ * site is still counted and still baselined, exactly as the Worker slice did it. `voidHandler` is off for
+ * the Worker because its 15-file, 24-site baseline was settled against the block form only; three Worker
+ * sites are written this way (assistant/chat-files.ts:132, assistant/mcp-client.ts:203 and
+ * routes/assistant.ts:975) and belong to that slice to disposition, not to this one. The client turns it
+ * on because 54 of its swallows were measured in that spelling at the branch point.
+ */
+function silentCatches(dir: string, voidHandler: boolean): string[] {
   const found: string[] = []
-  for (const pathName of walkFiles(WORKER_DIR)) {
-    if (!pathName.endsWith('.ts')) continue
+  for (const pathName of walkFiles(dir)) {
+    if (!pathName.endsWith('.ts') && !pathName.endsWith('.tsx')) continue
     const name = relative(pathName)
     const text = readText(pathName)
     if (text === null) continue
-    const source = ts.createSourceFile(name, text, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS)
+    const source = ts.createSourceFile(
+      name,
+      text,
+      ts.ScriptTarget.Latest,
+      true,
+      pathName.endsWith('.tsx') ? ts.ScriptKind.TSX : ts.ScriptKind.TS,
+    )
     const innerIsBlank = (block: ts.Node): boolean => text.slice(block.getStart(source) + 1, block.getEnd() - 1).trim().length === 0
     const lineOf = (node: ts.Node) => source.getLineAndCharacterOfPosition(node.getStart()).line + 1
     const visit = (node: ts.Node): void => {
@@ -821,9 +845,15 @@ function silentWorkerCatches(): string[] {
       }
       if (ts.isCallExpression(node) && ts.isPropertyAccessExpression(node.expression) && node.expression.name.text === 'catch') {
         const handler = node.arguments[0]
-        if (handler && (ts.isArrowFunction(handler) || ts.isFunctionExpression(handler)) && handler.body && ts.isBlock(handler.body)) {
-          if (handler.body.statements.length === 0 && innerIsBlank(handler.body)) {
-            found.push(`${name}:${lineOf(node)} — .catch(() => {}) with no comment beside it`)
+        if (handler && (ts.isArrowFunction(handler) || ts.isFunctionExpression(handler))) {
+          if (handler.body && ts.isBlock(handler.body)) {
+            if (handler.body.statements.length === 0 && innerIsBlank(handler.body)) {
+              found.push(`${name}:${lineOf(node)} — .catch(() => {}) with no comment beside it`)
+            }
+          } else if (voidHandler && handler.body) {
+            if (handler.body.getText(source).trim() === 'undefined') {
+              found.push(`${name}:${lineOf(node)} — .catch(() => undefined) with no comment beside it`)
+            }
           }
         }
       }
@@ -832,6 +862,16 @@ function silentWorkerCatches(): string[] {
     visit(source)
   }
   return found
+}
+
+/** Worker swallows with nothing between the braces: an empty `catch {}` or `.catch(() => {})`. */
+function silentWorkerCatches(): string[] {
+  return silentCatches(WORKER_DIR, false)
+}
+
+/** The same read over the client tree, plus the `.catch(() => undefined)` spelling. */
+function silentClientCatches(): string[] {
+  return silentCatches(CLIENT_DIR, true)
 }
 
 describe('worker swallows state their reason beside the catch', () => {
@@ -851,3 +891,80 @@ describe('worker swallows state their reason beside the catch', () => {
     expect(lines, `${lines.length} worker file(s) changed their silent-catch count.`).toEqual([])
   })
 })
+
+/**
+ * The same rule over `src/client`, baselined per file with a reason, both directions enforced exactly as
+ * above. 铁律 2 allows a swallow only when it is genuinely best-effort and says why; a user-facing action
+ * whose rejection nobody ever hears is not that, and the chat copy failure and the mindmap fullscreen
+ * rejection were both turned into visible feedback rather than baselined.
+ */
+const CLIENT_CATCH_BASELINE = new Map<string, { sites: number; reason: string }>([
+  ['src/client/editor/paste.ts', { sites: 1, reason: 'settleUploads: a refused upload falls into the in-document upload_failed marker a few lines below, which is the report the reader sees; the catch keeps one bad file from cancelling every sibling of the same paste.' }],
+  ['src/client/features/chat/assistant-store.ts', { sites: 2, reason: 'dropAttachment releases an object the draft no longer references, and stop sends a cancel after the request was already aborted and the turn marked done locally; both are notices about work the reader can see finished.' }],
+  ['src/client/features/chat/ComposerControls.tsx', { sites: 1, reason: 'prompt() in components/overlay only ever resolves, so the handler has no rejection to swallow — redundant rather than silent, noted beside the line for the gate owner to delete.' }],
+  ['src/client/features/excalidraw/excalidraw-canvas-actions.ts', { sites: 2, reason: 'fitView tries the engine scrollToContent, then zoomToFit, then its own arithmetic: the first two catches only fall through to the next mechanism in the same ladder, and the third is the un-caught answer.' }],
+  ['src/client/features/excalidraw/excalidraw-settings-store.ts', { sites: 1, reason: 'persistSettings writes a localStorage mirror of settings already applied to the in-memory store; a refused write (quota, private mode) costs the next reload, not this change.' }],
+  ['src/client/features/excalidraw/ExcalidrawStandaloneEditor.tsx', { sites: 2, reason: 'One is the code-to-canvas round trip that still switches the view to the canvas it just failed to parse, and one is a localStorage chat-log write for the text-to-diagram panel inside a third-party callback.' }],
+  ['src/client/features/excalidraw/library/ExcalidrawLibraryTree.tsx', { sites: 2, reason: 'A vendor-chunk warm-up whose null state is the one the panel is already in, and the official-catalog prefetch — the modal that draws the catalog asks again on open and owns that error state on screen.' }],
+  ['src/client/features/excalidraw/library/ExcalidrawOfficialLibraryModal.tsx', { sites: 1, reason: 'Unwrapping an addLibrary= query parameter: on a malformed value the download keeps the raw URL it was given, and the fetch that follows reports the failure.' }],
+  ['src/client/features/excalidraw/library/library-store.ts', { sites: 3, reason: 'Two are the localStorage mirror of a manifest held in memory (read side falls back to the server copy), and one is the boot-time name heal whose next real edit carries the rename up regardless.' }],
+  ['src/client/features/excalidraw/library/LibraryFolderRow.tsx', { sites: 1, reason: 'exitFullscreen refuses only when the document is not fullscreen, which the guard on the same line just established it is; unreachable, and the delete continues to its confirmation either way.' }],
+  ['src/client/features/links/LinkEditorPopover.tsx', { sites: 1, reason: 'A debounced heading check on a note this tab does not hold: a rejected read leaves targetState at idle, which the popover renders as not checked rather than as a verified link, and the link the reader saves does not depend on the probe.' }],
+  ['src/client/features/mindmap/mindmap-settings-store.ts', { sites: 1, reason: 'persistSettings writes a localStorage mirror of settings already applied in memory; a refused write costs the next reload only.' }],
+  ['src/client/features/mindmap/MindmapStandaloneEditor.tsx', { sites: 1, reason: 'exitFullscreen on the branch that has just read document.fullscreenElement — unreachable rejection, and the request branch beside it is the one that can genuinely be refused and toasts.' }],
+  ['src/client/features/reading/engine/chapter.ts', { sites: 1, reason: 'A srcset assembled from several resolutions of one image: on failure the element keeps the plain src it was given, so the picture draws and only the resolution switch is lost.' }],
+  ['src/client/features/reading/engine/zip.ts', { sites: 3, reason: 'Two drain a ZipWriter whose error the inflate call already reported, and one cancels a reader being discarded on the over-limit path that throws immediately after.' }],
+  ['src/client/features/reading/reader/FixedStage.tsx', { sites: 1, reason: 'Turning a page cancels the render in flight and PDF.js rejects that promise; the observation exists only so the rejection is not reported as unhandled while the real outcome is read from cancelled below.' }],
+  ['src/client/features/reading/reader/ReaderView.tsx', { sites: 1, reason: 'exitFullscreen under the fullscreenElement guard — unreachable, and the request branch beside it reports its own refusal out loud.' }],
+  ['src/client/features/reading/store/library.ts', { sites: 5, reason: 'Four are evictions and an offline-copy write under keys the shelf no longer reads, and one is deleteBookOnServer whose row the next shelf push drops anyway because replace() re-inserts only the payload it is given.' }],
+  ['src/client/features/reading/store/reader-settings.ts', { sites: 1, reason: 'removeFont evicts bytes for a font already taken out of state and persisted below; a failure leaves bytes under a key the font list no longer names.' }],
+  ['src/client/features/settings/sections.ts', { sites: 2, reason: 'warmSettingsSection prefetches a panel chunk and a resource cache entry; each panel calls the same loader itself and owns the error state beside it (BackupSettings sets loadError from its own catch).' }],
+  ['src/client/features/settings/SettingsPanel.tsx', { sites: 1, reason: 'Remembering which section was last open in localStorage; the section has already been switched in state, and the read beside it falls back to appearance.' }],
+  ['src/client/features/settings/SharedNotes.tsx', { sites: 1, reason: 'visitNote pulls to find a source note, and the same check two lines later is that pull error path — it says source_note_unavailable as a toast; swallowing only avoids reporting the missing note twice.' }],
+  ['src/client/features/settings/TotpSettings.tsx', { sites: 1, reason: 'cancelSetup deletes a pending secret the reader walked away from; the row is bound to this session and expires before the confirm route could read it, and the form is already reset.' }],
+  ['src/client/features/share/SharePage.tsx', { sites: 1, reason: 'Rewriting one asset URL in exported share markup: a href that does not parse or does not match the file route is left as it is and skipped, exactly like the origin check above it.' }],
+  ['src/client/features/tags/tagMutations.ts', { sites: 3, reason: 'Two are the re-read that follows an optimistic rollback whose own failure the caller is told with the server reason, and one is a write queue tail kept un-rejecting so a failed link cannot become an unhandled rejection.' }],
+  ['src/client/features/templates/gallery-actions.ts', { sites: 1, reason: 'communityTemplates.use bumps an author usage counter; the import itself was created and reported on the line above, and nothing on screen reads the count this answers with.' }],
+  ['src/client/lib/ai/stream-client.ts', { sites: 3, reason: 'Two read an error response body for a nicer message and fall back to the HTTP status text they return to the caller, and one skips one malformed SSE frame of a stream that keeps going.' }],
+  ['src/client/lib/calendar-display-prefs.ts', { sites: 1, reason: 'setCalendarDisplayPrefs has already replaced the in-memory value and notified every listener; the localStorage write only carries it to the next load.' }],
+  ['src/client/lib/calendar-prefs.ts', { sites: 1, reason: 'Same shape as the display prefs: state applied and listeners notified first, the storage write is the persistence of a change already in effect.' }],
+  ['src/client/lib/db.ts', { sites: 13, reason: 'Every IndexedDB cache write and eviction in the layer (session, shell, note bodies, search bodies, RSS articles, omnisearch cache), plus the outbox replay lease heartbeat and release whose lease expires on its own after 90 s, and a BroadcastChannel post to tabs that may already be gone.' }],
+  ['src/client/lib/emoji-prefs.ts', { sites: 1, reason: 'writeStorage persists preferences already applied in memory; no storage means the next load re-reads defaults.' }],
+  ['src/client/lib/export-note.ts', { sites: 1, reason: 'Inlining one image into an exported note: a fetch or conversion that fails leaves that img src pointing at the original URL, which is what the same loop does for a non-OK response above.' }],
+  ['src/client/lib/folder-prefs.ts', { sites: 1, reason: 'writeStorage persists preferences already applied in memory.' }],
+  ['src/client/lib/format-colors.ts', { sites: 1, reason: 'pushRecentColor has already rebuilt the recent list in memory and notified listeners; only the cross-session memory of it is lost.' }],
+  ['src/client/lib/i18n.ts', { sites: 1, reason: 'detectInitialLocale reads a saved choice; on a storage it cannot read it falls through to the navigator.language answer two lines below, which is the intended default.' }],
+  ['src/client/lib/image.ts', { sites: 1, reason: 'Closing a bitmap the caller already replaced with an optimized File; the finally block runs on the success path too, and a bitmap that refuses to close has nowhere to be reported from.' }],
+  ['src/client/lib/linter/drive.ts', { sites: 1, reason: 'lintMany refreshes the library after its own toast has already counted what changed and what failed; the bodies this run wrote are in the client own copies.' }],
+  ['src/client/lib/markdown/enhance.ts', { sites: 1, reason: 'getMermaid prefetches the renderer chunk; the diagram that needed it is still drawn by the pass that awaits the same loader and owns its own error state.' }],
+  ['src/client/lib/markdown/excalidraw/registry.tsx', { sites: 1, reason: 'Unmounting a React root on a deferred destroy, after the instance was already removed from the registry; the drawing surface is gone from the document either way.' }],
+  ['src/client/lib/markdown/kanban/ui/kanban-file-preview-modal.tsx', { sites: 1, reason: 'Cancelling a reader that is being discarded on the over-limit path; the TextPreviewTooLargeError thrown on the next line is what the reader is told.' }],
+  ['src/client/lib/sync.ts', { sites: 6, reason: 'Three are a passive cross-tab notice to re-read the session, settings or site — no reader action waits on them and the next auth check or reload re-reads the same fields; three are the engine own pull, replay and bootstrap, where lastPullAt is not advanced on failure so the next scheduled tick retries, the outbox rows a replay did not drain are still queued, and the engine starts regardless in the then below the bootstrap catch.' }],
+  ['src/client/store/note-templates.ts', { sites: 1, reason: 'Mirroring a template library that was just written to the server, after the fetch that answered it; a failed local copy is re-written by the next mutation and re-read on the next boot.' }],
+  ['src/client/store/notes.ts', { sites: 19, reason: 'The outbox and cache bookkeeping around a write that already succeeded or already failed loudly: cross-tab refresh pings, post-mutation re-pulls, markOutboxFailure and advanceOutboxDependents writes whose loss only means a retry, plus a folder reconcile whose next pull rewrites the list.' }],
+  ['src/client/store/pinned-windows.ts', { sites: 1, reason: 'Persisting pinned windows that are live in the store; lastPersisted is only advanced on success, so a refused write is retried by the next change.' }],
+  ['src/client/store/pwa.ts', { sites: 2, reason: 'A background update check fired on visibilitychange, and the guard around registering the service worker at all: an app with no registered worker still runs, it just is not installable or offline-ready.' }],
+  ['src/client/store/quickadd.ts', { sites: 1, reason: 'Mirroring QuickAdd settings that were just pushed and answered by the server; the local row is rewritten by the next mutation and re-read on boot.' }],
+  ['src/client/store/session.ts', { sites: 3, reason: 'Two await an in-flight session cache write purely so it settles before localDb.clear() wipes it on sign-out, and one keeps the queue chain un-rejecting while the caller still awaits the task itself.' }],
+  ['src/client/store/ui.ts', { sites: 2, reason: 'A localStorage write of UI state already applied in the store, and a ViewTransition clip-path reveal that the browser skips when the transition is skipped — the theme change it wraps is applied inside the callback.' }],
+  ['src/client/store/update.ts', { sites: 1, reason: 'writeIgnoredVersion records a dismissal the reader already got; if storage refuses, the same update offer returns on the next check, which is the safe direction.' }],
+])
+
+describe('client swallows state their reason beside the catch', () => {
+  it('fails when a client catch ignores a rejection without a comment', () => {
+    const found = silentClientCatches()
+    const counts = new Map<string, number>()
+    for (const site of found) counts.set(site.split(':')[0], (counts.get(site.split(':')[0]) ?? 0) + 1)
+    const lines: string[] = []
+    for (const [file, sites] of counts) {
+      const allowed = CLIENT_CATCH_BASELINE.get(file)
+      if (allowed === undefined) lines.push(`${file}: ${sites} silent catch(es) — state the reason beside the catch, or baseline it with a reason`)
+      else if (sites > allowed.sites) lines.push(`${file}: ${sites} silent catch(es), the baseline allows ${allowed.sites}`)
+    }
+    for (const [file, allowed] of CLIENT_CATCH_BASELINE) {
+      if (!counts.has(file)) lines.push(`${file}: baseline allows ${allowed.sites} silent catch(es) but the file has none — delete the entry`)
+    }
+    expect(lines, `${lines.length} client file(s) changed their silent-catch count.`).toEqual([])
+  })
+})
+

@@ -128,6 +128,9 @@ function persist(state: PinnedWindowsState): void {
   if (serialized === lastPersisted) return
   window.clearTimeout(persistTimer)
   persistTimer = window.setTimeout(() => {
+    // The open windows are the store's; this is the copy that re-pins them next session. `lastPersisted`
+    // only advances when the write succeeds, so a refused one is retried by the next change instead of
+    // being remembered as done.
     try {
       localStorage.setItem(PINNED_WINDOWS_STORAGE_KEY, serialized)
       lastPersisted = serialized

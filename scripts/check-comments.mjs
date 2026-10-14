@@ -8,6 +8,14 @@ const UPDATE_ARMED = process.env.INKSTONE_COMMENTS_UPDATE === '1'
 const RUNNER_DIRECTIVE = /^\/\/ @vitest-environment [\w-]+$/
 const DECL_BLOCK = '\nconst allowed = new Map([\n'
 const MAP_TAIL = '\n])\n'
+/**
+ * The character class `check-i18n.mjs` rejects, taken unchanged so this cannot be looser or tighter
+ * than the gate it protects. This script holds its allowlist as string literals and `check-i18n`
+ * scans this file, so a Chinese character that was only ever a comment somewhere else arrives here as
+ * text in an allowlisted entry and fails there — reported against this script, with no hint of which
+ * source comment carried it. Reading the same class here names both, at the gate that writes it.
+ */
+const ALLOWLIST_CJK = /[\p{Script=Han}\u3000-\u303f\uff00-\uffef]/u
 
 const allowed = new Map([
   ["scripts/check-comments.mjs", [
@@ -16814,6 +16822,19 @@ Run it deliberately as: INKSTONE_COMMENTS_UPDATE=1 node scripts/check-comments.m
       if (!seen?.has(comment)) {
         failures.push(`${file} no longer contains an approved comment; remove it from the allowlist: ${preview(comment)}`)
       }
+    }
+  }
+  for (const [file, comments] of allowed) {
+    for (const comment of comments) {
+      const match = ALLOWLIST_CJK.exec(comment)
+      if (!match) continue
+      const codePoint = `U+${match[0].codePointAt(0).toString(16).toUpperCase().padStart(4, '0')}`
+      failures.push(
+        `${file} holds a Chinese character (${codePoint}) in an approved comment: ${preview(comment)} — ` +
+          `check-i18n scans this script, so the character reaches the allowlist when it is rebuilt and fails there. ` +
+          `Fix the source comment, not this file: write it in English, and where it has to name Chinese text cite the ` +
+          `code point (${codePoint}) or keep the character in a string literal as a \\uXXXX escape — never in a comment.`,
+      )
     }
   }
 }

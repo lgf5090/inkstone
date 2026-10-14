@@ -246,9 +246,18 @@ export function MindmapStandaloneEditor({ note, content, onChange, onTitleChange
         if (!shell)
             return;
         if (document.fullscreenElement)
+            // Unreachable rejection, not a swallowed one: `exitFullscreen()` refuses only when the document
+            // is not fullscreen, which the line above has just established it is. The catch stays so a
+            // refusal cannot surface as an unhandled rejection; there is nothing to report if it did.
             void document.exitFullscreen().catch(() => {});
         else
-            void shell.requestFullscreen().catch(() => {});
+            // A refusal is the one outcome the reader can act on: they pressed the button and the map did
+            // not go full screen because the browser or the embedding surface said no. The state is driven
+            // by the `fullscreenchange` listener, so nothing else ever tells them — the same sentence the
+            // drawing editor and the presenter show for this case.
+            void shell.requestFullscreen().catch(() => {
+                toast({ title: t('mindmap.fullscreen_unavailable'), tone: 'warning' });
+            });
     }, []);
 
     /** The node an action works on, or nothing at all: acting on a guess edits the wrong branch. */

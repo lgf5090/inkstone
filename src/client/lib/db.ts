@@ -209,6 +209,9 @@ export const localDb = {
 
   async saveSession(info: SessionInfo): Promise<void> {
     if (!info.user) return
+    // Mirroring a session the caller already holds in memory and the server already has in its cookie.
+    // This copy only lets the next start skip a round trip, so a refused write (quota, a database that
+    // closed under us) costs that fast start and nothing else.
     try {
       await bindLocalUser(info.user.id)
       await set(KEY.session, info, store)
@@ -216,6 +219,9 @@ export const localDb = {
     }
   },
 
+  // Dropping the cached session on sign-out. The read side re-checks the stored user id before it trusts
+  // this row, so a delete that fails leaves a record nothing will hand to a later boot; the sign-out the
+  // reader asked for is already finished by the time this runs.
   clearSession: () => del(KEY.session, store).catch(() => {}),
 
   async loadShell(): Promise<{
@@ -253,6 +259,9 @@ export const localDb = {
   },
 
   async saveShell(data: ShellData, userId = activeUserId) {
+    // The boot accelerator for notes, folders, tags and the sync cursor. The live copies of all four are
+    // in the store, and the next pull rewrites these keys from the server, so a write that fails costs a
+    // slower cold start rather than a wrong library.
     try {
       await setMany(
         [
@@ -317,6 +326,11 @@ export const localDb = {
   },
   setContent: (id: string, value: CachedNoteContent) =>
     safeSet(userScopedKey(KEY.content(id)), value),
+  // The batch form is the one the editor's hot path fires without awaiting: these keys record what a note
+  // looked like at last read, and every reader of them falls back to the server when the entry is missing
+  // or fails the shape check above. Unsaved work is the outbox's, not this store's, so a refused batch
+  // costs a round trip on the next open and cannot lose an edit. `dropContent` is the same reasoning for
+  // the key a deleted note no longer names.
   setContentBatch: (entries: Array<[string, CachedNoteContent]>) =>
     entries.length
       ? setMany(entries.map(([id, value]) => [userScopedKey(KEY.content(id)), value] as [string, CachedNoteContent]), store).catch(() => {})
@@ -339,6 +353,10 @@ export const localDb = {
     })
     return out
   },
+  // Excerpt bodies are the search index's own copy of text the library still holds, so both directions of
+  // this cache are rebuildable: a batch the index wrote and this store refused is re-written the next time
+  // the note is indexed, and a key the deletion missed stops being named once the index drops the document.
+  // The `getMany` read beside them already answers a failure with an empty list for the same reason.
   setOmnisearchBodies: (entries: Array<[string, string]>) =>
     entries.length
       ? setMany(
@@ -360,6 +378,8 @@ export const localDb = {
     return safeGet<unknown>(userScopedKey(KEY.omnisearchCache))
   },
   saveOmnisearchCache: (value: unknown) => safeSet(userScopedKey(KEY.omnisearchCache), value),
+  // Clearing a derived index snapshot on sign-out. Its reader falls back to building from the library, and
+  // the key is user-scoped, so nothing downstream can hand this row to another account.
   clearOmnisearchCache: () => del(userScopedKey(KEY.omnisearchCache), store).catch(() => {}),
 
   async loadOmnisearchHistory(): Promise<unknown> {
@@ -427,6 +447,9 @@ export const localDb = {
   },
   saveRssArticles: (cache: RssFeedCache) =>
     safeSet(userScopedKey(KEY.rssArticles(cache.feedId)), cache),
+  // The feed's own row is removed from state by the caller, and these articles are the part the docs above
+  // this method already call rebuildable from the network. Bytes left under a feed id the list no longer
+  // names are trimmed by the cache-size pass; nothing reads them back.
   dropRssArticles: (feedId: string) => del(userScopedKey(KEY.rssArticles(feedId)), store).catch(() => {}),
 
   /** Which feeds the device holds and how large each is, so the cache can be trimmed without
@@ -613,6 +636,10 @@ export const localDb = {
     if (!acquired) return false
 
     const heartbeat = globalThis.setInterval(() => {
+      // Keeping a lease the storage itself times out: `expiresAt` is set 90 s behind every successful
+      // renewal, so a renewal that never lands stops extending the lease rather than stranding anything.
+      // There is no caller here to report to — this is a timer callback — and the task it guards has
+      // already been taken on this tab.
       void update<{ owner: string; expiresAt: number } | null>(
         userScopedKey(KEY.outboxReplayLease),
         (current) => current?.owner === owner
@@ -626,6 +653,9 @@ export const localDb = {
       return true
     } finally {
       globalThis.clearInterval(heartbeat)
+      // Handing the lease back early. The row this write would clear is the one the tab just renewed, and
+      // the same 90 s expiry makes an uncleared one self-correcting; the task's own result has already
+      // been returned above, and a `finally` that threw would replace it.
       await update<{ owner: string; expiresAt: number } | null>(
         userScopedKey(KEY.outboxReplayLease),
         (current) => current?.owner === owner ? null : current ?? null,
@@ -827,6 +857,9 @@ export function createBroadcast(
   }
   return {
     post: (payload) => {
+      // `postMessage` throws when the channel has no port left to write to, which is the state of a tab the
+      // browser has already closed — the one case this cross-tab notice cannot deliver and the reader has no
+      // action for. Nothing awaits `post`, and the receiving tab re-reads through the sync engine anyway.
       try {
         channel.postMessage({ ...payload, userId: activeUserId })
       } catch {

@@ -50,7 +50,13 @@ export function QuickAddSettings() {
 
   useEffect(() => {
     if (!owner) return
-    void hydrateTemplates(owner).catch(() => {})
+    // Logged, not swallowed, and the same way the three other mount hydrations of this library say so
+    // (`quickadd/bridge.ts`, `templates/gallery-state.ts`, `templates/quick-actions.ts`): the panel below
+    // keeps rendering the list it has, so this is a background read rather than an action the reader
+    // pressed, and the console is where its failure belongs.
+    void hydrateTemplates(owner).catch((error: unknown) => {
+      console.warn('[templates] the automation settings could not hydrate the library', error)
+    })
   }, [owner, hydrateTemplates])
 
   const datePreview = useMemo(() => previewDateFormat(settings.dateFormat, locale), [locale, settings.dateFormat])

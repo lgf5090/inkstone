@@ -108,6 +108,10 @@ export class SyncEngine {
 
   private onBroadcast(payload: BroadcastPayload): void {
     if (!payload || typeof payload !== 'object' || typeof payload.type !== 'string') return
+    // The three re-reads below are the answer to another tab's edit, not to anything this tab's reader
+    // asked for. A refused fetch here leaves this tab showing the profile or theme it already had until
+    // the next auth check or a reload, which is the same stale state as a tab that never got the notice;
+    // there is no action here to fail, and a toast about another window's save is noise.
     if (payload.type === 'profile-changed') {
       if (payload.clientId !== CLIENT_ID) {
         void useSession.getState().refresh().catch(() => {})
@@ -290,6 +294,9 @@ export class SyncEngine {
     if (this.disposed) return
     const cursorBefore = useNotes.getState().cursor
     let pulled = false
+    // This is the timer's work, not a reader's. `pulled` stays false, so `lastPullAt` below is not advanced
+    // and the next scheduled tick — or the visibility and focus handlers — asks again; the note store keeps
+    // its own offline status for the UI. Letting either rejection out here would end the engine's loop.
     try {
       await useNotes.getState().pull()
       pulled = true
@@ -376,6 +383,9 @@ export function useSyncEngine(): void {
   // through updateConfig instead of rebuilding the whole engine.
   useEffect(() => {
     let disposed = false
+    // The `then` below is the engine start, and it has to run whether or not the boot fetch answered: an
+    // un-observed rejection here would skip it and leave this tab with no sync at all, which is worse for
+    // the reader than the un-hydrated library the store already shows. The engine first tick pulls again.
     void bootstrap()
       .catch(() => {
 
