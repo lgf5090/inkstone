@@ -1061,6 +1061,7 @@ const allowed = new Map([
     "/**\n   * Ask the engine to bring its library panel back.\n   *\n   * A confirmation dialog is portalled to the body, and the engine closes its sidebar on a pointer\n   * down outside the panel - which is exactly what answering the dialog is. Without this the panel\n   * vanishes behind the dialog and the user is left on a bare canvas having only meant to rename a\n   * folder.\n   */",
     "// The browser used to pay for a 100 kB catalog and a cold upstream on the click itself. Asking",
     "// while the reader is still looking at the panel means the official browser opens at once.",
+    "/* Every LibraryFolderRow writes role=\"treeitem\" and nests its children in a role=\"group\".\n              Those are only tree semantics when a tree owns them, so this wrapper is the tree; left\n              dangling, a screen reader reads the rows as unrelated boxes and never reports the depth\n              the indentation is already drawing. Selection is one folder at a time, which is ARIA's\n              default for a tree, so aria-multiselectable stays unstated rather than repeated. */",
   ]],
   ["src/client/features/excalidraw/library/ExcalidrawOfficialLibraryModal.tsx", [
     "// Whatever the store already holds paints first; the request only fills in or refreshes it.",
@@ -14901,6 +14902,8 @@ const allowed = new Map([
     "// matching that would say the toolbar is painted on a phone when it is still waiting for hover.",
     "// A fresh mount: the hook reads the media query when the row is created, so re-rendering",
     "// the same tree would keep answering with the value it saw the first time.",
+    "/** The wrapper a row’s ARIA is spread onto, one level above the `[data-library-folder]` box. */",
+    "/** The one tree the panel renders, taken by throwing rather than by an optional chain that would\n     * read the same as a row with no tree above it. */",
   ]],
   ["tests/excalidraw-official-catalog-route.test.ts", [
     "/** The route caches the catalog in module scope, so every test needs a freshly imported module. */",
