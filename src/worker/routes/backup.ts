@@ -14,6 +14,7 @@ import {
 import { decryptSecret, encryptSecret } from '../lib/crypto'
 import { ApiError } from '../lib/errors'
 import { isValidId, newId } from '../lib/id'
+import { storedObject } from '../lib/json'
 import { JSON_BODY_LIMITS, readJson, readOptionalJson } from '../lib/request'
 import { assertAttemptBudget, consumeAttemptBudget } from '../lib/throttle'
 import { requireAuth } from '../middleware/auth'
@@ -288,14 +289,7 @@ function mergeTargetInput(
 }
 
 function safeObject(raw: string): Record<string, unknown> {
-  try {
-    const value = JSON.parse(raw)
-    return value && typeof value === 'object' && !Array.isArray(value)
-      ? (value as Record<string, unknown>)
-      : {}
-  } catch {
-    return {}
-  }
+  return storedObject(raw)
 }
 
 function mergeSecret(

@@ -5,6 +5,7 @@ import type { CommunityTemplate, CommunityTemplateInput } from '@shared/types'
 import type { AppBindings } from '../env'
 import { ApiError } from '../lib/errors'
 import { isValidId, newId } from '../lib/id'
+import { storedStringArray } from '../lib/json'
 import { JSON_BODY_LIMITS, readJson } from '../lib/request'
 import { assertAttemptBudget, consumeAttemptBudget } from '../lib/throttle'
 import { requireAuth } from '../middleware/auth'
@@ -38,14 +39,7 @@ const COMMUNITY_FROM = `FROM community_templates ct
   LEFT JOIN users u ON u.id = ct.author_id`
 
 function toCommunityTemplate(row: CommunityRow): CommunityTemplate {
-  let tags: string[] = []
-  try {
-    const parsed = JSON.parse(row.tags) as unknown
-    if (Array.isArray(parsed)) tags = parsed.filter((tag): tag is string => typeof tag === 'string')
-  }
-  catch {
-    tags = []
-  }
+  const tags = storedStringArray(row.tags)
   return {
     id: row.id,
     authorId: row.author_id,

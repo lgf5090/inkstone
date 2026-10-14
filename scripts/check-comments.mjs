@@ -14338,6 +14338,12 @@ const allowed = new Map([
   ["src/worker/lib/internal-auth.ts", [
     "/**\n * The Durable Object guard is opt-in, but a secret that was created and left blank reads\n * as falsy, which silently switches the guard off. Say so instead.\n */",
   ]],
+  ["src/worker/lib/json.ts", [
+    "/**\n * Reading back a column this app wrote as JSON.\n *\n * Four routes each used to carry their own copy of the same three lines — `JSON.parse` inside a\n * `try`, one `typeof` guard, `{}` on failure — and each copy silently settled for a different\n * shape when the stored text was not a plain object. These are the three shapes a stored column\n * actually holds, so the shape a route asks for is the one it gets. A malformed or hand-edited row\n * is a data problem to recover from, never a reason to fail the request that reads it, so every\n * one of these answers with its fallback rather than throwing.\n */",
+    "/** The parsed value, or `undefined` when the text is not valid JSON. */",
+    "/** A plain object, or `{}` for anything else — an array, a primitive, or malformed text. */",
+    "/** The members of a stored JSON array, keeping only the ones that are strings. */",
+  ]],
   ["src/worker/lib/no-redirect.ts", [
     "/**\n * workerd accepts only `follow` and `manual` for `RequestRedirect`; passing `'error'` throws before the\n * request leaves the isolate, so an endpoint that meant to refuse redirects instead reports every upstream\n * as unreachable. Node (the vite dev proxy) does accept `'error'`, which is why a local unit test on the\n * literal never sees this. Guard the status ourselves instead.\n */",
   ]],

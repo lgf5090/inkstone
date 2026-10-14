@@ -6,6 +6,7 @@ import { ApiError } from '../lib/errors'
 import { commitChange } from '../lib/notify'
 import { setAllowRegistration } from '../lib/instance-settings'
 import { requireCurrentPassword } from '../lib/reauth'
+import { storedObject } from '../lib/json'
 import { JSON_BODY_LIMITS, readJson } from '../lib/request'
 import { requireAuth } from '../middleware/auth'
 
@@ -94,10 +95,5 @@ settingsRoutes.get('/stats', async (c) => {
 })
 
 function parse(raw: string): Record<string, unknown> {
-  try {
-    const value = JSON.parse(raw)
-    return value && typeof value === 'object' ? (value as Record<string, unknown>) : {}
-  } catch {
-    return {}
-  }
+  return storedObject(raw)
 }
