@@ -30,6 +30,8 @@ import {
   type NoteRow,
   type NoteTagRow,
 } from '../db/rows'
+import { buildNoteDerivedStatements } from '../db/writes'
+import { noteIndexQueueStatement } from '../mcp/ai-search'
 
 /**
  * The last row of a page, in the order the listing sorted it.
@@ -73,10 +75,54 @@ export interface NotesListPage {
   total: number | null
 }
 
+/** A note the route has validated, hashed and measured; `id` and `now` were chosen by the route. */
+export interface NoteCreateInput {
+  id: string
+  folderId: string | null
+  title: string
+  content: string
+  excerpt: string
+  words: number
+  chars: number
+  isStarred: boolean
+  contentHash: string
+  now: number
+}
+
+/** The same note copied from another: the archive state comes from the source, and nothing is starred. */
+export interface NoteDuplicateInput {
+  id: string
+  folderId: string | null
+  title: string
+  content: string
+  excerpt: string
+  words: number
+  chars: number
+  isArchived: number
+  contentHash: string
+  now: number
+}
+
+export interface NoteWriteResult {
+  /** `null` only for `create`, whose insert ignores an id that turned out to be taken. */
+  row: NoteRow | null
+  /** The `changes` row this write produced, for the cursor the route broadcasts. */
+  changeSeq: number | undefined
+  /** False when the guarded update matched nothing — somebody else had the note open. */
+  created: boolean
+}
+
 export class NotesStore {
   constructor(
     private readonly db: D1Database,
     readonly userId: string,
+    /**
+     * Whether this database has the FTS index.
+     *
+     * It is a property of the connection, decided once per request by `db/fts.ts`, and every write
+     * here queues an index update only when it is set.
+     */
+    readonly ftsEnabled: boolean,
   ) {}
 
   /**
@@ -286,5 +332,113 @@ export class NotesStore {
       .bind(folderId, this.userId)
       .first<{ id: string }>()
     return row !== null
+  }
+
+  // ----------------------------------------------------------------- writes
+
+  /**
+   * A note to create: every column the route has already validated and derived.
+   *
+   * `contentHash`, `excerpt`, `words` and `chars` are computed by the route because they are rules
+   * about the text, not about the row; the store must not be the place that decides them twice.
+   */
+  async create(input: NoteCreateInput): Promise<NoteWriteResult> {
+    const insert = this.db.prepare(
+      `INSERT OR IGNORE INTO notes (id, user_id, folder_id, title, content, excerpt, rev, word_count, char_count,
+         is_pinned, is_starred, is_archived, position, content_hash, created_at, updated_at)
+       VALUES (?1, ?2, ?3, ?4, ?5, ?6, 1, ?7, ?8, 0, ?9, 0, ?10, ?11, ?12, ?12)`,
+    )
+      .bind(
+        input.id, this.userId, input.folderId, input.title, input.content, input.excerpt,
+        input.words, input.chars, input.isStarred ? 1 : 0, input.now, input.contentHash, input.now,
+      )
+    const derived = buildNoteDerivedStatements({
+      db: this.db,
+      userId: this.userId,
+      noteId: input.id,
+      title: input.title,
+      content: input.content,
+      ftsEnabled: this.ftsEnabled,
+      expectedRev: 1,
+      expectedContentHash: input.contentHash,
+      expectedTitle: input.title,
+      expectedUpdatedAt: input.now,
+    }).statements
+    const createChange = this.db.prepare(
+      `INSERT INTO changes (user_id, entity, entity_id, op, at)
+       SELECT ?1, 'note', ?2, 'upsert', ?3
+        WHERE EXISTS (
+          SELECT 1 FROM notes
+           WHERE id = ?2 AND user_id = ?1 AND rev = 1
+             AND content_hash = ?4 AND title = ?5 AND created_at = ?3 AND updated_at = ?3
+        )
+       RETURNING seq`,
+    ).bind(this.userId, input.id, input.now, input.contentHash, input.title)
+    const readback = this.db.prepare(
+      `SELECT ${NOTE_COLUMNS_FULL} FROM notes n WHERE n.id = ?1 AND n.user_id = ?2`,
+    ).bind(input.id, this.userId)
+    // One batch: the `INSERT OR IGNORE`, its derived rows, the guarded change record and the readback
+    // either all land against the same revision or none of them describe the note to anyone.
+    const batchResults = await this.db.batch([
+      insert,
+      ...derived,
+      noteIndexQueueStatement(this.db, this.userId, input.id, 'embed', input.now),
+      createChange,
+      readback,
+    ])
+    return {
+      row: (batchResults.at(-1) as D1Result<NoteRow>).results?.[0] ?? null,
+      changeSeq: (batchResults.at(-2) as D1Result<{ seq: number }>).results?.[0]?.seq,
+      created: Boolean(batchResults[0]?.meta.changes),
+    }
+  }
+
+  /**
+   * A copy of an existing note, kept in the same folder and archive state as the original.
+   *
+   * Unlike `create` the insert is not `OR IGNORE`, and the change record is unconditional: the id was
+   * chosen by this method or already proved free, so a lost race here is a real failure the route
+   * reports after re-checking the id.
+   */
+  async duplicate(input: NoteDuplicateInput): Promise<NoteWriteResult> {
+    const insert = this.db.prepare(
+      `INSERT INTO notes (id, user_id, folder_id, title, content, excerpt, rev, word_count, char_count,
+         is_pinned, is_starred, is_archived, position, content_hash, created_at, updated_at)
+       VALUES (?1, ?2, ?3, ?4, ?5, ?6, 1, ?7, ?8, 0, 0, ?9, ?10, ?11, ?12, ?12)`,
+    )
+      .bind(
+        input.id, this.userId, input.folderId, input.title, input.content, input.excerpt,
+        input.words, input.chars, input.isArchived, input.now, input.contentHash, input.now,
+      )
+    const derived = buildNoteDerivedStatements({
+      db: this.db,
+      userId: this.userId,
+      noteId: input.id,
+      title: input.title,
+      content: input.content,
+      ftsEnabled: this.ftsEnabled,
+      expectedRev: 1,
+      expectedContentHash: input.contentHash,
+      expectedTitle: input.title,
+      expectedUpdatedAt: input.now,
+    }).statements
+    const change = this.db.prepare(
+      `INSERT INTO changes (user_id, entity, entity_id, op, at) VALUES (?1, 'note', ?2, 'upsert', ?3) RETURNING seq`,
+    ).bind(this.userId, input.id, input.now)
+    const readback = this.db.prepare(
+      `SELECT ${NOTE_COLUMNS_FULL} FROM notes n WHERE n.id = ?1 AND n.user_id = ?2`,
+    ).bind(input.id, this.userId)
+    const batchResults = await this.db.batch([
+      insert,
+      ...derived,
+      noteIndexQueueStatement(this.db, this.userId, input.id, 'embed', input.now),
+      change,
+      readback,
+    ])
+    return {
+      row: (batchResults.at(-1) as D1Result<NoteRow>).results?.[0] ?? null,
+      changeSeq: (batchResults.at(-2) as D1Result<{ seq: number }>).results?.[0]?.seq,
+      created: true,
+    }
   }
 }

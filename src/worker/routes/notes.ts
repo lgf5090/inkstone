@@ -19,6 +19,7 @@ import { assertNoteQuota } from '../db/quota'
 import {
   NotesStore,
   type NotesListCursor,
+  type NoteWriteResult,
   type ParsedNotesListCursor,
 } from '../notes/store'
 import { acquireLease } from '../lib/lease'
@@ -63,7 +64,7 @@ const TRASH_EMPTY_BATCH = 500
  * turns that record into a response; no statement is built here.
  */
 function store(c: Context<AppBindings>): NotesStore {
-  return new NotesStore(c.env.DB, c.get('userId'))
+  return new NotesStore(c.env.DB, c.get('userId'), c.get('database').ftsEnabled)
 }
 
 
@@ -220,7 +221,6 @@ notesRoutes.get('/:id', async (c) => {
 
 notesRoutes.post('/', async (c) => {
   const userId = c.get('userId')
-  const { ftsEnabled } = c.get('database')
   const body = await readJson<CreateNoteBody>(c, JSON_BODY_LIMITS.note)
 
   if (body.content !== undefined && typeof body.content !== 'string') {
@@ -258,55 +258,26 @@ notesRoutes.post('/', async (c) => {
   const [hash] = await Promise.all([sha256Hex(content), assertNoteQuota(c.env.DB, userId)])
   const folderId = await resolveFolderId(c, body.folderId ?? null)
 
-  const insert = c.env.DB.prepare(
-    `INSERT OR IGNORE INTO notes (id, user_id, folder_id, title, content, excerpt, rev, word_count, char_count,
-       is_pinned, is_starred, is_archived, position, content_hash, created_at, updated_at)
-     VALUES (?1, ?2, ?3, ?4, ?5, ?6, 1, ?7, ?8, 0, ?9, 0, ?10, ?11, ?12, ?12)`,
-  )
-    .bind(id, userId, folderId, title, content, excerpt, words, chars, body.isStarred ? 1 : 0, now, hash, now)
-  const derived = buildNoteDerivedStatements({
-    db: c.env.DB,
-    userId,
-    noteId: id,
+  const { row, changeSeq, created } = await store(c).create({
+    id,
+    folderId,
     title,
     content,
-    ftsEnabled,
-    expectedRev: 1,
-    expectedContentHash: hash,
-    expectedTitle: title,
-    expectedUpdatedAt: now,
-  }).statements
-  const createChange = c.env.DB.prepare(
-    `INSERT INTO changes (user_id, entity, entity_id, op, at)
-     SELECT ?1, 'note', ?2, 'upsert', ?3
-      WHERE EXISTS (
-        SELECT 1 FROM notes
-         WHERE id = ?2 AND user_id = ?1 AND rev = 1
-           AND content_hash = ?4 AND title = ?5 AND created_at = ?3 AND updated_at = ?3
-      )
-     RETURNING seq`,
-  ).bind(userId, id, now, hash, title)
-  const readback = c.env.DB.prepare(
-    `SELECT ${NOTE_COLUMNS_FULL} FROM notes n WHERE n.id = ?1 AND n.user_id = ?2`,
-  ).bind(id, userId)
-  const batchResults = await c.env.DB.batch([
-    insert,
-    ...derived,
-    noteIndexQueueStatement(c.env.DB, userId, id, 'embed', now),
-    createChange,
-    readback,
-  ])
-  const insertResult = batchResults[0]
-  const created = (batchResults.at(-1) as D1Result<NoteRow>).results?.[0]
-  if (!created) throw ApiError.conflict('This note id is already in use')
-  const changeSeq = (batchResults.at(-2) as D1Result<{ seq: number }>).results?.[0]?.seq
+    excerpt,
+    words,
+    chars,
+    isStarred: Boolean(body.isStarred),
+    contentHash: hash,
+    now,
+  })
+  if (!row) throw ApiError.conflict('This note id is already in use')
   await broadcastCursor(c, changeSeq)
-  if (insertResult?.meta.changes) {
+  if (created) {
     scheduleFtsDrain(c)
     scheduleAiDrainForNote(c, userId)
   }
-  const note = toNote(created)
-  return c.json(note, insertResult?.meta.changes ? 201 : 200)
+  const note = toNote(row)
+  return c.json(note, created ? 201 : 200)
 })
 
 notesRoutes.patch('/:id', async (c) => {
@@ -737,7 +708,6 @@ notesRoutes.delete('/:id/purge', async (c) => {
 
 notesRoutes.post('/:id/duplicate', async (c) => {
   const userId = c.get('userId')
-  const { ftsEnabled } = c.get('database')
   const source = await loadNoteRow(store(c), c.req.param('id'))
   const body = c.req.header('Content-Type')?.includes('application/json')
     ? await readJson<{ id?: string }>(c, JSON_BODY_LIMITS.small)
@@ -758,70 +728,36 @@ notesRoutes.post('/:id/duplicate', async (c) => {
   // The quota read rides along with hashing instead of adding a serial round trip.
   const [hash] = await Promise.all([sha256Hex(content), assertNoteQuota(c.env.DB, userId)])
 
-  const insert = c.env.DB.prepare(
-    `INSERT INTO notes (id, user_id, folder_id, title, content, excerpt, rev, word_count, char_count,
-       is_pinned, is_starred, is_archived, position, content_hash, created_at, updated_at)
-     VALUES (?1, ?2, ?3, ?4, ?5, ?6, 1, ?7, ?8, 0, 0, ?9, ?10, ?11, ?12, ?12)`,
-  )
-    .bind(
+  let outcome: NoteWriteResult
+  try {
+    outcome = await store(c).duplicate({
       id,
-      userId,
-      source.folder_id,
+      folderId: source.folder_id,
       title,
       content,
-      source.excerpt,
-      source.word_count,
-      source.char_count,
-      source.is_archived,
+      excerpt: source.excerpt,
+      words: source.word_count,
+      chars: source.char_count,
+      isArchived: source.is_archived,
+      contentHash: hash,
       now,
-      hash,
-      now,
-    )
-  const derived = buildNoteDerivedStatements({
-    db: c.env.DB,
-    userId,
-    noteId: id,
-    title,
-    content,
-    ftsEnabled,
-    expectedRev: 1,
-    expectedContentHash: hash,
-    expectedTitle: title,
-    expectedUpdatedAt: now,
-  }).statements
-  const duplicateChange = c.env.DB.prepare(
-    `INSERT INTO changes (user_id, entity, entity_id, op, at) VALUES (?1, 'note', ?2, 'upsert', ?3) RETURNING seq`,
-  ).bind(userId, id, now)
-  const duplicateReadback = c.env.DB.prepare(
-    `SELECT ${NOTE_COLUMNS_FULL} FROM notes n WHERE n.id = ?1 AND n.user_id = ?2`,
-  ).bind(id, userId)
-  let batchResults: D1Result[]
-  try {
-    batchResults = await c.env.DB.batch([
-      insert,
-      ...derived,
-      noteIndexQueueStatement(c.env.DB, userId, id, 'embed', now),
-      duplicateChange,
-      duplicateReadback,
-    ])
+    })
   } catch (error) {
     if (body.id) {
-      const existing = await c.env.DB.prepare(
-        `SELECT ${NOTE_COLUMNS_FULL} FROM notes n WHERE n.id = ?1 AND n.user_id = ?2`,
-      ).bind(id, userId).first<NoteRow>()
+      // The batch failed on the id: answer with the note that got there first when it is this
+      // account's, and with a conflict when it is somebody else's.
+      const existing = await store(c).noteRow(id)
       if (existing) return c.json(toNote(existing))
-      const collision = await c.env.DB.prepare(`SELECT user_id FROM notes WHERE id = ?1`)
-        .bind(id)
-        .first<{ user_id: string }>()
-      if (collision) throw ApiError.conflict('This note id is already in use')
+      if (await store(c).idTakenByAnyone(id)) throw ApiError.conflict('This note id is already in use')
     }
     throw error
   }
-  const duplicateSeq = (batchResults.at(-2) as D1Result<{ seq: number }>).results?.[0]?.seq
-  await broadcastCursor(c, duplicateSeq)
+  await broadcastCursor(c, outcome.changeSeq)
   scheduleFtsDrain(c)
   scheduleAiDrainForNote(c, userId)
-  const note = toNote((batchResults.at(-1) as D1Result<NoteRow>).results[0]!)
+  // The readback rides in the same batch as the insert, so a missing row is a broken invariant
+  // rather than a state a client can reach.
+  const note = toNote(outcome.row!)
   return c.json(note, 201)
 })
 
