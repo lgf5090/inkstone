@@ -257,7 +257,7 @@ function scan(): { rawButtons: Site[]; fakeControls: Site[]; clickContainers: Cl
         if (tag === 'button') rawButtons.push({ file: name, line, named: hasAccessibleName(node, attributes) })
         // Only a written-out role: one passed as an expression is read at runtime, and the browser
         // gates are what read it.
-        if ((tag === 'div' || tag === 'span') && literalValue(attributes.get('role') ?? null) === 'button')
+        if ((tag === 'div' || tag === 'span') && literalValue(attributes.get('role')) === 'button')
           fakeControls.push({ file: name, line, named: false })
       }
       ts.forEachChild(node, visit)
@@ -275,7 +275,7 @@ const HIT_TARGET_ATTRIBUTES = ['onClick', 'onPointerDown', 'onMouseDown']
 /** Whether this element is a control: the tag says so, or a literal role on it does. */
 function isControl(tag: string, attributes: Map<string, ts.JsxAttribute['initializer']>): boolean {
   if (CONTROL_TAGS.has(tag)) return true
-  const role = literalValue(attributes.get('role') ?? null)
+  const role = literalValue(attributes.get('role'))
   return role !== null && CONTROL_ROLES.has(role)
 }
 
@@ -535,7 +535,7 @@ const LIST_FILTER_BASELINE = new Map<string, { sites: number; reason: string }>(
 
 function isFilterishInput(node: ts.JsxOpeningElement | ts.JsxSelfClosingElement): boolean {
   const attributes = attributesOf(node)
-  const type = literalValue(attributes.get('type') ?? null) ?? ''
+  const type = literalValue(attributes.get('type')) ?? ''
   if (!FILTER_TEXT_TYPES.has(type)) return false
   // A named field is a filter only if it is labelled like one; a typeless form row is not.
   if (!FILTER_LABEL_PROPS.some((name) => attributes.has(name))) return false

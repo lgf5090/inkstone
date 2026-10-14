@@ -9,6 +9,7 @@ import { KanbanBatchBar } from '../src/client/lib/markdown/kanban/ui/kanban-batc
 import { KanbanFilterPopover } from '../src/client/lib/markdown/kanban/ui/kanban-filter-popover'
 import { KanbanSortPopover } from '../src/client/lib/markdown/kanban/ui/kanban-sort-popover'
 import { KanbanViewOptions } from '../src/client/lib/markdown/kanban/ui/kanban-view-options'
+import type { KanbanSchemaOperations } from '../src/client/lib/markdown/kanban/ui/kanban-column-hooks'
 
 /**
  * The board's panels were built out of native controls: ten `<select>`s with hand-written borders
@@ -77,7 +78,7 @@ const COLUMNS: KanbanProperty[] = [
 ]
 
 const SORTS: KanbanSort[] = [{ propertyId: 'points', direction: 'asc' }]
-const FILTERS: KanbanFilter[] = [{ propertyId: 'stage', operator: 'is', value: 's1' }]
+const FILTERS: KanbanFilter[] = [{ propertyId: 'stage', operator: 'equals', value: 's1' }]
 
 function mount(node: ReactNode) {
   const rendered = renderElement(node)
@@ -87,12 +88,15 @@ function mount(node: ReactNode) {
 
 const anchorRef: RefObject<HTMLElement | null> = { current: null }
 
-const SCHEMA_OPS = {
+// Typed as the panel's own contract, so a column operation the component grows cannot be dropped
+// from this fixture in silence.
+const SCHEMA_OPS: KanbanSchemaOperations = {
   renameColumn: vi.fn(),
   changeColumnType: vi.fn(),
   moveColumn: vi.fn(),
   deleteColumn: vi.fn(),
   addColumn: vi.fn(),
+  resizeColumn: vi.fn(),
 }
 
 /**
@@ -178,7 +182,10 @@ describe('the board draws its panels with the component system', () => {
     '%s draws every picker through the shared Select',
     (name, build) => {
       const container = build()
-      const selects = [...container.querySelectorAll<HTMLSelectElement>('select')]
+      // Answered through the tag name rather than `querySelectorAll<HTMLSelectElement>`: the workers
+      // global `Element` is a different interface from jsdom's, and a type argument of
+      // `HTMLSelectElement` no longer satisfies its constraint.
+      const selects = [...container.querySelectorAll('select')]
       expect(selects.length, `${name} drew no picker at all`).toBeGreaterThan(0)
       const native = selects.filter((select) => !isComponentSelect(select))
       expect(native.map((select) => select.getAttribute('aria-label') ?? select.outerHTML.slice(0, 80))).toEqual([])
@@ -196,7 +203,6 @@ describe('the board draws its panels with the component system', () => {
         columns: COLUMNS,
         groupBy: 'stage',
         onChangeGroupBy: vi.fn(),
-        groupByCardSize: undefined,
         cardSize: 'medium',
         onChangeCardSize: vi.fn(),
       }),
