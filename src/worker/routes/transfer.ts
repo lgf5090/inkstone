@@ -14,7 +14,7 @@ import {
 import { LIMITS } from '@shared/constants'
 import { formatBytes } from '@shared/byte-format'
 import { countText, deriveExcerpt, deriveTitle, splitFrontMatter } from '@shared/markdown-utils'
-import { truncateText, utf8ByteLength } from '@shared/text-utils'
+import { truncateText } from '@shared/text-utils'
 import { organizerColorOrNull } from '@shared/organizer-colors'
 import type { ExportBundle, ImportResult } from '@shared/types'
 import {
@@ -26,14 +26,15 @@ import {
   hasAttachmentStorage,
   selectAttachmentStorage,
 } from '../attachments/backend'
-import { type AttachmentObjectStorage } from '../attachments/keys'
 import type { AppBindings } from '../env'
+import { pruneOrphanTags } from '../db/writes'
 import {
-  buildNoteDerivedStatements,
-  pruneOrphanTags,
-  runBatched,
-} from '../db/writes'
-import { noteIndexQueueStatement, scheduleAiDrain } from '../mcp/ai-search'
+  TransferStore,
+  type ExistingAttachmentRow,
+  type ExistingNoteIndex,
+  type TagRestoreRow,
+} from '../transfer/store'
+import { scheduleAiDrain } from '../mcp/ai-search'
 import { consumeNoteQuota, openNoteQuotaBudget, type NoteQuotaBudget } from '../db/quota'
 import {
   assertBundleCanBeRestored,
@@ -153,6 +154,7 @@ transferRoutes.get('/export', async (c) => {
 transferRoutes.post('/import', async (c) => {
   const userId = c.get('userId')
   const { ftsEnabled } = c.get('database')
+  const store = new TransferStore(c.env.DB, userId, ftsEnabled)
   const form = await readFormDataWithinLimit(c.req, FORM_BODY_LIMITS.import)
 
   const conflict = parseImportConflict(form.get('conflict'))
@@ -190,12 +192,13 @@ transferRoutes.post('/import', async (c) => {
 
   const folderCache = new Map<string, string>()
   if (!backupManifest || backupManifest.notes.length) {
-    await primeFolderCache(c.env.DB, userId, folderCache)
+    await primeFolderCache(store, folderCache)
   }
 
   if (backupManifest) {
     try {
       await importBackupFileBatch(c, userId, selectedFiles, backupManifest, {
+        store,
         conflict,
         byId,
         folderCache,
@@ -266,7 +269,7 @@ transferRoutes.post('/import', async (c) => {
               path: entry.path.slice(backup.rootPrefix.length),
             })),
             backup.manifest,
-            { conflict, byId, folderCache, result, ftsEnabled },
+            { store, conflict, byId, folderCache, result, ftsEnabled },
           )
           continue
         }
@@ -287,6 +290,7 @@ transferRoutes.post('/import', async (c) => {
               })
             : []
           await importBundle(c, userId, rawBundle, {
+            store,
             conflict,
             byId,
             folderCache,
@@ -307,6 +311,7 @@ transferRoutes.post('/import', async (c) => {
           for (const entry of entries) {
             if (!isMarkdownPath(entry.path)) continue
             await importMarkdown(c, userId, entry.path, new TextDecoder().decode(entry.data), {
+              store,
               folderCache,
               result,
               ftsEnabled,
@@ -319,6 +324,7 @@ transferRoutes.post('/import', async (c) => {
           throw new Error(`The export file cannot exceed ${formatBytes(LIMITS.importBundleMaxBytes)}`)
         }
         await importBundle(c, userId, JSON.parse(await file.text()), {
+          store,
           conflict,
           byId,
           folderCache,
@@ -330,6 +336,7 @@ transferRoutes.post('/import', async (c) => {
           throw new Error(`Note content cannot exceed ${formatBytes(LIMITS.contentMaxBytes)}`)
         }
         await importMarkdown(c, userId, selected.path, await file.text(), {
+          store,
           folderCache,
           result,
           ftsEnabled,
@@ -357,6 +364,13 @@ transferRoutes.post('/import', async (c) => {
 
 
 interface ImportContext {
+  /**
+   * The account's D1 access, bound once per request.
+   *
+   * Every statement these helpers need lives in `transfer/store.ts`; the route validates, decides and
+   * shapes the answer, and asks this object for rows.
+   */
+  store: TransferStore
   conflict?: ImportConflict
   byId?: Map<string, ExistingNoteIndex | null>
   folderCache: Map<string, string>
@@ -471,7 +485,7 @@ async function importBackupFileBatch(
   const plannedNoteIds = planned
     .map((item) => item.note?.id)
     .filter(Boolean) as string[]
-  await prefetchExistingNoteIndexes(c.env.DB, userId, plannedNoteIds, ctx)
+  await prefetchExistingNoteIndexes(plannedNoteIds, ctx)
   for (const item of planned.filter((entry) => entry.note)) {
     const entry = item.note!
     const bytes = new Uint8Array(await item.file.arrayBuffer())
@@ -532,7 +546,7 @@ async function importBackupAttachment(
     sha256: entry.sha256,
     createdAt: validTimestamp(entry.createdAt) || Date.now(),
   }
-  const restored = await findRestoredAttachment(env.DB, userId, entry.sha256)
+  const restored = await ctx.store.restoredAttachment(entry.sha256)
   if (restored.mapped?.user_id === userId
     && await existingAttachmentMatches(env, restored.mapped, candidate)) {
     ctx.result.skippedAttachments++
@@ -541,7 +555,7 @@ async function importBackupAttachment(
 
   const sameContent = restored.byHash
   if (sameContent && await existingAttachmentMatches(env, sameContent, candidate)) {
-    await upsertImportMappings(env.DB, userId, 'attachment', [
+    await ctx.store.upsertImportMappings('attachment', [
       { sourceId: entry.sha256, targetId: sameContent.id },
     ])
     ctx.result.skippedAttachments++
@@ -558,7 +572,7 @@ async function importBackupAttachment(
     createdAt: candidate.createdAt,
   })
   try {
-    await upsertImportMappings(env.DB, userId, 'attachment', [
+    await ctx.store.upsertImportMappings('attachment', [
       { sourceId: entry.sha256, targetId: persisted.id },
     ])
   } catch (error) {
@@ -566,36 +580,6 @@ async function importBackupAttachment(
     throw error
   }
   ctx.result.createdAttachments++
-}
-
-/**
- * The two lookups a restored attachment needs — the import mapping for this hash, and the
- * oldest attachment that already carries this hash — in one round trip. They used to run as
- * separate queries for every entry of a restore.
- */
-async function findRestoredAttachment(
-  db: D1Database,
-  userId: string,
-  sha256: string,
-): Promise<{ mapped?: ExistingAttachmentRow, byHash?: ExistingAttachmentRow }> {
-  const [mapping, hash] = await db.batch([
-    db.prepare(
-      `SELECT a.id, a.user_id, a.filename, a.mime, a.size, a.sha256, a.storage
-         FROM import_mappings m
-         JOIN attachments a ON a.id = m.target_id AND a.user_id = m.user_id
-        WHERE m.user_id = ?1 AND m.entity = 'attachment' AND m.source_id = ?2`,
-    ).bind(userId, sha256),
-    db.prepare(
-      `SELECT id, user_id, filename, mime, size, sha256, storage
-         FROM attachments
-        WHERE user_id = ?1 AND sha256 = ?2
-        ORDER BY created_at ASC, id ASC LIMIT 1`,
-    ).bind(userId, sha256),
-  ])
-  return {
-    mapped: mapping?.results?.[0] as ExistingAttachmentRow | undefined,
-    byHash: hash?.results?.[0] as ExistingAttachmentRow | undefined,
-  }
 }
 
 const BACKUP_ATTACHMENT_URL_RE =
@@ -611,7 +595,7 @@ async function importBackupMarkdown(
 ): Promise<void> {
   const hashes = entry.attachmentHashes
   const expectedHashes = new Set(hashes)
-  const attachmentIds = await loadBackupAttachmentTargets(c.env.DB, userId, hashes)
+  const attachmentIds = await ctx.store.attachmentTargetsByHash(hashes)
   for (const hash of hashes) {
     if (!attachmentIds.has(hash)) throw new Error(`Restore the referenced attachment before this note: ${entry.path}`)
   }
@@ -628,7 +612,7 @@ async function importBackupMarkdown(
     : `${entry.state}/`
   if (!entry.path.startsWith(statePrefix)) throw new Error(`Invalid backup note path: ${entry.path}`)
   const folderId = entry.folder.length
-    ? await ensureFolderPath(c.env.DB, userId, entry.folder.join('/'), ctx)
+    ? await ensureFolderPath(entry.folder.join('/'), ctx)
     : null
   const sourceId = entry.id
   const importedUpdatedAt = validTimestamp(entry.updatedAt)
@@ -647,7 +631,7 @@ async function importBackupMarkdown(
     updatedAt: effectiveUpdatedAt,
     deletedAt,
   }
-  const existing = await loadExistingNoteIndex(c.env.DB, userId, sourceId, ctx)
+  const existing = await loadExistingNoteIndex(sourceId, ctx)
   if (existing) {
     if (ctx.conflict === 'skip') {
       ctx.result.skippedNotes++
@@ -658,14 +642,7 @@ async function importBackupMarkdown(
       ctx.result.createdNotes++
       return
     }
-    const outcome = await updateImportedNote(
-      c,
-      userId,
-      existing,
-      input,
-      effectiveUpdatedAt,
-      ctx,
-    )
+    const outcome = await updateImportedNote(ctx, existing, input, effectiveUpdatedAt)
     if (outcome === 'updated') ctx.result.updatedNotes++
     else {
       ctx.result.skippedNotes++
@@ -682,33 +659,6 @@ async function importBackupMarkdown(
     updated_at: effectiveUpdatedAt,
   })
   ctx.result.createdNotes++
-}
-
-async function loadBackupAttachmentTargets(
-  db: D1Database,
-  userId: string,
-  hashes: readonly string[],
-): Promise<Map<string, string>> {
-  const targets = new Map<string, string>()
-  for (let offset = 0; offset < hashes.length; offset += 80) {
-    const chunk = hashes.slice(offset, offset + 80)
-    const placeholders = chunk.map((_, index) => `?${index + 2}`).join(', ')
-    const { results } = await db.prepare(
-      `SELECT m.source_id, m.target_id FROM import_mappings m
-        JOIN attachments a ON a.id = m.target_id AND a.user_id = m.user_id
-       WHERE m.user_id = ?1 AND m.entity = 'attachment'
-         AND m.source_id IN (${placeholders})`,
-    ).bind(userId, ...chunk).all<{ source_id: string; target_id: string }>()
-    for (const row of results) targets.set(row.source_id, row.target_id)
-  }
-  return targets
-}
-
-interface ExistingNoteIndex {
-  id: string
-  title: string
-  rev: number
-  updated_at: number
 }
 
 interface SourceFolder {
@@ -841,7 +791,7 @@ async function importBundle(
   )
 
   for (const { folder, resolved } of resolvedFolders) {
-    const created = await ensureFolderPath(c.env.DB, userId, resolved.path, ctx, folder)
+    const created = await ensureFolderPath(resolved.path, ctx, folder)
     if (created) folderIdMap.set(folder.id, created)
   }
 
@@ -850,7 +800,7 @@ async function importBundle(
   const bundleSourceIds = bundle.notes
     .map((note) => (isValidId(note?.id) ? note.id : undefined))
     .filter(Boolean) as string[]
-  await prefetchExistingNoteIndexes(c.env.DB, userId, bundleSourceIds, ctx)
+  await prefetchExistingNoteIndexes(bundleSourceIds, ctx)
 
   try {
     for (const note of bundle.notes) {
@@ -879,7 +829,7 @@ async function importBundle(
         importedDeletedAt,
       )
       const existing = sourceId
-        ? await loadExistingNoteIndex(c.env.DB, userId, sourceId, ctx)
+        ? await loadExistingNoteIndex(sourceId, ctx)
         : null
       const sourceFolderId = sourceKey(note.folderId)
       const input: InsertInput = {
@@ -914,14 +864,7 @@ async function importBundle(
           continue
         }
 
-        const outcome = await updateImportedNote(
-          c,
-          userId,
-          existing,
-          input,
-          effectiveUpdatedAt,
-          ctx,
-        )
+        const outcome = await updateImportedNote(ctx, existing, input, effectiveUpdatedAt)
         if (outcome === 'updated') {
           if (sourceId) noteIdMap.set(sourceId, existing.id)
           ctx.result.updatedNotes++
@@ -950,10 +893,16 @@ async function importBundle(
       ctx.result.createdNotes++
     }
   } finally {
-    await linkImportedAttachments(c.env.DB, userId, importedAttachments.created, noteIdMap)
+    await ctx.store.setAttachmentNoteLinks(
+      importedAttachments.created.map((entry) => ({
+        id: entry.persisted.id,
+        noteId: entry.sourceNoteId ? noteIdMap.get(entry.sourceNoteId) ?? null : null,
+      })),
+    )
   }
 
-  await restoreTagMetadata(c.env.DB, userId, rawTags)
+  const tagRows = planTagRestore(rawTags)
+  if (tagRows.length) await ctx.store.restoreTagMetadata(tagRows)
 
   if (bundle.quickadd !== undefined) await applyBackupQuickAdd(c.env.DB, userId, bundle.quickadd)
 }
@@ -1038,16 +987,23 @@ async function prepareBundleAttachments(
     throw new Error('This instance has no R2 or Workers KV attachment binding and cannot restore attachments')
   }
 
-  const existingAttachments = await loadExistingAttachments(
-    env.DB,
-    userId,
+  const existingAttachments = await ctx.store.attachmentsByIds(
     candidates.map((candidate) => candidate.sourceId),
   )
-  const pendingCleanupIds = await loadPendingAttachmentCleanupIds(
-    env.DB,
-    userId,
+  // Which cleanup key belongs to which source id is read from the object key itself, so the storage
+  // prefix stays here and only the query moved.
+  const prefixes = [`r2:${userId}/`, `kv:${userId}/`]
+  const pendingCleanupIds = new Set<string>()
+  for (const objectKey of await ctx.store.pendingCleanupObjectKeys(
     candidates.map((candidate) => candidate.sourceId),
-  )
+  )) {
+    const prefix = prefixes.find((candidate) => objectKey.startsWith(candidate))
+    if (!prefix) continue
+    const filename = objectKey.slice(prefix.length)
+    const separator = filename.indexOf('.')
+    const id = separator > 0 ? filename.slice(0, separator) : ''
+    if (isValidId(id)) pendingCleanupIds.add(id)
+  }
   const idMap = new Map<string, string>()
   const created: CreatedImportedAttachment[] = []
   const reservedIds = new Set([...existingAttachments.values()].map((attachment) => attachment.id))
@@ -1094,9 +1050,7 @@ async function prepareBundleAttachments(
         persisted,
       })
     }
-    await upsertImportMappings(
-      env.DB,
-      userId,
+    await ctx.store.upsertImportMappings(
       'attachment',
       created.map((entry) => ({ sourceId: entry.sourceId, targetId: entry.persisted.id })),
     )
@@ -1114,81 +1068,6 @@ async function prepareBundleAttachments(
   return { idMap, created }
 }
 
-interface ExistingAttachmentRow {
-  id: string
-  user_id: string
-  filename: string
-  mime: string
-  size: number
-  sha256: string
-  storage: AttachmentObjectStorage
-}
-
-async function loadExistingAttachments(
-  db: D1Database,
-  userId: string,
-  ids: readonly string[],
-): Promise<Map<string, ExistingAttachmentRow>> {
-  const attachments = new Map<string, ExistingAttachmentRow>()
-  for (let offset = 0; offset < ids.length; offset += 80) {
-    const chunk = ids.slice(offset, offset + 80)
-    const placeholders = chunk.map((_, index) => `?${index + 2}`).join(', ')
-    const { results: mappedRows } = await db.prepare(
-      `SELECT m.source_id, a.id, a.user_id, a.filename, a.mime, a.size, a.sha256, a.storage
-         FROM import_mappings m
-         JOIN attachments a ON a.id = m.target_id AND a.user_id = m.user_id
-        WHERE m.user_id = ?1 AND m.entity = 'attachment'
-          AND m.source_id IN (${placeholders})`,
-    )
-      .bind(userId, ...chunk)
-      .all<ExistingAttachmentRow & { source_id: string }>()
-    const mapped = new Map(mappedRows.map((row) => [row.source_id, row]))
-
-    const directPlaceholders = chunk.map((_, index) => `?${index + 1}`).join(', ')
-    const { results: directRows } = await db.prepare(
-      `SELECT id, user_id, filename, mime, size, sha256, storage
-         FROM attachments WHERE id IN (${directPlaceholders})`,
-    )
-      .bind(...chunk)
-      .all<ExistingAttachmentRow>()
-    const direct = new Map(directRows.map((row) => [row.id, row]))
-
-    for (const sourceId of chunk) {
-      const row = mapped.get(sourceId) ?? direct.get(sourceId)
-      if (row) attachments.set(sourceId, row)
-    }
-  }
-  return attachments
-}
-
-async function loadPendingAttachmentCleanupIds(
-  db: D1Database,
-  userId: string,
-  sourceIds: readonly string[],
-): Promise<Set<string>> {
-  const prefixes = [`r2:${userId}/`, `kv:${userId}/`]
-  const ids = new Set<string>()
-  if (!sourceIds.length) return ids
-  const { results } = await db.prepare(
-    `SELECT object_key FROM attachment_cleanup
-      WHERE user_id = ?1
-        AND substr(object_key, 4, length(?1) + 1) = ?1 || '/'
-        AND substr(object_key, length(?1) + 5, 26) IN (
-          SELECT value FROM json_each(?2)
-        )
-        AND substr(object_key, length(?1) + 31, 1) = '.'`,
-  ).bind(userId, JSON.stringify(sourceIds)).all<{ object_key: string }>()
-  for (const row of results) {
-    const prefix = prefixes.find((candidate) => row.object_key.startsWith(candidate))
-    if (!prefix) continue
-    const filename = row.object_key.slice(prefix.length)
-    const separator = filename.indexOf('.')
-    const id = separator > 0 ? filename.slice(0, separator) : ''
-    if (isValidId(id)) ids.add(id)
-  }
-  return ids
-}
-
 async function existingAttachmentMatches(
   env: AppBindings['Bindings'],
   row: ExistingAttachmentRow,
@@ -1198,27 +1077,6 @@ async function existingAttachmentMatches(
   // sha256/size were computed at persist time; re-downloading every matching
   // object to re-hash it doubles import transfer for no extra assurance.
   return hasAttachmentStorage(env, row.storage)
-}
-
-async function linkImportedAttachments(
-  db: D1Database,
-  userId: string,
-  created: readonly CreatedImportedAttachment[],
-  noteIdMap: ReadonlyMap<string, string>,
-): Promise<void> {
-  for (let offset = 0; offset < created.length; offset += 100) {
-    await db.batch(
-      created.slice(offset, offset + 100).map((entry) =>
-        db.prepare(
-          `UPDATE attachments SET note_id = ?1 WHERE id = ?2 AND user_id = ?3`,
-        ).bind(
-          entry.sourceNoteId ? noteIdMap.get(entry.sourceNoteId) ?? null : null,
-          entry.persisted.id,
-          userId,
-        ),
-      ),
-    )
-  }
 }
 
 function rewriteAttachmentReferences(content: string, idMap: ReadonlyMap<string, string>): string {
@@ -1232,9 +1090,14 @@ function rewriteAttachmentReferences(content: string, idMap: ReadonlyMap<string,
   )
 }
 
+/**
+ * Fill the request's note cache for ids it has not asked about yet.
+ *
+ * The lookup itself — the ids, the mappings, the notes behind them — is `store.noteIndexesBySourceIds`.
+ * What stays here is the cache: ids already answered are not asked again, and an id the account does
+ * not own is recorded as "known absent" so a later note in the same import does not re-query it.
+ */
 async function prefetchExistingNoteIndexes(
-  db: D1Database,
-  userId: string,
   sourceIds: readonly string[],
   ctx: ImportContext,
 ): Promise<void> {
@@ -1242,105 +1105,38 @@ async function prefetchExistingNoteIndexes(
   const uniqueNeeded = Array.from(new Set(sourceIds.filter((id) => !ctx.byId!.has(id))))
   if (!uniqueNeeded.length) return
 
-  const CHUNK = 50
-  for (let i = 0; i < uniqueNeeded.length; i += CHUNK) {
-    const chunk = uniqueNeeded.slice(i, i + CHUNK)
-    const placeholders = chunk.map((_, idx) => `?${idx + 2}`).join(', ')
-
-    const directRows = await db.prepare(
-      `SELECT n.id, n.title, n.rev, n.updated_at
-         FROM notes n
-        WHERE n.user_id = ?1 AND n.id IN (${placeholders})`,
-    ).bind(userId, ...chunk).all<ExistingNoteIndex>()
-    for (const note of directRows.results) {
-      ctx.byId.set(note.id, note)
-    }
-
-    const mappingRows = await db.prepare(
-      `SELECT source_id, target_id
-         FROM import_mappings
-        WHERE user_id = ?1 AND entity = 'note' AND source_id IN (${placeholders})`,
-    ).bind(userId, ...chunk).all<{ source_id: string; target_id: string }>()
-
-    if (mappingRows.results.length) {
-      const targetIds = Array.from(new Set(mappingRows.results.map((m) => m.target_id)))
-      const targetPlaceholders = targetIds.map((_, idx) => `?${idx + 2}`).join(', ')
-      const targetNotes = await db.prepare(
-        `SELECT n.id, n.title, n.rev, n.updated_at
-           FROM notes n
-          WHERE n.user_id = ?1 AND n.id IN (${targetPlaceholders})`,
-      ).bind(userId, ...targetIds).all<ExistingNoteIndex>()
-      const targetMap = new Map(targetNotes.results.map((n) => [n.id, n]))
-      for (const m of mappingRows.results) {
-        const found = targetMap.get(m.target_id)
-        if (found) {
-          ctx.byId.set(m.source_id, found)
-        }
-      }
-    }
-
-    for (const id of chunk) {
-      if (!ctx.byId.has(id)) {
-        ctx.byId.set(id, null)
-      }
+  const found = await ctx.store.noteIndexesBySourceIds(uniqueNeeded)
+  for (const [sourceId, note] of found) ctx.byId.set(sourceId, note)
+  for (const id of uniqueNeeded) {
+    if (!ctx.byId.has(id)) {
+      ctx.byId.set(id, null)
     }
   }
 }
 
+/**
+ * The note this account already owns for an export id, answered from the cache when it can be.
+ */
 async function loadExistingNoteIndex(
-  db: D1Database,
-  userId: string,
   id: string,
   ctx: ImportContext,
 ): Promise<ExistingNoteIndex | null> {
   if (ctx.byId?.has(id)) return ctx.byId.get(id) ?? null
-  const row = await db.prepare(
-    `SELECT n.id, n.title, n.rev, n.updated_at
-       FROM notes n
-      WHERE n.user_id = ?1
-        AND (
-          n.id = ?2 OR n.id = (
-            SELECT target_id FROM import_mappings
-             WHERE user_id = ?1 AND entity = 'note' AND source_id = ?2
-          )
-        )
-      ORDER BY CASE WHEN n.id = (
-        SELECT target_id FROM import_mappings
-         WHERE user_id = ?1 AND entity = 'note' AND source_id = ?2
-      ) THEN 0 ELSE 1 END
-      LIMIT 1`,
-  ).bind(userId, id).first<ExistingNoteIndex>()
+  const row = await ctx.store.noteIndexBySourceId(id)
   ctx.byId?.set(id, row ?? null)
   return row ?? null
 }
 
-async function upsertImportMappings(
-  db: D1Database,
-  userId: string,
-  entity: 'note' | 'attachment',
-  mappings: readonly { sourceId: string; targetId: string }[],
-): Promise<void> {
-  const now = Date.now()
-  await runBatched(
-    db,
-    mappings.map(({ sourceId, targetId }) =>
-      db.prepare(
-        `INSERT INTO import_mappings (user_id, entity, source_id, target_id, updated_at)
-         VALUES (?1, ?2, ?3, ?4, ?5)
-         ON CONFLICT(user_id, entity, source_id) DO UPDATE SET
-           target_id = excluded.target_id,
-           updated_at = excluded.updated_at`,
-      ).bind(userId, entity, sourceId, targetId, now),
-    ),
-  )
-}
-
-async function restoreTagMetadata(
-  db: D1Database,
-  userId: string,
-  rawTags: unknown[],
-): Promise<void> {
-  const byName = new Map<string, { id: string; name: string; color: string | null }>()
+/**
+ * The tags an export carried, reduced to rows this account may store.
+ *
+ * A name that is empty, too long or still holds a space or a hash is dropped rather than rejected: an
+ * export is a bundle of many things, and losing one tag is a warning the client never asked for. The
+ * first spelling of a name wins, which is what the case-folded key means. Writing them is
+ * `store.restoreTagMetadata`.
+ */
+function planTagRestore(rawTags: unknown[]): TagRestoreRow[] {
+  const byName = new Map<string, TagRestoreRow>()
   for (const raw of rawTags) {
     if (!isRecord(raw) || typeof raw.name !== 'string') continue
     const name = raw.name.trim().replace(/^#+/, '')
@@ -1353,42 +1149,7 @@ async function restoreTagMetadata(
         : null,
     })
   }
-  if (!byName.size) return
-
-  const rows = JSON.stringify([...byName.values()])
-  const now = Date.now()
-  await db.batch([
-    db.prepare(
-      `INSERT INTO tags (id, user_id, name, color, is_manual, created_at)
-       SELECT json_extract(j.value, '$.id'), ?2,
-              json_extract(j.value, '$.name'), json_extract(j.value, '$.color'), 1, ?3
-         FROM json_each(?1) AS j
-        WHERE NOT EXISTS (
-          SELECT 1 FROM tags existing
-           WHERE existing.user_id = ?2
-             AND existing.name = json_extract(j.value, '$.name') COLLATE NOCASE
-        )`,
-    ).bind(rows, userId, now),
-    db.prepare(
-      `UPDATE tags SET
-         color = COALESCE(color, (
-           SELECT json_extract(j.value, '$.color') FROM json_each(?1) AS j
-            WHERE json_extract(j.value, '$.name') = tags.name COLLATE NOCASE LIMIT 1
-         )),
-         is_manual = 1
-       WHERE user_id = ?2 AND EXISTS (
-         SELECT 1 FROM json_each(?1) AS j
-          WHERE json_extract(j.value, '$.name') = tags.name COLLATE NOCASE
-       )`,
-    ).bind(rows, userId),
-    db.prepare(
-      `INSERT INTO changes (user_id, entity, entity_id, op, at)
-       SELECT ?1, 'tag', t.id, 'upsert', ?2
-         FROM tags t JOIN json_each(?3) AS j
-           ON json_extract(j.value, '$.name') = t.name COLLATE NOCASE
-        WHERE t.user_id = ?1`,
-    ).bind(userId, now, rows),
-  ])
+  return [...byName.values()]
 }
 
 async function importMarkdown(
@@ -1404,7 +1165,7 @@ async function importMarkdown(
   const normalizedPath = path.replace(/\\/g, '/')
   const dir = normalizedPath.split('/').slice(0, -1).filter(Boolean)
   if (dir[0]?.toLowerCase() === 'notes') dir.shift()
-  const folderId = dir.length ? await ensureFolderPath(c.env.DB, userId, dir.join('/'), ctx) : null
+  const folderId = dir.length ? await ensureFolderPath(dir.join('/'), ctx) : null
 
   const filename = normalizedPath.split('/').pop() ?? path
   let content = stripObsidianComments(text)
@@ -1470,31 +1231,21 @@ interface InsertInput {
   deletedAt?: number
 }
 
+/**
+ * Apply a re-imported note over the one this account already has, if it is newer.
+ *
+ * The three answers the caller cannot derive on its own are the whole contract: `missing` (the note is
+ * gone), `skipped` (what is stored is already at least as new) and `conflict` (someone edited it
+ * between the read and the guarded write, so the current version was kept). Which of the counters a
+ * result moves, and whether the client is warned, is the caller's business.
+ */
 async function updateImportedNote(
-  c: { env: AppBindings['Bindings'] },
-  userId: string,
+  ctx: ImportContext,
   existing: ExistingNoteIndex,
   input: InsertInput,
   importedUpdatedAt: number,
-  ctx: ImportContext,
 ): Promise<'updated' | 'skipped' | 'conflict' | 'missing'> {
-  const current = await c.env.DB.prepare(
-    `SELECT id, title, content, rev, position, is_pinned, is_starred, is_archived,
-            created_at, updated_at, deleted_at
-       FROM notes WHERE id = ?1 AND user_id = ?2`,
-  ).bind(existing.id, userId).first<{
-    id: string
-    title: string
-    content: string
-    rev: number
-    position: number
-    is_pinned: number
-    is_starred: number
-    is_archived: number
-    created_at: number
-    updated_at: number
-    deleted_at: number | null
-  }>()
+  const current = await ctx.store.noteForImport(existing.id)
   if (!current) return 'missing'
   if (!importedUpdatedAt || current.updated_at >= importedUpdatedAt) return 'skipped'
 
@@ -1506,94 +1257,44 @@ async function updateImportedNote(
   const createdAt = Math.min(validTimestamp(input.createdAt) || current.created_at, updatedAt)
   const deletedAt = validTimestamp(input.deletedAt) || null
   const position = finiteNumber(input.position) ?? current.position
-  const mutationGuard = `EXISTS (SELECT 1 FROM notes
-    WHERE id = ?1 AND user_id = ?2 AND rev = ?3
-      AND content_hash = ?4 AND title = ?5 AND updated_at = ?6)`
-  const mutationValues = [current.id, userId, nextRev, hash, title, updatedAt] as const
-  const update = c.env.DB.prepare(
-    `UPDATE notes SET title = ?1, content = ?2, excerpt = ?3, word_count = ?4, char_count = ?5,
-       content_hash = ?6, folder_id = ?7, is_pinned = ?8, is_starred = ?9, is_archived = ?10,
-       position = ?11, created_at = ?12, updated_at = ?13, rev = ?14, deleted_at = ?15
-      WHERE id = ?16 AND user_id = ?17 AND rev = ?18`,
-  ).bind(
+
+  const applied = await ctx.store.updateImportedNote({
+    noteId: current.id,
+    previousRev: current.rev,
+    nextRev,
+    previousTitle: current.title,
+    previousContent: current.content,
     title,
-    input.content,
-    deriveExcerpt(input.content),
+    content: input.content,
+    excerpt: deriveExcerpt(input.content),
     words,
     chars,
-    hash,
-    input.folderId,
-    input.isPinned === undefined ? current.is_pinned : input.isPinned ? 1 : 0,
-    input.isStarred === undefined ? current.is_starred : input.isStarred ? 1 : 0,
-    input.isArchived === undefined ? current.is_archived : input.isArchived ? 1 : 0,
+    contentHash: hash,
+    folderId: input.folderId,
+    isPinned: input.isPinned === undefined ? current.is_pinned : input.isPinned ? 1 : 0,
+    isStarred: input.isStarred === undefined ? current.is_starred : input.isStarred ? 1 : 0,
+    isArchived: input.isArchived === undefined ? current.is_archived : input.isArchived ? 1 : 0,
     position,
     createdAt,
     updatedAt,
-    nextRev,
     deletedAt,
-    current.id,
-    userId,
-    current.rev,
-  )
-
-  const statements: D1PreparedStatement[] = [update]
-  if (current.content !== input.content || current.title !== title) {
-    const snapshotAt = Date.now()
-    statements.push(
-      c.env.DB.prepare(
-        `INSERT INTO note_versions (id, note_id, user_id, title, content, size, created_at)
-         SELECT ?1, ?2, ?3, ?4, ?5, ?6, ?7
-          WHERE ${shiftSqlPlaceholders(mutationGuard, 7)}`,
-      ).bind(
-        newId(),
-        current.id,
-        userId,
-        current.title,
-        current.content,
-        utf8ByteLength(current.content),
-        snapshotAt,
-        ...mutationValues,
-      ),
-      c.env.DB.prepare(
-        `DELETE FROM note_versions WHERE note_id = ?1
-           AND ${shiftSqlPlaceholders(mutationGuard, 1)}
-           AND id IN (
-             SELECT id FROM note_versions WHERE note_id = ?1 ORDER BY created_at DESC, id DESC LIMIT -1 OFFSET ?8)`,
-      ).bind(current.id, ...mutationValues, LIMITS.versionsPerNote),
-    )
-  }
-  const derived = buildNoteDerivedStatements({
-    db: c.env.DB,
-    userId,
-    noteId: current.id,
-    title,
-    content: input.content,
-    ftsEnabled: ctx.ftsEnabled,
-    previousTitle: current.title,
-    expectedRev: nextRev,
-    expectedContentHash: hash,
-    expectedTitle: title,
-    expectedUpdatedAt: updatedAt,
-    deleted: Boolean(deletedAt),
-  }).statements
-  statements.push(
-    ...derived,
-    c.env.DB.prepare(
-      `INSERT INTO changes (user_id, entity, entity_id, op, at)
-       SELECT ?1, 'note', ?2, 'upsert', ?3
-        WHERE ${shiftSqlPlaceholders(mutationGuard, 3)}`,
-    ).bind(userId, current.id, Date.now(), ...mutationValues),
-    noteIndexQueueStatement(c.env.DB, userId, current.id, 'embed', Date.now()),
-  )
-
-  const [result] = await c.env.DB.batch(statements)
-  if (!result?.meta.changes) return 'conflict'
+    keepsRevision: current.content !== input.content || current.title !== title,
+  })
+  if (!applied) return 'conflict'
   existing.title = title
   existing.rev = nextRev
   existing.updated_at = updatedAt
   return 'updated'
 }
 
+/**
+ * Create one note from an import and return the id it ended up with.
+ *
+ * Size and quota are checked here, the timestamps and the title are decided here, and an id the export
+ * carried is offered once and replaced with a fresh one if the insert loses the collision — which is
+ * the only reason a re-import of the same export cannot overwrite a note another account owns. The
+ * writing itself is `store.insertNote`.
+ */
 async function insertNote(
   c: { env: AppBindings['Bindings'] },
   userId: string,
@@ -1616,72 +1317,25 @@ async function insertNote(
   const hash = await sha256Hex(input.content)
   let inserted = false
   for (let attempt = 0; attempt < 2; attempt++) {
-    const insert = c.env.DB.prepare(
-      `INSERT INTO notes (id, user_id, folder_id, title, content, excerpt, rev, word_count, char_count,
-         is_pinned, is_starred, is_archived, position, content_hash, created_at, updated_at, deleted_at)
-       VALUES (?1, ?2, ?3, ?4, ?5, ?6, 1, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)
-       ON CONFLICT(id) DO NOTHING`,
-    )
-      .bind(
-        id,
-        userId,
-        input.folderId,
-        title,
-        input.content,
-        deriveExcerpt(input.content),
-        words,
-        chars,
-        input.isPinned === true ? 1 : 0,
-        input.isStarred === true ? 1 : 0,
-        input.isArchived === true ? 1 : 0,
-        position,
-        hash,
-        created,
-        updated,
-        deleted,
-      )
-    const derived = buildNoteDerivedStatements({
-      db: c.env.DB,
-      userId,
-      noteId: id,
+    inserted = await ctx.store.insertNote({
+      id,
+      sourceId: input.id,
+      folderId: input.folderId,
       title,
       content: input.content,
-      ftsEnabled: ctx.ftsEnabled,
-      expectedRev: 1,
-      expectedContentHash: hash,
-      expectedTitle: title,
-      expectedUpdatedAt: updated,
-      deleted: Boolean(deleted),
-    }).statements
-    const change = c.env.DB.prepare(
-      `INSERT INTO changes (user_id, entity, entity_id, op, at)
-       SELECT ?1, 'note', ?2, 'upsert', ?3
-        WHERE EXISTS (SELECT 1 FROM notes
-          WHERE id = ?2 AND user_id = ?1 AND rev = 1 AND content_hash = ?4 AND updated_at = ?5)`,
-    ).bind(userId, id, Date.now(), hash, updated)
-    const mapping = input.id
-      ? c.env.DB.prepare(
-          `INSERT INTO import_mappings (user_id, entity, source_id, target_id, updated_at)
-           SELECT ?1, 'note', ?2, ?3, ?4
-            WHERE EXISTS (SELECT 1 FROM notes
-              WHERE id = ?3 AND user_id = ?1 AND rev = 1
-                AND content_hash = ?5 AND updated_at = ?6)
-           ON CONFLICT(user_id, entity, source_id) DO UPDATE SET
-             target_id = excluded.target_id,
-             updated_at = excluded.updated_at`,
-        ).bind(userId, input.id, id, Date.now(), hash, updated)
-      : null
-    const [result] = await c.env.DB.batch([
-      insert,
-      ...derived,
-      change,
-      ...(mapping ? [mapping] : []),
-      ...(deleted ? [] : [noteIndexQueueStatement(c.env.DB, userId, id, 'embed', Date.now())]),
-    ])
-    if (result?.meta.changes) {
-      inserted = true
-      break
-    }
+      excerpt: deriveExcerpt(input.content),
+      words,
+      chars,
+      contentHash: hash,
+      isPinned: input.isPinned === true ? 1 : 0,
+      isStarred: input.isStarred === true ? 1 : 0,
+      isArchived: input.isArchived === true ? 1 : 0,
+      position,
+      createdAt: created,
+      updatedAt: updated,
+      deletedAt: deleted,
+    })
+    if (inserted) break
     id = newId()
   }
   if (!inserted) throw new Error('Could not generate a unique note ID')
@@ -1689,14 +1343,10 @@ async function insertNote(
 }
 
 async function primeFolderCache(
-  db: D1Database,
-  userId: string,
+  store: TransferStore,
   cache: Map<string, string>,
 ): Promise<void> {
-  const { results } = await db
-    .prepare(`SELECT id, parent_id, name FROM folders WHERE user_id = ?1 AND deleted_at IS NULL`)
-    .bind(userId)
-    .all<{ id: string; parent_id: string | null; name: string }>()
+  const results = await store.folderPathRows()
 
   const byId = new Map(results.map((r) => [r.id, r]))
   const pathOf = (id: string, guard = 0): string => {
@@ -1712,8 +1362,6 @@ async function primeFolderCache(
 }
 
 async function ensureFolderPath(
-  db: D1Database,
-  userId: string,
   path: string,
   ctx: ImportContext,
   finalMetadata?: FolderImportMetadata,
@@ -1751,31 +1399,24 @@ async function ensureFolderPath(
     const position = isFinal ? finiteNumber(finalMetadata?.position) ?? now : now
     const icon = isFinal ? finalMetadata?.icon ?? null : null
     const color = isFinal ? finalMetadata?.color ?? null : null
-    const insert = db.prepare(
-      `INSERT OR IGNORE INTO folders
-         (id, user_id, parent_id, name, icon, color, position, created_at, updated_at)
-       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)`,
-    ).bind(id, userId, parentId, segment, icon, color, position, createdAt, updatedAt)
-    const [created] = await db.batch([
-      insert,
-      db.prepare(
-        `INSERT INTO changes (user_id, entity, entity_id, op, at)
-         SELECT ?1, 'folder', ?2, 'upsert', ?3
-          WHERE EXISTS (SELECT 1 FROM folders WHERE id = ?2 AND user_id = ?1)`,
-      ).bind(userId, id, updatedAt),
-    ])
+    const created = await ctx.store.createFolderSegment({
+      id,
+      parentId,
+      name: segment,
+      icon,
+      color,
+      position,
+      createdAt,
+      updatedAt,
+    })
 
     let resolvedId = id
-    if (created?.meta.changes) {
+    if (created) {
       ctx.result.createdFolders++
     } else {
-      const existing = await db.prepare(
-        `SELECT id FROM folders
-          WHERE user_id = ?1 AND parent_id IS ?2 AND lower(name) = lower(?3)
-            AND deleted_at IS NULL LIMIT 1`,
-      ).bind(userId, parentId, segment).first<{ id: string }>()
-      if (!existing) throw new Error(`Could not create folder: ${segment}`)
-      resolvedId = existing.id
+      const existingId = await ctx.store.existingFolderId(parentId, segment)
+      if (!existingId) throw new Error(`Could not create folder: ${segment}`)
+      resolvedId = existingId
     }
 
     ctx.folderCache.set(key, resolvedId)
@@ -2015,8 +1656,4 @@ function addWarning(result: ImportResult, message: string): void {
   } else if (result.warnings.length === MAX_IMPORT_WARNINGS - 1) {
     result.warnings.push('Additional import warnings were omitted')
   }
-}
-
-function shiftSqlPlaceholders(sql: string, offset: number): string {
-  return sql.replace(/\?(\d+)/g, (_match, value: string) => `?${Number(value) + offset}`)
 }
