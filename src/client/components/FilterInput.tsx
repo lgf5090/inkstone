@@ -3,6 +3,7 @@ import { useCallback, useEffect, useId, useRef } from 'react';
 import { Search, X } from 'lucide-react';
 import { cn } from '../lib/cn';
 import { t } from '../lib/i18n';
+import { isImeComposing } from '../lib/ime';
 import type { Query } from '../lib/query-match';
 import { IconButton } from './primitives';
 
@@ -71,7 +72,7 @@ export function useFilterInput(options: FilterInputOptions): { field: FilterInpu
         // and Enter a reader presses to pick a candidate as keydowns carrying those same names. Bail
         // while a composition is open so Escape costs the syllable, not the whole query — the guard
         // the tree keyboard, the chat composer, the palette and the omnisearch prompt already answer.
-        if (event.nativeEvent.isComposing)
+        if (isImeComposing(event))
             return;
         live.current.onKeyDown?.(event);
         if (event.defaultPrevented)
