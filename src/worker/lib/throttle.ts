@@ -188,6 +188,30 @@ export async function clearLoginFailures(
     .run()
 }
 
+/**
+ * Count budget rows whose key falls in `[lowKey, highKey)` and were touched at or after `since`.
+ *
+ * `login_attempts` belongs to this module, so the only read of it that is not a lock check lives here
+ * too rather than in the route that happens to want the number. The caller picks the range and the
+ * window: a reader that keys a metric off the budget writes the prefix, and this just counts rows in
+ * it. The range is spelled as `>= / <` (not `LIKE`) so a key that contains a SQL wildcard character
+ * still only matches literally. The result column is named for the one caller that reads it.
+ */
+export async function countAttemptKeysInRange(
+  db: D1Database,
+  lowKey: string,
+  highKey: string,
+  since: number,
+): Promise<number> {
+  const row = await db
+    .prepare(
+      `SELECT COUNT(*) AS viewers FROM login_attempts WHERE key >= ?1 AND key < ?2 AND last_fail_at >= ?3`,
+    )
+    .bind(lowKey, highKey, since)
+    .first<{ viewers: number }>()
+  return Number(row?.viewers ?? 0)
+}
+
 function normalizeTargets(inputs: readonly ThrottleInput[]): Required<ThrottleTarget>[] {
   const unique = new Map<string, number>()
   for (const input of inputs) {
