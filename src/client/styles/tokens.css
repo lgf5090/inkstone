@@ -219,10 +219,15 @@
   --border-default: oklch(100% 0 0 / 10%);
   --border-strong: oklch(100% 0 0 / 17%);
 
+  /* De-emphasis has a hard floor here: the lightest dark surface (--bg-overlay
+     under `[data-background='white']`) is nearly #2a2a2d, so a step below ~67% L
+     cannot reach WCAG AA 4.5:1 on it. The four steps therefore live in the upper
+     band (93/78/73/67) and keep their order by spacing rather than by distance
+     from white; `tests/contrast-dark-text-quaternary.test.ts` holds both. */
   --text-primary: oklch(93% 0.004 265);
-  --text-secondary: oklch(72% 0.008 265);
-  --text-tertiary: oklch(56% 0.009 265);
-  --text-quaternary: oklch(43% 0.008 265);
+  --text-secondary: oklch(78% 0.008 265);
+  --text-tertiary: oklch(73% 0.009 265);
+  --text-quaternary: oklch(67% 0.008 265);
   --text-inverse: oklch(16% 0.008 265);
 
   --graph-edge: oklch(66% 0.02 265);
