@@ -792,6 +792,11 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
   dropAttachment: async (localId) => {
     const entry = get().pending.find((item) => item.localId === localId)
     set((current) => ({ pending: current.pending.filter((item) => item.localId !== localId) }))
+    // Best-effort release of the uploaded copy. The reader asked for the attachment out of the draft and
+    // the draft no longer holds it, which is the outcome they can see and act on; a failed server-side
+    // delete leaves a file this conversation will never reference again, and there is no retry a reader
+    // could be offered for an object they have already removed. Reporting it would say "could not
+    // remove" about a removal that did happen.
     if (entry?.id) await api.assistant.deleteChatFile(entry.id).catch(() => undefined)
   },
 
@@ -974,6 +979,10 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
     inflight = null
     set((current) => (current.turn ? { turn: { ...current.turn, done: true } } : current))
     const conversationId = turn?.conversationId ?? get().activeId
+    // Best-effort notice to the worker. Stop is carried out here first — the request is aborted and the
+    // turn is marked done — so what a failed cancel leaves behind is an upstream still writing into a
+    // thread the reader has already closed the stream on, which is discarded either way. A toast would
+    // tell the reader the stop failed when the answer did stop appearing.
     if (conversationId) void api.assistant.cancel(conversationId).catch(() => {})
   },
 
