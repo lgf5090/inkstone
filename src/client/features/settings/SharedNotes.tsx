@@ -137,7 +137,7 @@ export function SharedNotes() {
             </div>
             <div className="mt-1.5 flex items-center gap-1.5 text-[11px] text-[var(--text-tertiary)]">
               <Link2 size={12} className="shrink-0" />
-              <input readOnly value={share.url} aria-label={`${t('share.public_link')}: ${share.noteTitle || t('common.untitled_note')}`} onFocus={(event) => event.currentTarget.select()} className="min-w-0 flex-1 truncate bg-transparent text-[11px] text-[var(--text-secondary)] outline-none" />
+              <input readOnly value={share.url} aria-label={`${t('share.public_link')}: ${share.noteTitle || t('common.untitled_note')}`} onFocus={(event) => event.currentTarget.select()} className="min-w-0 flex-1 truncate rounded-[var(--r-sm)] bg-transparent text-[11px] text-[var(--text-secondary)] transition-[box-shadow] duration-[var(--dur-fast)] focus:shadow-[var(--shadow-ring-focus)] focus:outline-none" />
             </div>
             <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-[var(--text-quaternary)]">
               <span className="inline-flex items-center gap-1"><Eye size={11} />{share.views}{t('share.visits')}</span>

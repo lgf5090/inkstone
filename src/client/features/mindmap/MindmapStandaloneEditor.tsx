@@ -469,7 +469,7 @@ export function MindmapStandaloneEditor({ note, content, onChange, onTitleChange
                 spellCheck={false}
                 aria-label={t('mindmap.source')}
                 onChange={(event) => onChangeRef.current(event.target.value)}
-                className="h-full w-full resize-none rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-inset)] p-3 font-mono text-xs leading-relaxed text-[var(--text-primary)] focus:border-[var(--accent)] focus:outline-none"
+                className="h-full w-full resize-none rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-inset)] p-3 font-mono text-xs leading-relaxed text-[var(--text-primary)] transition-[border-color,box-shadow] duration-[var(--dur-fast)] focus:border-[var(--accent)] focus:shadow-[var(--shadow-ring-focus)] focus:outline-none"
               />
             </div>
           )}
