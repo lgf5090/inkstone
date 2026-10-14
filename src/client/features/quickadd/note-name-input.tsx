@@ -14,7 +14,7 @@ import { t } from '../../lib/i18n'
 import { isTargetFilterSyntax, titleSuggestions } from '../../lib/quickadd/context'
 import { folderPathLabel } from '../../lib/folders'
 import { useNotes } from '../../store/notes'
-import { compileQuery, queryMatches } from '../../lib/query-match'
+import { compileQuery, queryKeeps } from '../../lib/query-match'
 import { usePinyinVersion } from '../../lib/pinyin'
 
 /** Rows a reader can scan at a glance; past this the list is a search result, and it says so. */
@@ -87,7 +87,7 @@ export function NoteNameInput({ value, onChange, notes, id, className, ...aria }
     const matched: Row[] = []
     made.options.forEach((title, index) => {
       const display = made.displayOptions[index] ?? title
-      if (query.text !== '' && !queryMatches(query, title) && !queryMatches(query, display)) return
+      if (!queryKeeps(query, title) && !queryKeeps(query, display)) return
       matched.push({ title, display })
     })
     return { rows: matched.slice(0, MAX_ROWS), hidden: Math.max(0, matched.length - MAX_ROWS), error: query.error }

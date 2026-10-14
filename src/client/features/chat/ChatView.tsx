@@ -14,6 +14,7 @@ import type { AssistantConversation, AssistantMessage, ChatAttachment } from '@s
 import { cn } from '../../lib/cn'
 import { t } from '../../lib/i18n'
 import { relativeTime } from '../../lib/time'
+import { useDebouncedDraft } from '../../lib/hooks'
 import { Button, IconButton, Spinner } from '../../components/primitives'
 import { Input } from '../../components/form'
 import { Menu, Modal, confirm, prompt, submenuFor } from '../../components/overlay'
@@ -235,6 +236,12 @@ export function UserBubble({
   )
 }
 
+/**
+ * How long the conversation box stops typing before the settled text reaches the store. The query lives
+ * in the assistant store, so a keystroke that commits it there re-filters every row in the list.
+ */
+const CONVERSATION_SEARCH_DEBOUNCE_MS = 200
+
 function ConversationList({ activeId, onPick }: { activeId: string | null, onPick: () => void }) {
   const conversations = useAssistant((state) => state.conversations)
   const query = useAssistant((state) => state.conversationQuery)
@@ -246,6 +253,9 @@ function ConversationList({ activeId, onPick }: { activeId: string | null, onPic
   const [menuFor, setMenuFor] = useState<string | null>(null)
   const [renaming, setRenaming] = useState<AssistantConversation | null>(null)
   const [draft, setDraft] = useState('')
+  const { draft: searchDraft, setDraft: setSearchDraft } = useDebouncedDraft(query, (next) => {
+    void setQuery(next)
+  }, CONVERSATION_SEARCH_DEBOUNCE_MS)
 
   // Counts move whenever a conversation is filed or a turn adds one, so the tree rides along with it.
   useEffect(() => {
@@ -270,8 +280,8 @@ function ConversationList({ activeId, onPick }: { activeId: string | null, onPic
           {t('assistant.chat.new')}
         </Button>
         <Input
-          value={query}
-          onChange={(event) => void setQuery(event.target.value)}
+          value={searchDraft}
+          onChange={(event) => setSearchDraft(event.target.value)}
           placeholder={t('assistant.chat.search')}
           aria-label={t('assistant.chat.search')}
           className="h-8 text-[12px]"

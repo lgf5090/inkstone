@@ -1,6 +1,8 @@
 import { useMemo } from 'react'
 import type { NoteTemplate } from '@shared/types'
 import { compareTemplates } from '../../store/note-templates'
+import { matchesQuery } from '../../lib/fuzzy'
+import { usePinyinVersion } from '../../lib/pinyin'
 import type { GalleryFilter } from './gallery-persist'
 
 export interface TemplateSearchable {
@@ -16,12 +18,12 @@ export interface TemplateSearchable {
  * of the two is a control that lies about what the view can do.
  */
 export function templateMatchesQuery(item: TemplateSearchable, query: string): boolean {
-  const normalized = query.trim().toLocaleLowerCase()
-  if (!normalized) return true
-  return item.name.toLocaleLowerCase().includes(normalized) ||
-    (item.description ?? '').toLocaleLowerCase().includes(normalized) ||
-    item.content.toLocaleLowerCase().includes(normalized) ||
-    (item.tags ?? []).some((tag) => tag.toLocaleLowerCase().includes(normalized))
+  const text = query.trim()
+  if (!text) return true
+  return matchesQuery(item.name, text) ||
+    matchesQuery(item.description ?? '', text) ||
+    matchesQuery(item.content, text) ||
+    (item.tags ?? []).some((tag) => matchesQuery(tag, text))
 }
 
 /**
@@ -66,6 +68,7 @@ export function useGalleryDerived(
   query: string,
   selectedIds: ReadonlySet<string>,
 ) {
+  const pinyinVersion = usePinyinVersion()
   const counts = useMemo(() => {
     const byCategory = new Map<string, number>()
     const byTag = new Map<string, number>()
@@ -94,7 +97,7 @@ export function useGalleryDerived(
       return matchesQuery(template)
     })
     return [...list].sort(compareTemplates)
-  }, [filter, query, templates])
+  }, [filter, pinyinVersion, query, templates])
   const selectedTemplates = useMemo(() => templates.filter((item) => selectedIds.has(item.id)), [selectedIds, templates])
   const visibleSelected = useMemo(() => visible.filter((item) => selectedIds.has(item.id)), [selectedIds, visible])
   const allVisibleSelected = visible.length > 0 && visibleSelected.length === visible.length

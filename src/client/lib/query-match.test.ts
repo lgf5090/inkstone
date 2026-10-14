@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { compileQuery, queryMatches } from './query-match'
+import { MAX_PATTERN_CHARS, patternSafety } from '@shared/regex-safety'
+import { compileQuery, MAX_FILTER_PATTERN_CHARS, queryKeeps, queryKeepsRows, queryMatches } from './query-match'
 
 const hit = (source: string, text: string): number[] => {
   const match = queryMatches(compileQuery(source), text)
@@ -103,8 +104,12 @@ describe('the guard on expressions that would never finish', () => {
       expect(compileQuery(source).error, source).toBeNull()
     })
 
-  it('refuses an expression longer than a name can be', () => {
-    expect(compileQuery('/' + 'a'.repeat(200) + '/').error).toBe('unsafe')
+  it("refuses an expression past the filter box's own ceiling, which is tighter than the shared one", () => {
+    // The box recompiles per keystroke, so it refuses at 160 while the shared default allows 1_000.
+    // Both numbers are pinned here: loosening either is a threat-model change, not a refactor.
+    expect(compileQuery(`/${'a'.repeat(MAX_FILTER_PATTERN_CHARS + 1)}/`).error).toBe('unsafe')
+    expect(compileQuery(`/${'a'.repeat(MAX_FILTER_PATTERN_CHARS)}/`).error).toBeNull()
+    expect(patternSafety('a'.repeat(MAX_PATTERN_CHARS))).toBeNull()
   })
 
   it('measures the guard against a string the engine would not survive', () => {
@@ -119,5 +124,36 @@ describe('the guard on expressions that would never finish', () => {
     const long = `${'x'.repeat(400)}tail`
     expect(queryMatches(compileQuery('/tail/'), long)).toBeNull()
     expect(queryMatches(compileQuery('/x{11}/'), long)).not.toBeNull()
+  })
+})
+
+/**
+ * The one keep-or-drop answer every listing asks. A refused expression is not a search that found
+ * nothing, so the rows stay and the filter box is the only thing that speaks — spelled here once so a
+ * shelf, a picker and a settings page cannot each decide differently about the same refusal.
+ */
+describe('queryKeeps', () => {
+  it('keeps every row while there is nothing to filter by', () => {
+    const none = compileQuery('   ')
+    expect(queryKeepsRows(none)).toBe(true)
+    expect(queryKeeps(none, 'Anything')).toBe(true)
+  })
+
+  it('keeps the rows a fuzzy query reads, and drops the ones it does not', () => {
+    const query = compileQuery('wk')
+    expect(queryKeeps(query, 'work log')).toBe(true)
+    expect(queryKeeps(query, 'groceries')).toBe(false)
+  })
+
+  it('keeps every row when the box refused the expression, and says the refusal is why', () => {
+    const refused = compileQuery('/(a+)+b/')
+    expect(refused.error).toBe('unsafe')
+    expect(queryKeepsRows(refused)).toBe(true)
+    expect(queryKeeps(refused, 'anything at all')).toBe(true)
+  })
+
+  it('drops a row the compiled expression does not match', () => {
+    expect(queryKeeps(compileQuery('/\\d+/'), 'chapter one')).toBe(false)
+    expect(queryKeeps(compileQuery('/\\d+/'), '42 apples')).toBe(true)
   })
 })

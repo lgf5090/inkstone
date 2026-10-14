@@ -1,6 +1,6 @@
 import type { FuzzyMatch } from './fuzzy'
 import { fuzzyMatch } from './fuzzy'
-import { findGroups, repeatsCatastrophically } from '@shared/regex-safety'
+import { patternSafety } from '@shared/regex-safety'
 
 export type QueryError = 'syntax' | 'unsafe'
 
@@ -11,7 +11,10 @@ export interface Query {
   readonly pattern: RegExp | null
 }
 
-const MAX_PATTERN_CHARS = 160
+// Tighter than the shared ceiling on purpose: this box recompiles on every keystroke, so refusing a
+// long expression costs the reader one keystroke, while compiling it costs the tab. Exported so the
+// test pins the number instead of restating it.
+export const MAX_FILTER_PATTERN_CHARS = 160
 const MAX_MATCHED_CHARS = 256
 const MAX_RANGES = 8
 const ALLOWED_FLAGS = 'imsu'
@@ -32,10 +35,8 @@ export function compileQuery(source: string): Query {
   const syntax = REGEX_SYNTAX.exec(text)
   if (!syntax) return FUZZY(text)
   const body = syntax[1]!
-  if (body.length > MAX_PATTERN_CHARS) return REFUSED(text, 'unsafe')
-  const groups = findGroups(body)
-  if (!groups) return REFUSED(text, 'syntax')
-  if (repeatsCatastrophically(body, groups)) return REFUSED(text, 'unsafe')
+  const refusal = patternSafety(body, MAX_FILTER_PATTERN_CHARS)
+  if (refusal) return REFUSED(text, refusal)
   let flags = 'i'
   for (const flag of syntax[2]!) {
     if (ALLOWED_FLAGS.includes(flag) && !flags.includes(flag)) flags += flag
@@ -46,6 +47,24 @@ export function compileQuery(source: string): Query {
   catch {
     return REFUSED(text, 'syntax')
   }
+}
+
+/**
+ * Whether the box has nothing to filter by, or a pattern it refused: either way every row stays.
+ *
+ * A refused expression is not a search that found nothing. The listing that empties at the same moment
+ * the box says it would not compile has given the reader two answers to one question, and the one they
+ * act on — "there are no notes called that" — is the wrong one. So the rows stay, and the box is the
+ * only thing that speaks. This is the fast-path shape of {@link queryKeeps}, for a caller that would
+ * otherwise scan a whole body per row.
+ */
+export function queryKeepsRows(query: Query): boolean {
+  return query.text === '' || query.error !== null
+}
+
+/** Whether one row survives the box, ranges for the underline included. */
+export function queryKeeps(query: Query, subject: string): boolean {
+  return queryKeepsRows(query) || queryMatches(query, subject) !== null
 }
 
 /**

@@ -20,7 +20,7 @@ import { Button, IconButton } from '../../components/primitives'
 import { Checkbox, Field, Input, Segmented } from '../../components/form'
 import { Menu, Modal, confirm, prompt, submenuFor, type MenuItem } from '../../components/overlay'
 import { FilterInput } from '../../components/FilterInput'
-import { compileQuery, queryMatches } from '../../lib/query-match'
+import { compileQuery, queryKeeps } from '../../lib/query-match'
 import { usePinyinVersion } from '../../lib/pinyin'
 import { exportOpml, parseOpml } from '../../lib/rss/feed'
 import { canonicalFeedUrl, RSS_LIMITS, safeHttpUrl, type RssFeed } from '@shared/rss/model'
@@ -95,7 +95,7 @@ function ManagePanel({ adding, onAdded }: { adding: boolean, onAdded: () => void
 
   const groups = useMemo(() => groupedFeeds(library), [library])
   const visible = useMemo(() => groups.map((entry) => {
-    const feeds = entry.feeds.filter(feed => !compiled.text || compiled.error || queryMatches(compiled, feed.title) || queryMatches(compiled, feed.url))
+    const feeds = entry.feeds.filter(feed => queryKeeps(compiled, feed.title) || queryKeeps(compiled, feed.url))
     return { ...entry, feeds }
   }).filter(entry => entry.feeds.length), [groups, compiled, pinyinVersion])
 
