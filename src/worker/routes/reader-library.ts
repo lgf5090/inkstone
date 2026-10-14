@@ -17,6 +17,7 @@ import { ApiError } from '../lib/errors'
 import { requireAuth } from '../middleware/auth'
 import { readJson } from '../lib/request'
 import { readerBookKey, readerCoverKey } from '../db/reader-schema'
+import { ReaderLibraryStore } from '../reader/store'
 import { assertReaderRoom, readerUsage } from '../db/quota'
 import { LIMITS, READER_COVER_TYPES } from '@shared/constants'
 
@@ -143,85 +144,6 @@ function contentDisposition(full: string): string {
   return `inline; filename="${ascii}"; filename*=UTF-8''${rfc5987(full)}`
 }
 
-/**
- * The shelf rows, one per table, listing exactly the columns `loadLibrary` reads.
- *
- * The queries spell the same columns out rather than reaching for `*`: a column added to a `reader_`
- * table then has to be asked for, so a schema change cannot quietly widen the payload every reader
- * downloads on start-up — and `r2_key`, which is the server's own, cannot leak into it by accident.
- */
-interface BookRow {
-  id: string
-  format: string
-  title: string
-  author: string
-  language: string
-  publisher: string
-  filename: string
-  size: number
-  added_at: number
-  unit_count: number
-  has_cover: number
-  has_blob: number
-  cover_key: string | null
-  toc: string
-}
-
-interface ProgressRow {
-  book_id: string
-  position: string
-  fraction: number
-  updated_at: number
-  finished_at: number | null
-}
-
-interface HighlightRow {
-  id: string
-  book_id: string
-  chapter: number
-  start_offset: number
-  end_offset: number
-  quote: string
-  prefix: string
-  suffix: string
-  color: string
-  comment: string
-  created_at: number
-  updated_at: number
-}
-
-interface MarkRow {
-  id: string
-  book_id: string
-  label: string
-  position: string
-  created_at: number
-}
-
-interface StatRow {
-  book_id: string
-  seconds: number
-  days: string
-}
-
-interface BookNoteRow {
-  book_id: string
-  note_id: string
-}
-
-interface MetaRow {
-  key: string
-  value: string | null
-}
-
-interface GroupRow {
-  id: string
-  name: string
-  book_ids: string
-  created_at: number
-  updated_at: number
-}
-
 /** The book rows a push has to know the server-side answer to: where the bytes and the cover live. */
 interface StoredBookRow {
   id: string
@@ -231,39 +153,16 @@ interface StoredBookRow {
   cover_size: number
 }
 
+function store(c: Context<AppBindings>, userId: string): ReaderLibraryStore {
+  return new ReaderLibraryStore(c.env.DB, userId)
+}
+
 /** One account's whole shelf, in the shape the local store holds it. */
 async function loadLibrary(c: Context<AppBindings>, userId: string) {
-  const [books, progress, highlights, marks, stats, notes, meta, groups] = await Promise.all([
-    c.env.DB.prepare(
-      `SELECT id, format, title, author, language, publisher, filename, size, added_at, unit_count,
-              has_cover, has_blob, cover_key, toc
-         FROM reader_books WHERE user_id = ?1 ORDER BY added_at DESC`).bind(userId).all<BookRow>(),
-    c.env.DB.prepare(
-      `SELECT book_id, position, fraction, updated_at, finished_at
-         FROM reader_progress WHERE user_id = ?1`).bind(userId).all<ProgressRow>(),
-    c.env.DB.prepare(
-      `SELECT id, book_id, chapter, start_offset, end_offset, quote, prefix, suffix, color, comment,
-              created_at, updated_at
-         FROM reader_highlights WHERE user_id = ?1`).bind(userId).all<HighlightRow>(),
-    c.env.DB.prepare(
-      `SELECT id, book_id, label, position, created_at
-         FROM reader_marks WHERE user_id = ?1`).bind(userId).all<MarkRow>(),
-    c.env.DB.prepare(
-      `SELECT book_id, seconds, days
-         FROM reader_stats WHERE user_id = ?1`).bind(userId).all<StatRow>(),
-    c.env.DB.prepare(
-      `SELECT book_id, note_id
-         FROM reader_notes WHERE user_id = ?1`).bind(userId).all<BookNoteRow>(),
-    c.env.DB.prepare(
-      `SELECT key, value
-         FROM reader_meta WHERE user_id = ?1`).bind(userId).all<MetaRow>(),
-    c.env.DB.prepare(
-      `SELECT id, name, book_ids, created_at, updated_at
-         FROM reader_groups WHERE user_id = ?1 ORDER BY updated_at DESC`).bind(userId).all<GroupRow>(),
-  ])
-  const vocabulary = meta.results.find((row) => row.key === 'vocabulary')?.value ?? null
+  const rows = await store(c, userId).shelf()
+  const vocabulary = rows.meta.find((row) => row.key === 'vocabulary')?.value ?? null
   return {
-    books: books.results.map((row) => ({
+    books: rows.books.map((row) => ({
       id: row.id,
       format: row.format,
       title: row.title,
@@ -280,30 +179,30 @@ async function loadLibrary(c: Context<AppBindings>, userId: string) {
       coverUrl: row.cover_key ? `/api/reader/books/${encodeURIComponent(row.id)}/cover` : null,
       toc: JSON.parse(row.toc || '[]') as unknown[],
     })),
-    progress: Object.fromEntries(progress.results.map((row) => [row.book_id, {
+    progress: Object.fromEntries(rows.progress.map((row) => [row.book_id, {
       bookId: row.book_id,
       position: JSON.parse(row.position) as unknown,
       fraction: row.fraction,
       updatedAt: row.updated_at,
       finishedAt: row.finished_at ?? null,
     }])),
-    highlights: Object.fromEntries(group(highlights.results, (row) => row.book_id, (row) => ({
+    highlights: Object.fromEntries(group(rows.highlights, (row) => row.book_id, (row) => ({
       id: row.id, bookId: row.book_id, chapter: row.chapter, start: row.start_offset, end: row.end_offset,
       quote: row.quote, prefix: row.prefix, suffix: row.suffix, color: row.color, comment: row.comment,
       createdAt: row.created_at, updatedAt: row.updated_at,
     }))),
-    marks: Object.fromEntries(group(marks.results, (row) => row.book_id, (row) => ({
+    marks: Object.fromEntries(group(rows.marks, (row) => row.book_id, (row) => ({
       id: row.id, bookId: row.book_id, label: row.label, position: JSON.parse(row.position) as unknown,
       createdAt: row.created_at,
     }))),
-    stats: Object.fromEntries(stats.results.map((row) => [row.book_id, {
+    stats: Object.fromEntries(rows.stats.map((row) => [row.book_id, {
       bookId: row.book_id, seconds: row.seconds, days: JSON.parse(row.days || '{}') as Record<string, number>,
     }])),
     notes: {
-      byBook: Object.fromEntries(notes.results.map((row) => [row.book_id, row.note_id])),
+      byBook: Object.fromEntries(rows.notes.map((row) => [row.book_id, row.note_id])),
       vocabulary: typeof vocabulary === 'string' ? vocabulary : null,
     },
-    groups: groups.results.map((row) => ({
+    groups: rows.groups.map((row) => ({
       id: row.id,
       name: row.name,
       bookIds: JSON.parse(row.book_ids || '[]') as string[],
