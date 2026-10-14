@@ -22,6 +22,7 @@ import type { GraphQuery, GraphResponse } from '@shared/types'
 import { deriveExcerpt } from '@shared/markdown-utils'
 import { api } from '../../lib/api'
 import { Button, IconButton } from '../../components/primitives'
+import { TagChip } from '../../components/TagChip'
 import { Segmented } from '../../components/form'
 import { Menu, Tooltip, useDialogFocus, useEscape, useLockScroll, type MenuItem } from '../../components/overlay'
 import { Empty, LoadingBlock } from '../../components/feedback'
@@ -485,11 +486,16 @@ export function GraphPanel({ onClose }: { onClose: () => void }) {
   </div>, document.body)
 }
 
+/**
+ * One filter the panel is under, drawn by the shared chip: the strip's row is the only thing this adds
+ * — a fixed height, the width cap that keeps the header from pushing the zoom controls off, and the
+ * `X` every removable chip already carries. Pressing it clears that filter, so it is an action and not
+ * a toggle: no `pressed`, and so no `aria-pressed` for a screen reader to read as a switch.
+ */
 function FilterChip({ label, onClear }: { label: string; onClear: () => void }) {
-  return <button type="button" onClick={onClear} className="flex h-6 max-w-[42vw] shrink-0 items-center gap-1 rounded-full border border-[var(--border-default)] bg-[var(--bg-inset)] px-2 text-[11px] text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]">
-    <span className="min-w-0 truncate">{label}</span>
-    <X size={10} className="shrink-0"/>
-  </button>
+  return <TagChip label={label} onPress={onClear}
+    trailing={<X size={10} className="shrink-0"/>}
+    className="h-6 max-w-[42vw] shrink-0 px-[var(--sp-2)]"/>
 }
 
 export type { GraphPreferences }

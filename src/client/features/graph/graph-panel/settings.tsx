@@ -15,6 +15,7 @@ import { truncateText } from '@shared/text-utils'
 import type { Folder, Tag } from '@shared/types'
 import { Button, IconButton } from '../../../components/primitives'
 import { Swatch } from '../../../components/color-swatch'
+import { TagChip } from '../../../components/TagChip'
 import { Select, Segmented, Slider, Switch } from '../../../components/form'
 import { Drawer } from '../../../components/overlay'
 import { t } from '../../../lib/i18n'
@@ -77,8 +78,13 @@ function GraphFilterSection({ prefs, onPref, folders, tags }: {
     {tags.length > 0 && <div className="text-[12px] text-[var(--text-secondary)]">
       <span className="mb-1.5 block">{t('graph.tag')}</span>
       <div className="flex max-h-36 flex-wrap gap-1 overflow-y-auto">
-        {tags.map((tag) => <TagChip key={tag.name} name={tag.name} active={active.includes(tag.name)}
-          onToggle={() => onPref('tags', toggleTag(active, tag.name))}/>)}
+        {tags.map((tag) => {
+          const isActive = active.includes(tag.name)
+          return <TagChip key={tag.name} label={tag.name} pressed={isActive}
+            onPress={() => onPref('tags', toggleTag(active, tag.name))}
+            trailing={isActive ? <X size={10} className="shrink-0"/> : undefined}
+            className="h-6 px-[var(--sp-2)]"/>
+        })}
       </div>
     </div>}
     {active.length > 1 && <GraphRow label={t('graph.tags_match')}>
@@ -220,14 +226,6 @@ function GraphForceSection({ prefs, onPref, onRestoreDefaults }: {
       <ArrowDownToLine size={13}/>{t('graph.restore_defaults')}
     </button>
   </GraphSection>
-}
-
-function TagChip({ name, active, onToggle }: { name: string; active: boolean; onToggle: () => void }) {
-  return <button type="button" onClick={onToggle} aria-pressed={active}
-    className="flex h-6 max-w-full items-center gap-1 rounded-full border border-[var(--border-default)] bg-[var(--bg-inset)] px-2 text-[11px] text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] aria-pressed:border-[var(--accent)] aria-pressed:text-[var(--accent)]">
-    <span className="min-w-0 truncate">{name}</span>
-    {active && <X size={10} className="shrink-0"/>}
-  </button>
 }
 
 function GraphRow({ label, children }: { label: string; children: ReactNode }) {
