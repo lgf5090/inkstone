@@ -269,4 +269,91 @@ describe('the folder tree’s keyboard', () => {
     });
 });
 
+describe('the folder pane’s emptiness and its marks', () => {
+    /** The pane that holds the folder tree, addressed by its own hook rather than by a class it shares. */
+    function folderPane(): HTMLElement {
+        const found = container.querySelector<HTMLElement>('[data-library-folder-pane]');
+        if (!found)
+            throw new Error('missing the folder pane');
+        return found;
+    }
+
+    /** Typing the filter the way a reader does: through the input's own setter, so React's controlled
+     * value is what changes and the panel re-renders from the event. */
+    async function typeFilter(text: string): Promise<void> {
+        const box = container.querySelector<HTMLInputElement>('input[type="search"]');
+        if (!box)
+            throw new Error('missing the library filter box');
+        const write = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value')?.set;
+        await act(async () => {
+            write?.call(box, text);
+            box.dispatchEvent(new Event('input', { bubbles: true }));
+        });
+    }
+
+    function buttonNamed(label: string, scope: ParentNode = container): HTMLButtonElement {
+        const found = [...scope.querySelectorAll<HTMLButtonElement>('button')].find((button) => button.textContent === label);
+        if (!found)
+            throw new Error(`missing button ${label}`);
+        return found;
+    }
+
+    function rowBoxOf(name: string): HTMLElement {
+        const found = namedRow(name).closest<HTMLElement>('[data-library-folder]');
+        if (!found)
+            throw new Error(`missing folder row ${name}`);
+        return found;
+    }
+
+    it('says why the folder pane holds no rows when the filter matches nothing', async () => {
+        await renderTree({ folders: BRANCH, expanded: ['beta'] });
+        await typeFilter('nothing matches this');
+        // No tree at all rather than an empty one: a structure that promises rows it does not have is
+        // the answer the pane used to give, with a blank panel where the message belongs.
+        expect(folderPane().querySelector('[role="tree"]')).toBeNull();
+        expect(folderPane().textContent).toContain(t('excalidraw.no_match_stencils'));
+        press(buttonNamed(t('common.clear'), folderPane()));
+        expect(folderPane().querySelector('[role="tree"]')).toBeTruthy();
+        expect(rowButtons().map((row) => row.getAttribute('aria-label'))).toEqual(['alpha', 'beta', 'gamma', 'delta']);
+    });
+
+    it('names an empty library and offers the first folder', async () => {
+        await renderTree({});
+        expect(folderPane().querySelector('[role="tree"]')).toBeNull();
+        expect(folderPane().textContent).toContain(t('folders.no_folders'));
+        press(buttonNamed(t('excalidraw.new_folder'), folderPane()));
+        expect(container.querySelector(`input[placeholder="${t('excalidraw.new_folder')}"]`)).toBeTruthy();
+    });
+
+    it('draws the rail’s folder mark for a folder with no mark of its own', async () => {
+        await renderTree({ folders: BRANCH, expanded: ['beta'] });
+        expect(rowBoxOf('alpha').querySelector('.folder-motion-icon')).toBeTruthy();
+        expect(rowBoxOf('delta').querySelector('.folder-motion-icon')).toBeTruthy();
+    });
+
+    it('keeps a folder’s own emoji and colour on the row', async () => {
+        await renderTree({
+            folders: [{ ...folder('marked', 0), icon: '🗂', color: '#ff0000' }, folder('plain', 1)],
+        });
+        const row = rowBoxOf('marked');
+        const mark = row.querySelector<HTMLElement>('span[style*="color"]');
+        expect(mark?.style.color).toBe('rgb(255, 0, 0)');
+        expect(mark?.textContent).toContain('🗂');
+        // The mark the row draws instead of the animated one, so a folder that chose a picture keeps it.
+        expect(row.querySelector('.folder-motion-icon')).toBeNull();
+        expect(rowBoxOf('plain').querySelector('.folder-motion-icon')).toBeTruthy();
+    });
+
+    it('selects on the row’s own button and puts the accent on a colourless folder', async () => {
+        await renderTree({ folders: BRANCH, expanded: ['beta'] });
+        press(namedRow('delta'));
+        expect(useExcalidrawLibraryStore.getState().activeFolderId).toBe('delta');
+        expect(rowBoxOf('delta').querySelector('.folder-motion-icon')?.parentElement?.className)
+            .toContain('text-[var(--accent)]');
+        // One more press is the way back out, which is what the row did before it was a button.
+        press(namedRow('delta'));
+        expect(useExcalidrawLibraryStore.getState().activeFolderId).toBeNull();
+    });
+});
+
 

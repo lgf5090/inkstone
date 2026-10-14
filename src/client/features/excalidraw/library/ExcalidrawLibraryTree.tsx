@@ -683,6 +683,7 @@ export const ExcalidrawLibraryTree: React.FC<ExcalidrawLibraryTreeProps> = ({
 
       <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
         <div
+          data-library-folder-pane
           className={`p-2 border-b border-[var(--border-subtle)]/70 max-h-[40%] overflow-y-auto${rootDropping ? ' ring-1 ring-inset ring-[var(--accent)]' : ''}`}
           onDragOver={(event) => {
             if (!isFolderDrag(event.dataTransfer)) return
@@ -776,12 +777,50 @@ export const ExcalidrawLibraryTree: React.FC<ExcalidrawLibraryTreeProps> = ({
               Those are only tree semantics when a tree owns them, so this wrapper is the tree; left
               dangling, a screen reader reads the rows as unrelated boxes and never reports the depth
               the indentation is already drawing. Selection is one folder at a time, which is ARIA's
-              default for a tree, so aria-multiselectable stays unstated rather than repeated. */}
-          <div role="tree" aria-label={t('excalidraw.library_title')} className="mt-1 flex flex-col gap-0.5">
-            {visibleFolders.map((folderNode) => (
-              <LibraryFolderRow key={folderNode.id} node={folderNode} ctx={rowCtx} />
-            ))}
-          </div>
+              default for a tree, so aria-multiselectable stays unstated rather than repeated.
+              With nothing to draw the tree itself goes: a role="tree" whose only child is prose is a
+              structure that promises rows it does not have. */}
+          {visibleFolders.length === 0 ? (
+            // The item pane beside this one has always said why it is empty and offered a way out; the
+            // folder pane answered with a blank panel, so a query that matched no folder read as a
+            // broken library rather than as a filter.
+            searchText.trim() ? (
+              <div className="flex flex-col items-center justify-center gap-2 py-6 text-center text-xs text-[var(--text-secondary)] px-4">
+                <Search size={20} className="opacity-50 text-[var(--accent)]" />
+                <p className="font-medium text-[var(--text-primary)]">{t('excalidraw.no_match_stencils')}</p>
+                <button
+                  type="button"
+                  onClick={() => setSearchText('')}
+                  className="mt-1 inline-flex items-center gap-1 px-3 py-1.5 rounded-md bg-[var(--bg-sunken)] border border-[var(--border-subtle)] text-xs text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)] transition-colors"
+                >
+                  <X size={12} />
+                  <span>{t('common.clear')}</span>
+                </button>
+              </div>
+            ) : (
+              <div className="flex flex-col items-center justify-center gap-2 py-6 text-center text-xs text-[var(--text-quaternary)] px-4">
+                <FolderPlus size={22} className="opacity-40" />
+                <p>{t('folders.no_folders')}</p>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setAddingToFolderId('root')
+                    setNewSubfolderName('')
+                  }}
+                  className="mt-1 inline-flex items-center gap-1 px-3 py-1.5 rounded-md bg-[var(--accent)] text-white text-xs font-medium hover:opacity-90"
+                >
+                  <FolderPlus size={13} />
+                  <span>{t('excalidraw.new_folder')}</span>
+                </button>
+              </div>
+            )
+          ) : (
+            <div role="tree" aria-label={t('excalidraw.library_title')} className="mt-1 flex flex-col gap-0.5">
+              {visibleFolders.map((folderNode) => (
+                <LibraryFolderRow key={folderNode.id} node={folderNode} ctx={rowCtx} />
+              ))}
+            </div>
+          )}
         </div>
 
         <div className="flex-1 min-h-0 flex flex-col overflow-hidden bg-[var(--bg-sunken)]/40 p-3">

@@ -9,9 +9,7 @@ import {
   CornerUpLeft,
   Download,
   Edit2,
-  Folder,
   FolderInput,
-  FolderOpen,
   FolderPlus,
   MoreHorizontal,
   Pencil,
@@ -33,6 +31,7 @@ import { cn } from '../../../lib/cn'
 import { treeIndent, treeItemProps, useTreeKeyboard, type MoveMenuFolder } from '../../../lib/tree'
 import { useMediaQuery } from '../../../lib/hooks'
 import { useTreeChildrenMount } from '../../sidebar/useTreeChildrenMount'
+import { FolderMotionIcon } from '../../sidebar/FolderMotionIcon'
 import { FolderMoveMenu } from '../../folders/FolderMoveMenu'
 import { getAllFolderDescendants, useExcalidrawLibraryStore } from './library-store'
 import {
@@ -367,11 +366,18 @@ export function LibraryFolderRow({ node, ctx }: { node: LibraryFolderNode; ctx: 
           {expanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
         </button>
 
-        {isActive ? (
-          <FolderOpen size={15} className="shrink-0 text-[var(--accent)]" />
-        ) : (
-          <Folder size={15} className="shrink-0 text-[var(--text-tertiary)]" />
-        )}
+        {/* The rail's own folder mark, and the rail's own reading of a folder: the emoji and the colour a
+            folder carries win over the icon, and the accent only paints a folder with no colour of its
+            own. The library stores both fields, so a folder that was given one in the folders panel used
+            to arrive here as a plain outline. */}
+        <span
+          className={cn('shrink-0', isActive && !node.color ? 'text-[var(--accent)]' : !node.color && 'text-[var(--text-tertiary)]')}
+          style={{ color: node.color ?? undefined }}
+        >
+          {node.icon
+            ? <span className="text-[13px] leading-none">{node.icon}</span>
+            : <FolderMotionIcon open={expanded && hasChildren} drawing={false} />}
+        </span>
 
         {isEditing ? (
           <div className="flex items-center gap-1 flex-1 min-w-0">
