@@ -49,6 +49,21 @@ interface SavedChatSession {
 const STORAGE_KEY = 'inkstone-excalidraw-ttd-chats';
 const DEFAULT_MERMAID = `graph TD\n    A[Start] --> B(Work)\n    B --> C{Done?}\n    C -->|Yes| D[End]\n    C -->|No| B`;
 
+/**
+ * The diagram stage's own surface, which stays dark in both app themes.
+ *
+ * It is not app chrome: everything drawn on it — the strip's `bg-black/20`, its slate labels, the rose
+ * error card — is written in that same dark vocabulary, so following `--bg-*` would put light-theme
+ * chrome on a panel built for a dark one, and the diagram is the one thing here that is the reader's
+ * own artwork rather than the app's page.
+ *
+ * The second shade is worth knowing rather than trusting: `dark:` is Tailwind's default
+ * `prefers-color-scheme`, while this app's theme is `:root[data-theme]`, so the deeper shade arrives
+ * with the reader's operating system and not with the theme they chose. It is kept because it is what
+ * the stage renders today; making the stage follow the app's theme is a separate decision.
+ */
+const DIAGRAM_STAGE_CLASS = 'bg-[#23272e] dark:bg-[#1e2227]';
+
 let mermaidApi: any = null;
 let renderSeq = 0;
 
@@ -469,7 +484,7 @@ export const TextToDiagramModal: React.FC<TextToDiagramModalProps> = ({
             <button
               type="button"
               onClick={handleNewChat}
-              className="flex items-center gap-1.5 rounded-xl bg-[#8b5cf6] px-3 py-1.5 text-xs font-semibold text-white hover:brightness-110 transition-all shadow-xs"
+              className="flex items-center gap-1.5 rounded-xl bg-[var(--accent)] px-3 py-1.5 text-xs font-semibold text-white hover:brightness-110 transition-all shadow-xs"
             >
               <Plus size={13} />
               <span>{t('excalidraw.new_chat')}</span>
@@ -623,12 +638,12 @@ export const TextToDiagramModal: React.FC<TextToDiagramModalProps> = ({
               </div>
             </div>
 
-            <div className="flex flex-1 flex-col min-w-0 bg-[#23272e] dark:bg-[#1e2227]">
+            <div className={cn('flex flex-1 flex-col min-w-0', DIAGRAM_STAGE_CLASS)}>
               <div className="flex h-10 items-center justify-between border-b border-black/20 px-3 bg-black/20 text-xs shrink-0">
                 <span className="font-medium text-slate-300 flex items-center gap-1.5">
-                  <Workflow size={13} className="text-[#8b5cf6]" />
+                  <Workflow size={13} className="text-[var(--accent)]" />
                   {t('excalidraw.live_preview')}
-                  {isRendering && <RefreshCw size={11} className="animate-spin text-[#8b5cf6]" />}
+                  {isRendering && <RefreshCw size={11} className="animate-spin text-[var(--accent)]" />}
                 </span>
                 <div className="flex items-center gap-1">
                   <button
@@ -662,7 +677,7 @@ export const TextToDiagramModal: React.FC<TextToDiagramModalProps> = ({
               </div>
 
               <div
-                className="relative flex-1 overflow-hidden select-none cursor-grab active:cursor-grabbing flex items-center justify-center p-4 bg-[#23272e] dark:bg-[#1e2227]"
+                className={cn('relative flex-1 overflow-hidden select-none cursor-grab active:cursor-grabbing flex items-center justify-center p-4', DIAGRAM_STAGE_CLASS)}
                 onMouseDown={handleMouseDown}
                 onMouseMove={handleMouseMove}
                 onMouseUp={handleMouseUp}
@@ -716,7 +731,7 @@ export const TextToDiagramModal: React.FC<TextToDiagramModalProps> = ({
               <button
                 type="button"
                 onClick={() => setActiveTab('mermaid')}
-                className="flex items-center gap-1 text-xs font-semibold text-[#8b5cf6] hover:underline"
+                className="flex items-center gap-1 text-xs font-semibold text-[var(--accent)] hover:underline"
               >
                 <span>{t('excalidraw.view_as_mermaid')}</span>
                 <span>→</span>
@@ -748,7 +763,7 @@ export const TextToDiagramModal: React.FC<TextToDiagramModalProps> = ({
               className={cn(
                 'flex items-center gap-1.5 rounded-xl px-4 py-1.5 text-xs font-semibold text-white shadow-sm transition-all',
                 mermaidCode.trim() && !previewError
-                  ? 'bg-[#8b5cf6] hover:brightness-110 active:scale-95'
+                  ? 'bg-[var(--accent)] hover:brightness-110 active:scale-95'
                   : 'bg-[var(--bg-hover)] text-[var(--text-quaternary)] cursor-not-allowed',
               )}
             >

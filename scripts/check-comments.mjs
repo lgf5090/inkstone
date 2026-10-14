@@ -1084,6 +1084,7 @@ const allowed = new Map([
     "// `streamChatCompletion` reports every failure through `onError` — the toast above — before it",
     "// rethrows, and a pressed Stop rethrows its AbortError through the same door, so nothing that",
     "// reaches here is news to the reader; the `finally` still ends the streaming state.",
+    "/**\n * The diagram stage's own surface, which stays dark in both app themes.\n *\n * It is not app chrome: everything drawn on it — the strip's `bg-black/20`, its slate labels, the rose\n * error card — is written in that same dark vocabulary, so following `--bg-*` would put light-theme\n * chrome on a panel built for a dark one, and the diagram is the one thing here that is the reader's\n * own artwork rather than the app's page.\n *\n * The second shade is worth knowing rather than trusting: `dark:` is Tailwind's default\n * `prefers-color-scheme`, while this app's theme is `:root[data-theme]`, so the deeper shade arrives\n * with the reader's operating system and not with the theme they chose. It is kept because it is what\n * the stage renders today; making the stage follow the app's theme is a separate decision.\n */",
   ]],
   ["src/client/features/excalidraw/chrome.test.ts", [
     "/* */",
