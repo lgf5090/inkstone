@@ -211,6 +211,62 @@ export class TagsStore {
   }
 
   /**
+   * Pin or unpin a tag still carrying the name and state the route read.
+   *
+   * The update is guarded on `is_pinned` as read and the change record on the state it wrote, so a
+   * second device pinning the same tag in between shows up as `applied: false` rather than a record of
+   * a change that never happened.
+   */
+  async setPinned(input: { id: string; name: string; from: number; to: number; now: number }): Promise<TagAppearanceResult> {
+    const update = this.db.prepare(
+      `UPDATE tags SET is_pinned = ?1
+        WHERE id = ?2 AND user_id = ?3 AND name = ?4 AND is_pinned = ?5`,
+    ).bind(input.to, input.id, this.userId, input.name, input.from)
+    const change = this.db.prepare(
+      `INSERT INTO changes (user_id, entity, entity_id, op, at)
+       SELECT ?1, 'tag', ?2, 'upsert', ?3
+        WHERE EXISTS (SELECT 1 FROM tags WHERE id = ?2 AND user_id = ?1 AND is_pinned = ?4)
+       RETURNING seq`,
+    ).bind(this.userId, input.id, input.now, input.to)
+    const results = await this.db.batch([update, change])
+    return {
+      applied: Boolean(results[0]?.meta.changes),
+      changeSeq: (results[1] as D1Result<{ seq: number }>).results?.[0]?.seq,
+    }
+  }
+
+  /**
+   * Set a tag's colour and mark it manually chosen, guarded the same way as the pin.
+   *
+   * `color IS ?5` rather than `=` because a tag without a colour is `NULL`, and the update also flips
+   * `is_manual` so the automatic-tag pruning in a later note save stops deleting a colour somebody
+   * picked on purpose.
+   */
+  async setColor(input: {
+    id: string
+    name: string
+    color: string | null
+    previous: string | null
+    now: number
+  }): Promise<TagAppearanceResult> {
+    const update = this.db.prepare(
+      `UPDATE tags SET color = ?1, is_manual = 1
+        WHERE id = ?2 AND user_id = ?3 AND name = ?4 AND color IS ?5`,
+    ).bind(input.color, input.id, this.userId, input.name, input.previous)
+    const change = this.db.prepare(
+      `INSERT INTO changes (user_id, entity, entity_id, op, at)
+       SELECT ?1, 'tag', ?2, 'upsert', ?3
+        WHERE EXISTS (SELECT 1 FROM tags WHERE id = ?2 AND user_id = ?1 AND color IS ?4)
+       RETURNING seq`,
+    ).bind(this.userId, input.id, input.now, input.color)
+    const results = await this.db.batch([update, change])
+    return {
+      applied: Boolean(results[0]?.meta.changes),
+      changeSeq: (results[1] as D1Result<{ seq: number }>).results?.[0]?.seq,
+    }
+  }
+
+  /**
    * The tag this account would rename onto, ignoring the tag being renamed.
    *
    * `ORDER BY created_at ASC, id ASC` is the tie-break that decides which duplicate row a merge
@@ -466,6 +522,12 @@ export async function applyTagFamily(
     throw ApiError.conflict('The tag changed elsewhere. Refresh and try again')
   }
   return { moved: plan.length, rewritten: rewrites.reduce((sum, r) => sum + r.rewritten, 0) }
+}
+
+/** Either a guarded appearance write landed, or the tag changed underneath and nothing was recorded. */
+export interface TagAppearanceResult {
+  applied: boolean
+  changeSeq: number | undefined
 }
 
 /**

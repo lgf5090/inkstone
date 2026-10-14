@@ -5,7 +5,7 @@ import { isUsableTagName, tagKey } from '@shared/markdown-utils'
 import { organizerColorOrNull } from '@shared/organizer-colors'
 import type { AppBindings } from '../env'
 import { assertOrganizerQuota } from '../db/quota'
-import { toTag, tagSelectQuery, type TagRow } from '../db/rows'
+import { toTag } from '../db/rows'
 import {
   applyTagFamily,
   planTagFamily,
@@ -190,42 +190,18 @@ tagsRoutes.patch('/:id', async (c) => {
   if (typeof body.isPinned === 'boolean' && body.isPinned !== (tag.is_pinned === 1)) {
     const now = Date.now()
     const pinned = body.isPinned ? 1 : 0
-    const update = c.env.DB.prepare(
-      `UPDATE tags SET is_pinned = ?1
-        WHERE id = ?2 AND user_id = ?3 AND name = ?4 AND is_pinned = ?5`,
-    ).bind(pinned, id, userId, tag.name, tag.is_pinned)
-    const change = c.env.DB.prepare(
-      `INSERT INTO changes (user_id, entity, entity_id, op, at)
-       SELECT ?1, 'tag', ?2, 'upsert', ?3
-        WHERE EXISTS (SELECT 1 FROM tags WHERE id = ?2 AND user_id = ?1 AND is_pinned = ?4)
-       RETURNING seq`,
-    ).bind(userId, id, now, pinned)
-    const pinBatch = await c.env.DB.batch([update, change])
-    if (!pinBatch[0]?.meta.changes) throw ApiError.conflict('The tag changed elsewhere. Refresh and try again')
-    await broadcastCursor(c, (pinBatch[1] as D1Result<{ seq: number }>).results?.[0]?.seq)
+    const { applied, changeSeq } = await s.setPinned({ id, name: tag.name, from: tag.is_pinned, to: pinned, now })
+    if (!applied) throw ApiError.conflict('The tag changed elsewhere. Refresh and try again')
+    await broadcastCursor(c, changeSeq)
   }
 
   if (color !== tag.color) {
     const now = Date.now()
-    const update = c.env.DB.prepare(
-      `UPDATE tags SET color = ?1, is_manual = 1
-        WHERE id = ?2 AND user_id = ?3 AND name = ?4 AND color IS ?5`,
-    ).bind(color, id, userId, tag.name, tag.color)
-    const change = c.env.DB.prepare(
-      `INSERT INTO changes (user_id, entity, entity_id, op, at)
-       SELECT ?1, 'tag', ?2, 'upsert', ?3
-        WHERE EXISTS (SELECT 1 FROM tags WHERE id = ?2 AND user_id = ?1 AND color IS ?4)
-       RETURNING seq`,
-    ).bind(userId, id, now, color)
-    const colorBatch = await c.env.DB.batch([update, change])
-    if (!colorBatch[0]?.meta.changes) throw ApiError.conflict('The tag changed elsewhere. Refresh and try again')
-    await broadcastCursor(c, (colorBatch[1] as D1Result<{ seq: number }>).results?.[0]?.seq)
+    const { applied, changeSeq } = await s.setColor({ id, name: tag.name, color, previous: tag.color, now })
+    if (!applied) throw ApiError.conflict('The tag changed elsewhere. Refresh and try again')
+    await broadcastCursor(c, changeSeq)
   }
-  const row = await c.env.DB.prepare(
-    tagSelectQuery('t.user_id = ?1 AND t.id = ?2'),
-  )
-    .bind(userId, id)
-    .first<TagRow>()
+  const row = await s.tagRow(id)
   return c.json(row ? toTag(row) : { ok: true })
 })
 
