@@ -1,11 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Check, Copy, ExternalLink, Eye, Link2, RefreshCw, Search, Settings2, Trash2 } from 'lucide-react'
+import { Check, Copy, ExternalLink, Eye, Link2, RefreshCw, Settings2, Trash2 } from 'lucide-react'
 import type { ShareListItem } from '@shared/types'
 import { api } from '../../lib/api'
 import { fullTime } from '../../lib/time'
 import { COPY_RESET_MS } from '../../lib/motion'
 import { Button } from '../../components/primitives'
-import { Input } from '../../components/form'
+import { FilterInput } from '../../components/FilterInput'
 import { confirm } from '../../components/overlay'
 import { useNotes } from '../../store/notes'
 import { useUi } from '../../store/ui'
@@ -13,8 +13,7 @@ import { t } from '../../lib/i18n'
 import { useSettingsResource } from './resource'
 import { sharesResource } from './resources'
 import { SharePanel } from '../share/SharePanel'
-import { matchesQuery } from '../../lib/fuzzy'
-import { usePinyinVersion } from '../../lib/pinyin'
+import { compileQuery, queryKeeps } from '../../lib/query-match'
 
 export function SharedNotes() {
   const [shares, setShares] = useSettingsResource(sharesResource)
@@ -49,15 +48,12 @@ export function SharedNotes() {
     }
   }, [load])
 
-  const pinyinVersion = usePinyinVersion()
+  const filter = useMemo(() => compileQuery(query), [query])
   const visible = useMemo(() => {
-    const needle = query.trim()
     // One matcher for both fields: a row that answers the title by its initials and the address by
     // literal characters would look like a filter that works on one column and not the other.
-    return shares?.filter((share) => !needle ||
-      matchesQuery(share.noteTitle ?? '', needle) ||
-      matchesQuery(share.url, needle)) ?? []
-  }, [shares, query, pinyinVersion])
+    return shares?.filter((share) => queryKeeps(filter, share.noteTitle ?? '') || queryKeeps(filter, share.url)) ?? []
+  }, [shares, filter])
 
   const copy = async (share: ShareListItem) => {
     try {
@@ -118,10 +114,7 @@ export function SharedNotes() {
       <Button size="sm" variant="ghost" icon={<RefreshCw size={13}/>} loading={refreshing} onClick={() => void load(true)} aria-label={t('share.refresh_list')} title={t('share.refresh_list')} />
     </div>
 
-    {shares && shares.length > 0 && <div className="relative mb-2">
-      <Search size={14} className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-[var(--text-quaternary)]" />
-      <Input value={query} onChange={(event) => setQuery(event.target.value)} placeholder={t('share.search_shared_notes')} aria-label={t('share.search_shared_notes')} className="w-full pl-8" />
-    </div>}
+    {shares && shares.length > 0 && <FilterInput size="panel" className="mb-2" value={query} onChange={setQuery} query={filter} label={t('share.search_shared_notes')} placeholder={t('share.search_shared_notes')}/>}
 
     {error && <div role="alert" className="mb-2 flex items-center justify-between gap-2 rounded-[var(--r-md)] border border-[var(--border-subtle)] px-3 py-2 text-[12px] text-[var(--danger)]">
       <span>{t('share.could_not_load_list')}: {error}</span>

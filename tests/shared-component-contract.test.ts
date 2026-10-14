@@ -174,9 +174,10 @@ describe('the focus ring is one token per role', () => {
 
   it('gives no surface a third ring thickness', () => {
     // Outside the shared layer the hand-spelled rings are still allowed to exist until their owners
-    // move, but they may only be one of the two thicknesses on record — which is what stops the
-    // disagreement from growing a fourth value. An `inset` spread is a hairline drawn inside a shape
-    // (a code token's edge), not a ring around a focused control, so it is not this rule's business.
+    // move, but they may only be the thicknesses on record — which is what stops the disagreement from
+    // growing a new value. The 3px one left the tree when the template gallery's search box took
+    // `--shadow-ring-focus`; an `inset` spread is a hairline drawn inside a shape (a code token's
+    // edge), not a ring around a focused control, so it is not this rule's business.
     const widths = new Set<number>()
     for (const file of sourceFiles(path.join('src', 'client'))) {
       const source = read(file)
@@ -184,7 +185,7 @@ describe('the focus ring is one token per role', () => {
         widths.add(Number(match[1] ?? match[2]))
       }
     }
-    expect([...widths].sort((a, b) => a - b)).toEqual([2, 3])
+    expect([...widths].sort((a, b) => a - b)).toEqual([2])
   })
 
   it('keeps the shared layer free of a numeric debounce it invented', () => {
