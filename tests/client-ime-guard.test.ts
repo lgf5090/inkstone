@@ -272,11 +272,56 @@ function load(): { graph: Graph, editable: Set<ComponentId> } {
   return { graph, editable: editableComponents(graph) }
 }
 
+/** A DOM node named like a text field, which is all a plain listener on it can be recognised by. */
+const FIELD_LIKE_RECEIVER = /^(?:input|textarea|field|box|search|editor)$/i
+
+/**
+ * The same rule for the handful of keydown listeners the client attaches to a DOM node itself.
+ *
+ * `onKeyDown` on JSX is the common shape, but a mounted island (`features/preview/json-view-mount.ts`)
+ * adds its own listener to an `<input>` it built, and that one is invisible to a JSX walk. Only a
+ * receiver named like a field is policed here: `window`, `document` and an editor's content DOM are the
+ * app's own surfaces, where the input method has already been answered by the library underneath.
+ */
+function unguardedDomListeners(units: Unit[]): string[] {
+  const offenders: string[] = []
+  for (const unit of units) {
+    const visit = (node: ts.Node): void => {
+      if (ts.isCallExpression(node) && node.arguments.length >= 2
+        && ts.isPropertyAccessExpression(node.expression) && node.expression.name.getText() === 'addEventListener'
+        && ts.isStringLiteral(node.arguments[0]) && node.arguments[0].text === 'keydown') {
+        const receiver = node.expression.expression.getText()
+        const handler = node.arguments[1]
+        const keys = bareKeys(handler)
+        if (FIELD_LIKE_RECEIVER.test(receiver) && keys.length > 0 && !consultsComposition(handler)) {
+          const line = unit.source.getLineAndCharacterOfPosition(node.getStart(unit.source)).line + 1
+          offenders.push(`${unit.name}:${line} ${receiver}.addEventListener('keydown') handles ${keys.join('/')} while a composition may own it`)
+        }
+      }
+      ts.forEachChild(node, visit)
+    }
+    visit(unit.source)
+  }
+  return offenders.sort()
+}
+
 describe('every bare key a text field can hand to the app is offered to the input method first', () => {
   it('finds no client key handler that skips the composition check', () => {
     const { graph, editable } = load()
-    const offenders = unguardedKeyHandlers(graph, editable)
+    const offenders = [...unguardedKeyHandlers(graph, editable), ...unguardedDomListeners(graph.units)]
     expect(offenders, `${offenders.length} unguarded key handler(s); call isImeComposing(event) from src/client/lib/ime.ts`).toEqual([])
+  })
+
+  it('catches a keydown listener attached to a field the DOM way', () => {
+    const island = parseSource('d/json-editor.ts', `
+      export function startEdit(input: HTMLInputElement) {
+        input.addEventListener('keydown', (event: KeyboardEvent) => { if (event.key === 'Enter') finish(true) })
+      }`)
+    expect(unguardedDomListeners([island]))
+      .toEqual(["d/json-editor.ts:3 input.addEventListener('keydown') handles Enter while a composition may own it"])
+    const windowLevel = parseSource('d/shortcuts.ts', `
+      export function bind() { window.addEventListener('keydown', (event: KeyboardEvent) => { if (event.key === 's') save() }) }`)
+    expect(unguardedDomListeners([windowLevel])).toEqual([])
   })
 
   it('sees the field through a component, not only through a literal tag', () => {
