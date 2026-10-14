@@ -424,7 +424,7 @@ export const TextToDiagramModal: React.FC<TextToDiagramModalProps> = ({
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 p-4 animate-in fade-in duration-150">
+    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 p-4 anim-fade">
       <div
         className="flex h-[92vh] w-full max-w-6xl flex-col rounded-2xl border border-[var(--border-subtle)] bg-[var(--bg-surface)] shadow-2xl overflow-hidden"
         role="dialog"
@@ -489,7 +489,7 @@ export const TextToDiagramModal: React.FC<TextToDiagramModalProps> = ({
             </button>
 
             {isHistoryOpen && (
-              <div className="absolute right-10 top-10 z-50 w-64 rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-surface)] p-2 shadow-xl animate-in fade-in zoom-in-95 duration-100">
+              <div className="absolute right-10 top-10 z-50 w-64 rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-surface)] p-2 shadow-xl anim-pop">
                 <div className="mb-2 px-2 text-[11px] font-semibold uppercase tracking-wider text-[var(--text-tertiary)]">
                   {t('excalidraw.chat_history')}
                 </div>

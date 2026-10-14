@@ -1069,6 +1069,9 @@ const allowed = new Map([
     "// The same note can be open in two panes, each with its own engine. Refilling while this canvas",
     "// holds an edit it has not written yet would throw that work away, so wait for the save to land.",
   ]],
+  ["src/client/features/excalidraw/TextToDiagramModal.test.ts", [
+    "/**\n   * The entrance animation is the part a class name can lose silently.\n   *\n   * Both overlays here used to carry `animate-in fade-in zoom-in-95` — the vocabulary of an animation\n   * plugin that is not a dependency of this project, so no rule defined those classes and the modal\n   * simply appeared. The half a component test can see is that the elements now carry the classes the\n   * app's own stylesheet defines; `tests/excalidraw-modal-entrance.test.ts` is the other half, that the\n   * stylesheet really animates them.\n   */",
+  ]],
   ["src/client/features/excalidraw/TextToDiagramModal.tsx", [
     "// A chat list an earlier session left behind is a convenience: a store this browser will not",
     "// hand back — private mode, or a blob JSON no longer parses — still opens the dialog on the",
@@ -15056,6 +15059,9 @@ const allowed = new Map([
     "// the same tree would keep answering with the value it saw the first time.",
     "/** The wrapper a row’s ARIA is spread onto, one level above the `[data-library-folder]` box. */",
     "/** The one tree the panel renders, taken by throwing rather than by an optional chain that would\n     * read the same as a row with no tree above it. */",
+  ]],
+  ["tests/excalidraw-modal-entrance.test.ts", [
+    "/**\n * The two classes the text-to-diagram modal and the official-library modal enter with.\n *\n * They used to enter with `animate-in fade-in zoom-in-95`, which nothing in this project defines: that\n * vocabulary belongs to an animation plugin that is not a dependency, so the classes were decoration for\n * an animation that never ran, and no test of the components could tell the difference. Read here rather\n * than in a component's own test because this is the project that may touch the filesystem.\n */",
   ]],
   ["tests/excalidraw-official-catalog-route.test.ts", [
     "/** The route caches the catalog in module scope, so every test needs a freshly imported module. */",
