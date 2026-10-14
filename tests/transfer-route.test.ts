@@ -6,7 +6,7 @@ import { SCHEMA_STATEMENTS } from '../src/worker/db/schema'
 import { errorResponse } from '../src/worker/lib/errors'
 import type { AppBindings } from '../src/worker/env'
 import { transferRoutes } from '../src/worker/routes/transfer'
-import { TransferStore } from '../src/worker/transfer/store'
+import { TransferStore, type ImportedNoteWrite } from '../src/worker/transfer/store'
 import { makeD1 } from './doubles/d1-sqlite'
 
 /**
@@ -370,6 +370,84 @@ describe('the transfer store', () => {
       id: 'folder-bob-work', parentId: null, name: 'Work', icon: null, color: null,
       position: 4000, createdAt: 4000, updatedAt: 4000,
     })).toBe(true)
+  })
+
+  it('refuses a re-import whose guard no longer matches the note', async () => {
+    insertNote(NOTE_ID, ALICE, 'Old text', 3, 1000)
+    const store = new TransferStore(db, ALICE, false)
+    expect(await new TransferStore(db, BOB, false).noteForImport(NOTE_ID)).toBeNull()
+
+    const current = await store.noteForImport(NOTE_ID)
+    expect(current?.rev).toBe(3)
+    const write: ImportedNoteWrite = {
+      noteId: NOTE_ID,
+      previousRev: 3,
+      nextRev: 4,
+      previousTitle: 'Old text',
+      previousContent: 'Old text',
+      title: 'New text',
+      content: 'New text',
+      excerpt: 'New text',
+      words: 2,
+      chars: 8,
+      contentHash: 'hash-4',
+      folderId: null,
+      isPinned: 0,
+      isStarred: 0,
+      isArchived: 0,
+      position: 1000,
+      createdAt: 1000,
+      updatedAt: 5000,
+      deletedAt: null,
+      keepsRevision: true,
+    }
+    expect(await store.updateImportedNote(write)).toBe(true)
+    expect(one<{ rev: number }>('SELECT rev FROM notes WHERE id = ?', NOTE_ID)?.rev).toBe(4)
+    expect(one<{ title: string }>('SELECT title FROM note_versions WHERE note_id = ?', NOTE_ID)?.title).toBe('Old text')
+
+    // The same write again: its guard asks for revision 3, which the note no longer is.
+    expect(await store.updateImportedNote(write)).toBe(false)
+    expect(one<{ rev: number }>('SELECT rev FROM notes WHERE id = ?', NOTE_ID)?.rev).toBe(4)
+  })
+
+  it('keeps only the newest revisions when a re-import writes one', async () => {
+    insertNote(NOTE_ID, ALICE, 'Old text', 3, 1000)
+    for (let i = 0; i < 50; i++) {
+      sqlite.prepare(
+        'INSERT INTO note_versions (id, note_id, user_id, title, content, size, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
+      ).run(`version-${String(i).padStart(3, '0')}`, NOTE_ID, ALICE, `Rev ${i}`, 'older', 6, i + 1)
+    }
+
+    const applied = await new TransferStore(db, ALICE, false).updateImportedNote({
+      noteId: NOTE_ID,
+      previousRev: 3,
+      nextRev: 4,
+      previousTitle: 'Old text',
+      previousContent: 'Old text',
+      title: 'New text',
+      content: 'New text',
+      excerpt: 'New text',
+      words: 2,
+      chars: 8,
+      contentHash: 'hash-4',
+      folderId: null,
+      isPinned: 0,
+      isStarred: 0,
+      isArchived: 0,
+      position: 1000,
+      createdAt: 1000,
+      updatedAt: 5000,
+      deletedAt: null,
+      keepsRevision: true,
+    })
+
+    expect(applied).toBe(true)
+    // One row added, the oldest dropped: the ceiling is what the note ends at, not one over it.
+    expect(one<{ n: number }>('SELECT COUNT(*) AS n FROM note_versions WHERE note_id = ?', NOTE_ID)!.n).toBe(50)
+    expect(one<{ title: string }>(
+      'SELECT title FROM note_versions WHERE note_id = ? ORDER BY created_at DESC LIMIT 1', NOTE_ID,
+    )?.title).toBe('Old text')
+    expect(one<{ id: string }>('SELECT id FROM note_versions WHERE id = ?', 'version-000')).toBeUndefined()
   })
 
   it('restores an export\'s tag names and colours into the asking account only', async () => {

@@ -14,7 +14,7 @@ import {
 import { LIMITS } from '@shared/constants'
 import { formatBytes } from '@shared/byte-format'
 import { countText, deriveExcerpt, deriveTitle, splitFrontMatter } from '@shared/markdown-utils'
-import { truncateText, utf8ByteLength } from '@shared/text-utils'
+import { truncateText } from '@shared/text-utils'
 import { organizerColorOrNull } from '@shared/organizer-colors'
 import type { ExportBundle, ImportResult } from '@shared/types'
 import {
@@ -645,14 +645,7 @@ async function importBackupMarkdown(
       ctx.result.createdNotes++
       return
     }
-    const outcome = await updateImportedNote(
-      c,
-      userId,
-      existing,
-      input,
-      effectiveUpdatedAt,
-      ctx,
-    )
+    const outcome = await updateImportedNote(ctx, existing, input, effectiveUpdatedAt)
     if (outcome === 'updated') ctx.result.updatedNotes++
     else {
       ctx.result.skippedNotes++
@@ -874,14 +867,7 @@ async function importBundle(
           continue
         }
 
-        const outcome = await updateImportedNote(
-          c,
-          userId,
-          existing,
-          input,
-          effectiveUpdatedAt,
-          ctx,
-        )
+        const outcome = await updateImportedNote(ctx, existing, input, effectiveUpdatedAt)
         if (outcome === 'updated') {
           if (sourceId) noteIdMap.set(sourceId, existing.id)
           ctx.result.updatedNotes++
@@ -1248,31 +1234,21 @@ interface InsertInput {
   deletedAt?: number
 }
 
+/**
+ * Apply a re-imported note over the one this account already has, if it is newer.
+ *
+ * The three answers the caller cannot derive on its own are the whole contract: `missing` (the note is
+ * gone), `skipped` (what is stored is already at least as new) and `conflict` (someone edited it
+ * between the read and the guarded write, so the current version was kept). Which of the counters a
+ * result moves, and whether the client is warned, is the caller's business.
+ */
 async function updateImportedNote(
-  c: { env: AppBindings['Bindings'] },
-  userId: string,
+  ctx: ImportContext,
   existing: ExistingNoteIndex,
   input: InsertInput,
   importedUpdatedAt: number,
-  ctx: ImportContext,
 ): Promise<'updated' | 'skipped' | 'conflict' | 'missing'> {
-  const current = await c.env.DB.prepare(
-    `SELECT id, title, content, rev, position, is_pinned, is_starred, is_archived,
-            created_at, updated_at, deleted_at
-       FROM notes WHERE id = ?1 AND user_id = ?2`,
-  ).bind(existing.id, userId).first<{
-    id: string
-    title: string
-    content: string
-    rev: number
-    position: number
-    is_pinned: number
-    is_starred: number
-    is_archived: number
-    created_at: number
-    updated_at: number
-    deleted_at: number | null
-  }>()
+  const current = await ctx.store.noteForImport(existing.id)
   if (!current) return 'missing'
   if (!importedUpdatedAt || current.updated_at >= importedUpdatedAt) return 'skipped'
 
@@ -1284,88 +1260,30 @@ async function updateImportedNote(
   const createdAt = Math.min(validTimestamp(input.createdAt) || current.created_at, updatedAt)
   const deletedAt = validTimestamp(input.deletedAt) || null
   const position = finiteNumber(input.position) ?? current.position
-  const mutationGuard = `EXISTS (SELECT 1 FROM notes
-    WHERE id = ?1 AND user_id = ?2 AND rev = ?3
-      AND content_hash = ?4 AND title = ?5 AND updated_at = ?6)`
-  const mutationValues = [current.id, userId, nextRev, hash, title, updatedAt] as const
-  const update = c.env.DB.prepare(
-    `UPDATE notes SET title = ?1, content = ?2, excerpt = ?3, word_count = ?4, char_count = ?5,
-       content_hash = ?6, folder_id = ?7, is_pinned = ?8, is_starred = ?9, is_archived = ?10,
-       position = ?11, created_at = ?12, updated_at = ?13, rev = ?14, deleted_at = ?15
-      WHERE id = ?16 AND user_id = ?17 AND rev = ?18`,
-  ).bind(
+
+  const applied = await ctx.store.updateImportedNote({
+    noteId: current.id,
+    previousRev: current.rev,
+    nextRev,
+    previousTitle: current.title,
+    previousContent: current.content,
     title,
-    input.content,
-    deriveExcerpt(input.content),
+    content: input.content,
+    excerpt: deriveExcerpt(input.content),
     words,
     chars,
-    hash,
-    input.folderId,
-    input.isPinned === undefined ? current.is_pinned : input.isPinned ? 1 : 0,
-    input.isStarred === undefined ? current.is_starred : input.isStarred ? 1 : 0,
-    input.isArchived === undefined ? current.is_archived : input.isArchived ? 1 : 0,
+    contentHash: hash,
+    folderId: input.folderId,
+    isPinned: input.isPinned === undefined ? current.is_pinned : input.isPinned ? 1 : 0,
+    isStarred: input.isStarred === undefined ? current.is_starred : input.isStarred ? 1 : 0,
+    isArchived: input.isArchived === undefined ? current.is_archived : input.isArchived ? 1 : 0,
     position,
     createdAt,
     updatedAt,
-    nextRev,
     deletedAt,
-    current.id,
-    userId,
-    current.rev,
-  )
-
-  const statements: D1PreparedStatement[] = [update]
-  if (current.content !== input.content || current.title !== title) {
-    const snapshotAt = Date.now()
-    statements.push(
-      c.env.DB.prepare(
-        `INSERT INTO note_versions (id, note_id, user_id, title, content, size, created_at)
-         SELECT ?1, ?2, ?3, ?4, ?5, ?6, ?7
-          WHERE ${shiftSqlPlaceholders(mutationGuard, 7)}`,
-      ).bind(
-        newId(),
-        current.id,
-        userId,
-        current.title,
-        current.content,
-        utf8ByteLength(current.content),
-        snapshotAt,
-        ...mutationValues,
-      ),
-      c.env.DB.prepare(
-        `DELETE FROM note_versions WHERE note_id = ?1
-           AND ${shiftSqlPlaceholders(mutationGuard, 1)}
-           AND id IN (
-             SELECT id FROM note_versions WHERE note_id = ?1 ORDER BY created_at DESC, id DESC LIMIT -1 OFFSET ?8)`,
-      ).bind(current.id, ...mutationValues, LIMITS.versionsPerNote),
-    )
-  }
-  const derived = buildNoteDerivedStatements({
-    db: c.env.DB,
-    userId,
-    noteId: current.id,
-    title,
-    content: input.content,
-    ftsEnabled: ctx.ftsEnabled,
-    previousTitle: current.title,
-    expectedRev: nextRev,
-    expectedContentHash: hash,
-    expectedTitle: title,
-    expectedUpdatedAt: updatedAt,
-    deleted: Boolean(deletedAt),
-  }).statements
-  statements.push(
-    ...derived,
-    c.env.DB.prepare(
-      `INSERT INTO changes (user_id, entity, entity_id, op, at)
-       SELECT ?1, 'note', ?2, 'upsert', ?3
-        WHERE ${shiftSqlPlaceholders(mutationGuard, 3)}`,
-    ).bind(userId, current.id, Date.now(), ...mutationValues),
-    noteIndexQueueStatement(c.env.DB, userId, current.id, 'embed', Date.now()),
-  )
-
-  const [result] = await c.env.DB.batch(statements)
-  if (!result?.meta.changes) return 'conflict'
+    keepsRevision: current.content !== input.content || current.title !== title,
+  })
+  if (!applied) return 'conflict'
   existing.title = title
   existing.rev = nextRev
   existing.updated_at = updatedAt
@@ -1780,8 +1698,4 @@ function addWarning(result: ImportResult, message: string): void {
   } else if (result.warnings.length === MAX_IMPORT_WARNINGS - 1) {
     result.warnings.push('Additional import warnings were omitted')
   }
-}
-
-function shiftSqlPlaceholders(sql: string, offset: number): string {
-  return sql.replace(/\?(\d+)/g, (_match, value: string) => `?${Number(value) + offset}`)
 }

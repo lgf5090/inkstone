@@ -17,8 +17,16 @@
  * ride `waitUntil`.
  */
 
+import { LIMITS } from '@shared/constants'
+import { utf8ByteLength } from '@shared/text-utils'
 import type { AttachmentObjectStorage } from '../attachments/keys'
-import { runBatched } from '../db/writes'
+import {
+  buildNoteDerivedStatements,
+  runBatched,
+  shiftSqlPlaceholders,
+} from '../db/writes'
+import { noteIndexQueueStatement } from '../mcp/ai-search'
+import { newId } from '../lib/id'
 
 /** The attachment columns a restore compares against before it decides to re-store bytes. */
 export interface ExistingAttachmentRow {
@@ -75,6 +83,52 @@ export interface TagRestoreRow {
   id: string
   name: string
   color: string | null
+}
+
+/** The stored note a restore compares against before it decides what a re-import changes. */
+export interface ImportedNoteState {
+  id: string
+  title: string
+  content: string
+  rev: number
+  position: number
+  is_pinned: number
+  is_starred: number
+  is_archived: number
+  created_at: number
+  updated_at: number
+  deleted_at: number | null
+}
+
+/**
+ * One re-imported note the route has measured, named and dated.
+ *
+ * Every field here is already a value the route decided: the revision it is going to, the guard it is
+ * written under, and whether the text changed enough to be worth keeping as a revision.
+ */
+export interface ImportedNoteWrite {
+  noteId: string
+  /** The revision this write replaces; it is part of the guard, and `nextRev` is what it becomes. */
+  previousRev: number
+  nextRev: number
+  previousTitle: string
+  previousContent: string
+  title: string
+  content: string
+  excerpt: string
+  words: number
+  chars: number
+  contentHash: string
+  folderId: string | null
+  isPinned: number
+  isStarred: number
+  isArchived: number
+  position: number
+  createdAt: number
+  updatedAt: number
+  deletedAt: number | null
+  /** Only a body or title that actually differs is worth a revision row. */
+  keepsRevision: boolean
 }
 
 /** Ids per lookup chunk: D1 binds every placeholder, so a restore's id list is paged. */
@@ -330,8 +384,113 @@ export class TransferStore {
     return row ?? null
   }
 
-  // ------------------------------------------------------------------ folders
+  // ---------------------------------------------------- re-imported note writes
 
+  /** The stored row a restore compares against, or null when this account does not own it. */
+  async noteForImport(noteId: string): Promise<ImportedNoteState | null> {
+    const current = await this.db.prepare(
+      `SELECT id, title, content, rev, position, is_pinned, is_starred, is_archived,
+              created_at, updated_at, deleted_at
+         FROM notes WHERE id = ?1 AND user_id = ?2`,
+    ).bind(noteId, this.userId).first<ImportedNoteState>()
+    return current ?? null
+  }
+
+  /**
+   * Write a newer re-import over this account's note, in the one batch the guard needs.
+   *
+   * `mutationGuard` is spliced into the revision insert, the revision trim and the change record with
+   * its placeholders shifted to each statement's own slots: all four statements only mean "nobody
+   * edited this note between my read and my write" while they land together, and the first result's
+   * `changes` is what says whether the note was still ours to change. The tag, link and index work is
+   * `db/writes.buildNoteDerivedStatements`, which is written against the same guard.
+   */
+  async updateImportedNote(input: ImportedNoteWrite): Promise<boolean> {
+    const mutationGuard = `EXISTS (SELECT 1 FROM notes
+      WHERE id = ?1 AND user_id = ?2 AND rev = ?3
+        AND content_hash = ?4 AND title = ?5 AND updated_at = ?6)`
+    const mutationValues = [input.noteId, this.userId, input.nextRev, input.contentHash, input.title, input.updatedAt] as const
+    const update = this.db.prepare(
+      `UPDATE notes SET title = ?1, content = ?2, excerpt = ?3, word_count = ?4, char_count = ?5,
+         content_hash = ?6, folder_id = ?7, is_pinned = ?8, is_starred = ?9, is_archived = ?10,
+         position = ?11, created_at = ?12, updated_at = ?13, rev = ?14, deleted_at = ?15
+        WHERE id = ?16 AND user_id = ?17 AND rev = ?18`,
+    ).bind(
+      input.title,
+      input.content,
+      input.excerpt,
+      input.words,
+      input.chars,
+      input.contentHash,
+      input.folderId,
+      input.isPinned,
+      input.isStarred,
+      input.isArchived,
+      input.position,
+      input.createdAt,
+      input.updatedAt,
+      input.nextRev,
+      input.deletedAt,
+      input.noteId,
+      this.userId,
+      input.previousRev,
+    )
+
+    const statements: D1PreparedStatement[] = [update]
+    if (input.keepsRevision) {
+      const snapshotAt = Date.now()
+      statements.push(
+        this.db.prepare(
+          `INSERT INTO note_versions (id, note_id, user_id, title, content, size, created_at)
+           SELECT ?1, ?2, ?3, ?4, ?5, ?6, ?7
+            WHERE ${shiftSqlPlaceholders(mutationGuard, 7)}`,
+        ).bind(
+          newId(),
+          input.noteId,
+          this.userId,
+          input.previousTitle,
+          input.previousContent,
+          utf8ByteLength(input.previousContent),
+          snapshotAt,
+          ...mutationValues,
+        ),
+        this.db.prepare(
+          `DELETE FROM note_versions WHERE note_id = ?1
+             AND ${shiftSqlPlaceholders(mutationGuard, 1)}
+             AND id IN (
+               SELECT id FROM note_versions WHERE note_id = ?1 ORDER BY created_at DESC, id DESC LIMIT -1 OFFSET ?8)`,
+        ).bind(input.noteId, ...mutationValues, LIMITS.versionsPerNote),
+      )
+    }
+    const derived = buildNoteDerivedStatements({
+      db: this.db,
+      userId: this.userId,
+      noteId: input.noteId,
+      title: input.title,
+      content: input.content,
+      ftsEnabled: this.ftsEnabled,
+      previousTitle: input.previousTitle,
+      expectedRev: input.nextRev,
+      expectedContentHash: input.contentHash,
+      expectedTitle: input.title,
+      expectedUpdatedAt: input.updatedAt,
+      deleted: Boolean(input.deletedAt),
+    }).statements
+    statements.push(
+      ...derived,
+      this.db.prepare(
+        `INSERT INTO changes (user_id, entity, entity_id, op, at)
+         SELECT ?1, 'note', ?2, 'upsert', ?3
+          WHERE ${shiftSqlPlaceholders(mutationGuard, 3)}`,
+      ).bind(this.userId, input.noteId, Date.now(), ...mutationValues),
+      noteIndexQueueStatement(this.db, this.userId, input.noteId, 'embed', Date.now()),
+    )
+
+    const [result] = await this.db.batch(statements)
+    return Boolean(result?.meta.changes)
+  }
+
+  // ------------------------------------------------------------------ folders
   /** Every live folder of this account, in whatever order the account keeps them. */
   async folderPathRows(): Promise<FolderPathRow[]> {
     const { results } = await this.db
