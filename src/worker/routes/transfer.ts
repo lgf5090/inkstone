@@ -26,13 +26,15 @@ import {
   hasAttachmentStorage,
   selectAttachmentStorage,
 } from '../attachments/backend'
-import { type AttachmentObjectStorage } from '../attachments/keys'
 import type { AppBindings } from '../env'
 import {
   buildNoteDerivedStatements,
   pruneOrphanTags,
-  runBatched,
 } from '../db/writes'
+import {
+  TransferStore,
+  type ExistingAttachmentRow,
+} from '../transfer/store'
 import { noteIndexQueueStatement, scheduleAiDrain } from '../mcp/ai-search'
 import { consumeNoteQuota, openNoteQuotaBudget, type NoteQuotaBudget } from '../db/quota'
 import {
@@ -153,6 +155,7 @@ transferRoutes.get('/export', async (c) => {
 transferRoutes.post('/import', async (c) => {
   const userId = c.get('userId')
   const { ftsEnabled } = c.get('database')
+  const store = new TransferStore(c.env.DB, userId, ftsEnabled)
   const form = await readFormDataWithinLimit(c.req, FORM_BODY_LIMITS.import)
 
   const conflict = parseImportConflict(form.get('conflict'))
@@ -196,6 +199,7 @@ transferRoutes.post('/import', async (c) => {
   if (backupManifest) {
     try {
       await importBackupFileBatch(c, userId, selectedFiles, backupManifest, {
+        store,
         conflict,
         byId,
         folderCache,
@@ -266,7 +270,7 @@ transferRoutes.post('/import', async (c) => {
               path: entry.path.slice(backup.rootPrefix.length),
             })),
             backup.manifest,
-            { conflict, byId, folderCache, result, ftsEnabled },
+            { store, conflict, byId, folderCache, result, ftsEnabled },
           )
           continue
         }
@@ -287,6 +291,7 @@ transferRoutes.post('/import', async (c) => {
               })
             : []
           await importBundle(c, userId, rawBundle, {
+            store,
             conflict,
             byId,
             folderCache,
@@ -307,6 +312,7 @@ transferRoutes.post('/import', async (c) => {
           for (const entry of entries) {
             if (!isMarkdownPath(entry.path)) continue
             await importMarkdown(c, userId, entry.path, new TextDecoder().decode(entry.data), {
+              store,
               folderCache,
               result,
               ftsEnabled,
@@ -319,6 +325,7 @@ transferRoutes.post('/import', async (c) => {
           throw new Error(`The export file cannot exceed ${formatBytes(LIMITS.importBundleMaxBytes)}`)
         }
         await importBundle(c, userId, JSON.parse(await file.text()), {
+          store,
           conflict,
           byId,
           folderCache,
@@ -330,6 +337,7 @@ transferRoutes.post('/import', async (c) => {
           throw new Error(`Note content cannot exceed ${formatBytes(LIMITS.contentMaxBytes)}`)
         }
         await importMarkdown(c, userId, selected.path, await file.text(), {
+          store,
           folderCache,
           result,
           ftsEnabled,
@@ -357,6 +365,13 @@ transferRoutes.post('/import', async (c) => {
 
 
 interface ImportContext {
+  /**
+   * The account's D1 access, bound once per request.
+   *
+   * Every statement these helpers need lives in `transfer/store.ts`; the route validates, decides and
+   * shapes the answer, and asks this object for rows.
+   */
+  store: TransferStore
   conflict?: ImportConflict
   byId?: Map<string, ExistingNoteIndex | null>
   folderCache: Map<string, string>
@@ -532,7 +547,7 @@ async function importBackupAttachment(
     sha256: entry.sha256,
     createdAt: validTimestamp(entry.createdAt) || Date.now(),
   }
-  const restored = await findRestoredAttachment(env.DB, userId, entry.sha256)
+  const restored = await ctx.store.restoredAttachment(entry.sha256)
   if (restored.mapped?.user_id === userId
     && await existingAttachmentMatches(env, restored.mapped, candidate)) {
     ctx.result.skippedAttachments++
@@ -541,7 +556,7 @@ async function importBackupAttachment(
 
   const sameContent = restored.byHash
   if (sameContent && await existingAttachmentMatches(env, sameContent, candidate)) {
-    await upsertImportMappings(env.DB, userId, 'attachment', [
+    await ctx.store.upsertImportMappings('attachment', [
       { sourceId: entry.sha256, targetId: sameContent.id },
     ])
     ctx.result.skippedAttachments++
@@ -558,7 +573,7 @@ async function importBackupAttachment(
     createdAt: candidate.createdAt,
   })
   try {
-    await upsertImportMappings(env.DB, userId, 'attachment', [
+    await ctx.store.upsertImportMappings('attachment', [
       { sourceId: entry.sha256, targetId: persisted.id },
     ])
   } catch (error) {
@@ -566,36 +581,6 @@ async function importBackupAttachment(
     throw error
   }
   ctx.result.createdAttachments++
-}
-
-/**
- * The two lookups a restored attachment needs — the import mapping for this hash, and the
- * oldest attachment that already carries this hash — in one round trip. They used to run as
- * separate queries for every entry of a restore.
- */
-async function findRestoredAttachment(
-  db: D1Database,
-  userId: string,
-  sha256: string,
-): Promise<{ mapped?: ExistingAttachmentRow, byHash?: ExistingAttachmentRow }> {
-  const [mapping, hash] = await db.batch([
-    db.prepare(
-      `SELECT a.id, a.user_id, a.filename, a.mime, a.size, a.sha256, a.storage
-         FROM import_mappings m
-         JOIN attachments a ON a.id = m.target_id AND a.user_id = m.user_id
-        WHERE m.user_id = ?1 AND m.entity = 'attachment' AND m.source_id = ?2`,
-    ).bind(userId, sha256),
-    db.prepare(
-      `SELECT id, user_id, filename, mime, size, sha256, storage
-         FROM attachments
-        WHERE user_id = ?1 AND sha256 = ?2
-        ORDER BY created_at ASC, id ASC LIMIT 1`,
-    ).bind(userId, sha256),
-  ])
-  return {
-    mapped: mapping?.results?.[0] as ExistingAttachmentRow | undefined,
-    byHash: hash?.results?.[0] as ExistingAttachmentRow | undefined,
-  }
 }
 
 const BACKUP_ATTACHMENT_URL_RE =
@@ -611,7 +596,7 @@ async function importBackupMarkdown(
 ): Promise<void> {
   const hashes = entry.attachmentHashes
   const expectedHashes = new Set(hashes)
-  const attachmentIds = await loadBackupAttachmentTargets(c.env.DB, userId, hashes)
+  const attachmentIds = await ctx.store.attachmentTargetsByHash(hashes)
   for (const hash of hashes) {
     if (!attachmentIds.has(hash)) throw new Error(`Restore the referenced attachment before this note: ${entry.path}`)
   }
@@ -682,26 +667,6 @@ async function importBackupMarkdown(
     updated_at: effectiveUpdatedAt,
   })
   ctx.result.createdNotes++
-}
-
-async function loadBackupAttachmentTargets(
-  db: D1Database,
-  userId: string,
-  hashes: readonly string[],
-): Promise<Map<string, string>> {
-  const targets = new Map<string, string>()
-  for (let offset = 0; offset < hashes.length; offset += 80) {
-    const chunk = hashes.slice(offset, offset + 80)
-    const placeholders = chunk.map((_, index) => `?${index + 2}`).join(', ')
-    const { results } = await db.prepare(
-      `SELECT m.source_id, m.target_id FROM import_mappings m
-        JOIN attachments a ON a.id = m.target_id AND a.user_id = m.user_id
-       WHERE m.user_id = ?1 AND m.entity = 'attachment'
-         AND m.source_id IN (${placeholders})`,
-    ).bind(userId, ...chunk).all<{ source_id: string; target_id: string }>()
-    for (const row of results) targets.set(row.source_id, row.target_id)
-  }
-  return targets
 }
 
 interface ExistingNoteIndex {
@@ -950,7 +915,12 @@ async function importBundle(
       ctx.result.createdNotes++
     }
   } finally {
-    await linkImportedAttachments(c.env.DB, userId, importedAttachments.created, noteIdMap)
+    await ctx.store.setAttachmentNoteLinks(
+      importedAttachments.created.map((entry) => ({
+        id: entry.persisted.id,
+        noteId: entry.sourceNoteId ? noteIdMap.get(entry.sourceNoteId) ?? null : null,
+      })),
+    )
   }
 
   await restoreTagMetadata(c.env.DB, userId, rawTags)
@@ -1038,16 +1008,23 @@ async function prepareBundleAttachments(
     throw new Error('This instance has no R2 or Workers KV attachment binding and cannot restore attachments')
   }
 
-  const existingAttachments = await loadExistingAttachments(
-    env.DB,
-    userId,
+  const existingAttachments = await ctx.store.attachmentsByIds(
     candidates.map((candidate) => candidate.sourceId),
   )
-  const pendingCleanupIds = await loadPendingAttachmentCleanupIds(
-    env.DB,
-    userId,
+  // Which cleanup key belongs to which source id is read from the object key itself, so the storage
+  // prefix stays here and only the query moved.
+  const prefixes = [`r2:${userId}/`, `kv:${userId}/`]
+  const pendingCleanupIds = new Set<string>()
+  for (const objectKey of await ctx.store.pendingCleanupObjectKeys(
     candidates.map((candidate) => candidate.sourceId),
-  )
+  )) {
+    const prefix = prefixes.find((candidate) => objectKey.startsWith(candidate))
+    if (!prefix) continue
+    const filename = objectKey.slice(prefix.length)
+    const separator = filename.indexOf('.')
+    const id = separator > 0 ? filename.slice(0, separator) : ''
+    if (isValidId(id)) pendingCleanupIds.add(id)
+  }
   const idMap = new Map<string, string>()
   const created: CreatedImportedAttachment[] = []
   const reservedIds = new Set([...existingAttachments.values()].map((attachment) => attachment.id))
@@ -1094,9 +1071,7 @@ async function prepareBundleAttachments(
         persisted,
       })
     }
-    await upsertImportMappings(
-      env.DB,
-      userId,
+    await ctx.store.upsertImportMappings(
       'attachment',
       created.map((entry) => ({ sourceId: entry.sourceId, targetId: entry.persisted.id })),
     )
@@ -1114,81 +1089,6 @@ async function prepareBundleAttachments(
   return { idMap, created }
 }
 
-interface ExistingAttachmentRow {
-  id: string
-  user_id: string
-  filename: string
-  mime: string
-  size: number
-  sha256: string
-  storage: AttachmentObjectStorage
-}
-
-async function loadExistingAttachments(
-  db: D1Database,
-  userId: string,
-  ids: readonly string[],
-): Promise<Map<string, ExistingAttachmentRow>> {
-  const attachments = new Map<string, ExistingAttachmentRow>()
-  for (let offset = 0; offset < ids.length; offset += 80) {
-    const chunk = ids.slice(offset, offset + 80)
-    const placeholders = chunk.map((_, index) => `?${index + 2}`).join(', ')
-    const { results: mappedRows } = await db.prepare(
-      `SELECT m.source_id, a.id, a.user_id, a.filename, a.mime, a.size, a.sha256, a.storage
-         FROM import_mappings m
-         JOIN attachments a ON a.id = m.target_id AND a.user_id = m.user_id
-        WHERE m.user_id = ?1 AND m.entity = 'attachment'
-          AND m.source_id IN (${placeholders})`,
-    )
-      .bind(userId, ...chunk)
-      .all<ExistingAttachmentRow & { source_id: string }>()
-    const mapped = new Map(mappedRows.map((row) => [row.source_id, row]))
-
-    const directPlaceholders = chunk.map((_, index) => `?${index + 1}`).join(', ')
-    const { results: directRows } = await db.prepare(
-      `SELECT id, user_id, filename, mime, size, sha256, storage
-         FROM attachments WHERE id IN (${directPlaceholders})`,
-    )
-      .bind(...chunk)
-      .all<ExistingAttachmentRow>()
-    const direct = new Map(directRows.map((row) => [row.id, row]))
-
-    for (const sourceId of chunk) {
-      const row = mapped.get(sourceId) ?? direct.get(sourceId)
-      if (row) attachments.set(sourceId, row)
-    }
-  }
-  return attachments
-}
-
-async function loadPendingAttachmentCleanupIds(
-  db: D1Database,
-  userId: string,
-  sourceIds: readonly string[],
-): Promise<Set<string>> {
-  const prefixes = [`r2:${userId}/`, `kv:${userId}/`]
-  const ids = new Set<string>()
-  if (!sourceIds.length) return ids
-  const { results } = await db.prepare(
-    `SELECT object_key FROM attachment_cleanup
-      WHERE user_id = ?1
-        AND substr(object_key, 4, length(?1) + 1) = ?1 || '/'
-        AND substr(object_key, length(?1) + 5, 26) IN (
-          SELECT value FROM json_each(?2)
-        )
-        AND substr(object_key, length(?1) + 31, 1) = '.'`,
-  ).bind(userId, JSON.stringify(sourceIds)).all<{ object_key: string }>()
-  for (const row of results) {
-    const prefix = prefixes.find((candidate) => row.object_key.startsWith(candidate))
-    if (!prefix) continue
-    const filename = row.object_key.slice(prefix.length)
-    const separator = filename.indexOf('.')
-    const id = separator > 0 ? filename.slice(0, separator) : ''
-    if (isValidId(id)) ids.add(id)
-  }
-  return ids
-}
-
 async function existingAttachmentMatches(
   env: AppBindings['Bindings'],
   row: ExistingAttachmentRow,
@@ -1198,27 +1098,6 @@ async function existingAttachmentMatches(
   // sha256/size were computed at persist time; re-downloading every matching
   // object to re-hash it doubles import transfer for no extra assurance.
   return hasAttachmentStorage(env, row.storage)
-}
-
-async function linkImportedAttachments(
-  db: D1Database,
-  userId: string,
-  created: readonly CreatedImportedAttachment[],
-  noteIdMap: ReadonlyMap<string, string>,
-): Promise<void> {
-  for (let offset = 0; offset < created.length; offset += 100) {
-    await db.batch(
-      created.slice(offset, offset + 100).map((entry) =>
-        db.prepare(
-          `UPDATE attachments SET note_id = ?1 WHERE id = ?2 AND user_id = ?3`,
-        ).bind(
-          entry.sourceNoteId ? noteIdMap.get(entry.sourceNoteId) ?? null : null,
-          entry.persisted.id,
-          userId,
-        ),
-      ),
-    )
-  }
 }
 
 function rewriteAttachmentReferences(content: string, idMap: ReadonlyMap<string, string>): string {
@@ -1312,27 +1191,6 @@ async function loadExistingNoteIndex(
   ).bind(userId, id).first<ExistingNoteIndex>()
   ctx.byId?.set(id, row ?? null)
   return row ?? null
-}
-
-async function upsertImportMappings(
-  db: D1Database,
-  userId: string,
-  entity: 'note' | 'attachment',
-  mappings: readonly { sourceId: string; targetId: string }[],
-): Promise<void> {
-  const now = Date.now()
-  await runBatched(
-    db,
-    mappings.map(({ sourceId, targetId }) =>
-      db.prepare(
-        `INSERT INTO import_mappings (user_id, entity, source_id, target_id, updated_at)
-         VALUES (?1, ?2, ?3, ?4, ?5)
-         ON CONFLICT(user_id, entity, source_id) DO UPDATE SET
-           target_id = excluded.target_id,
-           updated_at = excluded.updated_at`,
-      ).bind(userId, entity, sourceId, targetId, now),
-    ),
-  )
 }
 
 async function restoreTagMetadata(

@@ -806,7 +806,7 @@ const WORKER_CATCH_BASELINE = new Map<string, { sites: number; reason: string }>
   ['src/worker/routes/excalidraw-library.ts', { sites: 1, reason: 'Line 278 swallows a fire-and-forget queue write behind a library route response.' }],
   ['src/worker/routes/mcp-settings.ts', { sites: 2, reason: 'Lines 121 and 134 hand `waitUntil` a drain whose failure must not fail the already-sent response.' }],
   ['src/worker/routes/reader-library.ts', { sites: 1, reason: 'Line 600 deletes a replaced cover object and ignores the failure; the new cover is already stored.' }],
-  ['src/worker/routes/transfer.ts', { sites: 1, reason: 'Line 565 rolls attachments back after a failed transfer; a failed rollback has nowhere to report.' }],
+  ['src/worker/routes/transfer.ts', { sites: 1, reason: 'Line 580 rolls attachments back after a failed mapping write; the mapping SQL now lives in transfer/store.ts, but this swallow is the route\'s and a failed rollback has nowhere to report.' }],
 ])
 
 /** Worker swallows with nothing between the braces: an empty `catch {}` or `.catch(() => {})`. */
