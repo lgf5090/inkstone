@@ -48,9 +48,10 @@ export const SESSION_ABSOLUTE_MAX_MS = 180 * 24 * 60 * 60 * 1000
  * feel immediate is far below what makes a keystroke burst cost one query, and both are below what a
  * write should hold before it commits.
  *
- * They exist because the same "search debounce" idea was written out six times at six values — 120,
- * 180, 180, 180, 200, 220, 250, 260 — with no reason on any of them, which means every panel's owner
- * picked a number in the dark and the app now filters at eight different speeds.
+ * They exist because the same "wait for the reader to stop typing, then query" idea is written out
+ * nine times over at seven different values — 120, 180, 180, 180, 200, 200, 220, 250, 260 — four of
+ * them bare numbers at the call site and the rest a constant named in its own panel, with no reason on
+ * any of them. One job, seven answers; each owner picked in the dark.
  */
 export const DEBOUNCE = {
   /**

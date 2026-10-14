@@ -189,12 +189,14 @@ describe('the focus ring is one token per role', () => {
 
   it('keeps the shared layer free of a numeric debounce it invented', () => {
     // `DEBOUNCE` in `src/shared/constants.ts` is the answer for a filter box, a preview repaint and a
-    // settings write. Nothing in the shared layer should need a fourth number.
+    // settings write. Nothing in the shared layer should need a fourth number. Both hooks are read:
+    // `useDebouncedDraft` is the same wait behind a draft box, and a rule that only looked at the other
+    // one would be a door left open.
     const offenders = sourceFiles(COMPONENTS).flatMap((file) => {
       const source = read(file)
       return source.split('\n')
         .map((line, index) => ({ line, at: index + 1 }))
-        .filter(({ line }) => /useDebounced\([^)]*,\s*\d/.test(line))
+        .filter(({ line }) => /useDebounced(?:Draft)?\([^)]*,\s*\d/.test(line))
         .map(({ at }) => `${show(file)}:${at}`)
     })
     expect(offenders).toEqual([])
