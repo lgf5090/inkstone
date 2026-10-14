@@ -90,7 +90,11 @@ function load(): Module[] {
         const specifier = statement.moduleSpecifier.text
         const target = moduleTarget(module.path, specifier)
         if (!target) continue
-        if (statement.exportClause) named(specifier, statement.exportClause.elements)
+        // `export { a } from './x'` has a list of names to fold in; `export * from './x'` carries no
+        // clause at all and `export * as ns from './x'` carries a namespace instead of a list — both
+        // mean "everything over there is visible here", so both count as the star edge.
+        const exported = statement.exportClause
+        if (exported && ts.isNamedExports(exported)) named(specifier, exported.elements)
         else module.stars.push(target)
       }
       if (ts.isFunctionDeclaration(statement) && statement.name) {

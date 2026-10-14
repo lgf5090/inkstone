@@ -62,7 +62,7 @@ it('keeps the OAuth/MCP responses inside the same header policy as the app', asy
   expect(hardened.headers.get('X-Frame-Options')).toBe('DENY')
   expect(hardened.headers.get('X-Content-Type-Options')).toBe('nosniff')
   expect(hardened.headers.get('Cache-Control')).toBe('no-store')
-  expect((await hardened.json()).error).toBe('invalid_request')
+  expect((await hardened.json() as { error: string }).error).toBe('invalid_request')
 
   const index = read('../src/worker/index.ts')
   expect(index).toContain('withSecurityHeaders(response, oauthRequest.url,')
