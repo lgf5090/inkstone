@@ -8,6 +8,7 @@ import { t, useLocale, type MessageKey } from '../../lib/i18n';
 import { renamedRule, withFormatRule, withName, withProgressRule, withSelectOptions } from '../../lib/property-prefs';
 import { useSession } from '../../store/session';
 import { Input, Select, SettingRow, Slider, Switch } from '../../components/form';
+import { ColorWellField } from '../../components/color-field';
 import { positionLabel, shapeLabel } from '../preview/PropertyDecorations';
 
 const SHAPE_OPTIONS = COVER_SHAPES;
@@ -202,10 +203,7 @@ function ColorField({ ariaLabel, value, onChange }: {
     onChange: (value: string | null) => void;
 }) {
     return (<label className="flex items-center gap-1.5">
-        <span className="relative flex size-7 items-center justify-center rounded-[var(--r-sm)] border border-[var(--border-subtle)]">
-          <span className="size-3.5 rounded-full" style={{ backgroundColor: value ?? 'transparent', boxShadow: value ? undefined : 'inset 0 0 0 1px var(--border-default)' }} aria-hidden="true"/>
-          <input type="color" value={value ?? '#888888'} onChange={event => onChange(event.target.value.toLocaleLowerCase())} aria-label={ariaLabel} className="absolute inset-0 size-full cursor-pointer opacity-0"/>
-        </span>
+        <ColorWellField label={ariaLabel} value={value} onChange={onChange}/>
         {value && (<button type="button" aria-label={`${ariaLabel} · ${t('common.clear')}`} onClick={() => onChange(null)} className="text-[var(--text-quaternary)] hover:text-[var(--danger)]">
             <X size={11}/>
           </button>)}

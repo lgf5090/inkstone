@@ -266,6 +266,13 @@ const allowed = new Map([
   ["src/client/components/calendar-grids.tsx", [
     "/** Draws one extra column ahead of each week row — the week number, or anything else a row owns. */",
   ]],
+  ["src/client/components/color-field.tsx", [
+    "/** The colour the native wheel opens on when there is nothing to show yet. */",
+    "/**\n * The two frames a custom-colour control is drawn in: `round` sits in the organiser ramp beside the\n * circular swatches, `square` in the format ramp and the settings rows beside the square ones.\n */",
+    "/**\n * The native colour wheel itself: invisible, stretched over the whole frame so the box the reader\n * sees is the box they click, and named by the field it belongs to rather than by its own glyph.\n */",
+    "/**\n * The palette-icon door to the native wheel, sitting beside the hex field a custom colour is typed\n * into. The field keeps the draft, so this only moves it: `onChange` while the wheel is being dragged,\n * `onCommit` when the pointer leaves it.\n */",
+    "/**\n * The colour a setting holds, drawn as the dot it will paint and changed through the native wheel.\n * An unset value is not a colour: the dot stays empty and carries the outline instead of a fill.\n */",
+  ]],
   ["src/client/components/color-swatch.test.ts", [
     "/**\n * Every colour menu in the app draws its ramp through this one component, so the geometry the five\n * call sites depend on lives here and nowhere else. These cases pin the class string each shape\n * renders: a change to the shared component that moves a picker — a size, a radius, the active ring —\n * fails here instead of arriving as a silent redesign in the tag, folder, QuickAdd, editor and\n * property panels. The `md` strings are what those menus rendered before the size prop existed.\n */",
     "/** The rendered button's own attributes: the class the picker draws, and the check inside it. */",

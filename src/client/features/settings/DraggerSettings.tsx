@@ -22,6 +22,7 @@ import type {
   EditorSettings,
 } from '@shared/types'
 import { Button } from '../../components/primitives'
+import { ColorWellField } from '../../components/color-field'
 import { Input, Segmented, SettingRow, Slider, Switch, Textarea } from '../../components/form'
 import { Modal, confirm } from '../../components/overlay'
 import { useMediaQuery } from '../../lib/hooks'
@@ -100,7 +101,7 @@ export function DraggerSettings() {
               { value: 'theme', label: t('settings.dragger_color_theme') },
               { value: 'custom', label: t('settings.dragger_color_custom') },
             ]}/>
-            {editor.draggerHandleColorMode === 'custom' && <ColorDot ariaLabel={t('settings.dragger_handle_color')} value={editor.draggerHandleColor} onChange={(draggerHandleColor) => set({ draggerHandleColor })}/>}
+            {editor.draggerHandleColorMode === 'custom' && <ColorWellField label={t('settings.dragger_handle_color')} value={editor.draggerHandleColor} onChange={(draggerHandleColor) => set({ draggerHandleColor })}/>}
           </div>
         </SettingRow>
 
@@ -110,7 +111,7 @@ export function DraggerSettings() {
               { value: 'theme', label: t('settings.dragger_color_theme') },
               { value: 'custom', label: t('settings.dragger_color_custom') },
             ]}/>
-            {editor.draggerIndicatorColorMode === 'custom' && <ColorDot ariaLabel={t('settings.dragger_indicator_color')} value={editor.draggerIndicatorColor} onChange={(draggerIndicatorColor) => set({ draggerIndicatorColor })}/>}
+            {editor.draggerIndicatorColorMode === 'custom' && <ColorWellField label={t('settings.dragger_indicator_color')} value={editor.draggerIndicatorColor} onChange={(draggerIndicatorColor) => set({ draggerIndicatorColor })}/>}
           </div>
         </SettingRow>
 
@@ -222,13 +223,6 @@ function DraggerHandlePreview() {
         <span className="ink-dragger-sample-body">{t('settings.dragger_sample_text')}</span>
       </div>
     </div>)
-}
-
-function ColorDot({ ariaLabel, value, onChange }: { ariaLabel: string; value: string; onChange: (value: string) => void }) {
-  return (<label className="relative flex size-7 items-center justify-center rounded-[var(--r-sm)] border border-[var(--border-subtle)]">
-      <span className="size-3.5 rounded-full" style={{ backgroundColor: value }} aria-hidden="true"/>
-      <input type="color" value={value} onChange={(event) => onChange(event.target.value.toLocaleLowerCase())} aria-label={ariaLabel} className="absolute inset-0 size-full cursor-pointer opacity-0"/>
-    </label>)
 }
 
 /**

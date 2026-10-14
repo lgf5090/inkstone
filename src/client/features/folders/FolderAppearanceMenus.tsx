@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { FolderClosed, Palette, Search, Settings2 } from 'lucide-react';
+import { FolderClosed, Search, Settings2 } from 'lucide-react';
 import {
     ORGANIZER_COLORS,
     isCustomOrganizerColor,
@@ -10,6 +10,7 @@ import {
 } from '@shared/organizer-colors';
 import { cn } from '../../lib/cn';
 import { Swatch } from '../../components/color-swatch';
+import { ColorWheelTrigger } from '../../components/color-field';
 import { paintedSurface } from '../../lib/format-colors';
 import { t, useLocale } from '../../lib/i18n';
 import { usePinyinVersion } from '../../lib/pinyin';
@@ -98,11 +99,7 @@ export function FolderColorMenu({ color, onSelectColor, onManageFolders }: {
       </div>
       <div role="separator" className="my-2 h-px bg-[var(--border-subtle)]"/>
       <div className="flex items-center gap-1.5">
-        <label className="relative flex size-7 shrink-0 items-center justify-center rounded-full border border-[var(--border-subtle)] text-[var(--text-tertiary)] transition-colors hover:border-[var(--border-default)] hover:text-[var(--text-secondary)]">
-          <Palette size={13} aria-hidden="true"/>
-          <span className="sr-only">{t("color.custom")}</span>
-          <input type="color" value={/^#[0-9a-f]{6}$/i.test(draft || shown || '') ? draft || shown || '#888888' : '#888888'} onChange={(event) => setDraft(event.target.value.toLocaleLowerCase())} onBlur={(event) => offer(event.target.value)} aria-label={t("color.custom")} className="absolute inset-0 size-full cursor-pointer opacity-0"/>
-        </label>
+        <ColorWheelTrigger shape="round" label={t("color.custom")} value={/^#[0-9a-f]{6}$/i.test(draft || shown || '') ? draft || shown : null} onChange={setDraft} onCommit={offer}/>
         <input type="text" value={draft} onChange={(event) => setDraft(event.target.value)} onBlur={(event) => offer(event.target.value)} onKeyDown={(event) => {
                 if (event.key === 'Enter') {
                     event.preventDefault();
