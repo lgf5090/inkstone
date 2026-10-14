@@ -724,4 +724,15 @@ describe('pinned panel chrome', () => {
         const chrome = container.querySelector(`#${SIDEBAR_PANEL_ID} .sidebar-chrome`)!;
         expect(chrome.className).toContain('bg-[var(--bg-sunken)]');
     });
+
+    it.each(chromeTabs)('the %s panel keeps no top padding above its pinned block', async (tab) => {
+        await act(async () => useUi.getState().setSidebarTab(tab));
+        const panel = container.querySelector(`#${SIDEBAR_PANEL_ID}`)!;
+        // A sticky block cannot reach into the scroller's own padding, so a padding-top here is a
+        // see-through slot between the tab strip and the toolbar: the rows travelling under the
+        // pinned block paint in it. jsdom has no paint to watch, so the padding is what this holds
+        // down; the gap below the strip is a margin on the column, which the pin does not scroll.
+        expect(panel.className).not.toMatch(/(?:^|\s)pt-/);
+        expect(panel.className).toContain('mt-1');
+    });
 });

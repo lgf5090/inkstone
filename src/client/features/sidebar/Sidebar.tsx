@@ -102,7 +102,7 @@ export function Sidebar({ collapsed = false, onCollapse, }: {
 
       <SidebarTabStrip />
 
-      <div id={SIDEBAR_PANEL_ID} role="tabpanel" aria-labelledby={tabId(sidebarTab)} className={cn('min-h-[10rem] flex-1 px-2 pt-1 pb-4', sidebarTab === 'graph' ? 'flex flex-col overflow-hidden' : 'overflow-y-auto')}>
+      <div id={SIDEBAR_PANEL_ID} role="tabpanel" aria-labelledby={tabId(sidebarTab)} className={cn('mt-1 min-h-[10rem] flex-1 px-2 pb-4', sidebarTab === 'graph' ? 'flex flex-col overflow-hidden' : 'overflow-y-auto')}>
         {sidebarTab === 'library' && <FolderSection />}
         {sidebarTab === 'tags' && <SidebarTags />}
         {sidebarTab === 'recent' && <SidebarRecent />}

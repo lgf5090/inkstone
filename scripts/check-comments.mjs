@@ -6545,6 +6545,10 @@ const allowed = new Map([
     "// populated tree to be ordered against.",
     "// Document order is the whole claim: a pinned block that sits after the list",
     "// would pin over nothing and let the toolbar scroll away.",
+    "// A sticky block cannot reach into the scroller's own padding, so a padding-top here is a",
+    "// see-through slot between the tab strip and the toolbar: the rows travelling under the",
+    "// pinned block paint in it. jsdom has no paint to watch, so the padding is what this holds",
+    "// down; the gap below the strip is a margin on the column, which the pin does not scroll.",
   ]],
   ["src/client/features/sidebar/virtual-tree.tsx", [
     "// The synthetic tree root is built at `depth: -1` (see `VirtualTree`), so every row steps one",
@@ -13534,9 +13538,9 @@ const allowed = new Map([
   ["src/client/styles/app.css", [
     "/* Four 44px touch targets already cost 176px, which left the search box two\n   characters wide on a small phone; below the tablet breakpoint it takes its own row. */",
     "/* The phone has no icon rail, so the launcher takes the same 44px slot as its siblings. */",
-    "/* A tab panel is one scrolling column, so a panel's own toolbar and filter box would\n   drift up and out of sight behind the list they control. Pinning them keeps the\n   controls that choose what the list shows reachable while the reader is in it. One\n   rule rather than per-panel utilities so every tab pins the same way; the background\n   is left to each site, because the sidebar's surface and the right-hand panel's are\n   different colours and a pinned row has to be opaque over what scrolls under it. */",
     "/* No `--color-base`: Tailwind resolves `text-base` as a colour when a theme colour is named `base`,\n     which would replace the built-in 1rem font size with the page background as the text colour. */",
     "/* ── One skin for every floating surface ─────────────────────────────────────\n   Popovers, menus, tooltips, toasts and modal-style panels all raise the same\n   four tokens. Declared as a Tailwind utility so it is usable three ways: as a\n   class on markup, and as `@apply popover-surface` from a module stylesheet that\n   already owns the selector. `--shadow-pop` carries its own 1px ring, so a border\n   is still needed for the light theme's flat surfaces. */",
+    "/* A tab panel is one scrolling column, so a panel's own toolbar and filter box would\n   drift up and out of sight behind the list they control. Pinning them keeps the\n   controls that choose what the list shows reachable while the reader is in it. One\n   rule rather than per-panel utilities so every tab pins the same way; the background\n   is left to each site, because the sidebar's surface and the right-hand panel's are\n   different colours and a pinned row has to be opaque over what scrolls under it.\n   That same rule is why the scrolling column keeps no top padding of its own: a pin\n   cannot reach into a padding, so the rows travelling under it paint in that slot and\n   the toolbar reads as transparent over them. The gap below the tab strip is a margin\n   on the column instead, outside the box the pin and the scroll share. */",
   ]],
   ["src/client/styles/chat.css", [
     "/*\n * The chat assistant's own surfaces.\n *\n * `.ink-prose` is written for a note being *read*: a 72ch measure centred in the column and a 42vh\n * tail so the last line can sit at eye level. Reusing it for a reply gave a one-line answer a body\n * taller than the window (measured before this existed: 443px of bubble for 12 characters of text).\n * These rules keep the typography — headings, lists, code, tables all come from prose.css — and drop\n * only the page furniture, so an assistant answer and a note read the same and stack differently.\n */",
