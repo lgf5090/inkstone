@@ -1443,7 +1443,7 @@ function declaredColumn(table: string, column: string): string | null {
     if (!declared) continue
     const definition = declared[1]!.trim()
     // A primary or unique key cannot be added to a table that already has rows.
-    if (/\\b(PRIMARY|UNIQUE)\\b/i.test(definition)) return null
+    if (/\b(PRIMARY|UNIQUE)\b/i.test(definition)) return null
     return definition ? `${column} ${definition}` : `${column}`
   }
   return null

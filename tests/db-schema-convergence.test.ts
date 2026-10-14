@@ -128,6 +128,30 @@ describe('a boot onto a database whose ledger lies', () => {
     expect(sqlite.prepare(`SELECT COUNT(*) AS n FROM users`).get()).toBeTruthy()
   })
 
+  it('refuses a repair that would add the primary key column a table declares', async () => {
+    // SQLite forbids `ADD COLUMN ... PRIMARY KEY`, so the repair has to decline the column and let the
+    // boot name the incompatibility out loud. The ordinary columns beside it must still be healed: the
+    // refusal is about the key, not about the table.
+    const sqlite = await installed()
+    sqlite.exec('DROP TABLE totp_credentials')
+    sqlite.exec('CREATE TABLE totp_credentials (placeholder TEXT)')
+    await expect(reboot(sqlite)).rejects.toThrow('totp_credentials is missing user_id')
+    const columns = columnsOf(sqlite, 'totp_credentials')
+    expect(columns).not.toContain('user_id')
+    expect(columns).toContain('last_used_by')
+  })
+
+  it('refuses a repair that would add the unique column a table declares', async () => {
+    const sqlite = await installed()
+    sqlite.exec('DROP TABLE mcp_api_keys')
+    sqlite.exec('CREATE TABLE mcp_api_keys (user_id TEXT NOT NULL, revoked_at INTEGER)')
+    await expect(reboot(sqlite)).rejects.toThrow(/mcp_api_keys is missing .*key_hash/)
+    const columns = columnsOf(sqlite, 'mcp_api_keys')
+    expect(columns).not.toContain('key_hash')
+    expect(columns).not.toContain('id')
+    expect(columns).toContain('name')
+  })
+
   it('is a no-op on a database that already matches', async () => {
     const sqlite = await installed()
     const before = tablesOf(sqlite).join(',')
