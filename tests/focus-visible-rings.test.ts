@@ -99,7 +99,7 @@ describe('every suppressed outline is replaced by a visible focus signal', () =>
   })
 
   it('still ships focus rings built from the ring tokens, not hand-spelled spreads', () => {
-    // 铁律 4: the ring geometry is a token. A re-spelled `0 0 0 3px var(--accent-ring)`
+    // AGENTS.md rule 4: the ring geometry is a token. A re-spelled `0 0 0 3px var(--accent-ring)`
     // would be the same pixels today and a divergence tomorrow.
     const handSpelled = rules.filter((rule) => /box-shadow:[^;]*0 0 0 [23]px var\(--accent-ring\)/.test(rule.body))
     expect(handSpelled.map((rule) => `${rule.file}: ${rule.selector}`)).toEqual([])
