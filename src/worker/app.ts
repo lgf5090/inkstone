@@ -43,7 +43,10 @@ export function createApp() {
     if (c.res.status < 200) return
     const devDocument = import.meta.env?.DEV === true
       && (c.res.headers.get('content-type') ?? '').includes('text/html')
-    for (const [name, value] of Object.entries(securityHeaders(c.req.url, { allowDevInlineScripts: devDocument }))) {
+    for (const [name, value] of Object.entries(securityHeaders(c.req.url, {
+      allowDevInlineScripts: devDocument,
+      aiConnectHosts: c.env.AI_CONNECT_HOSTS,
+    }))) {
       c.header(name, value)
     }
     if (c.req.path.startsWith('/api/') && !c.res.headers.has('Cache-Control')) {
