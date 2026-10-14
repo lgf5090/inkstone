@@ -2,10 +2,11 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { Z_INDEX } from '../src/client/lib/z-index'
+import { DEBOUNCE } from '../src/shared/constants'
 
 /**
- * The shared layer's own contract, read off the two files that define it: `styles/tokens.css` and
- * `lib/z-index.ts`.
+ * The shared layer's own contract, read off the files that define it: `styles/tokens.css`,
+ * `lib/z-index.ts` and the `DEBOUNCE` group in `src/shared/constants.ts`.
  *
  * The audit this came out of found four authorities disagreeing about stack levels — the CSS token
  * scale, raw `z-index:` numbers in stylesheets, `z-[N]` in tsx, and a JS map with three keys — and
@@ -197,5 +198,21 @@ describe('the focus ring is one token per role', () => {
         .map(({ at }) => `${show(file)}:${at}`)
     })
     expect(offenders).toEqual([])
+  })
+})
+
+describe('the debounce scale is one number per job', () => {
+  it('names the three waits and orders them by what each is waiting for', () => {
+    expect(Object.keys(DEBOUNCE).sort()).toEqual(['persist', 'render', 'search'])
+    for (const [name, value] of Object.entries(DEBOUNCE)) {
+      expect(Number.isInteger(value), `${name} is not a whole number of milliseconds`).toBe(true)
+      expect(value, `${name} is not a wait at all`).toBeGreaterThan(0)
+    }
+    // A preview repaint reads text that is already on the screen, a filter waits a keystroke burst
+    // out, and a write is the one thing a reader does not expect to see land immediately. A scale that
+    // has those the wrong way round is a redesign, not a retune — which is what the six hand-picked
+    // search values in front of this rule were.
+    expect(DEBOUNCE.render < DEBOUNCE.search, 'a repaint may not wait longer than a filter').toBe(true)
+    expect(DEBOUNCE.search < DEBOUNCE.persist, 'a write may not land sooner than a keystroke burst').toBe(true)
   })
 })
