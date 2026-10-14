@@ -1,4 +1,5 @@
 import { Hono } from 'hono'
+import type { Context } from 'hono'
 import { LIMITS } from '@shared/constants'
 import { countText, deriveExcerpt, isUsableTagName, likePattern, replaceTagInContent, tagKey } from '@shared/markdown-utils'
 import { organizerColorOrNull } from '@shared/organizer-colors'
@@ -13,6 +14,7 @@ import {
   REWRITE_LOAD_CHUNK,
   rewriteQueueStatement,
 } from '../db/writes'
+import { TagsStore } from '../tags/store'
 import { sha256Hex } from '../lib/encoding'
 import { ApiError } from '../lib/errors'
 import { isValidId, newId } from '../lib/id'
@@ -24,13 +26,19 @@ export const tagsRoutes = new Hono<AppBindings>()
 
 tagsRoutes.use('*', requireAuth)
 
+/**
+ * The persistence layer for these routes, bound to the account the request authenticated as.
+ *
+ * Same shape as `routes/notes.ts`: the route parses and validates, asks the store for a record, and
+ * turns that record into a response; no statement is built here.
+ */
+function store(c: Context<AppBindings>): TagsStore {
+  return new TagsStore(c.env.DB, c.get('userId'))
+}
+
 tagsRoutes.get('/', async (c) => {
-  const { results } = await c.env.DB.prepare(
-    `${tagSelectQuery('t.user_id = ?1')} ORDER BY t.name COLLATE NOCASE`,
-  )
-    .bind(c.get('userId'))
-    .all<TagRow>()
-  return c.json({ tags: results.map(toTag) })
+  const rows = await store(c).listTags()
+  return c.json({ tags: rows.map(toTag) })
 })
 
 tagsRoutes.post('/', async (c) => {
@@ -53,7 +61,7 @@ tagsRoutes.post('/', async (c) => {
 
   const id = body.id ?? newId()
   if (body.id) {
-    const existing = await loadTag(c.env.DB, userId, id)
+    const existing = await loadTag(store(c), id)
     if (existing) return c.json(existing)
     const collision = await c.env.DB.prepare(`SELECT user_id FROM tags WHERE id = ?1`)
       .bind(id)
@@ -292,7 +300,7 @@ tagsRoutes.post('/:id/move', async (c) => {
   if (body.parent !== null && !parent) throw ApiError.badRequest('parent cannot be empty')
   if (parent && !isUsableTagName(parent)) throw ApiError.badRequest('Tag names cannot contain spaces or #')
 
-  const tag = await loadTag(c.env.DB, userId, id)
+  const tag = await loadTag(store(c), id)
   if (!tag) throw ApiError.notFound('Tag not found')
 
   const leaf = tag.name.split('/').filter(Boolean).at(-1)!
@@ -515,14 +523,8 @@ export async function applyTagFamily(
   return { moved: plan.length, rewritten: rewrites.reduce((sum, r) => sum + r.rewritten, 0) }
 }
 
-async function loadTag(
-  db: D1Database,
-  userId: string,
-  id: string,
-): Promise<ReturnType<typeof toTag> | null> {
-  const row = await db.prepare(
-    tagSelectQuery('t.user_id = ?1 AND t.id = ?2'),
-  ).bind(userId, id).first<TagRow>()
+async function loadTag(s: TagsStore, id: string): Promise<ReturnType<typeof toTag> | null> {
+  const row = await s.tagRow(id)
   return row ? toTag(row) : null
 }
 
