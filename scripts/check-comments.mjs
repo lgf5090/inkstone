@@ -8602,9 +8602,6 @@ const allowed = new Map([
     "// form controls and attributes the renderer deliberately forbids.",
   ]],
   ["src/client/lib/markdown/enhance.ts", [
-    "// Layered on the shared config so its forbidden tag and attribute lists keep applying.",
-    "// style is the only exception: mermaid paints SVG with inline styles and CSS blocks,",
-    "// and DOMPurify sanitises the declarations themselves.",
     "/**\n * How many lines this block folds beyond: its own `collapse=` when it wrote one (0 meaning it never\n * folds), otherwise the preview's setting. A block states its own preference because the note is\n * what a reader shares, while the setting is only this account's default.\n */",
     "/**\n * The split ratio is a runtime number and the prose whitelist strips inline styles, so the grid's\n * tracks are handed to CSS as custom properties instead. A column split can be a real track list —\n * the prose column has a definite width, so `45fr 55fr` divides exactly what it says.\n *\n * A row split cannot. The block's height is whatever its two panels' content needs, so dividing\n * that sum proportionally always inflates the shorter panel: a five-line source beside a thirty-line\n * output at 6:4 measured 800px of empty panel. Rows therefore get the ratio as a ceiling on each\n * panel (`--ex-a` / `--ex-b`), which shrinks a generous pane into its own scrollbox and never adds\n * a pixel of blank. One axis is written and the other cleared, so a block that switches between a\n * row split and a column split cannot keep reading the stale one.\n */",
     "// `rl` moves the first panel to the right with `order`, and grid auto-placement follows",
@@ -12432,10 +12429,12 @@ const allowed = new Map([
     "/**\n * Subscriptions as one OPML 2.0 document, with the folder nesting written back the way it was\n * read. A reader who exports from this app and imports into another — or the other way round —\n * should get the same tree, not a shelf named \"Front end / Reading\".\n */",
   ]],
   ["src/client/lib/sanitize-svg.ts", [
-    "/**\n * Making a diagram's SVG safe to put into the page.\n *\n * Two surfaces here draw markup that is not the app's own: a Mermaid diagram the reader pasted into\n * the text-to-diagram dialog, and a stencil preview whose SVG was rendered elsewhere and stored in a\n * library manifest the server hands back. Both arrive as an SVG string and both are handed to\n * React's `dangerouslySetInnerHTML`, so both go through this one pass first. An SVG is a document\n * that can carry a script and an event handler exactly as HTML can, and neither surface may trust\n * where its markup came from, so the config is written for SVG alone: the SVG profile keeps the\n * shape elements and filters a diagram is drawn from, while the HTML profile stays off.\n *\n * `style` is the one thing a document pipeline would forbid that a diagram cannot lose — Mermaid and\n * the drawing engine both paint with inline styles and a `<style>` block inside the SVG — and\n * DOMPurify sanitises the declarations themselves rather than trusting them, so it is kept.\n */",
-    "// Both are part of an exported diagram — `use` draws markers and clones, `foreignObject` holds an",
-    "// HTML label — and neither is in the SVG profile by default, so they are added back explicitly.",
-    "/** The one pass both diagram sinks share; an empty string is answered without touching DOMPurify. */",
+    "/**\n * Making a diagram's SVG safe to put into the page.\n *\n * Three surfaces inject markup this app did not write: the Mermaid block a note renders, a diagram\n * the reader pasted into the text-to-diagram dialog, and a stencil preview whose SVG was rendered\n * elsewhere and stored in a library manifest the server hands back. All three arrive as an SVG string\n * and all three reach the DOM through `innerHTML` or `dangerouslySetInnerHTML`, so all three come\n * through this one pass. An SVG is a document that can carry a script and an event handler exactly as\n * HTML can, and none of these surfaces may trust where its markup came from.\n *\n * The config is the one the Mermaid renderer has always used — the shared document config with the two\n * tags a diagram needs added back — rather than a profile written for SVG alone: Mermaid labels its\n * nodes with HTML held in a `<foreignObject>`, so a profile whose tag list is only SVG would keep the\n * picture and drop the text drawn on it.\n *\n * `style` is the one thing a document pipeline would forbid that a diagram cannot lose — Mermaid and\n * the drawing engine both paint with inline styles and a `<style>` block inside the SVG — and\n * DOMPurify sanitises the declarations themselves rather than trusting them, so it is kept.\n */",
+    "// Layered on the shared document config so its forbidden tag and attribute lists keep applying to",
+    "// diagram markup — the labels Mermaid draws are HTML, and a `<form>` pasted into one is still a form.",
+    "// Neither tag is in DOMPurify's lists at all, and both are part of an exported diagram: `use` draws",
+    "// markers and clones, `foreignObject` is the element an HTML label is held in.",
+    "/** The one pass every diagram sink shares; an empty string is answered without touching DOMPurify. */",
   ]],
   ["src/client/lib/shortcuts.ts", [
     "// A show starts on the slide under the editor cursor, so the key has to reach into the editor;",
@@ -15282,7 +15281,8 @@ const allowed = new Map([
     "// Device B loaded the library before device A's star landed, and now sends only its own change.",
   ]],
   ["tests/sanitize-svg.test.ts", [
-    "/**\n * The SVG sinks both draw markup the app did not write — a pasted Mermaid diagram and a stencil\n * preview stored in a library manifest — so this proves the shared pass keeps a diagram whole while\n * taking away the two things an SVG can do that a picture cannot: run a script and carry a handler.\n */",
+    "/**\n   * SMIL is the one payload a diagram has no use for: an `<animate>` on `href` or `xlink:href`\n   * swaps a harmless link for a `javascript:` one after the pass has already run.\n   */",
+    "/**\n * Every sink this pass feeds draws markup the app did not write — the pasted Mermaid diagram and the\n * stencil preview below, a note's own Mermaid block through `enhance.ts` — so these cases prove it\n * keeps a diagram whole while taking away the things an SVG can do that a picture cannot: run a\n * script, carry a handler, point a link or a SMIL animation at `javascript:`, hold a form.\n *\n * The label assertions are the half a profile written for SVG alone gets wrong: Mermaid paints a\n * node's text as HTML inside `<foreignObject>`, so the `div`s and `span` that hold it, and the inline\n * style that sizes it, have to survive the pass — not only their characters.\n */",
   ]],
   ["tests/search-folder-scope.test.ts", [
     "// A parent_id cycle has to terminate rather than spin.",
