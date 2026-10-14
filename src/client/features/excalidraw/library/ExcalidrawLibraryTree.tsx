@@ -28,6 +28,7 @@ import { leftDropTarget } from '../../../lib/note-drag'
 import { useDropState } from '../../../lib/drop-state'
 import { useMediaQuery } from '../../../lib/hooks'
 import { cn } from '../../../lib/cn'
+import { sanitizeSvg } from '../../../lib/sanitize-svg'
 import { t } from '../../../lib/i18n'
 import { toast } from './toast'
 import {
@@ -87,6 +88,9 @@ const StencilItemPreview: React.FC<StencilItemPreviewProps> = ({ item, lib, api 
     return readCachedPreview(item.id) ?? null
   })
   const [loading, setLoading] = useState(false)
+  // The preview markup comes from a library manifest the server stored, not from this app, so it is
+  // sanitised on the way to `dangerouslySetInnerHTML`; the memo keeps a parent re-render cheap.
+  const safeSvg = useMemo(() => (svgHtml ? sanitizeSvg(svgHtml) : ''), [svgHtml])
 
   useEffect(() => {
     if (item.svgPreview) {
@@ -131,6 +135,9 @@ const StencilItemPreview: React.FC<StencilItemPreviewProps> = ({ item, lib, api 
         rememberPreview(item.id, html)
         setSvgHtml(html)
       } catch {
+        // A stencil preview is decoration: when the engine refuses to export one (a malformed
+        // element, a canvas it cannot paint), the tile falls back to the element count below rather
+        // than failing the library that still holds the real shapes.
       } finally {
         if (active) setLoading(false)
       }
@@ -146,7 +153,7 @@ const StencilItemPreview: React.FC<StencilItemPreviewProps> = ({ item, lib, api 
     return (
       <div
         className="w-full h-full flex items-center justify-center p-0.5 pointer-events-none select-none [&>svg]:max-w-full [&>svg]:max-h-full [&>svg]:w-auto [&>svg]:h-auto [&>svg]:object-contain"
-        dangerouslySetInnerHTML={{ __html: svgHtml }}
+        dangerouslySetInnerHTML={{ __html: safeSvg }}
       />
     )
   }
@@ -424,6 +431,9 @@ export const ExcalidrawLibraryTree: React.FC<ExcalidrawLibraryTreeProps> = ({
           svgPreview = svg.outerHTML
         }
       } catch {
+        // Only the tile's picture is at stake: the chosen shapes go into the library below regardless,
+        // so an export that fails — no engine loaded, a selection the exporter cannot restore — leaves
+        // a preview-less tile rather than a lost item.
       }
     }
 

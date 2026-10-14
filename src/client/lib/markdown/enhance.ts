@@ -1,5 +1,5 @@
 import DOMPurify from 'dompurify';
-import { PURIFY_CONFIG } from './renderer';
+import { sanitizeSvg } from '../sanitize-svg';
 import { decodeDataValue } from './data-attr';
 import { exampleSplitTracks, isVerticalExampleLayout, parseExampleRatio } from './example-split';
 // The two kanban entry points come from their own modules, not from `./kanban`: the index re-exports
@@ -513,16 +513,6 @@ export async function renderPendingMermaid<T = unknown>(root: HTMLElement | Docu
         }
     }
 }
-// Layered on the shared config so its forbidden tag and attribute lists keep applying.
-// style is the only exception: mermaid paints SVG with inline styles and CSS blocks,
-// and DOMPurify sanitises the declarations themselves.
-const MERMAID_SVG_PURIFY_CONFIG = {
-    ...PURIFY_CONFIG,
-    ADD_TAGS: [...PURIFY_CONFIG.ADD_TAGS, 'foreignObject', 'use'],
-    HTML_INTEGRATION_POINTS: { foreignobject: true },
-    FORBID_TAGS: PURIFY_CONFIG.FORBID_TAGS.filter((tag) => tag !== 'style'),
-    FORBID_ATTR: PURIFY_CONFIG.FORBID_ATTR.filter((attr) => attr !== 'style'),
-};
 function queueMermaidRender(key: string, source: string, dark: boolean, isCurrent: () => boolean): Promise<string> {
     const task = mermaidRenderQueue.then(async () => {
         const cached = mermaidCache.get(key);
@@ -537,7 +527,7 @@ function queueMermaidRender(key: string, source: string, dark: boolean, isCurren
         const renderHost = createMermaidRenderHost();
         try {
             const { svg } = await withTimeout(mermaid.render(`ink-mermaid-${++mermaidSeq}`, source, renderHost), MERMAID_RENDER_TIMEOUT_MS, t("markdown.diagram_rendering_timed_out_check_the_diagram_or_try_again_later"));
-            const sanitized = DOMPurify.sanitize(svg, MERMAID_SVG_PURIFY_CONFIG);
+            const sanitized = sanitizeSvg(svg);
             remember(mermaidCache, key, sanitized, 60);
             return sanitized;
         }
