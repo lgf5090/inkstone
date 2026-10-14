@@ -4,6 +4,7 @@ import { createElement } from 'react';
 import { installTestGlobals, renderElement } from '../../lib/test-render';
 import { useUi } from '../../store/ui';
 import { __resetOutlineHeadings, outlineHeadingsFor } from './outline-registry';
+import { clearOutlineFolds } from './outline-fold-prefs';
 import { Outline, getHeadingTypography, getHeadingIcon } from './Outline';
 import type { Heading } from '../../lib/markdown/renderer';
 import { Heading1, Heading2, Heading3, Heading4, Heading5, Heading6 } from 'lucide-react';
@@ -106,6 +107,9 @@ async function type(input: HTMLInputElement, value: string): Promise<void> {
 
 beforeEach(() => {
     window.HTMLElement.prototype.scrollIntoView = vi.fn();
+    // The rail now folds per note on the device, so a fold left by one case would be restored by the
+    // next and read as a click going the wrong way. Each case starts from an unwritten store.
+    clearOutlineFolds();
 });
 
 describe('Outline heading typography and icon mapping', () => {

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ComponentType, type DragEvent as ReactDragEvent, type RefObject } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ComponentType, type DragEvent as ReactDragEvent, type RefObject } from 'react';
 import {
     ListTree,
     Heading1,
@@ -26,8 +26,9 @@ import { popoverPosition, type AnchorRect } from './outline-float';
 import { cn } from '../../lib/cn';
 import { Menu, Tooltip, confirm, useContextMenu, type MenuItem } from '../../components/overlay';
 import { useFilterInput } from '../../components/FilterInput';
-import { treeItemProps, useTreeKeyboard } from '../../lib/tree';
+import { treeItemProps, useExpandedSet, useTreeKeyboard } from '../../lib/tree';
 import { usePinyinVersion } from '../../lib/pinyin'
+import { outlineFoldFor, saveOutlineFold } from './outline-fold-prefs';
 import {
     changeHeadingLevel,
     changeSectionLevels,
@@ -209,35 +210,59 @@ function useOutlineTracking(headings: Heading[], scrollerRef?: RefObject<HTMLEle
 }
 
 /**
- * Expansion survives typing: the set is keyed by heading slug and only shed when those headings
- * stop being parents, so adding a heading elsewhere never reflows what the reader folded away.
+ * The reader's folds for one note.
+ *
+ * Expansion survives typing: the set is keyed by heading slug and only shed when those headings stop
+ * being parents, so adding a heading elsewhere never reflows what the reader folded away. It survives
+ * navigation too: the set is written to this device's fold store (`./outline-fold-prefs`) whenever it
+ * changes and read back when the note is opened again, which is what a folder tree's open state already
+ * does in the UI store and this rail could not, because the state died with the component.
+ *
+ * The set itself is the shared `useExpandedSet` — the same toggle and `setMany` every other tree uses —
+ * with its fields aliased to this tree's polarity. A heading document defaults to open down to the
+ * reader's level, so the exceptions are the folded rows, not the open ones; storing the open set would
+ * persist almost every parent in a long note and invert all four level presets that the toolbar and the
+ * palette commands are written against. A tree that defaults closed (folders, tags) stores `expanded`.
  */
 function useOutlineCollapse(tree: OutlineNode[], noteId: string | undefined, defaultLevel: number) {
-    const [collapsed, setCollapsed] = useState<Set<string>>(() => collapsedToLevel(tree, defaultLevel));
-    const treeRef = useRef(tree);
-    treeRef.current = tree;
-    const appliedRef = useRef(`${noteId ?? ''}|${defaultLevel}`);
+    const anchor = `${noteId ?? ''}|${defaultLevel}`;
+    const appliedRef = useRef(anchor);
+    const seedRef = useRef<Set<string> | null>(null);
+    // Computed once: `useExpandedSet` takes its initial set by value and this hook sits under a scroll
+    // tracker that re-renders the rail every frame.
+    if (seedRef.current === null)
+        seedRef.current = restoreOutlineFold(tree, noteId, defaultLevel);
+    const { expanded: collapsed, setExpanded: setCollapsed, toggle, setMany: foldRows } = useExpandedSet(seedRef.current);
+    // A note or a level that changed underneath the rail is answered during render, not in an effect: an
+    // effect would commit one pass of the previous note's folds first, and the write-back below would
+    // record them against the note the reader has just moved to.
+    if (appliedRef.current !== anchor) {
+        appliedRef.current = anchor;
+        setCollapsed(restoreOutlineFold(tree, noteId, defaultLevel));
+    }
     useLayoutEffect(() => {
-        const key = `${noteId ?? ''}|${defaultLevel}`;
-        if (appliedRef.current === key)
-            return;
-        appliedRef.current = key;
-        setCollapsed(collapsedToLevel(treeRef.current, defaultLevel));
-    }, [noteId, defaultLevel]);
-    useLayoutEffect(() => {
-        setCollapsed((current) => pruneCollapsed(tree, current));
+        setCollapsed((current) => pruneCollapsed(tree, new Set(current)));
     }, [tree]);
-    const toggle = useCallback((slug: string) => {
-        setCollapsed((current) => {
-            const next = new Set(current);
-            if (next.has(slug))
-                next.delete(slug);
-            else
-                next.add(slug);
-            return next;
-        });
-    }, []);
-    return { collapsed, setCollapsed, toggle };
+    useLayoutEffect(() => {
+        if (!noteId)
+            return;
+        saveOutlineFold(noteId, { level: defaultLevel, slugs: [...collapsed] });
+    }, [noteId, defaultLevel, collapsed]);
+    return { collapsed, setCollapsed, toggle, foldRows };
+}
+
+/**
+ * What the rail should fold when a note is opened, or when its level default moves.
+ *
+ * A stored fold is only obeyed while it was taken against the same level: when the app-wide
+ * `outlineDefaultLevel` changes, that is the reader asking for a different shape and the stale per-note
+ * override goes, exactly as it did when nothing was stored at all.
+ */
+function restoreOutlineFold(tree: OutlineNode[], noteId: string | undefined, level: number): Set<string> {
+    const stored = noteId ? outlineFoldFor(noteId) : null;
+    if (!stored || stored.level !== level)
+        return collapsedToLevel(tree, level);
+    return pruneCollapsed(tree, new Set(stored.slugs));
 }
 
 export function Outline({ headings, onSelect, scrollerRef, className, noteId, defaultLevel = 6, showProgress = true, activeOverride, keepSearch = false, content, onContentChange, dragEdits = false, autoExpand = 'off', tooltipSide = 'left', truncateLength = 0, markdownLabels = false, showReadingTime = false, readingSpeed = DEFAULT_READING_SPEED_WPM, wordCount = 0, hoverPeek = false, textDirection = 'system', }: {
