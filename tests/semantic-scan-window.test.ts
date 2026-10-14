@@ -40,8 +40,11 @@ function seed(count: number, matches: string[] = []) {
   for (let index = 0; index < count; index++) {
     const id = idOf(index)
     note.run(id, USER, `Note ${index}`, 'body', index)
+    // This seeds through raw node:sqlite, not the D1 double, so it has to hand over the shape
+    // that driver accepts for a BLOB: a byte view, never a bare ArrayBuffer. The view is over
+    // the same bytes encodeVector returned, so the stored vector is unchanged.
     vector.run(USER, id, '@cf/baai/bge-m3',
-      encodeVector(matches.includes(id) ? target : orthogonal), base + index, 1)
+      new Uint8Array(encodeVector(matches.includes(id) ? target : orthogonal)), base + index, 1)
   }
   env = {
     DB: makeD1(sqlite),
