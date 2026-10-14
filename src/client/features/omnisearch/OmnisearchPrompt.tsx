@@ -7,6 +7,7 @@ import { cn } from '../../lib/cn';
 import { t } from '../../lib/i18n';
 import { useBreakpoint, useDebounced } from '../../lib/hooks';
 import { IconButton, Kbd } from '../../components/primitives';
+import { useFilterInput } from '../../components/FilterInput';
 import { Tooltip, useDialogFocus, useEscape, useLockScroll } from '../../components/overlay';
 import { createContextualNote, useNotes } from '../../store/notes';
 import { useUi } from '../../store/ui';
@@ -308,8 +309,11 @@ export function OmnisearchPrompt({ mode, seed, noteId }: {
             },
         });
     }, [updateSettings]);
-    const onKeyDown = (event: React.KeyboardEvent) => {
-        if (event.nativeEvent.isComposing) return;
+    // The prompt's own keys: arrows and the vim pair walk the rows, alt+arrows cycle the saved
+    // history, Tab switches scope, mod+g and mod+o answer the row, Enter commits. The IME guard is not
+    // here any more because {@link useFilterInput} answers nothing while a syllable is being composed,
+    // so a candidate's arrows and Enter still belong to the input method.
+    const onKeyDown = (event: React.KeyboardEvent<HTMLInputElement>) => {
         const mod = event.metaKey || event.ctrlKey;
         const vimNavigation = event.ctrlKey && !event.metaKey && !event.altKey && !event.shiftKey;
         if (event.altKey && (event.key === 'ArrowDown' || event.key === 'ArrowUp')) {
@@ -370,6 +374,19 @@ export function OmnisearchPrompt({ mode, seed, noteId }: {
             pane: mod,
         });
     };
+    // The shared keyboard and ARIA contract over the prompt's own chrome, because this row keeps its
+    // arrows, its vim pair and its scope switch. Escape is not taken by that contract: `useEscape`
+    // above answers it on window in the capture phase, so the panel closes with the text untouched
+    // before this field's handler is reached, and nothing in this panel marks itself
+    // `data-owns-escape`. `escapeWhenEmpty: 'release'` says the same thing from the field's side, for
+    // the keys the capture listener stands down on.
+    const { field, clear } = useFilterInput({
+        value: query,
+        onClear: () => setQuery(''),
+        onKeyDown,
+        escapeWhenEmpty: 'release',
+        inputRef,
+    });
     const statusLine = useMemo(() => {
         if (!search.enabled) return t('omnisearch.index_off');
         if (status.phase === 'failed' && status.error) return t('omnisearch.index_failed', {
@@ -398,11 +415,8 @@ export function OmnisearchPrompt({ mode, seed, noteId }: {
           <h2 id={labelId} className="sr-only">{placeholder}</h2>
           <div className="flex items-center gap-2 border-b border-[var(--border-subtle)] px-3 py-2 md:px-4">
             <ScanSearch size={16} className="shrink-0 text-[var(--text-quaternary)]"/>
-            <input ref={inputRef} role="combobox" aria-label={placeholder} aria-expanded="true" aria-controls={listId} aria-activedescendant={activeRowId} aria-autocomplete="list" autoComplete="off" spellCheck={false} value={query} onChange={(event) => setQuery(event.target.value)} onKeyDown={onKeyDown} placeholder={placeholder} className="h-9 min-w-0 flex-1 bg-transparent text-[14.5px] text-[var(--text-primary)] placeholder:text-[var(--text-quaternary)] focus:outline-none"/>
-            {query && (<IconButton label={t('common.clear')} size="sm" onClick={() => {
-                    setQuery('');
-                    inputRef.current?.focus();
-                }}>
+            <input {...field} role="combobox" aria-label={placeholder} aria-expanded="true" aria-controls={listId} aria-activedescendant={activeRowId} aria-autocomplete="list" autoComplete="off" spellCheck={false} value={query} onChange={(event) => setQuery(event.target.value)} placeholder={placeholder} className="h-9 min-w-0 flex-1 bg-transparent text-[14.5px] text-[var(--text-primary)] placeholder:text-[var(--text-quaternary)] focus:outline-none"/>
+            {query && (<IconButton label={t('common.clear')} size="sm" onClick={clear}>
                 <X size={14}/>
               </IconButton>)}
             <span className="hidden shrink-0 rounded-[var(--r-sm)] border border-[var(--border-subtle)] bg-[var(--bg-inset)] px-1.5 py-0.5 text-[10.5px] text-[var(--text-tertiary)] md:inline-flex">

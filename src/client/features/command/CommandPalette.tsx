@@ -10,6 +10,7 @@ import { fuzzyFilter, splitByRanges, type FuzzyMatch } from '../../lib/fuzzy';
 import { useDebounced, useNow } from '../../lib/hooks';
 import { shortTime } from '../../lib/time';
 import { IconButton, Kbd } from '../../components/primitives';
+import { useFilterInput } from '../../components/FilterInput';
 import { Tooltip, useDialogFocus, useEscape, useLockScroll } from '../../components/overlay';
 import { useUi } from '../../store/ui';
 import { createContextualNote, useNotes } from '../../store/notes';
@@ -256,8 +257,10 @@ export function CommandPalette({ onClose, initialQuery = '' }: {
         const el = listRef.current?.querySelector<HTMLElement>(`[data-index="${cursor.index}"]`);
         el?.scrollIntoView({ block: 'nearest' });
     }, [cursor]);
-    const onKeyDown = (event: React.KeyboardEvent) => {
-        if (event.nativeEvent.isComposing) return;
+    // The palette's own rows: arrows and mod+letter walk them, Enter runs the marked one. The IME
+    // guard is not here any more because {@link useFilterInput} answers nothing while a syllable is
+    // being composed, so a candidate's arrows still belong to the input method.
+    const onKeyDown = (event: React.KeyboardEvent<HTMLInputElement>) => {
         const ctrlNavigation = event.ctrlKey && !event.metaKey && !event.altKey && !event.shiftKey;
         if (event.key === 'ArrowDown' || (event.key === 'n' && ctrlNavigation)) {
             event.preventDefault();
@@ -274,6 +277,19 @@ export function CommandPalette({ onClose, initialQuery = '' }: {
                 executeItem(item);
         }
     };
+    // The shared keyboard/ARIA contract over the palette's own chrome. Escape is NOT taken by that
+    // contract: `useEscape` above listens on window in the capture phase, so it answers Escape — and
+    // closes the palette, text untouched — before this field's handler is reached, and nothing in this
+    // panel marks itself `data-owns-escape`. `escapeWhenEmpty: 'release'` says the same thing from
+    // the field's side, for the one case the capture listener stands down on: a repeated key while
+    // the palette is still mounted.
+    const { field } = useFilterInput({
+        value: query,
+        onClear: () => setQuery(''),
+        onKeyDown,
+        escapeWhenEmpty: 'release',
+        inputRef,
+    });
     let flatIndex = -1;
     return createPortal(<div className="app-viewport-fixed fixed z-[240] flex items-end justify-center md:items-start md:px-4 md:pt-[13vh]">
       <div className="anim-fade absolute inset-0 bg-[var(--scrim)]" onClick={onClose} aria-hidden="true"/>
@@ -282,7 +298,7 @@ export function CommandPalette({ onClose, initialQuery = '' }: {
         <h2 id={labelId} className="sr-only">{t("common.search_notes_or_run_a_command")}</h2>
         <div className="flex items-center gap-2.5 border-b border-[var(--border-subtle)] px-4">
           <Search size={16} className="shrink-0 text-[var(--text-quaternary)]"/>
-          <input ref={inputRef} role="combobox" aria-label={t("common.search_notes_or_run_a_command")} aria-expanded="true" aria-controls={listId} aria-activedescendant={items[cursor.index] ? `${listId}-option-${cursor.index}` : undefined} aria-autocomplete="list" autoComplete="off" value={query} onChange={(e) => setQuery(e.target.value)} onKeyDown={onKeyDown} placeholder={t("command.search_notes_or_type_a_command")} className="h-[52px] flex-1 bg-transparent text-[15px] text-[var(--text-primary)] placeholder:text-[var(--text-quaternary)] focus:outline-none"/>
+          <input {...field} role="combobox" aria-label={t("common.search_notes_or_run_a_command")} aria-expanded="true" aria-controls={listId} aria-activedescendant={items[cursor.index] ? `${listId}-option-${cursor.index}` : undefined} aria-autocomplete="list" autoComplete="off" value={query} onChange={(e) => setQuery(e.target.value)} placeholder={t("command.search_notes_or_type_a_command")} className="h-[52px] flex-1 bg-transparent text-[15px] text-[var(--text-primary)] placeholder:text-[var(--text-quaternary)] focus:outline-none"/>
           <span className="hidden md:inline-flex"><Kbd keys={['Esc']}/></span>
           <span className="md:hidden">
             <Tooltip label={t("common.close")} side="left">

@@ -423,4 +423,29 @@ describe('omnisearch prompt', () => {
     })
     expect(useOmnisearch.getState().open).toBe(false)
   })
+
+  // The prompt answers to `useFilterInput`'s contract but keeps its own rows and its own chrome, so
+  // Escape must still be the panel's: `useEscape` answers it on window in the capture phase, before
+  // the field's handler runs, and nothing in this panel marks itself `data-owns-escape`.
+  it('closes on escape with the typed text left in the box', async () => {
+    answer([])
+    render(createElement(OmnisearchPrompt, { mode: 'vault', seed: '', noteId: null }))
+    type('lat')
+    const event = press(input(), { key: 'Escape' })
+    expect(useOmnisearch.getState().open).toBe(false)
+    expect(input().value).toBe('lat')
+    expect(event.defaultPrevented).toBe(true)
+  })
+
+  it('takes the text back out on its own clear button and hands the caret back', async () => {
+    answer([])
+    render(createElement(OmnisearchPrompt, { mode: 'vault', seed: '', noteId: null }))
+    type('lat')
+    input().blur()
+    act(() => {
+      document.querySelector<HTMLElement>(`button[aria-label="${t('common.clear')}"]`)!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+    expect(input().value).toBe('')
+    expect(document.activeElement).toBe(input())
+  })
 })
