@@ -125,6 +125,10 @@ export function TotpSettings() {
   const cancelSetup = () => void run(async () => {
     const pending = setup
     resetForm()
+    // Best-effort release of a secret the reader walked away from. The form is already reset, and the
+    // server's pending row cannot be confirmed by anyone: it is bound to this session and this token, and
+    // `pending_expires_at` has passed for it by the time the confirm route would read it, which answers
+    // `two_factor_setup_expired`. Nothing the reader can still do depends on this delete.
     if (pending) await api.auth.totp.cancelSetup(pending.setupToken).catch(() => {})
   })
 

@@ -48,6 +48,9 @@ export const settingsLoaders = {
 }
 
 export function warmSettingsSection(section: SettingsSection): void {
+  // A prefetch of the panel's own chunk, nothing more: the section imports it again when it is opened, and
+  // that read is the one whose failure the boundary beside it reports. A failed warm-up costs a round
+  // trip, never a panel.
   if (section !== 'appearance') void settingsLoaders[section]().catch(() => {})
   if (useSession.getState().status !== 'authed') return
   const resources = section === 'backup' ? [backupTargetsResource, backupRunsResource]
@@ -55,6 +58,9 @@ export function warmSettingsSection(section: SettingsSection): void {
     : section === 'data' ? [statsResource]
     : section === 'account' ? [totpResource]
     : section === 'shares' ? [sharesResource] : []
+  // Same shape: this only fills the resource cache. The panel that draws the data calls `load()` itself
+  // and owns the error state — `BackupSettings` sets `loadError` from its own catch — so a warm-up that
+  // fails leaves the panel to say so when the reader is looking at it.
   resources.forEach((resource) => { void resource.load().catch(() => {}) })
 }
 
