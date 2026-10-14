@@ -13364,7 +13364,6 @@ const allowed = new Map([
     "/**\n * Provider presets the settings form offers. A preset is only a starting point: the base URL and the\n * key are editable, and any other OpenAI-compatible endpoint works by picking that protocol.\n */",
     "/** A model id the settings form will accept, so a stray space cannot poison a request. */",
     "/**\n * What the assistant's provider records look like. `apiKey` never appears: the ciphertext lives in the\n * `chat_providers` row and the plaintext only ever exists inside the worker call that signs the\n * upstream request, so no route can echo a key back to a browser.\n */",
-    "/** One of the reader's own tags, as the chat list shows it. Tags live in the note tag table. */",
     "/** A folder from the notebook's own tree; null means the conversation is unfiled. */",
     "/** Only the list endpoints fill these in, so the thread view stays cheap. */",
     "/** A folder of the note tree, with how many conversations it holds. */",
@@ -13427,11 +13426,17 @@ const allowed = new Map([
     "// A bare scheme is what the preset seeds and what an autofill can leave behind: nothing was entered.",
     "// Only the two schemes the request path can speak. A host is not checked separately because a WHATWG",
     "// parser refuses an http(s) URL without one, so `https:///` is already caught above.",
+    "/**\n * One of the reader's own tags, as the chat list shows it. Tags live in the note tag table.\n *\n * `isPinned` is optional because the two producers are different reads of that table: the filter list\n * carries it so the assistant can pin like the notebook sidebar does, while the chips shown on a\n * conversation are just its labels. A consumer that has to sort or group on it should treat a missing\n * value as unpinned rather than guess.\n */",
   ]],
   ["src/shared/backup-format.ts", [
     "/** The account's own template library, absent from a backup taken before it was worth keeping. */",
     "/** Version 2 nested everything under snapshots/<stamp>/, version 3 flattened it and added the\n *  template library, version 4 adds the automation library. All three still restore. */",
     "/** The account's QuickAdd library, kept beside the templates it can call. */",
+  ]],
+  ["src/shared/byte-format.ts", [
+    "/**\n * The one place a byte count is turned into the text a reader reads.\n *\n * Four copies of this lived on the worker side alone, each rounding differently: one kept bytes,\n * one printed `Math.ceil` of KB and MB, two printed `toFixed(1)` of MB only, and the interface had\n * two more. A quota warning and the row beside it could therefore disagree about the same number.\n * This is the version the interface already used for attachments, versions and storage stats, so a\n * server-side limit and the client-side bar under it say the same thing.\n */",
+    "/** Units stepped by 1024, the way the sizes a reader compares against a limit are counted. */",
+    "/** Above this the single decimal adds nothing a reader acts on. */",
   ]],
   ["src/shared/constants.ts", [
     "// D1 limits an entire row to 2,000,000 bytes; reserve room for note metadata.",
@@ -14197,7 +14202,6 @@ const allowed = new Map([
     "/** The reader's own tags, straight from the notebook's tag table. */",
     "/** A folder the reader actually owns and has not deleted; the route turns a false into a 400. */",
     "/** How many conversations carry each tag, for the filter row. */",
-    "/**\n   * The list, optionally narrowed to one folder (with its subfolders) or one tag.\n   *\n   * A folder's view includes what its children hold: a reader who files things underneath a project\n   * folder expects its parent to show the lot, the same way the notebook's folder rows do.\n   */",
     "// ------------------------------------------------------ memory embeddings",
     "//",
     "// The vectors live beside the memories, never inside them: a memory row is shown and edited, and a",
@@ -14241,6 +14245,13 @@ const allowed = new Map([
     "/** A JSON column that should hold an object; anything else reads as no arguments. */",
     "/**\n   * Everything a vendor's own listing endpoint needs, read in one go.\n   *\n   * `PROVIDER_COLUMNS` deliberately leaves the ciphertext out of every listing, so this reads the row the\n   * way `providerRecord` does and hands a decrypted key only to the caller that is about to make a vetted\n   * outbound request with it.\n   */",
     "// Null is \"follow the provider\", so an unknown value has to read back as null rather than a protocol.",
+    "/**\n * A JSON column that may not be there at all.\n *\n * The parse itself belongs to `parseStoredJson`; what this adds is the row that predates the column,\n * where the value is null or a stray number rather than text. Every consumer below treats a\n * non-object as \"nothing stored\", so both failures read the same way.\n */",
+    "/**\n   * The list, optionally narrowed to one folder (with its subfolders) or one tag (with its subtree).\n   *\n   * Both halves nest for the same reason: a reader who files things underneath a project, or labels\n   * them `work/meeting`, expects the parent to show the lot — which is how the notebook's folder rows\n   * and the notes list already behave. A tag filter that matched the exact id alone hid the\n   * conversations it was supposed to gather.\n   */",
+    "// An id the reader does not own scopes nothing, and the answer is an empty list rather than an",
+    "// unfiltered one.",
+    "// `COLLATE NOCASE` is what the notes tag list orders by, and without it `\"Zebra\"` beats",
+    "// `\"apple\"`, which is the one ordering a reader notices.",
+    "/**\n   * The name a tag id carries, or `null` when the reader has no such tag.\n   *\n   * A chat filter arrives as an id, but the tag subtree is spelled in names, so the id has to become\n   * its name before `tagScopePredicate()` can gather the descendants. `null` rather than a throw:\n   * a filter naming a tag the reader does not own answers \"nothing\", which is what the route wants.\n   */",
   ]],
   ["src/worker/assistant/tools.ts", [
     "/**\n * The tools the assistant can reach, and the executor that runs them.\n *\n * Three things are enforced here rather than asked of the model, because a model that is confident and\n * wrong is the failure mode this app has to survive:\n *  - **budgets** — a per-turn call cap, a per-tool cap and a duplicate-call refusal, so a reasoning\n *    loop cannot spend the reader's AI quota or write a hundred tasks;\n *  - **validation** — arguments are checked against the same declaration that generates the JSON\n *    Schema the provider is given, so the two can never disagree;\n *  - **approval** — a destructive tool never runs during the turn. `prepare` resolves the exact target\n *    and writes a pending action; `commit` runs only when the reader presses Approve, once, on that\n *    target. The model can propose; it cannot delete.\n *\n * Scheduled runs get read-only tools plus `notify_reader`, so a routine that has drifted cannot edit\n * the vault while nobody is watching.\n */",
@@ -14343,6 +14354,15 @@ const allowed = new Map([
     "// 5000 note backup spend 40–75 s purely waiting between entries.",
     "// A cancelled consumer must not leave the in-flight re-reads as unhandled rejections.",
   ]],
+  ["src/worker/backup/common.ts", [
+    "/**\n * Throws away a response body this call is not going to read.\n *\n * This is cleanup, not a step the caller can act on: the body is being discarded either way, and a\n * rejection here — an aborted signal, a peer that hung up before finishing the headers — would replace\n * the honest error the caller is about to raise (or the answer it already settled on) with transport\n * noise. So the rejection is dropped, deliberately, at the one place the backup targets discard a body.\n */",
+    "/**\n * The bytes of a third-party response, refused whole once it passes `maxBytes`.\n *\n * A storage service that answers with more than the limit is not worth reading further, and a backup\n * target is somebody's server: the ceiling is what keeps one misbehaving endpoint from deciding how\n * much memory this run holds. Over the ceiling this throws plainly — the callers are background jobs\n * that record the failure on the run, not an API answering a reader.\n */",
+  ]],
+  ["src/worker/backup/engine.ts", [
+    "/**\n * The non-secret config a target row carries. A row written by an older build or edited by hand\n * reads as an empty config rather than failing the run — the credential check downstream is what\n * refuses a target with nothing set.\n */",
+    "// `storedObject` cannot know which of the two shapes a row carries, and the callers were written",
+    "// against both at once — every field they read off it is accessed optionally.",
+  ]],
   ["src/worker/backup/quickadd.ts", [
     "/**\n * Restore the automation library an export carried into the account's own column, in the same\n * envelope the live `PUT /api/quickadd/library` writes. A library that cannot be read, or that the\n * store would quietly trim, fails the restore instead of leaving the account with half a library.\n */",
     "/**\n * The account's automation library as the transport payload a backup can carry — the same shape the\n * settings page downloads, so a `automation.json` opened in an editor reads like a library and not\n * like a database row. Null when the account has none or its column cannot be understood.\n */",
@@ -14350,6 +14370,12 @@ const allowed = new Map([
   ["src/worker/backup/retention.ts", [
     "// 50 removals were 50 serial R2 deletes each followed by its own D1 DELETE; one batched",
     "// delete plus bounded-parallel removals keeps the same end state in 1 round trip.",
+  ]],
+  ["src/worker/backup/s3.ts", [
+    "// The archive is already stored, so the bytes this run generated are thrown away. `cancel()` can",
+    "// reject because the reader upstream is gone; that says nothing about a delivery that just succeeded.",
+    "// Only on the paths that did not read the stream to its end. Whatever the consumer already threw is",
+    "// the reason this run failed, and a second error from unwinding the source would bury it.",
   ]],
   ["src/worker/backup/scheduler.ts", [
     "/** Accounts only enter the trim loop once they are this far past the retention target. */",
@@ -14386,6 +14412,7 @@ const allowed = new Map([
     "/**\n * The per-row subquery is the cheap shape for a handful of rows: SQLite runs it once per\n * note. A page of 500 turns it into 500 index walks whose tags are never indexed for it,\n * so listings use NOTE_COLUMNS_NOTAGS plus noteTagsQueryForPage in the same batch.\n */",
     "/**\n * Mirrors an already-built page query (`from` is the `FROM notes n WHERE … ORDER BY … LIMIT …`\n * tail) to fetch that page's tags as flat rows. `?1` must be bound to the account id.\n */",
     "/** Rewrites rows in place so the existing mappers keep reading `tag_names`. */",
+    "/**\n * The tag subtree rule, written once.\n *\n * A tag covers everything beneath it, so filtering or counting `work` also means `work/meeting`; the\n * caller supplies the second bind as `likePattern(`${scope}/`)`, and the `/` in that pattern is what\n * stops `work` from claiming the unrelated sibling `workshop`. Both halves are the SQL spelling of\n * `tagInScope()`, which the offline shell applies in TypeScript, and `COLLATE NOCASE` is the collation\n * `idx_tags_name_nocase` is built on — a filter that folded differently would disagree with the\n * sidebar count it is supposed to match.\n *\n * `nameParam` and `prefixParam` are placeholders already numbered against the caller's own bind list,\n * because these predicates are spliced into a query whose parameter numbers are counted by hand.\n */",
   ]],
   ["src/worker/db/schema.ts", [
     "/** Defines the idempotent final D1 schema initialized by every Worker isolate. */",
@@ -14491,12 +14518,15 @@ const allowed = new Map([
     "/** Keeps tags, backlinks, full-text indexes, and change records consistent with note writes. */",
     "/** Fan-out above this size is deferred to the background rewrite queue. */",
     "/**\n * Recompute the display-only columns from the note bodies, one keyset page per call.\n * `rev` and `content_hash` are matched in the guard but left alone: a rebuild is not an\n * edit, and bumping them would make every client re-download notes nobody changed.\n */",
+    "/**\n * Candidate note bodies one rewrite window reads at a time.\n *\n * A hub note referenced by thousands of others must not pin every candidate body in the isolate\n * before the first write happens, and the title and tag rename paths window themselves the same way.\n */",
+    "/** Guarded rewrites run at once inside one window — the same number the two rename paths used to each spell out. */",
   ]],
   ["src/worker/durable/credential-vault.ts", [
     "/**\n * `ai:` carries the chat assistant's provider key. The scope is the account id, so a ciphertext stored\n * for one reader cannot be replayed against another's derived key even by someone who can write rows.\n */",
   ]],
   ["src/worker/env.ts", [
     "/** Workers AI binding for semantic search; optional so AI search degrades gracefully. */",
+    "/**\n   * Comma-separated bare provider hosts added to CSP `connect-src`, for a deployment whose readers\n   * call an AI endpoint of their own. Optional; blank keeps the built-in preset hosts.\n   */",
   ]],
   ["src/worker/index.ts", [
     "// Codex CLI drops the `iss` callback parameter while its rmcp",
@@ -14516,6 +14546,11 @@ const allowed = new Map([
   ["src/worker/lib/crypto.ts", [
     "/**\n * The chat assistant's provider key.\n *\n * A key is stored only as vault ciphertext, and the plaintext exists solely inside the worker call\n * that signs one upstream request — no assistant route returns it, and a backup never carries it. When\n * the vault binding is missing the write fails loudly rather than falling back to storing the key in\n * the clear: a reader who configured a key deserves to know it was not saved.\n */",
   ]],
+  ["src/worker/lib/image.ts", [
+    "// A header that reads as an image but does not survive the walk is a truncated or hostile file,",
+    "// and `null` is the answer the caller was already built for: it fails the dimension check and the",
+    "// attachment is stored as `application/octet-stream`, so the sniffing result is the handling.",
+  ]],
   ["src/worker/lib/internal-auth.ts", [
     "/**\n * The Durable Object guard is opt-in, but a secret that was created and left blank reads\n * as falsy, which silently switches the guard off. Say so instead.\n */",
   ]],
@@ -14528,6 +14563,11 @@ const allowed = new Map([
   ["src/worker/lib/no-redirect.ts", [
     "/**\n * workerd accepts only `follow` and `manual` for `RequestRedirect`; passing `'error'` throws before the\n * request leaves the isolate, so an endpoint that meant to refuse redirects instead reports every upstream\n * as unreachable. Node (the vite dev proxy) does accept `'error'`, which is why a local unit test on the\n * literal never sees this. Guard the status ourselves instead.\n */",
   ]],
+  ["src/worker/lib/notify.ts", [
+    "// Best-effort: the queue row is still there and the scheduled `drainAllFtsQueues` pass picks it",
+    "// up, so a failed opportunistic drain delays a note appearing in search by one cron fire rather",
+    "// than losing it. Reported because the symptom a reader sees is a search that looks broken.",
+  ]],
   ["src/worker/lib/oauth-request.ts", [
     "// Rebuild after consuming the bounded body so the provider can read it once.",
   ]],
@@ -14539,6 +14579,11 @@ const allowed = new Map([
     "// CF-Connecting-IP is injected by the Cloudflare edge and cannot be",
     "// spoofed there. On any other runtime the header is client-controlled,",
     "// so ignore it rather than trusting it for throttling.",
+    "/**\n * The one capped stream reader.\n *\n * The request-body reader, the chat attachment fetch, the RSS relay, the update check and the backup\n * transports each carried their own copy of the same loop — `getReader`, add up `byteLength`, cancel\n * once the total passes the ceiling, join the chunks back. The loop is the same in all five and only\n * the answer differs, so this holds the loop and answers with `null` when the ceiling is passed: the\n * caller turns that into its own status, its own message, or its own \"no body\" value.\n *\n * Counting while streaming is the point. Reading the whole body and checking its length afterwards\n * lets whoever is on the other side decide how much memory this request holds.\n */",
+    "// Best-effort: the payload is already refused, and a `cancel()` that itself rejects would",
+    "// replace the caller's honest overflow answer with a stream plumbing error.",
+    "// The reader is released below and the source is dropped with it.",
+    "/** The same ceiling read as text: `null` means the far side sent more than `maxBytes`. */",
   ]],
   ["src/worker/lib/rewrite-drain.ts", [
     "/** Notes a single queue row may rewrite per round; the tail is re-queued for the next one. */",
@@ -14572,9 +14617,18 @@ const allowed = new Map([
     "// document may set this; the contract test pins the gate.",
     "// A 101 handshake response carries the socket, and `new Response()` only accepts 200-599,",
     "// so rebuilding it to add headers would throw and tear down the WebSocket upgrade.",
+    "/**\n * The provider hosts a reader's browser may call directly.\n *\n * AI requests are deliberately not proxied through this Worker: the key stays in the reader's own\n * browser, so it never lands in a backup or on a device they did not type it into, and the request\n * goes from the browser to the provider. That privacy design requires `connect-src` to name the\n * provider, because a browser blocked from it silently loses the feature.\n *\n * These are the hosts the built-in provider presets ship — see the `PROVIDER_INFO` table in the\n * settings screens and the presets the RSS reader and the Excalidraw store default to. A host a\n * reader types by hand is not in this list and no deployment could predict one: a free-text\n * `openai-compatible` base URL is exactly what the reader is invited to enter, so such a reader is\n * blocked until their deployment names the host in `AI_CONNECT_HOSTS`. That is the deliberate limit\n * of keeping the key on the client — the escape valve is the variable, not a change to the policy.\n */",
+    "// The raw `AI_CONNECT_HOSTS` value, handed in by the caller so this module keeps not knowing",
+    "// about `Env`. Malformed entries are dropped; a blank value keeps the built-in presets.",
+    "/**\n * A bare host — no scheme, no path, no separator that could end the directive and start another.\n *\n * The URL parser is the validator: building `https://` + the entry and requiring the parser to hand\n * the same host back is what rules out the fragments a hand-written pattern forgets.\n */",
+    "/**\n * The presets plus whatever the deployment names, never the deployment list alone.\n *\n * Replacing rather than extending would let one optional variable silently block the readers who\n * picked a built-in provider — the same failure this list exists to prevent — and an entry that\n * parses as something other than a bare host is a mistyped variable, not a directive: it is dropped\n * and reported instead of being pasted into the policy.\n */",
   ]],
   ["src/worker/lib/throttle.ts", [
     "/**\n * Runs a throttled step — spending an attempt budget, checking a lock, or both — and answers the\n * `429` the API promises once the throttle rejects it.\n *\n * Every throttled route funnels through here so the status, error code, `Retry-After` hint and\n * response shape cannot drift apart. `message` is the human prefix a route shows; the retry count is\n * appended here. The step is a thunk so a route that checks a lock before spending work keeps its\n * exact ordering.\n */",
+    "/**\n * The lock each failure past the free budget buys, doubling while it still means something.\n *\n * Entry n is the lock for the (n + 1)-th failure beyond `freeFails`; `LOCKOUT_MAX_MS` holds for every\n * failure after the ladder runs out, so the attempt rate stays bounded instead of doubling forever.\n * `recordLoginFailure` builds its SQL from these, so the numbers live in one place.\n */",
+    "/** The lock every failure after the ladder is served. */",
+    "// The ladder is bound rather than spliced into the text: ?5..?8 are its steps and ?9 the lock they",
+    "// stop at, so `LOCKOUT_LADDER_MS` stays the only place a duration is written down.",
   ]],
   ["src/worker/lib/update-check.ts", [
     "/** Isolate-level TTL cache: the published version changes daily at most. */",
@@ -14659,6 +14713,16 @@ const allowed = new Map([
     "/** The same row without `content`: a 1.9 MB body a flag flip never looks at. */",
     "// The conflict payload keeps carrying the body even when the pre-read was metadata only.",
   ]],
+  ["src/worker/middleware/auth.ts", [
+    "/**\n * How stale `users.last_seen_at` may get before a request writes a fresh one.\n *\n * A reader's every request would otherwise take a write to the `users` row, so the bump is rate-limited\n * to one per interval; the same number is the guard in the `UPDATE` so two concurrent requests cannot\n * both decide they were the one that crossed the interval.\n */",
+  ]],
+  ["src/worker/realtime/sync-hub.ts", [
+    "// Best-effort release of the server side of a socket the far end already hung up on:",
+    "// `close()` rejects once the connection is past `CLOSING`, which is exactly the state that",
+    "// arrives here most of the time. There is no reader left to notify and nothing to retry.",
+    "// Best-effort push. A listed socket can already be closing, and the client behind it polls",
+    "// the cursor on a timer, so a refused send costs one round-trip rather than a lost update.",
+  ]],
   ["src/worker/routes/ai-proxy.ts", [
     "// The upstream failure text can name an internal host, a port or a retry hint, so it belongs in",
     "// the server log and not in a response body the caller sees — same rule as `errorResponse`,",
@@ -14707,7 +14771,6 @@ const allowed = new Map([
     "// spending its daily budget on scores that would rank noise.",
     "// Turning the feature on, or pointing it at another model, embeds what is missing behind the reply.",
     "// A failed backfill leaves the count pending, which is what the settings card reads and shows.",
-    "/** Reads a stream up to a ceiling, so a remote server cannot decide how much memory this request uses. */",
     "/** A context budget is the reader's own choice from the composer's slider; null means 'use the global limit'. */",
     "// The chips name the files; the bytes only ever travel on the model's turn, so the transcript needs",
     "// the rows and not the contents.",
@@ -14750,6 +14813,7 @@ const allowed = new Map([
     "// reader is actually asking for.",
     "// Name the box that failed: a bare 400 for a field the reader never meant to fill reads as",
     "// \"adding a provider is broken\".",
+    "/**\n * Reads a stream up to a ceiling, so a remote server cannot decide how much memory this request uses.\n *\n * A refused attachment is the caller's mistake in sending a URL that big, not a payload the API\n * cannot accept, so this answers `400` rather than the `413` the request-body reader uses.\n */",
   ]],
   ["src/worker/routes/auth.ts", [
     "// Account-wide cap so a distributed botnet cannot retry one account",
@@ -14799,6 +14863,11 @@ const allowed = new Map([
     "// every attachment and every statement; a change landing mid-page only defers the",
     "// remaining rows to the next prune, which is what the guard already tolerated.",
   ]],
+  ["src/worker/routes/mcp-authorize.ts", [
+    "// Best-effort: `settings` is a free-form column a hand-edited or older row can fill with",
+    "// anything, and a consent page that cannot read a preference has a better answer waiting in",
+    "// `Accept-Language` below than an error thrown at the reader mid-authorization.",
+  ]],
   ["src/worker/routes/mcp-settings.ts", [
     "// Kick off the first batch immediately; the rest is drained by the cron.",
   ]],
@@ -14814,7 +14883,6 @@ const allowed = new Map([
     "// Whether another note already answers to either title decides the wiki-link rewrite, so",
     "// it rides along with the mutation instead of costing the rename path its own round trip.",
     "// Load and rewrite in small windows: a hub note referenced by thousands of others must",
-    "// not hold every candidate body in the isolate at once.",
     "// Several `tag` params combine with AND, and each one also matches its whole subtree so the",
     "// rolled-up count in the sidebar and the result set agree. Both halves have to stay in step",
     "// with tagInScope(), which spells the same rule in TypeScript for the offline shell.",
@@ -14832,6 +14900,7 @@ const allowed = new Map([
     "// One fold and one instr per row: SQLite does not share the repeated subexpression",
     "// across the references below.",
     "/**\n * Notes that say the target's title in their text without linking to it.\n *\n * The full-text index finds the candidates and `mentionExcerpt` confirms the literal phrase:\n * the index is tokenised and case-folded, so it can offer a note where the words only\n * happen to sit next to each other, and a mention the reader cannot see is worse than a\n * shorter list. Notes that already carry a `[[title]]` are left to the linked half of the\n * panel, since a row would otherwise show up twice with two different meanings.\n *\n * The index pass over-fetches by three because the confirmation drops rows the index should\n * not have offered, and a candidate whose mention the first window missed gets one more look\n * at its first `MENTION_RETRY_SCAN_CHARS` characters, which is where an accented or Cyrillic\n * capital that SQLite could not fold usually lives. Without the index the same answer comes\n * from scanning every body, which is what the search endpoint already falls back to.\n */",
+    "// not pin every candidate body in the isolate before the first write happens.",
   ]],
   ["src/worker/routes/quickadd.ts", [
     "/** Envelope stored in `users.quickadd`: when the account last saved, plus the library. */",
@@ -14959,6 +15028,7 @@ const allowed = new Map([
     "// or growing the isolate without bound under many distinct visitors.",
     "// Registered here rather than where the instances are declared, so they sit behind the",
     "// `requireAuth` the owner half mounts above; the public half has no auth and never will.",
+    "/**\n * The only place a share's `views` number moves, kept off the response path on purpose.\n *\n * A reader who has already been served must not lose the note because the counter was unreachable,\n * so the write runs under `waitUntil` and its failure cannot reach the caller. The number itself is\n * what the owner reads in the share list, so a refusal is reported rather than dropped: a share whose\n * views silently stop growing is a product defect, and an invisible one is impossible to find.\n */",
   ]],
   ["src/worker/routes/sync.ts", [
     "// A non-empty `after` key always means the caller is mid-way through a",
@@ -15017,6 +15087,9 @@ const allowed = new Map([
     "// Han here is almanac output, so it is spelled out in the same vocabulary the calendar prints.",
     "// This file owns the loader's module-level state: vitest gives every file a fresh registry, so the",
     "// \"not loaded yet\" assertions here cannot be polluted by another suite warming the chunk.",
+  ]],
+  ["tests/app-csp.test.ts", [
+    "/**\n * Every base URL a built-in provider preset hands the reader has to be reachable from the browser,\n * because the key stays in the reader's own browser and the request goes straight to the provider.\n * A preset added to the settings table without a matching `connect-src` host is a feature that\n * silently never works for whoever picks it, so the guard reads the table rather than a copy of it.\n */",
   ]],
   ["tests/app-tab-routes.test.ts", [
     "// An address missing from this list is still served — by the asset layer's SPA fallback,",
@@ -15117,6 +15190,8 @@ const allowed = new Map([
     "// The POST answers from the object it built, so only a re-read proves the column was written.",
     "// The same override decides what the web-search switch can ask for: only Anthropic has that tool.",
     "// A stray value in an optional field has to name itself: \"bad request\" is not a diagnosis.",
+    "// `work` now answers for `work/meeting` too, and a tag that merely starts with the same letters",
+    "// stays out: the `/` boundary is what separates the two.",
   ]],
   ["tests/assistant-rules.test.ts", [
     "/**\n * The rules the assistant is built on, tested where they are written.\n *\n * These are the parts a browser session cannot prove: what a Chinese sentence means to the conflict\n * rules, how a wall-clock schedule survives a daylight-saving change, how many tokens a Han vault\n * really costs. Each fixture is chosen so a plausible-but-wrong implementation would fail it — the\n * pair that differs only in a change word, a date the reader never stated, a schedule that crosses a\n * clock change — rather than so the function merely runs.\n */",
