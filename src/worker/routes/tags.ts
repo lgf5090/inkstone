@@ -60,38 +60,25 @@ tagsRoutes.post('/', async (c) => {
   if (!isUsableTagName(name)) throw ApiError.badRequest('Tag names cannot contain spaces or #')
 
   const id = body.id ?? newId()
+  const s = store(c)
   if (body.id) {
-    const existing = await loadTag(store(c), id)
+    const existing = await loadTag(s, id)
     if (existing) return c.json(existing)
-    const collision = await c.env.DB.prepare(`SELECT user_id FROM tags WHERE id = ?1`)
-      .bind(id)
-      .first<{ user_id: string }>()
-    if (collision) throw ApiError.conflict('This tag id is already in use')
+    if (await s.idTakenByAnyone(id)) throw ApiError.conflict('This tag id is already in use')
   }
-  const duplicate = await c.env.DB.prepare(
-    `SELECT id FROM tags WHERE user_id = ?1 AND name = ?2 COLLATE NOCASE LIMIT 1`,
-  ).bind(userId, name).first<{ id: string }>()
-  if (duplicate) throw ApiError.conflict('A tag with this name already exists')
+  if (await s.hasTagNamed(name)) throw ApiError.conflict('A tag with this name already exists')
 
   await assertOrganizerQuota(c.env.DB, userId, 'tag')
   const now = Date.now()
-  const insert = c.env.DB.prepare(
-    `INSERT INTO tags (id, user_id, name, color, is_manual, created_at)
-     VALUES (?1, ?2, ?3, ?4, 1, ?5)`,
-  ).bind(id, userId, name, organizerColorOrNull(body.color), now)
-  const change = c.env.DB.prepare(
-    `INSERT INTO changes (user_id, entity, entity_id, op, at)
-     SELECT ?1, 'tag', ?2, 'upsert', ?3
-      WHERE EXISTS (SELECT 1 FROM tags WHERE id = ?2 AND user_id = ?1)
-     RETURNING seq`,
-  ).bind(userId, id, now)
-  const tagReadback = c.env.DB.prepare(
-    tagSelectQuery('t.user_id = ?1 AND t.id = ?2'),
-  ).bind(userId, id)
-  const createBatch = await c.env.DB.batch([insert, change, tagReadback])
-  if (!createBatch[0]?.meta.changes) throw ApiError.conflict('A tag with this name already exists')
-  await broadcastCursor(c, (createBatch.at(-2) as D1Result<{ seq: number }>).results?.[0]?.seq)
-  return c.json(toTag((createBatch.at(-1) as D1Result<TagRow>).results[0]!), 201)
+  const { created, changeSeq, row } = await s.createTag({
+    id,
+    name,
+    color: organizerColorOrNull(body.color),
+    now,
+  })
+  if (!created) throw ApiError.conflict('A tag with this name already exists')
+  await broadcastCursor(c, changeSeq)
+  return c.json(toTag(row!), 201)
 })
 
 tagsRoutes.patch('/:id', async (c) => {
