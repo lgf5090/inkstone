@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Check, FolderClosed, Palette, Search, Settings2 } from 'lucide-react';
+import { FolderClosed, Search, Settings2 } from 'lucide-react';
 import {
     ORGANIZER_COLORS,
     isCustomOrganizerColor,
@@ -9,6 +9,9 @@ import {
     organizerColorLabel,
 } from '@shared/organizer-colors';
 import { cn } from '../../lib/cn';
+import { Swatch } from '../../components/color-swatch';
+import { ColorWheelTrigger } from '../../components/color-field';
+import { paintedSurface } from '../../lib/format-colors';
 import { t, useLocale } from '../../lib/i18n';
 import { usePinyinVersion } from '../../lib/pinyin';
 import {
@@ -21,7 +24,6 @@ import {
 } from '../../lib/emoji-catalog';
 import { pushRecentIcon, useFolderPreferences } from '../../lib/folder-prefs';
 
-const SWATCH_SIZE = 'size-7';
 const TILE_SIZE = 'size-[26px]';
 const COLOR_PANEL_WIDTH = 214;
 const ICON_PANEL_WIDTH = 258;
@@ -53,22 +55,6 @@ function MenuPanel({ label, hint, width, children, panelRef }: {
     </div>);
 }
 
-function SwatchButton({ active, label, color, onPick, children }: {
-    active: boolean;
-    label: string;
-    color: string | null;
-    onPick: () => void;
-    children: React.ReactNode;
-}) {
-    return (<button type="button" aria-label={label} title={label} aria-pressed={active} onClick={onPick} className={cn('flex', SWATCH_SIZE, 'items-center justify-center rounded-full transition-transform hover:scale-110', color === null && 'border bg-[var(--bg-base)]', active
-            ? color === null
-                ? 'border-[var(--accent)] text-[var(--accent)] ring-2 ring-[var(--accent-ring)]'
-                : 'ring-2 ring-[var(--accent-ring)] ring-offset-2 ring-offset-[var(--bg-overlay)]'
-            : color === null && 'border-[var(--border-default)] text-[var(--text-quaternary)] hover:text-[var(--text-secondary)]')} style={color ? { backgroundColor: color } : undefined}>
-      {children}
-    </button>);
-}
-
 export function FolderColorMenu({ color, onSelectColor, onManageFolders }: {
     color?: string | null;
     onSelectColor: (color: string | null) => void;
@@ -77,16 +63,9 @@ export function FolderColorMenu({ color, onSelectColor, onManageFolders }: {
     const panelRef = useRef<HTMLDivElement>(null);
     const [draft, setDraft] = useState('');
     const [refused, setRefused] = useState(false);
-    const surface = () => {
-        let node: HTMLElement | null = panelRef.current;
-        while (node) {
-            const painted = getComputedStyle(node).backgroundColor;
-            if (isResolvedOrganizerColor(painted))
-                return painted;
-            node = node.parentElement;
-        }
-        return '';
-    };
+    // The folder guard only accepts a surface its own contrast maths can read, so it hands the walk
+    // a predicate instead of writing a second one.
+    const surface = () => paintedSurface(panelRef.current, isResolvedOrganizerColor);
     const ratio = (hex: string) => organizerColorContrast(hex, surface());
     const offer = (hex: string) => {
         const next = hex.toLocaleLowerCase();
@@ -109,26 +88,18 @@ export function FolderColorMenu({ color, onSelectColor, onManageFolders }: {
             </span>)
         : undefined}>
       <div role="group" aria-label={t("folders.color")} className="grid grid-cols-6 gap-1.5 px-0.5">
-        <SwatchButton active={!color} label={t("folders.no_color")} color={null} onPick={() => {
+        <Swatch color={null} label={t("folders.no_color")} active={!color} onPick={() => {
                 setRefused(false);
                 onSelectColor(null);
-            }}>
-          <FolderClosed size={13}/>
-        </SwatchButton>
-        {ORGANIZER_COLORS.map((value) => (<SwatchButton key={value} active={color === value} label={organizerColorLabel(value, t)} color={value} onPick={() => {
+            }} icon={<FolderClosed size={13}/>}/>
+        {ORGANIZER_COLORS.map((value) => (<Swatch key={value} color={value} label={organizerColorLabel(value, t)} active={color === value} background={value} onPick={() => {
                 setRefused(false);
                 onSelectColor(value);
-            }}>
-            {color === value && <Check size={13} className="text-white"/>}
-          </SwatchButton>))}
+            }}/>))}
       </div>
       <div role="separator" className="my-2 h-px bg-[var(--border-subtle)]"/>
       <div className="flex items-center gap-1.5">
-        <label className="relative flex size-7 shrink-0 items-center justify-center rounded-full border border-[var(--border-subtle)] text-[var(--text-tertiary)] transition-colors hover:border-[var(--border-default)] hover:text-[var(--text-secondary)]">
-          <Palette size={13} aria-hidden="true"/>
-          <span className="sr-only">{t("color.custom")}</span>
-          <input type="color" value={/^#[0-9a-f]{6}$/i.test(draft || shown || '') ? draft || shown || '#888888' : '#888888'} onChange={(event) => setDraft(event.target.value.toLocaleLowerCase())} onBlur={(event) => offer(event.target.value)} aria-label={t("color.custom")} className="absolute inset-0 size-full cursor-pointer opacity-0"/>
-        </label>
+        <ColorWheelTrigger shape="round" label={t("color.custom")} value={/^#[0-9a-f]{6}$/i.test(draft || shown || '') ? draft || shown : null} onChange={setDraft} onCommit={offer}/>
         <input type="text" value={draft} onChange={(event) => setDraft(event.target.value)} onBlur={(event) => offer(event.target.value)} onKeyDown={(event) => {
                 if (event.key === 'Enter') {
                     event.preventDefault();

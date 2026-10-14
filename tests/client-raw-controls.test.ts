@@ -105,6 +105,10 @@ const SHARED_RAW_BUTTONS = new Map<string, string>([
     'The one menu row both menu surfaces draw; this fork keeps it in `overlay.tsx` rather than a menu-row module. A row is a fixed-height track holding an icon, a label that has to stretch and truncate, a check mark and a shortcut or a panel arrow as siblings, and `Button` fixes a size and wraps its children in one non-stretching span, so the row owns its own element.',
   ],
   [
+    'src/client/components/color-swatch.tsx',
+    'The swatch every palette draws: a colour is a fixed-size round or rounded-square hit target carrying a background style, an active ring and a check mark, none of which `Button`\'s fixed height, padding and single inline span can express. Every colour menu in the app reaches it from here rather than writing its own button.',
+  ],
+  [
     'src/client/components/ErrorBoundary.tsx',
     'The reload action on the crash screen. That screen is what renders after the tree above it has already thrown, so it holds a raw element rather than reaching back into the component system that failed.',
   ],

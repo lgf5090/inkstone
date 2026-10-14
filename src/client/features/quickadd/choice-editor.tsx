@@ -8,7 +8,7 @@
  * question or touch a note.
  */
 import { useCallback, useMemo, useState } from 'react'
-import { ArrowDown, ArrowUp, Check, CircleSlash, Plus, Trash2 } from 'lucide-react'
+import { ArrowDown, ArrowUp, CircleSlash, Plus, Trash2 } from 'lucide-react'
 import {
   QUICKADD_LIMITS,
   descendantIds,
@@ -41,8 +41,8 @@ import {
 } from '@shared/quickadd'
 import type { MessageKey } from '@shared/locales/en-US'
 import { ORGANIZER_COLORS, organizerColorLabel } from '@shared/organizer-colors'
-import { cn } from '../../lib/cn'
 import { Button, IconButton } from '../../components/primitives'
+import { Swatch } from '../../components/color-swatch'
 import { Checkbox, Field, Input, Select, SettingRow, Switch, Textarea } from '../../components/form'
 import { Modal } from '../../components/overlay'
 import { t, useLocale } from '../../lib/i18n'
@@ -230,9 +230,9 @@ export function QuickAddChoiceEditor({ choice, onClose }: {
           </Field>
           <Field label={t('quickadd.field_color')}>
             <div className="grid grid-cols-8 gap-1.5" role="group" aria-label={t('quickadd.field_color')}>
-              <ColorSwatch active={draft.color === null} label={t('quickadd.color_none')} onClick={() => patch({ color: null })}/>
+              <Swatch color={null} label={t('quickadd.color_none')} active={draft.color === null} noColorBackground={draft.color !== null} onPick={() => patch({ color: null })} icon={<CircleSlash size={13}/>}/>
               {ORGANIZER_COLORS.map((color) => (
-                <ColorSwatch key={color} color={color} active={draft.color === color} label={organizerColorLabel(color, t)} onClick={() => patch({ color })}/>
+                <Swatch key={color} color={color} label={organizerColorLabel(color, t)} active={draft.color === color} background={color} onPick={() => patch({ color })}/>
               ))}
             </div>
           </Field>
@@ -322,36 +322,6 @@ function GroupParentSelect({ value, selfId, choices, onChange }: {
       <option value="">{t('quickadd.parent_top')}</option>
       {options.map((entry) => <option key={entry.id} value={entry.id}>{entry.name}</option>)}
     </Select>
-  )
-}
-
-function ColorSwatch({ color, active, label, onClick }: {
-  color?: string
-  active: boolean
-  label: string
-  onClick: () => void
-}) {
-  return (
-    <button
-      type="button"
-      aria-label={label}
-      title={label}
-      aria-pressed={active}
-      onClick={onClick}
-      className={cn(
-        'flex size-7 items-center justify-center rounded-full transition-transform hover:scale-110',
-        color === undefined && 'border',
-        color === undefined && (active
-          ? 'border-[var(--accent)] text-[var(--accent)] ring-2 ring-[var(--accent-ring)]'
-          : 'border-[var(--border-default)] bg-[var(--bg-base)] text-[var(--text-quaternary)] hover:text-[var(--text-secondary)]'),
-        color !== undefined && active && 'ring-2 ring-[var(--accent-ring)] ring-offset-2 ring-offset-[var(--bg-overlay)]',
-      )}
-      style={color ? { backgroundColor: color } : undefined}
-    >
-      {color === undefined
-        ? <CircleSlash size={13}/>
-        : active && <Check size={13} className="text-white"/>}
-    </button>
   )
 }
 

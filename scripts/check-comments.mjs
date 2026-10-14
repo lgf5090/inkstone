@@ -266,6 +266,28 @@ const allowed = new Map([
   ["src/client/components/calendar-grids.tsx", [
     "/** Draws one extra column ahead of each week row — the week number, or anything else a row owns. */",
   ]],
+  ["src/client/components/color-field.tsx", [
+    "/** The colour the native wheel opens on when there is nothing to show yet. */",
+    "/**\n * The two frames a custom-colour control is drawn in: `round` sits in the organiser ramp beside the\n * circular swatches, `square` in the format ramp and the settings rows beside the square ones.\n */",
+    "/**\n * The native colour wheel itself: invisible, stretched over the whole frame so the box the reader\n * sees is the box they click, and named by the field it belongs to rather than by its own glyph.\n */",
+    "/**\n * The palette-icon door to the native wheel, sitting beside the hex field a custom colour is typed\n * into. The field keeps the draft, so this only moves it: `onChange` while the wheel is being dragged,\n * `onCommit` when the pointer leaves it.\n */",
+    "/**\n * The colour a setting holds, drawn as the dot it will paint and changed through the native wheel.\n * An unset value is not a colour: the dot stays empty and carries the outline instead of a fill.\n */",
+  ]],
+  ["src/client/components/color-swatch.test.ts", [
+    "/**\n * Every colour menu in the app draws its ramp through this one component, so the geometry the five\n * call sites depend on lives here and nowhere else. These cases pin the class string each shape\n * renders: a change to the shared component that moves a picker — a size, a radius, the active ring —\n * fails here instead of arriving as a silent redesign in the tag, folder, QuickAdd, editor and\n * property panels. The `md` strings are what those menus rendered before the size prop existed.\n */",
+    "/** The rendered button's own attributes: the class the picker draws, and the check inside it. */",
+  ]],
+  ["src/client/components/color-swatch.tsx", [
+    "/**\n * The two swatch shapes the app draws: `organizer` is the tag, folder and QuickAdd ramp — a filled\n * circle beside a \"no colour\" slot; `format` is the editor and property ramp — a rounded square that\n * keeps its own outline and holds focus while a hex field is being typed.\n */",
+    "/**\n * One colour swatch: a real button carrying the colour's name, its pressed state and an active ring,\n * drawn the same way everywhere a palette is offered. The genuine differences between the ramps are\n * props — the `icon` for the \"no colour\" slot, the resolved `background`, the check's colour, and\n * whether the no-colour slot keeps its fill while it is the active pick.\n */",
+    "/** The colour to paint; `null` is the \"no colour\" slot, which shows `icon` instead. */",
+    "/** Glyph drawn in the \"no colour\" slot. */",
+    "/** Resolved CSS colour painted behind a colour swatch. */",
+    "/** The active check, coloured to stay legible on the swatch under it. */",
+    "/** Whether the \"no colour\" slot is filled with the base background even when it is active. */",
+    "/**\n * The geometry each size carries. `md` is the 28px target every picker draws; `sm` is the graph's\n * colour rules — six dots on a tight row, where an offset ring would land on the neighbour beside it\n * and the default check would cover the colour it is naming.\n */",
+    "/** The ramp's target size: `md` in every picker, `sm` in the graph's colour rules. */",
+  ]],
   ["src/client/components/date-picker.test.ts", [
     "/**\n * The picker draws its calendar from the shared locale derivation, where the `Intl` reading itself is\n * pinned (`lib/time.test.ts`). What is checked here is that the rendered picker follows that one\n * number: its weekday row and the cells spilling in front of the 1st are read off the same value, so\n * a change to the derivation cannot move one of them and leave the other on Sunday.\n */",
     "// 2024-01-07 is a Sunday, the same reference date the picker's own week row walks from.",
@@ -1180,6 +1202,10 @@ const allowed = new Map([
   ]],
   ["src/client/features/excalidraw/library/official-library-window.ts", [
     "/**\n * The official catalog holds 232 libraries. Mounting all of them at once was measured in Chromium as a\n * single 355-383 ms long task that also holds up the modal's own shell, and it asked for a preview image\n * per card (748 kB before the first scroll). So the grid renders a window and hands out the rest as the\n * reader approaches its end — the same shape the kanban board uses, with a real button for the tail so a\n * browser without an observer, or a keyboard that never scrolls, still reaches every card.\n */",
+  ]],
+  ["src/client/features/folders/FolderAppearanceMenus.tsx", [
+    "// The folder guard only accepts a surface its own contrast maths can read, so it hands the walk",
+    "// a predicate instead of writing a second one.",
   ]],
   ["src/client/features/folders/FolderMoveMenu.tsx", [
     "/** The name of the top level for this tree, which is not \"Unfiled\" everywhere. */",
@@ -6162,9 +6188,6 @@ const allowed = new Map([
     "/** In the sidebar tab the panel owns the column, so it grows instead of taking a slice of the editor. */",
   ]],
   ["src/client/features/workspace/EditorColorMenu.tsx", [
-    "/** The colour painted behind the panel, which is what a pick has to stand out from. */",
-    "// Holding the field's focus down means a half-typed hex cannot commit underneath this click:",
-    "// the swatch the user aimed at is the newer intent, and a blur here would apply the other one.",
     "/** What the button already stands for, so reopening the panel points at it rather than at nothing. */",
     "// One commit per appearance. Committing closes the panel, and tearing a focused field down",
     "// fires its blur — a second offer of the half-typed value would land on top of this pick.",
@@ -7111,10 +7134,15 @@ const allowed = new Map([
     "/**\n * What a filter query leaves of the tree.\n *\n * `nodes` is the tree to draw and `shown` how many folders are in it, so the count the panel prints\n * is the number of rows the reader can actually see — the same rule the tag filter follows. `matched`\n * is the narrower set: the folders the query itself hit by name, which is what gets underlined. The\n * two differ because a parent that only leads to a match has to stay on screen for the child to be\n * reachable.\n *\n * `whole` holds the folders that show every note they own rather than only the notes the query\n * reached: a folder named by the query is what the reader asked for, so its contents come with it,\n * and so do the contents of everything below it. `notes` is the set of note titles the query hit,\n * which is what a folder kept only as the road to a note draws.\n */",
     "/**\n * The folder tree pruned to what the query can reach, by folder name and by the titles of the notes\n * filed inside it.\n *\n * A folder the query names keeps its whole subtree and every note in it, so searching `work` still\n * shows `work/meeting` and what that holds. A folder the query only reaches through one of its notes\n * is kept for that note: it stays at the depth the reader knows it at, unmarked, and shows nothing\n * else. An empty query returns the tree as it came.\n */",
   ]],
+  ["src/client/lib/format-colors.test.ts", [
+    "/** A panel inside a panel: only the outer box has any paint on it. */",
+  ]],
   ["src/client/lib/format-colors.ts", [
     "/**\n * Highlights are painted as a wash, so what matters here is the hue: each of these is saturated\n * enough to still read at {@link HIGHLIGHT_ALPHA} over a light page or a dark one.\n */",
     "/** The colour a swatch must show so the panel and the page agree, wash and all. */",
     "/**\n * Whether a picked colour will show up on the page it is being picked for. A highlight is judged on\n * its own hue rather than the composited wash: at a fixed alpha the two move together, so a hue too\n * close to the page is the only way the wash can come out invisible. An unresolvable surface reads\n * as usable, the same way the folder guard reads it.\n */",
+    "/** Whether a computed background is a colour at all, rather than nothing painted over it. */",
+    "/**\n * The colour painted behind the panel, which is what a pick has to stand out from. Which surface\n * counts is the caller's call: the format guard takes the first box with any paint on it, the folder\n * guard insists on a colour its own contrast maths can read.\n */",
   ]],
   ["src/client/lib/fuzzy.ts", [
     "/**\n * Listings call this once per row per keystroke with a haystack the row already keeps a\n * stable reference to, so V8's cached string hash makes the lookup O(1) while\n * text.toLowerCase() would re-copy the whole body every time.\n */",
