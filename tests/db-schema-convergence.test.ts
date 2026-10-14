@@ -254,3 +254,105 @@ describe('a shelf still keyed the way the first reader left it', () => {
     }
   })
 })
+
+/**
+ * A table that holds one account's rows must lead its key with that account.
+ *
+ * `reader_books` shipped with `id TEXT PRIMARY KEY` while every other reader table led with
+ * `user_id`, and its id is minted by the client from the file's name and size — so two accounts that
+ * shelved the same file held the same key and one account's push replaced the other's row away. The
+ * routes all bound `user_id`, so nothing leaked; the row was simply gone, and no test could see it.
+ * That is why this is checked against the declaration rather than the queries: a missing predicate is
+ * visible in a route review, a key that lets one account overwrite another is only visible in the DDL.
+ *
+ * Every entry below is a claim about where that table's id comes from, not a granted exemption.
+ */
+const ACCOUNT_GLOBAL_KEYS = new Map<string, string>([
+  // The id is minted by `newId()` — 26 characters from a 32-symbol alphabet, 16 of them from
+  // `crypto.getRandomValues` — so no other account can name the same row.
+  ['notes', 'newId() in routes/notes.ts'],
+  ['note_versions', 'newId() in mcp/writes.ts'],
+  ['attachments', 'newId() in routes/files.ts:93'],
+  ['backup_targets', 'newId() in the target create'],
+  ['backup_runs', 'newId() in backup/engine.ts'],
+  ['mcp_api_keys', 'newId() in mcp/api-keys.ts:62'],
+  ['totp_login_challenges', 'newId() per challenge in lib/totp-service.ts'],
+  // Offered by the client so a re-sync of the same note or folder is idempotent, and therefore open
+  // to the exact collision `reader_books` fell into — refused instead, by a cross-account id probe
+  // that answers 409 before the insert (`idTakenByAnyone` in folders/store.ts and tags/store.ts).
+  ['folders', 'client-offered id, guarded by idTakenByAnyone -> 409'],
+  ['tags', 'client-offered id, guarded by idTakenByAnyone -> 409'],
+  // A session row is keyed by the hash of a 32-byte crypto token (lib/session-store.ts:6,27), so the
+  // key is a secret rather than a name; it carries no per-account rows to overwrite.
+  ['sessions', 'sha256 of a crypto-random token'],
+  // Public by slug and minted by `newSlug()` (routes/share.ts:141); presence is one room per share,
+  // which is why the slug, not the account, is the identity of the row.
+  ['shares', 'newSlug(), unguessable'],
+  ['share_presence', 'one room per share slug'],
+  // A monotonic ledger counter: the whole point is a sequence no account may restart, and every read
+  // filters on `user_id`.
+  ['changes', 'seq INTEGER PRIMARY KEY AUTOINCREMENT'],
+  // The key names a stored object (`r2:<user_id>/<newId>.<ext>`, attachments/keys.ts:12), and one
+  // object belongs to exactly one account — the queue is a work list of objects, not of rows.
+  ['attachment_cleanup', 'object key embeds the owner id'],
+  // Composite, but not leading with the account: a wiki link is one edge from a note, and the source
+  // note id is already `newId()`-random and account-owned, so `target_key` cannot name another
+  // account's edge. Reads scope by `user_id` (idx_links_user_source).
+  ['links', 'composite (source_note_id, target_key) on account-owned notes'],
+])
+
+/** The tables that carry a `user_id` column yet key on something else. */
+function globalKeyedTenantTables(statements: readonly string[] = TABLES): string[] {
+  const offenders: string[] = []
+  for (const statement of statements) {
+    const body = /^\s*CREATE TABLE IF NOT EXISTS (\w+) \(([\s\S]*)\)\s*$/i.exec(statement.trim())
+    if (!body) continue
+    const [, table, columns] = body
+    if (!/\buser_id\s+TEXT\b/i.test(columns!)) continue
+    // Two shapes declare a key: a column annotated `PRIMARY KEY`, and a table-level composite.
+    const composite = /PRIMARY KEY\s*\(([^)]*)\)/i.exec(columns!)
+    if (composite) {
+      if (/^\s*user_id\b/i.test(composite[1]!)) continue
+      offenders.push(`${table} (composite: ${composite[1].trim()})`)
+      continue
+    }
+    const single = /(\w+)\s+\w+(?:\([^)]*\))?\s+(?:NOT NULL\s+)?PRIMARY KEY/i.exec(columns!)
+    if (single && single[1]!.toLowerCase() !== 'user_id') offenders.push(`${table} (single: ${single[1]})`)
+  }
+  return offenders
+}
+
+describe('every account-scoped table leads its key with the account', () => {
+  it('keys each table holding one account rows on that account, except the verified list', () => {
+    const offenders = globalKeyedTenantTables()
+      .map((entry) => entry.split(' ')[0])
+      .filter((table) => !ACCOUNT_GLOBAL_KEYS.has(table))
+    expect(offenders, `tables that carry user_id yet key globally: ${offenders.join(', ') || 'none'}`).toEqual([])
+  })
+
+  it('does not let an entry on the verified list go stale', () => {
+    // Two directions, like every other allowlist here: a table that was fixed has to lose its entry.
+    const stillGlobal = new Set(globalKeyedTenantTables().map((entry) => entry.split(' ')[0]))
+    const paid = [...ACCOUNT_GLOBAL_KEYS.keys()].filter((table) => !stillGlobal.has(table))
+    expect(paid, `no longer globally keyed — delete the entry: ${paid.join(', ')}`).toEqual([])
+  })
+
+  it('names the shape that made this guard necessary, instead of trusting the current tree', () => {
+    // Positive control. Without it this file only proves that today's schema happens to pass, and a
+    // guard that cannot fail is the kind of assurance `reader_books` already had.
+    const legacyShaped = [`CREATE TABLE IF NOT EXISTS reader_books (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      title TEXT NOT NULL
+    )`]
+    expect(globalKeyedTenantTables(legacyShaped)).toEqual(['reader_books (single: id)'])
+    // The same table with the account leading its key is not an offender, so the rule is about the
+    // shape and not about this table's name.
+    expect(globalKeyedTenantTables([`CREATE TABLE IF NOT EXISTS reader_books (
+      id TEXT NOT NULL,
+      user_id TEXT NOT NULL,
+      title TEXT NOT NULL,
+      PRIMARY KEY (user_id, id)
+    )`])).toEqual([])
+  })
+})
