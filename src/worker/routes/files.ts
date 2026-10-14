@@ -1,4 +1,4 @@
-import { Hono } from 'hono'
+import { Hono, type Context } from 'hono'
 import { getCookie } from 'hono/cookie'
 import { LIMITS } from '@shared/constants'
 import { extractAttachmentIds } from '@shared/markdown-utils'
@@ -9,12 +9,15 @@ import {
 } from '../attachments/backend'
 import { drainAttachmentCleanup } from '../attachments/cleanup'
 import { collectAttachmentReferences } from '../attachments/references'
-import {
-  attachmentCleanupTarget,
-  attachmentObjectKey,
-  type AttachmentObjectStorage,
-} from '../attachments/keys'
+import { attachmentObjectKey } from '../attachments/keys'
 import { persistAttachmentWithinQuota } from '../attachments/storage'
+import {
+  attachmentById,
+  AttachmentsStore,
+  shareForAsset,
+  type AttachmentListCursor,
+  type AttachmentRow,
+} from '../attachments/store'
 import type { AppBindings } from '../env'
 import { ApiError } from '../lib/errors'
 import { isValidId, isValidSlug, newId } from '../lib/id'
@@ -26,20 +29,6 @@ import { requireAuth } from '../middleware/auth'
 
 export const filesRoutes = new Hono<AppBindings>()
 
-interface AttachmentRow {
-  id: string
-  user_id: string
-  note_id: string | null
-  filename: string
-  mime: string
-  size: number
-  sha256: string
-  width: number | null
-  height: number | null
-  storage: AttachmentObjectStorage
-  created_at: number
-}
-
 // Anonymous share reads get a tighter work budget than the delete/backup paths:
 // an unfinished scan here only withholds one asset, which is the safe direction.
 const SHARE_ASSET_SCAN_LIMITS = { maxDepth: 2, maxChars: 200_000 }
@@ -48,16 +37,13 @@ function readShareAttachmentIds(content: string): string[] {
   return extractAttachmentIds(content, SHARE_ASSET_SCAN_LIMITS)
 }
 
-const ATTACHMENT_LIST_PAGE_SIZE = 500
-const ATTACHMENT_SCAN_PAGE_SIZE = 100
-
 function encodeContentDispositionFilename(filename: string): string {
   return encodeURIComponent(filename).replace(/['()*]/g, (character) =>
     `%${character.charCodeAt(0).toString(16).toUpperCase()}`,
   )
 }
 
-function parseAttachmentListCursor(value: string | undefined): { createdAt: number; id: string } | null {
+function parseAttachmentListCursor(value: string | undefined): AttachmentListCursor | null {
   if (!value) return null
   const match = /^(\d{1,16})\.([0-9a-hjkmnp-tv-z]{26})$/.exec(value)
   const createdAt = Number(match?.[1])
@@ -65,6 +51,10 @@ function parseAttachmentListCursor(value: string | undefined): { createdAt: numb
     throw ApiError.badRequest('Invalid attachment cursor')
   }
   return { createdAt, id: match[2]! }
+}
+
+function store(c: Context<AppBindings>): AttachmentsStore {
+  return new AttachmentsStore(c.env.DB, c.get('userId'))
 }
 
 function toAttachment(row: AttachmentRow): Attachment {
@@ -80,47 +70,6 @@ function toAttachment(row: AttachmentRow): Attachment {
     createdAt: row.created_at,
   }
 }
-
-async function collectAttachmentIdsThroughBoundary(
-  db: D1Database,
-  userId: string,
-  boundary: { created_at: number; id: string },
-): Promise<Set<string>> {
-  const ids = new Set<string>()
-  let cursor: { createdAt: number; id: string } | null = null
-  while (true) {
-    const query: D1PreparedStatement = cursor
-      ? db.prepare(
-          `SELECT created_at, id FROM attachments WHERE user_id = ?1
-            AND (created_at < ?2 OR (created_at = ?2 AND id <= ?3))
-            AND (created_at > ?4 OR (created_at = ?4 AND id > ?5))
-           ORDER BY created_at ASC, id ASC LIMIT ?6`,
-        ).bind(
-          userId,
-          boundary.created_at,
-          boundary.id,
-          cursor.createdAt,
-          cursor.id,
-          ATTACHMENT_SCAN_PAGE_SIZE,
-        )
-      : db.prepare(
-          `SELECT created_at, id FROM attachments WHERE user_id = ?1
-            AND (created_at < ?2 OR (created_at = ?2 AND id <= ?3))
-           ORDER BY created_at ASC, id ASC LIMIT ?4`,
-        ).bind(userId, boundary.created_at, boundary.id, ATTACHMENT_SCAN_PAGE_SIZE)
-    const rows: Array<{ created_at: number; id: string }> = (await query.all<{
-      created_at: number
-      id: string
-    }>()).results
-    if (!rows.length) break
-    for (const row of rows) ids.add(row.id)
-    const last = rows[rows.length - 1]!
-    cursor = { createdAt: last.created_at, id: last.id }
-    if (rows.length < ATTACHMENT_SCAN_PAGE_SIZE) break
-  }
-  return ids
-}
-
 
 filesRoutes.post('/', requireAuth, async (c) => {
   const userId = c.get('userId')
@@ -144,13 +93,8 @@ filesRoutes.post('/', requireAuth, async (c) => {
   const id = newId()
   const rawNoteId = form.get('noteId')
   const noteId = typeof rawNoteId === 'string' && rawNoteId ? rawNoteId.slice(0, 128) : null
-  if (noteId) {
-    const owned = await c.env.DB.prepare(
-      `SELECT id FROM notes WHERE id = ?1 AND user_id = ?2 AND deleted_at IS NULL`,
-    )
-      .bind(noteId, userId)
-      .first<{ id: string }>()
-    if (!owned) throw ApiError.badRequest('The associated note does not exist')
+  if (noteId && !(await store(c).noteIsLive(noteId))) {
+    throw ApiError.badRequest('The associated note does not exist')
   }
   const now = Date.now()
   const stored = await persistAttachmentWithinQuota(c.env, {
@@ -183,26 +127,13 @@ filesRoutes.get('/:id', async (c) => {
   if (!isValidId(id)) throw ApiError.notFound('Attachment not found')
   const shareSlug = c.req.query('share')
 
-  const row = await c.env.DB.prepare(
-    `SELECT id, user_id, note_id, filename, mime, size, sha256, width, height, storage, created_at
-       FROM attachments WHERE id = ?1`,
-  )
-    .bind(id)
-    .first<AttachmentRow>()
+  const row = await attachmentById(c.env.DB, id)
   if (!row) throw ApiError.notFound('Attachment not found')
 
   const userId = c.get('userId')
   let allowed = Boolean(userId && userId === row.user_id)
   if (!allowed && isValidSlug(shareSlug)) {
-    const share = await c.env.DB.prepare(
-      `SELECT s.slug, s.password_hash, n.content
-         FROM shares s
-         JOIN notes n ON n.id = s.note_id AND n.user_id = s.user_id
-        WHERE s.slug = ?1 AND s.user_id = ?2 AND n.deleted_at IS NULL
-          AND (s.expires_at IS NULL OR s.expires_at > ?3)`,
-    )
-      .bind(shareSlug, row.user_id, Date.now())
-      .first<{ slug: string; password_hash: string | null; content: string }>()
+    const share = await shareForAsset(c.env.DB, shareSlug, row.user_id)
     allowed = Boolean(
       share &&
         (share.content.includes(row.id) && readShareAttachmentIds(share.content).includes(row.id)) &&
@@ -254,32 +185,11 @@ filesRoutes.get('/', requireAuth, async (c) => {
   const userId = c.get('userId')
   const wanted = c.req.query('name')?.trim().toLowerCase()
   if (wanted) {
-    const row = await c.env.DB
-      .prepare(
-        `SELECT id, user_id, note_id, filename, mime, size, width, height, storage, created_at
-           FROM attachments WHERE user_id = ?1 AND lower(filename) = ?2
-          ORDER BY created_at DESC, id DESC LIMIT 1`,
-      )
-      .bind(userId, wanted)
-      .first<AttachmentRow>()
+    const row = await store(c).byFilename(wanted)
     return c.json({ files: row ? [toAttachment(row)] : [] })
   }
   const cursor = parseAttachmentListCursor(c.req.query('cursor'))
-  const statement = cursor
-    ? c.env.DB.prepare(
-        `SELECT id, user_id, note_id, filename, mime, size, width, height, storage, created_at
-           FROM attachments WHERE user_id = ?1
-            AND (created_at < ?2 OR (created_at = ?2 AND id < ?3))
-          ORDER BY created_at DESC, id DESC LIMIT ?4`,
-      ).bind(userId, cursor.createdAt, cursor.id, ATTACHMENT_LIST_PAGE_SIZE + 1)
-    : c.env.DB.prepare(
-        `SELECT id, user_id, note_id, filename, mime, size, width, height, storage, created_at
-           FROM attachments WHERE user_id = ?1
-          ORDER BY created_at DESC, id DESC LIMIT ?2`,
-      ).bind(userId, ATTACHMENT_LIST_PAGE_SIZE + 1)
-  const { results } = await statement.all<AttachmentRow>()
-  const page = results.slice(0, ATTACHMENT_LIST_PAGE_SIZE)
-  const hasMore = results.length > ATTACHMENT_LIST_PAGE_SIZE
+  const { rows: page, hasMore } = await store(c).listPage(cursor)
   const references = await collectAttachmentReferences(
     c.env.DB,
     userId,
@@ -299,35 +209,10 @@ filesRoutes.get('/', requireAuth, async (c) => {
 filesRoutes.delete('/:id', requireAuth, async (c) => {
   const userId = c.get('userId')
   const id = c.req.param('id')
-  const row = await c.env.DB.prepare(
-    `SELECT id, user_id, filename, mime, storage FROM attachments WHERE id = ?1 AND user_id = ?2`,
-  )
-    .bind(id, userId)
-    .first<AttachmentRow>()
+  const library = store(c)
+  const row = await library.forDeletion(id)
   if (!row) throw ApiError.notFound('Attachment not found')
-
-  const statements: D1PreparedStatement[] = [
-    c.env.DB.prepare(
-      `INSERT OR IGNORE INTO attachment_cleanup (object_key, user_id, created_at)
-       SELECT ?1, user_id, ?2 FROM attachments WHERE id = ?3 AND user_id = ?4`,
-    ).bind(
-      attachmentCleanupTarget(row.storage, attachmentObjectKey(row)),
-      Date.now(),
-      id,
-      userId,
-    ),
-  ]
-  statements.push(
-    c.env.DB.prepare(
-      `DELETE FROM import_mappings
-        WHERE user_id = ?1 AND entity = 'attachment' AND target_id = ?2`,
-    ).bind(userId, id),
-  )
-  statements.push(
-    c.env.DB.prepare(`DELETE FROM attachments WHERE id = ?1 AND user_id = ?2`).bind(id, userId),
-  )
-  const results = await c.env.DB.batch(statements)
-  if (!results.at(-1)?.meta.changes) throw ApiError.notFound('Attachment not found')
+  if (!(await library.delete(row))) throw ApiError.notFound('Attachment not found')
 
   const cleanup = drainAttachmentCleanup(c.env, userId).catch((error) => {
     console.warn('[inkstone] Attachment deletion will retry later:', error)
@@ -337,127 +222,14 @@ filesRoutes.delete('/:id', requireAuth, async (c) => {
   return c.json({ ok: true, cleanupPending: true })
 })
 
-/** 1 when a note change landed after `scanCursor`, i.e. the prune must hold off. */
-async function isPruneStale(db: D1Database, userId: string, scanCursor: number): Promise<number> {
-  const row = await db.prepare(
-    `SELECT EXISTS (
-       SELECT 1 FROM changes WHERE user_id = ?1 AND entity = 'note' AND seq > ?2
-     ) AS fresh`,
-  ).bind(userId, scanCursor).first<{ fresh: number }>()
-  return row?.fresh ? 1 : 0
-}
-
 filesRoutes.post('/prune', requireAuth, async (c) => {
   const userId = c.get('userId')
-
-  const [boundaryResult, cursorResult] = await c.env.DB.batch([
-    c.env.DB.prepare(
-      `SELECT created_at, id FROM attachments
-        WHERE user_id = ?1 ORDER BY created_at DESC, id DESC LIMIT 1`,
-    ).bind(userId),
-    c.env.DB.prepare(
-      `SELECT seq FROM changes WHERE user_id = ?1 AND entity = 'note'
-        ORDER BY seq DESC LIMIT 1`,
-    ).bind(userId),
-  ])
-  const boundary = (boundaryResult as D1Result<{ created_at: number; id: string }>).results[0]
-  if (!boundary) return c.json({ removed: 0, freedBytes: 0 })
-  const scanCursor = (cursorResult as D1Result<{ seq: number }>).results[0]?.seq ?? 0
-  const attachmentIds = await collectAttachmentIdsThroughBoundary(c.env.DB, userId, boundary)
+  const library = store(c)
+  const start = await library.pruneStart()
+  if (!start) return c.json({ removed: 0, freedBytes: 0 })
+  const attachmentIds = await library.idsThroughBoundary(start.boundary)
   const referenced = await collectAttachmentReferences(c.env.DB, userId, attachmentIds)
-
-  let removed = 0
-  let freedBytes = 0
-  let statements: D1PreparedStatement[] = []
-  const operations: Array<
-    { kind: 'queue' | 'mapping' } | { kind: 'delete'; file: AttachmentRow }
-  > = []
-
-  const flush = async () => {
-    if (!statements.length) return
-    const results = await c.env.DB.batch(statements)
-    results.forEach((result, index) => {
-      const operation = operations[index]
-      if (operation?.kind === 'delete' && result.meta.changes) {
-        removed += 1
-        freedBytes += operation.file.size
-      }
-    })
-    statements = []
-    operations.length = 0
-  }
-
-  let pageCursor: { createdAt: number; id: string } | null = null
-  while (true) {
-    const query: D1PreparedStatement = pageCursor
-      ? c.env.DB.prepare(
-          `SELECT id, user_id, note_id, filename, mime, size, width, height, storage, created_at
-             FROM attachments WHERE user_id = ?1
-              AND (created_at < ?2 OR (created_at = ?2 AND id <= ?3))
-              AND (created_at > ?4 OR (created_at = ?4 AND id > ?5))
-            ORDER BY created_at ASC, id ASC LIMIT ?6`,
-        ).bind(
-          userId,
-          boundary.created_at,
-          boundary.id,
-          pageCursor.createdAt,
-          pageCursor.id,
-          ATTACHMENT_SCAN_PAGE_SIZE,
-        )
-      : c.env.DB.prepare(
-          `SELECT id, user_id, note_id, filename, mime, size, width, height, storage, created_at
-             FROM attachments WHERE user_id = ?1
-              AND (created_at < ?2 OR (created_at = ?2 AND id <= ?3))
-            ORDER BY created_at ASC, id ASC LIMIT ?4`,
-        ).bind(userId, boundary.created_at, boundary.id, ATTACHMENT_SCAN_PAGE_SIZE)
-    const files: AttachmentRow[] = (await query.all<AttachmentRow>()).results
-    if (!files.length) break
-
-    // One freshness probe per page replaces the NOT EXISTS subquery that used to run for
-    // every attachment and every statement; a change landing mid-page only defers the
-    // remaining rows to the next prune, which is what the guard already tolerated.
-    const stale = await isPruneStale(c.env.DB, userId, scanCursor)
-
-    for (const file of files) {
-      if (referenced.has(file.id)) continue
-      const guard = `id = ?1 AND user_id = ?2 AND ?6 = 0`
-      const needed = 3
-      if (statements.length + needed > 100) await flush()
-      statements.push(
-        c.env.DB.prepare(
-          `INSERT OR IGNORE INTO attachment_cleanup (object_key, user_id, created_at)
-           SELECT ?4, user_id, ?5 FROM attachments WHERE ${guard}`,
-        ).bind(
-          file.id,
-          userId,
-          scanCursor,
-          attachmentCleanupTarget(file.storage, attachmentObjectKey(file)),
-          Date.now(),
-          stale,
-        ),
-      )
-      operations.push({ kind: 'queue' })
-      statements.push(
-        c.env.DB.prepare(
-          `DELETE FROM import_mappings
-            WHERE user_id = ?1 AND entity = 'attachment' AND target_id = ?2
-              AND EXISTS (
-                SELECT 1 FROM attachments a WHERE a.id = ?2 AND a.user_id = ?1 AND ?4 = 0
-              )`,
-        ).bind(userId, file.id, scanCursor, stale),
-      )
-      operations.push({ kind: 'mapping' })
-      statements.push(
-        c.env.DB.prepare(`DELETE FROM attachments WHERE id = ?1 AND user_id = ?2 AND ?3 = 0`)
-          .bind(file.id, userId, stale),
-      )
-      operations.push({ kind: 'delete', file })
-    }
-    const last: AttachmentRow = files[files.length - 1]!
-    pageCursor = { createdAt: last.created_at, id: last.id }
-    if (files.length < ATTACHMENT_SCAN_PAGE_SIZE) break
-  }
-  await flush()
+  const { removed, freedBytes } = await library.pruneUnreferenced(start, referenced)
 
   const cleanup = drainAttachmentCleanup(c.env, userId).catch((error) => {
     console.warn('[inkstone] Attachment cleanup will retry later:', error)

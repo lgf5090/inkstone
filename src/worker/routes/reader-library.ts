@@ -17,6 +17,16 @@ import { ApiError } from '../lib/errors'
 import { requireAuth } from '../middleware/auth'
 import { readJson } from '../lib/request'
 import { readerBookKey, readerCoverKey } from '../db/reader-schema'
+import {
+  ReaderLibraryStore,
+  type ShelfBookInput,
+  type ShelfGroupInput,
+  type ShelfHighlightInput,
+  type ShelfMarkInput,
+  type ShelfNoteInput,
+  type ShelfProgressInput,
+  type ShelfStatInput,
+} from '../reader/store'
 import { assertReaderRoom, readerUsage } from '../db/quota'
 import { LIMITS, READER_COVER_TYPES } from '@shared/constants'
 
@@ -143,127 +153,16 @@ function contentDisposition(full: string): string {
   return `inline; filename="${ascii}"; filename*=UTF-8''${rfc5987(full)}`
 }
 
-/**
- * The shelf rows, one per table, listing exactly the columns `loadLibrary` reads.
- *
- * The queries spell the same columns out rather than reaching for `*`: a column added to a `reader_`
- * table then has to be asked for, so a schema change cannot quietly widen the payload every reader
- * downloads on start-up — and `r2_key`, which is the server's own, cannot leak into it by accident.
- */
-interface BookRow {
-  id: string
-  format: string
-  title: string
-  author: string
-  language: string
-  publisher: string
-  filename: string
-  size: number
-  added_at: number
-  unit_count: number
-  has_cover: number
-  has_blob: number
-  cover_key: string | null
-  toc: string
-}
-
-interface ProgressRow {
-  book_id: string
-  position: string
-  fraction: number
-  updated_at: number
-  finished_at: number | null
-}
-
-interface HighlightRow {
-  id: string
-  book_id: string
-  chapter: number
-  start_offset: number
-  end_offset: number
-  quote: string
-  prefix: string
-  suffix: string
-  color: string
-  comment: string
-  created_at: number
-  updated_at: number
-}
-
-interface MarkRow {
-  id: string
-  book_id: string
-  label: string
-  position: string
-  created_at: number
-}
-
-interface StatRow {
-  book_id: string
-  seconds: number
-  days: string
-}
-
-interface BookNoteRow {
-  book_id: string
-  note_id: string
-}
-
-interface MetaRow {
-  key: string
-  value: string | null
-}
-
-interface GroupRow {
-  id: string
-  name: string
-  book_ids: string
-  created_at: number
-  updated_at: number
-}
-
-/** The book rows a push has to know the server-side answer to: where the bytes and the cover live. */
-interface StoredBookRow {
-  id: string
-  r2_key: string
-  has_blob: number
-  cover_key: string | null
-  cover_size: number
+function store(c: Context<AppBindings>, userId: string): ReaderLibraryStore {
+  return new ReaderLibraryStore(c.env.DB, userId)
 }
 
 /** One account's whole shelf, in the shape the local store holds it. */
 async function loadLibrary(c: Context<AppBindings>, userId: string) {
-  const [books, progress, highlights, marks, stats, notes, meta, groups] = await Promise.all([
-    c.env.DB.prepare(
-      `SELECT id, format, title, author, language, publisher, filename, size, added_at, unit_count,
-              has_cover, has_blob, cover_key, toc
-         FROM reader_books WHERE user_id = ?1 ORDER BY added_at DESC`).bind(userId).all<BookRow>(),
-    c.env.DB.prepare(
-      `SELECT book_id, position, fraction, updated_at, finished_at
-         FROM reader_progress WHERE user_id = ?1`).bind(userId).all<ProgressRow>(),
-    c.env.DB.prepare(
-      `SELECT id, book_id, chapter, start_offset, end_offset, quote, prefix, suffix, color, comment,
-              created_at, updated_at
-         FROM reader_highlights WHERE user_id = ?1`).bind(userId).all<HighlightRow>(),
-    c.env.DB.prepare(
-      `SELECT id, book_id, label, position, created_at
-         FROM reader_marks WHERE user_id = ?1`).bind(userId).all<MarkRow>(),
-    c.env.DB.prepare(
-      `SELECT book_id, seconds, days
-         FROM reader_stats WHERE user_id = ?1`).bind(userId).all<StatRow>(),
-    c.env.DB.prepare(
-      `SELECT book_id, note_id
-         FROM reader_notes WHERE user_id = ?1`).bind(userId).all<BookNoteRow>(),
-    c.env.DB.prepare(
-      `SELECT key, value
-         FROM reader_meta WHERE user_id = ?1`).bind(userId).all<MetaRow>(),
-    c.env.DB.prepare(
-      `SELECT id, name, book_ids, created_at, updated_at
-         FROM reader_groups WHERE user_id = ?1 ORDER BY updated_at DESC`).bind(userId).all<GroupRow>(),
-  ])
-  const vocabulary = meta.results.find((row) => row.key === 'vocabulary')?.value ?? null
+  const rows = await store(c, userId).shelf()
+  const vocabulary = rows.meta.find((row) => row.key === 'vocabulary')?.value ?? null
   return {
-    books: books.results.map((row) => ({
+    books: rows.books.map((row) => ({
       id: row.id,
       format: row.format,
       title: row.title,
@@ -280,30 +179,30 @@ async function loadLibrary(c: Context<AppBindings>, userId: string) {
       coverUrl: row.cover_key ? `/api/reader/books/${encodeURIComponent(row.id)}/cover` : null,
       toc: JSON.parse(row.toc || '[]') as unknown[],
     })),
-    progress: Object.fromEntries(progress.results.map((row) => [row.book_id, {
+    progress: Object.fromEntries(rows.progress.map((row) => [row.book_id, {
       bookId: row.book_id,
       position: JSON.parse(row.position) as unknown,
       fraction: row.fraction,
       updatedAt: row.updated_at,
       finishedAt: row.finished_at ?? null,
     }])),
-    highlights: Object.fromEntries(group(highlights.results, (row) => row.book_id, (row) => ({
+    highlights: Object.fromEntries(group(rows.highlights, (row) => row.book_id, (row) => ({
       id: row.id, bookId: row.book_id, chapter: row.chapter, start: row.start_offset, end: row.end_offset,
       quote: row.quote, prefix: row.prefix, suffix: row.suffix, color: row.color, comment: row.comment,
       createdAt: row.created_at, updatedAt: row.updated_at,
     }))),
-    marks: Object.fromEntries(group(marks.results, (row) => row.book_id, (row) => ({
+    marks: Object.fromEntries(group(rows.marks, (row) => row.book_id, (row) => ({
       id: row.id, bookId: row.book_id, label: row.label, position: JSON.parse(row.position) as unknown,
       createdAt: row.created_at,
     }))),
-    stats: Object.fromEntries(stats.results.map((row) => [row.book_id, {
+    stats: Object.fromEntries(rows.stats.map((row) => [row.book_id, {
       bookId: row.book_id, seconds: row.seconds, days: JSON.parse(row.days || '{}') as Record<string, number>,
     }])),
     notes: {
-      byBook: Object.fromEntries(notes.results.map((row) => [row.book_id, row.note_id])),
+      byBook: Object.fromEntries(rows.notes.map((row) => [row.book_id, row.note_id])),
       vocabulary: typeof vocabulary === 'string' ? vocabulary : null,
     },
-    groups: groups.results.map((row) => ({
+    groups: rows.groups.map((row) => ({
       id: row.id,
       name: row.name,
       bookIds: JSON.parse(row.book_ids || '[]') as string[],
@@ -341,107 +240,106 @@ readerLibraryRoutes.get('/library', async (c) => {
 /**
  * Replace the account's reading state with what the device holds.
  *
- * A full replace inside one `batch` is deliberate: the local store is the author of record, and merging
- * row by row would need a clock the two sides agree on. The book rows keep their server-side `r2_key`,
- * which a client never sends and never chooses.
+ * Everything here is the trust boundary: an id, a format or a length the client got wrong is refused
+ * before the store is asked for anything. The store keeps the server's own facts and lands the whole
+ * shelf in one batch; see `reader/store.ts`.
  */
 readerLibraryRoutes.put('/library', async (c) => {
   const userId = requireId(c.get('userId'), 'User id')
   const body = asRecord(await readJson<Record<string, unknown>>(c, MAX_LIBRARY_BYTES), 'Body')
   const library = asRecord(body.library, 'library')
-  const existing = await c.env.DB.prepare('SELECT id, r2_key, has_blob, cover_key, cover_size FROM reader_books WHERE user_id = ?1').bind(userId).all<StoredBookRow>()
-  const keys = new Map(existing.results.map((row) => [row.id, row.r2_key]))
-  const covers = new Map(existing.results
-    .filter((row): row is StoredBookRow & { cover_key: string } => Boolean(row.cover_key))
-    .map((row) => [row.id, row]))
-  // Whether the bytes and the cover are in R2 are the server's facts, so a push that does not mention
-  // them keeps them.
-  const blobs = new Set(existing.results.filter((row) => row.has_blob === 1).map((row) => row.id))
-
-  const statements: D1PreparedStatement[] = [
-    `DELETE FROM reader_books WHERE user_id = ?`,
-    `DELETE FROM reader_progress WHERE user_id = ?`,
-    `DELETE FROM reader_highlights WHERE user_id = ?`,
-    `DELETE FROM reader_marks WHERE user_id = ?`,
-    `DELETE FROM reader_stats WHERE user_id = ?`,
-    `DELETE FROM reader_notes WHERE user_id = ?`,
-    `DELETE FROM reader_groups WHERE user_id = ?`,
-  ].map((sql) => c.env.DB.prepare(sql).bind(userId))
 
   const books = Array.isArray(library.books) ? library.books.slice(0, MAX_ROWS) : []
   if (books.length > LIMITS.readerBooksMaxPerUser) {
     throw ApiError.badRequest(`A shelf holds at most ${LIMITS.readerBooksMaxPerUser} books`)
   }
-  const missingBlobs: string[] = []
-  const missingCovers: string[] = []
-  const bookIds = new Set(books.map((raw) => asRecord(raw, 'book').id))
-  const seenGroups = new Set<string>()
+  const bookIds = new Set<string>()
+  const bookRows: ShelfBookInput[] = []
   for (const raw of books) {
     const row = asRecord(raw, 'book')
     const id = idOf(row, 'id', 'Book id')
-    if (!blobs.has(id)) missingBlobs.push(id)
+    bookIds.add(id)
     // The shelf says a book has a cover by naming the file inside it; `hasCover` is the same fact after
     // a round trip. Either shape counts, so a cover is never left behind because of a field name.
     const wantsCover = row.hasCover === true || (typeof row.coverPath === 'string' && row.coverPath.length > 0)
-    if (wantsCover && !covers.has(id)) missingCovers.push(id)
     const format = textOf(row, 'format', 8) as BookFormat
     if (!(format in EXTENSIONS)) throw ApiError.badRequest(`Unsupported book format: ${format}`)
-    statements.push(c.env.DB.prepare(
-      `INSERT OR REPLACE INTO reader_books (id, user_id, title, author, format, filename, language, publisher, size, unit_count, r2_key, has_cover, toc, added_at, updated_at, has_blob, cover_key, cover_size)
-       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18)`,
-    ).bind(
-      id, userId, textOf(row, 'title', 300, 'Untitled'), textOf(row, 'author', 200), format,
-      textOf(row, 'filename', 240, `${id}.${EXTENSIONS[format]}`), textOf(row, 'language', 12), textOf(row, 'publisher', 200),
-      Math.max(0, numberOf(row, 'size')), Math.max(0, numberOf(row, 'unitCount')),
-      keys.get(id) ?? readerBookKey(userId, id, EXTENSIONS[format]),
-      wantsCover ? 1 : 0, JSON.stringify(Array.isArray(row.toc) ? row.toc.slice(0, 800) : []),
-      numberOf(row, 'addedAt', Date.now()), Date.now(), blobs.has(id) ? 1 : 0,
-      covers.get(id)?.cover_key ?? null, covers.get(id)?.cover_size ?? 0,
-    ))
+    bookRows.push({
+      id,
+      title: textOf(row, 'title', 300, 'Untitled'),
+      author: textOf(row, 'author', 200),
+      format,
+      filename: textOf(row, 'filename', 240, `${id}.${EXTENSIONS[format]}`),
+      language: textOf(row, 'language', 12),
+      publisher: textOf(row, 'publisher', 200),
+      size: Math.max(0, numberOf(row, 'size')),
+      unitCount: Math.max(0, numberOf(row, 'unitCount')),
+      wantsCover,
+      tocJson: JSON.stringify(Array.isArray(row.toc) ? row.toc.slice(0, 800) : []),
+      addedAt: numberOf(row, 'addedAt', Date.now()),
+      updatedAt: Date.now(),
+      fallbackKey: readerBookKey(userId, id, EXTENSIONS[format]),
+    })
   }
 
-  const progress = asRecord(library.progress, 'progress')
-  for (const [bookId, raw] of Object.entries(progress).slice(0, MAX_ROWS)) {
+  const progressSource = asRecord(library.progress, 'progress')
+  const progress: ShelfProgressInput[] = []
+  for (const [bookId, raw] of Object.entries(progressSource).slice(0, MAX_ROWS)) {
     const row = asRecord(raw, 'progress')
     const id = requireId(bookId, 'Book id')
-    statements.push(c.env.DB.prepare(
-      `INSERT OR REPLACE INTO reader_progress (user_id, book_id, position, fraction, updated_at, finished_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6)`,
-    ).bind(userId, id, JSON.stringify(row.position ?? null), Math.min(1, Math.max(0, numberOf(row, 'fraction') || Number(row.fraction) || 0)),
-      numberOf(row, 'updatedAt', Date.now()), typeof row.finishedAt === 'number' ? row.finishedAt : null))
+    progress.push({
+      bookId: id,
+      positionJson: JSON.stringify(row.position ?? null),
+      fraction: Math.min(1, Math.max(0, numberOf(row, 'fraction') || Number(row.fraction) || 0)),
+      updatedAt: numberOf(row, 'updatedAt', Date.now()),
+      finishedAt: typeof row.finishedAt === 'number' ? row.finishedAt : null,
+    })
   }
 
-  for (const [table, source, columns] of [
-    ['reader_highlights', library.highlights, ['id', 'chapter', 'start', 'end', 'quote', 'prefix', 'suffix', 'color', 'comment', 'createdAt', 'updatedAt']],
-    ['reader_marks', library.marks, ['id', 'label', 'position', 'createdAt']],
-  ] as const) {
-    const buckets = asRecord(source, table)
-    for (const [bookId, raw] of Object.entries(buckets).slice(0, MAX_ROWS)) {
-      const id = requireId(bookId, 'Book id')
-      if (!Array.isArray(raw)) continue
-      for (const item of raw.slice(0, MAX_ROWS)) {
-        const row = asRecord(item, 'row')
-        const rowId = idOf(row, 'id', 'Row id')
-        if (table === 'reader_highlights') {
-          statements.push(c.env.DB.prepare(
-            `INSERT OR REPLACE INTO reader_highlights (id, user_id, book_id, chapter, start_offset, end_offset, quote, prefix, suffix, color, comment, created_at, updated_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)`,
-          ).bind(rowId, userId, id, numberOf(row, 'chapter'), numberOf(row, 'start'), numberOf(row, 'end'),
-            textOf(row, 'quote', 20000), textOf(row, 'prefix', 200), textOf(row, 'suffix', 200),
-            textOf(row, 'color', 12, 'yellow'), textOf(row, 'comment', 4000),
-            numberOf(row, 'createdAt', Date.now()), numberOf(row, 'updatedAt', Date.now())))
-        } else {
-          statements.push(c.env.DB.prepare(
-            `INSERT OR REPLACE INTO reader_marks (id, user_id, book_id, label, position, created_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6)`,
-          ).bind(rowId, userId, id, textOf(row, 'label', 200, 'Mark'), JSON.stringify(row.position ?? null),
-            numberOf(row, 'createdAt', Date.now())))
-        }
-        void columns
-      }
+  const highlights: ShelfHighlightInput[] = []
+  const highlightsSource = asRecord(library.highlights, 'reader_highlights')
+  for (const [bookId, raw] of Object.entries(highlightsSource).slice(0, MAX_ROWS)) {
+    const id = requireId(bookId, 'Book id')
+    if (!Array.isArray(raw)) continue
+    for (const item of raw.slice(0, MAX_ROWS)) {
+      const row = asRecord(item, 'row')
+      highlights.push({
+        id: idOf(row, 'id', 'Row id'),
+        bookId: id,
+        chapter: numberOf(row, 'chapter'),
+        startOffset: numberOf(row, 'start'),
+        endOffset: numberOf(row, 'end'),
+        quote: textOf(row, 'quote', 20000),
+        prefix: textOf(row, 'prefix', 200),
+        suffix: textOf(row, 'suffix', 200),
+        color: textOf(row, 'color', 12, 'yellow'),
+        comment: textOf(row, 'comment', 4000),
+        createdAt: numberOf(row, 'createdAt', Date.now()),
+        updatedAt: numberOf(row, 'updatedAt', Date.now()),
+      })
     }
   }
 
-  const stats = asRecord(library.stats, 'stats')
-  for (const [bookId, raw] of Object.entries(stats).slice(0, MAX_ROWS)) {
+  const marks: ShelfMarkInput[] = []
+  const marksSource = asRecord(library.marks, 'reader_marks')
+  for (const [bookId, raw] of Object.entries(marksSource).slice(0, MAX_ROWS)) {
+    const id = requireId(bookId, 'Book id')
+    if (!Array.isArray(raw)) continue
+    for (const item of raw.slice(0, MAX_ROWS)) {
+      const row = asRecord(item, 'row')
+      marks.push({
+        id: idOf(row, 'id', 'Row id'),
+        bookId: id,
+        label: textOf(row, 'label', 200, 'Mark'),
+        positionJson: JSON.stringify(row.position ?? null),
+        createdAt: numberOf(row, 'createdAt', Date.now()),
+      })
+    }
+  }
+
+  const statsSource = asRecord(library.stats, 'stats')
+  const stats: ShelfStatInput[] = []
+  for (const [bookId, raw] of Object.entries(statsSource).slice(0, MAX_ROWS)) {
     const id = requireId(bookId, 'Book id')
     const row = asRecord(raw, 'stat')
     const days = asRecord(row.days, 'days')
@@ -449,46 +347,45 @@ readerLibraryRoutes.put('/library', async (c) => {
     for (const [day, seconds] of Object.entries(days).slice(0, 4000)) {
       if (/^\d{4}-\d{2}-\d{2}$/.test(day) && typeof seconds === 'number' && seconds > 0) clean[day] = Math.trunc(seconds)
     }
-    statements.push(c.env.DB.prepare(
-      `INSERT OR REPLACE INTO reader_stats (user_id, book_id, seconds, days) VALUES (?1, ?2, ?3, ?4)`,
-    ).bind(userId, id, Math.max(0, numberOf(row, 'seconds')), JSON.stringify(clean)))
+    stats.push({ bookId: id, seconds: Math.max(0, numberOf(row, 'seconds')), daysJson: JSON.stringify(clean) })
   }
 
-  const notes = asRecord(library.notes ?? {}, 'notes')
-  const byBook = asRecord(notes.byBook ?? {}, 'notes.byBook')
+  const notesSource = asRecord(library.notes ?? {}, 'notes')
+  const byBook = asRecord(notesSource.byBook ?? {}, 'notes.byBook')
+  const notes: ShelfNoteInput[] = []
   for (const [bookId, noteId] of Object.entries(byBook).slice(0, MAX_ROWS)) {
     const id = requireId(bookId, 'Book id')
     if (typeof noteId !== 'string') continue
-    statements.push(c.env.DB.prepare(
-      `INSERT OR REPLACE INTO reader_notes (user_id, book_id, note_id) VALUES (?1, ?2, ?3)`,
-    ).bind(userId, id, noteId.slice(0, 64)))
-  }
-  if (typeof notes.vocabulary === 'string') {
-    statements.push(c.env.DB.prepare(
-      `INSERT OR REPLACE INTO reader_meta (user_id, key, value, updated_at) VALUES (?1, 'vocabulary', ?2, ?3)`,
-    ).bind(userId, notes.vocabulary.slice(0, 64), Date.now()))
+    notes.push({ bookId: id, noteId: noteId.slice(0, 64) })
   }
 
   // A group is only worth keeping if the shelf it points at still exists, and two groups with the
   // same name would be one group the reader cannot tell apart.
-  const groupStatements = (Array.isArray(library.groups) ? library.groups : []).slice(0, GROUPS_MAX).map((raw) => {
+  const seenGroups = new Set<string>()
+  const groups: ShelfGroupInput[] = []
+  for (const raw of (Array.isArray(library.groups) ? library.groups : []).slice(0, GROUPS_MAX)) {
     const row = asRecord(raw, 'group')
     const id = idOf(row, 'id', 'Group id')
     const name = groupNameOf(row)
-    if (!name || seenGroups.has(id) || seenGroups.has(name.toLowerCase())) return null
+    if (!name || seenGroups.has(id) || seenGroups.has(name.toLowerCase())) continue
     seenGroups.add(id)
     seenGroups.add(name.toLowerCase())
     const members = Array.isArray(row.bookIds)
       ? [...new Set(row.bookIds.filter((one: unknown): one is string => typeof one === 'string' && bookIds.has(one)))].slice(0, GROUP_BOOKS_MAX)
       : []
-    return c.env.DB.prepare(
-      `INSERT OR REPLACE INTO reader_groups (id, user_id, name, book_ids, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6)`,
-    ).bind(id, userId, name, JSON.stringify(members), numberOf(row, 'createdAt', Date.now()), numberOf(row, 'updatedAt', Date.now()))
-  }).filter((one): one is D1PreparedStatement => one !== null)
+    groups.push({
+      id,
+      name,
+      bookIds: members,
+      createdAt: numberOf(row, 'createdAt', Date.now()),
+      updatedAt: numberOf(row, 'updatedAt', Date.now()),
+    })
+  }
 
-  await c.env.DB.batch([...statements, ...groupStatements] as unknown as D1PreparedStatement[])
-  // Telling the device which files are still missing is what lets a shelf that predates the sync — or a
-  // book that was on the device when the last push failed — catch up without a second round trip.
+  const { missingBlobs, missingCovers } = await store(c, userId).replace({
+    books: bookRows, progress, highlights, marks, stats, notes, groups,
+    vocabulary: typeof notesSource.vocabulary === 'string' ? notesSource.vocabulary.slice(0, 64) : null,
+  })
   return c.json({
     ok: true as const,
     updatedAt: Date.now(),
@@ -504,8 +401,8 @@ readerLibraryRoutes.put('/library', async (c) => {
 readerLibraryRoutes.put('/books/:id/blob', async (c) => {
   const userId = requireId(c.get('userId'), 'User id')
   const id = requireId(c.req.param('id'), 'Book id')
-  const row = await c.env.DB.prepare('SELECT format, size FROM reader_books WHERE user_id = ?1 AND id = ?2')
-    .bind(userId, id).first<{ format: string; size: number }>()
+  const library = store(c, userId)
+  const row = await library.bookForBlob(id)
   if (!row) throw ApiError.notFound('Unknown book')
   const format = row.format as BookFormat
   const declared = Number(c.req.header('content-length') ?? 0)
@@ -522,8 +419,7 @@ readerLibraryRoutes.put('/books/:id/blob', async (c) => {
   if (!r2) throw ApiError.notFound('R2 storage is not configured')
   const key = readerBookKey(userId, id, EXTENSIONS[format])
   await r2.put(key, bytes, { httpMetadata: { contentType: CONTENT_TYPES[format] } })
-  await c.env.DB.prepare('UPDATE reader_books SET r2_key = ?1, size = ?2, updated_at = ?3, has_blob = 1 WHERE user_id = ?4 AND id = ?5')
-    .bind(key, bytes.byteLength, Date.now(), userId, id).run()
+  await library.markBlobStored(id, key, bytes.byteLength)
   return c.json({ ok: true as const, size: bytes.byteLength, key })
 })
 
@@ -531,8 +427,7 @@ readerLibraryRoutes.put('/books/:id/blob', async (c) => {
 readerLibraryRoutes.get('/books/:id/blob', async (c) => {
   const userId = requireId(c.get('userId'), 'User id')
   const id = requireId(c.req.param('id'), 'Book id')
-  const row = await c.env.DB.prepare('SELECT format, r2_key, filename FROM reader_books WHERE user_id = ?1 AND id = ?2')
-    .bind(userId, id).first<{ format: string; r2_key: string; filename: string | null }>()
+  const row = await store(c, userId).bookForDownload(id)
   if (!row) throw ApiError.notFound('Unknown book')
   const r2 = c.env.FILES
   if (!r2) throw ApiError.notFound('R2 storage is not configured')
@@ -581,8 +476,8 @@ function isDeclaredImage(type: string, bytes: Uint8Array): boolean {
 readerLibraryRoutes.put('/books/:id/cover', async (c) => {
   const userId = requireId(c.get('userId'), 'User id')
   const id = requireId(c.req.param('id'), 'Book id')
-  const row = await c.env.DB.prepare('SELECT cover_key, cover_size FROM reader_books WHERE user_id = ?1 AND id = ?2')
-    .bind(userId, id).first<{ cover_key: string | null; cover_size: number }>()
+  const library = store(c, userId)
+  const row = await library.bookForCover(id)
   if (!row) throw ApiError.notFound('Unknown book')
   const type = (c.req.header('content-type') ?? '').split(';')[0]?.trim().toLowerCase() ?? ''
   const extension = COVER_EXTENSIONS[type]
@@ -599,16 +494,14 @@ readerLibraryRoutes.put('/books/:id/cover', async (c) => {
   const key = readerCoverKey(userId, id, extension)
   if (row.cover_key && row.cover_key !== key) await r2.delete(row.cover_key).catch(() => {})
   await r2.put(key, buffer, { httpMetadata: { contentType: type } })
-  await c.env.DB.prepare('UPDATE reader_books SET cover_key = ?1, cover_size = ?2 WHERE user_id = ?3 AND id = ?4')
-    .bind(key, buffer.byteLength, userId, id).run()
+  await library.setCover(id, key, buffer.byteLength)
   return c.json({ ok: true as const, size: buffer.byteLength, key })
 })
 
 readerLibraryRoutes.get('/books/:id/cover', async (c) => {
   const userId = requireId(c.get('userId'), 'User id')
   const id = requireId(c.req.param('id'), 'Book id')
-  const row = await c.env.DB.prepare('SELECT cover_key FROM reader_books WHERE user_id = ?1 AND id = ?2')
-    .bind(userId, id).first<{ cover_key: string | null }>()
+  const row = await store(c, userId).coverKeyOf(id)
   if (!row?.cover_key) throw ApiError.notFound('No cover for that book')
   const object = await c.env.FILES?.get(row.cover_key)
   if (!object) throw ApiError.notFound('The cover is not in storage')
@@ -626,27 +519,13 @@ readerLibraryRoutes.get('/books/:id/cover', async (c) => {
 readerLibraryRoutes.delete('/books/:id', async (c) => {
   const userId = requireId(c.get('userId'), 'User id')
   const id = requireId(c.req.param('id'), 'Book id')
-  const row = await c.env.DB.prepare('SELECT r2_key, cover_key FROM reader_books WHERE user_id = ?1 AND id = ?2')
-    .bind(userId, id).first<{ r2_key: string; cover_key: string | null }>()
+  const library = store(c, userId)
+  const row = await library.bookObjects(id)
   if (!row) return c.json({ ok: true as const, removed: false })
   await Promise.all([
     c.env.FILES?.delete(row.r2_key),
     row.cover_key ? c.env.FILES?.delete(row.cover_key) : Promise.resolve(),
   ])
-  await c.env.DB.batch([
-    c.env.DB.prepare('DELETE FROM reader_books WHERE user_id = ?1 AND id = ?2').bind(userId, id),
-    c.env.DB.prepare('DELETE FROM reader_progress WHERE user_id = ?1 AND book_id = ?2').bind(userId, id),
-    c.env.DB.prepare('DELETE FROM reader_highlights WHERE user_id = ?1 AND book_id = ?2').bind(userId, id),
-    c.env.DB.prepare('DELETE FROM reader_marks WHERE user_id = ?1 AND book_id = ?2').bind(userId, id),
-    c.env.DB.prepare('DELETE FROM reader_stats WHERE user_id = ?1 AND book_id = ?2').bind(userId, id),
-    c.env.DB.prepare('DELETE FROM reader_notes WHERE user_id = ?1 AND book_id = ?2').bind(userId, id),
-    // A group keeps its name when it loses a member: the reader made the group, and an empty one
-    // is a place they will put the next book.
-    c.env.DB.prepare(
-      `UPDATE reader_groups SET book_ids = (SELECT COALESCE(json_group_array(value), '[]')
-                                               FROM json_each(reader_groups.book_ids) WHERE value != ?2)
-                                         WHERE user_id = ?1`,
-    ).bind(userId, id),
-  ] as unknown as D1PreparedStatement[])
+  await library.deleteBook(id)
   return c.json({ ok: true as const, removed: true })
 })
