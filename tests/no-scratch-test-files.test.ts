@@ -2,12 +2,13 @@
 import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import { fileURLToPath } from 'node:url'
 import ts from 'typescript'
 import { describe, expect, it } from 'vitest'
 import { isScratchPath, walkSource } from '../scripts/lib/scratch-files.mjs'
 import appConfig from '../vitest.config'
 
-const ROOT = path.resolve(new URL('..', import.meta.url).pathname)
+const ROOT = fileURLToPath(new URL('..', import.meta.url))
 const MARKER = '.tmp.'
 const PATTERN = '**/*.tmp.*'
 const TS_PROJECTS = ['tsconfig.client.json', 'tsconfig.worker.json']
