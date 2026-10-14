@@ -70,6 +70,13 @@ export interface FolderSegmentCreate {
   updatedAt: number
 }
 
+/** A manual tag the route has named and coloured, ready to store under its own fresh id. */
+export interface TagRestoreRow {
+  id: string
+  name: string
+  color: string | null
+}
+
 /** Ids per lookup chunk: D1 binds every placeholder, so a restore's id list is paged. */
 const LOOKUP_CHUNK = 80
 /** Note indexes per lookup chunk; smaller, because the mapped pass reads its targets back a second time. */
@@ -376,5 +383,53 @@ export class TransferStore {
           AND deleted_at IS NULL LIMIT 1`,
     ).bind(this.userId, parentId, name).first<{ id: string }>()
     return existing?.id ?? null
+  }
+
+  // --------------------------------------------------------------------- tags
+
+  /**
+   * Restore the manual tags and colours an export carried, in one batch.
+   *
+   * The three statements are one unit: create what is missing, colour what exists, announce both. The
+   * insert is guarded by a `NOT EXISTS` on this account's own names, so an export from another account
+   * cannot retitle a tag this one already uses; the update and the change record are scoped by
+   * `user_id` for the same reason. Tag naming rules — what a name may contain, what colour is usable —
+   * are decided by the caller, which hands back rows already fit to store.
+   */
+  async restoreTagMetadata(tags: readonly TagRestoreRow[]): Promise<void> {
+    const rows = JSON.stringify(tags)
+    const now = Date.now()
+    await this.db.batch([
+      this.db.prepare(
+        `INSERT INTO tags (id, user_id, name, color, is_manual, created_at)
+         SELECT json_extract(j.value, '$.id'), ?2,
+                json_extract(j.value, '$.name'), json_extract(j.value, '$.color'), 1, ?3
+           FROM json_each(?1) AS j
+          WHERE NOT EXISTS (
+            SELECT 1 FROM tags existing
+             WHERE existing.user_id = ?2
+               AND existing.name = json_extract(j.value, '$.name') COLLATE NOCASE
+          )`,
+      ).bind(rows, this.userId, now),
+      this.db.prepare(
+        `UPDATE tags SET
+           color = COALESCE(color, (
+             SELECT json_extract(j.value, '$.color') FROM json_each(?1) AS j
+              WHERE json_extract(j.value, '$.name') = tags.name COLLATE NOCASE LIMIT 1
+           )),
+           is_manual = 1
+         WHERE user_id = ?2 AND EXISTS (
+           SELECT 1 FROM json_each(?1) AS j
+            WHERE json_extract(j.value, '$.name') = tags.name COLLATE NOCASE
+         )`,
+      ).bind(rows, this.userId),
+      this.db.prepare(
+        `INSERT INTO changes (user_id, entity, entity_id, op, at)
+         SELECT ?1, 'tag', t.id, 'upsert', ?2
+           FROM tags t JOIN json_each(?3) AS j
+             ON json_extract(j.value, '$.name') = t.name COLLATE NOCASE
+          WHERE t.user_id = ?1`,
+      ).bind(this.userId, now, rows),
+    ])
   }
 }

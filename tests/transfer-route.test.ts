@@ -133,6 +133,12 @@ function insertFolder(id: string, userId: string, parentId: string | null, name:
   ).run(id, userId, parentId, name, 1000, 1000, 1000)
 }
 
+function insertTag(id: string, userId: string, name: string, color: string | null) {
+  sqlite.prepare(
+    'INSERT INTO tags (id, user_id, name, color, is_manual, created_at) VALUES (?, ?, ?, ?, 0, ?)',
+  ).run(id, userId, name, color, 1000)
+}
+
 beforeEach(async () => {
   sqlite = new DatabaseSync(':memory:')
   for (const statement of SCHEMA_STATEMENTS) sqlite.exec(statement)
@@ -364,5 +370,43 @@ describe('the transfer store', () => {
       id: 'folder-bob-work', parentId: null, name: 'Work', icon: null, color: null,
       position: 4000, createdAt: 4000, updatedAt: 4000,
     })).toBe(true)
+  })
+
+  it('restores an export\'s tag names and colours into the asking account only', async () => {
+    insertTag('tag-bob-solo', BOB, 'Solo', null)
+
+    await new TransferStore(db, ALICE, false).restoreTagMetadata([
+      { id: 'tag-a-solo', name: 'Solo', color: '#00ff00' },
+      { id: 'tag-a-work', name: 'Work', color: null },
+    ])
+
+    // Alice had neither name, so both are created for her and each is announced once.
+    expect(rows<{ name: string }>(
+      'SELECT name FROM tags WHERE user_id = ? ORDER BY name', ALICE,
+    ).map((r) => r.name)).toEqual(['Solo', 'Work'])
+    expect(rows<{ id: string }>(
+      'SELECT entity_id AS id FROM changes WHERE user_id = ? AND entity = ? ORDER BY seq', ALICE, 'tag',
+    ).map((r) => r.id)).toEqual(['tag-a-solo', 'tag-a-work'])
+    // Bob keeps his own row: neither coloured, nor marked manual, nor announced to him.
+    expect(one<{ color: string | null; is_manual: number }>(
+      'SELECT color, is_manual FROM tags WHERE id = ?', 'tag-bob-solo',
+    )).toEqual({ color: null, is_manual: 0 })
+    expect(rows('SELECT seq FROM changes WHERE user_id = ?', BOB)).toEqual([])
+  })
+
+  it('colours a tag the account already owns instead of creating a second row for it', async () => {
+    insertTag('tag-alice-work', ALICE, 'work', null)
+
+    await new TransferStore(db, ALICE, false).restoreTagMetadata([
+      { id: 'tag-unused', name: 'Work', color: '#ff0000' },
+    ])
+
+    // Matched case-insensitively, so the name the account already uses wins and keeps its row.
+    expect(rows('SELECT id FROM tags WHERE user_id = ?', ALICE)).toEqual([{ id: 'tag-alice-work' }])
+    expect(one<{ color: string | null; is_manual: number }>(
+      'SELECT color, is_manual FROM tags WHERE id = ?', 'tag-alice-work',
+    )).toEqual({ color: '#ff0000', is_manual: 1 })
+    expect(rows<{ id: string }>('SELECT entity_id AS id FROM changes WHERE user_id = ? AND entity = ?', ALICE, 'tag'))
+      .toEqual([{ id: 'tag-alice-work' }])
   })
 })

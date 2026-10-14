@@ -35,6 +35,7 @@ import {
   TransferStore,
   type ExistingAttachmentRow,
   type ExistingNoteIndex,
+  type TagRestoreRow,
 } from '../transfer/store'
 import { noteIndexQueueStatement, scheduleAiDrain } from '../mcp/ai-search'
 import { consumeNoteQuota, openNoteQuotaBudget, type NoteQuotaBudget } from '../db/quota'
@@ -917,7 +918,8 @@ async function importBundle(
     )
   }
 
-  await restoreTagMetadata(c.env.DB, userId, rawTags)
+  const tagRows = planTagRestore(rawTags)
+  if (tagRows.length) await ctx.store.restoreTagMetadata(tagRows)
 
   if (bundle.quickadd !== undefined) await applyBackupQuickAdd(c.env.DB, userId, bundle.quickadd)
 }
@@ -1142,12 +1144,16 @@ async function loadExistingNoteIndex(
   return row ?? null
 }
 
-async function restoreTagMetadata(
-  db: D1Database,
-  userId: string,
-  rawTags: unknown[],
-): Promise<void> {
-  const byName = new Map<string, { id: string; name: string; color: string | null }>()
+/**
+ * The tags an export carried, reduced to rows this account may store.
+ *
+ * A name that is empty, too long or still holds a space or a hash is dropped rather than rejected: an
+ * export is a bundle of many things, and losing one tag is a warning the client never asked for. The
+ * first spelling of a name wins, which is what the case-folded key means. Writing them is
+ * `store.restoreTagMetadata`.
+ */
+function planTagRestore(rawTags: unknown[]): TagRestoreRow[] {
+  const byName = new Map<string, TagRestoreRow>()
   for (const raw of rawTags) {
     if (!isRecord(raw) || typeof raw.name !== 'string') continue
     const name = raw.name.trim().replace(/^#+/, '')
@@ -1160,42 +1166,7 @@ async function restoreTagMetadata(
         : null,
     })
   }
-  if (!byName.size) return
-
-  const rows = JSON.stringify([...byName.values()])
-  const now = Date.now()
-  await db.batch([
-    db.prepare(
-      `INSERT INTO tags (id, user_id, name, color, is_manual, created_at)
-       SELECT json_extract(j.value, '$.id'), ?2,
-              json_extract(j.value, '$.name'), json_extract(j.value, '$.color'), 1, ?3
-         FROM json_each(?1) AS j
-        WHERE NOT EXISTS (
-          SELECT 1 FROM tags existing
-           WHERE existing.user_id = ?2
-             AND existing.name = json_extract(j.value, '$.name') COLLATE NOCASE
-        )`,
-    ).bind(rows, userId, now),
-    db.prepare(
-      `UPDATE tags SET
-         color = COALESCE(color, (
-           SELECT json_extract(j.value, '$.color') FROM json_each(?1) AS j
-            WHERE json_extract(j.value, '$.name') = tags.name COLLATE NOCASE LIMIT 1
-         )),
-         is_manual = 1
-       WHERE user_id = ?2 AND EXISTS (
-         SELECT 1 FROM json_each(?1) AS j
-          WHERE json_extract(j.value, '$.name') = tags.name COLLATE NOCASE
-       )`,
-    ).bind(rows, userId),
-    db.prepare(
-      `INSERT INTO changes (user_id, entity, entity_id, op, at)
-       SELECT ?1, 'tag', t.id, 'upsert', ?2
-         FROM tags t JOIN json_each(?3) AS j
-           ON json_extract(j.value, '$.name') = t.name COLLATE NOCASE
-        WHERE t.user_id = ?1`,
-    ).bind(userId, now, rows),
-  ])
+  return [...byName.values()]
 }
 
 async function importMarkdown(
