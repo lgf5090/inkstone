@@ -1,5 +1,5 @@
 import type { Heading } from '../../lib/markdown/renderer';
-import { matchesQuery } from '../../lib/fuzzy'
+import { compileQuery, queryMatches } from '../../lib/query-match'
 
 export interface OutlineNode {
     heading: Heading;
@@ -70,18 +70,10 @@ export function computeHiddenByCollapse(tree: OutlineNode[], collapsed: Readonly
  * Turns a query into a predicate. An unparseable regex matches everything, which keeps the panel
  * readable while the pattern is half-typed instead of blanking the outline.
  */
-export function compileFilter(query: string, useRegex: boolean): (text: string) => boolean {
-    if (!useRegex) {
-        return (text) => matchesQuery(text, query);
-    }
-    let rule: RegExp;
-    try {
-        rule = new RegExp(query, 'i');
-    }
-    catch {
-        return () => true;
-    }
-    return (text) => rule.test(text);
+export function compileFilter(source: string): (text: string) => boolean {
+    const query = compileQuery(source);
+    if (query.error) return () => true;
+    return (text) => queryMatches(query, text) !== null;
 }
 
 export interface OutlineFilterResult {
@@ -90,11 +82,11 @@ export interface OutlineFilterResult {
     matchCount: number;
 }
 
-export function filterTree(tree: OutlineNode[], query: string, useRegex: boolean): OutlineFilterResult {
-    const trimmed = query.trim();
+export function filterTree(tree: OutlineNode[], source: string): OutlineFilterResult {
+    const trimmed = source.trim();
     if (!trimmed)
         return { visible: new Array<boolean>(tree.length).fill(true), matchCount: tree.length };
-    const test = compileFilter(trimmed, useRegex);
+    const test = compileFilter(trimmed);
     const visible = tree.map((node) => test(node.heading.text));
     const matchCount = visible.filter(Boolean).length;
     for (let index = tree.length - 1; index >= 0; index--) {
