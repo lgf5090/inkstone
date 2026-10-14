@@ -321,11 +321,25 @@
   --border-default: oklch(20% 0.01 265 / 11%);
   --border-strong: oklch(20% 0.01 265 / 17%);
 
+  /* Light theme is the mirror image of the dark contract above: text is dark on
+     light, so de-emphasis means climbing *towards* white, and AA puts a ceiling
+     on that climb rather than a floor. The binding surface is the darkest light
+     one (`--bg-sunken` #f1efe9), where ratios are lowest and steps compress;
+     `[data-background='white']` is the opposite end - pure #ffffff is the
+     highest-contrast light surface, so it constrains nothing here.
+     The four steps therefore sit at 21/41/46/52: `--text-quaternary` at the
+     shallowest depth that still clears AA 4.5:1 with the margin the dark ladder
+     also ships, one 5-6 point perceptual step per rank below it, and
+     `--text-secondary` deepened by three points so the three de-emphasis ranks
+     keep that spacing instead of collapsing into each other. The previous
+     44/58/51 was not only short of contrast, it was inverted: tertiary read
+     quieter than quaternary. `tests/contrast-light-text-ladder.test.ts` holds
+     the floor, the order, the spacing and the non-inversion. */
   --text-primary: oklch(21% 0.01 265);
-  --text-secondary: oklch(44% 0.01 265);
-  --text-tertiary: oklch(58% 0.009 265);
+  --text-secondary: oklch(41% 0.01 265);
+  --text-tertiary: oklch(46% 0.009 265);
   /* Small labels are used on both the editor and the darker sunken sidebar. */
-  --text-quaternary: oklch(51% 0.008 265);
+  --text-quaternary: oklch(52% 0.008 265);
   --text-inverse: oklch(99% 0 0);
 
   --graph-edge: oklch(46% 0.02 265);
