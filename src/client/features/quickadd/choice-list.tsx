@@ -13,6 +13,7 @@ import { Button, IconButton } from '../../components/primitives'
 import { Switch } from '../../components/form'
 import { confirm } from '../../components/overlay'
 import { t } from '../../lib/i18n'
+import { treeIndent } from '../../lib/tree'
 import { useUi } from '../../store/ui'
 import { useQuickAdd } from '../../store/quickadd'
 import { choiceSummary, QuickAddChoiceEditor } from './choice-editor'
@@ -187,7 +188,7 @@ function ChoiceRow({ row, rows, allChoices, onRun, onEdit, onDuplicate, onDelete
   return (
     <li
       className="flex flex-wrap items-center gap-2 rounded-[var(--r-md)] border border-[var(--border-subtle)] px-2 py-1.5"
-      style={{ marginLeft: depth * 14 }}
+      style={{ paddingLeft: treeIndent(depth) }}
     >
       {choice.type === 'group' ? (
         <button
