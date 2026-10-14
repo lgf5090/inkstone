@@ -16,7 +16,7 @@
  * the client layer with the rest of the things that need a DOM.
  */
 
-import { tagKey } from '../markdown-utils'
+import { tagInScope, tagKey } from '../markdown-utils'
 import { rssHash, safeHttpUrl } from './model'
 import type { RssEntry, RssFeed, RssGroup, RssLibrary } from './model'
 
@@ -182,17 +182,11 @@ export function feedsForChannel(library: RssLibrary, channel: RssChannel): RssFe
     return library.feeds.filter(feed => shelf.has(feed.groupId))
   }
   if (channel.kind === 'tag') {
-    const want = tagKey(channel.tag)
-    return library.feeds.filter(feed => feed.tags.some(tag => tagInScope(tagKey(tag), want)))
+    return library.feeds.filter(feed => feed.tags.some(tag => tagInScope(tag, channel.tag)))
   }
   // Nothing to fetch for a note folder: its rows are already on this device.
   if (channel.kind === 'vault') return []
   return library.feeds
-}
-
-/** `tech/rss` is inside `tech`, and `tech` is inside nothing else. The note tags' own rule. */
-function tagInScope(key: string, want: string): boolean {
-  return key === want || (key.length > want.length && key[want.length] === '/' && key.startsWith(want))
 }
 
 /** A folder and everything nested under it. Cycles stop at the second visit, like the tree builder. */
