@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { beforeEach, describe, expect, it } from 'vitest'
 import { useLibrary } from '../src/client/features/reading/store/library'
+import type { Highlight } from '../src/client/features/reading/types'
 
 /**
  * The library store is exercised through its merge, not its persistence: the point of the check is what
@@ -48,7 +49,7 @@ describe('importing a library file', () => {
   })
 
   it('merges highlights by id instead of doubling a re-imported list', async () => {
-    const mark = { id: 'h1', bookId: 'b1', chapter: 0, start: 1, end: 2, color: 'yellow', quote: 'q', prefix: '', suffix: '', comment: '', createdAt: 1, updatedAt: 1 }
+    const mark: Highlight = { id: 'h1', bookId: 'b1', chapter: 0, start: 1, end: 2, color: 'yellow', quote: 'q', prefix: '', suffix: '', comment: '', createdAt: 1, updatedAt: 1 }
     await useLibrary.getState().importLibrary(exportOf([{ id: 'b1', format: 'epub', title: 'x', filename: 'a', size: 1, addedAt: 1, unitCount: 1, toc: [] }]))
     useLibrary.setState({ highlights: { b1: [mark] } })
     await useLibrary.getState().importLibrary(JSON.stringify({
