@@ -34,6 +34,7 @@ import {
   rewriteQueueStatement,
   LINK_TARGET_SUBQUERY,
   pruneOrphanTags,
+  shiftSqlPlaceholders,
 } from '../db/writes'
 import { fromBase64Url, fromUtf8, sha256Hex, toBase64Url, utf8 } from '../lib/encoding'
 import { ApiError } from '../lib/errors'
@@ -763,15 +764,10 @@ notesRoutes.post('/:id/duplicate', async (c) => {
 
 
 notesRoutes.get('/:id/versions', async (c) => {
-  const { results } = await c.env.DB.prepare(
-    `SELECT id, note_id, title, length(CAST(content AS BLOB)) AS size, created_at FROM note_versions
-       WHERE note_id = ?1 AND user_id = ?2 ORDER BY created_at DESC LIMIT 100`,
-  )
-    .bind(c.req.param('id'), c.get('userId'))
-    .all<{ id: string; note_id: string; title: string; size: number; created_at: number }>()
+  const versions = await store(c).versions(c.req.param('id'))
 
   return c.json({
-    versions: results.map((r) => ({
+    versions: versions.map((r) => ({
       id: r.id,
       noteId: r.note_id,
       title: r.title,
@@ -782,19 +778,7 @@ notesRoutes.get('/:id/versions', async (c) => {
 })
 
 notesRoutes.get('/:id/versions/:versionId', async (c) => {
-  const row = await c.env.DB.prepare(
-    `SELECT id, note_id, title, content, length(CAST(content AS BLOB)) AS size, created_at FROM note_versions
-       WHERE id = ?1 AND note_id = ?2 AND user_id = ?3`,
-  )
-    .bind(c.req.param('versionId'), c.req.param('id'), c.get('userId'))
-    .first<{
-      id: string
-      note_id: string
-      title: string
-      content: string
-      size: number
-      created_at: number
-    }>()
+  const row = await store(c).version(c.req.param('id'), c.req.param('versionId'))
   if (!row) throw ApiError.notFound('Version not found')
   return c.json({
     id: row.id,
@@ -809,96 +793,34 @@ notesRoutes.get('/:id/versions/:versionId', async (c) => {
 notesRoutes.post('/:id/versions/:versionId/restore', async (c) => {
   const userId = c.get('userId')
   const id = c.req.param('id')
-  const { ftsEnabled } = c.get('database')
+  const s = store(c)
 
-  const version = await c.env.DB.prepare(
-    `SELECT title, content FROM note_versions WHERE id = ?1 AND note_id = ?2 AND user_id = ?3`,
-  )
-    .bind(c.req.param('versionId'), id, userId)
-    .first<{ title: string; content: string }>()
+  const version = await s.versionContent(id, c.req.param('versionId'))
   if (!version) throw ApiError.notFound('Version not found')
 
-  const current = await loadNoteRow(store(c), id)
+  const current = await loadNoteRow(s, id)
   const now = Math.max(Date.now(), current.updated_at + 1)
   const { words, chars } = countText(version.content)
   const title = restoredVersionTitle(version.title)
   const hash = await sha256Hex(version.content)
-  const nextRev = current.rev + 1
-  const mutationGuard = `EXISTS (SELECT 1 FROM notes
-    WHERE id = ?1 AND user_id = ?2 AND rev = ?3
-      AND content_hash = ?4 AND title = ?5 AND updated_at = ?6)`
-  const mutationValues = [id, userId, nextRev, hash, title, now] as const
-  const update = c.env.DB.prepare(
-    `UPDATE notes SET content = ?1, title = ?2, excerpt = ?3, word_count = ?4, char_count = ?5,
-       content_hash = ?6, rev = ?7, updated_at = ?8
-       WHERE id = ?9 AND user_id = ?10 AND rev = ?11`,
-  )
-    .bind(
-      version.content,
-      title,
-      deriveExcerpt(version.content),
-      words,
-      chars,
-      hash,
-      nextRev,
-      now,
-      id,
-      userId,
-      current.rev,
-    )
-  const snapshot = c.env.DB.prepare(
-    `INSERT INTO note_versions (id, note_id, user_id, title, content, size, created_at)
-     SELECT ?1, ?2, ?3, ?4, ?5, ?6, ?7
-      WHERE ${shiftSqlPlaceholders(mutationGuard, 7)}`,
-  ).bind(newId(), id, userId, current.title, current.content, utf8ByteLength(current.content), now, ...mutationValues)
-  const trimVersions = c.env.DB.prepare(
-    `DELETE FROM note_versions WHERE note_id = ?1
-       AND ${shiftSqlPlaceholders(mutationGuard, 1)}
-       AND id IN (SELECT id FROM note_versions WHERE note_id = ?1 ORDER BY created_at DESC, id DESC LIMIT -1 OFFSET ?8)`,
-  ).bind(id, ...mutationValues, LIMITS.versionsPerNote)
-  const derived = buildNoteDerivedStatements({
-    db: c.env.DB,
-    userId,
+  const { applied, row, changeSeq } = await s.restoreVersion({
     noteId: id,
+    current,
     title,
     content: version.content,
-    ftsEnabled,
-    titleChanged: true,
-    previousTitle: current.title,
-    expectedRev: nextRev,
-    expectedContentHash: hash,
-    expectedTitle: title,
-    expectedUpdatedAt: now,
-    deleted: current.deleted_at !== null,
-  }).statements
-  const change = c.env.DB.prepare(
-    `INSERT INTO changes (user_id, entity, entity_id, op, at)
-     SELECT ?1, 'note', ?2, 'upsert', ?3
-      WHERE ${shiftSqlPlaceholders(mutationGuard, 3)}
-     RETURNING seq`,
-  ).bind(userId, id, now, ...mutationValues)
-  const versionReadback = c.env.DB.prepare(
-    `SELECT ${NOTE_COLUMNS_FULL} FROM notes n WHERE n.id = ?1 AND n.user_id = ?2`,
-  ).bind(id, userId)
-  const restoreBatch = await c.env.DB.batch([
-    update,
-    snapshot,
-    trimVersions,
-    ...derived,
-    noteIndexQueueStatement(c.env.DB, userId, id, 'embed', now),
-    change,
-    versionReadback,
-  ])
-  const updated = restoreBatch[0]
-  if (!updated?.meta.changes) {
-    throw ApiError.conflict('This note was modified elsewhere', { server: await loadNote(store(c), id) })
+    excerpt: deriveExcerpt(version.content),
+    words,
+    chars,
+    contentHash: hash,
+    now,
+  })
+  if (!applied) {
+    throw ApiError.conflict('This note was modified elsewhere', { server: await loadNote(s, id) })
   }
-  const restoreSeq = (restoreBatch.at(-2) as D1Result<{ seq: number }>).results?.[0]?.seq
-  await broadcastCursor(c, restoreSeq)
+  await broadcastCursor(c, changeSeq)
   scheduleFtsDrain(c)
   scheduleAiDrainForNote(c, userId)
-  const note = toNote((restoreBatch.at(-1) as D1Result<NoteRow>).results[0]!)
-  return c.json(note)
+  return c.json(toNote(row!))
 })
 
 
@@ -1488,10 +1410,6 @@ export function parseNotesListCursor(
 function push(sets: string[], binds: unknown[], column: string, value: unknown): void {
   binds.push(value)
   sets.push(`${column} = ?${binds.length}`)
-}
-
-function shiftSqlPlaceholders(sql: string, offset: number): string {
-  return sql.replace(/\?(\d+)/g, (_match, value: string) => `?${Number(value) + offset}`)
 }
 
 async function resolveFolderId(

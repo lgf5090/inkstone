@@ -164,7 +164,7 @@ export function buildNoteDerivedStatements(
       .prepare(
         `UPDATE notes SET title_key = ?1
           WHERE id = ?2 AND user_id = ?3 AND title_key IS NOT ?1
-            AND ${shiftPlaceholders(guard, 3)}`,
+            AND ${shiftSqlPlaceholders(guard, 3)}`,
       )
       .bind(normalizeLinkKey(title), noteId, userId, ...guardValues),
   )
@@ -178,7 +178,7 @@ export function buildNoteDerivedStatements(
            LEFT JOIN tags existing
              ON existing.user_id = ?1
             AND existing.name = json_extract(j.value, '$.name') COLLATE NOCASE
-          WHERE ${shiftPlaceholders(guard, 3)}
+          WHERE ${shiftSqlPlaceholders(guard, 3)}
             AND existing.id IS NULL
          ON CONFLICT(user_id, name) DO NOTHING`,
       )
@@ -188,7 +188,7 @@ export function buildNoteDerivedStatements(
         `${rankedTags}
          DELETE FROM note_tags WHERE note_id = ?1
           AND tag_id NOT IN (SELECT id FROM ranked_tags WHERE rank = 1)
-          AND ${shiftPlaceholders(guard, 3)}`,
+          AND ${shiftSqlPlaceholders(guard, 3)}`,
       )
       .bind(noteId, tagRows, userId, ...guardValues),
     db
@@ -196,7 +196,7 @@ export function buildNoteDerivedStatements(
         `${rankedTags}
          INSERT INTO note_tags (note_id, tag_id)
          SELECT ?1, id FROM ranked_tags
-          WHERE rank = 1 AND ${shiftPlaceholders(guard, 3)}
+          WHERE rank = 1 AND ${shiftSqlPlaceholders(guard, 3)}
          ON CONFLICT DO NOTHING`,
       )
       .bind(noteId, tagRows, userId, ...guardValues),
@@ -207,7 +207,7 @@ export function buildNoteDerivedStatements(
       .prepare(
         `DELETE FROM links WHERE source_note_id = ?1
           AND target_key NOT IN (SELECT json_extract(value, '$.key') FROM json_each(?2))
-          AND ${shiftPlaceholders(guard, 2)}`,
+          AND ${shiftSqlPlaceholders(guard, 2)}`,
       )
       .bind(noteId, opts.deleted ? '[]' : linkRows, ...guardValues),
   )
@@ -225,7 +225,7 @@ export function buildNoteDerivedStatements(
                     ORDER BY created_at ASC, id ASC LIMIT 1),
                   ?2
              FROM json_each(?3) AS j
-            WHERE ${shiftPlaceholders(guard, 3)}
+            WHERE ${shiftSqlPlaceholders(guard, 3)}
            ON CONFLICT(source_note_id, target_key) DO UPDATE SET
              target_title = excluded.target_title,
              target_note_id = excluded.target_note_id
@@ -242,7 +242,7 @@ export function buildNoteDerivedStatements(
       db
         .prepare(
           `INSERT INTO fts_index_queue (user_id, note_id, kind, created_at)
-           SELECT ?1, ?2, ?3, ?4 WHERE ${shiftPlaceholders(guard, 4)}
+           SELECT ?1, ?2, ?3, ?4 WHERE ${shiftSqlPlaceholders(guard, 4)}
            ${FTS_QUEUE_CONFLICT_SQL}`,
         )
         .bind(userId, noteId, opts.deleted ? 'delete' : 'upsert', queueVersion, ...guardValues),
@@ -260,7 +260,7 @@ export function buildNoteDerivedStatements(
                ELSE ${LINK_TARGET_SUBQUERY}
              END
              WHERE user_id = ?1 AND target_key IN (?2, ?3)
-               AND ${shiftPlaceholders(guard, 4)}`,
+               AND ${shiftSqlPlaceholders(guard, 4)}`,
         )
         .bind(userId, currentKey, previousKey, noteId, ...guardValues),
     )
@@ -269,7 +269,14 @@ export function buildNoteDerivedStatements(
   return { statements, tags: tagNames }
 }
 
-function shiftPlaceholders(sql: string, offset: number): string {
+/**
+ * Renumber a reusable guard clause for a statement that already uses the first slots.
+ *
+ * Several write paths here take the same `rev`/`content_hash`/`title` guard and splice it after their
+ * own binds, which means every `?N` in the guard has to move by the number of binds in front of it.
+ * The notes routes spelled this helper out a second time, so it lives in one place now.
+ */
+export function shiftSqlPlaceholders(sql: string, offset: number): string {
   return sql.replace(/\?(\d+)/g, (_match, value: string) => `?${Number(value) + offset}`)
 }
 

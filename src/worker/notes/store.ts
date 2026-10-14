@@ -19,7 +19,9 @@
  * route's business.
  */
 
+import { LIMITS } from '@shared/constants'
 import { likePattern } from '@shared/markdown-utils'
+import { utf8ByteLength } from '@shared/text-utils'
 import type { SortKey, SortOrder, ViewKind } from '@shared/types'
 import {
   NOTE_COLUMNS_FULL,
@@ -30,8 +32,9 @@ import {
   type NoteRow,
   type NoteTagRow,
 } from '../db/rows'
-import { buildNoteDerivedStatements } from '../db/writes'
+import { buildNoteDerivedStatements, shiftSqlPlaceholders } from '../db/writes'
 import { noteIndexQueueStatement } from '../mcp/ai-search'
+import { newId } from '../lib/id'
 
 /**
  * The last row of a page, in the order the listing sorted it.
@@ -108,8 +111,51 @@ export interface NoteWriteResult {
   row: NoteRow | null
   /** The `changes` row this write produced, for the cursor the route broadcasts. */
   changeSeq: number | undefined
-  /** False when the guarded update matched nothing — somebody else had the note open. */
+  /** False when the write was skipped: `create` lost an id race. */
   created: boolean
+}
+
+/**
+ * The outcome of a guarded mutation.
+ *
+ * `applied` is false when the `rev`/`content_hash` guard matched nothing, which means somebody else
+ * wrote the note between the route's read and this batch; the route turns that into a 409 with the
+ * server copy, so the readback row is only meaningful when `applied` is true.
+ */
+export interface NoteMutationResult {
+  row: NoteRow | null
+  changeSeq: number | undefined
+  applied: boolean
+}
+
+/** A stored revision: the listing reads it without the body, the single view reads it with. */
+export interface NoteVersionMetaRow {
+  id: string
+  note_id: string
+  title: string
+  size: number
+  created_at: number
+}
+
+export interface NoteVersionRow extends NoteVersionMetaRow {
+  content: string
+}
+
+/**
+ * A revision write the route has already chosen: the body, its hash, its measurements and the title
+ * the note is to carry afterwards, all derived from the revision outside the store.
+ */
+export interface VersionRestoreInput {
+  noteId: string
+  /** The note as the route read it, which supplies the revision the write is guarded against. */
+  current: NoteRow
+  title: string
+  content: string
+  excerpt: string
+  words: number
+  chars: number
+  contentHash: string
+  now: number
 }
 
 export class NotesStore {
@@ -439,6 +485,128 @@ export class NotesStore {
       row: (batchResults.at(-1) as D1Result<NoteRow>).results?.[0] ?? null,
       changeSeq: (batchResults.at(-2) as D1Result<{ seq: number }>).results?.[0]?.seq,
       created: true,
+    }
+  }
+
+  // ---------------------------------------------------------------- versions
+
+  /**
+   * The revisions of one note, newest first, without their bodies.
+   *
+   * `length(CAST(content AS BLOB))` is the stored size in bytes rather than the JavaScript string
+   * length the panel would otherwise have to fetch the body to learn.
+   */
+  async versions(noteId: string): Promise<NoteVersionMetaRow[]> {
+    const { results } = await this.db
+      .prepare(
+        `SELECT id, note_id, title, length(CAST(content AS BLOB)) AS size, created_at FROM note_versions
+           WHERE note_id = ?1 AND user_id = ?2 ORDER BY created_at DESC LIMIT 100`,
+      )
+      .bind(noteId, this.userId)
+      .all<NoteVersionMetaRow>()
+    return results ?? []
+  }
+
+  /** One revision with its body, for the diff view. */
+  async version(noteId: string, versionId: string): Promise<NoteVersionRow | null> {
+    const row = await this.db
+      .prepare(
+        `SELECT id, note_id, title, content, length(CAST(content AS BLOB)) AS size, created_at FROM note_versions
+           WHERE id = ?1 AND note_id = ?2 AND user_id = ?3`,
+      )
+      .bind(versionId, noteId, this.userId)
+      .first<NoteVersionRow>()
+    return row ?? null
+  }
+
+  /** Just what a restore needs from a revision — the listing route never pulls the body twice. */
+  async versionContent(noteId: string, versionId: string): Promise<{ title: string; content: string } | null> {
+    const row = await this.db
+      .prepare(`SELECT title, content FROM note_versions WHERE id = ?1 AND note_id = ?2 AND user_id = ?3`)
+      .bind(versionId, noteId, this.userId)
+      .first<{ title: string; content: string }>()
+    return row ?? null
+  }
+
+  /**
+   * Write a revision back over the live note, keeping the text it replaces as a revision first.
+   *
+   * The revision rows are trimmed only after the new one exists, so a note at the revision ceiling
+   * still loses its oldest entry rather than its current text.
+   */
+  async restoreVersion(input: VersionRestoreInput): Promise<NoteMutationResult> {
+    const { noteId: id, current } = input
+    const now = input.now
+    const nextRev = current.rev + 1
+    const mutationGuard = `EXISTS (SELECT 1 FROM notes
+      WHERE id = ?1 AND user_id = ?2 AND rev = ?3
+        AND content_hash = ?4 AND title = ?5 AND updated_at = ?6)`
+    const mutationValues = [id, this.userId, nextRev, input.contentHash, input.title, now] as const
+    const update = this.db.prepare(
+      `UPDATE notes SET content = ?1, title = ?2, excerpt = ?3, word_count = ?4, char_count = ?5,
+         content_hash = ?6, rev = ?7, updated_at = ?8
+         WHERE id = ?9 AND user_id = ?10 AND rev = ?11`,
+    )
+      .bind(
+        input.content,
+        input.title,
+        input.excerpt,
+        input.words,
+        input.chars,
+        input.contentHash,
+        nextRev,
+        now,
+        id,
+        this.userId,
+        current.rev,
+      )
+    const snapshot = this.db.prepare(
+      `INSERT INTO note_versions (id, note_id, user_id, title, content, size, created_at)
+       SELECT ?1, ?2, ?3, ?4, ?5, ?6, ?7
+        WHERE ${shiftSqlPlaceholders(mutationGuard, 7)}`,
+    ).bind(newId(), id, this.userId, current.title, current.content, utf8ByteLength(current.content), now, ...mutationValues)
+    const trimVersions = this.db.prepare(
+      `DELETE FROM note_versions WHERE note_id = ?1
+         AND ${shiftSqlPlaceholders(mutationGuard, 1)}
+         AND id IN (SELECT id FROM note_versions WHERE note_id = ?1 ORDER BY created_at DESC, id DESC LIMIT -1 OFFSET ?8)`,
+    ).bind(id, ...mutationValues, LIMITS.versionsPerNote)
+    const derived = buildNoteDerivedStatements({
+      db: this.db,
+      userId: this.userId,
+      noteId: id,
+      title: input.title,
+      content: input.content,
+      ftsEnabled: this.ftsEnabled,
+      titleChanged: true,
+      previousTitle: current.title,
+      expectedRev: nextRev,
+      expectedContentHash: input.contentHash,
+      expectedTitle: input.title,
+      expectedUpdatedAt: now,
+      deleted: current.deleted_at !== null,
+    }).statements
+    const change = this.db.prepare(
+      `INSERT INTO changes (user_id, entity, entity_id, op, at)
+       SELECT ?1, 'note', ?2, 'upsert', ?3
+        WHERE ${shiftSqlPlaceholders(mutationGuard, 3)}
+       RETURNING seq`,
+    ).bind(this.userId, id, now, ...mutationValues)
+    const readback = this.db.prepare(
+      `SELECT ${NOTE_COLUMNS_FULL} FROM notes n WHERE n.id = ?1 AND n.user_id = ?2`,
+    ).bind(id, this.userId)
+    const batchResults = await this.db.batch([
+      update,
+      snapshot,
+      trimVersions,
+      ...derived,
+      noteIndexQueueStatement(this.db, this.userId, id, 'embed', now),
+      change,
+      readback,
+    ])
+    return {
+      row: (batchResults.at(-1) as D1Result<NoteRow>).results?.[0] ?? null,
+      changeSeq: (batchResults.at(-2) as D1Result<{ seq: number }>).results?.[0]?.seq,
+      applied: Boolean(batchResults[0]?.meta.changes),
     }
   }
 }
