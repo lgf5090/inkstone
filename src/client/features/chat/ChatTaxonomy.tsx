@@ -13,7 +13,7 @@ import { t, type MessageKey } from '../../lib/i18n'
 import { relativeTime } from '../../lib/time'
 import { treeIndent, treeItemProps, useTreeKeyboard, type MoveMenuFolder } from '../../lib/tree'
 import { TagChip } from '../../components/TagChip'
-import { FolderMotionIcon } from '../sidebar/FolderMotionIcon'
+import { FolderMotionIcon } from '../../components/FolderMotionIcon'
 import { useUi } from '../../store/ui'
 import { useAssistant, CONVERSATION_LIST_TABS, type ConversationListTab } from './assistant-store'
 
