@@ -469,3 +469,390 @@ describe('client controls are real and named (SH-93, widening SH-49)', () => {
     }
   })
 })
+
+/**
+ * The rules below guard convergences that are already done, so a regression fails instead of
+ * quietly re-forming. They extend the discipline of this file: read the written source, keep a
+ * baseline that carries a reason per entry, and fail in both directions — a new violation and an
+ * entry whose violation is gone both fail.
+ */
+
+const FEATURES_DIR = path.join('src', 'client', 'features')
+const WORKER_DIR = path.join('src', 'worker')
+
+/** Any file under a directory, no extension filter — the z-index and worker rules read CSS and TS. */
+function walkFiles(dir: string, out: string[] = []): string[] {
+  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+    const full = path.join(dir, entry.name)
+    if (entry.isDirectory()) walkFiles(full, out)
+    else out.push(full)
+  }
+  return out
+}
+
+/** Source text of a repo-relative path, or null when it does not exist. */
+function readText(file: string): string | null {
+  try {
+    return fs.readFileSync(file, 'utf8')
+  } catch {
+    // Absent by design here: the caller has nothing to report for a file that is not there.
+    return null
+  }
+}
+
+/** Whatever an attribute was written with, as the text the browser will interpolate. */
+function attributeText(initializer: ts.JsxAttribute['initializer']): string {
+  if (!initializer) return ''
+  return initializer.getText()
+}
+
+/**
+ * A list-filter input the shared box exists to write. A hand-written `<input>` was never flagged by
+ * the rule above, because `input` is in `CONTROL_TAGS` and that set only answers "is this a control"
+ * — which is why 24 divergent search boxes survived the whole project. Inside a feature, a text
+ * filter is `FilterInput` or `useFilterInput`, or it is on the list below with a reason.
+ */
+const FILTER_LABEL_PROPS = ['placeholder', 'aria-label', 'aria-labelledby', 'title']
+const FILTER_BEHAVIOUR_PROPS = ['value', 'onChange', 'onInput', 'onKeyDown', 'role', 'list', 'aria-expanded', 'aria-controls']
+const FILTER_TEXT_TYPES = new Set(['', 'text', 'search'])
+/** Files that own a raw text input by design, so their internal box is not a divergence. */
+const FILTER_CANONICAL_FILES = new Set(['src/client/components/form.tsx', 'src/client/components/ui/index.tsx'])
+
+/** A residual raw filter input, with the reason it is allowed to stay for now. */
+const LIST_FILTER_BASELINE = new Map<string, { sites: number; reason: string }>([
+  ['src/client/features/excalidraw/library/LibraryFolderRow.tsx', { sites: 2, reason: 'Two inline text rows in the library folder row (name editing at 383 and 496). Not verified as list filters; converge once the folder-tree editing work lands.' }],
+  ['src/client/features/folders/FolderAppearanceMenus.tsx', { sites: 2, reason: 'A folder-name rename draft and the icon picker search field (`folders.icon_search`). The icon search is a genuine list filter and should move to FilterInput; the rename draft is a form field.' }],
+  ['src/client/features/mindmap/MindmapStandaloneEditor.tsx', { sites: 1, reason: 'Inline text field in the mindmap editor surface (397). Not verified as a list filter; baseline so the rule can block new ones.' }],
+  ['src/client/features/preview/NoteProperties.tsx', { sites: 2, reason: 'Property key/value entry fields (`properties.new_key` at 464 and its value editor). A form, not a list filter.' }],
+  ['src/client/features/preview/property-colors.tsx', { sites: 1, reason: 'The colour property editor writes its own labelled value field (496) with an aria-label and placeholder; a field, not a list filter.' }],
+  ['src/client/features/quickadd/launcher.tsx', { sites: 1, reason: 'QuickAdd draft entry (84) — it filters the command list, so it is a real filter that has not been converged onto FilterInput.' }],
+  ['src/client/features/quickadd/prompts.tsx', { sites: 4, reason: 'The QuickAdd prompt family (text, number and date prompts) each write a labelled field. Prompts, not list filters.' }],
+  ['src/client/features/share/SharePanel.tsx', { sites: 1, reason: 'Read-only share link field that selects on focus (221). Not a filter at all.' }],
+  ['src/client/features/tags/tag-row-parts.tsx', { sites: 1, reason: 'Tag rename row (`tags.rename` at 42) with autoFocus and a default value; an inline editor, not a list filter.' }],
+  ['src/client/features/workspace/EditorColorMenu.tsx', { sites: 1, reason: 'Colour name draft (87) inside the editor colour menu; an inline editor for one value.' }],
+  ['src/client/features/workspace/Workspace.tsx', { sites: 1, reason: 'Inline text field in the workspace surface (557). Not verified as a list filter; baseline so the rule can block new ones.' }],
+])
+
+function isFilterishInput(node: ts.JsxOpeningElement | ts.JsxSelfClosingElement): boolean {
+  const attributes = attributesOf(node)
+  const type = literalValue(attributes.get('type') ?? null) ?? ''
+  if (!FILTER_TEXT_TYPES.has(type)) return false
+  // A named field is a filter only if it is labelled like one; a typeless form row is not.
+  if (!FILTER_LABEL_PROPS.some((name) => attributes.has(name))) return false
+  return FILTER_BEHAVIOUR_PROPS.some((name) => attributes.has(name))
+}
+
+/** Every raw filter input written under a feature, keyed by file. */
+function listFilterSites(): Map<string, number> {
+  const counts = new Map<string, number>()
+  for (const file of walkFiles(FEATURES_DIR)) {
+    if (!/\.tsx$/.test(file)) continue
+    const name = relative(file)
+    if (FILTER_CANONICAL_FILES.has(name)) continue
+    const text = readText(file)
+    if (text === null) continue
+    const source = ts.createSourceFile(name, text, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX)
+    const visit = (node: ts.Node): void => {
+      if ((ts.isJsxOpeningElement(node) || ts.isJsxSelfClosingElement(node)) && node.tagName.getText() === 'input') {
+        if (isFilterishInput(node)) counts.set(name, (counts.get(name) ?? 0) + 1)
+      }
+      ts.forEachChild(node, visit)
+    }
+    visit(source)
+  }
+  return counts
+}
+
+describe('converged list filters keep using FilterInput', () => {
+  const SITES = listFilterSites()
+
+  it('fails when a feature hand-writes a filter input instead of FilterInput or useFilterInput', () => {
+    const lines: string[] = []
+    for (const [file, sites] of SITES) {
+      // A feature that reached for the shared hook is converged; a raw box beside it is not a second
+      // divergence, it is that hook's own implementation, so it is allowed to write the element.
+      const text = readText(file) ?? ''
+      if (text.includes('FilterInput') || text.includes('useFilterInput')) continue
+      const allowed = LIST_FILTER_BASELINE.get(file)
+      if (allowed === undefined) lines.push(`${file}: ${sites} raw filter input(s), no FilterInput/useFilterInput and no baseline entry — use the shared box or add this with a reason`)
+      else if (sites > allowed.sites) lines.push(`${file}: ${sites} raw filter input(s), the baseline allows ${allowed.sites}`)
+    }
+    for (const [file, allowed] of LIST_FILTER_BASELINE) {
+      if (!SITES.has(file)) lines.push(`${file}: baseline allows ${allowed.sites} raw filter input(s) but the file writes none — delete the entry`)
+    }
+    expect(lines, `${lines.length} feature file(s) diverged from FilterInput.`).toEqual([])
+  })
+})
+
+/**
+ * The one indent formula is `treeIndent()` in `src/client/lib/tree/indent.ts`. Nine competing
+ * formulas were converged onto it, so this is near-zero: a depth variable multiplied or added into a
+ * spacing property is a second source of truth for one visual rule. Adding a fixed gutter to
+ * `treeIndent()` is not a competing formula, so a call inside the expression clears the site.
+ */
+const TREE_DEPTH_NAME_RE = /^(depth|level|tier|childDepth|nodeDepth|branchDepth|parentDepth|indentLevel|indentDepth)$/i
+const TREE_SPACING_KEYS = new Set(['paddingLeft', 'marginLeft', 'paddingInlineStart'])
+const ARITHMETIC_KINDS = new Set([ts.SyntaxKind.BinaryExpression, ts.SyntaxKind.PrefixUnaryExpression, ts.SyntaxKind.PostfixUnaryExpression])
+/** Residual formulas that predate this guard, keyed `file:line` so a new one fails and a fix fails too. */
+const INLINE_TREE_INDENT_BASELINE = new Map<string, string>([
+  ['src/client/features/preview/Outline.tsx:702', 'Competing formula `OUTLINE_INDENT_BASE + tier * OUTLINE_INDENT_STEP` with its own constants — a real second source of truth that should call treeIndent(tier). Recorded, not audited as correct.'],
+])
+
+/** Inline tree indents today: a spacing property whose value does arithmetic on a depth variable. */
+function inlineTreeIndents(): string[] {
+  const found: string[] = []
+  for (const file of walkFiles(CLIENT_DIR)) {
+    if (!/\.(ts|tsx)$/.test(file)) continue
+    const name = relative(file)
+    if (name === 'src/client/lib/tree/indent.ts') continue
+    const text = readText(file)
+    if (text === null) continue
+    const source = ts.createSourceFile(name, text, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX)
+    const mentionsDepth = (node: ts.Node): boolean => {
+      let hit = false
+      const probe = (current: ts.Node): void => {
+        if (hit) return
+        if (ts.isIdentifier(current) && TREE_DEPTH_NAME_RE.test(current.text)) hit = true
+        else ts.forEachChild(current, probe)
+      }
+      probe(node)
+      return hit
+    }
+    const report = (node: ts.Node, key: string, value: ts.Node): void => {
+      if (!ARITHMETIC_KINDS.has(value.kind) || !mentionsDepth(value)) return
+      // Adding a gutter to the shared formula is still the shared formula; only a competing one fails.
+      if (value.getText().includes('treeIndent(')) return
+      const line = source.getLineAndCharacterOfPosition(node.getStart()).line + 1
+      found.push(`${name}:${line} — ${key} computed inline from a depth variable; call treeIndent()`)
+    }
+    const visit = (node: ts.Node): void => {
+      if (ts.isJsxAttribute(node) && TREE_SPACING_KEYS.has(node.name.getText()) && node.initializer) {
+        const value = ts.isJsxExpression(node.initializer) ? node.initializer.expression : node.initializer
+        if (value) report(node, node.name.getText(), value)
+      }
+      if (ts.isPropertyAssignment(node) && TREE_SPACING_KEYS.has(node.name.getText())) {
+        report(node, node.name.getText(), node.initializer)
+      }
+      ts.forEachChild(node, visit)
+    }
+    visit(source)
+  }
+  return found
+}
+
+describe('converged tree indent keeps using treeIndent()', () => {
+  it('fails when a client file computes an indent from a depth variable inline', () => {
+    const found = inlineTreeIndents()
+    const keys = new Set(found.map((entry) => entry.split(' — ')[0]))
+    const lines: string[] = []
+    for (const entry of found) {
+      const key = entry.split(' — ')[0]
+      if (!INLINE_TREE_INDENT_BASELINE.has(key)) lines.push(`${entry} — no baseline entry; use treeIndent() or add this with a reason`)
+    }
+    for (const key of INLINE_TREE_INDENT_BASELINE.keys()) {
+      if (!keys.has(key)) lines.push(`${key}: baseline lists an inline indent that no longer exists — delete the entry`)
+    }
+    expect(lines, `${lines.length} inline tree indent(s): the nine formulas that were converged must not regrow.`).toEqual([])
+  })
+})
+
+/**
+ * `z-index` has one scale — `Z_INDEX` in `src/client/lib/z-index.ts`, mirrored by `--z-*` tokens.
+ * `shared-component-contract.test.ts` pins the scale; this is the complementary check that call
+ * sites reach for it instead of a raw number, in every form it gets written: a `z-[N]` utility, a
+ * `zIndex` property, and a `z-index` declaration in a stylesheet.
+ */
+const Z_INDEX_CLASS_RE = /(?<![\w-])z-\[([\d.]+)\]/g
+const Z_INDEX_CSS_RE = /z-index\s*:\s*([^;}\r\n]+)/g
+/** A CSS value that resolves through the scale rather than naming a level. */
+const Z_INDEX_TOKEN_VALUE_RE = /^\s*(?:var\(\s*--z-[a-z0-9-]+\s*\)|Z_INDEX\.[A-Za-z0-9_]+)\s*$/
+
+/** Every raw z-index the client tree writes, as `file:line` with the number and the form. */
+function rawZIndexSites(): Array<{ key: string; file: string; value: string; form: string }> {
+  const sites: Array<{ key: string; file: string; value: string; form: string }> = []
+  const push = (file: string, line: number, value: string, form: string): void => {
+    const trimmed = value.trim()
+    if (!/^\d+$/.test(trimmed)) return
+    sites.push({ key: `${file}:${line}`, file, value: trimmed, form })
+  }
+  for (const pathName of walkFiles(CLIENT_DIR)) {
+    const name = relative(pathName)
+    const text = readText(pathName)
+    if (text === null) continue
+    if (name.endsWith('.css')) {
+      const lines = text.split(/\r?\n/)
+      for (let index = 0; index < lines.length; index += 1) {
+        for (const match of lines[index].matchAll(Z_INDEX_CSS_RE)) {
+          if (!Z_INDEX_TOKEN_VALUE_RE.test(match[1])) push(name, index + 1, match[1], 'css declaration')
+        }
+      }
+      continue
+    }
+    if (!/\.(ts|tsx)$/.test(name)) continue
+    const source = ts.createSourceFile(name, text, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX)
+    const visit = (node: ts.Node): void => {
+      const line = source.getLineAndCharacterOfPosition(node.getStart()).line + 1
+      if (ts.isJsxAttribute(node)) {
+        const attributeName = node.name.getText()
+        const raw = attributeText(node.initializer)
+        if (attributeName === 'className' || attributeName === 'class') {
+          for (const match of raw.matchAll(Z_INDEX_CLASS_RE)) push(name, line, match[1], 'className z-[N]')
+        }
+        if (attributeName === 'zIndex') push(name, line, raw, 'zIndex prop')
+      }
+      if (ts.isPropertyAssignment(node)) {
+        const key = node.name.getText()
+        if (key === 'zIndex') push(name, line, node.initializer.getText(), 'style zIndex')
+      }
+      if (ts.isJsxExpression(node) && node.expression && ts.isCallExpression(node.expression)) {
+        // Values passed through cn()/styles.* are still read above through the attribute text.
+        void node.expression
+      }
+      ts.forEachChild(node, visit)
+    }
+    visit(source)
+  }
+  return sites
+}
+
+/**
+ * Component sites that are still raw, each with the token it should use. Keyed `file:line` and
+ * checked by value, so moving one does not clear the entry and changing one fails.
+ */
+const RAW_Z_INDEX_BASELINE = new Map<string, { value: string; reason: string }>([
+  ['src/client/features/command/CommandPalette.tsx:294', { value: '240', reason: 'Palette overlay level recorded when this guard landed; the scale has no token at 240. Not audited as correct — converge onto Z_INDEX and delete the entry.' }],
+  ['src/client/features/excalidraw/TextToDiagramModal.tsx:442', { value: '100', reason: 'Modal level written as a literal; Z_INDEX has a modal token, this should use it.' }],
+  ['src/client/features/excalidraw/library/ExcalidrawOfficialLibraryModal.tsx:380', { value: '9999', reason: 'Outranks every declared layer; a bare 9999 is the clearest case for a token, kept only because this file is not owned here.' }],
+  ['src/client/features/folders/FolderMoveMenu.tsx:197', { value: '270', reason: 'Menu popover level recorded when this guard landed; not audited as correct.' }],
+  ['src/client/features/graph/GraphPanel.tsx:366', { value: '230', reason: 'Graph panel overlay level recorded when this guard landed; not audited as correct.' }],
+  ['src/client/features/graph/graph-panel/overlays.tsx:44', { value: '1', reason: 'Local stacking lift inside the graph panel, not a shell layer.' }],
+  ['src/client/features/graph/graph-panel/overlays.tsx:151', { value: '240', reason: 'Graph overlay level recorded when this guard landed; not audited as correct.' }],
+  ['src/client/features/graph/graph-panel/overlays.tsx:161', { value: '3', reason: 'Local stacking lift inside the graph panel, not a shell layer.' }],
+  ['src/client/features/omnisearch/OmnisearchPrompt.tsx:411', { value: '240', reason: 'Omnisearch prompt overlay level recorded when this guard landed; not audited as correct.' }],
+  ['src/client/features/preview/Lightbox.tsx:36', { value: '260', reason: 'Lightbox level recorded when this guard landed; above modal in the scale, should be a token.' }],
+  ['src/client/features/preview/Outline.tsx:620', { value: '520', reason: 'Outline drop-hint level recorded when this guard landed; not audited as correct.' }],
+  ['src/client/features/reading/LibraryView.tsx:521', { value: '300', reason: 'Reading library overlay level recorded when this guard landed; not audited as correct.' }],
+  ['src/client/features/reading/reader/CommentCard.tsx:62', { value: '7', reason: 'Local stacking lift inside the reader card, not a shell layer.' }],
+  ['src/client/features/reading/reader/LookupCard.tsx:52', { value: '8', reason: 'Local stacking lift inside the reader card, not a shell layer.' }],
+  ['src/client/features/reading/reader/ReaderPanel.tsx:56', { value: '6', reason: 'Local stacking lift inside the reader panel, not a shell layer.' }],
+  ['src/client/features/rss/ArticlePreviewCard.tsx:64', { value: '240', reason: 'RSS preview overlay level recorded when this guard landed; not audited as correct.' }],
+  ['src/client/features/settings/SettingsPanel.tsx:198', { value: '210', reason: 'Settings surface level recorded when this guard landed; not audited as correct.' }],
+  ['src/client/features/shell/MobileLibraryFilters.tsx:51', { value: '240', reason: 'Mobile sheet level recorded when this guard landed; mobile sheet CSS carries the token equivalent.' }],
+  ['src/client/features/templates/template-gallery.tsx:14', { value: '240', reason: 'Template gallery overlay level recorded when this guard landed; not audited as correct.' }],
+])
+
+/** Stylesheet declarations are the bulk of the residual, so they are budgeted per file by count. */
+const RAW_Z_INDEX_CSS_BASELINE = new Map<string, number>([
+  ['src/client/styles/app.css', 1],
+  ['src/client/styles/editor.css', 3],
+  ['src/client/styles/prose.css', 11],
+  ['src/client/styles/reading.css', 5],
+])
+
+describe('converged z-index keeps using the token scale', () => {
+  const SITES = rawZIndexSites()
+
+  it('fails when a component writes a raw z-index instead of the token scale', () => {
+    const componentSites = SITES.filter((site) => !site.file.endsWith('.css'))
+    const byKey = new Map(componentSites.map((site) => [site.key, site]))
+    const lines: string[] = []
+    for (const site of componentSites) {
+      const allowed = RAW_Z_INDEX_BASELINE.get(site.key)
+      if (allowed === undefined) lines.push(`${site.key}: raw ${site.form} ${site.value} — use Z_INDEX/var(--z-*), or baseline it with a reason`)
+      else if (allowed.value !== site.value) lines.push(`${site.key}: baseline records ${allowed.value} but the file now writes ${site.value}`)
+    }
+    for (const key of RAW_Z_INDEX_BASELINE.keys()) {
+      if (!byKey.has(key)) lines.push(`${key}: baseline lists a raw z-index site that no longer exists — delete the entry`)
+    }
+    expect(lines, `${lines.length} component z-index site(s) are outside the ${RAW_Z_INDEX_BASELINE.size} baselined with a reason.`).toEqual([])
+  })
+
+  it('fails when a stylesheet grows a raw z-index beyond its baseline', () => {
+    const counts = new Map<string, number>()
+    for (const site of SITES) {
+      if (!site.file.endsWith('.css')) continue
+      counts.set(site.file, (counts.get(site.file) ?? 0) + 1)
+    }
+    const lines: string[] = []
+    for (const [file, sites] of counts) {
+      const allowed = RAW_Z_INDEX_CSS_BASELINE.get(file)
+      if (allowed === undefined) lines.push(`${file}: ${sites} raw z-index declaration(s), none baselined`)
+      else if (sites > allowed) lines.push(`${file}: ${sites} raw z-index declaration(s), the baseline allows ${allowed}`)
+    }
+    for (const [file, allowed] of RAW_Z_INDEX_CSS_BASELINE) {
+      if (!counts.has(file)) lines.push(`${file}: baseline allows ${allowed} raw z-index declaration(s) but the file has none — delete the entry`)
+    }
+    expect(lines, `${lines.length} stylesheet(s) changed their raw z-index count.`).toEqual([])
+  })
+})
+
+/**
+ * 铁律 2: a swallow that ignores a rejection has to say why beside the catch. The backup subtree now
+ * routes through `discardBody()`; anything else silent is the failure mode the rule exists for. A
+ * block whose only content is a comment is still silent — the reason belongs outside the braces.
+ */
+const WORKER_CATCH_BASELINE = new Map<string, { sites: number; reason: string }>([
+  ['src/worker/assistant/upstream.ts', { sites: 1, reason: 'Line 200 cancels a streaming reader and ignores a failed cancel — nothing to report when the stream is already being discarded.' }],
+  ['src/worker/attachments/storage.ts', { sites: 1, reason: 'Line 145 discards a best-effort delete failure in the attachment storage path.' }],
+  ['src/worker/avatars/storage.ts', { sites: 1, reason: 'Line 82 discards a best-effort avatar delete failure.' }],
+  ['src/worker/backup/archive.ts', { sites: 2, reason: 'Lines 88 and 144 drain pending stream promises so an unobserved rejection does not surface as an unhandled error during archiving.' }],
+  ['src/worker/backup/common.ts', { sites: 1, reason: 'Line 50 is the shared body-discard helper itself; the swallow is the helper\'s whole purpose.' }],
+  ['src/worker/backup/s3.ts', { sites: 3, reason: 'Lines 82 and 306 cancel a stream or reader that is being discarded, and lines 441-442 swallow a failed XML parse of an error body where the raw text is used instead.' }],
+  ['src/worker/backup/snapshot.ts', { sites: 4, reason: 'Lines 476, 480, 484 and 501 cancel or abort snapshot bodies on every discard path; a failed cancel cannot change the outcome.' }],
+  ['src/worker/backup/webdav.ts', { sites: 2, reason: 'Lines 133 and 258 cancel an archive stream and a replaced remote body while uploading.' }],
+  ['src/worker/lib/update-check.ts', { sites: 2, reason: 'Lines 93 and 99 drain the response body before and after reading it so Workers does not report a dangling stream.' }],
+  ['src/worker/mcp/operations.ts', { sites: 1, reason: 'Line 84 persists operation state on a fire-and-forget path; the row is re-derived on read.' }],
+  ['src/worker/middleware/auth.ts', { sites: 1, reason: 'Line 104 swallows an optional background write inside the auth middleware.' }],
+  ['src/worker/routes/excalidraw-library.ts', { sites: 1, reason: 'Line 278 swallows a fire-and-forget queue write behind a library route response.' }],
+  ['src/worker/routes/mcp-settings.ts', { sites: 2, reason: 'Lines 121 and 134 hand `waitUntil` a drain whose failure must not fail the already-sent response.' }],
+  ['src/worker/routes/reader-library.ts', { sites: 1, reason: 'Line 600 deletes a replaced cover object and ignores the failure; the new cover is already stored.' }],
+  ['src/worker/routes/transfer.ts', { sites: 1, reason: 'Line 565 rolls attachments back after a failed transfer; a failed rollback has nowhere to report.' }],
+])
+
+/** Worker swallows with nothing between the braces: an empty `catch {}` or `.catch(() => {})`. */
+function silentWorkerCatches(): string[] {
+  const found: string[] = []
+  for (const pathName of walkFiles(WORKER_DIR)) {
+    if (!pathName.endsWith('.ts')) continue
+    const name = relative(pathName)
+    const text = readText(pathName)
+    if (text === null) continue
+    const source = ts.createSourceFile(name, text, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS)
+    const innerIsBlank = (block: ts.Node): boolean => text.slice(block.getStart(source) + 1, block.getEnd() - 1).trim().length === 0
+    const lineOf = (node: ts.Node) => source.getLineAndCharacterOfPosition(node.getStart()).line + 1
+    const visit = (node: ts.Node): void => {
+      if (ts.isCatchClause(node) && node.block.statements.length === 0 && innerIsBlank(node.block)) {
+        found.push(`${name}:${lineOf(node)} — empty catch clause with no comment beside it`)
+      }
+      if (ts.isCallExpression(node) && ts.isPropertyAccessExpression(node.expression) && node.expression.name.text === 'catch') {
+        const handler = node.arguments[0]
+        if (handler && (ts.isArrowFunction(handler) || ts.isFunctionExpression(handler)) && handler.body && ts.isBlock(handler.body)) {
+          if (handler.body.statements.length === 0 && innerIsBlank(handler.body)) {
+            found.push(`${name}:${lineOf(node)} — .catch(() => {}) with no comment beside it`)
+          }
+        }
+      }
+      ts.forEachChild(node, visit)
+    }
+    visit(source)
+  }
+  return found
+}
+
+describe('worker swallows state their reason beside the catch', () => {
+  it('fails when a worker catch ignores a rejection without a comment', () => {
+    const found = silentWorkerCatches()
+    const counts = new Map<string, number>()
+    for (const site of found) counts.set(site.split(':')[0], (counts.get(site.split(':')[0]) ?? 0) + 1)
+    const lines: string[] = []
+    for (const [file, sites] of counts) {
+      const allowed = WORKER_CATCH_BASELINE.get(file)
+      if (allowed === undefined) lines.push(`${file}: ${sites} silent catch(es) — state the reason beside the catch, or baseline it with a reason`)
+      else if (sites > allowed.sites) lines.push(`${file}: ${sites} silent catch(es), the baseline allows ${allowed.sites}`)
+    }
+    for (const [file, allowed] of WORKER_CATCH_BASELINE) {
+      if (!counts.has(file)) lines.push(`${file}: baseline allows ${allowed.sites} silent catch(es) but the file has none — delete the entry`)
+    }
+    expect(lines, `${lines.length} worker file(s) changed their silent-catch count.`).toEqual([])
+  })
+})
