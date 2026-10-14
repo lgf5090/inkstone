@@ -127,6 +127,12 @@ function insertNote(id: string, userId: string, title: string, rev: number, upda
   ).run(id, userId, title, 'body', rev, 1000, updatedAt)
 }
 
+function insertFolder(id: string, userId: string, parentId: string | null, name: string) {
+  sqlite.prepare(
+    'INSERT INTO folders (id, user_id, parent_id, name, position, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
+  ).run(id, userId, parentId, name, 1000, 1000, 1000)
+}
+
 beforeEach(async () => {
   sqlite = new DatabaseSync(':memory:')
   for (const statement of SCHEMA_STATEMENTS) sqlite.exec(statement)
@@ -319,5 +325,44 @@ describe('the transfer store', () => {
     const own = new TransferStore(db, ALICE, false)
     expect((await own.noteIndexBySourceId(NOTE_ID))?.title).toBe('Restored copy')
     expect((await own.noteIndexesBySourceIds([NOTE_ID])).get(NOTE_ID)?.title).toBe('Restored copy')
+  })
+
+  it('lists only its own folders for the path cache', async () => {
+    insertFolder('folder-alice', ALICE, null, 'Work')
+    insertFolder('folder-bob', BOB, null, 'Work')
+
+    expect((await new TransferStore(db, ALICE, false).folderPathRows()).map((r) => r.id)).toEqual(['folder-alice'])
+    expect((await new TransferStore(db, BOB, false).folderPathRows()).map((r) => r.id)).toEqual(['folder-bob'])
+  })
+
+  it('creates a folder segment once and reports the sibling that already owns the name', async () => {
+    insertFolder('folder-alice', ALICE, null, 'Work')
+
+    const store = new TransferStore(db, ALICE, false)
+    expect(await store.createFolderSegment({
+      id: 'folder-new', parentId: null, name: 'Reading', icon: null, color: null,
+      position: 2000, createdAt: 2000, updatedAt: 2000,
+    })).toBe(true)
+    expect(one<{ id: string }>('SELECT id FROM folders WHERE id = ?', 'folder-new')?.id).toBe('folder-new')
+    expect(one<{ entity: string }>('SELECT entity FROM changes WHERE entity_id = ?', 'folder-new')?.entity).toBe('folder')
+
+    // The same name under the same parent loses to the unique sibling index rather than raising, and
+    // the account then reads back the row that already answers to it.
+    expect(await store.createFolderSegment({
+      id: 'folder-dup', parentId: null, name: 'Work', icon: null, color: null,
+      position: 3000, createdAt: 3000, updatedAt: 3000,
+    })).toBe(false)
+    expect(await store.existingFolderId(null, 'work')).toBe('folder-alice')
+    expect(one<{ id: string }>('SELECT id FROM folders WHERE id = ?', 'folder-dup')).toBeUndefined()
+    // No change record for a segment that was never created.
+    expect(one<{ n: number }>('SELECT COUNT(*) AS n FROM changes WHERE entity_id = ?', 'folder-dup')!.n).toBe(0)
+
+    // Another account cannot name, find or collide with this account's folder.
+    const other = new TransferStore(db, BOB, false)
+    expect(await other.existingFolderId(null, 'Work')).toBeNull()
+    expect(await other.createFolderSegment({
+      id: 'folder-bob-work', parentId: null, name: 'Work', icon: null, color: null,
+      position: 4000, createdAt: 4000, updatedAt: 4000,
+    })).toBe(true)
   })
 })

@@ -51,6 +51,25 @@ export interface ExistingNoteIndex {
   updated_at: number
 }
 
+/** A live folder row, reduced to what the import's path cache is built from. */
+export interface FolderPathRow {
+  id: string
+  parent_id: string | null
+  name: string
+}
+
+/** One folder segment the route has named, positioned and dated. */
+export interface FolderSegmentCreate {
+  id: string
+  parentId: string | null
+  name: string
+  icon: string | null
+  color: string | null
+  position: number
+  createdAt: number
+  updatedAt: number
+}
+
 /** Ids per lookup chunk: D1 binds every placeholder, so a restore's id list is paged. */
 const LOOKUP_CHUNK = 80
 /** Note indexes per lookup chunk; smaller, because the mapped pass reads its targets back a second time. */
@@ -302,5 +321,60 @@ export class TransferStore {
         LIMIT 1`,
     ).bind(this.userId, id).first<ExistingNoteIndex>()
     return row ?? null
+  }
+
+  // ------------------------------------------------------------------ folders
+
+  /** Every live folder of this account, in whatever order the account keeps them. */
+  async folderPathRows(): Promise<FolderPathRow[]> {
+    const { results } = await this.db
+      .prepare(`SELECT id, parent_id, name FROM folders WHERE user_id = ?1 AND deleted_at IS NULL`)
+      .bind(this.userId)
+      .all<FolderPathRow>()
+    return results
+  }
+
+  /**
+   * Create one folder segment, with its change record in the same batch.
+   *
+   * `INSERT OR IGNORE` loses to the unique sibling index rather than raising, so the outcome — created,
+   * or something already owns this name under this parent — is what the batch's first meta says. The
+   * change record is guarded on the row existing at all, which is what keeps a lost insert from
+   * announcing a folder nobody made.
+   */
+  async createFolderSegment(input: FolderSegmentCreate): Promise<boolean> {
+    const [created] = await this.db.batch([
+      this.db.prepare(
+        `INSERT OR IGNORE INTO folders
+           (id, user_id, parent_id, name, icon, color, position, created_at, updated_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)`,
+      ).bind(
+        input.id,
+        this.userId,
+        input.parentId,
+        input.name,
+        input.icon,
+        input.color,
+        input.position,
+        input.createdAt,
+        input.updatedAt,
+      ),
+      this.db.prepare(
+        `INSERT INTO changes (user_id, entity, entity_id, op, at)
+         SELECT ?1, 'folder', ?2, 'upsert', ?3
+          WHERE EXISTS (SELECT 1 FROM folders WHERE id = ?2 AND user_id = ?1)`,
+      ).bind(this.userId, input.id, input.updatedAt),
+    ])
+    return Boolean(created?.meta.changes)
+  }
+
+  /** The folder this account already owns under `parentId` answering to `name`. */
+  async existingFolderId(parentId: string | null, name: string): Promise<string | null> {
+    const existing = await this.db.prepare(
+      `SELECT id FROM folders
+        WHERE user_id = ?1 AND parent_id IS ?2 AND lower(name) = lower(?3)
+          AND deleted_at IS NULL LIMIT 1`,
+    ).bind(this.userId, parentId, name).first<{ id: string }>()
+    return existing?.id ?? null
   }
 }

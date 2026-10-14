@@ -194,7 +194,7 @@ transferRoutes.post('/import', async (c) => {
 
   const folderCache = new Map<string, string>()
   if (!backupManifest || backupManifest.notes.length) {
-    await primeFolderCache(c.env.DB, userId, folderCache)
+    await primeFolderCache(store, folderCache)
   }
 
   if (backupManifest) {
@@ -614,7 +614,7 @@ async function importBackupMarkdown(
     : `${entry.state}/`
   if (!entry.path.startsWith(statePrefix)) throw new Error(`Invalid backup note path: ${entry.path}`)
   const folderId = entry.folder.length
-    ? await ensureFolderPath(c.env.DB, userId, entry.folder.join('/'), ctx)
+    ? await ensureFolderPath(entry.folder.join('/'), ctx)
     : null
   const sourceId = entry.id
   const importedUpdatedAt = validTimestamp(entry.updatedAt)
@@ -800,7 +800,7 @@ async function importBundle(
   )
 
   for (const { folder, resolved } of resolvedFolders) {
-    const created = await ensureFolderPath(c.env.DB, userId, resolved.path, ctx, folder)
+    const created = await ensureFolderPath(resolved.path, ctx, folder)
     if (created) folderIdMap.set(folder.id, created)
   }
 
@@ -1211,7 +1211,7 @@ async function importMarkdown(
   const normalizedPath = path.replace(/\\/g, '/')
   const dir = normalizedPath.split('/').slice(0, -1).filter(Boolean)
   if (dir[0]?.toLowerCase() === 'notes') dir.shift()
-  const folderId = dir.length ? await ensureFolderPath(c.env.DB, userId, dir.join('/'), ctx) : null
+  const folderId = dir.length ? await ensureFolderPath(dir.join('/'), ctx) : null
 
   const filename = normalizedPath.split('/').pop() ?? path
   let content = stripObsidianComments(text)
@@ -1496,14 +1496,10 @@ async function insertNote(
 }
 
 async function primeFolderCache(
-  db: D1Database,
-  userId: string,
+  store: TransferStore,
   cache: Map<string, string>,
 ): Promise<void> {
-  const { results } = await db
-    .prepare(`SELECT id, parent_id, name FROM folders WHERE user_id = ?1 AND deleted_at IS NULL`)
-    .bind(userId)
-    .all<{ id: string; parent_id: string | null; name: string }>()
+  const results = await store.folderPathRows()
 
   const byId = new Map(results.map((r) => [r.id, r]))
   const pathOf = (id: string, guard = 0): string => {
@@ -1519,8 +1515,6 @@ async function primeFolderCache(
 }
 
 async function ensureFolderPath(
-  db: D1Database,
-  userId: string,
   path: string,
   ctx: ImportContext,
   finalMetadata?: FolderImportMetadata,
@@ -1558,31 +1552,24 @@ async function ensureFolderPath(
     const position = isFinal ? finiteNumber(finalMetadata?.position) ?? now : now
     const icon = isFinal ? finalMetadata?.icon ?? null : null
     const color = isFinal ? finalMetadata?.color ?? null : null
-    const insert = db.prepare(
-      `INSERT OR IGNORE INTO folders
-         (id, user_id, parent_id, name, icon, color, position, created_at, updated_at)
-       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)`,
-    ).bind(id, userId, parentId, segment, icon, color, position, createdAt, updatedAt)
-    const [created] = await db.batch([
-      insert,
-      db.prepare(
-        `INSERT INTO changes (user_id, entity, entity_id, op, at)
-         SELECT ?1, 'folder', ?2, 'upsert', ?3
-          WHERE EXISTS (SELECT 1 FROM folders WHERE id = ?2 AND user_id = ?1)`,
-      ).bind(userId, id, updatedAt),
-    ])
+    const created = await ctx.store.createFolderSegment({
+      id,
+      parentId,
+      name: segment,
+      icon,
+      color,
+      position,
+      createdAt,
+      updatedAt,
+    })
 
     let resolvedId = id
-    if (created?.meta.changes) {
+    if (created) {
       ctx.result.createdFolders++
     } else {
-      const existing = await db.prepare(
-        `SELECT id FROM folders
-          WHERE user_id = ?1 AND parent_id IS ?2 AND lower(name) = lower(?3)
-            AND deleted_at IS NULL LIMIT 1`,
-      ).bind(userId, parentId, segment).first<{ id: string }>()
-      if (!existing) throw new Error(`Could not create folder: ${segment}`)
-      resolvedId = existing.id
+      const existingId = await ctx.store.existingFolderId(parentId, segment)
+      if (!existingId) throw new Error(`Could not create folder: ${segment}`)
+      resolvedId = existingId
     }
 
     ctx.folderCache.set(key, resolvedId)
