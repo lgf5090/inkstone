@@ -28,6 +28,7 @@ import { queryMatches } from '../../../lib/query-match'
 import type { Query } from '../../../lib/query-match'
 import { t } from '../../../lib/i18n'
 import { cn } from '../../../lib/cn'
+import { isImeComposing } from '../../../lib/ime'
 import { treeIndent, treeItemProps, useTreeChildrenMount, useTreeKeyboard, type MoveMenuFolder } from '../../../lib/tree'
 import { useMediaQuery } from '../../../lib/hooks'
 import { FolderMotionIcon } from '../../../components/FolderMotionIcon'
@@ -390,6 +391,7 @@ export function LibraryFolderRow({ node, ctx }: { node: LibraryFolderNode; ctx: 
               aria-label={t('sidebar.rename')}
               onChange={(event) => ctx.onRenameChange(event.target.value)}
               onKeyDown={(event) => {
+                if (isImeComposing(event)) return
                 if (event.key === 'Enter') ctx.onRenameCommit(node.id)
                 else if (event.key === 'Escape') ctx.onRenameCancel()
               }}
@@ -504,6 +506,7 @@ export function LibraryFolderRow({ node, ctx }: { node: LibraryFolderNode; ctx: 
             value={ctx.addingName}
             onChange={(event) => ctx.onAddChildChange(event.target.value)}
             onKeyDown={(event) => {
+              if (isImeComposing(event)) return
               if (event.key === 'Enter') ctx.onAddChildCommit(node.id)
               else if (event.key === 'Escape') ctx.onAddCancel()
             }}

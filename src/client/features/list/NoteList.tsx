@@ -4,6 +4,7 @@ import { Archive, ArrowDownWideNarrow, Brush, CalendarDays, CheckSquare2, Column
 import { isMindmapDocumentTitle } from '../../lib/markdown/mindmap/document';
 import type { NoteSummary, SearchHit, SortKey, ViewKind } from '@shared/types';
 import { cn } from '../../lib/cn';
+import { isImeComposing } from '../../lib/ime';
 import { groupLabel, parseDateKey } from '../../lib/time';
 import { useDebounced, useNow } from '../../lib/hooks';
 import { api } from '../../lib/api';
@@ -384,6 +385,7 @@ export function NoteList() {
             size="sidebar"
             className={breakpoint === 'mobile' ? 'mobile-note-search' : undefined}
             onKeyDown={(event) => {
+              if (isImeComposing(event)) return;
               if (event.key !== 'ArrowDown') return;
               event.preventDefault();
               const first = filtered[0]?.note.id;
