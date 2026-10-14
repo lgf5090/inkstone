@@ -1,6 +1,7 @@
 import { Hono } from 'hono'
 import { parseStoredAvatarUrl } from '@shared/avatar'
 import { hasAttachmentStorage, readAttachmentObject } from '../attachments/backend'
+import { avatarOwnerMatchesPreference } from '../avatars/store'
 import type { AppBindings } from '../env'
 import { ApiError } from '../lib/errors'
 
@@ -11,12 +12,9 @@ avatarRoutes.get('/:storage/:userId/:file', async (c) => {
   const location = parseStoredAvatarUrl(preference)
   if (!location) throw ApiError.notFound('Avatar not found')
 
-  const owner = await c.env.DB.prepare(
-    `SELECT id FROM users WHERE id = ?1 AND avatar_url = ?2`,
-  )
-    .bind(location.userId, preference)
-    .first<{ id: string }>()
-  if (!owner) throw ApiError.notFound('Avatar not found')
+  if (!(await avatarOwnerMatchesPreference(c.env.DB, location.userId, preference))) {
+    throw ApiError.notFound('Avatar not found')
+  }
   if (!hasAttachmentStorage(c.env, location.storage)) {
     throw new ApiError(
       503,
