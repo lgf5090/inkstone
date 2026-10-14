@@ -15833,6 +15833,9 @@ const allowed = new Map([
     "// ...and it sat under quaternary on every surface, which is the inversion.",
     "// The old secondary had no AA problem; the ladder was spaced, not deep.",
   ]],
+  ["tests/d1-double-statement-kinds.test.ts", [
+    "/**\n * The double has to answer the way D1 does, or a route tested against it proves nothing.\n *\n * Forty-odd suites build their database through `makeD1`, and the one decision it has to make for\n * them is the one node:sqlite does not: whether a statement is a read, which answers with rows, or a\n * write, which answers with `meta`. A common-table expression is the case that used to be misjudged,\n * because `WITH` opens the statement while the verb that follows decides its kind. Misjudge it and the\n * failure lands somewhere unrelated — a store reading `meta.changes` gets `undefined` and the caller\n * crashes on a line of production code that was never wrong.\n */",
+  ]],
   ["tests/db-schema-convergence.test.ts", [
     "/**\n * What a deploy must do when the database it lands on disagrees with it.\n *\n * The migration ledger is a note about work done, not the work. Two branches of this app numbered\n * their migrations independently, so a database built by one reads the other's numbers as already\n * spent — and a boot that trusted the note would then reject the shape it demands, turning every\n * request into a 500. These tests drop the shape while leaving the note, which is exactly that\n * situation, and require the boot to heal it.\n */",
     "/**\n * Boot the way a deploy does.\n *\n * A boot whose stored fingerprint still matches the code returns before it looks at the schema, so\n * this drops that note first: what a new build sees is a database whose shape may have drifted\n * while nobody was looking at it.\n */",
@@ -15862,6 +15865,7 @@ const allowed = new Map([
     "// named-parameter object form on every platform, and rejects it positionally too once the test",
     "// runs in the jsdom environment, in both cases with \"Provided value cannot be bound to SQLite",
     "// parameter N\". A view over the same bytes satisfies D1 and both node:sqlite paths.",
+    "/**\n * The verb D1 would judge the statement by.\n *\n * A common-table expression is a prefix, not a statement kind: `WITH subtree AS (…) INSERT …` writes\n * and answers with `meta`, while `WITH subtree AS (…) SELECT …` reads. So the CTE body is skipped by\n * paren depth and the first verb outside it decides — which also means the word inside a literal\n * (`'delete'` written into the changes table) can never win, because the verb always comes first.\n */",
   ]],
   ["tests/excalidraw-interaction-gate.test.ts", [
     "// That api arrives from onExcalidrawAPI, which may not have run yet when the reader first touches",
@@ -15971,6 +15975,11 @@ const allowed = new Map([
     "// Each of these is a cursor-sized control; the coarse-pointer block is what",
     "// makes them tappable without changing the desktop density.",
     "// AGENTS.md rule 4: the ring geometry is a token. A re-spelled `0 0 0 3px var(--accent-ring)`",
+  ]],
+  ["tests/folders-route.test.ts", [
+    "/**\n * The folder tree's own routes, end to end.\n *\n * Nothing exercised these before: a create, a patch and the two delete strategies all answer through\n * statements wrapped in a recursive common-table expression, and the local D1 double used to read the\n * opening `WITH` as a sign that the statement was a query. It returned no `meta`, the store asked for\n * `meta.changes`, and every one of these calls failed as a 500 that had nothing to do with the code\n * under test. See `tests/d1-double-statement-kinds.test.ts` for the double itself.\n */",
+    "/**\n * A folder id the route accepts.\n *\n * `isValidId` wants 26 characters drawn from the alphabet `newId` writes, which leaves out the letters\n * that read alike, so the labels below are chosen from the ones that survive and then padded.\n */",
+    "// Padded so that the tenth and twelfth stems cannot collapse onto the first one once `fid` pads.",
   ]],
   ["tests/fts-tenant-index.test.ts", [
     "// Mirrors the shipped schema: user_id must be an indexed FTS5 column so the",
