@@ -2020,5 +2020,3 @@ function addWarning(result: ImportResult, message: string): void {
 function shiftSqlPlaceholders(sql: string, offset: number): string {
   return sql.replace(/\?(\d+)/g, (_match, value: string) => `?${Number(value) + offset}`)
 }
-
-export { runBatched }

@@ -71,10 +71,6 @@ export class SyncHub implements DurableObject {
     }
   }
 
-  webSocketError(): void {
-
-  }
-
   private broadcast(message: RealtimeMessage): void {
     const payload = JSON.stringify(message)
     for (const ws of this.state.getWebSockets()) {

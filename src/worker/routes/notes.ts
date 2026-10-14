@@ -1631,11 +1631,6 @@ export function resolveNoteTitle(title: string | undefined, current = ''): strin
   return title === undefined ? current : truncateText(title.trim(), LIMITS.titleMaxLength)
 }
 
-export function nextNotesCursor(offset: number, returned: number, total: number): string | null {
-  const next = offset + returned
-  return returned > 0 && next < total ? String(next) : null
-}
-
 export function encodeNotesListCursor(
   row: NoteRow,
   view: ViewKind,
