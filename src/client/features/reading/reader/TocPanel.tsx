@@ -10,6 +10,7 @@ import { t } from '../../../lib/i18n'
 import { compileQuery, queryKeeps } from '../../../lib/query-match'
 import { usePinyinVersion } from '../../../lib/pinyin'
 import { spineIndexFor, stripFragment, fragmentOf } from '../engine/epub-package'
+import { treeIndent } from '../../../lib/tree'
 import type { EpubHandle } from './useEpubHandle'
 import type { BookRecord } from '../types'
 import type { BookPosition } from '../position'
@@ -65,7 +66,10 @@ export function TocPanel({ handle, onJump }: TocPanelProps) {
                   type="button"
                   onClick={() => onJump({ kind: 'epub', chapter: entry.slot, offset: 0 }, entry.fragment || undefined)}
                   className="flex w-full items-start gap-2 rounded-[var(--r-sm)] px-2 py-1.5 text-left text-[12.5px] leading-snug hover:bg-[color-mix(in_oklab,currentColor_10%,transparent)]"
-                  style={{ paddingInlineStart: `${8 + Math.min(3, entry.level) * 12}px` }}
+                  // The nav and NCX walkers descend to whatever depth the book nests, so TOC levels have
+                  // no ceiling to clamp to; the `min-w-0` label absorbs the indent the way every other
+                  // tree row in the app does.
+                  style={{ paddingLeft: treeIndent(entry.level) }}
                 >
                   <span className="min-w-0 flex-1">{entry.label}</span>
                   <span className="shrink-0 text-[10.5px] tabular opacity-50">{entry.slot + 1}</span>
