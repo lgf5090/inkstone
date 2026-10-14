@@ -4,7 +4,7 @@ import { ORGANIZER_COLORS, ORGANIZER_COLOR_MIN_CONTRAST, isOrganizerColor, organ
 import { t } from '../../lib/i18n';
 import { cn } from '../../lib/cn';
 import { normalizeHexColor } from '../../editor/text-format';
-import { colorContrast, paintedSurface, pushRecentColor, useRecentColors } from '../../lib/format-colors';
+import { paintedSurface, pushRecentColor, useRecentColors } from '../../lib/format-colors';
 import { ACCENT_COLOR_TOKEN, propertyColorCss, propertySwatchCss } from '@shared/property-style';
 import { Swatch } from '../../components/color-swatch';
 
@@ -29,7 +29,7 @@ export function PropertyColorPanel({ label, current, tinted, onPick }: {
     const recent = useRecentColors().text.filter(color => !ORGANIZER_COLORS.includes(color as (typeof ORGANIZER_COLORS)[number]));
     const shown = normalizeHexColor(draft) ?? current;
     const surface = paintedSurface(panelRef.current);
-    const ratio = shown === null || !surface ? null : colorContrast(shown, surface);
+    const ratio = shown === null || !surface ? null : organizerColorContrast(shown, surface);
     const pick = (color: string) => {
         if (committed.current)
             return;

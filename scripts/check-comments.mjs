@@ -1190,6 +1190,10 @@ const allowed = new Map([
   ["src/client/features/excalidraw/library/official-library-window.ts", [
     "/**\n * The official catalog holds 232 libraries. Mounting all of them at once was measured in Chromium as a\n * single 355-383 ms long task that also holds up the modal's own shell, and it asked for a preview image\n * per card (748 kB before the first scroll). So the grid renders a window and hands out the rest as the\n * reader approaches its end — the same shape the kanban board uses, with a real button for the tail so a\n * browser without an observer, or a keyboard that never scrolls, still reaches every card.\n */",
   ]],
+  ["src/client/features/folders/FolderAppearanceMenus.tsx", [
+    "// The folder guard only accepts a surface its own contrast maths can read, so it hands the walk",
+    "// a predicate instead of writing a second one.",
+  ]],
   ["src/client/features/folders/FolderMoveMenu.tsx", [
     "/** The name of the top level for this tree, which is not \"Unfiled\" everywhere. */",
   ]],
@@ -7117,11 +7121,15 @@ const allowed = new Map([
     "/**\n * What a filter query leaves of the tree.\n *\n * `nodes` is the tree to draw and `shown` how many folders are in it, so the count the panel prints\n * is the number of rows the reader can actually see — the same rule the tag filter follows. `matched`\n * is the narrower set: the folders the query itself hit by name, which is what gets underlined. The\n * two differ because a parent that only leads to a match has to stay on screen for the child to be\n * reachable.\n *\n * `whole` holds the folders that show every note they own rather than only the notes the query\n * reached: a folder named by the query is what the reader asked for, so its contents come with it,\n * and so do the contents of everything below it. `notes` is the set of note titles the query hit,\n * which is what a folder kept only as the road to a note draws.\n */",
     "/**\n * The folder tree pruned to what the query can reach, by folder name and by the titles of the notes\n * filed inside it.\n *\n * A folder the query names keeps its whole subtree and every note in it, so searching `work` still\n * shows `work/meeting` and what that holds. A folder the query only reaches through one of its notes\n * is kept for that note: it stays at the depth the reader knows it at, unmarked, and shows nothing\n * else. An empty query returns the tree as it came.\n */",
   ]],
+  ["src/client/lib/format-colors.test.ts", [
+    "/** A panel inside a panel: only the outer box has any paint on it. */",
+  ]],
   ["src/client/lib/format-colors.ts", [
     "/**\n * Highlights are painted as a wash, so what matters here is the hue: each of these is saturated\n * enough to still read at {@link HIGHLIGHT_ALPHA} over a light page or a dark one.\n */",
     "/** The colour a swatch must show so the panel and the page agree, wash and all. */",
     "/**\n * Whether a picked colour will show up on the page it is being picked for. A highlight is judged on\n * its own hue rather than the composited wash: at a fixed alpha the two move together, so a hue too\n * close to the page is the only way the wash can come out invisible. An unresolvable surface reads\n * as usable, the same way the folder guard reads it.\n */",
-    "/** The colour painted behind the panel, which is what a pick has to stand out from. */",
+    "/** Whether a computed background is a colour at all, rather than nothing painted over it. */",
+    "/**\n * The colour painted behind the panel, which is what a pick has to stand out from. Which surface\n * counts is the caller's call: the format guard takes the first box with any paint on it, the folder\n * guard insists on a colour its own contrast maths can read.\n */",
   ]],
   ["src/client/lib/fuzzy.ts", [
     "/**\n * Listings call this once per row per keystroke with a haystack the row already keeps a\n * stable reference to, so V8's cached string hash makes the lookup O(1) while\n * text.toLowerCase() would re-copy the whole body every time.\n */",

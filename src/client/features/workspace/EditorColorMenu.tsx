@@ -1,12 +1,11 @@
 import { useRef, useState } from 'react';
 import { Ban, Palette } from 'lucide-react';
-import { isOrganizerColor, organizerColorLabel } from '@shared/organizer-colors';
+import { isOrganizerColor, organizerColorContrast, organizerColorLabel } from '@shared/organizer-colors';
 import { t } from '../../lib/i18n';
 import { cn } from '../../lib/cn';
 import { normalizeHexColor } from '../../editor/text-format';
 import {
     type ColorKind,
-    colorContrast,
     isColorUsable,
     paintedSurface,
     paletteOf,
@@ -34,7 +33,7 @@ export function EditorColorPanel({ kind, current, onPick }: {
     const [refused, setRefused] = useState(false);
     const recent = useRecentColors()[kind].filter(color => !paletteOf(kind).includes(color));
     const shown = normalizeHexColor(draft) ?? current ?? null;
-    const ratio = shown === null ? null : colorContrast(shown, paintedSurface(panelRef.current));
+    const ratio = shown === null ? null : organizerColorContrast(shown, paintedSurface(panelRef.current));
     const pick = (color: string) => {
         // One commit per appearance. Committing closes the panel, and tearing a focused field down
         // fires its blur — a second offer of the half-typed value would land on top of this pick.

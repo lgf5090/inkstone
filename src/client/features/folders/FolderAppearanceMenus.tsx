@@ -10,6 +10,7 @@ import {
 } from '@shared/organizer-colors';
 import { cn } from '../../lib/cn';
 import { Swatch } from '../../components/color-swatch';
+import { paintedSurface } from '../../lib/format-colors';
 import { t, useLocale } from '../../lib/i18n';
 import { usePinyinVersion } from '../../lib/pinyin';
 import {
@@ -61,16 +62,9 @@ export function FolderColorMenu({ color, onSelectColor, onManageFolders }: {
     const panelRef = useRef<HTMLDivElement>(null);
     const [draft, setDraft] = useState('');
     const [refused, setRefused] = useState(false);
-    const surface = () => {
-        let node: HTMLElement | null = panelRef.current;
-        while (node) {
-            const painted = getComputedStyle(node).backgroundColor;
-            if (isResolvedOrganizerColor(painted))
-                return painted;
-            node = node.parentElement;
-        }
-        return '';
-    };
+    // The folder guard only accepts a surface its own contrast maths can read, so it hands the walk
+    // a predicate instead of writing a second one.
+    const surface = () => paintedSurface(panelRef.current, isResolvedOrganizerColor);
     const ratio = (hex: string) => organizerColorContrast(hex, surface());
     const offer = (hex: string) => {
         const next = hex.toLocaleLowerCase();

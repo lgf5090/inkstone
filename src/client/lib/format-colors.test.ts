@@ -1,10 +1,11 @@
 import { describe, expect, it } from 'vitest'
+import { isResolvedOrganizerColor } from '@shared/organizer-colors'
 import {
-  colorContrast,
   FORMAT_COLOR_STORAGE_KEY,
   HIGHLIGHT_COLORS,
   isColorUsable,
   loadRecentColors,
+  paintedSurface,
   paletteOf,
   pushRecentColor,
   swatchColor,
@@ -25,7 +26,29 @@ describe('colour guard', () => {
 
   it('reads an unresolvable surface as unknown rather than as a failure', () => {
     expect(isColorUsable('text', '#e11d48', '')).toBe(true)
-    expect(colorContrast('#e11d48', 'var(--bg-base)')).toBeNull()
+  })
+})
+
+describe('painted surface', () => {
+  /** A panel inside a panel: only the outer box has any paint on it. */
+  function nested(painted: string): HTMLElement {
+    const outer = document.createElement('div')
+    const inner = document.createElement('div')
+    outer.style.backgroundColor = painted
+    outer.append(inner)
+    return inner
+  }
+
+  it('walks up to the first box with paint on it', () => {
+    expect(paintedSurface(nested('rgb(255, 255, 255)'))).toBe('rgb(255, 255, 255)')
+    expect(paintedSurface(nested('transparent'))).toBe('')
+    expect(paintedSurface(null)).toBe('')
+  })
+
+  it('lets the caller insist on a colour its contrast maths can read', () => {
+    const readable = (value: string) => isResolvedOrganizerColor(value)
+    expect(paintedSurface(nested('rgb(255, 255, 255)'), readable)).toBe('rgb(255, 255, 255)')
+    expect(paintedSurface(nested('transparent'), readable)).toBe('')
   })
 })
 

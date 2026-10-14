@@ -1,5 +1,5 @@
 import { useSyncExternalStore } from 'react';
-import { ORGANIZER_COLORS, isCustomOrganizerColor, organizerColorContrast } from '@shared/organizer-colors';
+import { ORGANIZER_COLORS, ORGANIZER_COLOR_MIN_CONTRAST, isCustomOrganizerColor, organizerColorContrast } from '@shared/organizer-colors';
 import { HIGHLIGHT_ALPHA } from '../editor/text-format';
 
 export const TEXT_COLORS = ORGANIZER_COLORS;
@@ -23,7 +23,6 @@ export const HIGHLIGHT_COLORS = [
     '#a8a29e',
 ] as const;
 
-export const TEXT_MIN_CONTRAST = 3;
 export const HIGHLIGHT_MIN_CONTRAST = 1.3;
 
 export type ColorKind = 'text' | 'highlight';
@@ -47,19 +46,24 @@ export function isColorUsable(kind: ColorKind, color: string, surface: string): 
     const ratio = organizerColorContrast(color, surface);
     if (ratio === null)
         return true;
-    return kind === 'text' ? ratio >= TEXT_MIN_CONTRAST : ratio >= HIGHLIGHT_MIN_CONTRAST;
+    return kind === 'text' ? ratio >= ORGANIZER_COLOR_MIN_CONTRAST : ratio >= HIGHLIGHT_MIN_CONTRAST;
 }
 
-export function colorContrast(color: string, surface: string): number | null {
-    return organizerColorContrast(color, surface);
+/** Whether a computed background is a colour at all, rather than nothing painted over it. */
+function isOpaquePainted(value: string): boolean {
+    return value !== '' && value !== 'transparent' && !/^rgba\([^)]*,\s*0\)$/.test(value);
 }
 
-/** The colour painted behind the panel, which is what a pick has to stand out from. */
-export function paintedSurface(node: HTMLElement | null): string {
+/**
+ * The colour painted behind the panel, which is what a pick has to stand out from. Which surface
+ * counts is the caller's call: the format guard takes the first box with any paint on it, the folder
+ * guard insists on a colour its own contrast maths can read.
+ */
+export function paintedSurface(node: HTMLElement | null, isPainted: (value: string) => boolean = isOpaquePainted): string {
     let current: HTMLElement | null = node;
     while (current) {
         const painted = getComputedStyle(current).backgroundColor;
-        if (painted && painted !== 'transparent' && !/^rgba\([^)]*,\s*0\)$/.test(painted))
+        if (isPainted(painted))
             return painted;
         current = current.parentElement;
     }
