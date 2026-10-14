@@ -34,6 +34,25 @@ function toSqliteParam(value: unknown): unknown {
   return value
 }
 
+/**
+ * The verb D1 would judge the statement by.
+ *
+ * A common-table expression is a prefix, not a statement kind: `WITH subtree AS (…) INSERT …` writes
+ * and answers with `meta`, while `WITH subtree AS (…) SELECT …` reads. So the CTE body is skipped by
+ * paren depth and the first verb outside it decides — which also means the word inside a literal
+ * (`'delete'` written into the changes table) can never win, because the verb always comes first.
+ */
+function topLevelVerb(sql: string): string | null {
+  let depth = 0
+  for (const match of sql.matchAll(/[()]|\b(select|insert|update|delete)\b/gi)) {
+    const token = match[0]
+    if (token === '(') depth++
+    else if (token === ')') depth--
+    else if (depth === 0) return token.toLowerCase()
+  }
+  return null
+}
+
 export function makeD1(sqlite: DatabaseSync): D1Database {
   return {
     prepare(sql: string) {
@@ -47,7 +66,7 @@ export function makeD1(sqlite: DatabaseSync): D1Database {
       }
       // node:sqlite happily runs a write through .all(), so the statement kind has to be
       // decided from the SQL text the way D1 does: reads return rows, writes return meta.
-      const isRead = /^\s*(?:select|with|pragma|explain|values)\b/i.test(sql)
+      const isRead = topLevelVerb(sql) === 'select' || /^\s*(?:pragma|explain|values)\b/i.test(sql)
       const prepared = {
         bind(...bound: unknown[]) { values = bound; return prepared },
         async first() { return toD1Row(exec<object | null>('get')) ?? null },
