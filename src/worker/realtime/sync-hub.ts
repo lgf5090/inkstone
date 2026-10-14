@@ -63,11 +63,13 @@ export class SyncHub implements DurableObject {
   }
 
   webSocketClose(ws: WebSocket, code: number, reason: string): void {
-
     try {
       ws.close(code === 1005 ? 1000 : code, reason)
-    } catch {
-
+    } catch (error) {
+      // Best-effort release of the server side of a socket the far end already hung up on:
+      // `close()` rejects once the connection is past `CLOSING`, which is exactly the state that
+      // arrives here most of the time. There is no reader left to notify and nothing to retry.
+      console.warn('[inkstone] Realtime socket release skipped:', error instanceof Error ? error.message : error)
     }
   }
 
@@ -76,8 +78,10 @@ export class SyncHub implements DurableObject {
     for (const ws of this.state.getWebSockets()) {
       try {
         ws.send(payload)
-      } catch {
-
+      } catch (error) {
+        // Best-effort push. A listed socket can already be closing, and the client behind it polls
+        // the cursor on a timer, so a refused send costs one round-trip rather than a lost update.
+        console.warn('[inkstone] Realtime push dropped for one socket:', error instanceof Error ? error.message : error)
       }
     }
   }

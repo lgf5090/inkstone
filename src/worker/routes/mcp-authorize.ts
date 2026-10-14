@@ -400,6 +400,9 @@ function authorizationLocale(c: Context<AppBindings>): AppLocale {
       const settings = JSON.parse(user.settingsRaw) as { appearance?: { language?: unknown } }
       if (isAppLocale(settings.appearance?.language)) return settings.appearance.language
     } catch {
+      // Best-effort: `settings` is a free-form column a hand-edited or older row can fill with
+      // anything, and a consent page that cannot read a preference has a better answer waiting in
+      // `Accept-Language` below than an error thrown at the reader mid-authorization.
     }
   }
   return c.req.header('Accept-Language')?.toLowerCase().startsWith('en') ? 'en-US' : 'zh-CN'

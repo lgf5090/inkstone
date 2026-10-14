@@ -9,7 +9,9 @@ export function readImageSize(bytes: Uint8Array, mime: string): { width: number;
     if (mime === 'image/gif') return gifSize(bytes)
     if (mime === 'image/webp') return webpSize(bytes)
   } catch {
-
+    // A header that reads as an image but does not survive the walk is a truncated or hostile file,
+    // and `null` is the answer the caller was already built for: it fails the dimension check and the
+    // attachment is stored as `application/octet-stream`, so the sniffing result is the handling.
   }
   return null
 }

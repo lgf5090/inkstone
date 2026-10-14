@@ -84,6 +84,22 @@ function noteShareView(slug: string, ip: string, now: number): boolean {
   return hit.persist
 }
 
+/**
+ * The only place a share's `views` number moves, kept off the response path on purpose.
+ *
+ * A reader who has already been served must not lose the note because the counter was unreachable,
+ * so the write runs under `waitUntil` and its failure cannot reach the caller. The number itself is
+ * what the owner reads in the share list, so a refusal is reported rather than dropped: a share whose
+ * views silently stop growing is a product defect, and an invisible one is impossible to find.
+ */
+async function countShareView(db: D1Database, slug: string): Promise<void> {
+  try {
+    await db.prepare(`UPDATE shares SET views = views + 1 WHERE slug = ?1`).bind(slug).run()
+  } catch (error) {
+    console.warn(`[inkstone] Share view count failed for ${slug}:`, error instanceof Error ? error.message : error)
+  }
+}
+
 interface ShareRow {
   slug: string
   note_id: string
@@ -261,9 +277,7 @@ shareRoutes.post('/:slug', async (c) => {
   if (!note) throw ApiError.notFound('The note has been deleted')
 
   if (noteShareView(slug, requestClientIp(c), Date.now())) {
-    c.executionCtx?.waitUntil(
-      c.env.DB.prepare(`UPDATE shares SET views = views + 1 WHERE slug = ?1`).bind(slug).run().catch(() => {}),
-    )
+    c.executionCtx?.waitUntil(countShareView(c.env.DB, slug))
   }
 
   if (share.password_hash) {

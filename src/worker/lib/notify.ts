@@ -89,7 +89,12 @@ export function scheduleFtsDrain(c: Context<AppBindings>, max = 5): void {
         await drainFtsQueue(db, userId, scheduled.max, true)
       } while (scheduled.rerun)
     })
-    .catch(() => {})
+    .catch((error: unknown) => {
+      // Best-effort: the queue row is still there and the scheduled `drainAllFtsQueues` pass picks it
+      // up, so a failed opportunistic drain delays a note appearing in search by one cron fire rather
+      // than losing it. Reported because the symptom a reader sees is a search that looks broken.
+      console.warn('[inkstone] Deferred FTS drain failed; the scheduled drain will retry:', error instanceof Error ? error.message : error)
+    })
     .finally(() => {
       if (byUser!.get(userId) === scheduled) byUser!.delete(userId)
     })
