@@ -28,6 +28,15 @@ import { appendToDailyNote, saveArticleAsNote } from './notes'
 import { useRss } from './store'
 import { useLongPress } from '../workspace/context-menu/use-long-press'
 
+/**
+ * How long the pointer has to rest on a row before its preview card opens.
+ *
+ * Hover intent, not a delay for its own sake: a reader crossing the list to reach something else moves
+ * through a dozen rows, and a card that answers each of them is a card that is never read and covers
+ * the row it is passing. Long enough to be an aim, short enough not to feel like the list hesitating.
+ */
+const PREVIEW_HOVER_MS = 480
+
 export interface RowCallbacks {
   onPick: (entry: RssEntry, event: React.MouseEvent) => void
   /** Where the row's menu should open. A point rather than an event, because a long press and a
@@ -148,7 +157,7 @@ function ArticleRow({ entry, feed, unread, starred, picked, open, density, image
         ? event => {
             const node = event.currentTarget
             window.clearTimeout(timer.current)
-            timer.current = window.setTimeout(() => onPreview(entry, feed, node.getBoundingClientRect()), 480)
+            timer.current = window.setTimeout(() => onPreview(entry, feed, node.getBoundingClientRect()), PREVIEW_HOVER_MS)
           }
         : undefined}
       onMouseLeave={() => window.clearTimeout(timer.current)}

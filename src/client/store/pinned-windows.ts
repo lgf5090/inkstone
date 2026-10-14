@@ -111,6 +111,16 @@ function pushPinnedWindow(
 
 let persistTimer: number | undefined
 let lastPersisted = ''
+
+/**
+ * How long a pinned window is left flashing after a link jumps to it.
+ *
+ * This is not a taste value: it is the duration of `pinned-window-flash` in `prose.css`, and the flag
+ * that carries the class has to outlive the animation that reads it — a shorter value clips the flash
+ * off mid-fade, a longer one leaves a card that no longer looks targeted still claiming to be.
+ */
+const FLASH_DURATION_MS = 1100
+
 let flashTimer: number | undefined
 
 function persist(state: PinnedWindowsState): void {
@@ -158,7 +168,7 @@ export const usePinnedWindows = create<PinnedWindowsState>((set, get) => ({
       flashId: id,
       items: state.items.map((item) => item.id === id ? { ...item, z: maxZ(state.items) + 1 } : item),
     }))
-    flashTimer = window.setTimeout(() => set({ flashId: null }), 1100)
+    flashTimer = window.setTimeout(() => set({ flashId: null }), FLASH_DURATION_MS)
   },
 
   focusPinnedByNote: (noteId) => {

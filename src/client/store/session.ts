@@ -27,6 +27,16 @@ interface SessionState {
 
 type DeepPartial<T> = { [K in keyof T]?: T[K] extends object ? Partial<T[K]> : T[K] }
 
+/**
+ * How long a settings change waits before it is sent.
+ *
+ * A switch is one request, but a slider, a theme picker working through its options and a select
+ * typed with the keyboard are each a burst of them, and every value in the burst but the last is
+ * thrown away by the next. Coalescing the burst is what keeps a settings panel from writing the
+ * reader's preferences to the server once per keystroke.
+ */
+const SETTINGS_SAVE_DEBOUNCE_MS = 420
+
 let saveTimer: number | undefined
 let pendingSettingsPatch: DeepPartial<UserSettings> | null = null
 let inFlightSettingsPatch: DeepPartial<UserSettings> | null = null
@@ -273,7 +283,7 @@ export const useSession = create<SessionState>((set, get) => ({
 
 
     window.clearTimeout(saveTimer)
-    saveTimer = window.setTimeout(() => void flushSettingsPatch(set, get), 420)
+    saveTimer = window.setTimeout(() => void flushSettingsPatch(set, get), SETTINGS_SAVE_DEBOUNCE_MS)
   },
 }))
 

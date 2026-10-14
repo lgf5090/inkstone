@@ -24,6 +24,16 @@ import { loadModelAndProvider } from './model-config'
 /** How many automations one sweep will start, so a backlog cannot monopolise the cron invocation. */
 export const DUE_SWEEP_LIMIT = 20
 
+/**
+ * How long one scheduled prompt's model call is allowed to run before it is aborted.
+ *
+ * Nothing is waiting on the answer the way a chat turn is: a digest arrives when it arrives, and the
+ * reader is told by the notification it eventually produces. What has to be bounded is the other
+ * direction — a hung upstream would otherwise hold the automation's claim, and the sweep that finds
+ * it again would start the same digest a second time.
+ */
+const SCHEDULED_PROMPT_DEADLINE_MS = 90_000
+
 export interface SweepResult {
   started: number
   failed: number
@@ -100,7 +110,7 @@ async function runOne(env: Env, userId: string, automation: Automation): Promise
           return { status: 'skipped' as const, result: 'no model configured' }
         }
         const controller = new AbortController()
-        const timer = setTimeout(() => controller.abort(), 90_000)
+        const timer = setTimeout(() => controller.abort(), SCHEDULED_PROMPT_DEADLINE_MS)
         let text = ''
         try {
           text = await runner.runScheduledPrompt(entry.message || entry.name, controller.signal)

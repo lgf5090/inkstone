@@ -153,8 +153,17 @@ export function derivePinyinKeys(texts: readonly string[], from: number, limit: 
 /** Fallback idle slot when the browser offers no `requestIdleCallback`, so a warm-up still yields. */
 const IDLE_FALLBACK_MS = 200
 
+/**
+ * How long an idle task may be held before the browser runs it anyway.
+ *
+ * Idle is a courtesy, not a promise: a page that never goes idle would otherwise never derive the
+ * readings the search needs. The ceiling is what turns "when there is room" into "when there is room,
+ * or when the reader has waited this long for an answer".
+ */
+const IDLE_TIMEOUT_MS = 4_000
+
 function runWhenIdle(task: () => void): number {
-  if (typeof window.requestIdleCallback === 'function') return window.requestIdleCallback(task, { timeout: 4_000 })
+  if (typeof window.requestIdleCallback === 'function') return window.requestIdleCallback(task, { timeout: IDLE_TIMEOUT_MS })
   return window.setTimeout(task, IDLE_FALLBACK_MS)
 }
 

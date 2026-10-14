@@ -72,7 +72,13 @@ function drainWarmupQueue(): void {
   if (warmupQueue.length) warmupTimer = window.setTimeout(drainWarmupQueue, WARMUP_STAGGER_MS)
 }
 
-export function scheduleSettingsWarmup(delay = 1200): void {
+/**
+ * The delay a caller gets when it names none: long enough for the panel's own first paint and the
+ * route it came in on to finish before the warm-up starts taking bandwidth from them.
+ */
+const DEFAULT_WARMUP_DELAY_MS = 1200
+
+export function scheduleSettingsWarmup(delay = DEFAULT_WARMUP_DELAY_MS): void {
   (Object.keys(settingsLoaders) as SettingsSection[]).forEach((section) => {
     if (queuedWarmup.has(section)) return
     queuedWarmup.add(section)

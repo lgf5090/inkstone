@@ -35,6 +35,15 @@ const Lightbox = lazy(() =>
   import('./features/preview/Lightbox').then((module) => ({ default: module.Lightbox })),
 )
 
+/**
+ * How long the boot screen is allowed to stay up before the app gives up waiting and shows itself.
+ *
+ * The screen is removed the moment the session resolves, so this is only the ceiling for the case where
+ * it never does — a request that hangs, an event that never fires. It is long enough that a slow but
+ * living start is never interrupted, and short enough that a dead one is not mistaken for a slow one.
+ */
+const BOOT_WATCHDOG_MS = 8000
+
 export function App() {
 
   useLocale()
@@ -72,7 +81,7 @@ export function App() {
 
   useEffect(() => {
     if (shareSlug || isPresenter) return
-    const timer = window.setTimeout(() => dismissBootScreen(), 8000)
+    const timer = window.setTimeout(() => dismissBootScreen(), BOOT_WATCHDOG_MS)
     return () => window.clearTimeout(timer)
   }, [shareSlug, isPresenter])
 

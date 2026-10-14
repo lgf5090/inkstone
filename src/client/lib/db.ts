@@ -585,6 +585,12 @@ export const localDb = {
     }
 
     const leaseMs = 90_000
+    /**
+     * How long a browser without the Locks API waits before it asks again whether the lease is free.
+     * The lease is taken by a compare-and-set on storage, so polling is the only way to notice it was
+     * released; this is the price of noticing, and the deadline below is the limit on paying it.
+     */
+    const retryMs = 50
     let acquired = false
     const deadline = Date.now() + 30_000
     while (!acquired && Date.now() < deadline) {
@@ -601,7 +607,7 @@ export const localDb = {
         store,
       )
       if (!acquired) {
-        await new Promise<void>((resolve) => globalThis.setTimeout(resolve, 50))
+        await new Promise<void>((resolve) => globalThis.setTimeout(resolve, retryMs))
       }
     }
     if (!acquired) return false

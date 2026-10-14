@@ -267,8 +267,17 @@ function toast(error: unknown): void {
  * can still show the answer as running; the bubble is dropped only once the stored copy is visible, or
  * the reply blinks out and reappears on the next open.
  */
+/**
+ * The budget for the chase `adoptThread` describes above: how often it reads, and how many reads it is
+ * allowed before the answer is left as it is. The interval is what one read costs the network, so the
+ * pair is chosen together — patient enough to span the worker filing the turn, cheap enough to sit
+ * unnoticed behind a reader who has already moved on.
+ */
+const ADOPT_ATTEMPTS = 6
+const ADOPT_POLL_MS = 400
+
 async function adoptThread(conversationId: string): Promise<void> {
-  for (let attempt = 0; attempt < 6; attempt++) {
+  for (let attempt = 0; attempt < ADOPT_ATTEMPTS; attempt++) {
     let detail
     try {
       detail = await api.assistant.conversation(conversationId)
@@ -282,7 +291,7 @@ async function adoptThread(conversationId: string): Promise<void> {
         return
       }
     }
-    await new Promise((resolve) => setTimeout(resolve, 400))
+    await new Promise((resolve) => setTimeout(resolve, ADOPT_POLL_MS))
   }
   if (useAssistant.getState().turn?.done) useAssistant.setState({ turn: null })
 }

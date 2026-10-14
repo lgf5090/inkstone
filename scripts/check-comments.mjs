@@ -133,6 +133,7 @@ const allowed = new Map([
     "/* A choice run asks with its own dialogs, and the gate costs one subscription until a run needs them. */",
     "/* The lint preview dialog is only ever opened by a run, so its chunk stays unloaded until one asks. */",
     "/**\n * The picture viewer, hosted above the container switch.\n *\n * Any container can ask to enlarge an image — the notebook's preview and the chat's attachment chips\n * both do — and `useUi().lightbox` is one global slot. Mounted inside one container it was reachable\n * from that container only, and a chip elsewhere set the state with nothing left to render it: the\n * click did nothing at all, with nothing in the console to say so.\n */",
+    "/**\n * How long the boot screen is allowed to stay up before the app gives up waiting and shows itself.\n *\n * The screen is removed the moment the session resolves, so this is only the ceiling for the case where\n * it never does — a request that hangs, an event that never fires. It is long enough that a slow but\n * living start is never interrupted, and short enough that a dead one is not mistaken for a slow one.\n */",
   ]],
   ["src/client/components/DrawerSearchField.tsx", [
     "/** The same text `value` holds, compiled: the box says in its own words what a refused expression cost. */",
@@ -936,6 +937,7 @@ const allowed = new Map([
     "/** Adds every id the reader ticked; returns how many landed, so the dialog can say so. */",
     "// A listing that never arrived is said in the dialog, which still has its manual entry.",
     "// One id the route refuses must not lose the ones the reader also ticked.",
+    "/**\n * The budget for the chase `adoptThread` describes above: how often it reads, and how many reads it is\n * allowed before the answer is left as it is. The interval is what one read costs the network, so the\n * pair is chosen together — patient enough to span the worker filing the turn, cheap enough to sit\n * unnoticed behind a reader who has already moved on.\n */",
   ]],
   ["src/client/features/chat/chat-taxonomy.test.ts", [
     "/**\n * The conversation list's four pickers live in one tab container, the same shape the notebook's sidebar\n * uses. What is pinned here is the coupling between the strip and the panel: exactly one tab is\n * selected, the panel answers to that tab, and the two shortlists reach the store's flag endpoints\n * rather than re-reading the whole conversation list.\n */",
@@ -5547,6 +5549,7 @@ const allowed = new Map([
     "// the reader onto a phone, where 449px of list does not fit in 420px of screen.",
     "// The saved views are empty because nothing has been marked, not because nothing arrived, so",
     "// their hint names the marking rather than offering a refresh that would change nothing.",
+    "/**\n * How long the pointer has to rest on a row before its preview card opens.\n *\n * Hover intent, not a delay for its own sake: a reader crossing the list to reach something else moves\n * through a dozen rows, and a card that answers each of them is a card that is never read and covers\n * the row it is passing. Long enough to be an aim, short enough not to feel like the list hesitating.\n */",
   ]],
   ["src/client/features/rss/RssReader.tsx", [
     "/**\n * The reader: one article, and the things a reader does with it.\n *\n * The body is drawn with the notebook's own prose styles rather than a copy of them, so an article\n * and a note read as one library. The size, measure and spacing the reader picks are written as the\n * three prose custom properties on this container only — a change here is a change to how articles\n * look, not to how the editor looks.\n *\n * Every action in the toolbar is a question about one article, which is why they live here and not\n * on the list rows. The three that touch the notebook (save, add to today, excerpt) go through the\n * notes module, which is where the dedupe rules are; the two that ask a model go through the AI\n * module, which refuses to say anything until the reader has configured a key.\n */",
@@ -5873,6 +5876,10 @@ const allowed = new Map([
     "// The durable per-feed ledger, not the articles currently in memory: a device that holds 40 feeds",
     "// and has opened two still has 40 feeds on disk, and the reader is asking about the disk.",
   ]],
+  ["src/client/features/settings/SettingsPanel.tsx", [
+    "/**\n * How long the row a search jumped to keeps its flash.\n *\n * This is the duration `ink-settings-target` and `ink-settings-outline` are given in `app.css`, not a\n * matter of taste: the attribute those selectors hang on has to outlive the animation that reads it, or\n * the row stops mid-fade and reads as a highlight that was interrupted.\n */",
+    "/** How often the panel looks again for a row whose page is still arriving. */",
+  ]],
   ["src/client/features/settings/SharedNotes.tsx", [
     "// One matcher for both fields: a row that answers the title by its initials and the address by",
     "// literal characters would look like a filter that works on one column and not the other.",
@@ -5899,6 +5906,7 @@ const allowed = new Map([
   ]],
   ["src/client/features/settings/sections.ts", [
     "/** Spacing between warming two sections, so a warm-up queue never floods the network. */",
+    "/**\n * The delay a caller gets when it names none: long enough for the panel's own first paint and the\n * route it came in on to finish before the warm-up starts taking bandwidth from them.\n */",
   ]],
   ["src/client/features/settings/settingsSearch.ts", [
     "// The tier is a literal ranking: a crawling subsequence match would float an unrelated row to the",
@@ -6011,6 +6019,7 @@ const allowed = new Map([
     "// it walked through, and nothing else.",
     "/**\n * The collapsed rail's Omnisearch entry. It has to be a `RailButton` so it lines up with the other\n * icons, which is the one shape {@link OmnisearchEntry} does not draw.\n */",
     "/* The toolbar and the filter box are one pinned block: they decide what the tree\n          below is showing, so they stay put while that tree scrolls. */",
+    "/**\n * How long a folder keeps its \"just created\" mark.\n *\n * The mark is what plays the row's entry animation and draws the folder icon, and the draw is the slow\n * of them — `ink-draw` runs 760ms with a 90ms delay on the second stroke in `app.css`. So this outlives\n * the animations rather than timing them: cleared at the draw's own length the mark would vanish while\n * the icon was still being traced, and the row would spend the rest of the second looking like every\n * other row without having finished saying it is new.\n */",
   ]],
   ["src/client/features/sidebar/SidebarOutlinks.tsx", [
     "/**\n * The links the note itself points at, read off its own text rather than the server's\n * link table: the table is rebuilt on save, so a link typed a moment ago is already\n * here while the backlink on the other side is not. A target that resolves to no note\n * is kept and shown apart — that is the list a reader uses to find the titles they\n * mis-typed.\n */",
@@ -6071,6 +6080,9 @@ const allowed = new Map([
     "// populated tree to be ordered against.",
     "// Document order is the whole claim: a pinned block that sits after the list",
     "// would pin over nothing and let the toolbar scroll away.",
+  ]],
+  ["src/client/features/sidebar/useTreeChildrenMount.ts", [
+    "/**\n * How long collapsed children stay mounted after a folder closes.\n *\n * It is `--dur-slow`, the duration `.folder-children-grid` transitions `grid-template-rows` over in\n * `app.css`: unmounting earlier cuts the collapse short, unmounting later only holds a subtree nobody\n * can see. The token, not the number, is the thing being matched — so a retimed token has to be\n * retimed here too, which is why the coupling is written down rather than left to show.\n */",
   ]],
   ["src/client/features/tags/SidebarTags.tsx", [
     "// Expansion is keyed by path, so a rename or a move would otherwise collapse the branch the",
@@ -6157,6 +6169,9 @@ const allowed = new Map([
   ]],
   ["src/client/features/templates/quick-actions.test.ts", [
     "// React derives onPointerEnter from the bubbled pointerover, so drive that.",
+  ]],
+  ["src/client/features/templates/quick-actions.tsx", [
+    "/**\n * How long the favorites button waits before it hydrates the template library behind it.\n *\n * The library is not needed until a reader actually reaches for a template, so the read is pushed into\n * the browser's idle time and capped there in case a busy page never goes idle. The fallback is the\n * same promise made to a browser without `requestIdleCallback`: it has no idle to wait for, so it\n * settles for a quiet moment after start-up instead.\n */",
   ]],
   ["src/client/features/templates/template-card.tsx", [
     "/**\n * The whole card is one button, so a click anywhere on it uses the template.\n * The title row, description, tags and footer are painted above that button on\n * the z-axis to stay readable, which would otherwise let them swallow the\n * click exactly where the \"use this template\" hint is drawn — so every one of\n * them is transparent to the pointer, and only the tool buttons opt back in.\n */",
@@ -6341,6 +6356,9 @@ const allowed = new Map([
   ]],
   ["src/client/features/workspace/versions-diff.test.ts", [
     "/** The pre-change implementation: materialize every line, then truncate the array. */",
+  ]],
+  ["src/client/lib/ai/components/CodeBlock.tsx", [
+    "/**\n * How long this block keeps its \"copied\" mark before the button returns to \"copy\".\n *\n * `COPY_RESET_MS` in `lib/motion` is the dwell the copy affordances elsewhere share. This one is named\n * rather than folded into that value because naming a number is a different change from retiming one,\n * and a reader has no way to notice 2000 becoming 1500; it should join the shared constant the next\n * time the affordance itself is worked on.\n */",
   ]],
   ["src/client/lib/api.ts", [
     "/**\n   * Conditional GET/POST support for a caller that polls. `onEtag` is handed whatever the server\n   * answered with, including on the 304 that carries no body, so the next beat can send it back.\n   */",
@@ -7008,6 +7026,7 @@ const allowed = new Map([
     "// Notifying the other tabs is best-effort: this tab's own state is already updated, and a",
     "// browser that refuses the channel — or one without BroadcastChannel, guarded above — simply",
     "// hears no echo.",
+    "/**\n     * How long a browser without the Locks API waits before it asks again whether the lease is free.\n     * The lease is taken by a compare-and-set on storage, so polling is the only way to notice it was\n     * released; this is the price of noticing, and the deadline below is the limit on paying it.\n     */",
   ]],
   ["src/client/lib/drop-state.ts", [
     "/**\n * Drop-indicator state that cannot get stuck.\n *\n * A drag that ends outside the window, or one the user cancels with Escape, never fires `drop` on the\n * element that was highlighting itself, so a plain `useState` would leave the ring or the line painted\n * until the next drag. Every surface that shows a drop target needs the same five bail-outs, and a\n * surface that forgets one of them looks like a broken hover rather than a missing listener.\n */",
@@ -11945,6 +11964,9 @@ const allowed = new Map([
   ["src/client/lib/markdown/timeline-options.ts", [
     "/**\n * An unrecognised bracket group is left where it is, so `[2024] Annual report` keeps its year rather\n * than spending it on a status the author never wrote.\n */",
   ]],
+  ["src/client/lib/motion.ts", [
+    "/**\n * How long a copy button stays on its \"copied\" confirmation before returning to its resting label.\n *\n * The four affordances this replaces each held their own dwell between 1400ms and 1600ms — a\n * difference no reader can perceive, and one that had to be re-decided on every screen that copies\n * something. One value makes the acknowledgement the same length wherever it appears: long enough to\n * read once, short enough that it never outlives the click that caused it.\n */",
+  ]],
   ["src/client/lib/note-visibility.ts", [
     "// One answer to \"can the user still see this note\", shared by the list, the heatmap projection and",
     "// the gap banner. The store has always treated `deletedAt: 0` as not deleted (truthiness); the",
@@ -11984,6 +12006,7 @@ const allowed = new Map([
     "/**\n * Derive readings for up to `limit` labels that do not have one yet, starting at `from`, and return\n * the index to continue from. Bounded work in, bounded time out: this is the piece a keystroke would\n * otherwise pay all at once.\n */",
     "/**\n * Walk a listing's labels deriving their readings, a chunk per idle callback, and return a cancel.\n *\n * A 2000-note vault costs about 120ms of dictionary work — one long task on the first keystroke if\n * nothing spreads it out, invisible if idle does. Labels already cached are stepped over, so a\n * re-warm after the vault changes costs what is new and nothing else.\n */",
     "/** Fallback idle slot when the browser offers no `requestIdleCallback`, so a warm-up still yields. */",
+    "/**\n * How long an idle task may be held before the browser runs it anyway.\n *\n * Idle is a courtesy, not a promise: a page that never goes idle would otherwise never derive the\n * readings the search needs. The ceiling is what turns \"when there is room\" into \"when there is room,\n * or when the reader has waited this long for an answer\".\n */",
   ]],
   ["src/client/lib/query-match.test.ts", [
     "// The dictionary is lazy in the browser; here the literal is what a reader can type without it.",
@@ -12782,6 +12805,9 @@ const allowed = new Map([
     "// deferred callback that reaches for `window` crashes the suite when the 70ms outlives the test",
     "// environment — every test green, the run red.",
   ]],
+  ["src/client/store/pinned-windows.ts", [
+    "/**\n * How long a pinned window is left flashing after a link jumps to it.\n *\n * This is not a taste value: it is the duration of `pinned-window-flash` in `prose.css`, and the flag\n * that carries the class has to outlive the animation that reads it — a shorter value clips the flash\n * off mid-fade, a longer one leaves a card that no longer looks targeted still claiming to be.\n */",
+  ]],
   ["src/client/store/presentation.ts", [
     "// Presenting belongs to the shell, not to a workspace pane: crossing the mobile",
     "// breakpoint swaps the whole shell subtree, and a show owned by the workspace",
@@ -12821,6 +12847,7 @@ const allowed = new Map([
     "// Every group has to survive the merge. This used to list them by hand, and a group missing from",
     "// the list was dropped when a second write arrived inside the debounce window — the queued PATCH",
     "// went out as `{}`, and the server's stale value overwrote what the reader had just set.",
+    "/**\n * How long a settings change waits before it is sent.\n *\n * A switch is one request, but a slider, a theme picker working through its options and a select\n * typed with the keyboard are each a burst of them, and every value in the burst but the last is\n * thrown away by the next. Coalescing the burst is what keeps a settings panel from writing the\n * reader's preferences to the server once per keystroke.\n */",
   ]],
   ["src/client/store/ui.ts", [
     "// The subscriber fires on every notification, including the ones that change nothing",
@@ -13933,6 +13960,7 @@ const allowed = new Map([
     "// reported to the settings screen rather than failing the answer.",
     "// No vendor-side search on this protocol: the next best thing that is actually true is a remote",
     "// tool that can search, named for the model in the same line the reader's own pins use.",
+    "/**\n * The deadlines on the two model calls that run beside a turn rather than as it.\n *\n * Both abort the request rather than answer for it, so what is being chosen is how long a reader waits\n * before the turn continues without the extra work: the summariser has a whole overflow to read and can\n * afford the most time, the conflict judge is asked about two paragraphs and is the one a writer notices\n * when it is late. A call that runs past its deadline is dropped, not retried, because both are work the\n * turn can proceed without.\n */",
   ]],
   ["src/worker/assistant/scheduler.ts", [
     "/**\n * The minute sweep that runs what is due.\n *\n * Wired into the worker's cron handler alongside the existing queue drains, and deliberately kept out\n * of the hourly branch: a reminder is cheap and late delivery is visible, while the heavy work that\n * runs on the hour (backups, attachment cleanup) must not be able to take the reminders down with it.\n *\n * A routine that calls a model can outlive the sweep that started it, so each automation is claimed\n * before it runs and the claim is only released when it is re-armed — which is what stops a slow AI\n * digest from being started twice by two overlapping ticks.\n */",
@@ -13940,6 +13968,7 @@ const allowed = new Map([
     "// A plain reminder never spends AI: the message is the whole answer.",
     "// A digest can carry the reader's own note as well as the computed list.",
     "/**\n * The digest is computed, not generated.\n *\n * A summary of what is due needs the reader's own task rows, and asking a model to list them costs a\n * request, can miss one, and can invent one. The reference project got this right and the shape is\n * kept: overdue first, then today, then the open count.\n */",
+    "/**\n * How long one scheduled prompt's model call is allowed to run before it is aborted.\n *\n * Nothing is waiting on the answer the way a chat turn is: a digest arrives when it arrives, and the\n * reader is told by the notification it eventually produces. What has to be bounded is the other\n * direction — a hung upstream would otherwise hold the automation's claim, and the sweep that finds\n * it again would start the same digest a second time.\n */",
   ]],
   ["src/worker/assistant/schema.ts", [
     "/**\n * The chat assistant's tables.\n *\n * Everything the assistant owns is prefixed `chat_` and keyed by `(user_id, id)` rather than by\n * `id` alone. That is the one place the port had to depart from the reference project's schema: it\n * stored all of this in a Durable Object belonging to a single owner, so a bare `id TEXT PRIMARY KEY`\n * was enough — and here it is not. A global id key would let a backup restored into a second account\n * collide with the first one's row, and a write that quietly does nothing is the worst kind of data\n * loss, because every status code still says it worked.\n *\n * Every query in `store.ts` binds `user_id` for the same reason; the columns below are what makes that\n * filter indexable rather than a full scan.\n */",

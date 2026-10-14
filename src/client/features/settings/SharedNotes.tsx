@@ -3,6 +3,7 @@ import { Check, Copy, ExternalLink, Eye, Link2, RefreshCw, Search, Settings2, Tr
 import type { ShareListItem } from '@shared/types'
 import { api } from '../../lib/api'
 import { fullTime } from '../../lib/time'
+import { COPY_RESET_MS } from '../../lib/motion'
 import { Button } from '../../components/primitives'
 import { Input } from '../../components/form'
 import { confirm } from '../../components/overlay'
@@ -63,7 +64,7 @@ export function SharedNotes() {
       await navigator.clipboard.writeText(share.url)
       setCopied(share.noteId)
       window.clearTimeout(copiedTimer.current)
-      copiedTimer.current = window.setTimeout(() => setCopied(null), 1500)
+      copiedTimer.current = window.setTimeout(() => setCopied(null), COPY_RESET_MS)
     } catch {
       toast({ title: t('preview.could_not_copy'), tone: 'danger' })
     }

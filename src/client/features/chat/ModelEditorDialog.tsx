@@ -19,6 +19,7 @@ import type {
 import { ASSISTANT_MODEL_KINDS, ASSISTANT_MODEL_MODALITIES, ASSISTANT_MODEL_PURPOSES, ASSISTANT_PROTOCOLS, CONTEXT_WINDOW_STEPS, MAX_INPUT_STEPS, MAX_OUTPUT_STEPS, formatTokenStep } from '@shared/assistant'
 import type { AssistantModelModality, AssistantProtocol } from '@shared/assistant'
 import { cn } from '../../lib/cn'
+import { COPY_RESET_MS } from '../../lib/motion'
 import { t } from '../../lib/i18n'
 import { Field, Input, Segmented, Select, SettingRow, Slider, Switch } from '../../components/form'
 import { Button } from '../../components/primitives'
@@ -145,7 +146,7 @@ export function ModelEditorDialog({
   const copyId = async () => {
     await navigator.clipboard?.writeText(model.model).catch(() => undefined)
     setCopied(true)
-    window.setTimeout(() => setCopied(false), 1600)
+    window.setTimeout(() => setCopied(false), COPY_RESET_MS)
   }
 
   return (

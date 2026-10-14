@@ -49,6 +49,17 @@ import { useBreakpoint } from '../../lib/hooks';
 // sidebar rides in the first bundle.
 const LocalGraphPanel = lazy(() => import('../graph/LocalGraphPanel').then((m) => ({ default: m.LocalGraphPanel })));
 
+/**
+ * How long a folder keeps its "just created" mark.
+ *
+ * The mark is what plays the row's entry animation and draws the folder icon, and the draw is the slow
+ * of them — `ink-draw` runs 760ms with a 90ms delay on the second stroke in `app.css`. So this outlives
+ * the animations rather than timing them: cleared at the draw's own length the mark would vanish while
+ * the icon was still being traced, and the row would spend the rest of the second looking like every
+ * other row without having finished saying it is new.
+ */
+const NEW_FOLDER_MARK_MS = 1000;
+
 export function Sidebar({ collapsed = false, onCollapse, }: {
     collapsed?: boolean;
     onCollapse?: () => void;
@@ -411,7 +422,7 @@ export function FolderSection({ mobile = false }: { mobile?: boolean }) {
                 return;
             window.clearTimeout(createdTimerRef.current);
             setCreatedFolderId(folderId);
-            createdTimerRef.current = window.setTimeout(() => setCreatedFolderId(null), 1000);
+            createdTimerRef.current = window.setTimeout(() => setCreatedFolderId(null), NEW_FOLDER_MARK_MS);
             const currentUi = useUi.getState();
             if (currentUi.view === startingNavigation.view &&
                 currentUi.folderId === startingNavigation.folderId &&

@@ -6,6 +6,7 @@ import { api, ApiError } from '../../lib/api';
 import { cn } from '../../lib/cn';
 import { fullTime } from '../../lib/time';
 import { useRelativeTime } from '../../lib/hooks';
+import { COPY_RESET_MS } from '../../lib/motion';
 import { Badge, Button } from '../../components/primitives';
 import { Field, Input, Segmented, Switch } from '../../components/form';
 import { Modal, Tooltip, confirm } from '../../components/overlay';
@@ -197,7 +198,7 @@ export function SharePanel({ onClose, targetNote, onChanged }: {
                 return;
             setCopied(true);
             window.clearTimeout(copiedTimer.current);
-            copiedTimer.current = window.setTimeout(() => setCopied(false), 1400);
+            copiedTimer.current = window.setTimeout(() => setCopied(false), COPY_RESET_MS);
         }
         catch {
             if (noteIdRef.current !== noteId)

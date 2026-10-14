@@ -38,6 +38,18 @@ const SEARCH_NATIVE_PROTOCOLS = new Set(['anthropic', 'gemini'])
 /** Summarising costs a model call, so it only runs once enough history has piled up to be worth it. */
 export const SUMMARIZE_THRESHOLD = 8
 
+/**
+ * The deadlines on the two model calls that run beside a turn rather than as it.
+ *
+ * Both abort the request rather than answer for it, so what is being chosen is how long a reader waits
+ * before the turn continues without the extra work: the summariser has a whole overflow to read and can
+ * afford the most time, the conflict judge is asked about two paragraphs and is the one a writer notices
+ * when it is late. A call that runs past its deadline is dropped, not retried, because both are work the
+ * turn can proceed without.
+ */
+const SUMMARIZE_DEADLINE_MS = 45_000
+const CONFLICT_JUDGE_DEADLINE_MS = 30_000
+
 const MAX_RELEVANT_MEMORIES = 8
 const ALWAYS_INCLUDE_PREFERENCES = 4
 const VERDICT_RELATIONSHIPS = ['supersedes', 'refines', 'contradicts', 'complements', 'unrelated']
@@ -438,7 +450,7 @@ export class AssistantRunner {
       .map((entry) => `${entry.role === 'user' ? 'Reader' : 'Assistant'}: ${entry.content.slice(0, 1500)}`)
       .join('\n')
     const controller = new AbortController()
-    const timer = setTimeout(() => controller.abort(), 45_000)
+    const timer = setTimeout(() => controller.abort(), SUMMARIZE_DEADLINE_MS)
     let text = ''
     try {
       if (!(await this.reserve(1, this.settings.limits.maxRequestsPerDay))) return null
@@ -610,7 +622,7 @@ export class AssistantRunner {
     if (!(await this.reserve(1, this.settings.limits.maxRequestsPerDay))) return null
     const catalog = promptCatalog(this.settings.language)
     const controller = new AbortController()
-    const timer = setTimeout(() => controller.abort(), 30_000)
+    const timer = setTimeout(() => controller.abort(), CONFLICT_JUDGE_DEADLINE_MS)
     let text = ''
     try {
       for await (const event of streamUpstream(call.protocol, {

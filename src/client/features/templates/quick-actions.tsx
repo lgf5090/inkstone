@@ -12,6 +12,17 @@ import { useNoteTemplates } from '../../store/note-templates';
 
 const FAVORITES_MENU_WIDTH = 220;
 
+/**
+ * How long the favorites button waits before it hydrates the template library behind it.
+ *
+ * The library is not needed until a reader actually reaches for a template, so the read is pushed into
+ * the browser's idle time and capped there in case a busy page never goes idle. The fallback is the
+ * same promise made to a browser without `requestIdleCallback`: it has no idle to wait for, so it
+ * settles for a quiet moment after start-up instead.
+ */
+const FAVORITES_IDLE_TIMEOUT_MS = 4000;
+const FAVORITES_IDLE_FALLBACK_MS = 1500;
+
 export function favoriteTemplateItems(templates: NoteTemplate[], folderId?: string, loading = false): MenuItem[] {
     const favorites = templates
         .filter((template) => template.isStarred)
@@ -59,8 +70,8 @@ export function TemplateQuickActions({ folderId, iconSize = 14, className }: {
             requestIdleCallback?: (callback: () => void, options?: { timeout: number }) => number;
         }).requestIdleCallback;
         const handle = idle
-            ? idle(() => setArmed(true), { timeout: 4000 })
-            : window.setTimeout(() => setArmed(true), 1500);
+            ? idle(() => setArmed(true), { timeout: FAVORITES_IDLE_TIMEOUT_MS })
+            : window.setTimeout(() => setArmed(true), FAVORITES_IDLE_FALLBACK_MS);
         return () => {
             const cancel = (window as unknown as { cancelIdleCallback?: (handle: number) => void }).cancelIdleCallback;
             if (cancel)
