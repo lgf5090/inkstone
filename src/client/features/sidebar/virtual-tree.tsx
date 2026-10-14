@@ -26,9 +26,8 @@ import { isNoteDrag } from '../../lib/note-drag';
 import { useSession } from '../../store/session';
 import { useUi } from '../../store/ui';
 import { ExplorerNote } from './ExplorerNote';
-import { FolderMotionIcon } from './FolderMotionIcon';
-import { treeIndent, treeItemProps, useTreeKeyboard } from '../../lib/tree';
-import { useTreeChildrenMount } from './useTreeChildrenMount';
+import { FolderMotionIcon } from '../../components/FolderMotionIcon';
+import { treeIndent, treeItemProps, useTreeChildrenMount, useTreeKeyboard } from '../../lib/tree';
 
 export function isDropBlockedTarget(target: EventTarget | null): boolean {
     return target instanceof Element && target.closest('[data-drop-blocked]') !== null;
