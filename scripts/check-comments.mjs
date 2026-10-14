@@ -1197,6 +1197,15 @@ const allowed = new Map([
   ["src/client/features/emoji/EmojiPicker.test.ts", [
     "/** huō-jiàn, rocket: the Han word the set carries for it. */",
   ]],
+  ["src/client/features/emoji/EmojiPicker.tsx", [
+    "// What the picker does with a navigation key, whichever control it was pressed on.",
+    "// The shared filter contract over the picker's own box: Escape takes the typed name back out, and",
+    "// an empty box releases the key to the popover behind it. The picker's arrows and Enter are asked",
+    "// for here rather than by the event bubbling to the container below, because the contract stops a",
+    "// key it answers, and the container stands down for anything that started in the box.",
+    "// The box answers its own navigation keys through the contract above, so the same step must not",
+    "// run a second time when the key reaches this container.",
+  ]],
   ["src/client/features/emoji/EmojiPickerHost.test.ts", [
     "// jsdom has no Range.getClientRects, which CodeMirror's measurement needs once a view is attached.",
   ]],
@@ -1387,6 +1396,15 @@ const allowed = new Map([
     "// own floating panel offset by `levelLeft`, so indenting a row by its `depth` as well would",
     "// shift it a second time. `depth` is kept only for the `data-move-depth` focus walk.",
   ]],
+  ["src/client/features/graph/GraphPanel.tsx", [
+    "// The header's box takes the app-wide filter contract for its keys — a key that arrives while an",
+    "// input method is composing an answer is not the panel's to answer, and no keystroke spent typing a",
+    "// term reaches the shortcuts behind it — and keeps its own chrome: the labelled pill it has always",
+    "// drawn and the status line beside it. Escape stays the panel's: `useEscape` above listens on window",
+    "// in the capture phase, so it answers the key before this field is reached, and `release` is what",
+    "// the field says from its own side, the same way the command palette's box does.",
+    "/**\n * One filter the panel is under, drawn by the shared chip: the strip's row is the only thing this adds\n * — a fixed height, the width cap that keeps the header from pushing the zoom controls off, and the\n * `X` every removable chip already carries. Pressing it clears that filter, so it is an action and not\n * a toggle: no `pressed`, and so no `aria-pressed` for a screen reader to read as a switch.\n */",
+  ]],
   ["src/client/features/graph/LocalGraphPanel.tsx", [
     "/** Absent when the panel owns its column, as it does in the sidebar tab. */",
   ]],
@@ -1403,11 +1421,24 @@ const allowed = new Map([
     "// Field by field: a crawl across the joined string would let one term's letters borrow from the",
     "// next field, which for a graph filter reads as the wrong node matching.",
   ]],
+  ["src/client/features/graph/graph-panel/settings.tsx", [
+    "// The rule's own box keeps the `<label htmlFor>` it already answers to and the row's geometry, and",
+    "// takes only the app-wide filter contract's keys: a key that arrives while an input method is",
+    "// composing an answer is not the drawer's to answer, and a keystroke spent writing a rule must not",
+    "// reach the graph's shortcuts behind it. Escape stays the drawer's — its `useEscape` listens on",
+    "// window in the capture phase and answers before this field is reached — so the field says",
+    "// `release` from its own side, and clearing is the delete control at the row's end rather than a",
+    "// second `X` inside the box.",
+  ]],
   ["src/client/features/links/LinkEditorPopover.tsx", [
     "// The target field is typed into, so the name lookup behind the warning and the `#` branch has to be",
     "// a map built once per library change rather than a scan of every note per keystroke.",
     "// A new link with nothing to point at is a cancelled command, not a request to delete the words",
     "// the reader had selected when they asked for one.",
+    "// Escape belongs to the panel while the target box is empty — it gives the whole edit back. Once the",
+    "// reader has typed something, the first Escape only takes that back out, and the second discards.",
+    "// The suggestion box answers its own keys through the shared filter contract, which stops a key it",
+    "// took, so the panel below must not run the same step a second time for an event that started there.",
   ]],
   ["src/client/features/links/link-suggest.ts", [
     "/** What the row is named in the list. */",
@@ -6171,6 +6202,10 @@ const allowed = new Map([
   ["src/client/features/settings/SettingsPanel.tsx", [
     "/**\n * How long the row a search jumped to keeps its flash.\n *\n * This is the duration `ink-settings-target` and `ink-settings-outline` are given in `app.css`, not a\n * matter of taste: the attribute those selectors hang on has to outlive the animation that reads it, or\n * the row stops mid-fade and reads as a highlight that was interrupted.\n */",
     "/** How often the panel looks again for a row whose page is still arriving. */",
+    "// The box takes the app-wide filter contract — Escape takes the text back out, a composing input",
+    "// method keeps its own keys, and no other keystroke reaches a shortcut while a term is being typed",
+    "// — and keeps the panel's own arrows: ArrowDown and Enter walk into the result list. Escape with",
+    "// nothing to clear belongs to the dialog, so it is released rather than swallowed.",
   ]],
   ["src/client/features/settings/SharedNotes.tsx", [
     "// One matcher for both fields: a row that answers the title by its initials and the address by",
@@ -6448,6 +6483,10 @@ const allowed = new Map([
   ]],
   ["src/client/features/templates/gallery-header.tsx", [
     "/**\n * Below this width the header row cannot hold the title, the two meta buttons and a search box\n * that still reads as one, so those controls move into the overflow menu. The menu is built from\n * the same query: a control hidden by CSS with no menu twin is simply gone.\n */",
+    "/**\n   * The gallery's own keys, asked for before the shared filter contract decides what to do with the\n   * keystroke: ArrowDown is how the caret walks out of this box and into the grid below it.\n   */",
+    "// The app-wide filter contract for the keys, the gallery's own chrome for the box: Escape takes the",
+    "// query back out and only an empty box lets the dialog close, which is what the `data-owns-escape`",
+    "// mark below says to the overlay layers.",
   ]],
   ["src/client/features/templates/gallery-keyboard.ts", [
     "/** Keyboard parity with dragging: Shift+Arrow moves the focused card. */",
@@ -6481,6 +6520,15 @@ const allowed = new Map([
   ]],
   ["src/client/features/templates/template-card.tsx", [
     "/**\n * The whole card is one button, so a click anywhere on it uses the template.\n * The title row, description, tags and footer are painted above that button on\n * the z-axis to stay readable, which would otherwise let them swallow the\n * click exactly where the \"use this template\" hint is drawn — so every one of\n * them is transparent to the pointer, and only the tool buttons opt back in.\n */",
+  ]],
+  ["src/client/features/templates/template-gallery.tsx", [
+    "// The search box asks for these keys itself before the shared filter contract decides, so a key",
+    "// that started there is not walked a second time when it reaches the dialog.",
+  ]],
+  ["src/client/features/templates/template-tag.tsx", [
+    "/**\n * One tag written on a template.\n *\n * The card, the community row, the preview modal and the publish sheet each drew the same span, and\n * four copies of one literal class string is how four surfaces end up with four pills that only look\n * the same today.\n *\n * It is a label rather than the shared `TagChip`, because it is not a control: a template card is\n * already a button with its own hit target, and a pressable chip inside it would nest one control in\n * another. What a chip owns — the pressed state, the count, the keyboard — this has no use for.\n */",
+    "/** The tag as written on the template; the `#` is drawn here, so no call site restates it. */",
+    "/* Read as a name, not as \"hash sprint\": the sigil is decoration, the same way `TagChip` keeps it. */",
   ]],
   ["src/client/features/workspace/BacklinksPanel.tsx", [
     "// Debounced refresh on note revision changes; unrelated sync traffic",
@@ -10457,6 +10505,13 @@ const allowed = new Map([
     "/** The whole list, written through the board's guarded writer. */",
     "// The picker never offers what would not stick: cards already named, and any card that would",
     "// close a loop through the ones already on the board. The writer re-checks regardless (ADR-0006).",
+    "/** Puts the picker away the way the overlay's own Escape handler would. */",
+    "// Enter still picks the first card the search leaves, so the picker stays one keystroke from a",
+    "// blocker. Everything else about the keys is the app-wide filter contract, asked for through its",
+    "// `onKeyDown` so the contract only answers what this handler leaves alone — which is what stops an",
+    "// IME candidate keystroke from filing a dependency.",
+    "// Text in the box belongs to the contract, which takes it out; an empty box closes the picker",
+    "// here, because the field marks itself `data-owns-escape` and the overlay layers stand aside.",
   ]],
   ["src/client/lib/markdown/kanban/ui/kanban-dependency-layer.tsx", [
     "/**\n * The dependency arrows a time view draws between its bars (KU-23, ADR-0006). One SVG spans the\n * rows area — every row is the same height, so a link's geometry is pure arithmetic over the row\n * index and the bar edges the view itself already computed. The layer is `pointer-events: none`\n * and sits above the rows: it is a reading, not a control, and a click between two bars must land\n * on the bar the reader aimed at, never on the arrow that happens to pass over it. Colours come\n * from tokens (ADR-0002), so the arrows follow the theme the same way the bars' borders do.\n *\n * The bars come in from the view rather than being recomputed here: the view drew those same bars,\n * and a second geometry pass per zoom step was arithmetic done twice on the same commit.\n */",
@@ -10929,6 +10984,14 @@ const allowed = new Map([
     "/** Everything about the panel that is not how it looks: what is open, what the search leaves. */",
     "// Closing from inside the panel hands focus back to the trigger; a click elsewhere already put",
     "// focus where the reader aimed it.",
+    "/** Puts the panel away the way the overlay's own Escape handler would. */",
+    "// Enter still commits the first name the search leaves, and a near-duplicate spelling only when the",
+    "// roster holds nothing that matches. The keys themselves are the app-wide filter contract's: asked",
+    "// for here, answered by `useFilterInput` only if this handler leaves them alone, so a candidate",
+    "// picked out of an IME's list is never read as the reader's Enter.",
+    "// A panel with text in it gives the key to the contract, which takes the text out; an empty one",
+    "// closes here, because the field marks itself `data-owns-escape` and the overlay layers stand",
+    "// aside for it.",
   ]],
   ["src/client/lib/markdown/kanban/ui/kanban-person-roster.test.ts", [
     "/**\n * F-11. Who a member picker may offer is decided where the board is mounted, not in the cell that\n * draws it, so these cases read a board end to end: the roster has to survive the current filter —\n * hiding a card must not make its teammate unassignable — and one choice has to reach the document\n * through the board's single commit path.\n */",
@@ -11126,6 +11189,12 @@ const allowed = new Map([
     "// The query is view state, so a board can open with a filter already in force while the box itself",
     "// starts closed. A bare icon then gives the reader no hint that what they see is not the whole board",
     "// — the count is the only thing that moves — so the query is shown as a chip they can clear.",
+    "/* The same clear control every other filter box draws. It keeps the primitives' phone-sized\n          target — the header gate measures every icon-only control in this row — and the pill's height\n          is its own, so only the button inside it comes from the component system. */",
+    "// The box's own keys are the app-wide filter contract: Escape takes the text back out of the draft —",
+    "// and so out of the board, one debounce later — while a key that arrives mid-composition belongs to",
+    "// the input method, not to the box. The field marks itself `data-owns-escape` because Escape does",
+    "// carry a meaning here: with nothing left to take out, the box goes back to the icon it opened from,",
+    "// and the key stops there rather than dismissing whatever surface stands behind the board.",
   ]],
   ["src/client/lib/markdown/kanban/ui/kanban-select-all.test.ts", [
     "/**\n * Picking many cards at once is what the batch bar exists for, and neither the board nor the list\n * could do it — a reader who wanted to reassign twenty cards had to tick twenty checkboxes. Two ways\n * in are pinned here: the column menu's own select-all, and the menu a right click or a long press\n * opens, whose \"every card the view draws\" is however many the filter and the search leave standing.\n */",
@@ -11249,12 +11318,13 @@ const allowed = new Map([
     "// Count under the column the resolver picked; the conventional key is only the fallback for a",
     "// board that has no tag column at all, where nothing can match anyway.",
     "/**\n * The bar's own chip for a bar that has no room to be a row: with eight tags on a board the strip is\n * several lines, and every one of them came off the canvas (user report 2026-09-23). It is a\n * disclosure rather than a menu — the strip is in this same component, so pressing it shows what is\n * already here, and it keeps the count of what is in force while it is folded away.\n */",
-    "/** One tag of the strip, with the count of the live cards that wear it. */",
     "/** The strip itself: its label, one chip per tag, and the way to drop the whole selection. */",
+    "/**\n * One tag of the strip, with the count of the live cards that wear it. The box, the pressed state and\n * its `aria-pressed` are the shared chip's; what this strip still owns is the palette — a kanban tag's\n * colour is data written in the note, so it arrives as a style and keeps its own corner radius and\n * padding.\n *\n * The count is written into the label rather than through the chip's `count` slot, and that is a\n * contrast decision, not a taste one: the slot paints the digits `--text-quaternary`, which is a grey\n * calibrated for text sitting on a theme surface. Measured against the label tints this palette is\n * composited on, it lands at 4.20:1 (light, red on `--bg-inset`) and 1.37:1 (dark, gray on\n * `--bg-overlay`) — under AA, and `kanban-tag-contrast.test.ts` is the gate that says this palette is\n * the one the accent system does not guard. Only a tag's own foreground clears AA over its own tint,\n * so the count inherits it, exactly as it did before the chip was shared. The shared slot becomes\n * usable here once `TagChip` gives a tinted surface a way to keep the count in `currentColor`.\n */",
   ]],
   ["src/client/lib/markdown/kanban/ui/kanban-tag-picker.tsx", [
     "// The autoFocused input takes focus when the panel opens, so closing has to hand it",
     "// back — but only while it is still inside, since a click outside moved it already.",
+    "/**\n * A tag the card already wears, drawn as the shared chip. The chip *is* the remove control: the old\n * shape was a nameless span holding a nested button, so the box took a Tab to reach and gave the row\n * no name of its own. The colour stays a style because it is data written in the note.\n */",
   ]],
   ["src/client/lib/markdown/kanban/ui/kanban-timeline-grid.tsx", [
     "/**\n * The scale the two time views share. It is deliberately not view state: the fences are what the\n * board's readers share, while how far out somebody likes to look is theirs alone — and every write\n * to a view is a write to the whole note (`write.ts`), which a control people toggle while reading\n * should not be paying for. What the board does keep is the scale itself, in `kanban-view-memory.ts`,\n * so looking at another view and coming back does not silently reset the reader to a day.\n */",
@@ -15989,9 +16059,6 @@ const allowed = new Map([
     "// Four sites used to write `0_0_0_3px_var(--accent-ring)` by hand and one wrote it at 2px; a fifth",
     "// thickness was one copy-paste away.",
     "// Outside the shared layer the hand-spelled rings are still allowed to exist until their owners",
-    "// move, but they may only be one of the two thicknesses on record — which is what stops the",
-    "// disagreement from growing a fourth value. An `inset` spread is a hairline drawn inside a shape",
-    "// (a code token's edge), not a ring around a focused control, so it is not this rule's business.",
     "// `DEBOUNCE` in `src/shared/constants.ts` is the answer for a filter box, a preview repaint and a",
     "// settings write. Nothing in the shared layer should need a fourth number. Both hooks are read:",
     "// `useDebouncedDraft` is the same wait behind a draft box, and a rule that only looked at the other",
@@ -16000,6 +16067,10 @@ const allowed = new Map([
     "// out, and a write is the one thing a reader does not expect to see land immediately. A scale that",
     "// has those the wrong way round is a redesign, not a retune — which is what the six hand-picked",
     "// search values in front of this rule were.",
+    "// move, but they may only be the thicknesses on record — which is what stops the disagreement from",
+    "// growing a new value. The 3px one left the tree when the template gallery's search box took",
+    "// `--shadow-ring-focus`; an `inset` spread is a hairline drawn inside a shape (a code token's",
+    "// edge), not a ring around a focused control, so it is not this rule's business.",
   ]],
   ["tests/sidebar-chrome-css.test.ts", [
     "/**\n * The pinned panel chrome is one CSS rule shared by every sidebar tab, so the rule\n * itself is the thing that has to stay intact — the per-panel guards can only see the\n * class on the element. Read here rather than in the component's own test because this\n * is the project that may touch the filesystem.\n */",
