@@ -30,10 +30,9 @@ import { queryMatches } from '../../../lib/query-match'
 import type { Query } from '../../../lib/query-match'
 import { t } from '../../../lib/i18n'
 import { cn } from '../../../lib/cn'
-import { treeIndent, treeItemProps } from '../../../lib/tree'
+import { treeIndent, treeItemProps, type MoveMenuFolder } from '../../../lib/tree'
 import { useMediaQuery } from '../../../lib/hooks'
 import { FolderMoveMenu } from '../../folders/FolderMoveMenu'
-import type { MoveMenuFolder } from '../../folders/FolderMoveMenu'
 import { getAllFolderDescendants, useExcalidrawLibraryStore } from './library-store'
 import {
   beginFolderDrag,

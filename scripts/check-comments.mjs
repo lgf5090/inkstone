@@ -1131,7 +1131,6 @@ const allowed = new Map([
     "/**\n * The official catalog holds 232 libraries. Mounting all of them at once was measured in Chromium as a\n * single 355-383 ms long task that also holds up the modal's own shell, and it asked for a preview image\n * per card (748 kB before the first scroll). So the grid renders a window and hands out the rest as the\n * reader approaches its end — the same shape the kanban board uses, with a real button for the tail so a\n * browser without an observer, or a keyboard that never scrolls, still reaches every card.\n */",
   ]],
   ["src/client/features/folders/FolderMoveMenu.tsx", [
-    "/**\n * What the flywheel reads from a folder: a name, its children, and how many things sit directly in it.\n *\n * Stated structurally rather than as the notes store's `FolderNode` because the library panel has the\n * same shape of tree over its own folders, and a second copy of this picker - flywheel positioning,\n * arrow-key walking and all - would be the worse outcome. `FolderNode` satisfies it as it is.\n */",
     "/** The name of the top level for this tree, which is not \"Unfiled\" everywhere. */",
   ]],
   ["src/client/features/graph/LocalGraphPanel.tsx", [
@@ -12513,6 +12512,9 @@ const allowed = new Map([
     "/**\n * The keyboard contract every tree shares, read from the rendered DOM rather than from a model.\n *\n * A row is any `[data-tree-row]`, its fold control is `[data-tree-toggle]`, and the tree is the\n * nearest `[role=\"tree\"]` ancestor. Staying DOM-based is what lets one helper serve trees whose node\n * types never unify — folders, tags, calendar periods, stencil folders — because they already agree\n * on this shape, and it keeps the helpers testable without a React render.\n */",
     "/** Jump to the first or last visible row, which is what Home and End mean in a tree. */",
     "/**\n * The wrap-around step an index cursor takes. Shared by the tag tree's filter cursor and the move\n * picker's per-level walk, both of which pick a row by position rather than by DOM focus.\n */",
+  ]],
+  ["src/client/lib/tree/move-menu.ts", [
+    "/**\n * The folder shape a move picker reads: a name, its children, and how many things sit directly in it.\n *\n * It is the contract between a tree some feature owns and a picker another feature draws, so it lives\n * in neither feature — the notes folders and the stencil library both hand the same picker a tree of\n * exactly this shape, and a second copy of that picker (flywheel positioning, arrow-key walking and\n * all) would be the worse outcome. Stated structurally rather than as the notes store's `FolderNode`,\n * which satisfies it as it is.\n */",
   ]],
   ["src/client/lib/tree/tree-item.ts", [
     "/** 1-based depth, the way `aria-level` counts. */",

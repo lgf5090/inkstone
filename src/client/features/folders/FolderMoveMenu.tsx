@@ -2,23 +2,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import { Check, ChevronRight, FolderClosed, Inbox } from 'lucide-react';
 import { cn } from '../../lib/cn';
 import { t } from '../../lib/i18n';
-import { stepIndex, treeIndent } from '../../lib/tree';
-
-/**
- * What the flywheel reads from a folder: a name, its children, and how many things sit directly in it.
- *
- * Stated structurally rather than as the notes store's `FolderNode` because the library panel has the
- * same shape of tree over its own folders, and a second copy of this picker - flywheel positioning,
- * arrow-key walking and all - would be the worse outcome. `FolderNode` satisfies it as it is.
- */
-export interface MoveMenuFolder {
-    id: string;
-    name: string;
-    children: MoveMenuFolder[];
-    directNotes: number;
-    icon?: string | null;
-    color?: string | null;
-}
+import { stepIndex, treeIndent, type MoveMenuFolder } from '../../lib/tree';
 
 const LEVEL_WIDTH = 188;
 const LEVEL_GAP = 2;
