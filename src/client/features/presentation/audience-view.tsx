@@ -35,7 +35,7 @@ export function readAudiencePosition(where: AudienceWhere, deckLength: number, p
 }
 
 /**
- * The audience's seat at somebody else's show (ADR-0006).
+ * The audience's seat at somebody else's show.
  *
  * The viewer is handed the same markdown the share page already renders and paginates it on their own
  * device, so what the speaker wrote is applied through the clamps the show uses for a plan that changed

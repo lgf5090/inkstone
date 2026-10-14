@@ -9,7 +9,7 @@ import { matchesQuery } from '../../../fuzzy'
 import { usePinyinVersion } from '../../../pinyin'
 
 /**
- * The detail panel's dependency editor (KU-23, ADR-0006): the list of cards this card waits on,
+ * The detail panel's dependency editor (KU-23): the list of cards this card waits on,
  * with a searchable way to add a blocker and one remove button per row. The picker offers only
  * what would stick — the board's other cards, minus those already named — so a cycle is never
  * offered, let alone written; the missing ids a hand-edited fence may carry are listed as missing
@@ -202,8 +202,8 @@ function DependencyRow({ title, onRemove }: { title: string; onRemove: () => voi
 }
 
 /**
- * A blocker the board no longer holds: reported rather than dropped (ADR-0006 — a read must not
- * rewrite a document), with its own remove button since it can never be edited back into existence.
+ * A blocker the board no longer holds: reported rather than dropped, because a read must not
+ * rewrite a document. It gets its own remove button since it can never be edited back into existence.
  */
 function MissingDependencyRow({ id, onRemove }: { id: string; onRemove: () => void }) {
   return (
@@ -237,7 +237,7 @@ export function DetailDependencies({
   const missing = deps.filter((id) => !board.some((other) => other.id === id))
   const titleOf = (id: string) => board.find((other) => other.id === id)?.title ?? id
   // The picker never offers what would not stick: cards already named, and any card that would
-  // close a loop through the ones already on the board. The writer re-checks regardless (ADR-0006).
+  // close a loop through the ones already on the board. The writer re-checks regardless.
   const excluded = useMemo(() => {
     const ids = new Set(deps)
     for (const other of board) {

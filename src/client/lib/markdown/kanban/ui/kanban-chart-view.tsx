@@ -131,7 +131,7 @@ function MetricCards({ total, completedCount }: { total: number; completedCount:
 
 // Chart.js bakes colours into the config at creation time, so the palette has
 // to be re-read whenever the theme, the accent (the line chart follows
-// `--accent`) or the white-background variant rewrites the tokens (ADR-0002).
+// `--accent`) or the white-background variant rewrites the tokens.
 function useThemeRevision(): number {
   const [revision, setRevision] = useState(0)
   useEffect(() => {

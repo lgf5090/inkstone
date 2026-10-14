@@ -3,7 +3,7 @@ import { SHARE_PRESENCE_POLL_MS, type PublicSharePresence } from '@shared/share-
 import { ApiError, api } from '../../lib/api'
 
 /**
- * The viewer's heartbeat for a show it is following (N-34 / ADR-0006).
+ * The viewer's heartbeat for a show it is following (N-34).
  *
  * The poll is the transport by decision, not by default: the presenter's writes are one row and the
  * viewers' reads are conditional, so the whole channel is a row plus a `no-store` answer that can be a

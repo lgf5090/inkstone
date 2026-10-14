@@ -217,7 +217,7 @@ async function tokenMatches(row: SharePresenceRow, token: string): Promise<boole
  *
  * The audience is already counted, by accident: every public read spends a budget attempt keyed by the
  * show's slug and the reader's address, and the row it writes carries the time of that read. Counting
- * those rows is the whole signal — no per-viewer table (ADR-0006 refuses one), no second write, and
+ * those rows is the whole signal — no per-viewer table, which was weighed and refused, no second write, and
  * nothing new for a viewer to send. The count is a read of the throttle ledger, so it is asked through
  * `countAttemptKeysInRange`; this only builds the room's key range and window.
  *

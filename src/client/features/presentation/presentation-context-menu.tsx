@@ -130,8 +130,8 @@ function buildNavigationItems(options: PresentationMenuItemsOptions): MenuItem[]
  */
 export function buildAudienceItems(options: PresentationMenuItemsOptions): MenuItem[] {
   // The demo edition says so rather than offering a door that cannot open: its backend is a map inside
-  // this tab, so a link handed to another person opens a page that never heard of the talk (ADR-0006 —
-  // a capability a surface cannot host is stated, not silently missing).
+  // this tab, so a link handed to another person opens a page that never heard of the talk — the rule
+  // being that a capability a surface cannot host is stated, not silently missing.
   if (IS_DEMO_MODE) {
     return [
       {

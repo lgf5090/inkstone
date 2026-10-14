@@ -1,5 +1,5 @@
 /**
- * The lease on a show the audience is following (ADR-0006).
+ * The lease on a show the audience is following.
  *
  * It lives in the shared layer because it is a product rule: the worker expires the presence row with
  * it, the speaker's own copy quotes the same two hours ("this show closes in two hours at the latest"), and a viewer that
@@ -14,7 +14,7 @@ export const SHARE_PRESENCE_TTL_MS = 2 * 60 * 60 * 1000
 /**
  * How often a following viewer asks where the show is.
  *
- * Chosen against the read budget the public route enforces (ADR-0006 section 4), not against latency: the
+ * Chosen against the read budget the public route enforces, not against latency: the
  * shorter this is, the more of the budget a single viewer spends, and the visible cost of a longer one
  * is a page that arrives up to `SHARE_PRESENCE_POLL_MS` late — which is what the 304 path is for.
  */

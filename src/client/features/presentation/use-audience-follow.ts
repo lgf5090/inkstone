@@ -8,7 +8,7 @@ import { useUi } from '../../store/ui'
 const AUDIENCE_STATUS_POLL_MS = 15_000
 
 /**
- * The presenter's side of an audience following along (N-34 / ADR-0006).
+ * The presenter's side of an audience following along (N-34).
  *
  * One press asks the server for a show, hands out the link it mints, and every turn of the talk reports
  * where the show is. Everything here is per-show local state: a following audience belongs to the talk

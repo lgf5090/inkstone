@@ -8,7 +8,7 @@ import { PresentationControls } from './presentation-controls'
 
 installTestGlobals()
 
-// The demo edition has no server, so it has no link to hand out. ADR-0006 asks for that to be said rather
+// The demo edition has no server, so it has no link to hand out. The rule for that case is to say so rather
 // than left out, and these two rows are the whole of it: no door on the bar, one explanation behind the
 // phone's door.
 vi.mock('../../lib/runtime', async (importOriginal) => ({

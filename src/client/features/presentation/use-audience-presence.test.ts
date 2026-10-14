@@ -7,7 +7,7 @@ import { useAudiencePresence } from './use-audience-presence'
 
 installTestGlobals()
 
-// The viewer's heartbeat (N-34 / ADR-0006). What a viewer must never do is make the talk look broken
+// The viewer's heartbeat (N-34). What a viewer must never do is make the talk look broken
 // because one request failed, or keep asking after the room emptied — so both of those are asserted
 // here, along with the validator a 304 answer depends on.
 const api = vi.hoisted(() => ({ presence: { read: vi.fn() } }))

@@ -7,7 +7,7 @@ import {
 } from './timeline-helpers'
 
 /**
- * What one card owes another (KU-23, ADR-0006). A card's `dependsOn` names the cards that must be
+ * What one card owes another (KU-23). A card's `dependsOn` names the cards that must be
  * done before it — the blockers — and the direction is the only thing the rest of the module needs
  * to agree on: an edge runs from the blocker to the card that lists it, and every read below is
  * built from that one rule. The list lives on the item in the JSON body; the outline body has no
@@ -54,7 +54,7 @@ export function kanbanDependencyEdges(items: KanbanItem[]): KanbanDependencyEdge
 /**
  * How many cards wait on each card, read off the edges: the figure a card's footer shows so a reader
  * can see, without opening anything, that moving this card leaves work waiting behind it. Deliberately
- * structural — no done-state inference (ADR-0006), so a card keeps its count until the waiters name
+ * structural — no done-state inference, so a card keeps its count until the waiters name
  * something else.
  */
 export function kanbanBlockedCounts(items: KanbanItem[]): Map<string, number> {
