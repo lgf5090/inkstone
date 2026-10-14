@@ -26,20 +26,21 @@ function collectDefined(files: string[]): Set<string> {
 // Debt that predates the kanban port and belongs to whoever owns that file. Registering it here means
 // the gate is green today and turns red the moment *anyone* adds a new dangling token — which is the
 // only reason it exists. Removing an entry requires the owning module to define the token.
-// Three entries this list used to carry — `--danger-soft`, `--sp-0-625`, `--font-display` — are gone
-// because the calendar round defined them in `styles/tokens.css` instead of leaving them dangling.
+// Five entries this list used to carry are gone: `--danger-soft`, `--sp-0-625` and `--font-display`
+// because the calendar round defined them in `styles/tokens.css` instead of leaving them dangling;
+// `--text-20` the same way (the type scale now carries the step the kanban chart was asking for, and
+// the numbers really are 20px now); and `--accent-fg` because nothing references it any more — the tag
+// picker paints the pair the rest of the app paints on a filled accent, `--accent-contrast`.
 const LEGACY_DANGLING = new Map<string, string>([
   ['--code-font-size', 'styles/prose.css and kanban.css; the value is set at runtime by the code-block JS'],
   ['--code-line-height', 'styles/prose.css; same runtime-set pair as --code-font-size'],
   // Not debt: a template prefix. colors.ts writes var(--kanban-tag-${name}-bg), so the scanner reads a
   // truncated name. The 24 real tokens it expands to are all declared, in both themes.
   ['--kanban-tag-', 'kanban/colors.ts template prefix var(--kanban-tag-<name>-bg); the expanded tokens are declared'],
-  // Inherited from the reference project, where they dangle exactly the same way (checked with a
-  // repo-wide grep for a definition). Both projects therefore render these through the fallback, so
+  // Inherited from the reference project, where it dangles exactly the same way (checked with a
+  // repo-wide grep for a definition). Both projects therefore render it through the fallback, so
   // picking a fork token here would be a silent visual redesign, not a port fix.
-  ['--accent-fg', 'kanban tag-picker foreground; undefined in the reference too, falls back to inherited'],
   ['--bg-surface-subtle', 'kanban column-cards surface; undefined in the reference too, falls back to inherited'],
-  ['--text-20', 'kanban chart-view type scale; undefined in the reference too, falls back to inherited'],
 ])
 
 describe('every design token referenced by the client is defined (SH-37)', () => {

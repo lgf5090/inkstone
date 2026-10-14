@@ -93,7 +93,7 @@ describe('the selected tab is painted, in both themes', () => {
     const { container } = mountTabs('v-timeline')
     const selected = container.querySelector<HTMLElement>('[role="tab"][aria-selected="true"]')!
     expect(selected.textContent).toContain('Timeline')
-    expect(tokensOf(selected)).toContain('--accent')
+    expect(tokensOf(selected)).toContain('--accent-on-soft')
     expect(tokensOf(selected)).toContain('--accent-soft')
   })
 
