@@ -1074,6 +1074,7 @@ const allowed = new Map([
     "/**\n   * Ask the engine to bring its library panel back.\n   *\n   * A confirmation dialog is portalled to the body, and the engine closes its sidebar on a pointer\n   * down outside the panel - which is exactly what answering the dialog is. Without this the panel\n   * vanishes behind the dialog and the user is left on a bare canvas having only meant to rename a\n   * folder.\n   */",
     "// The browser used to pay for a 100 kB catalog and a cold upstream on the click itself. Asking",
     "// while the reader is still looking at the panel means the official browser opens at once.",
+    "/* Every LibraryFolderRow writes role=\"treeitem\" and nests its children in a role=\"group\".\n              Those are only tree semantics when a tree owns them, so this wrapper is the tree; left\n              dangling, a screen reader reads the rows as unrelated boxes and never reports the depth\n              the indentation is already drawing. Selection is one folder at a time, which is ARIA's\n              default for a tree, so aria-multiselectable stays unstated rather than repeated. */",
   ]],
   ["src/client/features/excalidraw/library/ExcalidrawOfficialLibraryModal.tsx", [
     "// Whatever the store already holds paints first; the request only fills in or refreshes it.",
@@ -1095,6 +1096,7 @@ const allowed = new Map([
     "// hit: where there is no hover, the quick actions are simply painted.",
     "// swallowed every keystroke. Focusing after the commit, and selecting the name so the first",
     "// keystroke replaces it, is what makes the menu's rename and new-subfolder rows type somewhere.",
+    "/** The toggle column a child-name field clears so the field lines up under the row's own label. */",
   ]],
   ["src/client/features/excalidraw/library/library-folder-drag.test.ts", [
     "/**\n * a · b( c( d ) ) · e\n *\n * Three roots and a two-level branch under `b`: the only shape where a drop can try to land a folder\n * next to its own grandchild, which has to be refused rather than silently made into a cycle.\n */",
@@ -1142,7 +1144,6 @@ const allowed = new Map([
     "/**\n * The official catalog holds 232 libraries. Mounting all of them at once was measured in Chromium as a\n * single 355-383 ms long task that also holds up the modal's own shell, and it asked for a preview image\n * per card (748 kB before the first scroll). So the grid renders a window and hands out the rest as the\n * reader approaches its end — the same shape the kanban board uses, with a real button for the tail so a\n * browser without an observer, or a keyboard that never scrolls, still reaches every card.\n */",
   ]],
   ["src/client/features/folders/FolderMoveMenu.tsx", [
-    "/**\n * What the flywheel reads from a folder: a name, its children, and how many things sit directly in it.\n *\n * Stated structurally rather than as the notes store's `FolderNode` because the library panel has the\n * same shape of tree over its own folders, and a second copy of this picker - flywheel positioning,\n * arrow-key walking and all - would be the worse outcome. `FolderNode` satisfies it as it is.\n */",
     "/** The name of the top level for this tree, which is not \"Unfiled\" everywhere. */",
   ]],
   ["src/client/features/graph/LocalGraphPanel.tsx", [
@@ -12517,6 +12518,30 @@ const allowed = new Map([
     "/** GET `url` as a Blob, counting chunks so a slow line still shows a moving bar. */",
     "/**\n * Why the server said no, in the language the reader set the interface to.\n *\n * The sync line is the only place a shelf reports trouble, and `Upload failed (403)` tells a reader\n * nothing about the one refusal they will actually hit — an account whose book budget is full.\n */",
   ]],
+  ["src/client/lib/tree/indent.ts", [
+    "/**\n * The one source of truth for how far a tree row steps in per depth level.\n *\n * The sidebar folders, the tag tree, the stencil library and the move picker all draw the same row\n * geometry, so the step lives here rather than being re-derived as `6 + depth * 13` — and the four\n * other constants that grew beside it (`4 + depth * 13`, `6 + depth * 14`, `4 + depth * 12`). Rows\n * apply it as an inline `paddingLeft`, which is the runtime-value case the style rule allows.\n */",
+  ]],
+  ["src/client/lib/tree/keyboard.ts", [
+    "/**\n * The keyboard contract every tree shares, read from the rendered DOM rather than from a model.\n *\n * A row is any `[data-tree-row]`, its fold control is `[data-tree-toggle]`, and the tree is the\n * nearest `[role=\"tree\"]` ancestor. Staying DOM-based is what lets one helper serve trees whose node\n * types never unify — folders, tags, calendar periods, stencil folders — because they already agree\n * on this shape, and it keeps the helpers testable without a React render.\n */",
+    "/** Jump to the first or last visible row, which is what Home and End mean in a tree. */",
+    "/**\n * The wrap-around step an index cursor takes. Shared by the tag tree's filter cursor and the move\n * picker's per-level walk, both of which pick a row by position rather than by DOM focus.\n */",
+  ]],
+  ["src/client/lib/tree/move-menu.ts", [
+    "/**\n * The folder shape a move picker reads: a name, its children, and how many things sit directly in it.\n *\n * It is the contract between a tree some feature owns and a picker another feature draws, so it lives\n * in neither feature — the notes folders and the stencil library both hand the same picker a tree of\n * exactly this shape, and a second copy of that picker (flywheel positioning, arrow-key walking and\n * all) would be the worse outcome. Stated structurally rather than as the notes store's `FolderNode`,\n * which satisfies it as it is.\n */",
+  ]],
+  ["src/client/lib/tree/tree-item.ts", [
+    "/** 1-based depth, the way `aria-level` counts. */",
+    "/** Omitted on a leaf; a branch states whether it is open. */",
+    "/** The size and 1-based position among the row's siblings, when the tree can tell. */",
+    "/**\n * The ARIA a tree row carries, so every tree exposes the same structure to a screen reader instead\n * of each one remembering a different subset. Spread it onto the element that wraps a row and its\n * `role=\"group\"` children; `undefined` fields are dropped rather than rendered as `aria-x=\"undefined\"`.\n */",
+  ]],
+  ["src/client/lib/tree/use-expanded-set.ts", [
+    "/**\n * Expand/collapse state for a tree that owns it locally, keyed by node id or path.\n *\n * The sidebar keeps its expansion in the UI store because other panels reach for it; a tree with no\n * cross-panel reach — the tag tree — kept a fourth hand-rolled shape for the same idea. This is that\n * shape, once. `setExpanded` is exposed alongside `toggle`/`setMany` because a rename or a move has\n * to replay a whole set against a changed key, not flip one entry.\n */",
+  ]],
+  ["src/client/lib/tree/use-tree-keyboard.ts", [
+    "/**\n   * Keys beyond the arrows and Home/End that a host owns — F2 to rename, Delete to remove. Return\n   * true when the event was handled, which is what makes the handler prevent the browser default.\n   */",
+    "/**\n * The shared tree keyboard: ArrowDown/ArrowUp walk the visible rows, ArrowRight expands or steps\n * into a branch, ArrowLeft collapses or returns to the parent, Home/End jump to the ends. The\n * handler reads the rendered DOM (see `./keyboard`), so a row only has to carry `data-tree-row`\n * and its fold control `data-tree-toggle`. Modifier chords and IME composition are left alone.\n */",
+  ]],
   ["src/client/lib/year-grid-prefs.ts", [
     "// Corrupt or missing stored prefs fall back to the default below.",
     "// Quota or private-mode writes can throw; the pref stays authoritative in memory.",
@@ -14895,6 +14920,8 @@ const allowed = new Map([
     "// matching that would say the toolbar is painted on a phone when it is still waiting for hover.",
     "// A fresh mount: the hook reads the media query when the row is created, so re-rendering",
     "// the same tree would keep answering with the value it saw the first time.",
+    "/** The wrapper a row’s ARIA is spread onto, one level above the `[data-library-folder]` box. */",
+    "/** The one tree the panel renders, taken by throwing rather than by an optional chain that would\n     * read the same as a row with no tree above it. */",
   ]],
   ["tests/excalidraw-official-catalog-route.test.ts", [
     "/** The route caches the catalog in module scope, so every test needs a freshly imported module. */",

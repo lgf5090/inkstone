@@ -762,7 +762,12 @@ export const ExcalidrawLibraryTree: React.FC<ExcalidrawLibraryTreeProps> = ({
             <Menu anchor={rootMenu.point} open onClose={rootMenu.close} items={rootMenuItems} container={overlayContainer} label={t('excalidraw.all_folders')} />
           )}
 
-          <div className="mt-1 flex flex-col gap-0.5">
+          {/* Every LibraryFolderRow writes role="treeitem" and nests its children in a role="group".
+              Those are only tree semantics when a tree owns them, so this wrapper is the tree; left
+              dangling, a screen reader reads the rows as unrelated boxes and never reports the depth
+              the indentation is already drawing. Selection is one folder at a time, which is ARIA's
+              default for a tree, so aria-multiselectable stays unstated rather than repeated. */}
+          <div role="tree" aria-label={t('excalidraw.library_title')} className="mt-1 flex flex-col gap-0.5">
             {visibleFolders.map((folderNode) => (
               <LibraryFolderRow key={folderNode.id} node={folderNode} ctx={rowCtx} />
             ))}

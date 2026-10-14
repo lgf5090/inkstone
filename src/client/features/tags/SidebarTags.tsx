@@ -4,6 +4,7 @@ import { cn } from '../../lib/cn';
 import { splitByRanges } from '../../lib/fuzzy';
 import { compileQuery, queryMatches, type Query } from '../../lib/query-match';
 import { FilterInput } from '../../components/FilterInput';
+import { stepIndex, treeIndent, useExpandedSet } from '../../lib/tree';
 import { buildTagTree, childTagPath, collectParentPaths, flattenTagTree, renameTagSegment, searchTagTree, siblingParentPaths } from '../../lib/tag-tree';
 import type { TagTreeNode } from '../../lib/tag-tree';
 import { IconButton } from '../../components/primitives';
@@ -35,7 +36,7 @@ export function SidebarTags({ mobile = false }: { mobile?: boolean }) {
     const toggleTagExclusion = useUi((s) => s.toggleTagExclusion);
     const excludedTags = useUi((s) => s.excludedTags);
     const [query, setQuery] = useState('');
-    const [expanded, setExpanded] = useState<ReadonlySet<string>>(() => new Set());
+    const { expanded, setExpanded, toggle: toggleExpanded, setMany: setExpandedMany } = useExpandedSet();
     const [listOpen, setListOpen] = useState(false);
     const [cursor, setCursor] = useState(-1);
     const [renamingId, setRenamingId] = useState<string | null>(null);
@@ -92,7 +93,7 @@ export function SidebarTags({ mobile = false }: { mobile?: boolean }) {
     const moveCursor = (step: number) => {
         if (!rows.length)
             return;
-        const next = (cursor + step + rows.length) % rows.length;
+        const next = stepIndex(cursor, step, rows.length);
         setCursor(next);
         scrollRowIntoView(listRef.current, next);
     };
@@ -200,10 +201,10 @@ export function SidebarTags({ mobile = false }: { mobile?: boolean }) {
                     inputRef.current?.focus();
                 }} className="text-[var(--accent)] hover:underline">{t('notes.clear_filters')}</button>
           </p>}
-        {rows.map((node, index) => (<TagTreeRow key={node.fullPath} node={node} query={tagQuery} expanded={expanded.has(node.fullPath)} active={(mobile || listVisible) && view === 'tag' && activeTags.includes(node.fullPath)} highlighted={index === cursor} renaming={renamingId === node.tag.id} onToggle={() => setExpanded((previous) => toggleSet(previous, node.fullPath))} onOpen={(event) => open(node.fullPath, event.metaKey || event.ctrlKey)} onStartRename={() => setRenamingId(node.tag.id)} onFinishRename={(value) => {
+        {rows.map((node, index) => (<TagTreeRow key={node.fullPath} node={node} query={tagQuery} expanded={expanded.has(node.fullPath)} active={(mobile || listVisible) && view === 'tag' && activeTags.includes(node.fullPath)} highlighted={index === cursor} renaming={renamingId === node.tag.id} onToggle={() => toggleExpanded(node.fullPath)} onOpen={(event) => open(node.fullPath, event.metaKey || event.ctrlKey)} onStartRename={() => setRenamingId(node.tag.id)} onFinishRename={(value) => {
                     setRenamingId(null);
                     void renameTag(node.tag, renameTagSegment(node.fullPath, value));
-                }} onCancelRename={() => setRenamingId(null)} excluded={excludedTags.includes(node.fullPath)} onToggleLevel={(paths, open) => setExpanded((previous) => { const next = new Set(previous); for (const path of paths) { if (open) next.add(path); else next.delete(path) } return next })} levelSiblings={siblingParentPaths(tree, node.fullPath)} onCreateChild={startDraft} onManage={() => setManageOpen(true)} dragging={dragPath === node.fullPath} dropTarget={dropPath === node.fullPath} dropHint={dropPath === node.fullPath ? tagMoveTarget(draggedTag(), node.fullPath) : null} onDragStart={(event) => {
+                }} onCancelRename={() => setRenamingId(null)} excluded={excludedTags.includes(node.fullPath)} onToggleLevel={(paths, open) => setExpandedMany(paths, open)} levelSiblings={siblingParentPaths(tree, node.fullPath)} onCreateChild={startDraft} onManage={() => setManageOpen(true)} dragging={dragPath === node.fullPath} dropTarget={dropPath === node.fullPath} dropHint={dropPath === node.fullPath ? tagMoveTarget(draggedTag(), node.fullPath) : null} onDragStart={(event) => {
                     if (node.isVirtual) return;
                     beginTagDrag(node.fullPath, event.dataTransfer);
                     setDragPath(node.fullPath);
@@ -262,14 +263,6 @@ export function SidebarTags({ mobile = false }: { mobile?: boolean }) {
         />)}
             <ManageTagsModal open={manageOpen} onClose={() => setManageOpen(false)}/>
     </>);
-}
-function toggleSet(previous: ReadonlySet<string>, value: string): Set<string> {
-    const next = new Set(previous);
-    if (next.has(value))
-        next.delete(value);
-    else
-        next.add(value);
-    return next;
 }
 function scrollRowIntoView(list: HTMLElement | null, index: number): void {
     const rows = list?.querySelectorAll('[data-tag-row]');
@@ -371,7 +364,7 @@ function TagTreeRow({ node, query, expanded, active, highlighted, renaming, onTo
             menu.onContextMenu(event);
         }} draggable={!node.isVirtual} onDragStart={onDragStart} onDragEnd={onDragEnd} onDragOver={onDragOver} onDragLeave={onDragLeave} onDrop={onDrop} className={cn('group relative flex h-11 items-center gap-1 rounded-[var(--r-md)] pr-1 text-[12.5px] transition-colors duration-[var(--dur-fast)] md:h-[30px]', highlighted && 'ring-1 ring-[var(--accent-ring)]', dropTarget && 'ring-1 ring-[var(--accent)] bg-[var(--accent-soft)]', dragging && 'opacity-45', active
             ? 'bg-[var(--accent-soft)] text-[var(--text-primary)]'
-            : 'text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]')} style={{ paddingLeft: 4 + node.depth * 13 }}>
+            : 'text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]')} style={{ paddingLeft: treeIndent(node.depth) }}>
       {hasChildren ? (<button type="button" aria-label={expanded ? t('tags.collapse_children') : t('tags.expand_children')} onClick={onToggle} className="flex size-6 shrink-0 items-center justify-center rounded text-[var(--text-quaternary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-secondary)] md:size-5">
             <ChevronRight size={13} className={cn('transition-transform duration-[var(--dur-fast)]', expanded && 'rotate-90')}/>
           </button>) : <span className="size-6 shrink-0 md:size-5"/>}
