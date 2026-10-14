@@ -5,6 +5,7 @@ import {
 } from '@shared/constants'
 import type { UpdateCheckResponse } from '@shared/types'
 import { isValidVersion } from '@shared/version'
+import { readStreamTextWithinLimit } from './request'
 
 const UPDATE_FETCH_TIMEOUT_MS = 5_000
 const MAX_PACKAGE_RESPONSE_BYTES = 64 * 1024
@@ -101,7 +102,7 @@ async function fetchRepositoryVersion(
 
   let text: string | null
   try {
-    text = await readResponseTextWithinLimit(response, MAX_PACKAGE_RESPONSE_BYTES)
+    text = await readStreamTextWithinLimit(response.body, MAX_PACKAGE_RESPONSE_BYTES)
   } catch (error) {
     return {
       kind: 'failure',
@@ -121,36 +122,4 @@ async function fetchRepositoryVersion(
   } catch {
     return { kind: 'failure', reason: 'invalid_json' }
   }
-}
-
-async function readResponseTextWithinLimit(
-  response: Response,
-  limit: number,
-): Promise<string | null> {
-  if (!response.body) return ''
-  const reader = response.body.getReader()
-  const chunks: Uint8Array[] = []
-  let total = 0
-  try {
-    while (true) {
-      const { value, done } = await reader.read()
-      if (done) break
-      total += value.byteLength
-      if (total > limit) {
-        await reader.cancel().catch(() => {})
-        return null
-      }
-      chunks.push(value)
-    }
-  } finally {
-    reader.releaseLock()
-  }
-
-  const bytes = new Uint8Array(total)
-  let offset = 0
-  for (const chunk of chunks) {
-    bytes.set(chunk, offset)
-    offset += chunk.byteLength
-  }
-  return new TextDecoder().decode(bytes)
 }

@@ -51,7 +51,7 @@ import { localDayBounds, parseLocalTime } from '@shared/assistant-time'
 import type { AppBindings } from '../env'
 import { ApiError } from '../lib/errors'
 import { requireAuth } from '../middleware/auth'
-import { FORM_BODY_LIMITS, JSON_BODY_LIMITS, readFormDataWithinLimit, readJson } from '../lib/request'
+import { FORM_BODY_LIMITS, JSON_BODY_LIMITS, readFormDataWithinLimit, readJson, readStreamWithinLimit } from '../lib/request'
 import { mcpProbe, mcpUrlProblem } from '../assistant/mcp-client'
 import { isExternalToolName, loadExternalTools } from '../assistant/mcp-tools'
 import { isValidId } from '../lib/id'
@@ -70,35 +70,22 @@ import {
   CHAT_IMAGE_MAX_BYTES,
   ChatUploadError,
   deleteChatObject,
-  formatBytes,
   readChatObject,
   saveChatUpload,
 } from '../assistant/chat-files'
 import { NO_REDIRECT, isRedirectResponse } from '../lib/no-redirect'
+import { formatBytes } from '@shared/byte-format'
 
-/** Reads a stream up to a ceiling, so a remote server cannot decide how much memory this request uses. */
+/**
+ * Reads a stream up to a ceiling, so a remote server cannot decide how much memory this request uses.
+ *
+ * A refused attachment is the caller's mistake in sending a URL that big, not a payload the API
+ * cannot accept, so this answers `400` rather than the `413` the request-body reader uses.
+ */
 async function readCapped(body: ReadableStream<Uint8Array> | null, maxBytes: number): Promise<Uint8Array> {
-  const reader = body?.getReader()
-  if (!reader) return new Uint8Array()
-  const chunks: Uint8Array[] = []
-  let total = 0
-  for (;;) {
-    const { done, value } = await reader.read()
-    if (done) break
-    total += value.byteLength
-    if (total > maxBytes) {
-      await reader.cancel('payload_too_large')
-      throw ApiError.badRequest(`That file is larger than ${formatBytes(maxBytes)}.`)
-    }
-    chunks.push(value)
-  }
-  const out = new Uint8Array(total)
-  let offset = 0
-  for (const chunk of chunks) {
-    out.set(chunk, offset)
-    offset += chunk.byteLength
-  }
-  return out
+  const bytes = await readStreamWithinLimit(body, maxBytes)
+  if (bytes === null) throw ApiError.badRequest(`That file is larger than ${formatBytes(maxBytes)}.`)
+  return bytes
 }
 
 /** A context budget is the reader's own choice from the composer's slider; null means 'use the global limit'. */

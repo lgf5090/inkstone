@@ -1,4 +1,5 @@
 import { APP_VERSION } from '@shared/constants'
+import { readStreamWithinLimit } from '../lib/request'
 
 export interface DeliverResult {
   files: number
@@ -37,40 +38,26 @@ export function isTransientBackupError(err: unknown): boolean {
 }
 
 
+/**
+ * The bytes of a third-party response, refused whole once it passes `maxBytes`.
+ *
+ * A storage service that answers with more than the limit is not worth reading further, and a backup
+ * target is somebody's server: the ceiling is what keeps one misbehaving endpoint from deciding how
+ * much memory this run holds. Over the ceiling this throws plainly — the callers are background jobs
+ * that record the failure on the run, not an API answering a reader.
+ */
 export async function readResponseBytesWithinLimit(
   response: Response,
   maxBytes: number,
 ): Promise<Uint8Array> {
   const declared = Number(response.headers.get('Content-Length'))
   if (Number.isFinite(declared) && declared > maxBytes) {
+    // Best-effort: the body is being thrown away either way, and a failed `cancel()` must not
+    // replace the honest "too large" answer above.
     await response.body?.cancel().catch(() => {})
     throw new Error('The third-party response exceeds the safety limit')
   }
-  if (!response.body) return new Uint8Array()
-
-  const reader = response.body.getReader()
-  const chunks: Uint8Array[] = []
-  let total = 0
-  try {
-    while (true) {
-      const { done, value } = await reader.read()
-      if (done) break
-      total += value.byteLength
-      if (total > maxBytes) {
-        await reader.cancel().catch(() => {})
-        throw new Error('The third-party response exceeds the safety limit')
-      }
-      chunks.push(value)
-    }
-  } finally {
-    reader.releaseLock()
-  }
-
-  const out = new Uint8Array(total)
-  let offset = 0
-  for (const chunk of chunks) {
-    out.set(chunk, offset)
-    offset += chunk.byteLength
-  }
-  return out
+  const bytes = await readStreamWithinLimit(response.body, maxBytes)
+  if (bytes === null) throw new Error('The third-party response exceeds the safety limit')
+  return bytes
 }
