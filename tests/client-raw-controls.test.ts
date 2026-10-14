@@ -595,7 +595,7 @@ const TREE_SPACING_KEYS = new Set(['paddingLeft', 'marginLeft', 'paddingInlineSt
 const ARITHMETIC_KINDS = new Set([ts.SyntaxKind.BinaryExpression, ts.SyntaxKind.PrefixUnaryExpression, ts.SyntaxKind.PostfixUnaryExpression])
 /** Residual formulas that predate this guard, keyed `file:line` so a new one fails and a fix fails too. */
 const INLINE_TREE_INDENT_BASELINE = new Map<string, string>([
-  ['src/client/features/preview/Outline.tsx:702', 'Competing formula `OUTLINE_INDENT_BASE + tier * OUTLINE_INDENT_STEP` with its own constants — a real second source of truth that should call treeIndent(tier). Recorded, not audited as correct.'],
+  ['src/client/features/preview/Outline.tsx:703', 'Competing formula `OUTLINE_INDENT_BASE + tier * OUTLINE_INDENT_STEP` with its own constants — a real second source of truth that should call treeIndent(tier). Recorded, not audited as correct.'],
 ])
 
 /** Inline tree indents today: a spacing property whose value does arithmetic on a depth variable. */
