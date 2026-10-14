@@ -36,12 +36,12 @@ import { createSession, destroyOtherSessions, destroySession } from '../lib/sess
 import { createTotpLoginChallenge, hasEnabledTotp } from '../lib/totp-service'
 import { revokeLongLivedCredentials } from '../mcp/credentials'
 import {
+  assertAttemptBudget,
   assertNotLocked,
   clearLoginFailures,
   consumeAttemptBudget,
   recordLoginFailure,
   type ThrottleTarget,
-  ThrottleError,
 } from '../lib/throttle'
 import {
   clearSessionCookie,
@@ -167,13 +167,13 @@ authRoutes.post('/register', async (c) => {
     throw new ApiError(403, 'registration_closed', 'Registration is closed on this instance')
   }
 
-  await enforceAttemptBudget(c.env.DB, [
+  await assertAttemptBudget(() => consumeAttemptBudget(c.env.DB, [
     {
       key: `register-work:${requestClientIp(c)}`,
       maxAttempts: 12,
       windowMs: 10 * 60 * 1000,
     },
-  ])
+  ]))
 
   if (setupTokenRequired(c.env, hasAnyUser)) {
     const expected = c.env.SETUP_TOKEN ?? ''
@@ -229,17 +229,10 @@ authRoutes.post('/login', async (c) => {
   const throttleTargets = loginThrottleTargets(username, requestClientIp(c))
   const workTargets = loginWorkTargets(username, requestClientIp(c))
 
-  try {
+  await assertAttemptBudget(async () => {
     await assertNotLocked(db, throttleTargets)
     await consumeAttemptBudget(db, workTargets)
-  } catch (err) {
-    if (err instanceof ThrottleError) {
-      throw new ApiError(429, 'too_many_attempts', `Too many attempts. Try again in ${err.retryAfterSec} seconds`, {
-        retryAfter: err.retryAfterSec,
-      })
-    }
-    throw err
-  }
+  })
 
   const row = USERNAME_PATTERN.test(username)
     ? await db
@@ -412,22 +405,6 @@ authRoutes.post('/logout', async (c) => {
   clearSessionCookie(c)
   return c.json({ ok: true })
 })
-
-async function enforceAttemptBudget(
-  db: D1Database,
-  targets: Parameters<typeof consumeAttemptBudget>[1],
-): Promise<void> {
-  try {
-    await consumeAttemptBudget(db, targets)
-  } catch (err) {
-    if (err instanceof ThrottleError) {
-      throw new ApiError(429, 'too_many_attempts', `Too many attempts. Try again in ${err.retryAfterSec} seconds`, {
-        retryAfter: err.retryAfterSec,
-      })
-    }
-    throw err
-  }
-}
 
 function normalizeLocale(value: unknown): AppLocale {
   return typeof value === 'string' && value.toLowerCase().startsWith('en') ? 'en-US' : 'zh-CN'

@@ -12,11 +12,11 @@ import { ApiError } from './errors'
 import { newId } from './id'
 import { hashToken, newSessionToken } from './session-store'
 import {
+  assertAttemptBudget,
   assertNotLocked,
   clearLoginFailures,
   consumeAttemptBudget,
   recordLoginFailure,
-  ThrottleError,
 } from './throttle'
 import {
   buildTotpUri,
@@ -631,24 +631,14 @@ async function beginFactorAttempt(
 }
 
 async function consumeWorkBudget(db: D1Database, workKey: string): Promise<void> {
-  try {
-    await consumeAttemptBudget(db, [{ key: workKey, maxAttempts: 8, windowMs: 10 * 60 * 1000 }])
-  } catch (error) {
-    if (error instanceof ThrottleError) throw tooManyAttempts(error)
-    throw error
-  }
+  await assertAttemptBudget(() => consumeAttemptBudget(db, [{ key: workKey, maxAttempts: 8, windowMs: 10 * 60 * 1000 }]))
 }
 
 async function assertFactorUnlocked(
   db: D1Database,
   throttle: { failureKeys: string[] },
 ): Promise<void> {
-  try {
-    await assertNotLocked(db, throttle.failureKeys)
-  } catch (error) {
-    if (error instanceof ThrottleError) throw tooManyAttempts(error)
-    throw error
-  }
+  await assertAttemptBudget(() => assertNotLocked(db, throttle.failureKeys))
 }
 
 async function rejectFactor(
@@ -689,15 +679,6 @@ function factorUnavailable(): ApiError {
     503,
     'two_factor_unavailable',
     'The authenticator secret is unavailable. Use a recovery code to sign in or disable two-step verification',
-  )
-}
-
-function tooManyAttempts(error: ThrottleError): ApiError {
-  return new ApiError(
-    429,
-    'too_many_attempts',
-    `Too many attempts. Try again in ${error.retryAfterSec} seconds`,
-    { retryAfter: error.retryAfterSec },
   )
 }
 

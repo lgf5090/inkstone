@@ -14382,6 +14382,9 @@ const allowed = new Map([
     "// A 101 handshake response carries the socket, and `new Response()` only accepts 200-599,",
     "// so rebuilding it to add headers would throw and tear down the WebSocket upgrade.",
   ]],
+  ["src/worker/lib/throttle.ts", [
+    "/**\n * Runs a throttled step — spending an attempt budget, checking a lock, or both — and answers the\n * `429` the API promises once the throttle rejects it.\n *\n * Every throttled route funnels through here so the status, error code, `Retry-After` hint and\n * response shape cannot drift apart. `message` is the human prefix a route shows; the retry count is\n * appended here. The step is a thunk so a route that checks a lock before spending work keeps its\n * exact ordering.\n */",
+  ]],
   ["src/worker/lib/update-check.ts", [
     "/** Isolate-level TTL cache: the published version changes daily at most. */",
   ]],
@@ -15061,6 +15064,8 @@ const allowed = new Map([
     "// The shared Select pins h-11 at md and above, so a compact row has to answer that breakpoint too.",
     "// The palette's command list moved into the registry, so the shared chord now has to be spelled",
     "// out in one of three files and never as a literal in any of them.",
+    "// The status, the code and the retry hint live in the shared helper now, so the route cannot",
+    "// answer a different shape from any other throttled route. What the route owns is the call.",
   ]],
   ["tests/graph-route-filters.test.ts", [
     "// D1 refuses a statement holding more than 100 bound variables, and node:sqlite does not,",

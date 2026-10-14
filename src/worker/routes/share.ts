@@ -14,11 +14,11 @@ import {
   shareAssetCookieName,
 } from '../lib/share-asset-session'
 import {
+  assertAttemptBudget,
   assertNotLocked,
   clearLoginFailures,
   consumeAttemptBudget,
   recordLoginFailure,
-  ThrottleError,
 } from '../lib/throttle'
 import { requireAuth } from '../middleware/auth'
 
@@ -230,17 +230,10 @@ shareRoutes.post('/:slug', async (c) => {
       return c.json({ error: { code: 'password_required', message: 'An access password is required' } }, 401)
     }
     const targets = shareVerifyThrottleTargets(slug, requestClientIp(c))
-    try {
+    await assertAttemptBudget(async () => {
       await assertNotLocked(c.env.DB, targets.lockTargets)
       await consumeAttemptBudget(c.env.DB, targets.workTargets)
-    } catch (err) {
-      if (err instanceof ThrottleError) {
-        throw new ApiError(429, 'too_many_attempts', `Too many attempts. Try again in ${err.retryAfterSec} seconds`, {
-          retryAfter: err.retryAfterSec,
-        })
-      }
-      throw err
-    }
+    })
     if (!(await verifyPassword(password, share.password_hash))) {
       await recordLoginFailure(c.env.DB, targets.lockTargets)
       return c.json({ error: { code: 'password_invalid', message: "Incorrect passcode" } }, 401)

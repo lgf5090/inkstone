@@ -16,7 +16,7 @@ import type { AppBindings } from '../env'
 import { NOTE_COLUMNS_FULL, NOTE_COLUMNS_NOTAGS, attachNoteTags, noteTagsQueryForPage, splitTags, toNote, toNoteSummary, type NoteRow, type NoteTagRow } from '../db/rows'
 import { assertNoteQuota } from '../db/quota'
 import { acquireLease } from '../lib/lease'
-import { consumeAttemptBudget, ThrottleError } from '../lib/throttle'
+import { assertAttemptBudget, consumeAttemptBudget } from '../lib/throttle'
 import {
   buildNoteDerivedStatements,
   rebuildDerivedFields,
@@ -1729,24 +1729,12 @@ notesRoutes.post('/rebuild-derived', async (c) => {
     'Summary rebuild is already running',
   )
   try {
-    try {
-      await consumeAttemptBudget(c.env.DB, [{
-        key: `derived-rebuild:${userId}`,
-        maxAttempts: 600,
-        windowMs: 10 * 60 * 1000,
-        lockMs: 60 * 1000,
-      }])
-    } catch (error) {
-      if (error instanceof ThrottleError) {
-        throw new ApiError(
-          429,
-          'too_many_attempts',
-          `Too many rebuild requests. Try again in ${error.retryAfterSec} seconds`,
-          { retryAfter: error.retryAfterSec },
-        )
-      }
-      throw error
-    }
+    await assertAttemptBudget(() => consumeAttemptBudget(c.env.DB, [{
+      key: `derived-rebuild:${userId}`,
+      maxAttempts: 600,
+      windowMs: 10 * 60 * 1000,
+      lockMs: 60 * 1000,
+    }]), 'Too many rebuild requests')
     return c.json({ ok: true, ...(await rebuildDerivedFields(c.env.DB, userId, cursor)) })
   } finally {
     await release()

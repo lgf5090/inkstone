@@ -65,7 +65,12 @@ describe('graph storage and route hardening', () => {
     const handler = route.slice(route.indexOf("searchRoutes.get('/graph'"), route.indexOf('searchRoutes.post'))
     expect(handler).toContain('consumeAttemptBudget')
     expect(handler).toContain('key: `graph:${userId}`')
-    expect(handler).toContain('too_many_attempts')
+    // The status, the code and the retry hint live in the shared helper now, so the route cannot
+    // answer a different shape from any other throttled route. What the route owns is the call.
+    const throttle = read('../src/worker/lib/throttle.ts')
+    expect(handler).toContain('assertAttemptBudget')
+    expect(throttle).toContain('too_many_attempts')
+    expect(throttle).toContain('retryAfterSec')
   })
 
   it('the orphan filter splits its OR so each side can use its own index', () => {

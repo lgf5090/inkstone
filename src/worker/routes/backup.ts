@@ -15,7 +15,7 @@ import { decryptSecret, encryptSecret } from '../lib/crypto'
 import { ApiError } from '../lib/errors'
 import { isValidId, newId } from '../lib/id'
 import { JSON_BODY_LIMITS, readJson, readOptionalJson } from '../lib/request'
-import { consumeAttemptBudget, ThrottleError } from '../lib/throttle'
+import { assertAttemptBudget, consumeAttemptBudget } from '../lib/throttle'
 import { requireAuth } from '../middleware/auth'
 
 export const backupRoutes = new Hono<AppBindings>()
@@ -243,19 +243,10 @@ async function enforceOutboundBudget(
   kind: keyof typeof OUTBOUND_BUDGETS,
 ): Promise<void> {
   const budget = OUTBOUND_BUDGETS[kind]
-  try {
-    await consumeAttemptBudget(c.env.DB, [{ key: `backup-${kind}:${c.get('userId')}`, ...budget }])
-  } catch (error) {
-    if (error instanceof ThrottleError) {
-      throw new ApiError(
-        429,
-        'too_many_attempts',
-        `Too many backup requests. Try again in ${error.retryAfterSec} seconds`,
-        { retryAfter: error.retryAfterSec },
-      )
-    }
-    throw error
-  }
+  await assertAttemptBudget(
+    () => consumeAttemptBudget(c.env.DB, [{ key: `backup-${kind}:${c.get('userId')}`, ...budget }]),
+    'Too many backup requests',
+  )
 }
 
 async function loadTarget(db: D1Database, userId: string, id: string): Promise<TargetRow> {
