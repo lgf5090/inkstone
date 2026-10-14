@@ -24,6 +24,7 @@ import { placePanel } from '../../../components/popover-placement'
 import { getVisibleViewport } from '../../../lib/viewport'
 import { cn } from '../../../lib/cn'
 import { t } from '../../../lib/i18n'
+import { isImeComposing } from '../../../lib/ime'
 import { tableMenuItems } from '../../workspace/context-menu/items-table'
 import {
   clearTableColumn,
@@ -407,6 +408,7 @@ export function TableBubbleLayer({ view, onJumpToLine, onCopyText, tableSource, 
       data-table-bubble
       className="pointer-events-none fixed inset-0 z-[var(--z-popover)]"
       onKeyDown={(event) => {
+        if (isImeComposing(event)) return
         if (event.key !== 'Escape' || !panel) return
         event.preventDefault()
         event.stopPropagation()

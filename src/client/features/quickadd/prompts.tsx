@@ -17,6 +17,7 @@ import { Button } from '../../components/primitives'
 import { FIELD_BASE, Slider, Textarea, commitOnEnter } from '../../components/form'
 import { Modal } from '../../components/overlay'
 import { fuzzyFilter } from '../../lib/fuzzy'
+import { isImeComposing } from '../../lib/ime'
 import { usePinyinVersion } from '../../lib/pinyin'
 import { randomLocalId } from '../../lib/random-id'
 import { cn } from '../../lib/cn'
@@ -394,6 +395,7 @@ function SinglePrompt({ group }: { group: PromptGroup }) {
         className="space-y-2 pt-1"
         data-owns-escape
         onKeyDown={(event) => {
+          if (isImeComposing(event)) return
           const multiline = event.target instanceof HTMLElement && event.target.tagName === 'TEXTAREA'
           if (multiline && !event.ctrlKey && !event.metaKey) {
             if (event.key === 'Escape') dismiss()
@@ -446,6 +448,7 @@ function OnePagePrompt({ group }: { group: PromptGroup }) {
         className="space-y-4 pt-1"
         data-owns-escape
         onKeyDown={(event) => {
+          if (isImeComposing(event)) return
           if (event.key === 'Escape') dismiss()
         }}
       >
