@@ -98,7 +98,7 @@ export function ChatApp() {
                     'transition-[background-color,color] duration-[var(--dur-fast)] ease-[var(--ease-out)]',
                     'focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--accent)]',
                     active
-                      ? 'bg-[var(--accent-soft)] text-[var(--accent)]'
+                      ? 'bg-[var(--accent-soft)] text-[var(--accent-on-soft)]'
                       : 'text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]',
                   )}
                 >

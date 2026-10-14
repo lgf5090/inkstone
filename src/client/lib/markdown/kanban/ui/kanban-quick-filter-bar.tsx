@@ -56,7 +56,7 @@ export function KanbanQuickFilterBar({
             onClick={() => onChangeFilters(toggleKanbanQuickFilter(chip.filter, filters))}
             className={`rounded-full border px-[var(--sp-2)] py-[var(--sp-0-5)] text-[length:var(--text-11)] transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[var(--accent)] ${
               on
-                ? 'border-transparent bg-[var(--accent-soft)] font-medium text-[var(--accent)]'
+                ? 'border-transparent bg-[var(--accent-soft)] font-medium text-[var(--accent-on-soft)]'
                 : 'border-[var(--border-subtle)] text-[var(--text-secondary)] hover:border-[var(--border-strong)] hover:text-[var(--text-primary)]'
             }`}
           >

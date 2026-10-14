@@ -65,7 +65,7 @@ export function MobileLibraryFilters() {
             <div className="min-h-0 overflow-y-auto overscroll-contain px-3 pb-[calc(16px+env(safe-area-inset-bottom))]" onClick={(event) => {
             if ((event.target as HTMLElement).closest('[data-navigation-item]')) close();
         }}>
-            {open === 'menu' ? items.map(({ view: key, label, icon: Icon, count }) => <button key={key} type="button" aria-current={view === key ? 'page' : undefined} onClick={() => { openView(key); close(); }} className={cn('flex min-h-11 w-full items-center gap-3 rounded-lg px-3 text-left text-[length:var(--text-13)] active:bg-[var(--bg-active)]', key === 'archived' && 'mt-3 border-t border-[var(--border-subtle)]', view === key && 'bg-[var(--accent-soft)] text-[var(--accent)]')}>
+            {open === 'menu' ? items.map(({ view: key, label, icon: Icon, count }) => <button key={key} type="button" aria-current={view === key ? 'page' : undefined} onClick={() => { openView(key); close(); }} className={cn('flex min-h-11 w-full items-center gap-3 rounded-lg px-3 text-left text-[length:var(--text-13)] active:bg-[var(--bg-active)]', key === 'archived' && 'mt-3 border-t border-[var(--border-subtle)]', view === key && 'bg-[var(--accent-soft)] text-[var(--accent-on-soft)]')}>
                 <Icon size={16} aria-hidden="true"/><span className="flex-1">{label}</span><span className="text-[var(--text-tertiary)]">{count}</span>
             </button>) : open === 'folder' ? <FolderSection mobile/> : <SidebarTags mobile/>}
             </div>

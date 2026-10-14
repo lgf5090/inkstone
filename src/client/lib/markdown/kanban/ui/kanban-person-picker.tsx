@@ -17,7 +17,7 @@ export function KanbanPersonAvatar({ name }: { name: string }) {
       role='img'
       aria-label={name}
       title={name}
-      className='flex size-5 shrink-0 items-center justify-center rounded-full bg-[var(--accent-soft)] text-[length:var(--text-10)] font-bold text-[var(--accent)]'
+      className='flex size-5 shrink-0 items-center justify-center rounded-full bg-[var(--accent-soft)] text-[length:var(--text-10)] font-bold text-[var(--accent-on-soft)]'
     >
       <span aria-hidden>{kanbanPersonInitials(name)}</span>
     </span>

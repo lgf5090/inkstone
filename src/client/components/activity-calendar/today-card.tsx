@@ -43,7 +43,7 @@ export function TodayCard({ today, locale, weekStart, showLunar, showFestival, s
         <span className='flex min-w-0 items-baseline gap-[var(--sp-1-5)]'>
           <span className='shrink-0 text-[length:var(--text-10-5)] font-semibold text-[var(--text-primary)]'>{dateLine}</span>
           <span className='shrink-0 text-[length:var(--text-9-5)] text-[var(--text-tertiary)]'>{weekdayLine}</span>
-          {secondary !== null && (<span className={cn('ml-auto shrink-0 truncate text-[length:var(--text-9)]', festival ? 'rounded-full bg-[var(--accent-soft)] px-[var(--sp-1-5)] py-px font-medium text-[var(--accent)]' : 'tabular text-[var(--text-quaternary)]')}>{secondary}</span>)}
+          {secondary !== null && (<span className={cn('ml-auto shrink-0 truncate text-[length:var(--text-9)]', festival ? 'rounded-full bg-[var(--accent-soft)] px-[var(--sp-1-5)] py-px font-medium text-[var(--accent-on-soft)]' : 'tabular text-[var(--text-quaternary)]')}>{secondary}</span>)}
         </span>
         {showLunar && almanac !== null && (
           <span className='flex min-w-0 items-baseline gap-[var(--sp-1-5)]'>

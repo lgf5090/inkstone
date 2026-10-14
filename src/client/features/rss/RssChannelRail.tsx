@@ -320,7 +320,7 @@ function FolderBranch({ node, depth, setSize, posInSet, shelfFeeds, counts, arti
           'flex h-8 w-full min-w-0 items-center gap-1.5 rounded-[var(--r-md)] pr-1.5 text-left text-[length:var(--text-12-5)]',
           'transition-colors duration-[var(--dur-fast)] ease-[var(--ease-out)]',
           active === key
-            ? 'bg-[var(--accent-soft)] font-medium text-[var(--accent)]'
+            ? 'bg-[var(--accent-soft)] font-medium text-[var(--accent-on-soft)]'
             : 'text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]',
           isDrop && 'ring-1 ring-[var(--accent)]',
         )}
@@ -461,7 +461,7 @@ function FeedRow({ feed, unread, loaded, active, depth, setSize, posInSet, dropT
         'transition-colors duration-[var(--dur-fast)] ease-[var(--ease-out)]',
         'focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--accent)]',
         active
-          ? 'bg-[var(--accent-soft)] font-medium text-[var(--accent)]'
+          ? 'bg-[var(--accent-soft)] font-medium text-[var(--accent-on-soft)]'
           : 'text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]',
         feed.paused && 'opacity-60',
         isDrop && 'ring-1 ring-[var(--accent)]',
@@ -534,7 +534,7 @@ function Row({ icon: Icon, label, count, active, onSelect, trailing, hint, muted
         'transition-colors duration-[var(--dur-fast)] ease-[var(--ease-out)]',
         'focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--accent)]',
         active
-          ? 'bg-[var(--accent-soft)] font-medium text-[var(--accent)]'
+          ? 'bg-[var(--accent-soft)] font-medium text-[var(--accent-on-soft)]'
           : 'text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]',
         muted && 'opacity-60',
       )}

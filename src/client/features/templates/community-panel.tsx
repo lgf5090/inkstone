@@ -107,7 +107,7 @@ function CommunityCard({ item, mine, onUse, onImport, onUnpublish }: {
   return (<div className='group relative flex min-h-33 flex-col rounded-[var(--r-lg)] border border-[var(--border-subtle)] bg-[var(--bg-surface)] p-3.5 transition-[border-color,box-shadow] duration-[var(--dur-fast)] hover:border-[var(--border-strong)] hover:shadow-[var(--shadow-sm)]'>
     <div className='flex min-w-0 items-center gap-1.5'>
       <h3 className='min-w-0 flex-1 truncate text-[length:var(--text-13)] font-semibold tracking-[-0.01em] text-[var(--text-primary)]'>{item.name}</h3>
-      {mine && <span className='shrink-0 rounded-full bg-[var(--accent-soft)] px-1.5 py-px text-[length:var(--text-10)] font-medium text-[var(--accent)]'>{t('templates.community_mine')}</span>}
+      {mine && <span className='shrink-0 rounded-full bg-[var(--accent-soft)] px-1.5 py-px text-[length:var(--text-10)] font-medium text-[var(--accent-on-soft)]'>{t('templates.community_mine')}</span>}
     </div>
     {item.description && <p className='mt-1.5 line-clamp-2 text-[length:var(--text-11-5)] leading-relaxed text-[var(--text-tertiary)]'>{item.description}</p>}
     {item.tags.length > 0 && (<div className='mt-1.5 flex min-w-0 flex-wrap items-center gap-1'>

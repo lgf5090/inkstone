@@ -451,7 +451,7 @@ export function ExcalidrawSettings() {
                           {info.name}
                         </span>
                         {isSelected && (
-                          <span className="rounded-full bg-[var(--accent-soft)] px-2 py-0.5 text-[length:var(--text-10)] font-medium text-[var(--accent)]">
+                          <span className="rounded-full bg-[var(--accent-soft)] px-2 py-0.5 text-[length:var(--text-10)] font-medium text-[var(--accent-on-soft)]">
                             {t('settings.excalidraw_current_default')}
                           </span>
                         )}

@@ -171,7 +171,7 @@ function Section({
           const summary = scheduleSummary(automation.schedule, describeDays)
           return (
             <li key={automation.id} className="flex items-start gap-2.5 border-b border-[var(--border-subtle)] px-3 py-2.5 last:border-b-0">
-              <span className={cn('mt-0.5 shrink-0 rounded-[var(--r-sm)] p-1.5', automation.enabled ? 'bg-[var(--accent-soft)] text-[var(--accent)]' : 'bg-[var(--bg-inset)] text-[var(--text-quaternary)]')}>
+              <span className={cn('mt-0.5 shrink-0 rounded-[var(--r-sm)] p-1.5', automation.enabled ? 'bg-[var(--accent-soft)] text-[var(--accent-on-soft)]' : 'bg-[var(--bg-inset)] text-[var(--text-quaternary)]')}>
                 <Icon size={14} />
               </span>
               <div className="min-w-0 flex-1">
@@ -332,7 +332,7 @@ function AutomationForm({ open, onClose, timezone }: { open: boolean, onClose: (
                   'flex flex-col items-center gap-1 rounded-[var(--r-md)] border px-2 py-2.5 text-[length:var(--text-11)] font-medium',
                   'transition-colors duration-[var(--dur-fast)]',
                   active
-                    ? 'border-[var(--accent)] bg-[var(--accent-soft)] text-[var(--accent)]'
+                    ? 'border-[var(--accent)] bg-[var(--accent-soft)] text-[var(--accent-on-soft)]'
                     : 'border-[var(--border-default)] text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]',
                 )}
               >
@@ -391,7 +391,7 @@ function AutomationForm({ open, onClose, timezone }: { open: boolean, onClose: (
                   className={cn(
                     'h-8 w-12 rounded-[var(--r-sm)] border text-[length:var(--text-11)] font-medium',
                     on
-                      ? 'border-[var(--accent)] bg-[var(--accent-soft)] text-[var(--accent)]'
+                      ? 'border-[var(--accent)] bg-[var(--accent-soft)] text-[var(--accent-on-soft)]'
                       : 'border-[var(--border-default)] text-[var(--text-tertiary)] hover:bg-[var(--bg-hover)]',
                   )}
                 >

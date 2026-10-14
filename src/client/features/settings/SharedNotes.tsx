@@ -135,7 +135,7 @@ export function SharedNotes() {
           return <div key={share.noteId} className="px-3 py-3">
             <div className="flex items-start justify-between gap-2">
               <button type="button" disabled={trashed} onClick={() => void visitNote(share)} className="min-w-0 truncate text-left text-[length:var(--text-13)] font-medium text-[var(--text-primary)] hover:text-[var(--accent)] disabled:cursor-default disabled:hover:text-[var(--text-primary)]" title={share.noteTitle || t('common.untitled_note')}>{share.noteTitle || t('common.untitled_note')}</button>
-              <span className={`shrink-0 rounded-full px-2 py-0.5 text-[length:var(--text-10-5)] font-medium ${trashed || expired ? 'bg-[var(--bg-inset)] text-[var(--text-tertiary)]' : 'bg-[var(--accent-soft)] text-[var(--accent)]'}`}>
+              <span className={`shrink-0 rounded-full px-2 py-0.5 text-[length:var(--text-10-5)] font-medium ${trashed || expired ? 'bg-[var(--bg-inset)] text-[var(--text-tertiary)]' : 'bg-[var(--accent-soft)] text-[var(--accent-on-soft)]'}`}>
                 {trashed ? t('share.in_trash') : expired ? t('share.expired') : t('share.active')}
               </span>
             </div>

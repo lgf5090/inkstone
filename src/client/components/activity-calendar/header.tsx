@@ -97,7 +97,7 @@ function ViewModeButton({
       type='button'
       aria-pressed={active}
       onClick={() => onSelect(view)}
-      className={`flex h-[var(--sp-6)] min-w-0 items-center gap-[var(--sp-0-5)] whitespace-nowrap border-l border-[var(--border-default)] px-[var(--sp-1-5)] text-[length:var(--text-10-5)] font-medium transition-colors first:border-l-0 aria-pressed:bg-[var(--accent-soft)] aria-pressed:text-[var(--accent)]`}
+      className={`flex h-[var(--sp-6)] min-w-0 items-center gap-[var(--sp-0-5)] whitespace-nowrap border-l border-[var(--border-default)] px-[var(--sp-1-5)] text-[length:var(--text-10-5)] font-medium transition-colors first:border-l-0 aria-pressed:bg-[var(--accent-soft)] aria-pressed:text-[var(--accent-on-soft)]`}
     >
       {icon}
       <span className='truncate'>{label}</span>
