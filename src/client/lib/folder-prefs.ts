@@ -52,6 +52,9 @@ function writeStorage(next: FolderPreferences): void {
     const storage = readStorage();
     if (!storage)
         return;
+    // Persistence only: the caller has already replaced `currentPreferences` and notified every listener
+    // before reaching here, so the tree on screen is sorted whether or not this write lands. A refused
+    // write costs the next load its remembered order, which is what it fell back to before.
     try {
         storage.setItem(FOLDER_PREFS_STORAGE_KEY, JSON.stringify(next));
     }

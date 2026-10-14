@@ -106,6 +106,9 @@ export function useCalendarDisplayPrefs(): CalendarDisplayPrefs {
 export function setCalendarDisplayPrefs(patch: Partial<CalendarDisplayPrefs>): void {
   current = { ...current, ...patch }
   const storage = readStorage()
+  // The same split as the tree preferences: `current` is what `useCalendarDisplayPrefs` subscribes to and
+  // the listeners below re-render from, so the display change is applied here; this write only carries it
+  // to the next load.
   try {
     storage?.setItem(STORAGE_KEY, JSON.stringify(current))
   }

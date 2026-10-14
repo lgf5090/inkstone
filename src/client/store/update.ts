@@ -92,6 +92,9 @@ function readIgnoredVersion(): string | null {
 }
 
 function writeIgnoredVersion(version: string): void {
+  // Recording a dismissal the reader already got, and the read above answers a refused storage with null,
+  // which is the safe direction: the same update offer returns on the next check rather than a stale one
+  // being taken as accepted.
   try {
     localStorage.setItem(IGNORED_VERSION_KEY, version)
   } catch {

@@ -225,6 +225,9 @@ export function localeTag(): string {
     return locale;
 }
 function detectInitialLocale(): AppLocale {
+    // Reading a choice saved on an earlier visit. A storage this browser refuses to read is the same case
+    // as no saved choice, which is the line below: answer from navigator.language. Nothing has been shown
+    // yet, so there is no action here to fail.
     try {
         const saved = localStorage.getItem(STORAGE_KEY);
         if (saved === 'zh-CN' || saved === 'en-US')

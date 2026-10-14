@@ -62,6 +62,9 @@ function writeStorage(next: EmojiPreferences): void {
     const storage = readStorage();
     if (!storage)
         return;
+    // Persistence only: the caller has already replaced `currentPreferences` and notified every listener
+    // before reaching here, so the picker on screen is changed whether or not this write lands. What a
+    // refused write costs is the choice surviving to the next load — the same default the first load used.
     try {
         storage.setItem(EMOJI_PREFS_STORAGE_KEY, JSON.stringify(next));
     }
