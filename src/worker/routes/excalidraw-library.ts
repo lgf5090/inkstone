@@ -1,8 +1,9 @@
 import { Hono } from 'hono'
 import type { AppBindings } from '../env'
+import { getMeta, setMeta } from '../db/metadata'
 import { ApiError } from '../lib/errors'
 import { requireAuth } from '../middleware/auth'
-import { readJson } from '../lib/request'
+import { readBytesWithinLimit, readJson } from '../lib/request'
 import { NO_REDIRECT, isRedirectResponse } from '../lib/no-redirect'
 
 export const excalidrawLibraryRoutes = new Hono<AppBindings>()
@@ -47,27 +48,14 @@ export function officialLibraryUrl(source: string): URL | null {
 }
 
 async function readBodyCapped(res: Response, maxBytes: number): Promise<string> {
-  const reader = res.body?.getReader()
-  if (!reader) return await res.text()
-  const chunks: Uint8Array[] = []
-  let total = 0
-  while (true) {
-    const { done, value } = await reader.read()
-    if (done) break
-    total += value.byteLength
-    if (total > maxBytes) {
-      await reader.cancel('payload_too_large')
-      throw new Error(`Library exceeds the ${maxBytes / 1024 / 1024} MB limit`)
-    }
-    chunks.push(value)
+  try {
+    return new TextDecoder().decode(await readBytesWithinLimit(res.body, maxBytes))
+  } catch (error) {
+    // `readBytesWithinLimit` answers a body-cap breach as an ApiError; this route reports it as an
+    // upstream failure instead, so the library-specific message is kept.
+    if (error instanceof ApiError) throw new Error(`Library exceeds the ${maxBytes / 1024 / 1024} MB limit`)
+    throw error
   }
-  const bytes = new Uint8Array(total)
-  let offset = 0
-  for (const chunk of chunks) {
-    bytes.set(chunk, offset)
-    offset += chunk.byteLength
-  }
-  return new TextDecoder().decode(bytes)
 }
 
 interface CatalogCache {
@@ -139,19 +127,21 @@ excalidrawLibraryRoutes.get('/manifest', async (c) => {
         const parsed = JSON.parse(text)
         return c.json({ ok: true, manifest: parsed })
       }
-    } catch {
+    } catch (err) {
+      // Best-effort read: R2 is the primary store, but a failure here falls through to the D1 copy
+      // and then the default manifest rather than failing the whole request.
+      console.warn('[inkstone] Failed to read library manifest from R2:', err)
     }
   }
 
   try {
-    const row = await c.env.DB.prepare('SELECT value FROM app_meta WHERE key = ?1')
-      .bind(manifestDbKey(userId))
-      .first<{ value: string }>()
-    if (row?.value) {
-      const parsed = JSON.parse(row.value)
-      return c.json({ ok: true, manifest: parsed })
+    const raw = await getMeta(c.env.DB, manifestDbKey(userId))
+    if (raw) {
+      return c.json({ ok: true, manifest: JSON.parse(raw) })
     }
-  } catch {
+  } catch (err) {
+    // Same fallback chain as above: a missing or unreadable D1 copy still answers with a manifest.
+    console.warn('[inkstone] Failed to read library manifest from D1:', err)
   }
 
   const defaultManifest = {
@@ -197,16 +187,18 @@ excalidrawLibraryRoutes.put('/manifest', async (c) => {
         httpMetadata: { contentType: 'application/json' },
         customMetadata: { updatedAt: String(Date.now()), userId },
       })
-    } catch (err: any) {
-      console.error('Failed to put library manifest to R2:', err)
+    } catch (err) {
+      // Best-effort archive: the D1 copy below is the fallback, so a failed R2 write must not fail
+      // a save the account can still recover from.
+      console.error('[inkstone] Failed to put library manifest to R2:', err)
     }
   }
 
   try {
-    await c.env.DB.prepare('INSERT OR REPLACE INTO app_meta (key, value) VALUES (?1, ?2)')
-      .bind(manifestDbKey(userId), manifestStr)
-      .run()
-  } catch {
+    await setMeta(c.env.DB, manifestDbKey(userId), manifestStr)
+  } catch (err) {
+    // Best-effort mirror: the manifest is already in R2, so a failed D1 write is logged, not fatal.
+    console.warn('[inkstone] Failed to put library manifest to D1:', err)
   }
 
   return c.json({ ok: true, updatedAt: Date.now() })
@@ -227,8 +219,9 @@ excalidrawLibraryRoutes.get('/official-catalog', async (c) => {
     const data = await fetchOfficialCatalog()
     cachedCatalog = { timestamp: now, data }
     return c.json({ ok: true, libraries: data }, 200, CATALOG_HEADERS)
-  } catch (err: any) {
-    return c.json({ ok: false, error: err?.message || String(err), libraries: [] }, 502)
+  } catch (err) {
+    console.warn('[inkstone] Official Excalidraw catalog fetch failed:', err)
+    throw new ApiError(502, 'internal', 'The official library catalog is unavailable')
   }
 })
 
@@ -284,8 +277,9 @@ excalidrawLibraryRoutes.post('/official-download', async (c) => {
     }
 
     return c.json({ ok: true, data, filename })
-  } catch (err: any) {
-    return c.json({ ok: false, error: err?.message || String(err) }, 502)
+  } catch (err) {
+    console.warn('[inkstone] Official Excalidraw library download failed:', err)
+    throw new ApiError(502, 'internal', 'The official library could not be downloaded')
   }
 })
 

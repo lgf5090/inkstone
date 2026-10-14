@@ -132,7 +132,7 @@ async function readTextWithinLimit(
   return new TextDecoder().decode(await readBytesWithinLimit(stream, maxBytes))
 }
 
-async function readBytesWithinLimit(
+export async function readBytesWithinLimit(
   stream: ReadableStream<Uint8Array> | null | undefined,
   maxBytes: number,
 ): Promise<Uint8Array> {

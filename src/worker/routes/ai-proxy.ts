@@ -48,7 +48,7 @@ aiProxyRoutes.post('/proxy', async (c) => {
     })
 
     if (isRedirectResponse(upstreamRes)) {
-      return c.json({ error: { message: 'AI upstream responded with a redirect, which relays refuse' } }, 502)
+      throw new ApiError(502, 'internal', 'AI upstream responded with a redirect, which relays refuse')
     }
 
     const responseHeaders = new Headers()
@@ -62,7 +62,8 @@ aiProxyRoutes.post('/proxy', async (c) => {
       headers: responseHeaders,
     })
   } catch (err: unknown) {
+    if (err instanceof ApiError) throw err
     const message = err instanceof Error ? err.message : String(err)
-    return c.json({ error: { message: `AI upstream request failed: ${message}` } }, 502)
+    throw new ApiError(502, 'internal', `AI upstream request failed: ${message}`)
   }
 })

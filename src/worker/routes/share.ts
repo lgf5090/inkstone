@@ -227,7 +227,7 @@ shareRoutes.post('/:slug', async (c) => {
 
   if (share.password_hash) {
     if (!password) {
-      return c.json({ error: { code: 'password_required', message: 'An access password is required' } }, 401)
+      throw ApiError.unauthenticated('An access password is required')
     }
     const targets = shareVerifyThrottleTargets(slug, requestClientIp(c))
     await assertAttemptBudget(async () => {
@@ -236,7 +236,7 @@ shareRoutes.post('/:slug', async (c) => {
     })
     if (!(await verifyPassword(password, share.password_hash))) {
       await recordLoginFailure(c.env.DB, targets.lockTargets)
-      return c.json({ error: { code: 'password_invalid', message: "Incorrect passcode" } }, 401)
+      throw new ApiError(401, 'invalid_credentials', "Incorrect passcode")
     }
     await clearLoginFailures(c.env.DB, [
       ...targets.lockTargets,
