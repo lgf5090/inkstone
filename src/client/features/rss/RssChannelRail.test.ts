@@ -49,6 +49,19 @@ function click(element: Element): void {
   })
 }
 
+/** The arrow key a reader presses: a bubbling keydown on the focused row, as a browser sends it. */
+function press(element: HTMLElement, key: string): void {
+  act(() => {
+    element.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true }))
+  })
+}
+
+function focus(element: HTMLElement): void {
+  act(() => {
+    element.focus()
+  })
+}
+
 beforeAll(async () => {
   await initI18n()
 })
@@ -132,5 +145,107 @@ describe('RssChannelRail folder row', () => {
     click(toggle)
     expect(collapsedState()).toBe(false)
     expect(useRss.getState().open).not.toHaveBeenCalled()
+  })
+})
+
+/**
+ * The shelf as a tree. The rail draws the same geometry it always drew, but a reader that cannot see
+ * the indentation only has what the roles say: the nesting level of each row, whether a branch is
+ * open, and — since the rows are `<button>`s inside a `role="treeitem"` rather than the tree items
+ * themselves — an arrow key that walks the visible rows instead of leaving the list entirely.
+ */
+describe('RssChannelRail tree', () => {
+  function tree(container: HTMLElement): HTMLElement {
+    const element = container.querySelector<HTMLElement>('[role="tree"]')
+    if (!element) throw new Error('the shelf has no tree')
+    return element
+  }
+
+  function folderItem(container: HTMLElement): HTMLElement {
+    const element = container.querySelector<HTMLElement>(`[role="treeitem"][aria-level="1"]`)
+    if (!element) throw new Error('the folder is not a tree item')
+    return element
+  }
+
+  function feedRowOf(container: HTMLElement): HTMLElement {
+    const element = container.querySelector<HTMLElement>(`[data-tree-row][data-menu-target="feed:${FEED.id}"]`)
+    if (!element) throw new Error('the feed is not on the rail')
+    return element
+  }
+
+  function nameButton(container: HTMLElement): HTMLElement {
+    const element = folderItem(container).querySelector<HTMLElement>('[data-tree-row]')
+    if (!element) throw new Error('the folder row has no keyboard-navigable button')
+    return element
+  }
+
+  it('states the level of every row and opens a group only while it holds one', () => {
+    const container = rail()
+    expect(tree(container).getAttribute('aria-label')).toBeTruthy()
+
+    const item = folderItem(container)
+    expect(item.getAttribute('aria-expanded')).toBe('false')
+    expect(item.getAttribute('aria-posinset')).toBe('1')
+    expect(item.getAttribute('aria-setsize')).toBe('1')
+    // The region the toggle names is the branch, and a shut branch states no group.
+    const region = document.getElementById(`${GROUP.id}-children`)!
+    expect(region.hasAttribute('role')).toBe(false)
+
+    click(toggleOf(folderRow(container)))
+
+    expect(region.getAttribute('role')).toBe('group')
+    const feed = feedRowOf(container)
+    expect(feed.getAttribute('role')).toBe('treeitem')
+    expect(feed.getAttribute('aria-level')).toBe('2')
+    // A feed has nothing to fold, so it must not claim an expansion state.
+    expect(feed.hasAttribute('aria-expanded')).toBe(false)
+    expect(item.getAttribute('aria-level')).toBe('1')
+
+    // Indent is the shared `treeIndent` step and nothing else: a depth-0 folder is `6 + 0 * 13`,
+    // and the feed under it is one level deeper plus the rail's own extra step, `6 + 13 + 13`.
+    expect(folderRow(container).style.paddingLeft).toBe('6px')
+    expect(feed.style.paddingLeft).toBe('32px')
+    // The fold glyph is one icon that turns, not a pair that swaps — the convention every tree draws.
+    expect(toggleOf(folderRow(container)).querySelector('svg')!.getAttribute('class')).toContain('rotate-90')
+  })
+
+  it('walks the visible rows with the arrow keys and folds the branch back from the child', () => {
+    const container = rail()
+    click(toggleOf(folderRow(container)))
+    const go = nameButton(container)
+    const feed = feedRowOf(container)
+
+    focus(go)
+    press(go, 'ArrowDown')
+    expect(document.activeElement).toBe(feed)
+
+    press(feed, 'ArrowUp')
+    expect(document.activeElement).toBe(go)
+
+    // ArrowRight on an open branch steps into its first child rather than toggling it shut.
+    press(go, 'ArrowRight')
+    expect(document.activeElement).toBe(feed)
+    expect(collapsedState()).toBe(false)
+
+    // ArrowLeft on a leaf returns to the parent row; it is the parent that folds, not the leaf.
+    press(feed, 'ArrowLeft')
+    expect(document.activeElement).toBe(go)
+    expect(collapsedState()).toBe(false)
+
+    press(go, 'ArrowLeft')
+    expect(collapsedState()).toBe(true)
+  })
+
+  it('keeps Home and End inside the tree', () => {
+    const container = rail()
+    click(toggleOf(folderRow(container)))
+    const go = nameButton(container)
+
+    focus(feedRowOf(container))
+    press(feedRowOf(container), 'Home')
+    expect(document.activeElement).toBe(go)
+
+    press(go, 'End')
+    expect(document.activeElement).toBe(feedRowOf(container))
   })
 })
