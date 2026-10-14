@@ -348,10 +348,16 @@
   transition: background-color var(--dur-fast) var(--ease-out);
 }
 
-.ink-prose .dataview-calendar-day.has-items:hover,
+.ink-prose .dataview-calendar-day.has-items:hover {
+  background: var(--accent-soft);
+}
+
+/* A day cell that only tints is indistinguishable from a hovered one, and the
+   `outline: none` here suppresses the global focus ring, so keyboard focus adds it. */
 .ink-prose .dataview-calendar-day.has-items:focus-visible {
   background: var(--accent-soft);
   outline: none;
+  box-shadow: var(--shadow-ring);
 }
 
 .ink-prose .dataview-calendar-count {

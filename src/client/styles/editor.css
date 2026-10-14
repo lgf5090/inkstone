@@ -349,7 +349,7 @@
 .ink-editor .cm-panel.cm-search input:focus {
   border-color: var(--accent);
   outline: none;
-  box-shadow: 0 0 0 3px var(--accent-ring);
+  box-shadow: var(--shadow-ring-focus);
 }
 .ink-editor .cm-panel.cm-search button:not([name='close']) {
   background: var(--bg-raised);

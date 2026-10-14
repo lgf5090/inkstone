@@ -1547,6 +1547,13 @@
   border-color: var(--accent);
   font-weight: 600;
 }
+/* The option chips are a text-row control sized for a cursor; a thumb needs the
+   44px floor. Gated on the pointer so desktop density is untouched. */
+@media (pointer: coarse) {
+  .ink-prose .block-opt-btn {
+    min-height: var(--tap-target);
+  }
+}
 .ink-prose .block-text-input {
   flex: 0 1 120px;
   min-width: 0;
@@ -2296,11 +2303,17 @@
   line-height: 18px;
   cursor: pointer;
 }
-.ink-prose .mindmap-block-theme:hover,
+.ink-prose .mindmap-block-theme:hover {
+  color: var(--accent);
+  border-color: var(--border-default);
+}
+/* Same reason as the other controls here: the hover treatment alone does not tell a
+   keyboard user which pill holds focus, and `outline: none` removed the global ring. */
 .ink-prose .mindmap-block-theme:focus-visible {
   color: var(--accent);
   border-color: var(--border-default);
   outline: none;
+  box-shadow: var(--shadow-ring);
 }
 .ink-prose .mindmap-block-theme:disabled {
   color: var(--text-quaternary);
@@ -3115,6 +3128,13 @@
   outline: none;
   box-shadow: var(--shadow-ring);
 }
+/* Same thumb-floor rule as the chips: the fixed 22px height is replaced, not just
+   floored, because a set height otherwise wins over min-height in the box. */
+@media (pointer: coarse) {
+  .ink-prose .json-filter-input {
+    height: var(--tap-target);
+  }
+}
 .ink-prose .json-view {
   position: relative;
   max-height: min(60vh, 560px);
@@ -3281,6 +3301,13 @@
   background: var(--bg-base);
   font: inherit;
   outline: none;
+}
+/* The accent border is permanent here, so it reads as "editable", not "this is the
+   one holding the keyboard". The ring lands outside the border box and only exists
+   on keyboard focus. */
+.ink-prose .jt-input:focus-visible {
+  outline: none;
+  box-shadow: var(--shadow-ring-focus);
 }
 
 .ink-prose .json-code-block[data-json-mode='map'] > .json-view,
@@ -3479,11 +3506,17 @@
   text-align: start;
   cursor: pointer;
 }
-.jm-map-menu-item:hover,
+.jm-map-menu-item:hover {
+  color: var(--text-primary);
+  background: var(--bg-active);
+}
+/* The wash above is also what a pointer gets, so keyboard focus adds the ring: with
+   `outline: none` in play it is the only thing that says where the caret is. */
 .jm-map-menu-item:focus-visible {
   color: var(--text-primary);
   background: var(--bg-active);
   outline: none;
+  box-shadow: var(--shadow-ring);
 }
 
 .jm-detail {
@@ -3546,6 +3579,14 @@
   background: var(--bg-inset);
   font: inherit;
   outline: none;
+}
+/* The item path is a real editable field, and this rule suppressed the global
+   `:focus-visible` outline without replacing it. Border tint plus the 3px field
+   ring restores the keyboard signal. */
+.jm-detail-path:focus-visible {
+  border-color: var(--accent);
+  outline: none;
+  box-shadow: var(--shadow-ring-focus);
 }
 .jm-detail-actions {
   display: flex;

@@ -45,6 +45,10 @@
   --sp-12: 48px;
   --sp-16: 64px;
 
+  /* The smallest comfortable hit target for a finger, applied only under
+     `@media (pointer: coarse)` so desktop density is never paid for it. */
+  --tap-target: 44px;
+
   --text-6: 6px;
   --text-8-5: 8.5px;
   --text-9: 9px;
