@@ -190,6 +190,9 @@ const allowed = new Map([
     "/** The name to announce when the visible label alone does not identify the chip. */",
     "/** The trailing affordance a removable chip carries (the sidebar's and the graph's `X`). */",
     "/** A palette that is data rather than a class — the kanban tag colours. */",
+    "// Deliberately no `disabled`: the only cheap way to dim a button is an opacity on its text, and the",
+    "// chip's label and count already sit at the thinnest colour that clears AA. A chip that should not",
+    "// act leaves `onPress` off.",
   ]],
   ["src/client/components/activity-calendar-almanac.test.ts", [
     "// What the calendar must paint under each day number, spelled the way a reader reads it.",
@@ -6210,6 +6213,8 @@ const allowed = new Map([
   ["src/client/features/settings/SharedNotes.tsx", [
     "// One matcher for both fields: a row that answers the title by its initials and the address by",
     "// literal characters would look like a filter that works on one column and not the other.",
+    "// `queryKeeps` reads a pinyin initial out of the dictionary, so a listing filtered by it has to",
+    "// re-run when that dictionary lands; without this the list can freeze on the pre-dictionary answer.",
   ]],
   ["src/client/features/settings/quick-add-settings.test.ts", [
     "/**\n * The app labels every control, so a test can look one up by the name a screen reader would read:\n * an `aria-label`, the `<label>` a `Field` wires with `aria-labelledby`, or a button's own text.\n */",

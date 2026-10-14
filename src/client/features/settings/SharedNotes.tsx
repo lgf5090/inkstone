@@ -14,6 +14,7 @@ import { useSettingsResource } from './resource'
 import { sharesResource } from './resources'
 import { SharePanel } from '../share/SharePanel'
 import { compileQuery, queryKeeps } from '../../lib/query-match'
+import { usePinyinVersion } from '../../lib/pinyin'
 
 export function SharedNotes() {
   const [shares, setShares] = useSettingsResource(sharesResource)
@@ -49,11 +50,14 @@ export function SharedNotes() {
   }, [load])
 
   const filter = useMemo(() => compileQuery(query), [query])
+  // `queryKeeps` reads a pinyin initial out of the dictionary, so a listing filtered by it has to
+  // re-run when that dictionary lands; without this the list can freeze on the pre-dictionary answer.
+  const pinyinVersion = usePinyinVersion()
   const visible = useMemo(() => {
     // One matcher for both fields: a row that answers the title by its initials and the address by
     // literal characters would look like a filter that works on one column and not the other.
     return shares?.filter((share) => queryKeeps(filter, share.noteTitle ?? '') || queryKeeps(filter, share.url)) ?? []
-  }, [shares, filter])
+  }, [shares, filter, pinyinVersion])
 
   const copy = async (share: ShareListItem) => {
     try {

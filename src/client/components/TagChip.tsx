@@ -41,7 +41,9 @@ export interface TagChipProps {
   countFormat?: TagChipCountFormat
   /** The name to announce when the visible label alone does not identify the chip. */
   ariaLabel?: string
-  disabled?: boolean
+  // Deliberately no `disabled`: the only cheap way to dim a button is an opacity on its text, and the
+  // chip's label and count already sit at the thinnest colour that clears AA. A chip that should not
+  // act leaves `onPress` off.
   /** The trailing affordance a removable chip carries (the sidebar's and the graph's `X`). */
   trailing?: ReactNode
   onContextMenu?: MouseEventHandler<HTMLButtonElement>
@@ -60,7 +62,6 @@ export function TagChip({
   count,
   countFormat = 'plain',
   ariaLabel,
-  disabled,
   trailing,
   onContextMenu,
   className,
@@ -71,14 +72,13 @@ export function TagChip({
       type="button"
       onClick={onPress}
       onContextMenu={onContextMenu}
-      disabled={disabled}
       aria-pressed={pressed}
       aria-label={ariaLabel}
       className={cn(
         'inline-flex max-w-full items-center gap-[var(--sp-1)] rounded-[var(--r-full)]',
         'border px-[var(--sp-1-5)] py-[var(--sp-0-5)] font-medium select-none',
         'text-[length:var(--text-11)] transition-colors duration-[var(--dur-fast)] ease-[var(--ease-out)]',
-        'disabled:pointer-events-none disabled:opacity-45',
+
         pressed
           ? 'border-[var(--accent)] bg-[var(--accent-soft)] text-[color:var(--text-primary)] hover:bg-[var(--bg-hover)]'
           : cn(

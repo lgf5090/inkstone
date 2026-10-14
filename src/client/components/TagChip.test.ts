@@ -113,19 +113,13 @@ describe('tag chip', () => {
     expect(read({ label: 'now', onPress: PRESS, style }, (b) => b.getAttribute('style'))).toContain('--kanban-tag-blue-bg')
   })
 
-  it('forwards the context menu and refuses a disabled chip', () => {
+  it('forwards the context menu', () => {
     const onPress = vi.fn()
     const onContextMenu = vi.fn()
     const { button, rendered } = chip({ label: 'urgent', onPress, onContextMenu })
     act(() => { button.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true })) })
     expect(onContextMenu).toHaveBeenCalledTimes(1)
     rendered.unmount()
-
-    const disabled = chip({ label: 'urgent', onPress, disabled: true })
-    expect(disabled.button.disabled).toBe(true)
-    act(() => { disabled.button.click() })
-    expect(onPress, 'a disabled chip answers no press').not.toHaveBeenCalled()
-    disabled.rendered.unmount()
   })
 
   it('hands the trailing affordance through untouched', () => {
