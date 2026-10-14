@@ -6,6 +6,12 @@ import { useExcalidrawLibraryStore } from '../src/client/features/excalidraw/lib
 
 const LOCAL_KEY = 'inkstone_excalidraw_library_manifest_v2';
 
+/**
+ * One row of the patch table, as this gate reads it. The table itself is plain JavaScript with no
+ * declaration file, so the shape the assertions depend on is stated here rather than left `any`.
+ */
+type Patch = { id: string; target: string; replacement: string; superseded?: string[] };
+
 describe('scene round-trips without inventing fields', () => {
   it('keeps the version and source the note author wrote', () => {
     const source = JSON.stringify({
@@ -50,7 +56,7 @@ describe('the persisted library manifest carries no derived renders', () => {
 
 describe('the engine patch table migrates rather than misreports', () => {
   it('treats a superseded replacement as work still to do', () => {
-    const entry = EXCALIDRAW_PATCHES.find((p) => p.superseded?.length)
+    const entry = EXCALIDRAW_PATCHES.find((p: Patch) => p.superseded?.length)
     expect(entry, 'the unmount entry must list the form it replaces').toBeDefined()
     const once = applyExcalidrawPatches('X ' + entry.target + ' Y')
     expect(once.applied).toEqual([entry.id])
@@ -63,8 +69,8 @@ describe('the engine patch table migrates rather than misreports', () => {
   })
 
   it('releases the engine state but leaves the canvas React owns alone', () => {
-    const entry = EXCALIDRAW_PATCHES.find((p) => p.id === 'unmount-releases-fields')
-    const mount = EXCALIDRAW_PATCHES.find((p) => p.id === 'mount-recreates-fields')
+    const entry = EXCALIDRAW_PATCHES.find((p: Patch) => p.id === 'unmount-releases-fields')
+    const mount = EXCALIDRAW_PATCHES.find((p: Patch) => p.id === 'mount-recreates-fields')
     expect(entry.replacement).toContain('this.store=null,this.library=null')
     expect(entry.replacement).toContain('this.excalidrawContainerRef.current=void 0')
     // Nulling or zeroing the canvas is what made a StrictMode remount paint into an orphan: the element

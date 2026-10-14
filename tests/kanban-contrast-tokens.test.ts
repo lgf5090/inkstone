@@ -19,7 +19,7 @@ const KANBAN_SOURCE_DIR = 'src/client/lib/markdown/kanban'
 const AA_NORMAL = 4.5
 const BANNED_TEXT_COLOR = /\btext-(?:white|black)\b|text-\[#[0-9a-f]{3,8}\]/i
 
-function walkSources(directory, out = []) {
+function walkSources(directory: string, out: string[] = []): string[] {
   for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
     const target = path.join(directory, entry.name)
     if (entry.isDirectory()) out = walkSources(target, out)
@@ -28,7 +28,7 @@ function walkSources(directory, out = []) {
   return out
 }
 
-const rgbOf = (vars, name) => parseColor(vars.get(name)).rgb
+const rgbOf = (vars: Map<string, string>, name: string): number[] => parseColor(vars.get(name)).rgb
 
 describe('kanban fill/text contrast pairs', () => {
   it('keeps the accent contrast legible on every accent, in both themes', () => {

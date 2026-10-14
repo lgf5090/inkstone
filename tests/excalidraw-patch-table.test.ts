@@ -7,7 +7,9 @@ const VENDOR = 'node_modules/@zsviczian/excalidraw/dist/obsidian/excalidraw.prod
 describe('the vendored engine patch table', () => {
   it('covers every edit and each one is either applicable or already applied', () => {
     expect(EXCALIDRAW_PATCHES.length).toBe(15)
-    expect(new Set(EXCALIDRAW_PATCHES.map((p) => p.id)).size).toBe(EXCALIDRAW_PATCHES.length)
+    // The table is plain JavaScript with no declaration file, so the one field this assertion reads
+    // is named on the callback instead of being left `any`.
+    expect(new Set(EXCALIDRAW_PATCHES.map((p: { id: string }) => p.id)).size).toBe(EXCALIDRAW_PATCHES.length)
     if (!fs.existsSync(VENDOR)) return
     const source = fs.readFileSync(VENDOR, 'utf8')
     const { unmatched, applied, already } = applyExcalidrawPatches(source)

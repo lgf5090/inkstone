@@ -26,8 +26,11 @@ const SURFACE_TOKENS = ['--bg-sunken', '--bg-base', '--bg-editor', '--bg-surface
 const COLOR_MIX_RE = /^color-mix\(in oklab,\s*(.+?)\s+([\d.]+)%\s*,\s*transparent\)$/
 const VAR_RE = /^var\((--[\w-]+)\)$/
 
+/** A colour as the composite step reads it: channels plus the alpha the browser would apply. */
+type Rgb = { rgb: number[]; alpha: number }
+
 /** Resolves a token value to rgb + alpha the way the browser composites it. */
-function resolveColor(vars, raw, seen = new Set()) {
+function resolveColor(vars: Map<string, string>, raw: string, seen: Set<string> = new Set()): Rgb {
   const text = raw.trim()
   const mix = text.match(COLOR_MIX_RE)
   if (mix) {
@@ -38,7 +41,8 @@ function resolveColor(vars, raw, seen = new Set()) {
   if (reference) {
     const name = reference[1]
     if (seen.has(name) || !vars.has(name)) throw new Error(`undeclared token ${name}`)
-    return resolveColor(vars, vars.get(name), new Set(seen).add(name))
+    // `has` was just checked; `get` cannot be narrowed through it.
+    return resolveColor(vars, vars.get(name)!, new Set(seen).add(name))
   }
   const parsed = parseColor(text)
   if (!parsed) throw new Error(`unparsed colour: ${text}`)
@@ -47,16 +51,17 @@ function resolveColor(vars, raw, seen = new Set()) {
 
 const VARS: Record<string, Map<string, string>> = { light: themeVars('light', TOKENS), dark: themeVars('dark', TOKENS) }
 
-function solidSurfaces(vars) {
+function solidSurfaces(vars: Map<string, string>): Array<{ name: string; color: Rgb }> {
   return SURFACE_TOKENS
     .filter((name) => vars.has(name))
-    .map((name) => ({ name, color: resolveColor(vars, vars.get(name)) }))
+    .map((name) => ({ name, color: resolveColor(vars, vars.get(name)!) }))
     .filter((surface) => surface.color.alpha === 1)
 }
 
-function worstChipRatio(vars, name) {
-  const foreground = resolveColor(vars, vars.get(`--kanban-tag-${name}-fg`))
-  const tint = resolveColor(vars, vars.get(`--kanban-tag-${name}-bg`))
+function worstChipRatio(vars: Map<string, string>, name: string): { ratio: number; surface: string } {
+  // Both entries are asserted to exist by the declaration test above; `get` cannot be narrowed by it.
+  const foreground = resolveColor(vars, vars.get(`--kanban-tag-${name}-fg`)!)
+  const tint = resolveColor(vars, vars.get(`--kanban-tag-${name}-bg`)!)
   let worst = { ratio: Infinity, surface: '' }
   for (const surface of solidSurfaces(vars)) {
     const ratio = contrastRatio(foreground.rgb, over(tint, surface.color.rgb))
@@ -67,7 +72,7 @@ function worstChipRatio(vars, name) {
 
 const SOURCE_ROOT = 'src/client'
 
-function walkSources(directory, out = []) {
+function walkSources(directory: string, out: string[] = []): string[] {
   for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
     const target = path.join(directory, entry.name)
     if (entry.isDirectory()) out = walkSources(target, out)
@@ -81,7 +86,7 @@ function walkSources(directory, out = []) {
 // (`--kanban-tag-<name>-fg`), so a reference is only checkable once its
 // placeholder is expanded over the colour names the picker offers. A name that is
 // not a placeholder is a real token and has to be declared as spelled.
-function expandTagToken(suffix) {
+function expandTagToken(suffix: string): string[] {
   const placeholder = suffix.match(/^(?:\$\{[\w.]+\}|<[\w.]+>|\*)(.*)$/)
   if (!placeholder) return [`--kanban-tag-${suffix}`]
   return KANBAN_COLOR_NAMES.map((name) => `--kanban-tag-${name}${placeholder[1]}`)
