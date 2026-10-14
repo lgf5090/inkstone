@@ -1,15 +1,16 @@
 /**
  * The one source of truth for how far a tree row steps in per depth level.
  *
- * The sidebar folders, the tag tree, the calendar/todo and inbox trees and the move picker all draw
- * the same row geometry, so the base and the step live here and a row calls `treeIndent(depth)`
+ * The sidebar folders, the tag tree, the calendar/todo and inbox trees, the move picker, the stencil
+ * library, the RSS rail, the chat taxonomy, the quickadd choices and the reader's contents list all
+ * draw the same row geometry, so the base and the step live here and a row calls `treeIndent(depth)`
  * instead of re-deriving `base + depth * step` inline. Rows apply the result as an inline
  * `paddingLeft`, which is the runtime-value case the style rule allows.
  *
- * This is the contract to converge on, not a claim that it already holds everywhere: a few rows — a
- * chat taxonomy list and the like — still hand-write their own `n + depth * m` and will drift from
- * these constants until they call `treeIndent`. Until they do, this module defines the step; it does
- * not prove that nothing else computes one.
+ * Two nested renderers indent another way on purpose and are not drift: the JSON tree nests with CSS
+ * (`.jt-children` in `styles/prose.css`) because its rows are built as DOM strings rather than by a
+ * React row, and a dataview `GROUP BY` nests as ordinary list items because it is a list, not a
+ * navigator. A new row that *is* a navigator calls this function.
  */
 export const TREE_INDENT_BASE = 6
 export const TREE_INDENT_STEP = 13
