@@ -21,9 +21,10 @@ function toD1Row<T>(row: T): T {
 }
 
 // The write direction of the same D1/node:sqlite split. D1 binds a bare ArrayBuffer to a BLOB
-// column, but node:sqlite only takes a byte view, and under jsdom the ArrayBuffer intrinsic is not
-// the one it recognises, so it throws "Provided value cannot be bound to SQLite parameter N".
-// Handing over a view over the same bytes keeps both drivers on the same call shape.
+// column, but node:sqlite only reliably takes a byte view: it rejects an ArrayBuffer in the
+// named-parameter object form on every platform, and rejects it positionally too once the test
+// runs in the jsdom environment, in both cases with "Provided value cannot be bound to SQLite
+// parameter N". A view over the same bytes satisfies D1 and both node:sqlite paths.
 function toSqliteParam(value: unknown): unknown {
   if (value === null || typeof value !== 'object') return value
   const name = (value as { constructor?: { name?: string } }).constructor?.name
