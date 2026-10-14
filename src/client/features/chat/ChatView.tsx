@@ -11,11 +11,14 @@
 import { type ClipboardEvent as ReactClipboardEvent, type KeyboardEvent, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { ArrowUp, History, MoreHorizontal, Paperclip, Plus, Square, Star } from 'lucide-react'
 import type { AssistantConversation, AssistantMessage, ChatAttachment } from '@shared/assistant'
+import { DEBOUNCE } from '@shared/constants'
 import { cn } from '../../lib/cn'
 import { t } from '../../lib/i18n'
 import { relativeTime } from '../../lib/time'
 import { useDebouncedDraft } from '../../lib/hooks'
+import { compileQuery } from '../../lib/query-match'
 import { Button, IconButton, Spinner } from '../../components/primitives'
+import { FilterInput } from '../../components/FilterInput'
 import { Input } from '../../components/form'
 import { Menu, Modal, confirm, prompt, submenuFor } from '../../components/overlay'
 import { api } from '../../lib/api'
@@ -236,13 +239,8 @@ export function UserBubble({
   )
 }
 
-/**
- * How long the conversation box stops typing before the settled text reaches the store. The query lives
- * in the assistant store, so a keystroke that commits it there re-filters every row in the list.
- */
-const CONVERSATION_SEARCH_DEBOUNCE_MS = 200
-
-function ConversationList({ activeId, onPick }: { activeId: string | null, onPick: () => void }) {
+/** Exported so a test can pin the conversation box to the shared filter box; `ChatView` draws it twice. */
+export function ConversationList({ activeId, onPick }: { activeId: string | null, onPick: () => void }) {
   const conversations = useAssistant((state) => state.conversations)
   const query = useAssistant((state) => state.conversationQuery)
   const setQuery = useAssistant((state) => state.setConversationQuery)
@@ -253,9 +251,14 @@ function ConversationList({ activeId, onPick }: { activeId: string | null, onPic
   const [menuFor, setMenuFor] = useState<string | null>(null)
   const [renaming, setRenaming] = useState<AssistantConversation | null>(null)
   const [draft, setDraft] = useState('')
+  // The box stops typing for `DEBOUNCE.search` before the settled text reaches the store, because a
+  // keystroke that commits it there asks the server for the whole list again.
   const { draft: searchDraft, setDraft: setSearchDraft } = useDebouncedDraft(query, (next) => {
     void setQuery(next)
-  }, CONVERSATION_SEARCH_DEBOUNCE_MS)
+  }, DEBOUNCE.search)
+  // The shared box's own grammar check. Matching is the server's, so what the box can answer here is
+  // whether what was typed is a pattern at all — see the note on `FilterInput` below.
+  const searchQuery = useMemo(() => compileQuery(searchDraft), [searchDraft])
 
   // Counts move whenever a conversation is filed or a turn adds one, so the tree rides along with it.
   useEffect(() => {
@@ -286,12 +289,21 @@ function ConversationList({ activeId, onPick }: { activeId: string | null, onPic
         <Button size="sm" variant="secondary" block icon={<Plus size={14} />} onClick={() => { newConversation(); onPick() }}>
           {t('assistant.chat.new')}
         </Button>
-        <Input
+        {/* The same box the notebook's rails draw: search icon, clear control, Escape that takes the text
+            back out, and the shared refusal when what was typed is not a pattern. The chrome is shared,
+            the matching is not — this list is answered by the server's `LIKE` over the title and the
+            message bodies (`src/worker/assistant/store.ts`), and conversations are not in the omnisearch
+            index, which covers `notes` only. So the settled text is handed on verbatim, exactly as the
+            bare `Input` did: `/expression/` is a promise the conversation endpoint has yet to keep, and
+            the grammar check is the part a box with a server behind it can honestly offer. */}
+        <FilterInput
+          size="sidebar"
+          className="mt-0"
           value={searchDraft}
-          onChange={(event) => setSearchDraft(event.target.value)}
+          onChange={setSearchDraft}
+          query={searchQuery}
+          label={t('assistant.chat.search')}
           placeholder={t('assistant.chat.search')}
-          aria-label={t('assistant.chat.search')}
-          className="h-8 text-[12px]"
         />
       </div>
       <ConversationTabStrip />
