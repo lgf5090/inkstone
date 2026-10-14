@@ -2,6 +2,7 @@ import { memo, useCallback, useEffect, useId, useMemo, useRef, useState, useSync
 import { createPortal } from 'react-dom';
 import { CornerDownRight, FileText, FolderOpen, ImageIcon, ScanSearch, X } from 'lucide-react';
 import type { ParsedOmnisearchQuery } from '@shared/omnisearch-query';
+import { DEBOUNCE } from '@shared/constants';
 import { cn } from '../../lib/cn';
 import { t } from '../../lib/i18n';
 import { useBreakpoint, useDebounced } from '../../lib/hooks';
@@ -20,7 +21,6 @@ import { initialQueryOf, loadHistory, pushHistory } from './history';
 import type { Excerpt, OmnisearchResult } from './types';
 const ROW_CLASS = 'flex w-full items-start gap-2.5 rounded-[var(--r-md)] px-2.5 py-2 text-left';
 const ROW_ACTIVE_CLASS = `${ROW_CLASS} bg-[var(--accent-soft)]`;
-const SEARCH_DELAY_MS = 120;
 const IMAGE_EXT = /^(png|jpe?g|gif|webp|avif|svg)$/;
 function useIndexerStatus(): IndexerStatus {
     return useSyncExternalStore(omnisearchIndexer.subscribe, omnisearchIndexer.getStatus, omnisearchIndexer.getStatus);
@@ -154,7 +154,10 @@ export function OmnisearchPrompt({ mode, seed, noteId }: {
     const listId = useId();
     const labelId = useId();
     const fileNoteId = scope === 'file' ? noteId ?? activeNoteId : null;
-    const debounced = useDebounced(query, SEARCH_DELAY_MS, scope);
+    // Same job as every other box that queries on a pause: one burst of keystrokes costs one query.
+    // This index is local, so it could go faster than the network boxes, but 120 ms sat below the
+    // ~170 ms between two keystrokes and so answered continuous typing once per character.
+    const debounced = useDebounced(query, DEBOUNCE.search, scope);
     useEscape(true, () => closeOmnisearch());
     useLockScroll(true);
     useDialogFocus(true, panelRef, inputRef);

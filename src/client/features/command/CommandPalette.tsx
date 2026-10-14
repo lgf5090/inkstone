@@ -4,6 +4,7 @@ import { createPortal } from 'react-dom';
 import { Clock, FileText, FolderPlus, Hash, Plus, Search, X } from 'lucide-react';
 import type { NoteSummary, SearchHit } from '@shared/types';
 import { truncateText } from '@shared/text-utils';
+import { DEBOUNCE } from '@shared/constants';
 import { api } from '../../lib/api';
 import { fuzzyFilter, splitByRanges, type FuzzyMatch } from '../../lib/fuzzy';
 import { useDebounced, useNow } from '../../lib/hooks';
@@ -67,7 +68,7 @@ export function CommandPalette({ onClose, initialQuery = '' }: {
     const quickAddChoices = useQuickAdd((s) => s.choices);
     const appearanceTheme = useSession((s) => s.settings.appearance.theme);
     const linterOn = useSession((s) => s.settings.linter.enabled);
-    const debounced = useDebounced(query, 180);
+    const debounced = useDebounced(query, DEBOUNCE.search);
     const now = useNow();
     useEscape(true, onClose);
     useLockScroll(true);
