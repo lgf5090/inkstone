@@ -113,10 +113,12 @@ describe('trashPurgeStatements', () => {
   })
 
   it('queues an AI vector deletion only for notes that still have one', async () => {
+    // Seeded through raw node:sqlite rather than the D1 double, so the BLOB goes in as a byte
+    // view; node:sqlite rejects a bare ArrayBuffer outright.
     sqlite.prepare(
       `INSERT INTO ai_note_embeddings (user_id, note_id, model, vector, indexed_at)
        VALUES (?, 'trash-1', '@cf/baai/bge-m3', ?, 1)`,
-    ).run(MINE, new Uint8Array(8).buffer)
+    ).run(MINE, new Uint8Array(8))
     await purge(trashedIdsOf(MINE))
     const queued = sqlite.prepare(
       'SELECT note_id FROM ai_index_queue WHERE user_id = ? AND kind = ? ORDER BY note_id',

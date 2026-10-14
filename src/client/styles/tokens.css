@@ -59,8 +59,6 @@
   /* The leading every dense UI stack shares, so a card and its column header agree. */
   --ui-line: 1.55;
 
-  --z-hover-card: 270;
-
   --dur-fast: 130ms;
   --dur-base: 220ms;
   --dur-slow: 340ms;
@@ -116,16 +114,67 @@
   --tracking-title: -0.012em;
   --tracking-label: 0.06em;
   --tracking-section: 0.07em;
-  --z-float: 30;
-  --z-menu: 20;
-  --z-popover: 50;
-  /* The projector owns the viewport, so it takes the modal tier; the rows it opens (right-click menu,
-     presenter panel) ride one above it and its own toasts above those. `--z-sticky` is the stage's
-     counter, which must beat a slide's own stacking context but not the controls. */
+
+  /* ── The stacking scale ─────────────────────────────────────────────────────────────────────
+     One named band per tier two overlapping surfaces actually compare on. Every number the app
+     paints today has a name here: nothing outside this list may write a `z-index` of its own.
+     `src/client/lib/z-index.ts` mirrors these values for surfaces whose stack level is set from JS,
+     and `tests/shared-component-contract.test.ts` pins the two against each other, so a band cannot
+     be added on one side only and no band may be re-tuned out of order.
+     The scale is strictly increasing. Below `--z-drawer` the numbers are counters inside one
+     surface's own stacking context — a slide stage, a kanban column, a prose widget — so they read
+     small and never meet the viewport-fixed tiers above them.
+     Two of these bands are named twice over, and both are debt with a pending rename rather than a
+     second tier: `--z-pop` (260) is the floating-menu tier `Z_INDEX.menu` calls "menu", and
+     `--z-pinned` (280) is what `Z_INDEX.hoverPinned` calls the pinned-card tier. The scale keeps the
+     CSS spelling; the JS keys change with their call sites. ─────────────────────────────────── */
+
+  /* The projector's stage counter: beats a slide's own stacking context, never its controls. */
   --z-sticky: 10;
+  /* A menu or popover drawn inside one surface's own context — the kanban board's column, filter,
+     sort, shortcuts and view-options panels, which only have to beat the board they sit in. */
+  --z-menu: 20;
+  /* A handle floating over the text it belongs to (the block dragger). */
+  --z-float: 30;
+  /* A panel anchored to a control inside a reading or presentation surface. The widest-used band. */
+  --z-popover: 50;
+
+  /* The drawer rail: above the app shell, below every dialog. */
+  --z-drawer: 190;
+  /* The settings panel — the first full-viewport dialog, so it opens under the rest. */
+  --z-panel: 210;
+  /* The graph panel, which the settings panel must not cover. */
+  --z-workspace: 230;
+  /* A prompt or sheet a reader types into or picks from: the command palette, the omnisearch
+     prompt, a mobile filter sheet, an article or template preview, a graph overlay. */
+  --z-prompt: 240;
+  /* `Dialog`. The projector owns the viewport at this tier, and the rows it opens ride above it. */
   --z-modal: 250;
+  /* A picker that has to beat the dialog it was opened from (the emoji picker). */
+  --z-picker: 255;
+  /* The floating `Menu` tier, and the image lightbox. `Z_INDEX.menu` names this band "menu". */
   --z-pop: 260;
+  /* A submenu flyout: one above the menu that opened it. */
+  --z-submenu: 265;
+  /* A wiki-link hover card, and a context menu opened over one. */
+  --z-hover-card: 270;
+  /* A pinned hover card and the menus it owns. `Z_INDEX.hoverPinned` names this band. */
+  --z-pinned: 280;
+  /* A menu opened from a pinned card. The shelf's full-viewport drop veil rides this tier. */
+  --z-pinned-menu: 300;
+  /* `Toaster`. */
   --z-toast: 400;
+  /* `Tooltip`: above every toast, because it explains whatever is under the cursor. */
+  --z-tooltip: 500;
+  /* The outline's hover peek, which has to read over the surface it annotates. */
+  --z-peek: 520;
+  /* Last-resort escape hatch for a surface that owns the viewport outright (a full-screen embedded
+     editor). Reach for a band above instead; a second user of this one is a bug to fix, not a peer. */
+  --z-top: 9999;
+  /* Unnamed debt for its owner: `TextToDiagramModal.tsx` paints a full-screen dialog at `z-[100]`,
+     below the drawer it can be opened over. It belongs at `--z-modal`; it is left out of the scale so
+     the scale does not bless a mis-ordered tier. */
+
   --kanban-tag-gray-fg: oklch(46.5% 0.005 106.6);
   --kanban-tag-gray-bg: color-mix(in oklab, var(--kanban-tag-gray-fg) 14%, transparent);
   --kanban-tag-brown-fg: oklch(49% 0.076 45.6);
@@ -357,6 +406,11 @@
   --danger-soft: color-mix(in oklab, var(--danger) 14%, transparent);
   --accent-ring: color-mix(in oklab, var(--accent) 34%, transparent);
   --shadow-ring: 0 0 0 2px var(--accent-ring);
+  /* The ring a text field wears when it takes focus, and the only thickness one is allowed. A control
+     ring and a selection wash read at 2px (`--shadow-ring`); a field needs the third pixel to
+     separate from the border it sits inside, and every field ring in the app already measures 3px —
+     four of them spelled out by hand. Named so the next one is not spelled out as a fifth. */
+  --shadow-ring-focus: 0 0 0 3px var(--accent-ring);
   --accent-muted: color-mix(in oklab, var(--accent) 62%, var(--text-tertiary));
   --list-marker: var(--accent-muted);
 }

@@ -22,7 +22,7 @@ export const FIELD_BASE = cn(
   'w-full rounded-[var(--r-md)] border border-[var(--border-default)] bg-[var(--bg-inset)]',
   'px-2.5 text-[13px] text-[var(--text-primary)] placeholder:text-[var(--text-quaternary)]',
   'transition-[border-color,box-shadow] duration-[var(--dur-fast)] ease-[var(--ease-out)]',
-  'focus:border-[var(--accent)] focus:shadow-[0_0_0_3px_var(--accent-ring)] focus:outline-none',
+  'focus:border-[var(--accent)] focus:shadow-[var(--shadow-ring-focus)] focus:outline-none',
   'disabled:opacity-50',
 )
 

@@ -627,7 +627,7 @@ export function FolderSection({ mobile = false }: { mobile?: boolean }) {
         </div>
       {unfiledMatches.length > 0 && (<><p data-unfiled-label className="px-2 pt-2 text-[10.5px] text-[var(--text-quaternary)]">{t("navigation.unfiled")}</p>
         <div role="tree" aria-label={t("navigation.unfiled")} className="mt-0.5 space-y-px" data-unfiled-matches>
-          {unfiledMatches.map((note) => <ExplorerNote key={note.id} note={note} depth={0} canOpenToSide={canOpenToSide} highlight={folderQuery}/>)}
+          {unfiledMatches.map((note, index) => <ExplorerNote key={note.id} note={note} depth={0} canOpenToSide={canOpenToSide} setSize={unfiledMatches.length} posInSet={index + 1} highlight={folderQuery}/>)}
         </div></>)}
       </section>
       <FolderPicker open={Boolean(movingFolder)} title={t("folders.choose_parent")} folders={folders} currentId={movingFolder?.parentId ?? null} excludedIds={excludedMoveTargets} onSelect={(parentId) => {

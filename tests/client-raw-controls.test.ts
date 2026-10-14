@@ -109,6 +109,10 @@ const SHARED_RAW_BUTTONS = new Map<string, string>([
     'The swatch every palette draws: a colour is a fixed-size round or rounded-square hit target carrying a background style, an active ring and a check mark, none of which `Button`\'s fixed height, padding and single inline span can express. Every colour menu in the app reaches it from here rather than writing its own button.',
   ],
   [
+    'src/client/components/TagChip.tsx',
+    'The chip every tag surface draws: a height-free, padding-sized inline-flex box carrying a colour dot or glyph, a truncating label with an optional `#`, a tabular count and an `aria-pressed` toggle. `Button` fixes a height per size and its responsive `md:h-*` still outranks a caller\'s `h-auto`, so a strip of chips holding different counts cannot keep one baseline through it. Every tag rail, chip filter and board label row reaches the box from here instead of writing its own.',
+  ],
+  [
     'src/client/components/ErrorBoundary.tsx',
     'The reload action on the crash screen. That screen is what renders after the tree above it has already thrown, so it holds a raw element rather than reaching back into the component system that failed.',
   ],

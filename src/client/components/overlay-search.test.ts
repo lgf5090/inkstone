@@ -227,6 +227,35 @@ describe('Menu search field', () => {
         expect(labels()).toEqual(['Plain', 'Insert']);
     });
 
+    it('leaves an Escape that only cancels an input-method composition to the composition', () => {
+        // The field takes its keys from `useFilterInput`, so the guard every other filter box answers
+        // to holds here too: a pinyin reader throwing away a syllable must not lose the whole query,
+        // and must not close the menu either.
+        const onClose = vi.fn();
+        render(createElement(Menu, { anchor: POINT, open: true, onClose, items: [LEAF], searchable: true }));
+        type('pi');
+        keyDown('Escape', field()!, { isComposing: true });
+        expect(field()?.value).toBe('pi');
+        expect(onClose).not.toHaveBeenCalled();
+        expect(menu()).not.toBeNull();
+    });
+
+    it('leaves the candidate strip’s arrows and Enter to the strip', () => {
+        const onSelect = vi.fn();
+        const onClose = vi.fn();
+        render(createElement(Menu, {
+            anchor: POINT,
+            open: true,
+            onClose,
+            items: [{ id: 'p', label: 'Ping', onSelect }],
+            searchable: true,
+        }));
+        keyDown('ArrowDown', field()!, { isComposing: true });
+        keyDown('Enter', field()!, { isComposing: true });
+        expect(onSelect).not.toHaveBeenCalled();
+        expect(onClose).not.toHaveBeenCalled();
+    });
+
     it('renders the header above the filter box, both outside the scrolling rows', () => {
         render(createElement(Menu, {
             anchor: POINT,
