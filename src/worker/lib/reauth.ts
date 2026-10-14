@@ -1,11 +1,11 @@
 import { ApiError } from './errors'
 import { PASSWORD_MAX_LENGTH, verifyPassword } from './password'
 import {
+  assertAttemptBudget,
   assertNotLocked,
   clearLoginFailures,
   consumeAttemptBudget,
   recordLoginFailure,
-  ThrottleError,
 } from './throttle'
 
 
@@ -16,17 +16,10 @@ export async function requireCurrentPassword(
 ): Promise<string> {
   const throttleKeys = [`pw:${userId}`]
   const workKeys = [{ key: `pw-work:${userId}`, maxAttempts: 8, windowMs: 10 * 60 * 1000 }]
-  try {
+  await assertAttemptBudget(async () => {
     await consumeAttemptBudget(db, workKeys)
     await assertNotLocked(db, throttleKeys)
-  } catch (err) {
-    if (err instanceof ThrottleError) {
-      throw new ApiError(429, 'too_many_attempts', `Too many attempts. Try again in ${err.retryAfterSec} seconds`, {
-        retryAfter: err.retryAfterSec,
-      })
-    }
-    throw err
-  }
+  })
 
   const row = await db
     .prepare(`SELECT password_hash FROM users WHERE id = ?1`)

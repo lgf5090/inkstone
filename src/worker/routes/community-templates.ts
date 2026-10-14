@@ -5,8 +5,9 @@ import type { CommunityTemplate, CommunityTemplateInput } from '@shared/types'
 import type { AppBindings } from '../env'
 import { ApiError } from '../lib/errors'
 import { isValidId, newId } from '../lib/id'
+import { storedStringArray } from '../lib/json'
 import { JSON_BODY_LIMITS, readJson } from '../lib/request'
-import { consumeAttemptBudget, ThrottleError } from '../lib/throttle'
+import { assertAttemptBudget, consumeAttemptBudget } from '../lib/throttle'
 import { requireAuth } from '../middleware/auth'
 
 export const communityTemplatesRoutes = new Hono<AppBindings>()
@@ -38,14 +39,7 @@ const COMMUNITY_FROM = `FROM community_templates ct
   LEFT JOIN users u ON u.id = ct.author_id`
 
 function toCommunityTemplate(row: CommunityRow): CommunityTemplate {
-  let tags: string[] = []
-  try {
-    const parsed = JSON.parse(row.tags) as unknown
-    if (Array.isArray(parsed)) tags = parsed.filter((tag): tag is string => typeof tag === 'string')
-  }
-  catch {
-    tags = []
-  }
+  const tags = storedStringArray(row.tags)
   return {
     id: row.id,
     authorId: row.author_id,
@@ -126,25 +120,12 @@ communityTemplatesRoutes.get('/', async (c) => {
  * budget, which is the point: an edit is another write.
  */
 async function enforcePublishBudget(db: D1Database, userId: string): Promise<void> {
-  try {
-    await consumeAttemptBudget(db, [{
-      key: `community-template:publish:${userId}`,
-      maxAttempts: LIMITS.communityTemplatesPerHour,
-      windowMs: 60 * 60 * 1000,
-      lockMs: 60 * 60 * 1000,
-    }])
-  }
-  catch (error) {
-    if (error instanceof ThrottleError) {
-      throw new ApiError(
-        429,
-        'too_many_attempts',
-        `Too many community template publishes. Try again in ${error.retryAfterSec} seconds`,
-        { retryAfter: error.retryAfterSec },
-      )
-    }
-    throw error
-  }
+  await assertAttemptBudget(() => consumeAttemptBudget(db, [{
+    key: `community-template:publish:${userId}`,
+    maxAttempts: LIMITS.communityTemplatesPerHour,
+    windowMs: 60 * 60 * 1000,
+    lockMs: 60 * 60 * 1000,
+  }]), 'Too many community template publishes')
 }
 
 /**
@@ -240,25 +221,12 @@ communityTemplatesRoutes.post('/', async (c) => {
  * and generous: it stops a script, not a person browsing the directory.
  */
 async function enforceUseBudget(db: D1Database, userId: string): Promise<void> {
-  try {
-    await consumeAttemptBudget(db, [{
-      key: `community-template:use:${userId}`,
-      maxAttempts: LIMITS.communityTemplateUsesPerHour,
-      windowMs: 60 * 60 * 1000,
-      lockMs: 60 * 60 * 1000,
-    }])
-  }
-  catch (error) {
-    if (error instanceof ThrottleError) {
-      throw new ApiError(
-        429,
-        'too_many_attempts',
-        `Too many community template adopts. Try again in ${error.retryAfterSec} seconds`,
-        { retryAfter: error.retryAfterSec },
-      )
-    }
-    throw error
-  }
+  await assertAttemptBudget(() => consumeAttemptBudget(db, [{
+    key: `community-template:use:${userId}`,
+    maxAttempts: LIMITS.communityTemplateUsesPerHour,
+    windowMs: 60 * 60 * 1000,
+    lockMs: 60 * 60 * 1000,
+  }]), 'Too many community template adopts')
 }
 
 communityTemplatesRoutes.post('/:id/use', async (c) => {

@@ -14,8 +14,9 @@ import {
 import { decryptSecret, encryptSecret } from '../lib/crypto'
 import { ApiError } from '../lib/errors'
 import { isValidId, newId } from '../lib/id'
+import { parseStoredJson, storedObject } from '../lib/json'
 import { JSON_BODY_LIMITS, readJson, readOptionalJson } from '../lib/request'
-import { consumeAttemptBudget, ThrottleError } from '../lib/throttle'
+import { assertAttemptBudget, consumeAttemptBudget } from '../lib/throttle'
 import { requireAuth } from '../middleware/auth'
 
 export const backupRoutes = new Hono<AppBindings>()
@@ -243,19 +244,10 @@ async function enforceOutboundBudget(
   kind: keyof typeof OUTBOUND_BUDGETS,
 ): Promise<void> {
   const budget = OUTBOUND_BUDGETS[kind]
-  try {
-    await consumeAttemptBudget(c.env.DB, [{ key: `backup-${kind}:${c.get('userId')}`, ...budget }])
-  } catch (error) {
-    if (error instanceof ThrottleError) {
-      throw new ApiError(
-        429,
-        'too_many_attempts',
-        `Too many backup requests. Try again in ${error.retryAfterSec} seconds`,
-        { retryAfter: error.retryAfterSec },
-      )
-    }
-    throw error
-  }
+  await assertAttemptBudget(
+    () => consumeAttemptBudget(c.env.DB, [{ key: `backup-${kind}:${c.get('userId')}`, ...budget }]),
+    'Too many backup requests',
+  )
 }
 
 async function loadTarget(db: D1Database, userId: string, id: string): Promise<TargetRow> {
@@ -297,14 +289,7 @@ function mergeTargetInput(
 }
 
 function safeObject(raw: string): Record<string, unknown> {
-  try {
-    const value = JSON.parse(raw)
-    return value && typeof value === 'object' && !Array.isArray(value)
-      ? (value as Record<string, unknown>)
-      : {}
-  } catch {
-    return {}
-  }
+  return storedObject(raw)
 }
 
 function mergeSecret(
@@ -459,10 +444,8 @@ function validateBackupConfig(run: () => unknown): void {
 }
 
 function parseResults(raw: string): BackupTargetResult[] {
-  try {
-    const parsed = JSON.parse(raw)
-    return Array.isArray(parsed) ? (parsed.filter((r) => r && r.targetId) as BackupTargetResult[]) : []
-  } catch {
-    return []
-  }
+  const parsed = parseStoredJson(raw)
+  if (!Array.isArray(parsed)) return []
+  return parsed.filter((entry): entry is BackupTargetResult =>
+    Boolean(entry) && typeof entry === 'object' && Boolean((entry as BackupTargetResult).targetId))
 }

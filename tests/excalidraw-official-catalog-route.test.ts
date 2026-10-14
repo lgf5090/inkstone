@@ -1,7 +1,6 @@
 // @vitest-environment node
 import { Hono } from 'hono'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { errorResponse } from '../src/worker/lib/errors'
 import type { AppBindings } from '../src/worker/env'
 
 vi.mock('../src/worker/middleware/auth', () => ({
@@ -44,6 +43,7 @@ function env() {
 /** The route caches the catalog in module scope, so every test needs a freshly imported module. */
 async function freshApp() {
     vi.resetModules()
+    const { errorResponse } = await import('../src/worker/lib/errors')
     const { excalidrawLibraryRoutes } = await import('../src/worker/routes/excalidraw-library')
     const app = new Hono<AppBindings>()
     app.onError((err, c) => errorResponse(c, err))
@@ -115,9 +115,9 @@ describe('the official catalog endpoint', () => {
 
         const res = await app.request('/api/excalidraw/library/official-catalog', {}, env(), ctx())
         expect(res.status).toBe(502)
-        const body = await res.json() as { ok: boolean; libraries: unknown[] }
-        expect(body.ok).toBe(false)
-        expect(body.libraries).toEqual([])
+        const body = await res.json() as { error: { code: string; message: string } }
+        expect(body.error.code).toBe('internal')
+        expect(body.error.message).toBeTruthy()
         expect(fetchSpy).toHaveBeenCalledTimes(1)
         // What the old literal-string test could never see: workerd rejects 'error' before the
         // request is even made, so the option this app passes has to be one it accepts.
@@ -191,6 +191,27 @@ describe('the official download endpoint', () => {
 
         expect(res.status).toBe(502)
         expect(fetchSpy).toHaveBeenCalledTimes(1)
+    })
+
+    it('answers an oversized library with 413 rather than a generic download failure', async () => {
+        // The route's own cap: `OFFICIAL_FETCH_MAX_BYTES` in src/worker/routes/excalidraw-library.ts.
+        const OFFICIAL_FETCH_MAX_BYTES = 5 * 1024 * 1024
+        globalThis.fetch = vi.fn(async () => new Response('x'.repeat(OFFICIAL_FETCH_MAX_BYTES + 1), {
+            status: 200,
+            headers: { 'content-type': 'application/json' },
+        })) as never
+        const app = await freshApp()
+
+        const res = await app.request('/api/excalidraw/library/official-download', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ url: 'thijsdev/snowflake.excalidrawlib' }),
+        }, env(), ctx())
+
+        expect(res.status).toBe(413)
+        const body = await res.json() as { error?: { code?: string; message?: string } }
+        expect(body.error?.code).toBe('payload_too_large')
+        expect(body.error?.message).toMatch(/5 MB limit/)
     })
 
     it('archives the raw file behind the response instead of before it', async () => {

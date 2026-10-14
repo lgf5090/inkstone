@@ -3,6 +3,7 @@ import { parseQuickAddText, QUICKADD_VERSION } from '@shared/quickadd'
 import { parseFrontMatter } from '@shared/markdown-utils'
 import type { AppBindings } from '../env'
 import { ApiError } from '../lib/errors'
+import { parseStoredJson } from '../lib/json'
 import { JSON_BODY_LIMITS, readJson } from '../lib/request'
 import { requireAuth } from '../middleware/auth'
 
@@ -19,12 +20,7 @@ interface StoredLibrary {
 
 function readStored(raw: string | null): StoredLibrary | null {
   if (!raw) return null
-  let parsed: unknown
-  try {
-    parsed = JSON.parse(raw)
-  } catch {
-    return null
-  }
+  const parsed = parseStoredJson(raw)
   if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return null
   const value = parsed as { savedAt?: unknown; version?: unknown; library?: unknown }
   if (typeof value.savedAt !== 'number' || !Number.isFinite(value.savedAt)) return null

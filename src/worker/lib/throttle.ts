@@ -1,5 +1,6 @@
 
 
+import { ApiError } from './errors'
 
 const DEFAULT_FREE_FAILS = 5
 const WINDOW_MS = 60 * 60 * 1000
@@ -24,6 +25,34 @@ export class ThrottleError extends Error {
     super('too_many_attempts')
     this.name = 'ThrottleError'
     this.retryAfterSec = Math.max(1, Math.ceil(retryAfterMs / 1000))
+  }
+}
+
+/**
+ * Runs a throttled step — spending an attempt budget, checking a lock, or both — and answers the
+ * `429` the API promises once the throttle rejects it.
+ *
+ * Every throttled route funnels through here so the status, error code, `Retry-After` hint and
+ * response shape cannot drift apart. `message` is the human prefix a route shows; the retry count is
+ * appended here. The step is a thunk so a route that checks a lock before spending work keeps its
+ * exact ordering.
+ */
+export async function assertAttemptBudget(
+  run: () => Promise<unknown>,
+  message = 'Too many attempts',
+): Promise<void> {
+  try {
+    await run()
+  } catch (error) {
+    if (error instanceof ThrottleError) {
+      throw new ApiError(
+        429,
+        'too_many_attempts',
+        `${message}. Try again in ${error.retryAfterSec} seconds`,
+        { retryAfter: error.retryAfterSec },
+      )
+    }
+    throw error
   }
 }
 

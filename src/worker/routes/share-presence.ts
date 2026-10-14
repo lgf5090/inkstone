@@ -9,7 +9,7 @@ import { isValidSlug } from '../lib/id'
 import { JSON_BODY_LIMITS, readJson, readOptionalJson, requestClientIp } from '../lib/request'
 import { hashToken, isSessionToken, newSessionToken } from '../lib/session-store'
 import { shareAssetCookieName, verifyShareAssetSession } from '../lib/share-asset-session'
-import { consumeAttemptBudget, ThrottleError } from '../lib/throttle'
+import { assertAttemptBudget, consumeAttemptBudget } from '../lib/throttle'
 
 /**
  * The audience-side show position: the presenter writes where the talk is, and a viewer on their own
@@ -210,18 +210,10 @@ const READ_IP_BUDGET = { maxAttempts: 300, windowMs: 10 * 60 * 1000 }
 
 async function enforcePresenceReadBudget(c: Context<AppBindings>, slug: string): Promise<void> {
   const clientIp = requestClientIp(c)
-  try {
-    await consumeAttemptBudget(c.env.DB, [
-      { key: `share-present:view:${slug}:ip:${clientIp}`, ...READ_SLUG_IP_BUDGET },
-      { key: `share-present:view:ip:${clientIp}`, ...READ_IP_BUDGET },
-    ])
-  }
-  catch (error) {
-    if (error instanceof ThrottleError) {
-      throw new ApiError(429, 'too_many_attempts', `Too many attempts. Try again in ${error.retryAfterSec} seconds`, { retryAfter: error.retryAfterSec })
-    }
-    throw error
-  }
+  await assertAttemptBudget(() => consumeAttemptBudget(c.env.DB, [
+    { key: `share-present:view:${slug}:ip:${clientIp}`, ...READ_SLUG_IP_BUDGET },
+    { key: `share-present:view:ip:${clientIp}`, ...READ_IP_BUDGET },
+  ]))
 }
 
 async function tokenMatches(row: SharePresenceRow, token: string): Promise<boolean> {

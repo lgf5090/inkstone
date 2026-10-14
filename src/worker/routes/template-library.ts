@@ -2,6 +2,7 @@ import { Hono } from 'hono'
 import { parseTemplateLibraryExport, type TemplateLibraryExport } from '@shared/note-templates'
 import type { AppBindings } from '../env'
 import { ApiError } from '../lib/errors'
+import { parseStoredJson } from '../lib/json'
 import { JSON_BODY_LIMITS, readJson } from '../lib/request'
 import { requireAuth } from '../middleware/auth'
 
@@ -17,12 +18,7 @@ interface StoredLibrary {
 
 function readStored(raw: string | null): StoredLibrary | null {
   if (!raw) return null
-  let parsed: unknown
-  try {
-    parsed = JSON.parse(raw)
-  } catch {
-    return null
-  }
+  const parsed = parseStoredJson(raw)
   if (!parsed || typeof parsed !== 'object') return null
   const value = parsed as { savedAt?: unknown; library?: unknown }
   if (typeof value.savedAt !== 'number' || !Number.isFinite(value.savedAt)) return null

@@ -13,7 +13,7 @@ import { isValidId } from '../lib/id'
 import { acquireLease } from '../lib/lease'
 import { scheduleFtsDrain } from '../lib/notify'
 import { clampInt } from '../lib/request'
-import { consumeAttemptBudget, ThrottleError } from '../lib/throttle'
+import { assertAttemptBudget, consumeAttemptBudget } from '../lib/throttle'
 import { requireAuth } from '../middleware/auth'
 
 export const searchRoutes = new Hono<AppBindings>()
@@ -692,24 +692,12 @@ searchRoutes.get('/graph', requireAuth, async (c) => {
     throw new ApiError(400, 'bad_request', 'A center note is required for the local graph')
   }
 
-  try {
-    await consumeAttemptBudget(c.env.DB, [{
-      key: `graph:${userId}`,
-      maxAttempts: 1200,
-      windowMs: 10 * 60 * 1000,
-      lockMs: 60 * 1000,
-    }])
-  } catch (error) {
-    if (error instanceof ThrottleError) {
-      throw new ApiError(
-        429,
-        'too_many_attempts',
-        `Too many graph requests. Try again in ${error.retryAfterSec} seconds`,
-        { retryAfter: error.retryAfterSec },
-      )
-    }
-    throw error
-  }
+  await assertAttemptBudget(() => consumeAttemptBudget(c.env.DB, [{
+    key: `graph:${userId}`,
+    maxAttempts: 1200,
+    windowMs: 10 * 60 * 1000,
+    lockMs: 60 * 1000,
+  }]), 'Too many graph requests')
 
   const body = await buildUserGraph(c.env.DB, {
     userId,
@@ -806,24 +794,12 @@ searchRoutes.post('/search/documents', requireAuth, async (c) => {
   )].slice(0, DOCUMENT_IDS_MAX)
   if (!ids.length) throw new ApiError(400, 'bad_request', 'No note ids were given')
 
-  try {
-    await consumeAttemptBudget(c.env.DB, [{
-      key: `search-documents:${userId}`,
-      maxAttempts: DOCUMENT_THROTTLE_PER_10_MIN,
-      windowMs: 10 * 60 * 1000,
-      lockMs: 60 * 1000,
-    }])
-  } catch (error) {
-    if (error instanceof ThrottleError) {
-      throw new ApiError(
-        429,
-        'too_many_attempts',
-        `Too many indexing requests. Try again in ${error.retryAfterSec} seconds`,
-        { retryAfter: error.retryAfterSec },
-      )
-    }
-    throw error
-  }
+  await assertAttemptBudget(() => consumeAttemptBudget(c.env.DB, [{
+    key: `search-documents:${userId}`,
+    maxAttempts: DOCUMENT_THROTTLE_PER_10_MIN,
+    windowMs: 10 * 60 * 1000,
+    lockMs: 60 * 1000,
+  }]), 'Too many indexing requests')
 
   return c.json(await fetchSearchDocuments(c.env.DB, userId, ids))
 })
@@ -839,24 +815,12 @@ searchRoutes.post('/search/reindex', requireAuth, async (c) => {
     'Search indexing is already running',
   )
   try {
-    try {
-      await consumeAttemptBudget(c.env.DB, [{
-        key: `fts-reindex:${userId}`,
-        maxAttempts: 6,
-        windowMs: 60 * 60 * 1000,
-        lockMs: 60 * 60 * 1000,
-      }])
-    } catch (error) {
-      if (error instanceof ThrottleError) {
-        throw new ApiError(
-          429,
-          'too_many_attempts',
-          `Too many search reindex requests. Try again in ${error.retryAfterSec} seconds`,
-          { retryAfter: error.retryAfterSec },
-        )
-      }
-      throw error
-    }
+    await assertAttemptBudget(() => consumeAttemptBudget(c.env.DB, [{
+      key: `fts-reindex:${userId}`,
+      maxAttempts: 6,
+      windowMs: 60 * 60 * 1000,
+      lockMs: 60 * 60 * 1000,
+    }]), 'Too many search reindex requests')
     const queued = await queueAllNotesForFtsIndex(c.env.DB, userId)
     await purgeStaleFtsRows(c.env.DB, userId)
     scheduleFtsDrain(c, FTS_DRAIN_ALL_BATCH)

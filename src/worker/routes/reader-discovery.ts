@@ -16,6 +16,7 @@ import type { AppBindings } from '../env'
 import { LIMITS } from '@shared/constants'
 import { ApiError } from '../lib/errors'
 import { requireAuth } from '../middleware/auth'
+import { createMinuteBudget } from '../lib/rate-limit'
 import { NO_REDIRECT, isRedirectResponse } from '../lib/no-redirect'
 
 const BOOK_HOST = 'gutenberg.pglaf.org'
@@ -26,21 +27,7 @@ const FETCHES_PER_MINUTE = 12
 export const readerDiscoveryRoutes = new Hono<AppBindings>()
 readerDiscoveryRoutes.use('*', requireAuth)
 
-const buckets = new Map<string, { window: number; used: number }>()
-
-function takeBudget(userId: string): void {
-  const windowStart = Math.floor(Date.now() / 60_000)
-  const current = buckets.get(userId)
-  if (!current || current.window !== windowStart) {
-    if (buckets.size > 512) buckets.clear()
-    buckets.set(userId, { window: windowStart, used: 1 })
-    return
-  }
-  current.used += 1
-  if (current.used > FETCHES_PER_MINUTE) {
-    throw new ApiError(429, 'too_many_attempts', 'That is as many books as this account fetches in a minute.')
-  }
-}
+const takeBudget = createMinuteBudget(FETCHES_PER_MINUTE, 'That is as many books as this account fetches in a minute.')
 
 readerDiscoveryRoutes.get('/book/:number', async (c) => {
   const userId = c.get('userId')

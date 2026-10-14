@@ -14412,11 +14412,21 @@ const allowed = new Map([
   ["src/worker/lib/internal-auth.ts", [
     "/**\n * The Durable Object guard is opt-in, but a secret that was created and left blank reads\n * as falsy, which silently switches the guard off. Say so instead.\n */",
   ]],
+  ["src/worker/lib/json.ts", [
+    "/** The parsed value, or `undefined` when the text is not valid JSON. */",
+    "/** A plain object, or `{}` for anything else — an array, a primitive, or malformed text. */",
+    "/** The members of a stored JSON array, keeping only the ones that are strings. */",
+    "/**\n * Reading back a column this app wrote as JSON.\n *\n * Several routes each used to carry their own copy of the same three lines — `JSON.parse` inside a\n * `try`, one `typeof` guard, `{}` on failure — and each copy silently settled for a different\n * shape when the stored text was not a plain object. These are the three shapes a stored column\n * actually holds, so the shape a route asks for is the one it gets. A malformed or hand-edited row\n * is a data problem to recover from, never a reason to fail the request that reads it, so every\n * one of these answers with its fallback rather than throwing.\n */",
+  ]],
   ["src/worker/lib/no-redirect.ts", [
     "/**\n * workerd accepts only `follow` and `manual` for `RequestRedirect`; passing `'error'` throws before the\n * request leaves the isolate, so an endpoint that meant to refuse redirects instead reports every upstream\n * as unreachable. Node (the vite dev proxy) does accept `'error'`, which is why a local unit test on the\n * literal never sees this. Guard the status ourselves instead.\n */",
   ]],
   ["src/worker/lib/oauth-request.ts", [
     "// Rebuild after consuming the bounded body so the provider can read it once.",
+  ]],
+  ["src/worker/lib/rate-limit.ts", [
+    "/** Per-isolate ceiling on tracked callers; a busy minute of distinct users resets the table rather than growing without bound. */",
+    "/**\n * Builds a per-caller, per-minute budget held in the isolate's memory.\n *\n * This is a brake on a runaway client, not a quota: it lives and dies with the isolate and every\n * deployment sees its own. Each caller gets `limit` spends per wall-clock minute; the next spend over\n * the limit answers `429` with `message`.\n */",
   ]],
   ["src/worker/lib/request.ts", [
     "// CF-Connecting-IP is injected by the Cloudflare edge and cannot be",
@@ -14455,6 +14465,9 @@ const allowed = new Map([
     "// document may set this; the contract test pins the gate.",
     "// A 101 handshake response carries the socket, and `new Response()` only accepts 200-599,",
     "// so rebuilding it to add headers would throw and tear down the WebSocket upgrade.",
+  ]],
+  ["src/worker/lib/throttle.ts", [
+    "/**\n * Runs a throttled step — spending an attempt budget, checking a lock, or both — and answers the\n * `429` the API promises once the throttle rejects it.\n *\n * Every throttled route funnels through here so the status, error code, `Retry-After` hint and\n * response shape cannot drift apart. `message` is the human prefix a route shows; the retry count is\n * appended here. The step is a thunk so a route that checks a lock before spending work keeps its\n * exact ordering.\n */",
   ]],
   ["src/worker/lib/update-check.ts", [
     "/** Isolate-level TTL cache: the published version changes daily at most. */",
@@ -14509,6 +14522,10 @@ const allowed = new Map([
     "// This path runs before the API handler, so ensure the schema exists",
     "// (cheap after the first request thanks to the initialization cache).",
     "/** The account role gates tool availability and changes rarely, so it is read once per window. */",
+    "// Not `assertAttemptBudget`, on purpose: this reply is an OAuth protocol document —",
+    "// `code` / `description` / `status`, returned rather than thrown, in the shape a compliant",
+    "// dynamic-client-registration client parses — not this app's `{ error: { code, message } }`",
+    "// envelope. Funnelling it through the shared helper would change the wire format.",
   ]],
   ["src/worker/mcp/operations.ts", [
     "// The mutation itself failed before committing; remove the pending row",
@@ -14534,6 +14551,12 @@ const allowed = new Map([
     "/** Appended to a write batch so the response body costs no extra round trip. */",
     "/** The same row without `content`: a 1.9 MB body a flag flip never looks at. */",
     "// The conflict payload keeps carrying the body even when the pre-read was metadata only.",
+  ]],
+  ["src/worker/routes/ai-proxy.ts", [
+    "// The upstream failure text can name an internal host, a port or a retry hint, so it belongs in",
+    "// the server log and not in a response body the caller sees — same rule as `errorResponse`,",
+    "// which answers an unknown error as a generic 500 without the stack. A real upstream status never",
+    "// reaches here: a non-2xx answer from the provider is piped through untouched above.",
   ]],
   ["src/worker/routes/assistant.ts", [
     "/**\n * The assistant's HTTP API.\n *\n * Everything lives under `/api/assistant` and behind the app's own session, so the assistant inherits\n * the sign-in, the CSRF posture and the per-account scoping instead of inventing a second one — the\n * reference project had to build all of that itself because it was a standalone deployment.\n *\n * Two things never leave this file: the provider API key, which is decrypted only inside the worker to\n * sign one upstream call, and the model's instructions, which are assembled server-side so a reader's\n * own client cannot edit the rules about what the assistant may touch.\n */",
@@ -14649,6 +14672,17 @@ const allowed = new Map([
     "// Archiving the raw file is bookkeeping the importer does not wait for, so it runs behind the",
     "// response instead of adding an R2 round trip to every one-click import.",
     "/**\n * One refresh per isolate. Without this, every request that arrives after the window closes would\n * schedule its own upstream fetch, so a busy minute would turn into a burst of identical fetches.\n */",
+    "// Best-effort read: R2 is the primary store, but a failure here falls through to the D1 copy",
+    "// and then the default manifest rather than failing the whole request.",
+    "// Same fallback chain as above: a missing or unreadable D1 copy still answers with a manifest.",
+    "// Best-effort archive: the D1 copy below is the fallback, so a failed R2 write must not fail",
+    "// a save the account can still recover from.",
+    "// Best-effort mirror: the manifest is already in R2, so a failed D1 write is logged, not fatal.",
+    "// `readBytesWithinLimit` is shared with the request-body readers, so it answers a cap breach with",
+    "// `413`. That is the honest status here too — the library really is too big — so the message is",
+    "// reworded for a library while the status and code are kept for the client to read.",
+    "// An oversized library is the reader's own file being too big, not an upstream outage, so its",
+    "// `413` is rethrown instead of being folded into the generic download failure below.",
   ]],
   ["src/worker/routes/files.ts", [
     "// Anonymous share reads get a tighter work budget than the delete/backup paths:",
@@ -14740,6 +14774,9 @@ const allowed = new Map([
     "/** The name the reader gave the file, or the id if the row predates it, with the format's extension on. */",
     "/**\n * The header each accepted cover type must start with.\n *\n * The declared content type is the client's, and a client that is wrong about one has already been wrong\n * here: a book whose cover href was an XHTML page put 1 kB of markup behind a `.cover.png` key, and every\n * device that later pulled the shelf painted a broken tile. The type decides the R2 key and the response\n * header, so the bytes have to agree with it before anything is written.\n */",
     "// WebP is `RIFF....WEBP`, so this one is read at offset 8.",
+    "/**\n * The shelf rows, one per table, listing exactly the columns `loadLibrary` reads.\n *\n * The queries spell the same columns out rather than reaching for `*`: a column added to a `reader_`\n * table then has to be asked for, so a schema change cannot quietly widen the payload every reader\n * downloads on start-up — and `r2_key`, which is the server's own, cannot leak into it by accident.\n */",
+    "/** The book rows a push has to know the server-side answer to: where the bytes and the cover live. */",
+    "/** Rows bucketed by the book they belong to, which is how the local store keys its maps. */",
   ]],
   ["src/worker/routes/reading.ts", [
     "/**\n * Word lookup and translation, through this deployment.\n *\n * The reader asks for a translation of a passage it selected, and the answer comes from a free\n * public endpoint that only speaks to a server: the browser cannot call it directly (the app's\n * `connect-src` allows only this origin), and asking the client to name an arbitrary URL would turn a\n * translation button into a redirector. So the target host is fixed here, and the only thing a caller\n * chooses is the text and the language.\n *\n * The AI engine is deliberately absent from this route: an AI translation goes through the reader's own\n * configured provider and the existing `/api/ai` relay, which is where that credential belongs.\n */",
@@ -14760,6 +14797,8 @@ const allowed = new Map([
     "/**\n * Same-origin bytes for an article's images and a podcast's audio.\n *\n * The document policy allows remote images over https only, and allows no remote media at all, so\n * an article's plain-http thumbnails and every episode enclosure have to come through here to show\n * up. The address is validated the way a feed's is, only media types pass — SVG is refused, because\n * an SVG is a script with a picture attached — and a `Range` header travels through untouched so\n * seeking a two-hour episode does not download it first.\n */",
     "// Cleared once the headers are in: the body keeps streaming for as long as the listener",
     "// plays, and a timer that outlives this function would cut it off mid-episode.",
+    "// The helper appends the real retry window, which is more useful than the \"shortly\" these two",
+    "// budgets used to promise, so `message` is the prefix only.",
   ]],
   ["src/worker/routes/search.ts", [
     "// Trashing queues an fts_index_queue 'delete' row and purgeStaleFtsRows drops any row whose",
@@ -14865,6 +14904,7 @@ const allowed = new Map([
   ]],
   ["tests/ai-proxy-route.test.ts", [
     "// workerd has no `redirect: 'error'`, so the relay must ask for 'manual' and read the status.",
+    "// The text a relay must never repeat back: it names a host the caller could not reach on its own.",
   ]],
   ["tests/almanac-loader.test.ts", [
     "// Han here is almanac output, so it is spelled out in the same vocabulary the calendar prints.",
@@ -15101,6 +15141,7 @@ const allowed = new Map([
     "// request is even made, so the option this app passes has to be one it accepts.",
     "// Backdate by pushing a failing upstream after the window: the first call still answers.",
     "// All three answered from the stale cache, and one refresh is in flight for the whole burst.",
+    "// The route's own cap: `OFFICIAL_FETCH_MAX_BYTES` in src/worker/routes/excalidraw-library.ts.",
   ]],
   ["tests/excalidraw-official-library-modal.test.ts", [
     "// The catalog itself is still complete in the store; only the grid is windowed.",
@@ -15138,6 +15179,8 @@ const allowed = new Map([
     "// The shared Select pins h-11 at md and above, so a compact row has to answer that breakpoint too.",
     "// The palette's command list moved into the registry, so the shared chord now has to be spelled",
     "// out in one of three files and never as a literal in any of them.",
+    "// The status, the code and the retry hint live in the shared helper now, so the route cannot",
+    "// answer a different shape from any other throttled route. What the route owns is the call.",
   ]],
   ["tests/graph-route-filters.test.ts", [
     "// D1 refuses a statement holding more than 100 bound variables, and node:sqlite does not,",

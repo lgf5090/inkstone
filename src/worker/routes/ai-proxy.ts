@@ -48,7 +48,7 @@ aiProxyRoutes.post('/proxy', async (c) => {
     })
 
     if (isRedirectResponse(upstreamRes)) {
-      return c.json({ error: { message: 'AI upstream responded with a redirect, which relays refuse' } }, 502)
+      throw new ApiError(502, 'internal', 'AI upstream responded with a redirect, which relays refuse')
     }
 
     const responseHeaders = new Headers()
@@ -62,7 +62,12 @@ aiProxyRoutes.post('/proxy', async (c) => {
       headers: responseHeaders,
     })
   } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : String(err)
-    return c.json({ error: { message: `AI upstream request failed: ${message}` } }, 502)
+    if (err instanceof ApiError) throw err
+    // The upstream failure text can name an internal host, a port or a retry hint, so it belongs in
+    // the server log and not in a response body the caller sees — same rule as `errorResponse`,
+    // which answers an unknown error as a generic 500 without the stack. A real upstream status never
+    // reaches here: a non-2xx answer from the provider is piped through untouched above.
+    console.warn('[inkstone] AI upstream request failed:', err)
+    throw new ApiError(502, 'internal', 'The AI upstream request failed')
   }
 })
