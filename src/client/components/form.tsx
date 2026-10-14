@@ -14,6 +14,7 @@ import {
 } from 'react'
 import { Check } from 'lucide-react'
 import { cn } from '../lib/cn'
+import { isImeComposing } from '../lib/ime'
 import { Tooltip } from './overlay'
 
 /** The box every text field in a dialog wears; `overlay`'s prompt reads it rather than importing
@@ -37,9 +38,12 @@ interface InputProps extends InputHTMLAttributes<HTMLInputElement> {
  * Enter inside a text field has to be cancelled before it commits. Committing can mount a confirm
  * dialog, and the browser runs the keydown's default action after our handler returns, so the very
  * keystroke that asked would otherwise press the dialog's own button and answer it.
+ *
+ * An Enter that belongs to an IME does not commit either: it picks a candidate, and committing here
+ * would save half a word. Every caller therefore gets the composition check for free.
  */
 export function commitOnEnter(event: ReactKeyboardEvent, commit: () => void): boolean {
-  if (event.key !== 'Enter')
+  if (event.key !== 'Enter' || isImeComposing(event))
     return false
   event.preventDefault()
   commit()

@@ -104,16 +104,40 @@ describe('Slider', () => {
 })
 
 describe('commitOnEnter', () => {
+  const enter = (composing: boolean, calls: string[]): Parameters<typeof commitOnEnter>[0] =>
+    ({
+      key: 'Enter',
+      keyCode: composing ? 229 : 0,
+      nativeEvent: { isComposing: composing },
+      preventDefault: () => calls.push('prevent'),
+    }) as unknown as Parameters<typeof commitOnEnter>[0]
+
   it('cancels the Enter before committing so it cannot answer a dialog it just opened', () => {
     const calls: string[] = []
-    const enter = { key: 'Enter', preventDefault: () => calls.push('prevent') } as unknown as Parameters<typeof commitOnEnter>[0]
-    expect(commitOnEnter(enter, () => calls.push('commit'))).toBe(true)
+    expect(commitOnEnter(enter(false, calls), () => calls.push('commit'))).toBe(true)
     expect(calls).toEqual(['prevent', 'commit'])
   })
 
   it('leaves every other key to the field', () => {
-    const other = { key: 'a', preventDefault: () => undefined } as unknown as Parameters<typeof commitOnEnter>[0]
-    expect(commitOnEnter(other, () => undefined)).toBe(false)
+    const calls: string[] = []
+    const other = { key: 'a', keyCode: 0, nativeEvent: { isComposing: false }, preventDefault: () => calls.push('prevent') } as unknown as Parameters<typeof commitOnEnter>[0]
+    expect(commitOnEnter(other, () => calls.push('commit'))).toBe(false)
+    expect(calls).toEqual([])
+  })
+
+  it('leaves an Enter the input method owns to the input method', () => {
+    // The two shapes one arrives in: the browser still reporting isComposing, and the accepting
+    // keystroke that cleared the flag but reports the Process keyCode.
+    const frames = [
+      { isComposing: true, keyCode: 0 },
+      { isComposing: false, keyCode: 229 },
+    ]
+    for (const frame of frames) {
+      const calls: string[] = []
+      const event = { key: 'Enter', ...frame, preventDefault: () => calls.push('prevent') } as unknown as Parameters<typeof commitOnEnter>[0]
+      expect(commitOnEnter(event, () => calls.push('commit')), `isComposing=${frame.isComposing} keyCode=${frame.keyCode}`).toBe(false)
+      expect(calls).toEqual([])
+    }
   })
 })
 
