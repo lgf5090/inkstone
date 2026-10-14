@@ -2,6 +2,7 @@ import React, { useRef, useEffect } from 'react';
 import { ArrowUp, Square } from 'lucide-react';
 import { cn } from '../../cn';
 import { t } from '../../i18n';
+import { isImeComposing } from '../../ime';
 
 export interface AIChatInputProps {
   value: string;
@@ -34,6 +35,7 @@ export const AIChatInput: React.FC<AIChatInputProps> = ({
   }, [value]);
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (isImeComposing(e)) return;
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       if (!isStreaming && value.trim() && !disabled) {

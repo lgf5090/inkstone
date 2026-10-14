@@ -5,6 +5,7 @@ import { formatDateStamp } from '@shared/property-formats';
 import { COVER_POSITIONS, COVER_SHAPES } from '@shared/property-decorations';
 import type { PropertySettings } from '@shared/types';
 import { t, useLocale, type MessageKey } from '../../lib/i18n';
+import { isImeComposing } from '../../lib/ime';
 import { renamedRule, withFormatRule, withName, withProgressRule, withSelectOptions } from '../../lib/property-prefs';
 import { useSession } from '../../store/session';
 import { Input, Select, SettingRow, Slider, Switch } from '../../components/form';
@@ -232,6 +233,7 @@ function NameList({ names, limit, onChange, label }: {
           </span>))}
         {!names.length && <span className="text-[length:var(--text-11-5)] text-[var(--text-quaternary)]">{t('settings.list_empty')}</span>}
         <Input aria-label={t('settings.list_add')} value={draft} placeholder={t('settings.list_add')} onChange={event => setDraft(event.target.value)} onKeyDown={(event) => {
+            if (isImeComposing(event)) return;
             if (event.key === 'Enter') {
                 event.preventDefault();
                 commit();

@@ -4,6 +4,7 @@ import { splitByRanges } from '../../lib/fuzzy';
 import { queryMatches, type Query } from '../../lib/query-match';
 import { commitOnEnter } from '../../components/form';
 import { t } from '../../lib/i18n';
+import { isImeComposing } from '../../lib/ime';
 
 /**
  * A tag name with the letters a filter query reached marked out. Shared by the sidebar tag tree and
@@ -42,6 +43,8 @@ export function TagRenameField({ initial, onCommit, onCancel }: {
     return (<input aria-label={t('tags.rename')} autoFocus defaultValue={initial} onFocus={() => {
             finished.current = false;
         }} onBlur={(event) => commit(event.currentTarget.value)} onKeyDown={(event) => {
+            if (isImeComposing(event))
+                return;
             commitOnEnter(event, () => commit(event.currentTarget.value));
             if (event.key === 'Escape') {
                 finished.current = true;

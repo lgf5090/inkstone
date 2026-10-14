@@ -11,6 +11,7 @@ import type { EditorLayout } from '@shared/types';
 import { fullTime } from '../../lib/time';
 import { useBreakpoint, useRelativeTime } from '../../lib/hooks';
 import { prettyCombo } from '../../lib/hotkeys';
+import { isImeComposing } from '../../lib/ime';
 import { Button, IconButton } from '../../components/primitives';
 import { Drawer, Menu, Tooltip, type MenuItem } from '../../components/overlay';
 import { EditorContextMenu } from './context-menu/EditorContextMenu';
@@ -566,6 +567,7 @@ export function Workspace({ onMobileBack, pane = 'active', grouped = false, }: {
             onChange={(event) => editTitle(note.id, event.target.value)}
             onBlur={(event) => editTitle(note.id, event.currentTarget.value.trim())}
             onKeyDown={(event) => {
+                if (isImeComposing(event)) return;
                 if (event.key !== 'Enter') return;
                 event.preventDefault();
                 if (view) view.focus();

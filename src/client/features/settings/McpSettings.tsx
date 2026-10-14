@@ -17,6 +17,7 @@ import { Input, SettingRow, Switch } from '../../components/form'
 import { Tooltip, confirm } from '../../components/overlay'
 import { Badge, Button, IconButton } from '../../components/primitives'
 import { api } from '../../lib/api'
+import { isImeComposing } from '../../lib/ime'
 import { t } from '../../lib/i18n'
 import { IS_DEMO_MODE } from '../../lib/runtime'
 import { fullTime, relativeTime } from '../../lib/time'
@@ -424,7 +425,10 @@ export function McpSettings() {
             onChange={(e) => setKeyName(e.target.value)}
             maxLength={80}
             placeholder={t('settings.mcp_api_key_name_placeholder')}
-            onKeyDown={(e) => { if (e.key === 'Enter') void createKey() }}
+            onKeyDown={(e) => {
+              if (isImeComposing(e)) return
+              if (e.key === 'Enter') void createKey()
+            }}
           />
           <Button variant="secondary" icon={<KeyRound size={13} />} loading={busy === 'keyCreate'}
             disabled={displayOnly || Boolean(busy) || !info.enabled} onClick={() => void createKey()}>

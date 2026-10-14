@@ -2,6 +2,7 @@ import { useRef, useState } from 'react';
 import { Ban } from 'lucide-react';
 import { isOrganizerColor, organizerColorContrast, organizerColorLabel } from '@shared/organizer-colors';
 import { t } from '../../lib/i18n';
+import { isImeComposing } from '../../lib/ime';
 import { cn } from '../../lib/cn';
 import { normalizeHexColor } from '../../editor/text-format';
 import {
@@ -85,6 +86,8 @@ export function EditorColorPanel({ kind, current, onPick }: {
       <div className="flex items-center gap-1.5">
         <ColorWheelTrigger label={t('color.custom')} value={shown} onChange={setDraft} onCommit={offer}/>
         <input type="text" value={draft} onChange={event => setDraft(event.target.value)} onBlur={event => offer(event.target.value)} onKeyDown={(event) => {
+                if (isImeComposing(event))
+                    return;
                 // Enter hands the field over rather than offering itself: the panel is about to
                 // unmount, and a second offer of the same colour would read as the toggle-off.
                 if (event.key === 'Enter') {
