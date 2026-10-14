@@ -323,7 +323,7 @@ export function McpSettings() {
       )}
       <section className="overflow-hidden rounded-[var(--r-lg)] border border-[var(--border-subtle)] bg-[var(--bg-base)]">
         <div className="flex items-start gap-3 p-4">
-          <span className="mt-0.5 rounded-[var(--r-md)] bg-[var(--accent-soft)] p-2 text-[var(--accent)]">
+          <span className="mt-0.5 rounded-[var(--r-md)] bg-[var(--accent-soft)] p-2 text-[var(--accent-on-soft)]">
             <Bot size={18} />
           </span>
           <div className="min-w-0 flex-1">

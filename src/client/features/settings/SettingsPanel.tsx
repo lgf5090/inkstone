@@ -61,7 +61,7 @@ function HitTitle({ hit }: {
 }) {
     return <>
       {splitByRanges(hit.title, hit.ranges).map((part, index) => part.hit
-        ? <mark key={index} className="rounded-[2px] bg-[var(--accent-softer)] font-semibold text-[var(--accent)]">{part.text}</mark>
+        ? <mark key={index} className="rounded-[2px] bg-[var(--accent-softer)] font-semibold text-[var(--accent-on-soft)]">{part.text}</mark>
         : <span key={index}>{part.text}</span>)}
     </>;
 }

@@ -298,7 +298,7 @@ function KanbanTab({ view, panelId, isActive, index, register, onSelectView, onK
       onKeyDown={(event) => onKeyDown(event, index)}
       className={`flex h-[var(--sp-9)] shrink-0 items-center gap-[var(--sp-1-5)] rounded-[var(--r-md)] px-[var(--sp-2-5)] text-[length:var(--text-12)] transition-colors md:h-[var(--sp-7)] md:py-[var(--sp-1)] ${
         isActive
-          ? 'bg-[var(--accent-soft)] font-semibold text-[var(--accent)]'
+          ? 'bg-[var(--accent-soft)] font-semibold text-[var(--accent-on-soft)]'
           : 'font-medium text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]'
       }`}
     >

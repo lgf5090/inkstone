@@ -145,7 +145,7 @@ function DatePickerHeader({
         <button
           type='button'
           onClick={onToday}
-          className='rounded-full bg-[var(--accent-soft)] px-1.5 py-0.5 text-[length:var(--text-10)] font-medium text-[var(--accent)] hover:opacity-85'
+          className='rounded-full bg-[var(--accent-soft)] px-1.5 py-0.5 text-[length:var(--text-10)] font-medium text-[var(--accent-on-soft)] hover:opacity-85'
         >
           {t('preview.kanban_today')}
         </button>

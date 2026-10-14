@@ -17,7 +17,7 @@ export function FilterChip({ label, count, active, onClick, dropTarget, onDragOv
   onDragLeave?: () => void
   onDrop?: (event: React.DragEvent) => void
 }) {
-  return (<button type='button' aria-pressed={active} onClick={onClick} onDragOver={onDragOver} onDragLeave={onDragLeave} onDrop={onDrop} className={cn('flex h-7 shrink-0 items-center gap-[var(--sp-1-5)] rounded-full border px-[var(--sp-2-5)] text-[length:var(--text-11-5)] transition-colors', active ? 'border-[var(--accent)] bg-[var(--accent-soft)] text-[var(--accent)]' : 'border-[var(--border-default)] bg-[var(--bg-surface)] text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]', dropTarget && 'border-[var(--accent)] bg-[var(--accent-soft)] text-[var(--accent)]')}>
+  return (<button type='button' aria-pressed={active} onClick={onClick} onDragOver={onDragOver} onDragLeave={onDragLeave} onDrop={onDrop} className={cn('flex h-7 shrink-0 items-center gap-[var(--sp-1-5)] rounded-full border px-[var(--sp-2-5)] text-[length:var(--text-11-5)] transition-colors', active ? 'border-[var(--accent)] bg-[var(--accent-soft)] text-[var(--accent-on-soft)]' : 'border-[var(--border-default)] bg-[var(--bg-surface)] text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]', dropTarget && 'border-[var(--accent)] bg-[var(--accent-soft)] text-[var(--accent-on-soft)]')}>
     {count === null && <Plus size={11}/>}
     <span className='whitespace-nowrap'>{label}</span>
     {count !== null && <span className='text-[length:var(--text-10-5)] tabular opacity-70'>{count}</span>}
@@ -31,7 +31,7 @@ export function SidebarButton({ icon, label, count, active, onClick }: {
   active: boolean
   onClick: () => void
 }) {
-  return (<button type='button' aria-pressed={active} onClick={onClick} className={cn('flex h-9 w-full items-center gap-[var(--sp-2-5)] rounded-[var(--r-md)] px-[var(--sp-2)] text-left text-[length:var(--text-12-5)] transition-colors', active ? 'bg-[var(--accent-soft)] text-[var(--accent)]' : 'text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]')}>
+  return (<button type='button' aria-pressed={active} onClick={onClick} className={cn('flex h-9 w-full items-center gap-[var(--sp-2-5)] rounded-[var(--r-md)] px-[var(--sp-2)] text-left text-[length:var(--text-12-5)] transition-colors', active ? 'bg-[var(--accent-soft)] text-[var(--accent-on-soft)]' : 'text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]')}>
     <span className={cn('shrink-0', active ? 'text-[var(--accent)]' : 'text-[var(--text-quaternary)]')}>{icon}</span>
     <span className='min-w-0 flex-1 truncate'>{label}</span>
     <span className='shrink-0 text-[length:var(--text-11)] tabular text-[var(--text-quaternary)]'>{count}</span>

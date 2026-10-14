@@ -134,7 +134,7 @@ function MoveChoice({ label, selected, onClick }: {
   selected: boolean
   onClick: () => void
 }) {
-  return (<button type='button' aria-pressed={selected} onClick={onClick} className={cn('flex min-h-10 w-full items-center gap-2.5 rounded-[var(--r-md)] px-2.5 text-left text-[length:var(--text-13)] transition-colors', selected ? 'bg-[var(--accent-soft)] text-[var(--accent)]' : 'text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]')}>
+  return (<button type='button' aria-pressed={selected} onClick={onClick} className={cn('flex min-h-10 w-full items-center gap-2.5 rounded-[var(--r-md)] px-2.5 text-left text-[length:var(--text-13)] transition-colors', selected ? 'bg-[var(--accent-soft)] text-[var(--accent-on-soft)]' : 'text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]')}>
     <span className='min-w-0 flex-1 truncate'>{label}</span>
     {selected && <Check size={14} className='shrink-0'/>}
   </button>)

@@ -177,7 +177,7 @@ export function EmojiPicker({ tone, onTone, onInsert }: {
         {navItems.map((item) => (<button key={item.id} type="button" aria-label={item.label} title={item.label} aria-pressed={!searching && item.id === shownGroup} onMouseDown={(event) => event.preventDefault()} onClick={() => {
                 setGroupId(item.id);
                 inputRef.current?.focus();
-            }} className={cn('flex size-7 shrink-0 items-center justify-center rounded-[var(--r-md)] text-[var(--text-tertiary)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]', !searching && item.id === shownGroup && 'bg-[var(--accent-soft)] text-[var(--accent)]')}>
+            }} className={cn('flex size-7 shrink-0 items-center justify-center rounded-[var(--r-md)] text-[var(--text-tertiary)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]', !searching && item.id === shownGroup && 'bg-[var(--accent-soft)] text-[var(--accent-on-soft)]')}>
               {item.icon}
             </button>))}
       </div>

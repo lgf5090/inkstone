@@ -416,23 +416,23 @@
 }
 
 
-:root[data-accent='cinnabar'][data-theme='dark'] { --accent: oklch(66.5% 0.15 32); --accent-hover: oklch(71% 0.145 32); }
-:root[data-accent='cinnabar'][data-theme='light'] { --accent: oklch(54% 0.15 30); --accent-hover: oklch(48.5% 0.155 30); }
+:root[data-accent='cinnabar'][data-theme='dark'] { --accent: oklch(66.5% 0.15 32); --accent-hover: oklch(71% 0.145 32); --accent-on-soft: #eb755f; }
+:root[data-accent='cinnabar'][data-theme='light'] { --accent: oklch(54% 0.15 30); --accent-hover: oklch(48.5% 0.155 30); --accent-on-soft: #ab3b2d; }
 
 :root[data-accent='indigo'][data-theme='dark'] { --accent: oklch(72% 0.13 252); --accent-hover: oklch(77% 0.125 252); }
-:root[data-accent='indigo'][data-theme='light'] { --accent: oklch(52% 0.14 252); --accent-hover: oklch(46% 0.13 252); }
+:root[data-accent='indigo'][data-theme='light'] { --accent: oklch(52% 0.14 252); --accent-hover: oklch(46% 0.13 252); --accent-on-soft: #1063ae; }
 
 :root[data-accent='celadon'][data-theme='dark'] { --accent: oklch(74% 0.12 150); --accent-hover: oklch(79% 0.115 150); }
-:root[data-accent='celadon'][data-theme='light'] { --accent: oklch(49% 0.13 150); --accent-hover: oklch(43% 0.11 150); }
+:root[data-accent='celadon'][data-theme='light'] { --accent: oklch(49% 0.13 150); --accent-hover: oklch(43% 0.11 150); --accent-on-soft: #067132; }
 
 :root[data-accent='amber'][data-theme='dark'] { --accent: oklch(80% 0.14 95); --accent-hover: oklch(85% 0.13 95); }
-:root[data-accent='amber'][data-theme='light'] { --accent: oklch(56% 0.105 95); --accent-hover: oklch(50% 0.1 95); }
+:root[data-accent='amber'][data-theme='light'] { --accent: oklch(56% 0.105 95); --accent-hover: oklch(50% 0.1 95); --accent-on-soft: #766200; }
 
 :root[data-accent='terracotta'][data-theme='dark'] { --accent: oklch(76% 0.105 205); --accent-hover: oklch(81% 0.1 205); }
 :root[data-accent='terracotta'][data-theme='light'] { --accent: oklch(49% 0.075 205); --accent-hover: oklch(43% 0.07 205); }
 
 :root[data-accent='wisteria'][data-theme='dark'] { --accent: oklch(72% 0.13 300); --accent-hover: oklch(77% 0.13 300); }
-:root[data-accent='wisteria'][data-theme='light'] { --accent: oklch(52% 0.16 300); --accent-hover: oklch(46% 0.15 300); }
+:root[data-accent='wisteria'][data-theme='light'] { --accent: oklch(52% 0.16 300); --accent-hover: oklch(46% 0.15 300); --accent-on-soft: #764ab2; }
 
 :root[data-accent='graphite'][data-theme='dark'] { --accent: oklch(80% 0.025 250); --accent-hover: oklch(86% 0.02 250); }
 :root[data-accent='graphite'][data-theme='light'] { --accent: oklch(38% 0.03 250); --accent-hover: oklch(30% 0.025 250); }
@@ -444,6 +444,12 @@
   --accent-contrast: oklch(99% 0 0);
   --accent-soft: color-mix(in oklab, var(--accent) 14%, transparent);
   --accent-softer: color-mix(in oklab, var(--accent) 7%, transparent);
+  /* Text drawn on the accent's own tint. The accent itself does not clear AA on a 14% wash of
+     itself for five of the seven accents in the light theme nor for cinnabar in the dark one,
+     so this defaults to the accent and only those pairings override it below;
+     tests/accent-on-soft-contrast.test.ts measures every accent and theme against every surface
+     the wash can land on. */
+  --accent-on-soft: var(--accent);
   /* ErrorBoundary paints a danger wash behind its icon; the fork builds washes with color-mix
   rather than carrying a second flat colour per theme. */
   --danger-soft: color-mix(in oklab, var(--danger) 14%, transparent);

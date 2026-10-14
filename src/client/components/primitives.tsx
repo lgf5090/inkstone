@@ -127,7 +127,7 @@ export function IconButton({
         'active:scale-[0.94] disabled:pointer-events-none disabled:opacity-40',
         size === 'xs' ? 'size-6' : size === 'sm' ? 'size-8 md:size-6' : size === 'lg' ? 'size-10 md:size-9' : 'size-9 md:size-7',
         active
-          ? 'bg-[var(--accent-soft)] text-[var(--accent)]'
+          ? 'bg-[var(--accent-soft)] text-[var(--accent-on-soft)]'
           : VARIANTS[variant],
         className,
       )}
@@ -255,7 +255,7 @@ export function Badge({
 }) {
   const tones = {
     neutral: 'bg-[var(--bg-raised)] text-[var(--text-tertiary)]',
-    accent: 'bg-[var(--accent-soft)] text-[var(--accent)]',
+    accent: 'bg-[var(--accent-soft)] text-[var(--accent-on-soft)]',
     success: 'bg-[color-mix(in_oklab,var(--success)_15%,transparent)] text-[var(--success)]',
     warning: 'bg-[color-mix(in_oklab,var(--warning)_16%,transparent)] text-[var(--warning)]',
     danger: 'bg-[color-mix(in_oklab,var(--danger)_15%,transparent)] text-[var(--danger)]',

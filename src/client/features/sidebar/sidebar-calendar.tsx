@@ -45,7 +45,7 @@ function SidebarCalendarHeader({ headerTitle, showTodayChip, collapsed, onToggle
         <button type="button" aria-expanded={!collapsed} onClick={onToggle} className="flex min-w-0 items-center gap-[var(--sp-1)] rounded-[var(--r-sm)] px-[var(--sp-1)] py-[var(--sp-0-5)] text-left transition-colors hover:bg-[var(--bg-hover)]">
             <CalendarDays size={12} className="shrink-0 text-[var(--text-quaternary)]"/>
             <span className="truncate text-[length:var(--text-11)] font-semibold text-[var(--text-secondary)]">{headerTitle}</span>
-            {showTodayChip && (<span className="shrink-0 rounded-full bg-[var(--accent-soft)] px-[var(--sp-1-5)] py-px text-[length:var(--text-9)] font-medium text-[var(--accent)]">{t('sidebar.calendar_today')}</span>)}
+            {showTodayChip && (<span className="shrink-0 rounded-full bg-[var(--accent-soft)] px-[var(--sp-1-5)] py-px text-[length:var(--text-9)] font-medium text-[var(--accent-on-soft)]">{t('sidebar.calendar_today')}</span>)}
             <ChevronDown size={11} className={cn('shrink-0 text-[var(--text-quaternary)] transition-transform duration-[var(--dur-fast)]', collapsed && '-rotate-90')}/>
         </button>
     </div>);

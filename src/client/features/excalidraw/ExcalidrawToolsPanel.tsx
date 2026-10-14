@@ -403,7 +403,7 @@ export const ExcalidrawToolsPanel: React.FC<ExcalidrawToolsPanelProps> = ({
                                 onClick={handleToggleZenMode}
                                 className={`flex h-9 w-9 items-center justify-center rounded-xl transition-colors shadow-xs ${
                                     isZen
-                                        ? 'bg-[var(--accent-soft)] text-[var(--accent)] font-semibold'
+                                        ? 'bg-[var(--accent-soft)] text-[var(--accent-on-soft)] font-semibold'
                                         : 'bg-[var(--bg-raised)] text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]'
                                 }`}
                             >
@@ -447,7 +447,7 @@ export const ExcalidrawToolsPanel: React.FC<ExcalidrawToolsPanelProps> = ({
                                 onClick={handleToggleViewMode}
                                 className={`flex h-9 w-9 items-center justify-center rounded-xl transition-colors shadow-xs ${
                                     isView
-                                        ? 'bg-[var(--accent-soft)] text-[var(--accent)] font-semibold'
+                                        ? 'bg-[var(--accent-soft)] text-[var(--accent-on-soft)] font-semibold'
                                         : 'bg-[var(--bg-raised)] text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]'
                                 }`}
                             >
@@ -461,7 +461,7 @@ export const ExcalidrawToolsPanel: React.FC<ExcalidrawToolsPanelProps> = ({
                                 onClick={handleToggleGrid}
                                 className={`flex h-9 w-9 items-center justify-center rounded-xl transition-colors shadow-xs ${
                                     isGrid
-                                        ? 'bg-[var(--accent-soft)] text-[var(--accent)] font-semibold'
+                                        ? 'bg-[var(--accent-soft)] text-[var(--accent-on-soft)] font-semibold'
                                         : 'bg-[var(--bg-raised)] text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]'
                                 }`}
                             >
@@ -592,7 +592,7 @@ export const ExcalidrawToolsPanel: React.FC<ExcalidrawToolsPanelProps> = ({
                                         void handleInsertMermaid();
                                     }
                                 }}
-                                className="flex h-9 w-9 items-center justify-center rounded-xl bg-[var(--accent-soft)] text-[var(--accent)] hover:bg-[var(--accent)] hover:text-white transition-colors shadow-xs"
+                                className="flex h-9 w-9 items-center justify-center rounded-xl bg-[var(--accent-soft)] text-[var(--accent-on-soft)] hover:bg-[var(--accent)] hover:text-white transition-colors shadow-xs"
                             >
                                 <Sparkles size={15} />
                             </button>

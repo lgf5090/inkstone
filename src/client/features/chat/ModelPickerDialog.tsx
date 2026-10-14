@@ -148,7 +148,7 @@ export function ModelPickerDialog({ provider, onAdded, onClose, onCustom }: {
                     aria-hidden
                     className={cn(
                       'flex size-4 shrink-0 items-center justify-center rounded border',
-                      pickedHere ? 'border-[var(--accent)] bg-[var(--accent-soft)] text-[var(--accent)]' : 'border-[var(--border-strong)]',
+                      pickedHere ? 'border-[var(--accent)] bg-[var(--accent-soft)] text-[var(--accent-on-soft)]' : 'border-[var(--border-strong)]',
                     )}
                   >
                     {pickedHere && <Check size={11} />}
@@ -188,7 +188,7 @@ function FilterChip({ active, onClick, children }: { active: boolean, onClick: (
       className={cn(
         'rounded-full border px-2 py-0.5 text-[length:var(--text-11-5)]',
         active
-          ? 'border-[var(--accent)] bg-[var(--accent-soft)] text-[var(--accent)]'
+          ? 'border-[var(--accent)] bg-[var(--accent-soft)] text-[var(--accent-on-soft)]'
           : 'border-[var(--border-default)] text-[var(--text-tertiary)] hover:bg-[var(--bg-hover)]',
       )}
     >

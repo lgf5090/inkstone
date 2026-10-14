@@ -73,7 +73,7 @@ export function ControlChip({
         'flex h-7 max-w-[46%] items-center gap-1 rounded-[var(--r-md)] border px-1.5 text-[length:var(--text-11-5)]',
         'transition-colors duration-[var(--dur-fast)]',
         active
-          ? 'border-[var(--accent)] bg-[var(--accent-soft)] text-[var(--accent)]'
+          ? 'border-[var(--accent)] bg-[var(--accent-soft)] text-[var(--accent-on-soft)]'
           : 'border-transparent text-[var(--text-tertiary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]',
       )}
     >

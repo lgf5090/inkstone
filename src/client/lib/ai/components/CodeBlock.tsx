@@ -60,7 +60,7 @@ export const CodeBlock: React.FC<CodeBlockProps> = ({
             <button
               type="button"
               onClick={onApply}
-              className="rounded-md bg-[var(--accent-soft)] px-2 py-0.5 text-[length:var(--text-11)] font-medium text-[var(--accent)] hover:bg-[var(--accent)] hover:text-white transition-colors"
+              className="rounded-md bg-[var(--accent-soft)] px-2 py-0.5 text-[length:var(--text-11)] font-medium text-[var(--accent-on-soft)] hover:bg-[var(--accent)] hover:text-white transition-colors"
             >
               {applyLabel || t('excalidraw.apply')}
             </button>

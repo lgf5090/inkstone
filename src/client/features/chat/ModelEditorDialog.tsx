@@ -110,7 +110,7 @@ function ChipRow({ label, steps, value, onPick }: {
           className={cn(
             'rounded-full border px-1.5 py-0.5 text-[length:var(--text-10-5)] tabular-nums transition-colors',
             value === tokens
-              ? 'border-[var(--accent)] bg-[var(--accent-soft)] text-[var(--accent)]'
+              ? 'border-[var(--accent)] bg-[var(--accent-soft)] text-[var(--accent-on-soft)]'
               : 'border-[var(--border-subtle)] text-[var(--text-quaternary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-secondary)]',
           )}
         >
@@ -239,7 +239,7 @@ export function ModelEditorDialog({
                       className={cn(
                         'rounded-full border px-2 py-0.5 text-[length:var(--text-11-5)] transition-colors',
                         on
-                          ? 'border-[var(--accent)] bg-[var(--accent-soft)] text-[var(--accent)]'
+                          ? 'border-[var(--accent)] bg-[var(--accent-soft)] text-[var(--accent-on-soft)]'
                           : 'border-[var(--border-subtle)] text-[var(--text-quaternary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-secondary)]',
                       )}
                     >

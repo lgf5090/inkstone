@@ -98,7 +98,7 @@ export const ExcalidrawFloatingCapsule: React.FC<ExcalidrawFloatingCapsuleProps>
                     onClick={onToggleToolsPanel}
                     className={`flex h-7 w-7 items-center justify-center rounded-full transition-colors ${
                         toolsPanelOpen
-                            ? 'bg-[var(--accent-soft)] text-[var(--accent)]'
+                            ? 'bg-[var(--accent-soft)] text-[var(--accent-on-soft)]'
                             : 'text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]'
                     }`}
                 >
@@ -113,7 +113,7 @@ export const ExcalidrawFloatingCapsule: React.FC<ExcalidrawFloatingCapsuleProps>
                     onClick={onToggleLibrary}
                     className={`flex h-7 w-7 items-center justify-center rounded-full transition-colors ${
                         libraryOpen
-                            ? 'bg-[var(--accent-soft)] text-[var(--accent)]'
+                            ? 'bg-[var(--accent-soft)] text-[var(--accent-on-soft)]'
                             : 'text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]'
                     }`}
                 >

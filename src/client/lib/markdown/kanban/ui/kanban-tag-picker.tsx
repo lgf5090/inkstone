@@ -154,7 +154,7 @@ function TagInputField({
             onClose()
           }
         }}
-        className='inline-flex shrink-0 items-center justify-center rounded-[var(--r-xs)] bg-[var(--accent)] px-2 py-1 text-[length:var(--text-11)] font-medium text-[var(--accent-fg)] opacity-90 transition-opacity hover:opacity-100 disabled:opacity-40'
+        className='inline-flex shrink-0 items-center justify-center rounded-[var(--r-xs)] bg-[var(--accent)] px-2 py-1 text-[length:var(--text-11)] font-medium text-[var(--accent-contrast)] opacity-90 transition-opacity hover:opacity-100 disabled:opacity-40'
         aria-label={t('preview.kanban_add_tag')}
       >
         <Plus size={11} />

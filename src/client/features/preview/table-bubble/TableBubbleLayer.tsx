@@ -173,7 +173,7 @@ function StripButton({ action }: { action: StripAction }) {
         'flex shrink-0 items-center justify-center rounded-[var(--r-sm)] text-[var(--text-secondary)] transition-colors',
         'hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]',
         'focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-[var(--accent)]',
-        action.active && 'bg-[var(--accent-softer)] text-[var(--accent)]',
+        action.active && 'bg-[var(--accent-softer)] text-[var(--accent-on-soft)]',
         action.danger && 'hover:text-[var(--danger)]',
         action.disabled && 'pointer-events-none opacity-40',
       )}

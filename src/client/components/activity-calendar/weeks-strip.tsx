@@ -313,7 +313,7 @@ function DayHeaderRow({ cell, dayIndex, weekdayLabels, ix }: { cell: WeekCell; d
           {cell.today && <span aria-hidden='true' className='size-1.25 shrink-0 rounded-full bg-[var(--accent)]' />}
           <span className='ml-auto flex min-w-0 shrink-0 items-center gap-[var(--sp-1-5)]'>
             {cell.diaryId && (
-              <span className='inline-flex items-center gap-[var(--sp-1)] rounded-full bg-[var(--accent-soft)] px-[var(--sp-1-5)] py-px text-[length:var(--text-9)] font-medium text-[var(--accent)]'>
+              <span className='inline-flex items-center gap-[var(--sp-1)] rounded-full bg-[var(--accent-soft)] px-[var(--sp-1-5)] py-px text-[length:var(--text-9)] font-medium text-[var(--accent-on-soft)]'>
                 <span aria-hidden='true' className='size-0.75 rounded-full bg-[var(--accent)]' />
                 {t('sidebar.diary_tag')}
               </span>

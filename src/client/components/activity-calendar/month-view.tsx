@@ -83,7 +83,7 @@ export function MonthView({ cursor, weekStart, todayKey, weekdayLabels, gridTitl
   const almanac = useAlmanac(showAlmanac)
   return (<>
     <div className='mt-[var(--sp-1-5)] px-[var(--sp-0-5)]'>
-      {latestOutsideKey !== null && (<button type='button' aria-label={t(gapAhead ? 'sidebar.calendar_gap_banner_ahead_value0' : 'sidebar.calendar_gap_banner_value0', { value0: latestOutsideDays ?? 0 })} onClick={() => onGapDayClick(latestOutsideKey)} className='flex h-[var(--sp-6)] w-full items-center gap-[var(--sp-1-5)] rounded-[var(--r-sm)] border border-dashed border-[var(--accent)]/60 bg-[var(--accent-soft)]/60 px-[var(--sp-2)] text-[length:var(--text-10)] font-medium text-[var(--accent)] transition-colors hover:bg-[var(--accent-soft)] focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-[var(--accent)]'>
+      {latestOutsideKey !== null && (<button type='button' aria-label={t(gapAhead ? 'sidebar.calendar_gap_banner_ahead_value0' : 'sidebar.calendar_gap_banner_value0', { value0: latestOutsideDays ?? 0 })} onClick={() => onGapDayClick(latestOutsideKey)} className='flex h-[var(--sp-6)] w-full items-center gap-[var(--sp-1-5)] rounded-[var(--r-sm)] border border-dashed border-[var(--accent)]/60 bg-[var(--accent-soft)]/60 px-[var(--sp-2)] text-[length:var(--text-10)] font-medium text-[var(--accent-on-soft)] transition-colors hover:bg-[var(--accent-soft)] focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-[var(--accent)]'>
         <RotateCcw size={10} className='shrink-0'/>
         <span className='min-w-0 flex-1 truncate text-left'>{t(gapAhead ? 'sidebar.calendar_gap_banner_ahead_value0' : 'sidebar.calendar_gap_banner_value0', { value0: latestOutsideDays ?? 0 })}</span>
       </button>)}

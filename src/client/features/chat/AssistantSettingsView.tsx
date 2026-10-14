@@ -219,7 +219,7 @@ function ModelTab({ settings }: { settings: AssistantSettings }) {
                         // the row overflowed over the one above it; the name takes the first line there.
                         'flex min-w-0 basis-full items-center gap-2 rounded-[var(--r-sm)] px-2 py-1 text-left text-[length:var(--text-12-5)] sm:basis-auto sm:flex-1',
                         settings.activeModelId === model.id
-                          ? 'bg-[var(--accent-soft)] text-[var(--accent)]'
+                          ? 'bg-[var(--accent-soft)] text-[var(--accent-on-soft)]'
                           : 'text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]',
                       )}
                     >
@@ -904,7 +904,7 @@ function NoteScopeRow() {
                   className={cn(
                     'flex w-full items-center gap-2 rounded-[var(--r-sm)] px-2 py-1 text-left text-[length:var(--text-12-5)]',
                     scope.includes(folder.id)
-                      ? 'bg-[var(--accent-soft)] text-[var(--accent)]'
+                      ? 'bg-[var(--accent-soft)] text-[var(--accent-on-soft)]'
                       : 'text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]',
                   )}
                 >

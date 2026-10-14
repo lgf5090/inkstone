@@ -195,7 +195,7 @@ function AnswerVersionPager({ total, page, onStep, onRestore, busy }: {
           type="button"
           onClick={onRestore}
           disabled={busy}
-          className="ml-0.5 inline-flex items-center gap-1 rounded-[var(--r-sm)] px-1 py-0.5 text-[length:var(--text-11)] font-medium text-[var(--accent)] hover:bg-[var(--accent-soft)] disabled:opacity-50"
+          className="ml-0.5 inline-flex items-center gap-1 rounded-[var(--r-sm)] px-1 py-0.5 text-[length:var(--text-11)] font-medium text-[var(--accent-on-soft)] hover:bg-[var(--accent-soft)] disabled:opacity-50"
         >
           {t('assistant.chat.use_this')}
         </button>
