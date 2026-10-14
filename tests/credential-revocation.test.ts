@@ -33,7 +33,9 @@ it('revokes every active key of the account and nobody else’s', async () => {
 })
 
 it('also revokes outstanding OAuth grants through the provider', async () => {
-  const revokeGrant = vi.fn(async () => {})
+  // `revokeGrant(id, userId)` is a two-argument call; typing the fake that way is what lets the
+  // assertion below read the grant id out of the recorded call.
+  const revokeGrant = vi.fn(async (_grantId: string, _userId: string) => {})
   const listUserGrants = vi.fn(async () => ({ items: [{ id: 'grant-1' }, { id: 'grant-2' }], cursor: undefined }))
   await revokeLongLivedCredentials(db, { listUserGrants, revokeGrant } as never, 'user')
   expect(active('user')).toBe(0)

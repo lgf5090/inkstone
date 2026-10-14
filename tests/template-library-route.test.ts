@@ -1,6 +1,7 @@
 // @vitest-environment node
 import { DatabaseSync } from 'node:sqlite'
 import { Hono } from 'hono'
+import type { ExecutionContext } from 'hono'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { buildTemplateLibraryExport, parseTemplateLibraryExport } from '../src/shared/note-templates'
 import { DEFAULT_NEW_NOTE_TEMPLATE } from '../src/shared/constants'
@@ -57,16 +58,21 @@ function libraryText(ids: string[]): string {
   return JSON.stringify(buildTemplateLibraryExport([CATEGORY], ids.map((id) => template(id))))
 }
 
-function send(method: string, body: unknown, userId = FIRST): Promise<Response> {
+// Every field hono's request handler declares, so the fake cannot hand the route less than the real
+// Worker runtime would; `app.request` may settle either way, hence the awaited return.
+const ctx: ExecutionContext = {
+  waitUntil() {},
+  passThroughOnException() {},
+  props: {},
+}
+
+async function send(method: string, body: unknown, userId = FIRST): Promise<Response> {
   mocks.userId = userId
-  return app.request('/api/templates/library', {
+  return await app.request('/api/templates/library', {
     method,
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify(body),
-  }, { DB: db } as unknown as AppBindings['Bindings'], {
-    waitUntil() {},
-    passThroughOnException() {},
-  } as ExecutionContext)
+  }, { DB: db } as unknown as AppBindings['Bindings'], ctx)
 }
 
 async function jsonOf(response: Response): Promise<Record<string, unknown>> {
@@ -77,10 +83,7 @@ async function load(userId = FIRST): Promise<Record<string, unknown>> {
   mocks.userId = userId
   const response = await app.request('/api/templates/library', {}, {
     DB: db,
-  } as unknown as AppBindings['Bindings'], {
-    waitUntil() {},
-    passThroughOnException() {},
-  } as ExecutionContext)
+  } as unknown as AppBindings['Bindings'], ctx)
   return await jsonOf(response)
 }
 

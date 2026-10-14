@@ -1,6 +1,7 @@
 // @vitest-environment node
 import { DatabaseSync } from 'node:sqlite'
 import { Hono } from 'hono'
+import type { ExecutionContext } from 'hono'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { LIMITS } from '../src/shared/constants'
 import { SCHEMA_STATEMENTS } from '../src/worker/db/schema'
@@ -31,12 +32,17 @@ app.route('/api/templates/community', communityTemplatesRoutes)
 
 const BASE = '/api/templates/community'
 
-function request(suffix: string, init: RequestInit = {}, userId = AUTHOR): Promise<Response> {
+// Every field hono's request handler declares, so the fake cannot hand the route less than the real
+// Worker runtime would; `app.request` may settle either way, hence the awaited return.
+const ctx: ExecutionContext = {
+  waitUntil() {},
+  passThroughOnException() {},
+  props: {},
+}
+
+async function request(suffix: string, init: RequestInit = {}, userId = AUTHOR): Promise<Response> {
   mocks.userId = userId
-  return app.request(BASE + suffix, init, { DB: db } as unknown as AppBindings['Bindings'], {
-    waitUntil() {},
-    passThroughOnException() {},
-  } as ExecutionContext)
+  return await app.request(BASE + suffix, init, { DB: db } as unknown as AppBindings['Bindings'], ctx)
 }
 
 function jsonRequest(method: string, body: unknown, userId = AUTHOR): Promise<Response> {

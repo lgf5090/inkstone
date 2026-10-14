@@ -1,5 +1,6 @@
 // @vitest-environment node
 import { DatabaseSync } from 'node:sqlite'
+import type { SQLInputValue } from 'node:sqlite'
 import { Hono } from 'hono'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { SCHEMA_STATEMENTS } from '../src/worker/db/schema'
@@ -140,7 +141,9 @@ async function chatEvents(body: Record<string, unknown>): Promise<ChatStreamEven
     .map((frame) => JSON.parse(frame.slice(5)) as ChatStreamEvent)
 }
 
-function insert<T extends { id: string }>(table: string, row: Record<string, unknown>): void {
+// `node:sqlite` refuses anything outside its own input types, so a fixture row that carried a boolean
+// or a nested object fails here rather than at the driver.
+function insert<T extends { id: string }>(table: string, row: Record<string, SQLInputValue>): void {
   const columns = ['user_id', ...Object.keys(row)]
   const placeholders = columns.map(() => '?').join(', ')
   sqlite.prepare(`INSERT INTO ${table} (${columns.join(', ')}) VALUES (${placeholders})`)
@@ -1773,7 +1776,12 @@ describe('external MCP servers', () => {
   /** A third party that answers the handshake and offers a read, a write and a web tool. */
   function fakeMcpServer(calls: string[]) {
     return vi.fn(async (url: unknown, init?: RequestInit) => {
-      const body = JSON.parse(String(init?.body ?? '{}')) as { method?: string, name?: string, arguments?: unknown }
+      // JSON-RPC puts the tool name and its arguments under `params`, which is what `mcp-client.ts:246`
+      // sends; the top level only ever carries `method`, so reading a name from it saw `undefined`.
+      const body = JSON.parse(String(init?.body ?? '{}')) as {
+        method?: string
+        params?: { name?: string, arguments?: unknown }
+      }
       calls.push(`${String(url)}:${body.method ?? '?'}:${body.params?.name ?? ''}:${JSON.stringify(body.params?.arguments ?? '')}`)
       if (body.method === 'initialize') {
         return new Response(JSON.stringify({ jsonrpc: '2.0', id: 1, result: { protocolVersion: '2025-06-18', capabilities: {} } }), {
@@ -1793,7 +1801,7 @@ describe('external MCP servers', () => {
         })}\n\n`, { status: 200, headers: { 'content-type': 'text/event-stream' } })
       }
       if (body.method === 'tools/call') {
-        return new Response(JSON.stringify({ jsonrpc: '2.0', id: 3, result: { content: [{ type: 'text', text: `ran ${body.name} with ${JSON.stringify(body.arguments)}` }] } }), {
+        return new Response(JSON.stringify({ jsonrpc: '2.0', id: 3, result: { content: [{ type: 'text', text: `ran ${body.params?.name} with ${JSON.stringify(body.params?.arguments)}` }] } }), {
           status: 200,
           headers: { 'content-type': 'application/json' },
         })

@@ -1,6 +1,7 @@
 // @vitest-environment node
 import { DatabaseSync } from 'node:sqlite'
 import { Hono } from 'hono'
+import type { ExecutionContext } from 'hono'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   QUICKADD_APP,
@@ -49,26 +50,28 @@ function libraryText(ids: string[]): string {
   return JSON.stringify(buildQuickAddPayload(defaultQuickAddSettings(), choices(...ids)))
 }
 
-function send(method: string, body: unknown, userId = FIRST): Promise<Response> {
+// Every field hono's request handler declares, so the fake cannot hand the route less than the real
+// Worker runtime would; `app.request` may settle either way, hence the awaited return.
+const ctx: ExecutionContext = {
+  waitUntil() {},
+  passThroughOnException() {},
+  props: {},
+}
+
+async function send(method: string, body: unknown, userId = FIRST): Promise<Response> {
   mocks.userId = userId
-  return app.request('/api/quickadd/library', {
+  return await app.request('/api/quickadd/library', {
     method,
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify(body),
-  }, { DB: db } as unknown as AppBindings['Bindings'], {
-    waitUntil() {},
-    passThroughOnException() {},
-  } as ExecutionContext)
+  }, { DB: db } as unknown as AppBindings['Bindings'], ctx)
 }
 
 async function load(userId = FIRST): Promise<Record<string, unknown>> {
   mocks.userId = userId
   const response = await app.request('/api/quickadd/library', {}, {
     DB: db,
-  } as unknown as AppBindings['Bindings'], {
-    waitUntil() {},
-    passThroughOnException() {},
-  } as ExecutionContext)
+  } as unknown as AppBindings['Bindings'], ctx)
   return await response.json() as Record<string, unknown>
 }
 
@@ -202,10 +205,7 @@ describe('the account quickadd library', () => {
       method: 'PUT',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ library: libraryText(['qa-a']) }),
-    }, { DB: db } as unknown as AppBindings['Bindings'], {
-      waitUntil() {},
-      passThroughOnException() {},
-    } as ExecutionContext)
+    }, { DB: db } as unknown as AppBindings['Bindings'], ctx)
     expect(response.status).toBe(404)
   })
 })

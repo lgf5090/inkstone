@@ -28,7 +28,8 @@ function sha(bytes: Uint8Array): string {
   return createHash('sha256').update(bytes).digest('hex')
 }
 
-function fileOf(path: string, bytes: Uint8Array): File {
+// A `File` body has to sit on a non-shared buffer, so the bytes come in as `TextEncoder` made them.
+function fileOf(path: string, bytes: Uint8Array<ArrayBuffer>): File {
   const file = new File([bytes], path)
   Object.defineProperty(file, 'webkitRelativePath', { value: path })
   return file
@@ -94,7 +95,8 @@ let sends: Array<{ files: File[]; manifest: MarkdownBackupManifest; paths: strin
 
 beforeEach(() => {
   sends = []
-  vi.stubGlobal('crypto', { subtle: { digest: async (_algo, data) => new Uint8Array(sha256Bytes(data)) } })
+  // `sha256File` only ever calls this with an `ArrayBuffer`, which is what `Blob.arrayBuffer()` gives.
+  vi.stubGlobal('crypto', { subtle: { digest: async (_algo: AlgorithmIdentifier, data: ArrayBuffer) => new Uint8Array(sha256Bytes(data)) } })
 })
 
 function sha256Bytes(data: ArrayBuffer): Uint8Array {

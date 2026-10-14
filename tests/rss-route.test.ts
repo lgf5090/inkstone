@@ -1,8 +1,9 @@
 // @vitest-environment node
 import { DatabaseSync } from 'node:sqlite'
 import { Hono } from 'hono'
+import type { ExecutionContext } from 'hono'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { emptyLibrary, parseRssLibrary, RSS_LIMITS, type RssLibrary } from '../src/shared/rss/model'
+import { emptyLibrary, parseRssLibrary, RSS_LIMITS, type RssFetchResult, type RssLibrary } from '../src/shared/rss/model'
 import { diffLibrary } from '../src/shared/rss/patch'
 import { SCHEMA_STATEMENTS } from '../src/worker/db/schema'
 import { errorResponse } from '../src/worker/lib/errors'
@@ -29,12 +30,17 @@ const app = new Hono<AppBindings>()
 app.onError((err, c) => errorResponse(c, err))
 app.route('/api/rss', rssRoutes)
 
-function request(path: string, init?: RequestInit, userId = USER): Promise<Response> {
+// Every field hono's request handler declares, so the fake cannot hand the route less than the real
+// Worker runtime would; `app.request` may settle either way, hence the awaited return.
+const ctx: ExecutionContext = {
+  waitUntil() {},
+  passThroughOnException() {},
+  props: {},
+}
+
+async function request(path: string, init?: RequestInit, userId = USER): Promise<Response> {
   mocks.userId = userId
-  return app.request(`/api/rss${path}`, init, { DB: db } as unknown as AppBindings['Bindings'], {
-    waitUntil() {},
-    passThroughOnException() {},
-  } as ExecutionContext)
+  return await app.request(`/api/rss${path}`, init, { DB: db } as unknown as AppBindings['Bindings'], ctx)
 }
 
 function json(body: unknown): RequestInit {
@@ -68,7 +74,7 @@ function libraryWith(feeds: number): string {
 }
 
 /** The upstream a test wants: what each address answers, and what it was asked with. */
-function stubFetch(responder: (url: string, init?: RequestInit) => Response | Promise<Response>): { calls: Array<{ url: string, init?: RequestInit }> } {
+function stubFetch(responder: (url: string, init?: RequestInit) => Response | Promise<Response>): Array<{ url: string, init?: RequestInit }> {
   const calls: Array<{ url: string, init?: RequestInit }> = []
   vi.stubGlobal('fetch', async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(typeof input === 'string' ? input : (input as URL).href ?? input)
@@ -103,7 +109,7 @@ describe('the library', () => {
   it('stores what the reader sends and hands it back', async () => {
     const saved = await request('/library', { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ library: libraryWith(2) }) })
     expect(saved.status).toBe(200)
-    const { savedAt } = await saved.json()
+    const { savedAt } = await saved.json() as { savedAt: number }
     expect(savedAt).toBeGreaterThan(0)
     const loaded = (await (await request('/library')).json()) as { library: RssLibrary }
     expect(loaded.library.feeds.map(feed => feed.url)).toEqual([
@@ -189,7 +195,7 @@ describe('the change set', () => {
     }))
     expect(res.status).toBe(200)
     // The mark row, and the account's own state row, which is what a save stamps.
-    expect((await res.json()).rows).toBe(2)
+    expect(((await res.json()) as { rows: number }).rows).toBe(2)
     expect(rows('rss_feed')).toHaveLength(before)
     expect((await getLibrary()).favorites.sort()).toEqual(['e1', 'e9'])
   })
@@ -268,7 +274,7 @@ describe('the change set', () => {
     await put(JSON.stringify(base))
     const res = await request('/patch', json({ patch: diffLibrary(base, structuredClone(base)) }))
     expect(res.status).toBe(200)
-    expect((await res.json()).rows).toBe(0)
+    expect(((await res.json()) as { rows: number }).rows).toBe(0)
   })
 })
 
@@ -363,7 +369,7 @@ describe('the feed relay', () => {
     })
     const { results } = (await (await request('/fetch', json({
       requests: [{ url: 'https://dead.example.com/feed' }, { url: 'https://live.example.com/feed' }],
-    }))).json()) as { results: Array<{ ok: boolean, reason?: string }> }
+    }))).json()) as { results: RssFetchResult[] }
     expect(results).toHaveLength(2)
     expect(results.find(item => item.ok)?.url).toBe('https://live.example.com/feed')
     expect(results.find(item => !item.ok)?.reason).toBe('unreachable')
@@ -374,7 +380,7 @@ describe('the feed relay', () => {
     const requests = Array.from({ length: 40 }, (_, index) => ({ url: `https://example.com/f${index}` }))
     const res = await request('/fetch', json({ requests }))
     expect(res.status).toBe(200)
-    expect((await res.json()).results).toHaveLength(25)
+    expect(((await res.json()) as { results: RssFetchResult[] }).results).toHaveLength(25)
     expect(calls).toHaveLength(25)
   })
 

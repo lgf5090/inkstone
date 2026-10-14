@@ -1,5 +1,6 @@
 // @vitest-environment node
 import { DatabaseSync } from 'node:sqlite'
+import type { SQLInputValue } from 'node:sqlite'
 import { beforeEach, describe, expect, it } from 'vitest'
 import {
   RSS_LIMITS,
@@ -18,7 +19,9 @@ const OTHER = 'user-other'
 let sqlite: DatabaseSync
 let db: D1Database
 
-function select<T>(sql: string, ...values: unknown[]): T[] {
+// `node:sqlite` only takes its own input types, so the values a test binds are checked at the call
+// site instead of being widened away.
+function select<T>(sql: string, ...values: SQLInputValue[]): T[] {
   return sqlite.prepare(sql).all(...values) as T[]
 }
 
@@ -198,7 +201,7 @@ describe('the legacy column', () => {
     seed(JSON.stringify({ savedAt: 1, version: 2, library: old }))
     const got = (await loadRssLibrary(db, USER)).library!
     expect(got.readIds).toEqual(['c', 'a', 'b'])
-    const times = select<{ entry_id: string; at: number }>('SELECT entry_id, at FROM rss_mark WHERE kind = ?1', 'read' as never)
+    const times = select<{ entry_id: string; at: number }>('SELECT entry_id, at FROM rss_mark WHERE kind = ?1', 'read')
       .map(row => `${row.entry_id}:${row.at}`).sort()
     expect(times).toEqual(['a:-1', 'b:-2', 'c:0'])
   })

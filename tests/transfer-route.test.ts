@@ -1,6 +1,7 @@
 // @vitest-environment node
 import { DatabaseSync } from 'node:sqlite'
 import { Hono } from 'hono'
+import type { ExecutionContext } from 'hono'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { SCHEMA_STATEMENTS } from '../src/worker/db/schema'
 import { errorResponse } from '../src/worker/lib/errors'
@@ -58,13 +59,14 @@ function env() {
 
 function waitUntilCollector() {
   const tasks: Promise<unknown>[] = []
-  return {
-    ctx: {
-      waitUntil: (task: Promise<unknown>) => { tasks.push(task) },
-      passThroughOnException: () => {},
-    },
-    tasks,
+  // Typed as the context `app.request` declares, so the fake carries `props` as well: the route can
+  // read anything hono promises, and a missing field has to fail the build rather than the request.
+  const ctx: ExecutionContext = {
+    waitUntil: (task: Promise<unknown>) => { tasks.push(task) },
+    passThroughOnException: () => {},
+    props: {},
   }
+  return { ctx, tasks }
 }
 
 async function importForm(userId: string, form: FormData) {

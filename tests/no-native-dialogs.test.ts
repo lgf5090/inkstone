@@ -105,8 +105,10 @@ function declarationsNamed(source: ts.SourceFile, name: string): ts.Node[] {
   const visit = (node: ts.Node) => {
     if (ts.isFunctionDeclaration(node) && node.name?.text === name && node.body) found.push(node.body)
     if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && node.name.text === name && node.initializer) found.push(node.initializer)
-    if ((ts.isMethodDeclaration(node) || ts.isPropertyDeclaration(node)) && node.name.getText(source) === name
-      && (node.body ?? node.initializer)) found.push((node.body ?? node.initializer)! as ts.Node)
+    // A method carries a body and a property carries an initializer; asking the union for both is what
+    // used to hide behind one cast, so each shape is read under its own guard.
+    if (ts.isMethodDeclaration(node) && node.name.getText(source) === name && node.body) found.push(node.body)
+    if (ts.isPropertyDeclaration(node) && node.name.getText(source) === name && node.initializer) found.push(node.initializer)
     ts.forEachChild(node, visit)
   }
   visit(source)

@@ -224,18 +224,20 @@ describe('failure paths', () => {
 
   it('keeps cancelling the download after the headers arrived', async () => {
     const controller = new AbortController()
-    let inner: AbortSignal | null = null
+    // Recorded through a property, not a local: `RequestInit.signal` is optional and nullable, and a
+    // `let` assigned inside the stub kept being narrowed to its initializer, which hid the real shape.
+    const seen: { signal?: AbortSignal | null } = {}
     vi.stubGlobal('fetch', vi.fn(async (_url: string, init: RequestInit) => {
-      inner = init.signal
+      seen.signal = init.signal
       return response([openAiFrame({ content: 'x' })])
     }))
     const events: UpstreamEvent[] = []
     for await (const event of streamUpstream('openai', request({ signal: controller.signal }))) events.push(event)
     expect(events.length).toBe(1)
-    expect(inner).not.toBeNull()
+    expect(seen.signal).not.toBeUndefined()
     // Detaching the listener once the response began would leave a closed tab's stream running.
     controller.abort()
-    expect((inner as AbortSignal).aborted).toBe(true)
+    expect(seen.signal?.aborted).toBe(true)
   })
 })
 

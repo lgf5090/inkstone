@@ -1,6 +1,7 @@
 // @vitest-environment node
 import { DatabaseSync } from 'node:sqlite'
 import { Hono } from 'hono'
+import type { ExecutionContext } from 'hono'
 import { beforeEach, describe, expect, it } from 'vitest'
 import { LIMITS } from '../src/shared/constants'
 import { errorResponse } from '../src/worker/lib/errors'
@@ -26,7 +27,13 @@ const TREE = '/api/folders'
 let sqlite: DatabaseSync
 let db: D1Database
 let user: string
-const ctx = { waitUntil: () => {} } as ExecutionContext
+// Typed as the context `app.fetch` actually declares, so every field the route may read has to be
+// there: the ambient Workers interface is wider than hono needs and cannot be faked outside a Worker.
+const ctx: ExecutionContext = {
+  waitUntil: () => {},
+  passThroughOnException: () => {},
+  props: {},
+}
 
 const app = new Hono<AppBindings>()
 app.onError((err, c) => errorResponse(c, err))

@@ -46,8 +46,9 @@ describe('the endpoint a model is called through', () => {
 
   it('reads a blank or broken map as no extra addresses', () => {
     for (const stored of ['', '   ', '{not json', '[]', '{"gemini":"  "}']) {
-      expect(modelEndpoint(model({ protocol: 'gemini' }), provider({ endpoints: stored })))
-        .toEqual({ protocol: 'gemini', baseUrl: 'https://gw.test/v1' }, stored)
+      // The stored map goes to `expect`, which is where a failure message belongs; `toEqual` takes none.
+      expect(modelEndpoint(model({ protocol: 'gemini' }), provider({ endpoints: stored })), stored)
+        .toEqual({ protocol: 'gemini', baseUrl: 'https://gw.test/v1' })
     }
   })
 })

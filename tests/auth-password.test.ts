@@ -4,7 +4,7 @@ import { DatabaseSync } from 'node:sqlite'
 import { Hono } from 'hono'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { authRoutes } from '../src/worker/routes/auth'
-import type { Env } from '../src/worker/env'
+import type { AppBindings, Env } from '../src/worker/env'
 import { hashToken } from '../src/worker/lib/session-store'
 import { completeTotpLogin, createTotpLoginChallenge } from '../src/worker/lib/totp-service'
 
@@ -86,9 +86,20 @@ afterEach(() => {
 })
 
 async function changePassword() {
-  const app = new Hono()
+  // The route reads the session middleware's own variables, so the harness has to bind them the way
+  // the Worker does; an untyped `new Hono()` let `c.set('user', …)` name a variable that exists nowhere.
+  const app = new Hono<AppBindings>()
   app.use('*', async (c, next) => {
-    c.set('user', { id: 'user' })
+    c.set('user', {
+      id: 'user',
+      username: 'user',
+      login: 'user',
+      name: 'User',
+      avatarUrl: '',
+      role: 'member',
+      createdAt: 1,
+      settingsRaw: '{}',
+    })
     c.set('sessionId', await hashToken(sessionToken))
     await next()
   })

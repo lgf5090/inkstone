@@ -1,14 +1,25 @@
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { api } from '../src/client/lib/api'
-import type { SessionInfo } from '../src/shared/types'
+import type { SessionInfo, SiteInfo } from '../src/shared/types'
 
 const sent: Array<{ url: string; body: string }> = []
+
+// What `/api/auth/register` really answers: `site` is never null, so the fake cannot say it is.
+const site: SiteInfo = {
+  name: 'Inkstone',
+  initialized: true,
+  registrationOpen: true,
+  r2Enabled: false,
+  kvEnabled: false,
+  attachmentStorage: null,
+  realtimeEnabled: false,
+}
 
 beforeEach(() => {
   sent.length = 0
   vi.stubGlobal('fetch', vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
     if (typeof init?.body === 'string') sent.push({ url: String(input), body: init.body })
-    return new Response(JSON.stringify({ user: null, site: null } satisfies Partial<SessionInfo>), {
+    return new Response(JSON.stringify({ user: null, site, settings: null } satisfies SessionInfo), {
       status: 200,
       headers: { 'Content-Type': 'application/json' },
     })
