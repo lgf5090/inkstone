@@ -1,6 +1,7 @@
 import { useId, useMemo, useRef, useState } from 'react'
 import { ChevronDown, Eye, Pencil } from 'lucide-react'
 import { t } from '../../../i18n'
+import { isImeComposing } from '../../../ime'
 import { KANBAN_DESCRIPTION_MAX_CHARS } from '../body'
 
 /**
@@ -130,6 +131,7 @@ function DescriptionBox({
       onBlur={onBlur}
       // Enter commits nothing here: the description is the one multi-line field, so the key must stay a newline.
       onKeyDown={(e) => {
+        if (isImeComposing(e)) return
         if (e.key === 'Escape') onDiscard()
       }}
       placeholder={t('preview.kanban_card_description_placeholder')}

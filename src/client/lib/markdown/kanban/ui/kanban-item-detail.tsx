@@ -2,6 +2,7 @@ import { memo, useEffect, useId, useRef, useState } from 'react'
 import { ChevronDown, Smile } from 'lucide-react'
 import { useClickOutside, useEscape } from '../../../../components/overlay'
 import { t, useLocaleRepaint } from '../../../i18n'
+import { isImeComposing } from '../../../ime'
 import { getKanbanDotColor } from '../colors'
 import { getKanbanDueDate } from '../date-fields'
 import { formatKanbanOptionLabel, formatKanbanPropertyName } from '../i18n-helpers'
@@ -140,6 +141,7 @@ function DetailTitleDraft({
       onChange={(e) => setDraft(e.target.value)}
       onBlur={commitDraft}
       onKeyDown={(e) => {
+        if (isImeComposing(e)) return
         if (e.key === 'Enter') commitDraft()
         if (e.key === 'Escape') {
           setDraft(lastSent.current)

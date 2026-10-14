@@ -1,6 +1,7 @@
 import { memo, useId, useState } from 'react'
 import { ArrowDown, ArrowUp, Columns3, Pencil, Plus, Rows3, Settings2, Sliders, Trash2 } from 'lucide-react'
 import { t, useLocaleRepaint } from '../../../i18n'
+import { isImeComposing } from '../../../ime'
 import { formatKanbanPropertyName } from '../i18n-helpers'
 import type { KanbanProperty, KanbanPropertyType } from '../types'
 import {
@@ -208,6 +209,7 @@ function ColumnNameField({
       onChange={(e) => setDraft(e.target.value)}
       onBlur={commit}
       onKeyDown={(e) => {
+        if (isImeComposing(e)) return
         if (e.key === 'Enter') commit()
         if (e.key === 'Escape') setDraft(column.name)
       }}
@@ -292,6 +294,7 @@ function AddColumnRow({ schemaOps }: { schemaOps: KanbanSchemaOperations }) {
         aria-label={t('preview.kanban_column_name_field')}
         onChange={(e) => setName(e.target.value)}
         onKeyDown={(e) => {
+          if (isImeComposing(e)) return
           if (e.key === 'Enter') submit()
         }}
         className={`${EDITOR_FIELD} flex-1`}

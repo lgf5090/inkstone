@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Pencil } from 'lucide-react'
 import { t } from '../../../i18n'
+import { isImeComposing } from '../../../ime'
 
 /**
  * The board's own name, and the one place it is written from. Both hosts draw it — the note's block
@@ -40,6 +41,7 @@ function KanbanBoardTitleEditor({
       onBlur={onFinish}
       onKeyDown={(e) => {
         e.stopPropagation()
+        if (isImeComposing(e)) return
         if (e.key === 'Enter') onFinish()
         else if (e.key === 'Escape') onCancel()
       }}
