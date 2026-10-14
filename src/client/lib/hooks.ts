@@ -37,6 +37,36 @@ export function useDebounced<T>(value: T, delay: number, resetKey?: unknown): T 
   return debounced.key === resetKey ? debounced.value : value
 }
 
+/**
+ * The draft half of a filter box: what the reader has typed stays here, and only the settled text is
+ * handed to `commit`, so one keystroke does not re-filter a whole listing.
+ *
+ * The other direction needs a guard, and this is the reason the hook exists rather than a plain
+ * `useDebounced` at the call site. A commit leaves this box, and the value it produced comes back as a
+ * new `external` on some later render — through a store that answers after a request, or through a
+ * parent that re-renders on its own schedule. Adopting that echo unconditionally would overwrite the
+ * draft with the text as it was when the commit left, dropping every character typed in between. So an
+ * incoming value is adopted only when it is not the one this box last committed, which still lets a
+ * query set elsewhere — switching views, clearing filters, another panel — win over the draft.
+ */
+export function useDebouncedDraft(external: string, commit: (next: string) => void, delay: number) {
+  const [draft, setDraft] = useState(external)
+  const committed = useRef(external)
+  const commitNow = useEvent(commit)
+  useEffect(() => {
+    if (external === committed.current) return
+    committed.current = external
+    setDraft(external)
+  }, [external])
+  const settled = useDebounced(draft, delay)
+  useEffect(() => {
+    if (settled === external || settled === committed.current) return
+    committed.current = settled
+    commitNow(settled)
+  }, [settled, external, commitNow])
+  return { draft, setDraft }
+}
+
 
 export function useRelativeTime(timestamp: number, enabled = true): string {
   const [tick, setTick] = useState(0)

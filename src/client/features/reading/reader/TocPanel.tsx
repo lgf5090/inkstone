@@ -7,7 +7,7 @@
  */
 import { useMemo, useState } from 'react'
 import { t } from '../../../lib/i18n'
-import { compileQuery, queryMatches } from '../../../lib/query-match'
+import { compileQuery, queryKeeps } from '../../../lib/query-match'
 import { usePinyinVersion } from '../../../lib/pinyin'
 import { spineIndexFor, stripFragment, fragmentOf } from '../engine/epub-package'
 import type { EpubHandle } from './useEpubHandle'
@@ -35,8 +35,8 @@ export function TocPanel({ handle, onJump }: TocPanelProps) {
         fragment: fragmentOf(entry.href),
       }))
       .filter((entry) => entry.slot >= 0)
-      .filter((entry) => !query.trim() || queryMatches(filter, entry.label) !== null)
-  }, [filter, handle, pinyinVersion, query])
+      .filter((entry) => queryKeeps(filter, entry.label))
+  }, [filter, handle, pinyinVersion])
 
   if (!handle?.pkg.toc.length) {
     return <p className="px-3 py-6 text-center text-[12px] opacity-60">{t('reading.no_contents')}</p>

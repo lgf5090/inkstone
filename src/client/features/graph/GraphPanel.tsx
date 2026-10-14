@@ -29,6 +29,7 @@ import { useNotes } from '../../store/notes'
 import { useUi } from '../../store/ui'
 import { t } from '../../lib/i18n'
 import { usePinyinVersion } from '../../lib/pinyin'
+import { useDebounced } from '../../lib/hooks'
 import {
   DEFAULT_PREFERENCES,
   GRAPH_PINNED_MAX,
@@ -70,7 +71,7 @@ export function GraphPanel({ onClose }: { onClose: () => void }) {
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [search, setSearch] = useState('')
   const pinyinVersion = usePinyinVersion()
-  const [query, setQuery] = useState('')
+  const query = useDebounced(search.trim(), GRAPH_SEARCH_DEBOUNCE_MS)
   const [data, setData] = useState<GraphResponse | null>(null)
   const [pending, setPending] = useState(false)
   const [loadError, setLoadError] = useState<string | null>(null)
@@ -99,11 +100,6 @@ export function GraphPanel({ onClose }: { onClose: () => void }) {
   useEscape(settingsOpen, () => setSettingsOpen(false))
   useLockScroll(true)
   useDialogFocus(true, panelRef)
-
-  useEffect(() => {
-    const timer = window.setTimeout(() => setQuery(search.trim()), GRAPH_SEARCH_DEBOUNCE_MS)
-    return () => window.clearTimeout(timer)
-  }, [search, pinyinVersion])
 
   useEffect(() => {
     const timer = window.setTimeout(() => persistPreferences(prefs), GRAPH_PREFS_DEBOUNCE_MS)
@@ -204,7 +200,6 @@ export function GraphPanel({ onClose }: { onClose: () => void }) {
 
   const clearFilters = useCallback(() => {
     setSearch('')
-    setQuery('')
     changePref('folderId', '')
     changePref('tags', [])
     changePref('excludedNoteIds', [])

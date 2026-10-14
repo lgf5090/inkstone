@@ -62,6 +62,19 @@ const allowed = new Map([
     "// the interface keys are held to — but the two languages are still proven against each other below.",
     "// Chinese is legal in a zh locale catalog and nowhere else; every other file is held to English.",
     "// The chat composer's own punctuation table: the values are data the assistant edits, not copy.",
+    "// The catalog is only worth shipping while every entry is reachable, so the keys are matched against",
+    "// their references from the other side too: a key nobody names is copy no reader will ever be shown.",
+    "// A reference is any string with the shape of a key, not only the first argument of a `t()` call,",
+    "// because a label reaches `t()` out of a table, a conditional branch or a `labelKey` field as often",
+    "// as it is written inline.",
+    "// `t(`preview.kanban_op_${operator}`)` names a family rather than one key, so the whole family counts",
+    "// as referenced. The head has to stop where a key segment stops, which is what keeps an ordinary",
+    "// template (`preview${instanceScope}`) from exempting every key that starts with those letters.",
+    "// The catalogs define the keys; only the code that asks for them counts as a reference.",
+    "// A backup error is thrown as English text by the code that talks to the storage service, and",
+    "// `translateServiceMessage` answers a reader's language by finding that text's key in the catalog by",
+    "// its value: such a key is in use without ever being named. Only the code that raises those messages",
+    "// is read for them, because the same word written as interface copy in a component proves nothing.",
   ]],
   ["scripts/excalidraw-patch.mjs", [
     "/**\n * The vendored engine build is a minified IIFE that was written for Obsidian, so six of its teardown\n * and asset paths throw when it is hosted by this app instead. The only way in is exact-string\n * replacement on minified text, which fails silently: rename one local and the `.replace()` becomes a\n * no-op that ships an unpatched bundle, and every gate still passes because nothing reads the result.\n *\n * This module is the single source for those edits (they used to be duplicated verbatim in\n * `vite.config.ts` and `scripts/patch-excalidraw.mjs`), and it reports every patch as applied,\n * already-present or unmatched so the caller can refuse to build on a miss.\n */",
@@ -121,14 +134,23 @@ const allowed = new Map([
     "/* The lint preview dialog is only ever opened by a run, so its chunk stays unloaded until one asks. */",
     "/**\n * The picture viewer, hosted above the container switch.\n *\n * Any container can ask to enlarge an image — the notebook's preview and the chat's attachment chips\n * both do — and `useUi().lightbox` is one global slot. Mounted inside one container it was reachable\n * from that container only, and a chip elsewhere set the state with nothing left to render it: the\n * click did nothing at all, with nothing in the console to say so.\n */",
   ]],
+  ["src/client/components/DrawerSearchField.tsx", [
+    "/** The same text `value` holds, compiled: the box says in its own words what a refused expression cost. */",
+    "/**\n * The search box a drawer puts above its list: the sticky header it hangs in, and the one filter every\n * other listing in the app offers — drawn by {@link FilterInput}, because the box, its keys and its\n * refusal message are that component's, and only the header belongs to a drawer.\n *\n * Escape clears a box that is not empty and is swallowed there, so the drawer it sits in stays open;\n * an empty box lets the key through, which is the drawer's own close. The compiled query is handed in\n * rather than compiled here so a caller filters with the same object the box is describing.\n */",
+  ]],
   ["src/client/components/FilterInput.tsx", [
     "/** The same text `value` holds, compiled: the box says in its own words what a refused expression cost. */",
-    "/** `panel` is the bordered, full-height box a modal or settings page draws; `sidebar` is the quiet one. */",
     "/** For the listing that moves the caret back into the box when its last row goes away. */",
     "/** A control the listing keeps beside the box, drawn inside it. */",
-    "/**\n * The filter box every sidebar listing uses: it searches by fuzzily-matched letters, by the reading\n * of a Chinese label, and by a `/regular expression/`, and it is the one place that says so when a\n * pattern is refused.\n */",
-    "// The box owns its keys: a shortcut that fires while the reader is typing a name would",
-    "// take the keystroke, and the listing above answers arrows of its own.",
+    "/** What the box does with an Escape it decided to answer: take the text back out. */",
+    "/**\n     * The compiled text the box holds. Its refusal is what `aria-invalid` and the described-by hint\n     * point at, and a box that filters by something other than a compiled query has nothing to refuse.\n     */",
+    "/**\n     * What an Escape on an already-empty box costs. `blur` keeps the reader out of a listing they were\n     * not looking at; `release` hands the key to the panel behind the box, which is how a modal or a\n     * drawer is dismissed, and is the only reason a caller would rather not draw the box itself.\n     */",
+    "/** The listing's own arrows and Enter, asked before the box makes its decision. */",
+    "/** A ref the listing keeps so it can move the caret back into the box. */",
+    "/**\n * The keyboard and accessibility contract every filter box in the app answers to, separated from the\n * box's drawing so a listing with arrows and Enter of its own can take the contract without taking the\n * chrome — which is the only reason a box would rather not use {@link FilterInput}.\n *\n * Escape clears a box that has something to clear and swallows the key, so the panel behind it does not\n * close underneath the reader; an empty box does what `escapeWhenEmpty` says. Every other key is\n * stopped here, because a shortcut that fires while the reader is typing a name would take the\n * keystroke, and the listing above answers arrows of its own. Spread the result onto the `input` and\n * call `clear` from the box's own clear control, which puts the caret back where the reader was.\n */",
+    "/**\n     * `sidebar` is the quiet box the file and tag rails draw, `panel` the bordered, full-height one a\n     * modal or a settings page draws, and `drawer` the large box above the list inside a drawer — three\n     * measurements of the same control, because each sits in a row of its own height.\n     */",
+    "/** An Escape on an already-empty box: the box loses focus, or the panel behind it is dismissed. */",
+    "/**\n * The filter box every listing in the app uses: it searches by fuzzily-matched letters, by the reading\n * of a Chinese label, and by a `/regular expression/`, and it is the one place that says so when a\n * pattern is refused. Its keys and ARIA come from {@link useFilterInput}, so a listing that has to keep\n * its own arrows draws a different box over the same contract instead of writing the contract again.\n */",
   ]],
   ["src/client/components/activity-calendar-almanac.test.ts", [
     "// What the calendar must paint under each day number, spelled the way a reader reads it.",
@@ -258,12 +280,19 @@ const allowed = new Map([
     "/**\n * How far a panel may reach sideways before its own scroll container would cut it off.\n *\n * A field inside a modal body that scrolls gets a panel that widens that body by a few pixels, and the\n * reader sees a horizontal scrollbar appear under the form. The vertical axis is left to the viewport\n * because a scroll container is expected to scroll there; sideways it is only ever an accident.\n */",
     "// Comparing by value keeps a stable result from re-rendering, which would re-measure forever.",
   ]],
+  ["src/client/components/form.test.ts", [
+    "/** The group's own radios, in visual order. */",
+  ]],
   ["src/client/components/form.tsx", [
     "/**\n * Enter inside a text field has to be cancelled before it commits. Committing can mount a confirm\n * dialog, and the browser runs the keydown's default action after our handler returns, so the very\n * keystroke that asked would otherwise press the dialog's own button and answer it.\n */",
     "/** The box every text field in a dialog wears; `overlay`'s prompt reads it rather than importing\n * `Input`, because form already imports overlay and a component cycle would resolve at render. */",
     "/**\n   * Hand every step straight to the caller instead of coalescing to one write per frame. For a caller\n   * that batches on its own — the gantt's progress bar holds a draft and commits one undo step on\n   * release — the coalescing would swallow the last value, because its own commit runs in the same\n   * event, before the frame that would have delivered it.\n   */",
     "// An immediate slider has no draft of its own: the caller's `value` is the only answer, and a local",
     "// copy would go stale the moment the caller batches and settles on something else.",
+    "/** What each key a roving radio group answers to does to the selection. */",
+    "/**\n * The tab order and arrow-key behaviour a `role=\"radiogroup\"` of hand-drawn radios has to provide for\n * itself: one stop in the tab sequence (the selected radio, or the first when nothing is selected),\n * and the arrows that move the selection while keeping focus on what was just selected.\n *\n * A native radio group gets all of this from the browser, but a native radio cannot be drawn as the\n * shapes these groups wear — the segmented control's pill and a settings card holding a badge, a\n * status line and a configuration panel. So the two implementations share this one rather than each\n * writing the same stepping again.\n *\n * `values` is the group's options in visual order, `value` the selected one, and `onSelect` what\n * applies a choice; the caller writes the returned handlers onto each radio element it renders.\n */",
+    "// Only the selected radio is a tab stop, so one Tab lands the user on the group's current answer",
+    "// and the arrows take it from there — the pattern the radiogroup role tells a screen reader to expect.",
   ]],
   ["src/client/components/overlay-search.test.ts", [
     "/** What the user sees after typing: the field's own value plus whatever the list kept. */",
@@ -791,6 +820,7 @@ const allowed = new Map([
     "// row says which server it came from.",
     "// A server that has not been listed yet is awaited rather than skipped: showing the built-ins alone",
     "// would read as if the reader's own tools had disappeared.",
+    "/**\n * How long the conversation box stops typing before the settled text reaches the store. The query lives\n * in the assistant store, so a keystroke that commits it there re-filters every row in the list.\n */",
   ]],
   ["src/client/features/chat/ComposerControls.tsx", [
     "/**\n * The composer's control row.\n *\n * Each control is a menu anchored to a chip that names what it currently selects, so the state is\n * readable without opening anything: which model answers, how much it is asked to think, how much\n * context it is given, and whether a write waits for a click. All four are per-conversation settings\n * the assistant already stores — the chips are the same switches the settings page has, moved to where\n * the decision is actually made.\n */",
@@ -1037,6 +1067,19 @@ const allowed = new Map([
     "// The same note can be open in two panes, each with its own engine. Refilling while this canvas",
     "// holds an edit it has not written yet would throw that work away, so wait for the save to land.",
   ]],
+  ["src/client/features/excalidraw/TextToDiagramModal.tsx", [
+    "// A chat list an earlier session left behind is a convenience: a store this browser will not",
+    "// hand back — private mode, or a blob JSON no longer parses — still opens the dialog on the",
+    "// default session built below, which is the state it starts from when there was never one.",
+    "// The diagram is markup this app did not write, so it goes through the shared SVG pass before it",
+    "// is handed to `dangerouslySetInnerHTML`; the memo keeps a pan or a zoom from re-sanitising it.",
+    "// History is written beside the state rather than instead of it: the dialog already holds the",
+    "// chats it shows, so a store that refuses the write (a quota, private mode) costs only the next",
+    "// reload, never the conversation on screen.",
+    "// `streamChatCompletion` reports every failure through `onError` — the toast above — before it",
+    "// rethrows, and a pressed Stop rethrows its AbortError through the same door, so nothing that",
+    "// reaches here is news to the reader; the `finally` still ends the streaming state.",
+  ]],
   ["src/client/features/excalidraw/chrome.test.ts", [
     "/* */",
   ]],
@@ -1062,6 +1105,15 @@ const allowed = new Map([
     "/**\n   * Ask the engine to bring its library panel back.\n   *\n   * A confirmation dialog is portalled to the body, and the engine closes its sidebar on a pointer\n   * down outside the panel - which is exactly what answering the dialog is. Without this the panel\n   * vanishes behind the dialog and the user is left on a bare canvas having only meant to rename a\n   * folder.\n   */",
     "// The browser used to pay for a 100 kB catalog and a cold upstream on the click itself. Asking",
     "// while the reader is still looking at the panel means the official browser opens at once.",
+    "/* Every LibraryFolderRow writes role=\"treeitem\" and nests its children in a role=\"group\".\n              Those are only tree semantics when a tree owns them, so this wrapper is the tree; left\n              dangling, a screen reader reads the rows as unrelated boxes and never reports the depth\n              the indentation is already drawing. Selection is one folder at a time, which is ARIA's\n              default for a tree, so aria-multiselectable stays unstated rather than repeated. */",
+    "// The preview markup comes from a library manifest the server stored, not from this app, so it is",
+    "// sanitised on the way to `dangerouslySetInnerHTML`; the memo keeps a parent re-render cheap.",
+    "// A stencil preview is decoration: when the engine refuses to export one (a malformed",
+    "// element, a canvas it cannot paint), the tile falls back to the element count below rather",
+    "// than failing the library that still holds the real shapes.",
+    "// Only the tile's picture is at stake: the chosen shapes go into the library below regardless,",
+    "// so an export that fails — no engine loaded, a selection the exporter cannot restore — leaves",
+    "// a preview-less tile rather than a lost item.",
   ]],
   ["src/client/features/excalidraw/library/ExcalidrawOfficialLibraryModal.tsx", [
     "// Whatever the store already holds paints first; the request only fills in or refreshes it.",
@@ -1083,6 +1135,7 @@ const allowed = new Map([
     "// hit: where there is no hover, the quick actions are simply painted.",
     "// swallowed every keystroke. Focusing after the commit, and selecting the name so the first",
     "// keystroke replaces it, is what makes the menu's rename and new-subfolder rows type somewhere.",
+    "/** The toggle column a child-name field clears so the field lines up under the row's own label. */",
   ]],
   ["src/client/features/excalidraw/library/library-folder-drag.test.ts", [
     "/**\n * a · b( c( d ) ) · e\n *\n * Three roots and a two-level branch under `b`: the only shape where a drop can try to land a folder\n * next to its own grandchild, which has to be refused rather than silently made into a cycle.\n */",
@@ -1130,7 +1183,6 @@ const allowed = new Map([
     "/**\n * The official catalog holds 232 libraries. Mounting all of them at once was measured in Chromium as a\n * single 355-383 ms long task that also holds up the modal's own shell, and it asked for a preview image\n * per card (748 kB before the first scroll). So the grid renders a window and hands out the rest as the\n * reader approaches its end — the same shape the kanban board uses, with a real button for the tail so a\n * browser without an observer, or a keyboard that never scrolls, still reaches every card.\n */",
   ]],
   ["src/client/features/folders/FolderMoveMenu.tsx", [
-    "/**\n * What the flywheel reads from a folder: a name, its children, and how many things sit directly in it.\n *\n * Stated structurally rather than as the notes store's `FolderNode` because the library panel has the\n * same shape of tree over its own folders, and a second copy of this picker - flywheel positioning,\n * arrow-key walking and all - would be the worse outcome. `FolderNode` satisfies it as it is.\n */",
     "/** The name of the top level for this tree, which is not \"Unfiled\" everywhere. */",
   ]],
   ["src/client/features/graph/LocalGraphPanel.tsx", [
@@ -3754,6 +3806,9 @@ const allowed = new Map([
     "// The epoch used to move on every prepared render, so a pass that changed nothing a block can read",
     "// still re-walked the host and re-mounted every mind map. Both halves are compared above because the",
     "// markup string is blind to a fence-body edit.",
+    "// A heading id is percent-encoded by the renderer, but a hand-written href may hold a bare",
+    "// `%`, which is not a valid escape; falling back to the raw fragment is what a browser does,",
+    "// so a failed decode is not worth reporting.",
   ]],
   ["src/client/features/preview/PropertyDecorations.tsx", [
     "// The app's submenu renderer: the bare row list it replaces drew straight onto the",
@@ -3849,6 +3904,9 @@ const allowed = new Map([
     "/**\n * The same run with extra names handed to the code as parameters. A Dataview DML block gets a `dv`\n * object this way: the shadowing list above still applies, so an injection can only add a name the note\n * could not reach anyway, and a note that rebinds `dv` itself rebinds a parameter, not the worker scope.\n */",
     "// A name the sandbox already shadows cannot be handed over as a second parameter: two parameters of",
     "// one name are a syntax error the moment the body says \"use strict\".",
+    "// `sendBeacon` is a second route off the worker, but a navigator that refuses the redefinition",
+    "// is one the note's code cannot reach without it either; the page-side timeout is the backstop,",
+    "// exactly as for the loop above, so a refusal here is never a reason to stop.",
   ]],
   ["src/client/features/preview/js-runner.ts", [
     "/**\n * The Worker thread is the sandbox: user code has no DOM and no parent reference, and `terminate()`\n * is the only hard stop for an endless loop. The page-side timeout is what bounds a run.\n */",
@@ -5443,6 +5501,13 @@ const allowed = new Map([
     "// top edge, so a long morning of reading does not end with forty rows still showing as new.",
     "// Every item in that menu is a question about an article; a note answers to the notebook.",
   ]],
+  ["src/client/features/rss/RssChannelRail.test.ts", [
+    "/**\n * The channel rail's folder row: two controls in one box, and the pair has to stay two.\n *\n * The row used to be a `div` with a click handler wearing a chevron `span`, so a keyboard could not\n * reach either act and a screen reader read the folder as one unlabeled block. The row is a plain\n * container now, holding a disclosure button and a navigation button, and that split is exactly what\n * regresses quietly: a click that bubbles from the toggle into the row's own activation opens the\n * folder while trying to close it, and a toggle dropped out of the tab order leaves the children\n * unreachable. These cases hold the two acts apart, name both controls, and keep `aria-controls`\n * pointed at a region that exists even while the folder is shut.\n */",
+    "/** The folder's own row, which is the only thing holding its two buttons. */",
+    "// The name is the act the button performs, the state is what `aria-expanded` carries.",
+    "// A region the toggle controls has to be in the DOM while it holds nothing, or the relation dangles.",
+    "// What Enter and Space do to a focused button in a browser is a click on that button.",
+  ]],
   ["src/client/features/rss/RssChannelRail.tsx", [
     "/**\n * The channel rail: where the reader is, and the whole subscription library that can be reached.\n *\n * It used to be a list of buttons and nothing else, on the theory that every other question about a\n * subscription belongs to the management dialog. That theory cost the reader two round trips for\n * every ordinary act — move a feed, rename a folder, pause a source — and the dialog has no more\n * room for a folder's colour than the rail does. So the rail now carries the three things a reader\n * does with a subscription without leaving the list of them: a right-click, a drag onto a folder,\n * and a name that can be typed in place.\n *\n * Folders nest, and the nesting is the note folders' own: `RssGroup` is shaped like `Folder` so\n * `buildFolderTree` can arrange both trees, and the colour and icon pickers are the same panels the\n * sidebar uses. Two implementations of \"which folder can this not go into\" is how a subscription\n * ends up inside its own descendant.\n *\n * An unread badge only appears for a feed this device has actually read from. A zero would be a\n * claim about the world the rail has no way to make.\n */",
     "// The reader's own notes, as channels. Derived from the notebook's store rather than synced: the",
@@ -5460,6 +5525,7 @@ const allowed = new Map([
     "/** The rail's whole right-click surface: a feed, a folder, a tag, or the empty space below them. */",
     "// The address came out of somebody else's document, so it is asked again before a window is",
     "// opened with it — the same rule the article menu follows.",
+    "/* The collapse toggle names the region it opens, so that region is an element that exists\n          while it is closed too — a fragment that mounts and unmounts leaves `aria-controls`\n          pointing at nothing. Each row indents itself, so the wrapper changes no geometry. */",
   ]],
   ["src/client/features/rss/RssKeys.tsx", [
     "/**\n * The shortcut sheet.\n *\n * A reader who has never used an RSS app does not know that `j` and `k` are the whole point of one,\n * and a reader who has used three of them does not want to learn a fourth set. So the keys are\n * listed where they are used, on the surface that answers to them, and every row is a key this app\n * actually handles — a sheet with a key that does nothing is worse than no sheet.\n */",
@@ -5766,6 +5832,17 @@ const allowed = new Map([
     "/**\n * The handle menu's own rows, in the reader's order.\n *\n * Nothing can be deleted here — a menu that lost a command would leave the reader unable to make a\n * heading again — so the rows only move, and the default is one button away.\n */",
     "/** The canonical root order, with the reader's own submenus kept. */",
   ]],
+  ["src/client/features/settings/ExcalidrawSettings.test.ts", [
+    "/** The group's own radios, in the order the settings draw them. */",
+    "// The edit controls live beside the group, labelled by the same heading rather than nested in it.",
+  ]],
+  ["src/client/features/settings/ExcalidrawSettings.tsx", [
+    "// The providers are cards with a badge and a status line, which a `Segmented` pill cannot draw, so",
+    "// this group keeps its own elements and borrows its keyboard from the one implementation the",
+    "// segmented control also uses.",
+    "/*\n                `aria-required-children` reads a radiogroup's owned children, so the group holds the\n                mutually exclusive choices and nothing else: the per-provider edit control and its two\n                fields sit beside it, labelled by the same heading rather than nested in it.\n              */",
+    "/* One named region the five toggles write into. The region stays in the DOM even\n                    when it holds nothing, so every `aria-controls` has something to point at; the\n                    box it draws belongs to the content, so an empty region shows nothing. */",
+  ]],
   ["src/client/features/settings/LinterRuleTitles.tsx", [
     "/**\n * One jump target per lint rule.\n *\n * The rule list is drawn from the loaded rule library, so its titles are computed at run time, and a\n * static scan of this folder cannot attach a settings-search hit to one of them. This spells out every\n * label the index promises, as literal keys, so the row a reader lands on is the row they were looking\n * for. The keys come from `rule-search-index.ts`, which is what keeps the two in step.\n */",
   ]],
@@ -5795,6 +5872,10 @@ const allowed = new Map([
     "/**\n * The RSS section of the settings panel.\n *\n * It edits `settings.rss`, which is the reading half of the feature: what a channel opens showing,\n * how an article is set, where a saved article goes. The other half — the subscriptions themselves —\n * is not here on purpose. A list of feeds is data a reader edits where they read it, with the\n * article counts beside it, and a settings page cannot show counts it has not fetched.\n *\n * The AI key is the one credential in this panel, and it is not stored with the rest: it lives in\n * this browser only, so it cannot ride out in a backup or appear on a device the reader never typed\n * it into. The note under the field says that rather than leaving it to be inferred.\n */",
     "// The durable per-feed ledger, not the articles currently in memory: a device that holds 40 feeds",
     "// and has opened two still has 40 feeds on disk, and the reader is asking about the disk.",
+  ]],
+  ["src/client/features/settings/SharedNotes.tsx", [
+    "// One matcher for both fields: a row that answers the title by its initials and the address by",
+    "// literal characters would look like a filter that works on one column and not the other.",
   ]],
   ["src/client/features/settings/quick-add-settings.test.ts", [
     "/**\n * The app labels every control, so a test can look one up by the name a screen reader would read:\n * an `aria-label`, the `<label>` a `Field` wires with `aria-labelledby`, or a button's own text.\n */",
@@ -6812,12 +6893,8 @@ const allowed = new Map([
     "/**\n * The object a query sees for this page: `file.*` for the note itself, then every inline field at the\n * top level. A field never displaces `file`, matching the reference.\n */",
   ]],
   ["src/client/lib/dataview/regex.ts", [
-    "/**\n * A gate in front of every regular expression a note can write.\n *\n * `regextest`, `regexmatch`, `regexreplace` and `split` all compile author text, and a query block\n * runs on every preview of every reader of a shared note — so one catastrophic pattern in a template\n * would freeze tabs rather than the author's own. The rule is the same one the sidebar's regex filter\n * uses: refuse a group that repeats while repeating something inside it, or a repeated alternation\n * whose branches can start with the same character. Refusing costs the reader one error message; a\n * miss costs a hung tab that no timeout can interrupt.\n */",
     "/** Compiled and cached, because a table cell reuses its pattern across every row. */",
-    "/**\n * Walk the pattern once, pairing parentheses, and reject a group whose quantifier applies to a body\n * that itself ends in a quantifier — `(a+)+`, `(\\w*)*`, `((x|xy)+)*`. Nested groups are found by\n * scanning from the innermost close, so a quantifier on an inner group is visible to its parent.\n */",
-    "/** Every `( … )` in the pattern with the index of its closing parenthesis; null when they do not balance. */",
-    "/** A quantifier — `*`, `+`, `?`, `{n,m}` — directly after the character at `at`. */",
-    "/** The `|`-separated branches of a group body, ignoring separators inside nested groups or classes. */",
+    "/**\n * A gate in front of every regular expression a note can write.\n *\n * `regextest`, `regexmatch`, `regexreplace` and `split` all compile author text, and a query block\n * runs on every preview of every reader of a shared note — so one catastrophic pattern in a template\n * would freeze tabs rather than the author's own. The rule is not written here: it is `patternSafety`,\n * the same ceiling and the same shape the sidebar's regex filter and the linter's replacements are\n * checked against, because a pattern cannot be safe to compile in one feature and dangerous in\n * another. Refusing costs the reader one error message; a miss costs a hung tab that no timeout can\n * interrupt.\n */",
   ]],
   ["src/client/lib/dataview/render.test.ts", [
     "// `new URL()` is what decides the spelling, so the host is what is pinned rather than the",
@@ -6926,6 +7003,11 @@ const allowed = new Map([
     "/** Which feeds the device holds and how large each is, so the cache can be trimmed without\n   * reading every value back to find out.\n   */",
     "/** The AI endpoint a reader configured here. The key is stored on this device and never sent\n   * anywhere except the relay it is about to be used against.\n   */",
     "/**\n   * What a model already answered about an article, on this device.\n   *\n   * A summary is a paid, streamed answer the reader should not have to ask for twice, and it is not\n   * the kind of thing to put in the account row: it belongs to whoever configured a key. One blob,\n   * trimmed by the store when it grows.\n   */",
+    "// A cache write is best-effort: the caller's in-memory state already holds the value, so a",
+    "// browser that refuses IndexedDB (private mode, a full disk) must not fail the edit behind it.",
+    "// Notifying the other tabs is best-effort: this tab's own state is already updated, and a",
+    "// browser that refuses the channel — or one without BroadcastChannel, guarded above — simply",
+    "// hears no echo.",
   ]],
   ["src/client/lib/drop-state.ts", [
     "/**\n * Drop-indicator state that cannot get stuck.\n *\n * A drag that ends outside the window, or one the user cancels with Escape, never fires `drop` on the\n * element that was highlighting itself, so a plain `useState` would leave the ring or the line painted\n * until the next drag. Every surface that shows a drop target needs the same five bail-outs, and a\n * surface that forgets one of them looks like a broken hover rather than a missing listener.\n */",
@@ -7051,11 +7133,15 @@ const allowed = new Map([
     "/**\n * Whether a query is about a piece of text, by any of the three ways a listing reads one: a literal\n * substring, a letter-by-letter crawl through it, or the reading of the Chinese it is written in.\n *\n * The surfaces that only have to keep or drop a row — the outline's filter, a folder picker, the\n * board's search box — call this instead of writing their own `.toLowerCase().includes(...)`, which\n * is the one form of search that silently stops working the moment a note is written in the language\n * the app is mostly used in.\n */",
     "/**\n * A reading-based hit is reported without ranges: the letters the user typed are not characters in\n * the label, so there is nothing to underline. `splitByRanges` renders such a match as plain text.\n *\n * A haystack too long to be a label is still read by its first line, because the note listing\n * concatenates a title with the body it belongs to: typing the initials of a title has to find that\n * note even though the body behind it is far too long to have initials of its own.\n *\n * It outranks a scattered subsequence — a Chinese label matched by its own initials is the answer the\n * reader meant, while an accidental letter-by-letter crawl through some other title is not — but never\n * a literal substring, which the early return above keeps ahead of it.\n */",
   ]],
+  ["src/client/lib/hooks.test.ts", [
+    "/**\n * The box on its own, with a caller that answers only when the test tells it to.\n *\n * `echoArrives` is the reason these cases exist: a real commit does not come back on the tick it\n * leaves. `ChatView` writes its query into a store that then loads conversations from the server, and\n * the kanban box writes into a board whose view state is applied by its parent, so in both the\n * committed text returns as a fresh external value some renders later — and a draft overwritten by that\n * return is a box that eats whatever the reader typed in the meantime.\n */",
+  ]],
   ["src/client/lib/hooks.ts", [
     "/**\n * A clock safe to keep in a dependency list: it only changes on a tick boundary,\n * so a caller that re-renders on pointer movement does not re-derive its inputs.\n */",
     "// A caller that names what the value belongs to gets the live value the moment that changes, rather",
     "// than the last one debounced for something else: a show that opens must present the deck its note",
     "// has now, not the empty deck the closed overlay was holding.",
+    "/**\n * The draft half of a filter box: what the reader has typed stays here, and only the settled text is\n * handed to `commit`, so one keystroke does not re-filter a whole listing.\n *\n * The other direction needs a guard, and this is the reason the hook exists rather than a plain\n * `useDebounced` at the call site. A commit leaves this box, and the value it produced comes back as a\n * new `external` on some later render — through a store that answers after a request, or through a\n * parent that re-renders on its own schedule. Adopting that echo unconditionally would overwrite the\n * draft with the text as it was when the commit left, dropping every character typed in between. So an\n * incoming value is adopted only when it is not the one this box last committed, which still lets a\n * query set elsewhere — switching views, clearing filters, another panel — win over the draft.\n */",
   ]],
   ["src/client/lib/hotkeys.ts", [
     "/**\n * The window-level keydown listener, exported because it is a boundary rather than a helper.\n *\n * A capture listener on `window` also sees keydowns that other code on the page dispatched, and a\n * hand-made `new Event('keydown')` has no modifier API on it at all — asking for one threw in front\n * of whatever the reader was doing. Such an event can never match a chord, so it leaves here.\n */",
@@ -7066,6 +7152,9 @@ const allowed = new Map([
     "/**\n * Subscribes a component that calls {@link t} during render to the two things that change what `t`\n * answers: the active locale, and the resource version this locale's messages arrive under. A board\n * rendered outside the app's own locale-aware tree would otherwise keep last locale's copy after a\n * language switch, because React has no other reason to run its render again.\n */",
     "/**\n * The built-in template bodies are the one part of the catalog a reader may never\n * open, so they arrive on demand instead of riding the start-up locale chunk.\n * Registering them mutates the same table `t()` reads, which keeps lookups, the\n * language switch and the `resourcesVersion` signal exactly as they were.\n */",
     "/**\n * `localizedTexts` with its parameters filled in: a value that was written into a note\n * while the interface spoke another language is still the same string, so a lookup keyed\n * on display text has to answer in every shipped language at once.\n */",
+    "// Persisting the choice is a convenience, not the switch itself: the locale is already",
+    "// set in memory above, so a browser that refuses storage (private mode, a full quota)",
+    "// must not fail the language change.",
   ]],
   ["src/client/lib/linter/__tests__/auto-correct-common-misspellings.test.ts", [
     "// The word expression includes the backtick, so inline code must be a token before words can be found.",
@@ -8589,9 +8678,6 @@ const allowed = new Map([
     "// form controls and attributes the renderer deliberately forbids.",
   ]],
   ["src/client/lib/markdown/enhance.ts", [
-    "// Layered on the shared config so its forbidden tag and attribute lists keep applying.",
-    "// style is the only exception: mermaid paints SVG with inline styles and CSS blocks,",
-    "// and DOMPurify sanitises the declarations themselves.",
     "/**\n * How many lines this block folds beyond: its own `collapse=` when it wrote one (0 meaning it never\n * folds), otherwise the preview's setting. A block states its own preference because the note is\n * what a reader shares, while the setting is only this account's default.\n */",
     "/**\n * The split ratio is a runtime number and the prose whitelist strips inline styles, so the grid's\n * tracks are handed to CSS as custom properties instead. A column split can be a real track list —\n * the prose column has a definite width, so `45fr 55fr` divides exactly what it says.\n *\n * A row split cannot. The block's height is whatever its two panels' content needs, so dividing\n * that sum proportionally always inflates the shorter panel: a five-line source beside a thirty-line\n * output at 6:4 measured 800px of empty panel. Rows therefore get the ratio as a ceiling on each\n * panel (`--ex-a` / `--ex-b`), which shrinks a generous pane into its own scrollbox and never adds\n * a pixel of blank. One axis is written and the other cleared, so a block that switches between a\n * row split and a column split cannot keep reading the stale one.\n */",
     "// `rl` moves the first panel to the right with `order`, and grid auto-placement follows",
@@ -10698,10 +10784,15 @@ const allowed = new Map([
     "// board inline and in the overlay, so the surface has to have one owner rather than one per",
     "// host (the note's block and the overlay's stage are both `--bg-inset` for it to sit on).",
   ]],
+  ["src/client/lib/markdown/kanban/ui/kanban-search-and-select.test.ts", [
+    "// The board is where the query actually lives, and it applies the commit on a render of its own",
+    "// choosing: the box goes on accepting keystrokes through that gap, and `render('a')` below is the",
+    "// echo arriving afterwards. Adopting it blind would rewind the box to what it said before the",
+    "// reader's next finger landed, which is a filter box that loses characters.",
+  ]],
   ["src/client/lib/markdown/kanban/ui/kanban-search-box.tsx", [
     "// Each keystroke used to commit the whole dataset, so filtering re-ran and the",
     "// undo history grew per character; the draft holds the box, the parent the query.",
-    "// A query set elsewhere (switching views, clearing filters) wins over the draft.",
     "/**\n * What a collapsed box shows while it is still filtering. The query is view state, so a board can open\n * with a filter already in force while the box itself starts closed — a bare icon then gives the reader\n * no hint that what they see is not the whole board, since only the counts move. Opening it again and\n * clearing it are both one press from here.\n */",
     "// The chip stands in the row where the search control was, so it takes that control's height on",
     "// both sides of the breakpoint — and the two things inside it are buttons a finger has to hit.",
@@ -11897,10 +11988,18 @@ const allowed = new Map([
   ["src/client/lib/query-match.test.ts", [
     "// The dictionary is lazy in the browser; here the literal is what a reader can type without it.",
     "// The same shape, run for real, is the thing the guard is for: it is unbounded, not merely slow.",
+    "// The box recompiles per keystroke, so it refuses at 160 while the shared default allows 1_000.",
+    "// Both numbers are pinned here: loosening either is a threat-model change, not a refactor.",
+    "/**\n * The one keep-or-drop answer every listing asks. A refused expression is not a search that found\n * nothing, so the rows stay and the filter box is the only thing that speaks — spelled here once so a\n * shelf, a picker and a settings page cannot each decide differently about the same refusal.\n */",
   ]],
   ["src/client/lib/query-match.ts", [
     "/**\n * What a listing's filter box was asked for. `/body/flags` is a regular expression and anything\n * else is the fuzzy matcher, which reads Chinese labels by their initials; both answer in the same\n * shape, so a row can underline either without knowing which it got.\n */",
     "/**\n * Where the query lands in a label, or null when it does not. A repeated group's own failure is what\n * makes backtracking explode, so the expression is handed a capped slice: this compares names, and a\n * listing that hands it a body instead of a title is answered from the part of it a reader can see\n * anyway. The fuzzy matcher needs no such ceiling — a scan cannot blow up on length.\n */",
+    "// Tighter than the shared ceiling on purpose: this box recompiles on every keystroke, so refusing a",
+    "// long expression costs the reader one keystroke, while compiling it costs the tab. Exported so the",
+    "// test pins the number instead of restating it.",
+    "/**\n * Whether the box has nothing to filter by, or a pattern it refused: either way every row stays.\n *\n * A refused expression is not a search that found nothing. The listing that empties at the same moment\n * the box says it would not compile has given the reader two answers to one question, and the one they\n * act on — \"there are no notes called that\" — is the wrong one. So the rows stay, and the box is the\n * only thing that speaks. This is the fast-path shape of {@link queryKeeps}, for a caller that would\n * otherwise scan a whole body per row.\n */",
+    "/** Whether one row survives the box, ranges for the underline included. */",
   ]],
   ["src/client/lib/quickadd/capture.ts", [
     "/**\n * The Capture choice engine: a formatted snippet placed into a note — at the bottom, at the top of\n * the body, under or above a heading line, at the caret, or into a property.\n *\n * Two rules carry most of the complexity. Placement is computed against the note as it read a moment\n * ago, then written as a whole-document replace, because a capture that lost a race with the reader's\n * own typing must not silently eat their edit. And the heading anchor is matched with the same rules\n * whether it is being found or being created, so a second run of the same capture finds the heading\n * the first run wrote.\n */",
@@ -12419,6 +12518,14 @@ const allowed = new Map([
     "/** OPML outlines, flattened: every `outline` that carries an `xmlUrl` is one subscription. */",
     "/**\n * Subscriptions as one OPML 2.0 document, with the folder nesting written back the way it was\n * read. A reader who exports from this app and imports into another — or the other way round —\n * should get the same tree, not a shelf named \"Front end / Reading\".\n */",
   ]],
+  ["src/client/lib/sanitize-svg.ts", [
+    "/**\n * Making a diagram's SVG safe to put into the page.\n *\n * Three surfaces inject markup this app did not write: the Mermaid block a note renders, a diagram\n * the reader pasted into the text-to-diagram dialog, and a stencil preview whose SVG was rendered\n * elsewhere and stored in a library manifest the server hands back. All three arrive as an SVG string\n * and all three reach the DOM through `innerHTML` or `dangerouslySetInnerHTML`, so all three come\n * through this one pass. An SVG is a document that can carry a script and an event handler exactly as\n * HTML can, and none of these surfaces may trust where its markup came from.\n *\n * The config is the one the Mermaid renderer has always used — the shared document config with the two\n * tags a diagram needs added back — rather than a profile written for SVG alone: Mermaid labels its\n * nodes with HTML held in a `<foreignObject>`, so a profile whose tag list is only SVG would keep the\n * picture and drop the text drawn on it.\n *\n * `style` is the one thing a document pipeline would forbid that a diagram cannot lose — Mermaid and\n * the drawing engine both paint with inline styles and a `<style>` block inside the SVG — and\n * DOMPurify sanitises the declarations themselves rather than trusting them, so it is kept.\n */",
+    "// Layered on the shared document config so its forbidden tag and attribute lists keep applying to",
+    "// diagram markup — the labels Mermaid draws are HTML, and a `<form>` pasted into one is still a form.",
+    "// Neither tag is in DOMPurify's lists at all, and both are part of an exported diagram: `use` draws",
+    "// markers and clones, `foreignObject` is the element an HTML label is held in.",
+    "/** The one pass every diagram sink shares; an empty string is answered without touching DOMPurify. */",
+  ]],
   ["src/client/lib/shortcuts.ts", [
     "// A show starts on the slide under the editor cursor, so the key has to reach into the editor;",
     "// `mod+shift+p` is already the command palette.",
@@ -12514,6 +12621,30 @@ const allowed = new Map([
     "/** PUT `body` to `url`, reporting bytes as they leave. Resolves with the parsed JSON response. */",
     "/** GET `url` as a Blob, counting chunks so a slow line still shows a moving bar. */",
     "/**\n * Why the server said no, in the language the reader set the interface to.\n *\n * The sync line is the only place a shelf reports trouble, and `Upload failed (403)` tells a reader\n * nothing about the one refusal they will actually hit — an account whose book budget is full.\n */",
+  ]],
+  ["src/client/lib/tree/indent.ts", [
+    "/**\n * The one source of truth for how far a tree row steps in per depth level.\n *\n * The sidebar folders, the tag tree, the stencil library and the move picker all draw the same row\n * geometry, so the step lives here rather than being re-derived as `6 + depth * 13` — and the four\n * other constants that grew beside it (`4 + depth * 13`, `6 + depth * 14`, `4 + depth * 12`). Rows\n * apply it as an inline `paddingLeft`, which is the runtime-value case the style rule allows.\n */",
+  ]],
+  ["src/client/lib/tree/keyboard.ts", [
+    "/**\n * The keyboard contract every tree shares, read from the rendered DOM rather than from a model.\n *\n * A row is any `[data-tree-row]`, its fold control is `[data-tree-toggle]`, and the tree is the\n * nearest `[role=\"tree\"]` ancestor. Staying DOM-based is what lets one helper serve trees whose node\n * types never unify — folders, tags, calendar periods, stencil folders — because they already agree\n * on this shape, and it keeps the helpers testable without a React render.\n */",
+    "/** Jump to the first or last visible row, which is what Home and End mean in a tree. */",
+    "/**\n * The wrap-around step an index cursor takes. Shared by the tag tree's filter cursor and the move\n * picker's per-level walk, both of which pick a row by position rather than by DOM focus.\n */",
+  ]],
+  ["src/client/lib/tree/move-menu.ts", [
+    "/**\n * The folder shape a move picker reads: a name, its children, and how many things sit directly in it.\n *\n * It is the contract between a tree some feature owns and a picker another feature draws, so it lives\n * in neither feature — the notes folders and the stencil library both hand the same picker a tree of\n * exactly this shape, and a second copy of that picker (flywheel positioning, arrow-key walking and\n * all) would be the worse outcome. Stated structurally rather than as the notes store's `FolderNode`,\n * which satisfies it as it is.\n */",
+  ]],
+  ["src/client/lib/tree/tree-item.ts", [
+    "/** 1-based depth, the way `aria-level` counts. */",
+    "/** Omitted on a leaf; a branch states whether it is open. */",
+    "/** The size and 1-based position among the row's siblings, when the tree can tell. */",
+    "/**\n * The ARIA a tree row carries, so every tree exposes the same structure to a screen reader instead\n * of each one remembering a different subset. Spread it onto the element that wraps a row and its\n * `role=\"group\"` children; `undefined` fields are dropped rather than rendered as `aria-x=\"undefined\"`.\n */",
+  ]],
+  ["src/client/lib/tree/use-expanded-set.ts", [
+    "/**\n * Expand/collapse state for a tree that owns it locally, keyed by node id or path.\n *\n * The sidebar keeps its expansion in the UI store because other panels reach for it; a tree with no\n * cross-panel reach — the tag tree — kept a fourth hand-rolled shape for the same idea. This is that\n * shape, once. `setExpanded` is exposed alongside `toggle`/`setMany` because a rename or a move has\n * to replay a whole set against a changed key, not flip one entry.\n */",
+  ]],
+  ["src/client/lib/tree/use-tree-keyboard.ts", [
+    "/**\n   * Keys beyond the arrows and Home/End that a host owns — F2 to rename, Delete to remove. Return\n   * true when the event was handled, which is what makes the handler prevent the browser default.\n   */",
+    "/**\n * The shared tree keyboard: ArrowDown/ArrowUp walk the visible rows, ArrowRight expands or steps\n * into a branch, ArrowLeft collapses or returns to the parent, Home/End jump to the ends. The\n * handler reads the rendered DOM (see `./keyboard`), so a row only has to carry `data-tree-row`\n * and its fold control `data-tree-toggle`. Modifier chords and IME composition are left alone.\n */",
   ]],
   ["src/client/lib/year-grid-prefs.ts", [
     "// Corrupt or missing stored prefs fall back to the default below.",
@@ -13356,13 +13487,14 @@ const allowed = new Map([
     "/**\n * What an editor step does to the note on screen. `pasteWithFormat` from the reference has no twin\n * here: this app has no rich-text paste to reach for, and its “paste as link” is an app command a\n * `command` step can already name.\n */",
   ]],
   ["src/shared/regex-safety.ts", [
-    "/**\n * The static half of “do not let a typed expression freeze the tab”.\n *\n * Two features hand a reader's regular expression to `RegExp`: a listing's filter box (through\n * `query-match`) and the linter's custom replacements and file-ignore patterns. Both need the same\n * answer before compiling, so the structural reading of the pattern lives here once. A group that\n * repeats while repeating something inside itself multiplies its own backtracking, and so does a\n * repeated alternation whose branches start alike; nothing can stop a match once it has started, so\n * the price of a refusal has to be paid at the keystroke, not at the freeze — and a pattern that\n * arrived through a restored backup has to be refused at the run as well, where there is no\n * keystroke left to charge.\n */",
     "/** Why an expression was not compiled: it does not parse, or it can hang the page on a long input. */",
     "/** Every `( … )` in the pattern, inner text included; null when the parentheses do not nest. */",
-    "/**\n * Whether a stand-alone pattern may be compiled at all. A caller that already knows the difference\n * between a broken expression and a dangerous one reads `findGroups` and `repeatsCatastrophically`\n * itself; this is the answer for a feature that only has to refuse.\n */",
     "/** Whether the atom ending at `close` is repeated more than twice, or an unknown number of times. */",
     "/** Any quantifier that is not inside a class, not a group prefix, and not a fixed `{1}` or `{2}`. */",
     "/** The group body cut at every `|` that is not inside a nested group or a class. */",
+    "/**\n * The static half of “do not let a typed expression freeze the tab”.\n *\n * Three features hand a reader's regular expression to `RegExp`: a listing's filter box (through\n * `query-match`), the linter's custom replacements and file-ignore patterns, and the dataview functions\n * a note block runs — `regextest`, `regexmatch`, `regexreplace` and `split`, which execute author text\n * on every preview of every reader of a shared note. All need the same answer before compiling, so the\n * structural reading of the pattern lives here once. A group that\n * repeats while repeating something inside itself multiplies its own backtracking, and so does a\n * repeated alternation whose branches start alike; nothing can stop a match once it has started, so\n * the price of a refusal has to be paid at the keystroke, not at the freeze — and a pattern that\n * arrived through a restored backup has to be refused at the run as well, where there is no\n * keystroke left to charge.\n */",
+    "/**\n * The longest expression a caller compiles when it has no opinion of its own.\n *\n * The ceiling is part of the guard, not a tuning knob, so it is a named constant rather than a number\n * at each call site. A caller may still ask for a tighter one, and says so out loud — see\n * `MAX_FILTER_PATTERN_CHARS` in `query-match`, where the cost of a refusal is one keystroke rather\n * than one saved block.\n */",
+    "/**\n * Whether a stand-alone pattern may be compiled at all: too long to answer for, unbalanced, or\n * shaped so a long input could make it spin.\n *\n * Every feature that hands typed text to `RegExp` asks this and nothing else, so the structural\n * reading exists once. The ceiling is a parameter because the features genuinely differ in how much\n * they are willing to refuse: a filter box is re-checked on every keystroke and can afford to be\n * strict, while a dataview block is authored once, cached, and read back from a restored backup.\n * Passing a ceiling is a threat-model decision, which is why there is no single value to inherit.\n */",
   ]],
   ["src/shared/rss/marks.ts", [
     "/**\n * The reading marks, as rows.\n *\n * Six arrays and two maps inside the library — what has been read, starred, saved for later,\n * dismissed, opened, and the note an article became — are one table with a `kind` column. This\n * module is the only place that knows how the two shapes map onto each other, so the Worker's row\n * store and the client's change set cannot drift apart into two different ideas of what a mark is.\n */",
@@ -14861,6 +14993,9 @@ const allowed = new Map([
     "// The other lineage's ledger runs past every number this one owns, so each of them reads as spent.",
     "// Derived, because the array grows: a hardcoded window would collide with the real numbers the",
     "// first boot just recorded.",
+    "// SQLite forbids `ADD COLUMN ... PRIMARY KEY`, so the repair has to decline the column and let the",
+    "// boot name the incompatibility out loud. The ordinary columns beside it must still be healed: the",
+    "// refusal is about the key, not about the table.",
   ]],
   ["tests/doubles/d1-sqlite.ts", [
     "// D1 hands BLOB columns back as ArrayBuffer while node:sqlite returns a Uint8Array view;",
@@ -14890,6 +15025,8 @@ const allowed = new Map([
     "// matching that would say the toolbar is painted on a phone when it is still waiting for hover.",
     "// A fresh mount: the hook reads the media query when the row is created, so re-rendering",
     "// the same tree would keep answering with the value it saw the first time.",
+    "/** The wrapper a row’s ARIA is spread onto, one level above the `[data-library-folder]` box. */",
+    "/** The one tree the panel renders, taken by throwing rather than by an optional chain that would\n     * read the same as a row with no tree above it. */",
   ]],
   ["tests/excalidraw-official-catalog-route.test.ts", [
     "/** The route caches the catalog in module scope, so every test needs a freshly imported module. */",
@@ -15262,6 +15399,10 @@ const allowed = new Map([
     "/** The upstream a test wants: what each address answers, and what it was asked with. */",
     "// The mark row, and the account's own state row, which is what a save stamps.",
     "// Device B loaded the library before device A's star landed, and now sends only its own change.",
+  ]],
+  ["tests/sanitize-svg.test.ts", [
+    "/**\n * Every sink this pass feeds draws markup the app did not write — the pasted Mermaid diagram and the\n * stencil preview below, a note's own Mermaid block through `enhance.ts` — so these cases prove it\n * keeps a diagram whole while taking away the things an SVG can do that a picture cannot: run a\n * script, carry a handler, point a link or a SMIL animation at `javascript:`, hold a form.\n *\n * The label assertions are the half a profile written for SVG alone gets wrong: Mermaid paints a\n * node's text as HTML inside `<foreignObject>`, so the `div`s and `span` that hold it, and the inline\n * style that sizes it, have to survive the pass — not only their characters.\n */",
+    "/**\n   * SMIL is the one payload a diagram has no use for: an `<animate>` on `href` or `xlink:href`\n   * swaps a harmless link for a `javascript:` one after the pass has already run.\n   */",
   ]],
   ["tests/search-folder-scope.test.ts", [
     "// A parent_id cycle has to terminate rather than spin.",

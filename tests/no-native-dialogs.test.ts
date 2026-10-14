@@ -1,10 +1,11 @@
 // @vitest-environment node
 import { readdirSync, readFileSync } from 'node:fs'
 import path from 'node:path'
+import { fileURLToPath } from 'node:url'
 import ts from 'typescript'
 import { describe, expect, it } from 'vitest'
 
-const ROOT = path.resolve(new URL('..', import.meta.url).pathname)
+const ROOT = fileURLToPath(new URL('..', import.meta.url))
 const DIALOG_NAMES = new Set(['alert', 'confirm', 'prompt'])
 const NATIVE_RECEIVERS = new Set(['window', 'globalThis', 'self', 'top', 'parent'])
 const LEAVE_PAGE_EVENTS = new Set(['beforeunload', 'unload', 'pagehide'])

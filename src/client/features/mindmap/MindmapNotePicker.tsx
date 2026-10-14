@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useState } from 'react';
-import { FileText, Search } from 'lucide-react';
+import { FileText } from 'lucide-react';
 import type { NoteSummary } from '@shared/types';
 import { Drawer } from '../../components/overlay';
+import { DrawerSearchField } from '../../components/DrawerSearchField';
 import { t } from '../../lib/i18n';
 import { folderPathLabel } from '../../lib/folders';
-import { matchesQuery } from '../../lib/fuzzy';
+import { compileQuery, queryKeepsRows, queryMatches } from '../../lib/query-match';
 import { usePinyinVersion } from '../../lib/pinyin';
 import { useNotes } from '../../store/notes';
 
@@ -46,6 +47,7 @@ export function MindmapNotePicker({ open, title, initialQuery, excludeNoteId, on
     const folders = useNotes((s) => s.folders);
     const pinyinVersion = usePinyinVersion();
     const [query, setQuery] = useState('');
+    const compiled = useMemo(() => compileQuery(query), [query, pinyinVersion]);
 
     // The characters that opened the list are its first filter: a reader who typed `[[Rea`
     // has already said what they are after, and an empty search box would ask them to type
@@ -72,13 +74,12 @@ export function MindmapNotePicker({ open, title, initialQuery, excludeNoteId, on
     }, [excludeNoteId, folders, notes, open]);
 
     const visible = useMemo(() => {
-        const text = query.trim();
         // Every note is matched, and the cap is taken afterwards: stopping at the first N
         // matches would hide the note the reader was about to type, because the store's order
         // is by recency and this list is ordered by name.
-        const found = text ? rows.filter((row) => matchesQuery(row.label, text)) : rows;
+        const found = queryKeepsRows(compiled) ? rows : rows.filter((row) => queryMatches(compiled, row.label) !== null);
         return found.slice(0, MAX_ROWS);
-    }, [pinyinVersion, query, rows]);
+    }, [compiled, pinyinVersion, rows]);
 
     const close = () => {
         setQuery('');
@@ -87,19 +88,13 @@ export function MindmapNotePicker({ open, title, initialQuery, excludeNoteId, on
 
     return (
       <Drawer open={open} onClose={close} title={title} width={420}>
-        <div className="sticky top-0 z-10 border-b border-[var(--border-subtle)] bg-[var(--bg-surface)] p-3">
-          <label className="relative block">
-            <Search size={14} aria-hidden="true" className="pointer-events-none absolute top-1/2 left-3 -translate-y-1/2 text-[var(--text-quaternary)]"/>
-            <span className="sr-only">{t('mindmap.search_notes')}</span>
-            <input
-              autoFocus
-              value={query}
-              onChange={(event) => setQuery(event.target.value)}
-              placeholder={t('mindmap.search_notes')}
-              className="h-10 w-full rounded-[var(--r-md)] border border-[var(--border-default)] bg-[var(--bg-base)] pr-3 pl-9 text-[13px] outline-none focus:border-[var(--accent)] focus:shadow-[0_0_0_3px_var(--accent-ring)]"
-            />
-          </label>
-        </div>
+        <DrawerSearchField
+          autoFocus
+          value={query}
+          onChange={setQuery}
+          compiled={compiled}
+          placeholder={t('mindmap.search_notes')}
+        />
         <div className="space-y-1 p-2">
           {visible.map(({ note, label, path }) => (
             <NoteChoice

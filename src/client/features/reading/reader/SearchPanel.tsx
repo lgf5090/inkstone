@@ -12,7 +12,10 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { Input } from '../../../components/form'
 import { Search } from 'lucide-react'
 import { t } from '../../../lib/i18n'
+import { useDebounced } from '../../../lib/hooks'
 import type { BookPosition } from '../position'
+
+const SEARCH_DEBOUNCE_MS = 260
 
 /** A hit in either coordinate space: a chapter of a flowing book or a page of a fixed one. */
 export interface PanelHit {
@@ -62,10 +65,10 @@ export function SearchPanel({ search, start, onJump, unitLabel, fixedMode }: Sea
     if (found[0]) jumpTo(found[0])
   }, [jumpTo, search])
 
+  const settledQuery = useDebounced(query, query ? SEARCH_DEBOUNCE_MS : 0)
   useEffect(() => {
-    const timer = window.setTimeout(() => void run(query), query ? 260 : 0)
-    return () => window.clearTimeout(timer)
-  }, [query, run])
+    void run(settledQuery)
+  }, [settledQuery, run])
 
   function step(direction: 1 | -1): void {
     if (!hits?.length) return

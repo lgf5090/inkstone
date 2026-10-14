@@ -11,9 +11,7 @@ export {
     parseVirtualId,
     resolveTodoTag,
     splitTodoTags,
-    treeRowIndent,
     virtualId,
-    virtualTreeRowIndent,
 } from './ids';
 export {
     calendarNodeName,

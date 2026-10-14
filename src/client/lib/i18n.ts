@@ -184,7 +184,11 @@ export function setLocale(next: AppLocale, persist = true): void {
         try {
             localStorage.setItem(STORAGE_KEY, next);
         }
-        catch { }
+        catch {
+            // Persisting the choice is a convenience, not the switch itself: the locale is already
+            // set in memory above, so a browser that refuses storage (private mode, a full quota)
+            // must not fail the language change.
+        }
     }
     if (loadedLocales.has(next)) {
         applyLocaleToDom();

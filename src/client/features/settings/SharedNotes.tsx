@@ -51,9 +51,11 @@ export function SharedNotes() {
   const pinyinVersion = usePinyinVersion()
   const visible = useMemo(() => {
     const needle = query.trim()
+    // One matcher for both fields: a row that answers the title by its initials and the address by
+    // literal characters would look like a filter that works on one column and not the other.
     return shares?.filter((share) => !needle ||
       matchesQuery(share.noteTitle ?? '', needle) ||
-      share.url.toLocaleLowerCase().includes(needle.toLocaleLowerCase())) ?? []
+      matchesQuery(share.url, needle)) ?? []
   }, [shares, query, pinyinVersion])
 
   const copy = async (share: ShareListItem) => {

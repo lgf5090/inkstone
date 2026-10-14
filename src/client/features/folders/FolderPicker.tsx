@@ -1,11 +1,12 @@
 import { useMemo, useState } from 'react';
-import { Check, FolderClosed, Search } from 'lucide-react';
+import { Check, FolderClosed } from 'lucide-react';
 import type { Folder } from '@shared/types';
 import { Drawer } from '../../components/overlay';
+import { DrawerSearchField } from '../../components/DrawerSearchField';
 import { cn } from '../../lib/cn';
 import { t } from '../../lib/i18n';
 import { folderPathLabel } from '../../lib/folders';
-import { matchesQuery } from '../../lib/fuzzy'
+import { compileQuery, queryKeeps } from '../../lib/query-match'
 import { usePinyinVersion } from '../../lib/pinyin'
 
 export function FolderPicker({
@@ -31,13 +32,11 @@ export function FolderPicker({
 }) {
     const [query, setQuery] = useState('');
     const pinyinVersion = usePinyinVersion()
-    const choices = useMemo(() => {
-        const normalized = query.trim();
-        return (folders ?? [])
-            .map((folder) => ({ folder, path: folderPathLabel(folders, folder.id) }))
-            .filter(({ folder, path }) => !excludedIds?.has(folder.id) && (!normalized || matchesQuery(path, normalized)))
-            .sort((a, b) => a.path.localeCompare(b.path));
-    }, [excludedIds, folders, query, pinyinVersion]);
+    const compiled = useMemo(() => compileQuery(query), [query, pinyinVersion]);
+    const choices = useMemo(() => (folders ?? [])
+        .map((folder) => ({ folder, path: folderPathLabel(folders, folder.id) }))
+        .filter(({ folder, path }) => !excludedIds?.has(folder.id) && queryKeeps(compiled, path))
+        .sort((a, b) => a.path.localeCompare(b.path)), [compiled, excludedIds, folders, pinyinVersion]);
     const choose = (folderId: string | null) => {
         if (folderId !== currentId)
             onSelect(folderId);
@@ -48,13 +47,13 @@ export function FolderPicker({
         setQuery('');
         onClose();
     }} title={title} width={420}>
-      <div className="sticky top-0 z-10 border-b border-[var(--border-subtle)] bg-[var(--bg-surface)] p-3">
-        <label className="relative block">
-          <Search size={14} aria-hidden="true" className="pointer-events-none absolute top-1/2 left-3 -translate-y-1/2 text-[var(--text-quaternary)]"/>
-          <span className="sr-only">{t("folders.search")}</span>
-          <input autoFocus value={query} onChange={(event) => setQuery(event.target.value)} placeholder={t("folders.search")} className="h-10 w-full rounded-[var(--r-md)] border border-[var(--border-default)] bg-[var(--bg-base)] pr-3 pl-9 text-[13px] outline-none focus:border-[var(--accent)] focus:shadow-[0_0_0_3px_var(--accent-ring)]"/>
-        </label>
-      </div>
+      <DrawerSearchField
+        autoFocus
+        value={query}
+        onChange={setQuery}
+        compiled={compiled}
+        placeholder={t("folders.search")}
+      />
       <div className="space-y-1 p-2">
         {allowRoot && !query.trim() && (<FolderChoice label={rootLabel ?? t("folders.top_level")} selected={currentId === null} onClick={() => choose(null)}/>)}
         {choices.map(({ folder, path }) => (<FolderChoice key={folder.id} label={path} icon={folder.icon} color={folder.color} selected={currentId === folder.id} onClick={() => choose(folder.id)}/>))}

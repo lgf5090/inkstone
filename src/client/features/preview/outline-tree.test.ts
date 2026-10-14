@@ -109,29 +109,34 @@ describe('computeHiddenByCollapse', () => {
 
 describe('compileFilter', () => {
     it('matches substrings without regard to case', () => {
-        const test = compileFilter('SET', false);
+        const test = compileFilter('SET');
         expect(test('Setting Up')).toBe(true);
         expect(test('Usage')).toBe(false);
     });
 
-    it('matches a valid regex against the raw text', () => {
-        const test = compileFilter('^set', true);
+    it('matches a valid regex written between slashes', () => {
+        const test = compileFilter('/^set/');
         expect(test('Setting')).toBe(true);
         expect(test('Reset')).toBe(false);
     });
 
     it('matches everything while the regex is still unparseable', () => {
-        const test = compileFilter('set(', true);
+        const test = compileFilter('/set(/');
         expect(test('anything')).toBe(true);
         expect(test('other')).toBe(true);
     });
 
+    it('refuses a catastrophic pattern rather than executing it', () => {
+        const test = compileFilter('/(a+)+b/');
+        expect(test(`${'a'.repeat(2000)}c`)).toBe(true);
+    });
+
     it('matches a Chinese heading by its first letters, once the readings have arrived', async () => {
         await preloadPinyin();
-        const test = compileFilter('ysms', false);
+        const test = compileFilter('ysms');
         expect(test('\u6f14\u793a\u6a21\u5f0f')).toBe(true);
         expect(test('\u5168\u9009')).toBe(false);
-        expect(compileFilter('quanxuan', false)('\u5168\u9009')).toBe(true);
+        expect(compileFilter('quanxuan')('\u5168\u9009')).toBe(true);
     });
 });
 
@@ -139,18 +144,18 @@ describe('filterTree', () => {
     const tree = () => buildOutlineTree([heading(1, 'Alpha'), heading(2, 'Beta'), heading(3, 'Gamma'), heading(1, 'Delta')]);
 
     it('reports every row visible with no query', () => {
-        const result = filterTree(tree(), '   ', false);
+        const result = filterTree(tree(), '   ');
         expect(result.visible).toEqual([true, true, true, true]);
     });
 
     it('keeps the ancestors of a match so the path to it stays visible', () => {
-        const result = filterTree(tree(), 'gamma', false);
+        const result = filterTree(tree(), 'gamma');
         expect(result.visible).toEqual([true, true, true, false]);
         expect(result.matchCount).toBe(1);
     });
 
     it('shows only the matching root when a branch has no match', () => {
-        const result = filterTree(tree(), 'delta', false);
+        const result = filterTree(tree(), 'delta');
         expect(result.visible).toEqual([false, false, false, true]);
         expect(result.matchCount).toBe(1);
     });
@@ -158,7 +163,7 @@ describe('filterTree', () => {
     it('counts matches without counting the ancestors kept for them', () => {
         // One and Two match; Alpha is drawn only because a child of it matched.
         const branches = buildOutlineTree([heading(1, 'Alpha'), heading(2, 'One'), heading(2, 'Two'), heading(1, 'Beta'), heading(2, 'Three')]);
-        const result = filterTree(branches, 'o', false);
+        const result = filterTree(branches, 'o');
         expect(result.matchCount).toBe(2);
         expect(result.visible).toEqual([true, true, true, false, false]);
     });

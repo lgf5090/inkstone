@@ -7,12 +7,11 @@
  * source name, and a hundred kilobytes of HTML per row would turn a lookup into a stall.
  */
 import { useEffect, useMemo, useState, type ReactElement } from 'react'
-import { Search as SearchIcon } from 'lucide-react'
 import { t } from '../../lib/i18n'
 import { shortSince } from '../../lib/time'
 import { compileQuery } from '../../lib/query-match'
 import { usePinyinVersion } from '../../lib/pinyin'
-import { Input } from '../../components/form'
+import { FilterInput } from '../../components/FilterInput'
 import { Modal } from '../../components/overlay'
 import type { RssEntry } from '@shared/rss/model'
 import { searchEntries } from './search'
@@ -44,18 +43,17 @@ export function RssSearchPanel({ open, onClose, onPick }: {
   return (
     <Modal open={open} onClose={onClose} title={t('rss.search_all')} width={620}>
       <div className="space-y-3">
-        <div className="relative">
-          <SearchIcon size={14} aria-hidden="true" className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-[var(--text-quaternary)]" />
-          <Input
-            autoFocus
-            value={term}
-            onChange={event => setTerm(event.target.value)}
-            placeholder={t('rss.search_all_placeholder')}
-            aria-label={t('rss.search_all')}
-            className="pl-9"
-          />
-        </div>
-        {query.error && <p className="text-[12px] text-[var(--danger)]">{t('rss.search_invalid')}</p>}
+        <FilterInput
+          size="panel"
+          className="mt-0"
+          autoFocus
+          escapeWhenEmpty="release"
+          value={term}
+          onChange={setTerm}
+          query={query}
+          label={t('rss.search_all')}
+          placeholder={t('rss.search_all_placeholder')}
+        />
         {!query.text && !query.error && (
           <p className="text-[12px] text-[var(--text-tertiary)]">
             {index === null ? t('rss.search_indexing') : t('rss.search_idle', { n: index.length })}

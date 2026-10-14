@@ -667,7 +667,9 @@ export const Preview = memo(function Preview({
       try {
         id = decodeURIComponent(rawId)
       } catch {
-
+        // A heading id is percent-encoded by the renderer, but a hand-written href may hold a bare
+        // `%`, which is not a valid escape; falling back to the raw fragment is what a browser does,
+        // so a failed decode is not worth reporting.
       }
       const heading = hostRef.current?.querySelector(`#${CSS.escape(id)}`)
       revealPreviewTarget(heading)

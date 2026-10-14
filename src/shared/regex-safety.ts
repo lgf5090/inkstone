@@ -1,9 +1,11 @@
 /**
  * The static half of “do not let a typed expression freeze the tab”.
  *
- * Two features hand a reader's regular expression to `RegExp`: a listing's filter box (through
- * `query-match`) and the linter's custom replacements and file-ignore patterns. Both need the same
- * answer before compiling, so the structural reading of the pattern lives here once. A group that
+ * Three features hand a reader's regular expression to `RegExp`: a listing's filter box (through
+ * `query-match`), the linter's custom replacements and file-ignore patterns, and the dataview functions
+ * a note block runs — `regextest`, `regexmatch`, `regexreplace` and `split`, which execute author text
+ * on every preview of every reader of a shared note. All need the same answer before compiling, so the
+ * structural reading of the pattern lives here once. A group that
  * repeats while repeating something inside itself multiplies its own backtracking, and so does a
  * repeated alternation whose branches start alike; nothing can stop a match once it has started, so
  * the price of a refusal has to be paid at the keystroke, not at the freeze — and a pattern that
@@ -14,8 +16,35 @@
 /** Why an expression was not compiled: it does not parse, or it can hang the page on a long input. */
 export type PatternRefusal = 'syntax' | 'unsafe'
 
+/**
+ * The longest expression a caller compiles when it has no opinion of its own.
+ *
+ * The ceiling is part of the guard, not a tuning knob, so it is a named constant rather than a number
+ * at each call site. A caller may still ask for a tighter one, and says so out loud — see
+ * `MAX_FILTER_PATTERN_CHARS` in `query-match`, where the cost of a refusal is one keystroke rather
+ * than one saved block.
+ */
+export const MAX_PATTERN_CHARS = 1_000
+
+/**
+ * Whether a stand-alone pattern may be compiled at all: too long to answer for, unbalanced, or
+ * shaped so a long input could make it spin.
+ *
+ * Every feature that hands typed text to `RegExp` asks this and nothing else, so the structural
+ * reading exists once. The ceiling is a parameter because the features genuinely differ in how much
+ * they are willing to refuse: a filter box is re-checked on every keystroke and can afford to be
+ * strict, while a dataview block is authored once, cached, and read back from a restored backup.
+ * Passing a ceiling is a threat-model decision, which is why there is no single value to inherit.
+ */
+export function patternSafety(body: string, maxChars: number = MAX_PATTERN_CHARS): PatternRefusal | null {
+  if (body.length > maxChars) return 'unsafe'
+  const groups = findGroups(body)
+  if (!groups) return 'syntax'
+  return repeatsCatastrophically(body, groups) ? 'unsafe' : null
+}
+
 /** Every `( … )` in the pattern, inner text included; null when the parentheses do not nest. */
-export function findGroups(body: string): Array<{ inner: string; close: number }> | null {
+function findGroups(body: string): Array<{ inner: string; close: number }> | null {
   const found: Array<{ inner: string; close: number }> = []
   const stack: number[] = []
   for (let index = 0, classAt = -1; index < body.length; index++) {
@@ -32,7 +61,7 @@ export function findGroups(body: string): Array<{ inner: string; close: number }
   return stack.length ? null : found
 }
 
-export function repeatsCatastrophically(body: string, groups: Array<{ inner: string; close: number }>): boolean {
+function repeatsCatastrophically(body: string, groups: Array<{ inner: string; close: number }>): boolean {
   for (const group of groups) {
     if (!repeatsAfter(body, group.close)) continue
     if (hasRiskyQuantifier(group.inner)) return true
@@ -43,17 +72,6 @@ export function repeatsCatastrophically(body: string, groups: Array<{ inner: str
     }
   }
   return false
-}
-
-/**
- * Whether a stand-alone pattern may be compiled at all. A caller that already knows the difference
- * between a broken expression and a dangerous one reads `findGroups` and `repeatsCatastrophically`
- * itself; this is the answer for a feature that only has to refuse.
- */
-export function patternSafety(body: string): PatternRefusal | null {
-  const groups = findGroups(body)
-  if (!groups) return 'syntax'
-  return repeatsCatastrophically(body, groups) ? 'unsafe' : null
 }
 
 /** Whether the atom ending at `close` is repeated more than twice, or an unknown number of times. */

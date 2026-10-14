@@ -167,6 +167,65 @@ export function Switch({
 }
 
 
+/** What each key a roving radio group answers to does to the selection. */
+const ROVING_RADIO_MOTIONS: Record<string, 'next' | 'previous' | 'first' | 'last'> = {
+  ArrowRight: 'next',
+  ArrowDown: 'next',
+  ArrowLeft: 'previous',
+  ArrowUp: 'previous',
+  Home: 'first',
+  End: 'last',
+}
+
+/**
+ * The tab order and arrow-key behaviour a `role="radiogroup"` of hand-drawn radios has to provide for
+ * itself: one stop in the tab sequence (the selected radio, or the first when nothing is selected),
+ * and the arrows that move the selection while keeping focus on what was just selected.
+ *
+ * A native radio group gets all of this from the browser, but a native radio cannot be drawn as the
+ * shapes these groups wear — the segmented control's pill and a settings card holding a badge, a
+ * status line and a configuration panel. So the two implementations share this one rather than each
+ * writing the same stepping again.
+ *
+ * `values` is the group's options in visual order, `value` the selected one, and `onSelect` what
+ * applies a choice; the caller writes the returned handlers onto each radio element it renders.
+ */
+export function useRovingRadio<T extends string>(
+  values: readonly T[],
+  value: T,
+  onSelect: (value: T) => void,
+): {
+  setItemRef: (index: number) => (element: HTMLButtonElement | null) => void
+  tabIndexFor: (index: number) => 0 | -1
+  keyHandlerFor: (index: number) => (event: ReactKeyboardEvent<HTMLButtonElement>) => void
+} {
+  const itemsRef = useRef<Array<HTMLButtonElement | null>>([])
+  const hasSelection = values.includes(value)
+  return {
+    setItemRef: (index) => (element) => {
+      itemsRef.current[index] = element
+    },
+    // Only the selected radio is a tab stop, so one Tab lands the user on the group's current answer
+    // and the arrows take it from there — the pattern the radiogroup role tells a screen reader to expect.
+    tabIndexFor: (index) => (values[index] === value || (!hasSelection && index === 0) ? 0 : -1),
+    keyHandlerFor:
+      (index) => (event) => {
+        const motion = ROVING_RADIO_MOTIONS[event.key]
+        if (!motion || values.length === 0) return
+        event.preventDefault()
+        const last = values.length - 1
+        let next = index
+        if (motion === 'next') next = index >= last ? 0 : index + 1
+        else if (motion === 'previous') next = index <= 0 ? last : index - 1
+        else if (motion === 'first') next = 0
+        else next = last
+        const selected = values[next]!
+        onSelect(selected)
+        itemsRef.current[next]?.focus()
+      },
+  }
+}
+
 export interface SegmentedOption<T extends string> {
   value: T
   label: ReactNode
@@ -199,19 +258,11 @@ export function Segmented<T extends string>({
   'aria-describedby'?: string
   'aria-required'?: boolean
 }) {
-  const buttonsRef = useRef<Array<HTMLButtonElement | null>>([])
-  const hasActiveOption = options.some((option) => option.value === value)
-  const move = (index: number, key: string) => {
-    if (!options.length) return
-    let next = index
-    if (key === 'ArrowRight' || key === 'ArrowDown') next = (index + 1) % options.length
-    else if (key === 'ArrowLeft' || key === 'ArrowUp') next = (index - 1 + options.length) % options.length
-    else if (key === 'Home') next = 0
-    else if (key === 'End') next = options.length - 1
-    else return
-    onChange(options[next]!.value)
-    buttonsRef.current[next]?.focus()
-  }
+  const roving = useRovingRadio<T>(
+    options.map((option) => option.value),
+    value,
+    onChange,
+  )
   return (
     <div
       id={id}
@@ -231,21 +282,15 @@ export function Segmented<T extends string>({
         const active = option.value === value
         const button = (
           <button
-            ref={(element) => {
-              buttonsRef.current[index] = element
-            }}
+            ref={roving.setItemRef(index)}
             type="button"
             role="radio"
             aria-checked={active}
             aria-label={option.title}
             disabled={disabled}
-            tabIndex={active || (!hasActiveOption && index === 0) ? 0 : -1}
+            tabIndex={roving.tabIndexFor(index)}
             onClick={() => onChange(option.value)}
-            onKeyDown={(event) => {
-              if (!['ArrowRight', 'ArrowDown', 'ArrowLeft', 'ArrowUp', 'Home', 'End'].includes(event.key)) return
-              event.preventDefault()
-              move(index, event.key)
-            }}
+            onKeyDown={roving.keyHandlerFor(index)}
             className={cn(
               'relative z-10 inline-flex items-center justify-center gap-1.5 rounded-[var(--r-sm)] font-medium',
               'transition-[color,background-color] duration-[var(--dur-fast)] ease-[var(--ease-out)]',
