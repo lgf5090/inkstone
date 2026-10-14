@@ -1,5 +1,5 @@
 {
-  "//": "Typechecks tests/, which no project covered: esbuild strips types, so a test could reference a name it never imported and still run. Not yet in tsconfig.json references — `tsc -b` also feeds `npm run build`, and the backlog below has to be cleared first. Run it with `npm run typecheck:tests`; each fixed file moves into the green set.",
+  "//": "Typechecks tests/, which no project covered: esbuild strips types, so a test could reference a name it never imported and still run. It is now in tsconfig.json references, so `npm run typecheck` and every deploy build check it — the 153-error backlog that made that impossible was cleared on 2026-10-15. `npm run typecheck:tests` still runs this project alone.",
   "compilerOptions": {
     "composite": true,
     "emitDeclarationOnly": true,
