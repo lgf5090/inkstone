@@ -18,7 +18,7 @@ import { Hono } from 'hono'
 import { isBlockedTarget } from '@shared/ai-proxy-guard'
 import { emptyLibrary, parseRssLibrary, RSS_LIMITS, type RssFetchResult } from '@shared/rss/model'
 import { applyLibraryPatch, parseRssPatch, patchChars, patchIsEmpty } from '@shared/rss/patch'
-import { loadRssLibrary, storeRssLibrary } from '../lib/rss-store'
+import { accountExists, loadRssLibrary, storeRssLibrary } from '../lib/rss-store'
 import type { AppBindings } from '../env'
 import { ApiError } from '../lib/errors'
 import { NO_REDIRECT, isRedirectResponse } from '../lib/no-redirect'
@@ -209,8 +209,7 @@ rssRoutes.put('/library', async (c) => {
   if (dropped > 0 || truncated) {
     throw ApiError.badRequest('The RSS library holds entries that cannot be stored', { dropped, truncated })
   }
-  const account = await c.env.DB.prepare('SELECT id FROM users WHERE id = ?1').bind(userId).first()
-  if (!account) throw ApiError.notFound('Account not found')
+  if (!(await accountExists(c.env.DB, userId))) throw ApiError.notFound('Account not found')
   const savedAt = Date.now()
   await storeRssLibrary(c.env.DB, userId, data, savedAt)
   return c.json({ savedAt })
@@ -231,8 +230,7 @@ rssRoutes.post('/patch', async (c) => {
   const patch = parseRssPatch(body.patch)
   if (!patch) throw ApiError.badRequest('The change set could not be read')
   if (patchChars(patch) > RSS_LIMITS.payloadChars) throw ApiError.tooLarge('The change set is too large to store')
-  const account = await c.env.DB.prepare('SELECT id FROM users WHERE id = ?1').bind(userId).first()
-  if (!account) throw ApiError.notFound('Account not found')
+  if (!(await accountExists(c.env.DB, userId))) throw ApiError.notFound('Account not found')
   const stored = await loadRssLibrary(c.env.DB, userId)
   if (patchIsEmpty(patch)) return c.json({ savedAt: stored.savedAt, rows: 0 })
   const merged = applyLibraryPatch(stored.library ?? emptyLibrary(), patch)
