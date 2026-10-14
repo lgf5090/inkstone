@@ -9,34 +9,15 @@ import { storedStringArray } from '../lib/json'
 import { JSON_BODY_LIMITS, readJson } from '../lib/request'
 import { assertAttemptBudget, consumeAttemptBudget } from '../lib/throttle'
 import { requireAuth } from '../middleware/auth'
+import {
+  CommunityTemplatesStore,
+  type CommunityCursor,
+  type CommunityRow,
+} from '../templates/store'
 
 export const communityTemplatesRoutes = new Hono<AppBindings>()
 
 communityTemplatesRoutes.use('*', requireAuth)
-
-interface CommunityRow {
-  id: string
-  author_id: string
-  author_name: string
-  name: string
-  description: string
-  content: string
-  tags: string
-  category: string
-  uses: number
-  created_at: number
-}
-
-/**
- * `author_name` is read from the account rather than the copy frozen into the row
- * at publish time, so an author who changes their display name is credited with the
- * name readers should see today.
- */
-const COMMUNITY_SELECT = `ct.id, ct.author_id,
-  COALESCE(NULLIF(u.name, ''), NULLIF(u.username, ''), ct.author_name, 'Inkstone') AS author_name,
-  ct.name, ct.description, ct.content, ct.tags, ct.category, ct.uses, ct.created_at`
-const COMMUNITY_FROM = `FROM community_templates ct
-  LEFT JOIN users u ON u.id = ct.author_id`
 
 function toCommunityTemplate(row: CommunityRow): CommunityTemplate {
   const tags = storedStringArray(row.tags)
@@ -54,7 +35,7 @@ function toCommunityTemplate(row: CommunityRow): CommunityTemplate {
   }
 }
 
-function parseCursor(raw: string | undefined): { createdAt: number; id: string } | null {
+function parseCursor(raw: string | undefined): CommunityCursor | null {
   if (!raw) return null
   const separator = raw.lastIndexOf('_')
   if (separator <= 0) throw ApiError.badRequest('Invalid pagination cursor')
@@ -96,14 +77,7 @@ function parseInput(body: Partial<CommunityTemplateInput>): CommunityTemplateInp
 communityTemplatesRoutes.get('/', async (c) => {
   const limit = parsePageSize(c.req.query('limit'))
   const before = parseCursor(c.req.query('before'))
-  const { results } = await c.env.DB.prepare(
-    before
-      ? `SELECT ${COMMUNITY_SELECT} ${COMMUNITY_FROM}
-         WHERE (ct.created_at < ?1 OR (ct.created_at = ?1 AND ct.id < ?2))
-         ORDER BY ct.created_at DESC, ct.id ASC LIMIT ?3`
-      : `SELECT ${COMMUNITY_SELECT} ${COMMUNITY_FROM}
-         ORDER BY ct.created_at DESC, ct.id ASC LIMIT ?1`,
-  ).bind(...(before ? [before.createdAt, before.id, limit + 1] : [limit + 1])).all<CommunityRow>()
+  const results = await new CommunityTemplatesStore(c.env.DB, c.get('userId')).listPage(before, limit)
   const hasMore = results.length > limit
   const page = results.slice(0, limit)
   const last = page[page.length - 1]
@@ -134,82 +108,39 @@ async function enforcePublishBudget(db: D1Database, userId: string): Promise<voi
  * author can neither overwrite nor squat another author's id.
  */
 async function resolvePublishId(
-  db: D1Database,
+  store: CommunityTemplatesStore,
   inputId: string | undefined,
-  userId: string,
 ): Promise<string> {
   if (inputId === undefined) {
-    await assertRoomForOneMore(db, userId)
+    await assertRoomForOneMore(store)
     return newId()
   }
   if (!isValidId(inputId)) throw ApiError.badRequest('id must be a valid template id')
-  const existing = await db.prepare(
-    `SELECT author_id FROM community_templates WHERE id = ?1`,
-  ).bind(inputId).first<{ author_id: string }>()
-  if (existing && existing.author_id !== userId)
+  const existing = await store.authorOf(inputId)
+  if (existing && existing.author_id !== store.userId)
     throw ApiError.forbidden('Only the author can update a published template')
-  if (!existing) await assertRoomForOneMore(db, userId)
+  if (!existing) await assertRoomForOneMore(store)
   return inputId
 }
 
-async function assertRoomForOneMore(db: D1Database, userId: string): Promise<void> {
-  const row = await db.prepare(
-    `SELECT COUNT(*) AS n FROM community_templates WHERE author_id = ?1`,
-  ).bind(userId).first<{ n: number }>()
-  if ((row?.n ?? 0) >= LIMITS.communityTemplatesMaxPerUser) {
+async function assertRoomForOneMore(store: CommunityTemplatesStore): Promise<void> {
+  if ((await store.publishedCount()) >= LIMITS.communityTemplatesMaxPerUser) {
     throw ApiError.forbidden(
       `This account has already published ${LIMITS.communityTemplatesMaxPerUser} templates`,
     )
   }
 }
 
-async function upsertTemplate(
-  db: D1Database,
-  id: string,
-  userId: string,
-  input: CommunityTemplateInput,
-): Promise<void> {
-  const author = await db.prepare(`SELECT name FROM users WHERE id = ?1`)
-    .bind(userId).first<{ name: string }>()
-  const authorName = author?.name || 'Inkstone'
-  // `created_at` is deliberately absent from the UPDATE list: re-publishing an
-  // existing template refreshes its text but must not jump it back to the top
-  // of the directory.
-  await db.prepare(
-    `INSERT INTO community_templates (id, author_id, author_name, name, description, content, tags, category, created_at)
-     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
-     ON CONFLICT(id) DO UPDATE SET
-       author_name = excluded.author_name,
-       name = excluded.name,
-       description = excluded.description,
-       content = excluded.content,
-       tags = excluded.tags,
-       category = excluded.category`,
-  )
-    .bind(
-      id,
-      userId,
-      authorName,
-      input.name,
-      input.description,
-      input.content,
-      JSON.stringify(input.tags),
-      input.category,
-      Date.now(),
-    )
-    .run()
-}
-
 communityTemplatesRoutes.post('/', async (c) => {
   const userId = c.get('userId')
+  const store = new CommunityTemplatesStore(c.env.DB, userId)
   await enforcePublishBudget(c.env.DB, userId)
   const body = await readJson<Partial<CommunityTemplateInput>>(c, JSON_BODY_LIMITS.small)
   const input = parseInput(body)
-  const id = await resolvePublishId(c.env.DB, input.id, userId)
-  await upsertTemplate(c.env.DB, id, userId, input)
-  const row = await c.env.DB.prepare(
-    `SELECT ${COMMUNITY_SELECT} ${COMMUNITY_FROM} WHERE ct.id = ?1`,
-  ).bind(id).first<CommunityRow>()
+  const id = await resolvePublishId(store, input.id)
+  const authorName = (await store.profileName()) || 'Inkstone'
+  await store.publish({ id, authorName, template: input, now: Date.now() })
+  const row = await store.publishedRow(id)
   if (!row)
     throw new ApiError(500, 'internal', 'Failed to store the community template')
   return c.json({ template: toCommunityTemplate(row) })
@@ -233,30 +164,22 @@ communityTemplatesRoutes.post('/:id/use', async (c) => {
   const userId = c.get('userId')
   const id = c.req.param('id')
   if (!isValidId(id)) throw ApiError.badRequest('id must be a valid template id')
+  const store = new CommunityTemplatesStore(c.env.DB, userId)
   await enforceUseBudget(c.env.DB, userId)
-  const existing = await c.env.DB.prepare(
-    `SELECT id FROM community_templates WHERE id = ?1`,
-  ).bind(id).first<{ id: string }>()
-  if (!existing) throw ApiError.notFound('Community template not found')
-  await c.env.DB.prepare(
-    `UPDATE community_templates SET uses = uses + 1 WHERE id = ?1 AND author_id != ?2`,
-  ).bind(id, userId).run()
-  const row = await c.env.DB.prepare(
-    `SELECT uses FROM community_templates WHERE id = ?1`,
-  ).bind(id).first<{ uses: number }>()
-  return c.json({ uses: row?.uses ?? 0 })
+  if (!(await store.exists(id))) throw ApiError.notFound('Community template not found')
+  await store.recordUse(id)
+  return c.json({ uses: (await store.uses(id)) ?? 0 })
 })
 
 communityTemplatesRoutes.delete('/:id', async (c) => {
   const userId = c.get('userId')
   const id = c.req.param('id')
   if (!isValidId(id)) throw ApiError.badRequest('id must be a valid template id')
-  const existing = await c.env.DB.prepare(
-    `SELECT author_id FROM community_templates WHERE id = ?1`,
-  ).bind(id).first<{ author_id: string }>()
+  const store = new CommunityTemplatesStore(c.env.DB, userId)
+  const existing = await store.authorOf(id)
   if (!existing) throw ApiError.notFound('Community template not found')
   if (existing.author_id !== userId)
     throw ApiError.forbidden('Only the author can unpublish a template')
-  await c.env.DB.prepare(`DELETE FROM community_templates WHERE id = ?1`).bind(id).run()
+  await store.unpublish(id)
   return c.json({ ok: true as const })
 })
