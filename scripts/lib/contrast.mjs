@@ -57,6 +57,46 @@ export function oklabToRgb(l, a, b) {
   return linear.map((channel) => Math.min(255, Math.max(0, linearToSrgb(channel) * 255)))
 }
 
+// The way in, so a gate can ask what `color-mix(in oklab, A 40%, B)` paints without a browser. The
+// matrices are Ottosson's, transposed and cube-rooted; `tests/contrast-mix.test.ts` round-trips every
+// colour the token layer declares, which is what keeps this honest rather than plausible.
+function srgbToLinear(channel) {
+  const value = channel / 255
+  return value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4
+}
+
+export function rgbToOklab(rgb) {
+  const [r, g, b] = rgb.map(srgbToLinear)
+  const l = Math.cbrt(0.4122214708 * r + 0.5363325363 * g + 0.0514459929 * b)
+  const m = Math.cbrt(0.2119034982 * r + 0.6806995451 * g + 0.1073969566 * b)
+  const s = Math.cbrt(0.0883024619 * r + 0.2817188376 * g + 0.6299787005 * b)
+  return [
+    0.2104542553 * l + 0.7936177850 * m - 0.0040720468 * s,
+    1.9779984951 * l - 2.4285922050 * m + 0.4505937099 * s,
+    0.0259040371 * l + 0.7827717662 * m - 0.8086757660 * s,
+  ]
+}
+
+/**
+ * `color-mix(in oklab, top percent%, bottom)` for two opaque colours: interpolate in oklab, then
+ * convert back. This is the one that needs the maths — a tint mixed over a real surface is a new
+ * colour, not the same colour at a lower alpha.
+ */
+export function mixInOklab(top, bottom, percent) {
+  const [a, b] = [rgbToOklab(top), rgbToOklab(bottom)]
+  const share = percent / 100
+  return oklabToRgb(...a.map((channel, index) => channel * share + b[index] * (1 - share)))
+}
+
+/**
+ * `color-mix(in oklab, colour percent%, transparent)` — what the activity calendar's month grid uses.
+ * Mixing into `transparent` keeps the colour and lowers the alpha, so the honest answer is the colour
+ * itself at `percent / 100`, left for `over()` to composite onto whatever is behind it.
+ */
+export function mixWithTransparent(rgb, percent) {
+  return { rgb, alpha: percent / 100 }
+}
+
 export const linearToSrgb = (value) => (value <= 0.0031308 ? 12.92 * value : 1.055 * value ** (1 / 2.4) - 0.055)
 
 export const relativeLuminance = (rgb) => {

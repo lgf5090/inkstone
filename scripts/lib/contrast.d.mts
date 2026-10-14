@@ -19,6 +19,15 @@ export declare function radians(degrees: string | number): number
 
 export declare function oklabToRgb(l: number, a: number, b: number): number[]
 
+/** The way in: sRGB 0-255 channels to `oklab` coordinates. */
+export declare function rgbToOklab(rgb: number[]): [number, number, number]
+
+/** `color-mix(in oklab, top percent%, bottom)` for two opaque colours, back out as sRGB. */
+export declare function mixInOklab(top: number[], bottom: number[], percent: number): number[]
+
+/** `color-mix(in oklab, rgb percent%, transparent)`: the same colour, carrying `percent` as alpha. */
+export declare function mixWithTransparent(rgb: number[], percent: number): ParsedColor
+
 export declare function linearToSrgb(value: number): number
 
 export declare function relativeLuminance(rgb: number[]): number
