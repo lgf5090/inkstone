@@ -44,6 +44,9 @@ export function createTag(value: string): string | null {
       setOptimisticTagCache((state) => ({
         tags: state.tags.filter((tag) => tag.id !== id),
       }))
+      // Re-reading the cache after the rollback above. The failure that caused it is the thing the reader
+      // is told, a few lines below, with the server's own reason; a refresh that also failed says nothing
+      // about the create they did not already hear.
       void useNotes.getState().refreshTags().catch(() => {})
       useUi.getState().toast({
         title: t('tags.create_failed'),
@@ -343,6 +346,9 @@ export async function moveTag(tag: Tag, parent: string | null): Promise<void> {
     // snapshot we took before our own optimistic edit would also undo any move that raced us.
     // Re-read instead of winding back.
     setOptimisticTagCache(() => ({ tags: before.tags, notes: before.notes }))
+    // The re-read that follows the rollback, not the failure itself: the toast two lines below is what the
+    // reader hears, with the server's reason. A pull that also failed leaves the cache one refresh away
+    // from correct and adds no fact about the move they asked for.
     await useNotes.getState().pull().catch(() => {})
     useUi.getState().toast({
       title: t('tags.move_failed'),
@@ -420,6 +426,10 @@ export async function setTagColor(tag: Tag, color: string | null): Promise<void>
       await useNotes.getState().refreshTags().catch(showRefreshWarning)
     }
   })
+  // The chain's own copy of this write. `operation` is awaited below, so the caller still sees a
+  // rejection; this one exists so a failed link cannot reach the browser as an unhandled rejection, and
+  // so the next queued write is not chained behind a promise that already reported itself through the
+  // rollback and the toast inside it.
   write.tail = operation.catch(() => {})
   await operation
 

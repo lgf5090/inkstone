@@ -295,6 +295,9 @@ async function lintMany(noteIds: string[], label: string): Promise<void> {
   // Notes the client held keep their own copy of the body, so the library is asked for the batch's
   // answers once at the end — pulling after every note made a run of thirty a crawl.
   if (changed) {
+    // Best-effort refresh of the answers, taken after the run's own toast above has already counted what
+    // changed and what failed. The bodies this run wrote are in the client's own copies, so a pull that
+    // does not arrive leaves the library a re-read away from correct rather than silently unwritten.
     await useNotes.getState().pull({ force: true }).catch(() => undefined)
   }
 }
