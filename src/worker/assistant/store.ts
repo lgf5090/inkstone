@@ -55,6 +55,7 @@ import {
 import { parseScheduleSpec, type ScheduleSpec } from '@shared/assistant-schedule'
 import type { Env } from '../env'
 import { newId } from '../lib/id'
+import { parseStoredJson } from '../lib/json'
 import { decryptAssistantKey, encryptAssistantKey } from '../lib/crypto'
 
 /** How long a reader has to approve a destructive proposal. */
@@ -136,13 +137,15 @@ function containsPattern(term: string): string {
   return `%${literal.replace(/[\\%_]/g, (character) => `\\${character}`)}%`
 }
 
+/**
+ * A JSON column that may not be there at all.
+ *
+ * The parse itself belongs to `parseStoredJson`; what this adds is the row that predates the column,
+ * where the value is null or a stray number rather than text. Every consumer below treats a
+ * non-object as "nothing stored", so both failures read the same way.
+ */
 function parseJson(value: unknown): unknown {
-  if (typeof value !== 'string') return null
-  try {
-    return JSON.parse(value)
-  } catch {
-    return null
-  }
+  return typeof value === 'string' ? parseStoredJson(value) : null
 }
 
 /**
