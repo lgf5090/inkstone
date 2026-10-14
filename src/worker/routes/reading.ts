@@ -15,6 +15,7 @@ import type { AppBindings } from '../env'
 import { ApiError } from '../lib/errors'
 import { requireAuth } from '../middleware/auth'
 import { readJson } from '../lib/request'
+import { createMinuteBudget } from '../lib/rate-limit'
 import { NO_REDIRECT, isRedirectResponse } from '../lib/no-redirect'
 import { isBlockedTarget } from '@shared/ai-proxy-guard'
 
@@ -34,21 +35,7 @@ interface TranslatePayload {
 
 const LANGUAGE = /^[a-z]{2,3}(?:-[A-Za-z]{2,4})?(?:-[A-Za-z]{2})?$/
 
-const buckets = new Map<string, { window: number; used: number }>()
-
-function takeBudget(userId: string): void {
-  const windowStart = Math.floor(Date.now() / 60_000)
-  const current = buckets.get(userId)
-  if (!current || current.window !== windowStart) {
-    if (buckets.size > 512) buckets.clear()
-    buckets.set(userId, { window: windowStart, used: 1 })
-    return
-  }
-  current.used += 1
-  if (current.used > BUDGET_PER_MINUTE) {
-    throw new ApiError(429, 'too_many_attempts', 'Translation limit reached. Try again in a minute.')
-  }
-}
+const takeBudget = createMinuteBudget(BUDGET_PER_MINUTE, 'Translation limit reached. Try again in a minute.')
 
 /**
  * Google's `gtx` endpoint answers with a nested array whose first element holds the sentence chunks.

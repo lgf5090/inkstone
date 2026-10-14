@@ -14344,6 +14344,10 @@ const allowed = new Map([
   ["src/worker/lib/oauth-request.ts", [
     "// Rebuild after consuming the bounded body so the provider can read it once.",
   ]],
+  ["src/worker/lib/rate-limit.ts", [
+    "/** Per-isolate ceiling on tracked callers; a busy minute of distinct users resets the table rather than growing without bound. */",
+    "/**\n * Builds a per-caller, per-minute budget held in the isolate's memory.\n *\n * This is a brake on a runaway client, not a quota: it lives and dies with the isolate and every\n * deployment sees its own. Each caller gets `limit` spends per wall-clock minute; the next spend over\n * the limit answers `429` with `message`.\n */",
+  ]],
   ["src/worker/lib/request.ts", [
     "// CF-Connecting-IP is injected by the Cloudflare edge and cannot be",
     "// spoofed there. On any other runtime the header is client-controlled,",
