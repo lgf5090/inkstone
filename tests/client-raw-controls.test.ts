@@ -787,7 +787,7 @@ describe('converged z-index keeps using the token scale', () => {
 })
 
 /**
- * 铁律 2: a swallow that ignores a rejection has to say why beside the catch. The backup subtree now
+ * AGENTS.md rule 2: a swallow that ignores a rejection has to say why beside the catch. The backup subtree now
  * routes through `discardBody()`; anything else silent is the failure mode the rule exists for. A
  * block whose only content is a comment is still silent — the reason belongs outside the braces.
  */
