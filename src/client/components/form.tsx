@@ -480,7 +480,7 @@ export function SettingRow({
       <div className="min-w-0 flex-1">
         <div className="text-[length:var(--text-13)] font-medium text-[var(--text-primary)]">{title}</div>
         {description && (
-          <div className="mt-0.5 text-[length:var(--text-11-5)] leading-relaxed text-[var(--text-tertiary)]">
+          <div data-setting-description={title} className="mt-0.5 text-[length:var(--text-11-5)] leading-relaxed text-[var(--text-tertiary)]">
             {description}
           </div>
         )}

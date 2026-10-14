@@ -169,7 +169,7 @@ describe('properties settings', () => {
         await render();
         const field = rowTitle(t('settings.date_format')).querySelector<HTMLInputElement>('input')!;
         await type(field, 'YYYY');
-        const description = rowTitle(t('settings.date_format')).querySelector('.text-\\[11\\.5px\\]');
+        const description = rowTitle(t('settings.date_format')).querySelector('[data-setting-description]');
         expect(description?.textContent).toMatch(/^\d{4}$/);
     });
 });
