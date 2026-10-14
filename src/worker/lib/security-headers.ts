@@ -13,7 +13,7 @@
  * blocked until their deployment names the host in `AI_CONNECT_HOSTS`. That is the deliberate limit
  * of keeping the key on the client — the escape valve is the variable, not a change to the policy.
  */
-export const BUILTIN_AI_CONNECT_HOSTS: readonly string[] = [
+const BUILTIN_AI_CONNECT_HOSTS: readonly string[] = [
   'api.deepseek.com',
   'api.openai.com',
   'api.anthropic.com',
