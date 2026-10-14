@@ -9,9 +9,7 @@ import {
   CornerUpLeft,
   Download,
   Edit2,
-  Folder,
   FolderInput,
-  FolderOpen,
   FolderPlus,
   MoreHorizontal,
   Pencil,
@@ -30,8 +28,10 @@ import { queryMatches } from '../../../lib/query-match'
 import type { Query } from '../../../lib/query-match'
 import { t } from '../../../lib/i18n'
 import { cn } from '../../../lib/cn'
-import { treeIndent, treeItemProps, type MoveMenuFolder } from '../../../lib/tree'
+import { treeIndent, treeItemProps, useTreeKeyboard, type MoveMenuFolder } from '../../../lib/tree'
 import { useMediaQuery } from '../../../lib/hooks'
+import { useTreeChildrenMount } from '../../sidebar/useTreeChildrenMount'
+import { FolderMotionIcon } from '../../sidebar/FolderMotionIcon'
 import { FolderMoveMenu } from '../../folders/FolderMoveMenu'
 import { getAllFolderDescendants, useExcalidrawLibraryStore } from './library-store'
 import {
@@ -136,6 +136,10 @@ export function LibraryFolderRow({ node, ctx }: { node: LibraryFolderNode; ctx: 
   const isActive = ctx.activeFolderId === node.id
   const isDragging = ctx.dragId === node.id
   const hasChildren = node.children.length > 0
+  // A closed branch keeps its rows mounted for the length of the fold and is marked `inert` while it is
+  // out of sight. That is the state `lib/tree/keyboard` reads to skip a collapsed branch: unmounting on
+  // collapse leaves nothing to skip, and leaving the rows live keeps an invisible row focusable.
+  const { childrenMounted, childrenVisible } = useTreeChildrenMount(expanded, hasChildren)
   const match = ctx.query ? queryMatches(ctx.query, node.name) : null
   const parentId = node.parentId ?? null
   const siblings = useMemo(() => orderedSiblings(ctx.folders, parentId), [ctx.folders, parentId])
@@ -176,6 +180,23 @@ export function LibraryFolderRow({ node, ctx }: { node: LibraryFolderNode; ctx: 
     if (!answer) return
     deleteFolder(node.id)
   }
+
+  // The notes rail's keyboard, read off the rendered rows: arrows walk and fold, Home/End jump, and the
+  // row's own two shortcuts are the rename and delete the hover toolbar already offers, so a fold or a
+  // subtree can be rearranged without ever reaching for the pointer.
+  const onKeyDown = useTreeKeyboard({
+    onKey: (event) => {
+      if (event.key === 'F2') {
+        ctx.onRenameStart(node.id, node.name)
+        return true
+      }
+      if (event.key === 'Delete') {
+        void requestDelete()
+        return true
+      }
+      return false
+    },
+  })
 
   const moveSubject: MoveMenuFolder = {
     id: node.id,
@@ -315,8 +336,11 @@ export function LibraryFolderRow({ node, ctx }: { node: LibraryFolderNode; ctx: 
           ctx.setDragId(null)
           setPlacement('none')
         }}
-        onClick={() => ctx.onSelect(isActive ? null : node.id)}
-        className={`group relative flex h-8 items-center gap-1 rounded-md px-1 text-xs cursor-pointer transition-colors ${
+        // The row box is a container, not a control: it is the drag source, the drop target for another
+        // folder and the context-menu anchor, and selecting is the name button's own click - the same
+        // split the notes rail makes, so the fold control and the row action stay two separate targets a
+        // keyboard can visit one at a time.
+        className={`group relative flex h-8 items-center gap-1 rounded-md px-1 text-xs transition-colors ${
           isActive
             ? 'bg-[var(--accent)]/15 text-[var(--accent)] font-medium'
             : 'text-[var(--text-primary)] hover:bg-[var(--bg-hover)]'
@@ -328,11 +352,13 @@ export function LibraryFolderRow({ node, ctx }: { node: LibraryFolderNode; ctx: 
 
         <button
           type="button"
+          data-tree-toggle
+          aria-expanded={hasChildren ? expanded : undefined}
+          disabled={!hasChildren}
+          aria-hidden={!hasChildren || undefined}
+          tabIndex={hasChildren ? undefined : -1}
           aria-label={t('excalidraw.expand_or_collapse_folder')}
-          onClick={(event) => {
-            event.stopPropagation()
-            ctx.onToggle(node.id)
-          }}
+          onClick={() => ctx.onToggle(node.id)}
           className={`p-0.5 rounded hover:bg-black/5 dark:hover:bg-white/5 text-[var(--text-tertiary)] ${
             !hasChildren ? 'invisible' : ''
           }`}
@@ -340,14 +366,21 @@ export function LibraryFolderRow({ node, ctx }: { node: LibraryFolderNode; ctx: 
           {expanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
         </button>
 
-        {isActive ? (
-          <FolderOpen size={15} className="shrink-0 text-[var(--accent)]" />
-        ) : (
-          <Folder size={15} className="shrink-0 text-[var(--text-tertiary)]" />
-        )}
+        {/* The rail's own folder mark, and the rail's own reading of a folder: the emoji and the colour a
+            folder carries win over the icon, and the accent only paints a folder with no colour of its
+            own. The library stores both fields, so a folder that was given one in the folders panel used
+            to arrive here as a plain outline. */}
+        <span
+          className={cn('shrink-0', isActive && !node.color ? 'text-[var(--accent)]' : !node.color && 'text-[var(--text-tertiary)]')}
+          style={{ color: node.color ?? undefined }}
+        >
+          {node.icon
+            ? <span className="text-[13px] leading-none">{node.icon}</span>
+            : <FolderMotionIcon open={expanded && hasChildren} drawing={false} />}
+        </span>
 
         {isEditing ? (
-          <div className="flex items-center gap-1 flex-1 min-w-0" onClick={(event) => event.stopPropagation()}>
+          <div className="flex items-center gap-1 flex-1 min-w-0">
             <input
               ref={renameRef}
               type="text"
@@ -370,20 +403,33 @@ export function LibraryFolderRow({ node, ctx }: { node: LibraryFolderNode; ctx: 
             </button>
           </div>
         ) : (
-          <span className="flex-1 min-w-0 truncate ml-0.5">
-            {match
-              ? splitByRanges(node.name, match.ranges).map(
-                  (part: { text: string; hit: boolean }, i: number) =>
-                    part.hit ? (
-                      <span key={i} className="font-semibold text-[var(--accent)]">
-                        {part.text}
-                      </span>
-                    ) : (
-                      <span key={i}>{part.text}</span>
-                    ),
-                )
-              : node.name}
-          </span>
+          // The row's affordance: a real button that carries `data-tree-row`, which is how the shared
+          // keyboard finds the rows it walks. Its name is the folder's, so the highlighted fragments
+          // stay decoration rather than a screen reader reading the match twice.
+          <button
+            type="button"
+            data-tree-row
+            aria-label={node.name}
+            aria-current={isActive ? 'page' : undefined}
+            onClick={() => ctx.onSelect(isActive ? null : node.id)}
+            onKeyDown={onKeyDown}
+            className="flex min-w-0 flex-1 items-center gap-1.5 truncate py-1 pl-0.5 text-left text-xs"
+          >
+            <span className="min-w-0 truncate">
+              {match
+                ? splitByRanges(node.name, match.ranges).map(
+                    (part: { text: string; hit: boolean }, i: number) =>
+                      part.hit ? (
+                        <span key={i} className="font-semibold text-[var(--accent)]">
+                          {part.text}
+                        </span>
+                      ) : (
+                        <span key={i}>{part.text}</span>
+                      ),
+                  )
+                : node.name}
+            </span>
+          </button>
         )}
 
         <span className="shrink-0 text-[10.5px] tabular-nums text-[var(--text-quaternary)] mr-1 transition-opacity group-hover:opacity-0">
@@ -397,7 +443,6 @@ export function LibraryFolderRow({ node, ctx }: { node: LibraryFolderNode; ctx: 
             // hit: where there is no hover, the quick actions are simply painted.
             noHover && 'opacity-100',
           )}
-          onClick={(event) => event.stopPropagation()}
         >
           <button
             type="button"
@@ -481,9 +526,16 @@ export function LibraryFolderRow({ node, ctx }: { node: LibraryFolderNode; ctx: 
         </div>
       )}
 
-      {expanded && node.children.length > 0 && (
-        <div role="group">
-          {node.children.map((child) => <LibraryFolderRow key={child.id} node={child} ctx={ctx} />)}
+      {childrenMounted && (
+        <div
+          role="group"
+          aria-hidden={!childrenVisible}
+          inert={!childrenVisible}
+          className={cn('folder-children-grid', childrenVisible && 'is-expanded')}
+        >
+          <div className="min-h-0 space-y-0.5 overflow-hidden">
+            {node.children.map((child) => <LibraryFolderRow key={child.id} node={child} ctx={ctx} />)}
+          </div>
         </div>
       )}
 
