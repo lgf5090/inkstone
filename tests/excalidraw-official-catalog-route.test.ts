@@ -193,6 +193,27 @@ describe('the official download endpoint', () => {
         expect(fetchSpy).toHaveBeenCalledTimes(1)
     })
 
+    it('answers an oversized library with 413 rather than a generic download failure', async () => {
+        // The route's own cap: `OFFICIAL_FETCH_MAX_BYTES` in src/worker/routes/excalidraw-library.ts.
+        const OFFICIAL_FETCH_MAX_BYTES = 5 * 1024 * 1024
+        globalThis.fetch = vi.fn(async () => new Response('x'.repeat(OFFICIAL_FETCH_MAX_BYTES + 1), {
+            status: 200,
+            headers: { 'content-type': 'application/json' },
+        })) as never
+        const app = await freshApp()
+
+        const res = await app.request('/api/excalidraw/library/official-download', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ url: 'thijsdev/snowflake.excalidrawlib' }),
+        }, env(), ctx())
+
+        expect(res.status).toBe(413)
+        const body = await res.json() as { error?: { code?: string; message?: string } }
+        expect(body.error?.code).toBe('payload_too_large')
+        expect(body.error?.message).toMatch(/5 MB limit/)
+    })
+
     it('archives the raw file behind the response instead of before it', async () => {
         const fetchSpy = vi.fn(async () => new Response(JSON.stringify({ libraryItems: [[{ id: 'a' }]] }), {
             status: 200,

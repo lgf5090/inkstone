@@ -51,9 +51,12 @@ async function readBodyCapped(res: Response, maxBytes: number): Promise<string> 
   try {
     return new TextDecoder().decode(await readBytesWithinLimit(res.body, maxBytes))
   } catch (error) {
-    // `readBytesWithinLimit` answers a body-cap breach as an ApiError; this route reports it as an
-    // upstream failure instead, so the library-specific message is kept.
-    if (error instanceof ApiError) throw new Error(`Library exceeds the ${maxBytes / 1024 / 1024} MB limit`)
+    // `readBytesWithinLimit` is shared with the request-body readers, so it answers a cap breach with
+    // `413`. That is the honest status here too — the library really is too big — so the message is
+    // reworded for a library while the status and code are kept for the client to read.
+    if (error instanceof ApiError && error.status === 413) {
+      throw new ApiError(413, 'payload_too_large', `Library exceeds the ${maxBytes / 1024 / 1024} MB limit`)
+    }
     throw error
   }
 }
@@ -278,6 +281,9 @@ excalidrawLibraryRoutes.post('/official-download', async (c) => {
 
     return c.json({ ok: true, data, filename })
   } catch (err) {
+    // An oversized library is the reader's own file being too big, not an upstream outage, so its
+    // `413` is rethrown instead of being folded into the generic download failure below.
+    if (err instanceof ApiError) throw err
     console.warn('[inkstone] Official Excalidraw library download failed:', err)
     throw new ApiError(502, 'internal', 'The official library could not be downloaded')
   }
