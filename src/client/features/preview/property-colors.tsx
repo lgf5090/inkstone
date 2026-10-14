@@ -3,6 +3,7 @@ import { Ban, CircleSlash } from 'lucide-react';
 import { ORGANIZER_COLORS, ORGANIZER_COLOR_MIN_CONTRAST, isOrganizerColor, organizerColorContrast, organizerColorLabel } from '@shared/organizer-colors';
 import { t } from '../../lib/i18n';
 import { cn } from '../../lib/cn';
+import { isImeComposing } from '../../lib/ime';
 import { normalizeHexColor } from '../../editor/text-format';
 import { paintedSurface, pushRecentColor, useRecentColors } from '../../lib/format-colors';
 import { ACCENT_COLOR_TOKEN, propertyColorCss, propertySwatchCss } from '@shared/property-style';
@@ -82,6 +83,7 @@ export function PropertyColorPanel({ label, current, tinted, onPick }: {
       <div className="flex items-center gap-1.5">
         <ColorWheelTrigger label={t('color.custom')} value={shown && shown !== ACCENT_COLOR_TOKEN ? shown : null} onChange={setDraft} onCommit={offer}/>
         <input type="text" value={draft} onChange={event => setDraft(event.target.value)} onBlur={event => offer(event.target.value)} onKeyDown={(event) => {
+                if (isImeComposing(event)) return;
                 if (event.key === 'Enter') {
                     event.preventDefault();
                     event.currentTarget.blur();

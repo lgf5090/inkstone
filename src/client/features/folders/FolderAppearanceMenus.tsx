@@ -9,6 +9,7 @@ import {
     organizerColorLabel,
 } from '@shared/organizer-colors';
 import { cn } from '../../lib/cn';
+import { isImeComposing } from '../../lib/ime';
 import { Swatch } from '../../components/color-swatch';
 import { ColorWheelTrigger } from '../../components/color-field';
 import { paintedSurface } from '../../lib/format-colors';
@@ -101,6 +102,7 @@ export function FolderColorMenu({ color, onSelectColor, onManageFolders }: {
       <div className="flex items-center gap-1.5">
         <ColorWheelTrigger shape="round" label={t("color.custom")} value={/^#[0-9a-f]{6}$/i.test(draft || shown || '') ? draft || shown : null} onChange={setDraft} onCommit={offer}/>
         <input type="text" value={draft} onChange={(event) => setDraft(event.target.value)} onBlur={(event) => offer(event.target.value)} onKeyDown={(event) => {
+                if (isImeComposing(event)) return;
                 if (event.key === 'Enter') {
                     event.preventDefault();
                     offer(event.currentTarget.value);

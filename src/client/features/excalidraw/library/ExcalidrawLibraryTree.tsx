@@ -28,6 +28,7 @@ import { leftDropTarget } from '../../../lib/note-drag'
 import { useDropState } from '../../../lib/drop-state'
 import { useMediaQuery } from '../../../lib/hooks'
 import { cn } from '../../../lib/cn'
+import { isImeComposing } from '../../../lib/ime'
 import { sanitizeSvg } from '../../../lib/sanitize-svg'
 import { t } from '../../../lib/i18n'
 import { toast } from './toast'
@@ -662,6 +663,7 @@ export const ExcalidrawLibraryTree: React.FC<ExcalidrawLibraryTreeProps> = ({
               value={newSubfolderName}
               onChange={(e) => setNewSubfolderName(e.target.value)}
               onKeyDown={(e) => {
+                if (isImeComposing(e)) return
                 if (e.key === 'Enter') handleCreateSubfolder(null)
                 else if (e.key === 'Escape') setAddingToFolderId(null)
               }}
@@ -926,6 +928,7 @@ export const ExcalidrawLibraryTree: React.FC<ExcalidrawLibraryTreeProps> = ({
                             value={editingItemName}
                             onChange={(e) => setEditingItemName(e.target.value)}
                             onKeyDown={(e) => {
+                              if (isImeComposing(e)) return
                               if (e.key === 'Enter') {
                                 renameItem(item.id, editingItemName)
                                 setEditingItemId(null)

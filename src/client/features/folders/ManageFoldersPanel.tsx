@@ -7,6 +7,7 @@ import { FilterInput } from '../../components/FilterInput';
 import { Empty } from '../../components/feedback';
 import { Modal, Tooltip, confirm } from '../../components/overlay';
 import { folderPathLabel, openFolderView } from '../../lib/folders';
+import { isImeComposing } from '../../lib/ime';
 import { setInboxFolderId, useFolderPreferences } from '../../lib/folder-prefs';
 import { t } from '../../lib/i18n';
 import { useNotes } from '../../store/notes';
@@ -165,6 +166,7 @@ export function ManageFoldersPanel({ onClose }: { onClose: () => void }) {
                 }}>
                   <span className="sr-only">{t("sidebar.rename")}</span>
                   <Input autoFocus value={renameValue} onChange={(event) => setRenameValue(event.target.value)} onBlur={() => commitRename(folder)} onKeyDown={(event) => {
+                    if (isImeComposing(event)) return;
                     if (event.key === 'Escape')
                         setRenamingId(null);
                     event.stopPropagation();

@@ -11,6 +11,7 @@ import type { PropertySettings } from '@shared/types';
 import type { ResolvedProperty } from '@shared/property-style';
 import { propertyColorCss, propertyPillCss } from '@shared/property-style';
 import { cn } from '../../lib/cn';
+import { isImeComposing } from '../../lib/ime';
 import { t } from '../../lib/i18n';
 import {
     PP_COLUMN,
@@ -462,6 +463,7 @@ function AddPropertyRow({ used, onCommit, onCancel }: {
     return (<div className="flex items-center gap-2 px-2.5 py-1.5">
       <Plus size={12} className="shrink-0 text-[var(--text-quaternary)]"/>
       <input autoFocus aria-label={t('properties.new_key')} value={key} placeholder={t('properties.new_key')} onChange={event => setKey(event.target.value)} onKeyDown={(event) => {
+            if (isImeComposing(event)) return;
             if (event.key === 'Escape')
                 onCancel();
             event.stopPropagation();
@@ -494,6 +496,7 @@ function InlineInput({ 'aria-label': ariaLabel, initial, placeholder, className,
         onCommit(value);
     };
     return (<input aria-label={ariaLabel} autoFocus defaultValue={value} placeholder={placeholder} onChange={event => setValue(event.target.value)} onBlur={commit} onKeyDown={(event) => {
+            if (isImeComposing(event)) return;
             commitOnEnter(event, commit);
             if (event.key === 'Escape') {
                 done.current = true;

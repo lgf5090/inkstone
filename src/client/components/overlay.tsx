@@ -9,6 +9,7 @@ import { Button, IconButton, Kbd } from './primitives';
 import { FIELD_BASE } from './form';
 import { t } from "../lib/i18n";
 import { getVisibleViewport } from '../lib/viewport';
+import { isImeComposing } from '../lib/ime';
 import { usePinyinVersion } from '../lib/pinyin'
 
 
@@ -358,6 +359,7 @@ function PromptDialog({ request, finish }: { request: PromptRequest; finish: (re
             finish(request, submit);
     }} className="mt-[var(--sp-2)]">
         <input data-autofocus type="text" className={`${FIELD_BASE} h-9`} value={value} placeholder={request.options.placeholder} onChange={(event) => setValue(event.target.value)} onKeyDown={(event) => {
+        if (isImeComposing(event)) return;
         // Enter has to be cancelled before it commits: committing opens the next dialog in the
         // queue, and the browser runs this keydown's default action after the handler returns.
         if (event.key === 'Enter') {
