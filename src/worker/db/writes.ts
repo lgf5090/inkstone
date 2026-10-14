@@ -22,6 +22,17 @@ export const LINK_TARGET_SUBQUERY = `(SELECT candidate.id FROM notes candidate
 /** Fan-out above this size is deferred to the background rewrite queue. */
 export const INLINE_REWRITE_LIMIT = 20
 
+/**
+ * Candidate note bodies one rewrite window reads at a time.
+ *
+ * A hub note referenced by thousands of others must not pin every candidate body in the isolate
+ * before the first write happens, and the title and tag rename paths window themselves the same way.
+ */
+export const REWRITE_LOAD_CHUNK = 10
+
+/** Guarded rewrites run at once inside one window — the same number the two rename paths used to each spell out. */
+export const REWRITE_CONCURRENCY = 5
+
 export type RewriteQueueKind = 'note-title' | 'tag-rename' | 'tag-delete'
 
 export function rewriteQueueStatement(

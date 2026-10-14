@@ -6,7 +6,13 @@ import { utf8ByteLength } from '@shared/text-utils'
 import type { AppBindings } from '../env'
 import { assertOrganizerQuota } from '../db/quota'
 import { toTag, tagSelectQuery, type TagRow } from '../db/rows'
-import { buildNoteDerivedStatements, INLINE_REWRITE_LIMIT, rewriteQueueStatement } from '../db/writes'
+import {
+  buildNoteDerivedStatements,
+  INLINE_REWRITE_LIMIT,
+  REWRITE_CONCURRENCY,
+  REWRITE_LOAD_CHUNK,
+  rewriteQueueStatement,
+} from '../db/writes'
 import { sha256Hex } from '../lib/encoding'
 import { ApiError } from '../lib/errors'
 import { isValidId, newId } from '../lib/id'
@@ -557,8 +563,6 @@ export async function rewriteTagInNotes(
     const candidateIds = results.map((c) => c.id)
     const plan = Number.isFinite(budgetNotes) ? candidateIds.slice(0, budgetNotes) : candidateIds
     const remaining = candidateIds.length - plan.length
-    const LOAD_CHUNK = 10
-    const CONCURRENCY_LIMIT = 5
     type CandidateNote = {
       id: string
       title: string
@@ -569,16 +573,16 @@ export async function rewriteTagInNotes(
     }
     // Load and rewrite in small windows: a hub tag must not pin every candidate body in
     // the isolate before the first write happens.
-    for (let start = 0; start < plan.length; start += LOAD_CHUNK) {
-      const windowIds = plan.slice(start, start + LOAD_CHUNK)
+    for (let start = 0; start < plan.length; start += REWRITE_LOAD_CHUNK) {
+      const windowIds = plan.slice(start, start + REWRITE_LOAD_CHUNK)
       const placeholders = windowIds.map((_, idx) => `?${idx + 2}`).join(', ')
       const { results: loaded } = await env.DB.prepare(
         `SELECT id, title, content, rev, updated_at, deleted_at
            FROM notes WHERE user_id = ?1 AND id IN (${placeholders})`,
       ).bind(userId, ...windowIds).all<CandidateNote>()
       const notesToRewrite = loaded.filter((note) => replaceTagInContent(note.content, from, to) !== note.content)
-      for (let i = 0; i < notesToRewrite.length; i += CONCURRENCY_LIMIT) {
-        const batch = notesToRewrite.slice(i, i + CONCURRENCY_LIMIT)
+      for (let i = 0; i < notesToRewrite.length; i += REWRITE_CONCURRENCY) {
+        const batch = notesToRewrite.slice(i, i + REWRITE_CONCURRENCY)
         const outcomes = await Promise.all(
           batch.map(async (initialNote) => {
             let currentNote: CandidateNote | null = initialNote
