@@ -258,12 +258,19 @@ const allowed = new Map([
     "/**\n * How far a panel may reach sideways before its own scroll container would cut it off.\n *\n * A field inside a modal body that scrolls gets a panel that widens that body by a few pixels, and the\n * reader sees a horizontal scrollbar appear under the form. The vertical axis is left to the viewport\n * because a scroll container is expected to scroll there; sideways it is only ever an accident.\n */",
     "// Comparing by value keeps a stable result from re-rendering, which would re-measure forever.",
   ]],
+  ["src/client/components/form.test.ts", [
+    "/** The group's own radios, in visual order. */",
+  ]],
   ["src/client/components/form.tsx", [
     "/**\n * Enter inside a text field has to be cancelled before it commits. Committing can mount a confirm\n * dialog, and the browser runs the keydown's default action after our handler returns, so the very\n * keystroke that asked would otherwise press the dialog's own button and answer it.\n */",
     "/** The box every text field in a dialog wears; `overlay`'s prompt reads it rather than importing\n * `Input`, because form already imports overlay and a component cycle would resolve at render. */",
     "/**\n   * Hand every step straight to the caller instead of coalescing to one write per frame. For a caller\n   * that batches on its own — the gantt's progress bar holds a draft and commits one undo step on\n   * release — the coalescing would swallow the last value, because its own commit runs in the same\n   * event, before the frame that would have delivered it.\n   */",
     "// An immediate slider has no draft of its own: the caller's `value` is the only answer, and a local",
     "// copy would go stale the moment the caller batches and settles on something else.",
+    "/** What each key a roving radio group answers to does to the selection. */",
+    "/**\n * The tab order and arrow-key behaviour a `role=\"radiogroup\"` of hand-drawn radios has to provide for\n * itself: one stop in the tab sequence (the selected radio, or the first when nothing is selected),\n * and the arrows that move the selection while keeping focus on what was just selected.\n *\n * A native radio group gets all of this from the browser, but a native radio cannot be drawn as the\n * shapes these groups wear — the segmented control's pill and a settings card holding a badge, a\n * status line and a configuration panel. So the two implementations share this one rather than each\n * writing the same stepping again.\n *\n * `values` is the group's options in visual order, `value` the selected one, and `onSelect` what\n * applies a choice; the caller writes the returned handlers onto each radio element it renders.\n */",
+    "// Only the selected radio is a tab stop, so one Tab lands the user on the group's current answer",
+    "// and the arrows take it from there — the pattern the radiogroup role tells a screen reader to expect.",
   ]],
   ["src/client/components/overlay-search.test.ts", [
     "/** What the user sees after typing: the field's own value plus whatever the list kept. */",
