@@ -359,4 +359,22 @@ export class ReaderLibraryStore {
     await this.db.batch([...statements, ...groupStatements])
     return { missingBlobs, missingCovers }
   }
+
+  /** The book a blob upload is answered from: the format that decides the key, the size already charged. */
+  async bookForBlob(bookId: string): Promise<{ format: string; size: number } | null> {
+    return this.db.prepare('SELECT format, size FROM reader_books WHERE user_id = ?1 AND id = ?2')
+      .bind(this.userId, bookId).first<{ format: string; size: number }>()
+  }
+
+  /** Record where the bytes landed. The key comes from the route, which derives it from this row. */
+  async markBlobStored(bookId: string, key: string, size: number): Promise<void> {
+    await this.db.prepare('UPDATE reader_books SET r2_key = ?1, size = ?2, updated_at = ?3, has_blob = 1 WHERE user_id = ?4 AND id = ?5')
+      .bind(key, size, Date.now(), this.userId, bookId).run()
+  }
+
+  /** The book a download is served from, including the name the reader gave the file. */
+  async bookForDownload(bookId: string): Promise<{ format: string; r2_key: string; filename: string | null } | null> {
+    return this.db.prepare('SELECT format, r2_key, filename FROM reader_books WHERE user_id = ?1 AND id = ?2')
+      .bind(this.userId, bookId).first<{ format: string; r2_key: string; filename: string | null }>()
+  }
 }

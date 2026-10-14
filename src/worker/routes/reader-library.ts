@@ -401,8 +401,8 @@ readerLibraryRoutes.put('/library', async (c) => {
 readerLibraryRoutes.put('/books/:id/blob', async (c) => {
   const userId = requireId(c.get('userId'), 'User id')
   const id = requireId(c.req.param('id'), 'Book id')
-  const row = await c.env.DB.prepare('SELECT format, size FROM reader_books WHERE user_id = ?1 AND id = ?2')
-    .bind(userId, id).first<{ format: string; size: number }>()
+  const library = store(c, userId)
+  const row = await library.bookForBlob(id)
   if (!row) throw ApiError.notFound('Unknown book')
   const format = row.format as BookFormat
   const declared = Number(c.req.header('content-length') ?? 0)
@@ -419,8 +419,7 @@ readerLibraryRoutes.put('/books/:id/blob', async (c) => {
   if (!r2) throw ApiError.notFound('R2 storage is not configured')
   const key = readerBookKey(userId, id, EXTENSIONS[format])
   await r2.put(key, bytes, { httpMetadata: { contentType: CONTENT_TYPES[format] } })
-  await c.env.DB.prepare('UPDATE reader_books SET r2_key = ?1, size = ?2, updated_at = ?3, has_blob = 1 WHERE user_id = ?4 AND id = ?5')
-    .bind(key, bytes.byteLength, Date.now(), userId, id).run()
+  await library.markBlobStored(id, key, bytes.byteLength)
   return c.json({ ok: true as const, size: bytes.byteLength, key })
 })
 
@@ -428,8 +427,7 @@ readerLibraryRoutes.put('/books/:id/blob', async (c) => {
 readerLibraryRoutes.get('/books/:id/blob', async (c) => {
   const userId = requireId(c.get('userId'), 'User id')
   const id = requireId(c.req.param('id'), 'Book id')
-  const row = await c.env.DB.prepare('SELECT format, r2_key, filename FROM reader_books WHERE user_id = ?1 AND id = ?2')
-    .bind(userId, id).first<{ format: string; r2_key: string; filename: string | null }>()
+  const row = await store(c, userId).bookForDownload(id)
   if (!row) throw ApiError.notFound('Unknown book')
   const r2 = c.env.FILES
   if (!r2) throw ApiError.notFound('R2 storage is not configured')
