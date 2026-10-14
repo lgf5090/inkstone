@@ -12,6 +12,7 @@ import type {
   AssistantConversation,
   AssistantMessage,
   AssistantMemory,
+  AssistantModel,
   AssistantProvider,
   AssistantSettings,
   ChatPrompt,

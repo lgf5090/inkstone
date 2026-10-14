@@ -56,7 +56,7 @@ function seed(count: number, matches: string[] = []) {
   } as unknown as Env
 }
 
-const matched = async () => (await searchSemanticNotes(env, env.DB, USER, QUERY, {}))
+const matched = async () => ((await searchSemanticNotes(env, env.DB, USER, QUERY, {})) ?? [])
   .filter((hit) => hit.score > 0.5)
   .map((hit) => hit.id)
 
@@ -76,14 +76,14 @@ describe('searchSemanticNotes scan window', () => {
 
   it('joins the second page without dropping or duplicating rows', async () => {
     seed(TOTAL, [idOf(500), idOf(300), idOf(1100)])
-    const hits = await searchSemanticNotes(env, env.DB, USER, QUERY, {})
+    const hits = (await searchSemanticNotes(env, env.DB, USER, QUERY, {})) ?? []
     expect(new Set(hits.map((hit) => hit.id)).size).toBe(hits.length)
     expect(await matched()).toEqual([idOf(1100), idOf(500), idOf(300)])
   })
 
   it('stops paging once the account runs out of vectors', async () => {
     seed(7, [idOf(0)])
-    const hits = await searchSemanticNotes(env, env.DB, USER, QUERY, {})
+    const hits = (await searchSemanticNotes(env, env.DB, USER, QUERY, {})) ?? []
     expect(hits).toHaveLength(7)
     expect(hits[0]).toMatchObject({ id: idOf(0), score: 1 })
   })
@@ -93,7 +93,7 @@ describe('searchSemanticNotes scan window', () => {
   it('pages a single-valued indexed_at by note_id at the boundary', async () => {
     seed(TOTAL, [idOf(499), idOf(500)])
     sqlite.exec('UPDATE ai_note_embeddings SET indexed_at = 1700000000000')
-    const hits = await searchSemanticNotes(env, env.DB, USER, QUERY, {})
+    const hits = (await searchSemanticNotes(env, env.DB, USER, QUERY, {})) ?? []
     expect(new Set(hits.map((hit) => hit.id)).size).toBe(hits.length)
     expect(hits.filter((hit) => hit.score > 0.5).map((hit) => hit.id).sort())
       .toEqual([idOf(499), idOf(500)])
