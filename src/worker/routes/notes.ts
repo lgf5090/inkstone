@@ -215,8 +215,7 @@ export function trashPurgeStatements(
 
 
 notesRoutes.get('/:id', async (c) => {
-  const note = await loadNote(c.env.DB, c.get('userId'), c.req.param('id'))
-  return c.json(note)
+  return c.json(await loadNote(store(c), c.req.param('id')))
 })
 
 notesRoutes.post('/', async (c) => {
@@ -244,16 +243,12 @@ notesRoutes.post('/', async (c) => {
 
   const id = body.id ?? newId()
   if (body.id) {
-    const existing = await c.env.DB.prepare(
-      `SELECT ${NOTE_COLUMNS_FULL} FROM notes n WHERE n.id = ?1 AND n.user_id = ?2`,
-    )
-      .bind(id, userId)
-      .first<NoteRow>()
+    // A client-supplied id makes the create idempotent: the account's own note answers with 200,
+    // another account's with 409, and only an unclaimed id is inserted.
+    const s = store(c)
+    const existing = await s.noteRow(id)
     if (existing) return c.json(toNote(existing))
-    const collision = await c.env.DB.prepare(`SELECT user_id FROM notes WHERE id = ?1`)
-      .bind(id)
-      .first<{ user_id: string }>()
-    if (collision) throw ApiError.conflict('This note id is already in use')
+    if (await s.idTakenByAnyone(id)) throw ApiError.conflict('This note id is already in use')
   }
   const now = Date.now()
   const title = resolveNoteTitle(body.title)
@@ -261,7 +256,7 @@ notesRoutes.post('/', async (c) => {
   const { words, chars } = countText(content)
   // The quota read rides along with hashing instead of adding a serial round trip.
   const [hash] = await Promise.all([sha256Hex(content), assertNoteQuota(c.env.DB, userId)])
-  const folderId = await resolveFolderId(c.env.DB, userId, body.folderId ?? null)
+  const folderId = await resolveFolderId(c, body.folderId ?? null)
 
   const insert = c.env.DB.prepare(
     `INSERT OR IGNORE INTO notes (id, user_id, folder_id, title, content, excerpt, rev, word_count, char_count,
@@ -320,19 +315,10 @@ notesRoutes.patch('/:id', async (c) => {
   const { ftsEnabled } = c.get('database')
   const body = await readJson<PatchNoteBody>(c, JSON_BODY_LIMITS.note)
 
-  const row = await c.env.DB.prepare(
-    `SELECT ${NOTE_COLUMNS_FULL} FROM notes n WHERE n.id = ?1 AND n.user_id = ?2`,
-  )
-    .bind(id, userId)
-    .first<NoteRow>()
+  const s = store(c)
+  const row = await s.noteRow(id)
   if (!row) {
-    const deletion = await c.env.DB.prepare(
-      `SELECT MAX(seq) AS seq FROM changes
-        WHERE user_id = ?1 AND entity = 'note' AND entity_id = ?2 AND op = 'delete'`,
-    )
-      .bind(userId, id)
-      .first<{ seq: number | null }>()
-    throw ApiError.notFound('Note not found', { deletionCursor: deletion?.seq ?? null })
+    throw ApiError.notFound('Note not found', { deletionCursor: await s.latestDeletionSeq(id) })
   }
 
   if (!Number.isInteger(body.rev) || body.rev < 1) {
@@ -393,7 +379,7 @@ notesRoutes.patch('/:id', async (c) => {
   }
 
   if (body.folderId !== undefined && body.folderId !== row.folder_id) {
-    push(sets, binds, 'folder_id', await resolveFolderId(c.env.DB, userId, body.folderId))
+    push(sets, binds, 'folder_id', await resolveFolderId(c, body.folderId))
   }
   if (typeof body.isPinned === 'boolean' && Number(body.isPinned) !== row.is_pinned) push(sets, binds, 'is_pinned', body.isPinned ? 1 : 0)
   if (typeof body.isStarred === 'boolean' && Number(body.isStarred) !== row.is_starred) push(sets, binds, 'is_starred', body.isStarred ? 1 : 0)
@@ -506,7 +492,7 @@ notesRoutes.patch('/:id', async (c) => {
   const results = await c.env.DB.batch(statements)
   const updateResult = results[0]
   if (!updateResult?.meta.changes) {
-    const current = await loadNote(c.env.DB, userId, id)
+    const current = await loadNote(store(c), id)
     throw ApiError.conflict('This note was modified elsewhere', { server: current })
   }
   const changeResult = results.at(-1) as D1Result<{ seq: number }> | undefined
@@ -560,7 +546,7 @@ notesRoutes.delete('/:id', async (c) => {
   const id = c.req.param('id')
   const { ftsEnabled } = c.get('database')
 
-  const row = await loadNoteRow(c.env.DB, userId, id)
+  const row = await loadNoteRow(store(c), id)
   if (row.deleted_at !== null) throw ApiError.notFound('The note does not exist or is in the trash')
   const now = Math.max(Date.now(), row.updated_at + 1)
   const nextRev = row.rev + 1
@@ -604,7 +590,7 @@ notesRoutes.delete('/:id', async (c) => {
   const results = await c.env.DB.batch(statements)
   const updated = results[0]
   if (!updated?.meta.changes) {
-    throw ApiError.conflict('This note was modified elsewhere', { server: await loadNote(c.env.DB, userId, id) })
+    throw ApiError.conflict('This note was modified elsewhere', { server: await loadNote(store(c), id) })
   }
   const changeResult = results.at(-1) as D1Result<{ seq: number }> | undefined
   await broadcastCursor(c, changeResult?.results?.[0]?.seq)
@@ -617,7 +603,7 @@ notesRoutes.post('/:id/restore', async (c) => {
   const userId = c.get('userId')
   const id = c.req.param('id')
   const { ftsEnabled } = c.get('database')
-  const row = await loadNoteRow(c.env.DB, userId, id)
+  const row = await loadNoteRow(store(c), id)
   if (row.deleted_at === null) throw ApiError.badRequest('The note is not in the trash')
   await assertNoteQuota(c.env.DB, userId)
 
@@ -658,7 +644,7 @@ notesRoutes.post('/:id/restore', async (c) => {
   ])
   const updated = batchResults[0]
   if (!updated?.meta.changes) {
-    throw ApiError.conflict('This note was modified elsewhere', { server: await loadNote(c.env.DB, userId, id) })
+    throw ApiError.conflict('This note was modified elsewhere', { server: await loadNote(store(c), id) })
   }
   const changeSeq = (batchResults.at(-2) as D1Result<{ seq: number }>).results?.[0]?.seq
   await broadcastCursor(c, changeSeq)
@@ -672,7 +658,7 @@ notesRoutes.delete('/:id/purge', async (c) => {
   const userId = c.get('userId')
   const id = c.req.param('id')
   const { ftsEnabled } = c.get('database')
-  const row = await loadNoteRow(c.env.DB, userId, id)
+  const row = await loadNoteRow(store(c), id)
   if (row.deleted_at === null) throw ApiError.notFound('The note does not exist or is not in the trash')
   const guard = `EXISTS (SELECT 1 FROM notes
     WHERE id = ?1 AND user_id = ?2 AND rev = ?3 AND deleted_at IS NOT NULL)`
@@ -752,7 +738,7 @@ notesRoutes.delete('/:id/purge', async (c) => {
 notesRoutes.post('/:id/duplicate', async (c) => {
   const userId = c.get('userId')
   const { ftsEnabled } = c.get('database')
-  const source = await loadNoteRow(c.env.DB, userId, c.req.param('id'))
+  const source = await loadNoteRow(store(c), c.req.param('id'))
   const body = c.req.header('Content-Type')?.includes('application/json')
     ? await readJson<{ id?: string }>(c, JSON_BODY_LIMITS.small)
     : {}
@@ -762,14 +748,9 @@ notesRoutes.post('/:id/duplicate', async (c) => {
 
   const id = body.id ?? newId()
   if (body.id) {
-    const existing = await c.env.DB.prepare(
-      `SELECT ${NOTE_COLUMNS_FULL} FROM notes n WHERE n.id = ?1 AND n.user_id = ?2`,
-    ).bind(id, userId).first<NoteRow>()
+    const existing = await store(c).noteRow(id)
     if (existing) return c.json(toNote(existing))
-    const collision = await c.env.DB.prepare(`SELECT user_id FROM notes WHERE id = ?1`)
-      .bind(id)
-      .first<{ user_id: string }>()
-    if (collision) throw ApiError.conflict('This note id is already in use')
+    if (await store(c).idTakenByAnyone(id)) throw ApiError.conflict('This note id is already in use')
   }
   const now = Date.now()
   const title = duplicateNoteTitle(source.title, LIMITS.titleMaxLength)
@@ -901,7 +882,7 @@ notesRoutes.post('/:id/versions/:versionId/restore', async (c) => {
     .first<{ title: string; content: string }>()
   if (!version) throw ApiError.notFound('Version not found')
 
-  const current = await loadNoteRow(c.env.DB, userId, id)
+  const current = await loadNoteRow(store(c), id)
   const now = Math.max(Date.now(), current.updated_at + 1)
   const { words, chars } = countText(version.content)
   const title = restoredVersionTitle(version.title)
@@ -974,7 +955,7 @@ notesRoutes.post('/:id/versions/:versionId/restore', async (c) => {
   ])
   const updated = restoreBatch[0]
   if (!updated?.meta.changes) {
-    throw ApiError.conflict('This note was modified elsewhere', { server: await loadNote(c.env.DB, userId, id) })
+    throw ApiError.conflict('This note was modified elsewhere', { server: await loadNote(store(c), id) })
   }
   const restoreSeq = (restoreBatch.at(-2) as D1Result<{ seq: number }>).results?.[0]?.seq
   await broadcastCursor(c, restoreSeq)
@@ -989,11 +970,9 @@ notesRoutes.get('/:id/backlinks', async (c) => {
   const userId = c.get('userId')
   const id = c.req.param('id')
   const { ftsEnabled } = c.get('database')
-  const target = await c.env.DB.prepare(
-    `SELECT title FROM notes WHERE id = ?1 AND user_id = ?2`,
-  ).bind(id, userId).first<{ title: string }>()
-  if (!target) throw ApiError.notFound('Note not found')
-  const note = { id, title: target.title }
+  const title = await store(c).noteTitle(id)
+  if (title === null) throw ApiError.notFound('Note not found')
+  const note = { id, title }
   return c.json({
     backlinks: await findLinkedBacklinks(c.env.DB, userId, note),
     unlinked: await findUnlinkedMentions(c.env.DB, userId, note, ftsEnabled, LIMITS.mentionLimit),
@@ -1018,11 +997,9 @@ notesRoutes.post('/:id/link-mention', async (c) => {
   const sourceId = typeof body.sourceNoteId === 'string' ? body.sourceNoteId : ''
   if (!isValidId(sourceId)) throw ApiError.badRequest('sourceNoteId must be a valid note id')
   const { ftsEnabled } = c.get('database')
-  const target = await c.env.DB.prepare(
-    `SELECT title FROM notes WHERE id = ?1 AND user_id = ?2 AND deleted_at IS NULL`,
-  ).bind(targetId, userId).first<{ title: string }>()
-  if (!target) throw ApiError.notFound('Note not found')
-  const outcome = await linkMentionInNote(c.env.DB, userId, sourceId, target.title, ftsEnabled)
+  const title = await store(c).noteTitle(targetId, { liveOnly: true })
+  if (title === null) throw ApiError.notFound('Note not found')
+  const outcome = await linkMentionInNote(c.env.DB, userId, sourceId, title, ftsEnabled)
   if (outcome.status === 'missing') throw ApiError.notFound('Note not found')
   if (outcome.status === 'conflict') throw ApiError.conflict('That note changed while it was being linked; try again')
   if (outcome.status === 'no-mention') return c.json({ status: outcome.status })
@@ -1308,15 +1285,12 @@ export async function findUnlinkedMentions(
 }
 
 
-async function loadNote(db: D1Database, userId: string, id: string): Promise<Note> {
-  return toNote(await loadNoteRow(db, userId, id))
+async function loadNote(store: NotesStore, id: string): Promise<Note> {
+  return toNote(await loadNoteRow(store, id))
 }
 
-async function loadNoteRow(db: D1Database, userId: string, id: string): Promise<NoteRow> {
-  const row = await db
-    .prepare(`SELECT ${NOTE_COLUMNS_FULL} FROM notes n WHERE n.id = ?1 AND n.user_id = ?2`)
-    .bind(id, userId)
-    .first<NoteRow>()
+async function loadNoteRow(store: NotesStore, id: string): Promise<NoteRow> {
+  const row = await store.noteRow(id)
   if (!row) throw ApiError.notFound('Note not found')
   return row
 }
@@ -1585,17 +1559,12 @@ function shiftSqlPlaceholders(sql: string, offset: number): string {
 }
 
 async function resolveFolderId(
-  db: D1Database,
-  userId: string,
+  c: Context<AppBindings>,
   folderId: string | null | undefined,
 ): Promise<string | null> {
   if (!folderId) return null
-  const row = await db
-    .prepare(`SELECT id FROM folders WHERE id = ?1 AND user_id = ?2 AND deleted_at IS NULL`)
-    .bind(folderId, userId)
-    .first<{ id: string }>()
-  if (!row) throw ApiError.badRequest('Folder not found')
-  return row.id
+  if (!await store(c).folderExists(folderId)) throw ApiError.badRequest('Folder not found')
+  return folderId
 }
 
 notesRoutes.post('/rebuild-derived', async (c) => {

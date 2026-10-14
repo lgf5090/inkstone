@@ -22,6 +22,7 @@
 import { likePattern } from '@shared/markdown-utils'
 import type { SortKey, SortOrder, ViewKind } from '@shared/types'
 import {
+  NOTE_COLUMNS_FULL,
   NOTE_COLUMNS_NOTAGS,
   attachNoteTags,
   noteTagsQueryForPage,
@@ -212,5 +213,78 @@ export class NotesStore {
     const rows = (listResult?.results as NoteRow[] | undefined) ?? []
     attachNoteTags(rows, (tagResult?.results as NoteTagRow[] | undefined) ?? [])
     return { rows, total }
+  }
+
+  // ------------------------------------------------------------------ reads
+
+  /**
+   * One note of this account, tags and body included.
+   *
+   * `null` means "not this account's or not there", which is the same 404 either way: the route must
+   * not be able to tell another account's note id apart from a missing one.
+   */
+  async noteRow(id: string): Promise<NoteRow | null> {
+    const row = await this.db
+      .prepare(`SELECT ${NOTE_COLUMNS_FULL} FROM notes n WHERE n.id = ?1 AND n.user_id = ?2`)
+      .bind(id, this.userId)
+      .first<NoteRow>()
+    return row ?? null
+  }
+
+  /**
+   * Just the title, for the panels that show a note's surroundings rather than the note.
+   *
+   * `liveOnly` drops trashed notes: linking a mention into a note that is in the trash would edit
+   * text nobody can reach, while the backlink panel still has to answer for a trashed note.
+   */
+  async noteTitle(id: string, options: { liveOnly?: boolean } = {}): Promise<string | null> {
+    const row = await this.db
+      .prepare(
+        `SELECT title FROM notes WHERE id = ?1 AND user_id = ?2${options.liveOnly ? ' AND deleted_at IS NULL' : ''}`,
+      )
+      .bind(id, this.userId)
+      .first<{ title: string }>()
+    return row?.title ?? null
+  }
+
+  /**
+   * Whether any account already owns this id.
+   *
+   * Deliberately the one statement here without a `user_id` filter: it answers a client-supplied id
+   * collision, which is only meaningful across accounts. It reads a single column of a row the caller
+   * cannot address any other way, and the caller has already failed the same id against its own note.
+   */
+  async idTakenByAnyone(id: string): Promise<boolean> {
+    const row = await this.db
+      .prepare(`SELECT user_id FROM notes WHERE id = ?1`)
+      .bind(id)
+      .first<{ user_id: string }>()
+    return row !== null
+  }
+
+  /**
+   * The newest `delete` change recorded for a note.
+   *
+   * Returned to a client that asked for a note it already deleted, so it can advance its cursor past
+   * the deletion instead of refetching the note forever.
+   */
+  async latestDeletionSeq(id: string): Promise<number | null> {
+    const row = await this.db
+      .prepare(
+        `SELECT MAX(seq) AS seq FROM changes
+          WHERE user_id = ?1 AND entity = 'note' AND entity_id = ?2 AND op = 'delete'`,
+      )
+      .bind(this.userId, id)
+      .first<{ seq: number | null }>()
+    return row?.seq ?? null
+  }
+
+  /** Whether the account owns a live folder — the only check a note's `folderId` needs. */
+  async folderExists(folderId: string): Promise<boolean> {
+    const row = await this.db
+      .prepare(`SELECT id FROM folders WHERE id = ?1 AND user_id = ?2 AND deleted_at IS NULL`)
+      .bind(folderId, this.userId)
+      .first<{ id: string }>()
+    return row !== null
   }
 }
