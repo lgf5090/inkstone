@@ -698,7 +698,14 @@ function rawZIndexSites(): Array<{ key: string; file: string; value: string; for
         if (attributeName === 'className' || attributeName === 'class') {
           for (const match of raw.matchAll(Z_INDEX_CLASS_RE)) push(name, line, match[1], 'className z-[N]')
         }
-        if (attributeName === 'zIndex') push(name, line, raw, 'zIndex prop')
+        // `zIndex={240}` arrives here with its braces, which is a number the browser will read but the
+        // digit test below would not have seen.
+        if (attributeName === 'zIndex') push(name, line, raw.replace(/[{}]/g, ''), 'zIndex prop')
+      }
+      if (ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node)) {
+        // A class list built in a variable or a helper never reaches a `className` attribute node, so
+        // reading only attributes left `const base = 'fixed z-[255] …'` invisible to this guard.
+        for (const match of node.getText().matchAll(Z_INDEX_CLASS_RE)) push(name, line, match[1], 'string z-[N]')
       }
       if (ts.isPropertyAssignment(node)) {
         const key = node.name.getText()
@@ -720,25 +727,13 @@ function rawZIndexSites(): Array<{ key: string; file: string; value: string; for
  * checked by value, so moving one does not clear the entry and changing one fails.
  */
 const RAW_Z_INDEX_BASELINE = new Map<string, { value: string; reason: string }>([
-  ['src/client/features/command/CommandPalette.tsx:294', { value: '240', reason: 'Palette overlay level recorded when this guard landed; the scale has no token at 240. Not audited as correct — converge onto Z_INDEX and delete the entry.' }],
-  ['src/client/features/excalidraw/TextToDiagramModal.tsx:442', { value: '100', reason: 'Modal level written as a literal; Z_INDEX has a modal token, this should use it.' }],
-  ['src/client/features/excalidraw/library/ExcalidrawOfficialLibraryModal.tsx:380', { value: '9999', reason: 'Outranks every declared layer; a bare 9999 is the clearest case for a token, kept only because this file is not owned here.' }],
-  ['src/client/features/folders/FolderMoveMenu.tsx:197', { value: '270', reason: 'Menu popover level recorded when this guard landed; not audited as correct.' }],
-  ['src/client/features/graph/GraphPanel.tsx:366', { value: '230', reason: 'Graph panel overlay level recorded when this guard landed; not audited as correct.' }],
+  ['src/client/features/excalidraw/TextToDiagramModal.tsx:442', { value: '100', reason: 'Inside the Excalidraw host, whose canvas already fixes its own stacking context; the app scale governs the viewport-fixed tiers and reaching for one here would fight the vendor surface.' }],
   ['src/client/features/graph/graph-panel/overlays.tsx:44', { value: '1', reason: 'Local stacking lift inside the graph panel, not a shell layer.' }],
-  ['src/client/features/graph/graph-panel/overlays.tsx:151', { value: '240', reason: 'Graph overlay level recorded when this guard landed; not audited as correct.' }],
   ['src/client/features/graph/graph-panel/overlays.tsx:161', { value: '3', reason: 'Local stacking lift inside the graph panel, not a shell layer.' }],
-  ['src/client/features/omnisearch/OmnisearchPrompt.tsx:411', { value: '240', reason: 'Omnisearch prompt overlay level recorded when this guard landed; not audited as correct.' }],
-  ['src/client/features/preview/Lightbox.tsx:36', { value: '260', reason: 'Lightbox level recorded when this guard landed; above modal in the scale, should be a token.' }],
-  ['src/client/features/preview/Outline.tsx:620', { value: '520', reason: 'Outline drop-hint level recorded when this guard landed; not audited as correct.' }],
-  ['src/client/features/reading/LibraryView.tsx:521', { value: '300', reason: 'Reading library overlay level recorded when this guard landed; not audited as correct.' }],
+  ['src/client/features/graph/graph-panel/settings.tsx:53', { value: '235', reason: 'The panel’s own settings drawer: deliberately above the workspace tier it opens from and below every prompt, which no band in the scale names. A band would be invented for one site; arithmetic on two bands would be a tier nobody can look up.' }],
   ['src/client/features/reading/reader/CommentCard.tsx:62', { value: '7', reason: 'Local stacking lift inside the reader card, not a shell layer.' }],
   ['src/client/features/reading/reader/LookupCard.tsx:52', { value: '8', reason: 'Local stacking lift inside the reader card, not a shell layer.' }],
   ['src/client/features/reading/reader/ReaderPanel.tsx:56', { value: '6', reason: 'Local stacking lift inside the reader panel, not a shell layer.' }],
-  ['src/client/features/rss/ArticlePreviewCard.tsx:64', { value: '240', reason: 'RSS preview overlay level recorded when this guard landed; not audited as correct.' }],
-  ['src/client/features/settings/SettingsPanel.tsx:198', { value: '210', reason: 'Settings surface level recorded when this guard landed; not audited as correct.' }],
-  ['src/client/features/shell/MobileLibraryFilters.tsx:51', { value: '240', reason: 'Mobile sheet level recorded when this guard landed; mobile sheet CSS carries the token equivalent.' }],
-  ['src/client/features/templates/template-gallery.tsx:14', { value: '240', reason: 'Template gallery overlay level recorded when this guard landed; not audited as correct.' }],
 ])
 
 /** Stylesheet declarations are the bulk of the residual, so they are budgeted per file by count. */
