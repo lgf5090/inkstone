@@ -339,15 +339,8 @@ const CLICK_CONTAINER_EXCEPTIONS = new Map<string, { sites: number; reason: stri
   [
     'src/client/features/excalidraw/library/ExcalidrawLibraryTree.tsx',
     {
-      sites: 4,
-      reason: 'The stencil tile and the top-level row each select on click and carry hover buttons of their own, so neither can be a plain button. The other two are wrappers whose only handler is stopPropagation, keeping a click inside an inline rename field or a hover toolbar from reaching the tile behind it. Folder rows live in LibraryFolderRow.tsx now and are registered there.',
-    },
-  ],
-  [
-    'src/client/features/excalidraw/library/LibraryFolderRow.tsx',
-    {
-      sites: 3,
-      reason: 'The folder row is a drag source, a drop target for another folder, and the thing you click to filter the grid - all three on one box that also owns four hover buttons. The other two are stopPropagation wrappers: the inline rename field and the hover toolbar, each keeping its own click away from the row behind it.',
+      sites: 1,
+      reason: 'The "All folders" root row: it clears the folder filter on click and owns a hover menu button, so it is not a plain button, and it sits outside `role="tree"` because it is not a branch of that tree. The stencil tiles and folder rows that used to be registered here are real buttons now.',
     },
   ],
   [
