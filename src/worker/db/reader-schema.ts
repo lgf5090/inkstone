@@ -7,8 +7,15 @@
  * one account's shelf at a time, and a query that forgot the column would hand another reader's notes
  * over — the shape a `PRIMARY KEY (user_id, …)` makes impossible to write by accident.
  */
+/**
+ * The shelf itself, keyed on the account first.
+ *
+ * A book's id is minted by the reader from the file's own name and size, so it is content, not a
+ * random token: two accounts that added the same public-domain file hold the same string. Made
+ * globally unique, that let one account's push replace another's row away, so the key is the pair.
+ */
 export const READER_BOOK_TABLE = `CREATE TABLE IF NOT EXISTS reader_books (
-  id TEXT PRIMARY KEY,
+  id TEXT NOT NULL,
   user_id TEXT NOT NULL,
   title TEXT NOT NULL,
   author TEXT NOT NULL DEFAULT '',
@@ -26,7 +33,8 @@ export const READER_BOOK_TABLE = `CREATE TABLE IF NOT EXISTS reader_books (
   /** Whether this account's bytes are actually in R2. The server owns it: a push never clears it. */
   has_blob INTEGER NOT NULL DEFAULT 0,
   cover_key TEXT,
-  cover_size INTEGER NOT NULL DEFAULT 0
+  cover_size INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY (user_id, id)
 )`
 
 /** A reader-named collection of books. Membership is the group's own list, so a book can be in several. */
@@ -42,11 +50,14 @@ export const READER_GROUP_TABLE = `CREATE TABLE IF NOT EXISTS reader_groups (
 
 export const READER_GROUP_INDEX = `CREATE INDEX IF NOT EXISTS idx_reader_groups_user ON reader_groups(user_id, updated_at DESC, id)`
 
+/** The shelf's own read path: one account, newest first. Rebuilt alongside the table it indexes. */
+export const READER_BOOK_INDEX = `CREATE INDEX IF NOT EXISTS idx_reader_books_user ON reader_books(user_id, added_at DESC, id)`
+
 export const READER_SCHEMA_STATEMENTS: readonly string[] = [
   READER_BOOK_TABLE,
   READER_GROUP_TABLE,
   READER_GROUP_INDEX,
-  `CREATE INDEX IF NOT EXISTS idx_reader_books_user ON reader_books(user_id, added_at DESC, id)`,
+  READER_BOOK_INDEX,
   `CREATE TABLE IF NOT EXISTS reader_progress (
     user_id TEXT NOT NULL,
     book_id TEXT NOT NULL,

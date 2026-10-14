@@ -126,6 +126,21 @@ describe('the shelf round trip', () => {
     expect(stolen.status).toBe(404)
   })
 
+  it('lets two accounts shelve the same file without either losing it', async () => {
+    // A book id is minted by the reader from the file's name and size, so the same download lands on
+    // two shelves as the same string. Sharing one row between them would let Bob's push delete Alice's.
+    expect((await send('PUT', '/library', { library: library() })).status).toBe(200)
+    mocks.userId = BOB
+    expect((await send('PUT', '/library', { library: library() })).status).toBe(200)
+    const bob = await (await send('GET', '/library')).json() as { library: any }
+    expect(bob.library.books.map((one: any) => one.title)).toEqual(['道德经'])
+    mocks.userId = ALICE
+    const alice = await (await send('GET', '/library')).json() as { library: any }
+    expect(alice.library.books.map((one: any) => one.title)).toEqual(['道德经'])
+    expect(alice.library.highlights['book-1']).toHaveLength(1)
+    expect(alice.library.progress['book-1'].position).toEqual({ kind: 'epub', chapter: 0, offset: 120 })
+  })
+
   it('replaces the state wholesale, so a deleted highlight stays deleted', async () => {
     await send('PUT', '/library', { library: library() })
     await send('PUT', '/library', { library: library({ highlights: { 'book-1': [] }, books: [] }) })

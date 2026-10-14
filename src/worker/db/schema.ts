@@ -1,7 +1,7 @@
 /** Defines the idempotent final D1 schema initialized by every Worker isolate. */
 import type { DatabaseState, Env } from '../env'
 import { getMeta, setMeta } from './metadata'
-import { READER_GROUP_INDEX, READER_GROUP_TABLE, READER_SCHEMA_STATEMENTS } from './reader-schema'
+import { READER_BOOK_INDEX, READER_BOOK_TABLE, READER_GROUP_INDEX, READER_GROUP_TABLE, READER_SCHEMA_STATEMENTS } from './reader-schema'
 import {
   ASSISTANT_REQUIRED_COLUMNS,
   ASSISTANT_REQUIRED_INDEXES,
@@ -1297,6 +1297,7 @@ async function createSchema(db: D1Database): Promise<DatabaseState> {
     await runStatements(db, TABLE_SCHEMA_STATEMENTS)
   }
   await applyMigrations(db)
+  await repairReaderBookTenantKey(db)
   if (initialized) {
     await runStatements(db, INDEX_SCHEMA_STATEMENTS)
   }
@@ -1344,6 +1345,36 @@ async function rebuildFtsIfLegacyShape(
     db.prepare(`DROP TABLE notes_fts`),
     db.prepare(`ALTER TABLE ${tempName} RENAME TO notes_fts`),
   ])
+}
+
+/**
+ * Put the reader's shelf rows under their own account's key.
+ *
+ * `reader_books` used to make the book id the whole primary key, while the id itself is minted by the
+ * client from the file's name and size — so two accounts that added the same file held the same key and
+ * a push from one replaced the other's row away. SQLite cannot alter a primary key, so the table is
+ * rebuilt in place the way the full-text index is: copy, drop, rename, in one batch that either lands
+ * whole or leaves the old table alone. Only the legacy shape is rebuilt, so a converged database pays
+ * one read of `sqlite_master` and nothing else.
+ */
+async function repairReaderBookTenantKey(db: D1Database): Promise<void> {
+  const table = await db.prepare(
+    `SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'reader_books'`,
+  ).first<{ sql: string }>()
+  if (!table || !/\bid\s+TEXT\s+PRIMARY\s+KEY\b/i.test(table.sql)) return
+  // The columns are named on both sides of the copy on purpose: a database whose ledger lied about a
+  // reader column would then fail the insert loudly instead of shifting every value one slot right.
+  const columns = 'id, user_id, title, author, format, filename, language, publisher, size, unit_count, r2_key, has_cover, toc, added_at, updated_at, has_blob, cover_key, cover_size'
+  await db.batch([
+    db.prepare(READER_BOOK_TABLE.replace('IF NOT EXISTS reader_books', 'reader_books_tenant_key')),
+    db.prepare(`INSERT INTO reader_books_tenant_key (${columns}) SELECT ${columns} FROM reader_books`),
+    db.prepare('DROP TABLE reader_books'),
+    db.prepare('ALTER TABLE reader_books_tenant_key RENAME TO reader_books'),
+    // Dropping the table dropped its index with it; the shelf is read one account at a time, so it
+    // has to be back before the boot checks the required indexes.
+    db.prepare(READER_BOOK_INDEX),
+  ])
+  console.warn('[inkstone] Schema repair: rebuilt reader_books on a per-account primary key')
 }
 
 async function applyMigrations(db: D1Database): Promise<void> {

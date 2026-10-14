@@ -22,6 +22,14 @@ function tablesOf(sqlite: DatabaseSync): string[] {
   return sqlite.prepare(`SELECT name FROM sqlite_master WHERE type = 'table'`).all().map(row => (row as { name: string }).name)
 }
 
+function ddlOf(sqlite: DatabaseSync, table: string): string {
+  return (sqlite.prepare(`SELECT sql FROM sqlite_master WHERE type = 'table' AND name = ?`).get(table) as { sql: string }).sql
+}
+
+function indexesOf(sqlite: DatabaseSync): string[] {
+  return sqlite.prepare(`SELECT name FROM sqlite_master WHERE type = 'index'`).all().map(row => (row as { name: string }).name)
+}
+
 const TABLES = SCHEMA_STATEMENTS.filter((text) => /^\s*CREATE TABLE IF NOT EXISTS/.test(text))
 const ADDITIONS = SCHEMA_MIGRATIONS.flatMap((migration) => migration.statements)
 
@@ -160,6 +168,86 @@ describe('a boot onto a database whose ledger lies', () => {
       await reboot(sqlite)
       expect(tablesOf(sqlite).join(',')).toBe(before)
       expect(warn.mock.calls.filter(call => String(call[1] ?? call[0]).includes('Schema repair'))).toHaveLength(0)
+    }
+    finally {
+      warn.mockRestore()
+    }
+  })
+})
+
+/**
+ * The one shape this boot has to rewrite rather than add to.
+ *
+ * `reader_books` shipped with the book id alone as its primary key, and that id is minted by the client
+ * from the file's name and size — so two accounts that shelved the same file landed on the same key and
+ * a push from either replaced the other's row away. A primary key cannot be ALTERed, so the table is
+ * rebuilt in place, and the repair has to prove it carries the rows over instead of merely surviving.
+ */
+describe('a shelf still keyed the way the first reader left it', () => {
+  const LEGACY_BOOKS = `CREATE TABLE reader_books (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    title TEXT NOT NULL,
+    author TEXT NOT NULL DEFAULT '',
+    format TEXT NOT NULL,
+    filename TEXT NOT NULL,
+    language TEXT NOT NULL DEFAULT '',
+    publisher TEXT NOT NULL DEFAULT '',
+    size INTEGER NOT NULL DEFAULT 0,
+    unit_count INTEGER NOT NULL DEFAULT 0,
+    r2_key TEXT NOT NULL,
+    has_cover INTEGER NOT NULL DEFAULT 0,
+    toc TEXT NOT NULL DEFAULT '[]',
+    added_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL,
+    has_blob INTEGER NOT NULL DEFAULT 0,
+    cover_key TEXT,
+    cover_size INTEGER NOT NULL DEFAULT 0
+  )`
+
+  function legacyShelf(): string {
+    return `INSERT INTO reader_books (id, user_id, title, format, filename, r2_key, added_at, updated_at)
+      VALUES ('file:dao.epub:4096', 'alice', 'dao', 'epub', 'dao.epub', 'reader/alice/dao.epub', 1, 1)`
+  }
+
+  async function drifted(): Promise<DatabaseSync> {
+    const sqlite = await installed()
+    sqlite.exec('DROP TABLE reader_books')
+    sqlite.exec(LEGACY_BOOKS)
+    sqlite.exec(legacyShelf())
+    expect(ddlOf(sqlite, 'reader_books')).toMatch(/id TEXT PRIMARY KEY/)
+    return sqlite
+  }
+
+  it('rebuilds the key and keeps the row that was already there', async () => {
+    const sqlite = await drifted()
+    await reboot(sqlite)
+    expect(ddlOf(sqlite, 'reader_books')).toMatch(/PRIMARY KEY \(user_id, id\)/)
+    expect(sqlite.prepare(`SELECT title, r2_key FROM reader_books`).all()).toEqual([
+      { title: 'dao', r2_key: 'reader/alice/dao.epub' },
+    ])
+    // Dropping the table drops its index with it, so the rebuild has to put it back or the boot
+    // would refuse the schema it just repaired.
+    expect(indexesOf(sqlite)).toContain('idx_reader_books_user')
+  })
+
+  it('lets a second account shelve the same file afterwards', async () => {
+    const sqlite = await drifted()
+    await reboot(sqlite)
+    sqlite.exec(`INSERT INTO reader_books (id, user_id, title, format, filename, r2_key, added_at, updated_at)
+      VALUES ('file:dao.epub:4096', 'bob', 'dao', 'epub', 'dao.epub', 'reader/bob/dao.epub', 2, 2)`)
+    expect(sqlite.prepare(`SELECT COUNT(*) AS n FROM reader_books`).get()).toEqual({ n: 2 })
+  })
+
+  it('does not rebuild a shelf it already repaired', async () => {
+    const sqlite = await drifted()
+    await reboot(sqlite)
+    sqlite.exec(`UPDATE reader_books SET title = 'kept' WHERE user_id = 'alice'`)
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    try {
+      await reboot(sqlite)
+      expect(sqlite.prepare(`SELECT title FROM reader_books`).get()).toEqual({ title: 'kept' })
+      expect(warn.mock.calls.filter(call => String(call[0]).includes('reader_books'))).toHaveLength(0)
     }
     finally {
       warn.mockRestore()
