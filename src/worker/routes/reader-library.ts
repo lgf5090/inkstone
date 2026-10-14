@@ -476,8 +476,8 @@ function isDeclaredImage(type: string, bytes: Uint8Array): boolean {
 readerLibraryRoutes.put('/books/:id/cover', async (c) => {
   const userId = requireId(c.get('userId'), 'User id')
   const id = requireId(c.req.param('id'), 'Book id')
-  const row = await c.env.DB.prepare('SELECT cover_key, cover_size FROM reader_books WHERE user_id = ?1 AND id = ?2')
-    .bind(userId, id).first<{ cover_key: string | null; cover_size: number }>()
+  const library = store(c, userId)
+  const row = await library.bookForCover(id)
   if (!row) throw ApiError.notFound('Unknown book')
   const type = (c.req.header('content-type') ?? '').split(';')[0]?.trim().toLowerCase() ?? ''
   const extension = COVER_EXTENSIONS[type]
@@ -494,16 +494,14 @@ readerLibraryRoutes.put('/books/:id/cover', async (c) => {
   const key = readerCoverKey(userId, id, extension)
   if (row.cover_key && row.cover_key !== key) await r2.delete(row.cover_key).catch(() => {})
   await r2.put(key, buffer, { httpMetadata: { contentType: type } })
-  await c.env.DB.prepare('UPDATE reader_books SET cover_key = ?1, cover_size = ?2 WHERE user_id = ?3 AND id = ?4')
-    .bind(key, buffer.byteLength, userId, id).run()
+  await library.setCover(id, key, buffer.byteLength)
   return c.json({ ok: true as const, size: buffer.byteLength, key })
 })
 
 readerLibraryRoutes.get('/books/:id/cover', async (c) => {
   const userId = requireId(c.get('userId'), 'User id')
   const id = requireId(c.req.param('id'), 'Book id')
-  const row = await c.env.DB.prepare('SELECT cover_key FROM reader_books WHERE user_id = ?1 AND id = ?2')
-    .bind(userId, id).first<{ cover_key: string | null }>()
+  const row = await store(c, userId).coverKeyOf(id)
   if (!row?.cover_key) throw ApiError.notFound('No cover for that book')
   const object = await c.env.FILES?.get(row.cover_key)
   if (!object) throw ApiError.notFound('The cover is not in storage')
@@ -521,27 +519,13 @@ readerLibraryRoutes.get('/books/:id/cover', async (c) => {
 readerLibraryRoutes.delete('/books/:id', async (c) => {
   const userId = requireId(c.get('userId'), 'User id')
   const id = requireId(c.req.param('id'), 'Book id')
-  const row = await c.env.DB.prepare('SELECT r2_key, cover_key FROM reader_books WHERE user_id = ?1 AND id = ?2')
-    .bind(userId, id).first<{ r2_key: string; cover_key: string | null }>()
+  const library = store(c, userId)
+  const row = await library.bookObjects(id)
   if (!row) return c.json({ ok: true as const, removed: false })
   await Promise.all([
     c.env.FILES?.delete(row.r2_key),
     row.cover_key ? c.env.FILES?.delete(row.cover_key) : Promise.resolve(),
   ])
-  await c.env.DB.batch([
-    c.env.DB.prepare('DELETE FROM reader_books WHERE user_id = ?1 AND id = ?2').bind(userId, id),
-    c.env.DB.prepare('DELETE FROM reader_progress WHERE user_id = ?1 AND book_id = ?2').bind(userId, id),
-    c.env.DB.prepare('DELETE FROM reader_highlights WHERE user_id = ?1 AND book_id = ?2').bind(userId, id),
-    c.env.DB.prepare('DELETE FROM reader_marks WHERE user_id = ?1 AND book_id = ?2').bind(userId, id),
-    c.env.DB.prepare('DELETE FROM reader_stats WHERE user_id = ?1 AND book_id = ?2').bind(userId, id),
-    c.env.DB.prepare('DELETE FROM reader_notes WHERE user_id = ?1 AND book_id = ?2').bind(userId, id),
-    // A group keeps its name when it loses a member: the reader made the group, and an empty one
-    // is a place they will put the next book.
-    c.env.DB.prepare(
-      `UPDATE reader_groups SET book_ids = (SELECT COALESCE(json_group_array(value), '[]')
-                                               FROM json_each(reader_groups.book_ids) WHERE value != ?2)
-                                         WHERE user_id = ?1`,
-    ).bind(userId, id),
-  ] as unknown as D1PreparedStatement[])
+  await library.deleteBook(id)
   return c.json({ ok: true as const, removed: true })
 })

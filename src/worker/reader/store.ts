@@ -377,4 +377,50 @@ export class ReaderLibraryStore {
     return this.db.prepare('SELECT format, r2_key, filename FROM reader_books WHERE user_id = ?1 AND id = ?2')
       .bind(this.userId, bookId).first<{ format: string; r2_key: string; filename: string | null }>()
   }
+
+  /** The book a cover upload is answered from: where the old cover lives and how big it was. */
+  async bookForCover(bookId: string): Promise<{ cover_key: string | null; cover_size: number } | null> {
+    return this.db.prepare('SELECT cover_key, cover_size FROM reader_books WHERE user_id = ?1 AND id = ?2')
+      .bind(this.userId, bookId).first<{ cover_key: string | null; cover_size: number }>()
+  }
+
+  /** Record where the cover landed, charged against the account the row belongs to. */
+  async setCover(bookId: string, key: string, size: number): Promise<void> {
+    await this.db.prepare('UPDATE reader_books SET cover_key = ?1, cover_size = ?2 WHERE user_id = ?3 AND id = ?4')
+      .bind(key, size, this.userId, bookId).run()
+  }
+
+  /** The cover object's key, which is the only thing a cover read needs. */
+  async coverKeyOf(bookId: string): Promise<{ cover_key: string | null } | null> {
+    return this.db.prepare('SELECT cover_key FROM reader_books WHERE user_id = ?1 AND id = ?2')
+      .bind(this.userId, bookId).first<{ cover_key: string | null }>()
+  }
+
+  /** The two objects a deletion has to release, or nothing when the account never had this book. */
+  async bookObjects(bookId: string): Promise<{ r2_key: string; cover_key: string | null } | null> {
+    return this.db.prepare('SELECT r2_key, cover_key FROM reader_books WHERE user_id = ?1 AND id = ?2')
+      .bind(this.userId, bookId).first<{ r2_key: string; cover_key: string | null }>()
+  }
+
+  /**
+   * Take the book and everything read from it, in one batch.
+   *
+   * A group keeps its name when it loses a member: the reader made the group, and an empty one is a
+   * place they will put the next book.
+   */
+  async deleteBook(bookId: string): Promise<void> {
+    await this.db.batch([
+      this.db.prepare('DELETE FROM reader_books WHERE user_id = ?1 AND id = ?2').bind(this.userId, bookId),
+      this.db.prepare('DELETE FROM reader_progress WHERE user_id = ?1 AND book_id = ?2').bind(this.userId, bookId),
+      this.db.prepare('DELETE FROM reader_highlights WHERE user_id = ?1 AND book_id = ?2').bind(this.userId, bookId),
+      this.db.prepare('DELETE FROM reader_marks WHERE user_id = ?1 AND book_id = ?2').bind(this.userId, bookId),
+      this.db.prepare('DELETE FROM reader_stats WHERE user_id = ?1 AND book_id = ?2').bind(this.userId, bookId),
+      this.db.prepare('DELETE FROM reader_notes WHERE user_id = ?1 AND book_id = ?2').bind(this.userId, bookId),
+      this.db.prepare(
+        `UPDATE reader_groups SET book_ids = (SELECT COALESCE(json_group_array(value), '[]')
+                                               FROM json_each(reader_groups.book_ids) WHERE value != ?2)
+                                         WHERE user_id = ?1`,
+      ).bind(this.userId, bookId),
+    ])
+  }
 }
