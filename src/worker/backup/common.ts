@@ -39,6 +39,18 @@ export function isTransientBackupError(err: unknown): boolean {
 
 
 /**
+ * Throws away a response body this call is not going to read.
+ *
+ * This is cleanup, not a step the caller can act on: the body is being discarded either way, and a
+ * rejection here — an aborted signal, a peer that hung up before finishing the headers — would replace
+ * the honest error the caller is about to raise (or the answer it already settled on) with transport
+ * noise. So the rejection is dropped, deliberately, at the one place the backup targets discard a body.
+ */
+export async function discardBody(body: ReadableStream | null | undefined): Promise<void> {
+  await body?.cancel().catch(() => {})
+}
+
+/**
  * The bytes of a third-party response, refused whole once it passes `maxBytes`.
  *
  * A storage service that answers with more than the limit is not worth reading further, and a backup
@@ -52,9 +64,7 @@ export async function readResponseBytesWithinLimit(
 ): Promise<Uint8Array> {
   const declared = Number(response.headers.get('Content-Length'))
   if (Number.isFinite(declared) && declared > maxBytes) {
-    // Best-effort: the body is being thrown away either way, and a failed `cancel()` must not
-    // replace the honest "too large" answer above.
-    await response.body?.cancel().catch(() => {})
+    await discardBody(response.body)
     throw new Error('The third-party response exceeds the safety limit')
   }
   const bytes = await readStreamWithinLimit(response.body, maxBytes)
