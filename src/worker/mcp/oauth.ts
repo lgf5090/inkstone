@@ -144,6 +144,10 @@ function providerForOrigin(origin: string, env: Env): OAuthProvider<Env> {
           lockMs: 60 * 60 * 1000,
         }])
       } catch (error) {
+        // Not `assertAttemptBudget`, on purpose: this reply is an OAuth protocol document —
+        // `code` / `description` / `status`, returned rather than thrown, in the shape a compliant
+        // dynamic-client-registration client parses — not this app's `{ error: { code, message } }`
+        // envelope. Funnelling it through the shared helper would change the wire format.
         if (error instanceof ThrottleError) {
           return {
             code: 'temporarily_unavailable',

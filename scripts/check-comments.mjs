@@ -14438,6 +14438,10 @@ const allowed = new Map([
     "// This path runs before the API handler, so ensure the schema exists",
     "// (cheap after the first request thanks to the initialization cache).",
     "/** The account role gates tool availability and changes rarely, so it is read once per window. */",
+    "// Not `assertAttemptBudget`, on purpose: this reply is an OAuth protocol document —",
+    "// `code` / `description` / `status`, returned rather than thrown, in the shape a compliant",
+    "// dynamic-client-registration client parses — not this app's `{ error: { code, message } }`",
+    "// envelope. Funnelling it through the shared helper would change the wire format.",
   ]],
   ["src/worker/mcp/operations.ts", [
     "// The mutation itself failed before committing; remove the pending row",
@@ -14689,6 +14693,8 @@ const allowed = new Map([
     "/**\n * Same-origin bytes for an article's images and a podcast's audio.\n *\n * The document policy allows remote images over https only, and allows no remote media at all, so\n * an article's plain-http thumbnails and every episode enclosure have to come through here to show\n * up. The address is validated the way a feed's is, only media types pass — SVG is refused, because\n * an SVG is a script with a picture attached — and a `Range` header travels through untouched so\n * seeking a two-hour episode does not download it first.\n */",
     "// Cleared once the headers are in: the body keeps streaming for as long as the listener",
     "// plays, and a timer that outlives this function would cut it off mid-episode.",
+    "// The helper appends the real retry window, which is more useful than the \"shortly\" these two",
+    "// budgets used to promise, so `message` is the prefix only.",
   ]],
   ["src/worker/routes/search.ts", [
     "// Trashing queues an fts_index_queue 'delete' row and purgeStaleFtsRows drops any row whose",

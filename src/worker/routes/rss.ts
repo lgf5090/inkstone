@@ -24,7 +24,7 @@ import { ApiError } from '../lib/errors'
 import { NO_REDIRECT, isRedirectResponse } from '../lib/no-redirect'
 import { JSON_BODY_LIMITS, readJson } from '../lib/request'
 import { requireAuth } from '../middleware/auth'
-import { consumeAttemptBudget, ThrottleError } from '../lib/throttle'
+import { assertAttemptBudget, consumeAttemptBudget } from '../lib/throttle'
 
 export const rssRoutes = new Hono<AppBindings>()
 
@@ -178,19 +178,16 @@ async function fetchFeed(input: FeedRequestInput): Promise<RssFetchResult> {
  * outbound requests. The ceiling is far above that and nowhere near an attack.
  */
 async function spendBudget(db: D1Database, key: string, maxAttempts: number, message: string): Promise<void> {
-  try {
-    await consumeAttemptBudget(db, [{ key, maxAttempts, windowMs: 10 * 60 * 1000, lockMs: 2 * 60 * 1000 }])
-  }
-  catch (error) {
-    if (error instanceof ThrottleError) {
-      throw new ApiError(429, 'too_many_attempts', message, { retryAfter: error.retryAfterSec })
-    }
-    throw error
-  }
+  await assertAttemptBudget(
+    () => consumeAttemptBudget(db, [{ key, maxAttempts, windowMs: 10 * 60 * 1000, lockMs: 2 * 60 * 1000 }]),
+    // The helper appends the real retry window, which is more useful than the "shortly" these two
+    // budgets used to promise, so `message` is the prefix only.
+    message,
+  )
 }
 
 rssRoutes.post('/fetch', async (c) => {
-  await spendBudget(c.env.DB, `rss-fetch:${c.get('userId')}`, 60, 'Too many feed requests. Try again shortly')
+  await spendBudget(c.env.DB, `rss-fetch:${c.get('userId')}`, 60, 'Too many feed requests')
   const body = await readJson<{ requests?: unknown }>(c, 64 * 1024)
   const queue = (Array.isArray(body.requests) ? body.requests.slice(0, MAX_BATCH) : []) as FeedRequestInput[]
   if (!queue.length) throw ApiError.badRequest('Name at least one feed to fetch')
@@ -287,7 +284,7 @@ rssRoutes.post('/patch', async (c) => {
 const RELAY_TYPES = /^(image\/(?!svg)|audio\/|video\/mp4|video\/webm|application\/ogg)/i
 
 rssRoutes.get('/relay', async (c) => {
-  await spendBudget(c.env.DB, `rss-relay:${c.get('userId')}`, 600, 'Too many media requests. Try again shortly')
+  await spendBudget(c.env.DB, `rss-relay:${c.get('userId')}`, 600, 'Too many media requests')
   let url: URL
   try {
     url = assertFeedUrl(c.req.query('url'))

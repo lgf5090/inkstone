@@ -16,7 +16,7 @@ import { fromBase64, sha256Hex, toBase64 } from '../lib/encoding'
 import { isValidId, newId, newSlug } from '../lib/id'
 import { broadcastUserCursor } from '../lib/notify'
 import { hashPassword } from '../lib/password'
-import { consumeAttemptBudget, ThrottleError } from '../lib/throttle'
+import { assertAttemptBudget, consumeAttemptBudget } from '../lib/throttle'
 import { runIdempotent } from './operations'
 import { folderPromotionOrder } from '../routes/folders'
 import { rewriteTagInNotes } from '../routes/tags'
@@ -929,24 +929,12 @@ export async function uploadMcpAttachment(
       }
     },
     execute: async () => {
-      try {
-        await consumeAttemptBudget(context.env.DB, [{
-          key: `attachment-upload:${context.userId}`,
-          maxAttempts: LIMITS.attachmentUploadsPerHour,
-          windowMs: 60 * 60 * 1000,
-          lockMs: 60 * 60 * 1000,
-        }])
-      } catch (error) {
-        if (error instanceof ThrottleError) {
-          throw new ApiError(
-            429,
-            'too_many_attempts',
-            `Too many uploads. Try again in ${error.retryAfterSec} seconds`,
-            { retryAfter: error.retryAfterSec },
-          )
-        }
-        throw error
-      }
+      await assertAttemptBudget(() => consumeAttemptBudget(context.env.DB, [{
+        key: `attachment-upload:${context.userId}`,
+        maxAttempts: LIMITS.attachmentUploadsPerHour,
+        windowMs: 60 * 60 * 1000,
+        lockMs: 60 * 60 * 1000,
+      }]), 'Too many uploads')
       const collision = await context.env.DB.prepare(`SELECT 1 FROM attachments WHERE id = ?1`).bind(id).first()
       if (collision) throw ApiError.conflict('This attachment id is already in use')
       const stored = await persistAttachmentWithinQuota(context.env, {
