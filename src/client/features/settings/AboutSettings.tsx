@@ -52,23 +52,23 @@ export function AboutSettings() {
           <Avatar src={user?.avatarUrl} name={user?.name ?? '?'} size={44}/>
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-2">
-              <span className="truncate text-[14px] font-semibold text-[var(--text-primary)]">
+              <span className="truncate text-[length:var(--text-14)] font-semibold text-[var(--text-primary)]">
                 {user?.name}
               </span>
               {user?.role === 'owner' && <Badge tone="accent">{t("common.owner")}</Badge>}
             </div>
-            <div className="mt-0.5 flex items-center gap-1.5 text-[11.5px] text-[var(--text-tertiary)]">
+            <div className="mt-0.5 flex items-center gap-1.5 text-[length:var(--text-11-5)] text-[var(--text-tertiary)]">
               <UserRound size={11}/>@{user?.username}
             </div>
           </div>
           <Button data-setting-title={t("common.exit")} size="sm" variant="ghost" icon={<LogOut size={13}/>} loading={loggingOut} disabled={loggingOut} onClick={() => void exit()}>{t("common.exit")}</Button>
         </div>
-        {user && (<p className="mt-2 px-1 text-[11.5px] text-[var(--text-quaternary)]">{t("settings.joined")}{fullTime(user.createdAt)}
+        {user && (<p className="mt-2 px-1 text-[length:var(--text-11-5)] text-[var(--text-quaternary)]">{t("settings.joined")}{fullTime(user.createdAt)}
           </p>)}
       </section>
 
       <section>
-        <h3 className="mb-1 text-[11px] font-semibold tracking-[0.06em] text-[var(--text-quaternary)]">{t("common.access_control")}</h3>
+        <h3 className="mb-1 text-[length:var(--text-11)] font-semibold tracking-[0.06em] text-[var(--text-quaternary)]">{t("common.access_control")}</h3>
 
         <SettingRow title={t("settings.registration_status")} description={site?.registrationOpen
             ? t("settings.new_accounts_can_currently_register_with_a_username_and_password") : t("settings.only_existing_accounts_can_sign_in_new_accounts_are_rejected")}>
@@ -79,12 +79,12 @@ export function AboutSettings() {
 
         <div className="mt-3 flex items-start gap-2.5 rounded-[var(--r-md)] border border-[var(--border-subtle)] bg-[var(--bg-inset)] p-3">
           <Shield size={14} className="mt-px shrink-0 text-[var(--text-tertiary)]"/>
-          <div className="text-[11.5px] leading-relaxed text-[var(--text-tertiary)]">{t("settings.to_add_users_open_registration_under_settings_account_they_can_then_crea")}</div>
+          <div className="text-[length:var(--text-11-5)] leading-relaxed text-[var(--text-tertiary)]">{t("settings.to_add_users_open_registration_under_settings_account_they_can_then_crea")}</div>
         </div>
       </section>
 
       {user?.role === 'owner' && (<section>
-        <h3 data-setting-title={t("settings.deployment_updates")} className="mb-1 text-[11px] font-semibold tracking-[0.06em] text-[var(--text-quaternary)]">{t("settings.deployment_updates")}</h3>
+        <h3 data-setting-title={t("settings.deployment_updates")} className="mb-1 text-[length:var(--text-11)] font-semibold tracking-[0.06em] text-[var(--text-quaternary)]">{t("settings.deployment_updates")}</h3>
         <SettingRow title={t("settings.current_version")}>
           <Badge>{updateInfo?.currentVersion ?? site?.version ?? '—'}</Badge>
         </SettingRow>
@@ -96,7 +96,7 @@ export function AboutSettings() {
               : updateInfo?.latestVersion ?? t("settings.update_check_unavailable")}
           </Badge>
         </SettingRow>
-        {!updateAvailable && updateInfo?.latestVersion && (<p className="mt-2 px-1 text-[11.5px] text-[var(--text-quaternary)]">
+        {!updateAvailable && updateInfo?.latestVersion && (<p className="mt-2 px-1 text-[length:var(--text-11-5)] text-[var(--text-quaternary)]">
           {t("settings.up_to_date")}
         </p>)}
         <div className="mt-3 flex flex-wrap justify-end gap-2">
@@ -110,7 +110,7 @@ export function AboutSettings() {
       </section>)}
 
       {(installAvailable || installed || offlineStatus !== 'idle') && (<section>
-        <h3 data-setting-title={t("pwa.app_installation")} className="mb-1 text-[11px] font-semibold tracking-[0.06em] text-[var(--text-quaternary)]">{t("pwa.app_installation")}</h3>
+        <h3 data-setting-title={t("pwa.app_installation")} className="mb-1 text-[length:var(--text-11)] font-semibold tracking-[0.06em] text-[var(--text-quaternary)]">{t("pwa.app_installation")}</h3>
         {(installAvailable || installed) && (<SettingRow title={t("pwa.install_inkstone")} description={t("pwa.install_description")}>
             {installed
                 ? <Badge tone="success">{t("pwa.installed")}</Badge>
@@ -142,8 +142,8 @@ export function AboutSettings() {
             <Logo size={20}/>
           </span>
           <div>
-            <div className="text-[13px] font-semibold">{t("common.product_name")}</div>
-            <div data-setting-title={t("settings.version")} className="text-[11.5px] text-[var(--text-quaternary)]">{t("settings.version")} {site?.version ?? '—'}</div>
+            <div className="text-[length:var(--text-13)] font-semibold">{t("common.product_name")}</div>
+            <div data-setting-title={t("settings.version")} className="text-[length:var(--text-11-5)] text-[var(--text-quaternary)]">{t("settings.version")} {site?.version ?? '—'}</div>
           </div>
         </div>
         <a
@@ -152,7 +152,7 @@ export function AboutSettings() {
           target="_blank"
           rel="noopener noreferrer"
           aria-label={t("settings.open_github_repository")}
-          className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-[var(--r-md)] px-2.5 text-[11.5px] font-medium text-[var(--text-tertiary)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]"
+          className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-[var(--r-md)] px-2.5 text-[length:var(--text-11-5)] font-medium text-[var(--text-tertiary)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]"
         >
           <GitFork size={14}/>
           {t("common.github")}

@@ -122,8 +122,8 @@ function ViewRow({
       )}
     >
       <span className={cn('shrink-0', active ? 'text-[var(--accent)]' : 'text-[var(--text-tertiary)]')}>{icon}</span>
-      <span className="min-w-0 flex-1 truncate text-[12.5px] font-medium">{label}</span>
-      {count > 0 && <span className="shrink-0 text-[11px] tabular text-[var(--text-quaternary)]">{count}</span>}
+      <span className="min-w-0 flex-1 truncate text-[length:var(--text-12-5)] font-medium">{label}</span>
+      {count > 0 && <span className="shrink-0 text-[length:var(--text-11)] tabular text-[var(--text-quaternary)]">{count}</span>}
     </button>
   )
 }
@@ -196,7 +196,7 @@ function FolderTreeRow({
           style={{ color: branch.node.color ?? undefined }}
         >
           {branch.node.icon
-            ? <span className="text-[13px] leading-none">{branch.node.icon}</span>
+            ? <span className="text-[length:var(--text-13)] leading-none">{branch.node.icon}</span>
             : <FolderMotionIcon open={open} drawing={false} />}
         </span>
 
@@ -207,12 +207,12 @@ function FolderTreeRow({
           aria-current={active ? 'page' : undefined}
           onClick={() => onPick(branch)}
           onKeyDown={onKeyDown}
-          className="flex min-w-0 flex-1 items-center gap-1.5 truncate py-1 pl-1 text-left text-[12.5px] font-medium"
+          className="flex min-w-0 flex-1 items-center gap-1.5 truncate py-1 pl-1 text-left text-[length:var(--text-12-5)] font-medium"
         >
           <span className="min-w-0 truncate">{branch.node.name}</span>
         </button>
 
-        <span className="shrink-0 text-[11px] tabular text-[var(--text-quaternary)]">
+        <span className="shrink-0 text-[length:var(--text-11)] tabular text-[var(--text-quaternary)]">
           {branch.node.count > 0 ? branch.node.count : ''}
         </span>
       </div>
@@ -297,7 +297,7 @@ export function ConversationTags() {
   const setFilter = useAssistant((state) => state.setTagFilter)
   if (!tags.length) {
     return (
-      <p className="px-2 py-3 text-[12px] text-[var(--text-quaternary)]">{t('assistant.chat.tag_none')}</p>
+      <p className="px-2 py-3 text-[length:var(--text-12)] text-[var(--text-quaternary)]">{t('assistant.chat.tag_none')}</p>
     )
   }
   return (
@@ -419,7 +419,7 @@ function FlaggedList({ kind, onOpen }: { kind: 'starred' | 'pinned', onOpen?: ()
   const open = useAssistant((state) => state.openConversation)
   if (!items.length) {
     return (
-      <p className="px-2 py-3 text-[12px] text-[var(--text-quaternary)]">
+      <p className="px-2 py-3 text-[length:var(--text-12)] text-[var(--text-quaternary)]">
         {t(kind === 'starred' ? 'assistant.chat.empty_starred' : 'assistant.chat.empty_pinned')}
       </p>
     )
@@ -436,7 +436,7 @@ function FlaggedList({ kind, onOpen }: { kind: 'starred' | 'pinned', onOpen?: ()
               onOpen?.()
             }}
             className={cn(
-              'flex w-full min-w-0 items-center gap-1.5 rounded-[var(--r-sm)] px-2 py-1 text-left text-[12px]',
+              'flex w-full min-w-0 items-center gap-1.5 rounded-[var(--r-sm)] px-2 py-1 text-left text-[length:var(--text-12)]',
               'transition-colors duration-[var(--dur-fast)]',
               conversation.id === activeId
                 ? 'bg-[var(--bg-active)] font-medium text-[var(--text-primary)]'
@@ -444,7 +444,7 @@ function FlaggedList({ kind, onOpen }: { kind: 'starred' | 'pinned', onOpen?: ()
             )}
           >
             <span className="min-w-0 flex-1 truncate">{conversation.title || t('assistant.chat.untitled')}</span>
-            <span className="shrink-0 text-[10.5px] text-[var(--text-quaternary)]">{relativeTime(conversation.updatedAt)}</span>
+            <span className="shrink-0 text-[length:var(--text-10-5)] text-[var(--text-quaternary)]">{relativeTime(conversation.updatedAt)}</span>
           </button>
         </li>
       ))}

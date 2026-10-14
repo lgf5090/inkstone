@@ -153,7 +153,7 @@ export function NoteList() {
             return t('notes.filtering_by_day_value0', { value0: start });
         return t('notes.filtering_by_day_range_value0', { value0: start, value1: format.format(parseDateKey(dateFilter.end)) });
     }, [dateFilter, locale]);
-    const dayFilterChip = dateFilter ? (<div data-day-filter-chip className="mt-1 flex min-w-0 items-center gap-1 self-start rounded-full border border-[var(--border-subtle)] py-0.5 pr-0.5 pl-1.5 text-[10.5px] text-[var(--text-tertiary)]">
+    const dayFilterChip = dateFilter ? (<div data-day-filter-chip className="mt-1 flex min-w-0 items-center gap-1 self-start rounded-full border border-[var(--border-subtle)] py-0.5 pr-0.5 pl-1.5 text-[length:var(--text-10-5)] text-[var(--text-tertiary)]">
       <CalendarDays size={11} className="shrink-0 text-[var(--text-quaternary)]"/>
       <span className="min-w-0 truncate">{dayFilterText}</span>
       <IconButton label={t('notes.clear_day_filter')} size="sm" className="size-5" onClick={() => setDateFilter(null)}>
@@ -336,8 +336,8 @@ export function NoteList() {
         {breakpoint === 'mobile' && dayFilterChip}
         {breakpoint !== 'mobile' && <div className="mb-2.5 flex items-center justify-between gap-2">
           <div className="min-w-0">
-            <h2 className="truncate text-[14.5px] font-semibold tracking-[-0.016em] text-[var(--text-primary)]">{title}</h2>
-            {view === 'folder' && !isVirtualFolderId(folderId) && <p className="mt-0.5 truncate text-[10.5px] text-[var(--text-quaternary)]">{t("folders.includes_subfolders")}</p>}
+            <h2 className="truncate text-[length:var(--text-14-5)] font-semibold tracking-[-0.016em] text-[var(--text-primary)]">{title}</h2>
+            {view === 'folder' && !isVirtualFolderId(folderId) && <p className="mt-0.5 truncate text-[length:var(--text-10-5)] text-[var(--text-quaternary)]">{t("folders.includes_subfolders")}</p>}
             {dayFilterChip}
           </div>
           <div className="flex shrink-0 items-center gap-0.5">
@@ -410,17 +410,17 @@ export function NoteList() {
           </>}
         </div>}
 
-        {searchList && filter.trim() && (remote?.query !== filter.trim() || remote.failed) && <p role="status" className="mt-2 text-[11.5px] text-[var(--text-tertiary)]">{remote?.query === filter.trim() && remote.failed ? t('navigation.local_search_only') : t('navigation.searching')}</p>}
+        {searchList && filter.trim() && (remote?.query !== filter.trim() || remote.failed) && <p role="status" className="mt-2 text-[length:var(--text-11-5)] text-[var(--text-tertiary)]">{remote?.query === filter.trim() && remote.failed ? t('navigation.local_search_only') : t('navigation.searching')}</p>}
 
         {breakpoint === 'mobile' && <MobileLibraryFilters />}
 
-        {view === 'trash' && notes.length > 0 && (<button type="button" disabled={emptyingTrash} aria-busy={emptyingTrash} onClick={() => void emptyTrash()} className="mt-2 w-full rounded-[var(--r-md)] border border-[var(--border-subtle)] py-1.5 text-[11.5px] text-[var(--text-tertiary)] transition-colors hover:border-[var(--danger)] hover:text-[var(--danger)] disabled:pointer-events-none disabled:opacity-50">{t("notes.empty_trash")}{notes.length}{t("notes.notes_93aeb9")}</button>)}
+        {view === 'trash' && notes.length > 0 && (<button type="button" disabled={emptyingTrash} aria-busy={emptyingTrash} onClick={() => void emptyTrash()} className="mt-2 w-full rounded-[var(--r-md)] border border-[var(--border-subtle)] py-1.5 text-[length:var(--text-11-5)] text-[var(--text-tertiary)] transition-colors hover:border-[var(--danger)] hover:text-[var(--danger)] disabled:pointer-events-none disabled:opacity-50">{t("notes.empty_trash")}{notes.length}{t("notes.notes_93aeb9")}</button>)}
       </header>
 
       <div key={`${view}:${folderId ?? ''}:${tagFilters.join('+')}`} ref={listRef} onScroll={onListScroll} data-note-list role="listbox" aria-label={title} aria-multiselectable="true" aria-activedescendant={activeNoteId && renderedIds.has(activeNoteId) ? `note-option-${activeNoteId}` : undefined} tabIndex={0} onKeyDown={onKeyDown} className="anim-view-content min-h-0 flex-1 overflow-y-auto px-2 pb-4 outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-[var(--accent)]">
         {topSpacerHeight > 0 && <div style={{ height: topSpacerHeight }} aria-hidden="true" />}
         {!hydrated && loading ? (<NoteListSkeleton />) : filtered.length === 0 ? (<ListEmpty view={view} filtering={Boolean(filter)} dayFiltering={Boolean(dateFilter)}/>) : (groups.map((group) => (<div key={group.key} role="group" aria-label={group.label ?? title}>
-              {group.label && (<div className="px-2 pt-3 pb-1 text-[10.5px] font-semibold tracking-[0.06em] text-[var(--text-quaternary)]">
+              {group.label && (<div className="px-2 pt-3 pb-1 text-[length:var(--text-10-5)] font-semibold tracking-[0.06em] text-[var(--text-quaternary)]">
                   {group.label}
                 </div>)}
               <div role="presentation" className="space-y-px">
@@ -645,7 +645,7 @@ const NoteRow = memo(function NoteRow({ note, highlight, density, tagColors, pos
               {note.title.endsWith('.excalidraw') && <Brush size={12} className="shrink-0 text-[var(--accent)]"/>}
               {isMindmapDocumentTitle(note.title) && <Network size={12} className="shrink-0 text-[var(--accent)]"/>}
               {note.isPinned && <Pin size={10} className="anim-mark-enter shrink-0 text-[var(--accent)]"/>}
-              <h3 className={cn('min-w-0 flex-1 truncate text-[13px] leading-snug', active
+              <h3 className={cn('min-w-0 flex-1 truncate text-[length:var(--text-13)] leading-snug', active
             ? 'font-semibold text-[var(--accent)]'
             : 'font-medium text-[var(--text-primary)]')}>
                 {titleParts.map((part, i) => part.hit ? (<mark key={i} className="ink-hit">
@@ -655,11 +655,11 @@ const NoteRow = memo(function NoteRow({ note, highlight, density, tagColors, pos
               {note.isStarred && <Star size={10} className="anim-mark-enter shrink-0 fill-current text-[var(--warning)]"/>}
             </div>
 
-            {density === 'comfortable' && note.excerpt && (<p className="truncate-2 mt-1 text-[11.5px] leading-[1.5] text-[var(--text-tertiary)]">
+            {density === 'comfortable' && note.excerpt && (<p className="truncate-2 mt-1 text-[length:var(--text-11-5)] leading-[1.5] text-[var(--text-tertiary)]">
                 {note.excerpt}
               </p>)}
 
-            {note.tags.length > 0 && density === 'comfortable' && (<div className="group/tags mt-1.5 flex min-w-0 items-center gap-1 overflow-hidden whitespace-nowrap text-[10.5px] text-[var(--text-tertiary)]">
+            {note.tags.length > 0 && density === 'comfortable' && (<div className="group/tags mt-1.5 flex min-w-0 items-center gap-1 overflow-hidden whitespace-nowrap text-[length:var(--text-10-5)] text-[var(--text-tertiary)]">
                 {note.tags.map((tag) => (<span key={tag} className="flex max-w-[70%] shrink-0 items-center gap-px truncate">
                     <button type="button" onClick={(event) => {
                             event.stopPropagation();
@@ -756,7 +756,7 @@ function BulkBar() {
     };
     return (<div className="pointer-events-none absolute inset-x-0 bottom-0 z-20 flex justify-center pb-3">
       <div className="anim-rise pointer-events-auto flex items-center gap-1 rounded-[var(--r-lg)] border border-[var(--border-default)] bg-[var(--bg-overlay)] p-1 pl-3 shadow-[var(--shadow-pop)]">
-        <span className="mr-1 text-[11.5px] whitespace-nowrap text-[var(--text-secondary)]">{t("notes.selected")}<span className="tabular font-medium">{ids.length}</span>{t("notes.notes")}</span>
+        <span className="mr-1 text-[length:var(--text-11-5)] whitespace-nowrap text-[var(--text-secondary)]">{t("notes.selected")}<span className="tabular font-medium">{ids.length}</span>{t("notes.notes")}</span>
         <Tooltip label={allStarred ? t("common.remove_from_favorites") : t("navigation.favorites")}>
           <IconButton label={t("navigation.favorites")} size="sm" disabled={busy} onClick={() => void runAll(() => performAll((id) => patchNote(id, { isStarred: !allStarred }), allStarred ? t("notes.removed_from_favorites") : t("notes.added_to_favorites")))}>
             <Star size={13} className={allStarred ? 'fill-current' : undefined}/>
@@ -807,7 +807,7 @@ function ListEmpty({ view, filtering, dayFiltering }: {
         return <Empty art="search" title={t("notes.no_matching_notes")} description={t("notes.try_another_search_or_press_shortcut_to_search_everywhere", { shortcut: shortcut(APP_SHORTCUTS.search) })}/>;
     }
     if (dayFiltering) {
-        return (<Empty art="search" title={t("notes.no_notes_on_this_day")} description={t("notes.no_notes_on_this_day_desc")} action={<button type="button" onClick={() => useUi.getState().setDateFilter(null)} className="inline-flex h-8 items-center gap-1.5 rounded-[var(--r-md)] border border-[var(--border-default)] px-3 text-[12.5px] text-[var(--text-secondary)] transition-colors hover:border-[var(--accent)] hover:text-[var(--accent)]">
+        return (<Empty art="search" title={t("notes.no_notes_on_this_day")} description={t("notes.no_notes_on_this_day_desc")} action={<button type="button" onClick={() => useUi.getState().setDateFilter(null)} className="inline-flex h-8 items-center gap-1.5 rounded-[var(--r-md)] border border-[var(--border-default)] px-3 text-[length:var(--text-12-5)] text-[var(--text-secondary)] transition-colors hover:border-[var(--accent)] hover:text-[var(--accent)]">
             <X size={13}/>{t("notes.clear_day_filter")}</button>}/>);
     }
     const config: Record<string, {
@@ -826,7 +826,7 @@ function ListEmpty({ view, filtering, dayFiltering }: {
         tag: { art: 'tag', title: t("notes.there_are_no_notes_with_this_tag"), desc: t("notes.write_tags_in_the_note_to_link_them_automatically") },
     };
     const item = config[view] ?? config.all!;
-    return (<Empty art={item.art} title={item.title} description={item.desc} action={view !== 'trash' && view !== 'archived' ? (<button type="button" onClick={() => void createContextualNote()} className="inline-flex h-8 items-center gap-1.5 rounded-[var(--r-md)] border border-[var(--border-default)] px-3 text-[12.5px] text-[var(--text-secondary)] transition-colors hover:border-[var(--accent)] hover:text-[var(--accent)]">
+    return (<Empty art={item.art} title={item.title} description={item.desc} action={view !== 'trash' && view !== 'archived' ? (<button type="button" onClick={() => void createContextualNote()} className="inline-flex h-8 items-center gap-1.5 rounded-[var(--r-md)] border border-[var(--border-default)] px-3 text-[length:var(--text-12-5)] text-[var(--text-secondary)] transition-colors hover:border-[var(--accent)] hover:text-[var(--accent)]">
             <Plus size={13}/>{t("common.new_note")}</button>) : undefined}/>);
 }
 interface Group {

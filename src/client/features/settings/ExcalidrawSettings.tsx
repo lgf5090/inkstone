@@ -177,7 +177,7 @@ export function ExcalidrawSettings() {
                 key={tab.id}
                 type="button"
                 onClick={() => handleSelectCategory(tab.id)}
-                className={`whitespace-nowrap rounded-lg px-2.5 py-1 text-[11.5px] font-medium transition-colors ${
+                className={`whitespace-nowrap rounded-lg px-2.5 py-1 text-[length:var(--text-11-5)] font-medium transition-colors ${
                   isActive
                     ? 'bg-[var(--accent)] text-white shadow-xs'
                     : 'bg-[var(--bg-sunken)] text-[var(--text-secondary)] hover:bg-[var(--bg-surface)] hover:text-[var(--text-primary)]'
@@ -196,11 +196,11 @@ export function ExcalidrawSettings() {
           className="space-y-3 rounded-2xl border border-[var(--border-subtle)] bg-[var(--bg-surface)]/40 p-4 shadow-2xs"
         >
           <div className="border-b border-[var(--border-subtle)] pb-2">
-            <h3 className="flex items-center gap-2 text-[14px] font-semibold text-[var(--text-primary)]">
+            <h3 className="flex items-center gap-2 text-[length:var(--text-14)] font-semibold text-[var(--text-primary)]">
               <Folder size={16} className="text-[var(--accent)]" />
               {t('settings.excalidraw_section_basic')}
             </h3>
-            <p className="mt-0.5 text-[11.5px] text-[var(--text-tertiary)]">
+            <p className="mt-0.5 text-[length:var(--text-11-5)] text-[var(--text-tertiary)]">
               {t('settings.excalidraw_section_basic_desc')}
             </p>
           </div>
@@ -271,11 +271,11 @@ export function ExcalidrawSettings() {
           className="space-y-3 rounded-2xl border border-[var(--border-subtle)] bg-[var(--bg-surface)]/40 p-4 shadow-2xs"
         >
           <div className="border-b border-[var(--border-subtle)] pb-2">
-            <h3 className="flex items-center gap-2 text-[14px] font-semibold text-[var(--text-primary)]">
+            <h3 className="flex items-center gap-2 text-[length:var(--text-14)] font-semibold text-[var(--text-primary)]">
               <Save size={16} className="text-[var(--accent)]" />
               {t('settings.excalidraw_section_saving')}
             </h3>
-            <p className="mt-0.5 text-[11.5px] text-[var(--text-tertiary)]">
+            <p className="mt-0.5 text-[length:var(--text-11-5)] text-[var(--text-tertiary)]">
               {t('settings.excalidraw_section_saving_desc')}
             </p>
           </div>
@@ -347,11 +347,11 @@ export function ExcalidrawSettings() {
           className="space-y-4 rounded-2xl border border-[var(--border-subtle)] bg-[var(--bg-surface)]/40 p-4 shadow-2xs"
         >
           <div className="border-b border-[var(--border-subtle)] pb-2">
-            <h3 className="flex items-center gap-2 text-[14px] font-semibold text-[var(--text-primary)]">
+            <h3 className="flex items-center gap-2 text-[length:var(--text-14)] font-semibold text-[var(--text-primary)]">
               <Sparkles size={16} className="text-[var(--accent)]" />
               {t('settings.excalidraw_section_ai')}
             </h3>
-            <p className="mt-0.5 text-[11.5px] text-[var(--text-tertiary)]">
+            <p className="mt-0.5 text-[length:var(--text-11-5)] text-[var(--text-tertiary)]">
               {t('settings.excalidraw_section_ai_desc')}
             </p>
           </div>
@@ -372,7 +372,7 @@ export function ExcalidrawSettings() {
               <div className="flex items-center justify-between">
                 <span
                   id={providerLabelId}
-                  className="text-[12.5px] font-medium text-[var(--text-secondary)]"
+                  className="text-[length:var(--text-12-5)] font-medium text-[var(--text-secondary)]"
                 >
                   {t('settings.excalidraw_ai_provider')}
                 </span>
@@ -447,16 +447,16 @@ export function ExcalidrawSettings() {
                       }`}
                     >
                       <div className="flex items-center gap-2">
-                        <span className="font-semibold text-[13px] text-[var(--text-primary)]">
+                        <span className="font-semibold text-[length:var(--text-13)] text-[var(--text-primary)]">
                           {info.name}
                         </span>
                         {isSelected && (
-                          <span className="rounded-full bg-[var(--accent-soft)] px-2 py-0.5 text-[10px] font-medium text-[var(--accent)]">
+                          <span className="rounded-full bg-[var(--accent-soft)] px-2 py-0.5 text-[length:var(--text-10)] font-medium text-[var(--accent)]">
                             {t('settings.excalidraw_current_default')}
                           </span>
                         )}
                       </div>
-                      <div className="mt-0.5 text-[11px] text-[var(--text-tertiary)]">
+                      <div className="mt-0.5 text-[length:var(--text-11)] text-[var(--text-tertiary)]">
                         {t('settings.excalidraw_type')}: {t(info.typeDescKey)} · {t('settings.excalidraw_api')}:{' '}
                         <span
                           className={hasKey ? 'text-emerald-600 font-medium' : 'text-rose-500 font-medium'}
@@ -500,7 +500,7 @@ export function ExcalidrawSettings() {
                   {editingProvider && (
                     <div className="mt-3 space-y-3 rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-inset)]/60 p-3">
                       <div>
-                        <label className="block text-[11px] font-medium text-[var(--text-tertiary)] mb-1">
+                        <label className="block text-[length:var(--text-11)] font-medium text-[var(--text-tertiary)] mb-1">
                           {t('settings.excalidraw_ai_base_url')}
                         </label>
                         <Input
@@ -516,7 +516,7 @@ export function ExcalidrawSettings() {
                         />
                       </div>
                       <div>
-                        <label className="block text-[11px] font-medium text-[var(--text-tertiary)] mb-1">
+                        <label className="block text-[length:var(--text-11)] font-medium text-[var(--text-tertiary)] mb-1">
                           {t('settings.excalidraw_ai_api_key')}
                         </label>
                         <Input
@@ -536,7 +536,7 @@ export function ExcalidrawSettings() {
 
               <div className="pt-2 space-y-4">
                 <div data-setting-title={t('settings.excalidraw_ai_model')}>
-                  <label className="block text-[12px] font-medium text-[var(--text-secondary)] mb-1">
+                  <label className="block text-[length:var(--text-12)] font-medium text-[var(--text-secondary)] mb-1">
                     {t('settings.excalidraw_ai_model')}
                   </label>
                   <Input
@@ -544,13 +544,13 @@ export function ExcalidrawSettings() {
                     onChange={(e) => update({ aiDefaultTextModel: e.target.value })}
                     placeholder="deepseek-flash"
                   />
-                  <p className="mt-1 text-[11px] text-[var(--text-quaternary)]">
+                  <p className="mt-1 text-[length:var(--text-11)] text-[var(--text-quaternary)]">
                     {t('settings.excalidraw_ai_model_desc')}
                   </p>
                 </div>
 
                 <div data-setting-title={t('settings.excalidraw_ai_image_model')}>
-                  <label className="block text-[12px] font-medium text-[var(--text-secondary)] mb-1">
+                  <label className="block text-[length:var(--text-12)] font-medium text-[var(--text-secondary)] mb-1">
                     {t('settings.excalidraw_ai_image_model')}
                   </label>
                   <Input
@@ -558,14 +558,14 @@ export function ExcalidrawSettings() {
                     onChange={(e) => update({ aiDefaultImageModel: e.target.value })}
                     placeholder="deepseek-flash"
                   />
-                  <p className="mt-1 text-[11px] text-[var(--text-quaternary)]">
+                  <p className="mt-1 text-[length:var(--text-11)] text-[var(--text-quaternary)]">
                     {t('settings.excalidraw_ai_image_model_desc')}
                   </p>
                 </div>
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-[12px] font-medium text-[var(--text-secondary)] mb-1">
+                    <label className="block text-[length:var(--text-12)] font-medium text-[var(--text-secondary)] mb-1">
                       {t('settings.excalidraw_ai_max_outgoing')}
                     </label>
                     <Input
@@ -573,12 +573,12 @@ export function ExcalidrawSettings() {
                       value={settings.aiMaxOutgoingTokens || 0}
                       onChange={(e) => update({ aiMaxOutgoingTokens: Number(e.target.value) || 0 })}
                     />
-                    <p className="mt-1 text-[11px] text-[var(--text-quaternary)]">
+                    <p className="mt-1 text-[length:var(--text-11)] text-[var(--text-quaternary)]">
                       {t('settings.excalidraw_ai_max_outgoing_desc')}
                     </p>
                   </div>
                   <div>
-                    <label className="block text-[12px] font-medium text-[var(--text-secondary)] mb-1">
+                    <label className="block text-[length:var(--text-12)] font-medium text-[var(--text-secondary)] mb-1">
                       {t('settings.excalidraw_ai_max_response')}
                     </label>
                     <Input
@@ -586,7 +586,7 @@ export function ExcalidrawSettings() {
                       value={settings.aiMaxResponseTokens || 0}
                       onChange={(e) => update({ aiMaxResponseTokens: Number(e.target.value) || 0 })}
                     />
-                    <p className="mt-1 text-[11px] text-[var(--text-quaternary)]">
+                    <p className="mt-1 text-[length:var(--text-11)] text-[var(--text-quaternary)]">
                       {t('settings.excalidraw_ai_max_response_desc')}
                     </p>
                   </div>
@@ -614,11 +614,11 @@ export function ExcalidrawSettings() {
           className="space-y-3 rounded-2xl border border-[var(--border-subtle)] bg-[var(--bg-surface)]/40 p-4 shadow-2xs"
         >
           <div className="border-b border-[var(--border-subtle)] pb-2">
-            <h3 className="flex items-center gap-2 text-[14px] font-semibold text-[var(--text-primary)]">
+            <h3 className="flex items-center gap-2 text-[length:var(--text-14)] font-semibold text-[var(--text-primary)]">
               <Layout size={16} className="text-[var(--accent)]" />
               {t('settings.excalidraw_section_ui_behavior')}
             </h3>
-            <p className="mt-0.5 text-[11.5px] text-[var(--text-tertiary)]">
+            <p className="mt-0.5 text-[length:var(--text-11-5)] text-[var(--text-tertiary)]">
               {t('settings.excalidraw_section_ui_behavior_desc')}
             </p>
           </div>
@@ -727,11 +727,11 @@ export function ExcalidrawSettings() {
           className="space-y-3 rounded-2xl border border-[var(--border-subtle)] bg-[var(--bg-surface)]/40 p-4 shadow-2xs"
         >
           <div className="border-b border-[var(--border-subtle)] pb-2">
-            <h3 className="flex items-center gap-2 text-[14px] font-semibold text-[var(--text-primary)]">
+            <h3 className="flex items-center gap-2 text-[length:var(--text-14)] font-semibold text-[var(--text-primary)]">
               <Link2 size={16} className="text-[var(--accent)]" />
               {t('settings.excalidraw_section_links')}
             </h3>
-            <p className="mt-0.5 text-[11.5px] text-[var(--text-tertiary)]">
+            <p className="mt-0.5 text-[length:var(--text-11-5)] text-[var(--text-tertiary)]">
               {t('settings.excalidraw_section_links_desc')}
             </p>
           </div>
@@ -853,11 +853,11 @@ export function ExcalidrawSettings() {
           className="space-y-3 rounded-2xl border border-[var(--border-subtle)] bg-[var(--bg-surface)]/40 p-4 shadow-2xs"
         >
           <div className="border-b border-[var(--border-subtle)] pb-2">
-            <h3 className="flex items-center gap-2 text-[14px] font-semibold text-[var(--text-primary)]">
+            <h3 className="flex items-center gap-2 text-[length:var(--text-14)] font-semibold text-[var(--text-primary)]">
               <FileText size={16} className="text-[var(--accent)]" />
               {t('settings.excalidraw_section_embedded_in_md')}
             </h3>
-            <p className="mt-0.5 text-[11.5px] text-[var(--text-tertiary)]">
+            <p className="mt-0.5 text-[length:var(--text-11-5)] text-[var(--text-tertiary)]">
               {t('settings.excalidraw_section_embedded_in_md_desc')}
             </p>
           </div>
@@ -950,11 +950,11 @@ export function ExcalidrawSettings() {
           className="space-y-3 rounded-2xl border border-[var(--border-subtle)] bg-[var(--bg-surface)]/40 p-4 shadow-2xs"
         >
           <div className="border-b border-[var(--border-subtle)] pb-2">
-            <h3 className="flex items-center gap-2 text-[14px] font-semibold text-[var(--text-primary)]">
+            <h3 className="flex items-center gap-2 text-[length:var(--text-14)] font-semibold text-[var(--text-primary)]">
               <FileBox size={16} className="text-[var(--accent)]" />
               {t('settings.excalidraw_section_embedded_files')}
             </h3>
-            <p className="mt-0.5 text-[11.5px] text-[var(--text-tertiary)]">
+            <p className="mt-0.5 text-[length:var(--text-11-5)] text-[var(--text-tertiary)]">
               {t('settings.excalidraw_section_embedded_files_desc')}
             </p>
           </div>
@@ -1038,11 +1038,11 @@ export function ExcalidrawSettings() {
           className="space-y-3 rounded-2xl border border-[var(--border-subtle)] bg-[var(--bg-surface)]/40 p-4 shadow-2xs"
         >
           <div className="border-b border-[var(--border-subtle)] pb-2">
-            <h3 className="flex items-center gap-2 text-[14px] font-semibold text-[var(--text-primary)]">
+            <h3 className="flex items-center gap-2 text-[length:var(--text-14)] font-semibold text-[var(--text-primary)]">
               <PenTool size={16} className="text-[var(--accent)]" />
               {t('settings.excalidraw_section_extended')}
             </h3>
-            <p className="mt-0.5 text-[11.5px] text-[var(--text-tertiary)]">
+            <p className="mt-0.5 text-[length:var(--text-11-5)] text-[var(--text-tertiary)]">
               {t('settings.excalidraw_section_extended_desc')}
             </p>
           </div>
@@ -1122,11 +1122,11 @@ export function ExcalidrawSettings() {
           className="space-y-3 rounded-2xl border border-[var(--border-subtle)] bg-[var(--bg-surface)]/40 p-4 shadow-2xs"
         >
           <div className="border-b border-[var(--border-subtle)] pb-2">
-            <h3 className="flex items-center gap-2 text-[14px] font-semibold text-[var(--text-primary)]">
+            <h3 className="flex items-center gap-2 text-[length:var(--text-14)] font-semibold text-[var(--text-primary)]">
               <Type size={16} className="text-[var(--accent)]" />
               {t('settings.excalidraw_section_fonts')}
             </h3>
-            <p className="mt-0.5 text-[11.5px] text-[var(--text-tertiary)]">
+            <p className="mt-0.5 text-[length:var(--text-11-5)] text-[var(--text-tertiary)]">
               {t('settings.excalidraw_section_fonts_desc')}
             </p>
           </div>
@@ -1182,11 +1182,11 @@ export function ExcalidrawSettings() {
           className="space-y-3 rounded-2xl border border-[var(--border-subtle)] bg-[var(--bg-surface)]/40 p-4 shadow-2xs"
         >
           <div className="border-b border-[var(--border-subtle)] pb-2">
-            <h3 className="flex items-center gap-2 text-[14px] font-semibold text-[var(--text-primary)]">
+            <h3 className="flex items-center gap-2 text-[length:var(--text-14)] font-semibold text-[var(--text-primary)]">
               <Hash size={16} className="text-[var(--accent)]" />
               {t('settings.excalidraw_section_misc')}
             </h3>
-            <p className="mt-0.5 text-[11.5px] text-[var(--text-tertiary)]">
+            <p className="mt-0.5 text-[length:var(--text-11-5)] text-[var(--text-tertiary)]">
               {t('settings.excalidraw_section_misc_desc')}
             </p>
           </div>
@@ -1247,11 +1247,11 @@ export function ExcalidrawSettings() {
           className="space-y-3 rounded-2xl border border-[var(--border-subtle)] bg-[var(--bg-surface)]/40 p-4 shadow-2xs"
         >
           <div className="border-b border-[var(--border-subtle)] pb-2">
-            <h3 className="flex items-center gap-2 text-[14px] font-semibold text-[var(--text-primary)]">
+            <h3 className="flex items-center gap-2 text-[length:var(--text-14)] font-semibold text-[var(--text-primary)]">
               <Cpu size={16} className="text-[var(--accent)]" />
               {t('settings.excalidraw_section_automate')}
             </h3>
-            <p className="mt-0.5 text-[11.5px] text-[var(--text-tertiary)]">
+            <p className="mt-0.5 text-[length:var(--text-11-5)] text-[var(--text-tertiary)]">
               {t('settings.excalidraw_section_automate_desc')}
             </p>
           </div>
@@ -1298,11 +1298,11 @@ export function ExcalidrawSettings() {
           className="space-y-3 rounded-2xl border border-[var(--border-subtle)] bg-[var(--bg-surface)]/40 p-4 shadow-2xs"
         >
           <div className="border-b border-[var(--border-subtle)] pb-2">
-            <h3 className="flex items-center gap-2 text-[14px] font-semibold text-[var(--text-primary)]">
+            <h3 className="flex items-center gap-2 text-[length:var(--text-14)] font-semibold text-[var(--text-primary)]">
               <ShieldCheck size={16} className="text-[var(--accent)]" />
               {t('settings.excalidraw_section_compatibility')}
             </h3>
-            <p className="mt-0.5 text-[11.5px] text-[var(--text-tertiary)]">
+            <p className="mt-0.5 text-[length:var(--text-11-5)] text-[var(--text-tertiary)]">
               {t('settings.excalidraw_section_compatibility_desc')}
             </p>
           </div>

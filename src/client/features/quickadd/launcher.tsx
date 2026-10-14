@@ -234,7 +234,7 @@ export default function QuickAddLauncher({ onClose }: { onClose: () => void }) {
             placeholder={t('quickadd.launcher_placeholder')}
             onChange={(event) => setQuery(event.target.value)}
             onKeyDown={onKeyDown}
-            className="h-9 w-full rounded-[var(--r-md)] border border-[var(--border-default)] bg-[var(--bg-inset)] pr-3 pl-8 text-[12.5px] outline-none focus:border-[var(--accent)]"
+            className="h-9 w-full rounded-[var(--r-md)] border border-[var(--border-default)] bg-[var(--bg-inset)] pr-3 pl-8 text-[length:var(--text-12-5)] outline-none focus:border-[var(--accent)]"
           />
         </div>
         {path.length > 0 && (
@@ -244,7 +244,7 @@ export default function QuickAddLauncher({ onClose }: { onClose: () => void }) {
               setPath((current) => current.slice(0, -1))
               setQuery('')
             }}
-            className="flex items-center gap-1 rounded-[var(--r-md)] px-1.5 py-1 text-[11.5px] text-[var(--text-tertiary)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]"
+            className="flex items-center gap-1 rounded-[var(--r-md)] px-1.5 py-1 text-[length:var(--text-11-5)] text-[var(--text-tertiary)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]"
           >
             <ChevronLeft size={13}/>{t('quickadd.launcher_up')}
           </button>
@@ -257,7 +257,7 @@ export default function QuickAddLauncher({ onClose }: { onClose: () => void }) {
           className="max-h-[46vh] overflow-y-auto rounded-[var(--r-md)] border border-[var(--border-subtle)]"
         >
           {rows.length === 0 && (
-            <p className="px-3 py-6 text-center text-[12px] text-[var(--text-quaternary)]">
+            <p className="px-3 py-6 text-center text-[length:var(--text-12)] text-[var(--text-quaternary)]">
               {choices.length === 0 ? t('quickadd.launcher_empty_library') : t('quickadd.launcher_no_match')}
             </p>
           )}
@@ -310,8 +310,8 @@ function LauncherRowView({ row, index, id, active, onHover, onActivate }: {
         <Icon size={14}/>
       </span>
       <span className="min-w-0 flex-1">
-        <span className="block truncate text-[12.5px] text-[var(--text-primary)]">{row.choice.name}</span>
-        <span className="mt-0.5 block text-[11px] tabular text-[var(--text-quaternary)]">
+        <span className="block truncate text-[length:var(--text-12-5)] text-[var(--text-primary)]">{row.choice.name}</span>
+        <span className="mt-0.5 block text-[length:var(--text-11)] tabular text-[var(--text-quaternary)]">
           {row.recent
             ? t('quickadd.launcher_recent')
             : row.trail.length > 0
@@ -320,7 +320,7 @@ function LauncherRowView({ row, index, id, active, onHover, onActivate }: {
         </span>
       </span>
       {combo && (
-        <kbd className="shrink-0 rounded border border-[var(--border-subtle)] px-1.5 py-0.5 text-[10px] text-[var(--text-tertiary)]">
+        <kbd className="shrink-0 rounded border border-[var(--border-subtle)] px-1.5 py-0.5 text-[length:var(--text-10)] text-[var(--text-tertiary)]">
           {prettyCombo(combo).join('+')}
         </kbd>
       )}

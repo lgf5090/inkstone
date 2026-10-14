@@ -55,19 +55,19 @@ export function NotesSettings() {
             maxLength={NEW_NOTE_TEMPLATE_MAX_LENGTH}
             rows={10}
             spellCheck={false}
-            className="w-full font-mono text-[12.5px]"/>
+            className="w-full font-mono text-[length:var(--text-12-5)]"/>
           <div className="flex w-full flex-wrap justify-end gap-1">
             {NEW_NOTE_PLACEHOLDERS.map((placeholder) => (<button
               key={placeholder}
               type="button"
               onClick={() => insertPlaceholder(placeholder)}
-              className="rounded-[var(--r-sm)] border border-[var(--border-subtle)] bg-[var(--bg-raised)] px-1.5 py-px font-mono text-[10.5px] text-[var(--text-tertiary)] transition-colors hover:border-[var(--border-strong)] hover:text-[var(--text-primary)]">
+              className="rounded-[var(--r-sm)] border border-[var(--border-subtle)] bg-[var(--bg-raised)] px-1.5 py-px font-mono text-[length:var(--text-10-5)] text-[var(--text-tertiary)] transition-colors hover:border-[var(--border-strong)] hover:text-[var(--text-primary)]">
               {`{{${placeholder}}}`}
             </button>))}
           </div>
-          <p className="w-full text-right text-[10.5px] text-[var(--text-quaternary)]">{t("templates.placeholders_hint")}</p>
+          <p className="w-full text-right text-[length:var(--text-10-5)] text-[var(--text-quaternary)]">{t("templates.placeholders_hint")}</p>
           <div className="flex w-full items-center justify-between gap-2">
-            <span className="text-[10.5px] tabular text-[var(--text-quaternary)]">
+            <span className="text-[length:var(--text-10-5)] tabular text-[var(--text-quaternary)]">
               {t("settings.new_note_template_characters", {
                 value0: notes.newNoteTemplate.length,
                 value1: NEW_NOTE_TEMPLATE_MAX_LENGTH,
@@ -79,14 +79,14 @@ export function NotesSettings() {
           </div>
         </div>
       </SettingRow>
-      <p className="pt-3 text-[11.5px] leading-relaxed text-[var(--text-quaternary)]">
+      <p className="pt-3 text-[length:var(--text-11-5)] leading-relaxed text-[var(--text-quaternary)]">
         {t("settings.new_note_template_hint")}
       </p>
       <TemplatePreview template={notes.newNoteTemplate}/>
     </section>
 
     <section>
-      <h3 data-setting-title={t("settings.title_sync")} className="mb-1 text-[11px] font-semibold tracking-[0.06em] text-[var(--text-quaternary)]">
+      <h3 data-setting-title={t("settings.title_sync")} className="mb-1 text-[length:var(--text-11)] font-semibold tracking-[0.06em] text-[var(--text-quaternary)]">
         {t("settings.title_sync")}
       </h3>
       <SettingRow title={t("settings.sync_title_to_frontmatter")} description={t("settings.sync_title_to_frontmatter_desc")}>
@@ -119,7 +119,7 @@ function TemplatePreview({ template }: { template: string }) {
   const hasContextualPlaceholders = template.includes('{{folder}}') || template.includes('{{tags}}');
   return (
     <div className="mt-4">
-      <h3 data-setting-title={t("settings.new_note_template_preview")} className="mb-1.5 text-[11px] font-semibold tracking-[0.06em] text-[var(--text-quaternary)]">
+      <h3 data-setting-title={t("settings.new_note_template_preview")} className="mb-1.5 text-[length:var(--text-11)] font-semibold tracking-[0.06em] text-[var(--text-quaternary)]">
         {t("settings.new_note_template_preview")}
       </h3>
       <div className="mb-2 grid grid-cols-1 gap-2 sm:grid-cols-3">
@@ -127,12 +127,12 @@ function TemplatePreview({ template }: { template: string }) {
         <Input aria-label={t("settings.template_preview_folder")} placeholder={t("settings.template_preview_folder")} value={demoFolder} onChange={(event) => setDemoFolder(event.target.value)}/>
         <Input aria-label={t("settings.template_preview_tag")} placeholder={t("settings.template_preview_tag")} value={demoTag} onChange={(event) => setDemoTag(event.target.value)}/>
       </div>
-      <pre className="max-h-[208px] overflow-auto whitespace-pre rounded-[var(--r-md)] border border-[var(--border-subtle)] bg-[var(--bg-inset)] p-3 font-mono text-[12px] leading-relaxed text-[var(--text-secondary)]">{preview.cursor === null ? preview.content : (<>
+      <pre className="max-h-[208px] overflow-auto whitespace-pre rounded-[var(--r-md)] border border-[var(--border-subtle)] bg-[var(--bg-inset)] p-3 font-mono text-[length:var(--text-12)] leading-relaxed text-[var(--text-secondary)]">{preview.cursor === null ? preview.content : (<>
         {preview.content.slice(0, preview.cursor)}
         <span aria-hidden="true" className="mx-px inline-block h-3.5 w-0.5 animate-pulse rounded-full bg-[var(--accent)] align-middle"/>
         {preview.content.slice(preview.cursor)}
       </>)}</pre>
-      {hasContextualPlaceholders && (<p className="mt-1.5 text-[11px] leading-relaxed text-[var(--text-quaternary)]">
+      {hasContextualPlaceholders && (<p className="mt-1.5 text-[length:var(--text-11)] leading-relaxed text-[var(--text-quaternary)]">
         {t("settings.template_preview_context")}
       </p>)}
     </div>

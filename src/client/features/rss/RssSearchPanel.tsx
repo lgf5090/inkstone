@@ -55,7 +55,7 @@ export function RssSearchPanel({ open, onClose, onPick }: {
           placeholder={t('rss.search_all_placeholder')}
         />
         {!query.text && !query.error && (
-          <p className="text-[12px] text-[var(--text-tertiary)]">
+          <p className="text-[length:var(--text-12)] text-[var(--text-tertiary)]">
             {index === null ? t('rss.search_indexing') : t('rss.search_idle', { n: index.length })}
           </p>
         )}
@@ -71,22 +71,22 @@ export function RssSearchPanel({ open, onClose, onPick }: {
                   }}
                   className="w-full rounded-[var(--r-md)] px-2 py-2 text-left hover:bg-[var(--bg-hover)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--accent)]"
                 >
-                  <span className="block truncate text-[13px] font-medium text-[var(--text-primary)]">
+                  <span className="block truncate text-[length:var(--text-13)] font-medium text-[var(--text-primary)]">
                     {entry.title || t('rss.untitled')}
                   </span>
-                  <span className="mt-0.5 block truncate text-[11px] text-[var(--text-quaternary)]">
+                  <span className="mt-0.5 block truncate text-[length:var(--text-11)] text-[var(--text-quaternary)]">
                     {library.feeds.find(feed => feed.id === entry.feedId)?.title ?? t('rss.source_unknown')}
                     {entry.publishedTs ? ` · ${shortSince(entry.publishedTs)}` : ''}
                   </span>
                   {entry.summary && (
-                    <span className="mt-0.5 line-clamp-2 block text-[11.5px] leading-[16px] text-[var(--text-tertiary)]">
+                    <span className="mt-0.5 line-clamp-2 block text-[length:var(--text-11-5)] leading-[16px] text-[var(--text-tertiary)]">
                       {entry.summary}
                     </span>
                   )}
                 </button>
               </li>
             ))}
-            {!results.length && <li className="px-2 py-6 text-center text-[12.5px] text-[var(--text-tertiary)]">{t('rss.no_results', { query: term })}</li>}
+            {!results.length && <li className="px-2 py-6 text-center text-[length:var(--text-12-5)] text-[var(--text-tertiary)]">{t('rss.no_results', { query: term })}</li>}
           </ul>
         )}
       </div>

@@ -314,7 +314,7 @@ export function RssSettings(): ReactElement {
                 {t('rss.ai.test')}
               </Button>
               {testResult && (
-                <span className="inline-flex min-w-0 items-center gap-1 text-[11.5px] text-[var(--text-secondary)]">
+                <span className="inline-flex min-w-0 items-center gap-1 text-[length:var(--text-11-5)] text-[var(--text-secondary)]">
                   {testResult.ok ? <Check size={12} /> : <X size={12} />}
                   <span className="truncate">{testResult.text}</span>
                 </span>
@@ -368,7 +368,7 @@ export function RssSettings(): ReactElement {
           </div>
         </SettingRow>
         <SettingRow title={t('rss.storage.images')} description={t('rss.storage.images_desc')}>
-          <span className="text-[11.5px] text-[var(--text-quaternary)]">{t('rss.storage.images_none')}</span>
+          <span className="text-[length:var(--text-11-5)] text-[var(--text-quaternary)]">{t('rss.storage.images_none')}</span>
         </SettingRow>
       </section>
     </div>

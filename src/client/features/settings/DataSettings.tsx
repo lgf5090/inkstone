@@ -105,16 +105,16 @@ export function DataSettings() {
     }, [loadStats]);
     return (<div className="space-y-6">
       <section>
-        <h3 data-setting-title={t("settings.overview")} className="mb-2 text-[11px] font-semibold tracking-[0.06em] text-[var(--text-quaternary)]">{t("settings.overview")}</h3>
+        <h3 data-setting-title={t("settings.overview")} className="mb-2 text-[length:var(--text-11)] font-semibold tracking-[0.06em] text-[var(--text-quaternary)]">{t("settings.overview")}</h3>
         {stats === null ? (statsError ? (<div role="alert" className="flex items-start gap-2 rounded-[var(--r-md)] border border-[color-mix(in_oklab,var(--danger)_25%,var(--border-subtle))] bg-[var(--bg-base)] px-3 py-3">
             <AlertCircle size={14} className="mt-0.5 shrink-0 text-[var(--danger)]"/>
             <div className="min-w-0 flex-1">
-              <div className="text-[12.5px] font-medium text-[var(--text-primary)]">{t("settings.could_not_load_data_overview")}</div>
-              <p className="mt-0.5 break-words text-[11.5px] text-[var(--text-tertiary)]">{statsError}</p>
+              <div className="text-[length:var(--text-12-5)] font-medium text-[var(--text-primary)]">{t("settings.could_not_load_data_overview")}</div>
+              <p className="mt-0.5 break-words text-[length:var(--text-11-5)] text-[var(--text-tertiary)]">{statsError}</p>
             </div>
             <Button size="sm" variant="secondary" onClick={() => void loadStats()}>{t("common.retry")}</Button>
           </div>) : (<LoadingBlock label={t("common.loading")}/>)) : (<>
-          {statsError && (<div role="alert" className="mb-2 flex items-start gap-2 rounded-[var(--r-md)] border border-[color-mix(in_oklab,var(--danger)_25%,var(--border-subtle))] bg-[var(--bg-base)] px-3 py-2 text-[11.5px] text-[var(--danger)]">
+          {statsError && (<div role="alert" className="mb-2 flex items-start gap-2 rounded-[var(--r-md)] border border-[color-mix(in_oklab,var(--danger)_25%,var(--border-subtle))] bg-[var(--bg-base)] px-3 py-2 text-[length:var(--text-11-5)] text-[var(--danger)]">
               <AlertCircle size={13} className="mt-0.5 shrink-0"/>
               <span className="min-w-0 flex-1 break-words">{statsError}</span>
               <button type="button" className="shrink-0 font-medium underline underline-offset-2" onClick={() => void loadStats()}>{t("common.retry")}</button>
@@ -130,19 +130,19 @@ export function DataSettings() {
             { label: t("settings.attachments"), value: stats.attachments ?? 0 },
             { label: t("navigation.trash"), value: stats.trashed ?? 0 },
         ].map((item) => (<div key={item.label} className="rounded-[var(--r-md)] border border-[var(--border-subtle)] bg-[var(--bg-base)] px-3 py-2.5">
-              <div className="text-[17px] font-semibold tabular tracking-[-0.02em] text-[var(--text-primary)]">
+              <div className="text-[length:var(--text-17)] font-semibold tabular tracking-[-0.02em] text-[var(--text-primary)]">
                 {formatNumber(item.value)}
               </div>
-              <div className="mt-0.5 text-[11px] text-[var(--text-quaternary)]">{item.label}</div>
+              <div className="mt-0.5 text-[length:var(--text-11)] text-[var(--text-quaternary)]">{item.label}</div>
             </div>))}
           </div>
-          {stats.attachmentBytes ? (<p className="mt-2 text-[11.5px] text-[var(--text-quaternary)]">{t("settings.attachment_storage")}{formatBytes(stats.attachmentBytes)}
+          {stats.attachmentBytes ? (<p className="mt-2 text-[length:var(--text-11-5)] text-[var(--text-quaternary)]">{t("settings.attachment_storage")}{formatBytes(stats.attachmentBytes)}
             </p>) : null}
         </>)}
       </section>
 
       <section>
-        <h3 className="mb-1 text-[11px] font-semibold tracking-[0.06em] text-[var(--text-quaternary)]">{t("settings.attachments")}</h3>
+        <h3 className="mb-1 text-[length:var(--text-11)] font-semibold tracking-[0.06em] text-[var(--text-quaternary)]">{t("settings.attachments")}</h3>
 
         <SettingRow title={t("attachments.manage")} description={t("attachments.manage_description")}>
           <Button size="sm" icon={<ImageIcon size={13}/>} onClick={() => setAttachmentManagerOpen(true)}>{t("attachments.manage")}</Button>
@@ -150,7 +150,7 @@ export function DataSettings() {
       </section>
 
       <section>
-        <h3 className="mb-1 text-[11px] font-semibold tracking-[0.06em] text-[var(--text-quaternary)]">{t("settings.export")}</h3>
+        <h3 className="mb-1 text-[length:var(--text-11)] font-semibold tracking-[0.06em] text-[var(--text-quaternary)]">{t("settings.export")}</h3>
 
         <SettingRow title={t("settings.export_to_zip")} description={t("settings.includes_every_note_folder_tag_and_attachment_for_a_complete_restore_plu")}>
           <Button size="sm" icon={<Download size={13}/>} loading={busy === 'export-zip'} disabled={busy !== null} onClick={() => void exportData('zip')}>{t("settings.download_zip")}</Button>
@@ -162,7 +162,7 @@ export function DataSettings() {
       </section>
 
       <section>
-        <h3 className="mb-1 text-[11px] font-semibold tracking-[0.06em] text-[var(--text-quaternary)]">{t("settings.import")}</h3>
+        <h3 className="mb-1 text-[length:var(--text-11)] font-semibold tracking-[0.06em] text-[var(--text-quaternary)]">{t("settings.import")}</h3>
 
         <SettingRow title={t("settings.restore_backup_folder")} description={t("settings.restore_backup_folder_description")}>
           <Button size="sm" icon={<FolderOpen size={13}/>} loading={busy === 'restore-backup'} disabled={busy !== null} onClick={() => backupFolderRef.current?.click()}>{t("settings.select_backup_folder")}</Button>
@@ -206,7 +206,7 @@ export function DataSettings() {
       </section>
 
       <section>
-        <h3 data-setting-title={t("settings.maintenance")} className="mb-1 text-[11px] font-semibold tracking-[0.06em] text-[var(--text-quaternary)]">{t("settings.maintenance")}</h3>
+        <h3 data-setting-title={t("settings.maintenance")} className="mb-1 text-[length:var(--text-11)] font-semibold tracking-[0.06em] text-[var(--text-quaternary)]">{t("settings.maintenance")}</h3>
 
         <SettingRow title={t("settings.rebuild_search_index")} description={t("settings.try_this_when_your_search_results_don_t_look_right")}>
           <Button size="sm" variant="secondary" icon={<RefreshCw size={13}/>} loading={busy === 'reindex'} disabled={busy !== null} onClick={() => run('reindex', async () => {

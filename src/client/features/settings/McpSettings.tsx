@@ -297,7 +297,7 @@ export function McpSettings() {
   if (!info) {
     return (
       <div className="rounded-[var(--r-lg)] border border-[var(--border-subtle)] bg-[var(--bg-base)] p-4">
-        <p className="text-[12.5px] text-[var(--danger)]">{loadError ?? t('settings.mcp_load_failed')}</p>
+        <p className="text-[length:var(--text-12-5)] text-[var(--danger)]">{loadError ?? t('settings.mcp_load_failed')}</p>
         <Button className="mt-3" size="sm" icon={<RefreshCw size={12} />} onClick={() => void load()}>
           {t('common.retry')}
         </Button>
@@ -315,8 +315,8 @@ export function McpSettings() {
           <div className="flex items-start gap-2.5">
             <AlertTriangle size={15} className="mt-0.5 shrink-0 text-[var(--accent)]" />
             <div>
-              <h3 className="text-[12.5px] font-medium text-[var(--text-primary)]">{t('settings.mcp_demo_title')}</h3>
-              <p className="mt-1 text-[11px] leading-relaxed text-[var(--text-tertiary)]">{t('settings.mcp_demo_desc')}</p>
+              <h3 className="text-[length:var(--text-12-5)] font-medium text-[var(--text-primary)]">{t('settings.mcp_demo_title')}</h3>
+              <p className="mt-1 text-[length:var(--text-11)] leading-relaxed text-[var(--text-tertiary)]">{t('settings.mcp_demo_desc')}</p>
             </div>
           </div>
         </section>
@@ -328,20 +328,20 @@ export function McpSettings() {
           </span>
           <div className="min-w-0 flex-1">
             <div className="flex flex-wrap items-center gap-2">
-              <h3 className="text-[13.5px] font-semibold text-[var(--text-primary)]">{t('settings.mcp_private_knowledge')}</h3>
+              <h3 className="text-[length:var(--text-13-5)] font-semibold text-[var(--text-primary)]">{t('settings.mcp_private_knowledge')}</h3>
               <Badge tone={info.enabled ? 'success' : 'neutral'}>
                 {info.enabled ? t('settings.enabled') : t('settings.mcp_disabled')}
               </Badge>
             </div>
-            <p className="mt-1 text-[11.5px] leading-relaxed text-[var(--text-tertiary)]">
+            <p className="mt-1 text-[length:var(--text-11-5)] leading-relaxed text-[var(--text-tertiary)]">
               {t('settings.mcp_intro')}
             </p>
           </div>
         </div>
         <div className="border-t border-[var(--border-subtle)] px-4 py-3">
-          <div data-setting-title={t('settings.mcp_endpoint')} className="mb-1 text-[11px] font-medium text-[var(--text-tertiary)]">{t('settings.mcp_endpoint')}</div>
+          <div data-setting-title={t('settings.mcp_endpoint')} className="mb-1 text-[length:var(--text-11)] font-medium text-[var(--text-tertiary)]">{t('settings.mcp_endpoint')}</div>
           <div className="flex min-w-0 items-center gap-2">
-            <code className="min-w-0 flex-1 overflow-x-auto rounded-[var(--r-sm)] bg-[var(--bg-inset)] px-2.5 py-2 text-[11.5px] text-[var(--text-secondary)]">
+            <code className="min-w-0 flex-1 overflow-x-auto rounded-[var(--r-sm)] bg-[var(--bg-inset)] px-2.5 py-2 text-[length:var(--text-11-5)] text-[var(--text-secondary)]">
               {info.endpoint}
             </code>
             <Tooltip label={t('settings.mcp_copy')} side="left">
@@ -350,14 +350,14 @@ export function McpSettings() {
               </IconButton>
             </Tooltip>
           </div>
-          <p className="mt-2 text-[10.5px] leading-relaxed text-[var(--text-quaternary)]">
+          <p className="mt-2 text-[length:var(--text-10-5)] leading-relaxed text-[var(--text-quaternary)]">
             {t('settings.mcp_endpoint_desc')}
           </p>
         </div>
       </section>
 
       <section>
-        <h3 data-setting-title={t('settings.mcp_permissions')} className="mb-1 px-1 text-[11px] font-semibold tracking-[0.06em] text-[var(--text-quaternary)]">
+        <h3 data-setting-title={t('settings.mcp_permissions')} className="mb-1 px-1 text-[length:var(--text-11)] font-semibold tracking-[0.06em] text-[var(--text-quaternary)]">
           {t('settings.mcp_permissions')}
         </h3>
         {info.canManageGlobal && (
@@ -389,21 +389,21 @@ export function McpSettings() {
       </section>
 
       <section>
-        <h3 data-setting-title={t('settings.mcp_api_keys')} className="mb-2 px-1 text-[11px] font-semibold tracking-[0.06em] text-[var(--text-quaternary)]">
+        <h3 data-setting-title={t('settings.mcp_api_keys')} className="mb-2 px-1 text-[length:var(--text-11)] font-semibold tracking-[0.06em] text-[var(--text-quaternary)]">
           {t('settings.mcp_api_keys')}
         </h3>
-        <p className="mb-3 px-1 text-[11.5px] leading-relaxed text-[var(--text-tertiary)]">
+        <p className="mb-3 px-1 text-[length:var(--text-11-5)] leading-relaxed text-[var(--text-tertiary)]">
           {t('settings.mcp_api_keys_desc')}
         </p>
 
         {newToken && (
           <div className="mb-3 rounded-[var(--r-lg)] border border-[var(--border-subtle)] bg-[var(--bg-inset)] p-3">
-            <div className="mb-1.5 flex items-center gap-1.5 text-[11px] font-medium text-[var(--text-primary)]">
+            <div className="mb-1.5 flex items-center gap-1.5 text-[length:var(--text-11)] font-medium text-[var(--text-primary)]">
               <KeyRound size={12} className="text-[var(--accent)]" />
               {t('settings.mcp_api_key_copy_warning')}
             </div>
             <div className="flex items-center gap-2">
-              <code className="min-w-0 flex-1 break-all rounded-[var(--r-sm)] bg-[var(--bg-base)] px-2.5 py-2 font-mono text-[11px] text-[var(--text-secondary)]">
+              <code className="min-w-0 flex-1 break-all rounded-[var(--r-sm)] bg-[var(--bg-base)] px-2.5 py-2 font-mono text-[length:var(--text-11)] text-[var(--text-secondary)]">
                 {newToken}
               </code>
               <Button size="sm" variant="secondary" icon={copied === 'new-token' ? <Check size={12} /> : <Copy size={12} />}
@@ -412,7 +412,7 @@ export function McpSettings() {
               </Button>
               <Button size="sm" variant="ghost" onClick={() => setNewToken(null)}>{t('common.close')}</Button>
             </div>
-            <p className="mt-1.5 text-[10.5px] text-[var(--text-quaternary)]">{t('settings.mcp_api_key_show_once')}</p>
+            <p className="mt-1.5 text-[length:var(--text-10-5)] text-[var(--text-quaternary)]">{t('settings.mcp_api_key_show_once')}</p>
           </div>
         )}
 
@@ -440,8 +440,8 @@ export function McpSettings() {
                   <KeyRound size={15} />
                 </span>
                 <div className="min-w-0 flex-1">
-                  <div className="truncate text-[12.5px] font-medium text-[var(--text-primary)]">{key.name}</div>
-                  <div className="mt-0.5 truncate text-[10.5px] text-[var(--text-quaternary)]">
+                  <div className="truncate text-[length:var(--text-12-5)] font-medium text-[var(--text-primary)]">{key.name}</div>
+                  <div className="mt-0.5 truncate text-[length:var(--text-10-5)] text-[var(--text-quaternary)]">
                     {scopeSummary(key.scopes)}
                     {' · '}
                     {key.lastUsedAt
@@ -464,7 +464,7 @@ export function McpSettings() {
             ))}
           </div>
         ) : (
-          <div className="rounded-[var(--r-lg)] border border-dashed border-[var(--border-default)] p-5 text-center text-[11.5px] text-[var(--text-quaternary)]">
+          <div className="rounded-[var(--r-lg)] border border-dashed border-[var(--border-default)] p-5 text-center text-[length:var(--text-11-5)] text-[var(--text-quaternary)]">
             {t('settings.mcp_api_keys_empty')}
           </div>
         )}
@@ -474,7 +474,7 @@ export function McpSettings() {
         <div className="mb-2 flex items-center justify-between gap-3 px-1">
           <div className="flex items-center gap-1.5">
             <Sparkles size={13} className="text-[var(--accent)]" />
-            <h3 data-setting-title={t('settings.mcp_ai_search')} className="text-[11px] font-semibold tracking-[0.06em] text-[var(--text-quaternary)]">
+            <h3 data-setting-title={t('settings.mcp_ai_search')} className="text-[length:var(--text-11)] font-semibold tracking-[0.06em] text-[var(--text-quaternary)]">
               {t('settings.mcp_ai_search')}
             </h3>
             {aiSearch.available ? (
@@ -493,16 +493,16 @@ export function McpSettings() {
           />
         </div>
         <div className="rounded-[var(--r-lg)] border border-[var(--border-subtle)] bg-[var(--bg-base)] p-3.5">
-          <p className="text-[11.5px] leading-relaxed text-[var(--text-tertiary)]">
+          <p className="text-[length:var(--text-11-5)] leading-relaxed text-[var(--text-tertiary)]">
             {t('settings.mcp_ai_search_desc')}
           </p>
           {aiSearch.available ? (
-            <p className="mt-2 text-[10.5px] text-[var(--text-quaternary)]">
+            <p className="mt-2 text-[length:var(--text-10-5)] text-[var(--text-quaternary)]">
               {t('settings.mcp_ai_search_indexed', { count: aiSearch.indexedCount })}
               {aiSearch.pendingCount > 0 && ` · ${t('settings.mcp_ai_search_pending', { count: aiSearch.pendingCount })}`}
             </p>
           ) : (
-            <p className="mt-2 flex items-center gap-1.5 text-[10.5px] text-[var(--danger)]">
+            <p className="mt-2 flex items-center gap-1.5 text-[length:var(--text-10-5)] text-[var(--danger)]">
               <AlertTriangle size={12} />
               {t('settings.mcp_ai_search_unavailable_desc')}
             </p>
@@ -521,22 +521,22 @@ export function McpSettings() {
       </section>
 
       <section>
-        <h3 data-setting-title={t('settings.mcp_connect_clients')} className="mb-2 px-1 text-[11px] font-semibold tracking-[0.06em] text-[var(--text-quaternary)]">
+        <h3 data-setting-title={t('settings.mcp_connect_clients')} className="mb-2 px-1 text-[length:var(--text-11)] font-semibold tracking-[0.06em] text-[var(--text-quaternary)]">
           {t('settings.mcp_connect_clients')}
         </h3>
-        <p className="mb-3 px-1 text-[11.5px] leading-relaxed text-[var(--text-tertiary)]">
+        <p className="mb-3 px-1 text-[length:var(--text-11-5)] leading-relaxed text-[var(--text-tertiary)]">
           {t('settings.mcp_connect_desc')}
         </p>
         <div className="space-y-2">
           {snippets.map((snippet) => (
             <details key={snippet.id} className="group overflow-hidden rounded-[var(--r-lg)] border border-[var(--border-subtle)] bg-[var(--bg-base)]">
-              <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-3.5 py-3 text-[12.5px] font-medium text-[var(--text-primary)]">
+              <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-3.5 py-3 text-[length:var(--text-12-5)] font-medium text-[var(--text-primary)]">
                 <span>{snippet.name}</span>
-                <span data-setting-title={t('settings.mcp_transport')} className="text-[10.5px] font-normal text-[var(--text-quaternary)]">{t('settings.mcp_transport')}</span>
+                <span data-setting-title={t('settings.mcp_transport')} className="text-[length:var(--text-10-5)] font-normal text-[var(--text-quaternary)]">{t('settings.mcp_transport')}</span>
               </summary>
               <div className="border-t border-[var(--border-subtle)] p-3">
                 <div className="flex items-start gap-2">
-                  <pre className="min-w-0 flex-1 overflow-x-auto whitespace-pre-wrap break-all rounded-[var(--r-sm)] bg-[var(--bg-inset)] p-2.5 text-[10.5px] leading-relaxed text-[var(--text-secondary)]">{snippet.value}</pre>
+                  <pre className="min-w-0 flex-1 overflow-x-auto whitespace-pre-wrap break-all rounded-[var(--r-sm)] bg-[var(--bg-inset)] p-2.5 text-[length:var(--text-10-5)] leading-relaxed text-[var(--text-secondary)]">{snippet.value}</pre>
                   <Tooltip label={t('settings.mcp_copy')} side="left">
                     <IconButton label={t('settings.mcp_copy')} size="sm" disabled={displayOnly} onClick={() => void copy(snippet.id, snippet.value)}>
                       {copied === snippet.id ? <Check size={14} /> : <Copy size={14} />}
@@ -551,7 +551,7 @@ export function McpSettings() {
 
       <section>
         <div className="mb-2 flex items-center justify-between gap-3 px-1">
-          <h3 className="text-[11px] font-semibold tracking-[0.06em] text-[var(--text-quaternary)]">
+          <h3 className="text-[length:var(--text-11)] font-semibold tracking-[0.06em] text-[var(--text-quaternary)]">
             {t('settings.mcp_connected_clients')}
           </h3>
           {info.grants.length > 1 && (
@@ -568,8 +568,8 @@ export function McpSettings() {
                   <ShieldCheck size={15} />
                 </span>
                 <div className="min-w-0 flex-1">
-                  <div className="truncate text-[12.5px] font-medium text-[var(--text-primary)]">{grant.clientName}</div>
-                  <div className="mt-0.5 truncate text-[10.5px] text-[var(--text-quaternary)]">
+                  <div className="truncate text-[length:var(--text-12-5)] font-medium text-[var(--text-primary)]">{grant.clientName}</div>
+                  <div className="mt-0.5 truncate text-[length:var(--text-10-5)] text-[var(--text-quaternary)]">
                     {scopeSummary(grant.scopes)} · {t('settings.mcp_granted_at', { time: fullTime(grant.createdAt) })}
                   </div>
                 </div>
@@ -587,7 +587,7 @@ export function McpSettings() {
             ))}
           </div>
         ) : (
-          <div className="rounded-[var(--r-lg)] border border-dashed border-[var(--border-default)] p-5 text-center text-[11.5px] text-[var(--text-quaternary)]">
+          <div className="rounded-[var(--r-lg)] border border-dashed border-[var(--border-default)] p-5 text-center text-[length:var(--text-11-5)] text-[var(--text-quaternary)]">
             {t('settings.mcp_no_clients')}
           </div>
         )}
@@ -597,8 +597,8 @@ export function McpSettings() {
         <div className="flex items-start gap-3">
           <ShieldCheck size={16} className="mt-0.5 shrink-0 text-[var(--success)]" />
           <div>
-            <h3 data-setting-title={t('settings.mcp_privacy')} className="text-[12.5px] font-medium text-[var(--text-primary)]">{t('settings.mcp_privacy')}</h3>
-            <p className="mt-1 text-[11px] leading-relaxed text-[var(--text-tertiary)]">{t('settings.mcp_privacy_desc')}</p>
+            <h3 data-setting-title={t('settings.mcp_privacy')} className="text-[length:var(--text-12-5)] font-medium text-[var(--text-primary)]">{t('settings.mcp_privacy')}</h3>
+            <p className="mt-1 text-[length:var(--text-11)] leading-relaxed text-[var(--text-tertiary)]">{t('settings.mcp_privacy_desc')}</p>
           </div>
         </div>
       </section>

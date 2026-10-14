@@ -57,7 +57,7 @@ export function ToolChip({ tool }: { tool: ToolActivity }) {
       data-tool-chip={tool.name}
       title={tool.error ?? undefined}
       className={cn(
-        'inline-flex max-w-full items-center gap-1.5 rounded-full border px-2 py-[2px] text-[11px]',
+        'inline-flex max-w-full items-center gap-1.5 rounded-full border px-2 py-[2px] text-[length:var(--text-11)]',
         tool.status === 'error'
           ? 'border-[color-mix(in_oklab,var(--danger)_35%,transparent)] bg-[var(--danger-soft)] text-[var(--danger)]'
           : 'border-[var(--border-subtle)] bg-[var(--bg-inset)] text-[var(--text-tertiary)]',
@@ -94,7 +94,7 @@ export function ApprovalCard({ action }: { action: ToolActivity['approval'] }) {
     return (
       <div
         data-approval-outcome={action.status}
-        className="flex items-start gap-2 rounded-[var(--r-md)] border border-[var(--border-subtle)] bg-[var(--bg-inset)] px-2.5 py-1.5 text-[12px] text-[var(--text-tertiary)]"
+        className="flex items-start gap-2 rounded-[var(--r-md)] border border-[var(--border-subtle)] bg-[var(--bg-inset)] px-2.5 py-1.5 text-[length:var(--text-12)] text-[var(--text-tertiary)]"
       >
         {action.status === 'approved'
           ? <Check size={13} className="mt-0.5 shrink-0 text-[var(--success)]" />
@@ -116,11 +116,11 @@ export function ApprovalCard({ action }: { action: ToolActivity['approval'] }) {
       aria-label={t('assistant.approval.title')}
       className="rounded-[var(--r-md)] border border-[color-mix(in_oklab,var(--warning)_45%,transparent)] bg-[var(--bg-surface)] px-3 py-2 shadow-[var(--shadow-sm)]"
     >
-      <div className="flex items-start gap-2 text-[12.5px]">
+      <div className="flex items-start gap-2 text-[length:var(--text-12-5)]">
         <ShieldAlert size={14} className="mt-0.5 shrink-0 text-[var(--warning)]" />
         <div className="min-w-0">
           <p className="break-words font-medium text-[var(--text-primary)]">{question}</p>
-          <p className="mt-0.5 text-[11px] text-[var(--text-tertiary)]">{t('assistant.approval.hint')}</p>
+          <p className="mt-0.5 text-[length:var(--text-11)] text-[var(--text-tertiary)]">{t('assistant.approval.hint')}</p>
         </div>
       </div>
       <div className="mt-2 flex justify-end gap-1.5">
@@ -178,7 +178,7 @@ function AnswerVersionPager({ total, page, onStep, onRestore, busy }: {
       >
         <ChevronLeft size={12} />
       </button>
-      <span aria-live="polite" className="min-w-[34px] text-center text-[11px] tabular-nums text-[var(--text-quaternary)]">
+      <span aria-live="polite" className="min-w-[34px] text-center text-[length:var(--text-11)] tabular-nums text-[var(--text-quaternary)]">
         {page + 1}/{total}
       </span>
       <button
@@ -195,7 +195,7 @@ function AnswerVersionPager({ total, page, onStep, onRestore, busy }: {
           type="button"
           onClick={onRestore}
           disabled={busy}
-          className="ml-0.5 inline-flex items-center gap-1 rounded-[var(--r-sm)] px-1 py-0.5 text-[11px] font-medium text-[var(--accent)] hover:bg-[var(--accent-soft)] disabled:opacity-50"
+          className="ml-0.5 inline-flex items-center gap-1 rounded-[var(--r-sm)] px-1 py-0.5 text-[length:var(--text-11)] font-medium text-[var(--accent)] hover:bg-[var(--accent-soft)] disabled:opacity-50"
         >
           {t('assistant.chat.use_this')}
         </button>
@@ -286,14 +286,14 @@ export function AssistantBubble({
             type="button"
             onClick={() => setShowReasoning((open) => !open)}
             aria-expanded={showReasoning}
-            className="inline-flex items-center gap-1 text-[11px] text-[var(--text-quaternary)] hover:text-[var(--text-secondary)]"
+            className="inline-flex items-center gap-1 text-[length:var(--text-11)] text-[var(--text-quaternary)] hover:text-[var(--text-secondary)]"
           >
             <ChevronDown size={11} className={cn('transition-transform duration-[var(--dur-fast)]', showReasoning && 'rotate-180')} />
             {t('assistant.chat.reasoning')}
           </button>
         )}
         {reasoning && showReasoning && (
-          <p className="whitespace-pre-wrap rounded-[var(--r-md)] bg-[var(--bg-inset)] px-2.5 py-1.5 text-[11.5px] leading-relaxed text-[var(--text-tertiary)]">
+          <p className="whitespace-pre-wrap rounded-[var(--r-md)] bg-[var(--bg-inset)] px-2.5 py-1.5 text-[length:var(--text-11-5)] leading-relaxed text-[var(--text-tertiary)]">
             {reasoning}
           </p>
         )}
@@ -307,13 +307,13 @@ export function AssistantBubble({
                     <i className="size-1 animate-pulse rounded-full bg-[var(--text-quaternary)] [animation-delay:150ms]" />
                     <i className="size-1 animate-pulse rounded-full bg-[var(--text-quaternary)] [animation-delay:300ms]" />
                   </span>
-                  {stage && <span className="text-[11px] text-[var(--text-quaternary)]">{t(STAGE_KEYS[stage])}</span>}
+                  {stage && <span className="text-[length:var(--text-11)] text-[var(--text-quaternary)]">{t(STAGE_KEYS[stage])}</span>}
                 </div>
               )
             : null}
-        {cancelled && <p className="text-[11px] text-[var(--text-quaternary)]">{t('assistant.chat.stopped')}</p>}
+        {cancelled && <p className="text-[length:var(--text-11)] text-[var(--text-quaternary)]">{t('assistant.chat.stopped')}</p>}
         {error && (
-          <div role="alert" className="flex flex-wrap items-center gap-2 rounded-[var(--r-md)] border border-[color-mix(in_oklab,var(--danger)_30%,transparent)] bg-[var(--danger-soft)] px-2.5 py-1.5 text-[12px] text-[var(--danger)]">
+          <div role="alert" className="flex flex-wrap items-center gap-2 rounded-[var(--r-md)] border border-[color-mix(in_oklab,var(--danger)_30%,transparent)] bg-[var(--danger-soft)] px-2.5 py-1.5 text-[length:var(--text-12)] text-[var(--danger)]">
             <AlertTriangle size={13} className="shrink-0" />
             <span className="min-w-0 flex-1">{error}</span>
             {onRetry && (
@@ -340,7 +340,7 @@ export function AssistantBubble({
                   })
                 }}
                 aria-label={t('assistant.chat.copy')}
-                className="inline-flex items-center gap-1 rounded-[var(--r-sm)] px-1 py-0.5 text-[11px] text-[var(--text-quaternary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-secondary)]"
+                className="inline-flex items-center gap-1 rounded-[var(--r-sm)] px-1 py-0.5 text-[length:var(--text-11)] text-[var(--text-quaternary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-secondary)]"
               >
                 {copied ? <Check size={11} /> : <Copy size={11} />}
                 {copied ? t('assistant.chat.copied') : t('assistant.chat.copy')}
@@ -353,7 +353,7 @@ export function AssistantBubble({
                 type="button"
                 onClick={onRetry}
                 aria-label={t(retryLabel)}
-                className="inline-flex shrink-0 items-center gap-1 rounded-[var(--r-sm)] px-1 py-0.5 text-[11px] text-[var(--text-quaternary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-secondary)]"
+                className="inline-flex shrink-0 items-center gap-1 rounded-[var(--r-sm)] px-1 py-0.5 text-[length:var(--text-11)] text-[var(--text-quaternary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-secondary)]"
               >
                 <RotateCcw size={11} />
                 {t(retryLabel)}
@@ -378,7 +378,7 @@ export function AssistantBubble({
               />
             )}
             {viewing ? (
-              <span className="text-[11px] text-[var(--text-quaternary)]">
+              <span className="text-[length:var(--text-11)] text-[var(--text-quaternary)]">
                 {t('assistant.chat.viewing_history')}
                 {viewing.modelLabel && ` · ${viewing.modelLabel}`}
                 {` · ${new Date(viewing.createdAt).toLocaleString()}`}
@@ -386,7 +386,7 @@ export function AssistantBubble({
             ) : (
               usage && answerStats(usage, durationMs) && (
                 <span
-                  className="shrink-0 text-[11px] text-[var(--text-quaternary)]"
+                  className="shrink-0 text-[length:var(--text-11)] text-[var(--text-quaternary)]"
                   title={t('assistant.chat.usage', { input: usage.inputTokens, output: usage.outputTokens })}
                 >
                   {answerStats(usage, durationMs)}

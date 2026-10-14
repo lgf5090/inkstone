@@ -36,23 +36,23 @@ export function CommunityPanel({ items, query, loading, isError, hasMore, myId, 
   if (isError && items.length === 0)
     return (<div className='flex h-full min-h-60 flex-col items-center justify-center gap-3 text-center'>
       <Globe size={26} className='text-[var(--text-quaternary)]'/>
-      <p className='text-[13px] font-medium text-[var(--text-secondary)]'>{t('templates.community_load_failed')}</p>
+      <p className='text-[length:var(--text-13)] font-medium text-[var(--text-secondary)]'>{t('templates.community_load_failed')}</p>
       <Button size='sm' variant='secondary' icon={<RotateCw size={13}/>} onClick={onRefresh}>{t('common.refresh')}</Button>
     </div>)
   if (visible.length === 0)
     return (<div className='flex h-full min-h-60 flex-col items-center justify-center gap-2 text-center'>
       <Globe size={26} className='text-[var(--text-quaternary)]'/>
-      <p className='text-[13px] font-medium text-[var(--text-secondary)]'>
+      <p className='text-[length:var(--text-13)] font-medium text-[var(--text-secondary)]'>
         {searching ? t('templates.no_matching_templates') : t('templates.community_empty')}
       </p>
-      <p className='text-[11.5px] text-[var(--text-quaternary)]'>
+      <p className='text-[length:var(--text-11-5)] text-[var(--text-quaternary)]'>
         {searching ? t('templates.no_templates_hint') : t('templates.community_empty_hint')}
       </p>
       {searching && hasMore && (<Button size='sm' variant='secondary' disabled={loading} icon={<RotateCw size={13}/>} onClick={onLoadMore}>{t('templates.community_load_more')}</Button>)}
     </div>)
   return (<div className='space-y-2.5'>
     <div className='flex items-center justify-between gap-2'>
-      <p className='text-[11.5px] text-[var(--text-quaternary)]'>
+      <p className='text-[length:var(--text-11-5)] text-[var(--text-quaternary)]'>
         {searching
           ? t('templates.community_count_hits_value0_total_value1', { value0: visible.length, value1: items.length })
           : t('templates.community_count_value0', { value0: items.length })}
@@ -106,18 +106,18 @@ function CommunityCard({ item, mine, onUse, onImport, onUnpublish }: {
   )
   return (<div className='group relative flex min-h-33 flex-col rounded-[var(--r-lg)] border border-[var(--border-subtle)] bg-[var(--bg-surface)] p-3.5 transition-[border-color,box-shadow] duration-[var(--dur-fast)] hover:border-[var(--border-strong)] hover:shadow-[var(--shadow-sm)]'>
     <div className='flex min-w-0 items-center gap-1.5'>
-      <h3 className='min-w-0 flex-1 truncate text-[13px] font-semibold tracking-[-0.01em] text-[var(--text-primary)]'>{item.name}</h3>
-      {mine && <span className='shrink-0 rounded-full bg-[var(--accent-soft)] px-1.5 py-px text-[10px] font-medium text-[var(--accent)]'>{t('templates.community_mine')}</span>}
+      <h3 className='min-w-0 flex-1 truncate text-[length:var(--text-13)] font-semibold tracking-[-0.01em] text-[var(--text-primary)]'>{item.name}</h3>
+      {mine && <span className='shrink-0 rounded-full bg-[var(--accent-soft)] px-1.5 py-px text-[length:var(--text-10)] font-medium text-[var(--accent)]'>{t('templates.community_mine')}</span>}
     </div>
-    {item.description && <p className='mt-1.5 line-clamp-2 text-[11.5px] leading-relaxed text-[var(--text-tertiary)]'>{item.description}</p>}
+    {item.description && <p className='mt-1.5 line-clamp-2 text-[length:var(--text-11-5)] leading-relaxed text-[var(--text-tertiary)]'>{item.description}</p>}
     {item.tags.length > 0 && (<div className='mt-1.5 flex min-w-0 flex-wrap items-center gap-1'>
       {item.tags.map((tag) => (<TemplateTag key={tag} tag={tag}/>))}
     </div>)}
     <div className='relative z-10 mt-auto flex items-center gap-2 pt-2.5'>
-      <span className='truncate text-[10.5px] text-[var(--text-quaternary)]'>{item.authorName}</span>
-      {item.category && <span className='shrink-0 text-[10.5px] text-[var(--text-quaternary)]'>· {item.category}</span>}
-      <span className='shrink-0 text-[10.5px] text-[var(--text-quaternary)]'>· {t('templates.lines_count', { value0: lineCount })} · {date}</span>
-      {item.uses > 0 && <span className='shrink-0 text-[10.5px] text-[var(--text-quaternary)]'>· {t('templates.community_uses', { value0: item.uses })}</span>}
+      <span className='truncate text-[length:var(--text-10-5)] text-[var(--text-quaternary)]'>{item.authorName}</span>
+      {item.category && <span className='shrink-0 text-[length:var(--text-10-5)] text-[var(--text-quaternary)]'>· {item.category}</span>}
+      <span className='shrink-0 text-[length:var(--text-10-5)] text-[var(--text-quaternary)]'>· {t('templates.lines_count', { value0: lineCount })} · {date}</span>
+      {item.uses > 0 && <span className='shrink-0 text-[length:var(--text-10-5)] text-[var(--text-quaternary)]'>· {t('templates.community_uses', { value0: item.uses })}</span>}
     </div>
     <div className='mt-2 flex items-center gap-1.5'>
       <Button size='sm' variant='primary' icon={<FilePlus2 size={13}/>} onClick={onUse} className='min-w-0 flex-1'>{t('templates.use_template')}</Button>

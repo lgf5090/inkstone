@@ -35,7 +35,7 @@ export function NotificationCenter({ open, onClose }: { open: boolean, onClose: 
         ) : (
           <>
             <div className="flex items-center justify-between gap-2 px-3 py-2">
-              <span className="text-[11px] text-[var(--text-quaternary)]">
+              <span className="text-[length:var(--text-11)] text-[var(--text-quaternary)]">
                 {unread > 0 ? t('assistant.notifications.unread', { count: unread }) : t('assistant.notifications.all_read')}
               </span>
               {unread > 0 && (
@@ -91,18 +91,18 @@ function NotificationRow({
             aria-expanded={expanded}
             className="min-w-0 flex-1 text-left"
           >
-            <p className="flex items-center gap-1.5 text-[12.5px] font-medium text-[var(--text-primary)]">
+            <p className="flex items-center gap-1.5 text-[length:var(--text-12-5)] font-medium text-[var(--text-primary)]">
               {unread && <span aria-hidden className="size-1.5 shrink-0 rounded-full bg-[var(--accent)]" />}
               <span className="min-w-0 truncate">{notification.title}</span>
             </p>
-            <p className="mt-0.5 text-[10.5px] text-[var(--text-quaternary)]">{relativeTime(notification.createdAt)}</p>
+            <p className="mt-0.5 text-[length:var(--text-10-5)] text-[var(--text-quaternary)]">{relativeTime(notification.createdAt)}</p>
           </button>
           <IconButton label={t('assistant.notifications.delete')} size="xs" onClick={onDelete}>
             <Trash2 size={12} />
           </IconButton>
         </div>
         {expanded && (
-          <div className="ink-prose ink-chat-prose mt-1.5 border-t border-[var(--border-subtle)] pt-1.5 text-[12px]" dangerouslySetInnerHTML={html} />
+          <div className="ink-prose ink-chat-prose mt-1.5 border-t border-[var(--border-subtle)] pt-1.5 text-[length:var(--text-12)]" dangerouslySetInnerHTML={html} />
         )}
       </div>
     </li>

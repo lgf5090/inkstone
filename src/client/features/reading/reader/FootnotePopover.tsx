@@ -73,21 +73,21 @@ export function FootnotePopover({ note, anchor, onJump, onClose }: {
       style={{ top: box?.top ?? -9999, left: box?.left ?? -9999 }}
     >
       <div className="flex items-start gap-2">
-        <span className="min-w-0 flex-1 text-[11px] font-semibold text-[var(--text-tertiary)]">
+        <span className="min-w-0 flex-1 text-[length:var(--text-11)] font-semibold text-[var(--text-tertiary)]">
           {note.chapterLabel ?? t('reading.footnote_label')}
         </span>
         <IconButton label={t('common.close')} size="xs" onClick={onClose}>
           <X size={12} />
         </IconButton>
       </div>
-      <p className="mt-1 max-h-[40vh] overflow-y-auto whitespace-pre-wrap text-[13px] leading-[1.6] text-[var(--text-primary)]">
+      <p className="mt-1 max-h-[40vh] overflow-y-auto whitespace-pre-wrap text-[length:var(--text-13)] leading-[1.6] text-[var(--text-primary)]">
         {note.text}
       </p>
       <div className="mt-2 flex justify-end">
         <button
           type="button"
           onClick={onJump}
-          className="inline-flex items-center gap-1.5 rounded-[var(--r-sm)] px-1.5 py-1 text-[11.5px] font-medium text-[var(--accent)] hover:bg-[var(--bg-hover)]"
+          className="inline-flex items-center gap-1.5 rounded-[var(--r-sm)] px-1.5 py-1 text-[length:var(--text-11-5)] font-medium text-[var(--accent)] hover:bg-[var(--bg-hover)]"
         >
           <ArrowDownToLine size={12} aria-hidden="true" />
           {t('reading.go_to_footnote')}

@@ -210,9 +210,9 @@ export function DataviewSettings() {
                 <Trash2 size={14}/>
               </IconButton>
             </div>
-            <textarea aria-label={t('settings.dataview_saved_query')} className="h-24 w-full resize-y rounded-[var(--r-sm)] border border-[var(--border-subtle)] bg-[var(--bg-sunken)] p-2 font-mono text-[12px] text-[var(--text-primary)]" value={entry.query} maxLength={4000} onChange={(event) => rewriteSaved(dataview.savedQueries.map((item, position) => position === index ? { ...item, query: event.target.value } : item))}/>
+            <textarea aria-label={t('settings.dataview_saved_query')} className="h-24 w-full resize-y rounded-[var(--r-sm)] border border-[var(--border-subtle)] bg-[var(--bg-sunken)] p-2 font-mono text-[length:var(--text-12)] text-[var(--text-primary)]" value={entry.query} maxLength={4000} onChange={(event) => rewriteSaved(dataview.savedQueries.map((item, position) => position === index ? { ...item, query: event.target.value } : item))}/>
           </div>)}
-        <div ref={resultRef} className="ink-prose min-h-0 overflow-x-auto rounded-[var(--r-md)] border border-[var(--border-subtle)] bg-[var(--bg-inset)] p-2 text-[13px]" aria-live="polite"/>
+        <div ref={resultRef} className="ink-prose min-h-0 overflow-x-auto rounded-[var(--r-md)] border border-[var(--border-subtle)] bg-[var(--bg-inset)] p-2 text-[length:var(--text-13)]" aria-live="polite"/>
       </section>
     </div>);
 }

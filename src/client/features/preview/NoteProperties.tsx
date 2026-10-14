@@ -162,7 +162,7 @@ export function NoteProperties({ noteId, onLightbox }: {
                 <span className={PP_TITLE}>{t('markdown.properties')}</span>
                 <span className={PP_COUNT}>{propertyRowCount(shown)}</span>
               </button>
-              {hiddenCount > 0 && (<button type="button" onClick={() => handlers.patch({ revealHidden: !settings.revealHidden })} aria-pressed={settings.revealHidden} className="flex min-w-0 items-center gap-1 rounded px-1.5 py-1 text-[11.5px] text-[var(--text-tertiary)] hover:bg-[var(--bg-hover)]">
+              {hiddenCount > 0 && (<button type="button" onClick={() => handlers.patch({ revealHidden: !settings.revealHidden })} aria-pressed={settings.revealHidden} className="flex min-w-0 items-center gap-1 rounded px-1.5 py-1 text-[length:var(--text-11-5)] text-[var(--text-tertiary)] hover:bg-[var(--bg-hover)]">
                   {settings.revealHidden ? <Eye size={12}/> : <EyeOff size={12}/>}
                   <span className="truncate">{t('properties.hidden_count', { value0: hiddenCount })}</span>
                 </button>)}
@@ -190,7 +190,7 @@ export function NoteProperties({ noteId, onLightbox }: {
                         setAdding(false);
                         write(setFrontMatterValue(content, key, value));
                     }}/>)}
-                {headerless && !readOnly && !settings.hideAddButton && !adding && (<button type="button" onClick={() => setAdding(true)} aria-label={t('properties.add')} className="flex w-full items-center gap-1.5 px-2.5 py-1.5 text-left text-[11.5px] text-[var(--text-quaternary)] hover:bg-[var(--bg-hover)]">
+                {headerless && !readOnly && !settings.hideAddButton && !adding && (<button type="button" onClick={() => setAdding(true)} aria-label={t('properties.add')} className="flex w-full items-center gap-1.5 px-2.5 py-1.5 text-left text-[length:var(--text-11-5)] text-[var(--text-quaternary)] hover:bg-[var(--bg-hover)]">
                     <Plus size={12}/>
                     <span>{t('properties.add')}</span>
                   </button>)}
@@ -440,7 +440,7 @@ function TagValues({ names, resolved, asTags, readOnly, handlers, onRemove, onAd
                         onAdd(name);
                 }} onCancel={() => setAdding(false)} className="w-24"/>)
             : (<Tooltip label={t('tags.new')} side="top">
-                <button type="button" onClick={() => setAdding(true)} className="flex items-center gap-0.5 rounded-[var(--r-sm)] px-1.5 py-0.5 text-[11.5px] text-[var(--text-quaternary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-secondary)]">
+                <button type="button" onClick={() => setAdding(true)} className="flex items-center gap-0.5 rounded-[var(--r-sm)] px-1.5 py-0.5 text-[length:var(--text-11-5)] text-[var(--text-quaternary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-secondary)]">
                   <Plus size={10}/>{t('properties.add_tag')}
                 </button>
               </Tooltip>))}
@@ -465,7 +465,7 @@ function AddPropertyRow({ used, onCommit, onCancel }: {
             if (event.key === 'Escape')
                 onCancel();
             event.stopPropagation();
-        }} className="min-w-0 flex-1 rounded-[var(--r-xs)] border border-[var(--accent)] bg-[var(--bg-surface)] px-1.5 py-0.5 text-[12px] outline-none"/>
+        }} className="min-w-0 flex-1 rounded-[var(--r-xs)] border border-[var(--accent)] bg-[var(--bg-surface)] px-1.5 py-0.5 text-[length:var(--text-12)] outline-none"/>
       <InlineInput aria-label={t('properties.new_value')} initial="" placeholder={t('properties.new_value')} onCommit={(text) => {
             const name = key.trim();
             const value = text.trim();
@@ -500,7 +500,7 @@ function InlineInput({ 'aria-label': ariaLabel, initial, placeholder, className,
                 onCancel();
             }
             event.stopPropagation();
-        }} className={cn('rounded-[var(--r-xs)] border border-[var(--accent)] bg-[var(--bg-surface)] px-1 py-0.5 text-[12px] text-[var(--text-primary)] outline-none', className)}/>);
+        }} className={cn('rounded-[var(--r-xs)] border border-[var(--accent)] bg-[var(--bg-surface)] px-1 py-0.5 text-[length:var(--text-12)] text-[var(--text-primary)] outline-none', className)}/>);
 }
 
 function KindGlyph({ row }: {
@@ -516,7 +516,7 @@ function GlyphMenu({ request, onClose, onPick }: {
 }) {
     if (!request)
         return null;
-    const panel = (<Suspense fallback={<div className="p-3 text-[12px] text-[var(--text-quaternary)]">{t('properties.icon_loading')}</div>}>
+    const panel = (<Suspense fallback={<div className="p-3 text-[length:var(--text-12)] text-[var(--text-quaternary)]">{t('properties.icon_loading')}</div>}>
         <EmojiPickerPanel onPick={(glyph) => {
             onPick(request.property, glyph);
             onClose();

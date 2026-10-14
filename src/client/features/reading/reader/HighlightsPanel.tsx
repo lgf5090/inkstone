@@ -23,7 +23,7 @@ export interface HighlightsPanelProps {
 
 export function HighlightsPanel({ book, list, onJump, onRemove, onComment }: HighlightsPanelProps) {
   if (!list.length) {
-    return <p className="px-3 py-6 text-center text-[12px] opacity-60">{t('reading.no_highlights')}</p>
+    return <p className="px-3 py-6 text-center text-[length:var(--text-12)] opacity-60">{t('reading.no_highlights')}</p>
   }
   const chapters = [...new Set(list.map((one) => one.chapter))].sort((a, b) => a - b)
   const titleFor = (chapter: number): string => book.toc.find((entry) => entry.position?.kind === 'epub' && entry.position.chapter === chapter)?.label
@@ -33,7 +33,7 @@ export function HighlightsPanel({ book, list, onJump, onRemove, onComment }: Hig
     <div className="px-1 py-2">
       {chapters.map((chapter) => (
         <section key={chapter} className="mb-2">
-          <h3 className="px-2 py-1 text-[10.5px] font-semibold uppercase tracking-[0.07em] opacity-55">
+          <h3 className="px-2 py-1 text-[length:var(--text-10-5)] font-semibold uppercase tracking-[0.07em] opacity-55">
             {titleFor(chapter)}
           </h3>
           <ul className="space-y-px">
@@ -42,7 +42,7 @@ export function HighlightsPanel({ book, list, onJump, onRemove, onComment }: Hig
                 <span className="min-w-0 flex-1">
                   <button
                     type="button"
-                    className="block w-full border-s-2 ps-2 text-start text-[12.5px] leading-snug"
+                    className="block w-full border-s-2 ps-2 text-start text-[length:var(--text-12-5)] leading-snug"
                     style={{ borderInlineStartWidth: 2, borderInlineStartColor: DEFAULT_HIGHLIGHT_PAINT[highlight.color] }}
                     onClick={() => onJump({ kind: 'epub', chapter: highlight.chapter, offset: highlight.start })}
                   >
@@ -54,7 +54,7 @@ export function HighlightsPanel({ book, list, onJump, onRemove, onComment }: Hig
                       onChange={(event) => onComment(highlight.id, event.target.value)}
                       rows={2}
                       aria-label={t('reading.comment_for_quote')}
-                      className="mt-1 w-full border-transparent bg-transparent px-1.5 py-1 text-[11.5px] leading-snug opacity-80"
+                      className="mt-1 w-full border-transparent bg-transparent px-1.5 py-1 text-[length:var(--text-11-5)] leading-snug opacity-80"
                     />
                   ) : null}
                 </span>

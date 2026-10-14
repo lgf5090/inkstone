@@ -396,10 +396,10 @@ export function Workspace({ onMobileBack, pane = 'active', grouped = false, }: {
         return (<div className="flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-[var(--bg-editor)]" aria-busy={!loadError}>
         <header className="flex min-h-11 shrink-0 flex-wrap items-center gap-x-2 gap-y-1 border-b border-[var(--border-subtle)] px-3 py-1">
           {isMobile && onMobileBack && <IconButton label={t("workspace.back_to_notes")} size="sm" onClick={onMobileBack}><ArrowLeft size={16}/></IconButton>}
-          <span className="min-w-0 flex-1 truncate text-[14px] font-semibold">{note.title || t("common.untitled_note")}</span>
+          <span className="min-w-0 flex-1 truncate text-[length:var(--text-14)] font-semibold">{note.title || t("common.untitled_note")}</span>
           {grouped && pane === 'secondary' && <IconButton label={t("workspace.close_right_note")} size="sm" onClick={closeSecondaryNote}><X size={15}/></IconButton>}
         </header>
-        <div role="status" className="flex items-center gap-3 px-5 py-4 text-[13px] text-[var(--text-secondary)]">
+        <div role="status" className="flex items-center gap-3 px-5 py-4 text-[length:var(--text-13)] text-[var(--text-secondary)]">
           <span>{loadError || t("workspace.loading_note_content")}</span>
           {loadError && <Button size="sm" variant="secondary" onClick={() => void useNotes.getState().openNote(note.id, pane === 'active' ? undefined : { pane, activate: paneActive })}>{t("common.retry")}</Button>}
         </div>
@@ -562,7 +562,7 @@ export function Workspace({ onMobileBack, pane = 'active', grouped = false, }: {
             maxLength={LIMITS.titleMaxLength}
             aria-label={t("workspace.note_title")}
             placeholder={t("common.untitled_note")}
-            className="h-8 min-w-0 flex-1 rounded-md border border-transparent bg-transparent px-2 text-[14px] font-semibold tracking-[-0.01em] text-[var(--text-primary)] outline-none transition-colors placeholder:font-medium placeholder:text-[var(--text-quaternary)] hover:border-[var(--border-subtle)] hover:bg-[var(--bg-hover)] focus:border-[var(--accent)] focus:bg-[var(--bg-surface)]"
+            className="h-8 min-w-0 flex-1 rounded-md border border-transparent bg-transparent px-2 text-[length:var(--text-14)] font-semibold tracking-[-0.01em] text-[var(--text-primary)] outline-none transition-colors placeholder:font-medium placeholder:text-[var(--text-quaternary)] hover:border-[var(--border-subtle)] hover:bg-[var(--bg-hover)] focus:border-[var(--accent)] focus:bg-[var(--bg-surface)]"
             onChange={(event) => editTitle(note.id, event.target.value)}
             onBlur={(event) => editTitle(note.id, event.currentTarget.value.trim())}
             onKeyDown={(event) => {
@@ -573,7 +573,7 @@ export function Workspace({ onMobileBack, pane = 'active', grouped = false, }: {
             }}
           />
           {note.isStarred && <Star size={11} className="shrink-0 fill-current text-[var(--warning)]"/>}
-          {!grouped && (<span className="hidden shrink-0 text-[11px] text-[var(--text-quaternary)] md:inline">
+          {!grouped && (<span className="hidden shrink-0 text-[length:var(--text-11)] text-[var(--text-quaternary)] md:inline">
               {updatedTime}
             </span>)}
         </div>
@@ -585,7 +585,7 @@ export function Workspace({ onMobileBack, pane = 'active', grouped = false, }: {
             aria-label={t("workspace.live_preview")}
             aria-checked={livePreviewEnabled}
             onClick={() => void updateSettings({ editor: { livePreview: !livePreviewEnabled } })}
-            className="mr-1 inline-flex h-11 shrink-0 items-center gap-1.5 rounded-md px-1.5 text-[11px] text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-hover)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--accent)] md:h-7"
+            className="mr-1 inline-flex h-11 shrink-0 items-center gap-1.5 rounded-md px-1.5 text-[length:var(--text-11)] text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-hover)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--accent)] md:h-7"
           >
             <span>{t("workspace.live_preview")}</span>
             <span aria-hidden="true" className={cn('relative h-3.5 w-6 shrink-0 rounded-full transition-colors', livePreviewEnabled ? 'bg-[var(--accent)]' : 'bg-[var(--border-strong)]')}>
@@ -704,7 +704,7 @@ export function Workspace({ onMobileBack, pane = 'active', grouped = false, }: {
             }}/>
         </Drawer>)}
 
-      <footer className="flex h-[var(--statusbar-h)] shrink-0 items-center gap-2 overflow-hidden border-t border-[var(--border-subtle)] px-3 text-[11px] text-[var(--text-quaternary)]">
+      <footer className="flex h-[var(--statusbar-h)] shrink-0 items-center gap-2 overflow-hidden border-t border-[var(--border-subtle)] px-3 text-[length:var(--text-11)] text-[var(--text-quaternary)]">
         <span className="tabular">{note.wordCount}{t("common.words")}</span>
         <span className="hidden tabular sm:inline">{note.charCount}{t("workspace.characters")}</span>
         <span className="hidden tabular md:inline">{t("common.about")}{readingMinutes(note.wordCount, outlineReadingSpeed)}{t("common.min")}</span>
@@ -754,7 +754,7 @@ function NoNoteSelected({ onCreate }: {
     onCreate: () => void;
 }) {
     return (<div className="flex h-full items-center justify-center bg-[var(--bg-editor)]">
-      <Empty art="select" title={t("workspace.choose_a_note_or_write_a_new_one")} description={t("workspace.open_a_note_from_the_list_or_press_shortcut_to_create_one", { shortcut: prettyCombo(APP_SHORTCUTS.newNote).join('+') })} action={<button type="button" onClick={onCreate} className="inline-flex h-8 items-center gap-1.5 rounded-[var(--r-md)] bg-[var(--accent)] px-3.5 text-[12.5px] font-medium text-[var(--accent-contrast)] transition-transform active:translate-y-px">
+      <Empty art="select" title={t("workspace.choose_a_note_or_write_a_new_one")} description={t("workspace.open_a_note_from_the_list_or_press_shortcut_to_create_one", { shortcut: prettyCombo(APP_SHORTCUTS.newNote).join('+') })} action={<button type="button" onClick={onCreate} className="inline-flex h-8 items-center gap-1.5 rounded-[var(--r-md)] bg-[var(--accent)] px-3.5 text-[length:var(--text-12-5)] font-medium text-[var(--accent-contrast)] transition-transform active:translate-y-px">
             <Plus size={14}/>{t("common.new_note")}</button>}/>
     </div>);
 }

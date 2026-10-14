@@ -141,13 +141,13 @@ export function QuickAddSettings() {
 
       <section className="space-y-2">
         <div className="flex items-center justify-between">
-          <h3 data-setting-title={t('settings.quickadd_global_vars')} className="text-[13px] font-semibold text-[var(--text-primary)]">{t('settings.quickadd_global_vars')}</h3>
+          <h3 data-setting-title={t('settings.quickadd_global_vars')} className="text-[length:var(--text-13)] font-semibold text-[var(--text-primary)]">{t('settings.quickadd_global_vars')}</h3>
         </div>
-        <p className="text-[11.5px] text-[var(--text-quaternary)]">{t('settings.quickadd_global_vars_desc')}</p>
-        {globalVars.length === 0 && <p className="text-[12px] text-[var(--text-quaternary)]">{t('settings.quickadd_no_vars')}</p>}
+        <p className="text-[length:var(--text-11-5)] text-[var(--text-quaternary)]">{t('settings.quickadd_global_vars_desc')}</p>
+        {globalVars.length === 0 && <p className="text-[length:var(--text-12)] text-[var(--text-quaternary)]">{t('settings.quickadd_no_vars')}</p>}
         {globalVars.map((entry, index) => (
           <div key={entry.name} className="flex items-end gap-2">
-            <span className="w-[150px] shrink-0 truncate py-2 font-mono text-[12.5px] text-[var(--text-secondary)]" title={entry.name}>
+            <span className="w-[150px] shrink-0 truncate py-2 font-mono text-[length:var(--text-12-5)] text-[var(--text-secondary)]" title={entry.name}>
               {entry.name}
             </span>
             <Field label={t('quickadd.var_value')} className="min-w-0 flex-1">
@@ -188,8 +188,8 @@ export function QuickAddSettings() {
       </section>
 
       <section className="space-y-2">
-        <h3 data-setting-title={t('settings.quickadd_periodic')} className="text-[13px] font-semibold text-[var(--text-primary)]">{t('settings.quickadd_periodic')}</h3>
-        <p className="text-[11.5px] text-[var(--text-quaternary)]">{t('settings.quickadd_periodic_desc')}</p>
+        <h3 data-setting-title={t('settings.quickadd_periodic')} className="text-[length:var(--text-13)] font-semibold text-[var(--text-primary)]">{t('settings.quickadd_periodic')}</h3>
+        <p className="text-[length:var(--text-11-5)] text-[var(--text-quaternary)]">{t('settings.quickadd_periodic_desc')}</p>
         {PERIODS.map((period) => (
           <div key={period} role="group" aria-label={t(PERIOD_KEYS[period])} className="grid gap-2 rounded-[var(--r-md)] border border-[var(--border-subtle)] p-2.5 md:grid-cols-3">
             <Field label={t(PERIOD_KEYS[period])}>
@@ -219,19 +219,19 @@ export function QuickAddSettings() {
       </section>
 
       <section className="space-y-2">
-        <h3 data-setting-title={t('settings.quickadd_choices')} className="text-[13px] font-semibold text-[var(--text-primary)]">{t('settings.quickadd_choices')}</h3>
+        <h3 data-setting-title={t('settings.quickadd_choices')} className="text-[length:var(--text-13)] font-semibold text-[var(--text-primary)]">{t('settings.quickadd_choices')}</h3>
         <QuickAddChoiceList/>
       </section>
 
       <section className="space-y-2">
-        <h3 data-setting-title={t('settings.quickadd_transport')} className="text-[13px] font-semibold text-[var(--text-primary)]">{t('settings.quickadd_transport')}</h3>
-        <p className="text-[11.5px] text-[var(--text-quaternary)]">{t('settings.quickadd_transport_desc')}</p>
+        <h3 data-setting-title={t('settings.quickadd_transport')} className="text-[length:var(--text-13)] font-semibold text-[var(--text-primary)]">{t('settings.quickadd_transport')}</h3>
+        <p className="text-[length:var(--text-11-5)] text-[var(--text-quaternary)]">{t('settings.quickadd_transport_desc')}</p>
         <Textarea
           aria-label={t('settings.quickadd_transport')}
           value={transport}
           rows={6}
           spellCheck={false}
-          className="w-full font-mono text-[12px]"
+          className="w-full font-mono text-[length:var(--text-12)]"
           onChange={(event) => setTransport(event.target.value.slice(0, QUICKADD_LIMITS.maxPayloadLength))}/>
         <div className="flex flex-wrap items-center gap-2">
           <Select aria-label={t('quickadd.import_mode')} value={mode} onChange={(event) => setMode(event.target.value as 'merge' | 'replace')}>

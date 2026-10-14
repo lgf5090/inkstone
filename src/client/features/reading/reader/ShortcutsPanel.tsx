@@ -15,11 +15,11 @@ export function ShortcutsPanel() {
         {READING_SHORTCUTS.map((entry) => (
           <li key={entry.key} className="flex items-center gap-3">
             <Kbd keys={entry.keys} />
-            <span className="min-w-0 flex-1 text-[12px] leading-snug">{t(entry.labelKey)}</span>
+            <span className="min-w-0 flex-1 text-[length:var(--text-12)] leading-snug">{t(entry.labelKey)}</span>
           </li>
         ))}
       </ul>
-      <p className="mt-3 text-[11px] leading-relaxed opacity-60">{t('reading.shortcuts_hint')}</p>
+      <p className="mt-3 text-[length:var(--text-11)] leading-relaxed opacity-60">{t('reading.shortcuts_hint')}</p>
     </div>
   )
 }

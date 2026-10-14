@@ -22,7 +22,7 @@ export function AccountSettings() {
       <ProfileSection />
 
       <section>
-        <h3 data-setting-title={t("settings.sign_in_security")} className="mb-2 px-1 text-[12px] font-semibold text-[var(--text-secondary)]">
+        <h3 data-setting-title={t("settings.sign_in_security")} className="mb-2 px-1 text-[length:var(--text-12)] font-semibold text-[var(--text-secondary)]">
           {t("settings.sign_in_security")}
         </h3>
         <div className="space-y-2">
@@ -33,7 +33,7 @@ export function AccountSettings() {
 
       {user.role === 'owner' && (
         <section>
-          <h3 className="mb-2 px-1 text-[12px] font-semibold text-[var(--text-secondary)]">
+          <h3 className="mb-2 px-1 text-[length:var(--text-12)] font-semibold text-[var(--text-secondary)]">
             {t("common.access_control")}
           </h3>
           <RegistrationSection />
@@ -90,7 +90,7 @@ function ProfileSection() {
 
   return (
     <section>
-      <h3 data-setting-title={t('settings.personal_profile')} className="mb-2 px-1 text-[12px] font-semibold text-[var(--text-secondary)]">
+      <h3 data-setting-title={t('settings.personal_profile')} className="mb-2 px-1 text-[length:var(--text-12)] font-semibold text-[var(--text-secondary)]">
         {t('settings.personal_profile')}
       </h3>
       <div className="overflow-hidden rounded-[var(--r-lg)] border border-[var(--border-subtle)] bg-[var(--bg-base)]">
@@ -108,15 +108,15 @@ function ProfileSection() {
           </button>
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-2">
-              <span className="truncate text-[14px] font-semibold text-[var(--text-primary)]">
+              <span className="truncate text-[length:var(--text-14)] font-semibold text-[var(--text-primary)]">
                 {user.name}
               </span>
               {user.role === 'owner' && <Badge tone="accent">{t('common.owner')}</Badge>}
             </div>
-            <div className="mt-0.5 flex items-center gap-1.5 text-[11.5px] text-[var(--text-tertiary)]">
+            <div className="mt-0.5 flex items-center gap-1.5 text-[length:var(--text-11-5)] text-[var(--text-tertiary)]">
               <UserRound size={11} />@{user.username}
             </div>
-            <p className="mt-1 text-[10.5px] text-[var(--text-quaternary)]">
+            <p className="mt-1 text-[length:var(--text-10-5)] text-[var(--text-quaternary)]">
               {t('settings.username_is_sign_in_id')}
             </p>
           </div>
@@ -130,7 +130,7 @@ function ProfileSection() {
             void saveName()
           }}
         >
-          <label htmlFor="profile-display-name" className="block text-[11.5px] font-medium text-[var(--text-secondary)]">
+          <label htmlFor="profile-display-name" className="block text-[length:var(--text-11-5)] font-medium text-[var(--text-secondary)]">
             {t('settings.display_name')}
           </label>
           <div className="mt-1.5 flex flex-col gap-2 sm:flex-row">
@@ -157,7 +157,7 @@ function ProfileSection() {
               {t('common.save')}
             </Button>
           </div>
-          {error && <p role="alert" className="mt-1.5 text-[12px] text-[var(--danger)]">{error}</p>}
+          {error && <p role="alert" className="mt-1.5 text-[length:var(--text-12)] text-[var(--danger)]">{error}</p>}
         </form>
       </div>
 
@@ -282,7 +282,7 @@ function PasswordSection() {
           }}
         >
           <label className="block">
-            <span className="mb-1 block text-[11.5px] text-[var(--text-tertiary)]">
+            <span className="mb-1 block text-[length:var(--text-11-5)] text-[var(--text-tertiary)]">
               {t("settings.current_password")}
             </span>
             <Input
@@ -296,7 +296,7 @@ function PasswordSection() {
           </label>
           <div className="grid grid-cols-1 gap-2.5 md:grid-cols-2">
             <label className="block">
-              <span className="mb-1 block text-[11.5px] text-[var(--text-tertiary)]">
+              <span className="mb-1 block text-[length:var(--text-11-5)] text-[var(--text-tertiary)]">
                 {t("settings.new_password")}
               </span>
               <Input
@@ -309,7 +309,7 @@ function PasswordSection() {
               />
             </label>
             <label className="block">
-              <span className="mb-1 block text-[11.5px] text-[var(--text-tertiary)]">
+              <span className="mb-1 block text-[length:var(--text-11-5)] text-[var(--text-tertiary)]">
                 {t("settings.confirm_new_password")}
               </span>
               <Input
@@ -322,7 +322,7 @@ function PasswordSection() {
               />
             </label>
           </div>
-          {error && <p role="alert" className="text-[12px] text-[var(--danger)]">{error}</p>}
+          {error && <p role="alert" className="text-[length:var(--text-12)] text-[var(--danger)]">{error}</p>}
           <div className="flex justify-end">
             <Button type="submit" variant="primary" size="sm" loading={busy}>
               {t("common.save")}
@@ -415,7 +415,7 @@ function RegistrationSection() {
           }}
         >
           <label className="block">
-            <span className="mb-1 flex items-center gap-1.5 text-[11.5px] text-[var(--text-tertiary)]">
+            <span className="mb-1 flex items-center gap-1.5 text-[length:var(--text-11-5)] text-[var(--text-tertiary)]">
               <ShieldCheck size={12} />
               {target ? t("settings.open_registration_requires_password_verification") : t("settings.close_registration_requires_password_verification")}
             </span>
@@ -429,7 +429,7 @@ function RegistrationSection() {
               autoFocus
             />
           </label>
-          {error && <p role="alert" className="text-[12px] text-[var(--danger)]">{error}</p>}
+          {error && <p role="alert" className="text-[length:var(--text-12)] text-[var(--danger)]">{error}</p>}
           <div className="flex justify-end gap-2">
             <Button
               type="button"

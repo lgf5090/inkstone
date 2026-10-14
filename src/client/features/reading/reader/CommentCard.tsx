@@ -65,7 +65,7 @@ export function CommentCard({ ids, rect, bookId, onClose, onEdit, onRemove }: Co
       {cards.map((card) => (
         <div key={card.id} className="flex flex-col gap-1.5">
           <p
-            className="border-s-2 ps-2 text-[12.5px] leading-snug text-[var(--text-primary)]"
+            className="border-s-2 ps-2 text-[length:var(--text-12-5)] leading-snug text-[var(--text-primary)]"
             style={{ borderInlineStartColor: DEFAULT_HIGHLIGHT_PAINT[card.color] }}
           >
             {card.quote}
@@ -77,7 +77,7 @@ export function CommentCard({ ids, rect, bookId, onClose, onEdit, onRemove }: Co
             placeholder={t('reading.comment_placeholder')}
             rows={2}
             aria-label={t('reading.comment_for_quote')}
-            className="w-full text-[12px] leading-snug"
+            className="w-full text-[length:var(--text-12)] leading-snug"
           />
           <div className="flex items-center gap-1.5">
             <Button

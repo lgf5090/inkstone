@@ -428,7 +428,7 @@ function LinkEditorPanel({ request }: { request: LinkEditorRequest }) {
       style={{ top: placement.top, left: placement.left, transformOrigin: placement.origin, zIndex: Z_INDEX.hoverPinned + 1 }}
     >
       <div className="flex items-center gap-1.5 border-b border-[var(--border-subtle)] px-2.5 py-1.5">
-        <span className="min-w-0 flex-1 truncate text-[11px] font-semibold tracking-[0.04em] text-[var(--text-tertiary)]">
+        <span className="min-w-0 flex-1 truncate text-[length:var(--text-11)] font-semibold tracking-[0.04em] text-[var(--text-tertiary)]">
           {t(linkKindLabel(match))}
         </span>
         <Tooltip label={t('links.discard')}>
@@ -454,7 +454,7 @@ function LinkEditorPanel({ request }: { request: LinkEditorRequest }) {
           aria-label={match.image ? t('links.placeholder_size') : t('links.placeholder_text')}
           spellCheck={false}
           autoComplete="off"
-          className="h-7 min-w-0 rounded-[var(--r-sm)] border border-[var(--border-subtle)] bg-[var(--bg-base)] px-2 text-[12.5px] text-[var(--text-primary)] outline-none transition-colors placeholder:text-[var(--text-quaternary)] focus:border-[var(--accent)]"
+          className="h-7 min-w-0 rounded-[var(--r-sm)] border border-[var(--border-subtle)] bg-[var(--bg-base)] px-2 text-[length:var(--text-12-5)] text-[var(--text-primary)] outline-none transition-colors placeholder:text-[var(--text-quaternary)] focus:border-[var(--accent)]"
         />
         <div className="relative">
           <input
@@ -475,7 +475,7 @@ function LinkEditorPanel({ request }: { request: LinkEditorRequest }) {
             spellCheck={false}
             autoComplete="off"
             className={cn(
-              'h-7 w-full rounded-[var(--r-sm)] border bg-[var(--bg-base)] px-2 pr-7 text-[12.5px] text-[var(--text-primary)]',
+              'h-7 w-full rounded-[var(--r-sm)] border bg-[var(--bg-base)] px-2 pr-7 text-[length:var(--text-12-5)] text-[var(--text-primary)]',
               'transition-[border-color,box-shadow] duration-[var(--dur-fast)] placeholder:text-[var(--text-quaternary)]',
               'focus:shadow-[var(--shadow-ring-focus)] focus:outline-none',
               missing ? 'border-[var(--danger)]' : 'border-[var(--border-subtle)] focus:border-[var(--accent)]',
@@ -490,7 +490,7 @@ function LinkEditorPanel({ request }: { request: LinkEditorRequest }) {
             type="button"
             onMouseDown={(event) => event.preventDefault()}
             onClick={openTarget}
-            className="flex items-center gap-1.5 self-start rounded-[var(--r-sm)] px-1 py-0.5 text-left text-[11.5px] text-[var(--accent)] transition-colors hover:bg-[var(--bg-hover)]"
+            className="flex items-center gap-1.5 self-start rounded-[var(--r-sm)] px-1 py-0.5 text-left text-[length:var(--text-11-5)] text-[var(--accent)] transition-colors hover:bg-[var(--bg-hover)]"
           >
             <FilePlus2 size={12} aria-hidden="true" />
             <span>{t('links.create_note')}</span>
@@ -513,15 +513,15 @@ function LinkEditorPanel({ request }: { request: LinkEditorRequest }) {
                   onPointerEnter={() => setActive(index)}
                   onClick={() => pick(row)}
                   className={cn(
-                    'flex w-full min-w-0 items-baseline gap-1.5 px-2 py-1 text-left text-[12.5px] transition-colors',
+                    'flex w-full min-w-0 items-baseline gap-1.5 px-2 py-1 text-left text-[length:var(--text-12-5)] transition-colors',
                     index === active ? 'bg-[var(--bg-hover)]' : 'hover:bg-[var(--bg-hover)]',
                   )}
                 >
                   {row.kind === 'heading' && (
-                    <span className="shrink-0 font-mono text-[10px] text-[var(--text-quaternary)]">{'#'.repeat(row.level)}</span>
+                    <span className="shrink-0 font-mono text-[length:var(--text-10)] text-[var(--text-quaternary)]">{'#'.repeat(row.level)}</span>
                   )}
                   <span className="min-w-0 flex-1 truncate text-[var(--text-primary)]">{row.label}</span>
-                  {row.detail && <span className="max-w-[38%] shrink-0 truncate text-[11px] text-[var(--text-quaternary)]">{row.detail}</span>}
+                  {row.detail && <span className="max-w-[38%] shrink-0 truncate text-[length:var(--text-11)] text-[var(--text-quaternary)]">{row.detail}</span>}
                 </button>
               </li>
             ))}
@@ -569,7 +569,7 @@ function LinkEditorPanel({ request }: { request: LinkEditorRequest }) {
         </Tooltip>
       </div>
 
-      <p className="px-2.5 pb-2 text-[10.5px] leading-snug text-[var(--text-quaternary)]">
+      <p className="px-2.5 pb-2 text-[length:var(--text-10-5)] leading-snug text-[var(--text-quaternary)]">
         {missing ? t('links.warning_missing') : t('links.hint_enter')}
       </p>
     </div>,

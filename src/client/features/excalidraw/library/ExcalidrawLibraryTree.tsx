@@ -169,7 +169,7 @@ const StencilItemPreview: React.FC<StencilItemPreviewProps> = ({ item, lib, api 
   return (
     <div className="text-[var(--text-quaternary)] flex flex-col items-center gap-1">
       <Layers size={20} />
-      <span className="text-[10px] tabular-nums">{item.elements?.length || 0}</span>
+      <span className="text-[length:var(--text-10)] tabular-nums">{item.elements?.length || 0}</span>
     </div>
   )
 }
@@ -738,7 +738,7 @@ export const ExcalidrawLibraryTree: React.FC<ExcalidrawLibraryTreeProps> = ({
           >
             <Layers size={15} />
             <span className="flex-1 min-w-0 truncate">{t('excalidraw.all_folders')}</span>
-            <span className="shrink-0 text-[10.5px] tabular-nums text-[var(--text-quaternary)] transition-opacity group-hover:opacity-0">
+            <span className="shrink-0 text-[length:var(--text-10-5)] tabular-nums text-[var(--text-quaternary)] transition-opacity group-hover:opacity-0">
               {items.length}
             </span>
             <button
@@ -927,7 +927,7 @@ export const ExcalidrawLibraryTree: React.FC<ExcalidrawLibraryTreeProps> = ({
                                 setEditingItemId(null)
                               }
                             }}
-                            className="h-5 w-full rounded border border-[var(--accent)] bg-[var(--bg-surface)] px-1 text-[11px] text-[var(--text-primary)] focus:outline-none"
+                            className="h-5 w-full rounded border border-[var(--accent)] bg-[var(--bg-surface)] px-1 text-[length:var(--text-11)] text-[var(--text-primary)] focus:outline-none"
                           />
                           <button
                             type="button"

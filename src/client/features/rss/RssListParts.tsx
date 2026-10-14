@@ -69,7 +69,7 @@ export function EntryRows({ entries, library, readIds, starred, picked, selected
       rows.push(
         <div
           key={`shelf-${shelf}`}
-          className="sticky top-0 z-10 bg-[var(--bg-base)] px-2 py-1 text-[10.5px] font-semibold tracking-[0.05em] text-[var(--text-quaternary)]"
+          className="sticky top-0 z-10 bg-[var(--bg-base)] px-2 py-1 text-[length:var(--text-10-5)] font-semibold tracking-[0.05em] text-[var(--text-quaternary)]"
         >
           {groupByDay ? dayLabelOf(entry) : feed?.title || t('rss.source_unknown')}
         </div>,
@@ -180,17 +180,17 @@ function ArticleRow({ entry, feed, unread, starred, picked, open, density, image
         {picture
           ? <img src={picture} alt="" loading="lazy" decoding="async" className="size-full object-cover" />
           : (
-              <span className="grid size-full place-items-center text-[11px] font-semibold text-[var(--text-tertiary)]">
+              <span className="grid size-full place-items-center text-[length:var(--text-11)] font-semibold text-[var(--text-tertiary)]">
                 {mark ? <img src={mark} alt="" loading="lazy" className="size-full object-contain p-1" /> : initialOf(feed?.title || entry.title)}
               </span>
             )}
         {unread && <span className="absolute left-0 top-0 size-2 rounded-full bg-[var(--accent)] ring-2 ring-[var(--bg-base)]" />}
       </span>
       <span className="min-w-0 flex-1">
-        <span className="flex items-center gap-1.5 text-[10.5px] leading-4 text-[var(--text-quaternary)]">
+        <span className="flex items-center gap-1.5 text-[length:var(--text-10-5)] leading-4 text-[var(--text-quaternary)]">
           <span className="min-w-0 truncate font-medium text-[var(--text-tertiary)]">{feed?.title || t('rss.source_unknown')}</span>
           {badge && (
-            <span className="shrink-0 rounded-[var(--r-sm)] bg-[var(--bg-hover)] px-1 py-px text-[9.5px] leading-[14px] text-[var(--text-tertiary)]">{t(badge)}</span>
+            <span className="shrink-0 rounded-[var(--r-sm)] bg-[var(--bg-hover)] px-1 py-px text-[length:var(--text-9-5)] leading-[14px] text-[var(--text-tertiary)]">{t(badge)}</span>
           )}
           {entry.publishedTs && <span className="shrink-0 tabular-nums">· {shortSince(entry.publishedTs)}</span>}
           {minutes > 0 && <span className="hidden shrink-0 tabular-nums sm:inline">· {t('rss.read_minutes', { n: minutes })}</span>}
@@ -199,14 +199,14 @@ function ArticleRow({ entry, feed, unread, starred, picked, open, density, image
         <span
           className={cn(
             'break-words',
-            compact ? 'block truncate text-[12.5px] leading-[18px]' : 'mt-0.5 line-clamp-2 text-[13.5px] leading-[20px]',
+            compact ? 'block truncate text-[length:var(--text-12-5)] leading-[18px]' : 'mt-0.5 line-clamp-2 text-[length:var(--text-13-5)] leading-[20px]',
             unread ? 'font-semibold text-[var(--text-primary)]' : 'font-normal text-[var(--text-secondary)]',
           )}
         >
           {entry.title || t('rss.untitled')}
         </span>
         {!compact && entry.summary && (
-          <span className="mt-1 line-clamp-2 text-[11.5px] leading-[16px] text-[var(--text-tertiary)]">
+          <span className="mt-1 line-clamp-2 text-[length:var(--text-11-5)] leading-[16px] text-[var(--text-tertiary)]">
             {entry.summary}
           </span>
         )}
@@ -319,7 +319,7 @@ export function BulkBar({ ids, library, onClear }: { ids: string[], library: Rss
 
   return (
     <div className="absolute inset-x-2 bottom-2 z-30 flex items-center gap-1 rounded-[var(--r-lg)] border border-[var(--border-default)] bg-[var(--bg-overlay)] px-2 py-1.5 shadow-[var(--shadow-pop)]">
-      <span className="min-w-0 shrink-0 text-[11.5px] font-medium tabular-nums text-[var(--text-secondary)]">
+      <span className="min-w-0 shrink-0 text-[length:var(--text-11-5)] font-medium tabular-nums text-[var(--text-secondary)]">
         {t('rss.picked_count', { n: ids.length })}
       </span>
       <div className="ml-auto flex min-w-0 items-center gap-0.5 overflow-x-auto">
@@ -485,13 +485,13 @@ function clampListWidth(value: number): number {
 
 export function EmptyRow({ channel, filter, query, hasFeeds }: { channel: RssChannel, filter: RssFilter, query: string, hasFeeds: boolean }): ReactElement {
   if (query.trim()) {
-    return <p className="px-3 py-8 text-center text-[12.5px] text-[var(--text-tertiary)]">{t('rss.no_results', { query })}</p>
+    return <p className="px-3 py-8 text-center text-[length:var(--text-12-5)] text-[var(--text-tertiary)]">{t('rss.no_results', { query })}</p>
   }
   if (!hasFeeds) {
     return (
       <div className="px-4 py-10 text-center">
-        <p className="text-[13px] font-medium text-[var(--text-secondary)]">{t('rss.no_subscriptions')}</p>
-        <p className="mt-1 text-[11.5px] leading-relaxed text-[var(--text-tertiary)]">{t('rss.no_subscriptions_hint')}</p>
+        <p className="text-[length:var(--text-13)] font-medium text-[var(--text-secondary)]">{t('rss.no_subscriptions')}</p>
+        <p className="mt-1 text-[length:var(--text-11-5)] leading-relaxed text-[var(--text-tertiary)]">{t('rss.no_subscriptions_hint')}</p>
       </div>
     )
   }
@@ -509,9 +509,9 @@ export function EmptyRow({ channel, filter, query, hasFeeds }: { channel: RssCha
           : t('rss.no_articles')
   return (
     <div className="px-4 py-10 text-center">
-      <p className="text-[13px] font-medium text-[var(--text-secondary)]">{title}</p>
+      <p className="text-[length:var(--text-13)] font-medium text-[var(--text-secondary)]">{title}</p>
       {!saved && (filter === 'all' || filter === 'unread') && (
-        <p className="mt-1 text-[11.5px] leading-relaxed text-[var(--text-tertiary)]">{t('rss.no_articles_hint')}</p>
+        <p className="mt-1 text-[length:var(--text-11-5)] leading-relaxed text-[var(--text-tertiary)]">{t('rss.no_articles_hint')}</p>
       )}
     </div>
   )

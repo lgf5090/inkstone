@@ -528,8 +528,8 @@ export function ReaderView({ book }: { book: BookRecord }) {
   if (!isFixed && error) {
     return (
       <div className="flex h-full flex-col items-center justify-center gap-3 px-6 text-center">
-        <p className="text-[13px] font-medium text-[var(--text-primary)]">{t('reading.book_failed')}</p>
-        <p className="max-w-sm text-[12.5px] leading-relaxed text-[var(--text-tertiary)]">
+        <p className="text-[length:var(--text-13)] font-medium text-[var(--text-primary)]">{t('reading.book_failed')}</p>
+        <p className="max-w-sm text-[length:var(--text-12-5)] leading-relaxed text-[var(--text-tertiary)]">
           {error === 'missing' ? t('reading.book_missing_hint')
             : error === 'unsupported' ? t('reading.book_unsupported_hint')
               : t('reading.book_corrupt_hint')}
@@ -572,7 +572,7 @@ export function ReaderView({ book }: { book: BookRecord }) {
           paging={paging}
         />
       ) : !handle ? (
-        <div className="flex h-full items-center justify-center text-[12.5px] text-[var(--text-quaternary)]">
+        <div className="flex h-full items-center justify-center text-[length:var(--text-12-5)] text-[var(--text-quaternary)]">
           {t('reading.opening_book')}
         </div>
       ) : (
@@ -622,7 +622,7 @@ export function ReaderView({ book }: { book: BookRecord }) {
         <div className="ml-auto flex shrink-0 items-center gap-1">
           {settings.timerEnabled ? (
             <Tooltip label={t('reading.reading_time_hint', { value0: formatReadingSeconds(timer.todaySeconds) })} side="bottom">
-              <span className="reader-pill inline-flex items-center gap-1 px-2 text-[11.5px] tabular text-[var(--reader-muted)]">
+              <span className="reader-pill inline-flex items-center gap-1 px-2 text-[length:var(--text-11-5)] tabular text-[var(--reader-muted)]">
                 <Clock size={13} />
                 {formatReadingSeconds(timer.sessionSeconds)}
               </span>
@@ -649,11 +649,11 @@ export function ReaderView({ book }: { book: BookRecord }) {
           {isFixed ? (
             <span className="reader-pill inline-flex items-center gap-0.5 px-1">
               <IconButton label={t('reading.zoom_out')} size="xs" onClick={() => setZoom((current) => Math.max(0.5, Math.round((current - 0.25) * 100) / 100))}>
-                <span className="text-[13px]">-</span>
+                <span className="text-[length:var(--text-13)]">-</span>
               </IconButton>
-              <span className="w-9 text-center text-[11px] tabular">{Math.round(zoom * 100)}%</span>
+              <span className="w-9 text-center text-[length:var(--text-11)] tabular">{Math.round(zoom * 100)}%</span>
               <IconButton label={t('reading.zoom_in')} size="xs" onClick={() => setZoom((current) => Math.min(4, Math.round((current + 0.25) * 100) / 100))}>
-                <span className="text-[13px]">+</span>
+                <span className="text-[length:var(--text-13)]">+</span>
               </IconButton>
             </span>
           ) : null}

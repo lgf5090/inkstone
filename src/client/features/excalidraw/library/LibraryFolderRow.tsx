@@ -374,7 +374,7 @@ export function LibraryFolderRow({ node, ctx }: { node: LibraryFolderNode; ctx: 
           style={{ color: node.color ?? undefined }}
         >
           {node.icon
-            ? <span className="text-[13px] leading-none">{node.icon}</span>
+            ? <span className="text-[length:var(--text-13)] leading-none">{node.icon}</span>
             : <FolderMotionIcon open={expanded && hasChildren} drawing={false} />}
         </span>
 
@@ -431,7 +431,7 @@ export function LibraryFolderRow({ node, ctx }: { node: LibraryFolderNode; ctx: 
           </button>
         )}
 
-        <span className="shrink-0 text-[10.5px] tabular-nums text-[var(--text-quaternary)] mr-1 transition-opacity group-hover:opacity-0">
+        <span className="shrink-0 text-[length:var(--text-10-5)] tabular-nums text-[var(--text-quaternary)] mr-1 transition-opacity group-hover:opacity-0">
           {node.itemCount}
         </span>
 

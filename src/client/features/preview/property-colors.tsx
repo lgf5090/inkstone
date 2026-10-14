@@ -62,8 +62,8 @@ export function PropertyColorPanel({ label, current, tinted, onPick }: {
             : t('color.contrast_ratio_value0', { value0: ratio.toFixed(1) });
     return (<div ref={panelRef} className="rounded-[var(--r-lg)] border border-[var(--border-default)] bg-[var(--bg-overlay)] p-2 shadow-[var(--shadow-pop)] outline-none" style={{ width: PILL_PANEL_WIDTH }} onClick={(event) => event.stopPropagation()}>
       <div className="flex min-w-0 items-baseline justify-between gap-2 px-0.5 pt-0.5 pb-2">
-        <span className="text-[12px] font-medium text-[var(--text-secondary)]">{label}</span>
-        {shown && (<span className="flex min-w-0 items-center gap-1 text-[11px] text-[var(--text-quaternary)]">
+        <span className="text-[length:var(--text-12)] font-medium text-[var(--text-secondary)]">{label}</span>
+        {shown && (<span className="flex min-w-0 items-center gap-1 text-[length:var(--text-11)] text-[var(--text-quaternary)]">
             <span className="size-2 shrink-0 rounded-full" style={{ backgroundColor: tinted ? propertySwatchCss(shown) : propertyColorCss(shown) }} aria-hidden="true"/>
             <span className="truncate">{shown === ACCENT_COLOR_TOKEN ? t('properties.color_accent') : shown.toLocaleUpperCase()}</span>
           </span>)}
@@ -73,7 +73,7 @@ export function PropertyColorPanel({ label, current, tinted, onPick }: {
         {ORGANIZER_COLORS.map(color => <Swatch key={color} color={color} label={propertyColorName(color)} active={shown === color} background={propertySwatchCss(color)} variant="format" checkClassName="text-[var(--text-primary)]" onPick={() => pick(color)}/>)}
       </div>
       {recent.length > 0 && (<>
-          <div className="px-0.5 pb-1 text-[11px] font-medium text-[var(--text-tertiary)]">{t('workspace.recent_colors')}</div>
+          <div className="px-0.5 pb-1 text-[length:var(--text-11)] font-medium text-[var(--text-tertiary)]">{t('workspace.recent_colors')}</div>
           <div role="group" aria-label={t('workspace.recent_colors')} className="grid grid-cols-6 gap-1.5 px-0.5 pb-1.5">
             {recent.map(color => <Swatch key={color} color={color} label={propertyColorName(color)} active={shown === color} background={propertySwatchCss(color)} variant="format" checkClassName="text-[var(--text-primary)]" onPick={() => pick(color)}/>)}
           </div>
@@ -86,17 +86,17 @@ export function PropertyColorPanel({ label, current, tinted, onPick }: {
                     event.preventDefault();
                     event.currentTarget.blur();
                 }
-            }} placeholder="#rrggbb" spellCheck={false} autoComplete="off" aria-label={t('workspace.color_custom_value')} className={cn('h-7 min-w-0 flex-1 rounded-[var(--r-sm)] border bg-[var(--bg-base)] px-2 font-mono text-[11.5px] uppercase text-[var(--text-primary)] outline-none placeholder:text-[var(--text-quaternary)]', refused
+            }} placeholder="#rrggbb" spellCheck={false} autoComplete="off" aria-label={t('workspace.color_custom_value')} className={cn('h-7 min-w-0 flex-1 rounded-[var(--r-sm)] border bg-[var(--bg-base)] px-2 font-mono text-[length:var(--text-11-5)] uppercase text-[var(--text-primary)] outline-none placeholder:text-[var(--text-quaternary)]', refused
             ? 'border-[var(--danger)]'
             : 'border-[var(--border-subtle)] focus:border-[var(--accent)]')}/>
       </div>
-      <p className={cn('px-0.5 pt-1 text-[11px]', refused ? 'text-[var(--danger)]' : 'text-[var(--text-quaternary)]')}>{hint}</p>
+      <p className={cn('px-0.5 pt-1 text-[length:var(--text-11)]', refused ? 'text-[var(--danger)]' : 'text-[var(--text-quaternary)]')}>{hint}</p>
       <div className="mt-1.5 grid grid-cols-2 gap-1.5">
-        <button type="button" onClick={() => onPick('none')} className="flex items-center gap-1.5 rounded-[var(--r-sm)] px-2 py-1.5 text-left text-[12px] text-[var(--text-primary)] transition-colors hover:bg-[var(--bg-hover)]">
+        <button type="button" onClick={() => onPick('none')} className="flex items-center gap-1.5 rounded-[var(--r-sm)] px-2 py-1.5 text-left text-[length:var(--text-12)] text-[var(--text-primary)] transition-colors hover:bg-[var(--bg-hover)]">
           <CircleSlash size={13} className="shrink-0 text-[var(--text-tertiary)]"/>
           <span className="truncate">{t('properties.color_none')}</span>
         </button>
-        <button type="button" onClick={() => onPick(null)} className="flex items-center gap-1.5 rounded-[var(--r-sm)] px-2 py-1.5 text-left text-[12px] text-[var(--text-primary)] transition-colors hover:bg-[var(--bg-hover)]">
+        <button type="button" onClick={() => onPick(null)} className="flex items-center gap-1.5 rounded-[var(--r-sm)] px-2 py-1.5 text-left text-[length:var(--text-12)] text-[var(--text-primary)] transition-colors hover:bg-[var(--bg-hover)]">
           <Ban size={13} className="shrink-0 text-[var(--text-tertiary)]"/>
           <span className="truncate">{t('properties.color_default')}</span>
         </button>

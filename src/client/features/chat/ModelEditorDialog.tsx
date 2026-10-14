@@ -107,7 +107,7 @@ function ChipRow({ label, steps, value, onPick }: {
           aria-pressed={value === tokens}
           onClick={() => onPick(tokens)}
           className={cn(
-            'rounded-full border px-1.5 py-0.5 text-[10.5px] tabular-nums transition-colors',
+            'rounded-full border px-1.5 py-0.5 text-[length:var(--text-10-5)] tabular-nums transition-colors',
             value === tokens
               ? 'border-[var(--accent)] bg-[var(--accent-soft)] text-[var(--accent)]'
               : 'border-[var(--border-subtle)] text-[var(--text-quaternary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-secondary)]',
@@ -154,7 +154,7 @@ export function ModelEditorDialog({
       <div className="space-y-3">
         <Field label={t('assistant.model.id')}>
           <div className="flex items-center gap-1.5">
-            <Input value={model.model} readOnly aria-label={t('assistant.model.id')} className="min-w-0 flex-1 font-mono text-[12px]" />
+            <Input value={model.model} readOnly aria-label={t('assistant.model.id')} className="min-w-0 flex-1 font-mono text-[length:var(--text-12)]" />
             <button
               type="button"
               onClick={() => void copyId()}
@@ -163,7 +163,7 @@ export function ModelEditorDialog({
             >
               <Copy size={13} />
             </button>
-            {copied && <span className="shrink-0 text-[11px] text-[var(--success)]">{t('assistant.model.copied')}</span>}
+            {copied && <span className="shrink-0 text-[length:var(--text-11)] text-[var(--success)]">{t('assistant.model.copied')}</span>}
           </div>
         </Field>
 
@@ -180,7 +180,7 @@ export function ModelEditorDialog({
           />
         </Field>
 
-        <button type="button" onClick={() => setMore((value) => !value)} className="flex w-full items-center justify-between py-1 text-[12.5px] text-[var(--text-secondary)]">
+        <button type="button" onClick={() => setMore((value) => !value)} className="flex w-full items-center justify-between py-1 text-[length:var(--text-12-5)] text-[var(--text-secondary)]">
           {t('assistant.model.more')}
           <span aria-hidden className={more ? 'rotate-180' : ''}>⌄</span>
         </button>
@@ -222,7 +222,7 @@ export function ModelEditorDialog({
                       aria-pressed={on}
                       onClick={() => patch({ modalities: on ? draft.modalities.filter((entry) => entry !== modality) : [...draft.modalities, modality] })}
                       className={cn(
-                        'rounded-full border px-2 py-0.5 text-[11.5px] transition-colors',
+                        'rounded-full border px-2 py-0.5 text-[length:var(--text-11-5)] transition-colors',
                         on
                           ? 'border-[var(--accent)] bg-[var(--accent-soft)] text-[var(--accent)]'
                           : 'border-[var(--border-subtle)] text-[var(--text-quaternary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-secondary)]',
@@ -233,7 +233,7 @@ export function ModelEditorDialog({
                   )
                 })}
               </div>
-              <p className="mt-1 text-[11px] leading-snug text-[var(--text-quaternary)]">{t('assistant.model.modalities_hint')}</p>
+              <p className="mt-1 text-[length:var(--text-11)] leading-snug text-[var(--text-quaternary)]">{t('assistant.model.modalities_hint')}</p>
             </Field>
             <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-3">
               <Field label={t('assistant.model.context')}>
@@ -266,7 +266,7 @@ export function ModelEditorDialog({
                   value={draft.maxInputTokens}
                   onPick={(tokens) => patch({ maxInputTokens: tokens })}
                 />
-                <p className="mt-1 text-[11px] leading-snug text-[var(--text-quaternary)]">{t('assistant.model.max_input_hint')}</p>
+                <p className="mt-1 text-[length:var(--text-11)] leading-snug text-[var(--text-quaternary)]">{t('assistant.model.max_input_hint')}</p>
               </Field>
               <Field label={t('assistant.model.max_output')}>
                 <Input
@@ -308,16 +308,16 @@ export function ModelEditorDialog({
 
             <div>
               <div className="mb-1.5 flex items-center justify-between">
-                <span className="text-[12px] text-[var(--text-secondary)]">{t('assistant.model.custom')}</span>
+                <span className="text-[length:var(--text-12)] text-[var(--text-secondary)]">{t('assistant.model.custom')}</span>
                 <button
                   type="button"
                   onClick={() => patch({ customParams: [...draft.customParams, { name: '', type: 'string', value: '' }] })}
-                  className="rounded-[var(--r-sm)] border border-[var(--border-default)] px-2 py-0.5 text-[11.5px] text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]"
+                  className="rounded-[var(--r-sm)] border border-[var(--border-default)] px-2 py-0.5 text-[length:var(--text-11-5)] text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]"
                 >
                   {t('assistant.model.custom_add')}
                 </button>
               </div>
-              <p className="mb-2 text-[11px] leading-snug text-[var(--text-quaternary)]">{t('assistant.model.custom_hint')}</p>
+              <p className="mb-2 text-[length:var(--text-11)] leading-snug text-[var(--text-quaternary)]">{t('assistant.model.custom_hint')}</p>
               {draft.customParams.map((param, index) => (
                 <div key={index} className="mb-1.5 flex items-center gap-1.5">
                   <Input
@@ -346,7 +346,7 @@ export function ModelEditorDialog({
                     type="button"
                     aria-label={t('assistant.model.remove_param', { index: index + 1 })}
                     onClick={() => patch({ customParams: draft.customParams.filter((_, at) => at !== index) })}
-                    className="shrink-0 rounded-[var(--r-sm)] border border-[var(--border-default)] px-2 py-1 text-[11.5px] text-[var(--danger)] hover:bg-[var(--bg-hover)]"
+                    className="shrink-0 rounded-[var(--r-sm)] border border-[var(--border-default)] px-2 py-1 text-[length:var(--text-11-5)] text-[var(--danger)] hover:bg-[var(--bg-hover)]"
                   >
                     ✕
                   </button>
@@ -356,7 +356,7 @@ export function ModelEditorDialog({
           </div>
         )}
 
-        <p className="text-[11px] leading-snug text-[var(--text-quaternary)]">{t('assistant.model.picker_hint')}</p>
+        <p className="text-[length:var(--text-11)] leading-snug text-[var(--text-quaternary)]">{t('assistant.model.picker_hint')}</p>
         <div className="flex justify-end gap-2 pt-1">
           <Button variant="secondary" onClick={onClose}>{t('common.cancel')}</Button>
           <Button variant="primary" onClick={() => { onSave(draft); onClose() }}>{t('assistant.model.save')}</Button>

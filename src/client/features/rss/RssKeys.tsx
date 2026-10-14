@@ -30,11 +30,11 @@ const KEYS: Array<[string, MessageKey]> = [
 export function RssKeys({ open, onClose }: { open: boolean, onClose: () => void }): ReactElement {
   return (
     <Modal open={open} onClose={onClose} title={t('rss.keys_title')} width={460}>
-      <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-2 text-[12.5px]">
+      <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-2 text-[length:var(--text-12-5)]">
         {KEYS.map(([key, label]) => (
           <div key={key} className="contents">
             <dt>
-              <kbd className="rounded-[var(--r-sm)] border border-[var(--border-default)] bg-[var(--bg-sunken)] px-1.5 py-0.5 font-mono text-[11px] text-[var(--text-secondary)]">
+              <kbd className="rounded-[var(--r-sm)] border border-[var(--border-default)] bg-[var(--bg-sunken)] px-1.5 py-0.5 font-mono text-[length:var(--text-11)] text-[var(--text-secondary)]">
                 {key}
               </kbd>
             </dt>

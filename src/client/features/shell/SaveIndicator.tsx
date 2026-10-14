@@ -29,7 +29,7 @@ export function SaveIndicator() {
                     : t("shell.synced");
     if (offline) {
         return (<Tooltip label={label} side="bottom">
-        <span role="img" aria-label={label} className="flex h-6 items-center gap-1.5 rounded-[var(--r-sm)] px-1.5 text-[11px] text-[var(--warning)]">
+        <span role="img" aria-label={label} className="flex h-6 items-center gap-1.5 rounded-[var(--r-sm)] px-1.5 text-[length:var(--text-11)] text-[var(--warning)]">
           <CloudOff size={13}/>
           <span aria-hidden="true" className="hidden md:inline">{t("shell.offline")}</span>
         </span>

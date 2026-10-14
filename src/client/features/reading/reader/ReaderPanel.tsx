@@ -75,7 +75,7 @@ export function ReaderPanel({ name, title, theme, onClose, children }: ReaderPan
       } as React.CSSProperties}
     >
       <header className="flex h-10 shrink-0 items-center gap-2 border-b px-2.5" style={{ borderColor: `color-mix(in oklab, ${theme.foreground} 12%, transparent)` }}>
-        <span className="min-w-0 flex-1 truncate text-[12.5px] font-semibold">{title}</span>
+        <span className="min-w-0 flex-1 truncate text-[length:var(--text-12-5)] font-semibold">{title}</span>
         <IconButton label={t('common.close')} size="xs" onClick={onClose}>
           <X size={14} />
         </IconButton>

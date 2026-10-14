@@ -57,7 +57,7 @@ export function ReadingApp() {
   const content = useMemo(() => {
     if (status !== 'ready') {
       return (
-        <div className="flex h-full items-center justify-center text-[12.5px] text-[var(--text-quaternary)]">
+        <div className="flex h-full items-center justify-center text-[length:var(--text-12-5)] text-[var(--text-quaternary)]">
           {t('reading.loading_library')}
         </div>
       )

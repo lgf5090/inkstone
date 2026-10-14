@@ -33,7 +33,7 @@ import {
   type PromptGroup,
 } from './prompt-queue'
 
-const ROW_CLASS = 'flex w-full items-center gap-2.5 rounded-[var(--r-md)] px-2.5 py-2 text-left text-[13px]'
+const ROW_CLASS = 'flex w-full items-center gap-2.5 rounded-[var(--r-md)] px-2.5 py-2 text-left text-[length:var(--text-13)]'
 
 interface DraftEntry {
   text: string
@@ -125,7 +125,7 @@ function SuggesterRows({
           )
         })}
         {rows.length === 0 && (
-          <p className="px-1 py-3 text-[12.5px] text-[var(--text-tertiary)]">{t('quickadd.prompt_no_options')}</p>
+          <p className="px-1 py-3 text-[length:var(--text-12-5)] text-[var(--text-tertiary)]">{t('quickadd.prompt_no_options')}</p>
         )}
       </div>
       {request.allowCustom && draft.query.trim() !== '' && (
@@ -155,7 +155,7 @@ function PromptField({
     return (
       <div className="space-y-2">
         {request.kind === 'confirm' && (
-          <p className="text-[13px] leading-relaxed text-[var(--text-secondary)]">{request.label}</p>
+          <p className="text-[length:var(--text-13)] leading-relaxed text-[var(--text-secondary)]">{request.label}</p>
         )}
         <div className="flex gap-2">
           <Button variant={draft.text === 'true' ? 'primary' : 'secondary'} data-quickadd-yes onClick={() => onPick('true')}>
@@ -204,7 +204,7 @@ function PromptField({
     return (
       <div className="space-y-2">
         <Slider value={current} min={min} max={max} step={step} label={request.label} onChange={(next) => onChange({ text: String(next) })} />
-        <p className="text-[12.5px] text-[var(--text-tertiary)]">{t('quickadd.prompt_value_is', { value: String(current) })}</p>
+        <p className="text-[length:var(--text-12-5)] text-[var(--text-tertiary)]">{t('quickadd.prompt_value_is', { value: String(current) })}</p>
       </div>
     )
   }
@@ -241,7 +241,7 @@ function PromptField({
           onChange={(event) => onChange({ text: event.target.value })}
         />
         {!recognized && (
-          <p id={fieldId} className="text-[12px] text-[var(--danger)]">{t('quickadd.prompt_date_kept')}</p>
+          <p id={fieldId} className="text-[length:var(--text-12)] text-[var(--danger)]">{t('quickadd.prompt_date_kept')}</p>
         )}
         <div className="flex flex-wrap gap-1.5">
           {([-1, 0, 1, 7] as const).map((offset) => (
@@ -266,7 +266,7 @@ function PromptField({
           aria-label={request.label}
           onChange={(event) => onChange({ text: event.target.value })}
         />
-        <p className={cn('text-[12.5px]', result.error ? 'text-[var(--danger)]' : 'text-[var(--text-tertiary)]')}>
+        <p className={cn('text-[length:var(--text-12-5)]', result.error ? 'text-[var(--danger)]' : 'text-[var(--text-tertiary)]')}>
           {result.error || result.value === null
             ? t('quickadd.prompt_math_error', { reason: result.error ?? 'unknown' })
             : t('quickadd.prompt_math_result', { value: formatMathValue(result.value) })}
@@ -410,10 +410,10 @@ function SinglePrompt({ group }: { group: PromptGroup }) {
           onPick={pickAndMaybeCommit}
         />
         {request.multiSelect && draft.picks.length > 0 && (
-          <p className="text-[12.5px] text-[var(--text-tertiary)]">{t('quickadd.prompt_selected', { count: draft.picks.length })}</p>
+          <p className="text-[length:var(--text-12-5)] text-[var(--text-tertiary)]">{t('quickadd.prompt_selected', { count: draft.picks.length })}</p>
         )}
         {!ready && !request.optional && (draft.text !== '' || draft.picks.length > 0) && (
-          <p className="text-[12px] text-[var(--text-tertiary)]">{t('quickadd.prompt_required_hint')}</p>
+          <p className="text-[length:var(--text-12)] text-[var(--text-tertiary)]">{t('quickadd.prompt_required_hint')}</p>
         )}
       </div>
     </Modal>
@@ -455,8 +455,8 @@ function OnePagePrompt({ group }: { group: PromptGroup }) {
           return (
             <div key={`${request.key}-${index}`} data-quickadd-page-row={request.key}>
               <div className="flex items-baseline justify-between gap-3 pb-1.5">
-                <span className="min-w-0 truncate text-[12.5px] font-medium text-[var(--text-primary)]">{request.label || request.key}</span>
-                {!request.optional && <span className="shrink-0 text-[11.5px] text-[var(--text-quaternary)]">{t('quickadd.prompt_required')}</span>}
+                <span className="min-w-0 truncate text-[length:var(--text-12-5)] font-medium text-[var(--text-primary)]">{request.label || request.key}</span>
+                {!request.optional && <span className="shrink-0 text-[length:var(--text-11-5)] text-[var(--text-quaternary)]">{t('quickadd.prompt_required')}</span>}
               </div>
               <PromptField
                 request={request}
@@ -468,7 +468,7 @@ function OnePagePrompt({ group }: { group: PromptGroup }) {
           )
         })}
         {missing.length > 0 && (
-          <p className="text-[12px] text-[var(--text-tertiary)]">{t('quickadd.prompt_missing', { count: missing.length })}</p>
+          <p className="text-[length:var(--text-12)] text-[var(--text-tertiary)]">{t('quickadd.prompt_missing', { count: missing.length })}</p>
         )}
       </div>
     </Modal>

@@ -62,7 +62,7 @@ export function AppearancePanel() {
         <Select
           value={settings.customFamily}
           onChange={(event) => set('customFamily', event.target.value)}
-          className="mt-2 h-8 w-full text-[12px]"
+          className="mt-2 h-8 w-full text-[length:var(--text-12)]"
           aria-label={t('reading.pick_imported_font')}
         >
           <option value="">{t('reading.font_none')}</option>
@@ -73,7 +73,7 @@ export function AppearancePanel() {
       ) : null}
       <Button
         size="sm"
-        className="mt-2 h-8 text-[12px]"
+        className="mt-2 h-8 text-[length:var(--text-12)]"
         icon={<Upload size={13} />}
         onClick={() => fileInput.current?.click()}
       >
@@ -237,11 +237,11 @@ export function AppearancePanel() {
             ]}
           />
           <div className="mt-2 flex items-center gap-2">
-            <span className="text-[12px]">{t('reading.translate_to')}</span>
+            <span className="text-[length:var(--text-12)]">{t('reading.translate_to')}</span>
             <Select
               value={settings.translateTo}
               onChange={(event) => set('translateTo', event.target.value)}
-              className="h-8 flex-1 text-[12px]"
+              className="h-8 flex-1 text-[length:var(--text-12)]"
               aria-label={t('reading.translate_to')}
             >
               {TARGET_LANGUAGES.map((one) => (
@@ -290,7 +290,7 @@ function ThemeSwatch({ name, label, current, onPick }: {
 function Row({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div className="flex min-h-9 items-center justify-between gap-3 py-1">
-      <span className="min-w-0 text-[12px]">{label}</span>
+      <span className="min-w-0 text-[length:var(--text-12)]">{label}</span>
       <span className="shrink-0">{children}</span>
     </div>
   )

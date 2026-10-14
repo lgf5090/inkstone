@@ -123,13 +123,13 @@ export function ModelPickerDialog({ provider, onAdded, onClose, onCustom }: {
         </div>
 
         {error && (
-          <p className="rounded-[var(--r-md)] border border-[var(--border-default)] bg-[var(--bg-sunken)] px-2.5 py-2 text-[11.5px] leading-snug text-[var(--warning)]">
+          <p className="rounded-[var(--r-md)] border border-[var(--border-default)] bg-[var(--bg-sunken)] px-2.5 py-2 text-[length:var(--text-11-5)] leading-snug text-[var(--warning)]">
             {t('assistant.picker.failed')}
             <span className="mt-0.5 block break-words text-[var(--text-tertiary)]">{error}</span>
           </p>
         )}
         {!loading && !error && rows.length === 0 && (
-          <p className="py-6 text-center text-[12px] text-[var(--text-quaternary)]">{t('assistant.picker.none')}</p>
+          <p className="py-6 text-center text-[length:var(--text-12)] text-[var(--text-quaternary)]">{t('assistant.picker.none')}</p>
         )}
 
         <ul className="max-h-[46vh] min-h-[140px] overflow-y-auto rounded-[var(--r-md)] border border-[var(--border-default)] bg-[var(--bg-raised)] p-1">
@@ -154,11 +154,11 @@ export function ModelPickerDialog({ provider, onAdded, onClose, onCustom }: {
                     {pickedHere && <Check size={11} />}
                   </span>
                   <span className="min-w-0 flex-1">
-                    <span className="block truncate text-[12.5px] text-[var(--text-primary)]">{model.label}</span>
-                    <span className="block truncate font-mono text-[10.5px] text-[var(--text-quaternary)]">{model.id}</span>
+                    <span className="block truncate text-[length:var(--text-12-5)] text-[var(--text-primary)]">{model.label}</span>
+                    <span className="block truncate font-mono text-[length:var(--text-10-5)] text-[var(--text-quaternary)]">{model.id}</span>
                   </span>
                   {added && (
-                    <span className="shrink-0 text-[10.5px] text-[var(--text-quaternary)]">{t('assistant.picker.already')}</span>
+                    <span className="shrink-0 text-[length:var(--text-10-5)] text-[var(--text-quaternary)]">{t('assistant.picker.already')}</span>
                   )}
                 </button>
               </li>
@@ -186,7 +186,7 @@ function FilterChip({ active, onClick, children }: { active: boolean, onClick: (
       aria-pressed={active}
       onClick={onClick}
       className={cn(
-        'rounded-full border px-2 py-0.5 text-[11.5px]',
+        'rounded-full border px-2 py-0.5 text-[length:var(--text-11-5)]',
         active
           ? 'border-[var(--accent)] bg-[var(--accent-soft)] text-[var(--accent)]'
           : 'border-[var(--border-default)] text-[var(--text-tertiary)] hover:bg-[var(--bg-hover)]',

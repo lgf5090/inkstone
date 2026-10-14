@@ -78,10 +78,10 @@ export function SyncSettings() {
             {online ? <CheckCircle2 size={16}/> : <CloudOff size={16}/>}
           </span>
           <div className="min-w-0 flex-1">
-            <div className="text-[13px] font-medium text-[var(--text-primary)]">
+            <div className="text-[length:var(--text-13)] font-medium text-[var(--text-primary)]">
               {online ? t("settings.connected") : t("settings.offline")}
             </div>
-            <div className="mt-0.5 text-[11.5px] text-[var(--text-tertiary)]">
+            <div className="mt-0.5 text-[length:var(--text-11-5)] text-[var(--text-tertiary)]">
               {online
             ? lastSavedAt
                 ? t("settings.last_saved_value0", { value0: savedAgo }) : t("settings.no_saves_yet")

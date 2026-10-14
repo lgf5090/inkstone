@@ -48,7 +48,7 @@ export function FeedMark({ src, title, size = 20, className }: {
     <span
       aria-hidden="true"
       className={cn(
-        'grid shrink-0 place-items-center overflow-hidden rounded-full bg-[var(--bg-hover)] text-[10px] font-semibold text-[var(--text-tertiary)]',
+        'grid shrink-0 place-items-center overflow-hidden rounded-full bg-[var(--bg-hover)] text-[length:var(--text-10)] font-semibold text-[var(--text-tertiary)]',
         className,
       )}
       style={{ width: size, height: size, fontSize: Math.max(9, Math.round(size * 0.5)) }}

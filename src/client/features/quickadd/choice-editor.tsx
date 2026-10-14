@@ -293,7 +293,7 @@ export function QuickAddChoiceEditor({ choice, onClose }: {
             type="button"
             onClick={() => setShowHelp((current) => !current)}
             aria-expanded={showHelp}
-            className="text-[12px] font-medium text-[var(--accent)] hover:underline"
+            className="text-[length:var(--text-12)] font-medium text-[var(--accent)] hover:underline"
           >
             {showHelp ? t('quickadd.hide_token_help') : t('quickadd.show_token_help')}
           </button>
@@ -344,11 +344,11 @@ function FormatField({ label, hint, value, enabled, onChange, onEnabledChange, r
           value={value}
           rows={3}
           spellCheck={false}
-          className="w-full font-mono text-[12.5px]"
+          className="w-full font-mono text-[length:var(--text-12-5)]"
           onChange={(event) => onChange(event.target.value)}/>
-        {hint && <p className="text-[11.5px] text-[var(--text-quaternary)]">{hint}</p>}
+        {hint && <p className="text-[length:var(--text-11-5)] text-[var(--text-quaternary)]">{hint}</p>}
         {preview !== '' && (
-          <p className="rounded-[var(--r-md)] bg-[var(--bg-inset)] px-2 py-1.5 text-[11.5px]">
+          <p className="rounded-[var(--r-md)] bg-[var(--bg-inset)] px-2 py-1.5 text-[length:var(--text-11-5)]">
             <span className="text-[var(--text-quaternary)]">{t('quickadd.preview_label')}</span>
             <span className="ml-1 break-all font-mono text-[var(--text-secondary)]">{preview}</span>
           </p>
@@ -785,7 +785,7 @@ function MacroFields({ draft, patch }: {
   return (
     <div className="space-y-2 border-t border-[var(--border-subtle)] pt-3">
       <div className="flex items-center justify-between">
-        <h3 className="text-[13px] font-medium text-[var(--text-primary)]">{t('quickadd.field_steps')}</h3>
+        <h3 className="text-[length:var(--text-13)] font-medium text-[var(--text-primary)]">{t('quickadd.field_steps')}</h3>
         <Button
           size="sm"
           icon={<Plus size={13}/>}
@@ -797,7 +797,7 @@ function MacroFields({ draft, patch }: {
           {t('quickadd.add_step')}
         </Button>
       </div>
-      {draft.steps.length === 0 && <p className="text-[12px] text-[var(--text-quaternary)]">{t('quickadd.no_steps')}</p>}
+      {draft.steps.length === 0 && <p className="text-[length:var(--text-12)] text-[var(--text-quaternary)]">{t('quickadd.no_steps')}</p>}
       {draft.steps.map((step, index) => (
         <fieldset key={`step-${index}`} className="space-y-2 rounded-[var(--r-md)] border border-[var(--border-subtle)] p-2.5">
           <legend className="sr-only">{`${t('quickadd.step_kind')} ${index + 1}`}</legend>
@@ -843,7 +843,7 @@ function StepFields({ step, index, runnable, onChange }: {
 }) {
   const candidates = useNoteCandidates()
   const field = (label: string, value: string, next: (text: string) => void) => (<>
-    <span className="block text-[12px] font-medium text-[var(--text-secondary)]">{label}</span>
+    <span className="block text-[length:var(--text-12)] font-medium text-[var(--text-secondary)]">{label}</span>
     <Input
       aria-label={`${label} ${index + 1}`}
       value={value}
@@ -851,7 +851,7 @@ function StepFields({ step, index, runnable, onChange }: {
   </>)
   /** A step's note name, with the library's own names offered beside it — the same list the run asks from. */
   const noteField = (label: string, value: string, next: (text: string) => void) => (<>
-    <span className="block text-[12px] font-medium text-[var(--text-secondary)]">{label}</span>
+    <span className="block text-[length:var(--text-12)] font-medium text-[var(--text-secondary)]">{label}</span>
     <NoteNameInput aria-label={`${label} ${index + 1}`} notes={candidates} value={value} onChange={next}/>
   </>)
   switch (step.kind) {
@@ -872,7 +872,7 @@ function StepFields({ step, index, runnable, onChange }: {
       return field(t('quickadd.step_text'), step.text, (text) => onChange({ ...step, text }))
     case 'editor':
       return (<div>
-        <span className="block text-[12px] font-medium text-[var(--text-secondary)]">{t('quickadd.step_editor_action')}</span>
+        <span className="block text-[length:var(--text-12)] font-medium text-[var(--text-secondary)]">{t('quickadd.step_editor_action')}</span>
         <Select
           aria-label={t('quickadd.step_editor_action')}
           value={step.action}
@@ -895,7 +895,7 @@ function StepFields({ step, index, runnable, onChange }: {
       </div>)
     case 'wait':
       return (<div>
-        <span className="block text-[12px] font-medium text-[var(--text-secondary)]">{t('quickadd.step_ms')}</span>
+        <span className="block text-[length:var(--text-12)] font-medium text-[var(--text-secondary)]">{t('quickadd.step_ms')}</span>
         <Input
           aria-label={t('quickadd.step_ms')}
           type="number"
@@ -908,22 +908,22 @@ function StepFields({ step, index, runnable, onChange }: {
       return (<div className="space-y-2">
         {field(t('quickadd.step_name'), step.name, (name) => onChange({ ...step, name }))}
         <div>
-          <span className="block text-[12px] font-medium text-[var(--text-secondary)]">{t('quickadd.step_code')}</span>
+          <span className="block text-[length:var(--text-12)] font-medium text-[var(--text-secondary)]">{t('quickadd.step_code')}</span>
           <Textarea
             aria-label={t('quickadd.step_code')}
             value={step.code}
             rows={5}
             spellCheck={false}
-            className="w-full font-mono text-[12.5px]"
+            className="w-full font-mono text-[length:var(--text-12-5)]"
             onChange={(event) => onChange({ ...step, code: event.target.value.slice(0, QUICKADD_LIMITS.maxScriptLength) })}/>
-          <p className="text-[11.5px] text-[var(--text-quaternary)]">{t('quickadd.step_code_hint')}</p>
+          <p className="text-[length:var(--text-11-5)] text-[var(--text-quaternary)]">{t('quickadd.step_code_hint')}</p>
         </div>
       </div>)
     case 'if':
       return (<div className="grid gap-2 md:grid-cols-3">
         {field(t('quickadd.step_variable'), step.variable, (variable) => onChange({ ...step, variable }))}
         <div>
-          <span className="block text-[12px] font-medium text-[var(--text-secondary)]">{t('quickadd.step_operator')}</span>
+          <span className="block text-[length:var(--text-12)] font-medium text-[var(--text-secondary)]">{t('quickadd.step_operator')}</span>
           <Select
             aria-label={t('quickadd.step_operator')}
             value={step.operator}
@@ -932,7 +932,7 @@ function StepFields({ step, index, runnable, onChange }: {
           </Select>
         </div>
         {field(t('quickadd.step_value'), step.value, (value) => onChange({ ...step, value }))}
-        <p className="text-[11.5px] text-[var(--text-quaternary)] md:col-span-3">
+        <p className="text-[length:var(--text-11-5)] text-[var(--text-quaternary)] md:col-span-3">
           {t('quickadd.step_branch_counts', { value0: String(step.then.length), value1: String(step.else.length) })}
         </p>
       </div>)
@@ -940,7 +940,7 @@ function StepFields({ step, index, runnable, onChange }: {
       const commands = appCommands()
       const groups = [...new Set(commands.map((entry) => entry.group))]
       return (<div className="space-y-1">
-        <span className="block text-[12px] font-medium text-[var(--text-secondary)]">{t('quickadd.step_command')}</span>
+        <span className="block text-[length:var(--text-12)] font-medium text-[var(--text-secondary)]">{t('quickadd.step_command')}</span>
         <Select
           aria-label={t('quickadd.step_command')}
           value={step.commandId}
@@ -954,12 +954,12 @@ function StepFields({ step, index, runnable, onChange }: {
             </optgroup>
           ))}
         </Select>
-        <p className="text-[11.5px] text-[var(--text-quaternary)]">{t('quickadd.step_command_hint')}</p>
+        <p className="text-[length:var(--text-11-5)] text-[var(--text-quaternary)]">{t('quickadd.step_command_hint')}</p>
       </div>)
     }
     default:
       return (<div>
-        <span className="block text-[12px] font-medium text-[var(--text-secondary)]">{t('quickadd.step_choice_step')}</span>
+        <span className="block text-[length:var(--text-12)] font-medium text-[var(--text-secondary)]">{t('quickadd.step_choice_step')}</span>
         <Select
           aria-label={t('quickadd.step_choice_step')}
           value={step.choiceId}

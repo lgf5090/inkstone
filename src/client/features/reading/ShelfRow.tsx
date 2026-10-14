@@ -67,12 +67,12 @@ export function ShelfRow({
           </span>
         )}
         <span className="min-w-0 flex-1">
-          <span className="block truncate text-[13px] font-medium text-[var(--text-primary)]">{book.title}</span>
-          <span className="block truncate text-[11.5px] text-[var(--text-tertiary)]">
+          <span className="block truncate text-[length:var(--text-13)] font-medium text-[var(--text-primary)]">{book.title}</span>
+          <span className="block truncate text-[length:var(--text-11-5)] text-[var(--text-tertiary)]">
             {book.author || t('reading.unknown_author')}
             {book.publisher ? <span className="text-[var(--text-quaternary)]"> · {book.publisher}</span> : null}
           </span>
-          <span className="mt-0.5 flex items-center gap-2 truncate text-[11px] text-[var(--text-quaternary)]">
+          <span className="mt-0.5 flex items-center gap-2 truncate text-[length:var(--text-11)] text-[var(--text-quaternary)]">
             {highlightCount > 0 ? (
               <span className="inline-flex items-center gap-0.5">
                 <PenLine size={10} />
@@ -86,7 +86,7 @@ export function ShelfRow({
               </span>
             ) : null}
             {groupNames.map((name) => (
-              <span key={name} className="max-w-[8rem] truncate rounded-full border border-[var(--border-subtle)] px-1.5 text-[10px]">
+              <span key={name} className="max-w-[8rem] truncate rounded-full border border-[var(--border-subtle)] px-1.5 text-[length:var(--text-10)]">
                 {name}
               </span>
             ))}
@@ -94,7 +94,7 @@ export function ShelfRow({
           </span>
         </span>
         {stoppedAt ? (
-          <span className="hidden max-w-[15rem] shrink-0 truncate text-right text-[11px] text-[var(--text-quaternary)] lg:block">
+          <span className="hidden max-w-[15rem] shrink-0 truncate text-right text-[length:var(--text-11)] text-[var(--text-quaternary)] lg:block">
             {stoppedAt}
           </span>
         ) : null}

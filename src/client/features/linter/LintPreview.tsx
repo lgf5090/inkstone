@@ -115,18 +115,18 @@ export function LintPreviewHost() {
           <Button variant="primary" onClick={() => finish(true)} data-autofocus>{t('linter.notice_text.apply_lint_preview')}</Button>
         </>}>
       <div className="space-y-3">
-        <p className="break-words text-[12px] text-[var(--text-secondary)]">{t('linter.preview.summary', { rules: pending.request.rules })}</p>
+        <p className="break-words text-[length:var(--text-12)] text-[var(--text-secondary)]">{t('linter.preview.summary', { rules: pending.request.rules })}</p>
         {diff.truncated && !showAll && (<div className="space-y-2">
-              <p className="text-[11.5px] text-[var(--text-tertiary)]">{t('linter.notice_text.diff_large_file_warning')}</p>
+              <p className="text-[length:var(--text-11-5)] text-[var(--text-tertiary)]">{t('linter.notice_text.diff_large_file_warning')}</p>
               <Button size="sm" variant="secondary" onClick={() => setShowAll(true)}>{t('linter.notice_text.show_diff')}</Button>
             </div>)}
-        <div className="max-h-[46vh] overflow-auto rounded-[var(--r-md)] border border-[var(--border-subtle)] bg-[var(--bg-inset)] p-2 font-mono text-[11.5px] leading-relaxed">
+        <div className="max-h-[46vh] overflow-auto rounded-[var(--r-md)] border border-[var(--border-subtle)] bg-[var(--bg-inset)] p-2 font-mono text-[length:var(--text-11-5)] leading-relaxed">
           {rows.map((row, index) => (<div key={index} className={`flex gap-2 whitespace-pre-wrap break-words rounded-[2px] px-1 ${ROW_CLASS[row.kind]}`}>
                 <span aria-hidden="true" className="w-4 shrink-0 select-none text-right text-[var(--text-quaternary)]">{row.kind === 'added' ? '+' : row.kind === 'removed' ? '-' : ''}</span>
                 <span aria-hidden="true" className="w-10 shrink-0 select-none text-right text-[var(--text-quaternary)]">{row.line}</span>
                 <span className="min-w-0 flex-1"><RowText row={row}/></span>
             </div>))}
-          {diff.hidden > 0 && (<p className="px-1 pt-1 text-[11px] text-[var(--text-quaternary)]">{t('linter.notice_text.diff_skipped_lines', { COUNT: diff.hidden })}</p>)}
+          {diff.hidden > 0 && (<p className="px-1 pt-1 text-[length:var(--text-11)] text-[var(--text-quaternary)]">{t('linter.notice_text.diff_skipped_lines', { COUNT: diff.hidden })}</p>)}
         </div>
       </div>
     </Modal>);

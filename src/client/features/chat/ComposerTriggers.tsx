@@ -99,12 +99,12 @@ export function TriggerPanel({
       aria-label={t(sigil === '@' ? 'assistant.trigger.notes' : sigil === '/' ? 'assistant.trigger.tools' : 'assistant.trigger.scopes')}
       className="max-h-64 overflow-y-auto rounded-t-[var(--r-lg)] border-x border-t border-[var(--border-default)] bg-[var(--bg-surface)] p-1"
     >
-      <p className="flex items-center gap-1.5 px-1.5 py-1 text-[10.5px] text-[var(--text-quaternary)]">
+      <p className="flex items-center gap-1.5 px-1.5 py-1 text-[length:var(--text-10-5)] text-[var(--text-quaternary)]">
         <Icon size={11} />
         {t('assistant.trigger.hint')}
       </p>
-      {busy && <p className="px-2 py-2 text-[12px] text-[var(--text-quaternary)]">{t('common.loading')}</p>}
-      {!busy && !rows.length && <p className="px-2 py-2 text-[12px] text-[var(--text-quaternary)]">{t('assistant.trigger.none')}</p>}
+      {busy && <p className="px-2 py-2 text-[length:var(--text-12)] text-[var(--text-quaternary)]">{t('common.loading')}</p>}
+      {!busy && !rows.length && <p className="px-2 py-2 text-[length:var(--text-12)] text-[var(--text-quaternary)]">{t('assistant.trigger.none')}</p>}
       {rows.map((row, index) => (
         <button
           key={row.id}
@@ -115,13 +115,13 @@ export function TriggerPanel({
           onMouseEnter={() => onHover(index)}
           onClick={() => onPick(row)}
           className={cn(
-            'flex w-full items-center gap-2 rounded-[var(--r-sm)] px-2 py-1.5 text-left text-[12.5px]',
+            'flex w-full items-center gap-2 rounded-[var(--r-sm)] px-2 py-1.5 text-left text-[length:var(--text-12-5)]',
             index === activeIndex ? 'bg-[var(--bg-hover)] text-[var(--text-primary)]' : 'text-[var(--text-secondary)]',
           )}
         >
           <span className="min-w-0 flex-1 truncate">{row.label}</span>
           {row.hint && (
-            <span className={cn('shrink-0 text-[10.5px]', row.danger ? 'text-[var(--warning)]' : 'text-[var(--text-quaternary)]')}>{row.hint}</span>
+            <span className={cn('shrink-0 text-[length:var(--text-10-5)]', row.danger ? 'text-[var(--warning)]' : 'text-[var(--text-quaternary)]')}>{row.hint}</span>
           )}
           {index === activeIndex && <Check size={12} className="shrink-0 text-[var(--accent)]" />}
         </button>
@@ -153,7 +153,7 @@ export function TurnPinRow({
 }) {
   if (!tools.length && !scopes.length) return null
   const chip = (key: string, Icon: typeof Wrench, label: string, onDrop: () => void, dropLabel: string) => (
-    <span key={key} className="flex max-w-full items-center gap-1 rounded-[var(--r-sm)] border border-[var(--border-default)] bg-[var(--bg-sunken)] py-[1px] pl-1.5 pr-0.5 text-[11px] text-[var(--text-secondary)]">
+    <span key={key} className="flex max-w-full items-center gap-1 rounded-[var(--r-sm)] border border-[var(--border-default)] bg-[var(--bg-sunken)] py-[1px] pl-1.5 pr-0.5 text-[length:var(--text-11)] text-[var(--text-secondary)]">
       <Icon size={11} className="shrink-0" />
       <span className="min-w-0 truncate">{label}</span>
       <button type="button" onClick={onDrop} aria-label={dropLabel} className="flex size-4 shrink-0 items-center justify-center rounded-full hover:text-[var(--danger)]">

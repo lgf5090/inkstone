@@ -48,7 +48,7 @@ export const ThinkingProcess: React.FC<ThinkingProcessProps> = ({
           )}
         </div>
         <div className="flex items-center gap-1 text-[var(--text-tertiary)]">
-          <span className="text-[11px]">
+          <span className="text-[length:var(--text-11)]">
             {expanded ? t('excalidraw.collapse') : t('excalidraw.expand')}
           </span>
           {expanded ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
@@ -56,7 +56,7 @@ export const ThinkingProcess: React.FC<ThinkingProcessProps> = ({
       </button>
 
       {expanded && (
-        <div className="border-t border-[var(--border-subtle)]/50 px-3 py-2.5 font-mono text-[11.5px] leading-relaxed text-[var(--text-tertiary)] max-h-60 overflow-y-auto whitespace-pre-wrap select-text">
+        <div className="border-t border-[var(--border-subtle)]/50 px-3 py-2.5 font-mono text-[length:var(--text-11-5)] leading-relaxed text-[var(--text-tertiary)] max-h-60 overflow-y-auto whitespace-pre-wrap select-text">
           {reasoning || (isThinking ? t('excalidraw.analyzing_diagram') : '')}
         </div>
       )}

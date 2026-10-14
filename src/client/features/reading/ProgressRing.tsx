@@ -39,7 +39,7 @@ export function ProgressRing({ fraction, finished, size = 30 }: { fraction: numb
       {finished ? (
         <Check size={11} className="absolute text-[var(--success)]" aria-hidden="true" />
       ) : (
-        <span className="absolute text-[9.5px] font-medium tabular text-[var(--text-secondary)]">{percent}%</span>
+        <span className="absolute text-[length:var(--text-9-5)] font-medium tabular text-[var(--text-secondary)]">{percent}%</span>
       )}
     </span>
   )

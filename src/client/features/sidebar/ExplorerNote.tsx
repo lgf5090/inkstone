@@ -95,7 +95,7 @@ function ExplorerNoteRow({ note, depth, canOpenToSide, trailing, highlight, setS
             ) : (
                 <FileText size={14} className={cn('shrink-0', active ? 'text-[var(--accent)]' : 'text-[var(--text-tertiary)]')}/>
             )}
-            <button type="button" data-tree-note-open data-tree-row data-navigation-item aria-current={active ? 'page' : undefined} title={note.title || t('common.untitled_note')} onClick={() => open()} onKeyDown={onKeyDown} className="h-full min-w-0 flex-1 truncate pl-1 text-left text-[12.5px]">
+            <button type="button" data-tree-note-open data-tree-row data-navigation-item aria-current={active ? 'page' : undefined} title={note.title || t('common.untitled_note')} onClick={() => open()} onKeyDown={onKeyDown} className="h-full min-w-0 flex-1 truncate pl-1 text-left text-[length:var(--text-12-5)]">
                 {titleWithHighlight(note, highlight)}
             </button>
             {trailing}

@@ -29,14 +29,14 @@ export function StatsPanel({ bookId, goalMinutes }: StatsPanelProps) {
   return (
     <div className="px-3 py-2">
       {summary.totalSeconds === 0 ? (
-        <p className="py-6 text-center text-[12px] opacity-60">{t('reading.stats_none')}</p>
+        <p className="py-6 text-center text-[length:var(--text-12)] opacity-60">{t('reading.stats_none')}</p>
       ) : null}
 
       {goalSeconds > 0 ? (
         <div className="mb-3">
           <div className="flex items-baseline justify-between gap-2">
-            <span className="text-[12.5px]">{t('reading.today')}</span>
-            <span className="text-[11px] tabular opacity-60">
+            <span className="text-[length:var(--text-12-5)]">{t('reading.today')}</span>
+            <span className="text-[length:var(--text-11)] tabular opacity-60">
               {summary.todaySeconds >= goalSeconds
                 ? t('reading.stats_goal_done')
                 : t('reading.stats_goal_left_value0', { value0: formatReadingSeconds(goalSeconds - summary.todaySeconds) })}
@@ -62,7 +62,7 @@ export function StatsPanel({ bookId, goalMinutes }: StatsPanelProps) {
         ) : null}
       </dl>
 
-      <p className="mb-1 text-[11px] opacity-55">{t('reading.stats_last_days', { value0: WINDOW_DAYS })}</p>
+      <p className="mb-1 text-[length:var(--text-11)] opacity-55">{t('reading.stats_last_days', { value0: WINDOW_DAYS })}</p>
       <div className="mb-3 flex items-end gap-[3px]" role="img" aria-label={t('reading.stats_last_days', { value0: WINDOW_DAYS })}>
         {summary.recent.map((one) => (
           <Tooltip key={one.day} label={`${one.day} · ${formatReadingSeconds(one.seconds)}`} side="top">
@@ -76,9 +76,9 @@ export function StatsPanel({ bookId, goalMinutes }: StatsPanelProps) {
 
       {summary.perBook.length ? (
         <ul className="space-y-1">
-          <li className="text-[11px] opacity-55">{t('reading.stats_by_book')}</li>
+          <li className="text-[length:var(--text-11)] opacity-55">{t('reading.stats_by_book')}</li>
           {summary.perBook.map((one) => (
-            <li key={one.bookId} className="flex items-baseline gap-2 text-[12px]">
+            <li key={one.bookId} className="flex items-baseline gap-2 text-[length:var(--text-12)]">
               <span className="min-w-0 flex-1 truncate">{titles.get(one.bookId) ?? one.bookId}</span>
               <span className="shrink-0 tabular opacity-60">{formatReadingSeconds(one.seconds)}</span>
             </li>
@@ -92,8 +92,8 @@ export function StatsPanel({ bookId, goalMinutes }: StatsPanelProps) {
 function Cell({ label, value }: { label: string; value: string }) {
   return (
     <div className="min-w-0">
-      <dt className="truncate text-[10.5px] opacity-55">{label}</dt>
-      <dd className="truncate text-[13px] tabular">{value}</dd>
+      <dt className="truncate text-[length:var(--text-10-5)] opacity-55">{label}</dt>
+      <dd className="truncate text-[length:var(--text-13)] tabular">{value}</dd>
     </div>
   )
 }

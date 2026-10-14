@@ -366,8 +366,8 @@ export function GraphPanel({ onClose }: { onClose: () => void }) {
     className="app-viewport-fixed fixed z-[230] flex flex-col bg-[var(--bg-base)] pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)] outline-none md:py-0">
     <header className="flex min-h-12 shrink-0 flex-wrap items-center gap-2 border-b border-[var(--border-subtle)] px-3 py-2 md:px-4">
       <div className="mr-1 flex min-w-0 items-baseline gap-2.5">
-        <h2 id={titleId} className="text-[14px] font-semibold tracking-[-0.014em]">{t('common.graph')}</h2>
-        {data && <span className="whitespace-nowrap text-[11.5px] text-[var(--text-tertiary)]">
+        <h2 id={titleId} className="text-[length:var(--text-14)] font-semibold tracking-[-0.014em]">{t('common.graph')}</h2>
+        {data && <span className="whitespace-nowrap text-[length:var(--text-11-5)] text-[var(--text-tertiary)]">
           {counts.unresolved
             ? t('graph.stats_with_unresolved', { notes: counts.notes, links: counts.links, unresolved: counts.unresolved })
             : t('graph.stats', { notes: counts.notes, links: counts.links })}
@@ -395,11 +395,11 @@ export function GraphPanel({ onClose }: { onClose: () => void }) {
         <Search size={13} className="shrink-0 text-[var(--text-tertiary)]"/>
         <span className="sr-only">{t('graph.search_notes')}</span>
         <input type="search" {...searchField} value={search} onChange={(event) => setSearch(event.target.value)} placeholder={t('graph.search_notes')}
-          className="min-w-0 flex-1 bg-transparent text-[12px] outline-none placeholder:text-[var(--text-tertiary)] [&::-webkit-search-cancel-button]:hidden"/>
+          className="min-w-0 flex-1 bg-transparent text-[length:var(--text-12)] outline-none placeholder:text-[var(--text-tertiary)] [&::-webkit-search-cancel-button]:hidden"/>
         {search && <IconButton label={t('common.clear')} size="sm" onClick={clearSearch}><X size={12}/></IconButton>}
       </label>
       {query && <div className="flex shrink-0 items-center gap-1">
-        <span role="status" data-graph-search-status="" className="whitespace-nowrap text-[11.5px] text-[var(--text-tertiary)]">
+        <span role="status" data-graph-search-status="" className="whitespace-nowrap text-[length:var(--text-11-5)] text-[var(--text-tertiary)]">
           {announcement}
         </span>
         {firstHit && <Tooltip label={t('graph.jump_to_first_match')}>

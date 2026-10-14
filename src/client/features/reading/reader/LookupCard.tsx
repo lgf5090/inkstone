@@ -53,7 +53,7 @@ export function LookupCard({ rect, pending, outcome, error, onClose, onCollect, 
       style={{ left, top, width }}
     >
       <div className="flex items-start gap-2">
-        <p className="min-w-0 flex-1 text-[12.5px] font-semibold leading-snug text-[var(--text-primary)]">
+        <p className="min-w-0 flex-1 text-[length:var(--text-12-5)] font-semibold leading-snug text-[var(--text-primary)]">
           {outcome?.source ?? t('reading.translating')}
         </p>
         <button type="button" aria-label={t('reading.close_lookup')} onClick={onClose} className="shrink-0 text-[var(--text-tertiary)]">
@@ -61,15 +61,15 @@ export function LookupCard({ rect, pending, outcome, error, onClose, onCollect, 
         </button>
       </div>
       {pending ? <Spinner size={14} className="text-[var(--text-tertiary)]" /> : null}
-      {error ? <p className="text-[12px] text-[var(--danger)]">{error}</p> : null}
+      {error ? <p className="text-[length:var(--text-12)] text-[var(--danger)]">{error}</p> : null}
       {outcome ? (
         <>
-          <p className="whitespace-pre-wrap text-[13px] leading-relaxed text-[var(--text-primary)]">{outcome.target}</p>
+          <p className="whitespace-pre-wrap text-[length:var(--text-13)] leading-relaxed text-[var(--text-primary)]">{outcome.target}</p>
           {outcome.notes ? (
-            <p className="whitespace-pre-wrap text-[11.5px] leading-relaxed text-[var(--text-tertiary)]">{outcome.notes}</p>
+            <p className="whitespace-pre-wrap text-[length:var(--text-11-5)] leading-relaxed text-[var(--text-tertiary)]">{outcome.notes}</p>
           ) : null}
           <div className="mt-0.5 flex items-center gap-2">
-            <span className="inline-flex items-center gap-1 text-[10.5px] text-[var(--text-quaternary)]">
+            <span className="inline-flex items-center gap-1 text-[length:var(--text-10-5)] text-[var(--text-quaternary)]">
               {outcome.engine === 'ai' ? <Sparkles size={11} /> : null}
               {outcome.engine === 'ai' ? t('reading.engine_ai') : t('reading.engine_free')}
             </span>
@@ -77,13 +77,13 @@ export function LookupCard({ rect, pending, outcome, error, onClose, onCollect, 
               <button
                 type="button"
                 onClick={() => onCollect(outcome)}
-                className="ml-auto inline-flex h-7 items-center gap-1 rounded-[var(--r-sm)] border border-[var(--border-default)] px-2 text-[11.5px] hover:bg-[var(--bg-hover)]"
+                className="ml-auto inline-flex h-7 items-center gap-1 rounded-[var(--r-sm)] border border-[var(--border-default)] px-2 text-[length:var(--text-11-5)] hover:bg-[var(--bg-hover)]"
               >
                 <BookMarked size={12} />
                 {t('reading.collect_word')}
               </button>
             ) : collected ? (
-              <span className="ml-auto text-[11px] text-[var(--success)]">{t('reading.word_collected')}</span>
+              <span className="ml-auto text-[length:var(--text-11)] text-[var(--success)]">{t('reading.word_collected')}</span>
             ) : null}
           </div>
         </>

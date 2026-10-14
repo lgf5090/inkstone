@@ -677,12 +677,12 @@ export const ExcalidrawStandaloneEditor: React.FC<ExcalidrawStandaloneEditorProp
                         {isSaved ? (
                             <>
                                 <Check size={13} className="text-[var(--accent)]" />
-                                <span className="hidden sm:inline text-[11px]">{t('workspace.drawing_saved')}</span>
+                                <span className="hidden sm:inline text-[length:var(--text-11)]">{t('workspace.drawing_saved')}</span>
                             </>
                         ) : (
                             <>
                                 <Save size={13} className="text-[var(--warning)]" />
-                                <span className="hidden sm:inline text-[11px]">{t('workspace.save_drawing')}</span>
+                                <span className="hidden sm:inline text-[length:var(--text-11)]">{t('workspace.save_drawing')}</span>
                             </>
                         )}
                     </button>

@@ -206,7 +206,7 @@ export function SettingsPanel({ onClose }: {
       }} className="anim-pop relative flex h-full w-full max-w-[880px] flex-col overflow-hidden bg-[var(--bg-overlay)] pt-[env(safe-area-inset-top)] shadow-[var(--shadow-modal)] outline-none md:max-h-[720px] md:flex-row md:rounded-[var(--r-2xl)] md:border md:border-[var(--border-default)] md:pt-0">
         { }
         <nav className="flex w-full shrink-0 flex-col border-b border-[var(--border-subtle)] bg-[var(--bg-sunken)] p-2 md:w-[172px] md:border-r md:border-b-0">
-          <div id={titleId} className="px-2 py-1.5 text-[13.5px] font-semibold tracking-[-0.012em] md:py-2.5">{t("common.settings")}</div>
+          <div id={titleId} className="px-2 py-1.5 text-[length:var(--text-13-5)] font-semibold tracking-[-0.012em] md:py-2.5">{t("common.settings")}</div>
           <div className="mb-2 md:mb-2.5">
             <Input {...field} type="text" value={query} spellCheck={false} autoComplete="off" placeholder={t("settings.search_placeholder")} aria-label={t("settings.search_placeholder")} onChange={(event) => setQuery(event.target.value)} leading={<Search size={13} aria-hidden="true" className="pointer-events-none"/>} trailing={searching
               ? <IconButton label={t("settings.search_clear")} size="sm" onClick={clear}>
@@ -218,19 +218,19 @@ export function SettingsPanel({ onClose }: {
             {(searching ? SECTIONS.filter((item) => counts.has(item.id)) : SECTIONS).map((item) => (<button key={item.id} type="button" aria-current={section === item.id && !searching ? 'page' : undefined} onPointerEnter={() => warmSettingsSection(item.id)} onFocus={() => warmSettingsSection(item.id)} onClick={() => {
               setQuery('');
               selectSection(item.id);
-            }} className={cn('flex h-10 shrink-0 items-center gap-2 rounded-[var(--r-md)] px-2.5 text-left text-[12.5px] md:h-[30px] md:w-full md:gap-2.5 md:px-2', 'transition-colors duration-[var(--dur-fast)]', section === item.id && !searching
+            }} className={cn('flex h-10 shrink-0 items-center gap-2 rounded-[var(--r-md)] px-2.5 text-left text-[length:var(--text-12-5)] md:h-[30px] md:w-full md:gap-2.5 md:px-2', 'transition-colors duration-[var(--dur-fast)]', section === item.id && !searching
                 ? 'bg-[var(--accent-soft)] font-medium text-[var(--text-primary)]'
                 : 'text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]')}>
                 <span className={cn('shrink-0', section === item.id && !searching ? 'text-[var(--accent)]' : 'text-[var(--text-tertiary)]')}>
                   {item.icon}
                 </span>
                 {item.label()}
-                {searching && <span className="ml-auto hidden shrink-0 text-[11px] tabular-nums text-[var(--text-quaternary)] md:inline">{counts.get(item.id)}</span>}
+                {searching && <span className="ml-auto hidden shrink-0 text-[length:var(--text-11)] tabular-nums text-[var(--text-quaternary)] md:inline">{counts.get(item.id)}</span>}
               </button>))}
             <button type="button" onClick={() => {
                 onClose();
                 openPanel('shortcuts');
-            }} className="flex h-10 shrink-0 items-center gap-2.5 rounded-[var(--r-md)] px-2.5 text-left text-[12.5px] text-[var(--text-tertiary)] transition-colors hover:bg-[var(--bg-hover)] md:hidden">
+            }} className="flex h-10 shrink-0 items-center gap-2.5 rounded-[var(--r-md)] px-2.5 text-left text-[length:var(--text-12-5)] text-[var(--text-tertiary)] transition-colors hover:bg-[var(--bg-hover)] md:hidden">
               <Keyboard size={14}/>{t("settings.keyboard_shortcuts")}
             </button>
           </div>
@@ -239,14 +239,14 @@ export function SettingsPanel({ onClose }: {
           <button type="button" onClick={() => {
             onClose();
             openPanel('shortcuts');
-        }} className="hidden h-[30px] w-full items-center gap-2.5 rounded-[var(--r-md)] px-2 text-left text-[12.5px] text-[var(--text-tertiary)] transition-colors hover:bg-[var(--bg-hover)] md:flex">
+        }} className="hidden h-[30px] w-full items-center gap-2.5 rounded-[var(--r-md)] px-2 text-left text-[length:var(--text-12-5)] text-[var(--text-tertiary)] transition-colors hover:bg-[var(--bg-hover)] md:flex">
             <Keyboard size={14}/>{t("settings.keyboard_shortcuts")}</button>
         </nav>
 
         { }
         <div className="flex min-h-0 min-w-0 flex-1 flex-col">
           <header className="flex h-12 shrink-0 items-center justify-between border-b border-[var(--border-subtle)] px-4 md:px-5">
-            <h2 className="text-[14px] font-semibold tracking-[-0.012em]">
+            <h2 className="text-[length:var(--text-14)] font-semibold tracking-[-0.012em]">
               {searching ? t("settings.search_results") : SECTIONS.find((s) => s.id === section)?.label()}
             </h2>
             <Tooltip label={t("common.close")} combo="escape" side="left">
@@ -267,20 +267,20 @@ export function SettingsPanel({ onClose }: {
             }
           }} className="min-h-0 flex-1 overflow-y-auto px-4 pt-3 pb-[calc(16px+env(safe-area-inset-bottom))] md:px-5 md:py-4">
             {hits.length === 0
-              ? <p className="py-10 text-center text-[12.5px] text-[var(--text-tertiary)]">{t("settings.search_no_results")}</p>
+              ? <p className="py-10 text-center text-[length:var(--text-12-5)] text-[var(--text-tertiary)]">{t("settings.search_no_results")}</p>
               : <>
-                  <p className="mb-3 text-[11.5px] text-[var(--text-quaternary)]">{t("settings.search_found", { count: hits.length })}</p>
+                  <p className="mb-3 text-[length:var(--text-11-5)] text-[var(--text-quaternary)]">{t("settings.search_found", { count: hits.length })}</p>
                   {groups.map((group) => (<section key={group.item.id} className="mb-4 last:mb-0">
-                      <h3 className="mb-1 flex items-center gap-1.5 text-[11px] font-semibold tracking-[0.06em] text-[var(--text-quaternary)]">
+                      <h3 className="mb-1 flex items-center gap-1.5 text-[length:var(--text-11)] font-semibold tracking-[0.06em] text-[var(--text-quaternary)]">
                         <span className="shrink-0">{group.item.icon}</span>
                         {group.item.label()}
                       </h3>
                       {group.rows.map((hit) => (<button key={`${hit.entry.section}:${hit.entry.titleKey}`} type="button" data-settings-hit="" onClick={() => openHit(hit)} className="flex w-full items-start gap-3 rounded-[var(--r-md)] px-2.5 py-2 text-left transition-colors hover:bg-[var(--bg-hover)] focus-visible:bg-[var(--bg-hover)] focus-visible:outline-none">
                           <span className="min-w-0 flex-1">
-                            <span className="block text-[13px] font-medium text-[var(--text-primary)]">
+                            <span className="block text-[length:var(--text-13)] font-medium text-[var(--text-primary)]">
                               <HitTitle hit={hit}/>
                             </span>
-                            {hit.detail && <span className="mt-0.5 block truncate text-[11.5px] text-[var(--text-tertiary)]">{hit.detail}</span>}
+                            {hit.detail && <span className="mt-0.5 block truncate text-[length:var(--text-11-5)] text-[var(--text-tertiary)]">{hit.detail}</span>}
                           </span>
                         </button>))}
                     </section>))}
@@ -298,7 +298,7 @@ export function SettingsPanel({ onClose }: {
 export const SettingsPage = memo(function SettingsPage({ section }: { section: Exclude<Section, 'appearance'> }) {
     const [attempt, setAttempt] = useState(0);
     const Page = useMemo(() => lazy(settingsLoaders[section]), [section, attempt]);
-    return (<ErrorBoundary key={attempt} fallback={<div role="alert" className="space-y-3 py-4 text-[12.5px] text-[var(--text-secondary)]">
+    return (<ErrorBoundary key={attempt} fallback={<div role="alert" className="space-y-3 py-4 text-[length:var(--text-12-5)] text-[var(--text-secondary)]">
       <p>{t('app.section_unavailable')}</p>
       <Button size="sm" onClick={() => setAttempt((current) => current + 1)}>{t('common.retry')}</Button>
     </div>}>

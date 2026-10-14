@@ -45,9 +45,9 @@ const VARIANTS: Record<Variant, string> = {
 }
 
 const SIZES: Record<Size, string> = {
-  sm: 'h-9 px-3 text-[12px] gap-1.5 rounded-[var(--r-sm)] md:h-7 md:px-2.5',
-  md: 'h-10 px-3.5 text-[13px] gap-1.5 rounded-[var(--r-md)] md:h-8 md:px-3',
-  lg: 'h-11 px-4 text-[14px] gap-2 rounded-[var(--r-md)] md:h-10',
+  sm: 'h-9 px-3 text-[length:var(--text-12)] gap-1.5 rounded-[var(--r-sm)] md:h-7 md:px-2.5',
+  md: 'h-10 px-3.5 text-[length:var(--text-13)] gap-1.5 rounded-[var(--r-md)] md:h-8 md:px-3',
+  lg: 'h-11 px-4 text-[length:var(--text-14)] gap-2 rounded-[var(--r-md)] md:h-10',
 }
 
 interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
@@ -170,7 +170,7 @@ export function Kbd({ combo, keys }: { combo?: string; keys?: string[] }) {
           className={cn(
             'inline-flex h-[18px] min-w-[18px] items-center justify-center rounded-[5px] px-[5px]',
             'border border-[var(--border-default)] bg-[var(--bg-raised)]',
-            'text-[10.5px] font-medium text-[var(--text-tertiary)]',
+            'text-[length:var(--text-10-5)] font-medium text-[var(--text-tertiary)]',
           )}
         >
           {key}
@@ -263,7 +263,7 @@ export function Badge({
   return (
     <span
       className={cn(
-        'inline-flex items-center rounded-full px-[7px] py-[1px] text-[11px] font-medium tabular',
+        'inline-flex items-center rounded-full px-[7px] py-[1px] text-[length:var(--text-11)] font-medium tabular',
         tones[tone],
         className,
       )}
@@ -292,7 +292,7 @@ export function SectionLabel({ children, className }: { children: ReactNode; cla
   return (
     <div
       className={cn(
-        'min-w-0 truncate px-2 pt-1 pb-1 text-[10.5px] font-semibold uppercase tracking-[0.075em] text-[var(--text-quaternary)] whitespace-nowrap',
+        'min-w-0 truncate px-2 pt-1 pb-1 text-[length:var(--text-10-5)] font-semibold uppercase tracking-[0.075em] text-[var(--text-quaternary)] whitespace-nowrap',
         className,
       )}
     >

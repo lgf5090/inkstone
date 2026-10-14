@@ -117,12 +117,12 @@ export function LoginPage() {
             <Logo size={27} />
           </div>
           <h1
-            className="text-[30px] font-semibold tracking-[0.01em] text-[var(--text-primary)]"
+            className="text-[length:var(--text-30)] font-semibold tracking-[0.01em] text-[var(--text-primary)]"
             style={{ fontFamily: 'var(--font-serif)' }}
           >
             {t("common.product_name")}
           </h1>
-          <p className="mt-2.5 text-[13px] leading-relaxed text-[var(--text-tertiary)]">
+          <p className="mt-2.5 text-[length:var(--text-13)] leading-relaxed text-[var(--text-tertiary)]">
             {challenge
               ? t('auth.two_step_verification_description')
               : firstRun
@@ -140,7 +140,7 @@ export function LoginPage() {
         >
           {challenge ? (
             <>
-              <div className="mb-3 flex items-center gap-2 rounded-[var(--r-md)] border border-[var(--border-subtle)] bg-[var(--bg-surface)] px-3 py-2.5 text-[12px] text-[var(--text-secondary)]">
+              <div className="mb-3 flex items-center gap-2 rounded-[var(--r-md)] border border-[var(--border-subtle)] bg-[var(--bg-surface)] px-3 py-2.5 text-[length:var(--text-12)] text-[var(--text-secondary)]">
                 <KeyRound size={14} className="shrink-0 text-[var(--accent)]" />
                 <span className="min-w-0 truncate">@{username.trim()}</span>
               </div>
@@ -215,7 +215,7 @@ export function LoginPage() {
             disabled={busy}
             className={cn(
               'flex h-11 w-full items-center justify-center gap-2.5 rounded-[var(--r-lg)]',
-              'bg-[var(--accent)] text-[13.5px] font-medium text-[var(--accent-contrast)]',
+              'bg-[var(--accent)] text-[length:var(--text-13-5)] font-medium text-[var(--accent-contrast)]',
               'transition-[transform,opacity,background-color] duration-[var(--dur-fast)] ease-[var(--ease-out)]',
               'hover:bg-[var(--accent-hover)] active:translate-y-px disabled:opacity-50',
             )}
@@ -238,7 +238,7 @@ export function LoginPage() {
                   setRecoveryMode(false)
                   setError(null)
                 }}
-                className="inline-flex items-center gap-1 text-[12px] text-[var(--text-tertiary)] transition-colors hover:text-[var(--accent)]"
+                className="inline-flex items-center gap-1 text-[length:var(--text-12)] text-[var(--text-tertiary)] transition-colors hover:text-[var(--accent)]"
               >
                 <ArrowLeft size={12} />
                 {t('auth.back_to_password')}
@@ -251,7 +251,7 @@ export function LoginPage() {
                   setVerificationCode('')
                   setError(null)
                 }}
-                className="text-[12px] text-[var(--text-tertiary)] transition-colors hover:text-[var(--accent)]"
+                className="text-[length:var(--text-12)] text-[var(--text-tertiary)] transition-colors hover:text-[var(--accent)]"
               >
                 {recoveryMode ? t('auth.use_authenticator_code') : t('auth.use_recovery_code')}
               </button>
@@ -265,7 +265,7 @@ export function LoginPage() {
                 setMode(registerMode ? 'login' : 'register')
                 setError(null)
               }}
-              className="mx-auto block text-[12px] text-[var(--text-tertiary)] transition-colors hover:text-[var(--accent)]"
+              className="mx-auto block text-[length:var(--text-12)] text-[var(--text-tertiary)] transition-colors hover:text-[var(--accent)]"
             >
               {registerMode ? t("auth.already_have_an_account_sign_in") : t("auth.no_account_create_one")}
             </button>
@@ -275,7 +275,7 @@ export function LoginPage() {
         {(error || authError) && (
           <div role="alert" className="anim-rise mt-4 flex items-start gap-2 rounded-[var(--r-md)] border border-[color-mix(in_oklab,var(--danger)_35%,transparent)] bg-[color-mix(in_oklab,var(--danger)_9%,transparent)] px-3 py-2.5">
             <TriangleAlert size={14} className="mt-[1px] shrink-0 text-[var(--danger)]" />
-            <span className="text-[12px] leading-relaxed text-[var(--text-secondary)]">
+            <span className="text-[length:var(--text-12)] leading-relaxed text-[var(--text-secondary)]">
               {error || authError}
             </span>
           </div>
@@ -283,17 +283,17 @@ export function LoginPage() {
 
         <div className="mt-6 space-y-2 text-center md:mt-8">
           {site?.initialized && !site.registrationOpen && (
-            <p className="text-[11.5px] leading-relaxed text-[var(--text-quaternary)]">
+            <p className="text-[length:var(--text-11-5)] leading-relaxed text-[var(--text-quaternary)]">
               {t("auth.this_is_a_private_instance_registration_is_closed_so_only_existing_accou")}
             </p>
           )}
-          <p className="text-[11px] tracking-[0.04em] text-[var(--text-quaternary)]">
+          <p className="text-[length:var(--text-11)] tracking-[0.04em] text-[var(--text-quaternary)]">
             {t("auth.live_split_view_markdown_preview_realtime_multi_device_sync_multiple_web")}
           </p>
         </div>
       </div>
 
-      <footer className="pointer-events-none mt-6 text-center text-[11px] tracking-[0.05em] text-[var(--text-quaternary)] md:mt-8">
+      <footer className="pointer-events-none mt-6 text-center text-[length:var(--text-11)] tracking-[0.05em] text-[var(--text-quaternary)] md:mt-8">
         {t("auth.self_hosted_on_cloudflare_workers_your_data_is_yours")}
       </footer>
     </div>

@@ -61,13 +61,13 @@ export function SourceHealth(): ReactElement | null {
 
   return (
     <section>
-      <h3 className="mb-1 text-[13px] font-semibold text-[var(--text-primary)]">{t('rss.health')}</h3>
-      <div className="mb-2 text-[12px] text-[var(--text-tertiary)]">
+      <h3 className="mb-1 text-[length:var(--text-13)] font-semibold text-[var(--text-primary)]">{t('rss.health')}</h3>
+      <div className="mb-2 text-[length:var(--text-12)] text-[var(--text-tertiary)]">
         {t('rss.health.summary', { n: rows.length, sleeping })}
       </div>
       <div className="max-h-[280px] overflow-y-auto rounded-[var(--r-lg)] border border-[var(--border-subtle)]">
-        <table className="w-full border-collapse text-[12px]">
-          <thead className="sticky top-0 bg-[var(--bg-sunken)] text-[11px] text-[var(--text-quaternary)]">
+        <table className="w-full border-collapse text-[length:var(--text-12)]">
+          <thead className="sticky top-0 bg-[var(--bg-sunken)] text-[length:var(--text-11)] text-[var(--text-quaternary)]">
             <tr>
               <th className="px-2 py-1.5 text-left font-medium">{t('rss.health.col.source')}</th>
               <th className="px-2 py-1.5 text-left font-medium">{t('rss.health.col.group')}</th>
@@ -100,7 +100,7 @@ export function SourceHealth(): ReactElement | null {
                             removeFeed(row.id)
                           }}
                           className={cn(
-                            'rounded-[var(--r-sm)] px-1.5 py-0.5 text-[11px]',
+                            'rounded-[var(--r-sm)] px-1.5 py-0.5 text-[length:var(--text-11)]',
                             armed === row.id
                               ? 'bg-[var(--danger-soft)] text-[var(--danger)]'
                               : 'text-[var(--text-quaternary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-secondary)]',

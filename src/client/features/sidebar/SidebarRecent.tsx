@@ -32,7 +32,7 @@ export function SidebarRecent() {
           </IconButton>
         )}
       </div>
-      {visible.length === 0 ? (<p className="px-2 py-3 text-[12px] leading-relaxed text-[var(--text-quaternary)]">{t('sidebar.recent_empty')}</p>) : (<div role="tree" aria-label={t('sidebar.tab_recent')} data-recent-list className="space-y-px">
+      {visible.length === 0 ? (<p className="px-2 py-3 text-[length:var(--text-12)] leading-relaxed text-[var(--text-quaternary)]">{t('sidebar.recent_empty')}</p>) : (<div role="tree" aria-label={t('sidebar.tab_recent')} data-recent-list className="space-y-px">
           {visible.map((note, index) => (<ExplorerNote
             key={note.id}
             note={note}
@@ -40,7 +40,7 @@ export function SidebarRecent() {
             canOpenToSide={canOpenToSide}
             setSize={visible.length}
             posInSet={index + 1}
-            trailing={(<span data-recent-age title={fullTime(note.updatedAt)} className="shrink-0 pr-1 text-[10.5px] tabular text-[var(--text-quaternary)]">
+            trailing={(<span data-recent-age title={fullTime(note.updatedAt)} className="shrink-0 pr-1 text-[length:var(--text-10-5)] tabular text-[var(--text-quaternary)]">
                     {shortSince(note.updatedAt, now)}
                   </span>)}
           />))}

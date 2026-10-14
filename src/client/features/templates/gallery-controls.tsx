@@ -17,10 +17,10 @@ export function FilterChip({ label, count, active, onClick, dropTarget, onDragOv
   onDragLeave?: () => void
   onDrop?: (event: React.DragEvent) => void
 }) {
-  return (<button type='button' aria-pressed={active} onClick={onClick} onDragOver={onDragOver} onDragLeave={onDragLeave} onDrop={onDrop} className={cn('flex h-7 shrink-0 items-center gap-[var(--sp-1-5)] rounded-full border px-[var(--sp-2-5)] text-[11.5px] transition-colors', active ? 'border-[var(--accent)] bg-[var(--accent-soft)] text-[var(--accent)]' : 'border-[var(--border-default)] bg-[var(--bg-surface)] text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]', dropTarget && 'border-[var(--accent)] bg-[var(--accent-soft)] text-[var(--accent)]')}>
+  return (<button type='button' aria-pressed={active} onClick={onClick} onDragOver={onDragOver} onDragLeave={onDragLeave} onDrop={onDrop} className={cn('flex h-7 shrink-0 items-center gap-[var(--sp-1-5)] rounded-full border px-[var(--sp-2-5)] text-[length:var(--text-11-5)] transition-colors', active ? 'border-[var(--accent)] bg-[var(--accent-soft)] text-[var(--accent)]' : 'border-[var(--border-default)] bg-[var(--bg-surface)] text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]', dropTarget && 'border-[var(--accent)] bg-[var(--accent-soft)] text-[var(--accent)]')}>
     {count === null && <Plus size={11}/>}
     <span className='whitespace-nowrap'>{label}</span>
-    {count !== null && <span className='text-[10.5px] tabular opacity-70'>{count}</span>}
+    {count !== null && <span className='text-[length:var(--text-10-5)] tabular opacity-70'>{count}</span>}
   </button>)
 }
 
@@ -31,10 +31,10 @@ export function SidebarButton({ icon, label, count, active, onClick }: {
   active: boolean
   onClick: () => void
 }) {
-  return (<button type='button' aria-pressed={active} onClick={onClick} className={cn('flex h-9 w-full items-center gap-[var(--sp-2-5)] rounded-[var(--r-md)] px-[var(--sp-2)] text-left text-[12.5px] transition-colors', active ? 'bg-[var(--accent-soft)] text-[var(--accent)]' : 'text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]')}>
+  return (<button type='button' aria-pressed={active} onClick={onClick} className={cn('flex h-9 w-full items-center gap-[var(--sp-2-5)] rounded-[var(--r-md)] px-[var(--sp-2)] text-left text-[length:var(--text-12-5)] transition-colors', active ? 'bg-[var(--accent-soft)] text-[var(--accent)]' : 'text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]')}>
     <span className={cn('shrink-0', active ? 'text-[var(--accent)]' : 'text-[var(--text-quaternary)]')}>{icon}</span>
     <span className='min-w-0 flex-1 truncate'>{label}</span>
-    <span className='shrink-0 text-[11px] tabular text-[var(--text-quaternary)]'>{count}</span>
+    <span className='shrink-0 text-[length:var(--text-11)] tabular text-[var(--text-quaternary)]'>{count}</span>
   </button>)
 }
 
@@ -73,12 +73,12 @@ export function CategoryRow({ category, count, active, dropTarget, onSelect, onR
   onDrop?: (event: React.DragEvent) => void
 }) {
   return (<div onDragOver={onDragOver} onDragLeave={onDragLeave} onDrop={onDrop} className={cn('group flex h-9 items-center rounded-[var(--r-md)] transition-colors', active || dropTarget ? 'bg-[var(--accent-soft)]' : 'hover:bg-[var(--bg-hover)]')}>
-    <button type='button' aria-pressed={active} onClick={onSelect} className={cn('flex h-full min-w-0 flex-1 items-center gap-[var(--sp-2-5)] rounded-[var(--r-md)] px-[var(--sp-2)] text-left text-[12.5px] transition-colors', active ? 'text-[var(--accent)]' : 'text-[var(--text-secondary)]')}>
-      {templateCategoryIcon(category) ? (<span aria-hidden='true' className='shrink-0 text-[13px] leading-none' style={{ color: templateCategoryColor(category) }}>
+    <button type='button' aria-pressed={active} onClick={onSelect} className={cn('flex h-full min-w-0 flex-1 items-center gap-[var(--sp-2-5)] rounded-[var(--r-md)] px-[var(--sp-2)] text-left text-[length:var(--text-12-5)] transition-colors', active ? 'text-[var(--accent)]' : 'text-[var(--text-secondary)]')}>
+      {templateCategoryIcon(category) ? (<span aria-hidden='true' className='shrink-0 text-[length:var(--text-13)] leading-none' style={{ color: templateCategoryColor(category) }}>
         {templateCategoryIcon(category)}
       </span>) : (<span aria-hidden='true' className='size-2 shrink-0 rounded-full' style={{ backgroundColor: templateCategoryColor(category) }}/>)}
       <span className='min-w-0 flex-1 truncate'>{category.name}</span>
-      <span className='shrink-0 text-[11px] tabular text-[var(--text-quaternary)]'>{count}</span>
+      <span className='shrink-0 text-[length:var(--text-11)] tabular text-[var(--text-quaternary)]'>{count}</span>
     </button>
     {!category.builtin && (<div className='flex shrink-0 items-center pr-[var(--sp-1)] opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100'>
       <Tooltip label={t('templates.rename_category')} side='top'>

@@ -45,7 +45,7 @@ export function UpdateDialog() {
     >
       <div className="flex items-start gap-3 rounded-[var(--r-lg)] border border-[var(--border-subtle)] bg-[var(--bg-inset)] p-3">
         <GitFork size={17} className="mt-0.5 shrink-0 text-[var(--accent)]" />
-        <p className="text-[12px] leading-relaxed text-[var(--text-secondary)]">
+        <p className="text-[length:var(--text-12)] leading-relaxed text-[var(--text-secondary)]">
           {t('settings.update_manual_fork_hint')}
         </p>
       </div>

@@ -187,10 +187,10 @@ export function Modal({ open, onClose, title, description, children, footer, wid
         : 'max-h-[calc(var(--app-viewport-height,100dvh)-env(safe-area-inset-top))] rounded-t-[var(--r-2xl)] border border-b-0 border-[var(--border-default)] bg-[var(--bg-overlay)] shadow-[var(--shadow-modal)] md:my-auto md:rounded-[var(--r-2xl)] md:border-b', className)} style={fullscreen ? undefined : { maxWidth: width }}>
         {(title || description) && (<div className="flex shrink-0 items-start justify-between gap-4 px-4 pt-4 pb-3 md:px-5">
             <div className="min-w-0">
-              {title && (<h2 id={titleId} className="text-[15px] font-semibold tracking-[-0.012em] text-[var(--text-primary)]">
+              {title && (<h2 id={titleId} className="text-[length:var(--text-15)] font-semibold tracking-[-0.012em] text-[var(--text-primary)]">
                   {title}
                 </h2>)}
-              {description && (<p id={descriptionId} className="mt-1 text-[12.5px] leading-relaxed text-[var(--text-tertiary)]">
+              {description && (<p id={descriptionId} className="mt-1 text-[length:var(--text-12-5)] leading-relaxed text-[var(--text-tertiary)]">
                   {description}
                 </p>)}
             </div>
@@ -842,7 +842,7 @@ export function Menu({ anchor, open, onClose, items, align = 'start', width = 20
       {header && <div className="shrink-0">{header}</div>}
       {searchable && (<div ref={searchRef} className="relative shrink-0 pb-1">
           <Search size={13} aria-hidden="true" className="pointer-events-none absolute top-1/2 left-2 -translate-y-1/2 text-[var(--text-quaternary)]"/>
-          <input type="search" role="searchbox" data-owns-escape aria-label={searchPlaceholder} value={query} placeholder={searchPlaceholder} onChange={(event) => setQuery(event.target.value)} {...searchField} className={`${FIELD_BASE} h-8 w-full rounded-[var(--r-sm)] bg-transparent pr-7 pl-7 text-[12.5px]`} autoComplete="off" spellCheck={false}/>
+          <input type="search" role="searchbox" data-owns-escape aria-label={searchPlaceholder} value={query} placeholder={searchPlaceholder} onChange={(event) => setQuery(event.target.value)} {...searchField} className={`${FIELD_BASE} h-8 w-full rounded-[var(--r-sm)] bg-transparent pr-7 pl-7 text-[length:var(--text-12-5)]`} autoComplete="off" spellCheck={false}/>
           {query && (<IconButton label={t('overlay.clear_search')} size="sm" className="absolute top-1/2 right-0.5 -translate-y-1/2" onClick={() => {
                 setQuery('');
                 searchRef.current?.querySelector<HTMLInputElement>('input')?.focus({ preventScroll: true });
@@ -868,7 +868,7 @@ export function Menu({ anchor, open, onClose, items, align = 'start', width = 20
                 }
                 item.onSelect?.();
                 onClose();
-            }} className={cn('flex h-10 w-full items-center gap-2.5 rounded-[var(--r-sm)] px-2 text-left text-[12.5px] md:h-[30px]', 'transition-colors duration-[80ms] disabled:pointer-events-none disabled:opacity-40', index === cursor ? 'bg-[var(--bg-hover)]' : '', item.tone === 'danger'
+            }} className={cn('flex h-10 w-full items-center gap-2.5 rounded-[var(--r-sm)] px-2 text-left text-[length:var(--text-12-5)] md:h-[30px]', 'transition-colors duration-[80ms] disabled:pointer-events-none disabled:opacity-40', index === cursor ? 'bg-[var(--bg-hover)]' : '', item.tone === 'danger'
                 ? 'text-[var(--danger)]'
                 : index === cursor
                     ? 'text-[var(--text-primary)]'
@@ -926,7 +926,7 @@ export function MenuSubmenuList({ label, items, width = 178, zIndex = Z_INDEX.su
     }}>
       {items.map((item) => (<div key={item.id}>
           {item.separatorBefore && <div role="separator" className="my-1 h-px bg-[var(--border-subtle)]"/>}
-          <button type="button" data-submenu-row disabled={item.disabled} onClick={item.onSelect} className={cn('flex h-10 w-full items-center gap-2.5 rounded-[var(--r-sm)] px-2 text-left text-[12.5px] transition-colors duration-[80ms] md:h-[30px]', 'disabled:pointer-events-none disabled:opacity-40', item.tone === 'danger'
+          <button type="button" data-submenu-row disabled={item.disabled} onClick={item.onSelect} className={cn('flex h-10 w-full items-center gap-2.5 rounded-[var(--r-sm)] px-2 text-left text-[length:var(--text-12-5)] transition-colors duration-[80ms] md:h-[30px]', 'disabled:pointer-events-none disabled:opacity-40', item.tone === 'danger'
                 ? 'text-[var(--danger)]'
                 : 'text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]')}>
             {item.icon && (<span className="flex size-4 shrink-0 items-center justify-center opacity-85">
@@ -1030,7 +1030,7 @@ export function Tooltip({ label, combo, children, side = 'bottom', delay = 420, 
         {children}
       </span>
       {rect &&
-            createPortal(<div ref={tooltipRef} role="tooltip" data-side={position?.side} className="anim-fade pointer-events-none fixed z-[var(--z-tooltip)] flex max-w-[calc(100vw-16px)] items-center gap-1.5 rounded-[var(--r-sm)] border border-[var(--border-default)] bg-[var(--bg-overlay)] px-2 py-1 text-[11.5px] whitespace-nowrap text-[var(--text-secondary)] shadow-[var(--shadow-pop)]" style={style}>
+            createPortal(<div ref={tooltipRef} role="tooltip" data-side={position?.side} className="anim-fade pointer-events-none fixed z-[var(--z-tooltip)] flex max-w-[calc(100vw-16px)] items-center gap-1.5 rounded-[var(--r-sm)] border border-[var(--border-default)] bg-[var(--bg-overlay)] px-2 py-1 text-[length:var(--text-11-5)] whitespace-nowrap text-[var(--text-secondary)] shadow-[var(--shadow-pop)]" style={style}>
             {label}
             {combo && <Kbd combo={combo}/>}
           </div>, document.body)}
@@ -1106,7 +1106,7 @@ export function Drawer({ open, onClose, side = 'right', width = 380, children, t
             animation: `ink-slide-in-${side} var(--dur-slow) var(--ease-out) both`,
         }}>
         {title && (<header className="flex h-11 shrink-0 items-center justify-between border-b border-[var(--border-subtle)] px-3">
-            <span id={titleId} className="text-[13px] font-semibold">{title}</span>
+            <span id={titleId} className="text-[length:var(--text-13)] font-semibold">{title}</span>
             <Tooltip label={t("common.close")} combo="escape" side="left">
               <IconButton label={t("common.close")} size="sm" onClick={onClose}>
                 <X size={15}/>
@@ -1305,7 +1305,7 @@ function SubmenuRow({ item, openRow, setOpenRow, closeMenu, listRef }: {
         }
         item.onSelect?.();
         closeMenu();
-      }} className={cn('flex h-[30px] w-full items-center gap-2.5 rounded-[var(--r-sm)] px-2 text-left text-[12.5px] transition-colors duration-[80ms] disabled:pointer-events-none disabled:opacity-40', 'hover:bg-[var(--bg-hover)]', item.tone === 'danger' ? 'text-[var(--danger)]' : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]')}>
+      }} className={cn('flex h-[30px] w-full items-center gap-2.5 rounded-[var(--r-sm)] px-2 text-left text-[length:var(--text-12-5)] transition-colors duration-[80ms] disabled:pointer-events-none disabled:opacity-40', 'hover:bg-[var(--bg-hover)]', item.tone === 'danger' ? 'text-[var(--danger)]' : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]')}>
         {item.icon && <span className="flex size-4 shrink-0 items-center justify-center opacity-85">{item.icon}</span>}
         <span className="min-w-0 flex-1 truncate">{item.label}</span>
         {item.checked && <Check size={13} className="shrink-0 text-[var(--accent)]"/>}

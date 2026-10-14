@@ -100,7 +100,7 @@ export function AssistantSettingsView() {
 function Group({ title, children }: { title: string, children: ReactNode }) {
   return (
     <section className="flex flex-col gap-1.5">
-      <p className="px-1 text-[10.5px] font-semibold uppercase tracking-[var(--tracking-label)] text-[var(--text-quaternary)]">{title}</p>
+      <p className="px-1 text-[length:var(--text-10-5)] font-semibold uppercase tracking-[var(--tracking-label)] text-[var(--text-quaternary)]">{title}</p>
       <div className="divide-y divide-[var(--border-subtle)] rounded-[var(--r-lg)] border border-[var(--border-subtle)] bg-[var(--bg-surface)] px-3">
         {children}
       </div>
@@ -132,7 +132,7 @@ function ModelBadges({ model }: { model: AssistantModel }) {
   return (
     <span className="flex min-w-0 flex-wrap items-center gap-1">
       {badges.map((badge) => (
-        <span key={badge.key} className="rounded-full border border-[var(--border-subtle)] px-1.5 py-px text-[10px] text-[var(--text-quaternary)]">
+        <span key={badge.key} className="rounded-full border border-[var(--border-subtle)] px-1.5 py-px text-[length:var(--text-10)] text-[var(--text-quaternary)]">
           {badge.label}
         </span>
       ))}
@@ -165,15 +165,15 @@ function ModelTab({ settings }: { settings: AssistantSettings }) {
     <>
       <Group title={t('assistant.settings.providers')}>
         {providers.length === 0 && (
-          <p className="py-3 text-[12px] text-[var(--text-tertiary)]">{t('assistant.settings.no_providers')}</p>
+          <p className="py-3 text-[length:var(--text-12)] text-[var(--text-tertiary)]">{t('assistant.settings.no_providers')}</p>
         )}
         {byProvider.map(({ provider, models: list }) => (
           <div key={provider.id} className="flex flex-col gap-1 py-2.5">
             <div className="flex items-center gap-2">
               <KeyRound size={13} className={provider.hasKey ? 'text-[var(--accent)]' : 'text-[var(--text-quaternary)]'} />
               <div className="min-w-0 flex-1">
-                <p className="truncate text-[13px] font-medium text-[var(--text-primary)]">{provider.label}</p>
-                <p className="truncate text-[11px] text-[var(--text-quaternary)]">
+                <p className="truncate text-[length:var(--text-13)] font-medium text-[var(--text-primary)]">{provider.label}</p>
+                <p className="truncate text-[length:var(--text-11)] text-[var(--text-quaternary)]">
                   {PROTOCOL_LABELS[provider.protocol]?.()} · {provider.baseUrl} · {provider.hasKey ? t('assistant.settings.key_stored') : t('assistant.settings.key_missing')}
                 </p>
               </div>
@@ -204,7 +204,7 @@ function ModelTab({ settings }: { settings: AssistantSettings }) {
               </IconButton>
             </div>
             {list.length === 0 ? (
-              <p className="pl-6 text-[11px] text-[var(--text-quaternary)]">{t('assistant.settings.no_models')}</p>
+              <p className="pl-6 text-[length:var(--text-11)] text-[var(--text-quaternary)]">{t('assistant.settings.no_models')}</p>
             ) : (
               <ul className="flex flex-col gap-px pl-6">
                 {list.map((model) => (
@@ -217,7 +217,7 @@ function ModelTab({ settings }: { settings: AssistantSettings }) {
                       className={cn(
                         // A phone has no room for the name, the badges and the two selects on one line, and
                         // the row overflowed over the one above it; the name takes the first line there.
-                        'flex min-w-0 basis-full items-center gap-2 rounded-[var(--r-sm)] px-2 py-1 text-left text-[12.5px] sm:basis-auto sm:flex-1',
+                        'flex min-w-0 basis-full items-center gap-2 rounded-[var(--r-sm)] px-2 py-1 text-left text-[length:var(--text-12-5)] sm:basis-auto sm:flex-1',
                         settings.activeModelId === model.id
                           ? 'bg-[var(--accent-soft)] text-[var(--accent)]'
                           : 'text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]',
@@ -226,7 +226,7 @@ function ModelTab({ settings }: { settings: AssistantSettings }) {
                       <span aria-hidden className={cn('size-2 shrink-0 rounded-full border', settings.activeModelId === model.id ? 'border-[var(--accent)] bg-[var(--accent)]' : 'border-[var(--border-strong)]')} />
                       <span className="min-w-0 flex-1 truncate">{model.label}</span>
                       <ModelBadges model={model} />
-                      <span className="hidden shrink-0 font-mono text-[10.5px] text-[var(--text-quaternary)] md:block">{model.model}</span>
+                      <span className="hidden shrink-0 font-mono text-[length:var(--text-10-5)] text-[var(--text-quaternary)] md:block">{model.model}</span>
                     </button>
                     <IconButton label={t('assistant.model.edit')} size="xs" onClick={() => setEditing(model)}>
                       <Settings2 size={12} />
@@ -238,7 +238,7 @@ function ModelTab({ settings }: { settings: AssistantSettings }) {
                       <Select
                         aria-label={t('assistant.composer.thinking')}
                         value={model.reasoning}
-                        className="h-7 w-[86px] text-[11px]"
+                        className="h-7 w-[86px] text-[length:var(--text-11)]"
                         onChange={(event) => void updateModel(model.id, { reasoning: event.target.value as AssistantReasoning })}
                       >
                         {REASONING_ORDER.map((level) => (
@@ -248,7 +248,7 @@ function ModelTab({ settings }: { settings: AssistantSettings }) {
                       <Select
                         aria-label={t('assistant.composer.context')}
                         value={String(model.contextTokens ?? '')}
-                        className="h-7 w-[80px] text-[11px]"
+                        className="h-7 w-[80px] text-[length:var(--text-11)]"
                         onChange={(event) => void updateModel(model.id, { contextTokens: event.target.value ? Number(event.target.value) : null })}
                       >
                         <option value="">{t('assistant.context.follow_global_short')}</option>
@@ -357,7 +357,7 @@ function McpTab() {
   return (
     <div className="flex flex-col gap-4">
       <Group title={t('assistant.settings.tab.mcp')}>
-        <p className="text-[11.5px] leading-relaxed text-[var(--text-tertiary)]">{t('assistant.mcp.hint')}</p>
+        <p className="text-[length:var(--text-11-5)] leading-relaxed text-[var(--text-tertiary)]">{t('assistant.mcp.hint')}</p>
         <div className="flex flex-col gap-2">
           <Input aria-label={t('assistant.mcp.label')} value={label} onChange={(event) => setLabel(event.target.value)} placeholder={t('assistant.mcp.label_placeholder')} />
           <Input aria-label={t('assistant.mcp.url')} value={url} onChange={(event) => setUrl(event.target.value)} placeholder="https://…/mcp" inputMode="url" />
@@ -369,13 +369,13 @@ function McpTab() {
       </Group>
 
       {servers.length === 0 ? (
-        <p className="text-[11.5px] text-[var(--text-quaternary)]">{t('assistant.mcp.none')}</p>
+        <p className="text-[length:var(--text-11-5)] text-[var(--text-quaternary)]">{t('assistant.mcp.none')}</p>
       ) : (
         <ul className="flex flex-col gap-2">
           {servers.map((server) => (
             <li key={server.id} className="flex flex-col gap-2 rounded-[var(--r-md)] border border-[var(--border-subtle)] p-2.5">
               <div className="flex min-w-0 items-center gap-2">
-                <span className="min-w-0 flex-1 truncate text-[13px] text-[var(--text-primary)]">{server.label}</span>
+                <span className="min-w-0 flex-1 truncate text-[length:var(--text-13)] text-[var(--text-primary)]">{server.label}</span>
                 <Switch
                   label={t('assistant.mcp.enabled')}
                   checked={server.enabled}
@@ -385,7 +385,7 @@ function McpTab() {
                   <Trash2 size={12} />
                 </IconButton>
               </div>
-              <p className="truncate font-mono text-[10.5px] text-[var(--text-quaternary)]" title={server.url}>{server.url}</p>
+              <p className="truncate font-mono text-[length:var(--text-10-5)] text-[var(--text-quaternary)]" title={server.url}>{server.url}</p>
               <div className="flex flex-wrap items-center gap-2">
                 <Segmented
                   size="sm"
@@ -410,12 +410,12 @@ function McpTab() {
                 </Button>
               </div>
               {testing[server.id] && (
-                <p className="text-[11.5px] text-[var(--text-tertiary)]">
+                <p className="text-[length:var(--text-11-5)] text-[var(--text-tertiary)]">
                   {testing[server.id]}
                 </p>
               )}
               {problems.find((entry) => entry.serverId === server.id) && (
-                <p className="text-[11.5px] text-[var(--warning)]">{problems.find((entry) => entry.serverId === server.id)?.error}</p>
+                <p className="text-[length:var(--text-11-5)] text-[var(--warning)]">{problems.find((entry) => entry.serverId === server.id)?.error}</p>
               )}
             </li>
           ))}
@@ -426,8 +426,8 @@ function McpTab() {
         <Group title={t('assistant.mcp.offered')}>
           <ul className="flex flex-col gap-1">
             {tools.map((tool) => (
-              <li key={tool.name} className="flex min-w-0 items-baseline gap-2 text-[11.5px]">
-                <span className="shrink-0 font-mono text-[10.5px] text-[var(--text-quaternary)]">{tool.name}</span>
+              <li key={tool.name} className="flex min-w-0 items-baseline gap-2 text-[length:var(--text-11-5)]">
+                <span className="shrink-0 font-mono text-[length:var(--text-10-5)] text-[var(--text-quaternary)]">{tool.name}</span>
                 <span className="min-w-0 flex-1 truncate text-[var(--text-tertiary)]">{tool.description}</span>
               </li>
             ))}
@@ -548,7 +548,7 @@ export function ProviderForm({ open, provider, onClose }: { open: boolean, provi
             autoComplete="off"
             invalid={Boolean(problems.base_url)}
             onChange={(event) => setBaseUrl(event.target.value)}
-            className="font-mono text-[12px]"
+            className="font-mono text-[length:var(--text-12)]"
           />
         </Field>
         {ASSISTANT_PROTOCOLS.filter((entry) => entry !== protocol).map((entry) => (
@@ -565,7 +565,7 @@ export function ProviderForm({ open, provider, onClose }: { open: boolean, provi
               invalid={Boolean(problems[entry])}
               placeholder="https://"
               onChange={(event) => setExtra((current) => ({ ...current, [entry]: event.target.value }))}
-              className="font-mono text-[12px]"
+              className="font-mono text-[length:var(--text-12)]"
             />
           </Field>
         ))}
@@ -576,12 +576,12 @@ export function ProviderForm({ open, provider, onClose }: { open: boolean, provi
             maxLength={4096}
             autoComplete="off"
             onChange={(event) => setApiKey(event.target.value)}
-            className="font-mono text-[12px]"
+            className="font-mono text-[length:var(--text-12)]"
           />
         </Field>
         {!editing && (
           <Field label={t('assistant.settings.models')} hint={t('assistant.settings.models_hint')}>
-            <Input value={models} onChange={(event) => setModels(event.target.value)} className="font-mono text-[12px]" />
+            <Input value={models} onChange={(event) => setModels(event.target.value)} className="font-mono text-[length:var(--text-12)]" />
           </Field>
         )}
       </div>
@@ -616,7 +616,7 @@ function ModelForm({ provider, onClose, onAdd }: { provider: AssistantProvider |
       )}
     >
       <Field label={t('assistant.settings.model_id')} hint={provider?.baseUrl}>
-        <Input value={model} maxLength={120} autoFocus onChange={(event) => setModel(event.target.value)} className="font-mono text-[12px]" />
+        <Input value={model} maxLength={120} autoFocus onChange={(event) => setModel(event.target.value)} className="font-mono text-[length:var(--text-12)]" />
       </Field>
     </Modal>
   )
@@ -643,7 +643,7 @@ function BehaviourTab({ settings }: { settings: AssistantSettings }) {
               if (name.trim() && name !== settings.agentName) void saveSettings({ agentName: name.trim() })
             }}
           >
-            <Input value={name} maxLength={60} onChange={(event) => setName(event.target.value)} className="h-8 w-44 text-[12.5px]" />
+            <Input value={name} maxLength={60} onChange={(event) => setName(event.target.value)} className="h-8 w-44 text-[length:var(--text-12-5)]" />
             <Button type="submit" size="sm" variant="secondary" disabled={!name.trim() || name === settings.agentName}>
               {t('common.save')}
             </Button>
@@ -762,9 +762,9 @@ function SemanticRecallRow({ settings }: { settings: AssistantSettings }) {
         />
       </SettingRow>
       {!status ? (
-        <p className="px-3 pb-2 text-[11.5px] text-[var(--text-quaternary)]">…</p>
+        <p className="px-3 pb-2 text-[length:var(--text-11-5)] text-[var(--text-quaternary)]">…</p>
       ) : !status.available ? (
-        <p className="px-3 pb-2 text-[11.5px] text-[var(--text-tertiary)]">{t('assistant.settings.semantic_off')}</p>
+        <p className="px-3 pb-2 text-[length:var(--text-11-5)] text-[var(--text-tertiary)]">{t('assistant.settings.semantic_off')}</p>
       ) : (
         <>
           <SettingRow
@@ -840,7 +840,7 @@ function SemanticRecallRow({ settings }: { settings: AssistantSettings }) {
                 onChange={(event) => setModel(event.target.value)}
                 aria-label={t('assistant.settings.semantic_model')}
                 maxLength={200}
-                className="h-8 w-56 font-mono text-[11px]"
+                className="h-8 w-56 font-mono text-[length:var(--text-11)]"
               />
               <Button
                 size="sm"
@@ -852,7 +852,7 @@ function SemanticRecallRow({ settings }: { settings: AssistantSettings }) {
               </Button>
             </form>
           </SettingRow>
-          {status && <p className="px-3 pb-2 text-[11px] text-[var(--text-quaternary)]">{status.model}</p>}
+          {status && <p className="px-3 pb-2 text-[length:var(--text-11)] text-[var(--text-quaternary)]">{status.model}</p>}
         </>
       )}
     </Group>
@@ -890,9 +890,9 @@ function NoteScopeRow() {
   return (
     <Group title={t('assistant.settings.note_scope')}>
       <div className="py-3">
-        <p className="text-[12px] leading-relaxed text-[var(--text-tertiary)]">{t('assistant.settings.note_scope_hint')}</p>
+        <p className="text-[length:var(--text-12)] leading-relaxed text-[var(--text-tertiary)]">{t('assistant.settings.note_scope_hint')}</p>
         {folders.length === 0 ? (
-          <p className="mt-2 text-[11.5px] text-[var(--text-quaternary)]">{t('assistant.settings.note_scope_none')}</p>
+          <p className="mt-2 text-[length:var(--text-11-5)] text-[var(--text-quaternary)]">{t('assistant.settings.note_scope_none')}</p>
         ) : (
           <ul className="mt-2 flex max-h-52 flex-col gap-px overflow-y-auto">
             {folders.map((folder) => (
@@ -902,7 +902,7 @@ function NoteScopeRow() {
                   aria-pressed={scope.includes(folder.id)}
                   onClick={() => toggle(folder.id)}
                   className={cn(
-                    'flex w-full items-center gap-2 rounded-[var(--r-sm)] px-2 py-1 text-left text-[12.5px]',
+                    'flex w-full items-center gap-2 rounded-[var(--r-sm)] px-2 py-1 text-left text-[length:var(--text-12-5)]',
                     scope.includes(folder.id)
                       ? 'bg-[var(--accent-soft)] text-[var(--accent)]'
                       : 'text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]',
@@ -950,11 +950,11 @@ function BudgetTab({ settings }: { settings: AssistantSettings }) {
               [t('assistant.settings.usage_scheduled'), `${usage.today.scheduledRuns ?? 0} / ${settings.limits.maxScheduledRunsPerDay}`],
             ].map(([label, value]) => (
               <div key={label} className="rounded-[var(--r-md)] bg-[var(--bg-inset)] px-2.5 py-2">
-                <p className="text-[10.5px] text-[var(--text-quaternary)]">{label}</p>
-                <p className="mt-0.5 text-[15px] font-semibold tabular text-[var(--text-primary)]">{value}</p>
+                <p className="text-[length:var(--text-10-5)] text-[var(--text-quaternary)]">{label}</p>
+                <p className="mt-0.5 text-[length:var(--text-15)] font-semibold tabular text-[var(--text-primary)]">{value}</p>
               </div>
             ))}
-            <p className="col-span-2 text-[11px] leading-relaxed text-[var(--text-quaternary)] md:col-span-4">
+            <p className="col-span-2 text-[length:var(--text-11)] leading-relaxed text-[var(--text-quaternary)] md:col-span-4">
               {t('assistant.settings.usage_note', { week: usage.last7Days.requests ?? 0, errors: usage.last7Days.errors ?? 0 })}
             </p>
           </div>
@@ -983,7 +983,7 @@ function BudgetTab({ settings }: { settings: AssistantSettings }) {
                 max={max}
                 value={limits[entry.key]}
                 onChange={(event) => setLimits({ ...limits, [entry.key]: Number(event.target.value) })}
-                className="h-8 w-28 text-[12.5px]"
+                className="h-8 w-28 text-[length:var(--text-12-5)]"
               />
             </SettingRow>
           )
@@ -1045,7 +1045,7 @@ function DataTab() {
           <a
             href={api.assistant.exportUrl}
             download="inkstone-assistant-backup.json"
-            className="inline-flex h-8 items-center gap-1.5 rounded-[var(--r-sm)] border border-[var(--border-default)] px-2.5 text-[12px] text-[var(--text-primary)] hover:bg-[var(--bg-hover)]"
+            className="inline-flex h-8 items-center gap-1.5 rounded-[var(--r-sm)] border border-[var(--border-default)] px-2.5 text-[length:var(--text-12)] text-[var(--text-primary)] hover:bg-[var(--bg-hover)]"
           >
             <Download size={14} />
             {t('assistant.settings.export')}

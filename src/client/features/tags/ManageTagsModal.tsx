@@ -50,15 +50,15 @@ export function ManageTagsModal({ open, onClose }: {
     return (<>
       <Modal open={open} onClose={onClose} title={t('tags.manage')} width={620}>
         <div className="space-y-2 p-4">
-          {merging && (<div className="flex items-center gap-2 rounded-[var(--r-md)] bg-[var(--accent-soft)] px-3 py-2 text-[12px] text-[var(--text-primary)]">
+          {merging && (<div className="flex items-center gap-2 rounded-[var(--r-md)] bg-[var(--accent-soft)] px-3 py-2 text-[length:var(--text-12)] text-[var(--text-primary)]">
               <ArrowLeftRight size={13} className="shrink-0"/>
               <span className="min-w-0 flex-1 truncate">{t('tags.merge_target_value0', { value0: merging.name })}</span>
               <button type="button" onClick={() => setMerging(null)} className="shrink-0 text-[var(--accent)] hover:underline">{t('common.cancel')}</button>
             </div>)}
           <FilterInput value={query} onChange={setQuery} query={filter} label={t('tags.filter')} placeholder={t('tags.filter_placeholder')} size="panel"/>
-          <p className="px-1 text-[11px] tabular text-[var(--text-quaternary)]">{t('tags.match_count', { value0: visible.filter((node) => !node.isVirtual).length })}</p>
+          <p className="px-1 text-[length:var(--text-11)] tabular text-[var(--text-quaternary)]">{t('tags.match_count', { value0: visible.filter((node) => !node.isVirtual).length })}</p>
           <div className="max-h-[52vh] overflow-y-auto rounded-[var(--r-md)] border border-[var(--border-subtle)]">
-            {!visible.length && <p className="px-3 py-6 text-center text-[12px] text-[var(--text-quaternary)]">{t('tags.no_match')}</p>}
+            {!visible.length && <p className="px-3 py-6 text-center text-[length:var(--text-12)] text-[var(--text-quaternary)]">{t('tags.no_match')}</p>}
             {visible.map((node) => (<div key={node.fullPath} className="relative flex h-11 items-center gap-2 border-b border-[var(--border-subtle)] px-2 last:border-b-0" style={{ paddingLeft: treeIndent(node.depth) }}>
                 {colorFor === node.tag.id && <span ref={colorAnchor} aria-hidden="true" className="absolute top-0 right-8 size-px"/>}
                 <Hash size={13} className="shrink-0" style={{ color: node.tag.color ?? 'var(--text-quaternary)' }}/>
@@ -74,10 +74,10 @@ export function ManageTagsModal({ open, onClose }: {
                             }
                             if (!node.isVirtual)
                                 setRenamingId(node.tag.id);
-                        }} className="min-w-0 flex-1 truncate text-left text-[12.5px] font-medium text-[var(--text-primary)] hover:text-[var(--accent)]">
+                        }} className="min-w-0 flex-1 truncate text-left text-[length:var(--text-12-5)] font-medium text-[var(--text-primary)] hover:text-[var(--accent)]">
                       <TagNameHighlight name={node.name} query={filter}/>
                     </button>)}
-                <span className="shrink-0 text-[11px] tabular text-[var(--text-quaternary)]">{node.children.length ? node.totalCount : node.count || ''}</span>
+                <span className="shrink-0 text-[length:var(--text-11)] tabular text-[var(--text-quaternary)]">{node.children.length ? node.totalCount : node.count || ''}</span>
                 {!node.isVirtual && !merging && (<div className="flex shrink-0 items-center gap-px">
                     <button type="button" aria-label={t('tags.pin')} aria-pressed={Boolean(node.tag.isPinned)} onClick={() => void setTagPinned(node.tag, !node.tag.isPinned)} className={cn('flex size-7 items-center justify-center rounded text-[var(--text-quaternary)] hover:bg-[var(--bg-hover)]', node.tag.isPinned && 'text-[var(--accent)]')}>
                       <Pin size={12}/>
@@ -97,7 +97,7 @@ export function ManageTagsModal({ open, onClose }: {
                   </div>)}
               </div>))}
           </div>
-          {merging && <p className="px-1 text-[11px] text-[var(--text-quaternary)]">{t('tags.merge_hint')}</p>}
+          {merging && <p className="px-1 text-[length:var(--text-11)] text-[var(--text-quaternary)]">{t('tags.merge_hint')}</p>}
         </div>
       </Modal>
       <Menu anchor={colorAnchor} open={colorTag !== null} onClose={() => setColorFor(null)} items={[{

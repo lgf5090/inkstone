@@ -17,15 +17,15 @@ export function AppTabPlaceholder({ tabId }: { tabId: AppTabId }) {
     <section className="flex h-full min-h-0 flex-col bg-[var(--bg-base)]">
       <header className="flex h-11 shrink-0 items-center gap-2 border-b border-[var(--border-subtle)] bg-[var(--bg-sunken)] px-3">
         <Icon size={15} />
-        <span className="min-w-0 truncate text-[13.5px] font-semibold text-[var(--text-primary)]">{label}</span>
+        <span className="min-w-0 truncate text-[length:var(--text-13-5)] font-semibold text-[var(--text-primary)]">{label}</span>
       </header>
       <div className="flex min-h-0 flex-1 items-center justify-center px-6 py-10">
         <div className="flex max-w-sm flex-col items-center gap-3 text-center">
           <span className="flex size-14 items-center justify-center rounded-full bg-[var(--bg-sunken)] text-[var(--text-tertiary)]">
             <Icon size={24} />
           </span>
-          <p className="font-serif text-[16px] font-semibold text-[var(--text-primary)]">{label}</p>
-          <p className="text-[13px] leading-relaxed text-[var(--text-tertiary)]">
+          <p className="font-serif text-[length:var(--text-16)] font-semibold text-[var(--text-primary)]">{label}</p>
+          <p className="text-[length:var(--text-13)] leading-relaxed text-[var(--text-tertiary)]">
             {t('app.tabs.placeholder_hint')}
           </p>
         </div>

@@ -367,8 +367,8 @@ export function LibraryView() {
       onDrop={onDrop}
     >
       <header className="flex h-11 shrink-0 items-center gap-2 border-b border-[var(--border-subtle)] bg-[var(--bg-sunken)] px-3">
-        <span className="min-w-0 truncate text-[13.5px] font-semibold text-[var(--text-primary)]">{t('reading.shelf')}</span>
-        <span className="min-w-0 truncate text-[11.5px] tabular text-[var(--text-quaternary)]">
+        <span className="min-w-0 truncate text-[length:var(--text-13-5)] font-semibold text-[var(--text-primary)]">{t('reading.shelf')}</span>
+        <span className="min-w-0 truncate text-[length:var(--text-11-5)] tabular text-[var(--text-quaternary)]">
           {t('reading.book_count_value0', { value0: books.length })}
           {totalMarked ? <span className="hidden sm:inline">{t('reading.marked_count_value0', { value0: totalMarked })}</span> : ''}
         </span>
@@ -460,7 +460,7 @@ export function LibraryView() {
         {books.length === 0 ? (
           <EmptyShelf busy={busy || fetching} onPick={() => fileInput.current?.click()} onSample={() => void loadSample()} onGutenberg={() => void importFromGutenberg()} />
         ) : visible.length === 0 ? (
-          <p className="px-3 py-12 text-center text-[12.5px] text-[var(--text-quaternary)]">
+          <p className="px-3 py-12 text-center text-[length:var(--text-12-5)] text-[var(--text-quaternary)]">
             {t('reading.no_books_match')}
           </p>
         ) : view === 'list' ? (
@@ -519,7 +519,7 @@ export function LibraryView() {
 
       {dragging ? (
         <div className="app-viewport-fixed pointer-events-none fixed inset-0 z-[300] flex items-center justify-center bg-[var(--scrim)]">
-          <p className="rounded-[var(--r-lg)] border-2 border-dashed border-[var(--accent)] bg-[var(--bg-surface)] px-6 py-5 text-center text-[13px] font-medium">
+          <p className="rounded-[var(--r-lg)] border-2 border-dashed border-[var(--accent)] bg-[var(--bg-surface)] px-6 py-5 text-center text-[length:var(--text-13)] font-medium">
             {t('reading.drop_files_here')}
           </p>
         </div>
@@ -541,8 +541,8 @@ function EmptyShelf({ busy, onPick, onSample, onGutenberg }: { busy: boolean; on
       <span className="flex size-14 items-center justify-center rounded-full bg-[var(--bg-sunken)] text-[var(--text-tertiary)]">
         <Inbox size={24} />
       </span>
-      <p className="font-serif text-[16px] font-semibold text-[var(--text-primary)]">{t('reading.shelf_empty_title')}</p>
-      <p className="text-[13px] leading-relaxed text-[var(--text-tertiary)]">{t('reading.shelf_empty_body')}</p>
+      <p className="font-serif text-[length:var(--text-16)] font-semibold text-[var(--text-primary)]">{t('reading.shelf_empty_title')}</p>
+      <p className="text-[length:var(--text-13)] leading-relaxed text-[var(--text-tertiary)]">{t('reading.shelf_empty_body')}</p>
       <Button variant="primary" size="md" icon={<Plus size={14} />} loading={busy} onClick={onPick}>
         {t('reading.add_books')}
       </Button>
@@ -554,7 +554,7 @@ function EmptyShelf({ busy, onPick, onSample, onGutenberg }: { busy: boolean; on
           {t('reading.import_gutenberg')}
         </Button>
       </div>
-      <p className="text-[11.5px] text-[var(--text-quaternary)]">{t('reading.shelf_formats_hint')}</p>
+      <p className="text-[length:var(--text-11-5)] text-[var(--text-quaternary)]">{t('reading.shelf_formats_hint')}</p>
     </div>
   )
 }
