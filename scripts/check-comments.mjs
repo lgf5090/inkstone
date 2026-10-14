@@ -140,10 +140,10 @@ const allowed = new Map([
     "/**\n * The search box a drawer puts above its list: the sticky header it hangs in, and the one filter every\n * other listing in the app offers — drawn by {@link FilterInput}, because the box, its keys and its\n * refusal message are that component's, and only the header belongs to a drawer.\n *\n * Escape clears a box that is not empty and is swallowed there, so the drawer it sits in stays open;\n * an empty box lets the key through, which is the drawer's own close. The compiled query is handed in\n * rather than compiled here so a caller filters with the same object the box is describing.\n */",
   ]],
   ["src/client/components/FilterInput.test.ts", [
-    "/**\n * `useFilterInput` is the keyboard contract behind every filter box in the app, so the cases here are\n * about the contract rather than about a box's chrome: what Escape costs, what the box swallows, and —\n * the reason these cases exist — what an input method gets answered. A Chinese reader types 测试 by\n * composing a syllable and pressing Escape to throw that syllable away; a box that read the same\n * Escape as \"clear the search\" took the whole query with it, and nothing on the screen said so.\n */",
     "/**\n * A keydown as the browser writes it. `composing` marks the event as arriving inside an input-method\n * composition, which is what a pinyin reader's Escape, arrows and Enter all are; jsdom is asked for it\n * through `init` and, where a jsdom build drops the member, pressed onto the event directly.\n */",
-    "// The regression: 测试 typed in pinyin, Escape thrown to drop the candidate strip, and the whole",
-    "// search box went with the syllable.",
+    "/**\n * `useFilterInput` is the keyboard contract behind every filter box in the app, so the cases here are\n * about the contract rather than about a box's chrome: what Escape costs, what the box swallows, and —\n * the reason these cases exist — what an input method gets answered. A reader typing Chinese builds a\n * word one syllable at a time and presses Escape to throw the unfinished syllable away; a box that read\n * the same Escape as \"clear the search\" took the whole query with it, and nothing on the screen said so.\n */",
+    "// The regression: a pinyin syllable was on the way into the box, Escape was thrown to drop the",
+    "// candidate strip, and the whole search box went with the syllable.",
   ]],
   ["src/client/components/FilterInput.tsx", [
     "/** The same text `value` holds, compiled: the box says in its own words what a refused expression cost. */",

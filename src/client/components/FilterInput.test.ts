@@ -1,9 +1,9 @@
 /**
  * `useFilterInput` is the keyboard contract behind every filter box in the app, so the cases here are
  * about the contract rather than about a box's chrome: what Escape costs, what the box swallows, and —
- * the reason these cases exist — what an input method gets answered. A Chinese reader types 测试 by
- * composing a syllable and pressing Escape to throw that syllable away; a box that read the same
- * Escape as "clear the search" took the whole query with it, and nothing on the screen said so.
+ * the reason these cases exist — what an input method gets answered. A reader typing Chinese builds a
+ * word one syllable at a time and presses Escape to throw the unfinished syllable away; a box that read
+ * the same Escape as "clear the search" took the whole query with it, and nothing on the screen said so.
  */
 import { act, createElement, type KeyboardEvent as ReactKeyboardEvent } from 'react'
 import { describe, expect, it, vi } from 'vitest'
@@ -73,8 +73,8 @@ describe('FilterInput Escape', () => {
 
 describe('FilterInput during an input-method composition', () => {
   it('does not clear the query when Escape cancels the syllable', () => {
-    // The regression: 测试 typed in pinyin, Escape thrown to drop the candidate strip, and the whole
-    // search box went with the syllable.
+    // The regression: a pinyin syllable was on the way into the box, Escape was thrown to drop the
+    // candidate strip, and the whole search box went with the syllable.
     const { input, onChange } = render({ value: 'ceshi' })
     press(input, 'Escape', true)
     expect(onChange).not.toHaveBeenCalled()
