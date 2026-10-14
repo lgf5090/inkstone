@@ -9,13 +9,14 @@
  * offset, a fixed one with a page, and both arrive as the same hit shape.
  */
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { Search, X } from 'lucide-react'
+import { DEBOUNCE } from '@shared/constants'
 import { Input } from '../../../components/form'
-import { Search } from 'lucide-react'
+import { IconButton } from '../../../components/primitives'
+import { useFilterInput } from '../../../components/FilterInput'
 import { t } from '../../../lib/i18n'
 import { useDebounced } from '../../../lib/hooks'
 import type { BookPosition } from '../position'
-
-const SEARCH_DEBOUNCE_MS = 260
 
 /** A hit in either coordinate space: a chapter of a flowing book or a page of a fixed one. */
 export interface PanelHit {
@@ -65,7 +66,7 @@ export function SearchPanel({ search, start, onJump, unitLabel, fixedMode }: Sea
     if (found[0]) jumpTo(found[0])
   }, [jumpTo, search])
 
-  const settledQuery = useDebounced(query, query ? SEARCH_DEBOUNCE_MS : 0)
+  const settledQuery = useDebounced(query, query ? DEBOUNCE.search : 0)
   useEffect(() => {
     void run(settledQuery)
   }, [settledQuery, run])
@@ -77,25 +78,47 @@ export function SearchPanel({ search, start, onJump, unitLabel, fixedMode }: Sea
     jumpTo(hits[next]!)
   }
 
+  // The box keeps its own Enter stepping but takes the app-wide filter contract for everything else:
+  // Escape takes the text out, a composing IME key is not the box's to answer, and no other keystroke
+  // reaches the reader's shortcuts while a term is being typed. The hit counter moves outside the box
+  // because the contract's clear control now lives at its right edge.
+  const { field, clear } = useFilterInput({
+    value: query,
+    inputRef,
+    onClear: () => setQuery(''),
+    onKeyDown: (event) => {
+      if (event.key !== 'Enter') return
+      event.preventDefault()
+      step(event.shiftKey ? -1 : 1)
+    },
+  })
+
   return (
     <div className="flex h-full min-h-0 flex-col">
       <div className="shrink-0 p-2">
-        <div className="relative">
-          <Search size={13} className="pointer-events-none absolute top-1/2 left-2 -translate-y-1/2 opacity-45" />
-          <Input
-            ref={inputRef}
-            value={query}
-            onChange={(event) => setQuery(event.target.value)}
-            onKeyDown={(event) => {
-              if (event.key !== 'Enter') return
-              event.preventDefault()
-              step(event.shiftKey ? -1 : 1)
-            }}
-            placeholder={t('reading.search_book_placeholder')}
-            aria-label={t('reading.search_book')}
-            className="h-8 w-full ps-7 pe-12 text-[12.5px]"
-          />
-          <span className="absolute top-1/2 right-2 -translate-y-1/2 text-[10.5px] tabular opacity-60">
+        <div className="flex items-center gap-1.5">
+          <div className="relative min-w-0 flex-1">
+            <Search size={13} className="pointer-events-none absolute top-1/2 left-2 -translate-y-1/2 opacity-45" />
+            <Input
+              {...field}
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              placeholder={t('reading.search_book_placeholder')}
+              aria-label={t('reading.search_book')}
+              className="h-8 w-full ps-7 pe-7 text-[12.5px]"
+            />
+            {query ? (
+              <IconButton
+                label={t('notes.clear_filters')}
+                size="sm"
+                onClick={clear}
+                className="absolute top-1/2 right-1 -translate-y-1/2"
+              >
+                <X size={11} />
+              </IconButton>
+            ) : null}
+          </div>
+          <span className="shrink-0 text-[10.5px] tabular opacity-60">
             {hits?.length ? `${index + 1}/${hits.length}` : ''}
           </span>
         </div>
