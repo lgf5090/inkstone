@@ -7,7 +7,7 @@ import { SCHEMA_STATEMENTS } from '../src/worker/db/schema'
 import { errorResponse } from '../src/worker/lib/errors'
 import { assistantRoutes } from '../src/worker/routes/assistant'
 import { CredentialVault } from '../src/worker/durable/credential-vault'
-import type { AppBindings } from '../src/worker/env'
+import type { AppBindings, Env } from '../src/worker/env'
 import type {
   AssistantAnswerVersion,
   AssistantConversation,
@@ -23,31 +23,18 @@ import type {
 } from '../src/shared/assistant'
 import { DEFAULT_SEMANTIC_MODEL, MAX_ANSWER_VERSIONS, MAX_CONTEXT_BUDGET_TOKENS, MAX_PROMPT_CONTENT_CHARS, MAX_PROMPT_TITLE_CHARS } from '../src/shared/assistant'
 import { makeD1 } from './doubles/d1-sqlite'
+import { testBindings, testDurableObjectNamespace, testR2Bucket } from './doubles/bindings'
 import { AI_EMBEDDING_MODEL } from '../src/worker/mcp/ai-search'
 
 /** The chat's own object store: bytes in, bytes out, keyed by the path the route chose. */
-const chatR2 = {
-  objects: new Map<string, Uint8Array>(),
-  async put(key: string, value: Uint8Array | string) {
-    this.objects.set(key, typeof value === 'string' ? new TextEncoder().encode(value) : value)
-    return { key }
-  },
-  async get(key: string) {
-    const bytes = this.objects.get(key)
-    if (!bytes) return null
-    return { arrayBuffer: async () => bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) }
-  },
-  async delete(key: string) {
-    this.objects.delete(key)
-  },
-}
+const chatR2 = testR2Bucket()
 
 const USER = '0123456789abcdefghjkmnpqrs'
 const OTHER = '0123456789abcdefghjkmnpqrt'
 
 let sqlite: DatabaseSync
 let app: Hono<AppBindings>
-let env: Record<string, unknown>
+let env: Env
 const turnTasks: Promise<unknown>[] = []
 const ctx = { waitUntil: (task: Promise<unknown>) => { turnTasks.push(task) } } as ExecutionContext
 
@@ -111,7 +98,7 @@ async function call<T>(method: string, path: string, body?: unknown): Promise<T>
     method,
     headers: body === undefined ? {} : { 'content-type': 'application/json' },
     body: body === undefined ? undefined : JSON.stringify(body),
-  }), env as never, ctx)
+  }), env, ctx)
   const text = await response.text()
   if (!response.ok) throw new Error(`${response.status} ${text}`)
   return JSON.parse(text || '{}') as T
@@ -122,7 +109,7 @@ async function status(method: string, path: string, body?: unknown): Promise<num
     method,
     headers: body === undefined ? {} : { 'content-type': 'application/json' },
     body: body === undefined ? undefined : JSON.stringify(body),
-  }), env as never, ctx)
+  }), env, ctx)
   await response.text()
   return response.status
 }
@@ -133,7 +120,7 @@ async function chatEvents(body: Record<string, unknown>): Promise<ChatStreamEven
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify(body),
-  }), env as never, ctx)
+  }), env, ctx)
   const text = await response.text()
   return text
     .split('\n\n')
@@ -180,22 +167,15 @@ function fakeVaultState() {
 beforeEach(() => {
   sqlite = new DatabaseSync(':memory:')
   sqlite.exec(SCHEMA_STATEMENTS.join(';'))
-  env = {
-    DB: makeD1(sqlite),
+  env = testBindings(makeD1(sqlite), {
     DO_AUTH_KEY: 'test-internal-key',
-    CREDENTIAL_VAULT: {
-      idFromName: () => 'vault',
-      // A DO stub is called as `fetch(url, init)` by the helper, exactly as the platform calls it.
-      get: () => ({
-        fetch: async (input: string | Request, init?: RequestInit) => {
-          const request = input instanceof Request ? input : new Request(input, init)
-          return await new CredentialVault(fakeVaultState(), env as never).fetch(request)
-        },
-      }),
-    },
+    // The real vault, called the way the platform calls it: `idFromName`, then `get(id).fetch(url, init)`.
+    CREDENTIAL_VAULT: testDurableObjectNamespace(
+      async (request) => await new CredentialVault(fakeVaultState(), env).fetch(request),
+    ),
     PUBLIC_URL: 'http://localhost',
     FILES: chatR2,
-  }
+  })
   app = buildApp(USER)
 })
 
@@ -493,7 +473,7 @@ describe('the vendor’s own model list', () => {
     })))
     const response = await app.fetch(new Request(`http://localhost/api/assistant/providers/${provider.id}/vendor-models`, {
       headers: { 'x-inkstone-client': '1' },
-    }), env as never, ctx)
+    }), env, ctx)
     const body = await response.json() as { ok: boolean, error: string, models: unknown[] }
     vi.unstubAllGlobals()
     expect(response.status, 'a dead vendor must not close the picker').toBe(200)
@@ -593,7 +573,7 @@ describe('per-protocol provider endpoints', () => {
       method: 'PATCH',
       headers: { 'content-type': 'application/json', 'x-inkstone-client': '1' },
       body: JSON.stringify({ endpoints: { gemini: 'lgf5090' } }),
-    }), env as never, ctx)
+    }), env, ctx)
     const body = await response.json() as { error?: { message?: string } }
     expect(response.status).toBe(400)
     expect(body.error?.message).toMatch(/gemini/i)
@@ -623,7 +603,7 @@ describe('offline chat', () => {
     await call('PATCH', '/api/assistant/settings', { offlineMode: true })
     const created = await call<{ conversation: AssistantConversation }>('POST', '/api/assistant/conversations', { title: 'Busy' })
     const { AssistantStore } = await import('../src/worker/assistant/store')
-    const store = new AssistantStore(env.DB as D1Database, USER, env as never)
+    const store = new AssistantStore(env.DB as D1Database, USER, env)
     expect(await store.claimRun(created.conversation.id)).toBe(true)
     expect(await status('POST', '/api/assistant/chat', { conversationId: created.conversation.id, message: 'hello' })).toBe(409)
     await store.releaseRun(created.conversation.id)
@@ -711,23 +691,29 @@ function addTag(id: string, name: string, userId = USER): void {
     .run(id, userId, name, Date.now())
 }
 
-/** A stand-in for the Workers AI binding: deterministic, cheap, and shaped like the real answer. */
-function stubAi(model: string) {
+/**
+ * A stand-in for the Workers AI binding: deterministic, cheap, and shaped like the real answer.
+ *
+ * `AI.run` names its result type only at the call site, so the body builds the embedding list the
+ * route reads and hands it back as that type. The texts come from the `{ text }` the route sends.
+ */
+function stubAi(model: string): { calls: string[][]; run: NonNullable<Env['AI']>['run'] } {
   const calls: string[][] = []
   return {
     calls,
-    run: async (requested: string, input: { text: string[] }) => {
+    run: async <T>(requested: string, inputs: unknown): Promise<T> => {
       expect(requested).toBe(model)
-      calls.push(input.text)
+      const { text } = inputs as { text: string[] }
+      calls.push(text)
       return {
-        data: input.text.map((line) => ({
+        data: text.map((line) => ({
           embedding: Array.from({ length: 8 }, (_, index) => {
             let hash = index + 1
             for (const character of line) hash = (hash * 31 + character.codePointAt(0)!) % 1024
             return hash / 1024
           }),
         })),
-      }
+      } as T
     },
   }
 }
@@ -1155,7 +1141,7 @@ async function uploadFile(name: string, content: string | Uint8Array, mime: stri
   const form = new FormData()
   const bytes = typeof content === 'string' ? new TextEncoder().encode(content) : content
   form.append('file', new Blob([bytes as unknown as BlobPart], { type: mime }), name)
-  const response = await app.fetch(new Request('http://localhost/api/assistant/files', { method: 'POST', body: form }), env as never, ctx)
+  const response = await app.fetch(new Request('http://localhost/api/assistant/files', { method: 'POST', body: form }), env, ctx)
   const text = await response.text()
   if (!response.ok) throw new Error(`${response.status} ${text}`)
   return JSON.parse(text) as { attachment: { id: string, kind: string, key: string, filename: string, size: number } }
@@ -1169,7 +1155,7 @@ describe('chat attachments', () => {
     expect(chatR2.objects.has(uploaded.attachment.key)).toBe(true)
     const served = await app.fetch(
       new Request(`http://localhost/api/assistant/files/${uploaded.attachment.id}`),
-      env as never, ctx,
+      env, ctx,
     )
     expect(served.status).toBe(200)
     expect(served.headers.get('content-type')).toBe('text/markdown')
@@ -1185,7 +1171,7 @@ describe('chat attachments', () => {
     const html = await uploadFile('page.html', '<img src=x onerror=alert(1)>', 'text/html')
     const served = await app.fetch(
       new Request(`http://localhost/api/assistant/files/${html.attachment.id}`),
-      env as never, ctx,
+      env, ctx,
     )
     expect(served.headers.get('content-disposition')).toMatch(/^attachment;/)
     expect(served.headers.get('x-content-type-options')).toBe('nosniff')
@@ -1194,13 +1180,13 @@ describe('chat attachments', () => {
     const picture = await uploadFile('shot.png', png, 'image/png')
     const shown = await app.fetch(
       new Request(`http://localhost/api/assistant/files/${picture.attachment.id}`),
-      env as never, ctx,
+      env, ctx,
     )
     expect(shown.headers.get('content-disposition')).toMatch(/^inline;/)
     // The composer's own download link asks for it, and a picture has to be forced out too.
     const forced = await app.fetch(
       new Request(`http://localhost/api/assistant/files/${picture.attachment.id}?download=1`),
-      env as never, ctx,
+      env, ctx,
     )
     expect(forced.headers.get('content-disposition')).toMatch(/^attachment;/)
   })
@@ -1369,7 +1355,7 @@ describe('oversized search terms', () => {
   // arrives as one unbroken run, so the refusal was reachable from the composer with no attachment.
   it('answers a term longer than SQLite can compile instead of failing the turn', async () => {
     const { AssistantStore } = await import('../src/worker/assistant/store')
-    const store = new AssistantStore(env.DB as D1Database, USER, env as never)
+    const store = new AssistantStore(env.DB as D1Database, USER, env)
     await store.insertMemory({ content: '读者喜欢用 ZEBRAZEBRA 前缀命名文件', category: 'preference', source: 'manual' })
     await store.insertMemory({ content: `${'A'.repeat(20_000)}`, category: 'preference', source: 'manual' })
     const huge = `ZEBRAZEBRA${'x'.repeat(70_000)}TAILMARKTAIL`
