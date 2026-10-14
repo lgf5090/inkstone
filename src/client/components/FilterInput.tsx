@@ -186,7 +186,7 @@ export function FilterInput({
           title={t("filter.regex_hint")}
           value={value}
           onChange={(event) => onChange(event.target.value)}
-          className={cn('w-full rounded-[var(--r-md)] border bg-[var(--bg-inset)] text-[12.5px] text-[var(--text-primary)]', 'placeholder:text-[var(--text-quaternary)]', '[&::-webkit-search-cancel-button]:hidden [&::-webkit-search-results-button]:hidden', 'transition-[border-color,box-shadow] duration-[var(--dur-fast)]', 'focus:shadow-[0_0_0_3px_var(--accent-ring)] focus:outline-none', box.input,
+          className={cn('w-full rounded-[var(--r-md)] border bg-[var(--bg-inset)] text-[12.5px] text-[var(--text-primary)]', 'placeholder:text-[var(--text-quaternary)]', '[&::-webkit-search-cancel-button]:hidden [&::-webkit-search-results-button]:hidden', 'transition-[border-color,box-shadow] duration-[var(--dur-fast)]', 'focus:shadow-[var(--shadow-ring-focus)] focus:outline-none', box.input,
               error ? 'border-[var(--danger)] focus:border-[var(--danger)]' : box.border)}
         />
         {value && (<IconButton label={t("notes.clear_filters")} size="sm" onClick={clear} className={cn('absolute top-1/2 -translate-y-1/2', box.clear)}>

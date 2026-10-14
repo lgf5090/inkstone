@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import { Check, ChevronRight, Search, X } from 'lucide-react';
 import { cn } from '../lib/cn';
 import { fuzzyMatch } from '../lib/fuzzy';
+import { Z_INDEX } from '../lib/z-index';
 import { useFilterInput } from './FilterInput';
 import { Button, IconButton, Kbd } from './primitives';
 import { FIELD_BASE } from './form';
@@ -179,7 +180,7 @@ export function Modal({ open, onClose, title, description, children, footer, wid
     return createPortal(
 
 
-    <div className={cn('app-viewport-fixed fixed z-[250] flex items-end justify-center overflow-hidden md:items-start md:overflow-y-auto md:p-8', fullscreen && 'md:overflow-hidden md:p-0')}>
+    <div className={cn('app-viewport-fixed fixed z-[var(--z-modal)] flex items-end justify-center overflow-hidden md:items-start md:overflow-y-auto md:p-8', fullscreen && 'md:overflow-hidden md:p-0')}>
       <div className="anim-fade absolute inset-0 bg-[var(--scrim)]" onClick={onClose} aria-hidden="true"/>
       <div ref={panelRef} role="dialog" aria-modal="true" aria-labelledby={title ? titleId : undefined} aria-describedby={description ? descriptionId : undefined} aria-label={title ? undefined : (ariaLabel ?? t("overlay.dialog"))} tabIndex={-1} className={cn('anim-pop relative flex w-full flex-col outline-none', fullscreen
         ? 'h-[100dvh] max-h-none border-0 md:h-[100dvh] md:my-0 md:rounded-none'
@@ -506,7 +507,14 @@ export function paintsOpaqueFill(panel: HTMLElement): boolean {
     });
 }
 
-export function Menu({ anchor, open, onClose, items, align = 'start', width = 208, zIndex = 260, label = t("overlay.menu"), panelId, container, header, headerHeight = 44, searchable = false, searchPlaceholder = t('overlay.search_menu'), searchActions, }: {
+/**
+ * How far a submenu flyout rides above the menu that opened it. A caller that raises the menu raises
+ * its flyout with it, so the gap between the two tiers is the only number here — and it is the scale's
+ * own gap (`--z-submenu` minus `--z-pop`), not a fifth picked beside it.
+ */
+const SUBMENU_TIER_STEP = Z_INDEX.submenu - Z_INDEX.pop;
+
+export function Menu({ anchor, open, onClose, items, align = 'start', width = 208, zIndex = Z_INDEX.pop, label = t("overlay.menu"), panelId, container, header, headerHeight = 44, searchable = false, searchPlaceholder = t('overlay.search_menu'), searchActions, }: {
     anchor: RefObject<HTMLElement | null> | {
         x: number;
         y: number;
@@ -880,7 +888,7 @@ export function Menu({ anchor, open, onClose, items, align = 'start', width = 20
         top: submenuPosition?.top ?? 0,
         left: submenuPosition?.left ?? 0,
         visibility: submenuPosition ? 'visible' : 'hidden',
-        zIndex: zIndex + 5,
+        zIndex: zIndex + SUBMENU_TIER_STEP,
       }}>
           {typeof submenuItem.submenu === 'function'
             ? submenuItem.submenu({ closeMenu: onClose })
@@ -888,7 +896,7 @@ export function Menu({ anchor, open, onClose, items, align = 'start', width = 20
         </div>, container ?? document.body)}
     </>);
 }
-export function MenuSubmenuList({ label, items, width = 178, zIndex = 265 }: {
+export function MenuSubmenuList({ label, items, width = 178, zIndex = Z_INDEX.submenu }: {
     label: string;
     items: MenuItem[];
     width?: number;
@@ -1022,7 +1030,7 @@ export function Tooltip({ label, combo, children, side = 'bottom', delay = 420, 
         {children}
       </span>
       {rect &&
-            createPortal(<div ref={tooltipRef} role="tooltip" data-side={position?.side} className="anim-fade pointer-events-none fixed z-[500] flex max-w-[calc(100vw-16px)] items-center gap-1.5 rounded-[var(--r-sm)] border border-[var(--border-default)] bg-[var(--bg-overlay)] px-2 py-1 text-[11.5px] whitespace-nowrap text-[var(--text-secondary)] shadow-[var(--shadow-pop)]" style={style}>
+            createPortal(<div ref={tooltipRef} role="tooltip" data-side={position?.side} className="anim-fade pointer-events-none fixed z-[var(--z-tooltip)] flex max-w-[calc(100vw-16px)] items-center gap-1.5 rounded-[var(--r-sm)] border border-[var(--border-default)] bg-[var(--bg-overlay)] px-2 py-1 text-[11.5px] whitespace-nowrap text-[var(--text-secondary)] shadow-[var(--shadow-pop)]" style={style}>
             {label}
             {combo && <Kbd combo={combo}/>}
           </div>, document.body)}
@@ -1073,7 +1081,7 @@ function placeTooltip(anchor: DOMRect, tooltip: DOMRect, preferred: TooltipSide)
         left: side === 'right' ? anchor.right + gap : anchor.left - gap - tooltip.width,
     };
 }
-export function Drawer({ open, onClose, side = 'right', width = 380, children, title, zIndex = 190, ariaLabel, }: {
+export function Drawer({ open, onClose, side = 'right', width = 380, children, title, zIndex = Z_INDEX.drawer, ariaLabel, }: {
     open: boolean;
     onClose: () => void;
     side?: 'left' | 'right';
