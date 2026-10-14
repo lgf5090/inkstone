@@ -277,6 +277,10 @@ export const ExcalidrawLibraryTree: React.FC<ExcalidrawLibraryTreeProps> = ({
     }
     loadExcalidrawLib()
       .then((l) => setActiveLib(l))
+      // Best-effort vendor chunk. A null `activeLib` is the state this panel is already in while the chunk
+      // is still on its way: the stencil preview returns without drawing and the add-to-library path skips
+      // its SVG preview, both guarded on the same value. What the reader stored is the elements themselves,
+      // which do not come from this bundle, so a failed load costs a picture and never an action.
       .catch(() => {})
   }, [lib])
   const folders = useExcalidrawLibraryStore((s) => s.folders)
@@ -333,6 +337,8 @@ export const ExcalidrawLibraryTree: React.FC<ExcalidrawLibraryTreeProps> = ({
     void init()
     // The browser used to pay for a 100 kB catalog and a cold upstream on the click itself. Asking
     // while the reader is still looking at the panel means the official browser opens at once.
+    // Best-effort warm-up: the modal that shows the catalog asks again on open and owns the failure —
+    // it sets `catalogFailed` and says so on screen. This call only fills the store's cache.
     void loadOfficialCatalog().catch(() => {})
   }, [init, loadOfficialCatalog])
 
