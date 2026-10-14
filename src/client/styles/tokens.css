@@ -39,9 +39,15 @@
   --sp-3-5: 14px;
   --sp-4: 16px;
   --sp-5: 20px;
+  /* The short header-control step: 22px tall buttons sit in 24px rows. */
+  --sp-5-5: 22px;
   --sp-6: 24px;
   --sp-12: 48px;
   --sp-16: 64px;
+
+  /* The smallest comfortable hit target for a finger, applied only under
+     `@media (pointer: coarse)` so desktop density is never paid for it. */
+  --tap-target: 44px;
 
   --text-6: 6px;
   --text-8-5: 8.5px;
@@ -111,7 +117,12 @@
   --sp-10: 40px;
   --text-15: 15px;
   --text-16: 16px;
+  /* The tracking scale, ordered by how wide the letters are set. `micro` is the
+     tightest small caps and dense monospace labels, `caps` the uppercase chip and
+     tool-button labels; both existed as magic numbers in prose.css before. */
   --tracking-title: -0.012em;
+  --tracking-micro: 0.02em;
+  --tracking-caps: 0.04em;
   --tracking-label: 0.06em;
   --tracking-section: 0.07em;
 
@@ -219,10 +230,15 @@
   --border-default: oklch(100% 0 0 / 10%);
   --border-strong: oklch(100% 0 0 / 17%);
 
+  /* De-emphasis has a hard floor here: the lightest dark surface (--bg-overlay
+     under `[data-background='white']`) is nearly #2a2a2d, so a step below ~67% L
+     cannot reach WCAG AA 4.5:1 on it. The four steps therefore live in the upper
+     band (93/78/73/67) and keep their order by spacing rather than by distance
+     from white; `tests/contrast-dark-text-quaternary.test.ts` holds both. */
   --text-primary: oklch(93% 0.004 265);
-  --text-secondary: oklch(72% 0.008 265);
-  --text-tertiary: oklch(56% 0.009 265);
-  --text-quaternary: oklch(43% 0.008 265);
+  --text-secondary: oklch(78% 0.008 265);
+  --text-tertiary: oklch(73% 0.009 265);
+  --text-quaternary: oklch(67% 0.008 265);
   --text-inverse: oklch(16% 0.008 265);
 
   --graph-edge: oklch(66% 0.02 265);

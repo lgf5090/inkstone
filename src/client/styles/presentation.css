@@ -282,10 +282,7 @@
   max-height: calc(100% - var(--sp-12));
   overflow-y: auto;
   padding: var(--sp-3);
-  border: 1px solid var(--border-default);
-  border-radius: var(--r-lg);
-  background: var(--bg-overlay);
-  box-shadow: var(--shadow-pop);
+  @apply popover-surface;
   transform: translate(-50%, -50%);
 }
 .presentation-key-guide ul {

@@ -45,27 +45,20 @@
   margin-inline-start: auto;
 }
 
+/* Only the dataview differences from the shared `.block-btn` recipe in prose.css:
+   a 24×22 box that grows for two-letter labels, and monospace label text. */
 .ink-prose .dataview-block-btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-width: 24px;
-  height: 22px;
+  min-width: var(--sp-6);
+  height: var(--sp-5-5);
   padding: 0 var(--sp-1);
   border: 1px solid transparent;
-  border-radius: var(--r-sm);
-  background: transparent;
-  color: var(--text-tertiary);
   font-family: var(--font-mono);
   font-size: var(--text-10);
   line-height: 1;
-  cursor: pointer;
-  transition: background-color var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out);
 }
 
 .ink-prose .dataview-block-btn:hover,
 .ink-prose .dataview-block-btn:focus-visible {
-  background: var(--bg-hover);
   color: var(--text-primary);
 }
 
@@ -355,10 +348,16 @@
   transition: background-color var(--dur-fast) var(--ease-out);
 }
 
-.ink-prose .dataview-calendar-day.has-items:hover,
+.ink-prose .dataview-calendar-day.has-items:hover {
+  background: var(--accent-soft);
+}
+
+/* A day cell that only tints is indistinguishable from a hovered one, and the
+   `outline: none` here suppresses the global focus ring, so keyboard focus adds it. */
 .ink-prose .dataview-calendar-day.has-items:focus-visible {
   background: var(--accent-soft);
   outline: none;
+  box-shadow: var(--shadow-ring);
 }
 
 .ink-prose .dataview-calendar-count {

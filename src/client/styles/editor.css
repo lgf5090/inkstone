@@ -273,10 +273,7 @@
 
 
 .cm-tooltip.cm-tooltip-autocomplete {
-  background: var(--bg-overlay);
-  border: 1px solid var(--border-default);
-  border-radius: var(--r-lg);
-  box-shadow: var(--shadow-pop);
+  @apply popover-surface;
   overflow: hidden;
   padding: 4px;
   font-family: var(--font-ui);
@@ -352,7 +349,7 @@
 .ink-editor .cm-panel.cm-search input:focus {
   border-color: var(--accent);
   outline: none;
-  box-shadow: 0 0 0 3px var(--accent-ring);
+  box-shadow: var(--shadow-ring-focus);
 }
 .ink-editor .cm-panel.cm-search button:not([name='close']) {
   background: var(--bg-raised);
