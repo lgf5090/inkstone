@@ -20,13 +20,26 @@ function toD1Row<T>(row: T): T {
   return out as T
 }
 
+// The write direction of the same D1/node:sqlite split. D1 binds a bare ArrayBuffer to a BLOB
+// column, but node:sqlite only takes a byte view, and under jsdom the ArrayBuffer intrinsic is not
+// the one it recognises, so it throws "Provided value cannot be bound to SQLite parameter N".
+// Handing over a view over the same bytes keeps both drivers on the same call shape.
+function toSqliteParam(value: unknown): unknown {
+  if (value === null || typeof value !== 'object') return value
+  const name = (value as { constructor?: { name?: string } }).constructor?.name
+  if (name === 'ArrayBuffer' || name === 'SharedArrayBuffer') {
+    return new Uint8Array(value as ArrayBuffer)
+  }
+  return value
+}
+
 export function makeD1(sqlite: DatabaseSync): D1Database {
   return {
     prepare(sql: string) {
       let values: unknown[] = []
       const args = () => /\?\d+/.test(sql)
-        ? [Object.fromEntries(values.map((value, index) => [String(index + 1), value]))]
-        : values
+        ? [Object.fromEntries(values.map((value, index) => [String(index + 1), toSqliteParam(value)]))]
+        : values.map(toSqliteParam)
       const exec = <T>(method: 'get' | 'all' | 'run'): T => {
         const statement = sqlite.prepare(sql)
         return statement[method](...(args() as never[])) as T
