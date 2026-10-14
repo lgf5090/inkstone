@@ -8,6 +8,45 @@ import { useUi } from '../../store/ui';
 import { useExcalidrawSettingsStore } from './excalidraw-settings-store';
 import { applySceneElements } from '../../lib/markdown/excalidraw/loader';
 
+/**
+ * The colours an inserted element is drawn with, as a pair per part: one for a light canvas, one for a
+ * dark one.
+ *
+ * These are not the app's page. A card lives inside somebody's drawing, and the drawing's own scene has
+ * a background that has nothing to do with the reader's theme settings — `--bg-*` would hand a dark
+ * canvas a card picked for the app's light surface and it would vanish into it. So the palette is keyed
+ * by the canvas the element lands on, which is the only thing the `dark` argument each of these
+ * functions is handed actually means.
+ */
+type CanvasPair = { readonly light: string; readonly dark: string };
+
+/** The colour a pair hands to the canvas it is about to be drawn on. */
+function onCanvas(pair: CanvasPair, dark: boolean): string {
+    return dark ? pair.dark : pair.light;
+}
+
+const NOTE_CARD = {
+    border: { dark: '#38bdf8', light: '#0284c7' },
+    fill: { dark: '#0f172a', light: '#f0f9ff' },
+    title: { dark: '#f1f5f9', light: '#0f172a' },
+    snippet: { dark: '#94a3b8', light: '#64748b' },
+} as const;
+
+const LINK_CARD = {
+    border: { dark: '#818cf8', light: '#4f46e5' },
+    fill: { dark: '#1e1b4b', light: '#eef2ff' },
+    label: { dark: '#c7d2fe', light: '#312e81' },
+} as const;
+
+const PDF_CARD = {
+    border: { dark: '#f87171', light: '#dc2626' },
+    fill: { dark: '#450a0a', light: '#fef2f2' },
+    label: { dark: '#fecaca', light: '#991b1b' },
+} as const;
+
+/** A formula's glyphs, in the one colour that survives being pasted over either canvas. */
+const LATEX_GLYPH: CanvasPair = { dark: '#f1f5f9', light: '#0f172a' };
+
 export interface BoundingBox {
     minX: number;
     minY: number;
@@ -146,11 +185,8 @@ export function getViewportCenterInScene(api: any): { x: number; y: number } {
     return { x, y };
 }
 
-/** Glyph colour KaTeX paints the rendered formula in, by whether the canvas behind it is dark. */
-const LATEX_TEXT_COLOR = { light: '#f1f5f9', dark: '#0f172a' } as const
-
 export function createLatexSvg(latex: string, dark = false): { dataURL: string; width: number; height: number } {
-    const textColor = dark ? LATEX_TEXT_COLOR.light : LATEX_TEXT_COLOR.dark;
+    const textColor = onCanvas(LATEX_GLYPH, dark);
     let html = '';
     try {
         html = katex.renderToString(latex, { displayMode: true, throwOnError: false });
@@ -274,8 +310,8 @@ export function insertNoteCardToCanvas(api: any, noteTitle: string, snippet = ''
         y: cardY,
         width: cardW,
         height: cardH,
-        strokeColor: dark ? '#38bdf8' : '#0284c7',
-        backgroundColor: dark ? '#0f172a' : '#f0f9ff',
+        strokeColor: onCanvas(NOTE_CARD.border, dark),
+        backgroundColor: onCanvas(NOTE_CARD.fill, dark),
         fillStyle: 'solid',
         strokeWidth: 1.5,
         strokeStyle: 'solid',
@@ -303,7 +339,7 @@ export function insertNoteCardToCanvas(api: any, noteTitle: string, snippet = ''
         lineHeight: 1.25,
         textAlign: 'left',
         verticalAlign: 'top',
-        strokeColor: dark ? '#f1f5f9' : '#0f172a',
+        strokeColor: onCanvas(NOTE_CARD.title, dark),
         link: `[[${cleanTitle}]]`,
         containerId: cardId,
     };
@@ -326,7 +362,7 @@ export function insertNoteCardToCanvas(api: any, noteTitle: string, snippet = ''
             lineHeight: 1.25,
             textAlign: 'left',
             verticalAlign: 'top',
-            strokeColor: dark ? '#94a3b8' : '#64748b',
+            strokeColor: onCanvas(NOTE_CARD.snippet, dark),
             containerId: cardId,
         };
         elements.push(snippetEl);
@@ -425,8 +461,8 @@ export function insertLinkToCanvas(api: any, linkInput: string, dark = false): v
         y: cardY,
         width: cardW,
         height: cardH,
-        strokeColor: dark ? '#818cf8' : '#4f46e5',
-        backgroundColor: dark ? '#1e1b4b' : '#eef2ff',
+        strokeColor: onCanvas(LINK_CARD.border, dark),
+        backgroundColor: onCanvas(LINK_CARD.fill, dark),
         fillStyle: 'solid',
         strokeWidth: 1.5,
         strokeStyle: 'solid',
@@ -451,7 +487,7 @@ export function insertLinkToCanvas(api: any, linkInput: string, dark = false): v
         lineHeight: 1.25,
         textAlign: 'left',
         verticalAlign: 'middle',
-        strokeColor: dark ? '#c7d2fe' : '#312e81',
+        strokeColor: onCanvas(LINK_CARD.label, dark),
         link: finalLink,
         containerId: cardId,
     };
@@ -506,8 +542,8 @@ export function insertPdfCardToCanvas(api: any, fileName: string, dark = false):
         y: cardY,
         width: cardW,
         height: cardH,
-        strokeColor: hasBorder ? (dark ? '#f87171' : '#dc2626') : 'transparent',
-        backgroundColor: dark ? '#450a0a' : '#fef2f2',
+        strokeColor: hasBorder ? onCanvas(PDF_CARD.border, dark) : 'transparent',
+        backgroundColor: onCanvas(PDF_CARD.fill, dark),
         fillStyle: 'solid',
         strokeWidth: hasBorder ? 1.5 : 0,
         strokeStyle: 'solid',
@@ -532,7 +568,7 @@ export function insertPdfCardToCanvas(api: any, fileName: string, dark = false):
         lineHeight: 1.25,
         textAlign: 'left',
         verticalAlign: 'middle',
-        strokeColor: dark ? '#fecaca' : '#991b1b',
+        strokeColor: onCanvas(PDF_CARD.label, dark),
         link: `[[${cleanName}]]`,
         containerId: cardId,
     };

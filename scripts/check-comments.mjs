@@ -1097,7 +1097,9 @@ const allowed = new Map([
     "// animation; the hand-computed numbers below are a fallback for a build that exposes neither entry",
     "// point. Running both used to make the second call overwrite the animated target the first had just",
     "// set, which is why Fit View snapped instead of easing and sometimes landed on the wrong zoom.",
-    "/** Glyph colour KaTeX paints the rendered formula in, by whether the canvas behind it is dark. */",
+    "/**\n * The colours an inserted element is drawn with, as a pair per part: one for a light canvas, one for a\n * dark one.\n *\n * These are not the app's page. A card lives inside somebody's drawing, and the drawing's own scene has\n * a background that has nothing to do with the reader's theme settings — `--bg-*` would hand a dark\n * canvas a card picked for the app's light surface and it would vanish into it. So the palette is keyed\n * by the canvas the element lands on, which is the only thing the `dark` argument each of these\n * functions is handed actually means.\n */",
+    "/** The colour a pair hands to the canvas it is about to be drawn on. */",
+    "/** A formula's glyphs, in the one colour that survives being pasted over either canvas. */",
   ]],
   ["src/client/features/excalidraw/excalidraw-settings-store.ts", [
     "/**\n * The delay every drawing surface waits before writing the note body. The settings field carries a\n * min/max, but that only shapes the widget: a value typed into the middle of the range, one restored\n * from localStorage, and one synced from another device all bypass it. A 1 ms debounce turns the one\n * 66-141 ms re-render that follows a gesture into one per engine change, which is what \"editing a\n * drawing stutters\" looks like from the inside - so the clamp lives where the delay is read, not in\n * the input, and a half-typed value can never reach a writer.\n */",
