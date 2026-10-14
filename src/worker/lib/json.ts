@@ -1,7 +1,7 @@
 /**
  * Reading back a column this app wrote as JSON.
  *
- * Four routes each used to carry their own copy of the same three lines — `JSON.parse` inside a
+ * Several routes each used to carry their own copy of the same three lines — `JSON.parse` inside a
  * `try`, one `typeof` guard, `{}` on failure — and each copy silently settled for a different
  * shape when the stored text was not a plain object. These are the three shapes a stored column
  * actually holds, so the shape a route asks for is the one it gets. A malformed or hand-edited row

@@ -14,7 +14,7 @@ import {
 import { decryptSecret, encryptSecret } from '../lib/crypto'
 import { ApiError } from '../lib/errors'
 import { isValidId, newId } from '../lib/id'
-import { storedObject } from '../lib/json'
+import { parseStoredJson, storedObject } from '../lib/json'
 import { JSON_BODY_LIMITS, readJson, readOptionalJson } from '../lib/request'
 import { assertAttemptBudget, consumeAttemptBudget } from '../lib/throttle'
 import { requireAuth } from '../middleware/auth'
@@ -444,10 +444,8 @@ function validateBackupConfig(run: () => unknown): void {
 }
 
 function parseResults(raw: string): BackupTargetResult[] {
-  try {
-    const parsed = JSON.parse(raw)
-    return Array.isArray(parsed) ? (parsed.filter((r) => r && r.targetId) as BackupTargetResult[]) : []
-  } catch {
-    return []
-  }
+  const parsed = parseStoredJson(raw)
+  if (!Array.isArray(parsed)) return []
+  return parsed.filter((entry): entry is BackupTargetResult =>
+    Boolean(entry) && typeof entry === 'object' && Boolean((entry as BackupTargetResult).targetId))
 }
