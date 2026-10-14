@@ -47,7 +47,17 @@ function WeekNumberCell({ row, weekStart, inRange, onRangeSelect }: {
   )
 }
 
-function DayCellLabel({ almanac, display }: { almanac: AlmanacDay | null; display: MonthViewProps['display'] }) {
+/**
+ * The lunar / festival line under a day number.
+ *
+ * `onTint` is whether the tile carries heat, and it decides the colour: a tint is the accent mixed
+ * toward the surface, so the accent's own quiet steps stop being legible on it. Measured across the
+ * seven accents and both themes, `--text-quaternary` on a heated tile sat at 1.81:1 at its worst and
+ * `--accent` festival text on its own tint at 2.30:1 — decorative-looking, but this line is the lunar
+ * date, which is information. On a heated tile it is therefore painted like the day number, and keeps
+ * its subordinate role by size and weight rather than by a colour the tile eats.
+ */
+function DayCellLabel({ almanac, display, onTint }: { almanac: AlmanacDay | null; display: MonthViewProps['display']; onTint: boolean }) {
   if (almanac === null)
     return null
   const named = display.festivals ? almanac.highlight : null
@@ -55,7 +65,7 @@ function DayCellLabel({ almanac, display }: { almanac: AlmanacDay | null; displa
   if (!text)
     return null
   return (
-    <span aria-hidden='true' className={cn('max-w-full truncate text-[length:var(--text-8-5)] leading-tight', named ? 'font-medium text-[var(--accent)]' : 'text-[var(--text-quaternary)]')}>
+    <span aria-hidden='true' className={cn('max-w-full truncate text-[length:var(--text-8-5)] leading-tight', named && 'font-medium', onTint ? 'text-[var(--text-primary)]' : named ? 'text-[var(--accent)]' : 'text-[var(--text-quaternary)]')}>
       {text}
     </span>
   )
@@ -107,7 +117,7 @@ export function MonthView({ cursor, weekStart, todayKey, weekdayLabels, gridTitl
             onActivateDay(cell.key, diaryId)
           }} className={cn('relative flex items-center justify-center rounded-[var(--r-xs)] text-[length:var(--text-9-5)] leading-none transition-colors', showAlmanac ? 'min-h-[var(--sp-7)] flex-col gap-[var(--sp-0-5)] py-[var(--sp-0-5)]' : 'aspect-square', 'hover:ring-1 hover:ring-inset hover:ring-[var(--accent-ring)] focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-[var(--accent)]', cell.today && 'ring-1 ring-inset ring-[var(--accent)]', cell.inMonth ? 'text-[var(--text-tertiary)]' : 'text-[var(--text-quaternary)]', weekend && 'bg-[var(--bg-inset)]', count > 0 && 'font-semibold text-[var(--text-primary)]', isLatestOutside(cell.key) && 'border border-dashed border-[var(--accent)]/80')} style={level > 0 ? { backgroundColor: `color-mix(in oklab, var(--accent) ${HEAT_PERCENTS[level]}%, transparent)` } : undefined}>
             <span className='tabular'>{cell.day}</span>
-            {dayAlmanac !== null && (<DayCellLabel almanac={dayAlmanac} display={display}/>)}
+            {dayAlmanac !== null && (<DayCellLabel almanac={dayAlmanac} display={display} onTint={level > 0}/>)}
             {diaryId && (<span aria-hidden='true' className={cn('absolute size-0.75 rounded-full bg-[var(--accent)]', showAlmanac ? 'right-[2px] top-[2px]' : 'bottom-[var(--sp-0-5)] left-1/2 -translate-x-1/2')}/>)}
             {selected && (<span aria-hidden='true' className='absolute inset-x-1 bottom-[1px] h-[var(--sp-0-5)] rounded-full bg-[var(--accent)]'/>)}
           </button>

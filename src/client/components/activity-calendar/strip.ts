@@ -4,16 +4,15 @@ import { alignWeekStart } from './range'
 
 
 
-// The darkest level is capped by contrast rather than by taste: a day number is primary text on
-// this tint (the month grid paints it `--text-primary` the moment the day has a note), and the cap
-// has to hold for every accent the appearance setting offers, in both themes. At 70% it holds for
-// none of them — every accent falls under AA 4.5 in the dark theme, graphite at 2.64:1 on the
-// `--bg-surface` base `heatCell` mixes into. Nothing enforces even that: this repo drives no
-// browser and no token gate reads a heat ramp, so 50% is a calibration recorded here rather than
-// an invariant a gate holds. Re-measuring it the same way puts the light theme at AA (worst
-// graphite 6.82:1) but leaves terracotta 4.40:1, amber 4.09:1 and graphite 4.07:1 under 4.5 in the
-// dark one, so a token pass has to settle this cap together with the accent set.
-export const HEAT_PERCENTS = [0, 12, 24, 36, 50] as const
+// The darkest level is capped by contrast rather than by taste: a day number is primary text on this
+// tint (the month grid paints it `--text-primary` the moment the day has a note), and the cap has to
+// hold for every accent the appearance setting offers, in both themes, on every surface a tile can
+// sit on. `tests/activity-heat-contrast.test.ts` measures that; it is not a claim kept here.
+// Measured before the cap was pulled in: at 50% the dark theme's worst pairing was 4.07:1 (graphite
+// on its own tint over `--bg-surface`, then amber close behind), which fails AA for normal text. The
+// highest percentage whose worst pairing still clears 4.5 with margin is 44% (worst 4.68:1), and the
+// four steps below it are spaced evenly from there.
+export const HEAT_PERCENTS = [0, 11, 22, 33, 44] as const
 
 
 
