@@ -1,7 +1,12 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { act, createElement } from 'react';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { createRoot, type Root } from 'react-dom/client';
 import type { Tag } from '@shared/types';
 import { initI18n } from '../../lib/i18n';
+import { installTestGlobals, stubBreakpoint } from '../../lib/test-render';
 import { createTag, normalizeTagName, renameTag } from './tagMutations';
+import { dropTagFilter, hasTagFilter, mapTagFilter } from './tag-filter';
+import { SidebarTags } from './SidebarTags';
 import { useNotes } from '../../store/notes';
 import { useUi } from '../../store/ui';
 
@@ -10,6 +15,8 @@ vi.mock('../../lib/api', () => ({
         tags: {
             create: vi.fn(async () => ({})),
             patch: vi.fn(async () => ({ ok: true, renamed: 0 })),
+            move: vi.fn(async () => ({ ok: true })),
+            remove: vi.fn(async () => ({ ok: true, affected: 0 })),
         },
     },
 }));
@@ -45,5 +52,47 @@ describe('tag identity in the mutation layer', () => {
         expect(spy).not.toHaveBeenCalled();
         expect(useNotes.getState().tags.map((item) => item.name)).toContain('STRASSE');
         spy.mockRestore();
+    });
+});
+
+describe('tag filter list folding', () => {
+    it('matches, drops and renames a filter slot by the case- and width-folded key', () => {
+        expect(hasTagFilter(['Work'], 'work')).toBe(true);
+        expect(hasTagFilter(['ＷＯＲＫ'], 'work')).toBe(true);
+        expect(hasTagFilter(['work'], 'work/meeting')).toBe(false);
+        expect(dropTagFilter(['Work', 'other'], 'work')).toEqual(['other']);
+        expect(mapTagFilter(['ＷＯＲＫ', 'other'], 'work', 'Home')).toEqual(['Home', 'other']);
+    });
+});
+
+describe('the tag row highlight reads the filter through the same fold', () => {
+    const originalNotes = useNotes.getState();
+    const originalUi = useUi.getState();
+    let root: Root;
+    let container: HTMLDivElement;
+
+    beforeEach(async () => {
+        installTestGlobals();
+        stubBreakpoint(true);
+        useNotes.setState({ ...originalNotes, tags: [{ id: 't-work', name: 'work', color: null, count: 1, createdAt: 1 }], notes: {}, folders: [], contents: {} });
+        useUi.setState({ ...originalUi, view: 'tag', tags: ['Work'], excludedTags: [], listCollapsed: false, searchList: false, toast: vi.fn() });
+        container = document.createElement('div');
+        document.body.append(container);
+        root = createRoot(container);
+    });
+
+    afterEach(async () => {
+        await act(() => root.unmount());
+        container.remove();
+        useNotes.setState(originalNotes, true);
+        useUi.setState(originalUi, true);
+        vi.unstubAllGlobals();
+    });
+
+    it('lights the row whose only difference from the active filter is case', async () => {
+        await act(() => root.render(createElement(SidebarTags)));
+        const row = container.querySelector<HTMLElement>('[data-tag-row]');
+        expect(row).not.toBeNull();
+        expect(row?.getAttribute('aria-selected')).toBe('true');
     });
 });
