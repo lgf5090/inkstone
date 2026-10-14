@@ -132,6 +132,8 @@ async function safeSet(key: string, value: unknown): Promise<void> {
   try {
     await set(key, value, store)
   } catch {
+    // A cache write is best-effort: the caller's in-memory state already holds the value, so a
+    // browser that refuses IndexedDB (private mode, a full disk) must not fail the edit behind it.
   }
 }
 
@@ -799,6 +801,9 @@ export function publishBroadcast(payload: BroadcastPayload): void {
     broadcastPublisher ??= new BroadcastChannel('inkstone')
     broadcastPublisher.postMessage({ ...payload, userId: activeUserId })
   } catch {
+    // Notifying the other tabs is best-effort: this tab's own state is already updated, and a
+    // browser that refuses the channel — or one without BroadcastChannel, guarded above — simply
+    // hears no echo.
   }
 }
 

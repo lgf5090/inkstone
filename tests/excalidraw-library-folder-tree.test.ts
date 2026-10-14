@@ -439,3 +439,37 @@ describe('dragging folders in the library tree', () => {
         expect(over.defaultPrevented).toBe(false);
     });
 });
+
+describe('the folder rows’ tree semantics', () => {
+    /** The wrapper a row’s ARIA is spread onto, one level above the `[data-library-folder]` box. */
+    function itemOf(id: string): HTMLElement {
+        const wrapper = rowOf(id).parentElement;
+        if (!wrapper || wrapper.getAttribute('role') !== 'treeitem')
+            throw new Error(`folder ${id} is not wrapped in a treeitem`);
+        return wrapper;
+    }
+
+    /** The one tree the panel renders, taken by throwing rather than by an optional chain that would
+     * read the same as a row with no tree above it. */
+    function treeOf(): HTMLElement {
+        const found = container.querySelector<HTMLElement>('[role="tree"]');
+        if (!found)
+            throw new Error('missing the folder tree');
+        return found;
+    }
+
+    it('roots every row at one named tree, so no treeitem is left dangling', () => {
+        const tree = treeOf();
+        expect(tree.getAttribute('aria-label')).toBe(t('excalidraw.library_title'));
+        for (const id of ['alpha', 'beta', 'gamma', 'delta'])
+            expect(itemOf(id).closest('[role="tree"]')).toBe(tree);
+    });
+
+    it('keeps the nested row inside its own branch group at the deeper level', () => {
+        expect(itemOf('beta').getAttribute('aria-level')).toBe('1');
+        expect(itemOf('gamma').getAttribute('aria-level')).toBe('2');
+        const group = itemOf('gamma').closest<HTMLElement>('[role="group"]');
+        expect(group).not.toBeNull();
+        expect(itemOf('beta').contains(group)).toBe(true);
+    });
+});

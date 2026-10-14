@@ -20,17 +20,6 @@ export const INBOX_TREE: VirtualTreeNamespace = { rootId: INBOX_ROOT_ID, prefix:
 
 const TREES: readonly VirtualTreeNamespace[] = [CALENDAR_TREE, TODO_TREE, INBOX_TREE];
 
-export const TREE_ROW_INDENT_BASE = 6;
-export const TREE_ROW_INDENT_STEP = 13;
-
-export function treeRowIndent(level: number): number {
-    return TREE_ROW_INDENT_BASE + level * TREE_ROW_INDENT_STEP;
-}
-
-export function virtualTreeRowIndent(depth: number): number {
-    return treeRowIndent(depth + 1);
-}
-
 export function splitTodoTags(tagText: string): string[] {
     return tagText.split(',').map((tag) => tag.trim().replace(/^#/, '')).filter(Boolean);
 }

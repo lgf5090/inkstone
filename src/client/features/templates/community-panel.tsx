@@ -5,6 +5,7 @@ import { Button, IconButton } from '../../components/primitives'
 import { Segmented } from '../../components/form'
 import { Tooltip } from '../../components/overlay'
 import { t, useLocale } from '../../lib/i18n'
+import { usePinyinVersion } from '../../lib/pinyin'
 import { sortCommunityItems, templateMatchesQuery, type CommunitySort } from './gallery-derived'
 
 export function CommunityPanel({ items, query, loading, isError, hasMore, myId, onRefresh, onLoadMore, onUse, onImport, onUnpublish }: {
@@ -21,10 +22,11 @@ export function CommunityPanel({ items, query, loading, isError, hasMore, myId, 
   onUnpublish: (item: CommunityTemplate) => void
 }) {
   useLocale()
+  const pinyinVersion = usePinyinVersion()
   const [sort, setSort] = useState<CommunitySort>('newest')
   const [mineOnly, setMineOnly] = useState(false)
   const scoped = useMemo(() => (mineOnly && myId ? items.filter((item) => item.authorId === myId) : items), [items, mineOnly, myId])
-  const visible = useMemo(() => sortCommunityItems(scoped.filter((item) => templateMatchesQuery(item, query)), sort), [scoped, query, sort])
+  const visible = useMemo(() => sortCommunityItems(scoped.filter((item) => templateMatchesQuery(item, query)), sort), [pinyinVersion, scoped, query, sort])
   const searching = query.trim() !== ''
   if (loading && items.length === 0)
     return (<div className='grid grid-cols-1 gap-2.5 sm:grid-cols-2 xl:grid-cols-3'>

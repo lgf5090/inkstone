@@ -13,6 +13,7 @@ import { ASSISTANT_MEMORY_CATEGORIES } from '@shared/assistant'
 import { api } from '../../lib/api'
 import { t } from '../../lib/i18n'
 import { relativeTime } from '../../lib/time'
+import { useDebounced } from '../../lib/hooks'
 import { Button, IconButton, Spinner } from '../../components/primitives'
 import { Field, Input, Segmented, Select, Textarea } from '../../components/form'
 import { Modal, confirm } from '../../components/overlay'
@@ -68,17 +69,15 @@ export function MemoryView() {
   const [editing, setEditing] = useState<AssistantMemory | 'new' | null>(null)
   const [correcting, setCorrecting] = useState<AssistantMemory | null>(null)
   const [historyOf, setHistoryOf] = useState<AssistantMemory | null>(null)
-  const [debounced, setDebounced] = useState(query)
+  const [draft, setDraft] = useState(query)
+  const debounced = useDebounced(draft, 250)
 
   useEffect(() => {
     void loadMemories()
   }, [loadMemories])
 
   useEffect(() => {
-    const timer = window.setTimeout(() => {
-      if (debounced !== query) void setFilter({ query: debounced })
-    }, 250)
-    return () => window.clearTimeout(timer)
+    if (debounced !== query) void setFilter({ query: debounced })
   }, [debounced, query, setFilter])
 
   const grouped = useMemo(() => {
@@ -119,8 +118,8 @@ export function MemoryView() {
           <div className="relative min-w-0 flex-1">
             <Search size={13} className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-[var(--text-quaternary)]" />
             <Input
-              value={debounced}
-              onChange={(event) => setDebounced(event.target.value)}
+              value={draft}
+              onChange={(event) => setDraft(event.target.value)}
               placeholder={t('assistant.memory.search')}
               aria-label={t('assistant.memory.search')}
               className="h-8 pl-8 text-[12px]"

@@ -5,7 +5,6 @@ import { walkSource } from './lib/scratch-files.mjs';
 const root = path.resolve('src/client');
 const localeRoot = path.resolve('src/shared/locales');
 const failures = [];
-const usedKeys = new Set();
 const forbiddenCjk = /[\p{Script=Han}\u3000-\u303f\uff00-\uffef]/u;
 const visibleAttributes = new Set(['alt', 'aria-label', 'description', 'hint', 'label', 'placeholder', 'title']);
 const ruleExampleCache = new WeakMap();
@@ -317,7 +316,6 @@ for (const file of walkSource(root)) {
                 report(node, 'module-scope t() freezes the initial locale');
             const argument = node.arguments[0];
             if (ts.isStringLiteral(argument) || ts.isNoSubstitutionTemplateLiteral(argument)) {
-                usedKeys.add(argument.text);
                 if (!english.has(argument.text))
                     report(argument, `unknown message key ${JSON.stringify(argument.text)}`);
                 if (/\p{Script=Han}/u.test(argument.text))
@@ -345,12 +343,54 @@ for (const file of walkSource(root)) {
         failures.push(`${path.relative(process.cwd(), file)}:${position.line + 1}:${position.character + 1} ${message}`);
     }
 }
+// The catalog is only worth shipping while every entry is reachable, so the keys are matched against
+// their references from the other side too: a key nobody names is copy no reader will ever be shown.
+// A reference is any string with the shape of a key, not only the first argument of a `t()` call,
+// because a label reaches `t()` out of a table, a conditional branch or a `labelKey` field as often
+// as it is written inline.
+const keyShaped = /['"`]([a-z][a-z0-9]*(?:\.[a-z0-9_]+)+)['"`]/g;
+// `t(`preview.kanban_op_${operator}`)` names a family rather than one key, so the whole family counts
+// as referenced. The head has to stop where a key segment stops, which is what keeps an ordinary
+// template (`preview${instanceScope}`) from exempting every key that starts with those letters.
+const keyFamily = /['"`]([a-z][a-z0-9_]*(?:\.[a-z0-9_]*)*[._])\$\{|(['"])([a-z][a-z0-9_]*(?:\.[a-z0-9_]*)*[._])\2\s*\+/g;
+const referenced = new Set();
+const families = new Set();
+for (const file of englishOnlyPaths.flatMap((target) => fs.existsSync(target) ? [...walkSource(target)] : [])) {
+    // The catalogs define the keys; only the code that asks for them counts as a reference.
+    if (!isTextSource(file) || file.startsWith(localeRoot + path.sep))
+        continue;
+    const text = fs.readFileSync(file, 'utf8');
+    for (const match of text.matchAll(keyShaped))
+        referenced.add(match[1]);
+    for (const match of text.matchAll(keyFamily))
+        families.add(match[1] ?? match[3]);
+}
+// A backup error is thrown as English text by the code that talks to the storage service, and
+// `translateServiceMessage` answers a reader's language by finding that text's key in the catalog by
+// its value: such a key is in use without ever being named. Only the code that raises those messages
+// is read for them, because the same word written as interface copy in a component proves nothing.
+const serviceMessagePaths = [path.resolve('src/worker'), path.resolve('src/shared'), path.resolve('src/client/demo')];
+const quotedText = /'([^'\n]*)'|"([^"\n]*)"|`([^`\n]*)`/g;
+const serviceMessages = new Set();
+for (const file of serviceMessagePaths.flatMap((target) => fs.existsSync(target) ? [...walkSource(target)] : [])) {
+    if (!isTextSource(file) || file.startsWith(localeRoot + path.sep))
+        continue;
+    for (const match of fs.readFileSync(file, 'utf8').matchAll(quotedText))
+        serviceMessages.add((match[1] ?? match[2] ?? match[3]).trim());
+}
+const unreferenced = [...english.keys()]
+    .filter((key) => !referenced.has(key)
+    && ![...families].some((head) => key.startsWith(head))
+    && !serviceMessages.has((english.get(key) ?? '').trim()))
+    .sort();
+for (const key of unreferenced)
+    failures.push(`unreferenced message key: ${key}`);
 if (failures.length) {
     console.error(`i18n validation failed (${failures.length}):`);
     failures.forEach((failure) => console.error(`  ${failure}`));
     process.exit(1);
 }
-console.log(`i18n check passed: ${english.size} English keys with complete en-US and zh-CN resources`);
+console.log(`i18n check passed: ${english.size} English keys with complete en-US and zh-CN resources, every one referenced`);
 function placeholders(value) {
     return [...value.matchAll(/\{[A-Za-z0-9_]+\}/g)].map((match) => match[0]).sort().join('|');
 }

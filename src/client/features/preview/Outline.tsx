@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ComponentType, type DragEvent as ReactDragEvent, type RefObject } from 'react';
+import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type ComponentType, type DragEvent as ReactDragEvent, type RefObject } from 'react';
 import {
     ListTree,
     Heading1,
@@ -16,7 +16,6 @@ import {
     ChevronsUpDown,
     Search,
     X,
-    Asterisk,
     type LucideProps,
 } from 'lucide-react';
 import type { OutlineTextDirectionName } from '@shared/types';
@@ -40,6 +39,7 @@ import {
     type DropPosition,
 } from './outline-sections';
 import { t } from '../../lib/i18n';
+import { compileQuery } from '../../lib/query-match';
 import {
     activeHeadingIndex,
     ancestorIndices,
@@ -260,11 +260,11 @@ export function Outline({ headings, onSelect, scrollerRef, className, noteId, de
     const tree = useMemo(() => buildOutlineTree(headings), [headings]);
     const { collapsed, setCollapsed, toggle } = useOutlineCollapse(tree, noteId, defaultLevel);
     const [query, setQuery] = useState('');
-    const [useRegex, setUseRegex] = useState(false);
     const [searchOpen, setSearchOpen] = useState(false);
     const [level, setLevel] = useState(defaultLevel);
     const listRef = useRef<HTMLUListElement>(null);
     const searchRef = useRef<HTMLInputElement>(null);
+    const filterHintId = useId();
     const command = useUi((state) => state.outlineCommand);
     // Seeded with the command already in the store so remounting never replays a stale request.
     const appliedCommandRef = useRef<number>(command?.seq ?? 0);
@@ -329,7 +329,8 @@ export function Outline({ headings, onSelect, scrollerRef, className, noteId, de
     const hidden = useMemo(() => computeHiddenByCollapse(tree, collapsed), [tree, collapsed]);
     const searching = query.trim().length > 0;
     const pinyinVersion = usePinyinVersion()
-    const filter = useMemo(() => filterTree(tree, query, useRegex), [tree, query, useRegex, pinyinVersion]);
+    const compiled = useMemo(() => compileQuery(query), [query]);
+    const filter = useMemo(() => filterTree(tree, query), [tree, query, pinyinVersion]);
     const drawn = tree.filter((_, index) => filter.visible[index] !== false && (searching || hidden[index] !== true));
 
     const locatedSlug = useMemo(() => {
@@ -525,11 +526,9 @@ export function Outline({ headings, onSelect, scrollerRef, className, noteId, de
         </button>
       </div>
 
-      {searchOpen && (<div className="mb-1 flex shrink-0 items-center gap-1 px-2">
-          <input ref={searchRef} type="search" value={query} onChange={(event) => setQuery(event.target.value)} onKeyDown={(event) => { if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); setQuery(''); setSearchOpen(false); } }} placeholder={t('outline.filter_placeholder')} aria-label={t('outline.filter_placeholder')} className="h-5 min-w-0 flex-1 rounded-[var(--r-sm)] border border-[var(--border-subtle)] bg-[var(--bg-surface)] px-1 text-[length:var(--text-10-5)] text-[var(--text-primary)] outline-none focus:border-[var(--accent)]"/>
-          <button type="button" role="switch" aria-checked={useRegex} aria-label={t('outline.regex')} title={t('outline.regex')} onClick={() => setUseRegex((current) => !current)} className={cn('shrink-0 rounded-[var(--r-sm)] p-0.5 transition-colors hover:bg-[var(--bg-hover)]', useRegex ? 'bg-[var(--accent-soft)] text-[var(--accent)]' : 'text-[var(--text-quaternary)]')}>
-            <Asterisk size={11}/>
-          </button>
+      {searchOpen && (<div className="mb-1 shrink-0 px-2">
+          <input ref={searchRef} type="search" value={query} onChange={(event) => setQuery(event.target.value)} onKeyDown={(event) => { if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); setQuery(''); setSearchOpen(false); } }} placeholder={t('outline.filter_placeholder')} aria-label={t('outline.filter_placeholder')} title={t('filter.regex_hint')} aria-invalid={compiled.error ? true : undefined} aria-describedby={compiled.error ? filterHintId : undefined} className={cn('h-5 w-full min-w-0 rounded-[var(--r-sm)] border bg-[var(--bg-surface)] px-1 text-[length:var(--text-10-5)] text-[var(--text-primary)] outline-none', compiled.error ? 'border-[var(--danger)] focus:border-[var(--danger)]' : 'border-[var(--border-subtle)] focus:border-[var(--accent)]')}/>
+          {compiled.error && (<p id={filterHintId} role="status" className="px-1 pt-0.5 text-[length:var(--text-10-5)] text-[var(--danger)]">{compiled.error === 'syntax' ? t('filter.regex_syntax') : t('filter.regex_unsafe')}</p>)}
         </div>)}
 
       {searching ? (<div className="mb-1 flex shrink-0 items-center gap-1 px-2 text-[length:var(--text-10-5)] text-[var(--text-quaternary)]">

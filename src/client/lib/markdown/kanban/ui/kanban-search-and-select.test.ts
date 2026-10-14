@@ -123,6 +123,29 @@ describe('KanbanSearchBox debounce', () => {
     const input = container.querySelector('input')!
     expect(input.value).toBe('synced')
   })
+
+  it('keeps the character typed while its own commit travels back through the board', () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+    const onSearchChange = vi.fn()
+    const { container, render } = renderSearchBox('', onSearchChange)
+    act(() => { container.querySelector<HTMLButtonElement>(`button[aria-label="${t('preview.kanban_search')}"]`)!.click() })
+    const input = container.querySelector('input')!
+
+    act(() => { typeInto(input, 'a') })
+    act(() => { vi.advanceTimersByTime(500) })
+    expect(onSearchChange).toHaveBeenLastCalledWith('a')
+
+    // The board is where the query actually lives, and it applies the commit on a render of its own
+    // choosing: the box goes on accepting keystrokes through that gap, and `render('a')` below is the
+    // echo arriving afterwards. Adopting it blind would rewind the box to what it said before the
+    // reader's next finger landed, which is a filter box that loses characters.
+    act(() => { typeInto(input, 'ab') })
+    render('a')
+    expect(input.value, 'the echoed commit overwrote the character typed after it').toBe('ab')
+
+    act(() => { vi.advanceTimersByTime(500) })
+    expect(onSearchChange).toHaveBeenLastCalledWith('ab')
+  })
 })
 
 describe('KanbanSearchBox while it is collapsed', () => {

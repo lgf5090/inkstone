@@ -12,12 +12,10 @@ import {
     buildVirtualTreeCached,
     resolveTodoTag,
     splitTodoTags,
-    treeRowIndent,
     virtualAncestorIds,
     virtualPathSegments,
     virtualPeriodKeyRange,
     virtualTreeRootLabel,
-    virtualTreeRowIndent,
     type CalendarNode,
     type VirtualTreeNamespace,
 } from '../../lib/calendar-tree';
@@ -29,7 +27,7 @@ import { useSession } from '../../store/session';
 import { useUi } from '../../store/ui';
 import { ExplorerNote } from './ExplorerNote';
 import { FolderMotionIcon } from './FolderMotionIcon';
-import { collapseOrLeave, expandOrReveal, moveTreeFocus } from './tree-keyboard';
+import { treeIndent, treeItemProps, useTreeKeyboard } from '../../lib/tree';
 import { useTreeChildrenMount } from './useTreeChildrenMount';
 
 export function isDropBlockedTarget(target: EventTarget | null): boolean {
@@ -172,31 +170,14 @@ function VirtualRow({ ns, rootIcon, node, allIds, showEmptyToggle }: {
             onSelect: () => saveCalendarPrefs({ showEmptyPeriods: !showEmptyPeriods }),
         });
     }
-    const onKeyDown = (event: React.KeyboardEvent<HTMLElement>) => {
-        if (event.nativeEvent.isComposing || event.altKey || event.ctrlKey || event.metaKey)
-            return;
-        if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
-            if (moveTreeFocus(event.currentTarget, event.key === 'ArrowDown' ? 1 : -1))
-                event.preventDefault();
-            return;
-        }
-        if (event.key === 'ArrowRight') {
-            if (expandOrReveal(event.currentTarget))
-                event.preventDefault();
-            return;
-        }
-        if (event.key === 'ArrowLeft') {
-            if (collapseOrLeave(event.currentTarget))
-                event.preventDefault();
-        }
-    };
-    return (<div role="treeitem" aria-level={node.depth + 2} aria-expanded={hasChildren ? expanded : undefined}>
+    const onKeyDown = useTreeKeyboard();
+    return (<div {...treeItemProps({ level: node.depth + 2, expanded: hasChildren ? expanded : undefined, selected: active })}>
       <div ref={anchor} onContextMenu={(event) => {
             setMenuOpen(false);
             menu.onContextMenu(event);
         }} className={cn('group relative flex h-11 items-center gap-1 rounded-[var(--r-md)] pr-1 md:h-[30px]', 'transition-colors duration-[var(--dur-fast)]', active
             ? 'bg-[var(--accent-soft)] text-[var(--text-primary)]'
-            : 'text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]', node.count === 0 && !isRoot && 'opacity-60')} style={{ paddingLeft: virtualTreeRowIndent(node.depth) }}>
+            : 'text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]', node.count === 0 && !isRoot && 'opacity-60')} style={{ paddingLeft: treeIndent(node.depth + 1) }}>
         <Tooltip label={expanded ? t("sidebar.collapse") : t("sidebar.expand")} side="right">
           <button type="button" disabled={!hasChildren} aria-hidden={!hasChildren || undefined} tabIndex={hasChildren ? undefined : -1} data-tree-toggle onClick={(event) => {
                 event.stopPropagation();
@@ -267,13 +248,13 @@ export function InboxTree() {
         { id: 'open', label: t("sidebar.open_in_list"), separatorBefore: true, onSelect: open },
     ];
     return (<div role="tree" aria-label={t("sidebar.inbox_folder")} className="mt-0.5 space-y-px" onDragOver={INBOX_NOTE_DRAG_OVER} onDrop={INBOX_NOTE_DROP}>
-      <div role="treeitem" aria-level={1} aria-expanded={unfiled.length > 0 ? expanded : undefined}>
+      <div {...treeItemProps({ level: 1, expanded: unfiled.length > 0 ? expanded : undefined, selected: active })}>
       <div ref={anchor} onContextMenu={(event) => {
             setMenuOpen(false);
             menu.onContextMenu(event);
         }} className={cn('group relative flex h-11 items-center gap-1 rounded-[var(--r-md)] pr-1 md:h-[30px]', 'transition-colors duration-[var(--dur-fast)]', active
             ? 'bg-[var(--accent-soft)] text-[var(--text-primary)]'
-            : 'text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]')} style={{ paddingLeft: treeRowIndent(0) }}>
+            : 'text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]')} style={{ paddingLeft: treeIndent(0) }}>
         <Tooltip label={expanded ? t("sidebar.collapse") : t("sidebar.expand")} side="right">
           <button type="button" disabled={unfiled.length === 0} aria-hidden={unfiled.length === 0 || undefined} tabIndex={unfiled.length ? undefined : -1} data-tree-toggle onClick={(event) => {
                 event.stopPropagation();

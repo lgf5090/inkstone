@@ -10,7 +10,7 @@
  * because a list that reshuffles itself for no input is indistinguishable from a bug.
  */
 import type { Query } from '../../lib/query-match'
-import { queryMatches } from '../../lib/query-match'
+import { queryKeepsRows, queryMatches } from '../../lib/query-match'
 import type { RssEntry } from '@shared/rss/model'
 
 export interface ScoredEntry {
@@ -26,7 +26,7 @@ export function searchEntries(
   query: Query,
   feedNames: Map<string, string>,
 ): ScoredEntry[] {
-  if (query.error || !query.text) return entries.map(entry => ({ entry, ranges: [] }))
+  if (queryKeepsRows(query)) return entries.map(entry => ({ entry, ranges: [] }))
   const scored: Array<ScoredEntry & { score: number }> = []
   for (const entry of entries) {
     const title = queryMatches(query, entry.title)

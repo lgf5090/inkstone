@@ -8,7 +8,7 @@ import {
     parentRowOf,
     toggleOf,
     visibleTreeRows,
-} from './tree-keyboard';
+} from './index';
 
 function mount(html: string): HTMLElement {
     const host = document.createElement('div');

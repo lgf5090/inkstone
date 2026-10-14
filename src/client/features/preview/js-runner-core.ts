@@ -64,6 +64,9 @@ export function hardenWorkerScope(scope: Record<string, unknown>): void {
     try {
       Object.defineProperty(navigator, 'sendBeacon', { value: undefined, writable: false, configurable: false })
     } catch {
+      // `sendBeacon` is a second route off the worker, but a navigator that refuses the redefinition
+      // is one the note's code cannot reach without it either; the page-side timeout is the backstop,
+      // exactly as for the loop above, so a refusal here is never a reason to stop.
     }
   }
 }

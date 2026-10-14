@@ -11,6 +11,7 @@ import type { ChatPrompt } from '@shared/assistant'
 import { MAX_PROMPT_CONTENT_CHARS, MAX_PROMPT_TITLE_CHARS } from '@shared/assistant'
 import { t } from '../../lib/i18n'
 import { cn } from '../../lib/cn'
+import { useDebounced } from '../../lib/hooks'
 import { Button, IconButton } from '../../components/primitives'
 import { Input, Textarea } from '../../components/form'
 import { Modal, confirm } from '../../components/overlay'
@@ -70,10 +71,10 @@ export function PromptsView() {
   const [creating, setCreating] = useState(false)
 
   useEffect(() => { void loadPrompts() }, [loadPrompts])
+  const settledQuery = useDebounced(query, 180)
   useEffect(() => {
-    const timer = window.setTimeout(() => void loadPrompts(query.trim() || undefined), 180)
-    return () => window.clearTimeout(timer)
-  }, [query, loadPrompts])
+    void loadPrompts(settledQuery.trim() || undefined)
+  }, [settledQuery, loadPrompts])
 
   const groups = useMemo(() => {
     const order: string[] = []

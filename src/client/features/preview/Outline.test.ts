@@ -31,7 +31,6 @@ const BRANCH_HEADINGS: Heading[] = [
 /** jsdom loads no locale bundle, so t() falls back to the key; tests match on that. */
 const KEY = {
     search: 'outline.toggle_search',
-    regex: 'outline.regex',
     matchCount: 'outline.match_count',
     noMatches: 'outline.no_matches',
 };
@@ -300,21 +299,26 @@ describe('Outline filtering', () => {
         unmount();
     });
 
-    it('matches a regular expression when the regex switch is on', async () => {
+    it('matches a regular expression written between slashes', async () => {
         const { container, unmount } = renderOutline(FOUR_LEVEL_HEADINGS);
-        const input = await openSearch(container);
-        await click(container.querySelector<HTMLButtonElement>(`button[aria-label="${KEY.regex}"]`)!);
-        await type(input, '^chapter');
+        await type(await openSearch(container), '/^chapter/');
         expect(slugs(container)).toEqual(['chapter-1']);
         unmount();
     });
 
-    it('keeps every row visible while the expression is still unparseable', async () => {
+    it('keeps every row visible and says so while the expression is unparseable', async () => {
         const { container, unmount } = renderOutline(FOUR_LEVEL_HEADINGS);
-        const input = await openSearch(container);
-        await click(container.querySelector<HTMLButtonElement>(`button[aria-label="${KEY.regex}"]`)!);
-        await type(input, '^chapter(');
+        await type(await openSearch(container), '/^chapter(/');
         expect(slugs(container)).toEqual(['chapter-1', 'section-1-1', 'detail-1-1-1', 'note-a']);
+        expect(container.textContent).toContain('filter.regex_syntax');
+        unmount();
+    });
+
+    it('refuses an expression that could run forever, and says which', async () => {
+        const { container, unmount } = renderOutline(FOUR_LEVEL_HEADINGS);
+        await type(await openSearch(container), '/(a+)+b/');
+        expect(slugs(container)).toEqual(['chapter-1', 'section-1-1', 'detail-1-1-1', 'note-a']);
+        expect(container.textContent).toContain('filter.regex_unsafe');
         unmount();
     });
 });
