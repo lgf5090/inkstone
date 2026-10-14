@@ -1,5 +1,4 @@
 import { t } from '../i18n';
-import { treeIndent } from '../../components/tree/indent';
 import type { CalendarPeriod } from './types';
 
 export const CALENDAR_ROOT_ID = 'cal';
@@ -20,14 +19,6 @@ export const TODO_TREE: VirtualTreeNamespace = { rootId: TODO_ROOT_ID, prefix: '
 export const INBOX_TREE: VirtualTreeNamespace = { rootId: INBOX_ROOT_ID, prefix: 'inbox:' };
 
 const TREES: readonly VirtualTreeNamespace[] = [CALENDAR_TREE, TODO_TREE, INBOX_TREE];
-
-export function treeRowIndent(level: number): number {
-    return treeIndent(level);
-}
-
-export function virtualTreeRowIndent(depth: number): number {
-    return treeIndent(depth + 1);
-}
 
 export function splitTodoTags(tagText: string): string[] {
     return tagText.split(',').map((tag) => tag.trim().replace(/^#/, '')).filter(Boolean);

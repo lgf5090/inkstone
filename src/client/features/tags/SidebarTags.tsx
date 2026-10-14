@@ -4,7 +4,7 @@ import { cn } from '../../lib/cn';
 import { splitByRanges } from '../../lib/fuzzy';
 import { compileQuery, queryMatches, type Query } from '../../lib/query-match';
 import { FilterInput } from '../../components/FilterInput';
-import { stepIndex, treeIndent, useExpandedSet } from '../../components/tree';
+import { stepIndex, treeIndent, useExpandedSet } from '../../lib/tree';
 import { buildTagTree, childTagPath, collectParentPaths, flattenTagTree, renameTagSegment, searchTagTree, siblingParentPaths } from '../../lib/tag-tree';
 import type { TagTreeNode } from '../../lib/tag-tree';
 import { IconButton } from '../../components/primitives';

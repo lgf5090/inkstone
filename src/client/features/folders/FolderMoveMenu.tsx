@@ -2,7 +2,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import { Check, ChevronRight, FolderClosed, Inbox } from 'lucide-react';
 import { cn } from '../../lib/cn';
 import { t } from '../../lib/i18n';
-import { stepIndex, treeIndent } from '../../components/tree';
+import { stepIndex, treeIndent } from '../../lib/tree';
 
 /**
  * What the flywheel reads from a folder: a name, its children, and how many things sit directly in it.

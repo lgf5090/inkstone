@@ -27,7 +27,7 @@ import { FolderPicker } from '../folders/FolderPicker';
 import { FolderColorMenu, FolderIconMenu } from '../folders/FolderAppearanceMenus';
 import { FolderMoveMenu } from '../folders/FolderMoveMenu';
 import { useLintFolderMenuItems } from '../linter/useLintMenuItems';
-import { treeIndent, treeItemProps, useTreeKeyboard } from '../../components/tree';
+import { treeIndent, treeItemProps, useTreeKeyboard } from '../../lib/tree';
 import { SidebarTags } from '../tags/SidebarTags';
 import { SidebarRecent } from './SidebarRecent';
 import { SidebarVersions } from './SidebarVersions';

@@ -12,12 +12,10 @@ import {
     buildVirtualTreeCached,
     resolveTodoTag,
     splitTodoTags,
-    treeRowIndent,
     virtualAncestorIds,
     virtualPathSegments,
     virtualPeriodKeyRange,
     virtualTreeRootLabel,
-    virtualTreeRowIndent,
     type CalendarNode,
     type VirtualTreeNamespace,
 } from '../../lib/calendar-tree';
@@ -29,7 +27,7 @@ import { useSession } from '../../store/session';
 import { useUi } from '../../store/ui';
 import { ExplorerNote } from './ExplorerNote';
 import { FolderMotionIcon } from './FolderMotionIcon';
-import { treeItemProps, useTreeKeyboard } from '../../components/tree';
+import { treeIndent, treeItemProps, useTreeKeyboard } from '../../lib/tree';
 import { useTreeChildrenMount } from './useTreeChildrenMount';
 
 export function isDropBlockedTarget(target: EventTarget | null): boolean {
@@ -179,7 +177,7 @@ function VirtualRow({ ns, rootIcon, node, allIds, showEmptyToggle }: {
             menu.onContextMenu(event);
         }} className={cn('group relative flex h-11 items-center gap-1 rounded-[var(--r-md)] pr-1 md:h-[30px]', 'transition-colors duration-[var(--dur-fast)]', active
             ? 'bg-[var(--accent-soft)] text-[var(--text-primary)]'
-            : 'text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]', node.count === 0 && !isRoot && 'opacity-60')} style={{ paddingLeft: virtualTreeRowIndent(node.depth) }}>
+            : 'text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]', node.count === 0 && !isRoot && 'opacity-60')} style={{ paddingLeft: treeIndent(node.depth + 1) }}>
         <Tooltip label={expanded ? t("sidebar.collapse") : t("sidebar.expand")} side="right">
           <button type="button" disabled={!hasChildren} aria-hidden={!hasChildren || undefined} tabIndex={hasChildren ? undefined : -1} data-tree-toggle onClick={(event) => {
                 event.stopPropagation();
@@ -256,7 +254,7 @@ export function InboxTree() {
             menu.onContextMenu(event);
         }} className={cn('group relative flex h-11 items-center gap-1 rounded-[var(--r-md)] pr-1 md:h-[30px]', 'transition-colors duration-[var(--dur-fast)]', active
             ? 'bg-[var(--accent-soft)] text-[var(--text-primary)]'
-            : 'text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]')} style={{ paddingLeft: treeRowIndent(0) }}>
+            : 'text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]')} style={{ paddingLeft: treeIndent(0) }}>
         <Tooltip label={expanded ? t("sidebar.collapse") : t("sidebar.expand")} side="right">
           <button type="button" disabled={unfiled.length === 0} aria-hidden={unfiled.length === 0 || undefined} tabIndex={unfiled.length ? undefined : -1} data-tree-toggle onClick={(event) => {
                 event.stopPropagation();

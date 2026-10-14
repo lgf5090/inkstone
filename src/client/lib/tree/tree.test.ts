@@ -1,7 +1,7 @@
 import { act, createElement, useState } from 'react'
 import type { KeyboardEvent as ReactKeyboardEvent } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { renderElement, type RenderedElement } from '../../lib/test-render'
+import { renderElement, type RenderedElement } from '../test-render'
 import { stepIndex, treeIndent, treeItemProps, useExpandedSet, useTreeKeyboard } from './index'
 import type { ExpandedSet } from './index'
 
