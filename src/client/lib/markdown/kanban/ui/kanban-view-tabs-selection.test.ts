@@ -3,14 +3,18 @@
  * themes those two tokens are the same colour (`oklch(100% 0 0)` on the warm paper theme, `#ffffff`
  * on the system one) — so on a light theme the strip showed no selection at all (user report
  * 2026-09-23: the inline board shows which tab is active and the full screen one does not). The pair
- * that says "this is the current one" everywhere else in the app is the accent on its own tint, which
- * is also the pairing the token layer calibrates for every accent.
+ * that says "this is the current one" everywhere else in the app is the accent on its own tint.
  *
  * What a jsdom case can hold is the token choice and the invariant that goes with it — the selection
- * is not painted in a token the header itself uses — because jsdom computes no colours. The colours
- * themselves are measured on the real screen: `check-contrast.mjs` reads the board's painted accent
- * (the surface declares that family now) in both themes, and `e2e-visual.mjs` measures the selected
- * tab's own background against the colour already behind it, in the note and in the overlay.
+ * is not painted in a token the header itself uses — because jsdom computes no colours. What measures
+ * the tint itself is nothing: this repo drives no browser, and no token gate reads `--accent` as text
+ * on `--accent-soft`, so the pairing this selection paints is not calibrated by the token layer the
+ * way it is often described. Read by hand with `scripts/lib/contrast.mjs` it lands under AA 4.5 for
+ * amber on a light theme (3.90:1, white being what both light variants put behind it) and for
+ * cinnabar on the dark theme's white-background surface (4.10:1) — the same unresolved debt
+ * `tests/json-view-contrast.test.ts` records for the block toolbars' accent-on-soft. The accent pair a
+ * gate does hold is text on a solid fill, `--accent-contrast` on `--accent`, for every accent in both
+ * themes, in `tests/kanban-contrast-tokens.test.ts`.
  *
  * The strip is also where a board with more views than fit has to own up to where the selected one
  * went: it scrolls, and the tab the reader just selected has to be brought back into it.

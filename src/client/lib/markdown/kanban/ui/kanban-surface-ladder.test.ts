@@ -11,10 +11,13 @@
  * board is the same object in both places — the rule for it lives in `styles/kanban.css`.
  *
  * A jsdom case can hold the tokens a component paints with and the colour a column declares, which
- * is what is asserted here. What only a browser can show — that the three painted colours really
- * differ, and that two columns' bands really differ from each other and from the column below them —
- * is measured on the real screen by `e2e-visual.mjs`, and the pairs the band's text makes are judged
- * by `check-contrast.mjs` in both themes.
+ * is what is asserted here. What only a browser could show — that the three painted colours really
+ * differ, and that two columns' bands differ from each other and from the column below them — is
+ * measured by nothing: this repo drives no browser, and no token gate compares one surface token
+ * with another. (On a default light theme `--bg-surface` and `--bg-raised` are both `oklch(100% 0 0)`,
+ * so the card separates from its column by the border and shadow `kanban-card.tsx` gives it, not by a
+ * lighter fill.) The pairs the band's text makes are judged from the declarations, in both themes, by
+ * `tests/kanban-tag-contrast.test.ts`.
  */
 import { createElement } from 'react'
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'

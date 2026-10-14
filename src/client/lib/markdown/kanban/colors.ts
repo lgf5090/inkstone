@@ -25,14 +25,20 @@ export const KANBAN_COLOR_NAMES: readonly KanbanColorName[] = [
  * Every `--kanban-tag-<name>-fg` clears AA (4.5:1) as text on its own 14% tint over each surface a
  * theme and background variant declares, and on those surfaces themselves — the light column
  * therefore sits near 48% lightness and the dark one near 73%, which are the values the ratio
- * allows rather than the ones the palette started with (a mid-lightness blue has 3.64:1 on its own
- * tint, which is what the browser reader reported for it). Each tint is a `color-mix` of its own
- * foreground rather than a second stored hex: the old pairs were two hexes with two alphas and had
- * drifted apart — a tag's dark tint was its light hex — and a mix cannot disagree with its colour.
+ * allows rather than the ones the palette started with (the mid-lightness blue it started with read
+ * 3.64:1 on its own tint, below the floor — the recorded number this calibration moved away from,
+ * not something a gate still measures). Each tint is a `color-mix` of its own foreground rather than
+ * a second stored hex: the old pairs were two hexes with two alphas and had drifted apart — a tag's
+ * dark tint was its light hex — and a mix cannot disagree with its colour.
  *
- * `scripts/check-contrast.mjs` measures both rules for every colour those blocks declare, in both
- * themes and both background variants; the board's own axe read in `scripts/e2e-visual.mjs` keeps
- * the painted chips judged on real pixels, with no allowance left for them.
+ * That gate judges the tint rule for every colour these blocks declare, in both themes, against every
+ * solid surface of the cascade it resolves (the white-background override folded in); the fill pairs
+ * are judged by `tests/kanban-contrast-tokens.test.ts`. Nothing paints a chip and looks at it, because
+ * this repo drives no browser, so the declarations are all a gate can see — and reading them covers
+ * every colour in every theme at once, which is a stronger claim than one screenshot of one board.
+ * The "on those surfaces themselves" half above is held by the values, not by a test: read against the
+ * same cascade the gate resolves, it comes out at 5.86:1 as the light theme's worst and 5.81:1 as the
+ * dark one's.
  */
 export function getKanbanTagStyle(color?: KanbanColorName | string | null): CSSProperties {
   if (!color || !KANBAN_COLOR_NAMES.includes(color as KanbanColorName)) {
