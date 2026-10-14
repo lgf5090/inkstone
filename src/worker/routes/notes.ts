@@ -1,7 +1,8 @@
 import { Hono } from 'hono'
+import type { Context } from 'hono'
 import { LIMITS } from '@shared/constants'
-import { countText, deriveExcerpt, extractTags, foldCase, foldIndexOf, likePattern, linkFirstMention, normalizeLinkKey, plainLinkText, replaceWikiLinkTarget, trimFrontMatterLead } from '@shared/markdown-utils'
-import { duplicateNoteTitle, truncateText, utf8ByteLength } from '@shared/text-utils'
+import { countText, deriveExcerpt } from '@shared/markdown-utils'
+import { duplicateNoteTitle, truncateText } from '@shared/text-utils'
 import type {
   CreateNoteBody,
   ListNotesResponse,
@@ -11,62 +12,67 @@ import type {
   SortOrder,
   ViewKind,
 } from '@shared/types'
-import { buildFtsQuery } from './search'
 import type { AppBindings } from '../env'
-import { NOTE_COLUMNS_FULL, NOTE_COLUMNS_NOTAGS, attachNoteTags, noteTagsQueryForPage, splitTags, tagScopePredicate, toNote, toNoteSummary, type NoteRow, type NoteTagRow } from '../db/rows'
+import { toNote, toNoteSummary, type NoteRow } from '../db/rows'
 import { assertNoteQuota } from '../db/quota'
+import { rebuildDerivedFields, pruneOrphanTags } from '../db/writes'
+import {
+  NotesStore,
+  findLinkedBacklinks,
+  findUnlinkedMentions,
+  linkMentionInNote,
+  rewriteInboundWikiLinks,
+  type NotePatchColumns,
+  type NotesListCursor,
+  type NoteWriteResult,
+  type ParsedNotesListCursor,
+} from '../notes/store'
 import { acquireLease } from '../lib/lease'
 import { assertAttemptBudget, consumeAttemptBudget } from '../lib/throttle'
-import {
-  buildNoteDerivedStatements,
-  rebuildDerivedFields,
-  INLINE_REWRITE_LIMIT,
-  FTS_QUEUE_CONFLICT_SQL,
-  REWRITE_CONCURRENCY,
-  REWRITE_LOAD_CHUNK,
-  rewriteQueueStatement,
-  LINK_TARGET_SUBQUERY,
-  pruneOrphanTags,
-} from '../db/writes'
 import { fromBase64Url, fromUtf8, sha256Hex, toBase64Url, utf8 } from '../lib/encoding'
 import { ApiError } from '../lib/errors'
 import { isValidId, newId } from '../lib/id'
 import { broadcastCursor, scheduleFtsDrain } from '../lib/notify'
 import { assertContentSize, clampInt, JSON_BODY_LIMITS, readJson } from '../lib/request'
 import { requireAuth } from '../middleware/auth'
-import { aiDeleteNeededSql, noteIndexQueueStatement, scheduleAiDrainForNote } from '../mcp/ai-search'
+import { scheduleAiDrainForNote } from '../mcp/ai-search'
+
+/**
+ * The link and trash panels' shared SQL helpers, kept addressable from this module because
+ * `lib/rewrite-drain.ts` and the backlink tests reach them through the notes route.
+ */
+export {
+  findLinkedBacklinks,
+  findUnlinkedMentions,
+  linkMentionInNote,
+  rewriteInboundWikiLinks,
+  trashPurgeStatements,
+} from '../notes/store'
 
 export const notesRoutes = new Hono<AppBindings>()
 
 notesRoutes.use('*', requireAuth)
 
 
-const SNAPSHOT_INTERVAL_MS = 5 * 60 * 1000
-
 const SNAPSHOT_DIFF_THRESHOLD = 400
-
-interface NotesListCursor {
-  view: ViewKind
-  sort: SortKey
-  order: SortOrder
-  pinned: number
-  value: string | number
-  id: string
-}
-
-type ParsedNotesListCursor =
-  | { kind: 'first' }
-  | { kind: 'legacy'; offset: number }
-  | { kind: 'keyset'; cursor: NotesListCursor }
 
 const NOTE_VIEWS = new Set<ViewKind>(['all', 'recent', 'starred', 'unfiled', 'untagged', 'archived', 'trash', 'folder', 'tag'])
 const NOTE_SORTS = new Set<SortKey>(['updated', 'created', 'title'])
 /** Ids per dependent-table delete when emptying the trash. */
 const TRASH_EMPTY_BATCH = 500
 
+/**
+ * The persistence layer for these routes, bound to the account the request authenticated as.
+ *
+ * Same shape as `assistant.ts`: the route parses and validates, asks the store for a record, and
+ * turns that record into a response; no statement is built here.
+ */
+function store(c: Context<AppBindings>): NotesStore {
+  return new NotesStore(c.env.DB, c.get('userId'), c.get('database').ftsEnabled)
+}
+
 
 notesRoutes.get('/', async (c) => {
-  const userId = c.get('userId')
   const requestedView = c.req.query('view') as ViewKind | undefined
   const requestedSort = c.req.query('sort') as SortKey | undefined
   const view = requestedView && NOTE_VIEWS.has(requestedView) ? requestedView : 'all'
@@ -75,141 +81,27 @@ notesRoutes.get('/', async (c) => {
   const limit = clampInt(c.req.query('limit'), 1, 1000, 500)
   const cursor = parseNotesListCursor(c.req.query('cursor'), view, sort, order)
 
-  const binds: unknown[] = [userId]
-  let where = 'n.user_id = ?1'
+  const folderId = view === 'folder' ? c.req.query('folderId') : undefined
+  if (view === 'folder' && !folderId) throw ApiError.badRequest('Missing folderId')
 
-  if (view === 'trash') {
-    where += ' AND n.deleted_at IS NOT NULL'
-  } else {
-    where += ' AND n.deleted_at IS NULL'
-    where += view === 'archived' ? ' AND n.is_archived = 1' : ' AND n.is_archived = 0'
-  }
-
-  if (view === 'starred') where += ' AND n.is_starred = 1'
-  if (view === 'unfiled') where += ' AND n.folder_id IS NULL'
-  if (view === 'untagged') {
-    where += ' AND NOT EXISTS (SELECT 1 FROM note_tags nt WHERE nt.note_id = n.id)'
-  }
-
-  if (view === 'folder') {
-    const folderId = c.req.query('folderId')
-    if (!folderId) throw ApiError.badRequest('Missing folderId')
-    binds.push(folderId)
-    where += ` AND n.folder_id = ?${binds.length}`
-  }
-
-  // Several `tag` params combine with AND, and each one also matches its whole subtree so the
-  // rolled-up count in the sidebar and the result set agree. Both halves have to stay in step
-  // with tagInScope(), which spells the same rule in TypeScript for the offline shell.
-  const excludedScopes = [...new Set(new URL(c.req.url).searchParams.getAll('excludeTag'))]
+  const excludeTags = [...new Set(new URL(c.req.url).searchParams.getAll('excludeTag'))]
     .map((value) => value.trim())
     .filter(Boolean)
     .slice(0, LIMITS.tagFilterMax)
-  for (const scope of excludedScopes) {
-    binds.push(scope.trim(), likePattern(`${scope.trim()}/`))
-    const nameBind = binds.length - 1
-    const prefixBind = binds.length
-    where += ` AND NOT EXISTS (SELECT 1 FROM note_tags nt JOIN tags t ON t.id = nt.tag_id
-                   WHERE nt.note_id = n.id AND t.user_id = n.user_id
-                     AND ${tagScopePredicate('t.name', `?${nameBind}`, `?${prefixBind}`)})`
-  }
 
+  let tags: string[] | undefined
   if (view === 'tag') {
-    const tags = [...new Set(new URL(c.req.url).searchParams.getAll('tag'))]
+    tags = [...new Set(new URL(c.req.url).searchParams.getAll('tag'))]
       .map((value) => value.trim())
       .filter(Boolean)
       .slice(0, LIMITS.tagFilterMax)
     if (!tags.length) throw ApiError.badRequest('Missing tag')
-    for (const tag of tags) {
-      binds.push(tag, likePattern(`${tag}/`))
-      const nameBind = binds.length - 1
-      const prefixBind = binds.length
-      where += ` AND EXISTS (SELECT 1 FROM note_tags nt JOIN tags t ON t.id = nt.tag_id
-                   WHERE nt.note_id = n.id AND t.user_id = n.user_id
-                     AND ${tagScopePredicate('t.name', `?${nameBind}`, `?${prefixBind}`)})`
-    }
   }
 
-  const countWhere = where
-  const countBinds = [...binds]
+  // The store returns one row past the page so the route can decide `nextCursor` from the row it
+  // would have dropped, and keeps the total only when a fresh count was worth the scan.
+  const { rows, total } = await store(c).list({ view, sort, order, limit, cursor, folderId, tags, excludeTags })
 
-  const dir = order === 'asc' ? 'ASC' : 'DESC'
-  const valueColumn = view === 'trash'
-    ? 'n.deleted_at'
-    : sort === 'created'
-      ? 'n.created_at'
-      : sort === 'title'
-        ? 'n.title'
-        : 'n.updated_at'
-  const valueCollation = sort === 'title' && view !== 'trash' ? ' COLLATE NOCASE' : ''
-  const orderBy =
-    view === 'trash'
-      ? `n.deleted_at ${dir}, n.id ASC`
-      : ({
-          updated: `n.is_pinned DESC, n.updated_at ${dir}, n.id ASC`,
-          created: `n.is_pinned DESC, n.created_at ${dir}, n.id ASC`,
-          title: `n.is_pinned DESC, n.title COLLATE NOCASE ${dir}, n.id ASC`,
-        }[sort] ?? `n.is_pinned DESC, n.updated_at ${dir}, n.id ASC`)
-
-  if (cursor.kind === 'keyset') {
-    const comparison = order === 'asc' ? '>' : '<'
-    if (view === 'trash') {
-      binds.push(cursor.cursor.value, cursor.cursor.value, cursor.cursor.id)
-      const valueBind = binds.length - 2
-      const repeatedValueBind = binds.length - 1
-      const idBind = binds.length
-      where += ` AND (${valueColumn}${valueCollation} ${comparison} ?${valueBind}
-        OR (${valueColumn}${valueCollation} = ?${repeatedValueBind} AND n.id > ?${idBind}))`
-    } else {
-      binds.push(
-        cursor.cursor.pinned,
-        cursor.cursor.pinned,
-        cursor.cursor.value,
-        cursor.cursor.value,
-        cursor.cursor.id,
-      )
-      const firstPinnedBind = binds.length - 4
-      const repeatedPinnedBind = binds.length - 3
-      const valueBind = binds.length - 2
-      const repeatedValueBind = binds.length - 1
-      const idBind = binds.length
-      where += ` AND (n.is_pinned < ?${firstPinnedBind}
-        OR (n.is_pinned = ?${repeatedPinnedBind} AND (
-          ${valueColumn}${valueCollation} ${comparison} ?${valueBind}
-          OR (${valueColumn}${valueCollation} = ?${repeatedValueBind} AND n.id > ?${idBind})
-        )))`
-    }
-  }
-
-  const pageFrom = cursor.kind === 'legacy'
-    ? `FROM notes n WHERE ${where} ORDER BY ${orderBy}
-       LIMIT ?${binds.length + 1} OFFSET ?${binds.length + 2}`
-    : `FROM notes n WHERE ${where} ORDER BY ${orderBy}
-       LIMIT ?${binds.length + 1}`
-  const pageBinds = cursor.kind === 'legacy'
-    ? [...binds, limit + 1, cursor.offset]
-    : [...binds, limit + 1]
-  const listStatement = c.env.DB.prepare(`SELECT ${NOTE_COLUMNS_NOTAGS} ${pageFrom}`).bind(...pageBinds)
-  const tagStatement = c.env.DB.prepare(noteTagsQueryForPage(pageFrom)).bind(...pageBinds)
-  // A keyset page continues a listing the client already counted; re-counting scans every
-  // visible row (up to LIMITS.notesMaxPerUser) again on each page turn.
-  const countTotal = cursor.kind !== 'keyset'
-  const results = await c.env.DB.batch(countTotal
-    ? [
-        c.env.DB.prepare(`SELECT COUNT(*) AS total FROM notes n WHERE ${countWhere}`).bind(...countBinds),
-        listStatement,
-        tagStatement,
-      ]
-    : [listStatement, tagStatement])
-  const [countResult, listResult, tagResult] = countTotal
-    ? results
-    : [undefined, results[0], results[1]]
-
-  const total = countTotal
-    ? Number((countResult?.results?.[0] as { total?: unknown } | undefined)?.total ?? 0)
-    : null
-  const rows = listResult?.results as NoteRow[] | undefined ?? []
-  attachNoteTags(rows, (tagResult?.results as NoteTagRow[] | undefined) ?? [])
   const pageRows = rows.slice(0, limit)
   const notes = pageRows.map(toNoteSummary)
   const body: ListNotesResponse = {
@@ -225,34 +117,24 @@ notesRoutes.get('/', async (c) => {
 
 notesRoutes.post('/trash/empty', async (c) => {
   const userId = c.get('userId')
-  const { ftsEnabled } = c.get('database')
+  const s = store(c)
   let purged = 0
   let deletionCursor: number | undefined
 
   // One statement per dependent table, over 500 ids at a time. The old shape inlined the same
   // unbounded `SELECT id FROM notes WHERE deleted_at IS NOT NULL` into 8 statements, so a 20k
   // note trash walked 8×20k rows inside a single D1 request and hit its CPU ceiling.
-  const trashedIds = c.env.DB.prepare(
-    `SELECT id FROM notes WHERE user_id = ?1 AND deleted_at IS NOT NULL AND id > ?2
-      ORDER BY id ASC LIMIT ?3`,
-  )
   let cursor = ''
   for (;;) {
-    const { results } = await trashedIds.bind(userId, cursor, TRASH_EMPTY_BATCH).all<{ id: string }>()
-    if (!results.length) break
-    const ids = results.map((row) => row.id)
+    const ids = await s.trashedNoteIdsAfter(cursor, TRASH_EMPTY_BATCH)
+    if (!ids.length) break
     cursor = ids[ids.length - 1]!
-    const idsJson = JSON.stringify(ids)
-    const statements = trashPurgeStatements(c.env.DB, userId, idsJson, Date.now(), ftsEnabled)
-    const batchResults = await c.env.DB.batch(statements)
+    const batchResults = await s.purgeTrashed(ids, Date.now())
     purged += batchResults.at(-1)?.meta.changes ?? 0
-    if (results.length < TRASH_EMPTY_BATCH) break
+    if (ids.length < TRASH_EMPTY_BATCH) break
   }
   if (purged) {
-    const latest = await c.env.DB.prepare(
-      `SELECT seq FROM changes WHERE user_id = ?1 ORDER BY seq DESC LIMIT 1`,
-    ).bind(userId).first<{ seq: number }>()
-    deletionCursor = latest?.seq
+    deletionCursor = await s.latestChangeSeq()
     scheduleFtsDrain(c)
   }
   await pruneOrphanTags(c.env.DB, userId)
@@ -260,81 +142,12 @@ notesRoutes.post('/trash/empty', async (c) => {
   return c.json({ purged })
 })
 
-/**
- * The dependent-table cleanup for one page of trashed note ids, in the order the cascade
- * needs: link retargeting before the notes go, share sessions before their shares.
- * Statements bind `?1` = account, `?2` = JSON id page (the note_tags delete has no account
- * column to filter, so it takes the id page as `?1`), `?3` = timestamp.
- */
-export function trashPurgeStatements(
-  db: D1Database,
-  userId: string,
-  idsJson: string,
-  now: number,
-  ftsEnabled: boolean,
-): D1PreparedStatement[] {
-  const inTrash = `IN (SELECT value FROM json_each(?2))`
-  const statements = [
-    db.prepare(
-      `DELETE FROM mcp_operations WHERE user_id = ?1 AND EXISTS (
-         SELECT 1 FROM json_each(?2) e WHERE instr(mcp_operations.response_json, e.value) > 0)`,
-    ).bind(userId, idsJson),
-    db.prepare(`DELETE FROM note_tags WHERE note_id IN (SELECT value FROM json_each(?1))`).bind(idsJson),
-    db.prepare(`DELETE FROM links WHERE user_id = ?1 AND source_note_id ${inTrash}`).bind(userId, idsJson),
-    db.prepare(
-      `UPDATE links SET target_note_id = ${LINK_TARGET_SUBQUERY}
-        WHERE user_id = ?1 AND target_note_id ${inTrash}`,
-    ).bind(userId, idsJson),
-    db.prepare(`DELETE FROM note_versions WHERE user_id = ?1 AND note_id ${inTrash}`).bind(userId, idsJson),
-    db.prepare(
-      `DELETE FROM share_asset_sessions WHERE slug IN (
-         SELECT slug FROM shares WHERE user_id = ?1 AND note_id ${inTrash}
-       )`,
-    ).bind(userId, idsJson),
-    db.prepare(`DELETE FROM shares WHERE user_id = ?1 AND note_id ${inTrash}`).bind(userId, idsJson),
-    db.prepare(`UPDATE attachments SET note_id = NULL WHERE user_id = ?1 AND note_id ${inTrash}`).bind(userId, idsJson),
-    db.prepare(
-      `DELETE FROM import_mappings WHERE user_id = ?1 AND entity = 'note' AND target_id ${inTrash}`,
-    ).bind(userId, idsJson),
-  ]
-  if (ftsEnabled) {
-    statements.push(
-      db.prepare(
-        `INSERT INTO fts_index_queue (user_id, note_id, kind, created_at)
-         SELECT ?1, id, 'delete', ?3
-           FROM notes WHERE user_id = ?1 AND deleted_at IS NOT NULL AND id ${inTrash}
-         ${FTS_QUEUE_CONFLICT_SQL}`,
-      ).bind(userId, idsJson, now),
-    )
-  }
-  statements.push(
-    db.prepare(
-      `INSERT OR REPLACE INTO ai_index_queue (user_id, note_id, kind, created_at)
-       SELECT ?1, id, 'delete', ?3
-         FROM notes WHERE user_id = ?1 AND deleted_at IS NOT NULL AND id ${inTrash}
-           AND ${aiDeleteNeededSql('?1', 'notes.id')}`,
-    ).bind(userId, idsJson, now),
-    db.prepare(
-      `INSERT INTO changes (user_id, entity, entity_id, op, at)
-       SELECT ?1, 'note', id, 'delete', ?3
-         FROM notes WHERE user_id = ?1 AND deleted_at IS NOT NULL AND id ${inTrash}`,
-    ).bind(userId, idsJson, now),
-    db.prepare(
-      `DELETE FROM notes WHERE user_id = ?1 AND deleted_at IS NOT NULL AND id ${inTrash}`,
-    ).bind(userId, idsJson),
-  )
-  return statements
-}
-
-
 notesRoutes.get('/:id', async (c) => {
-  const note = await loadNote(c.env.DB, c.get('userId'), c.req.param('id'))
-  return c.json(note)
+  return c.json(await loadNote(store(c), c.req.param('id')))
 })
 
 notesRoutes.post('/', async (c) => {
   const userId = c.get('userId')
-  const { ftsEnabled } = c.get('database')
   const body = await readJson<CreateNoteBody>(c, JSON_BODY_LIMITS.note)
 
   if (body.content !== undefined && typeof body.content !== 'string') {
@@ -357,16 +170,12 @@ notesRoutes.post('/', async (c) => {
 
   const id = body.id ?? newId()
   if (body.id) {
-    const existing = await c.env.DB.prepare(
-      `SELECT ${NOTE_COLUMNS_FULL} FROM notes n WHERE n.id = ?1 AND n.user_id = ?2`,
-    )
-      .bind(id, userId)
-      .first<NoteRow>()
+    // A client-supplied id makes the create idempotent: the account's own note answers with 200,
+    // another account's with 409, and only an unclaimed id is inserted.
+    const s = store(c)
+    const existing = await s.noteRow(id)
     if (existing) return c.json(toNote(existing))
-    const collision = await c.env.DB.prepare(`SELECT user_id FROM notes WHERE id = ?1`)
-      .bind(id)
-      .first<{ user_id: string }>()
-    if (collision) throw ApiError.conflict('This note id is already in use')
+    if (await s.idTakenByAnyone(id)) throw ApiError.conflict('This note id is already in use')
   }
   const now = Date.now()
   const title = resolveNoteTitle(body.title)
@@ -374,57 +183,28 @@ notesRoutes.post('/', async (c) => {
   const { words, chars } = countText(content)
   // The quota read rides along with hashing instead of adding a serial round trip.
   const [hash] = await Promise.all([sha256Hex(content), assertNoteQuota(c.env.DB, userId)])
-  const folderId = await resolveFolderId(c.env.DB, userId, body.folderId ?? null)
+  const folderId = await resolveFolderId(c, body.folderId ?? null)
 
-  const insert = c.env.DB.prepare(
-    `INSERT OR IGNORE INTO notes (id, user_id, folder_id, title, content, excerpt, rev, word_count, char_count,
-       is_pinned, is_starred, is_archived, position, content_hash, created_at, updated_at)
-     VALUES (?1, ?2, ?3, ?4, ?5, ?6, 1, ?7, ?8, 0, ?9, 0, ?10, ?11, ?12, ?12)`,
-  )
-    .bind(id, userId, folderId, title, content, excerpt, words, chars, body.isStarred ? 1 : 0, now, hash, now)
-  const derived = buildNoteDerivedStatements({
-    db: c.env.DB,
-    userId,
-    noteId: id,
+  const { row, changeSeq, created } = await store(c).create({
+    id,
+    folderId,
     title,
     content,
-    ftsEnabled,
-    expectedRev: 1,
-    expectedContentHash: hash,
-    expectedTitle: title,
-    expectedUpdatedAt: now,
-  }).statements
-  const createChange = c.env.DB.prepare(
-    `INSERT INTO changes (user_id, entity, entity_id, op, at)
-     SELECT ?1, 'note', ?2, 'upsert', ?3
-      WHERE EXISTS (
-        SELECT 1 FROM notes
-         WHERE id = ?2 AND user_id = ?1 AND rev = 1
-           AND content_hash = ?4 AND title = ?5 AND created_at = ?3 AND updated_at = ?3
-      )
-     RETURNING seq`,
-  ).bind(userId, id, now, hash, title)
-  const readback = c.env.DB.prepare(
-    `SELECT ${NOTE_COLUMNS_FULL} FROM notes n WHERE n.id = ?1 AND n.user_id = ?2`,
-  ).bind(id, userId)
-  const batchResults = await c.env.DB.batch([
-    insert,
-    ...derived,
-    noteIndexQueueStatement(c.env.DB, userId, id, 'embed', now),
-    createChange,
-    readback,
-  ])
-  const insertResult = batchResults[0]
-  const created = (batchResults.at(-1) as D1Result<NoteRow>).results?.[0]
-  if (!created) throw ApiError.conflict('This note id is already in use')
-  const changeSeq = (batchResults.at(-2) as D1Result<{ seq: number }>).results?.[0]?.seq
+    excerpt,
+    words,
+    chars,
+    isStarred: Boolean(body.isStarred),
+    contentHash: hash,
+    now,
+  })
+  if (!row) throw ApiError.conflict('This note id is already in use')
   await broadcastCursor(c, changeSeq)
-  if (insertResult?.meta.changes) {
+  if (created) {
     scheduleFtsDrain(c)
     scheduleAiDrainForNote(c, userId)
   }
-  const note = toNote(created)
-  return c.json(note, insertResult?.meta.changes ? 201 : 200)
+  const note = toNote(row)
+  return c.json(note, created ? 201 : 200)
 })
 
 notesRoutes.patch('/:id', async (c) => {
@@ -433,19 +213,10 @@ notesRoutes.patch('/:id', async (c) => {
   const { ftsEnabled } = c.get('database')
   const body = await readJson<PatchNoteBody>(c, JSON_BODY_LIMITS.note)
 
-  const row = await c.env.DB.prepare(
-    `SELECT ${NOTE_COLUMNS_FULL} FROM notes n WHERE n.id = ?1 AND n.user_id = ?2`,
-  )
-    .bind(id, userId)
-    .first<NoteRow>()
+  const s = store(c)
+  const row = await s.noteRow(id)
   if (!row) {
-    const deletion = await c.env.DB.prepare(
-      `SELECT MAX(seq) AS seq FROM changes
-        WHERE user_id = ?1 AND entity = 'note' AND entity_id = ?2 AND op = 'delete'`,
-    )
-      .bind(userId, id)
-      .first<{ seq: number | null }>()
-    throw ApiError.notFound('Note not found', { deletionCursor: deletion?.seq ?? null })
+    throw ApiError.notFound('Note not found', { deletionCursor: await s.latestDeletionSeq(id) })
   }
 
   if (!Number.isInteger(body.rev) || body.rev < 1) {
@@ -476,8 +247,7 @@ notesRoutes.patch('/:id', async (c) => {
   }
 
   const now = Math.max(Date.now(), row.updated_at + 1)
-  const sets: string[] = []
-  const binds: unknown[] = []
+  const columns: NotePatchColumns = {}
   let contentChanged = false
   let newTitle = row.title
   let newContent = row.content
@@ -493,140 +263,54 @@ notesRoutes.patch('/:id', async (c) => {
       newContent = body.content
       newTitle = resolvedTitle
       const { words, chars } = countText(body.content)
-      push(sets, binds, 'content', body.content)
-      push(sets, binds, 'content_hash', hash)
-      push(sets, binds, 'title', newTitle)
-      push(sets, binds, 'excerpt', deriveExcerpt(body.content))
-      push(sets, binds, 'word_count', words)
-      push(sets, binds, 'char_count', chars)
+      columns.content = body.content
+      columns.content_hash = hash
+      columns.title = newTitle
+      columns.excerpt = deriveExcerpt(body.content)
+      columns.word_count = words
+      columns.char_count = chars
     }
   } else if (resolvedTitle !== row.title) {
     newTitle = resolvedTitle
-    push(sets, binds, 'title', newTitle)
+    columns.title = newTitle
   }
 
   if (body.folderId !== undefined && body.folderId !== row.folder_id) {
-    push(sets, binds, 'folder_id', await resolveFolderId(c.env.DB, userId, body.folderId))
+    columns.folder_id = await resolveFolderId(c, body.folderId)
   }
-  if (typeof body.isPinned === 'boolean' && Number(body.isPinned) !== row.is_pinned) push(sets, binds, 'is_pinned', body.isPinned ? 1 : 0)
-  if (typeof body.isStarred === 'boolean' && Number(body.isStarred) !== row.is_starred) push(sets, binds, 'is_starred', body.isStarred ? 1 : 0)
-  if (typeof body.isArchived === 'boolean' && Number(body.isArchived) !== row.is_archived) push(sets, binds, 'is_archived', body.isArchived ? 1 : 0)
+  if (typeof body.isPinned === 'boolean' && Number(body.isPinned) !== row.is_pinned) columns.is_pinned = body.isPinned ? 1 : 0
+  if (typeof body.isStarred === 'boolean' && Number(body.isStarred) !== row.is_starred) columns.is_starred = body.isStarred ? 1 : 0
+  if (typeof body.isArchived === 'boolean' && Number(body.isArchived) !== row.is_archived) columns.is_archived = body.isArchived ? 1 : 0
 
-  if (!sets.length) return c.json(toNote(row))
+  if (!Object.keys(columns).length) return c.json(toNote(row))
 
-  push(sets, binds, 'updated_at', now)
+  const titleChanged = newTitle !== row.title
   const nextRev = row.rev + 1
-  push(sets, binds, 'rev', nextRev)
-  const mutationGuard = `EXISTS (SELECT 1 FROM notes
-    WHERE id = ?1 AND user_id = ?2 AND rev = ?3
-      AND content_hash = ?4 AND title = ?5 AND updated_at = ?6)`
-  const mutationValues = [id, userId, nextRev, newHash, newTitle, now] as const
-
-  binds.push(id, userId, body.rev)
-  const update = c.env.DB.prepare(
-    `UPDATE notes SET ${sets.join(', ')}
-      WHERE id = ?${binds.length - 2} AND user_id = ?${binds.length - 1} AND rev = ?${binds.length}`,
-  ).bind(...binds)
-
-  const statements: D1PreparedStatement[] = [update]
-  let derivedTags: string[] | null = null
-
-  if (contentChanged && !body.quiet && row.content) {
-    const bigChange = Math.abs(newContent.length - row.content.length) >= SNAPSHOT_DIFF_THRESHOLD
-    const snapshotId = newId()
-    statements.push(
-      c.env.DB.prepare(
-        `INSERT INTO note_versions (id, note_id, user_id, title, content, size, created_at)
-         SELECT ?1, ?2, ?3, ?4, ?5, ?6, ?7
-          WHERE ${shiftSqlPlaceholders(mutationGuard, 7)}
-            AND (?14 = 1
-                 OR NOT EXISTS (SELECT 1 FROM note_versions WHERE note_id = ?2)
-                 OR ?15 - COALESCE((SELECT MAX(created_at) FROM note_versions WHERE note_id = ?2), 0) > ?16
-                 OR ?17 = 1)`,
-      ).bind(
-        snapshotId, id, userId, row.title, row.content, utf8ByteLength(row.content), now,
-        ...mutationValues,
-        body.preserveVersion ? 1 : 0, now, SNAPSHOT_INTERVAL_MS, bigChange ? 1 : 0,
-      ),
-      c.env.DB.prepare(
-        `DELETE FROM note_versions WHERE note_id = ?1
-           AND EXISTS (SELECT 1 FROM note_versions WHERE id = ?9)
-           AND ${shiftSqlPlaceholders(mutationGuard, 1)}
-           AND id IN (
-             SELECT id FROM note_versions WHERE note_id = ?1 ORDER BY created_at DESC, id DESC LIMIT -1 OFFSET ?8)`,
-      ).bind(id, ...mutationValues, LIMITS.versionsPerNote, snapshotId),
-    )
-  }
-
-  if (row.deleted_at === null && (contentChanged || newTitle !== row.title)) {
-    const derived = buildNoteDerivedStatements({
-      db: c.env.DB,
-      userId,
-      noteId: id,
-      title: newTitle,
-      content: newContent,
-      ftsEnabled,
-      titleChanged: newTitle !== row.title,
-      previousTitle: row.title,
-      expectedRev: nextRev,
-      expectedContentHash: newHash,
-      expectedTitle: newTitle,
-      expectedUpdatedAt: now,
-    })
-    statements.push(...derived.statements)
-    derivedTags = derived.tags
-    if (contentChanged && !sameTagSet(splitTags(row.tag_names), derived.tags)) {
-      statements.push(
-        c.env.DB.prepare(
-          `DELETE FROM tags WHERE user_id = ?1 AND is_manual = 0
-             AND ${shiftSqlPlaceholders(mutationGuard, 1)}
-             AND NOT EXISTS (SELECT 1 FROM note_tags WHERE tag_id = tags.id)`,
-        ).bind(userId, ...mutationValues),
-      )
-    }
-  }
-
-  if (contentChanged || newTitle !== row.title) {
-    statements.push(noteIndexQueueStatement(c.env.DB, userId, id, 'embed', now))
-  }
-
-  // Whether another note already answers to either title decides the wiki-link rewrite, so
-  // it rides along with the mutation instead of costing the rename path its own round trip.
-  let ambiguityIndex = -1
-  if (newTitle !== row.title) {
-    ambiguityIndex = statements.length
-    statements.push(c.env.DB.prepare(
-      `SELECT 1 AS found FROM notes
-        WHERE user_id = ?1 AND id <> ?2 AND deleted_at IS NULL AND title_key IN (?3, ?4)
-        LIMIT 1`,
-    ).bind(
-      userId,
-      id,
-      normalizeLinkKey(row.title),
-      normalizeLinkKey(newTitle),
-    ))
-  }
-
-  statements.push(
-    c.env.DB.prepare(
-      `INSERT INTO changes (user_id, entity, entity_id, op, at)
-       SELECT ?1, 'note', ?2, 'upsert', ?3
-        WHERE ${shiftSqlPlaceholders(mutationGuard, 3)}
-       RETURNING seq`,
-    ).bind(userId, id, now, ...mutationValues),
-  )
-
-  const results = await c.env.DB.batch(statements)
-  const updateResult = results[0]
-  if (!updateResult?.meta.changes) {
-    const current = await loadNote(c.env.DB, userId, id)
+  const patch = await s.patch({
+    current: row,
+    expectedRev: body.rev,
+    columns,
+    title: newTitle,
+    content: newContent,
+    contentHash: newHash,
+    now,
+    contentChanged,
+    titleChanged,
+    derive: row.deleted_at === null && (contentChanged || titleChanged),
+    snapshot: contentChanged && !body.quiet && row.content
+      ? {
+          preserve: Boolean(body.preserveVersion),
+          bigChange: Math.abs(newContent.length - row.content.length) >= SNAPSHOT_DIFF_THRESHOLD,
+        }
+      : null,
+  })
+  if (!patch.applied) {
+    const current = await loadNote(s, id)
     throw ApiError.conflict('This note was modified elsewhere', { server: current })
   }
-  const changeResult = results.at(-1) as D1Result<{ seq: number }> | undefined
   let rewroteInbound = false
-  if (newTitle !== row.title) {
-    const ambiguous = (results[ambiguityIndex]?.results?.length ?? 0) > 0
-    if (!ambiguous) {
+  if (titleChanged) {
+    if (!patch.ambiguous) {
       const rewrite = await rewriteInboundWikiLinks(
         c.env.DB,
         userId,
@@ -643,84 +327,35 @@ notesRoutes.patch('/:id', async (c) => {
       }
       rewroteInbound = rewrite.rewritten > 0
     } else {
-      await c.env.DB.prepare(
-        `UPDATE links SET target_note_id = ${LINK_TARGET_SUBQUERY}
-          WHERE user_id = ?1 AND target_key = ?2
-            AND EXISTS (SELECT 1 FROM notes
-              WHERE id = ?3 AND user_id = ?1 AND rev = ?4
-                AND title = ?5 AND updated_at = ?6 AND deleted_at IS NULL)`,
-      ).bind(
-        userId,
-        normalizeLinkKey(row.title),
-        id,
+      await s.retargetAmbiguousLinks({
+        noteId: id,
+        previousTitle: row.title,
+        title: newTitle,
         nextRev,
-        newTitle,
         now,
-      ).run()
+      })
     }
   }
-  await broadcastCursor(c, rewroteInbound ? undefined : changeResult?.results?.[0]?.seq)
-  if (contentChanged || newTitle !== row.title) {
+  await broadcastCursor(c, rewroteInbound ? undefined : patch.changeSeq)
+  if (contentChanged || titleChanged) {
     scheduleFtsDrain(c)
     scheduleAiDrainForNote(c, userId)
   }
-  const nextTags = contentChanged ? (derivedTags ?? extractTags(newContent)) : null
-  return c.json(toNote(applyPatchRow(row, sets, binds, nextTags)))
+  return c.json(toNote(patch.next))
 })
 
 notesRoutes.delete('/:id', async (c) => {
-  const userId = c.get('userId')
   const id = c.req.param('id')
-  const { ftsEnabled } = c.get('database')
-
-  const row = await loadNoteRow(c.env.DB, userId, id)
+  const s = store(c)
+  const row = await loadNoteRow(s, id)
   if (row.deleted_at !== null) throw ApiError.notFound('The note does not exist or is in the trash')
   const now = Math.max(Date.now(), row.updated_at + 1)
   const nextRev = row.rev + 1
-  const guard = `EXISTS (SELECT 1 FROM notes
-    WHERE id = ?1 AND user_id = ?2 AND rev = ?3 AND deleted_at IS NOT NULL)`
-  const statements = [
-    c.env.DB.prepare(
-      `UPDATE notes SET deleted_at = ?1, updated_at = ?1, rev = ?2
-        WHERE id = ?3 AND user_id = ?4 AND rev = ?5 AND deleted_at IS NULL`,
-    ).bind(now, nextRev, id, userId, row.rev),
-    c.env.DB.prepare(`DELETE FROM links WHERE source_note_id = ?1 AND ${shiftSqlPlaceholders(guard, 1)}`)
-      .bind(id, id, userId, nextRev),
-    c.env.DB.prepare(
-      `UPDATE links SET target_note_id = ${LINK_TARGET_SUBQUERY}
-        WHERE target_note_id = ?1 AND user_id = ?2 AND ${shiftSqlPlaceholders(guard, 2)}`,
-    ).bind(id, userId, id, userId, nextRev),
-  ]
-  if (ftsEnabled) {
-    statements.push(
-      c.env.DB.prepare(
-         `INSERT INTO fts_index_queue (user_id, note_id, kind, created_at)
-          SELECT ?1, ?2, 'delete', ?3 WHERE ${shiftSqlPlaceholders(guard, 3)}
-          ${FTS_QUEUE_CONFLICT_SQL}`,
-      ).bind(userId, id, now, id, userId, nextRev),
-    )
+  const { applied, changeSeq } = await s.trash({ current: row, now, nextRev })
+  if (!applied) {
+    throw ApiError.conflict('This note was modified elsewhere', { server: await loadNote(s, id) })
   }
-  statements.push(
-    c.env.DB.prepare(
-      `INSERT OR REPLACE INTO ai_index_queue (user_id, note_id, kind, created_at)
-       SELECT ?1, ?2, 'delete', ?3 WHERE ${shiftSqlPlaceholders(guard, 3)}
-         AND ${aiDeleteNeededSql('?1', '?2')}`,
-    ).bind(userId, id, now, id, userId, nextRev),
-  )
-  statements.push(
-    c.env.DB.prepare(
-      `INSERT INTO changes (user_id, entity, entity_id, op, at)
-       SELECT ?1, 'note', ?2, 'upsert', ?3 WHERE ${shiftSqlPlaceholders(guard, 3)}
-       RETURNING seq`,
-    ).bind(userId, id, now, id, userId, nextRev),
-  )
-  const results = await c.env.DB.batch(statements)
-  const updated = results[0]
-  if (!updated?.meta.changes) {
-    throw ApiError.conflict('This note was modified elsewhere', { server: await loadNote(c.env.DB, userId, id) })
-  }
-  const changeResult = results.at(-1) as D1Result<{ seq: number }> | undefined
-  await broadcastCursor(c, changeResult?.results?.[0]?.seq)
+  await broadcastCursor(c, changeSeq)
   scheduleFtsDrain(c)
   const note = toNote({ ...row, deleted_at: now, updated_at: now, rev: nextRev })
   return c.json(note)
@@ -729,132 +364,32 @@ notesRoutes.delete('/:id', async (c) => {
 notesRoutes.post('/:id/restore', async (c) => {
   const userId = c.get('userId')
   const id = c.req.param('id')
-  const { ftsEnabled } = c.get('database')
-  const row = await loadNoteRow(c.env.DB, userId, id)
+  const s = store(c)
+  const row = await loadNoteRow(s, id)
   if (row.deleted_at === null) throw ApiError.badRequest('The note is not in the trash')
   await assertNoteQuota(c.env.DB, userId)
 
   const now = Math.max(Date.now(), row.updated_at + 1)
   const nextRev = row.rev + 1
-  const update = c.env.DB.prepare(
-    `UPDATE notes SET deleted_at = NULL, updated_at = ?1, rev = ?2
-      WHERE id = ?3 AND user_id = ?4 AND rev = ?5 AND deleted_at IS NOT NULL`,
-  ).bind(now, nextRev, id, userId, row.rev)
-  const derived = buildNoteDerivedStatements({
-    db: c.env.DB,
-    userId,
-    noteId: id,
-    title: row.title,
-    content: row.content,
-    ftsEnabled,
-    titleChanged: true,
-    expectedRev: nextRev,
-    expectedContentHash: row.content_hash,
-    expectedTitle: row.title,
-    expectedUpdatedAt: now,
-  }).statements
-  const change = c.env.DB.prepare(
-    `INSERT INTO changes (user_id, entity, entity_id, op, at)
-     SELECT ?1, 'note', ?2, 'upsert', ?3
-      WHERE EXISTS (SELECT 1 FROM notes WHERE id = ?2 AND user_id = ?1 AND rev = ?4 AND deleted_at IS NULL)
-     RETURNING seq`,
-  ).bind(userId, id, now, nextRev)
-  const readback = c.env.DB.prepare(
-    `SELECT ${NOTE_COLUMNS_FULL} FROM notes n WHERE n.id = ?1 AND n.user_id = ?2`,
-  ).bind(id, userId)
-  const batchResults = await c.env.DB.batch([
-    update,
-    ...derived,
-    noteIndexQueueStatement(c.env.DB, userId, id, 'embed', now),
-    change,
-    readback,
-  ])
-  const updated = batchResults[0]
-  if (!updated?.meta.changes) {
-    throw ApiError.conflict('This note was modified elsewhere', { server: await loadNote(c.env.DB, userId, id) })
+  const { applied, row: restored, changeSeq } = await s.restore({ current: row, now, nextRev })
+  if (!applied) {
+    throw ApiError.conflict('This note was modified elsewhere', { server: await loadNote(s, id) })
   }
-  const changeSeq = (batchResults.at(-2) as D1Result<{ seq: number }>).results?.[0]?.seq
   await broadcastCursor(c, changeSeq)
   scheduleFtsDrain(c)
   scheduleAiDrainForNote(c, userId)
-  const note = toNote((batchResults.at(-1) as D1Result<NoteRow>).results[0]!)
-  return c.json(note)
+  return c.json(toNote(restored!))
 })
 
 notesRoutes.delete('/:id/purge', async (c) => {
-  const userId = c.get('userId')
   const id = c.req.param('id')
-  const { ftsEnabled } = c.get('database')
-  const row = await loadNoteRow(c.env.DB, userId, id)
+  const s = store(c)
+  const row = await loadNoteRow(s, id)
   if (row.deleted_at === null) throw ApiError.notFound('The note does not exist or is not in the trash')
-  const guard = `EXISTS (SELECT 1 FROM notes
-    WHERE id = ?1 AND user_id = ?2 AND rev = ?3 AND deleted_at IS NOT NULL)`
-  const guarded = (sql: string) => c.env.DB
-    .prepare(`${sql} AND ${shiftSqlPlaceholders(guard, 1)}`)
-    .bind(id, id, userId, row.rev)
-  const statements: D1PreparedStatement[] = [
-    guarded(`DELETE FROM note_tags WHERE note_id = ?1`),
-    guarded(`DELETE FROM links WHERE source_note_id = ?1`),
-    c.env.DB.prepare(
-      `UPDATE links SET target_note_id = ${LINK_TARGET_SUBQUERY}
-        WHERE target_note_id = ?1 AND user_id = ?2 AND ${shiftSqlPlaceholders(guard, 2)}`,
-    ).bind(id, userId, id, userId, row.rev),
-    guarded(`DELETE FROM note_versions WHERE note_id = ?1`),
-    c.env.DB.prepare(
-      `DELETE FROM mcp_operations
-        WHERE user_id = ?1 AND instr(response_json, ?2) > 0
-          AND ${shiftSqlPlaceholders(guard, 2)}`,
-    ).bind(userId, id, id, userId, row.rev),
-    c.env.DB.prepare(
-      `DELETE FROM share_asset_sessions
-        WHERE slug IN (SELECT slug FROM shares WHERE note_id = ?1 AND user_id = ?2)
-          AND ${shiftSqlPlaceholders(guard, 2)}`,
-    ).bind(id, userId, id, userId, row.rev),
-    guarded(`DELETE FROM shares WHERE note_id = ?1`),
-    guarded(`UPDATE attachments SET note_id = NULL WHERE note_id = ?1`),
-    c.env.DB.prepare(
-      `DELETE FROM import_mappings
-        WHERE user_id = ?1 AND entity = 'note' AND target_id = ?2
-          AND EXISTS (SELECT 1 FROM notes
-            WHERE id = ?2 AND user_id = ?1 AND rev = ?3 AND deleted_at IS NOT NULL)`,
-    ).bind(userId, id, row.rev),
-  ]
-  if (ftsEnabled) {
-    statements.push(
-      c.env.DB.prepare(
-         `INSERT INTO fts_index_queue (user_id, note_id, kind, created_at)
-          SELECT ?1, ?2, 'delete', ?3 WHERE ${shiftSqlPlaceholders(guard, 3)}
-          ${FTS_QUEUE_CONFLICT_SQL}`,
-      ).bind(userId, id, Date.now(), id, userId, row.rev),
-    )
-  }
-  statements.push(
-    c.env.DB.prepare(
-      `INSERT OR REPLACE INTO ai_index_queue (user_id, note_id, kind, created_at)
-       SELECT ?1, ?2, 'delete', ?3 WHERE ${shiftSqlPlaceholders(guard, 3)}
-         AND ${aiDeleteNeededSql('?1', '?2')}`,
-    ).bind(userId, id, Date.now(), id, userId, row.rev),
-  )
-  statements.push(
-    c.env.DB.prepare(
-      `INSERT INTO changes (user_id, entity, entity_id, op, at)
-       SELECT ?1, 'note', ?2, 'delete', ?3 WHERE ${shiftSqlPlaceholders(guard, 3)}
-       RETURNING seq`,
-    ).bind(userId, id, Date.now(), id, userId, row.rev),
-    c.env.DB.prepare(
-      `DELETE FROM notes WHERE id = ?1 AND user_id = ?2 AND rev = ?3 AND deleted_at IS NOT NULL`,
-    ).bind(id, userId, row.rev),
-    c.env.DB.prepare(`DELETE FROM tags
-      WHERE user_id = ?1 AND is_manual = 0
-        AND NOT EXISTS (SELECT 1 FROM note_tags WHERE tag_id = tags.id)`)
-      .bind(userId),
-  )
-  const results = await c.env.DB.batch(statements)
-  const changeResult = results.at(-3) as D1Result<{ seq: number }> | undefined
-  const deleted = results.at(-2)
-  if (!deleted?.meta.changes) throw ApiError.conflict('Note state changed. Refresh and try again')
-  const broadcastedCursor = await broadcastCursor(c, changeResult?.results?.[0]?.seq)
-  const deletionCursor = changeResult?.results[0]?.seq
+  const { changeSeq, deleted } = await s.purge(row)
+  if (!deleted) throw ApiError.conflict('Note state changed. Refresh and try again')
+  const broadcastedCursor = await broadcastCursor(c, changeSeq)
+  const deletionCursor = changeSeq
   scheduleFtsDrain(c)
   return c.json({
     ok: true,
@@ -864,8 +399,7 @@ notesRoutes.delete('/:id/purge', async (c) => {
 
 notesRoutes.post('/:id/duplicate', async (c) => {
   const userId = c.get('userId')
-  const { ftsEnabled } = c.get('database')
-  const source = await loadNoteRow(c.env.DB, userId, c.req.param('id'))
+  const source = await loadNoteRow(store(c), c.req.param('id'))
   const body = c.req.header('Content-Type')?.includes('application/json')
     ? await readJson<{ id?: string }>(c, JSON_BODY_LIMITS.small)
     : {}
@@ -875,14 +409,9 @@ notesRoutes.post('/:id/duplicate', async (c) => {
 
   const id = body.id ?? newId()
   if (body.id) {
-    const existing = await c.env.DB.prepare(
-      `SELECT ${NOTE_COLUMNS_FULL} FROM notes n WHERE n.id = ?1 AND n.user_id = ?2`,
-    ).bind(id, userId).first<NoteRow>()
+    const existing = await store(c).noteRow(id)
     if (existing) return c.json(toNote(existing))
-    const collision = await c.env.DB.prepare(`SELECT user_id FROM notes WHERE id = ?1`)
-      .bind(id)
-      .first<{ user_id: string }>()
-    if (collision) throw ApiError.conflict('This note id is already in use')
+    if (await store(c).idTakenByAnyone(id)) throw ApiError.conflict('This note id is already in use')
   }
   const now = Date.now()
   const title = duplicateNoteTitle(source.title, LIMITS.titleMaxLength)
@@ -890,84 +419,45 @@ notesRoutes.post('/:id/duplicate', async (c) => {
   // The quota read rides along with hashing instead of adding a serial round trip.
   const [hash] = await Promise.all([sha256Hex(content), assertNoteQuota(c.env.DB, userId)])
 
-  const insert = c.env.DB.prepare(
-    `INSERT INTO notes (id, user_id, folder_id, title, content, excerpt, rev, word_count, char_count,
-       is_pinned, is_starred, is_archived, position, content_hash, created_at, updated_at)
-     VALUES (?1, ?2, ?3, ?4, ?5, ?6, 1, ?7, ?8, 0, 0, ?9, ?10, ?11, ?12, ?12)`,
-  )
-    .bind(
+  let outcome: NoteWriteResult
+  try {
+    outcome = await store(c).duplicate({
       id,
-      userId,
-      source.folder_id,
+      folderId: source.folder_id,
       title,
       content,
-      source.excerpt,
-      source.word_count,
-      source.char_count,
-      source.is_archived,
+      excerpt: source.excerpt,
+      words: source.word_count,
+      chars: source.char_count,
+      isArchived: source.is_archived,
+      contentHash: hash,
       now,
-      hash,
-      now,
-    )
-  const derived = buildNoteDerivedStatements({
-    db: c.env.DB,
-    userId,
-    noteId: id,
-    title,
-    content,
-    ftsEnabled,
-    expectedRev: 1,
-    expectedContentHash: hash,
-    expectedTitle: title,
-    expectedUpdatedAt: now,
-  }).statements
-  const duplicateChange = c.env.DB.prepare(
-    `INSERT INTO changes (user_id, entity, entity_id, op, at) VALUES (?1, 'note', ?2, 'upsert', ?3) RETURNING seq`,
-  ).bind(userId, id, now)
-  const duplicateReadback = c.env.DB.prepare(
-    `SELECT ${NOTE_COLUMNS_FULL} FROM notes n WHERE n.id = ?1 AND n.user_id = ?2`,
-  ).bind(id, userId)
-  let batchResults: D1Result[]
-  try {
-    batchResults = await c.env.DB.batch([
-      insert,
-      ...derived,
-      noteIndexQueueStatement(c.env.DB, userId, id, 'embed', now),
-      duplicateChange,
-      duplicateReadback,
-    ])
+    })
   } catch (error) {
     if (body.id) {
-      const existing = await c.env.DB.prepare(
-        `SELECT ${NOTE_COLUMNS_FULL} FROM notes n WHERE n.id = ?1 AND n.user_id = ?2`,
-      ).bind(id, userId).first<NoteRow>()
+      // The batch failed on the id: answer with the note that got there first when it is this
+      // account's, and with a conflict when it is somebody else's.
+      const existing = await store(c).noteRow(id)
       if (existing) return c.json(toNote(existing))
-      const collision = await c.env.DB.prepare(`SELECT user_id FROM notes WHERE id = ?1`)
-        .bind(id)
-        .first<{ user_id: string }>()
-      if (collision) throw ApiError.conflict('This note id is already in use')
+      if (await store(c).idTakenByAnyone(id)) throw ApiError.conflict('This note id is already in use')
     }
     throw error
   }
-  const duplicateSeq = (batchResults.at(-2) as D1Result<{ seq: number }>).results?.[0]?.seq
-  await broadcastCursor(c, duplicateSeq)
+  await broadcastCursor(c, outcome.changeSeq)
   scheduleFtsDrain(c)
   scheduleAiDrainForNote(c, userId)
-  const note = toNote((batchResults.at(-1) as D1Result<NoteRow>).results[0]!)
+  // The readback rides in the same batch as the insert, so a missing row is a broken invariant
+  // rather than a state a client can reach.
+  const note = toNote(outcome.row!)
   return c.json(note, 201)
 })
 
 
 notesRoutes.get('/:id/versions', async (c) => {
-  const { results } = await c.env.DB.prepare(
-    `SELECT id, note_id, title, length(CAST(content AS BLOB)) AS size, created_at FROM note_versions
-       WHERE note_id = ?1 AND user_id = ?2 ORDER BY created_at DESC LIMIT 100`,
-  )
-    .bind(c.req.param('id'), c.get('userId'))
-    .all<{ id: string; note_id: string; title: string; size: number; created_at: number }>()
+  const versions = await store(c).versions(c.req.param('id'))
 
   return c.json({
-    versions: results.map((r) => ({
+    versions: versions.map((r) => ({
       id: r.id,
       noteId: r.note_id,
       title: r.title,
@@ -978,19 +468,7 @@ notesRoutes.get('/:id/versions', async (c) => {
 })
 
 notesRoutes.get('/:id/versions/:versionId', async (c) => {
-  const row = await c.env.DB.prepare(
-    `SELECT id, note_id, title, content, length(CAST(content AS BLOB)) AS size, created_at FROM note_versions
-       WHERE id = ?1 AND note_id = ?2 AND user_id = ?3`,
-  )
-    .bind(c.req.param('versionId'), c.req.param('id'), c.get('userId'))
-    .first<{
-      id: string
-      note_id: string
-      title: string
-      content: string
-      size: number
-      created_at: number
-    }>()
+  const row = await store(c).version(c.req.param('id'), c.req.param('versionId'))
   if (!row) throw ApiError.notFound('Version not found')
   return c.json({
     id: row.id,
@@ -1005,96 +483,34 @@ notesRoutes.get('/:id/versions/:versionId', async (c) => {
 notesRoutes.post('/:id/versions/:versionId/restore', async (c) => {
   const userId = c.get('userId')
   const id = c.req.param('id')
-  const { ftsEnabled } = c.get('database')
+  const s = store(c)
 
-  const version = await c.env.DB.prepare(
-    `SELECT title, content FROM note_versions WHERE id = ?1 AND note_id = ?2 AND user_id = ?3`,
-  )
-    .bind(c.req.param('versionId'), id, userId)
-    .first<{ title: string; content: string }>()
+  const version = await s.versionContent(id, c.req.param('versionId'))
   if (!version) throw ApiError.notFound('Version not found')
 
-  const current = await loadNoteRow(c.env.DB, userId, id)
+  const current = await loadNoteRow(s, id)
   const now = Math.max(Date.now(), current.updated_at + 1)
   const { words, chars } = countText(version.content)
   const title = restoredVersionTitle(version.title)
   const hash = await sha256Hex(version.content)
-  const nextRev = current.rev + 1
-  const mutationGuard = `EXISTS (SELECT 1 FROM notes
-    WHERE id = ?1 AND user_id = ?2 AND rev = ?3
-      AND content_hash = ?4 AND title = ?5 AND updated_at = ?6)`
-  const mutationValues = [id, userId, nextRev, hash, title, now] as const
-  const update = c.env.DB.prepare(
-    `UPDATE notes SET content = ?1, title = ?2, excerpt = ?3, word_count = ?4, char_count = ?5,
-       content_hash = ?6, rev = ?7, updated_at = ?8
-       WHERE id = ?9 AND user_id = ?10 AND rev = ?11`,
-  )
-    .bind(
-      version.content,
-      title,
-      deriveExcerpt(version.content),
-      words,
-      chars,
-      hash,
-      nextRev,
-      now,
-      id,
-      userId,
-      current.rev,
-    )
-  const snapshot = c.env.DB.prepare(
-    `INSERT INTO note_versions (id, note_id, user_id, title, content, size, created_at)
-     SELECT ?1, ?2, ?3, ?4, ?5, ?6, ?7
-      WHERE ${shiftSqlPlaceholders(mutationGuard, 7)}`,
-  ).bind(newId(), id, userId, current.title, current.content, utf8ByteLength(current.content), now, ...mutationValues)
-  const trimVersions = c.env.DB.prepare(
-    `DELETE FROM note_versions WHERE note_id = ?1
-       AND ${shiftSqlPlaceholders(mutationGuard, 1)}
-       AND id IN (SELECT id FROM note_versions WHERE note_id = ?1 ORDER BY created_at DESC, id DESC LIMIT -1 OFFSET ?8)`,
-  ).bind(id, ...mutationValues, LIMITS.versionsPerNote)
-  const derived = buildNoteDerivedStatements({
-    db: c.env.DB,
-    userId,
+  const { applied, row, changeSeq } = await s.restoreVersion({
     noteId: id,
+    current,
     title,
     content: version.content,
-    ftsEnabled,
-    titleChanged: true,
-    previousTitle: current.title,
-    expectedRev: nextRev,
-    expectedContentHash: hash,
-    expectedTitle: title,
-    expectedUpdatedAt: now,
-    deleted: current.deleted_at !== null,
-  }).statements
-  const change = c.env.DB.prepare(
-    `INSERT INTO changes (user_id, entity, entity_id, op, at)
-     SELECT ?1, 'note', ?2, 'upsert', ?3
-      WHERE ${shiftSqlPlaceholders(mutationGuard, 3)}
-     RETURNING seq`,
-  ).bind(userId, id, now, ...mutationValues)
-  const versionReadback = c.env.DB.prepare(
-    `SELECT ${NOTE_COLUMNS_FULL} FROM notes n WHERE n.id = ?1 AND n.user_id = ?2`,
-  ).bind(id, userId)
-  const restoreBatch = await c.env.DB.batch([
-    update,
-    snapshot,
-    trimVersions,
-    ...derived,
-    noteIndexQueueStatement(c.env.DB, userId, id, 'embed', now),
-    change,
-    versionReadback,
-  ])
-  const updated = restoreBatch[0]
-  if (!updated?.meta.changes) {
-    throw ApiError.conflict('This note was modified elsewhere', { server: await loadNote(c.env.DB, userId, id) })
+    excerpt: deriveExcerpt(version.content),
+    words,
+    chars,
+    contentHash: hash,
+    now,
+  })
+  if (!applied) {
+    throw ApiError.conflict('This note was modified elsewhere', { server: await loadNote(s, id) })
   }
-  const restoreSeq = (restoreBatch.at(-2) as D1Result<{ seq: number }>).results?.[0]?.seq
-  await broadcastCursor(c, restoreSeq)
+  await broadcastCursor(c, changeSeq)
   scheduleFtsDrain(c)
   scheduleAiDrainForNote(c, userId)
-  const note = toNote((restoreBatch.at(-1) as D1Result<NoteRow>).results[0]!)
-  return c.json(note)
+  return c.json(toNote(row!))
 })
 
 
@@ -1102,11 +518,9 @@ notesRoutes.get('/:id/backlinks', async (c) => {
   const userId = c.get('userId')
   const id = c.req.param('id')
   const { ftsEnabled } = c.get('database')
-  const target = await c.env.DB.prepare(
-    `SELECT title FROM notes WHERE id = ?1 AND user_id = ?2`,
-  ).bind(id, userId).first<{ title: string }>()
-  if (!target) throw ApiError.notFound('Note not found')
-  const note = { id, title: target.title }
+  const title = await store(c).noteTitle(id)
+  if (title === null) throw ApiError.notFound('Note not found')
+  const note = { id, title }
   return c.json({
     backlinks: await findLinkedBacklinks(c.env.DB, userId, note),
     unlinked: await findUnlinkedMentions(c.env.DB, userId, note, ftsEnabled, LIMITS.mentionLimit),
@@ -1131,11 +545,9 @@ notesRoutes.post('/:id/link-mention', async (c) => {
   const sourceId = typeof body.sourceNoteId === 'string' ? body.sourceNoteId : ''
   if (!isValidId(sourceId)) throw ApiError.badRequest('sourceNoteId must be a valid note id')
   const { ftsEnabled } = c.get('database')
-  const target = await c.env.DB.prepare(
-    `SELECT title FROM notes WHERE id = ?1 AND user_id = ?2 AND deleted_at IS NULL`,
-  ).bind(targetId, userId).first<{ title: string }>()
-  if (!target) throw ApiError.notFound('Note not found')
-  const outcome = await linkMentionInNote(c.env.DB, userId, sourceId, target.title, ftsEnabled)
+  const title = await store(c).noteTitle(targetId, { liveOnly: true })
+  if (title === null) throw ApiError.notFound('Note not found')
+  const outcome = await linkMentionInNote(c.env.DB, userId, sourceId, title, ftsEnabled)
   if (outcome.status === 'missing') throw ApiError.notFound('Note not found')
   if (outcome.status === 'conflict') throw ApiError.conflict('That note changed while it was being linked; try again')
   if (outcome.status === 'no-mention') return c.json({ status: outcome.status })
@@ -1145,480 +557,14 @@ notesRoutes.post('/:id/link-mention', async (c) => {
   return c.json({ status: outcome.status, note: toNote(outcome.row) })
 })
 
-
-export type LinkMentionOutcome =
-  | { status: 'linked'; row: NoteRow; cursor: number | undefined }
-  | { status: 'no-mention' }
-  | { status: 'missing' }
-  | { status: 'conflict' }
-
-export async function linkMentionInNote(
-  db: D1Database,
-  userId: string,
-  sourceNoteId: string,
-  title: string,
-  ftsEnabled: boolean,
-): Promise<LinkMentionOutcome> {
-  const load = () => db.prepare(
-    `SELECT ${NOTE_COLUMNS_FULL} FROM notes n WHERE n.id = ?1 AND n.user_id = ?2`,
-  ).bind(sourceNoteId, userId).first<NoteRow>()
-  let current = await load()
-  if (!current || current.deleted_at !== null) return { status: 'missing' }
-  for (let attempt = 0; attempt < 3; attempt++) {
-    const content = linkFirstMention(current.content, title)
-    if (content === current.content) return { status: 'no-mention' }
-    const hash = await sha256Hex(content)
-    const { words, chars } = countText(content)
-    const now = Math.max(Date.now(), current.updated_at + 1)
-    const nextRev = current.rev + 1
-    const guard = `EXISTS (SELECT 1 FROM notes
-      WHERE id = ?1 AND user_id = ?2 AND rev = ?3
-        AND content_hash = ?4 AND title = ?5 AND updated_at = ?6)`
-    const guardValues = [current.id, userId, nextRev, hash, current.title, now] as const
-    const statements: D1PreparedStatement[] = [
-      db.prepare(
-        `UPDATE notes SET content = ?1, excerpt = ?2, word_count = ?3, char_count = ?4,
-           content_hash = ?5, rev = ?6, updated_at = ?7
-          WHERE id = ?8 AND user_id = ?9 AND rev = ?10 AND content_hash = ?11`,
-      ).bind(content, deriveExcerpt(content), words, chars, hash, nextRev, now,
-        current.id, userId, current.rev, current.content_hash),
-      db.prepare(
-        `INSERT INTO note_versions (id, note_id, user_id, title, content, size, created_at)
-         SELECT ?1, ?2, ?3, ?4, ?5, ?6, ?7 WHERE ${shiftSqlPlaceholders(guard, 7)}`,
-      ).bind(newId(), current.id, userId, current.title, current.content,
-        utf8ByteLength(current.content), now, ...guardValues),
-      db.prepare(
-        `DELETE FROM note_versions WHERE note_id = ?1
-           AND ${shiftSqlPlaceholders(guard, 1)}
-           AND id IN (SELECT id FROM note_versions WHERE note_id = ?1 ORDER BY created_at DESC, id DESC LIMIT -1 OFFSET ?8)`,
-      ).bind(current.id, ...guardValues, LIMITS.versionsPerNote),
-    ]
-    statements.push(...buildNoteDerivedStatements({
-      db,
-      userId,
-      noteId: current.id,
-      title: current.title,
-      content,
-      ftsEnabled,
-      expectedRev: nextRev,
-      expectedContentHash: hash,
-      expectedTitle: current.title,
-      expectedUpdatedAt: now,
-    }).statements)
-    statements.push(noteIndexQueueStatement(db, userId, current.id, 'embed', now))
-    statements.push(
-      db.prepare(
-        `INSERT INTO changes (user_id, entity, entity_id, op, at)
-         SELECT ?1, 'note', ?2, 'upsert', ?3 WHERE ${shiftSqlPlaceholders(guard, 3)}
-         RETURNING seq`,
-      ).bind(userId, current.id, now, ...guardValues),
-    )
-    const results = await db.batch(statements)
-    if (results[0]?.meta.changes) {
-      const row = await load()
-      if (!row) return { status: 'missing' }
-      const change = results.at(-1)?.results?.[0] as { seq?: number } | undefined
-      return { status: 'linked', row, cursor: change?.seq }
-    }
-    current = await load()
-    if (!current || current.deleted_at !== null) return { status: 'missing' }
-  }
-  return { status: 'conflict' }
+async function loadNote(store: NotesStore, id: string): Promise<Note> {
+  return toNote(await loadNoteRow(store, id))
 }
 
-
-/**
- * The notes whose `[[wikilinks]]` the link table already points at this one, each with
- * the text around the link.
- *
- * The window is cut from `hit`, so the column has to survive the outer projection: it
- * did not, and every context came back empty until a test read the row keys.
- */
-/**
- * The sentence around a mention, or `null` when the row does not actually carry one.
- *
- * Two reasons not to trust the index pass: SQLite's `lower()` folds ASCII characters only,
- * so a mention written with an accented or Cyrillic capital gives `hit` 0 and leaves the
- * window parked at the top of the note; and the full-text index matches token neighbours,
- * not characters, so it can offer a note where the words only happen to sit next to each
- * other. `foldIndexOf` is exact and length-preserving, so one check answers both.
- */
-function mentionExcerpt(window: string, hit: number, len: number, needle: string): string | null {
-  const body = trimFrontMatterLead(window)
-  const found = foldIndexOf(body, needle)
-  if (found < 0) return null
-  const from = Math.max(0, found - 60)
-  const to = Math.min(body.length, found + needle.length + 90)
-  // `trimFrontMatterLead` only ever removes a prefix, so the difference in length is how
-  // much of the note the window already left behind.
-  const dropped = (hit > 0 ? Math.max(hit - 61, 0) : 0) + (window.length - body.length)
-  const headCut = dropped + from > 0
-  const tailCut = dropped + to < len
-  return (headCut ? '…' : '') + plainLinkText(body.slice(from, to)).replace(/\s+/g, ' ').trim() + (tailCut ? '…' : '')
-}
-
-/**
- * How far into a note the retry scan looks for a mention the cheap index pass could not
- * place. Sized to cover most notes whole, and applied only to the few rows per page that
- * need it, so the panel never pulls a body at the content limit.
- */
-const MENTION_RETRY_SCAN_CHARS = 4000
-
-function backlinkContext(window: string, hit: number, len: number, needle: string): string {
-  const located = mentionExcerpt(window, hit, len, needle)
-  // A backlink is known from the link table, so the row stays even when the excerpt could
-  // not be placed on it; the head of the note is the honest fallback.
-  return located ?? plainLinkText(truncateText(window, 120).replace(/\s+/g, ' ').trim())
-}
-
-/**
- * The letters SQLite's `lower()` cannot fold, spelled out as `replace()` arguments.
- *
- * `lower()` covers ASCII; `foldCase` covers every letter with a single-code-unit lowercase.
- * The gap between them is exactly this list, so folding the column with these pairs and the
- * needle with `foldCase` leaves both sides in the same alphabet. Capped at twelve pairs: a
- * title made of exotic letters would build a `replace()` chain longer than the scan is worth,
- * and the caller's retry pass picks up what the cap drops.
- */
-function caseFoldPairs(title: string): Array<[string, string]> {
-  const pairs: Array<[string, string]> = []
-  for (const char of title) {
-    const folded = foldCase(char)
-    if (folded.length !== 1) continue
-    for (const variant of [char, char.toUpperCase()]) {
-      if (variant.length !== 1 || variant === folded || variant.charCodeAt(0) < 0x80) continue
-      if (!pairs.some(([from]) => from === variant)) pairs.push([variant, folded])
-    }
-  }
-  return pairs.slice(0, 12)
-}
-
-/** `expression`, folded down to the alphabet `foldCase` reports for `title`. */
-function foldSql(expression: string, pairs: Array<[string, string]>, firstSlot: number): string {
-  return pairs.reduce(
-    (sql, _pair, index) => `replace(${sql}, ?${firstSlot + index * 2}, ?${firstSlot + index * 2 + 1})`,
-    expression,
-  )
-}
-
-export async function findLinkedBacklinks(
-  db: D1Database,
-  userId: string,
-  target: { id: string; title: string },
-): Promise<Array<{ id: string; title: string; context: string }>> {
-  const needle = `[[${target.title}`
-  const pairs = caseFoldPairs(target.title)
-  // One fold and one instr per row: SQLite does not share the repeated subexpression
-  // across the references below.
-  const { results } = await db.prepare(
-    `SELECT id, title, hit, len,
-       substr(content, MAX(hit - 60, 1), ?4) AS window
-     FROM (
-       SELECT n.id AS id, n.title AS title, n.content AS content,
-              instr(${foldSql('lower(n.content)', pairs, 5)}, ?3) AS hit, length(n.content) AS len
-         FROM links l
-           JOIN notes n ON n.id = l.source_note_id
-        WHERE l.user_id = ?1 AND l.target_note_id = ?2
-          AND n.deleted_at IS NULL AND n.id != ?2
-        ORDER BY n.updated_at DESC LIMIT 50
-     )`,
-  )
-    .bind(userId, target.id, foldCase(needle), needle.length + 150, ...pairs.flat())
-    .all<{ id: string; title: string; hit: number; len: number; window: string }>()
-
-  return results.map((row) => ({
-    id: row.id,
-    title: row.title,
-    context: backlinkContext(row.window, row.hit, row.len, needle),
-  }))
-}
-
-
-/**
- * Notes that say the target's title in their text without linking to it.
- *
- * The full-text index finds the candidates and `mentionExcerpt` confirms the literal phrase:
- * the index is tokenised and case-folded, so it can offer a note where the words only
- * happen to sit next to each other, and a mention the reader cannot see is worse than a
- * shorter list. Notes that already carry a `[[title]]` are left to the linked half of the
- * panel, since a row would otherwise show up twice with two different meanings.
- *
- * The index pass over-fetches by three because the confirmation drops rows the index should
- * not have offered, and a candidate whose mention the first window missed gets one more look
- * at its first `MENTION_RETRY_SCAN_CHARS` characters, which is where an accented or Cyrillic
- * capital that SQLite could not fold usually lives. Without the index the same answer comes
- * from scanning every body, which is what the search endpoint already falls back to.
- */
-export async function findUnlinkedMentions(
-  db: D1Database,
-  userId: string,
-  target: { id: string; title: string },
-  ftsEnabled: boolean,
-  limit: number,
-): Promise<Array<{ id: string; title: string; context: string }>> {
-  const title = target.title.trim()
-  if (Array.from(title).length < LIMITS.mentionMinChars)
-    return []
-  const match = ftsEnabled ? buildFtsQuery([title]) : ''
-  if (ftsEnabled && !match)
-    return []
-  const needle = title
-  const pairs = caseFoldPairs(title)
-  // ?1 is the match expression only when the index is in play, so every later slot shifts.
-  const k = ftsEnabled ? 1 : 0
-  const { results } = await db
-    .prepare(
-      `SELECT id, title, hit, len,
-         substr(content, MAX(hit - 60, 1), ?${4 + k}) AS window
-       FROM (
-         SELECT n.id AS id, n.title AS title, n.content AS content,
-                instr(${foldSql('lower(n.content)', pairs, 6 + k)}, ?${3 + k}) AS hit, length(n.content) AS len
-           ${ftsEnabled ? 'FROM notes_fts JOIN notes n ON n.id = notes_fts.note_id AND n.user_id = notes_fts.user_id' : 'FROM notes n'}
-          ${ftsEnabled ? 'WHERE notes_fts MATCH ?1 AND notes_fts.user_id = ?2 AND n.user_id = ?2' : 'WHERE n.user_id = ?1'}
-            ${ftsEnabled ? '' : `AND instr(${foldSql('lower(n.content)', pairs, 6 + k)}, ?${3 + k}) > 0`}
-            AND n.deleted_at IS NULL
-            AND n.id != ?${2 + k}
-            AND NOT EXISTS (
-              SELECT 1 FROM links l
-               WHERE l.user_id = ?${1 + k} AND l.source_note_id = n.id AND l.target_note_id = ?${2 + k}
-            )
-         ORDER BY n.updated_at DESC, n.id ASC
-         LIMIT ?${5 + k}
-       )`,
-    )
-    .bind(...(ftsEnabled
-      ? [match, userId, target.id, foldCase(needle), needle.length + 150, limit * 3, ...pairs.flat()]
-      : [userId, target.id, foldCase(needle), needle.length + 150, limit * 3, ...pairs.flat()]))
-    .all<{ id: string; title: string; hit: number; len: number; window: string }>()
-
-  const found = new Map<string, string>()
-  const missed: Array<{ id: string; len: number }> = []
-  for (const row of results) {
-    const context = mentionExcerpt(row.window, row.hit, row.len, needle)
-    if (context === null) missed.push({ id: row.id, len: row.len })
-    else found.set(row.id, context)
-  }
-
-  if (missed.length) {
-    const placeholders = missed.map((_, index) => `?${index + 3}`).join(', ')
-    const { results: heads } = await db.prepare(
-      `SELECT id, title, length(content) AS len, substr(content, 1, ?2) AS window
-         FROM notes WHERE user_id = ?1 AND id IN (${placeholders})`,
-    ).bind(userId, MENTION_RETRY_SCAN_CHARS, ...missed.map((row) => row.id))
-      .all<{ id: string; title: string; len: number; window: string }>()
-    for (const head of heads) {
-      if (found.size >= limit) break
-      const context = mentionExcerpt(head.window, 0, head.len, needle)
-      if (context !== null) found.set(head.id, context)
-    }
-  }
-
-  const order = new Map(results.map((row, index) => [row.id, index]))
-  return [...found.entries()]
-    .sort((a, b) => (order.get(a[0]) ?? 0) - (order.get(b[0]) ?? 0))
-    .slice(0, limit)
-    .map(([id, context]) => ({ id, title: results.find((row) => row.id === id)?.title ?? '', context }))
-}
-
-
-async function loadNote(db: D1Database, userId: string, id: string): Promise<Note> {
-  return toNote(await loadNoteRow(db, userId, id))
-}
-
-async function loadNoteRow(db: D1Database, userId: string, id: string): Promise<NoteRow> {
-  const row = await db
-    .prepare(`SELECT ${NOTE_COLUMNS_FULL} FROM notes n WHERE n.id = ?1 AND n.user_id = ?2`)
-    .bind(id, userId)
-    .first<NoteRow>()
+async function loadNoteRow(store: NotesStore, id: string): Promise<NoteRow> {
+  const row = await store.noteRow(id)
   if (!row) throw ApiError.notFound('Note not found')
   return row
-}
-
-export async function rewriteInboundWikiLinks(
-  db: D1Database,
-  userId: string,
-  targetNoteId: string,
-  fromTitle: string,
-  toTitle: string,
-  ftsEnabled: boolean,
-  forceInline = false,
-  budgetNotes = Number.POSITIVE_INFINITY,
-): Promise<{ rewritten: number; skipped: number; deferred: number; remaining: number }> {
-  const previousKey = normalizeLinkKey(fromTitle)
-  const { results: candidates } = await db.prepare(
-    `SELECT DISTINCT n.id FROM links l
-      JOIN notes n ON n.id = l.source_note_id AND n.user_id = l.user_id
-     WHERE l.user_id = ?1 AND l.target_note_id = ?2 AND l.target_key = ?3
-       AND n.id <> ?2 AND n.deleted_at IS NULL`,
-  ).bind(userId, targetNoteId, previousKey).all<{ id: string }>()
-  if (!candidates.length) return { rewritten: 0, skipped: 0, deferred: 0, remaining: 0 }
-  if (!forceInline && candidates.length > INLINE_REWRITE_LIMIT) {
-    await db.batch([
-      rewriteQueueStatement(db, userId, 'note-title', targetNoteId, fromTitle, toTitle),
-    ])
-    return { rewritten: 0, skipped: 0, deferred: candidates.length, remaining: 0 }
-  }
-  let rewritten = 0
-  let skipped = 0
-
-  const candidateIds = candidates.map((c) => c.id)
-  const plan = Number.isFinite(budgetNotes) ? candidateIds.slice(0, budgetNotes) : candidateIds
-  const remaining = candidateIds.length - plan.length
-  type CandidateNoteRecord = {
-    id: string
-    title: string
-    content: string
-    content_hash: string
-    rev: number
-    updated_at: number
-    deleted_at: number | null
-  }
-  // Load and rewrite in small windows: a hub note referenced by thousands of others must
-  // not pin every candidate body in the isolate before the first write happens.
-  for (let start = 0; start < plan.length; start += REWRITE_LOAD_CHUNK) {
-    const windowIds = plan.slice(start, start + REWRITE_LOAD_CHUNK)
-    const placeholders = windowIds.map((_, idx) => `?${idx + 2}`).join(', ')
-    const { results: loaded } = await db.prepare(
-      `SELECT id, title, content, content_hash, rev, updated_at, deleted_at
-         FROM notes WHERE user_id = ?1 AND id IN (${placeholders})`,
-    ).bind(userId, ...windowIds).all<CandidateNoteRecord>()
-    const notesToRewrite = loaded.filter((note) => note.deleted_at === null
-      && replaceWikiLinkTarget(note.content, fromTitle, toTitle) !== note.content)
-    skipped += loaded.length - notesToRewrite.length
-    for (let i = 0; i < notesToRewrite.length; i += REWRITE_CONCURRENCY) {
-      const batch = notesToRewrite.slice(i, i + REWRITE_CONCURRENCY)
-      const outcomes = await Promise.all(
-        batch.map(async (initialNote) => {
-          let currentNote: CandidateNoteRecord | null = initialNote
-          for (let attempt = 0; attempt < 5; attempt++) {
-            if (!currentNote || currentNote.deleted_at !== null) return false
-            const content = replaceWikiLinkTarget(currentNote.content, fromTitle, toTitle)
-            if (content === currentNote.content) return true
-            const hash = await sha256Hex(content)
-            const { words, chars } = countText(content)
-            const now = Math.max(Date.now(), currentNote.updated_at + 1)
-            const nextRev = currentNote.rev + 1
-            const guard = `EXISTS (SELECT 1 FROM notes
-              WHERE id = ?1 AND user_id = ?2 AND rev = ?3
-                AND content_hash = ?4 AND title = ?5 AND updated_at = ?6)`
-            const guardValues = [currentNote.id, userId, nextRev, hash, currentNote.title, now] as const
-            const statements: D1PreparedStatement[] = [
-              db.prepare(
-                `UPDATE notes SET content = ?1, excerpt = ?2, word_count = ?3, char_count = ?4,
-                   content_hash = ?5, rev = ?6, updated_at = ?7
-                  WHERE id = ?8 AND user_id = ?9 AND rev = ?10 AND content_hash = ?11`,
-              ).bind(content, deriveExcerpt(content), words, chars, hash, nextRev, now,
-                currentNote.id, userId, currentNote.rev, currentNote.content_hash),
-              db.prepare(
-                `INSERT INTO note_versions (id, note_id, user_id, title, content, size, created_at)
-                 SELECT ?1, ?2, ?3, ?4, ?5, ?6, ?7 WHERE ${shiftSqlPlaceholders(guard, 7)}`,
-              ).bind(newId(), currentNote.id, userId, currentNote.title, currentNote.content,
-                utf8ByteLength(currentNote.content), now, ...guardValues),
-              db.prepare(
-                `DELETE FROM note_versions WHERE note_id = ?1
-                   AND ${shiftSqlPlaceholders(guard, 1)}
-                   AND id IN (SELECT id FROM note_versions WHERE note_id = ?1 ORDER BY created_at DESC, id DESC LIMIT -1 OFFSET ?8)`,
-              ).bind(currentNote.id, ...guardValues, LIMITS.versionsPerNote),
-            ]
-            statements.push(...buildNoteDerivedStatements({
-              db,
-              userId,
-              noteId: currentNote.id,
-              title: currentNote.title,
-              content,
-              ftsEnabled,
-              expectedRev: nextRev,
-              expectedContentHash: hash,
-              expectedTitle: currentNote.title,
-              expectedUpdatedAt: now,
-            }).statements)
-            statements.push(noteIndexQueueStatement(db, userId, currentNote.id, 'embed', now))
-            statements.push(
-              db.prepare(
-                `INSERT INTO changes (user_id, entity, entity_id, op, at)
-                 SELECT ?1, 'note', ?2, 'upsert', ?3 WHERE ${shiftSqlPlaceholders(guard, 3)}`,
-              ).bind(userId, currentNote.id, now, ...guardValues),
-            )
-            const [updated] = await db.batch(statements)
-            if (updated?.meta.changes) {
-              return true
-            }
-            currentNote = await db.prepare(
-              `SELECT id, title, content, content_hash, rev, updated_at, deleted_at
-                 FROM notes WHERE id = ?1 AND user_id = ?2`,
-            ).bind(currentNote.id, userId).first<CandidateNoteRecord>()
-          }
-          return false
-        }),
-      )
-    for (const success of outcomes) {
-      if (success) rewritten++
-      else skipped++
-    }
-    }
-  }
-  return { rewritten, skipped, deferred: 0, remaining }
-}
-
-function sameTagSet(left: string[], right: string[]): boolean {
-  if (left.length !== right.length) return false
-  const set = new Set(left)
-  return right.every((name) => set.has(name))
-}
-
-function applyPatchRow(
-  row: NoteRow,
-  sets: string[],
-  binds: unknown[],
-  tagNames: string[] | null,
-): NoteRow {
-  const next: NoteRow = { ...row }
-  for (let index = 0; index < sets.length; index++) {
-    const column = sets[index]!.split(' ')[0]!
-    const value = binds[index]
-    switch (column) {
-      case 'content':
-        next.content = value as string
-        break
-      case 'content_hash':
-        next.content_hash = value as string
-        break
-      case 'title':
-        next.title = value as string
-        break
-      case 'excerpt':
-        next.excerpt = value as string
-        break
-      case 'word_count':
-        next.word_count = value as number
-        break
-      case 'char_count':
-        next.char_count = value as number
-        break
-      case 'folder_id':
-        next.folder_id = value as string | null
-        break
-      case 'is_pinned':
-        next.is_pinned = value as number
-        break
-      case 'is_starred':
-        next.is_starred = value as number
-        break
-      case 'is_archived':
-        next.is_archived = value as number
-        break
-      case 'updated_at':
-        next.updated_at = value as number
-        break
-      case 'rev':
-        next.rev = value as number
-        break
-      default:
-        break
-    }
-  }
-  if (tagNames !== null) next.tag_names = tagNames.join('\u0001')
-  return next
 }
 
 export function restoredVersionTitle(title: string): string {
@@ -1688,27 +634,13 @@ export function parseNotesListCursor(
   }
 }
 
-function push(sets: string[], binds: unknown[], column: string, value: unknown): void {
-  binds.push(value)
-  sets.push(`${column} = ?${binds.length}`)
-}
-
-function shiftSqlPlaceholders(sql: string, offset: number): string {
-  return sql.replace(/\?(\d+)/g, (_match, value: string) => `?${Number(value) + offset}`)
-}
-
 async function resolveFolderId(
-  db: D1Database,
-  userId: string,
+  c: Context<AppBindings>,
   folderId: string | null | undefined,
 ): Promise<string | null> {
   if (!folderId) return null
-  const row = await db
-    .prepare(`SELECT id FROM folders WHERE id = ?1 AND user_id = ?2 AND deleted_at IS NULL`)
-    .bind(folderId, userId)
-    .first<{ id: string }>()
-  if (!row) throw ApiError.badRequest('Folder not found')
-  return row.id
+  if (!await store(c).folderExists(folderId)) throw ApiError.badRequest('Folder not found')
+  return folderId
 }
 
 notesRoutes.post('/rebuild-derived', async (c) => {
