@@ -395,12 +395,16 @@ export const TextToDiagramModal: React.FC<TextToDiagramModalProps> = ({
   };
 
   const handleCopyCode = async () => {
+    // A refused clipboard has to be said out loud: this button answers with a "copied" toast and a check
+    // mark, and on the failure path it used to do neither, so the reader had no way to tell a refused
+    // write from a copy they had not looked at yet. The success toast stays where the write put it.
     try {
       await navigator.clipboard.writeText(mermaidCode);
       setCopied(true);
       window.setTimeout(() => setCopied(false), 2000);
       toast({ title: t('excalidraw.copied'), tone: 'success' });
     } catch {
+      toast({ title: t('preview.could_not_copy'), tone: 'danger' });
     }
   };
 

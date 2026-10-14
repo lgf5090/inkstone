@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Check, Copy } from 'lucide-react';
 import { cn } from '../../cn';
 import { t } from '../../i18n';
+import { useUi } from '../../../store/ui';
 
 /**
  * How long this block keeps its "copied" mark before the button returns to "copy".
@@ -31,11 +32,15 @@ export const CodeBlock: React.FC<CodeBlockProps> = ({
   const [copied, setCopied] = useState(false);
 
   const handleCopy = async () => {
+    // The check mark and the failure toast cannot both be a lie: a clipboard write is refused when the
+    // page is not a secure context or the reader has denied the permission, and an empty catch left the
+    // button looking as if nothing had happened at all. `copied` is set only once the write has answered.
     try {
       await navigator.clipboard.writeText(code);
       setCopied(true);
       window.setTimeout(() => setCopied(false), CODE_COPY_RESET_MS);
     } catch {
+      useUi.getState().toast({ title: t('preview.could_not_copy'), tone: 'danger' });
     }
   };
 
