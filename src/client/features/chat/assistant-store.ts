@@ -35,9 +35,11 @@ import type {
   ToolActivity,
 } from '@shared/assistant'
 import type { ChatPrompt } from '@shared/assistant'
+import { DEBOUNCE } from '@shared/constants'
 import { MAX_CHAT_ATTACHMENTS, MAX_TURN_SCOPES, MAX_TURN_TOOLS, type AssistantTurnScope, type ChatAttachment } from '@shared/assistant'
 import { api, ApiError } from '../../lib/api'
 import { t } from '../../lib/i18n'
+import { IS_DEMO_MODE } from '../../lib/runtime'
 import { streamAssistantTurn } from './stream'
 import { useUi } from '../../store/ui'
 
@@ -296,6 +298,89 @@ async function adoptThread(conversationId: string): Promise<void> {
   if (useAssistant.getState().turn?.done) useAssistant.setState({ turn: null })
 }
 
+/**
+ * The three choices that decide which conversations the list shows.
+ *
+ * They are this device's view of rows that live on the server, which is exactly what the notebook's own
+ * panel state is, so they are kept the same way `../../store/ui.ts` keeps its `expandedFolders`: read
+ * once when the store is built, validated per key, and written back by a debounced subscriber that
+ * compares the serialised slice first. Without them a reload dropped the reader back to "All chats" with
+ * the tab strip, the folder and the tag all reset — three things they had just set by hand.
+ */
+/** Exported so a test can read and clear exactly the entry this store owns. */
+export const ASSISTANT_UI_STORAGE_KEY = IS_DEMO_MODE ? 'inkstone.demo.assistantUi' : 'inkstone.assistant.ui'
+
+const PERSISTED_KEYS = ['listTab', 'folderFilter', 'tagFilter'] as const
+
+/** An id is 26 characters today; the ceiling is what stops a hand-edited entry from growing the store. */
+const MAX_FILTER_ID_CHARS = 128
+
+type PersistedKey = typeof PERSISTED_KEYS[number]
+
+const PERSISTED_DEFAULTS: Pick<AssistantState, PersistedKey> = {
+  listTab: 'folders',
+  folderFilter: 'all',
+  tagFilter: null,
+}
+
+function persistedSlice(state: AssistantState): string {
+  const out: Record<string, unknown> = {}
+  for (const key of PERSISTED_KEYS) out[key] = state[key]
+  return JSON.stringify(out)
+}
+
+/** A stored id, or null when the entry is not one: the shape is all that can be checked before the tree loads. */
+function readFilterId(value: unknown): string | null {
+  if (typeof value !== 'string') return null
+  const trimmed = value.trim()
+  return trimmed ? trimmed.slice(0, MAX_FILTER_ID_CHARS) : null
+}
+
+function loadPersisted(): Partial<AssistantState> {
+  try {
+    const raw = localStorage.getItem(ASSISTANT_UI_STORAGE_KEY)
+    if (!raw) return {}
+    const parsed = JSON.parse(raw) as unknown
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {}
+    const value = parsed as Record<string, unknown>
+    const out: Partial<AssistantState> = {}
+    if (typeof value.listTab === 'string'
+      && (CONVERSATION_LIST_TABS as readonly string[]).includes(value.listTab)) {
+      out.listTab = value.listTab as ConversationListTab
+    }
+    // 'all' and 'none' are the two built-in picks and a folder id is an id: one read covers all three.
+    const folder = readFilterId(value.folderFilter)
+    if (folder) out.folderFilter = folder
+    const tag = readFilterId(value.tagFilter)
+    if (tag) out.tagFilter = tag
+    return out
+  }
+  catch {
+    // Best-effort: this is one device's view of a list, and the defaults are a working state, so a
+    // unreadable or malformed entry costs the reader one click rather than the panel.
+    return {}
+  }
+}
+
+let persistTimer: number | undefined
+let lastPersisted = ''
+
+function schedulePersist(): void {
+  window.clearTimeout(persistTimer)
+  persistTimer = window.setTimeout(() => {
+    const serialized = persistedSlice(useAssistant.getState())
+    if (serialized === lastPersisted) return
+    try {
+      localStorage.setItem(ASSISTANT_UI_STORAGE_KEY, serialized)
+      lastPersisted = serialized
+    }
+    catch {
+      // Best-effort again: a quota or a private-mode rejection leaves the in-memory filter working, and
+      // the next change retries. The reader's own choice is not lost, only not remembered.
+    }
+  }, DEBOUNCE.persist)
+}
+
 export const useAssistant = create<AssistantState>()((set, get) => ({
   view: 'chat',
   loaded: false,
@@ -304,8 +389,8 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
 
   conversations: [],
   conversationQuery: '',
-  folderFilter: 'all',
-  tagFilter: null,
+  ...PERSISTED_DEFAULTS,
+  ...loadPersisted(),
   folderNodes: [],
   unfiledCount: 0,
   tagNodes: [],
@@ -315,7 +400,6 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
   turnTools: [],
   turnScopes: [],
   fileIndex: {},
-  listTab: 'folders',
   flagged: { starred: [], pinned: [] },
   activeId: null,
   messages: [],
@@ -500,6 +584,14 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
     try {
       const [folders, tags] = await Promise.all([api.assistant.conversationFolders(), api.assistant.conversationTags()])
       set({ folderNodes: folders.folders, unfiledCount: folders.unfiled, tagNodes: tags.tags })
+      // A filter restored from this device can name a row that is gone — deleted, or merged away on
+      // another machine. Left alone it answers "no conversations" forever, with no row in the picker
+      // left to click it off, so a choice the real tree no longer offers is dropped as soon as the
+      // tree is known.
+      const state = get()
+      if (state.folderFilter !== 'all' && state.folderFilter !== 'none'
+        && !folders.folders.some((node) => node.id === state.folderFilter)) await state.setFolderFilter('all')
+      if (state.tagFilter && !tags.tags.some((tag) => tag.id === state.tagFilter)) await state.setTagFilter(null)
     } catch (error) {
       toast(error)
     }
@@ -1280,6 +1372,9 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
     }
   },
 }))
+
+lastPersisted = persistedSlice(useAssistant.getState())
+useAssistant.subscribe(schedulePersist)
 
 /**
  * The reader's own end of today, as the server reads a due date.

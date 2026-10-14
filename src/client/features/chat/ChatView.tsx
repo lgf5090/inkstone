@@ -262,6 +262,13 @@ function ConversationList({ activeId, onPick }: { activeId: string | null, onPic
     void loadTaxonomy()
   }, [loadTaxonomy, conversations.length])
 
+  // A restored flag tab is already drawing its shortlist, and `setListTab` only asks for one when the
+  // reader clicks, so the list they left open has to be fetched here, once, on the way in.
+  useEffect(() => {
+    const state = useAssistant.getState()
+    if (state.listTab === 'starred' || state.listTab === 'pinned') void state.loadFlagged()
+  }, [])
+
   // The list is sorted by the server; a pinned row would reappear on every page of a keyset cursor,
   // so the order is applied here where the whole set is in hand.
   const ordered = useMemo(
