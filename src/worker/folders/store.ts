@@ -18,6 +18,7 @@
  */
 
 import { LIMITS } from '@shared/constants'
+import { ApiError } from '../lib/errors'
 import { FOLDER_SELECT, type FolderRow } from '../db/rows'
 import { FTS_QUEUE_CONFLICT_SQL, MAX_BATCH_STATEMENTS, runBatched, shiftSqlPlaceholders } from '../db/writes'
 import { aiDeleteNeededSql } from '../mcp/ai-search'
@@ -548,4 +549,67 @@ function subtreeCteWithRevision(): string {
     SELECT f.id FROM folders f JOIN subtree s ON f.parent_id = s.id
      WHERE f.user_id = ?2 AND f.deleted_at IS NULL
   )`
+}
+
+
+/**
+ * The order a promoted folder's children take when the parent is filed away.
+ *
+ * It belongs next to `promotionRows` because it is that read's arithmetic: siblings and children are
+ * ordered by the same comparator the listing uses, and the result is either a gap-free insert between
+ * two neighbours or a full renumber of the row. `ApiError.conflict` is what a caller answers when the
+ * hierarchy moved under it — the same shape every store here already throws.
+ */
+export async function folderPromotionOrder(
+  db: D1Database,
+  userId: string,
+  folder: { id: string; parent_id: string | null; position: number },
+): Promise<Array<{ id: string; position: number }>> {
+  const results = await new FoldersStore(db, userId).promotionRows(folder)
+  const compare = (left: FolderOrderRow, right: FolderOrderRow) =>
+    left.position - right.position || left.created_at - right.created_at || left.id.localeCompare(right.id)
+  const siblings = results.filter((row) => row.parent_id === folder.parent_id).sort(compare)
+  const children = results.filter((row) => row.parent_id === folder.id).sort(compare)
+  if (!children.length) return []
+
+  const folderIndex = siblings.findIndex((row) => row.id === folder.id)
+  if (folderIndex < 0) throw ApiError.conflict('The folder hierarchy changed. Refresh and try again')
+  const previous = siblings[folderIndex - 1]?.position
+  const next = siblings[folderIndex + 1]?.position
+  const positions = positionsBetween(previous, next, children.length)
+  if (positions) {
+    return children.map((child, index) => ({ id: child.id, position: positions[index]! }))
+  }
+
+  const desired = [...siblings]
+  desired.splice(folderIndex, 1, ...children)
+  return desired.flatMap((row, index) => {
+    const position = (index + 1) * 1000
+    return row.parent_id === folder.id || row.position !== position ? [{ id: row.id, position }] : []
+  })
+}
+
+function positionsBetween(
+  previous: number | undefined,
+  next: number | undefined,
+  count: number,
+): number[] | null {
+  if (!count) return []
+  if (previous === undefined && next === undefined) {
+    return Array.from({ length: count }, (_, index) => (index + 1) * 1000)
+  }
+  if (previous === undefined) {
+    return Array.from({ length: count }, (_, index) => next! - (count - index) * 1000)
+  }
+  if (next === undefined) {
+    return Array.from({ length: count }, (_, index) => previous + (index + 1) * 1000)
+  }
+  const step = (next - previous) / (count + 1)
+  if (!Number.isFinite(step) || step <= 0) return null
+  const positions = Array.from({ length: count }, (_, index) => previous + step * (index + 1))
+  return positions.every((position, index) =>
+    Number.isFinite(position) &&
+    position > (index === 0 ? previous : positions[index - 1]!) &&
+    position < next,
+  ) ? positions : null
 }

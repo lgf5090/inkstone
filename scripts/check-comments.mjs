@@ -15192,6 +15192,7 @@ const allowed = new Map([
     "/**\n   * Delete one folder by promoting its children into its own place in the parent's run.\n   *\n   * Seven statements, one batch, and the same `guard` spliced into all of them: the folder must still\n   * be live at the timestamp the route read, and no promoted child may collide with a surviving\n   * sibling of the same folded name. The order and the positions the children land on came from\n   * `promotionJson`, which the route computed from a fresh read, because a half-applied promotion\n   * would leave the tree pointing at a folder that is about to disappear.\n   */",
     "/**\n   * Delete one folder and everything below it, trashing the notes it held.\n   *\n   * The `subtree` walk is guarded on the timestamp the route read, so a folder that was moved or edited\n   * underneath deletes nothing at all. Every statement repeats that walk rather than passing ids\n   * through JavaScript: a subtree can be far bigger than a bind list, and the walk is index-bound. The\n   * change records, the AI and full-text queue rows and the link cleanup ride in the same batch as the\n   * folder and note updates, because a half-deleted subtree would leave notes searchable that no reader\n   * can reach. The final folder delete is what the caller reads as \"the subtree was really gone\".\n   */",
     "/** The recursive subtree walk every cascade statement in a subtree delete repeats, guarded on `updated_at`. */",
+    "/**\n * The order a promoted folder's children take when the parent is filed away.\n *\n * It belongs next to `promotionRows` because it is that read's arithmetic: siblings and children are\n * ordered by the same comparator the listing uses, and the result is either a gap-free insert between\n * two neighbours or a full renumber of the row. `ApiError.conflict` is what a caller answers when the\n * hierarchy moved under it — the same shape every store here already throws.\n */",
   ]],
   ["src/worker/index.ts", [
     "// Codex CLI drops the `iss` callback parameter while its rmcp",
@@ -15807,7 +15808,6 @@ const allowed = new Map([
     "// A parent rename that left `a/x` behind would orphan the whole subtree.",
     "// Merging into an existing `next` is still allowed: the batch copies onto the",
     "// destination row rather than refusing.",
-    "/**\n * The note-body rewrite, kept addressable from this module because `lib/rewrite-drain.ts` and the MCP\n * library reach it through the tags route. The SQL itself lives in `tags/store.ts`.\n */",
     "/**\n * The persistence layer for these routes, bound to the account the request authenticated as.\n *\n * Same shape as `routes/notes.ts`: the route parses and validates, asks the store for a record, and\n * turns that record into a response; no statement is built here.\n */",
     "// One IN query per chunk of names instead of two round trips per step; see `findRowsNamed`.",
   ]],
@@ -17264,6 +17264,15 @@ const allowed = new Map([
   ]],
   ["tests/week-start-policy.test.ts", [
     "/**\n * Which weekday opens a calendar is derived once, from `Intl` locale data, in `src/client/lib/time.ts`.\n *\n * Before that, the answer was written out per component — and it was the same wrong sentence each\n * time: `locale === 'zh-CN' ? 1 : 0` names the two languages this app ships, so a German or Arabic\n * reader would have gotten Sunday, and the grid, its header and the picker each carried their own\n * copy of the labels. A fix that only changes one of those copies leaves the reader with a month\n * grid whose columns disagree with the row above it, which is exactly what happened inside the\n * kanban module (K2-04b fixed the picker, K2-04g1 the view). These cases keep the next calendar\n * from re-deriving the week on its own.\n */",
+  ]],
+  ["tests/worker-layering.test.ts", [
+    "/**\n * The worker's layers point one way: a route adapts HTTP, a store talks to D1, and nothing imports\n * upward (`AGENTS.md` rule 3).\n *\n * Both halves were violated at once in this repository. Nine routes carried raw SQL, and the fix\n * exposed the other direction: `notes/store.ts` imported `buildFtsQuery` from `routes/search`, and\n * `mcp/retrieval.ts` imported `searchUserNotes` from the same file — a persistence layer and a\n * non-HTTP consumer reaching into the presentation layer for behaviour. Counting only \"SQL inside a\n * route\" never finds that, so both are measured here, in both directions, with an empty allowance\n * list: a new violation fails this file rather than a review comment.\n *\n * `app.ts` is the one module allowed to name the route modules, because wiring the HTTP surface is\n * what its whole job is.\n */",
+    "/** Every `.prepare(` / `.batch(` a route file writes, as `file:line`. */",
+    "/** Every import of a route module written by something that is not a route and is not the wiring. */",
+    "// The rule is only meaningful while the layers still exist: app.ts must name routes, and a route",
+    "// must still be a thing a store could wrongly import.",
+    "// Positive control: both halves of this rule were violated for months, so a scan that could not",
+    "// see either would be reporting the world it wishes for rather than the one it is in.",
   ]],
   ["vite.config.ts", [
     "// Keep optional preview renderers and their language modules behind dynamic-import boundaries.",

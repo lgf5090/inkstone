@@ -1,8 +1,8 @@
 import type { Env } from '../env'
 import { selectQueueUsersRoundRobin } from '../db/metadata'
 import type { RewriteQueueKind } from '../db/writes'
-import { rewriteInboundWikiLinks } from '../routes/notes'
-import { rewriteTagInNotes } from '../routes/tags'
+import { rewriteInboundWikiLinks } from '../notes/store'
+import { rewriteTagInNotes } from '../tags/store'
 import type { D1Database } from '@cloudflare/workers-types'
 
 interface RewriteQueueRow {

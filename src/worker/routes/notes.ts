@@ -41,14 +41,6 @@ import { scheduleAiDrainForNote } from '../mcp/ai-search'
  * The link and trash panels' shared SQL helpers, kept addressable from this module because
  * `lib/rewrite-drain.ts` and the backlink tests reach them through the notes route.
  */
-export {
-  findLinkedBacklinks,
-  findUnlinkedMentions,
-  linkMentionInNote,
-  rewriteInboundWikiLinks,
-  trashPurgeStatements,
-} from '../notes/store'
-
 export const notesRoutes = new Hono<AppBindings>()
 
 notesRoutes.use('*', requireAuth)

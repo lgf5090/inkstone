@@ -18,12 +18,6 @@ import { broadcastCursor, scheduleFtsDrain } from '../lib/notify'
 import { JSON_BODY_LIMITS, readJson } from '../lib/request'
 import { requireAuth } from '../middleware/auth'
 
-/**
- * The note-body rewrite, kept addressable from this module because `lib/rewrite-drain.ts` and the MCP
- * library reach it through the tags route. The SQL itself lives in `tags/store.ts`.
- */
-export { rewriteTagInNotes } from '../tags/store'
-
 export const tagsRoutes = new Hono<AppBindings>()
 
 tagsRoutes.use('*', requireAuth)

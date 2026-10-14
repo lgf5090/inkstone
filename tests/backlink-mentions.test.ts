@@ -2,7 +2,7 @@
 import { DatabaseSync } from 'node:sqlite'
 import { beforeEach, describe, expect, it } from 'vitest'
 import { countText, deriveExcerpt, segmentCJK } from '../src/shared/markdown-utils'
-import { findLinkedBacklinks, findUnlinkedMentions, linkMentionInNote } from '../src/worker/routes/notes'
+import { findLinkedBacklinks, findUnlinkedMentions, linkMentionInNote } from '../src/worker/notes/store'
 import { SCHEMA_STATEMENTS } from '../src/worker/db/schema'
 import { makeD1 } from './doubles/d1-sqlite'
 
