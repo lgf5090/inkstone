@@ -106,7 +106,7 @@ const SHARED_RAW_BUTTONS = new Map<string, string>([
   ],
   [
     'src/client/components/color-swatch.tsx',
-    'The swatch every palette draws: a colour is a 28px round or rounded-square hit target carrying a background style, an active ring and a check mark, none of which `Button`\'s fixed height, padding and single inline span can express. Every colour menu in the app reaches it from here rather than writing its own button.',
+    'The swatch every palette draws: a colour is a fixed-size round or rounded-square hit target carrying a background style, an active ring and a check mark, none of which `Button`\'s fixed height, padding and single inline span can express. Every colour menu in the app reaches it from here rather than writing its own button.',
   ],
   [
     'src/client/components/ErrorBoundary.tsx',

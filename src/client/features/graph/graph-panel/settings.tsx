@@ -10,10 +10,11 @@ import {
   X,
 } from 'lucide-react'
 import { LIMITS } from '@shared/constants'
-import { ORGANIZER_COLORS } from '@shared/organizer-colors'
+import { ORGANIZER_COLORS, organizerColorLabel } from '@shared/organizer-colors'
 import { truncateText } from '@shared/text-utils'
 import type { Folder, Tag } from '@shared/types'
 import { Button, IconButton } from '../../../components/primitives'
+import { Swatch } from '../../../components/color-swatch'
 import { Select, Segmented, Slider, Switch } from '../../../components/form'
 import { Drawer } from '../../../components/overlay'
 import { t } from '../../../lib/i18n'
@@ -185,11 +186,10 @@ function ColorRuleRow({ group, onChange, onRemove }: {
       <IconButton size="sm" label={t('common.delete')} onClick={onRemove}><Trash2 size={12}/></IconButton>
     </div>
     <div className="flex flex-wrap items-center gap-1">
-      {ORGANIZER_COLORS.slice(0, GRAPH_COLOR_SWATCH_MAX).map((color) => <button key={color} type="button"
-        aria-label={color} aria-pressed={group.color === color} title={color}
-        onClick={() => onChange({ color })}
-        className="size-3.5 shrink-0 rounded-full border border-[var(--border-default)] aria-pressed:ring-2 aria-pressed:ring-[var(--accent)]"
-        style={{ background: color }}/>)}
+      {ORGANIZER_COLORS.slice(0, GRAPH_COLOR_SWATCH_MAX).map((color) => <Swatch key={color} size="sm" color={color}
+        label={organizerColorLabel(color, t)} active={group.color === color} background={color}
+        className="shrink-0 border border-[var(--border-default)]"
+        onPick={() => onChange({ color })}/>)}
     </div>
   </div>
 }

@@ -266,6 +266,10 @@ const allowed = new Map([
   ["src/client/components/calendar-grids.tsx", [
     "/** Draws one extra column ahead of each week row — the week number, or anything else a row owns. */",
   ]],
+  ["src/client/components/color-swatch.test.ts", [
+    "/**\n * Every colour menu in the app draws its ramp through this one component, so the geometry the five\n * call sites depend on lives here and nowhere else. These cases pin the class string each shape\n * renders: a change to the shared component that moves a picker — a size, a radius, the active ring —\n * fails here instead of arriving as a silent redesign in the tag, folder, QuickAdd, editor and\n * property panels. The `md` strings are what those menus rendered before the size prop existed.\n */",
+    "/** The rendered button's own attributes: the class the picker draws, and the check inside it. */",
+  ]],
   ["src/client/components/color-swatch.tsx", [
     "/**\n * The two swatch shapes the app draws: `organizer` is the tag, folder and QuickAdd ramp — a filled\n * circle beside a \"no colour\" slot; `format` is the editor and property ramp — a rounded square that\n * keeps its own outline and holds focus while a hex field is being typed.\n */",
     "/**\n * One colour swatch: a real button carrying the colour's name, its pressed state and an active ring,\n * drawn the same way everywhere a palette is offered. The genuine differences between the ramps are\n * props — the `icon` for the \"no colour\" slot, the resolved `background`, the check's colour, and\n * whether the no-colour slot keeps its fill while it is the active pick.\n */",
@@ -274,6 +278,8 @@ const allowed = new Map([
     "/** Resolved CSS colour painted behind a colour swatch. */",
     "/** The active check, coloured to stay legible on the swatch under it. */",
     "/** Whether the \"no colour\" slot is filled with the base background even when it is active. */",
+    "/**\n * The geometry each size carries. `md` is the 28px target every picker draws; `sm` is the graph's\n * colour rules — six dots on a tight row, where an offset ring would land on the neighbour beside it\n * and the default check would cover the colour it is naming.\n */",
+    "/** The ramp's target size: `md` in every picker, `sm` in the graph's colour rules. */",
   ]],
   ["src/client/components/date-picker.test.ts", [
     "/**\n * The picker draws its calendar from the shared locale derivation, where the `Intl` reading itself is\n * pinned (`lib/time.test.ts`). What is checked here is that the rendered picker follows that one\n * number: its weekday row and the cells spilling in front of the 1st are read off the same value, so\n * a change to the derivation cannot move one of them and leave the other on Sunday.\n */",
