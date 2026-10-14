@@ -3,9 +3,10 @@
 // than from a painted screen, because this repo drives no browser:
 // tests/kanban-tag-contrast.test.ts and tests/kanban-contrast-tokens.test.ts for
 // the board's palette, tests/contrast-dark-text-quaternary.test.ts and
-// tests/contrast-light-text-ladder.test.ts for the text ladder. Those four are
-// the whole of the contrast verification that runs, so they ask the same WCAG
-// question and share one copy of what a contrast ratio is.
+// tests/contrast-light-text-ladder.test.ts for the text ladder. Those four ask
+// the same WCAG question and therefore share one copy of what a contrast ratio
+// is; the json, graph and e-ink gates still keep private colour maths of their
+// own, so this file is not yet the whole of the repo's contrast verification.
 // Colours travel as {rgb:[r,g,b], alpha} so a translucent tint can be composited
 // over the surface underneath it (`over`) before it is compared (`contrastRatio`).
 
