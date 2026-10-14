@@ -108,7 +108,9 @@ beforeEach(async () => {
     installTestGlobals();
     await initI18n();
     container = document.createElement('div');
-    document.body.append(container);
+    // `appendChild`, not `append`: the workers HTMLRewriter `Element` shadows `ParentNode.append`
+    // in the types this project compiles against, so only `appendChild` names the DOM call.
+    document.body.appendChild(container);
     root = createRoot(container);
 });
 
@@ -196,9 +198,11 @@ describe('activating a stencil tile', () => {
 describe('the folder tree’s keyboard', () => {
     /** The fold control that belongs to one row, found the way `lib/tree/keyboard` finds it. */
     function toggleOf(name: string): HTMLButtonElement | undefined {
+        // A row outside a treeitem answers `null` from `closest`; both ways of missing the fold are
+        // reported as the same absence the callers already test for with `?.`.
         return namedRow(name)
             .closest<HTMLElement>('[role="treeitem"]')
-            ?.querySelector<HTMLButtonElement>('[data-tree-toggle]');
+            ?.querySelector<HTMLButtonElement>('[data-tree-toggle]') ?? undefined;
     }
 
     it('gives every row the pair of attributes the shared keyboard walks', async () => {
@@ -291,7 +295,9 @@ describe('the folder pane’s emptiness and its marks', () => {
         });
     }
 
-    function buttonNamed(label: string, scope: ParentNode = container): HTMLButtonElement {
+    // Scoped to `HTMLElement` rather than to `ParentNode`: the workers global carries its own
+    // `ParentNode`, which no DOM node of jsdom satisfies, and every caller hands over an element.
+    function buttonNamed(label: string, scope: HTMLElement = container): HTMLButtonElement {
         const found = [...scope.querySelectorAll<HTMLButtonElement>('button')].find((button) => button.textContent === label);
         if (!found)
             throw new Error(`missing button ${label}`);

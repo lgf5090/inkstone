@@ -1,7 +1,7 @@
 // @vitest-environment node
 import { DatabaseSync } from 'node:sqlite'
 import { beforeEach, describe, expect, it } from 'vitest'
-import { collectFieldNotes, collectFieldValues } from '../src/worker/routes/quickadd'
+import { collectFieldNotes, collectFieldValues, type FieldNoteQuery, type FieldValueQuery } from '../src/worker/routes/quickadd'
 import { SCHEMA_STATEMENTS } from '../src/worker/db/schema'
 import { makeD1 } from './doubles/d1-sqlite'
 
@@ -37,7 +37,10 @@ function tag(noteId: string, tagId: string, name: string): void {
   sqlite.prepare('INSERT INTO note_tags (note_id, tag_id) VALUES (?, ?)').run(noteId, tagId)
 }
 
-const values = (query: Parameters<typeof collectFieldValues>[2]) => collectFieldValues(db, MINE, { name: 'mood', ...query })
+// The helpers fill the property name in for the case, so the argument they take is the query with
+// `name` left out. Typed as the whole query before, which demanded a name the case never passed and
+// made the fixture's own `name: 'mood'` a value the spread always overwrote.
+const values = (query: Omit<FieldValueQuery, 'name'>) => collectFieldValues(db, MINE, { name: 'mood', ...query })
 
 describe('the {{FIELD:}} scan window', () => {
   beforeEach(() => {
@@ -133,7 +136,7 @@ describe('the {{FIELD:}} scan window', () => {
 })
 
 describe('the property: capture target’s note scan', () => {
-  const titles = async (query: Parameters<typeof collectFieldNotes>[2]) =>
+  const titles = async (query: Omit<FieldNoteQuery, 'name'>) =>
     (await collectFieldNotes(db, MINE, { name: 'mood', ...query })).map((entry) => entry.title)
 
   beforeEach(() => {

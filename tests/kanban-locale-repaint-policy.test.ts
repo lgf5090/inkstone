@@ -34,8 +34,28 @@ function parse(file: string): ts.SourceFile {
   return ts.createSourceFile(file, fs.readFileSync(file, 'utf8'), ts.ScriptTarget.Latest, true)
 }
 
-function callsName(node: ts.Node, name: string): boolean {
+function callsName(node: ts.Node, name: string): node is ts.CallExpression {
   return ts.isCallExpression(node) && ts.isIdentifier(node.expression) && node.expression.text === name
+}
+
+/**
+ * The value-position forms of a function. `ts.isFunctionLikeDeclaration` answers exactly this set at
+ * runtime but is not in TypeScript's public typings, and `ts.isFunctionLike` — which is — also accepts
+ * type-position signatures (call signatures, index signatures, function types), so a walk that used it
+ * would start treating a declared type as a deferred body. The kinds are spelled out instead.
+ */
+const FUNCTION_LIKE_DECLARATION_KINDS: readonly ts.SyntaxKind[] = [
+  ts.SyntaxKind.FunctionDeclaration,
+  ts.SyntaxKind.MethodDeclaration,
+  ts.SyntaxKind.Constructor,
+  ts.SyntaxKind.GetAccessor,
+  ts.SyntaxKind.SetAccessor,
+  ts.SyntaxKind.FunctionExpression,
+  ts.SyntaxKind.ArrowFunction,
+]
+
+function isFunctionLikeDeclaration(node: ts.Node): node is ts.FunctionLikeDeclaration {
+  return FUNCTION_LIKE_DECLARATION_KINDS.includes(node.kind)
 }
 
 function containsCall(node: ts.Node, name: string): boolean {
@@ -49,7 +69,7 @@ function memoComponents(source: ts.SourceFile): { name: string, subscribed: bool
   const visit = (node: ts.Node) => {
     if (ts.isVariableDeclaration(node) && node.initializer && callsName(node.initializer, 'memo')) {
       const wrapped = node.initializer.arguments[0]
-      if (wrapped && ts.isFunctionLikeDeclaration(wrapped)) {
+      if (wrapped && isFunctionLikeDeclaration(wrapped)) {
         found.push({
           name: ts.isIdentifier(node.name) ? node.name.text : '?',
           subscribed: SUBSCRIPTIONS.some((hook) => containsCall(wrapped, hook)),
@@ -65,16 +85,17 @@ function memoComponents(source: ts.SourceFile): { name: string, subscribed: bool
 /** `t(…)` calls evaluated while a `useMemo` factory runs, i.e. cached with the data instead of the language. */
 function frozenMemoLabels(source: ts.SourceFile): string[] {
   const labels: string[] = []
-  const factoryOf = (node: ts.Node) =>
-    ts.isCallExpression(node) && callsName(node, 'useMemo') && ts.isFunctionLikeDeclaration(node.arguments[0] as ts.Node)
-      ? node.arguments[0] as ts.FunctionLikeDeclaration
-      : undefined
+  const factoryOf = (node: ts.Node): ts.FunctionLikeDeclaration | undefined => {
+    if (!callsName(node, 'useMemo')) return undefined
+    const factory = node.arguments[0]
+    return factory && isFunctionLikeDeclaration(factory) ? factory : undefined
+  }
   const visit = (node: ts.Node) => {
     const factory = factoryOf(node)
     if (factory) {
       const collect = (inner: ts.Node) => {
         // A nested function is not the factory body; it runs later, on its own terms.
-        if (inner !== factory && ts.isFunctionLikeDeclaration(inner)) return
+        if (inner !== factory && isFunctionLikeDeclaration(inner)) return
         if (callsName(inner, 't')) labels.push(oneLine(inner.getText(source)))
         inner.getChildren().forEach(collect)
       }
@@ -99,7 +120,7 @@ function moduleScopeLabels(source: ts.SourceFile): string[] {
   const labels: string[] = []
   const visit = (node: ts.Node, depth: number) => {
     if (callsName(node, 't') && depth === 0) labels.push(oneLine(node.getText(source)))
-    node.getChildren().forEach((child) => visit(child, ts.isFunctionLikeDeclaration(child) ? depth + 1 : depth))
+    node.getChildren().forEach((child) => visit(child, isFunctionLikeDeclaration(child) ? depth + 1 : depth))
   }
   visit(source, 0)
   return labels

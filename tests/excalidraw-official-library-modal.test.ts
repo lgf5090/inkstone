@@ -92,7 +92,9 @@ beforeEach(async () => {
         officialCatalogLoading: false,
     })
     container = document.createElement('div')
-    document.body.append(container)
+    // `appendChild`, not `append`: the workers HTMLRewriter `Element` shadows `ParentNode.append`
+    // in the types this project compiles against, so only `appendChild` names the DOM call.
+    document.body.appendChild(container)
     root = createRoot(container)
 })
 

@@ -100,7 +100,7 @@ describe('the reading note', () => {
     const section = renderReadingSection(book, [
       mark({ id: 'a', chapter: 1, quote: '第二章的一句' }),
       mark({ id: 'b', chapter: 0, quote: '第一章的一句' }),
-    ], 0.4, { backlinks: true, chapterTitles: new Map([[0, '开篇'], [1, '次章']]) })
+    ], 0.4, { backlinks: true, colors: false, chapterTitles: new Map([[0, '开篇'], [1, '次章']]) })
     expect(section.indexOf('开篇')).toBeLessThan(section.indexOf('次章'))
     expect(section).toContain('> 第一章的一句 [↩](/reading/book-1?p=e%3A0%3A4)')
     expect(section).toContain('第二章的一句')
@@ -202,7 +202,7 @@ describe('which note a book owns', () => {
     n2: { id: 'n2', title: '《道德经》阅读笔记 (epub)', deletedAt: null },
     gone: { id: 'gone', title: '《道德经》阅读笔记 (pdf)', deletedAt: 123 },
   }
-  const plan = (over) => planReadingNote({ book, existingNoteId: undefined, notes, byBook: {}, baseTitle, ...over })
+  const plan = (over: Partial<Parameters<typeof planReadingNote>[0]>) => planReadingNote({ book, existingNoteId: undefined, notes, byBook: {}, baseTitle, ...over })
   const two = { ...book, id: 'book-2' }
 
   it('takes the free note with a matching title', () => {

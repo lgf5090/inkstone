@@ -2,7 +2,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { DEFAULT_READER_SETTINGS, readerProfile, useReaderSettings } from '../src/client/features/reading/store/reader-settings'
 import type { ReaderSettings } from '../src/client/features/reading/store/reader-settings'
-import { READER_THEME_ORDER } from '../src/client/features/reading/themes'
+import { READER_THEME_ORDER, type ReaderThemeName } from '../src/client/features/reading/themes'
 
 type Key = keyof typeof DEFAULT_READER_SETTINGS
 
@@ -33,18 +33,19 @@ describe('reader settings persistence', () => {
 
   it('names every setting, so a new one cannot go untested', () => {
     expect(Object.keys(CHANGED).sort()).toEqual(Object.keys(DEFAULT_READER_SETTINGS).sort())
-    const changed: Record<string, unknown> = CHANGED
     for (const key of Object.keys(CHANGED)) {
-      expect(changed[key], `${key} must differ from its default to prove the round trip`).not.toEqual(DEFAULT_READER_SETTINGS[key as Key])
+      // Walked through the setting keys, not through a `Record<string, unknown>` view of the object:
+      // `ReaderSettings` is an interface and carries no index signature, so that view was a claim the
+      // checker could not confirm — while `key as Key` is checked against the defaults it is compared to.
+      expect(CHANGED[key as Key], `${key} must differ from its default to prove the round trip`).not.toEqual(DEFAULT_READER_SETTINGS[key as Key])
     }
   })
 
   it('keeps every setting across a reload', async () => {
     useReaderSettings.getState().patch(CHANGED)
     const { useReaderSettings: reloaded } = await import('../src/client/features/reading/store/reader-settings')
-    const changed: Record<string, unknown> = CHANGED
     for (const key of Object.keys(CHANGED)) {
-      expect((reloaded.getState() as Record<string, unknown>)[key], key).toEqual(changed[key])
+      expect(reloaded.getState()[key as Key], key).toEqual(CHANGED[key as Key])
     }
   })
 
@@ -70,7 +71,9 @@ describe('reader settings persistence', () => {
   }
 
   it('keeps every theme the picker offers, including the one added last', async () => {
-    for (const theme of ['auto', ...READER_THEME_ORDER]) {
+    // Named as the setting's own type, so the loop cannot hand `patch` a string the store would refuse.
+    const themes: ReaderThemeName[] = ['auto', ...READER_THEME_ORDER]
+    for (const theme of themes) {
       localStorage.clear()
       useReaderSettings.getState().patch({ theme })
       vi.resetModules()

@@ -12,15 +12,18 @@ import {
   sortGroups,
   toggleBook,
   type BookGroup,
+  type GroupResult,
 } from '../src/client/features/reading/book-groups'
 
 function group(id: string, name: string, bookIds: string[] = [], at = 1000): BookGroup {
   return { id, name, bookIds, createdAt: at, updatedAt: at }
 }
 
-const ok = (answer: { ok: boolean; groups?: BookGroup[] }) => {
+// Read as the production answer type, so the refusal the helper reports is the one the module
+// actually makes: the old local shape had no `reason` at all, so the message said `undefined`.
+const ok = (answer: GroupResult): BookGroup[] => {
   if (!answer.ok) throw new Error(`refused: ${answer.reason}`)
-  return answer.groups ?? []
+  return answer.groups
 }
 
 describe('making a group', () => {
