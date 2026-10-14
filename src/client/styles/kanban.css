@@ -43,22 +43,16 @@
   margin-inline-start: auto;
 }
 
+/* Only the kanban differences from the shared `.block-btn` recipe in prose.css: a
+   fixed square box, an accent hover and a ring instead of a tint on keyboard
+   focus, because these buttons sit on a board background that already tints. */
 .ink-prose .kanban-block-btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
   width: var(--sp-6);
   height: var(--sp-6);
-  border: 0;
-  border-radius: var(--r-sm);
-  color: var(--text-tertiary);
-  background: none;
-  cursor: pointer;
 }
 
 .ink-prose .kanban-block-btn:hover {
   color: var(--accent);
-  background: var(--bg-hover);
 }
 
 .ink-prose .kanban-block-btn:focus-visible {

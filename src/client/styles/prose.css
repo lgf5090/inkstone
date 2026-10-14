@@ -915,7 +915,7 @@
   font-family: var(--font-ui);
   font-size: var(--text-10-5);
   font-weight: 600;
-  letter-spacing: 0.04em;
+  letter-spacing: var(--tracking-caps);
   text-transform: uppercase;
   color: var(--text-tertiary);
 }
@@ -1194,7 +1194,7 @@
 .ink-prose .code-lang {
   font-family: var(--font-mono);
   font-size: 10.5px;
-  letter-spacing: 0.04em;
+  letter-spacing: var(--tracking-caps);
   text-transform: uppercase;
   color: var(--text-tertiary);
 }
@@ -1365,31 +1365,89 @@
   padding-inline-end: var(--sp-1);
   border-inline-end: 1px solid var(--border-subtle);
 }
-.ink-prose .block-tool-btn {
+/* ── Tool buttons ─────────────────────────────────────────────────────────────────
+   One recipe for every block toolbar button. `.tool-btn` is the base; the older
+   `.block-tool-btn` (square icon) and `.chart-tool-btn` / `.mindmap-tool-btn`
+   (labelled) names are kept as selector-list aliases because the toolbar markup is
+   still built from template strings in `features/preview/*-toolbar.ts`, so renaming
+   them here would silently strip their styling. Each alias contributes only its
+   own geometry; colour, hover, expanded and caps-label treatment exist once. */
+.ink-prose .tool-btn,
+.ink-prose .tool-btn--text,
+.ink-prose .block-tool-btn,
+.ink-prose .chart-tool-btn,
+.ink-prose .chart-tool-btn--text,
+.ink-prose .mindmap-tool-btn,
+.ink-prose .mindmap-tool-btn--text {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 24px;
-  height: 24px;
+  color: var(--text-tertiary);
+  cursor: pointer;
+  transition: background-color var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out);
+}
+.ink-prose .tool-btn:hover,
+.ink-prose .block-tool-btn:hover,
+.ink-prose .chart-tool-btn:hover,
+.ink-prose .mindmap-tool-btn:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+.ink-prose .tool-btn[aria-expanded='true'],
+.ink-prose .block-tool-btn[aria-expanded='true'],
+.ink-prose .chart-tool-btn[aria-expanded='true'],
+.ink-prose .mindmap-tool-btn[aria-expanded='true'] {
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+.ink-prose .tool-btn,
+.ink-prose .chart-tool-btn,
+.ink-prose .mindmap-tool-btn {
+  height: var(--sp-5);
+  padding: 0 var(--sp-1-5);
+  border-radius: var(--r-sm);
+}
+.ink-prose .tool-btn--text,
+.ink-prose .chart-tool-btn--text,
+.ink-prose .mindmap-tool-btn--text {
+  font-family: var(--font-mono);
+  font-size: var(--text-10-5);
+  letter-spacing: var(--tracking-caps);
+  text-transform: uppercase;
+}
+.ink-prose .block-tool-btn {
+  width: var(--sp-6);
+  height: var(--sp-6);
   padding: 0;
   border: 1px solid transparent;
   border-radius: var(--r-xs);
+  background: transparent;
+}
+.ink-prose .code-block-head > .block-tools .block-tool-btn {
+  width: var(--sp-5);
+  height: var(--sp-5);
+}
+
+/* Block-header icon buttons, one recipe for the dataview and kanban headers.
+   `.block-btn` is the base; the two module names stay selectable because their
+   markup is emitted by the corresponding feature. Each keeps only what genuinely
+   differs — its own box, its hover colour and its label typography. */
+.ink-prose .block-btn,
+.ink-prose .dataview-block-btn,
+.ink-prose .kanban-block-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--r-sm);
   background: transparent;
   color: var(--text-tertiary);
   cursor: pointer;
   transition: background-color var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out);
 }
-.ink-prose .block-tool-btn:hover {
+.ink-prose .block-btn:hover,
+.ink-prose .dataview-block-btn:hover,
+.ink-prose .kanban-block-btn:hover {
   background: var(--bg-hover);
-  color: var(--text-primary);
-}
-.ink-prose .block-tool-btn[aria-expanded='true'] {
-  color: var(--accent);
-  background: var(--accent-soft);
-}
-.ink-prose .code-block-head > .block-tools .block-tool-btn {
-  width: 20px;
-  height: 20px;
 }
 .ink-prose .block-popover {
   position: absolute;
@@ -1451,7 +1509,7 @@
   flex: none;
   white-space: nowrap;
   font-size: var(--text-10-5);
-  letter-spacing: 0.02em;
+  letter-spacing: var(--tracking-micro);
   color: var(--text-quaternary);
 }
 .ink-prose .block-settings-group {
@@ -1525,7 +1583,7 @@
   border-radius: var(--r-xs);
   background: var(--warning);
   color: var(--text-inverse);
-  letter-spacing: 0.04em;
+  letter-spacing: var(--tracking-caps);
 }
 .ink-prose .js-example-controls {
   display: flex;
@@ -1614,7 +1672,7 @@
   font-size: var(--text-11);
   font-weight: 600;
   color: var(--text-tertiary);
-  letter-spacing: 0.02em;
+  letter-spacing: var(--tracking-micro);
   text-transform: uppercase;
 }
 .ink-prose .js-example-output-status {
@@ -2096,33 +2154,6 @@
   gap: 4px;
   margin-left: auto;
 }
-.ink-prose .chart-tool-btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  height: 20px;
-  padding: 0 6px;
-  border-radius: var(--r-sm);
-  color: var(--text-tertiary);
-  cursor: pointer;
-  transition:
-    background-color var(--dur-fast) var(--ease-out),
-    color var(--dur-fast) var(--ease-out);
-}
-.ink-prose .chart-tool-btn--text {
-  font-family: var(--font-mono);
-  font-size: 10.5px;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-}
-.ink-prose .chart-tool-btn:hover {
-  background: var(--bg-hover);
-  color: var(--text-primary);
-}
-.ink-prose .chart-tool-btn[aria-expanded='true'] {
-  color: var(--accent);
-  background: var(--accent-soft);
-}
 .ink-prose .chart-block-source {
   max-height: 260px;
   margin: 0;
@@ -2252,33 +2283,6 @@
   align-items: center;
   gap: 4px;
   margin-left: auto;
-}
-.ink-prose .mindmap-tool-btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  height: 20px;
-  padding: 0 6px;
-  border-radius: var(--r-sm);
-  color: var(--text-tertiary);
-  cursor: pointer;
-  transition:
-    background-color var(--dur-fast) var(--ease-out),
-    color var(--dur-fast) var(--ease-out);
-}
-.ink-prose .mindmap-tool-btn--text {
-  font-family: var(--font-mono);
-  font-size: 10.5px;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-}
-.ink-prose .mindmap-tool-btn:hover {
-  background: var(--bg-hover);
-  color: var(--text-primary);
-}
-.ink-prose .mindmap-tool-btn[aria-expanded='true'] {
-  color: var(--accent);
-  background: var(--accent-soft);
 }
 .ink-prose .mindmap-block-theme {
   height: 20px;
@@ -2881,10 +2885,7 @@
   max-height: calc(100% - 24px);
   overflow-y: auto;
   padding: 10px 12px;
-  border: 1px solid var(--border-default);
-  border-radius: var(--r-lg);
-  background: var(--bg-overlay);
-  box-shadow: var(--shadow-pop);
+  @apply popover-surface;
   transform: translate(-50%, -50%);
 }
 .mindmap-shortcuts ul {
@@ -3076,7 +3077,7 @@
   width: auto;
   padding: 0 5px;
   font-size: 9.5px;
-  letter-spacing: 0.02em;
+  letter-spacing: var(--tracking-micro);
 }
 /* A phone's reading width cannot hold three tab names and eight tool buttons, and the tools are the part
    nobody wants to lose. Each tab keeps its icon, and its name stays in the accessible name through the
@@ -3118,7 +3119,6 @@
   position: relative;
   max-height: min(60vh, 560px);
   overflow: auto;
-  scrollbar-width: thin;
 }
 .ink-prose .json-view[hidden] {
   display: none;
@@ -3237,7 +3237,7 @@
   margin-left: 5px;
   color: var(--text-secondary);
   font-size: 9.5px;
-  letter-spacing: 0.04em;
+  letter-spacing: var(--tracking-caps);
   text-transform: uppercase;
   opacity: 0;
 }

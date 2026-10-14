@@ -39,6 +39,8 @@
   --sp-3-5: 14px;
   --sp-4: 16px;
   --sp-5: 20px;
+  /* The short header-control step: 22px tall buttons sit in 24px rows. */
+  --sp-5-5: 22px;
   --sp-6: 24px;
   --sp-12: 48px;
   --sp-16: 64px;
@@ -111,7 +113,12 @@
   --sp-10: 40px;
   --text-15: 15px;
   --text-16: 16px;
+  /* The tracking scale, ordered by how wide the letters are set. `micro` is the
+     tightest small caps and dense monospace labels, `caps` the uppercase chip and
+     tool-button labels; both existed as magic numbers in prose.css before. */
   --tracking-title: -0.012em;
+  --tracking-micro: 0.02em;
+  --tracking-caps: 0.04em;
   --tracking-label: 0.06em;
   --tracking-section: 0.07em;
 

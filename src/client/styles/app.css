@@ -213,6 +213,20 @@
 }
 
 
+/* ── One skin for every floating surface ─────────────────────────────────────
+   Popovers, menus, tooltips, toasts and modal-style panels all raise the same
+   four tokens. Declared as a Tailwind utility so it is usable three ways: as a
+   class on markup, and as `@apply popover-surface` from a module stylesheet that
+   already owns the selector. `--shadow-pop` carries its own 1px ring, so a border
+   is still needed for the light theme's flat surfaces. */
+@utility popover-surface {
+  background: var(--bg-overlay);
+  border: 1px solid var(--border-default);
+  border-radius: var(--r-lg);
+  box-shadow: var(--shadow-pop);
+}
+
+
 @layer utilities {
   .no-scrollbar::-webkit-scrollbar {
     display: none;
@@ -290,14 +304,6 @@
     border-radius: 999px;
     background: var(--bg-surface);
     border: 1.5px solid var(--accent);
-  }
-
-
-  .panel {
-    background: var(--bg-overlay);
-    border: 1px solid var(--border-default);
-    border-radius: var(--r-lg);
-    box-shadow: var(--shadow-pop);
   }
 }
 

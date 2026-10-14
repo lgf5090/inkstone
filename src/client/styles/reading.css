@@ -353,10 +353,7 @@
   align-items: center;
   gap: 2px;
   padding: 4px;
-  border-radius: var(--r-lg);
-  background: var(--bg-overlay);
-  border: 1px solid var(--border-default);
-  box-shadow: var(--shadow-pop);
+  @apply popover-surface;
 }
 
 .reader-selection-bar button {
@@ -773,9 +770,6 @@
   z-index: var(--z-popover);
   max-width: min(380px, calc(100vw - 24px));
   padding: 8px 10px 6px;
-  border: 1px solid var(--border-default);
-  border-radius: var(--r-lg);
-  background: var(--bg-overlay);
-  box-shadow: var(--shadow-pop);
+  @apply popover-surface;
   color: var(--text-primary);
 }
