@@ -226,7 +226,10 @@ function MoveRow({ depth, id, label, glyph, color, count, isCurrent, hasChildren
 }) {
     return (<button type="button" data-move-row data-move-depth={depth} data-move-id={id ?? ''} data-move-shortcut={shortcut ? '1' : undefined} data-move-has-children={hasChildren ? '1' : '0'} disabled={isCurrent} aria-current={isCurrent ? 'true' : undefined} onMouseEnter={(event) => onHover(event.currentTarget.getBoundingClientRect())} onFocus={(event) => onHover(event.currentTarget.getBoundingClientRect())} onClick={onSelect} className={cn('flex h-10 w-full items-center gap-2 rounded-[var(--r-sm)] pr-1 text-left text-[12.5px] transition-colors md:h-[30px]', isCurrent
             ? 'text-[var(--text-quaternary)]'
-            : 'text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]')} style={{ paddingLeft: treeIndent(depth) }}>
+            // Every row sits at the tree's base column: this cascade already places each level in its
+            // own floating panel offset by `levelLeft`, so indenting a row by its `depth` as well would
+            // shift it a second time. `depth` is kept only for the `data-move-depth` focus walk.
+            : 'text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]')} style={{ paddingLeft: treeIndent(0) }}>
       <span className="flex size-4 shrink-0 items-center justify-center text-[13px] leading-none" style={{ color: typeof glyph === 'string' ? color ?? undefined : 'var(--text-tertiary)' }} aria-hidden="true">
         {typeof glyph === 'string' ? glyph : glyph ?? <FolderClosed size={13}/>}
       </span>

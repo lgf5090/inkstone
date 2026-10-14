@@ -33,11 +33,13 @@ export function SidebarRecent() {
         )}
       </div>
       {visible.length === 0 ? (<p className="px-2 py-3 text-[12px] leading-relaxed text-[var(--text-quaternary)]">{t('sidebar.recent_empty')}</p>) : (<div role="tree" aria-label={t('sidebar.tab_recent')} data-recent-list className="space-y-px">
-          {visible.map((note) => (<ExplorerNote
+          {visible.map((note, index) => (<ExplorerNote
             key={note.id}
             note={note}
             depth={0}
             canOpenToSide={canOpenToSide}
+            setSize={visible.length}
+            posInSet={index + 1}
             trailing={(<span data-recent-age title={fullTime(note.updatedAt)} className="shrink-0 pr-1 text-[10.5px] tabular text-[var(--text-quaternary)]">
                     {shortSince(note.updatedAt, now)}
                   </span>)}

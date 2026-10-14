@@ -2,12 +2,12 @@ import { useMemo, useRef, useState } from 'react';
 import { ArrowLeftRight, Hash, Palette, Pin, X } from 'lucide-react';
 import type { Tag } from '@shared/types';
 import { cn } from '../../lib/cn';
-import { splitByRanges } from '../../lib/fuzzy';
-import { compileQuery, queryMatches, type Query } from '../../lib/query-match';
+import { compileQuery, queryMatches } from '../../lib/query-match';
+import { treeIndent } from '../../lib/tree';
 import { FilterInput } from '../../components/FilterInput';
 import { buildTagTree, flattenTagTree, renameTagSegment } from '../../lib/tag-tree';
 import { Menu, Modal } from '../../components/overlay';
-import { commitOnEnter } from '../../components/form';
+import { TagNameHighlight, TagRenameField } from './tag-row-parts';
 import { useNotes } from '../../store/notes';
 import { t } from '../../lib/i18n';
 import { deleteTag, renameTag, setTagColor, setTagPinned } from './tagMutations';
@@ -59,11 +59,11 @@ export function ManageTagsModal({ open, onClose }: {
           <p className="px-1 text-[11px] tabular text-[var(--text-quaternary)]">{t('tags.match_count', { value0: visible.filter((node) => !node.isVirtual).length })}</p>
           <div className="max-h-[52vh] overflow-y-auto rounded-[var(--r-md)] border border-[var(--border-subtle)]">
             {!visible.length && <p className="px-3 py-6 text-center text-[12px] text-[var(--text-quaternary)]">{t('tags.no_match')}</p>}
-            {visible.map((node) => (<div key={node.fullPath} className="relative flex h-11 items-center gap-2 border-b border-[var(--border-subtle)] px-2 last:border-b-0" style={{ paddingLeft: 8 + node.depth * 13 }}>
+            {visible.map((node) => (<div key={node.fullPath} className="relative flex h-11 items-center gap-2 border-b border-[var(--border-subtle)] px-2 last:border-b-0" style={{ paddingLeft: treeIndent(node.depth) }}>
                 {colorFor === node.tag.id && <span ref={colorAnchor} aria-hidden="true" className="absolute top-0 right-8 size-px"/>}
                 <Hash size={13} className="shrink-0" style={{ color: node.tag.color ?? 'var(--text-quaternary)' }}/>
                 {node.isPinned && <Pin size={10} className="shrink-0 text-[var(--text-quaternary)]"/>}
-                {renamingId === node.tag.id ? (<TagRenameInput initial={node.name} onCancel={() => setRenamingId(null)} onCommit={(value) => {
+                {renamingId === node.tag.id ? (<TagRenameField initial={node.name} onCancel={() => setRenamingId(null)} onCommit={(value) => {
                             setRenamingId(null);
                             void renameTag(node.tag, renameTagSegment(node.fullPath, value));
                         }}/>) : (<button type="button" onClick={() => {
@@ -75,7 +75,7 @@ export function ManageTagsModal({ open, onClose }: {
                             if (!node.isVirtual)
                                 setRenamingId(node.tag.id);
                         }} className="min-w-0 flex-1 truncate text-left text-[12.5px] font-medium text-[var(--text-primary)] hover:text-[var(--accent)]">
-                      <ManagedTagName name={node.name} query={filter}/>
+                      <TagNameHighlight name={node.name} query={filter}/>
                     </button>)}
                 <span className="shrink-0 text-[11px] tabular text-[var(--text-quaternary)]">{node.children.length ? node.totalCount : node.count || ''}</span>
                 {!node.isVirtual && !merging && (<div className="flex shrink-0 items-center gap-px">
@@ -108,37 +108,4 @@ export function ManageTagsModal({ open, onClose }: {
             }}/>),
         }]}/>
     </>);
-}
-function ManagedTagName({ name, query }: {
-    name: string;
-    query: Query;
-}) {
-    const match = queryMatches(query, name);
-    if (!match)
-        return name;
-    return splitByRanges(name, match.ranges).map((part, index) => part.hit
-        ? <span key={index} className="font-semibold text-[var(--accent)]">{part.text}</span>
-        : <span key={index}>{part.text}</span>);
-}
-function TagRenameInput({ initial, onCommit, onCancel }: {
-    initial: string;
-    onCommit: (value: string) => void;
-    onCancel: () => void;
-}) {
-    const [value, setValue] = useState(initial);
-    const done = useRef(false);
-    const commit = () => {
-        if (done.current)
-            return;
-        done.current = true;
-        onCommit(value);
-    };
-    return (<input aria-label={t('tags.rename')} autoFocus value={value} onChange={(event) => setValue(event.target.value)} onBlur={commit} onKeyDown={(event) => {
-            commitOnEnter(event, commit);
-            if (event.key === 'Escape') {
-                done.current = true;
-                onCancel();
-            }
-            event.stopPropagation();
-        }} className="min-w-0 flex-1 rounded-[var(--r-xs)] border border-[var(--accent)] bg-[var(--bg-surface)] px-1 py-px text-[12.5px] outline-none"/>);
 }

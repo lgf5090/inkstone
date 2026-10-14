@@ -171,6 +171,11 @@ function VirtualRow({ ns, rootIcon, node, allIds, showEmptyToggle }: {
         });
     }
     const onKeyDown = useTreeKeyboard();
+    // The synthetic tree root is built at `depth: -1` (see `VirtualTree`), so every row steps one
+    // past its own depth: `node.depth + 1` for the indent and `node.depth + 2` for `aria-level`.
+    // That is what lines the calendar/todo root up with the folder root, whose top-level nodes start
+    // at `depth: 0` and so render at the same `treeIndent(0)` column and `aria-level: 1`. The `+1` is
+    // not an off-by-one to remove — dropping it would push the folder tree's root one step left.
     return (<div {...treeItemProps({ level: node.depth + 2, expanded: hasChildren ? expanded : undefined, selected: active })}>
       <div ref={anchor} onContextMenu={(event) => {
             setMenuOpen(false);
@@ -179,7 +184,7 @@ function VirtualRow({ ns, rootIcon, node, allIds, showEmptyToggle }: {
             ? 'bg-[var(--accent-soft)] text-[var(--text-primary)]'
             : 'text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]', node.count === 0 && !isRoot && 'opacity-60')} style={{ paddingLeft: treeIndent(node.depth + 1) }}>
         <Tooltip label={expanded ? t("sidebar.collapse") : t("sidebar.expand")} side="right">
-          <button type="button" disabled={!hasChildren} aria-hidden={!hasChildren || undefined} tabIndex={hasChildren ? undefined : -1} data-tree-toggle onClick={(event) => {
+          <button type="button" disabled={!hasChildren} aria-hidden={!hasChildren || undefined} tabIndex={hasChildren ? undefined : -1} data-tree-toggle aria-expanded={hasChildren ? expanded : undefined} onClick={(event) => {
                 event.stopPropagation();
                 toggleFolder(node.id);
             }} aria-label={expanded ? t("sidebar.collapse") : t("sidebar.expand")} className={cn('flex size-8 shrink-0 items-center justify-center rounded text-[var(--text-quaternary)] md:size-4', 'transition-transform duration-[var(--dur-base)] ease-[var(--ease-out)]', expanded && 'rotate-90', !hasChildren && 'invisible')}>
@@ -231,6 +236,9 @@ export function InboxTree() {
     const expanded = useUi((s) => s.expandedFolders.includes('inbox'));
     const view = useUi((s) => s.view);
     const active = view === 'unfiled';
+    const hasUnfiled = unfiled.length > 0;
+    const { childrenMounted, childrenVisible } = useTreeChildrenMount(expanded, hasUnfiled);
+    const onKeyDown = useTreeKeyboard();
     const menu = useContextMenu();
     const anchor = useRef<HTMLDivElement>(null);
     const [menuOpen, setMenuOpen] = useState(false);
@@ -256,10 +264,10 @@ export function InboxTree() {
             ? 'bg-[var(--accent-soft)] text-[var(--text-primary)]'
             : 'text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]')} style={{ paddingLeft: treeIndent(0) }}>
         <Tooltip label={expanded ? t("sidebar.collapse") : t("sidebar.expand")} side="right">
-          <button type="button" disabled={unfiled.length === 0} aria-hidden={unfiled.length === 0 || undefined} tabIndex={unfiled.length ? undefined : -1} data-tree-toggle onClick={(event) => {
+          <button type="button" disabled={!hasUnfiled} aria-hidden={!hasUnfiled || undefined} tabIndex={hasUnfiled ? undefined : -1} data-tree-toggle aria-expanded={hasUnfiled ? expanded : undefined} onClick={(event) => {
                 event.stopPropagation();
                 useUi.getState().toggleFolder('inbox');
-            }} aria-label={expanded ? t("sidebar.collapse") : t("sidebar.expand")} className={cn('flex size-8 shrink-0 items-center justify-center rounded text-[var(--text-quaternary)] md:size-4', 'transition-transform duration-[var(--dur-base)] ease-[var(--ease-out)]', expanded && 'rotate-90', unfiled.length === 0 && 'invisible')}>
+            }} aria-label={expanded ? t("sidebar.collapse") : t("sidebar.expand")} className={cn('flex size-8 shrink-0 items-center justify-center rounded text-[var(--text-quaternary)] md:size-4', 'transition-transform duration-[var(--dur-base)] ease-[var(--ease-out)]', expanded && 'rotate-90', !hasUnfiled && 'invisible')}>
             <ChevronRight size={12}/>
           </button>
         </Tooltip>
@@ -267,7 +275,7 @@ export function InboxTree() {
           <Inbox size={14}/>
         </span>
         <Tooltip label={t("sidebar.inbox_hint")} side="right">
-          <button data-tree-row type="button" aria-current={active ? 'page' : undefined} onClick={open} className="min-w-0 flex-1 truncate py-1 pl-1 text-left text-[12.5px] font-medium">
+          <button data-tree-row type="button" aria-current={active ? 'page' : undefined} onClick={open} onKeyDown={onKeyDown} className="min-w-0 flex-1 truncate py-1 pl-1 text-left text-[12.5px] font-medium">
             {t("sidebar.inbox_folder")}
           </button>
         </Tooltip>
@@ -284,8 +292,10 @@ export function InboxTree() {
           </IconButton>
         </Tooltip>
       </div>
-      {expanded && unfiled.length > 0 && (<div role="group" className="min-h-0 space-y-px overflow-hidden">
-        {unfiled.map((note) => <ExplorerNote key={note.id} note={note} depth={1} canOpenToSide={false}/>)}
+      {childrenMounted && (<div role="group" aria-hidden={!childrenVisible} inert={!childrenVisible} className={cn('folder-children-grid', childrenVisible && 'is-expanded')}>
+        <div className="min-h-0 space-y-px overflow-hidden">
+          {unfiled.map((note, index) => <ExplorerNote key={note.id} note={note} depth={1} canOpenToSide={false} setSize={unfiled.length} posInSet={index + 1}/>)}
+        </div>
       </div>)}
       </div>
       <Menu anchor={anchor} open={menuOpen} onClose={() => setMenuOpen(false)} items={menuItems}/>

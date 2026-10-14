@@ -6,6 +6,7 @@ import { api } from '../../lib/api'
 import { t } from '../../lib/i18n'
 import { setOptimisticTagCache, useNotes } from '../../store/notes'
 import { useUi } from '../../store/ui'
+import { dropTagFilter, hasTagFilter, mapTagFilter } from './tag-filter'
 
 const TAG_ID_ALPHABET = '0123456789abcdefghjkmnpqrstvwxyz'
 
@@ -71,8 +72,8 @@ export async function renameTag(tag: Tag, value: string): Promise<void> {
     tags: optimisticRenameTags(state.tags, tag.id, destination),
     notes: rewriteNoteSummaryTags(state.notes, tag.name, destination),
   }))
-  if (beforeUi.view === 'tag' && beforeUi.tags.includes(tag.name)) {
-    beforeUi.openView('tag', { tags: beforeUi.tags.map((name) => name === tag.name ? destination : name) })
+  if (beforeUi.view === 'tag' && hasTagFilter(beforeUi.tags, tag.name)) {
+    beforeUi.openView('tag', { tags: mapTagFilter(beforeUi.tags, tag.name, destination) })
   }
   let result: Awaited<ReturnType<typeof api.tags.patch>>
   try {
@@ -80,7 +81,7 @@ export async function renameTag(tag: Tag, value: string): Promise<void> {
   } catch (error) {
     setOptimisticTagCache(() => ({ tags: before.tags, notes: before.notes }))
     const ui = useUi.getState()
-    if (ui.view === 'tag' && ui.tags.includes(destination)) {
+    if (ui.view === 'tag' && hasTagFilter(ui.tags, destination)) {
       ui.openView(beforeUi.view, { folderId: beforeUi.folderId, tags: beforeUi.tags })
     }
     ui.toast({
@@ -262,8 +263,8 @@ export async function deleteTag(tag: Tag): Promise<void> {
     tags: state.tags.filter((candidate) => candidate.id !== tag.id),
     notes: rewriteNoteSummaryTags(state.notes, tag.name, null),
   }))
-  if (beforeUi.view === 'tag' && beforeUi.tags.includes(tag.name)) {
-    const rest = beforeUi.tags.filter((name) => name !== tag.name)
+  if (beforeUi.view === 'tag' && hasTagFilter(beforeUi.tags, tag.name)) {
+    const rest = dropTagFilter(beforeUi.tags, tag.name)
     if (rest.length) beforeUi.openView('tag', { tags: rest })
     else beforeUi.openView('all')
   }
