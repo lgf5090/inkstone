@@ -15881,6 +15881,12 @@ const allowed = new Map([
     "// A class list built in a variable or a helper never reaches a `className` attribute node, so",
     "// reading only attributes left `const base = 'fixed z-[255] …'` invisible to this guard.",
   ]],
+  ["tests/client-raw-font-size.test.ts", [
+    "/**\n * Font sizes come from the scale in `src/client/styles/tokens.css`, never from a typed-in pixel.\n *\n * `AGENTS.md` rule 4 puts every size behind a token, and the client had 1,105 classes that named one\n * outright (`text-[11.5px]`), which is how the same label ended up at four different heights in four\n * panels. All of them now read `text-[length:var(--text-11-5)]`, so there is nothing to allow here:\n * an empty baseline is the point, and a new literal fails this file rather than a review comment.\n *\n * A class list is read wherever it is written, not only where it is applied. Guards that look only at\n * `className` attributes miss `const base = 'fixed z-[255] …'`, which is exactly the shape a shared\n * surface helper tends to grow — and comments are skipped, so the prose about a class cannot fail it.\n */",
+    "/** Every `text-[Npx]` the client writes into a string, as `file:line` with the size it hard-codes. */",
+    "// A guard that reads no files passes forever. The token form is used by hundreds of classes, so a",
+    "// scan that finds none of them is broken rather than the codebase being clean.",
+  ]],
   ["tests/contrast-dark-text-quaternary.test.ts", [
     "/**\n * `--text-quaternary` is the app-wide de-emphasis step: counts, placeholders and\n * secondary metadata in every module read it, so nothing that paints it can be\n * used as the gate — the gate has to be the declaration itself.\n *\n * Dark theme is the hard case. Its lightest surface (`--bg-overlay` under\n * `[data-background='white']`) sits near #292a2d, and AA 4.5:1 normal text on\n * that is only reachable above ~67% L, so the whole de-emphasis ladder has to\n * live in the upper lightness band and keep its steps by spacing rather than by\n * distance from white. This gate holds both halves of that contract.\n */",
     "// A step that is less than one contrast-ratio point away from its neighbour is",
