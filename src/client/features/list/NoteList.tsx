@@ -1,17 +1,19 @@
 import { APP_SHORTCUTS, NOTE_LIST_SHORTCUTS } from '../../lib/shortcuts';
 import { memo, useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
-import { Archive, ArrowDownWideNarrow, Brush, CalendarDays, CheckSquare2, Columns2, Copy, FileCode, FileDown, FileText, FolderInput, Link2, MoreHorizontal, Network, Pin, PictureInPicture2, PinOff, PanelLeft, Plus, RotateCcw, Search, Star, StarOff, Trash2, X, Zap, } from 'lucide-react';
+import { Archive, ArrowDownWideNarrow, Brush, CalendarDays, CheckSquare2, Columns2, Copy, FileCode, FileDown, FileText, FolderInput, Link2, MoreHorizontal, Network, Pin, PictureInPicture2, PinOff, PanelLeft, Plus, RotateCcw, Star, StarOff, Trash2, X, Zap, } from 'lucide-react';
 import { isMindmapDocumentTitle } from '../../lib/markdown/mindmap/document';
 import type { NoteSummary, SearchHit, SortKey, ViewKind } from '@shared/types';
 import { cn } from '../../lib/cn';
 import { groupLabel, parseDateKey } from '../../lib/time';
 import { useDebounced, useNow } from '../../lib/hooks';
 import { api } from '../../lib/api';
-import { fuzzyFilter, splitByRanges } from '../../lib/fuzzy';
+import { splitByRanges } from '../../lib/fuzzy';
+import { compileQuery, queryKeepsRows, queryMatches } from '../../lib/query-match';
 import { useBreakpoint } from '../../lib/hooks';
 import { matches, prettyCombo } from '../../lib/hotkeys';
 import { exportNoteAsHtml, exportNoteAsMarkdown, exportNoteAsPdf } from '../../lib/export-note';
 import { IconButton, Logo } from '../../components/primitives';
+import { FilterInput } from '../../components/FilterInput';
 import { Menu, Tooltip, confirm, useContextMenu, type MenuItem } from '../../components/overlay';
 import { Empty, NoteListSkeleton } from '../../components/feedback';
 import { useUi } from '../../store/ui';
@@ -70,6 +72,8 @@ const EMPTY_HIGHLIGHT: [
 ][] = [];
 const VIRTUAL_WINDOW_SIZE = 80;
 const VIRTUAL_OVERSCAN = 15;
+/** The most local rows the filter keeps before the remote layer fills in; matches the old `fuzzyFilter` limit. */
+const SEARCH_FILTER_LIMIT = 200;
 export function NoteList() {
     const locale = useLocale();
     const breakpoint = useBreakpoint();
@@ -164,13 +168,21 @@ export function NoteList() {
         () => (searchList ? Object.values(allNotes).filter((item) => !item.deletedAt) : notes),
         [searchList, allNotes, notes]);
     const pinyinVersion = usePinyinVersion()
+    const deferredQuery = useMemo(() => compileQuery(deferredFilter), [deferredFilter, pinyinVersion]);
     const filtered = useMemo(() => {
-        if (!deferredFilter.trim())
+        // An empty box or a refused expression keeps every row: the box is the only thing that speaks,
+        // exactly as the other `FilterInput` listings do (a query that would not compile is not a
+        // search that found nothing).
+        if (queryKeepsRows(deferredQuery))
             return notes.map((note) => ({ note, ranges: EMPTY_HIGHLIGHT }));
-        const local = fuzzyFilter(searchScope, deferredFilter, (n) => searchKeyOfNote(n, contents), 200).map(({ item, match }) => ({
-            note: item,
-            ranges: match.ranges.filter(([s]) => s < item.title.length),
-        }));
+        const scored: { note: NoteSummary; ranges: [number, number][]; score: number }[] = [];
+        for (const note of searchScope) {
+            const match = queryMatches(deferredQuery, searchKeyOfNote(note, contents));
+            if (!match) continue;
+            scored.push({ note, score: match.score, ranges: match.ranges.filter(([s]) => s < note.title.length) });
+        }
+        scored.sort((a, b) => b.score - a.score);
+        const local = scored.slice(0, SEARCH_FILTER_LIMIT).map(({ note, ranges }) => ({ note, ranges }));
         if (!searchList || remote?.query !== deferredFilter.trim()) return local;
         const seen = new Set(local.map(({ note }) => note.id));
         return [...local, ...remote.results.flatMap((hit) => {
@@ -179,7 +191,7 @@ export function NoteList() {
             seen.add(note.id);
             return [{ note, ranges: EMPTY_HIGHLIGHT }];
         })];
-    }, [notes, searchScope, deferredFilter, searchList, remote, allNotes, contents, pinyinVersion]);
+    }, [notes, searchScope, deferredQuery, deferredFilter, searchList, remote, allNotes, contents, pinyinVersion]);
     useEffect(() => {
         // Deriving the whole vault's readings costs about 0.06ms a title, so on the first keystroke it
         // is one 120ms task for 2000 notes. Idle spreads the same work into a few milliseconds per
@@ -362,25 +374,23 @@ export function NoteList() {
         </div>}
 
         {(breakpoint === 'mobile' || searchList) && <div className={breakpoint === 'mobile' ? 'mobile-library-toolbar' : undefined}>
-          <div className={cn('relative', breakpoint === 'mobile' && 'mobile-note-search')}>
-            <Search size={15} className="pointer-events-none absolute top-1/2 left-3 -translate-y-1/2 text-[var(--text-quaternary)]"/>
-            <input ref={filterRef} aria-label={searchList ? t('shell.search_all_notes') : t("notes.filter_in_this_view")} value={filter} onChange={(e) => setFilter(e.target.value)} onKeyDown={(e) => {
-              if (e.key === 'Escape')
-                  setFilter('');
-              if (e.key === 'ArrowDown') {
-                  e.preventDefault();
-                  const first = filtered[0]?.note.id;
-                  if (first)
-                      void openNote(first);
-                  listRef.current?.focus();
-              }
-          }} placeholder={searchList ? t('shell.search_all_notes') : t("notes.filter_in_this_view")} className={cn('h-10 w-full rounded-[var(--r-md)] border border-transparent bg-[var(--bg-inset)] md:h-[30px]', 'pr-9 pl-8 text-[12.5px] text-[var(--text-primary)] placeholder:text-[var(--text-quaternary)] md:pr-7 md:pl-7', 'transition-[border-color,box-shadow] duration-[var(--dur-fast)]', 'focus:border-[var(--accent)] focus:shadow-[0_0_0_3px_var(--accent-ring)] focus:outline-none')}/>
-            {filter && (<Tooltip label={t("notes.clear_filters")} side="left">
-                <button type="button" onClick={() => setFilter('')} aria-label={t("notes.clear_filters")} className="absolute top-1/2 right-1 flex size-8 -translate-y-1/2 items-center justify-center rounded text-[var(--text-quaternary)] hover:text-[var(--text-secondary)]">
-                  <X size={12}/>
-                </button>
-              </Tooltip>)}
-          </div>
+          <FilterInput
+            value={filter}
+            onChange={setFilter}
+            query={compileQuery(filter)}
+            label={searchList ? t('shell.search_all_notes') : t("notes.filter_in_this_view")}
+            placeholder={searchList ? t('shell.search_all_notes') : t("notes.filter_in_this_view")}
+            inputRef={filterRef}
+            size="sidebar"
+            className={breakpoint === 'mobile' ? 'mobile-note-search' : undefined}
+            onKeyDown={(event) => {
+              if (event.key !== 'ArrowDown') return;
+              event.preventDefault();
+              const first = filtered[0]?.note.id;
+              if (first) void openNote(first);
+              listRef.current?.focus();
+            }}
+          />
           {breakpoint === 'mobile' && <><OmnisearchEntry mobile className="mobile-library-omnisearch"/><Tooltip label={t("notes.sort_and_display")}>
             <IconButton label={t("notes.sort_and_display")} size="sm" className="mobile-library-sort" ref={sortButtonRef} onClick={() => setSortMenuOpen(true)}>
               <ArrowDownWideNarrow size={17}/>

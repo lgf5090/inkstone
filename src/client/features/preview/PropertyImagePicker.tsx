@@ -4,10 +4,11 @@ import type { AttachmentWithUsage } from '@shared/types';
 import { parsePropertyImage } from '@shared/property-decorations';
 import { api } from '../../lib/api';
 import { cn } from '../../lib/cn';
-import { fuzzyFilter } from '../../lib/fuzzy';
+import { compileQuery, queryKeepsRows, queryMatches } from '../../lib/query-match';
 import { t } from '../../lib/i18n';
 import { usePinyinVersion } from '../../lib/pinyin';
 import { forgetPropertyImages } from '../../lib/property-images';
+import { FilterInput } from '../../components/FilterInput';
 import { Input, commitOnEnter } from '../../components/form';
 import { Modal } from '../../components/overlay';
 import { useUi } from '../../store/ui';
@@ -66,12 +67,26 @@ export function PropertyImagePicker({ request, noteId, onClose, onPick }: {
         void loadPage(undefined, stamp);
     }, [request, loadPage]);
     const images = useMemo(() => (files ?? []).filter(file => file.mime.startsWith('image/')), [files]);
+    // The box is a `FilterInput`, so it promises the same three answers as every other listing's box:
+    // fuzzy letters (pinyin readings included, hence the version in the dependency), the reading of a
+    // Chinese name, and `/a regular expression/`. Matching goes through the same compiled query so the
+    // promise is kept; `queryMatches` without slashes is `fuzzyMatch`, so those results are unchanged.
+    const filter = useMemo(() => compileQuery(query), [query]);
     const shown = useMemo(() => {
-        const trimmed = query.trim();
-        if (!trimmed)
+        // An empty box or a refused expression keeps every image: a pattern that would not compile is
+        // not a search that found nothing, and the box is the only thing that says so.
+        if (queryKeepsRows(filter))
             return images.slice(0, RESULT_LIMIT);
-        return fuzzyFilter(images, trimmed, file => file.filename, RESULT_LIMIT).map(entry => entry.item);
-    }, [images, query, pinyinVersion]);
+        const scored: { file: (typeof images)[number]; score: number }[] = [];
+        for (const file of images) {
+            const match = queryMatches(filter, file.filename);
+            if (!match)
+                continue;
+            scored.push({ file, score: match.score });
+        }
+        scored.sort((a, b) => b.score - a.score);
+        return scored.slice(0, RESULT_LIMIT).map(entry => entry.file);
+    }, [images, filter, pinyinVersion]);
     const choose = (value: string) => {
         if (!request)
             return;
@@ -108,7 +123,7 @@ export function PropertyImagePicker({ request, noteId, onClose, onPick }: {
     return (<Modal open={request !== null} onClose={onClose} title={t('properties.image_title')} description={t('properties.image_hint')} width={620}>
       <div className="flex min-h-0 flex-col gap-3">
         <div className="flex items-center gap-2">
-          <Input aria-label={t('properties.image_search')} value={query} placeholder={t('properties.image_search')} onChange={event => setQuery(event.target.value)} className="min-w-0 flex-1"/>
+          <FilterInput size="panel" value={query} onChange={setQuery} query={filter} label={t('properties.image_search')} placeholder={t('properties.image_search')} className="mt-0 min-w-0 flex-1"/>
           <button type="button" onClick={() => fileInput.current?.click()} disabled={busy} className="flex shrink-0 items-center gap-1.5 rounded-[var(--r-sm)] border border-[var(--border-subtle)] px-2.5 py-1.5 text-[12.5px] text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-hover)] disabled:opacity-50">
             {busy ? <Loader2 size={13} className="animate-spin"/> : <Upload size={13}/>}
             <span>{t('properties.image_upload')}</span>

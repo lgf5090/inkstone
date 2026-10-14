@@ -11,6 +11,7 @@ import {
 } from 'react'
 import { cn } from '../../lib/cn'
 import { truncateText } from '@shared/text-utils'
+import { DEBOUNCE } from '@shared/constants'
 import { useDebounced } from '../../lib/hooks'
 import { decodeDataValue } from '../../lib/markdown/data-attr'
 import { parseWikiTarget, renderMarkdown, type Heading } from '../../lib/markdown/renderer'
@@ -114,7 +115,7 @@ export const Preview = memo(function Preview({
   const tabScope = useMemo(() => ({ noteId: sourceNoteId ?? null, userId: userId ?? null }), [sourceNoteId, userId])
 
 
-  const debounced = useDebounced(content, 90)
+  const debounced = useDebounced(content, DEBOUNCE.render)
   const emojiVersion = useEmojiUnicodeVersion()
   const rendered = useMemo(() => renderMarkdown(debounced, { hideFrontMatter: true, emojiShortcodes: preview.emojiShortcodes }), [debounced, locale, preview.emojiShortcodes, emojiVersion])
   const embedContextTitle = rendered.hasEmbeds ? currentTitle : ''

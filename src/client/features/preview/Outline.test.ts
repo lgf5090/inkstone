@@ -881,3 +881,97 @@ describe('Outline sibling folding', () => {
         await act(async () => { unmount(); });
     });
 });
+
+// The rail used to have no keyboard path of its own: only Escape in the filter box and Enter/Escape in
+// the rename field. These are the rows answering to the shared tree contract (`lib/tree`), which is what
+// the outline's own `FilterInput`-sized problem could not give them.
+describe('Outline tree keyboard and ARIA', () => {
+    function press(target: Element, init: KeyboardEventInit): KeyboardEvent {
+        const event = new KeyboardEvent('keydown', { bubbles: true, cancelable: true, ...init });
+        act(() => { target.dispatchEvent(event); });
+        return event;
+    }
+
+    it('draws the list as a tree and says how deep each heading sits', () => {
+        const { container, unmount } = renderOutline(FOUR_LEVEL_HEADINGS);
+        expect(container.querySelector('ul[role="tree"]')).not.toBeNull();
+        const items = [...container.querySelectorAll<HTMLElement>('li[role="treeitem"]')];
+        expect(items.map((item) => item.getAttribute('aria-level'))).toEqual(['1', '2', '3', '4']);
+        // Only a row that actually has children claims to be open or shut.
+        expect(items.slice(0, 3).map((item) => item.getAttribute('aria-expanded'))).toEqual(['true', 'true', 'true']);
+        expect(items[3]!.hasAttribute('aria-expanded')).toBe(false);
+        unmount();
+    });
+
+    it('counts a skipped heading level as one step, the way the indent does', () => {
+        const { container, unmount } = renderOutline(SKIPPED_LEVEL_HEADINGS);
+        const items = [...container.querySelectorAll<HTMLElement>('li[role="treeitem"]')];
+        expect(items.map((item) => item.getAttribute('aria-level'))).toEqual(['1', '2']);
+        expect(items.map((item) => item.getAttribute('data-heading-level'))).toEqual(['1', '3']);
+        unmount();
+    });
+
+    it('walks the visible rows with the arrows and jumps to the ends', () => {
+        const { container, unmount } = renderOutline(FOUR_LEVEL_HEADINGS);
+        const rows = rowButtons(container);
+        rows[0]!.focus();
+        press(rows[0]!, { key: 'ArrowDown' });
+        expect(document.activeElement).toBe(rows[1]!);
+        press(rows[1]!, { key: 'ArrowUp' });
+        expect(document.activeElement).toBe(rows[0]!);
+        press(rows[0]!, { key: 'End' });
+        expect(document.activeElement).toBe(rows[3]!);
+        press(rows[3]!, { key: 'Home' });
+        expect(document.activeElement).toBe(rows[0]!);
+        unmount();
+    });
+
+    it('folds the row under the reader on ArrowLeft and opens it on ArrowRight', () => {
+        const { container, unmount } = renderOutline(BRANCH_HEADINGS);
+        const row = rowButtons(container)[0]!;
+        expect(slugs(container)).toEqual(['alpha', 'beta', 'gamma']);
+        press(row, { key: 'ArrowLeft' });
+        expect(slugs(container)).toEqual(['alpha']);
+        press(row, { key: 'ArrowRight' });
+        expect(slugs(container)).toEqual(['alpha', 'beta', 'gamma']);
+        unmount();
+    });
+
+    it('leaves a row with no fold control alone on ArrowLeft', () => {
+        const { container, unmount } = renderOutline(BRANCH_HEADINGS);
+        const leaf = container.querySelector<HTMLButtonElement>('button[data-slug="beta"]')!;
+        leaf.focus();
+        const event = press(leaf, { key: 'ArrowLeft' });
+        expect(event.defaultPrevented).toBe(false);
+        expect(document.activeElement).toBe(leaf);
+        unmount();
+    });
+
+    it('clears the filter and shuts the box on Escape, the way this box always did', async () => {
+        const { container, unmount } = renderOutline(FOUR_LEVEL_HEADINGS);
+        await type(await openSearch(container), 'detail');
+        expect(slugs(container)).toHaveLength(3);
+        press(container.querySelector<HTMLInputElement>('input[type="search"]')!, { key: 'Escape' });
+        expect(container.querySelector('input[type="search"]')).toBeNull();
+        expect(slugs(container)).toHaveLength(4);
+        // Re-opening shows an empty box, so the text really went back out rather than only hiding.
+        expect(await openSearch(container).then((input) => input.value)).toBe('');
+        unmount();
+    });
+
+    it('keeps a letter typed into the filter out of the window-level shortcuts behind the rail', async () => {
+        const seen: string[] = [];
+        const watch = (event: Event): void => { seen.push((event as KeyboardEvent).key); };
+        window.addEventListener('keydown', watch);
+        try {
+            const { container, unmount } = renderOutline(FOUR_LEVEL_HEADINGS);
+            const input = await openSearch(container);
+            press(input, { key: 'x' });
+            expect(seen).not.toContain('x');
+            unmount();
+        }
+        finally {
+            window.removeEventListener('keydown', watch);
+        }
+    });
+});

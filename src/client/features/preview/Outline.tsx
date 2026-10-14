@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type ComponentType, type DragEvent as ReactDragEvent, type RefObject } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ComponentType, type DragEvent as ReactDragEvent, type RefObject } from 'react';
 import {
     ListTree,
     Heading1,
@@ -25,6 +25,8 @@ import { createPortal } from 'react-dom';
 import { popoverPosition, type AnchorRect } from './outline-float';
 import { cn } from '../../lib/cn';
 import { Menu, Tooltip, confirm, useContextMenu, type MenuItem } from '../../components/overlay';
+import { useFilterInput } from '../../components/FilterInput';
+import { treeItemProps, useTreeKeyboard } from '../../lib/tree';
 import { usePinyinVersion } from '../../lib/pinyin'
 import {
     changeHeadingLevel,
@@ -61,6 +63,20 @@ import { useUi } from '../../store/ui';
 
 const ACTIVE_BAR_W = 'w-[var(--sp-0-625)]';
 
+/**
+ * The outline's own indent scale, deliberately *not* `treeIndent` from `src/client/lib/tree/indent.ts`.
+ *
+ * `treeIndent` steps 6px + 13px per depth for the file hierarchy: folder rows carry a chevron slot, an
+ * icon and a name, and the step has to be wide enough that a deep folder path still reads as nested.
+ * An outline is a heading hierarchy in a 168px rail — six levels deep, where 13px a level would spend
+ * 65px of the 168px on indent alone and push the heading text into truncation on the levels readers
+ * actually navigate. 8px + 10px keeps the sixth level's label legible.
+ *
+ * So the difference is a real one about a different tree, not a stale copy of the shared numbers — but
+ * it is still a second indent scale living in a feature file, which is exactly what `treeIndent` exists
+ * to prevent. The honest home for both is one module that states each scale and when to use it (see the
+ * report); until that module exists these two constants stay here, named, and answered for.
+ */
 const OUTLINE_INDENT_BASE = 8;
 const OUTLINE_INDENT_STEP = 10;
 const CHEVRON_SLOT = 14;
@@ -264,7 +280,6 @@ export function Outline({ headings, onSelect, scrollerRef, className, noteId, de
     const [level, setLevel] = useState(defaultLevel);
     const listRef = useRef<HTMLUListElement>(null);
     const searchRef = useRef<HTMLInputElement>(null);
-    const filterHintId = useId();
     const command = useUi((state) => state.outlineCommand);
     // Seeded with the command already in the store so remounting never replays a stale request.
     const appliedCommandRef = useRef<number>(command?.seq ?? 0);
@@ -330,6 +345,28 @@ export function Outline({ headings, onSelect, scrollerRef, className, noteId, de
     const searching = query.trim().length > 0;
     const pinyinVersion = usePinyinVersion()
     const compiled = useMemo(() => compileQuery(query), [query]);
+    // The rail draws its own box — 20px tall, 10.5px text, inside a 168px column, smaller than any of
+    // `FilterInput`'s three sizes — but it answers to the same keyboard and ARIA contract as every other
+    // filter box in the app, which is exactly what {@link useFilterInput} exists for: the contract without
+    // the chrome. Escape keeps the meaning this box has always had, take the text out *and* shut the box,
+    // by answering the key here and marking it handled so the contract stands down. What changes on
+    // purpose: every other key now stops at the box, so a global shortcut can no longer steal a letter
+    // typed into a heading name, and an Escape arriving mid-IME-composition costs the syllable, not the
+    // filter.
+    const { field, hintId: filterHintId } = useFilterInput({
+        value: query,
+        query: compiled,
+        inputRef: searchRef,
+        onClear: () => setQuery(''),
+        onKeyDown: (event) => {
+            if (event.key !== 'Escape')
+                return;
+            event.preventDefault();
+            event.stopPropagation();
+            setQuery('');
+            setSearchOpen(false);
+        },
+    });
     const filter = useMemo(() => filterTree(tree, query), [tree, query, pinyinVersion]);
     const drawn = tree.filter((_, index) => filter.visible[index] !== false && (searching || hidden[index] !== true));
 
@@ -527,7 +564,7 @@ export function Outline({ headings, onSelect, scrollerRef, className, noteId, de
       </div>
 
       {searchOpen && (<div className="mb-1 shrink-0 px-2">
-          <input ref={searchRef} type="search" value={query} onChange={(event) => setQuery(event.target.value)} onKeyDown={(event) => { if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); setQuery(''); setSearchOpen(false); } }} placeholder={t('outline.filter_placeholder')} aria-label={t('outline.filter_placeholder')} title={t('filter.regex_hint')} aria-invalid={compiled.error ? true : undefined} aria-describedby={compiled.error ? filterHintId : undefined} className={cn('h-5 w-full min-w-0 rounded-[var(--r-sm)] border bg-[var(--bg-surface)] px-1 text-[length:var(--text-10-5)] text-[var(--text-primary)] outline-none', compiled.error ? 'border-[var(--danger)] focus:border-[var(--danger)]' : 'border-[var(--border-subtle)] focus:border-[var(--accent)]')}/>
+          <input {...field} type="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder={t('outline.filter_placeholder')} aria-label={t('outline.filter_placeholder')} title={t('filter.regex_hint')} className={cn('h-5 w-full min-w-0 rounded-[var(--r-sm)] border bg-[var(--bg-surface)] px-1 text-[length:var(--text-10-5)] text-[var(--text-primary)] outline-none', compiled.error ? 'border-[var(--danger)] focus:border-[var(--danger)]' : 'border-[var(--border-subtle)] focus:border-[var(--accent)]')}/>
           {compiled.error && (<p id={filterHintId} role="status" className="px-1 pt-0.5 text-[length:var(--text-10-5)] text-[var(--danger)]">{compiled.error === 'syntax' ? t('filter.regex_syntax') : t('filter.regex_unsafe')}</p>)}
         </div>)}
 
@@ -544,7 +581,9 @@ export function Outline({ headings, onSelect, scrollerRef, className, noteId, de
           </button>
         </div>)}
 
-      <ul ref={listRef} className="min-h-0 flex-1 space-y-px overflow-y-auto">
+      {/* `role="tree"` is what the shared keyboard reads its rows from (`lib/tree/keyboard.ts`), and the
+          nav landmark above already names the control for a screen reader. */}
+      <ul ref={listRef} role="tree" className="min-h-0 flex-1 space-y-px overflow-y-auto">
         {drawn.map((node) => (<OutlineRow key={`${node.heading.slug}-${node.index}`} node={node} isLocated={node.heading.slug === locatedSlug} isCollapsed={collapsed.has(node.heading.slug)} onToggle={toggle} onSelect={onSelect} tooltipSide={tooltipSide} truncateLength={truncateLength} markdownLabels={markdownLabels} sourceLine={lines[node.heading.line]} hoverPeek={hoverPeek} textDirection={textDirection} onHoverRow={(index, rect) => setHoverRow({ index, rect })} onLeaveRow={() => setHoverRow(null)} buildMenu={buildMenu} menuEnabled={!searching} canRename={editable} renaming={renamingIndex === node.index} onStartRename={() => setRenamingIndex(node.index)} onCommitRename={commitRename} onCancelRename={() => setRenamingIndex(null)} canDrag={canDrag} dragging={dragFrom === node.index} dropHint={dropAt?.index === node.index ? dropAt.position : null} onDragStartRow={() => setDragFrom(node.index)} onDragEndRow={() => { setDragFrom(null); setDropAt(null); }} onDragOverRow={(index, position) => setDropAt((current) => current?.index === index && current.position === position ? current : { index, position })} onDropRow={finishDrop}/>))}
         {drawn.length === 0 && <li className="px-2 py-1 text-[length:var(--text-10-5)] text-[var(--text-quaternary)]">{t('outline.no_matches')}</li>}
       </ul>
@@ -605,6 +644,11 @@ function OutlineRow({ node, isLocated, isCollapsed, onToggle, onSelect, tooltipS
         return rendered.replace(/<[^>]*>/g, '').trim() ? rendered : '';
     }, [markdownLabels, sourceLine, truncateLength]);
     const menu = useContextMenu();
+    // The shared tree keyboard: arrows walk the rows, ArrowRight opens the row under the reader and
+    // ArrowLeft folds it, Home/End jump to the ends. It reads the rendered DOM, so this row only has to
+    // carry `data-tree-row` and its chevron `data-tree-toggle` (see `lib/tree/keyboard.ts`). Chords and
+    // an open IME are left alone, and the rename field is a different element that never sees this.
+    const treeKey = useTreeKeyboard();
     // Guards the blur that follows an Enter commit, which would otherwise rename twice.
     const committedRef = useRef(false);
     const items = menu.point ? buildMenu(node) : [];
@@ -614,7 +658,7 @@ function OutlineRow({ node, isLocated, isCollapsed, onToggle, onSelect, tooltipS
         if (event.dataTransfer) event.dataTransfer.effectAllowed = 'move';
         onDragStartRow();
     };
-    return (<li className={cn('relative', outlineMarginTop(node), dragging && 'opacity-45')} data-heading-level={heading.level} draggable={canDrag} onDragStart={beginDrag} onDragEnd={onDragEndRow} onDragOver={(event) => {
+    return (<li {...treeItemProps({ level: node.tier + 1, expanded: hasChildren ? !isCollapsed : undefined })} className={cn('relative', outlineMarginTop(node), dragging && 'opacity-45')} data-heading-level={heading.level} draggable={canDrag} onDragStart={beginDrag} onDragEnd={onDragEndRow} onDragOver={(event) => {
             if (!canDrag) return;
             event.preventDefault();
             if (event.dataTransfer) event.dataTransfer.dropEffect = 'move';
@@ -631,7 +675,7 @@ function OutlineRow({ node, isLocated, isCollapsed, onToggle, onSelect, tooltipS
         }}>
       {dropHint && (<span aria-hidden="true" data-drop-hint={dropHint} className={cn('pointer-events-none absolute left-0 right-0 z-10 bg-[var(--accent)]', dropHint === 'inside' ? 'inset-y-0 rounded-[var(--r-sm)] opacity-20' : dropHint === 'before' ? 'top-0 h-0.5' : 'bottom-0 h-0.5')}/>)}
       <div className="flex items-center" style={{ paddingLeft: OUTLINE_INDENT_BASE + tier * OUTLINE_INDENT_STEP }}>
-        {hasChildren ? (<button type="button" aria-expanded={!isCollapsed} aria-label={isCollapsed ? t('outline.expand_heading', { title: label }) : t('outline.collapse_heading', { title: label })} onClick={() => onToggle(heading.slug)} className="flex h-5 shrink-0 items-center justify-center rounded-[var(--r-sm)] text-[var(--text-quaternary)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]" style={{ width: CHEVRON_SLOT }}>
+        {hasChildren ? (<button type="button" data-tree-toggle aria-expanded={!isCollapsed} aria-label={isCollapsed ? t('outline.expand_heading', { title: label }) : t('outline.collapse_heading', { title: label })} onClick={() => onToggle(heading.slug)} className="flex h-5 shrink-0 items-center justify-center rounded-[var(--r-sm)] text-[var(--text-quaternary)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]" style={{ width: CHEVRON_SLOT }}>
               <ChevronRight size={10} className={cn('transition-transform duration-[var(--dur-fast)]', !isCollapsed && 'rotate-90')}/>
             </button>) : (<span aria-hidden="true" className="shrink-0" style={{ width: CHEVRON_SLOT }}/>) }
         {renaming ? (<input aria-label={t('outline.rename')} autoFocus defaultValue={heading.text} onFocus={() => {
@@ -654,7 +698,7 @@ function OutlineRow({ node, isLocated, isCollapsed, onToggle, onSelect, tooltipS
                     committedRef.current = true;
                     onCancelRename();
                 }
-            }} onDoubleClick={(event) => event.stopPropagation()} className="h-5 min-w-0 flex-1 rounded-[var(--r-sm)] border border-[var(--accent)] bg-[var(--bg-surface)] px-1 text-[length:var(--text-11-5)] text-[var(--text-primary)] outline-none"/>) : (<Tooltip label={label} side={tooltipSide}>            <button type="button" aria-label={label} data-slug={heading.slug} aria-current={isLocated ? 'location' : undefined} onClick={() => onSelect(heading)} onDoubleClick={canRename ? onStartRename : undefined} onMouseEnter={hoverPeek ? (event) => { const rect = event.currentTarget.getBoundingClientRect(); onHoverRow(node.index, { left: rect.left, top: rect.top, width: rect.width, height: rect.height }); } : undefined} onMouseLeave={hoverPeek ? onLeaveRow : undefined} className={cn('group relative flex min-w-0 flex-1 items-center gap-1.5 rounded-[var(--r-sm)] pr-1.5 text-left leading-snug', 'transition-colors duration-[var(--dur-fast)]', typography.fontSize, typography.fontWeight, typography.textColor, typography.paddingY, isLocated
+            }} onDoubleClick={(event) => event.stopPropagation()} className="h-5 min-w-0 flex-1 rounded-[var(--r-sm)] border border-[var(--accent)] bg-[var(--bg-surface)] px-1 text-[length:var(--text-11-5)] text-[var(--text-primary)] outline-none"/>) : (<Tooltip label={label} side={tooltipSide}>            <button type="button" data-tree-row onKeyDown={treeKey} aria-label={label} data-slug={heading.slug} aria-current={isLocated ? 'location' : undefined} onClick={() => onSelect(heading)} onDoubleClick={canRename ? onStartRename : undefined} onMouseEnter={hoverPeek ? (event) => { const rect = event.currentTarget.getBoundingClientRect(); onHoverRow(node.index, { left: rect.left, top: rect.top, width: rect.width, height: rect.height }); } : undefined} onMouseLeave={hoverPeek ? onLeaveRow : undefined} className={cn('group relative flex min-w-0 flex-1 items-center gap-1.5 rounded-[var(--r-sm)] pr-1.5 text-left leading-snug', 'transition-colors duration-[var(--dur-fast)]', typography.fontSize, typography.fontWeight, typography.textColor, typography.paddingY, isLocated
                     ? 'bg-[var(--accent-soft)]'
                     : 'hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]')}>
               {isLocated && <span aria-hidden="true" className={cn('absolute top-1/2 left-0.5 h-3.5', ACTIVE_BAR_W, '-translate-y-1/2 rounded-full bg-[var(--accent)]')}/>}

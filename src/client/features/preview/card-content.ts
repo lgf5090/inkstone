@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import type { MutableRefObject } from 'react'
 import type { Backlink } from '@shared/types'
+import { DEBOUNCE } from '@shared/constants'
 import { renderMarkdown } from '../../lib/markdown/renderer'
 import { registerFenceBodies } from '../../lib/markdown/fence-bodies'
 import { enhancePreview } from '../../lib/markdown/enhance'
@@ -43,7 +44,7 @@ export function useNoteCardContent(
   const rev = useNotes((s) => (target.noteId ? s.notes[target.noteId]?.rev ?? 0 : 0))
   const hydrated = useNotes((s) => s.hydrated)
   const liveContent = useNotes((s) => (target.noteId ? s.contents[target.noteId] : undefined))
-  const debouncedLiveContent = useDebounced(liveContent ?? '', 90)
+  const debouncedLiveContent = useDebounced(liveContent ?? '', DEBOUNCE.render)
 
   useEffect(() => {
     statusRef.current = status
