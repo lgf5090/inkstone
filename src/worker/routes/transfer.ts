@@ -27,17 +27,14 @@ import {
   selectAttachmentStorage,
 } from '../attachments/backend'
 import type { AppBindings } from '../env'
-import {
-  buildNoteDerivedStatements,
-  pruneOrphanTags,
-} from '../db/writes'
+import { pruneOrphanTags } from '../db/writes'
 import {
   TransferStore,
   type ExistingAttachmentRow,
   type ExistingNoteIndex,
   type TagRestoreRow,
 } from '../transfer/store'
-import { noteIndexQueueStatement, scheduleAiDrain } from '../mcp/ai-search'
+import { scheduleAiDrain } from '../mcp/ai-search'
 import { consumeNoteQuota, openNoteQuotaBudget, type NoteQuotaBudget } from '../db/quota'
 import {
   assertBundleCanBeRestored,
@@ -1290,6 +1287,14 @@ async function updateImportedNote(
   return 'updated'
 }
 
+/**
+ * Create one note from an import and return the id it ended up with.
+ *
+ * Size and quota are checked here, the timestamps and the title are decided here, and an id the export
+ * carried is offered once and replaced with a fresh one if the insert loses the collision — which is
+ * the only reason a re-import of the same export cannot overwrite a note another account owns. The
+ * writing itself is `store.insertNote`.
+ */
 async function insertNote(
   c: { env: AppBindings['Bindings'] },
   userId: string,
@@ -1312,72 +1317,25 @@ async function insertNote(
   const hash = await sha256Hex(input.content)
   let inserted = false
   for (let attempt = 0; attempt < 2; attempt++) {
-    const insert = c.env.DB.prepare(
-      `INSERT INTO notes (id, user_id, folder_id, title, content, excerpt, rev, word_count, char_count,
-         is_pinned, is_starred, is_archived, position, content_hash, created_at, updated_at, deleted_at)
-       VALUES (?1, ?2, ?3, ?4, ?5, ?6, 1, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)
-       ON CONFLICT(id) DO NOTHING`,
-    )
-      .bind(
-        id,
-        userId,
-        input.folderId,
-        title,
-        input.content,
-        deriveExcerpt(input.content),
-        words,
-        chars,
-        input.isPinned === true ? 1 : 0,
-        input.isStarred === true ? 1 : 0,
-        input.isArchived === true ? 1 : 0,
-        position,
-        hash,
-        created,
-        updated,
-        deleted,
-      )
-    const derived = buildNoteDerivedStatements({
-      db: c.env.DB,
-      userId,
-      noteId: id,
+    inserted = await ctx.store.insertNote({
+      id,
+      sourceId: input.id,
+      folderId: input.folderId,
       title,
       content: input.content,
-      ftsEnabled: ctx.ftsEnabled,
-      expectedRev: 1,
-      expectedContentHash: hash,
-      expectedTitle: title,
-      expectedUpdatedAt: updated,
-      deleted: Boolean(deleted),
-    }).statements
-    const change = c.env.DB.prepare(
-      `INSERT INTO changes (user_id, entity, entity_id, op, at)
-       SELECT ?1, 'note', ?2, 'upsert', ?3
-        WHERE EXISTS (SELECT 1 FROM notes
-          WHERE id = ?2 AND user_id = ?1 AND rev = 1 AND content_hash = ?4 AND updated_at = ?5)`,
-    ).bind(userId, id, Date.now(), hash, updated)
-    const mapping = input.id
-      ? c.env.DB.prepare(
-          `INSERT INTO import_mappings (user_id, entity, source_id, target_id, updated_at)
-           SELECT ?1, 'note', ?2, ?3, ?4
-            WHERE EXISTS (SELECT 1 FROM notes
-              WHERE id = ?3 AND user_id = ?1 AND rev = 1
-                AND content_hash = ?5 AND updated_at = ?6)
-           ON CONFLICT(user_id, entity, source_id) DO UPDATE SET
-             target_id = excluded.target_id,
-             updated_at = excluded.updated_at`,
-        ).bind(userId, input.id, id, Date.now(), hash, updated)
-      : null
-    const [result] = await c.env.DB.batch([
-      insert,
-      ...derived,
-      change,
-      ...(mapping ? [mapping] : []),
-      ...(deleted ? [] : [noteIndexQueueStatement(c.env.DB, userId, id, 'embed', Date.now())]),
-    ])
-    if (result?.meta.changes) {
-      inserted = true
-      break
-    }
+      excerpt: deriveExcerpt(input.content),
+      words,
+      chars,
+      contentHash: hash,
+      isPinned: input.isPinned === true ? 1 : 0,
+      isStarred: input.isStarred === true ? 1 : 0,
+      isArchived: input.isArchived === true ? 1 : 0,
+      position,
+      createdAt: created,
+      updatedAt: updated,
+      deletedAt: deleted,
+    })
+    if (inserted) break
     id = newId()
   }
   if (!inserted) throw new Error('Could not generate a unique note ID')

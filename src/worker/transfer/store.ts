@@ -131,6 +131,28 @@ export interface ImportedNoteWrite {
   keepsRevision: boolean
 }
 
+/** A note row an import is about to create, with every column the route already decided. */
+export interface NoteInsertWrite {
+  /** The id this attempt offers; the caller picks a new one if the insert loses the collision. */
+  id: string
+  /** The id the export carried, kept in the mapping so a later re-import finds this row. */
+  sourceId?: string
+  folderId: string | null
+  title: string
+  content: string
+  excerpt: string
+  words: number
+  chars: number
+  contentHash: string
+  isPinned: number
+  isStarred: number
+  isArchived: number
+  position: number
+  createdAt: number
+  updatedAt: number
+  deletedAt: number | null
+}
+
 /** Ids per lookup chunk: D1 binds every placeholder, so a restore's id list is paged. */
 const LOOKUP_CHUNK = 80
 /** Note indexes per lookup chunk; smaller, because the mapped pass reads its targets back a second time. */
@@ -487,6 +509,81 @@ export class TransferStore {
     )
 
     const [result] = await this.db.batch(statements)
+    return Boolean(result?.meta.changes)
+  }
+
+  /**
+   * Create one note from an import, with its derived rows, change record and mapping in one batch.
+   *
+   * `ON CONFLICT(id) DO NOTHING` is what lets an id another account already holds be retried with a
+   * fresh one, and every statement after the insert is guarded on the note actually being there at
+   * revision 1 with this hash — so an attempt that lost the collision writes nothing at all, not even
+   * a change record. A trashed note is not queued for embedding, which is the one branch the caller
+   * cannot see from the row alone. Whether to offer another id is the caller's decision.
+   */
+  async insertNote(input: NoteInsertWrite): Promise<boolean> {
+    const insert = this.db.prepare(
+      `INSERT INTO notes (id, user_id, folder_id, title, content, excerpt, rev, word_count, char_count,
+         is_pinned, is_starred, is_archived, position, content_hash, created_at, updated_at, deleted_at)
+       VALUES (?1, ?2, ?3, ?4, ?5, ?6, 1, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)
+       ON CONFLICT(id) DO NOTHING`,
+    )
+      .bind(
+        input.id,
+        this.userId,
+        input.folderId,
+        input.title,
+        input.content,
+        input.excerpt,
+        input.words,
+        input.chars,
+        input.isPinned,
+        input.isStarred,
+        input.isArchived,
+        input.position,
+        input.contentHash,
+        input.createdAt,
+        input.updatedAt,
+        input.deletedAt,
+      )
+    const derived = buildNoteDerivedStatements({
+      db: this.db,
+      userId: this.userId,
+      noteId: input.id,
+      title: input.title,
+      content: input.content,
+      ftsEnabled: this.ftsEnabled,
+      expectedRev: 1,
+      expectedContentHash: input.contentHash,
+      expectedTitle: input.title,
+      expectedUpdatedAt: input.updatedAt,
+      deleted: Boolean(input.deletedAt),
+    }).statements
+    const change = this.db.prepare(
+      `INSERT INTO changes (user_id, entity, entity_id, op, at)
+       SELECT ?1, 'note', ?2, 'upsert', ?3
+        WHERE EXISTS (SELECT 1 FROM notes
+          WHERE id = ?2 AND user_id = ?1 AND rev = 1 AND content_hash = ?4 AND updated_at = ?5)`,
+    ).bind(this.userId, input.id, Date.now(), input.contentHash, input.updatedAt)
+    const mapping = input.sourceId
+      ? this.db.prepare(
+          `INSERT INTO import_mappings (user_id, entity, source_id, target_id, updated_at)
+           SELECT ?1, 'note', ?2, ?3, ?4
+            WHERE EXISTS (SELECT 1 FROM notes
+              WHERE id = ?3 AND user_id = ?1 AND rev = 1
+                AND content_hash = ?5 AND updated_at = ?6)
+           ON CONFLICT(user_id, entity, source_id) DO UPDATE SET
+             target_id = excluded.target_id,
+             updated_at = excluded.updated_at`,
+        ).bind(this.userId, input.sourceId, input.id, Date.now(), input.contentHash, input.updatedAt)
+      : null
+    const [result] = await this.db.batch([
+      insert,
+      ...derived,
+      change,
+      ...(mapping ? [mapping] : []),
+      ...(input.deletedAt ? [] : [noteIndexQueueStatement(this.db, this.userId, input.id, 'embed', Date.now())]),
+    ])
     return Boolean(result?.meta.changes)
   }
 
