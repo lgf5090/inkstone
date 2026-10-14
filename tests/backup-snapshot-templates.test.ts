@@ -5,6 +5,8 @@ import { buildSnapshot, materializeSnapshot } from '../src/worker/backup/snapsho
 import { SCHEMA_STATEMENTS } from '../src/worker/db/schema'
 import { BACKUP_TEMPLATES_NAME, parseMarkdownBackupManifest } from '../src/shared/backup-format'
 import { makeD1 } from './doubles/d1-sqlite'
+import { testBindings } from './doubles/bindings'
+import type { Env } from '../src/worker/env'
 import { newId } from '../src/worker/lib/id'
 import { sha256Hex } from '../src/worker/lib/encoding'
 
@@ -31,7 +33,7 @@ const LIBRARY = {
 }
 
 let sqlite: DatabaseSync
-let env: { DB: D1Database }
+let env: Env
 const NOTE_ID = newId()
 
 function seedLibrary(value: string | null) {
@@ -49,13 +51,13 @@ beforeEach(() => {
     `INSERT INTO notes (id, user_id, title, title_key, content, excerpt, rev, word_count, char_count, content_hash, created_at, updated_at)
      VALUES (?1, ?2, 'Hello', 'hello', '# Hello', 'Hello', 1, 1, 7, 'h', 1, 1)`,
   ).run(NOTE_ID, USER)
-  env = { DB: makeD1(sqlite) }
+  env = testBindings(makeD1(sqlite))
 })
 
 describe('a backup snapshot of the template library', () => {
   it('writes the library as its own file and pins it in the manifest', async () => {
     seedLibrary(JSON.stringify({ savedAt: 5, library: LIBRARY }))
-    const snapshot = await buildSnapshot(env as never, USER)
+    const snapshot = await buildSnapshot(env, USER)
     const templates = snapshot.payloadFiles.find((file) => file.path === BACKUP_TEMPLATES_NAME)
     expect(templates).toBeDefined()
     expect(templates!.kind).toBe('templates')
@@ -75,7 +77,7 @@ describe('a backup snapshot of the template library', () => {
 
   it('leaves the section out for an account that has never touched the library', async () => {
     seedLibrary(null)
-    const snapshot = await buildSnapshot(env as never, USER)
+    const snapshot = await buildSnapshot(env, USER)
     expect(snapshot.payloadFiles.some((file) => file.path === BACKUP_TEMPLATES_NAME)).toBe(false)
     const manifestFile = (await materializeSnapshot(snapshot)).find((file) => file.path === 'manifest.json')
     const manifest = parseMarkdownBackupManifest(JSON.parse(new TextDecoder().decode(manifestFile!.body)))
@@ -85,10 +87,10 @@ describe('a backup snapshot of the template library', () => {
 
   it('writes no template file when the stored library has gone to junk', async () => {
     seedLibrary('not json at all')
-    const snapshot = await buildSnapshot(env as never, USER)
+    const snapshot = await buildSnapshot(env, USER)
     expect(snapshot.payloadFiles.some((file) => file.path === BACKUP_TEMPLATES_NAME)).toBe(false)
     seedLibrary('{"savedAt": 5, "library": {"app": "other"}}')
-    const other = await buildSnapshot(env as never, USER)
+    const other = await buildSnapshot(env, USER)
     expect(other.payloadFiles.some((file) => file.path === BACKUP_TEMPLATES_NAME)).toBe(false)
     expect(other.noteCount).toBe(1)
   })
