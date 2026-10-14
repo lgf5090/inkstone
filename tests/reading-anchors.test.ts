@@ -151,7 +151,7 @@ describe('paintHighlights', () => {
     const root = chapter('<p>带批注的一句</p>')
     const anchor = anchorFrom(buildTextIndex(root), 0, 6)
     paint(root, [highlight({ start: 0, end: 6, comment: '  这里要重读  ', ...anchor })])
-    expect(root.querySelector('.reader-mark')?.dataset.hasComment).toBe('true')
+    expect(root.querySelector<HTMLElement>('.reader-mark')?.dataset.hasComment).toBe('true')
   })
 
   it('paints nothing for an orphan and reports it', () => {

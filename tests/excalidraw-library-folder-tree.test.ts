@@ -131,7 +131,9 @@ beforeEach(async () => {
     await initI18n();
     seed();
     container = document.createElement('div');
-    document.body.append(container);
+    // `appendChild`, not `append`: the workers HTMLRewriter `Element` shadows `ParentNode.append`
+    // in the types this project compiles against, so only `appendChild` names the DOM call.
+    document.body.appendChild(container);
     root = createRoot(container);
     await act(async () => {
         root.render(createElement(Fragment, null,
@@ -365,7 +367,7 @@ describe('dragging folders in the library tree', () => {
                 root.unmount();
             });
             container = document.createElement('div');
-            document.body.append(container);
+            document.body.appendChild(container);
             root = createRoot(container);
             await act(async () => {
                 root.render(createElement(Fragment, null,

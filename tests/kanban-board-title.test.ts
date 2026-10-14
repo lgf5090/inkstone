@@ -63,7 +63,10 @@ function fence(body: string): HTMLElement {
   const rendered = renderMarkdown(['# Note', '', '```kanban', body, '```'].join('\n'))
   host.innerHTML = rendered.html
   registerFenceBodies(host, rendered.fences)
-  document.body.append(host)
+  // `appendChild` rather than `append`: the workers global `Element` (its HTMLRewriter API) shadows
+  // `ParentNode.append` in the type universe this project compiles against, and only `appendChild`
+  // names the DOM call the test means.
+  document.body.appendChild(host)
   return host
 }
 
