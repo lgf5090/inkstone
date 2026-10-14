@@ -894,7 +894,7 @@ describe('worker swallows state their reason beside the catch', () => {
 
 /**
  * The same rule over `src/client`, baselined per file with a reason, both directions enforced exactly as
- * above. 铁律 2 allows a swallow only when it is genuinely best-effort and says why; a user-facing action
+ * above. rule 2 allows a swallow only when it is genuinely best-effort and says why; a user-facing action
  * whose rejection nobody ever hears is not that, and the chat copy failure and the mindmap fullscreen
  * rejection were both turned into visible feedback rather than baselined.
  */
