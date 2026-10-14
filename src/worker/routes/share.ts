@@ -21,6 +21,15 @@ import {
   recordLoginFailure,
 } from '../lib/throttle'
 import { requireAuth } from '../middleware/auth'
+import {
+  ShareStore,
+  countShareView,
+  findShareBySlug,
+  loadSharePageMeta,
+  loadSharedNote,
+  type SharePageMeta,
+  type ShareRow,
+} from '../share/store'
 
 
 export const shareManageRoutes = new Hono<AppBindings>()
@@ -85,30 +94,9 @@ function noteShareView(slug: string, ip: string, now: number): boolean {
 }
 
 /**
- * The only place a share's `views` number moves, kept off the response path on purpose.
- *
- * A reader who has already been served must not lose the note because the counter was unreachable,
- * so the write runs under `waitUntil` and its failure cannot reach the caller. The number itself is
- * what the owner reads in the share list, so a refusal is reported rather than dropped: a share whose
- * views silently stop growing is a product defect, and an invisible one is impossible to find.
+ * The only place a share's `views` number moves is `countShareView` in `share/store.ts`; this file
+ * decides when it is worth calling (once per visitor per window) and hangs it off the response path.
  */
-async function countShareView(db: D1Database, slug: string): Promise<void> {
-  try {
-    await db.prepare(`UPDATE shares SET views = views + 1 WHERE slug = ?1`).bind(slug).run()
-  } catch (error) {
-    console.warn(`[inkstone] Share view count failed for ${slug}:`, error instanceof Error ? error.message : error)
-  }
-}
-
-interface ShareRow {
-  slug: string
-  note_id: string
-  user_id: string
-  password_hash: string | null
-  expires_at: number | null
-  views: number
-  created_at: number
-}
 
 function toShareInfo(row: ShareRow, origin: string): ShareInfo {
   return {
@@ -126,15 +114,9 @@ function toShareInfo(row: ShareRow, origin: string): ShareInfo {
 shareManageRoutes.use('*', requireAuth)
 
 shareManageRoutes.get('/', async (c) => {
-  const rows = await c.env.DB.prepare(
-    `SELECT s.slug, s.note_id, s.user_id, s.password_hash, s.expires_at, s.views, s.created_at,
-            n.title AS note_title, n.deleted_at
-       FROM shares s JOIN notes n ON n.id = s.note_id AND n.user_id = s.user_id
-      WHERE s.user_id = ?1
-      ORDER BY s.created_at DESC, s.slug DESC`,
-  ).bind(c.get('userId')).all<ShareRow & { note_title: string; deleted_at: number | null }>()
+  const rows = await new ShareStore(c.env.DB, c.get('userId')).listShares()
   const origin = new URL(c.req.url).origin
-  const shares: ShareListItem[] = rows.results.map((row) => ({
+  const shares: ShareListItem[] = rows.map((row) => ({
     ...toShareInfo(row, origin),
     noteTitle: row.note_title,
     deletedAt: row.deleted_at,
@@ -143,11 +125,7 @@ shareManageRoutes.get('/', async (c) => {
 })
 
 shareManageRoutes.get('/:noteId', async (c) => {
-  const row = await c.env.DB.prepare(
-    `SELECT * FROM shares WHERE note_id = ?1 AND user_id = ?2`,
-  )
-    .bind(c.req.param('noteId'), c.get('userId'))
-    .first<ShareRow>()
+  const row = await new ShareStore(c.env.DB, c.get('userId')).shareForNote(c.req.param('noteId'))
   if (!row) return c.json({ share: null })
   return c.json({ share: toShareInfo(row, new URL(c.req.url).origin) })
 })
@@ -155,14 +133,10 @@ shareManageRoutes.get('/:noteId', async (c) => {
 shareManageRoutes.post('/:noteId', async (c) => {
   const userId = c.get('userId')
   const noteId = c.req.param('noteId')
+  const store = new ShareStore(c.env.DB, userId)
   const body = await readJson<{ password?: string | null; expiresIn?: number | null }>(c, JSON_BODY_LIMITS.small)
 
-  const note = await c.env.DB.prepare(
-    `SELECT id FROM notes WHERE id = ?1 AND user_id = ?2 AND deleted_at IS NULL`,
-  )
-    .bind(noteId, userId)
-    .first<{ id: string }>()
-  if (!note) throw ApiError.notFound('Note not found')
+  if (!(await store.liveNoteExists(noteId))) throw ApiError.notFound('Note not found')
 
   const slug = newSlug()
   if (body.password !== undefined && body.password !== null && typeof body.password !== 'string') {
@@ -190,39 +164,25 @@ shareManageRoutes.post('/:noteId', async (c) => {
         ? await hashPassword(body.password)
         : null
 
-  const written = await c.env.DB.prepare(
-    `INSERT INTO shares (slug, note_id, user_id, password_hash, expires_at, views, created_at)
-     VALUES (?1, ?2, ?3, ?4, ?5, 0, ?6)
-     ON CONFLICT(note_id) DO UPDATE SET
-       password_hash = CASE WHEN ?7 = 1 THEN excluded.password_hash ELSE shares.password_hash END,
-       expires_at = CASE WHEN ?8 = 1 THEN excluded.expires_at ELSE shares.expires_at END
-     WHERE shares.user_id = excluded.user_id`,
-  )
-    .bind(
-      slug,
-      noteId,
-      userId,
-      passwordHash,
-      expiresAt,
-      Date.now(),
-      replacePassword ? 1 : 0,
-      body.expiresIn !== undefined ? 1 : 0,
-    )
-    .run()
-  if (!written.meta.changes) throw new ApiError(409, 'conflict', 'Share state changed. Refresh and try again')
+  const written = await store.upsertShare({
+    slug,
+    noteId,
+    passwordHash,
+    expiresAt,
+    now: Date.now(),
+    replacePassword,
+    replaceExpiry: body.expiresIn !== undefined,
+  })
+  if (!written) throw new ApiError(409, 'conflict', 'Share state changed. Refresh and try again')
 
-  const row = await c.env.DB.prepare(`SELECT * FROM shares WHERE note_id = ?1 AND user_id = ?2`)
-    .bind(noteId, userId)
-    .first<ShareRow>()
+  const row = await store.shareForNote(noteId)
   return c.json({ share: toShareInfo(row!, new URL(c.req.url).origin) })
 })
 
 shareManageRoutes.delete('/:noteId', async (c) => {
   const noteId = c.req.param('noteId')
   const userId = c.get('userId')
-  await c.env.DB.prepare(`DELETE FROM shares WHERE note_id = ?1 AND user_id = ?2`)
-    .bind(noteId, userId)
-    .run()
+  await new ShareStore(c.env.DB, userId).deleteShare(noteId)
   return c.json({ ok: true })
 })
 
@@ -235,9 +195,7 @@ shareRoutes.post('/:slug', async (c) => {
     ? body.password.slice(0, LIMITS.passwordMaxLength)
     : ''
 
-  const share = await c.env.DB.prepare(`SELECT * FROM shares WHERE slug = ?1`)
-    .bind(slug)
-    .first<ShareRow>()
+  const share = await findShareBySlug(c.env.DB, slug)
   if (!share) throw ApiError.notFound('The link does not exist or has been revoked')
   if (share.expires_at && share.expires_at < Date.now()) throw ApiError.notFound('The link has expired')
 
@@ -260,20 +218,7 @@ shareRoutes.post('/:slug', async (c) => {
     ])
   }
 
-  const note = await c.env.DB.prepare(
-    `SELECT n.title, n.content, n.created_at, n.updated_at, u.name, u.avatar_url
-       FROM notes n JOIN users u ON u.id = n.user_id
-      WHERE n.id = ?1 AND n.user_id = ?2 AND n.deleted_at IS NULL`,
-  )
-    .bind(share.note_id, share.user_id)
-    .first<{
-      title: string
-      content: string
-      created_at: number
-      updated_at: number
-      name: string
-      avatar_url: string
-    }>()
+  const note = await loadSharedNote(c.env.DB, share.note_id, share.user_id)
   if (!note) throw ApiError.notFound('The note has been deleted')
 
   if (noteShareView(slug, requestClientIp(c), Date.now())) {
@@ -316,13 +261,7 @@ sharePageRoutes.get('/:slug', async (c) => {
     return renderShareShell(c, url, null)
   }
 
-  const row = await c.env.DB.prepare(
-    `SELECT s.password_hash, s.expires_at, n.title, n.excerpt
-       FROM shares s JOIN notes n ON n.id = s.note_id AND n.user_id = s.user_id
-      WHERE s.slug = ?1 AND n.deleted_at IS NULL`,
-  )
-    .bind(slug)
-    .first<{ password_hash: string | null; expires_at: number | null; title: string; excerpt: string }>()
+  const row = await loadSharePageMeta(c.env.DB, slug)
 
   return renderShareShell(c, url, row)
 })
@@ -330,7 +269,7 @@ sharePageRoutes.get('/:slug', async (c) => {
 async function renderShareShell(
   c: Context<AppBindings>,
   url: URL,
-  row: { password_hash: string | null; expires_at: number | null; title: string; excerpt: string } | null,
+  row: SharePageMeta | null,
 ) {
   const shell = await c.env.ASSETS.fetch(new Request(new URL('/index.html', url.origin)))
   if (!shell.ok) return shell
