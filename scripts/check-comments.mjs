@@ -16245,6 +16245,10 @@ const allowed = new Map([
     "// field bubbles it up is the case a tag table would miss.",
     "/** A DOM node named like a text field, which is all a plain listener on it can be recognised by. */",
     "/**\n * The same rule for the handful of keydown listeners the client attaches to a DOM node itself.\n *\n * `onKeyDown` on JSX is the common shape, but a mounted island (`features/preview/json-view-mount.ts`)\n * adds its own listener to an `<input>` it built, and that one is invisible to a JSX walk. Only a\n * receiver named like a field is policed here: `window`, `document` and an editor's content DOM are the\n * app's own surfaces, where the input method has already been answered by the library underneath.\n */",
+    "/** The function a `const f = useCallback((event) => …, [])` actually holds. */",
+    "// Two quickadd boxes hid behind `const onKeyDown = useCallback((event) => …, [deps])` for a whole",
+    "// pass: an identifier whose value is a hook call is the same handler to a reader, so it has to be",
+    "// the same handler to the scan.",
   ]],
   ["tests/client-important-policy.test.ts", [
     "/**\n * `!important` may not spread.\n *\n * `AGENTS.md` rule 12 allows it only to override a third-party sheet, a print stylesheet, or an\n * accessibility force, and requires it to be scoped and commented. The tree has 155 of them and 136\n * sit inside exactly those contexts — vendored Excalidraw/KaTeX/CodeMirror rules, the print sheets,\n * and the `prefers-reduced-motion` override. The rest are the theme-swap transition and the RSS\n * printing class, which are the same three reasons written a different way.\n *\n * What this file enforces is the ratchet, not the justification. Proving justification needs a real\n * CSS AST: a line walk gets `@media (prefers-reduced-motion)` and the print blocks wrong often\n * enough to red-flag legitimate rules, and the repo deliberately has no CSS parser dependency. So the\n * budget per file can only shrink, the per-file totals are re-measured rather than trusted, and the\n * reason each file still has any is on the record here for the person who pays it down.\n */",

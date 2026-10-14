@@ -10,6 +10,7 @@ import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
 import type { KeyboardEvent } from 'react'
 import { Input } from '../../components/form'
 import { cn } from '../../lib/cn'
+import { isImeComposing } from '../../lib/ime'
 import { t } from '../../lib/i18n'
 import { isTargetFilterSyntax, titleSuggestions } from '../../lib/quickadd/context'
 import { folderPathLabel } from '../../lib/folders'
@@ -142,6 +143,7 @@ export function NoteNameInput({ value, onChange, notes, id, className, ...aria }
   }, [onChange])
 
   const onKeyDown = useCallback((event: KeyboardEvent<HTMLInputElement>) => {
+    if (isImeComposing(event)) return
     if (event.key === 'Escape') {
       // The list swallows the Escape that closed it; the second one is for whatever contains the field.
       if (open) {

@@ -17,6 +17,7 @@ import type { QuickAddChoice } from '@shared/quickadd'
 import { childrenOf } from '@shared/quickadd'
 import { cn } from '../../lib/cn'
 import { fuzzyFilter } from '../../lib/fuzzy'
+import { isImeComposing } from '../../lib/ime'
 import { usePinyinVersion } from '../../lib/pinyin'
 import { prettyCombo } from '../../lib/hotkeys'
 import { Modal } from '../../components/overlay'
@@ -189,6 +190,7 @@ export default function QuickAddLauncher({ onClose }: { onClose: () => void }) {
   }, [run])
 
   const onKeyDown = useCallback((event: React.KeyboardEvent<HTMLInputElement>) => {
+    if (isImeComposing(event)) return
     if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
       event.preventDefault()
       const step = event.key === 'ArrowDown' ? 1 : -1

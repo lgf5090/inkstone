@@ -86,14 +86,25 @@ function resolveModule(fromFile: string, specifier: string, known: Set<string>):
   return null
 }
 
+/** The function a `const f = useCallback((event) => …, [])` actually holds. */
+function unwrapHook(node: ts.Node): ts.Node {
+  if (ts.isCallExpression(node) && ts.isIdentifier(node.expression)
+    && ['useCallback', 'useMemo'].includes(node.expression.getText())) {
+    const first = node.arguments[0]
+    if (first && (ts.isArrowFunction(first) || ts.isFunctionExpression(first))) return unwrapHook(first)
+  }
+  return node
+}
+
 function indexFile(unit: Unit, byName: Map<string, Unit>): void {
   const visit = (node: ts.Node): void => {
     if (ts.isFunctionDeclaration(node) && node.name) {
       unit.defs.set(node.name.getText(), { id: `${unit.name}#${node.name.getText()}`, body: node })
     }
-    if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && node.initializer
-      && (ts.isArrowFunction(node.initializer) || ts.isFunctionExpression(node.initializer))) {
-      unit.defs.set(node.name.getText(), { id: `${unit.name}#${node.name.getText()}`, body: node.initializer })
+    if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && node.initializer) {
+      const body = unwrapHook(node.initializer)
+      if (ts.isArrowFunction(body) || ts.isFunctionExpression(body))
+        unit.defs.set(node.name.getText(), { id: `${unit.name}#${node.name.getText()}`, body })
     }
     ts.forEachChild(node, visit)
   }
@@ -347,6 +358,21 @@ describe('every bare key a text field can hand to the app is offered to the inpu
       }`)
     const graph = buildGraph([icon, menu])
     expect(unguardedKeyHandlers(graph, editableComponents(graph))).toEqual([])
+  })
+
+  it('follows a handler written as useCallback', () => {
+    // Two quickadd boxes hid behind `const onKeyDown = useCallback((event) => …, [deps])` for a whole
+    // pass: an identifier whose value is a hook call is the same handler to a reader, so it has to be
+    // the same handler to the scan.
+    const wrapped = parseSource('e/launcher.tsx', `
+      import { useCallback } from 'react'
+      export function Launcher() {
+        const onKeyDown = useCallback((event) => { if (event.key === 'Enter') activate() }, [])
+        return <input onKeyDown={onKeyDown} />
+      }`)
+    const graph = buildGraph([wrapped])
+    expect(unguardedKeyHandlers(graph, editableComponents(graph)))
+      .toEqual(['e/launcher.tsx:5 <input> handles Enter while a composition may own it'])
   })
 
   it('lets a handler that asks the composition question pass', () => {
