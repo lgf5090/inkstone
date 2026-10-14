@@ -45,7 +45,10 @@ const found = testFiles(path.join(process.cwd(), 'src')).map((file) => {
   const body = dbMockOf(fs.readFileSync(file, 'utf8'))
   if (!body) return null
   const names = OUTBOX_METHODS.filter((method) => body.includes(method))
-  return names.length ? { file: path.relative(process.cwd(), file), names, locked: body.includes(LOCK) } : null
+  // Reported with forward slashes on every platform: path.relative yields backslashes on Windows,
+  // and the assertions below compare against a POSIX-style suffix.
+  if (!names.length) return null
+  return { file: path.relative(process.cwd(), file).split(path.sep).join('/'), names, locked: body.includes(LOCK) }
 }).filter((entry): entry is { file: string; names: string[]; locked: boolean } => entry !== null)
 
 describe('the localDb test double models the whole outbox', () => {
