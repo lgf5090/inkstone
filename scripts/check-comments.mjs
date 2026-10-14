@@ -1218,6 +1218,9 @@ const allowed = new Map([
   ]],
   ["src/client/features/folders/FolderMoveMenu.tsx", [
     "/** The name of the top level for this tree, which is not \"Unfiled\" everywhere. */",
+    "// Every row sits at the tree's base column: this cascade already places each level in its",
+    "// own floating panel offset by `levelLeft`, so indenting a row by its `depth` as well would",
+    "// shift it a second time. `depth` is kept only for the `data-move-depth` focus walk.",
   ]],
   ["src/client/features/graph/LocalGraphPanel.tsx", [
     "/** Absent when the panel owns its column, as it does in the sidebar tab. */",
@@ -6116,6 +6119,13 @@ const allowed = new Map([
   ["src/client/features/sidebar/useTreeChildrenMount.ts", [
     "/**\n * How long collapsed children stay mounted after a folder closes.\n *\n * It is `--dur-slow`, the duration `.folder-children-grid` transitions `grid-template-rows` over in\n * `app.css`: unmounting earlier cuts the collapse short, unmounting later only holds a subtree nobody\n * can see. The token, not the number, is the thing being matched — so a retimed token has to be\n * retimed here too, which is why the coupling is written down rather than left to show.\n */",
   ]],
+  ["src/client/features/sidebar/virtual-tree.tsx", [
+    "// The synthetic tree root is built at `depth: -1` (see `VirtualTree`), so every row steps one",
+    "// past its own depth: `node.depth + 1` for the indent and `node.depth + 2` for `aria-level`.",
+    "// That is what lines the calendar/todo root up with the folder root, whose top-level nodes start",
+    "// at `depth: 0` and so render at the same `treeIndent(0)` column and `aria-level: 1`. The `+1` is",
+    "// not an off-by-one to remove — dropping it would push the folder tree's root one step left.",
+  ]],
   ["src/client/features/tags/SidebarTags.tsx", [
     "// Expansion is keyed by path, so a rename or a move would otherwise collapse the branch the",
     "// user was looking at. Replay the path change against the open set as the tags arrive.",
@@ -6124,6 +6134,16 @@ const allowed = new Map([
   ["src/client/features/tags/TagContextMenuAt.tsx", [
     "/**\n * The tag a pointer landed on: markdown hands us `#tag` spans as DOM, so every surface that wants\n * the menu reads the encoded name off the closest one. Returns null when the pointer is not on a\n * tag, which leaves the browser's own context menu alone.\n */",
     "/**\n * The tag menu at a pointer position, for surfaces whose rows are not React components of their own\n * (the preview renders markdown, so `#tag` spans arrive as DOM). One request at a time; the caller\n * clears it through onClose.\n */",
+  ]],
+  ["src/client/features/tags/tag-filter.ts", [
+    "/**\n * Whether a tag filter list already holds this name. The store dedups, drops and matches tags by the\n * case- and width-insensitive `tagKey`, so a row's highlight has to ask the same question — a plain\n * `includes` would leave `Work` and `work` as two slots over the same notes while one row lit up and\n * the other did not.\n */",
+    "/** The list with every spelling of `name` removed, folded the way `hasTagFilter` matches. */",
+    "/** The list with every spelling of `from` rewritten to `to`, so a rename keeps one filter slot. */",
+  ]],
+  ["src/client/features/tags/tag-row-parts.tsx", [
+    "/**\n * A tag name with the letters a filter query reached marked out. Shared by the sidebar tag tree and\n * the manage dialog so the two cannot drift apart on how a hit is drawn. A reading-based hit has no\n * letters in the label to mark, so the name comes back plain rather than underlining the wrong ones.\n */",
+    "/** The one box a tag row draws in place of its name while it is being renamed. */",
+    "/**\n * The uncontrolled rename box both tag rows edit in place: it commits once on Enter or blur, drops the\n * edit on Escape, and stops the keystroke from reaching the surrounding tree keyboard.\n */",
   ]],
   ["src/client/features/tags/tagDrag.ts", [
     "/**\n * A dragged tag is kept in page memory as well as in the DataTransfer. The type list is readable\n * during dragover but the payload is not, so the sidebar can recognise a tag drag early yet still\n * needs the name from here to label the destination. Same-document only, which is all we drag\n * between. The plain-text twin is the hashtag itself: a drop onto anything that takes text, the\n * editor included, writes a tag rather than an encoded blob.\n */",
@@ -12680,7 +12700,7 @@ const allowed = new Map([
     "/**\n * Why the server said no, in the language the reader set the interface to.\n *\n * The sync line is the only place a shelf reports trouble, and `Upload failed (403)` tells a reader\n * nothing about the one refusal they will actually hit — an account whose book budget is full.\n */",
   ]],
   ["src/client/lib/tree/indent.ts", [
-    "/**\n * The one source of truth for how far a tree row steps in per depth level.\n *\n * The sidebar folders, the tag tree, the stencil library and the move picker all draw the same row\n * geometry, so the step lives here rather than being re-derived as `6 + depth * 13` — and the four\n * other constants that grew beside it (`4 + depth * 13`, `6 + depth * 14`, `4 + depth * 12`). Rows\n * apply it as an inline `paddingLeft`, which is the runtime-value case the style rule allows.\n */",
+    "/**\n * The one source of truth for how far a tree row steps in per depth level.\n *\n * The sidebar folders, the tag tree, the calendar/todo and inbox trees and the move picker all draw\n * the same row geometry, so the base and the step live here and a row calls `treeIndent(depth)`\n * instead of re-deriving `base + depth * step` inline. Rows apply the result as an inline\n * `paddingLeft`, which is the runtime-value case the style rule allows.\n *\n * This is the contract to converge on, not a claim that it already holds everywhere: a few rows — a\n * chat taxonomy list and the like — still hand-write their own `n + depth * m` and will drift from\n * these constants until they call `treeIndent`. Until they do, this module defines the step; it does\n * not prove that nothing else computes one.\n */",
   ]],
   ["src/client/lib/tree/keyboard.ts", [
     "/**\n * The keyboard contract every tree shares, read from the rendered DOM rather than from a model.\n *\n * A row is any `[data-tree-row]`, its fold control is `[data-tree-toggle]`, and the tree is the\n * nearest `[role=\"tree\"]` ancestor. Staying DOM-based is what lets one helper serve trees whose node\n * types never unify — folders, tags, calendar periods, stencil folders — because they already agree\n * on this shape, and it keeps the helpers testable without a React render.\n */",
@@ -15108,6 +15128,11 @@ const allowed = new Map([
     "// decided from the SQL text the way D1 does: reads return rows, writes return meta.",
     "// D1 runs a batch in one transaction: a later failing statement must not leave the",
     "// earlier writes applied.",
+    "// The write direction of the same D1/node:sqlite split. D1 binds a bare ArrayBuffer to a BLOB",
+    "// column, but node:sqlite only reliably takes a byte view: it rejects an ArrayBuffer in the",
+    "// named-parameter object form on every platform, and rejects it positionally too once the test",
+    "// runs in the jsdom environment, in both cases with \"Provided value cannot be bound to SQLite",
+    "// parameter N\". A view over the same bytes satisfies D1 and both node:sqlite paths.",
   ]],
   ["tests/excalidraw-interaction-gate.test.ts", [
     "// That api arrives from onExcalidrawAPI, which may not have run yet when the reader first touches",
@@ -15300,6 +15325,8 @@ const allowed = new Map([
   ["tests/local-db-outbox-double.test.ts", [
     "/**\n * `useNotes.flush()` replays the outbox through `localDb.withOutboxReplayLock`, so a test double for\n * `lib/db` that models the queue without the lock throws a `TypeError` the moment a scheduled flush\n * fires — and because the debounced save is fire-and-forget, that landed as an unhandled rejection\n * attributed to whichever test file happened to be running. The method was added to the real store\n * and only two of the doubles were updated; the rest kept passing until a busy machine moved the\n * timer. This reads the doubles instead: a mock that names one of the outbox methods has to name the\n * lock with it.\n */",
     "/** The factory a file hands to `vi.mock('…/lib/db', …)`, or null when it mocks none. */",
+    "// Reported with forward slashes on every platform: path.relative yields backslashes on Windows,",
+    "// and the assertions below compare against a POSIX-style suffix.",
   ]],
   ["tests/login-throttle-targets.test.ts", [
     "// Malformed names all hash to one identity, so an anonymous caller used to be able",
@@ -15525,6 +15552,9 @@ const allowed = new Map([
     "// now, invisible while the window was a fixed 200 rows.",
     "// A chunk of notes indexed inside the same millisecond shares indexed_at, so the page",
     "// boundary has to be resolved by note_id alone: no row may repeat, none may be skipped.",
+    "// This seeds through raw node:sqlite, not the D1 double, so it has to hand over the shape",
+    "// that driver accepts for a BLOB: a byte view, never a bare ArrayBuffer. The view is over",
+    "// the same bytes encodeVector returned, so the stored vector is unchanged.",
   ]],
   ["tests/setup-token.test.ts", [
     "// Twelve guesses per ten minutes, then the fourteenth request is refused outright:",
@@ -15634,6 +15664,8 @@ const allowed = new Map([
   ]],
   ["tests/trash-purge-batch.test.ts", [
     "// Two notes share a title so the link can be retargeted before the trashed one disappears.",
+    "// Seeded through raw node:sqlite rather than the D1 double, so the BLOB goes in as a byte",
+    "// view; node:sqlite rejects a bare ArrayBuffer outright.",
   ]],
   ["tests/week-start-policy.test.ts", [
     "/**\n * Which weekday opens a calendar is derived once, from `Intl` locale data, in `src/client/lib/time.ts`.\n *\n * Before that, the answer was written out per component — and it was the same wrong sentence each\n * time: `locale === 'zh-CN' ? 1 : 0` names the two languages this app ships, so a German or Arabic\n * reader would have gotten Sunday, and the grid, its header and the picker each carried their own\n * copy of the labels. A fix that only changes one of those copies leaves the reader with a month\n * grid whose columns disagree with the row above it, which is exactly what happened inside the\n * kanban module (K2-04b fixed the picker, K2-04g1 the view). These cases keep the next calendar\n * from re-deriving the week on its own.\n */",
