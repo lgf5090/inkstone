@@ -865,6 +865,7 @@ const allowed = new Map([
     "// rail does the same for the note that is open.",
     "// The rail's own habit: choosing a folder also opens it, so one click both filters and shows what",
     "// is in it.",
+    "/**\n * The tag picks.\n *\n * The chip is the app's shared one, so a conversation's tag and a note's tag are the same box with the\n * same pressed state — and a tag that currently labels nothing is shown rather than hidden, as the\n * notes rail shows its own: the reader can still tell what exists, and hiding it makes the tag look\n * deleted when it is only unused.\n */",
   ]],
   ["src/client/features/chat/ChatView.tsx", [
     "/**\n * The conversation surface: the list, the thread, and the composer.\n *\n * A reply lives in the store, not here, so switching to the memory tab mid-stream does not throw the\n * answer away — the generator keeps writing into the same record and this view re-attaches to it.\n *\n * The thread is deliberately not `.ink-prose`: that class carries the note writer's measure and its\n * 42vh tail padding, which turns a one-line reply into a screen of whitespace. `ink-chat-prose` in\n * `styles/chat.css` keeps the typography and drops the page furniture.\n */",
@@ -1053,6 +1054,9 @@ const allowed = new Map([
     "// The rail's own rule: the colour the folder carries is written on the mark, not left to a class.",
     "// jsdom answers a hex colour as its rgb form, so that is what the assertion names.",
     "// A folder with no mark of its own gets the rail's animated one, not a second glyph.",
+    "/**\n   * The chip is the app's shared one: the same box, the same `aria-pressed`, the same colour dot and the\n   * same tabular count as every other tag surface, and a tag that labels nothing is still shown, because\n   * hiding it says \"deleted\" when the reader meant \"not used yet\".\n   */",
+    "// Picking a tag asks the server for the list; the chip's own state is what is under test here.",
+    "// Pressing the chip that is in force is how the reader takes the filter off again.",
   ]],
   ["src/client/features/chat/composer-controls.test.ts", [
     "/**\n * The composer's control row: seven chips that each own a menu, plus the attachment chips.\n *\n * What is pinned is the drive, not the markup — a click on each row has to reach the store or the\n * callback the composer wired, because every one of these controls is a setting the reader can only\n * change from here.\n */",

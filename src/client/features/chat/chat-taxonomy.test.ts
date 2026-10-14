@@ -150,6 +150,51 @@ describe('conversation taxonomy panel', () => {
     await act(async () => { tabs()[3].click() })
     expect(panel()?.textContent).toContain(t('assistant.chat.empty_pinned'))
   })
+
+  /**
+   * The chip is the app's shared one: the same box, the same `aria-pressed`, the same colour dot and the
+   * same tabular count as every other tag surface, and a tag that labels nothing is still shown, because
+   * hiding it says "deleted" when the reader meant "not used yet".
+   */
+  it('draws the tag picks as the shared chips, including the ones that count nothing', async () => {
+    useAssistant.setState({
+      tagNodes: [
+        { id: 't1', name: 'urgent', color: '#e5484d', count: 3 },
+        { id: 't2', name: 'quiet', color: null, count: 0 },
+      ],
+      tagFilter: null,
+      // Picking a tag asks the server for the list; the chip's own state is what is under test here.
+      setTagFilter: vi.fn(async () => undefined),
+    })
+    await render(createElement('div', null,
+      createElement(ConversationTabStrip), createElement(ConversationTaxonomyPanel)))
+    await act(async () => { tabs()[1].click() })
+    const chips = [...panel()?.querySelectorAll<HTMLButtonElement>('button[aria-pressed]') ?? []]
+    expect(chips).toHaveLength(2)
+    expect(chips[0]?.textContent).toContain('urgent')
+    expect(chips[0]?.textContent).toContain('3')
+    expect(chips[0]?.querySelector<HTMLElement>('span[aria-hidden="true"]')?.style.backgroundColor).toBe('rgb(229, 72, 77)')
+    expect(chips[1]?.textContent).toContain('quiet')
+    expect(chips.map((chip) => chip.getAttribute('aria-pressed'))).toEqual(['false', 'false'])
+    await act(async () => { chips[1].click() })
+    expect(useAssistant.getState().setTagFilter).toHaveBeenCalledWith('t2')
+  })
+
+  it('reads the tag in force back out of the chip that holds it', async () => {
+    useAssistant.setState({
+      tagNodes: [{ id: 't1', name: 'urgent', color: null, count: 1 }],
+      tagFilter: 't1',
+      setTagFilter: vi.fn(async () => undefined),
+    })
+    await render(createElement('div', null,
+      createElement(ConversationTabStrip), createElement(ConversationTaxonomyPanel)))
+    await act(async () => { tabs()[1].click() })
+    const chip = panel()?.querySelector<HTMLButtonElement>('button[aria-pressed]')
+    expect(chip?.getAttribute('aria-pressed')).toBe('true')
+    await act(async () => { chip?.click() })
+    // Pressing the chip that is in force is how the reader takes the filter off again.
+    expect(useAssistant.getState().setTagFilter).toHaveBeenCalledWith(null)
+  })
 })
 
 /**

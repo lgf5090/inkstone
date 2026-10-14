@@ -12,6 +12,7 @@ import { cn } from '../../lib/cn'
 import { t, type MessageKey } from '../../lib/i18n'
 import { relativeTime } from '../../lib/time'
 import { treeIndent, treeItemProps, useTreeKeyboard } from '../../lib/tree'
+import { TagChip } from '../../components/TagChip'
 import { FolderMotionIcon } from '../sidebar/FolderMotionIcon'
 import { useUi } from '../../store/ui'
 import { useAssistant, CONVERSATION_LIST_TABS, type ConversationListTab } from './assistant-store'
@@ -274,38 +275,36 @@ export function ConversationFolders() {
   )
 }
 
+/**
+ * The tag picks.
+ *
+ * The chip is the app's shared one, so a conversation's tag and a note's tag are the same box with the
+ * same pressed state — and a tag that currently labels nothing is shown rather than hidden, as the
+ * notes rail shows its own: the reader can still tell what exists, and hiding it makes the tag look
+ * deleted when it is only unused.
+ */
 export function ConversationTags() {
   const tags = useAssistant((state) => state.tagNodes)
   const active = useAssistant((state) => state.tagFilter)
   const setFilter = useAssistant((state) => state.setTagFilter)
-  const visible = tags.filter((tag) => tag.count > 0)
-  if (!visible.length) {
+  if (!tags.length) {
     return (
       <p className="px-2 py-3 text-[12px] text-[var(--text-quaternary)]">{t('assistant.chat.tag_none')}</p>
     )
   }
   return (
     <div className="flex flex-wrap gap-1 px-1.5 pb-2 pt-1" role="group" aria-label={t('assistant.chat.tag_filter')}>
-      {visible.map((tag: ConversationTag & { count: number }) => {
+      {tags.map((tag: ConversationTag & { count: number }) => {
         const on = active === tag.id
         return (
-          <button
+          <TagChip
             key={tag.id}
-            type="button"
-            aria-pressed={on}
-            onClick={() => void setFilter(on ? null : tag.id)}
-            className={cn(
-              'inline-flex max-w-full items-center gap-1 rounded-full border px-1.5 py-[1px] text-[11px]',
-              'transition-colors duration-[var(--dur-fast)]',
-              on
-                ? 'border-[var(--accent)] bg-[var(--accent-soft)] text-[var(--accent)]'
-                : 'border-[var(--border-default)] text-[var(--text-tertiary)] hover:bg-[var(--bg-hover)]',
-            )}
-          >
-            {tag.color && <span aria-hidden className="size-1.5 shrink-0 rounded-full" style={{ background: tag.color }} />}
-            <span className="min-w-0 truncate">{tag.name}</span>
-            <span className="shrink-0 text-[10px] text-[var(--text-quaternary)]">{tag.count}</span>
-          </button>
+            label={tag.name}
+            pressed={on}
+            color={tag.color}
+            count={tag.count}
+            onPress={() => void setFilter(on ? null : tag.id)}
+          />
         )
       })}
     </div>
