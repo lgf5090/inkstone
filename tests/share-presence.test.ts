@@ -14,7 +14,8 @@
 import { DatabaseSync } from 'node:sqlite'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { Hono } from 'hono'
-import { SHARE_PRESENCE_AUDIENCE_WINDOW_MS, SHARE_PRESENCE_TTL_MS } from '../src/shared/share-presence'
+import type { ExecutionContext } from 'hono'
+import { SHARE_PRESENCE_AUDIENCE_WINDOW_MS, SHARE_PRESENCE_TTL_MS, type PublicSharePresence } from '../src/shared/share-presence'
 import { SCHEMA_STATEMENTS } from '../src/worker/db/schema'
 import type { AppBindings } from '../src/worker/env'
 import { errorResponse } from '../src/worker/lib/errors'
@@ -26,7 +27,14 @@ const USER = 'user-1'
 const NOTE = 'note-1'
 const SLUG = 'abcdefghjkkmnpqrst12'
 const PASSCODE = 'board minutes 2026'
-const ctx = { waitUntil: () => {}, passThroughOnException: () => {} } as unknown as ExecutionContext
+// The context a real Worker hands every request. It used to be declared here and never passed to
+// `fetch`, so the harness ran without one; the presence routes do not read it, but a fixture that
+// claims to stand for the runtime has to reach the runtime's own entry point.
+const ctx: ExecutionContext = {
+  waitUntil: () => {},
+  passThroughOnException: () => {},
+  props: {},
+}
 
 let sqlite: DatabaseSync
 let db: D1Database
@@ -52,8 +60,8 @@ function app(): Hono<AppBindings> {
   return bound
 }
 
-function call(path: string, init: RequestInit = {}): Promise<Response> {
-  return app().fetch(new Request(`https://inkstone.test${path}`, init), { DB: db } as never)
+async function call(path: string, init: RequestInit = {}): Promise<Response> {
+  return await app().fetch(new Request(`https://inkstone.test${path}`, init), { DB: db } as never, ctx)
 }
 
 const json = (body: unknown): RequestInit => ({
@@ -129,7 +137,7 @@ describe('the viewer heartbeat', () => {
   it('sees the position and nothing but the position', async () => {
     const { token } = await start()
     const response = await beat(token)
-    const body = await response.json()
+    const body = await response.json() as Record<string, unknown>
     expect(Object.keys(body).sort()).toEqual(['page', 'slide', 'step', 'title', 'updatedAt'])
     expect(body.title).toBe('Q3 review')
   })
@@ -270,7 +278,11 @@ describe('the owner asking whether a show is running', () => {
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ slide: 2, page: 0, step: 0 }),
     })
-    const after = await (await call(`/api/share/${NOTE}/present`, {})).json()
+    const after = await (await call(`/api/share/${NOTE}/present`, {})).json() as {
+      running: boolean
+      presence: PublicSharePresence
+      viewers: number
+    }
     expect(after.running).toBe(true)
     expect(after.presence).toMatchObject({ slide: 2 })
     expect(JSON.stringify(after)).not.toContain(token)
@@ -295,7 +307,7 @@ describe('the owner asking whether a show is running', () => {
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ slide: 1, page: 0, step: 0 }),
     })
-    const answer = await (await call(`/api/share/${NOTE}/present`, {})).json()
+    const answer = await (await call(`/api/share/${NOTE}/present`, {})).json() as { running: boolean, viewers: number }
     expect(answer.running).toBe(true)
     expect(sqlite.prepare('SELECT COUNT(*) AS n FROM share_presence').get()).toMatchObject({ n: 1 })
   })
@@ -305,7 +317,7 @@ describe('the owner asking whether a show is running', () => {
 // the read budget the public route already spends, so these cases vary only the address a read came
 // from, how old it is, and which show it was aimed at.
 describe('the audience number the presenter is told', () => {
-  function beatFrom(token: string, ip: string): Promise<Response> {
+  async function beatFrom(token: string, ip: string): Promise<Response> {
     const request = new Request(`https://inkstone.test/api/public/${SLUG}/present`, {
       method: 'POST',
       headers: { 'content-type': 'application/json', 'CF-Connecting-IP': ip },
@@ -313,7 +325,7 @@ describe('the audience number the presenter is told', () => {
     })
     // An address is only trusted behind the edge, so the harness has to say the request came through it.
     Object.defineProperty(request, 'cf', { value: { clientIp: ip } })
-    return app().fetch(request, { DB: db } as never)
+    return await app().fetch(request, { DB: db } as never, ctx)
   }
 
   async function status(): Promise<{ running: boolean, viewers: number }> {
@@ -331,7 +343,7 @@ describe('the audience number the presenter is told', () => {
   it('rides back on the page turn the presenter already made', async () => {
     const { token } = await start()
     await beatFrom(token, '203.0.113.7')
-    const published = await (await call(`/api/share/${NOTE}/present`, json({ slide: 1, page: 0, step: 0 }))).json()
+    const published = await (await call(`/api/share/${NOTE}/present`, json({ slide: 1, page: 0, step: 0 }))).json() as { updatedAt: number, viewers: number }
     expect(published.viewers).toBe(1)
   })
 

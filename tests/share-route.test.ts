@@ -12,6 +12,7 @@
  */
 import { DatabaseSync } from 'node:sqlite'
 import { Hono } from 'hono'
+import type { ExecutionContext } from 'hono'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { SCHEMA_STATEMENTS } from '../src/worker/db/schema'
 import type { AppBindings } from '../src/worker/env'
@@ -45,19 +46,23 @@ app.route('/api/public', shareRoutes)
 app.route('/s', sharePageRoutes)
 
 // The view counter rides `waitUntil`, so the test collects it and drains it before reading the row.
+// The context carries every field hono's request handler declares, so a field the route could read
+// cannot go missing the way the old `{ waitUntil, passThroughOnException } as unknown as …` fixture
+// allowed: `as unknown as` skipped the check entirely.
 const pending: Promise<unknown>[] = []
-const ctx = {
+const ctx: ExecutionContext = {
   waitUntil: (promise: Promise<unknown>) => { pending.push(promise) },
   passThroughOnException: () => {},
-} as unknown as ExecutionContext
+  props: {},
+}
 
 async function drain() {
   while (pending.length) await pending.shift()
 }
 
-function request(path: string, init: RequestInit = {}, userId = mocks.userId): Promise<Response> {
+async function request(path: string, init: RequestInit = {}, userId = mocks.userId): Promise<Response> {
   mocks.userId = userId
-  return app.request(path, init, {
+  return await app.request(path, init, {
     DB: db,
     ASSETS: { fetch: async () => new Response('<html><head><title>App</title></head><body>hi</body></html>') },
   } as unknown as AppBindings['Bindings'], ctx)
@@ -133,7 +138,7 @@ describe('the owner half', () => {
 
   it('keeps one account out of another\'s share', async () => {
     const created = await createShare()
-    expect((await (await request(`/api/share/${NOTE}`, {}, BOB)).json()).share).toBe(null)
+    expect(((await (await request(`/api/share/${NOTE}`, {}, BOB)).json()) as { share: { slug: string } | null }).share).toBe(null)
     expect((await request(`/api/share/${NOTE}`, { method: 'DELETE' }, BOB)).status).toBe(200)
     const bobList = await (await request('/api/share', {}, BOB)).json() as { shares: unknown[] }
     expect(bobList.shares).toEqual([])
@@ -173,7 +178,7 @@ describe('the owner half', () => {
     expect(short.code).toBe('bad_request')
     expect((await request(`/api/share/${NOTE}`, jsonInit('POST', { password: 7 }), ALICE)).status).toBe(400)
     expect((await request(`/api/share/${NOTE}`, jsonInit('POST', { expiresIn: -1 }), ALICE)).status).toBe(400)
-    expect((await (await request(`/api/share/${NOTE}`, {}, BOB)).json()).share).toBe(null)
+    expect(((await (await request(`/api/share/${NOTE}`, {}, BOB)).json()) as { share: { slug: string } | null }).share).toBe(null)
   })
 })
 
