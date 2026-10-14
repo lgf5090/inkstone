@@ -795,9 +795,7 @@ const allowed = new Map([
     "// row says which server it came from.",
     "// A server that has not been listed yet is awaited rather than skipped: showing the built-ins alone",
     "// would read as if the reader's own tools had disappeared.",
-    "/** How long the conversation box stops typing before the settled text reaches the store. */",
-    "// The query lives in the assistant store, so a keystroke that commits it there re-filters every",
-    "// row in the list; the box keeps its own draft and only the settled text crosses into the store.",
+    "/**\n * How long the conversation box stops typing before the settled text reaches the store. The query lives\n * in the assistant store, so a keystroke that commits it there re-filters every row in the list.\n */",
   ]],
   ["src/client/features/chat/ComposerControls.tsx", [
     "/**\n * The composer's control row.\n *\n * Each control is a menu anchored to a chip that names what it currently selects, so the state is\n * readable without opening anything: which model answers, how much it is asked to think, how much\n * context it is given, and whether a write waits for a click. All four are per-conversation settings\n * the assistant already stores — the chips are the same switches the settings page has, moved to where\n * the decision is actually made.\n */",
@@ -7048,11 +7046,15 @@ const allowed = new Map([
     "/**\n * Whether a query is about a piece of text, by any of the three ways a listing reads one: a literal\n * substring, a letter-by-letter crawl through it, or the reading of the Chinese it is written in.\n *\n * The surfaces that only have to keep or drop a row — the outline's filter, a folder picker, the\n * board's search box — call this instead of writing their own `.toLowerCase().includes(...)`, which\n * is the one form of search that silently stops working the moment a note is written in the language\n * the app is mostly used in.\n */",
     "/**\n * A reading-based hit is reported without ranges: the letters the user typed are not characters in\n * the label, so there is nothing to underline. `splitByRanges` renders such a match as plain text.\n *\n * A haystack too long to be a label is still read by its first line, because the note listing\n * concatenates a title with the body it belongs to: typing the initials of a title has to find that\n * note even though the body behind it is far too long to have initials of its own.\n *\n * It outranks a scattered subsequence — a Chinese label matched by its own initials is the answer the\n * reader meant, while an accidental letter-by-letter crawl through some other title is not — but never\n * a literal substring, which the early return above keeps ahead of it.\n */",
   ]],
+  ["src/client/lib/hooks.test.ts", [
+    "/**\n * The box on its own, with a caller that answers only when the test tells it to.\n *\n * `echoArrives` is the reason these cases exist: a real commit does not come back on the tick it\n * leaves. `ChatView` writes its query into a store that then loads conversations from the server, and\n * the kanban box writes into a board whose view state is applied by its parent, so in both the\n * committed text returns as a fresh external value some renders later — and a draft overwritten by that\n * return is a box that eats whatever the reader typed in the meantime.\n */",
+  ]],
   ["src/client/lib/hooks.ts", [
     "/**\n * A clock safe to keep in a dependency list: it only changes on a tick boundary,\n * so a caller that re-renders on pointer movement does not re-derive its inputs.\n */",
     "// A caller that names what the value belongs to gets the live value the moment that changes, rather",
     "// than the last one debounced for something else: a show that opens must present the deck its note",
     "// has now, not the empty deck the closed overlay was holding.",
+    "/**\n * The draft half of a filter box: what the reader has typed stays here, and only the settled text is\n * handed to `commit`, so one keystroke does not re-filter a whole listing.\n *\n * The other direction needs a guard, and this is the reason the hook exists rather than a plain\n * `useDebounced` at the call site. A commit leaves this box, and the value it produced comes back as a\n * new `external` on some later render — through a store that answers after a request, or through a\n * parent that re-renders on its own schedule. Adopting that echo unconditionally would overwrite the\n * draft with the text as it was when the commit left, dropping every character typed in between. So an\n * incoming value is adopted only when it is not the one this box last committed, which still lets a\n * query set elsewhere — switching views, clearing filters, another panel — win over the draft.\n */",
   ]],
   ["src/client/lib/hotkeys.ts", [
     "/**\n * The window-level keydown listener, exported because it is a boundary rather than a helper.\n *\n * A capture listener on `window` also sees keydowns that other code on the page dispatched, and a\n * hand-made `new Event('keydown')` has no modifier API on it at all — asking for one threw in front\n * of whatever the reader was doing. Such an event can never match a chord, so it leaves here.\n */",
@@ -10695,10 +10697,15 @@ const allowed = new Map([
     "// board inline and in the overlay, so the surface has to have one owner rather than one per",
     "// host (the note's block and the overlay's stage are both `--bg-inset` for it to sit on).",
   ]],
+  ["src/client/lib/markdown/kanban/ui/kanban-search-and-select.test.ts", [
+    "// The board is where the query actually lives, and it applies the commit on a render of its own",
+    "// choosing: the box goes on accepting keystrokes through that gap, and `render('a')` below is the",
+    "// echo arriving afterwards. Adopting it blind would rewind the box to what it said before the",
+    "// reader's next finger landed, which is a filter box that loses characters.",
+  ]],
   ["src/client/lib/markdown/kanban/ui/kanban-search-box.tsx", [
     "// Each keystroke used to commit the whole dataset, so filtering re-ran and the",
     "// undo history grew per character; the draft holds the box, the parent the query.",
-    "// A query set elsewhere (switching views, clearing filters) wins over the draft.",
     "/**\n * What a collapsed box shows while it is still filtering. The query is view state, so a board can open\n * with a filter already in force while the box itself starts closed — a bare icon then gives the reader\n * no hint that what they see is not the whole board, since only the counts move. Opening it again and\n * clearing it are both one press from here.\n */",
     "// The chip stands in the row where the search control was, so it takes that control's height on",
     "// both sides of the breakpoint — and the two things inside it are buttons a finger has to hit.",

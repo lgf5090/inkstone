@@ -1,7 +1,7 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { Search, X } from 'lucide-react'
 import { t } from '../../../i18n'
-import { useDebounced } from '../../../hooks'
+import { useDebouncedDraft } from '../../../hooks'
 
 // Each keystroke used to commit the whole dataset, so filtering re-ran and the
 // undo history grew per character; the draft holds the box, the parent the query.
@@ -48,13 +48,7 @@ export function KanbanSearchBox({
   onSearchChange: (q: string) => void
 }) {
   const [isOpen, setIsOpen] = useState(false)
-  const [draft, setDraft] = useState(searchQuery)
-  // A query set elsewhere (switching views, clearing filters) wins over the draft.
-  useEffect(() => { setDraft(searchQuery) }, [searchQuery])
-  const settled = useDebounced(draft, SEARCH_DEBOUNCE_MS)
-  useEffect(() => {
-    if (settled !== searchQuery) onSearchChange(settled)
-  }, [settled, searchQuery, onSearchChange])
+  const { draft, setDraft } = useDebouncedDraft(searchQuery, onSearchChange, SEARCH_DEBOUNCE_MS)
 
   // The query is view state, so a board can open with a filter already in force while the box itself
   // starts closed. A bare icon then gives the reader no hint that what they see is not the whole board
