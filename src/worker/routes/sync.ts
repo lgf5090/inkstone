@@ -2,28 +2,22 @@ import { Hono } from 'hono'
 import { LIMITS } from '@shared/constants'
 import type { SyncDeletion, SyncResponse } from '@shared/types'
 import type { AppBindings } from '../env'
-import { NOTE_COLUMNS_NOTAGS, attachNoteTags, noteTagsQueryForPage, tagSelectQuery, toFolder, toNoteSummary, toTag, type FolderRow, type NoteRow, type NoteTagRow, type TagRow } from '../db/rows'
+import { toFolder, toNoteSummary, toTag } from '../db/rows'
 import { ApiError } from '../lib/errors'
 import { clampInt } from '../lib/request'
 import { requireAuth } from '../middleware/auth'
+import { SyncStore } from '../sync/store'
 
 export const syncRoutes = new Hono<AppBindings>()
-
-export const CHANGE_BOUNDS_SQL = `SELECT
-  (SELECT seq FROM changes WHERE user_id = ?1 ORDER BY seq ASC LIMIT 1) AS lo,
-  (SELECT seq FROM changes WHERE user_id = ?1 ORDER BY seq DESC LIMIT 1) AS hi`
-
-const FOLDER_SELECT = `f.id, f.parent_id, f.name, f.icon, f.color, f.position, f.created_at, f.updated_at`
 
 
 syncRoutes.get('/', requireAuth, async (c) => {
   const userId = c.get('userId')
+  const store = new SyncStore(c.env.DB, userId)
   const since = clampInt(c.req.query('since'), 0, Number.MAX_SAFE_INTEGER, 0)
   const after = (c.req.query('after') ?? '').slice(0, 128)
 
-  const bounds = await c.env.DB.prepare(CHANGE_BOUNDS_SQL)
-    .bind(userId)
-    .first<{ lo: number | null; hi: number | null }>()
+  const bounds = await store.changeBounds()
 
   const lo = bounds?.lo ?? 0
   const hi = bounds?.hi ?? 0
@@ -42,7 +36,7 @@ syncRoutes.get('/', requireAuth, async (c) => {
       hi,
     )
     const snapshotCursor = after ? Math.min(requestedSnapshot, hi) : hi
-    return c.json(await fullSnapshot(c.env.DB, userId, snapshotCursor, after))
+    return c.json(await store.fullSnapshot(snapshotCursor, after))
   }
 
   if (since >= hi) {
@@ -66,12 +60,7 @@ syncRoutes.get('/', requireAuth, async (c) => {
     return c.json(body)
   }
 
-  const { results: changes } = await c.env.DB.prepare(
-    `SELECT seq, entity, entity_id, op FROM changes
-      WHERE user_id = ?1 AND seq > ?2 ORDER BY seq ASC LIMIT ?3`,
-  )
-    .bind(userId, since, LIMITS.syncBatchSize)
-    .all<{ seq: number; entity: string; entity_id: string; op: string }>()
+  const changes = await store.changePage(since)
 
   const cursor = changes.length ? changes[changes.length - 1]!.seq : since
   const hasMore = changes.length === LIMITS.syncBatchSize && cursor < hi
@@ -111,49 +100,9 @@ syncRoutes.get('/', requireAuth, async (c) => {
   const siteChanged = [...latest.values()].some((item) => item.entity === 'site')
 
   const [notes, folders, tags] = await Promise.all([
-    loadInChunks(noteIds, async (ids) => {
-      const pageFrom = `FROM notes n
-          WHERE n.user_id = ?1 AND n.id IN (${placeholders(ids.length, 2)})`
-      const [page, tagRows] = await c.env.DB.batch([
-        c.env.DB.prepare(`SELECT ${NOTE_COLUMNS_NOTAGS} ${pageFrom}`).bind(userId, ...ids),
-        c.env.DB.prepare(noteTagsQueryForPage(pageFrom)).bind(userId, ...ids),
-      ])
-      const results = (page?.results as NoteRow[] | undefined) ?? []
-      attachNoteTags(results, (tagRows?.results as NoteTagRow[] | undefined) ?? [])
-      return { results }
-    }),
-    facetsFull
-      ? c.env.DB.prepare(
-          `SELECT ${FOLDER_SELECT} FROM folders f
-            WHERE f.user_id = ?1 AND f.deleted_at IS NULL
-            ORDER BY f.position ASC, f.created_at ASC, f.id ASC`,
-        )
-          .bind(userId)
-          .all<FolderRow>()
-          .then((result) => result.results)
-      : loadInChunks(folderIds, (ids) =>
-          c.env.DB.prepare(
-            `SELECT ${FOLDER_SELECT} FROM folders f
-              WHERE f.user_id = ?1 AND f.deleted_at IS NULL
-                AND f.id IN (${placeholders(ids.length, 2)})`,
-          )
-            .bind(userId, ...ids)
-            .all<FolderRow>(),
-        ),
-    facetsFull
-      ? c.env.DB.prepare(
-          `${tagSelectQuery('t.user_id = ?1')} ORDER BY t.name COLLATE NOCASE`,
-        )
-          .bind(userId)
-          .all<TagRow>()
-          .then((result) => result.results)
-      : loadInChunks(tagIds, (ids) =>
-          c.env.DB.prepare(
-            `${tagSelectQuery(`t.user_id = ?1 AND t.id IN (${placeholders(ids.length, 2)})`)} ORDER BY t.name COLLATE NOCASE`,
-          )
-            .bind(userId, ...ids)
-            .all<TagRow>(),
-        ),
+    store.notesByIds(noteIds),
+    facetsFull ? store.foldersFull() : store.foldersByIds(folderIds),
+    facetsFull ? store.tagsFull() : store.tagsByIds(tagIds),
   ])
 
   const gotNotes = new Set(notes.map((n) => n.id))
@@ -205,80 +154,3 @@ syncRoutes.get('/ws', requireAuth, async (c) => {
     }),
   )
 })
-
-
-async function fullSnapshot(
-  db: D1Database,
-  userId: string,
-  cursor: number,
-  after: string,
-): Promise<SyncResponse> {
-  const notePageFrom = `FROM notes n WHERE n.user_id = ?1
-          AND n.id > ?2 ORDER BY n.id ASC LIMIT ?3`
-  const [notes, folders, tags] = await Promise.all([
-    db
-      .batch([
-        db.prepare(
-          `SELECT ${NOTE_COLUMNS_NOTAGS} ${notePageFrom}`,
-        ).bind(userId, after, LIMITS.syncBatchSize + 1),
-        db.prepare(noteTagsQueryForPage(notePageFrom)).bind(userId, after, LIMITS.syncBatchSize + 1),
-      ])
-      .then(([page, tagRows]) => {
-        const results = (page?.results as NoteRow[] | undefined) ?? []
-        attachNoteTags(results, (tagRows?.results as NoteTagRow[] | undefined) ?? [])
-        return { results }
-      }),
-    !after
-      ? db
-          .prepare(
-            `SELECT ${FOLDER_SELECT} FROM folders f WHERE f.user_id = ?1 AND f.deleted_at IS NULL
-              ORDER BY f.position ASC`,
-          )
-          .bind(userId)
-          .all<FolderRow>()
-      : Promise.resolve({ results: [] as FolderRow[] }),
-    !after
-      ? db
-          .prepare(
-            `${tagSelectQuery('t.user_id = ?1')} ORDER BY t.name COLLATE NOCASE`,
-          )
-          .bind(userId)
-          .all<TagRow>()
-      : Promise.resolve({ results: [] as TagRow[] }),
-  ])
-  const pageNotes = notes.results.slice(0, LIMITS.syncBatchSize)
-  const hasMore = notes.results.length > LIMITS.syncBatchSize
-
-  return {
-    cursor,
-    full: true,
-    hasMore,
-    nextKey: hasMore ? pageNotes[pageNotes.length - 1]!.id : null,
-    facetsFull: true,
-    settingsChanged: true,
-    profileChanged: true,
-    siteChanged: true,
-    notes: pageNotes.map(toNoteSummary),
-    folders: folders.results.map(toFolder),
-    tags: tags.results.map(toTag),
-    deletions: [],
-    serverTime: Date.now(),
-  }
-}
-
-function placeholders(count: number, start: number): string {
-  return Array.from({ length: count }, (_, i) => `?${start + i}`).join(', ')
-}
-
-async function loadInChunks<T>(
-  ids: string[],
-  load: (chunk: string[]) => Promise<{ results: T[] }>,
-): Promise<T[]> {
-  if (!ids.length) return []
-  const chunks: string[][] = []
-  for (let index = 0; index < ids.length; index += 80) {
-    chunks.push(ids.slice(index, index + 80))
-  }
-  const pages = await Promise.all(chunks.map(load))
-  return pages.flatMap((page) => page.results)
-}
