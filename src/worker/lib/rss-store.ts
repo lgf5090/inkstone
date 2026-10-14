@@ -442,3 +442,16 @@ export async function loadRssLibrary(db: D1Database, userId: string): Promise<Rs
   return { savedAt, library }
 }
 
+
+/**
+ * Whether the account the session names still has its row.
+ *
+ * The library writes in this module are addressed by account id, so an account deleted between the
+ * session read and this request would otherwise have its rows written into a row that is already
+ * gone. The route asks here rather than inlining the probe, because the same `users` row this module
+ * already reads (the legacy `rss` column of `loadRssLibrary`) is what answers the question.
+ */
+export async function accountExists(db: D1Database, userId: string): Promise<boolean> {
+  const account = await db.prepare('SELECT id FROM users WHERE id = ?1').bind(userId).first()
+  return account !== null
+}

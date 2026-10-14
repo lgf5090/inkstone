@@ -48,9 +48,16 @@ import {
   requireAuth,
   rowToUser,
   sessionCookieNames,
-  USER_COLUMNS,
   writeSessionCookie,
 } from '../middleware/auth'
+import {
+  accountByLoginName,
+  hasAnyAccount,
+  insertAccount,
+  replacePasswordHash,
+  updateProfile,
+  usernameTaken,
+} from '../auth/store'
 
 export const authRoutes = new Hono<AppBindings>()
 
@@ -136,13 +143,15 @@ interface RegistrationGate {
 }
 
 async function gate(env: Env): Promise<RegistrationGate> {
-  const countRow = await env.DB.prepare(`SELECT 1 AS n FROM users LIMIT 1`).first<{ n: number }>()
+  // The probe answers "is the instance empty", which is all `decideRegistration` looks at, so the
+  // count it is handed is 1 or 0 rather than a tally of every account.
+  const hasAnyUser = await hasAnyAccount(env.DB)
   return {
     decision: decideRegistration({
-      userCount: countRow?.n ?? 0,
+      userCount: hasAnyUser ? 1 : 0,
       registrationOpen: await getAllowRegistration(env.DB),
     }),
-    hasAnyUser: Boolean(countRow),
+    hasAnyUser,
   }
 }
 
@@ -190,23 +199,16 @@ authRoutes.post('/register', async (c) => {
   const db = c.env.DB
   const id = newId()
   const now = Date.now()
-  const result = await db
-    .prepare(
-      `INSERT INTO users
-         (id, username, password_hash, login, name, avatar_url, role, settings, created_at, last_seen_at)
-       SELECT ?1, ?2, ?3, ?2, ?2, '',
-              CASE WHEN NOT EXISTS (SELECT 1 FROM users) THEN 'owner' ELSE 'member' END,
-              ?4, ?5, ?5
-        WHERE NOT EXISTS (SELECT 1 FROM users)
-           OR COALESCE((SELECT value FROM app_meta WHERE key = 'setting:allow_registration'), '0') = '1'
-       ON CONFLICT(username) DO NOTHING`,
-    )
-    .bind(id, username, await hashPassword(body.password!), JSON.stringify(settingsFor(locale)), now)
-    .run()
+  const created = await insertAccount(db, {
+    id,
+    username,
+    passwordHash: await hashPassword(body.password!),
+    settings: JSON.stringify(settingsFor(locale)),
+    now,
+  })
 
-  if (!result.meta.changes) {
-    const taken = await db.prepare(`SELECT id FROM users WHERE username = ?1`).bind(username).first()
-    if (taken) throw new ApiError(409, 'username_taken', "That username is already in use")
+  if (!created) {
+    if (await usernameTaken(db, username)) throw new ApiError(409, 'username_taken', "That username is already in use")
     throw new ApiError(403, 'registration_closed', 'Registration is closed on this instance')
   }
 
@@ -235,10 +237,7 @@ authRoutes.post('/login', async (c) => {
   })
 
   const row = USERNAME_PATTERN.test(username)
-    ? await db
-        .prepare(`SELECT ${USER_COLUMNS}, password_hash FROM users WHERE username = ?1`)
-        .bind(username)
-        .first<Parameters<typeof rowToUser>[0] & { password_hash: string }>()
+    ? await accountByLoginName(db, username)
     : null
 
   let valid = false
@@ -310,46 +309,25 @@ authRoutes.put('/profile', requireAuth, async (c) => {
     avatarUrl = storedAvatar.preference
   }
 
-  const statements: D1PreparedStatement[] = []
   const previousAvatar = hasAvatar ? storedAvatarCleanup(current.avatarUrl) : null
-  if (previousAvatar) {
-    statements.push(
-      c.env.DB.prepare(
-        `INSERT OR IGNORE INTO attachment_cleanup (object_key, user_id, created_at)
-         SELECT ?1, id, ?2 FROM users WHERE id = ?3 AND avatar_url = ?4`,
-      ).bind(
-        attachmentCleanupTarget(previousAvatar.storage, previousAvatar.key),
-        Date.now(),
-        current.id,
-        current.avatarUrl,
-      ),
-    )
-  }
-  statements.push(
-    c.env.DB.prepare(
-      `UPDATE users SET
-         name = CASE WHEN ?1 = 1 THEN ?2 ELSE name END,
-         avatar_url = CASE WHEN ?3 = 1 THEN ?4 ELSE avatar_url END
-       WHERE id = ?5 AND (?3 = 0 OR avatar_url = ?6)`,
-    ).bind(
-      hasName ? 1 : 0,
-      name,
-      hasAvatar ? 1 : 0,
-      avatarUrl,
-      current.id,
-      current.avatarUrl,
-    ),
-  )
-
-  let results: D1Result[]
+  let changed: boolean
   try {
-    results = await c.env.DB.batch(statements)
+    changed = await updateProfile(c.env.DB, current.id, {
+      name,
+      replaceName: hasName,
+      avatarUrl,
+      replaceAvatar: hasAvatar,
+      currentAvatarUrl: current.avatarUrl,
+      cleanupObjectKey: previousAvatar
+        ? attachmentCleanupTarget(previousAvatar.storage, previousAvatar.key)
+        : null,
+      now: Date.now(),
+    })
   } catch (error) {
     if (storedAvatar) await discardStoredAvatar(c.env, storedAvatar)
     throw error
   }
-  const updated = results.at(-1)
-  if (!updated?.meta.changes) {
+  if (!changed) {
     if (storedAvatar) await discardStoredAvatar(c.env, storedAvatar)
     throw ApiError.conflict('The profile changed elsewhere. Refresh and try again')
   }
@@ -379,17 +357,9 @@ authRoutes.post('/password', async (c) => {
   const db = c.env.DB
   const expectedHash = await requireCurrentPassword(db, user.id, body.currentPassword)
   const newHash = await hashPassword(body.newPassword!)
-  const [update] = await db.batch([
-    db.prepare(`UPDATE users SET password_hash = ?1 WHERE id = ?2 AND password_hash = ?3`)
-      .bind(newHash, user.id, expectedHash),
-    db.prepare(
-      `DELETE FROM totp_login_challenges
-        WHERE user_id = ?1
-          AND EXISTS (SELECT 1 FROM users WHERE id = ?1 AND password_hash = ?2)`,
-    ).bind(user.id, newHash),
-  ])
+  const changed = await replacePasswordHash(db, user.id, newHash, expectedHash)
 
-  if (!update.meta.changes) {
+  if (!changed) {
     throw new ApiError(409, 'conflict', 'Account credentials changed elsewhere. Refresh and try again')
   }
 

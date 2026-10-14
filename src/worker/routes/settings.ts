@@ -8,6 +8,7 @@ import { setAllowRegistration } from '../lib/instance-settings'
 import { requireCurrentPassword } from '../lib/reauth'
 import { storedObject } from '../lib/json'
 import { JSON_BODY_LIMITS, readJson } from '../lib/request'
+import { SettingsStore } from '../settings/store'
 import { requireAuth } from '../middleware/auth'
 
 export const settingsRoutes = new Hono<AppBindings>()
@@ -32,53 +33,28 @@ settingsRoutes.get('/', (c) => {
 })
 
 settingsRoutes.put('/', async (c) => {
-  const userId = c.get('userId')
+  const store = new SettingsStore(c.env.DB, c.get('userId'))
   const incoming = await readJson<Partial<UserSettings>>(c, JSON_BODY_LIMITS.settings)
   let previousRaw = c.get('user').settingsRaw
   for (let attempt = 0; attempt < 5; attempt++) {
 
     const merged = mergeSettingsPatch(parse(previousRaw), incoming)
     const nextRaw = JSON.stringify(merged)
-    const updated = await c.env.DB.prepare(
-      `UPDATE users SET settings = ?1 WHERE id = ?2 AND settings = ?3`,
-    )
-      .bind(nextRaw, userId, previousRaw)
-      .run()
-    if (updated.meta.changes) {
-      await commitChange(c, 'settings', userId, 'upsert')
+    if (await store.writeSettingsIfUnchanged(nextRaw, previousRaw)) {
+      await commitChange(c, 'settings', store.userId, 'upsert')
       return c.json(merged)
     }
-    const latest = await c.env.DB.prepare(`SELECT settings FROM users WHERE id = ?1`)
-      .bind(userId)
-      .first<{ settings: string }>()
-    if (!latest) throw ApiError.unauthenticated()
-    previousRaw = latest.settings
+    const latest = await store.readSettings()
+    if (latest === null) throw ApiError.unauthenticated()
+    previousRaw = latest
   }
   throw new ApiError(409, 'conflict', 'Settings keep changing elsewhere. Try again shortly')
 })
 
 
 settingsRoutes.get('/stats', async (c) => {
-  const userId = c.get('userId')
-  const row = await c.env.DB.prepare(
-    `SELECT note_stats.*, attachment_stats.*,
-       (SELECT COUNT(*) FROM folders WHERE user_id = ?1 AND deleted_at IS NULL) AS folders,
-       (SELECT COUNT(*) FROM tags WHERE user_id = ?1) AS tags,
-       (SELECT COUNT(*) FROM note_versions WHERE user_id = ?1) AS versions,
-       (SELECT COUNT(*) FROM links WHERE user_id = ?1) AS links
-     FROM (
-       SELECT COUNT(CASE WHEN deleted_at IS NULL THEN 1 END) AS notes,
-              COUNT(deleted_at) AS trashed,
-              COALESCE(SUM(CASE WHEN deleted_at IS NULL THEN char_count ELSE 0 END), 0) AS chars,
-              COALESCE(SUM(CASE WHEN deleted_at IS NULL THEN word_count ELSE 0 END), 0) AS words
-         FROM notes WHERE user_id = ?1
-     ) note_stats CROSS JOIN (
-       SELECT COUNT(*) AS attachments, COALESCE(SUM(size), 0) AS attachmentBytes
-         FROM attachments WHERE user_id = ?1
-     ) attachment_stats`,
-  )
-    .bind(userId)
-    .first<Record<string, number>>()
+  const store = new SettingsStore(c.env.DB, c.get('userId'))
+  const row = await store.stats()
 
   return c.json({
     notes: row?.notes ?? 0,

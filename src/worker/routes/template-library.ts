@@ -5,6 +5,7 @@ import { ApiError } from '../lib/errors'
 import { parseStoredJson } from '../lib/json'
 import { JSON_BODY_LIMITS, readJson } from '../lib/request'
 import { requireAuth } from '../middleware/auth'
+import { TemplateLibraryStore } from '../templates/library-store'
 
 export const templateLibraryRoutes = new Hono<AppBindings>()
 
@@ -27,16 +28,13 @@ function readStored(raw: string | null): StoredLibrary | null {
 }
 
 templateLibraryRoutes.get('/library', async (c) => {
-  const userId = c.get('userId')
-  const row = await c.env.DB.prepare('SELECT template_library FROM users WHERE id = ?1')
-    .bind(userId)
-    .first<{ template_library: string | null }>()
-  const stored = readStored(row?.template_library ?? null)
+  const store = new TemplateLibraryStore(c.env.DB, c.get('userId'))
+  const stored = readStored(await store.readLibrary())
   return c.json({ savedAt: stored?.savedAt ?? 0, library: stored?.library ?? null })
 })
 
 templateLibraryRoutes.put('/library', async (c) => {
-  const userId = c.get('userId')
+  const store = new TemplateLibraryStore(c.env.DB, c.get('userId'))
   const body = await readJson<{ library?: unknown }>(c, JSON_BODY_LIMITS.templateLibrary)
   if (typeof body.library !== 'string') throw ApiError.badRequest('The template library must be sent as text')
   const parsed = parseTemplateLibraryExport(body.library, { keepFlags: true })
@@ -44,9 +42,6 @@ templateLibraryRoutes.put('/library', async (c) => {
   if (parsed.dropped > 0 || parsed.truncated) throw ApiError.badRequest('The template library contains entries that cannot be stored')
   const savedAt = Date.now()
   const envelope = JSON.stringify({ savedAt, library: parsed.data } satisfies StoredLibrary)
-  const result = await c.env.DB.prepare('UPDATE users SET template_library = ?1 WHERE id = ?2')
-    .bind(envelope, userId)
-    .run()
-  if ((result.meta?.changes ?? 0) === 0) throw ApiError.notFound('Account not found')
+  if (!(await store.writeLibrary(envelope))) throw ApiError.notFound('Account not found')
   return c.json({ savedAt })
 })

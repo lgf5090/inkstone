@@ -9,7 +9,15 @@ import { isValidSlug } from '../lib/id'
 import { JSON_BODY_LIMITS, readJson, readOptionalJson, requestClientIp } from '../lib/request'
 import { hashToken, isSessionToken, newSessionToken } from '../lib/session-store'
 import { shareAssetCookieName, verifyShareAssetSession } from '../lib/share-asset-session'
-import { assertAttemptBudget, consumeAttemptBudget } from '../lib/throttle'
+import { assertAttemptBudget, consumeAttemptBudget, countAttemptKeysInRange } from '../lib/throttle'
+import {
+  SharePresenceStore,
+  deletePresenceRowBySlug,
+  loadLiveShareBySlug,
+  loadPresenceRow,
+  type PresentableShare,
+  type SharePresenceRow,
+} from '../share/presence-store'
 
 /**
  * The audience-side show position: the presenter writes where the talk is, and a viewer on their own
@@ -21,37 +29,13 @@ import { assertAttemptBudget, consumeAttemptBudget } from '../lib/throttle'
  * row: the position is not a view, and counting every heartbeat would turn "how many people opened
  * this link" into "how many seconds they sat there". The audience number the presenter sees (PR-M7) is
  * read out of the read budget that is already being spent, so it costs no write and no new table.
+ *
+ * No SQL lives here. The room's rows go through `share/presence-store.ts` — a `SharePresenceStore` for
+ * the account that owns the show and slug-keyed free functions for the audience, following the
+ * cross-account precedent of `findShareBySlug` — while the audience count, a read of the throttle
+ * ledger, goes through `countAttemptKeysInRange`. What stays in this file is validation, the
+ * capability-token comparison, the lease arithmetic, the `ApiError` codes and the response shape.
  */
-
-/** A row of `share_presence`, shaped the way D1 hands it back. */
-interface SharePresenceRow {
-  slug: string
-  user_id: string
-  note_id: string
-  token_hash: string
-  slide: number
-  page: number
-  step: number
-  updated_at: number
-  expires_at: number
-}
-
-/** The share a show needs: a live link, the note it points at, and the note's own title for the viewer. */
-interface PresentableShare {
-  slug: string
-  note_id: string
-  user_id: string
-  expires_at: number | null
-  title: string
-}
-
-/** A live link, the note it points at, and whether that note is behind a passcode. */
-interface LiveShare {
-  slug: string
-  title: string
-  password_hash: string | null
-  expires_at: number | null
-}
 
 /**
  * A deck position is three counters, and they are only ever echoed back to a viewer and used to pick a
@@ -60,6 +44,12 @@ interface LiveShare {
  * can hold, so they reject garbage without refusing a real show.
  */
 const MAX_COUNTER = 1_000_000
+
+/**
+ * One past the last byte a throttle key can hold, used as the exclusive upper bound of a key range.
+ * Spelled as a code point rather than a raw control byte so the source stays plain ASCII.
+ */
+const KEY_RANGE_UPPER_BOUND = String.fromCharCode(0x7f)
 
 function readPosition(body: unknown): SharePresencePosition {
   const value = body as Record<string, unknown>
@@ -96,17 +86,12 @@ export function registerSharePresenceRoutes(shareManageRoutes: Hono<AppBindings>
  */
 function registerSharePresenceStartRoute(shareManageRoutes: Hono<AppBindings>): void {
   shareManageRoutes.post('/:noteId/present/start', async (c) => {
-    const share = await loadPresentableShare(c.env.DB, c.get('userId'), c.req.param('noteId'))
+    const store = new SharePresenceStore(c.env.DB, c.get('userId'))
+    const share = await requirePresentableShare(store, c.req.param('noteId'))
     const token = newSessionToken()
     const now = Date.now()
     const expiresAt = presenceExpiry(share.expires_at, now)
-    await c.env.DB.prepare(
-      `INSERT INTO share_presence (slug, user_id, note_id, token_hash, slide, page, step, updated_at, expires_at)
-       VALUES (?1, ?2, ?3, ?4, 0, 0, 0, ?5, ?6)
-       ON CONFLICT(slug) DO UPDATE SET token_hash = ?4, slide = 0, page = 0, step = 0, updated_at = ?5, expires_at = ?6`,
-    )
-      .bind(share.slug, share.user_id, share.note_id, await hashToken(token), now, expiresAt)
-      .run()
+    await store.startPresence({ slug: share.slug, noteId: share.note_id, tokenHash: await hashToken(token), now, expiresAt })
     const response: SharePresenceSession = { token, expiresAt, slug: share.slug, slide: 0, page: 0, step: 0 }
     return c.json(response, 200, { 'Cache-Control': 'no-store' })
   })
@@ -119,16 +104,19 @@ function registerSharePresenceStartRoute(shareManageRoutes: Hono<AppBindings>): 
  */
 function registerSharePresenceWriteRoute(shareManageRoutes: Hono<AppBindings>): void {
   shareManageRoutes.post('/:noteId/present', async (c) => {
-    const share = await loadPresentableShare(c.env.DB, c.get('userId'), c.req.param('noteId'))
+    const store = new SharePresenceStore(c.env.DB, c.get('userId'))
+    const share = await requirePresentableShare(store, c.req.param('noteId'))
     const body = readPosition(await readJson(c, JSON_BODY_LIMITS.small))
     const now = Date.now()
-    const updated = await c.env.DB.prepare(
-      `UPDATE share_presence SET slide = ?2, page = ?3, step = ?4, updated_at = ?5, expires_at = ?6
-        WHERE slug = ?1 AND user_id = ?7 AND expires_at > ?5`,
-    )
-      .bind(share.slug, body.slide, body.page, body.step, now, presenceExpiry(share.expires_at, now), share.user_id)
-      .run()
-    if (!updated.meta.changes) throw ApiError.notFound('The presentation is not running')
+    const updated = await store.writePosition({
+      slug: share.slug,
+      slide: body.slide,
+      page: body.page,
+      step: body.step,
+      now,
+      expiresAt: presenceExpiry(share.expires_at, now),
+    })
+    if (!updated) throw ApiError.notFound('The presentation is not running')
     // The turn of a page is also how the speaker hears that the room is there: the count rides back on the
     // answer they already waited for, so an audience costs no extra request to notice.
     return c.json({ updatedAt: now, viewers: await countAudienceViewers(c.env.DB, share.slug, now) }, 200, { 'Cache-Control': 'no-store' })
@@ -138,8 +126,9 @@ function registerSharePresenceWriteRoute(shareManageRoutes: Hono<AppBindings>): 
 /** Stopping is idempotent: the presenter presses it once and the browser may press it again on unload. */
 function registerSharePresenceStopRoute(shareManageRoutes: Hono<AppBindings>): void {
   shareManageRoutes.post('/:noteId/present/stop', async (c) => {
-    const share = await loadPresentableShare(c.env.DB, c.get('userId'), c.req.param('noteId'))
-    await c.env.DB.prepare(`DELETE FROM share_presence WHERE slug = ?1 AND user_id = ?2`).bind(share.slug, share.user_id).run()
+    const store = new SharePresenceStore(c.env.DB, c.get('userId'))
+    const share = await requirePresentableShare(store, c.req.param('noteId'))
+    await store.stopPresence(share.slug)
     return c.json({ stopped: true }, 200, { 'Cache-Control': 'no-store' })
   })
 }
@@ -150,14 +139,13 @@ function registerSharePresenceStopRoute(shareManageRoutes: Hono<AppBindings>): v
  */
 function registerSharePresenceStatusRoute(shareManageRoutes: Hono<AppBindings>): void {
   shareManageRoutes.get('/:noteId/present', async (c) => {
-    const share = await loadPresentableShare(c.env.DB, c.get('userId'), c.req.param('noteId'))
+    const store = new SharePresenceStore(c.env.DB, c.get('userId'))
+    const share = await requirePresentableShare(store, c.req.param('noteId'))
     // The owner asking whether they are on air is also the moment their finished shows get cleaned
     // up: a row whose lease ran out answers nothing (every read filters on `expires_at`), so it is
     // only ever left behind by a browser that never sent the stop press.
-    await c.env.DB.prepare(`DELETE FROM share_presence WHERE user_id = ?1 AND expires_at <= ?2`)
-      .bind(share.user_id, Date.now())
-      .run()
-    const row = await loadPresenceRow(c.env.DB, share.slug)
+    await store.deleteExpiredShows(Date.now())
+    const row = await loadPresenceRow(c.env.DB, share.slug, Date.now())
     const viewers = await countAudienceViewers(c.env.DB, share.slug, Date.now())
     if (!row) return c.json({ running: false, viewers }, 200, { 'Cache-Control': 'no-store' })
     const running: PublicSharePresence = { slide: row.slide, page: row.page, step: row.step, updatedAt: row.updated_at, title: share.title }
@@ -171,15 +159,18 @@ export function registerSharePublicPresenceRoutes(shareRoutes: Hono<AppBindings>
     if (!isValidSlug(slug)) throw shareNotFound()
     await enforcePresenceReadBudget(c, slug)
     const body = await readOptionalJson<{ token?: unknown }>(c, JSON_BODY_LIMITS.small, {})
-    const row = await loadPresenceRow(c.env.DB, slug)
+    const row = await loadPresenceRow(c.env.DB, slug, Date.now())
     // One answer for "no such share", "no show running", "no token", "wrong token" and "the show is
     // over": the existence of a presentation is the owner's information, not the caller's to learn.
     if (!row || typeof body.token !== 'string' || !(await tokenMatches(row, body.token))) throw shareNotFound()
     const share = await loadLiveShareBySlug(c.env.DB, slug)
-    if (!share) {
-      // The share was revoked or expired while the row was still inside its lease. Take the row with
-      // it, so the next heartbeat answers the same way the first one did rather than waiting out the TTL.
-      await c.env.DB.prepare(`DELETE FROM share_presence WHERE slug = ?1`).bind(slug).run()
+    // This fork revokes a link by deleting its row, so a missing row and one past its expiry are the
+    // same answer here — the store hands back the row, and reading `expires_at` past its lease is the
+    // route's decision. The share was revoked or expired while the row was still inside its lease:
+    // take the row with it, so the next heartbeat answers the same way the first one did rather than
+    // waiting out the TTL.
+    if (!share || (share.expires_at && share.expires_at < Date.now())) {
+      await deletePresenceRowBySlug(c.env.DB, slug)
       throw shareNotFound()
     }
     // A passcode protects the note, and the note's title and progress are part of the note. The token
@@ -227,19 +218,15 @@ async function tokenMatches(row: SharePresenceRow, token: string): Promise<boole
  * The audience is already counted, by accident: every public read spends a budget attempt keyed by the
  * show's slug and the reader's address, and the row it writes carries the time of that read. Counting
  * those rows is the whole signal — no per-viewer table (ADR-0006 refuses one), no second write, and
- * nothing new for a viewer to send.
+ * nothing new for a viewer to send. The count is a read of the throttle ledger, so it is asked through
+ * `countAttemptKeysInRange`; this only builds the room's key range and window.
  *
- * The range is spelled as `>= / <` rather than `LIKE` because a slug is data: a `_` in it would otherwise
- * stand for "any character" and count somebody else's room.
+ * The range is a `[prefix, prefix + U+007F)` half-open window rather than a `LIKE` pattern because a
+ * slug is data: a `_` in it would otherwise stand for "any character" and count somebody else's room.
  */
 async function countAudienceViewers(db: D1Database, slug: string, now: number): Promise<number> {
   const prefix = `share-present:view:${slug}:ip:`
-  const row = await db.prepare(
-    `SELECT COUNT(*) AS viewers FROM login_attempts WHERE key >= ?1 AND key < ?2 AND last_fail_at >= ?3`,
-  )
-    .bind(prefix, `${prefix}\u007f`, now - SHARE_PRESENCE_AUDIENCE_WINDOW_MS)
-    .first<{ viewers: number }>()
-  return Number(row?.viewers ?? 0)
+  return await countAttemptKeysInRange(db, prefix, `${prefix}${KEY_RANGE_UPPER_BOUND}`, now - SHARE_PRESENCE_AUDIENCE_WINDOW_MS)
 }
 
 /** A show lives at most `SHARE_PRESENCE_TTL_MS`, and never past the link it rides on. */
@@ -248,37 +235,15 @@ function presenceExpiry(shareExpiresAt: number | null, now: number): number {
   return shareExpiresAt && shareExpiresAt < lease ? shareExpiresAt : lease
 }
 
-async function loadPresenceRow(db: D1Database, slug: string): Promise<SharePresenceRow | null> {
-  return await db.prepare(
-    `SELECT slug, user_id, note_id, token_hash, slide, page, step, updated_at, expires_at
-       FROM share_presence WHERE slug = ?1 AND expires_at > ?2`,
-  )
-    .bind(slug, Date.now())
-    .first<SharePresenceRow>()
-}
-
-async function loadPresentableShare(db: D1Database, userId: string, noteId: string): Promise<PresentableShare> {
-  const share = await db.prepare(
-    `SELECT s.slug, s.note_id, s.user_id, s.expires_at, n.title
-       FROM shares s JOIN notes n ON n.id = s.note_id
-      WHERE s.user_id = ?1 AND s.note_id = ?2`,
-  )
-    .bind(userId, noteId)
-    .first<PresentableShare>()
+/**
+ * The owner's live share for a show, or the 404 every owner-side route answers with.
+ *
+ * The store hands back the row (`presentableShare`); whether an expired link still counts as presentable
+ * is a rule about the response, so it is decided here, exactly as the share routes decide expiry.
+ */
+async function requirePresentableShare(store: SharePresenceStore, noteId: string): Promise<PresentableShare> {
+  const share = await store.presentableShare(noteId)
   if (!share || (share.expires_at && share.expires_at < Date.now())) throw ApiError.notFound('Note not found')
-  return share
-}
-
-/** This fork revokes a link by deleting its row, so a row that answers is a live link. */
-async function loadLiveShareBySlug(db: D1Database, slug: string): Promise<LiveShare | null> {
-  const share = await db.prepare(
-    `SELECT s.slug, s.password_hash, s.expires_at, n.title
-       FROM shares s JOIN notes n ON n.id = s.note_id
-      WHERE s.slug = ?1`,
-  )
-    .bind(slug)
-    .first<LiveShare>()
-  if (!share || (share.expires_at && share.expires_at < Date.now())) return null
   return share
 }
 
