@@ -431,6 +431,9 @@ export const ExcalidrawLibraryTree: React.FC<ExcalidrawLibraryTreeProps> = ({
           svgPreview = svg.outerHTML
         }
       } catch {
+        // Only the tile's picture is at stake: the chosen shapes go into the library below regardless,
+        // so an export that fails — no engine loaded, a selection the exporter cannot restore — leaves
+        // a preview-less tile rather than a lost item.
       }
     }
 

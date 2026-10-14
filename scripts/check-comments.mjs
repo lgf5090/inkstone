@@ -1040,6 +1040,15 @@ const allowed = new Map([
   ["src/client/features/excalidraw/TextToDiagramModal.tsx", [
     "// The diagram is markup this app did not write, so it goes through the shared SVG pass before it",
     "// is handed to `dangerouslySetInnerHTML`; the memo keeps a pan or a zoom from re-sanitising it.",
+    "// A chat list an earlier session left behind is a convenience: a store this browser will not",
+    "// hand back — private mode, or a blob JSON no longer parses — still opens the dialog on the",
+    "// default session built below, which is the state it starts from when there was never one.",
+    "// History is written beside the state rather than instead of it: the dialog already holds the",
+    "// chats it shows, so a store that refuses the write (a quota, private mode) costs only the next",
+    "// reload, never the conversation on screen.",
+    "// `streamChatCompletion` reports every failure through `onError` — the toast above — before it",
+    "// rethrows, and a pressed Stop rethrows its AbortError through the same door, so nothing that",
+    "// reaches here is news to the reader; the `finally` still ends the streaming state.",
   ]],
   ["src/client/features/excalidraw/chrome.test.ts", [
     "/* */",
@@ -1070,6 +1079,9 @@ const allowed = new Map([
     "// A stencil preview is decoration: when the engine refuses to export one (a malformed",
     "// element, a canvas it cannot paint), the tile falls back to the element count below rather",
     "// than failing the library that still holds the real shapes.",
+    "// Only the tile's picture is at stake: the chosen shapes go into the library below regardless,",
+    "// so an export that fails — no engine loaded, a selection the exporter cannot restore — leaves",
+    "// a preview-less tile rather than a lost item.",
   ]],
   ["src/client/features/excalidraw/library/ExcalidrawOfficialLibraryModal.tsx", [
     "// Whatever the store already holds paints first; the request only fills in or refreshes it.",

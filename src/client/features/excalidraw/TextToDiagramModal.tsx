@@ -120,6 +120,9 @@ export const TextToDiagramModal: React.FC<TextToDiagramModalProps> = ({
         if (Array.isArray(parsed) && parsed.length > 0) return parsed;
       }
     } catch {
+      // A chat list an earlier session left behind is a convenience: a store this browser will not
+      // hand back — private mode, or a blob JSON no longer parses — still opens the dialog on the
+      // default session built below, which is the state it starts from when there was never one.
     }
     return [
       {
@@ -155,6 +158,9 @@ export const TextToDiagramModal: React.FC<TextToDiagramModalProps> = ({
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(chats));
     } catch {
+      // History is written beside the state rather than instead of it: the dialog already holds the
+      // chats it shows, so a store that refuses the write (a quota, private mode) costs only the next
+      // reload, never the conversation on screen.
     }
   }, [chats]);
 
@@ -331,6 +337,9 @@ export const TextToDiagramModal: React.FC<TextToDiagramModalProps> = ({
         },
       });
     } catch {
+      // `streamChatCompletion` reports every failure through `onError` — the toast above — before it
+      // rethrows, and a pressed Stop rethrows its AbortError through the same door, so nothing that
+      // reaches here is news to the reader; the `finally` still ends the streaming state.
     } finally {
       setIsStreaming(false);
       setIsThinkingActive(false);
