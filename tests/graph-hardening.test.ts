@@ -52,8 +52,8 @@ describe('graph storage and route hardening', () => {
   })
 
   it('degree counts only links whose both ends are visible notes', () => {
-    const route = read('../src/worker/routes/search.ts')
-    const edges = /link_edges AS \(([\s\S]*?)\),/.exec(route)?.[1] ?? ''
+    const store = read('../src/worker/search/store.ts')
+    const edges = /link_edges AS \(([\s\S]*?)\),/.exec(store)?.[1] ?? ''
     expect(edges).toContain('JOIN notes src')
     expect(edges).toContain('JOIN notes dst')
     expect(edges.match(/deleted_at IS NULL/g)?.length).toBeGreaterThanOrEqual(2)
@@ -74,8 +74,8 @@ describe('graph storage and route hardening', () => {
   })
 
   it('the orphan filter splits its OR so each side can use its own index', () => {
-    const route = read('../src/worker/routes/search.ts')
-    const orphans = /if \(!includeOrphans\) \{\s*filters\.push\(`([\s\S]*?)`\)/.exec(route)?.[1] ?? ''
+    const store = read('../src/worker/search/store.ts')
+    const orphans = /if \(!includeOrphans\) \{\s*filters\.push\(`([\s\S]*?)`\)/.exec(store)?.[1] ?? ''
     expect(orphans).toContain('outgoing.source_note_id = n.id')
     expect(orphans).toContain('incoming.target_note_id = n.id')
     expect(orphans).not.toMatch(/source_note_id = n\.id\s+OR\s+\w+\.target_note_id = n\.id/)
