@@ -15,6 +15,7 @@ import {
   MARKDOWN_BACKUP_VERSION,
 } from '@shared/backup-format'
 import { APP_VERSION, LIMITS } from '@shared/constants'
+import { formatBytes } from '@shared/byte-format'
 import { extractAttachmentIds } from '@shared/markdown-utils'
 import { truncateText } from '@shared/text-utils'
 import { quickAddLibraryFromStored } from '@shared/quickadd'
@@ -651,8 +652,3 @@ function readme(
   return `Inkstone Markdown backup\n\nSnapshot (UTC): ${stamp}\nTotal notes: ${notes.length}\nActive: ${active}\nArchived: ${archived}\nTrash: ${trash}\nAttachments: ${attachments}\n\nnotes/ contains ordinary notes in their folder hierarchy.\narchived/ contains archived notes in their folder hierarchy.\ntrash/ contains trashed notes in their folder hierarchy.\nattachments/ contains referenced files in their original bytes; the checksum in each filename prevents collisions.\nmanifest.json records note state, timestamps, paths, and checksums.\ntemplates.json holds the account's own template library, when it has one.\nautomation.json holds the account's automation choices and their settings, when it has one.\n\nRestore this ZIP directly in Inkstone. For a backup larger than the browser upload limit, extract it and select the extracted folder instead.\nA backup is valid only when its COMPLETE file is present and matches manifest.json.\n`
 }
 
-function formatBytes(bytes: number): string {
-  return bytes >= 1024 * 1024
-    ? `${Math.ceil(bytes / (1024 * 1024))} MB`
-    : `${Math.ceil(bytes / 1024)} KB`
-}

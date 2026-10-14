@@ -1,3 +1,5 @@
+import { formatBytes } from './byte-format'
+
 export interface ZipEntry {
   path: string
   data: Uint8Array
@@ -415,10 +417,4 @@ function normalizeZipPath(input: string): string {
 
 function positiveLimit(value: number | undefined, fallback: number): number {
   return Number.isSafeInteger(value) && value! > 0 ? value! : fallback
-}
-
-function formatBytes(bytes: number): string {
-  return bytes >= 1024 * 1024
-    ? `${Math.ceil(bytes / (1024 * 1024))} MB`
-    : `${Math.ceil(bytes / 1024)} KB`
 }

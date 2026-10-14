@@ -11,6 +11,7 @@
  * request body, a document at what fits the reader's context budget; anything above either is refused
  * with its own number in the message rather than truncated in silence.
  */
+import { formatBytes } from '@shared/byte-format'
 import { extensionFor } from '../lib/image'
 import { newId } from '../lib/id'
 import type { ChatAttachment } from '@shared/assistant'
@@ -137,10 +138,4 @@ export class ChatUploadError extends Error {
   constructor(readonly kind: 'empty' | 'too-large', message: string) {
     super(message)
   }
-}
-
-export function formatBytes(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`
-  return `${(bytes / 1024 / 1024).toFixed(1)} MB`
 }

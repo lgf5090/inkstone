@@ -12,6 +12,7 @@ import {
   type MarkdownBackupNoteEntry,
 } from '@shared/backup-format'
 import { LIMITS } from '@shared/constants'
+import { formatBytes } from '@shared/byte-format'
 import { countText, deriveExcerpt, deriveTitle, splitFrontMatter } from '@shared/markdown-utils'
 import { truncateText, utf8ByteLength } from '@shared/text-utils'
 import { organizerColorOrNull } from '@shared/organizer-colors'
@@ -2014,12 +2015,6 @@ function addWarning(result: ImportResult, message: string): void {
   } else if (result.warnings.length === MAX_IMPORT_WARNINGS - 1) {
     result.warnings.push('Additional import warnings were omitted')
   }
-}
-
-function formatBytes(bytes: number): string {
-  return bytes >= 1024 * 1024
-    ? `${Math.ceil(bytes / (1024 * 1024))} MB`
-    : `${Math.ceil(bytes / 1024)} KB`
 }
 
 function shiftSqlPlaceholders(sql: string, offset: number): string {
