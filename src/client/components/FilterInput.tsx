@@ -40,7 +40,9 @@ export interface FilterInputBindings {
  * chrome — which is the only reason a box would rather not use {@link FilterInput}.
  *
  * Escape clears a box that has something to clear and swallows the key, so the panel behind it does not
- * close underneath the reader; an empty box does what `escapeWhenEmpty` says. Every other key is
+ * close underneath the reader; an empty box does what `escapeWhenEmpty` says. A key that arrives while
+ * an input method is composing an answer is not a key the box answers to at all — see `onKeyDown` — so
+ * Escape cancels the syllable rather than the query. Every other key is
  * stopped here, because a shortcut that fires while the reader is typing a name would take the
  * keystroke, and the listing above answers arrows of its own. Spread the result onto the `input` and
  * call `clear` from the box's own clear control, which puts the caret back where the reader was.
@@ -65,6 +67,12 @@ export function useFilterInput(options: FilterInputOptions): { field: FilterInpu
         own.current?.focus();
     }, []);
     const onKeyDown = useCallback((event: KeyboardEvent<HTMLInputElement>): void => {
+        // A pinyin IME answers Escape by dropping the half-built syllable, and it delivers the arrows
+        // and Enter a reader presses to pick a candidate as keydowns carrying those same names. Bail
+        // while a composition is open so Escape costs the syllable, not the whole query — the guard
+        // the tree keyboard, the chat composer, the palette and the omnisearch prompt already answer.
+        if (event.nativeEvent.isComposing)
+            return;
         live.current.onKeyDown?.(event);
         if (event.defaultPrevented)
             return;
@@ -178,7 +186,7 @@ export function FilterInput({
           title={t("filter.regex_hint")}
           value={value}
           onChange={(event) => onChange(event.target.value)}
-          className={cn('w-full rounded-[var(--r-md)] border bg-[var(--bg-inset)] text-[12.5px] text-[var(--text-primary)]', 'placeholder:text-[var(--text-quaternary)]', '[&::-webkit-search-cancel-button]:hidden [&::-webkit-search-results-button]:hidden', 'transition-[border-color,box-shadow] duration-[var(--dur-fast)]', 'focus:shadow-[0_0_0_3px_var(--accent-ring)] focus:outline-none', box.input,
+          className={cn('w-full rounded-[var(--r-md)] border bg-[var(--bg-inset)] text-[12.5px] text-[var(--text-primary)]', 'placeholder:text-[var(--text-quaternary)]', '[&::-webkit-search-cancel-button]:hidden [&::-webkit-search-results-button]:hidden', 'transition-[border-color,box-shadow] duration-[var(--dur-fast)]', 'focus:shadow-[var(--shadow-ring-focus)] focus:outline-none', box.input,
               error ? 'border-[var(--danger)] focus:border-[var(--danger)]' : box.border)}
         />
         {value && (<IconButton label={t("notes.clear_filters")} size="sm" onClick={clear} className={cn('absolute top-1/2 -translate-y-1/2', box.clear)}>

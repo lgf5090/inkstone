@@ -43,6 +43,29 @@ export const SESSION_TTL_MS = 90 * 24 * 60 * 60 * 1000
 export const SESSION_RENEW_BEFORE_MS = SESSION_TTL_MS / 2
 export const SESSION_ABSOLUTE_MAX_MS = 180 * 24 * 60 * 60 * 1000
 
+/**
+ * The three waits the app has, in milliseconds. Each is one job, not one number: what makes a preview
+ * feel immediate is far below what makes a keystroke burst cost one query, and both are below what a
+ * write should hold before it commits.
+ *
+ * They exist because the same "wait for the reader to stop typing, then query" idea is written out
+ * nine times over at seven different values — 120, 180, 180, 180, 200, 200, 220, 250, 260 — four of
+ * them bare numbers at the call site and the rest a constant named in its own panel, with no reason on
+ * any of them. One job, seven answers; each owner picked in the dark.
+ */
+export const DEBOUNCE = {
+  /**
+   * A burst of keystrokes costs one query. 180 ms is the mode of the values in use today and sits just
+   * above the ~170 ms between two keystrokes at ordinary typing speed, so continuous typing coalesces
+   * while the result still lands before the reader's next character.
+   */
+  search: 180,
+  /** Repainting a surface from text that is already on the screen: it has to keep up with the caret. */
+  render: 90,
+  /** Committing a preference the reader set: one intent per write, and the longest wait of the three. */
+  persist: 300,
+} as const
+
 
 export const LIMITS = {
   passwordMaxLength: 128,

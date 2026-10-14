@@ -1,8 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { ChevronRight, ChevronsUpDown, Hash, MoreHorizontal, Pin, Plus, Tag, X } from 'lucide-react';
 import { cn } from '../../lib/cn';
-import { splitByRanges } from '../../lib/fuzzy';
-import { compileQuery, queryMatches, type Query } from '../../lib/query-match';
+import { compileQuery, type Query } from '../../lib/query-match';
 import { FilterInput } from '../../components/FilterInput';
 import { stepIndex, treeIndent, useExpandedSet } from '../../lib/tree';
 import { buildTagTree, childTagPath, collectParentPaths, flattenTagTree, renameTagSegment, searchTagTree, siblingParentPaths } from '../../lib/tag-tree';
@@ -14,8 +13,10 @@ import { useNavigationCounts, useNotes } from '../../store/notes';
 import { useUi } from '../../store/ui';
 import { t } from '../../lib/i18n';
 import { ManageTagsModal } from './ManageTagsModal';
+import { TAG_RENAME_INPUT_CLASS, TagNameHighlight, TagRenameField } from './tag-row-parts';
 import { useTagMenuItems } from './useTagMenuItems';
 import { createTag, moveTag, renameTag, tagMoveTarget } from './tagMutations';
+import { hasTagFilter } from './tag-filter';
 import { beginTagDrag, currentTagDrag, droppedTagName, endTagDrag, findDroppedTag, isTagDrag } from './tagDrag';
 import { useLinkHoverHost } from '../preview/link-hover-host';
 import { WikiLinkHoverCard } from '../preview/wiki-link-hover-card';
@@ -201,10 +202,10 @@ export function SidebarTags({ mobile = false }: { mobile?: boolean }) {
                     inputRef.current?.focus();
                 }} className="text-[var(--accent)] hover:underline">{t('notes.clear_filters')}</button>
           </p>}
-        {rows.map((node, index) => (<TagTreeRow key={node.fullPath} node={node} query={tagQuery} expanded={expanded.has(node.fullPath)} active={(mobile || listVisible) && view === 'tag' && activeTags.includes(node.fullPath)} highlighted={index === cursor} renaming={renamingId === node.tag.id} onToggle={() => toggleExpanded(node.fullPath)} onOpen={(event) => open(node.fullPath, event.metaKey || event.ctrlKey)} onStartRename={() => setRenamingId(node.tag.id)} onFinishRename={(value) => {
+        {rows.map((node, index) => (<TagTreeRow key={node.fullPath} node={node} query={tagQuery} expanded={expanded.has(node.fullPath)} active={(mobile || listVisible) && view === 'tag' && hasTagFilter(activeTags, node.fullPath)} highlighted={index === cursor} renaming={renamingId === node.tag.id} onToggle={() => toggleExpanded(node.fullPath)} onOpen={(event) => open(node.fullPath, event.metaKey || event.ctrlKey)} onStartRename={() => setRenamingId(node.tag.id)} onFinishRename={(value) => {
                     setRenamingId(null);
                     void renameTag(node.tag, renameTagSegment(node.fullPath, value));
-                }} onCancelRename={() => setRenamingId(null)} excluded={excludedTags.includes(node.fullPath)} onToggleLevel={(paths, open) => setExpandedMany(paths, open)} levelSiblings={siblingParentPaths(tree, node.fullPath)} onCreateChild={startDraft} onManage={() => setManageOpen(true)} dragging={dragPath === node.fullPath} dropTarget={dropPath === node.fullPath} dropHint={dropPath === node.fullPath ? tagMoveTarget(draggedTag(), node.fullPath) : null} onDragStart={(event) => {
+                }} onCancelRename={() => setRenamingId(null)} excluded={hasTagFilter(excludedTags, node.fullPath)} onToggleLevel={(paths, open) => setExpandedMany(paths, open)} levelSiblings={siblingParentPaths(tree, node.fullPath)} onCreateChild={startDraft} onManage={() => setManageOpen(true)} dragging={dragPath === node.fullPath} dropTarget={dropPath === node.fullPath} dropHint={dropPath === node.fullPath ? tagMoveTarget(draggedTag(), node.fullPath) : null} onDragStart={(event) => {
                     if (node.isVirtual) return;
                     beginTagDrag(node.fullPath, event.dataTransfer);
                     setDragPath(node.fullPath);
@@ -268,17 +269,6 @@ function scrollRowIntoView(list: HTMLElement | null, index: number): void {
     const rows = list?.querySelectorAll('[data-tag-row]');
     rows?.[index]?.scrollIntoView({ block: 'nearest' });
 }
-function TagNameText({ name, query }: {
-    name: string;
-    query: Query;
-}) {
-    const match = queryMatches(query, name);
-    if (!match)
-        return name;
-    return splitByRanges(name, match.ranges).map((part, index) => part.hit
-        ? <span key={index} className="font-semibold text-[var(--accent)]">{part.text}</span>
-        : <span key={index}>{part.text}</span>);
-}
 function TagDraftRow({ leaf, onFinish, onCancel }: {
     leaf: string | null;
     onFinish: (value: string) => void;
@@ -306,7 +296,7 @@ function TagDraftRow({ leaf, onFinish, onCancel }: {
                 onCancel();
             }
             event.stopPropagation();
-        }} className="min-w-0 flex-1 rounded-[var(--r-xs)] border border-[var(--accent)] bg-[var(--bg-surface)] px-1 py-px text-[12.5px] outline-none"/>
+        }} className={TAG_RENAME_INPUT_CLASS}/>
     </div>);
 }
 function TagTreeRow({ node, query, expanded, active, highlighted, renaming, onToggle, onOpen, onStartRename, onFinishRename, onCancelRename, excluded, onToggleLevel, levelSiblings, onCreateChild, onManage, dragging, dropTarget, dropHint, onDragStart, onDragEnd, onDragOver, onDragLeave, onDrop, }: {
@@ -338,14 +328,7 @@ function TagTreeRow({ node, query, expanded, active, highlighted, renaming, onTo
     const menu = useContextMenu();
     const rowRef = useRef<HTMLDivElement>(null);
     const [menuOpen, setMenuOpen] = useState(false);
-    const finishedRef = useRef(false);
     const hasChildren = node.children.length > 0;
-    const finishRename = (value: string) => {
-        if (finishedRef.current)
-            return;
-        finishedRef.current = true;
-        onFinishRename(value);
-    };
     const realTagItems = useTagMenuItems(node.tag.name, {
         excluded,
         onStartRename,
@@ -371,17 +354,8 @@ function TagTreeRow({ node, query, expanded, active, highlighted, renaming, onTo
       <Hash size={13} className="shrink-0" style={{ color: node.tag.color ?? (active ? 'var(--accent)' : 'var(--text-quaternary)') }}/>
       {node.tag.isPinned && <Pin size={10} className="shrink-0 text-[var(--text-quaternary)]"/>}
       {excluded && <span aria-hidden="true" className="shrink-0 text-[11px] text-[var(--danger)]">−</span>}
-      {renaming ? (<input aria-label={t('tags.rename')} autoFocus defaultValue={node.name} onFocus={() => {
-            finishedRef.current = false;
-        }} onBlur={(event) => finishRename(event.currentTarget.value)} onKeyDown={(event) => {
-            commitOnEnter(event, () => finishRename(event.currentTarget.value));
-            if (event.key === 'Escape') {
-                finishedRef.current = true;
-                onCancelRename();
-            }
-            event.stopPropagation();
-        }} className="min-w-0 flex-1 rounded-[var(--r-xs)] border border-[var(--accent)] bg-[var(--bg-surface)] px-1 py-px text-[12.5px] outline-none"/>) : (<button data-navigation-item type="button" title={t('tags.cmd_click')} aria-current={active ? 'page' : undefined} onClick={onOpen} onDoubleClick={node.isVirtual ? undefined : onStartRename} className="min-w-0 flex-1 truncate py-1 text-left font-medium">
-          <TagNameText name={node.name} query={query}/>
+      {renaming ? (<TagRenameField initial={node.name} onCommit={onFinishRename} onCancel={onCancelRename}/>) : (<button data-navigation-item type="button" title={t('tags.cmd_click')} aria-current={active ? 'page' : undefined} onClick={onOpen} onDoubleClick={node.isVirtual ? undefined : onStartRename} className="min-w-0 flex-1 truncate py-1 text-left font-medium">
+          <TagNameHighlight name={node.name} query={query}/>
         </button>)}
       {!renaming && (<>
           <span className="shrink-0 text-[11px] tabular text-[var(--text-quaternary)] transition-opacity md:group-hover:opacity-0">
