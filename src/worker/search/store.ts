@@ -3,8 +3,8 @@
  *
  * The shape follows `settings/store.ts`: a store built per request from the account it serves,
  * methods that hand back rows, counts or the one truncation flag a page needs, and no `Response` in
- * sight. What stays in the route is the query parsing and `buildFtsQuery()` (the shared client
- * contract), the FTS-over-LIKE fallback decision and its warning, the re-ranking, snippets, node and
+ * sight. What stays in the route is the query parsing, the FTS-over-LIKE fallback decision and its
+ * warning, the re-ranking, snippets, node and
  * edge assembly, the throttles, the `ApiError` codes and the response shape.
  *
  * Scoping, statement by statement, because a search that drops the account predicate answers one
@@ -38,12 +38,30 @@
  */
 
 import { LIMITS } from '@shared/constants'
-import { likePattern } from '@shared/markdown-utils'
+import { likePattern, segmentCJK } from '@shared/markdown-utils'
 import type { ParsedQuery } from '@shared/search-query'
 import { NOTE_COLUMNS, tagScopePredicate, type NoteRow } from '../db/rows'
 
 /** Edge candidates one graph page may carry; one past this is the truncation signal. */
 export const GRAPH_EDGE_CANDIDATE_LIMIT = 10_000
+
+/**
+ * The FTS match string the account's search asks for: every term segmented, quoted and prefix-OR'd.
+ *
+ * It lives here because both readers of the FTS index need the exact same text — the search route and
+ * `notes/store.ts`, which titles a note whose index row must be found again. A store may not reach
+ * into a route for it (`AGENTS.md` rule 3), and two copies would drift into different match strings.
+ */
+export function buildFtsQuery(terms: string[]): string {
+  const parts: string[] = []
+  for (const term of terms) {
+    const seg = segmentCJK(term).trim().replace(/"/g, '')
+    if (!seg) continue
+    if (seg.includes(' ')) parts.push(`"${seg}"`)
+    else parts.push(`"${seg}"*`)
+  }
+  return parts.join(' AND ')
+}
 const GRAPH_NOTE_ID_CHUNK = 40
 const DOCUMENT_PAGE_CHARS = 400_000
 

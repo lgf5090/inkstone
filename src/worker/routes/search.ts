@@ -1,6 +1,6 @@
 import { Hono } from 'hono'
 import { LIMITS } from '@shared/constants'
-import { segmentCJK, toPlainText, wikiNoteTarget } from '@shared/markdown-utils'
+import { toPlainText, wikiNoteTarget } from '@shared/markdown-utils'
 import { sliceText, truncateText } from '@shared/text-utils'
 import { applyTagNodes } from '@shared/graph-tag-nodes'
 import { emptyParsedQuery, parseQuery, type ParsedQuery } from '@shared/search-query'
@@ -15,7 +15,7 @@ import { scheduleFtsDrain } from '../lib/notify'
 import { clampInt } from '../lib/request'
 import { assertAttemptBudget, consumeAttemptBudget } from '../lib/throttle'
 import { requireAuth } from '../middleware/auth'
-import { GRAPH_EDGE_CANDIDATE_LIMIT, SearchStore, type GraphLinkDirection } from '../search/store'
+import { GRAPH_EDGE_CANDIDATE_LIMIT, SearchStore, buildFtsQuery, type GraphLinkDirection } from '../search/store'
 
 export const searchRoutes = new Hono<AppBindings>()
 
@@ -71,18 +71,6 @@ export async function searchUserNotes(
     }
   }
   return { results: await likeSearch(store, query, limit), mode: 'like', query }
-}
-
-
-export function buildFtsQuery(terms: string[]): string {
-  const parts: string[] = []
-  for (const term of terms) {
-    const seg = segmentCJK(term).trim().replace(/"/g, '')
-    if (!seg) continue
-    if (seg.includes(' ')) parts.push(`"${seg}"`)
-    else parts.push(`"${seg}"*`)
-  }
-  return parts.join(' AND ')
 }
 
 

@@ -57,7 +57,7 @@ import {
   shiftSqlPlaceholders,
 } from '../db/writes'
 import { aiDeleteNeededSql, noteIndexQueueStatement } from '../mcp/ai-search'
-import { buildFtsQuery } from '../routes/search'
+import { buildFtsQuery } from '../search/store'
 import { sha256Hex } from '../lib/encoding'
 import { newId } from '../lib/id'
 
