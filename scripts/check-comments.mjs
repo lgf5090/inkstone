@@ -15685,6 +15685,7 @@ const allowed = new Map([
   ]],
   ["tests/assistant-model-endpoint.test.ts", [
     "/**\n * Which address a model is called on.\n *\n * One gateway key can answer on three wires, so the model names the protocol and the provider supplies\n * the address for it. What is pinned is the fallback order — a model that follows the provider, an\n * endpoint that was never filled in, and a stored map written by an older backup.\n */",
+    "// The stored map goes to `expect`, which is where a failure message belongs; `toEqual` takes none.",
   ]],
   ["tests/assistant-routes.test.ts", [
     "/** Reads the SSE body of a chat turn into its events. */",
@@ -15776,6 +15777,10 @@ const allowed = new Map([
     "// A stray value in an optional field has to name itself: \"bad request\" is not a diagnosis.",
     "// `work` now answers for `work/meeting` too, and a tag that merely starts with the same letters",
     "// stays out: the `/` boundary is what separates the two.",
+    "// `node:sqlite` refuses anything outside its own input types, so a fixture row that carried a boolean",
+    "// or a nested object fails here rather than at the driver.",
+    "// JSON-RPC puts the tool name and its arguments under `params`, which is what `mcp-client.ts:246`",
+    "// sends; the top level only ever carries `method`, so reading a name from it saw `undefined`.",
   ]],
   ["tests/assistant-rules.test.ts", [
     "/**\n * The rules the assistant is built on, tested where they are written.\n *\n * These are the parts a browser session cannot prove: what a Chinese sentence means to the conflict\n * rules, how a wall-clock schedule survives a daylight-saving change, how many tokens a Han vault\n * really costs. Each fixture is chosen so a plausible-but-wrong implementation would fail it — the\n * pair that differs only in a change word, a date the reader never stated, a schedule that crosses a\n * clock change — rather than so the function merely runs.\n */",
@@ -15804,11 +15809,17 @@ const allowed = new Map([
     "/** The JSON body a protocol would put on the wire for one request. */",
     "// Asserting only the absence would also pass when the whole tools key vanished.",
     "// Two keys in one object literal would have silently dropped one of them; both have to be present.",
+    "// Recorded through a property, not a local: `RequestInit.signal` is optional and nullable, and a",
+    "// `let` assigned inside the stub kept being narrowed to its initializer, which hid the real shape.",
   ]],
   ["tests/assistant-vendor-models.test.ts", [
     "/**\n * Asking a vendor what its key can call.\n *\n * The picker has to show the account's real list, so the three shapes each put the name somewhere else\n * and a fourth failure mode — a base URL that points inside the network — has to be refused before the\n * request leaves. Recorded frames, not a live service.\n */",
     "// The contract is the request option plus the name given to the answer: a followed redirect would",
     "// carry the bearer key to a host nobody vetted, and a bare \"HTTP 302\" is not what the reader should read.",
+  ]],
+  ["tests/auth-password.test.ts", [
+    "// The route reads the session middleware's own variables, so the harness has to bind them the way",
+    "// the Worker does; an untyped `new Hono()` let `c.set('user', …)` name a variable that exists nowhere.",
   ]],
   ["tests/backlink-mentions.test.ts", [
     "/**\n * \"deep research notes\" in Chinese, plus the words it is made of, written as code points\n * so this file stays free of Han — the i18n gate allows Chinese only in the zh locale.\n * These strings are the point of the test: a CJK run is a single index token, so finding\n * the title in the middle of a sentence only works through the segmented phrase query.\n */",
@@ -15819,8 +15830,19 @@ const allowed = new Map([
     "// Emitting the declared length is what lets a test consume the archive to completion:",
     "// the size guard in archive.ts rejects a short re-read.",
   ]],
+  ["tests/backup-automation-roundtrip.test.ts", [
+    "// A `File` body has to sit on a non-shared buffer, so the bytes come in as `TextEncoder` made them.",
+    "// `sha256File` only ever calls this with an `ArrayBuffer`, which is what `Blob.arrayBuffer()` gives.",
+  ]],
+  ["tests/backup-import-restore.test.ts", [
+    "// A `File` body has to sit on a non-shared buffer, so the bytes come in as `TextEncoder` made them.",
+    "// `sha256File` only ever calls this with an `ArrayBuffer`, which is what `Blob.arrayBuffer()` gives.",
+  ]],
   ["tests/backup-quickadd-export.test.ts", [
     "/** The envelope `PUT /api/quickadd/library` writes: the transport payload, normalized, then wrapped. */",
+  ]],
+  ["tests/boot-scripts.test.ts", [
+    "// Declared with the two arguments `fetch` is called with, so reading the call's `init` is checked.",
   ]],
   ["tests/chat-native-controls.test.ts", [
     "/**\n * The chat surfaces are the newest in the app, and the cheapest way to build a form there is to reach\n * for the browser's own control — a `datetime-local` box or a file button that no other screen in this\n * product uses, drawn in the operating system's style. Every date, clock and file field in the chat is\n * instead the app's own picker, so these rules are what keeps an OS widget from creeping back in one\n * convenient commit at a time.\n */",
@@ -15887,6 +15909,10 @@ const allowed = new Map([
     "// A guard that reads no files passes forever. The token form is used by hundreds of classes, so a",
     "// scan that finds none of them is broken rather than the codebase being clean.",
   ]],
+  ["tests/community-templates-route.test.ts", [
+    "// Every field hono's request handler declares, so the fake cannot hand the route less than the real",
+    "// Worker runtime would; `app.request` may settle either way, hence the awaited return.",
+  ]],
   ["tests/contrast-dark-text-quaternary.test.ts", [
     "/**\n * `--text-quaternary` is the app-wide de-emphasis step: counts, placeholders and\n * secondary metadata in every module read it, so nothing that paints it can be\n * used as the gate — the gate has to be the declaration itself.\n *\n * Dark theme is the hard case. Its lightest surface (`--bg-overlay` under\n * `[data-background='white']`) sits near #292a2d, and AA 4.5:1 normal text on\n * that is only reachable above ~67% L, so the whole de-emphasis ladder has to\n * live in the upper lightness band and keep its steps by spacing rather than by\n * distance from white. This gate holds both halves of that contract.\n */",
     "// A step that is less than one contrast-ratio point away from its neighbour is",
@@ -15904,6 +15930,7 @@ const allowed = new Map([
     "// path. If this stopped failing, the gate above has lost its teeth.",
     "// Light theme needed no lifting, but it shares the token name, so a future",
     "// dark-only edit that broke light is caught here.",
+    "/**\n * A colour this gate cannot read has to stop the gate.\n *\n * Comparing `undefined` against a surface would pass, and a token that stopped being a colour the\n * maths understands is exactly the kind of change this file exists to catch.\n */",
   ]],
   ["tests/contrast-light-text-ladder.test.ts", [
     "/**\n * The light theme's de-emphasis ladder: `--text-tertiary` and `--text-quaternary`\n * carry counts, placeholders and secondary metadata across every module, so no\n * component can be used as the gate — the gate has to be the declaration itself.\n *\n * Light is the mirror image of the dark ladder and fails in the opposite\n * direction. Text is dark on light, so climbing towards white *costs* contrast,\n * and the surface that binds is the darkest light one (`--bg-sunken` #f1efe9),\n * not the white-background override: #ffffff is the highest-contrast light\n * surface, so it is where every step measures best. The shipped ladder used to\n * fail twice over — tertiary sat under AA 4.5:1 on every surface, and it was\n * lighter than quaternary, so the token meant to read as more prominent read as\n * less. This gate holds the floor, the order, the spacing and the direction.\n */",
@@ -15935,6 +15962,11 @@ const allowed = new Map([
     "// the same path. If either half stopped failing, the gates above lost teeth.",
     "// ...and it sat under quaternary on every surface, which is the inversion.",
     "// The old secondary had no AA problem; the ladder was spaced, not deep.",
+    "/**\n * A colour this gate cannot read has to stop the gate.\n *\n * Comparing `undefined` against `undefined` passes, and a step that stopped being declared — or\n * stopped being a colour the maths understands — is precisely what this file exists to catch.\n */",
+  ]],
+  ["tests/credential-revocation.test.ts", [
+    "// `revokeGrant(id, userId)` is a two-argument call; typing the fake that way is what lets the",
+    "// assertion below read the grant id out of the recorded call.",
   ]],
   ["tests/d1-double-statement-kinds.test.ts", [
     "/**\n * The double has to answer the way D1 does, or a route tested against it proves nothing.\n *\n * Forty-odd suites build their database through `makeD1`, and the one decision it has to make for\n * them is the one node:sqlite does not: whether a statement is a read, which answers with rows, or a\n * write, which answers with `meta`. A common-table expression is the case that used to be misjudged,\n * because `WITH` opens the statement while the verb that follows decides its kind. Misjudge it and the\n * failure lands somewhere unrelated — a store reading `meta.changes` gets `undefined` and the caller\n * crashes on a line of production code that was never wrong.\n */",
@@ -15991,6 +16023,8 @@ const allowed = new Map([
     "// the same tree would keep answering with the value it saw the first time.",
     "/** The wrapper a row’s ARIA is spread onto, one level above the `[data-library-folder]` box. */",
     "/** The one tree the panel renders, taken by throwing rather than by an optional chain that would\n     * read the same as a row with no tree above it. */",
+    "// `appendChild`, not `append`: the workers HTMLRewriter `Element` shadows `ParentNode.append`",
+    "// in the types this project compiles against, so only `appendChild` names the DOM call.",
   ]],
   ["tests/excalidraw-library-tree-a11y.test.ts", [
     "/** The engine surface a click-to-insert writes through: the panel only ever reads state and calls\n * `updateScene`, so one stub covers the whole insert path without a canvas. */",
@@ -16016,6 +16050,12 @@ const allowed = new Map([
     "// the answer the pane used to give, with a blank panel where the message belongs.",
     "// The mark the row draws instead of the animated one, so a folder that chose a picture keeps it.",
     "// One more press is the way back out, which is what the row did before it was a button.",
+    "// `appendChild`, not `append`: the workers HTMLRewriter `Element` shadows `ParentNode.append`",
+    "// in the types this project compiles against, so only `appendChild` names the DOM call.",
+    "// A row outside a treeitem answers `null` from `closest`; both ways of missing the fold are",
+    "// reported as the same absence the callers already test for with `?.`.",
+    "// Scoped to `HTMLElement` rather than to `ParentNode`: the workers global carries its own",
+    "// `ParentNode`, which no DOM node of jsdom satisfies, and every caller hands over an element.",
   ]],
   ["tests/excalidraw-modal-entrance.test.ts", [
     "/**\n * The two classes the text-to-diagram modal and the official-library modal enter with.\n *\n * They used to enter with `animate-in fade-in zoom-in-95`, which nothing in this project defines: that\n * vocabulary belongs to an animation plugin that is not a dependency, so the classes were decoration for\n * an animation that never ran, and no test of the components could tell the difference. Read here rather\n * than in a component's own test because this is the project that may touch the filesystem.\n */",
@@ -16028,6 +16068,8 @@ const allowed = new Map([
     "// Backdate by pushing a failing upstream after the window: the first call still answers.",
     "// All three answered from the stale cache, and one refresh is in flight for the whole burst.",
     "// The route's own cap: `OFFICIAL_FETCH_MAX_BYTES` in src/worker/routes/excalidraw-library.ts.",
+    "// Spied with fetch's own signature: the assertion below reads the second argument, and a",
+    "// zero-parameter mock types every call as an empty tuple, where that argument is undefined.",
   ]],
   ["tests/excalidraw-official-library-modal.test.ts", [
     "// The catalog itself is still complete in the store; only the grid is windowed.",
@@ -16038,10 +16080,19 @@ const allowed = new Map([
     "// The whole point of prefetching: the click must not be the moment a cold upstream gets asked.",
     "// A catalog entry is third-party data turned into an <img src>, so an absolute url to anywhere",
     "// else is refused rather than fetched by every reader of this app.",
+    "// `appendChild`, not `append`: the workers HTMLRewriter `Element` shadows `ParentNode.append`",
+    "// in the types this project compiles against, so only `appendChild` names the DOM call.",
+  ]],
+  ["tests/excalidraw-patch-table.test.ts", [
+    "// The table is plain JavaScript with no declaration file, so the one field this assertion reads",
+    "// is named on the callback instead of being left `any`.",
   ]],
   ["tests/excalidraw-round-trips.test.ts", [
     "// Nulling or zeroing the canvas is what made a StrictMode remount paint into an orphan: the element",
     "// on screen is React's, so the teardown must not touch it and the mount must not replace it.",
+    "/**\n * One row of the table, or the test stops.\n *\n * A row this gate cannot find is not a passing check: it is the build silently no longer applying an\n * edit to the vendored engine. `expect(entry).toBeDefined()` does not narrow anything, so the read\n * that follows would run against `undefined` and the miss would look like a different failure.\n */",
+    "/** The older spellings a row replaces, or the test stops for the same reason. */",
+    "/** The first row that carries an older spelling, which is what the migration check below needs. */",
   ]],
   ["tests/excalidraw-trust-boundaries.test.ts", [
     "// `redirect: 'error'` is valid in Node, so the vite dev proxy keeps it, but workerd throws on it",
@@ -16083,6 +16134,8 @@ const allowed = new Map([
     "/**\n * The folder tree's own routes, end to end.\n *\n * Nothing exercised these before: a create, a patch and the two delete strategies all answer through\n * statements wrapped in a recursive common-table expression, and the local D1 double used to read the\n * opening `WITH` as a sign that the statement was a query. It returned no `meta`, the store asked for\n * `meta.changes`, and every one of these calls failed as a 500 that had nothing to do with the code\n * under test. See `tests/d1-double-statement-kinds.test.ts` for the double itself.\n */",
     "/**\n * A folder id the route accepts.\n *\n * `isValidId` wants 26 characters drawn from the alphabet `newId` writes, which leaves out the letters\n * that read alike, so the labels below are chosen from the ones that survive and then padded.\n */",
     "// Padded so that the tenth and twelfth stems cannot collapse onto the first one once `fid` pads.",
+    "// Typed as the context `app.fetch` actually declares, so every field the route may read has to be",
+    "// there: the ambient Workers interface is wider than hono needs and cannot be faked outside a Worker.",
   ]],
   ["tests/fts-tenant-index.test.ts", [
     "// Mirrors the shipped schema: user_id must be an indexed FTS5 column so the",
@@ -16124,6 +16177,9 @@ const allowed = new Map([
   ["tests/kanban-board-title.test.ts", [
     "/**\n * A board's name is in the fence body, and the markup a fence renders does not read that body — so\n * the block head drew its own type name instead: the type name in the head, and the same word again\n * as the tab of the board view. A reader who had named the board saw that name nowhere, and saw a\n * twice repeated type name where the name belonged (user report 2026-09-23).\n *\n * The name now comes from the two layers that hold it, each in the host where it has the room:\n *\n *  - the note, where the registry writes it into the block's own head. The head is a few hundred\n *    pixels wide and its two other children take 60 of them, so the name has room there; the board's\n *    own header does not — a name drawn in that bar took the room the view strip needs to scroll its\n *    own tab into (the visual gate read a 26px strip for an 8-tab board when it was drawn there).\n *  - the overlay, where the same header draws it, because there is no block head in an overlay.\n *\n * Nothing is drawn for an untitled board: a placeholder would have to be translated, and nothing\n * re-renders this block when the language changes. The strings that are translated and do live in\n * markup the host made — the canvas's landmark name — are pinned in\n * `src/client/lib/markdown/kanban/registry-locale.test.ts`.\n */",
     "/**\n * A fence's body does not ride in the markup: the renderer hands the bodies to the host that inserts\n * the markup, and the block's index is the key back to them (`fence-bodies.ts`). A mount without that\n * registration reads as an empty fence, so the host here does what the preview pane does.\n */",
+    "// `appendChild` rather than `append`: the workers global `Element` (its HTMLRewriter API) shadows",
+    "// `ParentNode.append` in the type universe this project compiles against, and only `appendChild`",
+    "// names the DOM call the test means.",
   ]],
   ["tests/kanban-canvas-height.test.ts", [
     "/**\n * The block used to be a fixed 480px box, and a board of three short columns filled it by stretching\n * every column to the box's height: the reader saw two or three rows of their own column's background\n * under the last card, and the horizontal scrollbar sat at the bottom of that emptiness rather than\n * under the columns (user report 2026-09-23). The board is now as tall as its columns need and no\n * taller, and the columns are not stretched at all.\n *\n * The ceiling belongs to the **board**, not to the canvas. It was written on the canvas — which is the\n * block's whole box, header and notice strip included — so the chrome above the board spent the board's\n * own budget: with the overdue-notice strip drawn and a column of cards, the canvas stopped at 480px\n * while the tree inside it needed 614, and the bottom 134px of the board (its horizontal scrollbar with\n * it) was cut off by the canvas's `overflow: hidden`. A `max-height` on the canvas cannot bound the\n * board anyway: the canvas's height is auto, so its children are laid out against the height the content\n * asks for and the clamp only takes effect after they have been placed.\n *\n * Two halves of one rule, and neither can be read from the other. The stylesheet holds the caps —\n * `styles/kanban.css` carries no comments by policy, so the reasoning reads here, next to the only\n * assertions that look at it. The stretch itself is a class on the board's own root, so that half is\n * asserted on what the component actually renders.\n *\n * What jsdom cannot do is lay any of this out, so nothing here measures a column. That the columns are\n * in fact as tall as their cards, that the canvas covers the chrome and the board it draws with nothing\n * clipped, is measured on real pixels in `scripts/e2e-visual.mjs` (`assertKanbanColumnHeights`).\n */",
@@ -16136,6 +16192,7 @@ const allowed = new Map([
   ]],
   ["tests/kanban-contrast-tokens.test.ts", [
     "/**\n * The board paints text on filled shapes: today's date on the accent (and, in\n * the timeline and gantt headers, on `--danger`), a tick on the colour the user\n * picked, initials on the accent. Hardcoding white for those looked right in\n * the light theme and fell apart in the dark one, where every fill is a light\n * colour — so the rule the board has to keep is the one the rest of the app\n * already keeps: text on a fill uses that fill's own contrast token, and the\n * pair must clear AA for every accent a session can be switched to.\n */",
+    "/** A token this gate cannot turn into a colour stops the gate rather than passing on `undefined`. */",
   ]],
   ["tests/kanban-dead-code.test.ts", [
     "/**\n * Dead code is only really gone while nothing re-introduces it, and these three shapes keep coming\n * back: mount options a registry stores but never reads, a `useMemo` keyed on the props object it\n * just received (a fresh reference on every render, so the memo never hits), and an `api` namespace\n * no caller uses because the module imports the functions by name.\n */",
@@ -16155,6 +16212,7 @@ const allowed = new Map([
     "// 19 at write time; the floor only has to be far from zero to keep a broken walk red.",
     "// A useCallback body runs when the callback runs, so a label read there is translated at use.",
     "/** Parse a snippet the same way a repo file is parsed, so the shape detectors are testable in isolation. */",
+    "/**\n * The value-position forms of a function. `ts.isFunctionLikeDeclaration` answers exactly this set at\n * runtime but is not in TypeScript's public typings, and `ts.isFunctionLike` — which is — also accepts\n * type-position signatures (call signatures, index signatures, function types), so a walk that used it\n * would start treating a declared type as a deferred body. The kinds are spelled out instead.\n */",
   ]],
   ["tests/kanban-panel-controls.test.ts", [
     "/**\n * The board's panels were built out of native controls: ten `<select>`s with hand-written borders\n * around the OS arrow, and a card-size picker made of bare buttons whose chosen value was a colour\n * the reader had to notice rather than a state the browser could read out (user report 2026-09-23,\n * where the board was asked to stop drawing the browser's own controls). The panels are dense, but\n * dense is a size — not a reason to leave the component system, which is where the focus ring, the\n * chevron and the token palette live.\n *\n * Two rules, and each one is checked in the place the other cannot see.\n *\n *  1. What a panel actually renders. Every `<select>` in the board's own panels is drawn by the\n *     project's `Select`, which is recognisable from the outside by the two things it adds to the\n *     native element: `appearance-none` and a chevron beside it. A rule row that goes back to a bare\n *     `<select>` fails here.\n *  2. What the source holds. The rendered check can only see the panels a test happens to open, so the\n *     raw elements are also counted where they are written: every `<select` in the kanban UI has to be\n *     listed with its reason and its count, and a file that grows one — or a listed one that goes away\n *     — fails. This is the direction that keeps the next raw control from arriving unnoticed.\n *\n * The reason the tag cell is allowed to keep one is written next to it: it is a chip painted in the\n * option's own colour, where a bordered field and a tertiary chevron would land on top of that colour,\n * and every other cell of that table is a colour or icon affordance rather than an arrow.\n */",
@@ -16162,6 +16220,11 @@ const allowed = new Map([
     "/**\n * The panels that hold a form control, each opened the way the board opens it and mounted inside its\n * own test: a mount done while the cases are being collected is undone by the first case's teardown,\n * and the rest of the run then reads an empty container rather than the panel it asked for.\n */",
     "/** A `Select` from the outside: the arrow is gone and the component's own chevron is beside it. */",
     "// The chosen size is a state, not a shade: exactly one option reports itself as checked.",
+    "// Typed as the panel's own contract, so a column operation the component grows cannot be dropped",
+    "// from this fixture in silence.",
+    "// Answered through the tag name rather than `querySelectorAll<HTMLSelectElement>`: the workers",
+    "// global `Element` is a different interface from jsdom's, and a type argument of",
+    "// `HTMLSelectElement` no longer satisfies its constraint.",
   ]],
   ["tests/kanban-projector-type.test.ts", [
     "/**\n * The still of a board has two audiences, and `styles/kanban.css` is the only place that tells them\n * apart: the `list` shape is read at arm's length (a hover card, the editor's live preview, a note\n * export, a shared page), the `board` shape is read from several metres — the projector, the printed\n * deck, the presenter's own panes (N-36). The sheet carries no comments by policy, so the reasoning\n * for its sizes reads here, beside the only assertions that look at it.\n *\n * The floor is N-02's. Its `MIN_FIT_SCALE = 0.64` says the canvas may be shrunk no further than\n * 18/28: body copy on a projected page stays at or above 18 design px of that canvas, in whatever\n * window the show runs in. The board's text was written at desk sizes — a card title at `--text-14`,\n * a chip at `--text-11` — so the still N-36 shipped painted a card title at 11.6 css px in a\n * 1280x900 window while the prose beside it stayed legal. Measured before and after this change on\n * one real show: the board's block went from 368 to 421 design px and the page's content from 480 to\n * 533 of the 632 it has, still one page with the columns a third each.\n *\n * Two tiers, splitting the same way the live board does: the lines a room has to make out — the\n * board's name, a column's name, a card's title, the sentence an empty board leaves — sit at the\n * floor; a card's annotations — its chips, its subtask count, a declared field — sit one step below\n * it. Column names are not given a smaller tier than card titles because the live board does not:\n * there the header is `--text-13` under a `--text-14` title, and a projected header has to be read\n * as well as the card it heads, so both take the floor and the tint and the position carry the rank.\n *\n * A stylesheet cannot say what lands. The projector scenario in `scripts/e2e-visual.mjs` reads the\n * computed size off the real canvas, and this file only pins the contract the sheet writes: that the\n * board channel asks for the two tiers, that the board-scoped rules are the ones that carry them,\n * and that the desk-sized `list` shape kept the sizes it had before anyone thought about a projector.\n */",
@@ -16191,6 +16254,9 @@ const allowed = new Map([
     "// (`--kanban-tag-<name>-fg`), so a reference is only checkable once its",
     "// placeholder is expanded over the colour names the picker offers. A name that is",
     "// not a placeholder is a real token and has to be declared as spelled.",
+    "/** A colour as the composite step reads it: channels plus the alpha the browser would apply. */",
+    "// `has` was just checked; `get` cannot be narrowed through it.",
+    "// Both entries are asserted to exist by the declaration test above; `get` cannot be narrowed by it.",
   ]],
   ["tests/kanban-url-fields.test.ts", [
     "/**\n * A board's own data carries two fields that are URLs, and every one of them is a URL the browser may\n * be asked to follow: a cover becomes an `<img src>`, a file's `url` becomes an `<a href>` in the\n * detail panel, a download link, and a `fetch` when the reader opens a text attachment. The fence they\n * come from is not the author's private file — a board arrives by import, by share, or pasted out of\n * somebody else's note — so the only thing standing between a `javascript:` cover and a click that runs\n * it is the protocol check at the parse boundary (`assertFenceUrlsAreSafe` in `body.ts`), which fails\n * the whole fence into its error state rather than quietly dropping a field.\n *\n * The check itself is covered by `body.test.ts`. What is not, and what this file exists for, is that\n * the *list* of fields cannot fall behind the shape of the data: it reads the interfaces out of\n * `types.ts`, finds every field whose name says it holds a URL, and requires the guard to cover exactly\n * those. A card that grows a `thumbnail` (or a whole new interface with a URL on it) fails here on the\n * day it is declared — while somebody is thinking about protocol safety — rather than later, when the\n * field is already drawn by a surface that trusted it.\n */",
@@ -16210,6 +16276,8 @@ const allowed = new Map([
     "/**\n * The HTTP shape of \"turn this mention into a link\", which the function-level tests in\n * `backlink-mentions.test.ts` do not cover: which status the reader gets back, and what is\n * left untouched when the row they clicked has already moved on.\n */",
     "// The route checks the source id against the note-id grammar before it looks anything up,",
     "// so every id here has to be shaped like one.",
+    "// Typed as the context `app.fetch` actually declares, so every field the route may read has to be",
+    "// there: the ambient Workers interface is wider than hono needs and cannot be faked outside a Worker.",
   ]],
   ["tests/local-db-outbox-double.test.ts", [
     "/**\n * `useNotes.flush()` replays the outbox through `localDb.withOutboxReplayLock`, so a test double for\n * `lib/db` that models the queue without the lock throws a `TypeError` the moment a scheduled flush\n * fires — and because the debounced save is fire-and-forget, that landed as an unhandled rejection\n * attributed to whichever test file happened to be running. The method was added to the real store\n * and only two of the doubles were updated; the rest kept passing until a busy machine moved the\n * timer. This reads the doubles instead: a mock that names one of the outbox methods has to name the\n * lock with it.\n */",
@@ -16254,6 +16322,13 @@ const allowed = new Map([
     "// Counts the statements that pull the note body: the whole point of the read-back merge.",
     "// The cached/returned note carries no body: the tool response never exposed one.",
     "// The conflict payload is built from a fresh full read, so it still carries the body.",
+    "// `McpWriteContext.executionCtx` is the ambient Workers interface, which also demands `tracing` and",
+    "// `exports`; neither can be built outside a Worker. The fake is checked field by field against hono's",
+    "// context — everything the write path actually reads — and only then widened, one comparable assertion.",
+  ]],
+  ["tests/no-native-dialogs.test.ts", [
+    "// A method carries a body and a property carries an initializer; asking the union for both is what",
+    "// used to hide behind one cast, so each shape is read under its own guard.",
   ]],
   ["tests/note-list-tags.test.ts", [
     "// Corrupt row on purpose: tags owned by another account must never surface on this page.",
@@ -16263,6 +16338,8 @@ const allowed = new Map([
   ["tests/notes-tag-views.test.ts", [
     "// The route spells the subtree rule in SQL and the offline shell spells it in TypeScript;",
     "// one drifts silently and the sidebar count stops matching the list.",
+    "// Typed as the context `app.fetch` actually declares, so every field the route may read has to be",
+    "// there: the ambient Workers interface is wider than hono needs and cannot be faked outside a Worker.",
   ]],
   ["tests/phase4-regressions.test.ts", [
     "// The curated hints stay, because they are what tells an operator what to fix.",
@@ -16280,6 +16357,9 @@ const allowed = new Map([
     "/** Every `file#name` this call could be, following re-export barrels as far as they lead. */",
     "/** `(file, name)` pairs whose call may consult the reading table, grown until it stops growing. */",
     "/**\n * The two things that keep reading search cheap are invisible to a render test: the big listing has\n * to warm its own labels at idle, and nothing may download the dictionary before a session has shown\n * it needs one. Both live in source that a later edit can undo quietly, so they are checked here.\n */",
+    "// `export { a } from './x'` has a list of names to fold in; `export * from './x'` carries no",
+    "// clause at all and `export * as ns from './x'` carries a namespace instead of a list — both",
+    "// mean \"everything over there is visible here\", so both count as the star edge.",
   ]],
   ["tests/platform-contract.test.ts", [
     "// Nothing else in this repository reads the deployment configs or the lockfile, so the",
@@ -16303,6 +16383,13 @@ const allowed = new Map([
     "// 420 notes: the window is the newest 400, so stamps 0..19 fall outside it.",
     "// The three bounds above are only worth having if the scan they cap is slow enough to notice. This",
     "// is the measurement behind the round-5 ledger entry: a full window of realistic notes, timed.",
+    "// The helpers fill the property name in for the case, so the argument they take is the query with",
+    "// `name` left out. Typed as the whole query before, which demanded a name the case never passed and",
+    "// made the fixture's own `name: 'mood'` a value the spread always overwrote.",
+  ]],
+  ["tests/quickadd-route.test.ts", [
+    "// Every field hono's request handler declares, so the fake cannot hand the route less than the real",
+    "// Worker runtime would; `app.request` may settle either way, hence the awaited return.",
   ]],
   ["tests/reader-discovery-route.test.ts", [
     "// The host is the route's, not the caller's: only the number moved.",
@@ -16333,11 +16420,16 @@ const allowed = new Map([
     "// Sized covers, with a real header on the front, because the route now reads it.",
     "// A book id is minted by the reader from the file's name and size, so the same download lands on",
     "// two shelves as the same string. Sharing one row between them would let Bob's push delete Alice's.",
+    "// A body has to sit on a non-shared buffer, which is what `pngOf` below hands back.",
   ]],
   ["tests/reading-anchors.test.ts", [
     "// The offsets are nonsense (the edition moved), so only the context can say which of the two",
     "// identical sentences this highlight was made on.",
     "// Painting must not change what the chapter's text is, or every later offset would be wrong.",
+  ]],
+  ["tests/reading-book-groups.test.ts", [
+    "// Read as the production answer type, so the refusal the helper reports is the one the module",
+    "// actually makes: the old local shape had no `reason` at all, so the message said `undefined`.",
   ]],
   ["tests/reading-book-identity.test.ts", [
     "/**\n * The id a book gets when the reader drops a file is minted from that file's name, and the name is the\n * reader's own. So the interesting inputs are the names people really use: Chinese, Japanese, a space,\n * brackets — and the two the shelf route will not carry in an R2 key, a path separator and a dot-dot.\n *\n * Whatever the minting rule does, its output has to be something the route accepts and the same twice,\n * because a second import of one file that yields a new id silently leaves the first id's highlights\n * behind.\n */",
@@ -16408,6 +16500,10 @@ const allowed = new Map([
     "/** The store picks its own key by mode, so the test reads it back from the write path instead of guessing. */",
     "/** jsdom answers innerWidth from the window, so the profile is driven by replacing it. */",
     "// A reset comes back to the device it was pressed on, not to a desktop's page.",
+    "// Walked through the setting keys, not through a `Record<string, unknown>` view of the object:",
+    "// `ReaderSettings` is an interface and carries no index signature, so that view was a claim the",
+    "// checker could not confirm — while `key as Key` is checked against the defaults it is compared to.",
+    "// Named as the setting's own type, so the loop cannot hand `patch` a string the store would refuse.",
   ]],
   ["tests/reading-shelf-view.test.ts", [
     "/**\n * Which layout the shelf actually draws.\n *\n * `adaptive` is the only mode with a condition in it, and a condition that lives inside a component is\n * invisible to every other surface — so it is stated here as a table a reader can check by eye.\n */",
@@ -16420,6 +16516,7 @@ const allowed = new Map([
   ["tests/register-setup-token.test.ts", [
     "// The server has required this token since S-04, but the console never learned to send",
     "// it, so an operator who followed SECURITY.md could not create the first account.",
+    "// What `/api/auth/register` really answers: `site` is never null, so the fake cannot say it is.",
   ]],
   ["tests/rewrite-drain.test.ts", [
     "// Re-arm keeps the claim marker so one run cannot re-pick the row; clearing it",
@@ -16429,6 +16526,12 @@ const allowed = new Map([
     "/** The upstream a test wants: what each address answers, and what it was asked with. */",
     "// The mark row, and the account's own state row, which is what a save stamps.",
     "// Device B loaded the library before device A's star landed, and now sends only its own change.",
+    "// Every field hono's request handler declares, so the fake cannot hand the route less than the real",
+    "// Worker runtime would; `app.request` may settle either way, hence the awaited return.",
+  ]],
+  ["tests/rss-store.test.ts", [
+    "// `node:sqlite` only takes its own input types, so the values a test binds are checked at the call",
+    "// site instead of being widened away.",
   ]],
   ["tests/sanitize-svg.test.ts", [
     "/**\n * Every sink this pass feeds draws markup the app did not write — the pasted Mermaid diagram and the\n * stencil preview below, a note's own Mermaid block through `enhance.ts` — so these cases prove it\n * keeps a diagram whole while taking away the things an SVG can do that a picture cannot: run a\n * script, carry a handler, point a link or a SMIL animation at `javascript:`, hold a form.\n *\n * The label assertions are the half a profile written for SVG alone gets wrong: Mermaid paints a\n * node's text as HTML inside `<foreignObject>`, so the `div`s and `span` that hold it, and the inline\n * style that sizes it, have to survive the pass — not only their characters.\n */",
@@ -16439,6 +16542,10 @@ const allowed = new Map([
     "// Control for the folder tests below: this query never reaches the folder clause, so the",
     "// same failure here means the defect is in the shared ORDER BY, not in folder scoping.",
     "// Ids have to be the 26-character shape the assistant accepts, unlike the short ones above.",
+  ]],
+  ["tests/search-tag-expressions.test.ts", [
+    "// Typed as the context `app.fetch` actually declares, so every field the route may read has to be",
+    "// there: the ambient Workers interface is wider than hono needs and cannot be faked outside a Worker.",
   ]],
   ["tests/semantic-scan-window.test.ts", [
     "/** The query embedding the stub always returns; a match scores 1, everything else 0. */",
@@ -16471,6 +16578,9 @@ const allowed = new Map([
     "// the read budget the public route already spends, so these cases vary only the address a read came",
     "// from, how old it is, and which show it was aimed at.",
     "// An address is only trusted behind the edge, so the harness has to say the request came through it.",
+    "// The context a real Worker hands every request. It used to be declared here and never passed to",
+    "// `fetch`, so the harness ran without one; the presence routes do not read it, but a fixture that",
+    "// claims to stand for the runtime has to reach the runtime's own entry point.",
   ]],
   ["tests/share-route.test.ts", [
     "/**\n * Behavioural coverage for `src/worker/routes/share.ts` (the SQL itself now lives in\n * `src/worker/share/store.ts`; the claims here are about what the routes answer, not about\n * which file the statements sit in).\n *\n * The cases are the ones the share contract commits to: the owner can create, list, read back and\n * revoke only their own link; re-sharing keeps what the request did not name; a forged slug, an\n * expired link and a deleted note all answer the same way as a link that never existed; a passcode\n * link verifies against the stored hash under its throttle and only then hands out the asset\n * cookie; and the view counter moves off the response path.\n */",
@@ -16478,6 +16588,9 @@ const allowed = new Map([
     "// Bob cannot publish Alice's note under his own account.",
     "// A dangling share owned by Bob on Alice's note: the conflict clause is the only thing between",
     "// Alice's re-share and Bob's row, and it must match nothing.",
+    "// The context carries every field hono's request handler declares, so a field the route could read",
+    "// cannot go missing the way the old `{ waitUntil, passThroughOnException } as unknown as …` fixture",
+    "// allowed: `as unknown as` skipped the check entirely.",
   ]],
   ["tests/shared-component-contract.test.ts", [
     "/**\n * The shared layer's own contract, read off the files that define it: `styles/tokens.css`,\n * `lib/z-index.ts` and the `DEBOUNCE` group in `src/shared/constants.ts`.\n *\n * The audit this came out of found four authorities disagreeing about stack levels — the CSS token\n * scale, raw `z-index:` numbers in stylesheets, `z-[N]` in tsx, and a JS map with three keys — and\n * focus rings spelled by hand at two thicknesses in five places. Naming a scale does not keep it true;\n * only a check does. These cases are that check, and they are deliberately narrow: they police the\n * layer every feature shares, where one more hand-picked number is copied a hundred times.\n */",
@@ -16551,6 +16664,16 @@ const allowed = new Map([
   ["tests/tag-move-route.test.ts", [
     "// Six statements per family member, so fifteen of them are ninety. node:sqlite runs a batch",
     "// of any size, so only counting the calls here can catch an unchunked one.",
+    "// Typed as the context `app.fetch` actually declares, so every field the route may read has to be",
+    "// there: the ambient Workers interface is wider than hono needs and cannot be faked outside a Worker.",
+  ]],
+  ["tests/tag-pin-route.test.ts", [
+    "// Typed as the context `app.fetch` actually declares, so every field the route may read has to be",
+    "// there: the ambient Workers interface is wider than hono needs and cannot be faked outside a Worker.",
+  ]],
+  ["tests/template-library-route.test.ts", [
+    "// Every field hono's request handler declares, so the fake cannot hand the route less than the real",
+    "// Worker runtime would; `app.request` may settle either way, hence the awaited return.",
   ]],
   ["tests/template-library-storage.test.ts", [
     "// The migration only runs on the bind that switches accounts, so start from",
@@ -16611,6 +16734,8 @@ const allowed = new Map([
     "// Alice had neither name, so both are created for her and each is announced once.",
     "// Bob keeps his own row: neither coloured, nor marked manual, nor announced to him.",
     "// Matched case-insensitively, so the name the account already uses wins and keeps its row.",
+    "// Typed as the context `app.request` declares, so the fake carries `props` as well: the route can",
+    "// read anything hono promises, and a missing field has to fail the build rather than the request.",
   ]],
   ["tests/trash-purge-batch.test.ts", [
     "// Two notes share a title so the link can be retargeted before the trashed one disappears.",
