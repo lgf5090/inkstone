@@ -5887,7 +5887,7 @@ console.log(\`Hello, \${name}!\`)
     "assistant.chat.stop": "停止生成",
     "assistant.chat.stopped": "已停止。",
     "assistant.chat.thinking": "思考中",
-    "assistant.chat.reasoning": "显示模型推理",
+    "assistant.chat.thought": "已深度思考",
     "assistant.chat.tool_args": "调用参数",
     "assistant.chat.tool_result": "返回结果",
     "assistant.chat.tool_no_data": "这次调用没有留下参数或返回内容。",

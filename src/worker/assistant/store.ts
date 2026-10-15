@@ -40,7 +40,7 @@ import type {
   ToolActivity,
   UsageCounters,
 } from '@shared/assistant'
-import { ASSISTANT_MCP_TOOL_MODES, ASSISTANT_MCP_TRANSPORTS, DEFAULT_MCP_TIMEOUT_SECONDS, MAX_MCP_DESCRIPTION_CHARS, MAX_MCP_DISABLED_TOOLS, MAX_MCP_HEADER_VALUE_CHARS, MAX_MCP_LABEL_CHARS, MAX_MCP_TOOL_NAME_CHARS, MAX_MCP_TIMEOUT_SECONDS, MIN_MCP_TIMEOUT_SECONDS, MAX_ANSWER_VERSIONS, MAX_CHAT_ATTACHMENTS, isMcpHeaderName, parseModelModalities, parseProviderEndpoints, reasoningValue, type AssistantAnswerVersion, type AssistantMcpServer, type AssistantMcpToolMode, type AssistantMcpTransport, type AssistantModelModality, type ChatAttachment } from '@shared/assistant'
+import { ASSISTANT_MCP_TOOL_MODES, ASSISTANT_MCP_TRANSPORTS, DEFAULT_MCP_TIMEOUT_SECONDS, MAX_MCP_DESCRIPTION_CHARS, MAX_MCP_DISABLED_TOOLS, MAX_MCP_HEADER_VALUE_CHARS, MAX_MCP_LABEL_CHARS, MAX_MCP_TOOL_NAME_CHARS, MAX_MCP_TIMEOUT_SECONDS, MIN_MCP_TIMEOUT_SECONDS, MAX_ANSWER_VERSIONS, MAX_CHAT_ATTACHMENTS, clipReasoning, isMcpHeaderName, parseModelModalities, parseProviderEndpoints, reasoningValue, type AssistantAnswerVersion, type AssistantMcpServer, type AssistantMcpToolMode, type AssistantMcpTransport, type AssistantModelModality, type ChatAttachment } from '@shared/assistant'
 import {
   ASSISTANT_MEMORY_CATEGORIES,
   ASSISTANT_PROTOCOLS,
@@ -287,12 +287,13 @@ interface MessageRow {
   output_tokens: number | null
   duration_ms: number | null
   model_label: string | null
+  reasoning: string | null
   created_at: number
   version_count?: number | null
 }
 
 const MESSAGE_COLUMNS
-  = `id, conversation_id, role, content, tools, attachments, status, error, source, input_tokens, output_tokens, duration_ms, model_label, created_at`
+  = `id, conversation_id, role, content, reasoning, tools, attachments, status, error, source, input_tokens, output_tokens, duration_ms, model_label, created_at`
 /** How many answers this turn has already displaced; only the transcript list pays for it. */
 const MESSAGE_VERSION_COUNT
   = `(SELECT COUNT(*) FROM chat_answer_versions v WHERE v.user_id = chat_messages.user_id AND v.message_id = chat_messages.id) AS version_count`
@@ -310,6 +311,7 @@ function toMessage(r: MessageRow): AssistantMessage {
     conversationId: r.conversation_id,
     role: r.role === 'assistant' ? 'assistant' : 'user',
     content: r.content ?? '',
+    reasoning: r.reasoning ?? '',
     tools: decodeTools(r.tools),
     attachments: decodeStringList(r.attachments),
     status: pickEnum(r.status, MESSAGE_STATUSES, 'complete'),
@@ -413,6 +415,7 @@ interface AnswerVersionRow {
   message_id: string
   conversation_id: string
   content: string
+  reasoning: string | null
   tools: string | null
   model_label: string | null
   input_tokens: number | null
@@ -422,7 +425,7 @@ interface AnswerVersionRow {
 }
 
 const ANSWER_VERSION_COLUMNS
-  = `id, message_id, conversation_id, content, tools, model_label, input_tokens, output_tokens, duration_ms, created_at`
+  = `id, message_id, conversation_id, content, reasoning, tools, model_label, input_tokens, output_tokens, duration_ms, created_at`
 
 function toAnswerVersion(r: AnswerVersionRow): AssistantAnswerVersion {
   return {
@@ -430,6 +433,7 @@ function toAnswerVersion(r: AnswerVersionRow): AssistantAnswerVersion {
     messageId: r.message_id,
     conversationId: r.conversation_id,
     content: r.content ?? '',
+    reasoning: r.reasoning ?? '',
     tools: decodeTools(r.tools),
     modelLabel: r.model_label ?? '',
     usage: { inputTokens: r.input_tokens ?? 0, outputTokens: r.output_tokens ?? 0 },
@@ -1170,6 +1174,7 @@ export class AssistantStore {
     conversationId: string
     role: 'user' | 'assistant'
     content: string
+    reasoning?: string
     tools?: ToolActivity[]
     attachments?: string[]
     status?: AssistantMessage['status']
@@ -1190,11 +1195,14 @@ export class AssistantStore {
     const source = input.source ?? 'chat'
     const usage = input.usage ?? null
     const durationMs = Math.max(0, Math.round(input.durationMs ?? 0))
+    // The reader's own words are stored as written; a trace is bounded before it lands, because a thinking
+    // model can produce more of it than a row should carry.
+    const reasoning = clipReasoning(input.reasoning ?? '')
     await this.write(
       `INSERT INTO chat_messages
-         (id, user_id, conversation_id, role, content, tools, attachments, status, error, source, input_tokens, output_tokens, duration_ms, model_label, created_at)
-       VALUES (?2, ?1, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)`,
-      id, input.conversationId, input.role, input.content, JSON.stringify(tools), JSON.stringify(attachments),
+         (id, user_id, conversation_id, role, content, reasoning, tools, attachments, status, error, source, input_tokens, output_tokens, duration_ms, model_label, created_at)
+       VALUES (?2, ?1, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)`,
+      id, input.conversationId, input.role, input.content, reasoning, JSON.stringify(tools), JSON.stringify(attachments),
       status, error, source, usage?.inputTokens ?? 0, usage?.outputTokens ?? 0, durationMs, input.modelLabel ?? '', at,
     )
     await this.write(
@@ -1206,6 +1214,7 @@ export class AssistantStore {
       conversationId: input.conversationId,
       role: input.role,
       content: input.content,
+      reasoning,
       tools,
       attachments,
       status,
@@ -1266,6 +1275,7 @@ export class AssistantStore {
     messageId: string
     conversationId: string
     content: string
+    reasoning?: string
     tools?: ToolActivity[]
     modelLabel?: string
     usage?: { inputTokens: number, outputTokens: number } | null
@@ -1282,9 +1292,9 @@ export class AssistantStore {
     const modelLabel = input.modelLabel ?? ''
     await this.write(
       `INSERT INTO chat_answer_versions
-         (id, user_id, message_id, conversation_id, content, tools, model_label, input_tokens, output_tokens, duration_ms, created_at)
-       VALUES (?2, ?1, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)`,
-      id, input.messageId, input.conversationId, input.content, JSON.stringify(tools), modelLabel,
+         (id, user_id, message_id, conversation_id, content, reasoning, tools, model_label, input_tokens, output_tokens, duration_ms, created_at)
+       VALUES (?2, ?1, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)`,
+      id, input.messageId, input.conversationId, input.content, input.reasoning ?? '', JSON.stringify(tools), modelLabel,
       usage?.inputTokens ?? 0, usage?.outputTokens ?? 0, durationMs, at,
     )
     await this.write(
@@ -1300,6 +1310,7 @@ export class AssistantStore {
       messageId: input.messageId,
       conversationId: input.conversationId,
       content: input.content,
+      reasoning: input.reasoning ?? '',
       tools,
       modelLabel,
       usage,
@@ -1340,17 +1351,17 @@ export class AssistantStore {
       return null
     await this.write(
       `UPDATE chat_answer_versions
-          SET content = ?2, tools = ?3, model_label = ?4, input_tokens = ?5, output_tokens = ?6, duration_ms = ?7
-        WHERE user_id = ?1 AND id = ?8`,
-      current.content, current.tools, current.model_label ?? '',
+          SET content = ?2, reasoning = ?3, tools = ?4, model_label = ?5, input_tokens = ?6, output_tokens = ?7, duration_ms = ?8
+        WHERE user_id = ?1 AND id = ?9`,
+      current.content, current.reasoning ?? '', current.tools, current.model_label ?? '',
       current.input_tokens ?? 0, current.output_tokens ?? 0, current.duration_ms ?? 0, versionId,
     )
     await this.write(
       `UPDATE chat_messages
-          SET content = ?2, tools = ?3, status = 'complete', error = NULL, model_label = ?4,
-              input_tokens = ?5, output_tokens = ?6, duration_ms = ?7
-        WHERE user_id = ?1 AND id = ?8`,
-      chosen.content, chosen.tools, chosen.model_label,
+          SET content = ?2, reasoning = ?3, tools = ?4, status = 'complete', error = NULL, model_label = ?5,
+              input_tokens = ?6, output_tokens = ?7, duration_ms = ?8
+        WHERE user_id = ?1 AND id = ?9`,
+      chosen.content, chosen.reasoning ?? '', chosen.tools, chosen.model_label,
       chosen.input_tokens ?? 0, chosen.output_tokens ?? 0, chosen.duration_ms ?? 0, messageId,
     )
     const reread = await this.one<MessageRow>(
@@ -2504,8 +2515,8 @@ export class AssistantStore {
 const EXPORT_COLUMNS: Readonly<Record<string, readonly string[]>> = {
   chat_conversations: ['id', 'title', 'summary', 'summary_upto', 'pinned', 'starred', 'folder_id', 'created_at', 'updated_at'],
   chat_conversation_tags: ['conversation_id', 'tag_id', 'created_at'],
-  chat_messages: ['id', 'conversation_id', 'role', 'content', 'tools', 'attachments', 'status', 'error', 'source', 'input_tokens', 'output_tokens', 'duration_ms', 'model_label', 'created_at'],
-  chat_answer_versions: ['id', 'message_id', 'conversation_id', 'content', 'tools', 'model_label', 'input_tokens', 'output_tokens', 'duration_ms', 'created_at'],
+  chat_messages: ['id', 'conversation_id', 'role', 'content', 'reasoning', 'tools', 'attachments', 'status', 'error', 'source', 'input_tokens', 'output_tokens', 'duration_ms', 'model_label', 'created_at'],
+  chat_answer_versions: ['id', 'message_id', 'conversation_id', 'content', 'reasoning', 'tools', 'model_label', 'input_tokens', 'output_tokens', 'duration_ms', 'created_at'],
   chat_memories: ['id', 'content', 'category', 'source', 'status', 'superseded_by', 'valid_from', 'valid_until', 'created_at', 'updated_at'],
   chat_tasks: ['id', 'title', 'description', 'status', 'priority', 'due_at', 'project_id', 'created_at', 'updated_at', 'completed_at'],
   chat_projects: ['id', 'name', 'description', 'created_at', 'updated_at'],

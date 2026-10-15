@@ -19,12 +19,13 @@ const USE_THIS = () => t('assistant.chat.use_this')
 const COPY = () => t('assistant.chat.copy')
 const VIEWING = () => t('assistant.chat.viewing_history')
 
-function version(id: string, text: string): AssistantAnswerVersion {
+function version(id: string, text: string, reasoning = ''): AssistantAnswerVersion {
     return {
         id,
         messageId: 'M1',
         conversationId: 'C1',
         content: text,
+        reasoning,
         tools: [],
         modelLabel: 'deepseek-chat',
         usage: { inputTokens: 100, outputTokens: 50 },
@@ -158,6 +159,21 @@ describe('the answer pager', () => {
         const tokens = footer!.className.split(/\s+/)
         expect(tokens).toContain('opacity-100')
         expect(tokens).not.toContain('opacity-0')
+        view.unmount()
+    })
+    it('folds the trace that belongs to the answer on screen', async () => {
+        const view = render({
+            reasoning: 'THE LIVE TRACE',
+            versionCount: 1,
+            loadVersions: async () => [version('V1', 'THE FIRST ANSWER', 'THE FIRST TRACE')],
+        })
+        view.click(t('assistant.chat.thought'))
+        expect(view.text()).toContain('THE LIVE TRACE')
+        await view.step(PREVIOUS())
+        // A paged-back answer brings its own trace along: reading it under the live one would credit the
+        // older answer to the thinking the newer model just did.
+        expect(view.text()).toContain('THE FIRST TRACE')
+        expect(view.text()).not.toContain('THE LIVE TRACE')
         view.unmount()
     })
     it('keeps the footer lit while an older answer is on screen', async () => {

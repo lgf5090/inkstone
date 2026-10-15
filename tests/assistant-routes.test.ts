@@ -22,7 +22,7 @@ import type {
   ChatStreamEvent,
   Task,
 } from '../src/shared/assistant'
-import { DEFAULT_SEMANTIC_MODEL, MAX_ANSWER_VERSIONS, MAX_CONTEXT_BUDGET_TOKENS, MAX_MCP_TIMEOUT_SECONDS, MAX_PROMPT_CONTENT_CHARS, MAX_PROMPT_TITLE_CHARS } from '../src/shared/assistant'
+import { DEFAULT_SEMANTIC_MODEL, MAX_ANSWER_VERSIONS, MAX_CONTEXT_BUDGET_TOKENS, MAX_MCP_TIMEOUT_SECONDS, MAX_PROMPT_CONTENT_CHARS, MAX_PROMPT_TITLE_CHARS, MAX_REASONING_CHARS } from '../src/shared/assistant'
 import { makeD1 } from './doubles/d1-sqlite'
 import { testBindings, testDurableObjectNamespace, testR2Bucket } from './doubles/bindings'
 import { AI_EMBEDDING_MODEL } from '../src/worker/mcp/ai-search'
@@ -1627,6 +1627,19 @@ describe('model input modalities', () => {
 
 describe('answer versions', () => {
 
+  /**
+   * One turn per call that thinks first and then answers.
+   *
+   * The trace arrives the way a thinking model sends it — before the words, on its own frames — because
+   * that ordering is what the fold depends on and what a naive reader of the stream would lose.
+   */
+  function thinking(text: string, trace: string) {
+    return vi.fn(async () => new Response(sse([
+      openAiFrame({ choices: [{ index: 0, finish_reason: null, delta: { reasoning_content: trace } }] }),
+      openAiFrame({ choices: [{ index: 0, finish_reason: 'stop', delta: { content: text } }] }),
+    ]), { headers: { 'content-type': 'text/event-stream' } }))
+  }
+
   /** One finished answer per call, distinguishable in the transcript and in the version rows. */
   function answering(text: string, elapsedMs = 6) {
     return vi.fn(async (_url: string, _init?: RequestInit) => {
@@ -1698,6 +1711,48 @@ describe('answer versions', () => {
     const swapped = await call<{ versions: AssistantAnswerVersion[] }>('GET', `/api/assistant/conversations/${conversationId}/messages/${before.id}/versions`)
     expect(swapped.versions.map(version => version.id)).toEqual([first.id])
     expect(swapped.versions[0]?.content).toContain('SECOND-ANSWER-2')
+  })
+
+  it('files the reasoning with the answer, and reads it back when the thread is reopened', async () => {
+    await useExampleModel()
+    vi.stubGlobal('fetch', thinking('FIRST-ANSWER-1', 'FIRST-TRACE-1'))
+    const conversationId = await openThread()
+    // Reopened the way the app reopens it: the transcript comes from the route, so this is the row and
+    // not the live turn that had to carry the trace.
+    const first = (await thread(conversationId)).at(-1)!
+    expect(first.content).toContain('FIRST-ANSWER-1')
+    expect(first.reasoning).toBe('FIRST-TRACE-1')
+
+    vi.stubGlobal('fetch', thinking('SECOND-ANSWER-2', 'SECOND-TRACE-2'))
+    await chatEvents({ conversationId, message: '', retry: true })
+    await settleTurns()
+    vi.unstubAllGlobals()
+    const answer = (await thread(conversationId)).at(-1)!
+    expect(answer.reasoning).toBe('SECOND-TRACE-2')
+
+    // The displaced answer carries its own trace: reading an old answer must not show it the trace of the
+    // answer that replaced it.
+    const filed = await call<{ versions: AssistantAnswerVersion[] }>('GET', `/api/assistant/conversations/${conversationId}/messages/${answer.id}/versions`)
+    expect(filed.versions.map((version) => version.reasoning)).toEqual(['FIRST-TRACE-1'])
+    const swapped = await call<{ message: AssistantMessage }>('POST',
+      `/api/assistant/conversations/${conversationId}/messages/${answer.id}/versions/${filed.versions[0]!.id}/activate`)
+    expect(swapped.message.content).toContain('FIRST-ANSWER-1')
+    expect(swapped.message.reasoning).toBe('FIRST-TRACE-1')
+    const displaced = await call<{ versions: AssistantAnswerVersion[] }>('GET', `/api/assistant/conversations/${conversationId}/messages/${answer.id}/versions`)
+    expect(displaced.versions[0]?.reasoning).toBe('SECOND-TRACE-2')
+  })
+
+  it('bounds what a long trace may put in a row, and keeps the beginning of it', async () => {
+    await useExampleModel()
+    // Ten times the cap: a thinking model is not stopped by a row, so the row has to stop it.
+    const long = 'thought-'.repeat(MAX_REASONING_CHARS)
+    vi.stubGlobal('fetch', thinking('ANSWER-AFTER-A-LONG-THOUGHT', long))
+    const conversationId = await openThread()
+    vi.unstubAllGlobals()
+    const answer = (await thread(conversationId)).at(-1)!
+    expect(answer.reasoning).toMatch(/^thought-thought-/)
+    expect(answer.reasoning).toContain('more characters')
+    expect(answer.reasoning!.length).toBeLessThan(MAX_REASONING_CHARS + 200)
   })
 
   it('does not file an answer that never said anything', async () => {
@@ -2265,5 +2320,28 @@ describe('external MCP servers', () => {
       vi.unstubAllGlobals()
       expect(systemOf(bodies[0])).not.toContain(searchName)
     })
+  })
+})
+
+describe('backup round trip', () => {
+  it('carries the reasoning along with the message it belongs to', async () => {
+    const { AssistantStore } = await import('../src/worker/assistant/store')
+    const store = new AssistantStore(env.DB as D1Database, USER, env)
+    const conversation = await store.createConversation('Traced')
+    const written = await store.addMessage({
+      conversationId: conversation.id,
+      role: 'assistant',
+      content: 'ANSWER',
+      reasoning: 'A TRACE',
+    })
+    const exported = await store.exportTables()
+    const row = (exported.messages ?? []).find((entry) => entry.id === written.id)!
+    expect(row.reasoning).toBe('A TRACE')
+
+    // A restore writes through the same column list, so a column left out of it is a trace the file
+    // silently drops — and the account restoring is not the one that exported.
+    const restored = new AssistantStore(env.DB as D1Database, OTHER, env)
+    await restored.importRow('chat_messages', row)
+    expect((await restored.messages(conversation.id)).at(-1)?.reasoning).toBe('A TRACE')
   })
 })

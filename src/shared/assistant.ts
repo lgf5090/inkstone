@@ -615,6 +615,16 @@ export interface ToolActivity {
  */
 export const MAX_TOOL_PAYLOAD_CHARS = 4_000
 
+/**
+ * How much of a model's own thinking one answer keeps.
+ *
+ * A thinking model can spend tens of thousands of characters before it says anything, and a message row is
+ * not a transcript of the process: the cap keeps a thread openable while the part that reads as reasoning —
+ * the beginning of the trace — is still there. Higher than a tool payload, because a tool's answer is one
+ * value and a trace is a whole argument the reader may want to follow.
+ */
+export const MAX_REASONING_CHARS = 12_000
+
 function clipped(value: string, maxChars: number): string {
   if (value.length <= maxChars) return value
   return `${value.slice(0, maxChars)}\n… [${value.length - maxChars} more characters]`
@@ -622,6 +632,11 @@ function clipped(value: string, maxChars: number): string {
 
 export function clipToolPayload(value: string): string {
   return clipped(value, MAX_TOOL_PAYLOAD_CHARS)
+}
+
+/** The same bound, applied to the reasoning a turn stored with its answer. */
+export function clipReasoning(value: string): string {
+  return clipped(value, MAX_REASONING_CHARS)
 }
 
 /**
@@ -948,6 +963,14 @@ export interface AssistantMessage {
   conversationId: string
   role: 'user' | 'assistant'
   content: string
+  /**
+   * What the model thought before it answered, when it reported any.
+   *
+   * Stored with the answer rather than kept only for the live turn, because the fold that shows it is part
+   * of the reply: reopening the thread tomorrow has to show the same trace it showed while it streamed.
+   * Capped by `MAX_REASONING_CHARS` when the row is written, and empty for a model that says nothing.
+   */
+  reasoning?: string
   tools: ToolActivity[]
   /**
    * Attachment ids this message carries, in the order the reader added them. The bytes live under the
@@ -983,6 +1006,8 @@ export interface AssistantAnswerVersion {
   messageId: string
   conversationId: string
   content: string
+  /** The trace that answer came with. A version read back has to show the thinking it was written by. */
+  reasoning: string
   tools: ToolActivity[]
   /** The model that produced it, kept as text: the model may be deleted while the answer is not. */
   modelLabel: string

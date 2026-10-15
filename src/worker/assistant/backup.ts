@@ -10,7 +10,7 @@
  */
 
 import type { AssistantImportSummary, AssistantSettings } from '@shared/assistant'
-import { normalizeAssistantSettings } from '@shared/assistant'
+import { clipReasoning, normalizeAssistantSettings } from '@shared/assistant'
 import { parseScheduleSpec } from '@shared/assistant-schedule'
 import { ASSISTANT_MEMORY_CATEGORIES, AUTOMATION_KINDS } from '@shared/assistant'
 import { ApiError } from '../lib/errors'
@@ -158,6 +158,9 @@ export async function importAssistant(store: AssistantStore, raw: Record<string,
       // Same reason as every other field here: a column this rebuild does not name is written as NULL,
       // and a NOT NULL column makes INSERT OR IGNORE drop the whole message.
       attachments: typeof message.attachments === 'string' ? message.attachments : '[]',
+      // Named for the same reason, and bounded by the same cap the live turn writes under: a file is not
+      // allowed to put more in a row than a model is.
+      reasoning: typeof message.reasoning === 'string' ? clipReasoning(message.reasoning) : '',
       status: ['complete', 'error', 'cancelled'].includes(String(message.status)) ? message.status : 'complete',
       error: typeof message.error === 'string' ? message.error.slice(0, 1000) : null,
       // A restored message is data, never live owner input: the retry path refuses to re-send one.
@@ -185,6 +188,7 @@ export async function importAssistant(store: AssistantStore, raw: Record<string,
       message_id: messageId,
       conversation_id: conversationId,
       content: textValue(version.content, 200_000),
+      reasoning: typeof version.reasoning === 'string' ? clipReasoning(version.reasoning) : '',
       tools: typeof version.tools === 'string' ? version.tools : '[]',
       model_label: textValue(version.model_label, 200),
       input_tokens: numberValue(version.input_tokens),

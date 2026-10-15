@@ -1013,6 +1013,8 @@ const allowed = new Map([
     "// The server rows name whose call each third-party chip was, so the transcript reads `Context7 ·",
     "// query-docs` instead of the namespaced name the model was offered. One read of the reader's own rows,",
     "// asked once per mount, and `loadMcpServers` says out loud why it is allowed to fail.",
+    "// A trace restored from the row is the one this answer was written by: the fold is skipped only",
+    "// when the model never reported any.",
   ]],
   ["src/client/features/chat/ComposerControls.tsx", [
     "/** The token count, spelled the way the reference's slider spells it: 32K, 128K, 262K. */",
@@ -1069,6 +1071,9 @@ const allowed = new Map([
     "/**\n * One call, folded.\n *\n * The row states what happened before anything is opened — a spinner, a check or a cross, and the word\n * for it — and the payloads underneath are the text the model was actually given and handed back. A\n * third-party call also offers to run again: a reader looking at an answer built on a stale lookup has no\n * other way to ask whether it is still stale.\n */",
     "/* A tool answers with whatever it likes, so this is text as it arrived — never markdown and\n                  never HTML, or a remote server's own output would render as this app's interface. */",
     "/** The row this reply is stored on, which is what a third-party call is run again from. */",
+    "// Looking at an earlier answer means looking at the thinking that answer was written by; falling back to",
+    "// the live trace would show the reader the wrong model's reasoning.",
+    "/* The trace is named by what it is rather than by what pressing does: the header is the one\n                line of a turn that says the model thought before answering, and a reader skimming a long\n                thread reads it instead of the reasoning itself. */",
   ]],
   ["src/client/features/chat/ModelEditorDialog.tsx", [
     "/**\n * The model's own editor: what it is for, what it can do, and the numbers it is given.\n *\n * The composer's chips cover the two settings a reader changes often. This covers the rest, which are\n * per-model facts rather than per-conversation choices: whether the endpoint answers in pictures, how\n * much it claims to take in, and the vendor-specific fields our request builder does not know about.\n * Everything here is read by the request path — a switch that changed nothing would be worse than no\n * switch, because it would be believed.\n */",
@@ -1120,6 +1125,8 @@ const allowed = new Map([
     "// …and the phone never inherits that hidden default, because it has no pointer to hover with.",
     "// ChatView labels the door by the answer's own status: a complete one offers \"regenerate\".",
     "/** A message row read from the server has to carry the fields the pager branches on. */",
+    "// A paged-back answer brings its own trace along: reading it under the live one would credit the",
+    "// older answer to the thinking the newer model just did.",
   ]],
   ["src/client/features/chat/assistant-settings-shared.tsx", [
     "/**\n * What the assistant settings tabs share.\n *\n * The frame they hang in is AssistantSettingsView.tsx; this file is the parts more than one tab draws:\n * the section wrapper a tab groups its rows with, the three protocol names, and the badges a model row\n * wears. They live here rather than in the shell because the shell no longer knows what is inside a tab.\n */",
@@ -1305,6 +1312,9 @@ const allowed = new Map([
   ["src/client/features/chat/send-search.test.ts", [
     "/**\n * The web-search switch's way from a click to the request.\n *\n * Two half-wires have to be pinned together: the toggle writing the store, and the store reaching the\n * stream input. A chip that looked switched on while the turn went out without the flag is the worst\n * kind of control, because it is believed.\n */",
     "// The after-turn refreshes are not this switch; they would reach for api methods the mock has none of.",
+  ]],
+  ["src/client/features/chat/stored-reasoning.test.ts", [
+    "/**\n * What a reopened thread shows of the thinking behind an answer.\n *\n * The fold used to exist only while a turn was streaming, because the trace was never filed with the\n * answer. Now it is a column on the row, and this pins the join between the two: a message read from the\n * server hands its own reasoning to the bubble, and one that never had any draws no fold at all.\n */",
   ]],
   ["src/client/features/chat/stream-search.test.ts", [
     "/**\n * The composer's switch as it leaves the browser.\n *\n * The store hands the flag to the stream helper, and this is the other half: one key on the request\n * body, present only when the reader switched it on. A `webSearch:false` on every turn would be noise\n * the route ignores, and a missing `true` is a switch that does nothing.\n */",
@@ -14187,6 +14197,10 @@ const allowed = new Map([
     "/**\n   * What the model asked the tool for, as JSON — and what came back.\n   *\n   * Both are the same text the tool itself worked from and the model was handed, kept so the thread can\n   * show a reader *why* a call happened when they open it: a chip that says \"searched notes\" is not\n   * answerable to anything, while the query that was searched is. Capped by `MAX_TOOL_PAYLOAD_CHARS` at\n   * both ends, because a listing tool can return a whole note and a message row is not a file store.\n   */",
     "/**\n * How much of a tool's arguments or answer one activity may carry.\n *\n * A payload past this is truncated with a marker rather than dropped: the reader sees that the call did\n * happen and roughly what it cost, and the message row keeps a bound the thread can render without one\n * answer making the conversation slow to open.\n */",
     "/**\n * A tool's own value, as the thread shows it.\n *\n * A remote tool answers with text and a note reader answers with a structure, so the two are kept in the\n * shape that reads: text stays text, anything else is indented JSON. A value that cannot be serialized is\n * named rather than dropped, because a call that happened must not look like one that did not.\n */",
+    "/**\n * How much of a model's own thinking one answer keeps.\n *\n * A thinking model can spend tens of thousands of characters before it says anything, and a message row is\n * not a transcript of the process: the cap keeps a thread openable while the part that reads as reasoning —\n * the beginning of the trace — is still there. Higher than a tool payload, because a tool's answer is one\n * value and a trace is a whole argument the reader may want to follow.\n */",
+    "/** The same bound, applied to the reasoning a turn stored with its answer. */",
+    "/**\n   * What the model thought before it answered, when it reported any.\n   *\n   * Stored with the answer rather than kept only for the live turn, because the fold that shows it is part\n   * of the reply: reopening the thread tomorrow has to show the same trace it showed while it streamed.\n   * Capped by `MAX_REASONING_CHARS` when the row is written, and empty for a model that says nothing.\n   */",
+    "/** The trace that answer came with. A version read back has to show the thinking it was written by. */",
   ]],
   ["src/shared/backup-format.ts", [
     "/** The account's own template library, absent from a backup taken before it was worth keeping. */",
@@ -14715,6 +14729,8 @@ const allowed = new Map([
     "// and a NOT NULL column makes INSERT OR IGNORE drop the whole message.",
     "// The answers a reader paged away from. They ride with the thread they belong to: a restored",
     "// conversation whose pager had counted three answers but listed none would lie in its own interface.",
+    "// Named for the same reason, and bounded by the same cap the live turn writes under: a file is not",
+    "// allowed to put more in a row than a model is.",
   ]],
   ["src/worker/assistant/chat-files.ts", [
     "/**\n * Chat attachments: the reader's own files, under the chat's own prefix.\n *\n * The notebook has an attachment table and a storage backend of its own, and a chat attachment is\n * deliberately *not* one of those: a picture pasted into a question is not a file the reader keeps, it\n * is fuel for one turn. The prefix is therefore `chat/images/<user>/<id>.<ext>` and\n * `chat/files/<user>/<id>.<ext>`, which is what makes a chat upload findable — and deletable — without\n * touching anything the notebook can see.\n *\n * Two ceilings do the rest of the work. An image is capped at what a vision model can be sent in one\n * request body, a document at what fits the reader's context budget; anything above either is refused\n * with its own number in the message rather than truncated in silence.\n */",
@@ -14890,6 +14906,9 @@ const allowed = new Map([
     "// What came back, kept beside the arguments above. The `result` sent to the model stays the",
     "// compact JSON the wire wants; what the reader is shown is the tool's own text where the tool",
     "// returned text, because a quoted JSON string is not what the search returned.",
+    "// The whole turn's thinking, kept across steps because a turn that called a tool thought twice about",
+    "// one question. Only what the model volunteered: a protocol that does not report a trace leaves this",
+    "// empty, and an empty trace is what the fold needs to stay away.",
   ]],
   ["src/worker/assistant/scheduler.ts", [
     "/**\n * The minute sweep that runs what is due.\n *\n * Wired into the worker's cron handler alongside the existing queue drains, and deliberately kept out\n * of the hourly branch: a reminder is cheap and late delivery is visible, while the heavy work that\n * runs on the hour (backups, attachment cleanup) must not be able to take the reminders down with it.\n *\n * A routine that calls a model can outlive the sweep that started it, so each automation is claimed\n * before it runs and the claim is only released when it is re-armed — which is what stops a slow AI\n * digest from being started twice by two overlapping ticks.\n */",
@@ -15040,6 +15059,8 @@ const allowed = new Map([
     "// the form cannot send back values it was never given.",
     "// The off-list is stored de-duplicated and capped: it is written from a list of switches, and a row",
     "// that grew with every press would eventually cost more than the listing it filters.",
+    "// The reader's own words are stored as written; a trace is bounded before it lands, because a thinking",
+    "// model can produce more of it than a row should carry.",
   ]],
   ["src/worker/assistant/tools.ts", [
     "/**\n * The tools the assistant can reach, and the executor that runs them.\n *\n * Three things are enforced here rather than asked of the model, because a model that is confident and\n * wrong is the failure mode this app has to survive:\n *  - **budgets** — a per-turn call cap, a per-tool cap and a duplicate-call refusal, so a reasoning\n *    loop cannot spend the reader's AI quota or write a hundred tasks;\n *  - **validation** — arguments are checked against the same declaration that generates the JSON\n *    Schema the provider is given, so the two can never disagree;\n *  - **approval** — a destructive tool never runs during the turn. `prepare` resolves the exact target\n *    and writes a pending action; `commit` runs only when the reader presses Approve, once, on that\n *    target. The model can propose; it cannot delete.\n *\n * Scheduled runs get read-only tools plus `notify_reader`, so a routine that has drifted cannot edit\n * the vault while nobody is watching.\n */",
@@ -15385,6 +15406,10 @@ const allowed = new Map([
     "// today: a row has to say what it is, or a second one could never be told apart from the first.",
     "// How long to wait for one answer. It was a constant in the client, which made a slow third party",
     "// unfixable from the screen that added it.",
+    "// What the model thought before it answered. It only ever lived in the streaming turn, so a thread",
+    "// reopened the next morning showed an answer whose reasoning had never been filed at all.",
+    "// The same trace on a displaced answer, so paging back to an earlier reply shows the thinking that",
+    "// reply was written by rather than the one the reader just replaced it with.",
   ]],
   ["src/worker/db/writes.ts", [
     "/** Keeps tags, backlinks, full-text indexes, and change records consistent with note writes. */",
@@ -16433,6 +16458,14 @@ const allowed = new Map([
     "// The arguments are the ones on the row rather than anything the caller sent.",
     "// A call that is not to a third party has nothing to run, and a server that asks each time would be",
     "// letting this route do what its own mode refuses.",
+    "/**\n   * One turn per call that thinks first and then answers.\n   *\n   * The trace arrives the way a thinking model sends it — before the words, on its own frames — because\n   * that ordering is what the fold depends on and what a naive reader of the stream would lose.\n   */",
+    "// Reopened the way the app reopens it: the transcript comes from the route, so this is the row and",
+    "// not the live turn that had to carry the trace.",
+    "// The displaced answer carries its own trace: reading an old answer must not show it the trace of the",
+    "// answer that replaced it.",
+    "// Ten times the cap: a thinking model is not stopped by a row, so the row has to stop it.",
+    "// A restore writes through the same column list, so a column left out of it is a trace the file",
+    "// silently drops — and the account restoring is not the one that exported.",
   ]],
   ["tests/assistant-rules.test.ts", [
     "/**\n * The rules the assistant is built on, tested where they are written.\n *\n * These are the parts a browser session cannot prove: what a Chinese sentence means to the conflict\n * rules, how a wall-clock schedule survives a daylight-saving change, how many tokens a Han vault\n * really costs. Each fixture is chosen so a plausible-but-wrong implementation would fail it — the\n * pair that differs only in a change word, a date the reader never stated, a schedule that crosses a\n * clock change — rather than so the function merely runs.\n */",

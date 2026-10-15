@@ -1119,6 +1119,24 @@ export const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
       `ALTER TABLE chat_mcp_servers ADD COLUMN timeout_seconds INTEGER NOT NULL DEFAULT 30`,
     ],
   },
+  {
+    // What the model thought before it answered. It only ever lived in the streaming turn, so a thread
+    // reopened the next morning showed an answer whose reasoning had never been filed at all.
+    version: 61,
+    skipIfColumnExists: { table: 'chat_messages', column: 'reasoning' },
+    statements: [
+      `ALTER TABLE chat_messages ADD COLUMN reasoning TEXT NOT NULL DEFAULT ''`,
+    ],
+  },
+  {
+    // The same trace on a displaced answer, so paging back to an earlier reply shows the thinking that
+    // reply was written by rather than the one the reader just replaced it with.
+    version: 62,
+    skipIfColumnExists: { table: 'chat_answer_versions', column: 'reasoning' },
+    statements: [
+      `ALTER TABLE chat_answer_versions ADD COLUMN reasoning TEXT NOT NULL DEFAULT ''`,
+    ],
+  },
 ]
 
 const FTS_STATEMENT = `CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(

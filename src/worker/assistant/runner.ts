@@ -146,6 +146,7 @@ export class AssistantRunner {
           messageId: last.id,
           conversationId: conversation.id,
           content: last.content,
+          reasoning: last.reasoning,
           tools: last.tools,
           modelLabel: last.modelLabel ?? '',
           usage: last.usage,
@@ -204,6 +205,10 @@ export class AssistantRunner {
     }
 
     let text = ''
+    // The whole turn's thinking, kept across steps because a turn that called a tool thought twice about
+    // one question. Only what the model volunteered: a protocol that does not report a trace leaves this
+    // empty, and an empty trace is what the fold needs to stay away.
+    let reasoning = ''
     const tools: ToolActivity[] = []
     const finish = async (
       status: AssistantMessage['status'],
@@ -214,6 +219,7 @@ export class AssistantRunner {
       conversationId,
       role: 'assistant',
       content: text,
+      reasoning,
       tools,
       status,
       error,
@@ -329,6 +335,7 @@ export class AssistantRunner {
           signal: input.signal,
         }, calls, usage)) {
           if (event.type === 'text') text += event.delta ?? ''
+          if (event.type === 'reasoning') reasoning += event.delta ?? ''
           // A reader who pressed stop released the lease; on a platform that does not report the
           // dropped connection, this is what ends the turn. Every sixteenth event keeps the extra read
           // off the critical path while still stopping within a couple of hundred characters.

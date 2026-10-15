@@ -211,7 +211,7 @@ export function ChatView() {
   )
 }
 
-function MessageRow({ message, onRetry }: { message: AssistantMessage, onRetry?: () => void }) {
+export function MessageRow({ message, onRetry }: { message: AssistantMessage, onRetry?: () => void }) {
   // A finished answer can be asked again; a half one is only ever resumed by its own retry.
   const retryLabel = message.status === 'complete' ? 'assistant.chat.regenerate' : 'assistant.chat.retry'
   const fileIndex = useAssistant((state) => state.fileIndex)
@@ -221,7 +221,9 @@ function MessageRow({ message, onRetry }: { message: AssistantMessage, onRetry?:
   return (
     <AssistantBubble
       text={message.content}
-      reasoning=""
+      // A trace restored from the row is the one this answer was written by: the fold is skipped only
+      // when the model never reported any.
+      reasoning={message.reasoning ?? ''}
       tools={message.tools}
       error={message.status === 'error' ? message.error : null}
       cancelled={message.status === 'cancelled'}

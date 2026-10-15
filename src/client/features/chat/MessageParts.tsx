@@ -23,6 +23,7 @@ import {
   Play,
   RotateCcw,
   ShieldAlert,
+  Sparkles,
   Wrench,
   XCircle
 } from 'lucide-react'
@@ -437,6 +438,9 @@ export function AssistantBubble({
   const index = page === null ? pages - 1 : Math.min(page, pages - 1)
   const viewing = index === pages - 1 ? null : versions?.[index] ?? null
   const body = viewing ? viewing.content : text
+  // Looking at an earlier answer means looking at the thinking that answer was written by; falling back to
+  // the live trace would show the reader the wrong model's reasoning.
+  const shownReasoning = viewing ? viewing.reasoning : reasoning
   const step = (delta: 1 | -1) => {
     const advance = (list: AssistantAnswerVersion[]) => {
       const total = list.length + 1
@@ -456,21 +460,29 @@ export function AssistantBubble({
       <div className="min-w-0 flex-1 space-y-2">
         {tools.length > 0 && <ToolCallList tools={tools} messageId={messageId} />}
         {tools.map((tool) => tool.approval && <ApprovalCard key={tool.approval.id} action={tool.approval} />)}
-        {reasoning && (
-          <button
-            type="button"
-            onClick={() => setShowReasoning((open) => !open)}
-            aria-expanded={showReasoning}
-            className="inline-flex items-center gap-1 text-[length:var(--text-11)] text-[var(--text-quaternary)] hover:text-[var(--text-secondary)]"
-          >
-            <ChevronDown size={11} className={cn('transition-transform duration-[var(--dur-fast)]', showReasoning && 'rotate-180')} />
-            {t('assistant.chat.reasoning')}
-          </button>
-        )}
-        {reasoning && showReasoning && (
-          <p className="whitespace-pre-wrap rounded-[var(--r-md)] bg-[var(--bg-inset)] px-2.5 py-1.5 text-[length:var(--text-11-5)] leading-relaxed text-[var(--text-tertiary)]">
-            {reasoning}
-          </p>
+        {shownReasoning && (
+          <div className="min-w-0">
+            {/* The trace is named by what it is rather than by what pressing does: the header is the one
+                line of a turn that says the model thought before answering, and a reader skimming a long
+                thread reads it instead of the reasoning itself. */}
+            <button
+              type="button"
+              onClick={() => setShowReasoning((open) => !open)}
+              aria-expanded={showReasoning}
+              className="inline-flex items-center gap-1.5 text-[length:var(--text-11)] font-medium text-[var(--text-tertiary)] transition-colors duration-[var(--dur-fast)] ease-[var(--ease-out)] hover:text-[var(--text-secondary)]"
+            >
+              <Sparkles size={11} className="shrink-0 text-[var(--text-quaternary)]" />
+              {streaming ? t('assistant.chat.thinking') : t('assistant.chat.thought')}
+              <ChevronDown size={11} className={cn('shrink-0 transition-transform duration-[var(--dur-fast)]', showReasoning && 'rotate-180')} />
+            </button>
+            {showReasoning && (
+              <div className="mt-1 border-l border-[var(--border-subtle)] pl-2.5">
+                <p className="whitespace-pre-wrap text-[length:var(--text-11-5)] leading-relaxed text-[var(--text-tertiary)]">
+                  {shownReasoning}
+                </p>
+              </div>
+            )}
+          </div>
         )}
         {body
           ? <div className="max-w-[72ch]"><MarkdownReply source={body} /></div>
