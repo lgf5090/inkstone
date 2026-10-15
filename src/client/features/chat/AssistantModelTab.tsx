@@ -6,22 +6,69 @@
  * the ones that key can really call rather than a preset's guess.
  */
 import { useEffect, useId, useMemo, useRef, useState } from 'react'
-import { Check, ChevronDown, Download, KeyRound, Plus, Search, Server, Settings2, Trash2 } from 'lucide-react'
-import { type AssistantModel, type AssistantProvider, type AssistantReasoning, type AssistantSettings } from '@shared/assistant'
+import { Brain, Check, ChevronDown, Download, Eye, GalleryVerticalEnd, Image, KeyRound, Plus, Power, Search, Server, Settings2, Trash2, Wand2, Wrench } from 'lucide-react'
+import { type AssistantModel, type AssistantModelKind, type AssistantModelPurpose, type AssistantProvider, type AssistantSettings } from '@shared/assistant'
 import { ASSISTANT_PROTOCOLS, PROVIDER_PRESETS, endpointFieldState } from '@shared/assistant'
-import { CONTEXT_TOKEN_STEPS } from '@shared/assistant'
-import { REASONING_LABELS, REASONING_ORDER, formatContext } from './ComposerControls'
 import { ModelEditorDialog } from './ModelEditorDialog'
 import { ModelPickerDialog } from './ModelPickerDialog'
 import { cn } from '../../lib/cn'
 import { matchesQuery } from '../../lib/fuzzy'
-import { t } from '../../lib/i18n'
+import { t, type MessageKey } from '../../lib/i18n'
 import { Button, Divider, IconButton } from '../../components/primitives'
 import { Field, Input, Select, SettingRow, Switch } from '../../components/form'
 import { Modal, Tooltip, confirm, useClickOutside, useEscape } from '../../components/overlay'
 import { useUi } from '../../store/ui'
 import { useAssistant } from './assistant-store'
-import { Group, PROTOCOL_LABELS, ModelBadges } from './assistant-settings-shared'
+import { Group, PROTOCOL_LABELS } from './assistant-settings-shared'
+
+/**
+ * One capability, drawn as the switch that sets it.
+ *
+ * The model list is where a reader changes these — a reply that came back wrong is noticed here, not in a
+ * dialog three presses away — so the icon is the control rather than a badge reporting one. Its on state is
+ * the accent fill the rest of the app uses for a pressed toggle, and the word behind it lives in the
+ * accessible name and the tooltip, which is the only place a phone has room for it.
+ */
+function CapabilityToggle({ on, label, icon, onToggle }: { on: boolean, label: string, icon: React.ReactNode, onToggle: () => void }) {
+  return (
+    <Tooltip label={label}>
+      <button
+        type="button"
+        aria-label={label}
+        aria-pressed={on}
+        onClick={onToggle}
+        className={cn(
+          'inline-flex size-6 shrink-0 items-center justify-center rounded-[var(--r-md)]',
+          'transition-[background-color,color] duration-[var(--dur-fast)] ease-[var(--ease-out)]',
+          on
+            ? 'bg-[var(--accent-soft)] text-[var(--accent-on-soft)]'
+            : 'text-[var(--text-quaternary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-secondary)]',
+        )}
+      >
+        {icon}
+      </button>
+    </Tooltip>
+  )
+}
+
+/**
+ * The mark a model wears when it is not a plain text chat model.
+ *
+ * A picture generator sitting in a list of chat models is the one thing the name alone does not say, and
+ * the row has no words left for it. Null for the ordinary case, so the icons that mean something are the
+ * only ones drawn.
+ */
+function specialMark(model: AssistantModel): { key: MessageKey, icon: React.ReactNode } | null {
+  const purpose: Partial<Record<AssistantModelPurpose, { key: MessageKey, icon: React.ReactNode }>> = {
+    image_generate: { key: 'assistant.model.purpose.image_generate', icon: <Image size={12} /> },
+    image_edit: { key: 'assistant.model.purpose.image_edit', icon: <Wand2 size={12} /> },
+  }
+  const kind: Partial<Record<AssistantModelKind, { key: MessageKey, icon: React.ReactNode }>> = {
+    embedding: { key: 'assistant.model.kind.embedding', icon: <GalleryVerticalEnd size={12} /> },
+    rerank: { key: 'assistant.model.kind.rerank', icon: <GalleryVerticalEnd size={12} /> },
+  }
+  return purpose[model.purpose] ?? kind[model.kind] ?? null
+}
 
 export function ModelTab({ settings }: { settings: AssistantSettings }) {
   const providers = useAssistant((state) => state.providers)
@@ -104,35 +151,70 @@ export function ModelTab({ settings }: { settings: AssistantSettings }) {
               <p className="pl-9 text-[length:var(--text-11)] text-[var(--text-quaternary)]">{t('assistant.settings.no_models')}</p>
             ) : (
               <ul className="flex flex-col gap-1 pl-9">
-                {list.map((model) => (
+                {list.map((model) => {
+                  const mark = specialMark(model)
+                  return (
                   <li
                     key={model.id}
                     className={cn(
-                      'flex flex-col gap-1.5 rounded-[var(--r-md)] border px-2.5 py-2',
+                      'flex items-center rounded-[var(--r-md)] border px-2 py-1.5',
                       'transition-[background-color,border-color] duration-[var(--dur-fast)] ease-[var(--ease-out)]',
                       settings.activeModelId === model.id
                         ? 'border-[var(--accent)] bg-[var(--accent-softer)]'
                         : 'border-[var(--border-subtle)] hover:border-[var(--border-default)] hover:bg-[var(--bg-hover)]',
                     )}
                   >
-                    <div className="flex min-w-0 items-center gap-1">
+                    {/* One line of controls, no words: a phone-width card had two selects and two
+                        switches stacked under every model, which pushed the list itself off the screen.
+                        What a model can do is now the icons themselves — they are the switches — and the
+                        level behind each one (how much thinking, whose context window) is a fact the
+                        editor dialog holds. */}
+                    <div className="flex min-w-0 flex-1 items-center gap-0.5">
                       <button
                         type="button"
                         role="radio"
                         aria-checked={settings.activeModelId === model.id}
                         onClick={() => void activateModel(model.id)}
                         className={cn(
-                          'flex min-w-0 flex-1 items-center gap-2 py-0.5 text-left text-[length:var(--text-12-5)]',
+                          'flex min-w-0 flex-1 items-center gap-1.5 py-0.5 text-left text-[length:var(--text-12-5)]',
                           settings.activeModelId === model.id
                             ? 'text-[var(--accent-on-soft)]'
                             : 'text-[var(--text-secondary)]',
                         )}
                       >
                         <span aria-hidden className={cn('size-2 shrink-0 rounded-full border', settings.activeModelId === model.id ? 'border-[var(--accent)] bg-[var(--accent)]' : 'border-[var(--border-strong)]')} />
+                        {mark && (
+                          <Tooltip label={t(mark.key)}>
+                            <span aria-hidden className="shrink-0 text-[var(--text-quaternary)]">{mark.icon}</span>
+                          </Tooltip>
+                        )}
                         <span className="min-w-0 flex-1 truncate">{model.label}</span>
-                        <ModelBadges model={model} />
                         <span className="hidden shrink-0 font-mono text-[length:var(--text-10-5)] text-[var(--text-quaternary)] md:block">{model.model}</span>
                       </button>
+                      <CapabilityToggle
+                        on={model.reasoning !== 'off'}
+                        label={t('assistant.model.reasoning_short')}
+                        icon={<Brain size={12} />}
+                        onToggle={() => void updateModel(model.id, { reasoning: model.reasoning === 'off' ? 'auto' : 'off' })}
+                      />
+                      <CapabilityToggle
+                        on={model.supportsTools}
+                        label={t('assistant.model.tools_short')}
+                        icon={<Wrench size={12} />}
+                        onToggle={() => void updateModel(model.id, { supportsTools: !model.supportsTools })}
+                      />
+                      <CapabilityToggle
+                        on={model.vision}
+                        label={t('assistant.model.vision_short')}
+                        icon={<Eye size={12} />}
+                        onToggle={() => void updateModel(model.id, { vision: !model.vision })}
+                      />
+                      <CapabilityToggle
+                        on={model.enabled}
+                        label={t('assistant.model.shown')}
+                        icon={<Power size={12} />}
+                        onToggle={() => void updateModel(model.id, { enabled: !model.enabled })}
+                      />
                       <IconButton label={t('assistant.model.edit')} size="xs" onClick={() => setEditing(model)}>
                         <Settings2 size={12} />
                       </IconButton>
@@ -140,47 +222,9 @@ export function ModelTab({ settings }: { settings: AssistantSettings }) {
                         <Trash2 size={12} />
                       </IconButton>
                     </div>
-                    {/* Its own line, because a narrow card put the name under the selects and the two
-                        switches have no word of their own on screen. */}
-                    <div className="flex flex-wrap items-center gap-1.5 pl-4">
-                      <Select
-                        aria-label={t('assistant.composer.thinking')}
-                        value={model.reasoning}
-                        className="h-7 w-[86px] text-[length:var(--text-11)]"
-                        onChange={(event) => void updateModel(model.id, { reasoning: event.target.value as AssistantReasoning })}
-                      >
-                        {REASONING_ORDER.map((level) => (
-                          <option key={level} value={level}>{t(REASONING_LABELS[level])}</option>
-                        ))}
-                      </Select>
-                      <Select
-                        aria-label={t('assistant.composer.context')}
-                        value={String(model.contextTokens ?? '')}
-                        className="h-7 w-[80px] text-[length:var(--text-11)]"
-                        onChange={(event) => void updateModel(model.id, { contextTokens: event.target.value ? Number(event.target.value) : null })}
-                      >
-                        <option value="">{t('assistant.context.follow_global_short')}</option>
-                        {CONTEXT_TOKEN_STEPS.map((tokens) => (
-                          <option key={tokens} value={tokens}>{formatContext(tokens)}</option>
-                        ))}
-                      </Select>
-                      <Tooltip label={t('assistant.model.vision')}>
-                        <Switch
-                          label={t('assistant.model.vision')}
-                          checked={model.vision}
-                          onChange={(next) => void updateModel(model.id, { vision: next })}
-                        />
-                      </Tooltip>
-                      <Tooltip label={t('assistant.model.shown')}>
-                        <Switch
-                          label={t('assistant.model.shown')}
-                          checked={model.enabled}
-                          onChange={(next) => void updateModel(model.id, { enabled: next })}
-                        />
-                      </Tooltip>
-                    </div>
                   </li>
-                ))}
+                  )
+                })}
               </ul>
             )}
           </div>

@@ -15,9 +15,11 @@ import type {
   AssistantModelKind,
   AssistantModelPurpose,
   AssistantParamType,
+  AssistantReasoning,
 } from '@shared/assistant'
 import { ASSISTANT_MODEL_KINDS, ASSISTANT_MODEL_MODALITIES, ASSISTANT_MODEL_PURPOSES, ASSISTANT_PROTOCOLS, CONTEXT_WINDOW_STEPS, MAX_INPUT_STEPS, MAX_OUTPUT_STEPS, formatTokenStep } from '@shared/assistant'
 import type { AssistantModelModality, AssistantProtocol } from '@shared/assistant'
+import { REASONING_LABELS, REASONING_ORDER } from './ComposerControls'
 import { cn } from '../../lib/cn'
 import { COPY_RESET_MS } from '../../lib/motion'
 import { t } from '../../lib/i18n'
@@ -56,6 +58,9 @@ export interface ModelDraft {
   purpose: AssistantModelPurpose
   kind: AssistantModelKind
   supportsTools: boolean
+  /** The three switches the model row now draws as its own icons, edited at their full depth here. */
+  reasoning: AssistantReasoning
+  vision: boolean
   contextTokens: number | null
   maxInputTokens: number | null
   modalities: AssistantModelModality[]
@@ -73,6 +78,8 @@ export function draftFromModel(model: AssistantModel): ModelDraft {
     purpose: model.purpose,
     kind: model.kind,
     supportsTools: model.supportsTools,
+    reasoning: model.reasoning,
+    vision: model.vision,
     contextTokens: model.contextTokens,
     maxInputTokens: model.maxInputTokens,
     modalities: [...model.modalities],
@@ -254,6 +261,22 @@ export function ModelEditorDialog({
 
             <SettingRow title={t('assistant.model.tools')} description={t('assistant.model.tools_hint')}>
               <Switch checked={draft.supportsTools} label={t('assistant.model.tools')} onChange={(checked) => patch({ supportsTools: checked })} />
+            </SettingRow>
+
+            {/* The row's reasoning icon is a switch between off and automatic; which of the three depths a
+                model is asked for is a fact about that model, so it is chosen here rather than on the row. */}
+            <Field label={t('assistant.composer.thinking')} hint={t('assistant.model.reasoning_hint')}>
+              <Select
+                aria-label={t('assistant.composer.thinking')}
+                value={draft.reasoning}
+                onChange={(event) => patch({ reasoning: event.target.value as AssistantReasoning })}
+              >
+                {REASONING_ORDER.map((level) => <option key={level} value={level}>{t(REASONING_LABELS[level])}</option>)}
+              </Select>
+            </Field>
+
+            <SettingRow title={t('assistant.model.vision')} description={t('assistant.model.vision_hint')}>
+              <Switch checked={draft.vision} label={t('assistant.model.vision')} onChange={(checked) => patch({ vision: checked })} />
             </SettingRow>
 
             <Field label={t('assistant.model.modalities')}>

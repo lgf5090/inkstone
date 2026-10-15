@@ -12,7 +12,7 @@ import { CONTEXT_WINDOW_STEPS, formatTokenStep } from '@shared/assistant'
 import { initI18n, t } from '../../lib/i18n'
 import { installTestGlobals } from '../../lib/test-render'
 import { ModelEditorDialog, draftFromModel } from './ModelEditorDialog'
-import { modelBadges } from './assistant-settings-shared'
+
 
 function model(over: Partial<AssistantModel> = {}): AssistantModel {
     return {
@@ -138,14 +138,27 @@ describe('the input modality chips', () => {
     })
 })
 
-describe('the model list badges', () => {
-    it('say what the switches already say', () => {
-        expect(modelBadges(model({ reasoning: 'off', supportsTools: true, vision: true, modalities: ['audio'] })).map((badge) => badge.label))
-            .toEqual([t('assistant.model.tools_short'), t('assistant.model.vision_short'), t('assistant.model.modality.audio')])
-        expect(modelBadges(model({ reasoning: 'high', supportsTools: false, vision: false, modalities: [] })).map((badge) => badge.label))
-            .toEqual([t('assistant.model.reasoning_short')])
-        expect(modelBadges(model({ reasoning: 'off', supportsTools: false, vision: false, modalities: [] }))).toEqual([])
+describe('the capabilities a model is edited with', () => {
+const visionSwitch = () => document.body.querySelector<HTMLButtonElement>(`button[role="switch"][aria-label="${t('assistant.model.vision')}"]`)
+const reasoningSelect = () => document.body.querySelector<HTMLSelectElement>(`select[aria-label="${t('assistant.composer.thinking')}"]`)
+
+describe('the capabilities the model row no longer carries', () => {
+    it('read back what a model has, and send what the reader sets', () => {
+        const { saved } = open({ reasoning: 'high', vision: true })
+        expect(reasoningSelect()?.value).toBe('high')
+        expect(visionSwitch()?.getAttribute('aria-checked')).toBe('true')
+        press(visionSwitch() ?? undefined, 'the vision switch')
+        expect(visionSwitch()?.getAttribute('aria-checked')).toBe('false')
+        act(() => {
+            const node = reasoningSelect()!
+            node.value = 'off'
+            node.dispatchEvent(new Event('change', { bubbles: true }))
+        })
+        save()
+        expect(saved.mock.calls[0]?.[0].vision).toBe(false)
+        expect(saved.mock.calls[0]?.[0].reasoning).toBe('off')
     })
+})
 })
 
 describe('the wire protocol a model is called on', () => {
