@@ -9,12 +9,15 @@
 import { act, createElement } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import type { AssistantProvider, AssistantVendorModel } from '@shared/assistant'
+import { PROVIDER_PRESETS } from '@shared/assistant'
 import { initI18n, t } from '../../lib/i18n'
 import { installTestGlobals } from '../../lib/test-render'
-import { ProviderForm } from './AssistantSettingsView'
+import { ProviderForm } from './AssistantModelTab'
 import { useAssistant } from './assistant-store'
 
 const original = useAssistant.getState()
+const onCloseSpy = vi.fn()
 let root: Root
 let container: HTMLDivElement
 
@@ -24,6 +27,19 @@ const geminiBox = () => document.querySelector<HTMLInputElement>(
 const baseBox = () => document.querySelector<HTMLInputElement>('input.font-mono')
 const submit = () => [...document.body.querySelectorAll<HTMLButtonElement>('button')]
   .find((node) => node.textContent?.trim() === t('assistant.settings.add_provider'))
+const buttons = () => [...document.body.querySelectorAll<HTMLButtonElement>('button')]
+/** The trigger is the only control that both shows a preset name and owns the panel. */
+const presetTrigger = (label: string) => buttons().find((node) => node.textContent?.trim() === label && node.hasAttribute('aria-expanded'))
+/** Rows inside the open panel, as opposed to the trigger, which keeps showing the current preset. */
+const presetRows = (label: string) => [...(document.querySelector('ul')?.querySelectorAll<HTMLButtonElement>('button') ?? [])]
+  .filter((node) => node.textContent?.trim() === label)
+const presetSearch = () => document.querySelector<HTMLInputElement>(`input[aria-label="${t('assistant.settings.preset_search')}"]`)
+const keyBox = () => document.querySelector<HTMLInputElement>('input[type="password"]')
+/** The models box, named by what the preset seeded rather than by its place in the form. */
+const modelsBox = () => [...document.querySelectorAll<HTMLInputElement>('input')].find((node) => node.value.includes('deepseek-chat'))
+const fetchButton = () => buttons().find((node) => node.textContent?.trim() === t('assistant.settings.models_fetch'))
+const pickerRow = (label: string) => [...document.querySelectorAll<HTMLElement>('[role="checkbox"]')].find((node) => node.textContent?.includes(label))
+const pickerUse = (count: number) => buttons().find((node) => node.textContent?.trim() === t('assistant.picker.use', { count }))
 
 function type(node: HTMLInputElement, value: string) {
   const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value')?.set
@@ -38,7 +54,7 @@ beforeEach(async () => {
   container = document.createElement('div')
   document.body.append(container)
   root = createRoot(container)
-  useAssistant.setState({ ...original, addProvider: vi.fn(async () => undefined), updateProvider: vi.fn(async () => undefined) })
+  useAssistant.setState({ ...original, addProvider: vi.fn(async () => null), updateProvider: vi.fn(async () => undefined) })
   await act(async () => { root.render(createElement(ProviderForm, { open: true, onClose: () => undefined })) })
 })
 
@@ -47,6 +63,79 @@ afterEach(() => {
   container.remove()
   useAssistant.setState(original, true)
   vi.clearAllMocks()
+})
+
+describe('choosing a vendor from the preset list', () => {
+  it('finds a preset by its address and seeds the address box from it', () => {
+    const first = PROVIDER_PRESETS[0]!
+    const gemini = PROVIDER_PRESETS.find((entry) => entry.id === 'gemini')!
+    expect(presetTrigger(first.label), 'the preset trigger is not rendered').toBeTruthy()
+    act(() => { presetTrigger(first.label)!.click() })
+    expect(presetSearch(), 'the search box is not rendered').toBeTruthy()
+    // The address is searched too: a reader who remembers the host but not the display name gets there.
+    act(() => { type(presetSearch()!, 'generativelanguage') })
+    const row = presetRows(gemini.label)[0]
+    expect(row, 'the matching preset is not offered').toBeTruthy()
+    expect(presetRows(first.label), 'a preset that no longer matches is still offered').toHaveLength(0)
+    act(() => { row?.click() })
+    expect(baseBox()?.value).toBe(gemini.baseUrl)
+    expect(presetTrigger(gemini.label), 'the trigger does not show the chosen preset').toBeTruthy()
+  })
+
+  it('says so when nothing matches, rather than showing an empty panel', () => {
+    act(() => { presetTrigger(PROVIDER_PRESETS[0]!.label)!.click() })
+    act(() => { type(presetSearch()!, 'zzz-nothing') })
+    expect(document.body.textContent).toContain(t('assistant.settings.preset_none'))
+  })
+})
+
+describe('saving a provider', () => {
+  it('hands the created row back so its model listing can be opened', async () => {
+    const created = {
+      id: 'p1', label: 'DeepSeek', protocol: 'openai', baseUrl: 'https://api.deepseek.com', hasKey: true, endpoints: {},
+    } as unknown as AssistantProvider
+    const onCreated = vi.fn()
+    // The route's answer is stubbed rather than the whole store re-set, so nothing re-renders mid-test.
+    vi.mocked(useAssistant.getState().addProvider).mockResolvedValue(created)
+    await act(async () => { root.render(createElement(ProviderForm, { open: true, onClose: onCloseSpy, onCreated })) })
+    await act(async () => { submit()!.click() })
+    expect(onCreated).toHaveBeenCalledWith(created)
+    // The form closes first: the listing opens on top of the settings screen, not of this dialog.
+    expect(onCloseSpy).toHaveBeenCalled()
+  })
+})
+
+describe('asking the vendor what a key can call, before saving', () => {
+  const listed: AssistantVendorModel[] = [
+    { id: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash', ownedBy: 'google', created: 1 },
+  ]
+
+  it('says what it is waiting for instead of offering a dead button', () => {
+    expect(fetchButton()?.disabled, 'without a key there is nothing to ask with').toBe(true)
+    expect(document.body.textContent).toContain(t('assistant.settings.models_fetch_hint'))
+  })
+
+  it('puts the ticked ids into the models box the form will send', async () => {
+    // The listing is the vendor's answer, so it is stubbed at the store's own door rather than fetched.
+    act(() => {
+      useAssistant.setState({
+        loadDraftVendorModels: vi.fn(async () => {
+          useAssistant.setState({ vendorModels: listed, vendorModelsLoading: false, vendorModelsError: null })
+        }),
+      })
+    })
+    const box = modelsBox()
+    expect(box, 'the models box is not rendered').toBeTruthy()
+    act(() => { type(keyBox()!, 'sk-test-123456') })
+    await act(async () => { fetchButton()!.click() })
+    const row = pickerRow('Gemini 2.5 Flash')
+    expect(row, 'the vendor row is not offered').toBeTruthy()
+    await act(async () => { row!.click() })
+    await act(async () => { pickerUse(1)!.click() })
+    expect(box!.value).toBe('gemini-2.5-flash')
+    // The dialog is gone again: the ids land in the form, which is still open behind it.
+    expect(pickerRow('Gemini 2.5 Flash')).toBeFalsy()
+  })
 })
 
 describe('an address box that got something else typed into it', () => {

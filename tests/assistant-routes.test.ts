@@ -490,6 +490,45 @@ describe('the vendor’s own model list', () => {
   })
 })
 
+describe('the same listing for a provider that has not been saved', () => {
+  it('asks the vendor with the key from the body and stores neither value', async () => {
+    const seen: { url: string, auth?: string }[] = []
+    vi.stubGlobal('fetch', vi.fn(async (url: unknown, init?: RequestInit) => {
+      const headers = (init?.headers ?? {}) as Record<string, string>
+      seen.push({ url: String(url), auth: headers.authorization })
+      return new Response(JSON.stringify({ data: [{ id: 'gemini-2.5-flash', owned_by: 'google' }] }), {
+        headers: { 'content-type': 'application/json' },
+      })
+    }))
+    const listed = await call<{ ok: boolean, models: { id: string }[] }>('POST', '/api/assistant/providers/model-list', {
+      protocol: 'openai',
+      baseUrl: 'https://generativelanguage.googleapis.com/v1beta',
+      apiKey: 'sk-draft-secret-123456',
+    })
+    vi.unstubAllGlobals()
+    expect(listed.ok).toBe(true)
+    expect(listed.models.map((model) => model.id)).toEqual(['gemini-2.5-flash'])
+    expect(seen[0]?.url).toBe('https://generativelanguage.googleapis.com/v1beta/models')
+    expect(seen[0]?.auth).toBe('Bearer sk-draft-secret-123456')
+    // The form is asking a question; nothing about it should survive the answer.
+    const providers = await call<{ providers: AssistantProvider[] }>('GET', '/api/assistant/providers')
+    expect(providers.providers.map((provider) => provider.baseUrl)).not.toContain('https://generativelanguage.googleapis.com/v1beta')
+  })
+
+  it('refuses an address inside the network before any key leaves', async () => {
+    const fetchSpy = vi.fn()
+    vi.stubGlobal('fetch', fetchSpy)
+    const state = await status('POST', '/api/assistant/providers/model-list', {
+      protocol: 'openai',
+      baseUrl: 'http://127.0.0.1:11434/v1',
+      apiKey: 'sk-draft-secret-123456',
+    })
+    vi.unstubAllGlobals()
+    expect(state, 'a private target must be refused, not attempted').toBe(400)
+    expect(fetchSpy).not.toHaveBeenCalled()
+  })
+})
+
 describe('per-protocol provider endpoints', () => {
   async function addGateway(): Promise<AssistantProvider> {
     const created = await call<{ provider: AssistantProvider }>('POST', '/api/assistant/providers', {

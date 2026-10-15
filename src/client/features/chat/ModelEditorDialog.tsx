@@ -8,7 +8,7 @@
  * switch, because it would be believed.
  */
 import { useState } from 'react'
-import { Copy } from 'lucide-react'
+import { Check, ChevronDown, Copy, Save, X } from 'lucide-react'
 import type {
   AssistantCustomParam,
   AssistantModel,
@@ -108,10 +108,11 @@ function ChipRow({ label, steps, value, onPick }: {
           aria-pressed={value === tokens}
           onClick={() => onPick(tokens)}
           className={cn(
-            'rounded-full border px-1.5 py-0.5 text-[length:var(--text-10-5)] tabular-nums transition-colors',
+            'rounded-full border px-2 py-0.5 text-[length:var(--text-10-5)] tabular-nums',
+            'transition-[background-color,border-color,color] duration-[var(--dur-fast)] ease-[var(--ease-out)]',
             value === tokens
-              ? 'border-[var(--accent)] bg-[var(--accent-soft)] text-[var(--accent-on-soft)]'
-              : 'border-[var(--border-subtle)] text-[var(--text-quaternary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-secondary)]',
+              ? 'border-[var(--accent)] bg-[var(--accent-soft)] font-medium text-[var(--accent-on-soft)]'
+              : 'border-[var(--border-subtle)] text-[var(--text-quaternary)] hover:border-[var(--border-strong)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-secondary)]',
           )}
         >
           {formatTokenStep(tokens)}
@@ -165,20 +166,40 @@ export function ModelEditorDialog({
   }
 
   return (
-    <Modal open onClose={onClose} title={t('assistant.model.edit')} description={`${providerLabel} · ${model.model}`} width={560} bodyClassName="p-4">
-      <div className="space-y-3">
+    <Modal
+      open
+      onClose={onClose}
+      title={t('assistant.model.edit')}
+      description={`${providerLabel} · ${model.model}`}
+      width={560}
+      bodyClassName="p-4"
+      footer={(
+        <>
+          <Button variant="secondary" onClick={onClose}>{t('common.cancel')}</Button>
+          <Button variant="primary" icon={<Save size={14} />} onClick={() => { onSave(draft); onClose() }}>{t('assistant.model.save')}</Button>
+        </>
+      )}
+    >
+      <div className="flex flex-col gap-3.5">
         <Field label={t('assistant.model.id')}>
           <div className="flex items-center gap-1.5">
             <Input value={model.model} readOnly aria-label={t('assistant.model.id')} className="min-w-0 flex-1 font-mono text-[length:var(--text-12)]" />
+            {/* The copy affordance answers on its own face: the mark it used to print beside the field
+                pushed the id box narrower every time it appeared. */}
             <button
               type="button"
               onClick={() => void copyId()}
-              aria-label={t('assistant.model.copy')}
-              className="flex size-8 shrink-0 items-center justify-center rounded-[var(--r-sm)] border border-[var(--border-default)] text-[var(--text-tertiary)] hover:bg-[var(--bg-hover)]"
+              aria-label={copied ? t('assistant.model.copied') : t('assistant.model.copy')}
+              className={cn(
+                'flex size-11 shrink-0 items-center justify-center rounded-[var(--r-md)] border md:size-[34px]',
+                'transition-[background-color,border-color,color] duration-[var(--dur-fast)] ease-[var(--ease-out)]',
+                copied
+                  ? 'border-[var(--accent)] bg-[var(--accent-soft)] text-[var(--accent-on-soft)]'
+                  : 'border-[var(--border-default)] text-[var(--text-tertiary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]',
+              )}
             >
-              <Copy size={13} />
+              {copied ? <Check size={14} /> : <Copy size={14} />}
             </button>
-            {copied && <span className="shrink-0 text-[length:var(--text-11)] text-[var(--success)]">{t('assistant.model.copied')}</span>}
           </div>
         </Field>
 
@@ -195,13 +216,22 @@ export function ModelEditorDialog({
           />
         </Field>
 
-        <button type="button" onClick={() => setMore((value) => !value)} className="flex w-full items-center justify-between py-1 text-[length:var(--text-12-5)] text-[var(--text-secondary)]">
+        <button
+          type="button"
+          aria-expanded={more}
+          onClick={() => setMore((value) => !value)}
+          className={cn(
+            'flex w-full items-center justify-between rounded-[var(--r-md)] border border-[var(--border-subtle)] bg-[var(--bg-inset)] px-3 py-2',
+            'text-[length:var(--text-12-5)] font-medium text-[var(--text-secondary)]',
+            'transition-colors duration-[var(--dur-fast)] hover:border-[var(--border-default)] hover:text-[var(--text-primary)]',
+          )}
+        >
           {t('assistant.model.more')}
-          <span aria-hidden className={more ? 'rotate-180' : ''}>⌄</span>
+          <ChevronDown size={14} className={cn('transition-transform duration-[var(--dur-fast)]', more && 'rotate-180')} />
         </button>
 
         {more && (
-          <div className="space-y-3 rounded-[var(--r-md)] border border-[var(--border-subtle)] p-2.5">
+          <div className="flex flex-col gap-3.5 rounded-[var(--r-lg)] border border-[var(--border-subtle)] bg-[var(--bg-inset)] p-3">
             <Field label={t('assistant.model.kind')}>
               <Segmented
                 value={draft.kind}
@@ -361,9 +391,9 @@ export function ModelEditorDialog({
                     type="button"
                     aria-label={t('assistant.model.remove_param', { index: index + 1 })}
                     onClick={() => patch({ customParams: draft.customParams.filter((_, at) => at !== index) })}
-                    className="shrink-0 rounded-[var(--r-sm)] border border-[var(--border-default)] px-2 py-1 text-[length:var(--text-11-5)] text-[var(--danger)] hover:bg-[var(--bg-hover)]"
+                    className="flex size-11 shrink-0 items-center justify-center rounded-[var(--r-md)] border border-[var(--border-default)] text-[var(--danger)] transition-colors duration-[var(--dur-fast)] hover:bg-[var(--danger-soft)] md:size-[34px]"
                   >
-                    ✕
+                    <X size={13} />
                   </button>
                 </div>
               ))}
@@ -372,10 +402,6 @@ export function ModelEditorDialog({
         )}
 
         <p className="text-[length:var(--text-11)] leading-snug text-[var(--text-quaternary)]">{t('assistant.model.picker_hint')}</p>
-        <div className="flex justify-end gap-2 pt-1">
-          <Button variant="secondary" onClick={onClose}>{t('common.cancel')}</Button>
-          <Button variant="primary" onClick={() => { onSave(draft); onClose() }}>{t('assistant.model.save')}</Button>
-        </div>
       </div>
     </Modal>
   )

@@ -923,6 +923,9 @@ export const api = {
     /** The vendor's own list, asked through the worker so the key never reaches the browser. */
     vendorModels: (id: string) =>
       request<{ ok: boolean, error: string | null, models: AssistantVendorModel[] }>(`/api/assistant/providers/${id}/vendor-models`),
+    /** The same listing for a provider that has not been saved: nothing is stored, the key is passed in. */
+    previewVendorModels: (body: Record<string, unknown>) =>
+      request<{ ok: boolean, error: string | null, models: AssistantVendorModel[] }>('/api/assistant/providers/model-list', { method: 'POST', body }),
     createModel: (body: Record<string, unknown>) =>
       request<{ model: AssistantModel }>('/api/assistant/models', { method: 'POST', body }),
     updateModel: (id: string, body: Record<string, unknown>) =>

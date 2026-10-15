@@ -5,10 +5,16 @@
  * fails the dialog says so and leaves the manual entry as the way in. Search and the chips are the reader's
  * filters over that list — a service answers with hundreds of ids and the one they want is named something
  * like `deepseek-v3.2-exp`, so the list has to be narrowed without leaving the dialog.
+ *
+ * It opens in two situations that differ only in where the answer goes: on a saved provider, where the
+ * ticks become model rows, and on the add form's unsaved address and key, where they come back as ids for
+ * the reader to confirm before anything is created. The list, the filters and the count are the same work
+ * in both, which is why the second case is a mode here rather than a second dialog in the form.
  */
 import { useEffect, useMemo, useState } from 'react'
 import { Check, RefreshCw, Search } from 'lucide-react'
 import type { AssistantModel, AssistantProvider, AssistantVendorModel } from '@shared/assistant'
+import { MAX_PROVIDER_MODELS } from '@shared/assistant'
 import { t } from '../../lib/i18n'
 import { matchesQuery } from '../../lib/fuzzy'
 import { usePinyinVersion } from '../../lib/pinyin'
@@ -30,12 +36,13 @@ export function vendorFamilies(listed: AssistantVendorModel[]): string[] {
 
 export function pickerRows(
   listed: AssistantVendorModel[],
-  existing: AssistantModel[],
+  /** What the reader already has: rows from a saved provider, or the ids a form is holding. */
+  existing: readonly (AssistantModel | string)[],
   query: string,
   family: string | null,
   onlyNew: boolean,
 ): PickerRow[] {
-  const owned = new Set(existing.map((model) => model.model))
+  const owned = new Set(existing.map((entry) => (typeof entry === 'string' ? entry : entry.model)))
   return listed
     .filter((entry) => (family ? entry.ownedBy === family : true) && (onlyNew ? !owned.has(entry.id) : true))
     .filter((entry) => matchesQuery(`${entry.id} ${entry.label}`, query))
@@ -43,17 +50,26 @@ export function pickerRows(
     .map((model) => ({ model, added: owned.has(model.id) }))
 }
 
-export function ModelPickerDialog({ provider, onAdded, onClose, onCustom }: {
-  provider: AssistantProvider
-  onAdded: (count: number) => void
+export type PickerDraft = { protocol: string, baseUrl: string, apiKey: string, label: string }
+
+export function ModelPickerDialog({ provider, draft, existing, onAdded, onPicked, onClose, onCustom }: {
+  /** A saved provider: the ticks are written to it when the footer is pressed. */
+  provider?: AssistantProvider
+  /** An unsaved one: the listing is asked for with this key, and the ticks come back as ids. */
+  draft?: PickerDraft
+  /** Ids a form is already holding, so a row the reader typed can say so. */
+  existing?: string[]
+  onAdded?: (count: number) => void
+  onPicked?: (ids: string[]) => void
   onClose: () => void
-  onCustom: () => void
+  onCustom?: () => void
 }) {
   const models = useAssistant((state) => state.models)
   const listed = useAssistant((state) => state.vendorModels)
   const loading = useAssistant((state) => state.vendorModelsLoading)
   const error = useAssistant((state) => state.vendorModelsError)
   const load = useAssistant((state) => state.loadVendorModels)
+  const loadDraft = useAssistant((state) => state.loadDraftVendorModels)
   const addVendorModels = useAssistant((state) => state.addVendorModels)
   const [query, setQuery] = useState('')
   const [family, setFamily] = useState<string | null>(null)
@@ -62,23 +78,45 @@ export function ModelPickerDialog({ provider, onAdded, onClose, onCustom }: {
   const [busy, setBusy] = useState(false)
   const pinyinVersion = usePinyinVersion()
 
-  useEffect(() => { void load(provider.id) }, [provider.id, load])
+  const draftProtocol = draft?.protocol
+  const draftBaseUrl = draft?.baseUrl
+  const draftApiKey = draft?.apiKey
+  useEffect(() => {
+    if (draftProtocol && draftBaseUrl) void loadDraft({ protocol: draftProtocol, baseUrl: draftBaseUrl, apiKey: draftApiKey ?? '' })
+    else if (provider) void load(provider.id)
+  }, [provider, draftProtocol, draftBaseUrl, draftApiKey, load, loadDraft])
 
+  const owned: readonly (AssistantModel | string)[] = draft ? existing ?? [] : models
   const rows = useMemo(
-    () => pickerRows(listed, models, query, family, onlyNew),
+    () => pickerRows(listed, owned, query, family, onlyNew),
     // The filter reads the reading table, so a listing that lands before the dictionary does must be rebuilt.
-    [listed, models, query, family, onlyNew, pinyinVersion],
+    [listed, owned, query, family, onlyNew, pinyinVersion],
   )
   const families = useMemo(() => vendorFamilies(listed), [listed])
-  const toggle = (id: string) => setPicked((current) => (current.includes(id)
-    ? current.filter((entry) => entry !== id)
-    : [...current, id]))
+  // Ticking past the cap is refused where the reader does it, rather than dropped by the route afterwards.
+  const full = draft ? picked.length >= MAX_PROVIDER_MODELS : false
+  const toggle = (id: string) => setPicked((current) => {
+    if (current.includes(id)) return current.filter((entry) => entry !== id)
+    if (draft && current.length >= MAX_PROVIDER_MODELS) return current
+    return [...current, id]
+  })
+
+  const refresh = () => {
+    if (draft) void loadDraft({ protocol: draft.protocol, baseUrl: draft.baseUrl, apiKey: draft.apiKey })
+    else if (provider) void load(provider.id)
+  }
 
   const submit = async () => {
+    if (draft) {
+      onPicked?.(picked)
+      onClose()
+      return
+    }
+    if (!provider) return
     setBusy(true)
     const count = await addVendorModels(provider.id, picked)
     setBusy(false)
-    onAdded(count)
+    onAdded?.(count)
     if (count) onClose()
   }
 
@@ -86,8 +124,8 @@ export function ModelPickerDialog({ provider, onAdded, onClose, onCustom }: {
     <Modal
       open
       onClose={onClose}
-      title={t('assistant.picker.title', { label: provider.label })}
-      description={provider.baseUrl}
+      title={draft ? t('assistant.picker.draft_title', { label: draft.label }) : t('assistant.picker.title', { label: provider?.label ?? '' })}
+      description={draft ? draft.baseUrl : provider?.baseUrl}
       width={620}
       bodyClassName="p-4"
     >
@@ -105,10 +143,10 @@ export function ModelPickerDialog({ provider, onAdded, onClose, onCustom }: {
           <button
             type="button"
             aria-label={t('assistant.picker.refresh')}
-            onClick={() => void load(provider.id)}
-            className="flex size-8 shrink-0 items-center justify-center rounded-[var(--r-sm)] border border-[var(--border-default)] text-[var(--text-tertiary)] hover:bg-[var(--bg-hover)]"
+            onClick={refresh}
+            className="flex size-11 shrink-0 items-center justify-center rounded-[var(--r-md)] border border-[var(--border-default)] text-[var(--text-tertiary)] transition-colors duration-[var(--dur-fast)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)] md:size-[34px]"
           >
-            <RefreshCw size={13} className={loading ? 'animate-spin' : undefined} />
+            <RefreshCw size={14} className={loading ? 'animate-spin' : undefined} />
           </button>
         </div>
 
@@ -132,33 +170,39 @@ export function ModelPickerDialog({ provider, onAdded, onClose, onCustom }: {
           <p className="py-6 text-center text-[length:var(--text-12)] text-[var(--text-quaternary)]">{t('assistant.picker.none')}</p>
         )}
 
-        <ul className="max-h-[46vh] min-h-[140px] overflow-y-auto rounded-[var(--r-md)] border border-[var(--border-default)] bg-[var(--bg-raised)] p-1">
+        <ul className="max-h-[46vh] min-h-[140px] overflow-y-auto rounded-[var(--r-lg)] border border-[var(--border-subtle)] bg-[var(--bg-inset)] p-1">
           {rows.map(({ model, added }) => {
             const pickedHere = picked.includes(model.id)
             return (
-              <li key={model.id}>
+              <li key={model.id} className="mb-px last:mb-0">
                 <button
                   type="button"
                   role="checkbox"
                   aria-checked={pickedHere}
                   onClick={() => toggle(model.id)}
-                  className="flex w-full items-center gap-2 rounded-[var(--r-sm)] px-2 py-1.5 text-left hover:bg-[var(--bg-hover)]"
+                  className={cn(
+                    'flex w-full items-center gap-2.5 rounded-[var(--r-sm)] px-2.5 py-2 text-left',
+                    'transition-colors duration-[var(--dur-fast)] ease-[var(--ease-out)]',
+                    pickedHere ? 'bg-[var(--accent-soft)]' : 'hover:bg-[var(--bg-hover)]',
+                  )}
                 >
                   <span
                     aria-hidden
                     className={cn(
-                      'flex size-4 shrink-0 items-center justify-center rounded border',
-                      pickedHere ? 'border-[var(--accent)] bg-[var(--accent-soft)] text-[var(--accent-on-soft)]' : 'border-[var(--border-strong)]',
+                      'flex size-[18px] shrink-0 items-center justify-center rounded-[5px] border transition-colors duration-[var(--dur-fast)]',
+                      pickedHere
+                        ? 'border-[var(--accent)] bg-[var(--accent)] text-[var(--accent-contrast)]'
+                        : 'border-[var(--border-strong)]',
                     )}
                   >
-                    {pickedHere && <Check size={11} />}
+                    {pickedHere && <Check size={12} strokeWidth={3} />}
                   </span>
-                  <span className="min-w-0 flex-1">
-                    <span className="block truncate text-[length:var(--text-12-5)] text-[var(--text-primary)]">{model.label}</span>
-                    <span className="block truncate font-mono text-[length:var(--text-10-5)] text-[var(--text-quaternary)]">{model.id}</span>
+                  <span className="flex min-w-0 flex-1 flex-col">
+                    <span className={cn('truncate text-[length:var(--text-12-5)]', pickedHere ? 'font-medium text-[var(--accent-on-soft)]' : 'text-[var(--text-primary)]')}>{model.label}</span>
+                    <span className="truncate font-mono text-[length:var(--text-10-5)] text-[var(--text-quaternary)]">{model.id}</span>
                   </span>
                   {added && (
-                    <span className="shrink-0 text-[length:var(--text-10-5)] text-[var(--text-quaternary)]">{t('assistant.picker.already')}</span>
+                    <span className="shrink-0 rounded-full border border-[var(--border-subtle)] px-1.5 py-px text-[length:var(--text-10)] text-[var(--text-quaternary)]">{t('assistant.picker.already')}</span>
                   )}
                 </button>
               </li>
@@ -167,11 +211,18 @@ export function ModelPickerDialog({ provider, onAdded, onClose, onCustom }: {
         </ul>
 
         <div className="flex flex-wrap items-center gap-2 pt-0.5">
-          <Button variant="ghost" size="sm" onClick={onCustom}>{t('assistant.picker.custom')}</Button>
+          {onCustom && <Button variant="ghost" size="sm" onClick={onCustom}>{t('assistant.picker.custom')}</Button>}
+          {full && (
+            <span className="text-[length:var(--text-11)] text-[var(--text-quaternary)]">
+              {t('assistant.picker.cap', { count: MAX_PROVIDER_MODELS })}
+            </span>
+          )}
           <div className="flex-1" />
           <Button variant="secondary" onClick={onClose}>{t('common.cancel')}</Button>
           <Button variant="primary" disabled={!picked.length || busy} onClick={() => void submit()}>
-            {t('assistant.picker.add', { count: picked.length })}
+            {draft
+              ? t('assistant.picker.use', { count: picked.length })
+              : t('assistant.picker.add', { count: picked.length })}
           </Button>
         </div>
       </div>
@@ -186,10 +237,11 @@ function FilterChip({ active, onClick, children }: { active: boolean, onClick: (
       aria-pressed={active}
       onClick={onClick}
       className={cn(
-        'rounded-full border px-2 py-0.5 text-[length:var(--text-11-5)]',
+        'rounded-full border px-2.5 py-0.5 text-[length:var(--text-11-5)]',
+        'transition-[background-color,border-color,color] duration-[var(--dur-fast)] ease-[var(--ease-out)]',
         active
-          ? 'border-[var(--accent)] bg-[var(--accent-soft)] text-[var(--accent-on-soft)]'
-          : 'border-[var(--border-default)] text-[var(--text-tertiary)] hover:bg-[var(--bg-hover)]',
+          ? 'border-[var(--accent)] bg-[var(--accent-soft)] font-medium text-[var(--accent-on-soft)]'
+          : 'border-[var(--border-default)] text-[var(--text-tertiary)] hover:border-[var(--border-strong)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-secondary)]',
       )}
     >
       {children}

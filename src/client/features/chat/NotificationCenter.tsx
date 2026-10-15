@@ -9,6 +9,7 @@ import { Z_INDEX } from '../../lib/z-index'
 import { useEffect, useMemo, useState } from 'react'
 import { Check, Trash2 } from 'lucide-react'
 import type { AssistantNotification } from '@shared/assistant'
+import { cn } from '../../lib/cn'
 import { t } from '../../lib/i18n'
 import { relativeTime } from '../../lib/time'
 import { renderMarkdown } from '../../lib/markdown/renderer'
@@ -36,7 +37,7 @@ export function NotificationCenter({ open, onClose }: { open: boolean, onClose: 
         ) : (
           <>
             <div className="flex items-center justify-between gap-2 px-3 py-2">
-              <span className="text-[length:var(--text-11)] text-[var(--text-quaternary)]">
+              <span className="text-[length:var(--text-10-5)] font-semibold uppercase tracking-[var(--tracking-label)] text-[var(--text-quaternary)]">
                 {unread > 0 ? t('assistant.notifications.unread', { count: unread }) : t('assistant.notifications.all_read')}
               </span>
               {unread > 0 && (
@@ -45,16 +46,20 @@ export function NotificationCenter({ open, onClose }: { open: boolean, onClose: 
                 </Button>
               )}
             </div>
-            <ul className="no-scrollbar min-h-0 flex-1 overflow-y-auto px-2 pb-3">
-              {notifications.map((notification) => (
-                <NotificationRow
-                  key={notification.id}
-                  notification={notification}
-                  onRead={() => void markRead(notification.id)}
-                  onDelete={() => void remove(notification.id)}
-                />
-              ))}
-            </ul>
+            {/* The rows are one card rather than a stack of floating boxes: at 380px the per-row border
+                doubled the visible edges and made a short list read as three unrelated things. */}
+            <div className="mx-2 mb-3 min-h-0 flex-1 overflow-hidden rounded-[var(--r-lg)] border border-[var(--border-subtle)] bg-[var(--bg-surface)]">
+              <ul className="no-scrollbar h-full overflow-y-auto">
+                {notifications.map((notification) => (
+                  <NotificationRow
+                    key={notification.id}
+                    notification={notification}
+                    onRead={() => void markRead(notification.id)}
+                    onDelete={() => void remove(notification.id)}
+                  />
+                ))}
+              </ul>
+            </div>
           </>
         )}
       </div>
@@ -76,12 +81,8 @@ function NotificationRow({
   const html = useMemo(() => ({ __html: renderMarkdown(notification.body).html }), [notification.body])
   // A collapsed row shows one line; expanding it must not re-parse the body on every keystroke.
   return (
-    <li className="mb-1">
-      <div
-        className={unread
-          ? 'rounded-[var(--r-md)] border border-[var(--border-subtle)] bg-[var(--bg-surface)] px-2.5 py-2'
-          : 'rounded-[var(--r-md)] border border-transparent px-2.5 py-2'}
-      >
+    <li className="border-b border-[var(--border-subtle)] last:border-b-0">
+      <div className="px-3 py-2.5 transition-colors duration-[var(--dur-fast)] hover:bg-[var(--bg-hover)]">
         <div className="flex items-start gap-2">
           <button
             type="button"
@@ -92,7 +93,10 @@ function NotificationRow({
             aria-expanded={expanded}
             className="min-w-0 flex-1 text-left"
           >
-            <p className="flex items-center gap-1.5 text-[length:var(--text-12-5)] font-medium text-[var(--text-primary)]">
+            <p className={cn(
+              'flex items-center gap-1.5 text-[length:var(--text-12-5)]',
+              unread ? 'font-medium text-[var(--text-primary)]' : 'text-[var(--text-secondary)]',
+            )}>
               {unread && <span aria-hidden className="size-1.5 shrink-0 rounded-full bg-[var(--accent)]" />}
               <span className="min-w-0 truncate">{notification.title}</span>
             </p>

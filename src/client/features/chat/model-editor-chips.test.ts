@@ -12,7 +12,7 @@ import { CONTEXT_WINDOW_STEPS, formatTokenStep } from '@shared/assistant'
 import { initI18n, t } from '../../lib/i18n'
 import { installTestGlobals } from '../../lib/test-render'
 import { ModelEditorDialog, draftFromModel } from './ModelEditorDialog'
-import { modelBadges } from './AssistantSettingsView'
+import { modelBadges } from './assistant-settings-shared'
 
 function model(over: Partial<AssistantModel> = {}): AssistantModel {
     return {

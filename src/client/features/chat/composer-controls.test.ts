@@ -60,6 +60,27 @@ const click = async (node: Element | undefined) => {
   if (!node) throw new Error('control is missing')
   await act(async () => { node.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true })) })
 }
+/**
+ * What a pointer is told when it arrives on a control.
+ *
+ * jsdom lays nothing out, so the anchor's box has to be stated before `Tooltip` will place anything at
+ * all — that measurement is the component's own guard against a hidden trigger. `mouseover` is the event
+ * React reads as an entry (it synthesises `onMouseEnter` from the delegated pointer events), and the
+ * panel is behind the tooltip's own delay, which fake timers step over.
+ */
+const hover = (node: HTMLElement | undefined, name: string) => {
+  expect(node, `${name} is not rendered`).toBeTruthy()
+  node!.getBoundingClientRect = () => ({
+    top: 10, left: 10, right: 38, bottom: 38, x: 10, y: 10, width: 28, height: 28,
+    toJSON: () => ({}),
+  }) as DOMRect
+  vi.useFakeTimers()
+  act(() => { node!.dispatchEvent(new MouseEvent('mouseover', { bubbles: true })) })
+  act(() => { vi.advanceTimersByTime(600) })
+  const told = document.body.querySelector('[role="tooltip"]')?.textContent ?? null
+  vi.useRealTimers()
+  return told
+}
 
 let root: Root
 let container: HTMLDivElement
@@ -82,7 +103,7 @@ afterEach(() => {
 
 describe('model chip', () => {
   const open = async () => {
-    await click(byText('DeepSeek Flash'))
+    await click(byAria(t('assistant.composer.model')))
   }
 
   it('picks a model and reports the manage entry', async () => {
@@ -216,14 +237,15 @@ describe('web-search chip', () => {
     expect(onChange).toHaveBeenCalledWith(true)
   })
 
-  it('says which way it is set even where the word is hidden for a phone', async () => {
+  it('says which way it is set, and explains itself on hover', async () => {
     const onChange = vi.fn()
     await act(async () => { root.render(createElement(WebSearchMenu, { value: true, onChange })) })
     const chip = byAria(t('assistant.composer.search'))
-    // The visible word goes on a phone, so the state has to ride on the name and on the button.
+    // There is no visible word anywhere, so the state rides on the name and on the button.
     expect(chip?.getAttribute('aria-pressed')).toBe('true')
     expect(chip?.getAttribute('aria-label')).toBe(`${t('assistant.composer.search')}: ${t('assistant.search.on')}`)
-    expect(chip?.getAttribute('title')).toBe(t('assistant.search.hint'))
+    // The switch says what it is set to; what a search costs the model is the hint's job.
+    expect(hover(chip, 'the search chip')).toBe(t('assistant.search.hint'))
     await click(chip)
     expect(onChange).toHaveBeenCalledWith(false)
   })
@@ -351,7 +373,7 @@ describe('inline triggers', () => {
   })
 })
 
-describe('a control chip’s own label', () => {
+describe('a control chip’s own face', () => {
   const renderChip = (props: Partial<React.ComponentProps<typeof ControlChip>>) => {
     const ref = { current: null as HTMLButtonElement | null }
     act(() => {
@@ -364,22 +386,27 @@ describe('a control chip’s own label', () => {
         ...props,
       }))
     })
-    const span = document.querySelector('button > span + span')
-    return span?.className.split(/\s+/) ?? []
+    return buttons()[0]
   }
-  it('gives the word back on a machine with room for it', () => {
-    const tokens = renderChip({})
-    // A percentage of the chip's own box collapsed the label on a desktop, so the four-character value
-    // ellipsized to two characters plus the mark.
-    expect(tokens).toContain('sm:max-w-none')
-    expect(tokens).not.toContain('sm:max-w-[46%]')
-    expect(tokens).toContain('max-w-[58px]')
+  it('prints no word, and keeps the value it dropped in the name', () => {
+    const chip = renderChip({})
+    // The row is icons only, so the value the chip used to draw is now the whole of what it says.
+    expect(chip?.textContent).toBe('')
+    expect(chip?.getAttribute('aria-label')).toBe('审批模式: 写入确认')
   })
-  it('keeps the icon-only promise below the small breakpoint', () => {
-    const tokens = renderChip({ hideValueOnPhone: true })
-    expect(tokens).toContain('max-w-0')
-    expect(tokens).toContain('overflow-hidden')
-    expect(tokens).toContain('sm:max-w-none')
-    expect(tokens).not.toContain('max-w-[58px]')
+  it('names the control alone when it holds no value', () => {
+    const chip = renderChip({ value: undefined })
+    expect(hover(chip, 'the approval chip')).toBe('审批模式')
+    expect(chip?.getAttribute('aria-label')).toBe('审批模式')
+  })
+  it('answers a pointer with the app’s own tooltip rather than the browser’s title', () => {
+    const chip = renderChip({})
+    expect(chip?.getAttribute('title')).toBe(null)
+    expect(hover(chip, 'the approval chip')).toBe('审批模式: 写入确认')
+  })
+  it('lets a stated hint stand in for the sentence a pointer would read', () => {
+    const chip = renderChip({ hint: '审批模式' })
+    expect(hover(chip, 'the approval chip')).toBe('审批模式')
+    expect(chip?.getAttribute('aria-label')).toBe('审批模式: 写入确认')
   })
 })

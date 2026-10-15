@@ -36,12 +36,12 @@ function PromptEditor({ prompt, onClose, onSubmit }: {
       width={620}
       bodyClassName="p-4 space-y-3"
       footer={(
-        <div className="flex justify-end gap-2">
+        <>
           <Button size="sm" variant="secondary" onClick={onClose}>{t('common.cancel')}</Button>
           <Button size="sm" variant="primary" disabled={!canSave} onClick={() => onSubmit({ title: title.trim(), content, group: group.trim() })}>
             {t('assistant.prompts.save')}
           </Button>
-        </div>
+        </>
       )}
     >
       <Input autoFocus value={title} maxLength={MAX_PROMPT_TITLE_CHARS} aria-label={t('assistant.prompts.field_title')} placeholder={t('assistant.prompts.field_title')} onChange={(event) => setTitle(event.target.value)} />
@@ -107,9 +107,16 @@ export function PromptsView() {
   return (
     <div className="flex h-full min-h-0 flex-col">
       <div className="flex items-center gap-2 px-3 py-2.5">
-        <div className="relative min-w-0 flex-1">
-          <Search size={13} className="pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 text-[var(--text-quaternary)]" />
-          <Input value={query} aria-label={t('assistant.prompts.search')} placeholder={t('assistant.prompts.search')} className="pl-7" onChange={(event) => setQuery(event.target.value)} />
+        {/* The wrapper carries the row's growth: the field hands its own `className` to the `<input>`, which
+            cannot size the box around it. */}
+        <div className="min-w-0 flex-1">
+          <Input
+            value={query}
+            aria-label={t('assistant.prompts.search')}
+            placeholder={t('assistant.prompts.search')}
+            leading={<Search size={13} />}
+            onChange={(event) => setQuery(event.target.value)}
+          />
         </div>
         <Button size="sm" variant="primary" icon={<Plus size={14} />} onClick={() => setCreating(true)}>{t('assistant.prompts.new')}</Button>
       </div>
@@ -117,7 +124,7 @@ export function PromptsView() {
         {!prompts.length && <p className="px-2 py-6 text-center text-[length:var(--text-12-5)] text-[var(--text-quaternary)]">{t('assistant.prompts.empty')}</p>}
         {groups.map((bucket) => (
           <section key={bucket.key} className="mb-2">
-            <h3 className="px-2 py-1 text-[length:var(--text-11)] uppercase tracking-wide text-[var(--text-quaternary)]">{bucket.label}</h3>
+            <h3 className="px-2 py-1 text-[length:var(--text-10-5)] font-semibold uppercase tracking-[var(--tracking-label)] text-[var(--text-quaternary)]">{bucket.label}</h3>
             <ul className="space-y-1">
               {bucket.rows.map((prompt) => (
                 <li key={prompt.id} className="group flex items-start gap-2 rounded-[var(--r-md)] border border-[var(--border-subtle)] px-2.5 py-2 hover:border-[var(--border-default)]">

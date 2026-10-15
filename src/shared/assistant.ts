@@ -158,6 +158,15 @@ export interface AssistantCustomParam {
   value: string
 }
 
+/**
+ * How many ids a new provider may be seeded with, in one create call.
+ *
+ * The form can offer a vendor's whole list, which is hundreds of rows for some accounts, and creating a
+ * model row per id is a write each. The cap is shared so the picker can refuse the extra ticks where the
+ * reader makes them instead of the route dropping them after the fact.
+ */
+export const MAX_PROVIDER_MODELS = 20
+
 export const MAX_CUSTOM_PARAMS = 12
 
 /** Parses the stored JSON, dropping anything malformed rather than sending half a request body. */
@@ -874,6 +883,19 @@ export const PROVIDER_PRESETS: readonly { id: string, label: string, protocol: A
   { id: 'kimi', label: 'Kimi (Moonshot)', protocol: 'openai', baseUrl: 'https://api.moonshot.cn/v1', models: ['moonshot-v1-8k', 'kimi-latest'] },
   { id: 'qwen', label: 'Qwen (DashScope)', protocol: 'openai', baseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1', models: ['qwen-plus', 'qwen-turbo'] },
   { id: 'openrouter', label: 'OpenRouter', protocol: 'openai', baseUrl: 'https://openrouter.ai/api/v1', models: ['deepseek/deepseek-chat'] },
+  // The eight below were added after checking each vendor's own documentation for the address and the
+  // ids; a preset whose address was guessed is worse than no preset, because the reader has no reason to
+  // doubt it. Vendors whose documentation could not be read (Groq, Mistral, xAI) are deliberately absent
+  // rather than filled in from memory — their addresses can still be typed, and the add form can ask the
+  // provider what the key calls once the address and key are in.
+  { id: 'siliconflow', label: 'SiliconFlow', protocol: 'openai', baseUrl: 'https://api.siliconflow.com/v1', models: ['Qwen/Qwen3-32B', 'deepseek-ai/DeepSeek-V4-Flash'] },
+  { id: 'zhipu', label: 'Zhipu GLM', protocol: 'openai', baseUrl: 'https://open.bigmodel.cn/api/paas/v4', models: ['glm-5.3'] },
+  { id: 'minimax', label: 'MiniMax', protocol: 'openai', baseUrl: 'https://api.minimax.io/v1', models: ['MiniMax-M3', 'MiniMax-M2.7'] },
+  { id: 'together', label: 'Together AI', protocol: 'openai', baseUrl: 'https://api.together.xyz/v1', models: ['zai-org/GLM-5.3', 'deepseek-ai/DeepSeek-V4-Pro-0813'] },
+  { id: 'cerebras', label: 'Cerebras', protocol: 'openai', baseUrl: 'https://api.cerebras.ai/v1', models: ['gpt-oss-120b', 'qwen-3.8-27b'] },
+  { id: 'fireworks', label: 'Fireworks AI', protocol: 'openai', baseUrl: 'https://api.fireworks.ai/inference/v1', models: ['accounts/fireworks/models/kimi-k2p5', 'accounts/fireworks/models/deepseek-v3p2'] },
+  { id: 'deepinfra', label: 'DeepInfra', protocol: 'openai', baseUrl: 'https://api.deepinfra.com/v1/openai', models: ['deepseek-ai/DeepSeek-V4-Flash-0731'] },
+  { id: 'ollama-cloud', label: 'Ollama Cloud', protocol: 'openai', baseUrl: 'https://ollama.com/v1', models: ['gemma4:31b'] },
   { id: 'other', label: 'Gateway / other (https)', protocol: 'openai', baseUrl: 'https://', models: [''] },
 ]
 

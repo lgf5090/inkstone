@@ -16,12 +16,12 @@ import { INTERVAL_MAX_MINUTES, INTERVAL_MIN_MINUTES, computeNextRun, scheduleSum
 import { cn } from '../../lib/cn'
 import { localeTag, t, type MessageKey } from '../../lib/i18n'
 import { relativeTime } from '../../lib/time'
-import type { ReactNode } from 'react'
-import { Button, IconButton } from '../../components/primitives'
+import { Badge, Button, IconButton } from '../../components/primitives'
 import { Field, Input, Select, Switch } from '../../components/form'
 import { DatePicker, TimeField } from '../../components/date-picker'
 import { Modal, confirm } from '../../components/overlay'
 import { Empty } from '../../components/feedback'
+import { AssistantHeader } from './AssistantHeader'
 import { useAssistant } from './assistant-store'
 import { formatInZone } from './time-format'
 
@@ -72,20 +72,16 @@ export function AutomationsView() {
 
   return (
     <div className="no-scrollbar h-full overflow-y-auto">
-      <div className="mx-auto flex w-full max-w-[720px] flex-col gap-6 px-4 py-5 md:px-8">
-        <header className="flex flex-wrap items-end justify-between gap-3">
-          <div className="min-w-0">
-            <h2 className="font-serif text-[length:var(--text-18)] font-semibold tracking-[var(--tracking-title)] text-[var(--text-primary)]">
-              {t('assistant.automations.title')}
-            </h2>
-            <p className="mt-1 text-[length:var(--text-12)] leading-relaxed text-[var(--text-tertiary)]">
-              {t('assistant.automations.description', { timezone: timezone ?? '' })}
-            </p>
-          </div>
-          <Button size="sm" variant="primary" icon={<Plus size={14} />} onClick={() => setCreating(true)}>
-            {t('assistant.automations.new')}
-          </Button>
-        </header>
+      <div className="mx-auto flex w-full max-w-[720px] flex-col gap-4 px-4 py-5 md:px-8">
+        <AssistantHeader
+          title={t('assistant.automations.title')}
+          description={t('assistant.automations.description', { timezone: timezone ?? '' })}
+          action={(
+            <Button size="sm" variant="primary" icon={<Plus size={14} />} onClick={() => setCreating(true)}>
+              {t('assistant.automations.new')}
+            </Button>
+          )}
+        />
 
         {!automations.length && !runs.length ? (
           <Empty
@@ -98,7 +94,7 @@ export function AutomationsView() {
           <>
             {upcoming.length > 0 && (
               <section>
-                <p className="mb-1.5 text-[length:var(--text-10-5)] font-semibold uppercase tracking-[var(--tracking-label)] text-[var(--text-quaternary)]">
+                <p className="mb-1 text-[length:var(--text-10-5)] font-semibold uppercase tracking-[var(--tracking-label)] text-[var(--text-quaternary)]">
                   {t('assistant.automations.upcoming')}
                 </p>
                 <ul className="no-scrollbar flex gap-2 overflow-x-auto pb-1">
@@ -117,7 +113,7 @@ export function AutomationsView() {
             {inactive.length > 0 && <Section heading="assistant.automations.paused" automations={inactive} timezone={timezone} onToggle={toggleAutomation} onDelete={removeAutomation} />}
 
             <section>
-              <p className="mb-1.5 text-[length:var(--text-10-5)] font-semibold uppercase tracking-[var(--tracking-label)] text-[var(--text-quaternary)]">
+              <p className="mb-1 text-[length:var(--text-10-5)] font-semibold uppercase tracking-[var(--tracking-label)] text-[var(--text-quaternary)]">
                 {t('assistant.automations.recent')}
               </p>
               {!runs.length ? (
@@ -131,7 +127,7 @@ export function AutomationsView() {
 
             {failedRuns.length > 0 && (
               <section>
-                <p className="mb-1.5 text-[length:var(--text-10-5)] font-semibold uppercase tracking-[var(--tracking-label)] text-[var(--danger)]">
+                <p className="mb-1 text-[length:var(--text-10-5)] font-semibold uppercase tracking-[var(--tracking-label)] text-[var(--danger)]">
                   {t('assistant.automations.failed')}
                 </p>
                 <ul className="overflow-hidden rounded-[var(--r-lg)] border border-[color-mix(in_oklab,var(--danger)_30%,transparent)] bg-[var(--bg-surface)]">
@@ -163,22 +159,22 @@ function Section({
 }) {
   return (
     <section>
-      <p className="mb-1.5 text-[length:var(--text-10-5)] font-semibold uppercase tracking-[var(--tracking-label)] text-[var(--text-quaternary)]">{t(heading)}</p>
+      <p className="mb-1 text-[length:var(--text-10-5)] font-semibold uppercase tracking-[var(--tracking-label)] text-[var(--text-quaternary)]">{t(heading)}</p>
       <ul className="overflow-hidden rounded-[var(--r-lg)] border border-[var(--border-subtle)] bg-[var(--bg-surface)]">
         {automations.map((automation) => {
           const meta = KIND_META[automation.kind]
           const Icon = meta.icon
           const summary = scheduleSummary(automation.schedule, describeDays)
           return (
-            <li key={automation.id} className="flex items-start gap-2.5 border-b border-[var(--border-subtle)] px-3 py-2.5 last:border-b-0">
+            <li key={automation.id} className="flex items-start gap-2.5 border-b border-[var(--border-subtle)] px-3 py-2.5 transition-colors duration-[var(--dur-fast)] last:border-b-0 hover:bg-[var(--bg-hover)]">
               <span className={cn('mt-0.5 shrink-0 rounded-[var(--r-sm)] p-1.5', automation.enabled ? 'bg-[var(--accent-soft)] text-[var(--accent-on-soft)]' : 'bg-[var(--bg-inset)] text-[var(--text-quaternary)]')}>
                 <Icon size={14} />
               </span>
               <div className="min-w-0 flex-1">
                 <div className="flex flex-wrap items-center gap-1.5">
                   <p className="min-w-0 truncate text-[length:var(--text-13)] font-medium text-[var(--text-primary)]">{automation.name}</p>
-                  {automation.status === 'failed' && <Tag tone="danger">{t('assistant.automations.status_failed')}</Tag>}
-                  {automation.status === 'completed' && <Tag>{t('assistant.automations.status_completed')}</Tag>}
+                  {automation.status === 'failed' && <Badge tone="danger">{t('assistant.automations.status_failed')}</Badge>}
+                  {automation.status === 'completed' && <Badge>{t('assistant.automations.status_completed')}</Badge>}
                 </div>
                 <p className="mt-0.5 text-[length:var(--text-12)] text-[var(--text-secondary)]">{t(summary.key, summary.params ?? {})}</p>
                 <p className="mt-0.5 text-[length:var(--text-11)] text-[var(--text-quaternary)]">
@@ -227,22 +223,9 @@ function Section({
   )
 }
 
-function Tag({ children, tone = 'neutral' }: { children: ReactNode, tone?: 'neutral' | 'danger' }) {
-  return (
-    <span
-      className={cn(
-        'rounded-full px-1.5 py-px text-[length:var(--text-10)]',
-        tone === 'danger' ? 'bg-[var(--danger-soft)] text-[var(--danger)]' : 'bg-[var(--bg-inset)] text-[var(--text-quaternary)]',
-      )}
-    >
-      {children}
-    </span>
-  )
-}
-
 function RunRow({ run, timezone }: { run: AutomationRun, timezone?: string }) {
   return (
-    <li className="flex items-start justify-between gap-3 border-b border-[var(--border-subtle)] px-3 py-2 text-[length:var(--text-12-5)] last:border-b-0">
+    <li className="flex items-start justify-between gap-3 border-b border-[var(--border-subtle)] px-3 py-2 text-[length:var(--text-12-5)] transition-colors duration-[var(--dur-fast)] last:border-b-0 hover:bg-[var(--bg-hover)]">
       <div className="min-w-0">
         <p className="truncate text-[var(--text-primary)]">{run.automationName}</p>
         <p className={cn('truncate text-[length:var(--text-11)]', run.status === 'error' ? 'text-[var(--danger)]' : 'text-[var(--text-quaternary)]')}>
@@ -250,9 +233,9 @@ function RunRow({ run, timezone }: { run: AutomationRun, timezone?: string }) {
         </p>
       </div>
       <div className="shrink-0 text-right">
-        <Tag tone={run.status === 'error' ? 'danger' : 'neutral'}>
+        <Badge tone={run.status === 'error' ? 'danger' : 'neutral'}>
           {t(run.status === 'success' ? 'assistant.automations.run_success' : run.status === 'error' ? 'assistant.automations.run_error' : run.status === 'skipped' ? 'assistant.automations.run_skipped' : 'assistant.automations.running')}
-        </Tag>
+        </Badge>
         <p className="mt-0.5 text-[length:var(--text-11)] text-[var(--text-quaternary)]">{formatInZone(run.startedAt, timezone, { dateOnly: false })}</p>
       </div>
     </li>

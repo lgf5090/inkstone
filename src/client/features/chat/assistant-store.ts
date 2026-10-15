@@ -244,7 +244,12 @@ interface AssistantState {
 
   loadSettings: () => Promise<void>
   saveSettings: (patch: Record<string, unknown>) => Promise<void>
-  addProvider: (body: Record<string, unknown>) => Promise<void>
+  /**
+   * The created row, so a caller can go straight on to the models of the provider it just made — the
+   * vendor listing needs an id, and asking for the settings again to find it would be a second race.
+   * `null` when the route refused it.
+   */
+  addProvider: (body: Record<string, unknown>) => Promise<AssistantProvider | null>
   updateProvider: (id: string, body: Record<string, unknown>) => Promise<void>
   removeProvider: (id: string) => Promise<void>
   addModel: (body: Record<string, unknown>) => Promise<void>
@@ -257,6 +262,11 @@ interface AssistantState {
   vendorModelsError: string | null
   vendorModelsLoading: boolean
   loadVendorModels: (providerId: string) => Promise<void>
+  /**
+   * The same listing for a provider the form has not saved yet. It fills the same two fields the dialog
+   * already reads, so a listing looks the same whether the row exists or is still being typed.
+   */
+  loadDraftVendorModels: (input: { protocol: string, baseUrl: string, apiKey: string }) => Promise<void>
   /** Adds every id the reader ticked; returns how many landed, so the dialog can say so. */
   addVendorModels: (providerId: string, ids: string[]) => Promise<number>
 }
@@ -1316,10 +1326,12 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
 
   addProvider: async (body) => {
     try {
-      await api.assistant.createProvider(body)
+      const created = await api.assistant.createProvider(body)
       await get().loadSettings()
+      return created.provider
     } catch (error) {
       toast(error)
+      return null
     }
   },
 
@@ -1361,6 +1373,25 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
       })
     } catch (error) {
       // A listing that never arrived is said in the dialog, which still has its manual entry.
+      set({
+        vendorModels: [],
+        vendorModelsError: error instanceof Error ? error.message : t('assistant.model.list_failed'),
+        vendorModelsLoading: false,
+      })
+    }
+  },
+
+  loadDraftVendorModels: async (input) => {
+    set({ vendorModelsLoading: true, vendorModelsError: null })
+    try {
+      const listing = await api.assistant.previewVendorModels(input)
+      set({
+        vendorModels: listing.models,
+        vendorModelsError: listing.ok ? null : listing.error,
+        vendorModelsLoading: false,
+      })
+    } catch (error) {
+      // Said in the dialog, which keeps the hand-typed ids as the way forward.
       set({
         vendorModels: [],
         vendorModelsError: error instanceof Error ? error.message : t('assistant.model.list_failed'),

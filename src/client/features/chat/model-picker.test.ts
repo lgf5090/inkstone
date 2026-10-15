@@ -10,6 +10,7 @@ import { act, createElement } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { AssistantModel, AssistantProvider, AssistantVendorModel } from '@shared/assistant'
+import { MAX_PROVIDER_MODELS } from '@shared/assistant'
 import { initI18n, t } from '../../lib/i18n'
 import { installTestGlobals } from '../../lib/test-render'
 import { api } from '../../lib/api'
@@ -156,6 +157,46 @@ describe('the dialog', () => {
     expect(rows()).toHaveLength(0)
     await click(buttons().find((node) => node.textContent?.includes(t('assistant.picker.custom'))))
     expect(props.onCustom).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('the same dialog on a provider the form has not saved', () => {
+  const DRAFT = { protocol: 'openai', baseUrl: 'https://api.deepseek.com', apiKey: 'sk-draft-1', label: 'DeepSeek' }
+
+  it('asks with the key in the form and hands the ids back instead of writing rows', async () => {
+    const loadDraft = vi.fn(async () => undefined)
+    act(() => { useAssistant.setState({ loadDraftVendorModels: loadDraft }) })
+    const onPicked = vi.fn()
+    await act(async () => {
+      root.render(createElement(ModelPickerDialog, {
+        draft: DRAFT,
+        existing: ['deepseek-chat'],
+        onPicked,
+        onClose: vi.fn(),
+      }))
+    })
+    expect(loadDraft).toHaveBeenCalledWith({ protocol: 'openai', baseUrl: 'https://api.deepseek.com', apiKey: 'sk-draft-1' })
+    // An id the form is already holding is marked, so the reader does not add it twice.
+    expect(rowFor('deepseek-chat')?.textContent).toContain(t('assistant.picker.already'))
+    await click(rowFor('deepseek-reasoner'))
+    await click(buttons().find((node) => node.textContent?.includes(t('assistant.picker.use', { count: 1 }))))
+    expect(onPicked).toHaveBeenCalledWith(['deepseek-reasoner'])
+    expect(useAssistant.getState().addVendorModels, 'nothing may be written before the provider exists').not.toHaveBeenCalled()
+  })
+
+  it('stops at the cap the create call honours, so no tick is dropped afterwards', async () => {
+    const many = Array.from({ length: MAX_PROVIDER_MODELS + 1 }, (_, index) => vendor(`m-${index}`))
+    act(() => {
+      useAssistant.setState({ vendorModels: many, loadDraftVendorModels: vi.fn(async () => undefined) })
+    })
+    const onPicked = vi.fn()
+    await act(async () => {
+      root.render(createElement(ModelPickerDialog, { draft: DRAFT, onPicked, onClose: vi.fn() }))
+    })
+    for (const entry of many) await click(rowFor(entry.id))
+    expect(document.body.textContent).toContain(t('assistant.picker.cap', { count: MAX_PROVIDER_MODELS }))
+    await click(buttons().find((node) => node.textContent?.includes(t('assistant.picker.use', { count: MAX_PROVIDER_MODELS }))))
+    expect(onPicked.mock.calls[0]?.[0]).toHaveLength(MAX_PROVIDER_MODELS)
   })
 })
 

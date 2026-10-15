@@ -10,7 +10,7 @@
  */
 import { Z_INDEX } from '../../lib/z-index'
 import { type ClipboardEvent as ReactClipboardEvent, type KeyboardEvent, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import { ArrowUp, History, MoreHorizontal, Paperclip, Plus, Square, Star } from 'lucide-react'
+import { ArrowUp, ArrowUpRight, History, MoreHorizontal, Paperclip, Plus, Square, Star } from 'lucide-react'
 import type { AssistantConversation, AssistantMessage, ChatAttachment } from '@shared/assistant'
 import { DEBOUNCE } from '@shared/constants'
 import { cn } from '../../lib/cn'
@@ -19,7 +19,7 @@ import { relativeTime } from '../../lib/time'
 import { useDebouncedDraft } from '../../lib/hooks'
 import { compileQuery } from '../../lib/query-match'
 import type { MoveMenuFolder } from '../../lib/tree'
-import { Button, IconButton, Spinner } from '../../components/primitives'
+import { Button, Divider, IconButton, Spinner } from '../../components/primitives'
 import { FilterInput } from '../../components/FilterInput'
 import { Input } from '../../components/form'
 import { Menu, Modal, confirm, prompt, submenuFor } from '../../components/overlay'
@@ -572,12 +572,13 @@ function EmptyChat({ onPick }: { onPick: (text: string) => void }) {
               type="button"
               onClick={() => onPick(t(key))}
               className={cn(
-                'w-full rounded-[var(--r-md)] border border-[var(--border-subtle)] bg-[var(--bg-surface)] px-3 py-2 text-left text-[length:var(--text-12-5)]',
-                'text-[var(--text-secondary)] transition-colors duration-[var(--dur-fast)]',
-                'hover:border-[var(--border-strong)] hover:text-[var(--text-primary)]',
+                'group flex w-full items-center justify-between gap-3 rounded-[var(--r-lg)] border border-[var(--border-subtle)] bg-[var(--bg-surface)] px-3.5 py-2.5 text-left text-[length:var(--text-12-5)]',
+                'text-[var(--text-secondary)] transition-[background-color,border-color,color] duration-[var(--dur-fast)] ease-[var(--ease-out)]',
+                'hover:border-[var(--border-strong)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]',
               )}
             >
-              {t(key)}
+              <span className="min-w-0">{t(key)}</span>
+              <ArrowUpRight size={13} className="shrink-0 text-[var(--text-quaternary)] transition-colors duration-[var(--dur-fast)] group-hover:text-[var(--accent)]" />
             </button>
           </li>
         ))}
@@ -844,8 +845,9 @@ function Composer({
             void attachFiles(dropped)
           }}
           className={cn(
-            'flex flex-col rounded-[var(--r-lg)] border border-[var(--border-default)] bg-[var(--bg-surface)] p-1.5',
-            'transition-[border-color,box-shadow] duration-[var(--dur-fast)]',
+            'flex flex-col rounded-[var(--r-xl)] border border-[var(--border-default)] bg-[var(--bg-surface)] p-1.5',
+            'shadow-[var(--shadow-sm)]',
+            'transition-[border-color,box-shadow] duration-[var(--dur-fast)] ease-[var(--ease-out)]',
             'focus-within:border-[var(--accent)] focus-within:shadow-[var(--shadow-ring)]',
           )}
         >
@@ -862,13 +864,13 @@ function Composer({
             aria-label={t('assistant.chat.placeholder')}
             placeholder={t('assistant.chat.placeholder')}
             className={cn(
-              'max-h-[180px] min-h-[36px] w-full resize-none bg-transparent px-2 py-1.5 text-[length:var(--text-13-5)] leading-relaxed',
+              'max-h-[180px] min-h-[38px] w-full resize-none bg-transparent px-2 py-2 text-[length:var(--text-13-5)] leading-relaxed',
               'text-[var(--text-primary)] placeholder:text-[var(--text-quaternary)] focus:outline-none',
             )}
           />
-          {/* Seven controls will not fit one line at 360px; wrapping keeps every one of them reachable
-              instead of pushing the send button past the edge of the box. */}
-          <div className="flex min-w-0 flex-wrap items-center gap-1 px-0.5">
+          {/* The row is icons only: five settings, the two ways in for an attachment, dictation and send all
+              share a phone's width, so nothing here carries a word. */}
+          <div className="flex min-w-0 flex-wrap items-center gap-0.5 px-0.5 pt-0.5">
             <PlusMenu
               prompts={quickPrompts}
               onFiles={() => fileRef.current?.click()}
@@ -885,7 +887,7 @@ function Composer({
             <IconButton label={t('assistant.attach.add_file')} size="sm" onClick={() => fileRef.current?.click()} className="size-7 rounded-[var(--r-md)]">
               <Paperclip size={14} />
             </IconButton>
-            <div className="ml-auto flex min-w-0 max-w-full flex-wrap items-center justify-end gap-1">
+            <div className="ml-auto flex min-w-0 max-w-full flex-wrap items-center justify-end gap-0.5">
               {settings && <ApprovalMenu auto={settings.autoApproveWrites} onChange={(next) => void saveSettings({ autoApproveWrites: next })} />}
               {active && (
                 <>
@@ -908,6 +910,7 @@ function Composer({
                 onManage={() => setView('settings')}
                 onVision={(next) => void updateModel(active?.id ?? '', { vision: next })}
               />
+              <Divider vertical className="mx-0.5" />
               <VoiceButton onText={(chunk) => setValue((current) => `${current}${current && !current.endsWith(' ') ? ' ' : ''}${chunk}`)} />
               {streaming ? (
                 <IconButton label={t('assistant.chat.stop')} size="sm" variant="secondary" onClick={onStop} className="size-8 rounded-[var(--r-md)]">

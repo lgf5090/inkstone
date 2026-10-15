@@ -1,11 +1,14 @@
 /**
  * The composer's control row.
  *
- * Each control is a menu anchored to a chip that names what it currently selects, so the state is
- * readable without opening anything: which model answers, how much it is asked to think, how much
- * context it is given, and whether a write waits for a click. All four are per-conversation settings
- * the assistant already stores — the chips are the same switches the settings page has, moved to where
- * the decision is actually made.
+ * Each control is a menu anchored to a bare icon. Five of them share one row with the attachment chips
+ * and the send button, and a word beside each icon pushed the row past the width of the box it sits in:
+ * which model answers, how much it is asked to think, how much context it is given, and whether a write
+ * waits for a click. What each one is set to therefore travels in the accessible name and in the tooltip
+ * a pointer gets, never in a word drawn next to it.
+ *
+ * All four are per-conversation settings the assistant already stores — the chips are the same switches
+ * the settings page has, moved to where the decision is actually made.
  */
 import { useRef, useState } from 'react'
 import {
@@ -30,7 +33,7 @@ import type { AssistantModel, AssistantReasoning } from '@shared/assistant'
 import { CONTEXT_TOKEN_STEPS } from '@shared/assistant'
 import { cn } from '../../lib/cn'
 import { t, type MessageKey } from '../../lib/i18n'
-import { Menu, Modal, prompt, submenuFor, type MenuItem } from '../../components/overlay'
+import { Menu, Modal, Tooltip, prompt, submenuFor, type MenuItem } from '../../components/overlay'
 import { Input } from '../../components/form'
 import { IconButton } from '../../components/primitives'
 
@@ -43,7 +46,6 @@ export function ControlChip({
   active,
   pressed,
   hint,
-  hideValueOnPhone = false,
 }: {
   label: string
   value?: string
@@ -55,33 +57,32 @@ export function ControlChip({
   pressed?: boolean
   /** What the control does, for the pointer that has to hover it to find out. */
   hint?: string
-  /** Icon-only below the small breakpoint, for chips whose words are not needed to act. */
-  hideValueOnPhone?: boolean
 }) {
+  // There is no word on the chip any more, so the name is the only place the current value exists for
+  // anyone reading the row out loud. What a pointer is told is the app's own tooltip rather than the
+  // browser's `title`: the native one waits a second and paints in the operating system's chrome, which
+  // on these five looked like a different application's.
+  const name = value ? `${label}: ${value}` : label
   return (
-    <button
-      ref={refObject}
-      type="button"
-      // An aria-label replaces the chip's text, so the current value has to be carried into the name or
-      // it stops existing for anyone reading the row out loud — which is also the only way a phone, where
-      // the word is hidden to make seven controls fit, keeps telling what a chip is set to.
-      aria-label={value ? `${label}: ${value}` : label}
-      title={hint ?? label}
-      {...(pressed === undefined ? {} : { 'aria-pressed': pressed })}
-      onClick={onClick}
-      className={cn(
-        'flex h-7 max-w-[46%] items-center gap-1 rounded-[var(--r-md)] border px-1.5 text-[length:var(--text-11-5)]',
-        'transition-colors duration-[var(--dur-fast)]',
-        active
-          ? 'border-[var(--accent)] bg-[var(--accent-soft)] text-[var(--accent-on-soft)]'
-          : 'border-transparent text-[var(--text-tertiary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]',
-      )}
-    >
-      <span className="shrink-0">{icon}</span>
-      {/* A phone has ~360px for seven controls, and eight full words pushed the row onto three lines and
-          knocked the send button out of place. The word goes; the value stays in the accessible name. */}
-      {value && <span className={cn('min-w-0 truncate sm:max-w-none', hideValueOnPhone ? 'max-w-0 overflow-hidden' : 'max-w-[58px]')}>{value}</span>}
-    </button>
+    <Tooltip label={hint ?? name}>
+      <button
+        ref={refObject}
+        type="button"
+        aria-label={name}
+        {...(pressed === undefined ? {} : { 'aria-pressed': pressed })}
+        onClick={onClick}
+        className={cn(
+          'inline-flex size-7 shrink-0 items-center justify-center rounded-[var(--r-md)] border border-transparent',
+          'text-[var(--text-tertiary)] transition-[background-color,border-color,color,transform] duration-[var(--dur-fast)] ease-[var(--ease-out)]',
+          'hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)] active:scale-[0.94]',
+          active
+            ? 'border-[var(--accent)] bg-[var(--accent-soft)] text-[var(--accent-on-soft)]'
+            : undefined,
+        )}
+      >
+        {icon}
+      </button>
+    </Tooltip>
   )
 }
 
@@ -170,7 +171,6 @@ export function ReasoningMenu({
       <ControlChip
         refObject={anchor.ref}
         label={t('assistant.composer.thinking')}
-        hideValueOnPhone
         value={t(REASONING_LABELS[value])}
         icon={<Brain size={12} />}
         active={anchor.open}
@@ -213,7 +213,6 @@ export function ContextMenu({
       <ControlChip
         refObject={anchor.ref}
         label={t('assistant.composer.context')}
-        hideValueOnPhone
         value={value === null ? t('assistant.context.follow_global') : formatContext(value)}
         icon={<Gauge size={12} />}
         active={anchor.open}
@@ -243,7 +242,6 @@ export function WebSearchMenu({ value, onChange }: { value: boolean, onChange: (
       active={value}
       pressed={value}
       hint={t('assistant.search.hint')}
-      hideValueOnPhone
       onClick={() => onChange(!value)}
       refObject={SEARCH_REF}
     />
@@ -261,7 +259,6 @@ export function ApprovalMenu({ auto, onChange }: { auto: boolean, onChange: (nex
       <ControlChip
         refObject={anchor.ref}
         label={t('assistant.composer.approval')}
-        hideValueOnPhone
         value={auto ? t('assistant.approval.auto') : t('assistant.approval.ask')}
         icon={<ShieldQuestion size={12} />}
         active={anchor.open}

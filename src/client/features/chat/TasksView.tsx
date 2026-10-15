@@ -14,11 +14,12 @@ import { TASK_PRIORITIES, TASK_STATUSES } from '@shared/assistant'
 import { cn } from '../../lib/cn'
 import { t } from '../../lib/i18n'
 import { formatDue } from './time-format'
-import { Button } from '../../components/primitives'
+import { Badge, Button } from '../../components/primitives'
 import { Field, Input, Segmented, Select, Textarea } from '../../components/form'
 import { DatePicker } from '../../components/date-picker'
 import { Modal, confirm } from '../../components/overlay'
 import { Empty } from '../../components/feedback'
+import { AssistantHeader } from './AssistantHeader'
 import { useAssistant } from './assistant-store'
 
 const TABS = [
@@ -72,15 +73,13 @@ export function TasksView() {
   return (
     <div className="no-scrollbar h-full overflow-y-auto">
       <div className="mx-auto flex w-full max-w-[720px] flex-col gap-4 px-4 py-5 md:px-8">
-        <header>
-          <h2 className="font-serif text-[length:var(--text-18)] font-semibold tracking-[var(--tracking-title)] text-[var(--text-primary)]">
-            {t('assistant.tasks.title')}
-          </h2>
-          <p className="mt-1 text-[length:var(--text-12)] leading-relaxed text-[var(--text-tertiary)]">{t('assistant.tasks.description')}</p>
-        </header>
+        <AssistantHeader title={t('assistant.tasks.title')} description={t('assistant.tasks.description')} />
 
         <Segmented
           size="sm"
+          // A column stretches its children; the filter is a row of its own size, as it is on the pages
+          // beside this one, rather than a bar the width of the list under it.
+          className="self-start"
           label={t('assistant.tasks.filter_label')}
           value={tab}
           onChange={setTab}
@@ -153,17 +152,13 @@ export function TasksView() {
                     )}
                   </button>
                   {(task.priority === 'high' || task.priority === 'urgent') && task.status !== 'done' && (
-                    <span
-                      className={cn(
-                        'mt-0.5 inline-flex shrink-0 items-center gap-1 rounded-full px-1.5 py-px text-[length:var(--text-10)]',
-                        task.priority === 'urgent'
-                          ? 'bg-[var(--danger-soft)] text-[var(--danger)]'
-                          : 'bg-[color-mix(in_oklab,var(--warning)_16%,transparent)] text-[var(--warning)]',
-                      )}
+                    <Badge
+                      tone={task.priority === 'urgent' ? 'danger' : 'warning'}
+                      className="mt-0.5 shrink-0 gap-1"
                     >
                       <Flag size={9} />
                       {PRIORITY_LABELS[task.priority]?.()}
-                    </span>
+                    </Badge>
                   )}
                 </li>
               )

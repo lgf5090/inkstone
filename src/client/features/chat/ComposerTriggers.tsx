@@ -97,14 +97,14 @@ export function TriggerPanel({
       ref={listRef}
       role="listbox"
       aria-label={t(sigil === '@' ? 'assistant.trigger.notes' : sigil === '/' ? 'assistant.trigger.tools' : 'assistant.trigger.scopes')}
-      className="max-h-64 overflow-y-auto rounded-t-[var(--r-lg)] border-x border-t border-[var(--border-default)] bg-[var(--bg-surface)] p-1"
+      className="max-h-64 overflow-y-auto rounded-t-[var(--r-xl)] border-x border-t border-[var(--border-default)] bg-[var(--bg-surface)] p-1 pb-1.5 shadow-[var(--shadow-sm)]"
     >
-      <p className="flex items-center gap-1.5 px-1.5 py-1 text-[length:var(--text-10-5)] text-[var(--text-quaternary)]">
+      <p className="mb-0.5 flex items-center gap-1.5 px-2.5 py-1.5 text-[length:var(--text-10-5)] font-semibold uppercase tracking-[var(--tracking-label)] text-[var(--text-quaternary)]">
         <Icon size={11} />
         {t('assistant.trigger.hint')}
       </p>
-      {busy && <p className="px-2 py-2 text-[length:var(--text-12)] text-[var(--text-quaternary)]">{t('common.loading')}</p>}
-      {!busy && !rows.length && <p className="px-2 py-2 text-[length:var(--text-12)] text-[var(--text-quaternary)]">{t('assistant.trigger.none')}</p>}
+      {busy && <p className="px-2.5 py-2 text-[length:var(--text-12)] text-[var(--text-quaternary)]">{t('common.loading')}</p>}
+      {!busy && !rows.length && <p className="px-2.5 py-2 text-[length:var(--text-12)] text-[var(--text-quaternary)]">{t('assistant.trigger.none')}</p>}
       {rows.map((row, index) => (
         <button
           key={row.id}
@@ -115,15 +115,18 @@ export function TriggerPanel({
           onMouseEnter={() => onHover(index)}
           onClick={() => onPick(row)}
           className={cn(
-            'flex w-full items-center gap-2 rounded-[var(--r-sm)] px-2 py-1.5 text-left text-[length:var(--text-12-5)]',
-            index === activeIndex ? 'bg-[var(--bg-hover)] text-[var(--text-primary)]' : 'text-[var(--text-secondary)]',
+            'flex w-full items-center gap-2 rounded-[var(--r-md)] px-2.5 py-1.5 text-left text-[length:var(--text-12-5)]',
+            'transition-colors duration-[var(--dur-fast)]',
+            index === activeIndex
+              ? 'bg-[var(--accent-soft)] text-[var(--accent-on-soft)]'
+              : 'text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]',
           )}
         >
           <span className="min-w-0 flex-1 truncate">{row.label}</span>
           {row.hint && (
             <span className={cn('shrink-0 text-[length:var(--text-10-5)]', row.danger ? 'text-[var(--warning)]' : 'text-[var(--text-quaternary)]')}>{row.hint}</span>
           )}
-          {index === activeIndex && <Check size={12} className="shrink-0 text-[var(--accent)]" />}
+          {index === activeIndex && <Check size={12} className="shrink-0" />}
         </button>
       ))}
     </div>

@@ -65,7 +65,7 @@ import { exportAssistant, importAssistant } from '../assistant/backup'
 import { suggestActiveModel } from '../assistant/model-config'
 import { listVendorModels } from '../assistant/vendor-models'
 import { memoryEmbeddingStatus, reindexMemoryEmbeddings, semanticModel } from '../assistant/semantic'
-import { reasoningValue } from '@shared/assistant'
+import { MAX_PROVIDER_MODELS, reasoningValue } from '@shared/assistant'
 import {
   CHAT_IMAGE_MAX_BYTES,
   ChatUploadError,
@@ -1164,7 +1164,7 @@ assistantRoutes.post('/providers', async (c) => {
   if (apiKey.length > 4096) throw ApiError.badRequest('That API key is too long to store.')
   const provider = await s.createProvider({ label, protocol, baseUrl, apiKey, endpoints: vetEndpoints(body.endpoints) })
   const models = Array.isArray(body.models) ? body.models : []
-  for (const entry of models.slice(0, 20)) {
+  for (const entry of models.slice(0, MAX_PROVIDER_MODELS)) {
     const model = typeof entry === 'string' ? entry : (entry as { model?: unknown })?.model
     if (typeof model !== 'string' || !model.trim()) continue
     await s.createModel({ providerId: provider.id, model: model.trim().slice(0, 120) })
@@ -1201,6 +1201,27 @@ assistantRoutes.get('/providers/:id/vendor-models', async (c) => {
   const access = await store(c).vendorAccess(requiredId(c.req.param('id')))
   if (!access) throw ApiError.notFound('Provider not found')
   return c.json(await listVendorModels(access.protocol, access.baseUrl, access.apiKey))
+})
+
+/**
+ * The same listing for a provider the form has not saved yet.
+ *
+ * The reader is holding the address and the key in the add form, and the only way to learn what that key
+ * can call used to be saving the provider first and asking afterwards — which left a half-configured row
+ * behind whenever the answer was "those ids do not exist". Nothing is stored here: the two values arrive
+ * in the body, are used for one outbound request, and are not written anywhere.
+ *
+ * The address is vetted here and again inside `listVendorModels`, which is the layer that decides whether
+ * a key may leave the isolate at all — the same double check the stored-provider route gets from
+ * `vendorAccess`, since neither the form nor the database is a trust boundary.
+ */
+assistantRoutes.post('/providers/model-list', async (c) => {
+  const body = await readJson<Record<string, unknown>>(c, JSON_BODY_LIMITS.small)
+  const protocol = asProtocol(body.protocol)
+  const baseUrl = vetBaseUrl(body.baseUrl)
+  const apiKey = typeof body.apiKey === 'string' ? body.apiKey.trim() : ''
+  if (apiKey.length > 4096) throw ApiError.badRequest('That API key is too long to send.')
+  return c.json(await listVendorModels(protocol, baseUrl, apiKey))
 })
 
 assistantRoutes.delete('/providers/:id', async (c) => {

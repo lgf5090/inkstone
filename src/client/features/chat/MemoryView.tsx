@@ -14,10 +14,11 @@ import { api } from '../../lib/api'
 import { t } from '../../lib/i18n'
 import { relativeTime } from '../../lib/time'
 import { useDebounced } from '../../lib/hooks'
-import { Button, IconButton, Spinner } from '../../components/primitives'
+import { Badge, Button, IconButton, Spinner } from '../../components/primitives'
 import { Field, Input, Segmented, Select, Textarea } from '../../components/form'
 import { Modal, confirm } from '../../components/overlay'
 import { Empty } from '../../components/feedback'
+import { AssistantHeader } from './AssistantHeader'
 import { useAssistant } from './assistant-store'
 
 const CATEGORY_LABELS: Record<string, () => string> = {
@@ -93,14 +94,10 @@ export function MemoryView() {
   return (
     <div className="no-scrollbar h-full overflow-y-auto">
       <div className="mx-auto flex w-full max-w-[720px] flex-col gap-4 px-4 py-5 md:px-8">
-        <header>
-          <h2 className="font-serif text-[length:var(--text-18)] font-semibold tracking-[var(--tracking-title)] text-[var(--text-primary)]">
-            {t('assistant.memory.title')}
-          </h2>
-          <p className="mt-1 text-[length:var(--text-12)] leading-relaxed text-[var(--text-tertiary)]">
-            {t('assistant.memory.description', { count: total })}
-          </p>
-        </header>
+        <AssistantHeader
+          title={t('assistant.memory.title')}
+          description={t('assistant.memory.description', { count: total })}
+        />
 
         <div className="flex flex-col gap-2 md:flex-row md:items-center">
           <Segmented
@@ -115,14 +112,16 @@ export function MemoryView() {
                 : `${t(entry.label)} ${entry.value === 'active' ? counts.active : entry.value === 'historical' ? counts.historical : counts.review}`,
             }))}
           />
-          <div className="relative min-w-0 flex-1">
-            <Search size={13} className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-[var(--text-quaternary)]" />
+          {/* The box is the shared field; the wrapper is what gives it the row's remaining width, because
+              the field hands its own `className` to the `<input>` rather than to the box around it. */}
+          <div className="min-w-0 flex-1">
             <Input
               value={draft}
               onChange={(event) => setDraft(event.target.value)}
               placeholder={t('assistant.memory.search')}
               aria-label={t('assistant.memory.search')}
-              className="h-8 pl-8 text-[length:var(--text-12)]"
+              leading={<Search size={13} />}
+              className="h-8 text-[length:var(--text-12)]"
             />
           </div>
           <Button size="sm" variant="primary" icon={<Plus size={14} />} onClick={() => setEditing('new')}>
@@ -175,12 +174,12 @@ export function MemoryView() {
               </p>
               <ul className="overflow-hidden rounded-[var(--r-lg)] border border-[var(--border-subtle)] bg-[var(--bg-surface)]">
                 {items.map((memory) => (
-                  <li key={memory.id} className="group flex items-start gap-2 border-b border-[var(--border-subtle)] px-3 py-2 last:border-b-0">
+                  <li key={memory.id} className="group flex items-start gap-2 border-b border-[var(--border-subtle)] px-3 py-2 transition-colors duration-[var(--dur-fast)] last:border-b-0 hover:bg-[var(--bg-hover)]">
                     <div className="min-w-0 flex-1">
                       <p className={memory.status === 'historical' ? 'text-[length:var(--text-13)] leading-relaxed text-[var(--text-tertiary)]' : 'text-[length:var(--text-13)] leading-relaxed text-[var(--text-primary)]'}>
                         {memory.content}
-                        {memory.status === 'historical' && <span className="ml-1.5 rounded-full bg-[var(--bg-inset)] px-1.5 py-px text-[length:var(--text-10)] text-[var(--text-quaternary)]">{t('assistant.memory.past')}</span>}
-                        {memory.status === 'uncertain' && <span className="ml-1.5 rounded-full bg-[color-mix(in_oklab,var(--warning)_16%,transparent)] px-1.5 py-px text-[length:var(--text-10)] text-[var(--warning)]">{t('assistant.memory.unsure')}</span>}
+                        {memory.status === 'historical' && <Badge className="ml-1.5 align-[0.1em]">{t('assistant.memory.past')}</Badge>}
+                        {memory.status === 'uncertain' && <Badge tone="warning" className="ml-1.5 align-[0.1em]">{t('assistant.memory.unsure')}</Badge>}
                       </p>
                       <p className="mt-0.5 text-[length:var(--text-10-5)] text-[var(--text-quaternary)]">
                         {t(memory.source === 'assistant' ? 'assistant.memory.source_agent' : memory.source === 'import' ? 'assistant.memory.source_import' : 'assistant.memory.source_manual')}
