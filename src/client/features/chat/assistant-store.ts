@@ -267,8 +267,14 @@ interface AssistantState {
    * already reads, so a listing looks the same whether the row exists or is still being typed.
    */
   loadDraftVendorModels: (input: { protocol: string, baseUrl: string, apiKey: string }) => Promise<void>
-  /** Adds every id the reader ticked; returns how many landed, so the dialog can say so. */
-  addVendorModels: (providerId: string, ids: string[]) => Promise<number>
+  /**
+   * Makes this provider's vendor-listed models match exactly what was ticked: the ids that are missing are
+   * created, and the ones the vendor listed but the reader unticked are deleted.
+   *
+   * A model the reader typed in by hand is not the dialog's to delete — it is not in the vendor's listing,
+   * so an untick cannot name it — and it is left alone even when it is not in the ticked set.
+   */
+  syncVendorModels: (providerId: string, ids: string[]) => Promise<{ added: number, removed: number }>
 }
 
 let inflight: AbortController | null = null
@@ -1400,20 +1406,35 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
     }
   },
 
-  addVendorModels: async (providerId, ids) => {
+  syncVendorModels: async (providerId, ids) => {
+    const listed = new Set(get().vendorModels.map((entry) => entry.id))
+    const wanted = new Set(ids)
+    const mine = get().models.filter((model) => model.providerId === providerId)
     let added = 0
-    for (const id of ids) {
-      const listed = get().vendorModels.find((entry) => entry.id === id)
+    for (const id of wanted) {
+      if (mine.some((model) => model.model === id)) continue
+      const entry = get().vendorModels.find((candidate) => candidate.id === id)
       try {
-        await api.assistant.createModel({ providerId, model: id, ...(listed ? { label: listed.label } : {}) })
+        await api.assistant.createModel({ providerId, model: id, ...(entry ? { label: entry.label } : {}) })
         added += 1
       } catch (error) {
         // One id the route refuses must not lose the ones the reader also ticked.
         toast(error)
       }
     }
-    if (added) await get().loadSettings()
-    return added
+    let removed = 0
+    for (const model of mine) {
+      if (!listed.has(model.model) || wanted.has(model.model)) continue
+      try {
+        await api.assistant.deleteModel(model.id)
+        removed += 1
+      } catch (error) {
+        // The same rule as above: one refusal must not stop the rest of the selection.
+        toast(error)
+      }
+    }
+    if (added || removed) await get().loadSettings()
+    return { added, removed }
   },
 
   updateModel: async (id, body) => {

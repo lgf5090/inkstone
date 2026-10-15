@@ -218,8 +218,12 @@ export function ModelTab({ settings }: { settings: AssistantSettings }) {
       {picking && (
         <ModelPickerDialog
           provider={picking}
-          onAdded={(count) => {
-            if (count) toast({ title: t('assistant.picker.added', { count }) })
+          onSynced={({ added, removed }) => {
+            // One line either way: the two numbers are the same save, and the reader asked for a set, not
+            // for two operations.
+            if (added && removed) toast({ title: t('assistant.picker.synced', { added, removed }) })
+            else if (added) toast({ title: t('assistant.picker.added', { count: added }) })
+            else if (removed) toast({ title: t('assistant.picker.removed', { count: removed }) })
           }}
           onClose={() => setPicking(null)}
           onCustom={() => {

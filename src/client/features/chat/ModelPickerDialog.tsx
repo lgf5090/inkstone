@@ -6,10 +6,11 @@
  * filters over that list — a service answers with hundreds of ids and the one they want is named something
  * like `deepseek-v3.2-exp`, so the list has to be narrowed without leaving the dialog.
  *
- * It opens in two situations that differ only in where the answer goes: on a saved provider, where the
- * ticks become model rows, and on the add form's unsaved address and key, where they come back as ids for
- * the reader to confirm before anything is created. The list, the filters and the count are the same work
- * in both, which is why the second case is a mode here rather than a second dialog in the form.
+ * It opens in two situations that differ only in where the answer goes: on a saved provider, where the save
+ * makes that provider's row match the ticks — adding what was ticked and dropping what was unticked — and on
+ * the add form's unsaved address and key, where they come back as ids for the reader to confirm before anything
+ * is created. The list, the filters and the count are the same work in both, which is why the second case is a
+ * mode here rather than a second dialog in the form.
  */
 import { useEffect, useMemo, useState } from 'react'
 import { Check, RefreshCw, Search } from 'lucide-react'
@@ -52,14 +53,15 @@ export function pickerRows(
 
 export type PickerDraft = { protocol: string, baseUrl: string, apiKey: string, label: string }
 
-export function ModelPickerDialog({ provider, draft, existing, onAdded, onPicked, onClose, onCustom }: {
+export function ModelPickerDialog({ provider, draft, existing, onSynced, onPicked, onClose, onCustom }: {
   /** A saved provider: the ticks are written to it when the footer is pressed. */
   provider?: AssistantProvider
   /** An unsaved one: the listing is asked for with this key, and the ticks come back as ids. */
   draft?: PickerDraft
   /** Ids a form is already holding, so a row the reader typed can say so. */
   existing?: string[]
-  onAdded?: (count: number) => void
+  /** What the save did, so the screen behind can say it: two numbers, because an untick removes. */
+  onSynced?: (result: { added: number, removed: number }) => void
   onPicked?: (ids: string[]) => void
   onClose: () => void
   onCustom?: () => void
@@ -70,7 +72,7 @@ export function ModelPickerDialog({ provider, draft, existing, onAdded, onPicked
   const error = useAssistant((state) => state.vendorModelsError)
   const load = useAssistant((state) => state.loadVendorModels)
   const loadDraft = useAssistant((state) => state.loadDraftVendorModels)
-  const addVendorModels = useAssistant((state) => state.addVendorModels)
+  const syncVendorModels = useAssistant((state) => state.syncVendorModels)
   const [query, setQuery] = useState('')
   const [family, setFamily] = useState<string | null>(null)
   const [onlyNew, setOnlyNew] = useState(false)
@@ -87,12 +89,31 @@ export function ModelPickerDialog({ provider, draft, existing, onAdded, onPicked
   }, [provider, draftProtocol, draftBaseUrl, draftApiKey, load, loadDraft])
 
   const owned: readonly (AssistantModel | string)[] = draft ? existing ?? [] : models
+  // The ticks open as what is held — the form's ids, or the models that came from this vendor's own list —
+  // because the ticked set is the one the footer makes true, and an untick is how a model the vendor no
+  // longer offers, or a preset that guessed at an id, leaves the account. A model typed in by hand is not
+  // in the listing, so an untick cannot name it and the save leaves it alone.
+  const held = useMemo(
+    () => draft
+      ? listed.filter((entry) => (existing ?? []).includes(entry.id)).map((entry) => entry.id)
+      : models.filter((model) => model.providerId === provider?.id && listed.some((entry) => entry.id === model.model)).map((model) => model.model),
+    [listed, draft, existing, models, provider],
+  )
+  // Seeded per listing, not per render: the reader's ticks must survive an unrelated settings reload, and
+  // a fresh listing is the one moment the ticks are known to be stale.
+  const [seeded, setSeeded] = useState<AssistantVendorModel[] | null>(null)
+  if (listed !== seeded) {
+    setSeeded(listed)
+    setPicked(held)
+  }
   const rows = useMemo(
     () => pickerRows(listed, owned, query, family, onlyNew),
     // The filter reads the reading table, so a listing that lands before the dictionary does must be rebuilt.
     [listed, owned, query, family, onlyNew, pinyinVersion],
   )
   const families = useMemo(() => vendorFamilies(listed), [listed])
+  const adds = picked.filter((id) => !held.includes(id)).length
+  const removes = held.filter((id) => !picked.includes(id)).length
   // Ticking past the cap is refused where the reader does it, rather than dropped by the route afterwards.
   const full = draft ? picked.length >= MAX_PROVIDER_MODELS : false
   const toggle = (id: string) => setPicked((current) => {
@@ -114,10 +135,10 @@ export function ModelPickerDialog({ provider, draft, existing, onAdded, onPicked
     }
     if (!provider) return
     setBusy(true)
-    const count = await addVendorModels(provider.id, picked)
+    const result = await syncVendorModels(provider.id, picked)
     setBusy(false)
-    onAdded?.(count)
-    if (count) onClose()
+    onSynced?.(result)
+    if (result.added || result.removed) onClose()
   }
 
   return (
@@ -217,12 +238,21 @@ export function ModelPickerDialog({ provider, draft, existing, onAdded, onPicked
               {t('assistant.picker.cap', { count: MAX_PROVIDER_MODELS })}
             </span>
           )}
+          {!draft && (adds > 0 || removes > 0) && (
+            // What the footer is about to do, said in the two numbers the save reports: a saved provider's
+            // checklist changes in both directions, and "add 2" alone would hide the row it is deleting.
+            <span className="text-[length:var(--text-11)] text-[var(--text-quaternary)]">
+              {adds > 0 && t('assistant.picker.add', { count: adds })}
+              {adds > 0 && removes > 0 && ' · '}
+              {removes > 0 && t('assistant.picker.remove', { count: removes })}
+            </span>
+          )}
           <div className="flex-1" />
           <Button variant="secondary" onClick={onClose}>{t('common.cancel')}</Button>
-          <Button variant="primary" disabled={!picked.length || busy} onClick={() => void submit()}>
+          <Button variant="primary" disabled={(!draft && adds + removes === 0) || (draft && !picked.length) || busy} onClick={() => void submit()}>
             {draft
               ? t('assistant.picker.use', { count: picked.length })
-              : t('assistant.picker.add', { count: picked.length })}
+              : t('assistant.picker.apply')}
           </Button>
         </div>
       </div>

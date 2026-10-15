@@ -3,8 +3,8 @@
  * The picker that turns a vendor's listing into the reader's models.
  *
  * Two halves are pinned: the filter over the list (search, "not added yet", the families the account
- * actually reports), and the drive — ticking rows has to reach the store with exactly those ids, and a
- * listing that failed must leave the manual entry reachable rather than an empty dialog.
+ * actually reports), and the drive — the ticks have to reach the store as the set the provider is made to
+ * match, and a listing that failed must leave the manual entry reachable rather than an empty dialog.
  */
 import { act, createElement } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
@@ -24,6 +24,7 @@ vi.mock('../../lib/api', () => ({
     assistant: {
       vendorModels: vi.fn(async () => ({ ok: true, error: null, models: [] })),
       createModel: vi.fn(async (body: Record<string, unknown>) => ({ model: body })),
+      deleteModel: vi.fn(async () => ({ deleted: true })),
       settings: vi.fn(async () => ({ settings: {}, models: [] })),
     },
   },
@@ -78,7 +79,7 @@ beforeEach(async () => {
     vendorModelsError: null,
     vendorModelsLoading: false,
     loadVendorModels: vi.fn(async () => undefined),
-    addVendorModels: vi.fn(async () => 2),
+    syncVendorModels: vi.fn(async () => ({ added: 2, removed: 0 })),
   })
 })
 
@@ -111,7 +112,7 @@ describe('the list the picker shows', () => {
 
 describe('the dialog', () => {
   async function openDialog() {
-    const props = { provider: PROVIDER, onAdded: vi.fn(), onClose: vi.fn(), onCustom: vi.fn() }
+    const props = { provider: PROVIDER, onSynced: vi.fn(), onClose: vi.fn(), onCustom: vi.fn() }
     await act(async () => { root.render(createElement(ModelPickerDialog, props)) })
     return props
   }
@@ -127,18 +128,38 @@ describe('the dialog', () => {
     expect(useAssistant.getState().loadVendorModels).toHaveBeenCalledWith('p1')
   })
 
-  it('hands exactly the ticked ids to the store', async () => {
+  it('opens holding the models this provider already has, and hands the whole set to the store', async () => {
     await openDialog()
     expect(rows()).toHaveLength(3)
+    // The row's own model is ticked, so the save is what makes the listing and the account agree.
+    expect(rowFor('deepseek-chat')?.getAttribute('aria-checked')).toBe('true')
     await click(rowFor('deepseek-reasoner'))
     await click(rowFor('other-model'))
     expect(rowFor('deepseek-reasoner')?.getAttribute('aria-checked')).toBe('true')
+    expect(document.body.textContent).toContain(t('assistant.picker.add', { count: 2 }))
     // A second press takes the tick back off, or a mis-click could not be undone.
     await click(rowFor('deepseek-reasoner'))
     expect(rowFor('deepseek-reasoner')?.getAttribute('aria-checked')).toBe('false')
+    expect(document.body.textContent).toContain(t('assistant.picker.add', { count: 1 }))
+    // Unticking a row the account has is a removal, and the footer says so in its own number.
+    await click(rowFor('deepseek-chat'))
+    expect(document.body.textContent).toContain(`${t('assistant.picker.add', { count: 1 })} · ${t('assistant.picker.remove', { count: 1 })}`)
+    await click(rowFor('deepseek-chat'))
     await click(rowFor('deepseek-reasoner'))
-    await click(buttons().find((node) => node.textContent?.includes(t('assistant.picker.add', { count: 2 }))))
-    expect(useAssistant.getState().addVendorModels).toHaveBeenCalledWith('p1', ['other-model', 'deepseek-reasoner'])
+    await click(buttons().find((node) => node.textContent?.includes(t('assistant.picker.apply'))))
+    expect(useAssistant.getState().syncVendorModels)
+      .toHaveBeenCalledWith('p1', ['other-model', 'deepseek-chat', 'deepseek-reasoner'])
+  })
+
+  it('cannot be pressed until a tick would change something', async () => {
+    const props = await openDialog()
+    const apply = () => buttons().find((node) => node.textContent?.trim() === t('assistant.picker.apply'))
+    expect(apply()?.hasAttribute('disabled')).toBe(true)
+    await click(rowFor('deepseek-reasoner'))
+    expect(apply()?.hasAttribute('disabled')).toBe(false)
+    await click(rowFor('deepseek-reasoner'))
+    expect(apply()?.hasAttribute('disabled')).toBe(true)
+    expect(props.onSynced, 'nothing was asked for').not.toHaveBeenCalled()
   })
 
   it('narrows the list as the reader types', async () => {
@@ -179,9 +200,9 @@ describe('the same dialog on a provider the form has not saved', () => {
     // An id the form is already holding is marked, so the reader does not add it twice.
     expect(rowFor('deepseek-chat')?.textContent).toContain(t('assistant.picker.already'))
     await click(rowFor('deepseek-reasoner'))
-    await click(buttons().find((node) => node.textContent?.includes(t('assistant.picker.use', { count: 1 }))))
-    expect(onPicked).toHaveBeenCalledWith(['deepseek-reasoner'])
-    expect(useAssistant.getState().addVendorModels, 'nothing may be written before the provider exists').not.toHaveBeenCalled()
+    await click(buttons().find((node) => node.textContent?.includes(t('assistant.picker.use', { count: 2 }))))
+    expect(onPicked).toHaveBeenCalledWith(['deepseek-chat', 'deepseek-reasoner'])
+    expect(useAssistant.getState().syncVendorModels, 'nothing may be written before the provider exists').not.toHaveBeenCalled()
   })
 
   it('stops at the cap the create call honours, so no tick is dropped afterwards', async () => {
@@ -200,16 +221,25 @@ describe('the same dialog on a provider the form has not saved', () => {
   })
 })
 
-describe('adding what was ticked', () => {
-  it('posts each id once with the vendor’s label, and keeps going past a refusal', async () => {
-    useAssistant.setState({ ...original, models: [], vendorModels: LISTED, loadSettings: vi.fn(async () => undefined) }, true)
+describe('making the account match the ticks', () => {
+  it('posts each missing id once with the vendor’s label, drops the unticked one, and keeps going past a refusal', async () => {
+    useAssistant.setState({
+      ...original,
+      models: [model('m1', 'deepseek-chat'), model('m2', 'hand-typed')],
+      vendorModels: LISTED,
+      loadSettings: vi.fn(async () => undefined),
+    }, true)
     vi.mocked(api.assistant.createModel).mockImplementationOnce(async () => {
       throw new Error('duplicate')
     })
-    const added = await useAssistant.getState().addVendorModels('p1', ['deepseek-chat', 'deepseek-reasoner'])
-    expect(added).toBe(1)
+    const result = await useAssistant.getState().syncVendorModels('p1', ['deepseek-reasoner', 'other-model'])
+    expect(result).toEqual({ added: 1, removed: 1 })
     expect(api.assistant.createModel).toHaveBeenCalledTimes(2)
     expect(vi.mocked(api.assistant.createModel).mock.calls[1]?.[0])
-      .toMatchObject({ providerId: 'p1', model: 'deepseek-reasoner', label: 'DeepSeek Reasoner' })
+      .toMatchObject({ providerId: 'p1', model: 'other-model', label: 'other-model' })
+    // The unticked id is one the vendor listed, so the account drops it — and the id the reader typed in
+    // is not the listing's to name, so it stays.
+    expect(api.assistant.deleteModel).toHaveBeenCalledTimes(1)
+    expect(api.assistant.deleteModel).toHaveBeenCalledWith('m1')
   })
 })
