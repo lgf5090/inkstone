@@ -880,14 +880,24 @@ export const PROVIDER_PRESETS: readonly { id: string, label: string, protocol: A
   { id: 'openai', label: 'OpenAI', protocol: 'openai', baseUrl: 'https://api.openai.com/v1', models: ['gpt-4o-mini', 'gpt-4.1-mini'] },
   { id: 'anthropic', label: 'Anthropic', protocol: 'anthropic', baseUrl: 'https://api.anthropic.com/v1', models: ['claude-sonnet-4-5', 'claude-haiku-4-5'] },
   { id: 'gemini', label: 'Google Gemini', protocol: 'gemini', baseUrl: 'https://generativelanguage.googleapis.com/v1beta', models: ['gemini-2.5-flash', 'gemini-2.5-pro'] },
+  { id: 'groq', label: 'Groq', protocol: 'openai', baseUrl: 'https://api.groq.com/openai/v1', models: ['llama-3.3-70b-versatile', 'openai/gpt-oss-120b'] },
+  { id: 'mistral', label: 'Mistral AI', protocol: 'openai', baseUrl: 'https://api.mistral.ai/v1', models: ['mistral-large-latest', 'mistral-small-latest'] },
+  { id: 'xai', label: 'xAI', protocol: 'openai', baseUrl: 'https://api.x.ai/v1', models: ['grok-4.7', 'grok-4.6'] },
   { id: 'kimi', label: 'Kimi (Moonshot)', protocol: 'openai', baseUrl: 'https://api.moonshot.cn/v1', models: ['moonshot-v1-8k', 'kimi-latest'] },
   { id: 'qwen', label: 'Qwen (DashScope)', protocol: 'openai', baseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1', models: ['qwen-plus', 'qwen-turbo'] },
   { id: 'openrouter', label: 'OpenRouter', protocol: 'openai', baseUrl: 'https://openrouter.ai/api/v1', models: ['deepseek/deepseek-chat'] },
   // The eight below were added after checking each vendor's own documentation for the address and the
   // ids; a preset whose address was guessed is worse than no preset, because the reader has no reason to
-  // doubt it. Vendors whose documentation could not be read (Groq, Mistral, xAI) are deliberately absent
-  // rather than filled in from memory — their addresses can still be typed, and the add form can ask the
-  // provider what the key calls once the address and key are in.
+  // doubt it.
+  //
+  // Groq, Mistral and xAI sit above that line because their own pages could not be opened from a build
+  // machine (403 or a timeout), so only what those pages say about themselves in the search index could be
+  // read: Groq's OpenAI-compatibility page names `https://api.groq.com/openai/v1` as its base URL and the
+  // same page's `…/openai/v1/models` as the listing, Mistral's reference answers under `/v1`, and x.ai's
+  // own API page names `https://api.x.ai/v1`. The ids beside them come from a public catalogue of the same
+  // listings rather than from a page this machine could read. The address is the half a preset has to get
+  // right — the listing, which the add form can ask for before anything is saved, is what replaces the
+  // ids — so a wrong address is the one mistake worth refusing to guess at.
   { id: 'siliconflow', label: 'SiliconFlow', protocol: 'openai', baseUrl: 'https://api.siliconflow.com/v1', models: ['Qwen/Qwen3-32B', 'deepseek-ai/DeepSeek-V4-Flash'] },
   { id: 'zhipu', label: 'Zhipu GLM', protocol: 'openai', baseUrl: 'https://open.bigmodel.cn/api/paas/v4', models: ['glm-5.3'] },
   { id: 'minimax', label: 'MiniMax', protocol: 'openai', baseUrl: 'https://api.minimax.io/v1', models: ['MiniMax-M3', 'MiniMax-M2.7'] },
