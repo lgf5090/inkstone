@@ -25,11 +25,11 @@ export interface ChatAnchor { id: string, text: string }
 /**
  * How many turns a thread needs before a rail earns its place.
  *
- * Two ticks side by side are a scrollbar the reader can already see, and the panel would list the two
- * messages on the screen in front of them; three is the first count where a jump saves the reader
- * anything.
+ * One tick is a scrollbar with a single stop and nothing to choose between, so a thread that holds a
+ * single turn draws nothing: the outline appears with the second, which is the first pair a jump can
+ * save the reader from scrolling between — and the first thread whose rail a reader may look for.
  */
-const MIN_ANCHORS = 3
+const MIN_ANCHORS = 2
 
 /**
  * How far below the top of the thread a turn counts as the one being read.

@@ -945,7 +945,6 @@ const allowed = new Map([
   ["src/client/features/chat/ChatOutline.tsx", [
     "/**\n * Where the reader is in a conversation, and how to get back to any of it.\n *\n * A thread has no headings to navigate by — its structure is the reader's own turns — so the outline is\n * built from those. The rail is a tick per turn with the one being read marked, and the panel names them\n * so a jump can be chosen by what was asked rather than by how far down a scrollbar it sits. The label is\n * the same `titleFromMessage` the conversation list uses on its first turn, so a thread's name in the\n * sidebar and its first row here are one phrase rather than two truncations of it.\n *\n * The rows the panel lists are read out of the DOM rather than handed over as offsets: the thread is a\n * flex column whose heights change as answers stream in, and a measured rectangle is the only thing that\n * stays true through that. Each turn's row carries `data-chat-anchor`, which is the id the runner stored\n * it under, so the jump lands on the row the server knows by the same name.\n */",
     "/** One turn the reader wrote, as the panel names it. */",
-    "/**\n * How many turns a thread needs before a rail earns its place.\n *\n * Two ticks side by side are a scrollbar the reader can already see, and the panel would list the two\n * messages on the screen in front of them; three is the first count where a jump saves the reader\n * anything.\n */",
     "/**\n * How far below the top of the thread a turn counts as the one being read.\n *\n * A turn whose own top has passed this line has gone behind the reader, and the last such turn is the one\n * the thread is showing — matching the row to the line exactly would flicker between two turns while a\n * streamed answer changes the height above them.\n */",
     "// Nothing has passed the line yet — the thread is above its own first turn — so the rail marks the",
     "// turn that is about to be read rather than nothing at all.",
@@ -960,6 +959,7 @@ const allowed = new Map([
     "// not tell them apart, so a press over a hovered rail read as \"close\" and the button did nothing.",
     "// Escape closes the panel the reader opened, not the surface behind it, and closes it even while",
     "// the pointer is still on the rail — the key is taken here and nowhere else.",
+    "/**\n * How many turns a thread needs before a rail earns its place.\n *\n * One tick is a scrollbar with a single stop and nothing to choose between, so a thread that holds a\n * single turn draws nothing: the outline appears with the second, which is the first pair a jump can\n * save the reader from scrolling between — and the first thread whose rail a reader may look for.\n */",
   ]],
   ["src/client/features/chat/ChatTaxonomy.tsx", [
     "/** Every folder id that contains this one, roots first — used to keep an open branch visible. */",

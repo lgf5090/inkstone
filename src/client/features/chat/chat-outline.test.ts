@@ -98,8 +98,13 @@ const marked = () => document.body.querySelector('nav button[aria-current="true"
 
 describe('the conversation outline', () => {
   it('stays out of the way until a thread has turns worth navigating', () => {
+    thread({ m1: 0 }, three.slice(0, 1))
+    expect(toggle(), 'a rail was drawn for a single turn').toBeUndefined()
+  })
+
+  it('appears with the second turn, which is the first pair a jump can choose between', () => {
     thread({ m1: 0, m2: 400 }, three.slice(0, 2))
-    expect(toggle(), 'a rail was drawn for two turns').toBeUndefined()
+    expect(toggle()).toBeTruthy()
   })
 
   it('opens from its own button and lists the reader\'s turns in the order they were asked', () => {
