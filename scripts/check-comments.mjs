@@ -960,6 +960,11 @@ const allowed = new Map([
     "// Escape closes the panel the reader opened, not the surface behind it, and closes it even while",
     "// the pointer is still on the rail — the key is taken here and nowhere else.",
     "/**\n * How many turns a thread needs before a rail earns its place.\n *\n * One tick is a scrollbar with a single stop and nothing to choose between, so a thread that holds a\n * single turn draws nothing: the outline appears with the second, which is the first pair a jump can\n * save the reader from scrolling between — and the first thread whose rail a reader may look for.\n */",
+    "// The rows are gathered once per set of turns rather than once per scroll: `anchors` is rebuilt at",
+    "// exactly the moments the thread's rows change.",
+    "// They stand in one column in the order they were written, so their tops never go backwards: the",
+    "// last row past the line is found by halving the list, which costs a thread of two hundred turns",
+    "// eight measured rectangles per scroll instead of two hundred.",
   ]],
   ["src/client/features/chat/ChatTaxonomy.tsx", [
     "/** Every folder id that contains this one, roots first — used to keep an open branch visible. */",
@@ -1270,6 +1275,9 @@ const allowed = new Map([
     "/**\n * A pointer arriving on a node, as React reads it.\n *\n * `onMouseEnter` is synthesized from a delegated `mouseover` whose `relatedTarget` sits outside the React\n * root, so the movement is always stated as coming from the page rather than from a sibling node.\n */",
     "// The second turn is now just under the top of the page: the reader has moved past the first answer.",
     "// A press on a hovered rail has to hold, not fold: the reader pressed it to keep it.",
+    "// A thread long enough that a scan per scroll would be felt: two hundred turns, a hundred pixels apart.",
+    "// The line sits 24px into a thread whose rows are a hundred apart, so the fiftieth turn is the one the",
+    "// page is on — and the search reads eight boxes to find it rather than all two hundred.",
   ]],
   ["src/client/features/chat/chat-taxonomy.test.ts", [
     "/**\n * The conversation list's four pickers live in one tab container, the same shape the notebook's sidebar\n * uses. What is pinned here is the coupling between the strip and the panel: exactly one tab is\n * selected, the panel answers to that tab, and the two shortlists reach the store's flag endpoints\n * rather than re-reading the whole conversation list.\n */",

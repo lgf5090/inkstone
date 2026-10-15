@@ -55,15 +55,29 @@ export function ChatOutline({ anchors, scrollerRef }: {
   useEffect(() => {
     const scroller = scrollerRef.current
     if (!scroller) return
+    // The rows are gathered once per set of turns rather than once per scroll: `anchors` is rebuilt at
+    // exactly the moments the thread's rows change.
+    const rows = [...scroller.querySelectorAll<HTMLElement>('[data-chat-anchor]')]
     const measure = () => {
       const line = scroller.getBoundingClientRect().top + READING_LINE
-      let current: string | null = null
-      for (const row of scroller.querySelectorAll<HTMLElement>('[data-chat-anchor]')) {
-        if (row.getBoundingClientRect().top <= line) current = row.dataset.chatAnchor ?? current
+      // They stand in one column in the order they were written, so their tops never go backwards: the
+      // last row past the line is found by halving the list, which costs a thread of two hundred turns
+      // eight measured rectangles per scroll instead of two hundred.
+      let low = 0
+      let high = rows.length - 1
+      let current: HTMLElement | null = null
+      while (low <= high) {
+        const middle = (low + high) >> 1
+        if (rows[middle]!.getBoundingClientRect().top <= line) {
+          current = rows[middle]!
+          low = middle + 1
+        } else {
+          high = middle - 1
+        }
       }
       // Nothing has passed the line yet — the thread is above its own first turn — so the rail marks the
       // turn that is about to be read rather than nothing at all.
-      setActiveId(current ?? anchors[0]?.id ?? null)
+      setActiveId(current?.dataset.chatAnchor ?? anchors[0]?.id ?? null)
     }
     measure()
     // A scroll, a resize and a landed answer all move the line without touching this component.

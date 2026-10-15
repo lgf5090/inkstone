@@ -146,6 +146,27 @@ describe('the conversation outline', () => {
     expect(marked()).toBe(titleFromMessage(SECOND))
   })
 
+  it('halves the turn list instead of measuring every row on the way to the one being read', () => {
+    // A thread long enough that a scan per scroll would be felt: two hundred turns, a hundred pixels apart.
+    const many = Array.from({ length: 200 }, (_, index) => ({ id: `m${index}`, text: `Turn ${index}` }))
+    const tops = Object.fromEntries(many.map((turn, index) => [turn.id, index * 100 - 5_000]))
+    const scroller = thread(tops, many)
+    act(() => { toggle()!.click() })
+    let measured = 0
+    for (const row of scroller.querySelectorAll<HTMLElement>('[data-chat-anchor]')) {
+      const box = row.getBoundingClientRect.bind(row)
+      row.getBoundingClientRect = () => {
+        measured += 1
+        return box()
+      }
+    }
+    scroll(scroller)
+    // The line sits 24px into a thread whose rows are a hundred apart, so the fiftieth turn is the one the
+    // page is on — and the search reads eight boxes to find it rather than all two hundred.
+    expect(marked()).toBe(titleFromMessage(many[50]!.text))
+    expect(measured).toBeLessThanOrEqual(8)
+  })
+
   it('lands a chosen turn just below the top of the thread', () => {
     const scroller = thread({ m1: 0, m2: 400, m3: 900 }, three)
     const scrollTo = vi.fn()
