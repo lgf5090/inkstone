@@ -8,7 +8,7 @@ import { act, createElement } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { AssistantModel } from '@shared/assistant'
-import { CONTEXT_WINDOW_STEPS, TOKEN_STEPS, formatTokenStep } from '@shared/assistant'
+import { CONTEXT_WINDOW_STEPS, DEFAULT_LIMITS, TOKEN_STEPS, formatTokenStep } from '@shared/assistant'
 import { initI18n, t } from '../../lib/i18n'
 import { installTestGlobals } from '../../lib/test-render'
 import { ModelEditorDialog, draftFromModel } from './ModelEditorDialog'
@@ -66,7 +66,7 @@ const press = (node: HTMLElement | undefined, name: string) => {
     act(() => { node!.click() })
 }
 
-function open(over: Partial<AssistantModel> = {}) {
+function open(over: Partial<AssistantModel> = {}, limits = DEFAULT_LIMITS) {
     const host = document.createElement('div')
     document.body.appendChild(host)
     root = createRoot(host)
@@ -75,6 +75,7 @@ function open(over: Partial<AssistantModel> = {}) {
         root.render(createElement(ModelEditorDialog, {
             model: model(over),
             providerLabel: 'DeepSeek',
+            limits: limits,
             onClose: () => undefined,
             onSave: saved,
         }))
@@ -159,6 +160,14 @@ describe('leaving a token number unset', () => {
         expect(saved.mock.calls[0]?.[0].maxOutputTokens).toBe(null)
         expect(saved.mock.calls[0]?.[0].contextTokens).toBe(null)
         expect(saved.mock.calls[0]?.[0].maxInputTokens).toBe(null)
+    })
+
+    it('names the ceiling the model would inherit while its own field is empty', () => {
+        // The two account numbers are read off the same row, so the panel has to draw what they add up to:
+        // an empty field inherits the assistant's ceiling, and a filled one is this model's own.
+        open({ maxOutputTokens: null, maxInputTokens: 65_536 }, DEFAULT_LIMITS)
+        expect(document.body.textContent).toContain(t('assistant.model.value_inherited', { tokens: formatTokenStep(DEFAULT_LIMITS.maxOutputTokens) }))
+        expect(document.body.textContent).toContain(t('assistant.model.value_own'))
     })
 
     it('clears a number by pressing the preset that is already taken', () => {

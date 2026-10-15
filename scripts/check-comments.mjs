@@ -860,6 +860,10 @@ const allowed = new Map([
     "// The three ceilings a model may leave unset, in the order the model editor draws them, then the ones",
     "// that shape a turn. Each of the three answers for a model that has not set its own, which is what makes",
     "// \"Not set\" a real choice beside a model rather than a number that silently became a default.",
+    "/**\n * The field of a model that answers to each account ceiling, and the picks the ceiling is offered with.\n *\n * All three ceilings below are what a model inherits when it sets nothing of its own, so they are drawn the\n * way the model editor draws them — the same ladder of tokens — and each row says how many models are\n * actually reading it right now.\n */",
+    "// A row with picks under it needs the whole width: the number beside its name and the ladder",
+    "// under it, rather than a column on the right that would fold ten buttons into three lines.",
+    "// The account's ceiling is always a number, so the take-it-back press has nothing to mean.",
   ]],
   ["src/client/features/chat/AssistantDataTab.tsx", [
     "/**\n * The data tab: importing and exporting the assistant's own records.\n */",
@@ -1092,8 +1096,9 @@ const allowed = new Map([
     "/* The row's reasoning icon is a switch between off and automatic; which of the three depths a\n                model is asked for is a fact about that model, so it is chosen here rather than on the row. */",
     "/** The three token numbers, each of which may be left empty — see the fields' own hints for what a\n   *  blank one means. None of them is required, and a blank is not the same as typing the default in. */",
     "/**\n * One row of preset buttons under a number field. The reader picks 256K rather than typing 262144,\n * and the field still takes any number the presets do not offer.\n *\n * Pressing the preset that is already taken takes it back, which is how a number is cleared without\n * deleting digits by hand: the field is optional, and a row with no way to empty it reads as required.\n */",
-    "/** How many picks sit on one line. A fixed count keeps the two full rows aligned instead of ragged. */",
     "/**\n * One of the three token numbers: the field, its quick picks, and what a blank one means.\n *\n * Drawn as a full-width row rather than a third of one, because the picks are ten buttons wide: in a\n * column each set wrapped onto three ragged lines and the three settings read as one crowded block.\n */",
+    "/** The account ceiling that answers while this field is empty, named beside it so the reader can see it. */",
+    "/** The account's ceilings, which are what an emptied field inherits — named beside each field. */",
   ]],
   ["src/client/features/chat/ModelPickerDialog.tsx", [
     "/** The vendor families in the list, so the chips are the account's own, not a list of brands. */",
@@ -1139,7 +1144,9 @@ const allowed = new Map([
     "// older answer to the thinking the newer model just did.",
   ]],
   ["src/client/features/chat/assistant-settings-shared.tsx", [
-    "/**\n * What the assistant settings tabs share.\n *\n * The frame they hang in is AssistantSettingsView.tsx; this file is the parts more than one tab draws:\n * the section wrapper a tab groups its rows with, and the three protocol names. They live here rather than\n * in the shell because the shell no longer knows what is inside a tab.\n */",
+    "/**\n * What the assistant settings tabs share.\n *\n * The frame they hang in is AssistantSettingsView.tsx; this file is the parts more than one tab draws:\n * the section wrapper a tab groups its rows with, the three protocol names, and the preset row both token\n * editors are built from. They live here rather than in the shell because the shell no longer knows what\n * is inside a tab.\n */",
+    "/**\n * One row of preset buttons under a token field: the reader picks 256K rather than typing 262144.\n *\n * Both token editors draw this, because both hold the same ladder — the ceiling a model was given, and the\n * one behind the models that were given none. Pressing the preset that is already taken hands back `null`,\n * which means \"take it back\": a model's own ceiling can be empty, while the account's number cannot, and\n * that caller simply does not act on it.\n */",
+    "/** How many picks sit on one line; a fixed count keeps the rows aligned instead of ragged. */",
   ]],
   ["src/client/features/chat/assistant-store.ts", [
     "/**\n * The chat app's state.\n *\n * One store rather than one per surface, because the surfaces share more than they differ: the\n * settings decide how a chat turn is assembled, the memory list has to refresh after a turn that\n * called `remember`, and the unread badge is read from two places. Splitting it would mean keeping\n * three stores in step by hand, which is the kind of thing that shows up as a stale panel rather than\n * as an error.\n *\n * A streamed turn lives here and not in React state on purpose: the reader can navigate to another\n * surface mid-reply and come back to find it still arriving, because the generator keeps writing into\n * the same record the view reads.\n */",
@@ -1298,6 +1305,8 @@ const allowed = new Map([
     "/** The three token numbers are optional, so emptying one has to be a real state rather than a default typed in. */",
     "// A token is counted in binary: 1K is 1024, so the label and the stored number are the same fact.",
     "// A number the ladder does not hold is printed as itself rather than rounded into a step it is not.",
+    "// The two account numbers are read off the same row, so the panel has to draw what they add up to:",
+    "// an empty field inherits the assistant's ceiling, and a filled one is this model's own.",
   ]],
   ["src/client/features/chat/model-picker.test.ts", [
     "// The store's failure path names the class, so the mock has to carry it.",

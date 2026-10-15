@@ -2,14 +2,14 @@
  * The budget tab: the ceilings one request may spend, and what a turn is allowed to cost.
  */
 import { useEffect, useMemo, useState } from 'react'
-import { type AssistantLimits, type AssistantSettings } from '@shared/assistant'
-import { LIMIT_RANGES } from '@shared/assistant'
+import { type AssistantLimits, type AssistantModel, type AssistantSettings } from '@shared/assistant'
+import { CONTEXT_WINDOW_STEPS, LIMIT_RANGES, TOKEN_STEPS } from '@shared/assistant'
 import { t, type MessageKey } from '../../lib/i18n'
 import { api } from '../../lib/api'
 import { Button, Spinner } from '../../components/primitives'
 import { Input, SettingRow, Slider } from '../../components/form'
 import { useAssistant } from './assistant-store'
-import { Group } from './assistant-settings-shared'
+import { ChipRow, Group } from './assistant-settings-shared'
 
 // The three ceilings a model may leave unset, in the order the model editor draws them, then the ones
 // that shape a turn. Each of the three answers for a model that has not set its own, which is what makes
@@ -24,8 +24,22 @@ const LIMIT_FIELDS: { key: keyof AssistantLimits, label: MessageKey, hint: Messa
   { key: 'maxScheduledRunsPerDay', label: 'assistant.settings.limit.scheduled', hint: 'assistant.settings.limit.scheduled_hint' },
 ]
 
+/**
+ * The field of a model that answers to each account ceiling, and the picks the ceiling is offered with.
+ *
+ * All three ceilings below are what a model inherits when it sets nothing of its own, so they are drawn the
+ * way the model editor draws them — the same ladder of tokens — and each row says how many models are
+ * actually reading it right now.
+ */
+const INHERITED_CEILINGS: Partial<Record<keyof AssistantLimits, { steps: readonly number[], columns: 3 | 5, own: (model: AssistantModel) => number | null }>> = {
+  maxContextTokens: { steps: CONTEXT_WINDOW_STEPS, columns: 3, own: (model) => model.contextTokens },
+  maxInputTokens: { steps: TOKEN_STEPS, columns: 5, own: (model) => model.maxInputTokens },
+  maxOutputTokens: { steps: TOKEN_STEPS, columns: 5, own: (model) => model.maxOutputTokens },
+}
+
 export function BudgetTab({ settings }: { settings: AssistantSettings }) {
   const saveSettings = useAssistant((state) => state.saveSettings)
+  const models = useAssistant((state) => state.models)
   const [limits, setLimits] = useState<AssistantLimits>(settings.limits)
   const [temperature, setTemperature] = useState(settings.temperature)
   const [usage, setUsage] = useState<{ today: Record<string, number>, last7Days: Record<string, number> } | null>(null)
@@ -79,16 +93,44 @@ export function BudgetTab({ settings }: { settings: AssistantSettings }) {
         </SettingRow>
         {LIMIT_FIELDS.map((entry) => {
           const [min, max] = LIMIT_RANGES[entry.key]
+          const inherited = INHERITED_CEILINGS[entry.key]
+          const inheritors = inherited
+            ? models.filter((model) => model.enabled && inherited.own(model) === null).length
+            : 0
           return (
-            <SettingRow key={entry.key} title={t(entry.label)} description={t(entry.hint)}>
-              <Input
-                type="number"
-                min={min}
-                max={max}
-                value={limits[entry.key]}
-                onChange={(event) => setLimits({ ...limits, [entry.key]: Number(event.target.value) })}
-                className="h-8 w-28 text-[length:var(--text-12-5)]"
-              />
+            <SettingRow
+              key={entry.key}
+              title={t(entry.label)}
+              description={t(entry.hint)}
+              // A row with picks under it needs the whole width: the number beside its name and the ladder
+              // under it, rather than a column on the right that would fold ten buttons into three lines.
+              className={inherited ? 'md:flex-col md:items-stretch' : undefined}
+            >
+              <div className="flex flex-wrap items-center gap-2">
+                <Input
+                  type="number"
+                  min={min}
+                  max={max}
+                  value={limits[entry.key]}
+                  onChange={(event) => setLimits({ ...limits, [entry.key]: Number(event.target.value) })}
+                  className="h-8 w-28 text-[length:var(--text-12-5)]"
+                />
+                {inherited && (
+                  <span className="text-[length:var(--text-10-5)] text-[var(--text-quaternary)]">
+                    {t('assistant.settings.limit.inherited_by', { count: inheritors })}
+                  </span>
+                )}
+              </div>
+              {inherited && (
+                <ChipRow
+                  label={t(entry.label)}
+                  steps={inherited.steps}
+                  columns={inherited.columns}
+                  value={limits[entry.key]}
+                  // The account's ceiling is always a number, so the take-it-back press has nothing to mean.
+                  onPick={(tokens) => tokens !== null && setLimits({ ...limits, [entry.key]: tokens })}
+                />
+              )}
             </SettingRow>
           )
         })}

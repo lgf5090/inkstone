@@ -11,6 +11,7 @@ import { useState } from 'react'
 import { Check, ChevronDown, Copy, Save, X } from 'lucide-react'
 import type {
   AssistantCustomParam,
+  AssistantLimits,
   AssistantModel,
   AssistantModelKind,
   AssistantModelPurpose,
@@ -20,6 +21,7 @@ import type {
 import { ASSISTANT_MODEL_KINDS, ASSISTANT_MODEL_MODALITIES, ASSISTANT_MODEL_PURPOSES, ASSISTANT_PROTOCOLS, CONTEXT_WINDOW_STEPS, TOKEN_STEPS, formatTokenStep } from '@shared/assistant'
 import type { AssistantModelModality, AssistantProtocol } from '@shared/assistant'
 import { REASONING_LABELS, REASONING_ORDER } from './ComposerControls'
+import { ChipRow } from './assistant-settings-shared'
 import { cn } from '../../lib/cn'
 import { COPY_RESET_MS } from '../../lib/motion'
 import { t } from '../../lib/i18n'
@@ -105,49 +107,18 @@ const MODALITY_KEYS: Record<AssistantModelModality, Parameters<typeof t>[0]> = {
  * Pressing the preset that is already taken takes it back, which is how a number is cleared without
  * deleting digits by hand: the field is optional, and a row with no way to empty it reads as required.
  */
-const CHIP_COLUMNS = { 3: 'grid-cols-3', 5: 'grid-cols-5' } as const
-
-function ChipRow({ label, steps, value, onPick, columns = 5 }: {
-  label: string
-  steps: readonly number[]
-  value: number | null
-  onPick: (tokens: number | null) => void
-  /** How many picks sit on one line. A fixed count keeps the two full rows aligned instead of ragged. */
-  columns?: 3 | 5
-}) {
-  return (
-    <div role='group' aria-label={label} className={cn('mt-1.5 grid gap-1', CHIP_COLUMNS[columns])}>
-      {steps.map((tokens) => (
-        <button
-          key={tokens}
-          type="button"
-          aria-pressed={value === tokens}
-          onClick={() => onPick(value === tokens ? null : tokens)}
-          className={cn(
-            'rounded-full border px-1.5 py-1 text-center text-[length:var(--text-10-5)] tabular-nums',
-            'transition-[background-color,border-color,color] duration-[var(--dur-fast)] ease-[var(--ease-out)]',
-            value === tokens
-              ? 'border-[var(--accent)] bg-[var(--accent-soft)] font-medium text-[var(--accent-on-soft)]'
-              : 'border-[var(--border-subtle)] text-[var(--text-quaternary)] hover:border-[var(--border-strong)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-secondary)]',
-          )}
-        >
-          {formatTokenStep(tokens)}
-        </button>
-      ))}
-    </div>
-  )
-}
-
 /**
  * One of the three token numbers: the field, its quick picks, and what a blank one means.
  *
  * Drawn as a full-width row rather than a third of one, because the picks are ten buttons wide: in a
  * column each set wrapped onto three ragged lines and the three settings read as one crowded block.
  */
-function TokenField({ labelKey, hintKey, value, steps, columns = 5, onChange }: {
+function TokenField({ labelKey, hintKey, value, inherited, steps, columns = 5, onChange }: {
   labelKey: Parameters<typeof t>[0]
   hintKey: Parameters<typeof t>[0]
   value: number | null
+  /** The account ceiling that answers while this field is empty, named beside it so the reader can see it. */
+  inherited: number
   steps: readonly number[]
   columns?: 3 | 5
   onChange: (tokens: number | null) => void
@@ -155,15 +126,20 @@ function TokenField({ labelKey, hintKey, value, steps, columns = 5, onChange }: 
   const label = t(labelKey)
   return (
     <Field label={label} hint={t(hintKey)}>
-      <Input
-        type="number"
-        inputMode="numeric"
-        aria-label={label}
-        value={value ?? ''}
-        placeholder={t('assistant.model.unset')}
-        onChange={(event) => onChange(numberOrNull(event.target.value))}
-        className="w-36"
-      />
+      <div className="flex items-center justify-between gap-2">
+        <Input
+          type="number"
+          inputMode="numeric"
+          aria-label={label}
+          value={value ?? ''}
+          placeholder={t('assistant.model.unset')}
+          onChange={(event) => onChange(numberOrNull(event.target.value))}
+          className="w-36"
+        />
+        <span className="text-[length:var(--text-10-5)] tabular-nums text-[var(--text-quaternary)]">
+          {value === null ? t('assistant.model.value_inherited', { tokens: formatTokenStep(inherited) }) : t('assistant.model.value_own')}
+        </span>
+      </div>
       <ChipRow label={label} steps={steps} value={value} columns={columns} onPick={onChange} />
     </Field>
   )
@@ -179,11 +155,14 @@ function numberOrNull(value: string): number | null {
 export function ModelEditorDialog({
   model,
   providerLabel,
+  limits,
   onClose,
   onSave,
 }: {
   model: AssistantModel
   providerLabel: string
+  /** The account's ceilings, which are what an emptied field inherits — named beside each field. */
+  limits: AssistantLimits
   onClose: () => void
   onSave: (draft: ModelDraft) => Promise<void> | void
 }) {
@@ -348,6 +327,7 @@ export function ModelEditorDialog({
                 labelKey="assistant.model.context"
                 hintKey="assistant.model.context_hint"
                 value={draft.contextTokens}
+                inherited={limits.maxContextTokens}
                 steps={CONTEXT_WINDOW_STEPS}
                 columns={3}
                 onChange={(tokens) => patch({ contextTokens: tokens })}
@@ -356,6 +336,7 @@ export function ModelEditorDialog({
                 labelKey="assistant.model.max_input"
                 hintKey="assistant.model.max_input_hint"
                 value={draft.maxInputTokens}
+                inherited={limits.maxInputTokens}
                 steps={TOKEN_STEPS}
                 onChange={(tokens) => patch({ maxInputTokens: tokens })}
               />
@@ -363,6 +344,7 @@ export function ModelEditorDialog({
                 labelKey="assistant.model.max_output"
                 hintKey="assistant.model.max_output_hint"
                 value={draft.maxOutputTokens}
+                inherited={limits.maxOutputTokens}
                 steps={TOKEN_STEPS}
                 onChange={(tokens) => patch({ maxOutputTokens: tokens })}
               />
