@@ -14,6 +14,7 @@ import {
   ASSISTANT_TOOL_SPECS,
   DEFAULT_LIMITS,
   LIMIT_RANGES,
+  contextBudgetFor,
   estimateTokens,
   normalizeAssistantSettings,
   normalizeLimits,
@@ -391,11 +392,25 @@ describe('local time', () => {
 
 describe('settings normalisation', () => {
   it('clamps a limit to its range instead of storing what arrived', () => {
-    const limits = normalizeLimits({ maxOutputTokens: 999_999, maxAgentSteps: -5, maxToolCalls: '7' })
+    const limits = normalizeLimits({ maxOutputTokens: 99_000_000, maxAgentSteps: -5, maxToolCalls: '7' })
     expect(limits.maxOutputTokens).toBe(LIMIT_RANGES.maxOutputTokens[1])
     expect(limits.maxAgentSteps).toBe(LIMIT_RANGES.maxAgentSteps[0])
     expect(limits.maxToolCalls).toBe(7)
     expect(limits.maxRequestsPerDay).toBe(DEFAULT_LIMITS.maxRequestsPerDay)
+    // The three token ceilings share one scale, so a value one of them can hold is not refused by another.
+    expect(LIMIT_RANGES.maxInputTokens[1]).toBe(LIMIT_RANGES.maxOutputTokens[1])
+    expect(LIMIT_RANGES.maxContextTokens[1]).toBe(LIMIT_RANGES.maxOutputTokens[1])
+    expect(DEFAULT_LIMITS.maxInputTokens).toBe(LIMIT_RANGES.maxInputTokens[1])
+  })
+
+  it('answers the history budget from the account when the model sets neither number', () => {
+    const limits = { ...DEFAULT_LIMITS, maxContextTokens: 6000, maxInputTokens: 4000 }
+    // The model's own numbers win, and the account's answer only where the model has not spoken — for the
+    // input ceiling as much as for the window it clamps.
+    expect(contextBudgetFor({ contextTokens: 200_000, maxInputTokens: null }, limits)).toBe(4000)
+    expect(contextBudgetFor({ contextTokens: null, maxInputTokens: 200_000 }, limits)).toBe(6000)
+    expect(contextBudgetFor({ contextTokens: 100_000, maxInputTokens: 32_768 }, limits)).toBe(32_768)
+    expect(contextBudgetFor({ contextTokens: null, maxInputTokens: null }, limits)).toBe(4000)
   })
 
   it('drops a bad timezone and an unknown start view but keeps the rest', () => {

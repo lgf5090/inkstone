@@ -49,6 +49,8 @@ export type UpstreamEvent
     | { type: 'reasoning', delta: string }
     | { type: 'tool-call', id: string, name: string, args: unknown }
     | { type: 'usage', inputTokens: number, outputTokens: number }
+    /** The model was cut off at the output cap rather than stopping by itself. */
+    | { type: 'truncated' }
 
 export interface UpstreamRequest {
   baseUrl: string
@@ -390,6 +392,9 @@ async function* streamOpenAi(request: UpstreamRequest): AsyncGenerator<UpstreamE
     }
     if (typeof choice.finish_reason === 'string' && choice.finish_reason !== 'tool_calls') {
       for (const entry of flush(pending)) yield entry
+      // `length` is the cap: the answer stops mid-sentence, and a turn filed as finished would leave
+      // the reader guessing whether the model was done or simply out of room.
+      if (choice.finish_reason === 'length') yield { type: 'truncated' }
     }
   }
   for (const entry of flush(pending)) yield entry
@@ -541,6 +546,8 @@ async function* streamAnthropic(request: UpstreamRequest): AsyncGenerator<Upstre
         yield { type: 'tool-call', id: block.id || `${block.name}-${index}`, name: block.name, args: parseArgs(block.json) }
       }
     } else if (type === 'message_delta') {
+      // Anthropic says why it stopped in the same event that carries the answer's size.
+      if ((parsed.delta as Record<string, unknown> | undefined)?.stop_reason === 'max_tokens') yield { type: 'truncated' }
       const usage = (parsed.usage ?? {}) as Record<string, unknown>
       const input = numberOr(usage.input_tokens) ?? inputTokens
       const output = numberOr(usage.output_tokens)
@@ -655,6 +662,8 @@ async function* streamGemini(request: UpstreamRequest): AsyncGenerator<UpstreamE
         }
       }
     }
+    // Gemini names the reason on the last candidate, which often carries no parts at all.
+    if (candidate?.finishReason === 'MAX_TOKENS') yield { type: 'truncated' }
   }
 }
 

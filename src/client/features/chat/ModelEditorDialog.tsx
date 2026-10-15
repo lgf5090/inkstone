@@ -17,7 +17,7 @@ import type {
   AssistantParamType,
   AssistantReasoning,
 } from '@shared/assistant'
-import { ASSISTANT_MODEL_KINDS, ASSISTANT_MODEL_MODALITIES, ASSISTANT_MODEL_PURPOSES, ASSISTANT_PROTOCOLS, CONTEXT_WINDOW_STEPS, MAX_INPUT_STEPS, MAX_OUTPUT_STEPS, formatTokenStep } from '@shared/assistant'
+import { ASSISTANT_MODEL_KINDS, ASSISTANT_MODEL_MODALITIES, ASSISTANT_MODEL_PURPOSES, ASSISTANT_PROTOCOLS, CONTEXT_WINDOW_STEPS, TOKEN_STEPS, formatTokenStep } from '@shared/assistant'
 import type { AssistantModelModality, AssistantProtocol } from '@shared/assistant'
 import { REASONING_LABELS, REASONING_ORDER } from './ComposerControls'
 import { cn } from '../../lib/cn'
@@ -61,10 +61,12 @@ export interface ModelDraft {
   /** The three switches the model row now draws as its own icons, edited at their full depth here. */
   reasoning: AssistantReasoning
   vision: boolean
+  /** The three token numbers, each of which may be left empty — see the fields' own hints for what a
+   *  blank one means. None of them is required, and a blank is not the same as typing the default in. */
   contextTokens: number | null
   maxInputTokens: number | null
+  maxOutputTokens: number | null
   modalities: AssistantModelModality[]
-  maxOutputTokens: number
   temperature: number | null
   topP: number | null
   customParams: AssistantCustomParam[]
@@ -99,12 +101,15 @@ const MODALITY_KEYS: Record<AssistantModelModality, Parameters<typeof t>[0]> = {
 /**
  * One row of preset buttons under a number field. The reader picks 256K rather than typing 262144,
  * and the field still takes any number the presets do not offer.
+ *
+ * Pressing the preset that is already taken takes it back, which is how a number is cleared without
+ * deleting digits by hand: the field is optional, and a row with no way to empty it reads as required.
  */
 function ChipRow({ label, steps, value, onPick }: {
   label: string
   steps: readonly number[]
   value: number | null
-  onPick: (tokens: number) => void
+  onPick: (tokens: number | null) => void
 }) {
   return (
     <div role='group' aria-label={label} className="mt-1 flex flex-wrap gap-1">
@@ -113,7 +118,7 @@ function ChipRow({ label, steps, value, onPick }: {
           key={tokens}
           type="button"
           aria-pressed={value === tokens}
-          onClick={() => onPick(tokens)}
+          onClick={() => onPick(value === tokens ? null : tokens)}
           className={cn(
             'rounded-full border px-2 py-0.5 text-[length:var(--text-10-5)] tabular-nums',
             'transition-[background-color,border-color,color] duration-[var(--dur-fast)] ease-[var(--ease-out)]',
@@ -310,7 +315,7 @@ export function ModelEditorDialog({
                   inputMode="numeric"
                   aria-label={t('assistant.model.context')}
                   value={draft.contextTokens ?? ''}
-                  placeholder={String(model.maxOutputTokens)}
+                  placeholder={t('assistant.model.unset')}
                   onChange={(event) => patch({ contextTokens: numberOrNull(event.target.value) })}
                 />
                 <ChipRow
@@ -319,6 +324,7 @@ export function ModelEditorDialog({
                   value={draft.contextTokens}
                   onPick={(tokens) => patch({ contextTokens: tokens })}
                 />
+                <p className="mt-1 text-[length:var(--text-11)] leading-snug text-[var(--text-quaternary)]">{t('assistant.model.context_hint')}</p>
               </Field>
               <Field label={t('assistant.model.max_input')}>
                 <Input
@@ -326,11 +332,12 @@ export function ModelEditorDialog({
                   inputMode="numeric"
                   aria-label={t('assistant.model.max_input')}
                   value={draft.maxInputTokens ?? ''}
+                  placeholder={t('assistant.model.unset')}
                   onChange={(event) => patch({ maxInputTokens: numberOrNull(event.target.value) })}
                 />
                 <ChipRow
                   label={t('assistant.model.max_input')}
-                  steps={MAX_INPUT_STEPS}
+                  steps={TOKEN_STEPS}
                   value={draft.maxInputTokens}
                   onPick={(tokens) => patch({ maxInputTokens: tokens })}
                 />
@@ -341,15 +348,17 @@ export function ModelEditorDialog({
                   type="number"
                   inputMode="numeric"
                   aria-label={t('assistant.model.max_output')}
-                  value={draft.maxOutputTokens}
-                  onChange={(event) => patch({ maxOutputTokens: numberOrNull(event.target.value) ?? 1024 })}
+                  value={draft.maxOutputTokens ?? ''}
+                  placeholder={t('assistant.model.unset')}
+                  onChange={(event) => patch({ maxOutputTokens: numberOrNull(event.target.value) })}
                 />
                 <ChipRow
                   label={t('assistant.model.max_output')}
-                  steps={MAX_OUTPUT_STEPS}
+                  steps={TOKEN_STEPS}
                   value={draft.maxOutputTokens}
                   onPick={(tokens) => patch({ maxOutputTokens: tokens })}
                 />
+                <p className="mt-1 text-[length:var(--text-11)] leading-snug text-[var(--text-quaternary)]">{t('assistant.model.max_output_hint')}</p>
               </Field>
             </div>
 

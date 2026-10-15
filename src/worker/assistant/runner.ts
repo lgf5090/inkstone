@@ -14,7 +14,7 @@
 
 import { toolPayloadText } from '@shared/assistant'
 import type { AssistantMessage, AssistantModelModality, AssistantProtocol, AssistantSettings, ChatStreamEvent, ToolActivity } from '@shared/assistant'
-import { customParamBody, MAX_CHAT_ATTACHMENTS, MAX_TURN_SCOPES, MAX_TURN_TOOLS, estimateTokens, titleFromMessage, type AssistantTurnScope } from '@shared/assistant'
+import { contextBudgetFor, customParamBody, MAX_CHAT_ATTACHMENTS, MAX_TURN_SCOPES, MAX_TURN_TOOLS, estimateTokens, titleFromMessage, type AssistantTurnScope } from '@shared/assistant'
 import { hasHistoricalIntent, memoryTokenBudget } from '@shared/assistant-memory'
 import { expandChatAttachments, type AttachmentPayload } from './attachments'
 import { loadExternalTools, type ExternalToolsResult } from './mcp-tools'
@@ -38,6 +38,24 @@ const SEARCH_NATIVE_PROTOCOLS = new Set(['anthropic', 'gemini'])
 
 /** Summarising costs a model call, so it only runs once enough history has piled up to be worth it. */
 export const SUMMARIZE_THRESHOLD = 8
+
+/**
+ * The closing advice on every turn whose answer is missing because the model ran out of output room.
+ *
+ * One sentence, shared by the endings that mean it, because the setting named is the fix in each of them:
+ * sending the reader to the model or the key instead is how a turn that merely needed a bigger allowance
+ * was reported as a broken setup.
+ */
+const RAISE_OUTPUT_CAP = 'Raise “Max output tokens” for this model and ask again.'
+
+/**
+ * The same advice for a turn whose ceiling came from the account rather than from the model.
+ *
+ * Two numbers can answer for one turn — the model's own field, and the assistant-wide limit behind it
+ * when that field is empty — and the runner names the one that actually cut the answer, because sending
+ * the reader to the other field is how a setting that was never involved gets edited.
+ */
+const RAISE_ACCOUNT_OUTPUT_CAP = 'Raise the assistant’s own “Max output tokens” limit and ask again.'
 
 /**
  * The deadlines on the two model calls that run beside a turn rather than as it.
@@ -97,6 +115,8 @@ export class AssistantRunner {
   private webSearchRequested = false
   private webSearchNative = false
   private turnScopes: AssistantTurnScope[] = []
+  /** Set when a step's model call was cut off at the output cap instead of stopping by itself. */
+  private turnTruncated = false
 
   constructor(private readonly deps: RunnerDeps) {
     this.automations = new AutomationService(deps.store, deps.settings)
@@ -205,6 +225,10 @@ export class AssistantRunner {
     }
 
     let text = ''
+    // Everything the turn has said so far, across its steps. The step's own text is what the model is
+    // handed back after a tool call; this is what the reader watched arrive, and a turn filed from its
+    // last step alone would drop the words that came before the call.
+    let answer = ''
     // The whole turn's thinking, kept across steps because a turn that called a tool thought twice about
     // one question. Only what the model volunteered: a protocol that does not report a trace leaves this
     // empty, and an empty trace is what the fold needs to stay away.
@@ -218,7 +242,7 @@ export class AssistantRunner {
       id: assistantId,
       conversationId,
       role: 'assistant',
-      content: text,
+      content: answer,
       reasoning,
       tools,
       status,
@@ -239,12 +263,9 @@ export class AssistantRunner {
       const apiKey = await this.store.providerKey(provider)
       const limits = this.settings.limits
       // A 1M model and a 4K model do not get fed the same amount: the reader sets this per model on the
-      // composer's context control, and the global limit is what a model without one falls back to.
-      // A model's own budget, and never more than the input it says it can take.
-      const contextTokens = Math.min(
-        model.contextTokens ?? limits.maxContextTokens,
-        model.maxInputTokens ?? Number.POSITIVE_INFINITY,
-      )
+      // composer's context control, and the assistant-wide ceiling is what a model without one falls back
+      // to — for the window and for the input ceiling over it alike.
+      const contextTokens = contextBudgetFor(model, limits)
       if (!(await this.reserve(1, limits.maxRequestsPerDay))) {
         throw ApiError.conflict(`The daily limit of ${limits.maxRequestsPerDay} assistant requests is reached. It is adjustable in Assistant settings.`)
       }
@@ -306,6 +327,11 @@ export class AssistantRunner {
         images: entry.images,
       }))
       const usage = { inputTokens: 0, outputTokens: 0 }
+      // What one step may spend, thinking included. The model's own ceiling is the whole answer here and
+      // the account's number answers only for a model the reader has not set: taking the lower of the two
+      // let the account default (1024) silently outrank a model the reader had set to 64000. Kept in a
+      // name because a turn cut off at it has to say the number that cut it.
+      const outputCap = model.maxOutputTokens ?? limits.maxOutputTokens
       let steps = 0
 
       for (;;) {
@@ -318,6 +344,9 @@ export class AssistantRunner {
         if (!(await this.store.isRunning(conversationId))) throw new AbortError()
         const calls: ToolCallRecord[] = []
         let eventsSeen = 0
+        // Judged per step and only the last step's verdict is kept: a step cut off mid-tool-call is
+        // repaired by the step after it, while a cut-off *answer* is what must not be filed as whole.
+        this.turnTruncated = false
         for await (const event of this.step(call.protocol, {
           baseUrl: call.baseUrl,
           apiKey,
@@ -327,7 +356,7 @@ export class AssistantRunner {
           // A model that invents tool calls is silenced by not sending the schemas at all.
           tools: model.supportsTools ? schemas : [],
           webSearch: this.webSearchNative,
-          maxOutputTokens: Math.min(limits.maxOutputTokens, model.maxOutputTokens),
+          maxOutputTokens: outputCap,
           temperature: model.temperature,
           topP: model.topP,
           extraBody: customParamBody(model.customParams),
@@ -342,6 +371,11 @@ export class AssistantRunner {
           if (++eventsSeen % 16 === 0 && !(await this.store.isRunning(conversationId))) throw new AbortError()
           yield event
         }
+        // The step's words go into the answer before anything can end the turn. A step that asked for no
+        // tool is the one that wrote the answer, and it ends the turn right here — accumulating after this
+        // point filed every plain reply as empty, which is what the reader saw as a finished turn with no
+        // answer in it, and the model read back as its own last words on the next question.
+        answer += text
         if (!calls.length) break
         for (const call of calls) {
           // What the model asked for travels with the chip, so a thread opened tomorrow can still answer
@@ -381,7 +415,7 @@ export class AssistantRunner {
 
       if (!usage.inputTokens && !usage.outputTokens) {
         usage.inputTokens = estimateTokens(system) + turns.reduce((total, turn) => total + estimateTokens(turn.content), 0)
-        usage.outputTokens = estimateTokens(text)
+        usage.outputTokens = estimateTokens(answer)
       }
       await this.store.incrementUsage({
         inputTokens: usage.inputTokens,
@@ -392,15 +426,36 @@ export class AssistantRunner {
         yield { type: 'done', finalMessage: await finish('cancelled', null, usage) }
         return
       }
-      if (!text.trim()) {
-        text = tools.some((tool) => tool.status === 'success')
-          ? 'Done.'
-          : 'I could not produce an answer this time. Try rephrasing, or check the model in Assistant settings.'
+      // A turn the model never finished, or never started, is an error with a reason rather than an
+      // answer: storing the apology as the content made the model read it back as its own last words,
+      // and filed a fragment as if the model had chosen to stop there.
+      let outcome: AssistantMessage['status'] = 'complete'
+      let failure: string | null = null
+      // Which of the two ceilings answered for this turn, so the notice sends the reader to that field.
+      const capAdvice = model.maxOutputTokens === null ? RAISE_ACCOUNT_OUTPUT_CAP : RAISE_OUTPUT_CAP
+      if (this.turnTruncated) {
+        outcome = 'error'
+        // The cap is a number the reader set somewhere, so it is named; a turn that stops mid-sentence and
+        // says nothing leaves them guessing whether the model was finished or merely out of room.
+        failure = answer.trim()
+          ? `The model was cut off at its ${outputCap}-token output limit, so the answer above stops where it does. ${capAdvice}`
+          : `The model spent the whole ${outputCap}-token output allowance thinking and never wrote an answer. ${capAdvice}`
+      } else if (!answer.trim()) {
+        if (tools.some((tool) => tool.status === 'success')) answer = 'Done.'
+        else {
+          outcome = 'error'
+          // A model that thought and then stopped writes no answer at all, and the trace is the only
+          // evidence of why. Telling the reader to check the model or the key sends them to a setting that
+          // was never the problem, so the trace is named and the same advice is offered.
+          failure = reasoning.trim()
+            ? `The model wrote only its thinking and no answer. ${capAdvice}`
+            : 'I could not produce an answer this time. Try rephrasing, or check the model in Assistant settings.'
+        }
       }
       yield { type: 'usage', usage }
       // Read the signal again here: every `yield` above hands control back to the response writer, and
       // a reader who stopped the turn in the meantime must not have their half answer filed as whole.
-      yield { type: 'done', finalMessage: await finish(stopped() ? 'cancelled' : 'complete', null, usage) }
+      yield { type: 'done', finalMessage: await finish(stopped() ? 'cancelled' : outcome, failure, usage) }
     } catch (error) {
       if (error instanceof AbortError || stopped()) {
         yield { type: 'done', finalMessage: await finish('cancelled', null, null) }
@@ -438,6 +493,12 @@ export class AssistantRunner {
       if (event.type === 'usage') {
         usage.inputTokens += event.inputTokens
         usage.outputTokens += event.outputTokens
+        continue
+      }
+      // The cap signal is the runner's own business: the client has no event for it, and what the
+      // reader needs to know arrives as the notice on the stored turn.
+      if (event.type === 'truncated') {
+        this.turnTruncated = true
         continue
       }
       calls.push({ id: event.id, name: event.name, args: event.args, result: '', error: false })

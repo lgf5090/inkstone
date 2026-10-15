@@ -352,3 +352,45 @@ describe('the web-search switch on the wire', () => {
     expect((sent.tools as { function?: { name: string } }[]).map((entry) => entry.function?.name)).toEqual(['search_notes'])
   })
 })
+
+/**
+ * The three ways a provider says "I ran out of output room".
+ *
+ * They arrive on different fields of different events, and each one missed is the same failure: an
+ * answer that stops mid-sentence is streamed, stored and shown as if the model had finished it. A
+ * thinking model makes that the common case rather than the rare one, because the trace is charged
+ * against the same allowance as the answer.
+ */
+describe('the provider’s own output cap', () => {
+  it('reads OpenAI-compatible `length` as a truncation', async () => {
+    const events = await collect('openai', sseBody([openAiFrame({ content: 'half an ans' }, 'length')]))
+    expect(events).toEqual([{ type: 'text', delta: 'half an ans' }, { type: 'truncated' }])
+  })
+
+  it('reads Anthropic `max_tokens` as a truncation', async () => {
+    const events = await collect('anthropic', sseBody([
+      data({ type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: 'half an ans' } }),
+      // The stop reason shares an event with the answer's size, and the size only counts what was
+      // generated; both have to be read off it without one hiding the other.
+      data({ type: 'message_delta', delta: { stop_reason: 'max_tokens' }, usage: { output_tokens: 4 } }),
+      data({ type: 'message_stop' }),
+    ]))
+    expect(events).toContainEqual({ type: 'truncated' })
+    expect(events).toContainEqual({ type: 'usage', inputTokens: 0, outputTokens: 4 })
+  })
+
+  it('reads Gemini `MAX_TOKENS` as a truncation', async () => {
+    const events = await collect('gemini', sseBody([
+      data({ candidates: [{ content: { parts: [{ text: 'half an ans' }] }, finishReason: 'MAX_TOKENS' }] }),
+    ]))
+    expect(events).toEqual([{ type: 'text', delta: 'half an ans' }, { type: 'truncated' }])
+  })
+
+  it('says nothing when the model stopped on its own', async () => {
+    const events = await collect('openai', sseBody([
+      openAiFrame({ content: 'all of it' }, 'stop'),
+      data({ choices: [], usage: { prompt_tokens: 4, completion_tokens: 3 } }),
+    ]))
+    expect(events.map((event) => event.type)).toEqual(['text', 'usage'])
+  })
+})

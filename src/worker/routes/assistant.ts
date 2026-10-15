@@ -16,7 +16,7 @@ import {
   ASSISTANT_MCP_TOOL_MODES,
   ASSISTANT_MCP_TRANSPORTS,
   ASSISTANT_MODEL_KINDS,
-  MAX_CONTEXT_BUDGET_TOKENS,
+  MAX_TOKEN_CEILING,
   MAX_MCP_DESCRIPTION_CHARS,
   MAX_MCP_DISABLED_TOOLS,
   MAX_MCP_HEADERS,
@@ -111,7 +111,7 @@ function contextBudgetValue(value: unknown): number | null {
   if (value === null || value === undefined || value === '') return null
   const number = typeof value === 'number' ? value : Number(value)
   if (!Number.isFinite(number) || number <= 0) return null
-  return Math.min(MAX_CONTEXT_BUDGET_TOKENS, Math.trunc(number))
+  return Math.min(MAX_TOKEN_CEILING, Math.trunc(number))
 }
 import { resolveNoteScope } from '../assistant/note-scope'
 
@@ -1445,9 +1445,9 @@ assistantRoutes.post('/models', async (c) => {
     model,
     label: optionalText(body.label, 60) ?? model,
     temperature: typeof body.temperature === 'number' ? Math.min(1.5, Math.max(0, body.temperature)) : null,
-    maxOutputTokens: typeof body.maxOutputTokens === 'number'
-      ? Math.min(8192, Math.max(64, Math.trunc(body.maxOutputTokens)))
-      : null,
+    // The same range the patch above accepts: a model's own ceiling is not the account's, and the editor
+    // offers presets well past 8192, so clamping here quietly stored something other than what was picked.
+    maxOutputTokens: clampTokens(body.maxOutputTokens, 64, MAX_TOKEN_CEILING),
     reasoning: reasoningValue(body.reasoning),
     contextTokens: contextBudgetValue(body.contextTokens),
     vision: body.vision === undefined ? true : Boolean(body.vision),
@@ -1479,7 +1479,7 @@ assistantRoutes.patch('/models/:id', async (c) => {
       ? { temperature: body.temperature === null ? null : Math.min(1.5, Math.max(0, Number(body.temperature))) }
       : {}),
     ...(body.maxOutputTokens !== undefined
-      ? { maxOutputTokens: body.maxOutputTokens === null ? null : clampTokens(body.maxOutputTokens, 64, 512_000) }
+      ? { maxOutputTokens: body.maxOutputTokens === null ? null : clampTokens(body.maxOutputTokens, 64, MAX_TOKEN_CEILING) }
       : {}),
     // An unrecognised value is dropped rather than defaulted: falling back here would quietly reset
     // what the reader had already chosen.
@@ -1488,7 +1488,7 @@ assistantRoutes.patch('/models/:id', async (c) => {
     // Null is a value here: it is the reader putting the model back on the provider's own protocol.
     ...(body.protocol !== undefined ? { protocol: pickValue(body.protocol, ASSISTANT_PROTOCOLS) ?? null } : {}),
     ...(body.supportsTools !== undefined ? { supportsTools: Boolean(body.supportsTools) } : {}),
-    ...(body.maxInputTokens !== undefined ? { maxInputTokens: clampTokens(body.maxInputTokens, 1, 4_000_000) } : {}),
+    ...(body.maxInputTokens !== undefined ? { maxInputTokens: clampTokens(body.maxInputTokens, 1, MAX_TOKEN_CEILING) } : {}),
     // An unknown modality is dropped, not defaulted: a list of one typo must not silently reset the
     // whole set the reader had already picked.
     ...(Array.isArray(body.modalities) ? { modalities: parseModelModalities(body.modalities) } : {}),

@@ -133,18 +133,20 @@ export function parseModelModalities(value: unknown): AssistantModelModality[] {
 }
 
 /**
- * Quick picks, so the reader is not typing 262144 into a number field to get 256K. Each value is a round
- * thousand on purpose: the label under the button is produced by dividing by 1000, and a binary step such
- * as 32_768 would print as 33K and read like a different setting than the one it is.
+ * Quick picks, so the reader is not typing 1048576 into a number field to get 1M.
+ *
+ * Every step counts in the unit a token is counted in: 1K is 1024, and the label under the button is the
+ * same division, so the number the button saves is the number it says. A round thousand would print
+ * 32_768 as 33K and read like a different setting than the one it is. The two ceilings — what a model
+ * may be sent and what it may write back — share one ladder because they are read off the same scale.
  */
-export const CONTEXT_WINDOW_STEPS: readonly number[] = [128_000, 200_000, 256_000, 400_000, 512_000, 1_000_000]
-export const MAX_OUTPUT_STEPS: readonly number[] = [1000, 4000, 8000, 16_000, 32_000, 64_000]
-/** A ceiling on what the model can be *sent*, which is not the same number as its context window. */
-export const MAX_INPUT_STEPS: readonly number[] = [8000, 32_000, 64_000, 128_000, 256_000, 512_000, 1_000_000]
+export const TOKEN_STEPS: readonly number[] = [1024, 4096, 8192, 16_384, 32_768, 65_536, 131_072, 262_144, 524_288, 1_048_576]
+/** The context window's own picks: the sizes vendors publish, on that same binary scale. */
+export const CONTEXT_WINDOW_STEPS: readonly number[] = [131_072, 204_800, 262_144, 409_600, 524_288, 1_048_576]
 
 export function formatTokenStep(tokens: number): string {
-  if (tokens >= 1_000_000) return `${Math.round(tokens / 1_000_000)}M`
-  if (tokens >= 1000) return `${Math.round(tokens / 1000)}K`
+  if (tokens >= 1_048_576 && tokens % 1_048_576 === 0) return `${tokens / 1_048_576}M`
+  if (tokens >= 1024 && tokens % 1024 === 0) return `${tokens / 1024}K`
   return `${tokens}`
 }
 
@@ -217,7 +219,14 @@ export interface AssistantModel {
   label: string
   /** Null leaves the vendor default alone: the composer temperature switch off means exactly that. */
   temperature: number | null
-  maxOutputTokens: number
+  /**
+   * What this model's answer may spend.
+   *
+   * This model's own number is the one that is sent; the account's ceiling answers only for a model the
+   * reader has not set. Null is that "not set" — it is not a second way of writing 1024, and the two
+   * used to be taken as a minimum of one another, so a model set to 64K still answered with 1024.
+   */
+  maxOutputTokens: number | null
   enabled: boolean
   /** How much the model is asked to think before answering; `auto` leaves the vendor's choice alone. */
   reasoning: AssistantReasoning
@@ -259,10 +268,29 @@ export const ASSISTANT_REASONING_LEVELS: readonly AssistantReasoning[] = ['auto'
 export const REASONING_BUDGET_TOKENS: Record<'low' | 'medium' | 'high', number> = { low: 1024, medium: 4096, high: 10_240 }
 
 /** The context budgets the composer's slider snaps to, in tokens. */
-/** The largest per-model context window the field will store — a ceiling on the number, not a menu. */
-export const MAX_CONTEXT_BUDGET_TOKENS = 4_000_000
+/**
+ * The largest number any of the three token fields will store — the context window, the input ceiling and
+ * the output ceiling alike. A ceiling on the number, not a menu: it is past every window a vendor
+ * publishes, so it is what "no smaller ceiling than that" is written as.
+ */
+export const MAX_TOKEN_CEILING = 4_000_000
 
 export const CONTEXT_TOKEN_STEPS: readonly number[] = [4096, 8192, 16_384, 32_768, 65_536, 131_072, 262_144]
+
+/**
+ * The history budget one turn is fed.
+ *
+ * Both ceilings in it behave the same way: the model's own number when it has one, the assistant's when it
+ * does not. The smaller of the two wins, because one is the window the model publishes and the other is
+ * what the reader says may be sent to it — reading the second as "no ceiling" for a model that left it
+ * unset made the account's setting unreachable for every one of them.
+ */
+export function contextBudgetFor(
+  model: Pick<AssistantModel, 'contextTokens' | 'maxInputTokens'>,
+  limits: AssistantLimits,
+): number {
+  return Math.min(model.contextTokens ?? limits.maxContextTokens, model.maxInputTokens ?? limits.maxInputTokens)
+}
 
 export function reasoningValue(value: unknown): AssistantReasoning {
   return typeof value === 'string' && (ASSISTANT_REASONING_LEVELS as readonly string[]).includes(value)
@@ -273,6 +301,8 @@ export function reasoningValue(value: unknown): AssistantReasoning {
 export interface AssistantLimits {
   maxOutputTokens: number
   maxContextTokens: number
+  /** The ceiling behind a model whose own input ceiling is unset, the way the two above are. */
+  maxInputTokens: number
   maxToolCalls: number
   maxAgentSteps: number
   maxRequestsPerDay: number
@@ -281,8 +311,11 @@ export interface AssistantLimits {
 }
 
 export const LIMIT_RANGES = {
-  maxOutputTokens: [64, 8192],
-  maxContextTokens: [1000, 64_000],
+  // The same scale the per-model fields use, so a ceiling set here can be inherited by a model without
+  // one — a range that stopped at 8192 could not answer for a model the reader had set to 64K.
+  maxOutputTokens: [64, MAX_TOKEN_CEILING],
+  maxContextTokens: [1000, MAX_TOKEN_CEILING],
+  maxInputTokens: [1, MAX_TOKEN_CEILING],
   maxToolCalls: [0, 20],
   maxAgentSteps: [1, 10],
   maxRequestsPerDay: [1, 2000],
@@ -291,8 +324,13 @@ export const LIMIT_RANGES = {
 } as const satisfies Record<keyof AssistantLimits, readonly [number, number]>
 
 export const DEFAULT_LIMITS: AssistantLimits = {
-  maxOutputTokens: 1024,
+  // An answer worth reading is longer than a thousand tokens, which is roughly a page of Chinese; a turn
+  // that hits this is reported as cut off with the number, so the ceiling is a real one either way.
+  maxOutputTokens: 8192,
   maxContextTokens: 6000,
+  // The widest ceiling there is, because this one answers for every model that has not set its own: it is
+  // the number, not a limit on it, and anything smaller here would silently cap those models.
+  maxInputTokens: MAX_TOKEN_CEILING,
   maxToolCalls: 6,
   maxAgentSteps: 4,
   maxRequestsPerDay: 200,

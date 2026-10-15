@@ -22,7 +22,7 @@ import type {
   ChatStreamEvent,
   Task,
 } from '../src/shared/assistant'
-import { DEFAULT_SEMANTIC_MODEL, MAX_ANSWER_VERSIONS, MAX_CONTEXT_BUDGET_TOKENS, MAX_MCP_TIMEOUT_SECONDS, MAX_PROMPT_CONTENT_CHARS, MAX_PROMPT_TITLE_CHARS, MAX_REASONING_CHARS } from '../src/shared/assistant'
+import { DEFAULT_SEMANTIC_MODEL, MAX_ANSWER_VERSIONS, MAX_MCP_TIMEOUT_SECONDS, MAX_PROMPT_CONTENT_CHARS, MAX_PROMPT_TITLE_CHARS, MAX_REASONING_CHARS, MAX_TOKEN_CEILING } from '../src/shared/assistant'
 import { makeD1 } from './doubles/d1-sqlite'
 import { testBindings, testDurableObjectNamespace, testR2Bucket } from './doubles/bindings'
 import { AI_EMBEDDING_MODEL } from '../src/worker/mcp/ai-search'
@@ -356,10 +356,20 @@ describe('notifications', () => {
 describe('settings', () => {
   it('clamps a limit that is out of range instead of storing it', async () => {
     const result = await call<{ settings: AssistantSettings }>('PATCH', '/api/assistant/settings', {
-      limits: { maxOutputTokens: 999_999, maxToolCalls: -4 },
+      limits: { maxOutputTokens: 99_000_000, maxToolCalls: -4 },
     })
-    expect(result.settings.limits.maxOutputTokens).toBe(8192)
+    expect(result.settings.limits.maxOutputTokens).toBe(MAX_TOKEN_CEILING)
     expect(result.settings.limits.maxToolCalls).toBe(0)
+  })
+
+  it('keeps a ceiling the model page can offer, and round-trips the three token limits', async () => {
+    const result = await call<{ settings: AssistantSettings }>('PATCH', '/api/assistant/settings', {
+      // 64K is on the model editor's own ladder: a range that stopped at 8192 could not answer for a
+      // model the reader had set to it, and the input ceiling did not exist here at all.
+      limits: { maxOutputTokens: 65_536, maxInputTokens: 524_288 },
+    })
+    expect(result.settings.limits.maxOutputTokens).toBe(65_536)
+    expect(result.settings.limits.maxInputTokens).toBe(524_288)
   })
 
   it('round-trips every settings field the client can patch', async () => {
@@ -710,6 +720,161 @@ describe('lease and streaming turn', () => {
     expect(usage.today.toolCalls).toBe(1)
   })
 
+  it('keeps the answer of a turn that asked for no tool', async () => {
+    await useExampleModel()
+    // A plain reply ends the turn on its own step, and that step's words used to be left behind by the
+    // break that ends the loop: the row came back as "Done." or as an empty turn with a failure notice,
+    // while the reader was watching the answer arrive.
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(sse(FINAL_FRAMES), { headers: { 'content-type': 'text/event-stream' } })))
+    const events = await chatEvents({ message: 'what is on my list?' })
+    await settleTurns()
+    vi.unstubAllGlobals()
+    const conversationId = events.find((event) => event.type === 'start')!.conversationId!
+    const detail = await call<{ messages: { role: string, content: string, status: string }[] }>(
+      'GET', `/api/assistant/conversations/${conversationId}`,
+    )
+    expect(detail.messages[1]!.content).toContain('Nothing is on the list.')
+    expect(detail.messages[1]!.status).toBe('complete')
+  })
+})
+
+/**
+ * What a turn says when the model ran out of output room.
+ *
+ * The failure the reader reported: a thinking model spent the whole allowance on its trace, wrote no
+ * answer, and the turn was filed with "check the model in Assistant settings" — advice that sends them to
+ * look for a broken model when the model worked and the limit beside it was what cut the answer off.
+ */
+describe('a turn cut off at the output cap', () => {
+  /** One provider call whose only frame states how it ended. */
+  function capped(frames: string[]) {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(sse(frames), { headers: { 'content-type': 'text/event-stream' } })))
+  }
+
+  async function answerOf(events: ChatStreamEvent[]) {
+    await settleTurns()
+    vi.unstubAllGlobals()
+    const conversationId = events.find((event) => event.type === 'start')!.conversationId!
+    const detail = await call<{ messages: AssistantMessage[] }>('GET', `/api/assistant/conversations/${conversationId}`)
+    return detail.messages[1]!
+  }
+
+  it('names the limit when thinking used the whole allowance', async () => {
+    await useExampleModel()
+    capped([
+      openAiFrame({ choices: [{ index: 0, finish_reason: null, delta: { reasoning_content: 'weighing every option' } }] }),
+      openAiFrame({ choices: [{ index: 0, finish_reason: 'length', delta: {} }] }),
+    ])
+    const answer = await answerOf(await chatEvents({ message: 'write me a long tutorial' }))
+    expect(answer.status).toBe('error')
+    // The trace is kept — it is all the turn produced, and it is what the reader watched arrive — but the
+    // turn is not sold as an answer.
+    expect(answer.reasoning).toBe('weighing every option')
+    expect(answer.content).toBe('')
+    expect(answer.error).toContain('never wrote an answer')
+    expect(answer.error).toMatch(/\d+-token output allowance/)
+    expect(answer.error).toContain('Max output tokens')
+  })
+
+  it('keeps the part that arrived and says where it stops', async () => {
+    await useExampleModel()
+    capped([openAiFrame({ choices: [{ index: 0, finish_reason: 'length', delta: { content: 'half an ans' } }] })])
+    const answer = await answerOf(await chatEvents({ message: 'write me a long tutorial' }))
+    expect(answer.status).toBe('error')
+    expect(answer.content).toBe('half an ans')
+    expect(answer.error).toContain('stops where it does')
+    expect(answer.error).toContain('Max output tokens')
+  })
+
+  it('files a turn that thought and stopped as the trace, not as a settings problem', async () => {
+    await useExampleModel()
+    // No cap signal at all: the model simply stopped after its trace. The old wording blamed the model
+    // and the key, which is the one thing that was working.
+    capped([
+      openAiFrame({ choices: [{ index: 0, finish_reason: null, delta: { reasoning_content: 'still thinking' } }] }),
+      openAiFrame({ choices: [{ index: 0, finish_reason: 'stop', delta: {} }] }),
+    ])
+    const answer = await answerOf(await chatEvents({ message: 'write me a long tutorial' }))
+    expect(answer.status).toBe('error')
+    expect(answer.error).toContain('wrote only its thinking')
+    expect(answer.error).not.toContain('check the model')
+  })
+
+  it('still reports an empty turn the plain way when nothing came back at all', async () => {
+    await useExampleModel()
+    capped([openAiFrame({ choices: [{ index: 0, finish_reason: 'stop', delta: {} }] })])
+    const answer = await answerOf(await chatEvents({ message: 'say something' }))
+    expect(answer.status).toBe('error')
+    expect(answer.content).toBe('')
+    expect(answer.error).toContain('could not produce an answer')
+  })
+})
+
+/**
+ * Whose output number a turn spends.
+ *
+ * Two places hold one — the model's own field and the account-wide ceiling — and the turn took the lower
+ * of the two, so a model the reader had set to 64000 still answered with the account's untouched 1024,
+ * and was then reported as cut off at 1024. The number beside the model is the reader's answer; the
+ * account's is what a model without one falls back to.
+ */
+describe('whose output number a turn spends', () => {
+  async function firstModelId(): Promise<string> {
+    const models = await call<{ models: AssistantModel[] }>('GET', '/api/assistant/models')
+    return models.models[0]!.id
+  }
+
+  /** One turn, with the body the provider was actually sent and the row it was filed as. */
+  async function turn(frames: string[] = FINAL_FRAMES) {
+    const bodies: Record<string, unknown>[] = []
+    vi.stubGlobal('fetch', vi.fn(async (_url: unknown, init?: RequestInit) => {
+      bodies.push(JSON.parse(String(init?.body ?? '{}')) as Record<string, unknown>)
+      return new Response(sse(frames), { headers: { 'content-type': 'text/event-stream' } })
+    }))
+    const events = await chatEvents({ message: 'write me a long tutorial' })
+    await settleTurns()
+    vi.unstubAllGlobals()
+    const conversationId = events.find((event) => event.type === 'start')!.conversationId!
+    const detail = await call<{ messages: AssistantMessage[] }>('GET', `/api/assistant/conversations/${conversationId}`)
+    return { sent: bodies[0]!, answer: detail.messages[1]! }
+  }
+
+  const accountOutput = (tokens: number) => call('PATCH', '/api/assistant/settings', { limits: { maxOutputTokens: tokens } })
+
+  it('sends the number set beside the model, not the account ceiling under it', async () => {
+    await useExampleModel()
+    const saved = await call<{ model: AssistantModel }>('PATCH', `/api/assistant/models/${await firstModelId()}`, { maxOutputTokens: 64_000 })
+    expect(saved.model.maxOutputTokens).toBe(64_000)
+    await accountOutput(2000)
+    const { sent, answer } = await turn([openAiFrame({ choices: [{ index: 0, finish_reason: 'length', delta: { content: 'half an ans' } }] })])
+    expect(sent.max_tokens).toBe(64_000)
+    // And the notice names the number that really cut it, not whichever one the account happens to hold.
+    expect(answer.error).toContain('64000-token output limit')
+  })
+
+  it('falls back to the account ceiling for a model that has none', async () => {
+    await useExampleModel()
+    const cleared = await call<{ model: AssistantModel }>('PATCH', `/api/assistant/models/${await firstModelId()}`, { maxOutputTokens: null })
+    // Null is the reader emptying the field, so it must come back as unset rather than as the account's
+    // current number frozen onto the row.
+    expect(cleared.model.maxOutputTokens).toBe(null)
+    await accountOutput(3000)
+    const { sent } = await turn()
+    expect(sent.max_tokens).toBe(3000)
+  })
+
+  it('stores the ceiling a model is created with instead of clamping it to 8192', async () => {
+    await useExampleModel()
+    const providers = await call<{ providers: AssistantProvider[] }>('GET', '/api/assistant/providers')
+    const created = await call<{ model: AssistantModel }>('POST', '/api/assistant/models', {
+      providerId: providers.providers[0]!.id,
+      model: 'deepseek-chat',
+      maxOutputTokens: 64_000,
+    })
+    expect(created.model.maxOutputTokens).toBe(64_000)
+    expect(created.model.maxInputTokens).toBe(null)
+    expect(created.model.contextTokens).toBe(null)
+  })
 })
 
 const oid = (seed: string) => `${seed}${'0'.repeat(26)}`.slice(0, 26)
@@ -1604,7 +1769,7 @@ describe('model input modalities', () => {
     const listed = await call<{ models: AssistantModel[] }>('GET', '/api/assistant/models')
     expect(listed.models.find((entry) => entry.id === modelId)?.contextTokens).toBe(1_000_000)
     const absurd = await call<{ model: AssistantModel }>('PATCH', `/api/assistant/models/${modelId}`, { contextTokens: 99_000_000 })
-    expect(absurd.model.contextTokens).toBe(MAX_CONTEXT_BUDGET_TOKENS)
+    expect(absurd.model.contextTokens).toBe(MAX_TOKEN_CEILING)
     const cleared = await call<{ model: AssistantModel }>('PATCH', `/api/assistant/models/${modelId}`, { contextTokens: null })
     expect(cleared.model.contextTokens).toBeNull()
   })

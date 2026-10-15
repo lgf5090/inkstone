@@ -8,7 +8,7 @@ import { act, createElement } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { AssistantModel } from '@shared/assistant'
-import { CONTEXT_WINDOW_STEPS, formatTokenStep } from '@shared/assistant'
+import { CONTEXT_WINDOW_STEPS, TOKEN_STEPS, formatTokenStep } from '@shared/assistant'
 import { initI18n, t } from '../../lib/i18n'
 import { installTestGlobals } from '../../lib/test-render'
 import { ModelEditorDialog, draftFromModel } from './ModelEditorDialog'
@@ -89,8 +89,22 @@ const save = () => press(buttons().find((node) => node.textContent?.includes(t('
 describe('the quick picks', () => {
     it('labels each step with the number the reader reads off the button', () => {
         expect(CONTEXT_WINDOW_STEPS.map(formatTokenStep)).toEqual(['128K', '200K', '256K', '400K', '512K', '1M'])
-        expect(formatTokenStep(1000)).toBe('1K')
+        // A token is counted in binary: 1K is 1024, so the label and the stored number are the same fact.
+        expect(TOKEN_STEPS.map(formatTokenStep)).toEqual(['1K', '4K', '8K', '16K', '32K', '64K', '128K', '256K', '512K', '1M'])
+        expect(formatTokenStep(1024)).toBe('1K')
+        expect(formatTokenStep(1_048_576)).toBe('1M')
+        // A number the ladder does not hold is printed as itself rather than rounded into a step it is not.
+        expect(formatTokenStep(1000)).toBe('1000')
         expect(formatTokenStep(512)).toBe('512')
+    })
+
+    it('gives the input ceiling and the output ceiling the same picks', () => {
+        open()
+        const row = (name: string) => [...document.body.querySelectorAll<HTMLElement>('[role="group"]')]
+            .find((node) => node.getAttribute('aria-label') === name)
+        const labels = (name: string) => [...row(name)!.querySelectorAll('button[aria-pressed]')].map((node) => node.textContent?.trim())
+        expect(labels(t('assistant.model.max_input'))).toEqual(labels(t('assistant.model.max_output')))
+        expect(labels(t('assistant.model.max_output'))).toEqual(['1K', '4K', '8K', '16K', '32K', '64K', '128K', '256K', '512K', '1M'])
     })
     it('marks the stored value, and only that one, as taken', () => {
         open({ contextTokens: CONTEXT_WINDOW_STEPS[2] })
@@ -106,7 +120,7 @@ describe('the quick picks', () => {
         const { saved } = open()
         press(chip('400K', t('assistant.model.context')), 'the 400K preset')
         save()
-        expect(saved.mock.calls[0]?.[0].contextTokens).toBe(400_000)
+        expect(saved.mock.calls[0]?.[0].contextTokens).toBe(409_600)
     })
     it('offers a preset for the input ceiling and the output ceiling too', () => {
         const { saved } = open()
@@ -114,8 +128,48 @@ describe('the quick picks', () => {
         press(chip('16K', t('assistant.model.max_output')), 'the 16K output preset')
         save()
         const draft = saved.mock.calls[0]?.[0]
-        expect(draft.maxInputTokens).toBe(128_000)
-        expect(draft.maxOutputTokens).toBe(16_000)
+        expect(draft.maxInputTokens).toBe(131_072)
+        expect(draft.maxOutputTokens).toBe(16_384)
+    })
+})
+
+/** The three token numbers are optional, so emptying one has to be a real state rather than a default typed in. */
+describe('leaving a token number unset', () => {
+    const box = (row: string) => document.body.querySelector<HTMLInputElement>(`input[aria-label="${row}"]`)
+    const type = (node: HTMLInputElement, value: string) => {
+        const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value')?.set
+        setter?.call(node, value)
+        node.dispatchEvent(new Event('input', { bubbles: true }))
+    }
+
+    it('reads a model with no output number back as unset', () => {
+        const { saved } = open({ maxOutputTokens: null })
+        expect(box(t('assistant.model.max_output'))?.value).toBe('')
+        save()
+        expect(saved.mock.calls[0]?.[0].maxOutputTokens).toBe(null)
+    })
+
+    it('takes the number out when the field is emptied', () => {
+        const { saved } = open({ maxOutputTokens: 8192 })
+        const field = box(t('assistant.model.max_output'))!
+        expect(field.value).toBe('8192')
+        act(() => type(field, ''))
+        expect(field.value).toBe('')
+        save()
+        expect(saved.mock.calls[0]?.[0].maxOutputTokens).toBe(null)
+        expect(saved.mock.calls[0]?.[0].contextTokens).toBe(null)
+        expect(saved.mock.calls[0]?.[0].maxInputTokens).toBe(null)
+    })
+
+    it('clears a number by pressing the preset that is already taken', () => {
+        const { saved } = open({ maxOutputTokens: 16_384 })
+        const row = t('assistant.model.max_output')
+        expect(chip('16K', row)?.getAttribute('aria-pressed')).toBe('true')
+        press(chip('16K', row), 'the 16K preset')
+        expect(chip('16K', row)?.getAttribute('aria-pressed')).toBe('false')
+        expect(box(row)?.value).toBe('')
+        save()
+        expect(saved.mock.calls[0]?.[0].maxOutputTokens).toBe(null)
     })
 })
 

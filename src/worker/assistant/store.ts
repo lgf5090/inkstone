@@ -672,7 +672,9 @@ export class AssistantStore {
       this.userId,
     )
     const temperature = input.temperature ?? DEFAULT_ASSISTANT_SETTINGS.temperature
-    const maxOutputTokens = input.maxOutputTokens ?? DEFAULT_ASSISTANT_SETTINGS.limits.maxOutputTokens
+    // Left as the reader typed it, including unset: writing the account's ceiling in here would claim
+    // this model had a number of its own, and a later raise of the account's ceiling would not reach it.
+    const maxOutputTokens = input.maxOutputTokens ?? null
     const label = input.label ?? input.model
     const reasoning = input.reasoning ?? 'auto'
     const contextTokens = input.contextTokens ?? null
@@ -711,7 +713,9 @@ export class AssistantStore {
       ...(patch.model !== undefined ? { model: patch.model } : {}),
       // Null is a value here, not an absent patch: it is the switch being turned off.
       ...(patch.temperature !== undefined ? { temperature: patch.temperature } : {}),
-      ...(patch.maxOutputTokens !== undefined ? { maxOutputTokens: patch.maxOutputTokens ?? existing.maxOutputTokens } : {}),
+      // Null is a value here: it is the reader emptying the field, which hands the model back to the
+      // account's own ceiling.
+      ...(patch.maxOutputTokens !== undefined ? { maxOutputTokens: patch.maxOutputTokens } : {}),
       ...(patch.reasoning !== undefined ? { reasoning: patch.reasoning } : {}),
       ...(patch.contextTokens !== undefined ? { contextTokens: patch.contextTokens } : {}),
       ...(patch.vision !== undefined ? { vision: patch.vision } : {}),
@@ -2687,7 +2691,9 @@ function toModel(r: ModelRow): AssistantModel {
     // Null is the reader's own choice — "leave the vendor default alone" — so it must not be turned
     // back into a number on the way out.
     temperature: num(r.temperature),
-    maxOutputTokens: r.max_output_tokens ?? DEFAULT_ASSISTANT_SETTINGS.limits.maxOutputTokens,
+    // Null is "the reader has not set one", which the runner answers for; turning it into the account's
+    // number here made every model look hand-set and froze the fallback at whatever it was that day.
+    maxOutputTokens: num(r.max_output_tokens),
     reasoning: reasoningValue(r.reasoning),
     contextTokens: num(r.context_tokens),
     vision: r.vision === null ? true : bool(r.vision),

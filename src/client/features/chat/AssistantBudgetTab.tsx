@@ -11,9 +11,13 @@ import { Input, SettingRow, Slider } from '../../components/form'
 import { useAssistant } from './assistant-store'
 import { Group } from './assistant-settings-shared'
 
+// The three ceilings a model may leave unset, in the order the model editor draws them, then the ones
+// that shape a turn. Each of the three answers for a model that has not set its own, which is what makes
+// "Not set" a real choice beside a model rather than a number that silently became a default.
 const LIMIT_FIELDS: { key: keyof AssistantLimits, label: MessageKey, hint: MessageKey }[] = [
-  { key: 'maxOutputTokens', label: 'assistant.settings.limit.output', hint: 'assistant.settings.limit.output_hint' },
   { key: 'maxContextTokens', label: 'assistant.settings.limit.context', hint: 'assistant.settings.limit.context_hint' },
+  { key: 'maxInputTokens', label: 'assistant.settings.limit.input', hint: 'assistant.settings.limit.input_hint' },
+  { key: 'maxOutputTokens', label: 'assistant.settings.limit.output', hint: 'assistant.settings.limit.output_hint' },
   { key: 'maxToolCalls', label: 'assistant.settings.limit.tools', hint: 'assistant.settings.limit.tools_hint' },
   { key: 'maxAgentSteps', label: 'assistant.settings.limit.steps', hint: 'assistant.settings.limit.steps_hint' },
   { key: 'maxRequestsPerDay', label: 'assistant.settings.limit.requests', hint: 'assistant.settings.limit.requests_hint' },
