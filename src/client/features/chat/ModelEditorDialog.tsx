@@ -16,11 +16,13 @@ import type {
   AssistantModelKind,
   AssistantModelPurpose,
   AssistantParamType,
+  AssistantProvider,
   AssistantReasoning,
 } from '@shared/assistant'
 import { ASSISTANT_MODEL_KINDS, ASSISTANT_MODEL_MODALITIES, ASSISTANT_MODEL_PURPOSES, ASSISTANT_PROTOCOLS, CONTEXT_WINDOW_STEPS, TOKEN_STEPS, formatTokenStep } from '@shared/assistant'
 import type { AssistantModelModality, AssistantProtocol } from '@shared/assistant'
-import { REASONING_LABELS, REASONING_ORDER } from './ComposerControls'
+import { REASONING_LABELS } from './ComposerControls'
+import { modelReasoning, reasoningOptions } from './model-reasoning'
 import { ChipRow } from './assistant-settings-shared'
 import { cn } from '../../lib/cn'
 import { COPY_RESET_MS } from '../../lib/motion'
@@ -154,19 +156,23 @@ function numberOrNull(value: string): number | null {
 
 export function ModelEditorDialog({
   model,
-  providerLabel,
+  provider,
   limits,
   onClose,
   onSave,
 }: {
   model: AssistantModel
-  providerLabel: string
+  /** The provider that answers for this model, which is half of what its thinking dialect is read from. */
+  provider: AssistantProvider | null
   /** The account's ceilings, which are what an emptied field inherits — named beside each field. */
   limits: AssistantLimits
   onClose: () => void
   onSave: (draft: ModelDraft) => Promise<void> | void
 }) {
   const [draft, setDraft] = useState<ModelDraft>(() => draftFromModel(model))
+  // The rungs this model's own service publishes, and whether it can be stopped at all. Read from the same
+  // rule the worker builds the request with, so the levels offered here are the levels that travel.
+  const reasoning = modelReasoning(model, provider)
   const [more, setMore] = useState(false)
   const [copied, setCopied] = useState(false)
   const toast = useUi((state) => state.toast)
@@ -196,7 +202,7 @@ export function ModelEditorDialog({
       open
       onClose={onClose}
       title={t('assistant.model.edit')}
-      description={`${providerLabel} · ${model.model}`}
+      description={provider ? `${provider.label} · ${model.model}` : model.model}
       width={560}
       bodyClassName="p-4"
       footer={(
@@ -282,15 +288,19 @@ export function ModelEditorDialog({
               <Switch checked={draft.supportsTools} label={t('assistant.model.tools')} onChange={(checked) => patch({ supportsTools: checked })} />
             </SettingRow>
 
-            {/* The row's reasoning icon is a switch between off and automatic; which of the three depths a
-                model is asked for is a fact about that model, so it is chosen here rather than on the row. */}
-            <Field label={t('assistant.composer.thinking')} hint={t('assistant.model.reasoning_hint')}>
+            {/* The row's reasoning icon is a switch between off and automatic; which of the depths a model is
+                asked for is a fact about that model, so it is chosen here rather than on the row — and the
+                depths are the ones its own service names, not a fixed list every vendor is shown. */}
+            <Field
+              label={t('assistant.composer.thinking')}
+              hint={reasoning.canDisable ? t('assistant.model.reasoning_hint') : t('assistant.model.reasoning_no_off')}
+            >
               <Select
                 aria-label={t('assistant.composer.thinking')}
                 value={draft.reasoning}
                 onChange={(event) => patch({ reasoning: event.target.value as AssistantReasoning })}
               >
-                {REASONING_ORDER.map((level) => <option key={level} value={level}>{t(REASONING_LABELS[level])}</option>)}
+                {reasoningOptions(reasoning, draft.reasoning).map((level) => <option key={level} value={level}>{t(REASONING_LABELS[level])}</option>)}
               </Select>
             </Field>
 

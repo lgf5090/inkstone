@@ -7,8 +7,9 @@
  */
 import { useEffect, useId, useMemo, useRef, useState } from 'react'
 import { Brain, Check, ChevronDown, Download, Eye, GalleryVerticalEnd, Image, KeyRound, Plus, Power, Search, Server, Settings2, Trash2, Wand2, Wrench } from 'lucide-react'
-import { type AssistantModel, type AssistantModelKind, type AssistantModelPurpose, type AssistantProvider, type AssistantSettings } from '@shared/assistant'
+import { type AssistantModel, type AssistantModelKind, type AssistantModelPurpose, type AssistantProtocol, type AssistantProvider, type AssistantSettings, type ReasoningDialect } from '@shared/assistant'
 import { ASSISTANT_PROTOCOLS, PROVIDER_PRESETS, endpointFieldState } from '@shared/assistant'
+import { dialectsForProtocol } from '@shared/reasoning'
 import { ModelEditorDialog } from './ModelEditorDialog'
 import { ModelPickerDialog } from './ModelPickerDialog'
 import { cn } from '../../lib/cn'
@@ -19,7 +20,7 @@ import { Field, Input, Select, SettingRow, Switch } from '../../components/form'
 import { Modal, Tooltip, confirm, useClickOutside, useEscape } from '../../components/overlay'
 import { useUi } from '../../store/ui'
 import { useAssistant } from './assistant-store'
-import { Group, PROTOCOL_LABELS } from './assistant-settings-shared'
+import { DIALECT_LABELS, Group, PROTOCOL_LABELS } from './assistant-settings-shared'
 
 /**
  * One capability, drawn as the switch that sets it.
@@ -232,7 +233,7 @@ export function ModelTab({ settings }: { settings: AssistantSettings }) {
               {editing && (
                 <ModelEditorDialog
                   model={editing}
-                  providerLabel={providers.find((entry) => entry.id === editing.providerId)?.label ?? ''}
+                  provider={providers.find((entry) => entry.id === editing.providerId) ?? null}
                   limits={settings.limits}
                   onClose={() => setEditing(null)}
                   onSave={(draft) => void updateModel(editing.id, draft)}
@@ -386,12 +387,18 @@ export function ProviderForm({ open, provider, onClose, onCreated }: {
   const [preset, setPreset] = useState(PROVIDER_PRESETS[0]!.id)
   const [label, setLabel] = useState('')
   const [baseUrl, setBaseUrl] = useState(PROVIDER_PRESETS[0]!.baseUrl)
-  const [protocol, setProtocol] = useState<string>(PROVIDER_PRESETS[0]!.protocol)
+  const [protocol, setProtocol] = useState<AssistantProtocol>(PROVIDER_PRESETS[0]!.protocol)
   const [apiKey, setApiKey] = useState('')
   const [models, setModels] = useState(PROVIDER_PRESETS[0]!.models.join(', '))
   const [extra, setExtra] = useState<Record<string, string>>({})
+  // '' is "read it off the address". A pin the chosen protocol cannot honour is dropped rather than
+  // offered: the two wires do not share a thinking shape, so one that no longer fits would only build a
+  // body the far end ignores.
+  const [dialect, setDialect] = useState<ReasoningDialect | ''>('')
   const [listing, setListing] = useState(false)
   const chosen = PROVIDER_PRESETS.find((entry) => entry.id === preset) ?? PROVIDER_PRESETS[0]!
+  const dialectChoices = dialectsForProtocol(protocol)
+  const pinned = dialect && dialectChoices.includes(dialect) ? dialect : ''
 
   // Which box says what, and why the save would be refused. The optional addresses are checked here for
   // the same reason the route checks them: a browser can autocomplete a username into a text box sitting
@@ -419,6 +426,7 @@ export function ProviderForm({ open, provider, onClose, onCreated }: {
       setBaseUrl(editing.baseUrl)
       setProtocol(editing.protocol)
       setExtra(editing.endpoints as Record<string, string>)
+      setDialect(editing.reasoningDialect ?? '')
       setModels('')
       setApiKey('')
       return
@@ -429,6 +437,7 @@ export function ProviderForm({ open, provider, onClose, onCreated }: {
     setModels(chosen.models.join(', '))
     setApiKey('')
     setExtra({})
+    setDialect('')
   }, [open, chosen, editing])
 
   return (
@@ -450,6 +459,7 @@ export function ProviderForm({ open, provider, onClose, onCreated }: {
                   protocol,
                   baseUrl: baseUrl.trim(),
                   endpoints: sendable,
+                  reasoningDialect: pinned || null,
                   ...(apiKey.trim() ? { apiKey: apiKey.trim() } : {}),
                 }).then(onClose)
                 return
@@ -462,6 +472,7 @@ export function ProviderForm({ open, provider, onClose, onCreated }: {
                 baseUrl: baseUrl.trim(),
                 apiKey: apiKey.trim(),
                 endpoints: sendable,
+                reasoningDialect: pinned || null,
                 models: models.split(',').map((entry) => entry.trim()).filter(Boolean),
               }).then((created) => {
                 onClose()
@@ -480,8 +491,16 @@ export function ProviderForm({ open, provider, onClose, onCreated }: {
           <Input value={label} maxLength={60} autoComplete="off" onChange={(event) => setLabel(event.target.value)} />
         </Field>
         <Field label={t('assistant.settings.protocol')}>
-          <Select value={protocol} onChange={(event) => setProtocol(event.target.value)}>
+          <Select value={protocol} onChange={(event) => setProtocol(event.target.value as AssistantProtocol)}>
             {ASSISTANT_PROTOCOLS.map((entry) => <option key={entry} value={entry}>{PROTOCOL_LABELS[entry]?.()}</option>)}
+          </Select>
+        </Field>
+        <Field label={t('assistant.settings.dialect')} hint={t('assistant.settings.dialect_hint')}>
+          <Select aria-label={t('assistant.settings.dialect')} value={pinned} onChange={(event) => setDialect(event.target.value as ReasoningDialect | '')}>
+            <option value="">{t('assistant.settings.dialect.auto')}</option>
+            {dialectChoices.map((entry) => (
+              <option key={entry} value={entry}>{t(DIALECT_LABELS[entry])}</option>
+            ))}
           </Select>
         </Field>
         <Field label={t('assistant.settings.base_url')} hint={problems.base_url ?? t('assistant.settings.base_url_hint')}>

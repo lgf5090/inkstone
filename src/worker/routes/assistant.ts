@@ -77,7 +77,7 @@ import { exportAssistant, importAssistant } from '../assistant/backup'
 import { suggestActiveModel } from '../assistant/model-config'
 import { listVendorModels } from '../assistant/vendor-models'
 import { memoryEmbeddingStatus, reindexMemoryEmbeddings, semanticModel } from '../assistant/semantic'
-import { MAX_PROVIDER_MODELS, reasoningValue } from '@shared/assistant'
+import { MAX_PROVIDER_MODELS, reasoningDialectValue, reasoningValue } from '@shared/assistant'
 import {
   CHAT_IMAGE_MAX_BYTES,
   ChatUploadError,
@@ -1361,7 +1361,10 @@ assistantRoutes.post('/providers', async (c) => {
   const label = text(body.label, 60)
   const apiKey = typeof body.apiKey === 'string' ? body.apiKey.trim() : ''
   if (apiKey.length > 4096) throw ApiError.badRequest('That API key is too long to store.')
-  const provider = await s.createProvider({ label, protocol, baseUrl, apiKey, endpoints: vetEndpoints(body.endpoints) })
+  const provider = await s.createProvider({
+    label, protocol, baseUrl, apiKey, endpoints: vetEndpoints(body.endpoints),
+    reasoningDialect: reasoningDialectValue(body.reasoningDialect),
+  })
   const models = Array.isArray(body.models) ? body.models : []
   for (const entry of models.slice(0, MAX_PROVIDER_MODELS)) {
     const model = typeof entry === 'string' ? entry : (entry as { model?: unknown })?.model
@@ -1384,6 +1387,7 @@ assistantRoutes.patch('/providers/:id', async (c) => {
     ...(body.baseUrl !== undefined ? { baseUrl: vetBaseUrl(body.baseUrl) } : {}),
     ...(body.apiKey === null ? { apiKey: null } : typeof body.apiKey === 'string' ? { apiKey: body.apiKey } : {}),
     ...(body.endpoints !== undefined ? { endpoints: vetEndpoints(body.endpoints) } : {}),
+    ...(body.reasoningDialect !== undefined ? { reasoningDialect: reasoningDialectValue(body.reasoningDialect) } : {}),
   })
   if (!provider) throw ApiError.notFound('Provider not found')
   return c.json({ provider })

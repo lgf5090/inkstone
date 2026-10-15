@@ -137,7 +137,8 @@ describe('model chip', () => {
 describe('thinking and context chips', () => {
   it('keeps auto and off selectable when the model thinks by itself', async () => {
     const onChange = vi.fn()
-    await act(async () => { root.render(createElement(ReasoningMenu, { value: 'auto', disabled: true, onChange })) })
+    // The rungs a model's own service offers; DeepSeek's four plus the two values every service shares.
+    await act(async () => { root.render(createElement(ReasoningMenu, { value: 'auto', rungs: ['auto', 'off', 'low', 'medium', 'high'], disabled: true, onChange })) })
     await click(byAria(t('assistant.composer.thinking')))
     const levels = buttons().filter((node) => node.getAttribute('role') === 'menuitem')
     // Three of the five levels ask the model to think; a model that cannot is not offered them.
@@ -260,7 +261,7 @@ describe('anchored menus', () => {
     const cases: [string, () => ReactElement][] = [
       ['plus', () => createElement(PlusMenu, { onFiles: vi.fn(), onFolder: vi.fn(), onUrl: vi.fn(), onNote: vi.fn(), onPrompt: vi.fn(), prompts: [], onManagePrompts: vi.fn() })],
       ['model', () => createElement(ModelMenu, { models: [model()], activeId: 'm1', onPick: vi.fn(), onManage: vi.fn(), onVision: vi.fn() })],
-      ['thinking', () => createElement(ReasoningMenu, { value: 'auto', disabled: false, onChange: vi.fn() })],
+      ['thinking', () => createElement(ReasoningMenu, { value: 'auto', rungs: ['auto', 'off', 'low', 'medium', 'high'], disabled: false, onChange: vi.fn() })],
       ['context', () => createElement(ContextMenu, { value: null, onPick: vi.fn() })],
       ['approval', () => createElement(ApprovalMenu, { auto: false, onChange: vi.fn() })],
     ]

@@ -142,24 +142,28 @@ export function ModelMenu({
 export const REASONING_LABELS: Record<AssistantReasoning, MessageKey> = {
   auto: 'assistant.reasoning.auto',
   off: 'assistant.reasoning.off',
+  minimal: 'assistant.reasoning.minimal',
   low: 'assistant.reasoning.low',
   medium: 'assistant.reasoning.medium',
   high: 'assistant.reasoning.high',
+  xhigh: 'assistant.reasoning.xhigh',
+  max: 'assistant.reasoning.max',
 }
-
-export const REASONING_ORDER: AssistantReasoning[] = ['auto', 'off', 'low', 'medium', 'high']
 
 export function ReasoningMenu({
   value,
+  rungs,
   disabled,
   onChange,
 }: {
   value: AssistantReasoning
+  /** The levels this model's own service has, in the order it publishes them. */
+  rungs: AssistantReasoning[]
   disabled: boolean
   onChange: (next: AssistantReasoning) => void
 }) {
   const anchor = useMenuAnchor()
-  const items: MenuItem[] = REASONING_ORDER.map((level) => ({
+  const items: MenuItem[] = rungs.map((level) => ({
     id: level,
     label: t(REASONING_LABELS[level]),
     icon: level === value ? <Check size={13} /> : undefined,

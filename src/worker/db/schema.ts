@@ -1137,6 +1137,16 @@ export const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
       `ALTER TABLE chat_answer_versions ADD COLUMN reasoning TEXT NOT NULL DEFAULT ''`,
     ],
   },
+  {
+    // Which thinking contract an address speaks, when the reader has to say so: a gateway's hostname and a
+    // proxied model name are the two things the inference in `reasoning.ts` cannot read. Null is "no pin",
+    // which is how a model's own protocol column already says "follow the provider".
+    version: 63,
+    skipIfColumnExists: { table: 'chat_providers', column: 'reasoning_dialect' },
+    statements: [
+      `ALTER TABLE chat_providers ADD COLUMN reasoning_dialect TEXT`,
+    ],
+  },
 ]
 
 const FTS_STATEMENT = `CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(

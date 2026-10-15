@@ -8,6 +8,7 @@
  */
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { AssistantProtocol } from '../src/shared/assistant'
+import { reasoningDialect, reasoningRungs } from '../src/shared/reasoning'
 import { UpstreamError, readSse, streamUpstream, type UpstreamEvent, type UpstreamRequest } from '../src/worker/assistant/upstream'
 
 const BASE = { baseUrl: 'https://api.example.com', apiKey: 'sk-test', model: 'm', signal: new AbortController().signal }
@@ -278,21 +279,64 @@ describe('thinking levels on the wire', () => {
     expect(body.reasoning_effort).toBeUndefined()
   })
 
-  it('sends the one switch that actually stops a DeepSeek-style model, plus the effort name', async () => {
-    const off = await sentBody('openai', { reasoning: 'off' })
-    expect(off.thinking).toEqual({ type: 'disabled' })
-    expect(off.reasoning_effort).toBeUndefined()
-    const low = await sentBody('openai', { reasoning: 'low' })
-    expect(low.thinking).toEqual({ type: 'enabled' })
-    expect(low.reasoning_effort).toBe('low')
-    const high = await sentBody('openai', { reasoning: 'high' })
-    expect(high.reasoning_effort).toBe('high')
+  it('keeps the field OpenAI documents, and only that field, on an endpoint that is not its own', async () => {
+    // `api.openai.com` refuses a field it does not know, so one shape for every OpenAI-compatible server
+    // is what used to make a reader's key fail on the service the protocol is named after.
+    const official = await sentBody('openai', { reasoning: 'high', baseUrl: 'https://api.openai.com/v1' })
+    expect(official.reasoning_effort).toBe('high')
+    expect(official.thinking).toBeUndefined()
+    const off = await sentBody('openai', { reasoning: 'off', baseUrl: 'https://api.openai.com/v1' })
+    expect(off.reasoning_effort).toBe('none')
+    expect(off.thinking).toBeUndefined()
+    // An address nobody recognises keeps the same conservative shape, which is the one a server reads or
+    // ignores rather than refuses.
+    const unknown = await sentBody('openai', { reasoning: 'high' })
+    expect(unknown.reasoning_effort).toBe('high')
+    expect(unknown.thinking).toBeUndefined()
   })
 
-  it('gives Anthropic a budget under the answer ceiling and drops temperature while thinking', async () => {
-    const on = await sentBody('anthropic', { reasoning: 'medium', maxOutputTokens: 4096 })
+  it('writes DeepSeek its own ladder, where the middle level is called high and max is the top', async () => {
+    const deepseek = 'https://api.deepseek.com'
+    const off = await sentBody('openai', { reasoning: 'off', baseUrl: deepseek })
+    expect(off.thinking).toEqual({ type: 'disabled' })
+    expect(off.reasoning_effort).toBeUndefined()
+    const medium = await sentBody('openai', { reasoning: 'medium', baseUrl: deepseek })
+    expect(medium.thinking).toEqual({ type: 'enabled' })
+    expect(medium.reasoning_effort).toBe('high')
+    const high = await sentBody('openai', { reasoning: 'high', baseUrl: deepseek })
+    expect(high.reasoning_effort).toBe('max')
+  })
+
+  it('finds the vendor behind a gateway from the model the gateway is asked for', async () => {
+    const off = await sentBody('openai', { reasoning: 'off', baseUrl: 'https://api.siliconflow.com/v1', model: 'deepseek-ai/DeepSeek-V4-Flash' })
+    expect(off.thinking).toEqual({ type: 'disabled' })
+    const qwen = await sentBody('openai', { reasoning: 'off', baseUrl: 'https://api.cerebras.ai/v1', model: 'qwen-3.8-27b' })
+    expect(qwen.enable_thinking).toBe(false)
+  })
+
+  it('gives Qwen its boolean switch rather than a budget its models bound differently', async () => {
+    const dashscope = 'https://dashscope.aliyuncs.com/compatible-mode/v1'
+    const on = await sentBody('openai', { reasoning: 'medium', baseUrl: dashscope })
+    expect(on.enable_thinking).toBe(true)
+    expect(on.thinking_budget).toBeUndefined()
+    const off = await sentBody('openai', { reasoning: 'off', baseUrl: dashscope })
+    expect(off.enable_thinking).toBe(false)
+  })
+
+  it('speaks OpenRouter its normalized reasoning object instead of the raw field', async () => {
+    const openrouter = 'https://openrouter.ai/api/v1'
+    const high = await sentBody('openai', { reasoning: 'high', baseUrl: openrouter })
+    expect(high.reasoning).toEqual({ effort: 'high' })
+    expect(high.reasoning_effort).toBeUndefined()
+    const off = await sentBody('openai', { reasoning: 'off', baseUrl: openrouter })
+    expect(off.reasoning).toEqual({ effort: 'none' })
+  })
+
+  it('gives Anthropic a budget under the answer ceiling and drops sampling while thinking', async () => {
+    const on = await sentBody('anthropic', { reasoning: 'medium', maxOutputTokens: 4096, topP: 0.5 })
     expect(on.thinking).toEqual({ type: 'enabled', budget_tokens: 3072 })
     expect(on.temperature).toBeUndefined()
+    expect(on.top_p).toBeUndefined()
     expect(on.max_tokens).toBe(4096)
     const off = await sentBody('anthropic', { reasoning: 'off' })
     expect(off.thinking).toBeUndefined()
@@ -305,13 +349,95 @@ describe('thinking levels on the wire', () => {
     expect((tight.thinking as { budget_tokens: number }).budget_tokens).toBeLessThan(1200)
   })
 
-  it('writes Gemini numbers, not names', async () => {
-    const off = await sentBody('gemini', { reasoning: 'off' })
+  it('sends the newest Claude the adaptive form, and no sampling setting at all', async () => {
+    const newest = { baseUrl: 'https://api.anthropic.com/v1', model: 'claude-opus-5-5' }
+    const on = await sentBody('anthropic', { ...newest, reasoning: 'high' })
+    expect(on.thinking).toEqual({ type: 'adaptive' })
+    expect(on.output_config).toEqual({ effort: 'high' })
+    // Those models refuse a non-default temperature or top-p even when nothing was asked of their thinking.
+    expect(on.temperature).toBeUndefined()
+    expect(on.top_p).toBeUndefined()
+    const off = await sentBody('anthropic', { ...newest, reasoning: 'off', topP: 0.5 })
+    expect(off.thinking).toEqual({ type: 'adaptive' })
+    expect(off.output_config).toEqual({ effort: 'low' })
+    expect(off.temperature).toBeUndefined()
+    const older = await sentBody('anthropic', { ...newest, model: 'claude-sonnet-4-5', reasoning: 'low' })
+    expect((older.thinking as { budget_tokens: number }).budget_tokens).toBe(1024)
+    expect(older.output_config).toBeUndefined()
+  })
+
+  it('writes Gemini numbers for a 2.5 model and levels for a 3.x one', async () => {
+    const flash = { baseUrl: 'https://generativelanguage.googleapis.com/v1beta', model: 'gemini-2.5-flash' }
+    const off = await sentBody('gemini', { ...flash, reasoning: 'off' })
     expect((off.generationConfig as Record<string, unknown>).thinkingConfig).toEqual({ thinkingBudget: 0 })
-    const on = await sentBody('gemini', { reasoning: 'low' })
+    const on = await sentBody('gemini', { ...flash, reasoning: 'low' })
     expect((on.generationConfig as Record<string, unknown>).thinkingConfig).toEqual({ thinkingBudget: 1024, includeThoughts: true })
-    const auto = await sentBody('gemini')
+    const auto = await sentBody('gemini', flash)
     expect((auto.generationConfig as Record<string, unknown>).thinkingConfig).toBeUndefined()
+    const three = await sentBody('gemini', { ...flash, model: 'gemini-3.8-flash', reasoning: 'low' })
+    expect((three.generationConfig as Record<string, unknown>).thinkingConfig).toEqual({ thinkingLevel: 'LOW', includeThoughts: true })
+    const threeHigh = await sentBody('gemini', { ...flash, model: 'gemini-3.8-flash', reasoning: 'high' })
+    expect((threeHigh.generationConfig as Record<string, unknown>).thinkingConfig).toEqual({ thinkingLevel: 'HIGH', includeThoughts: true })
+  })
+
+  it('does not ask a model that cannot stop thinking to stop', async () => {
+    // A zero budget is refused by the Pro models, so the least they offer is sent instead of a request the
+    // vendor would reject — and on 3.x that floor is `MINIMAL`, not off.
+    const pro = await sentBody('gemini', { reasoning: 'off', model: 'gemini-2.5-pro' })
+    expect((pro.generationConfig as Record<string, unknown>).thinkingConfig).toBeUndefined()
+    const three = await sentBody('gemini', { reasoning: 'off', model: 'gemini-3.8-flash' })
+    expect((three.generationConfig as Record<string, unknown>).thinkingConfig).toEqual({ thinkingLevel: 'MINIMAL' })
+  })
+})
+
+describe('the thinking dialect a model speaks', () => {
+  it('takes the vendor from the endpoint when the endpoint is the vendor\'s own', () => {
+    expect(reasoningDialect('openai', 'https://api.openai.com/v1', 'gpt-5.4')).toBe('openai')
+    expect(reasoningDialect('openai', 'https://api.deepseek.com', 'deepseek-chat')).toBe('deepseek')
+    expect(reasoningDialect('openai', 'https://dashscope.aliyuncs.com/compatible-mode/v1', 'qwen-plus')).toBe('qwen')
+    expect(reasoningDialect('openai', 'https://openrouter.ai/api/v1', 'deepseek/deepseek-chat')).toBe('openrouter')
+  })
+
+  it('takes the vendor from the model id when the endpoint serves several', () => {
+    expect(reasoningDialect('openai', 'https://api.together.xyz/v1', 'deepseek-ai/DeepSeek-V4-Pro-0813')).toBe('deepseek')
+    expect(reasoningDialect('openai', 'https://api.cerebras.ai/v1', 'qwen-3.8-27b')).toBe('qwen')
+    expect(reasoningDialect('openai', 'https://api.groq.com/openai/v1', 'gpt-oss-120b')).toBe('openai')
+  })
+
+  it('splits both versioned protocols inside one model generation', () => {
+    expect(reasoningDialect('anthropic', 'https://api.anthropic.com/v1', 'claude-opus-4-7')).toBe('claude-effort')
+    expect(reasoningDialect('anthropic', 'https://api.anthropic.com/v1', 'claude-sonnet-5.5')).toBe('claude-effort')
+    expect(reasoningDialect('anthropic', 'https://api.anthropic.com/v1', 'claude-opus-4-6')).toBe('claude-budget')
+    expect(reasoningDialect('anthropic', 'https://api.anthropic.com/v1', 'claude-3-5-sonnet')).toBe('claude-budget')
+    expect(reasoningDialect('gemini', 'https://generativelanguage.googleapis.com/v1beta', 'gemini-3.1-pro')).toBe('gemini-level')
+    expect(reasoningDialect('gemini', 'https://generativelanguage.googleapis.com/v1beta', 'gemini-2.5-pro')).toBe('gemini-budget')
+  })
+
+  it('lets the provider pin settle the question for an address and a model that say nothing', () => {
+    // A gateway on an internal host, forwarding to a vendor whose name is nowhere in the id: both readings
+    // the inference has come out empty, which is exactly when the reader pins one.
+    const address = 'https://gw.internal.example/v1'
+    expect(reasoningDialect('openai', address, 'my-deployment')).toBe('openai')
+    expect(reasoningDialect('openai', address, 'my-deployment', 'deepseek')).toBe('deepseek')
+    // A pin also overrides a reading that would otherwise be right, because the reader is the one who knows
+    // what is behind a proxy that renames the models it forwards.
+    expect(reasoningDialect('openai', 'https://openrouter.ai/api/v1', 'deepseek/deepseek-chat', 'qwen')).toBe('qwen')
+  })
+
+  it('falls back to the reading when the pin belongs to another wire', () => {
+    // The dialects are not interchangeable across protocols, so a pin that no longer fits the wire is not
+    // taken — the request path drops it too, rather than building a body the far end cannot read.
+    expect(reasoningDialect('gemini', 'https://generativelanguage.googleapis.com/v1beta', 'gemini-2.5-flash', 'claude-effort')).toBe('gemini-budget')
+  })
+
+  it('offers each service its own levels rather than one list for all of them', () => {
+    expect(reasoningRungs('claude-effort')).toEqual(['auto', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'])
+    expect(reasoningRungs('gemini-level')).toEqual(['auto', 'minimal', 'low', 'medium', 'high'])
+    // Qwen's switch has no depth between off and on, so nothing is offered between those two rungs.
+    expect(reasoningRungs('qwen')).toEqual(['auto', 'off'])
+    // A dialect whose service cannot be stopped starts at its cheapest rung instead of offering off.
+    expect(reasoningRungs('gemini-level')).not.toContain('off')
+    expect(reasoningRungs('claude-effort')).not.toContain('off')
   })
 })
 

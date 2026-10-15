@@ -39,8 +39,10 @@ import type {
   TaskStatus,
   ToolActivity,
   UsageCounters,
+  ReasoningDialect,
 } from '@shared/assistant'
-import { ASSISTANT_MCP_TOOL_MODES, ASSISTANT_MCP_TRANSPORTS, DEFAULT_MCP_TIMEOUT_SECONDS, MAX_MCP_DESCRIPTION_CHARS, MAX_MCP_DISABLED_TOOLS, MAX_MCP_HEADER_VALUE_CHARS, MAX_MCP_LABEL_CHARS, MAX_MCP_TOOL_NAME_CHARS, MAX_MCP_TIMEOUT_SECONDS, MIN_MCP_TIMEOUT_SECONDS, MAX_ANSWER_VERSIONS, MAX_CHAT_ATTACHMENTS, clipReasoning, isMcpHeaderName, parseModelModalities, parseProviderEndpoints, reasoningValue, type AssistantAnswerVersion, type AssistantMcpServer, type AssistantMcpToolMode, type AssistantMcpTransport, type AssistantModelModality, type ChatAttachment } from '@shared/assistant'
+import { dialectsForProtocol } from '@shared/reasoning'
+import { ASSISTANT_MCP_TOOL_MODES, ASSISTANT_MCP_TRANSPORTS, DEFAULT_MCP_TIMEOUT_SECONDS, MAX_MCP_DESCRIPTION_CHARS, MAX_MCP_DISABLED_TOOLS, MAX_MCP_HEADER_VALUE_CHARS, MAX_MCP_LABEL_CHARS, MAX_MCP_TOOL_NAME_CHARS, MAX_MCP_TIMEOUT_SECONDS, MIN_MCP_TIMEOUT_SECONDS, MAX_ANSWER_VERSIONS, MAX_CHAT_ATTACHMENTS, clipReasoning, isMcpHeaderName, parseModelModalities, parseProviderEndpoints, reasoningDialectValue, reasoningValue, type AssistantAnswerVersion, type AssistantMcpServer, type AssistantMcpToolMode, type AssistantMcpTransport, type AssistantModelModality, type ChatAttachment } from '@shared/assistant'
 import {
   ASSISTANT_MEMORY_CATEGORIES,
   ASSISTANT_PROTOCOLS,
@@ -103,7 +105,7 @@ const MEMORY_COLUMNS
  * `length(key_ciphertext) > 0` answers "is a key stored" without the ciphertext ever leaving the row,
  * so no provider listing can carry a key out even if a route is added carelessly later.
  */
-const PROVIDER_COLUMNS = `id, label, protocol, base_url, endpoints, length(key_ciphertext) > 0 AS has_key, created_at, updated_at`
+const PROVIDER_COLUMNS = `id, label, protocol, base_url, endpoints, reasoning_dialect, length(key_ciphertext) > 0 AS has_key, created_at, updated_at`
 
 function bool(value: unknown): boolean {
   return value === 1 || value === true
@@ -520,7 +522,7 @@ export class AssistantStore {
   /** Includes the ciphertext: only the worker may hold it, and only to sign one upstream request. */
   async providerRecord(id: string): Promise<ProviderRow | null> {
     const stored = await this.one<Omit<ProviderRow, 'protocol'> & { protocol: string }>(
-      `SELECT id, label, protocol, base_url, endpoints, key_ciphertext, created_at, updated_at
+      `SELECT id, label, protocol, base_url, endpoints, reasoning_dialect, key_ciphertext, created_at, updated_at
          FROM chat_providers WHERE user_id = ?1 AND id = ?2`,
       this.userId, id,
     )
@@ -539,16 +541,18 @@ export class AssistantStore {
   async createProvider(input: {
     label: string, protocol: AssistantProtocol, baseUrl: string, apiKey: string,
     endpoints?: Partial<Record<AssistantProtocol, string>>,
+    reasoningDialect?: ReasoningDialect | null,
   }): Promise<AssistantProvider> {
     const id = newId()
     const at = Date.now()
     const key = input.apiKey.trim()
     const ciphertext = key ? await encryptAssistantKey(this.env, this.userId, key) : ''
+    const dialect = compatibleDialect(input.protocol, input.reasoningDialect)
     await this.write(
-      `INSERT INTO chat_providers (id, user_id, label, protocol, base_url, endpoints, key_ciphertext, created_at, updated_at)
-       VALUES (?2, ?1, ?3, ?4, ?5, ?9, ?6, ?7, ?8)`,
+      `INSERT INTO chat_providers (id, user_id, label, protocol, base_url, endpoints, reasoning_dialect, key_ciphertext, created_at, updated_at)
+       VALUES (?2, ?1, ?3, ?4, ?5, ?9, ?10, ?6, ?7, ?8)`,
       id, input.label, input.protocol, input.baseUrl, ciphertext, at, at,
-      JSON.stringify(input.endpoints ?? {}),
+      JSON.stringify(input.endpoints ?? {}), dialect,
     )
     return {
       id,
@@ -556,6 +560,7 @@ export class AssistantStore {
       protocol: input.protocol,
       baseUrl: input.baseUrl,
       endpoints: input.endpoints ?? {},
+      reasoningDialect: dialect,
       hasKey: Boolean(ciphertext),
       keyHint: key ? key.slice(-4) : '',
       createdAt: at,
@@ -568,6 +573,7 @@ export class AssistantStore {
     patch: {
       label?: string, protocol?: AssistantProtocol, baseUrl?: string, apiKey?: string | null,
       endpoints?: Partial<Record<AssistantProtocol, string>>,
+      reasoningDialect?: ReasoningDialect | null,
     },
   ): Promise<AssistantProvider | null> {
     const existing = await this.providerRecord(id)
@@ -576,6 +582,13 @@ export class AssistantStore {
     const protocol = patch.protocol ?? pickEnum(existing.protocol, ASSISTANT_PROTOCOLS, 'openai')
     const baseUrl = patch.baseUrl?.trim() || existing.base_url
     const endpoints = patch.endpoints ?? parseProviderEndpoints(existing.endpoints)
+    // A pin survives an edit that does not mention it, and is re-checked against a newly chosen protocol:
+    // a Claude effort dialect left on a provider switched to the OpenAI wire would build a body nothing
+    // there reads.
+    const dialect = compatibleDialect(
+      protocol,
+      patch.reasoningDialect !== undefined ? patch.reasoningDialect : reasoningDialectValue(existing.reasoning_dialect),
+    )
     let ciphertext = existing.key_ciphertext ?? ''
     let hint = ''
     if (patch.apiKey === null) ciphertext = ''
@@ -585,9 +598,9 @@ export class AssistantStore {
     }
     const at = Date.now()
     await this.write(
-      `UPDATE chat_providers SET label = ?2, protocol = ?3, base_url = ?4, key_ciphertext = ?5, updated_at = ?6, endpoints = ?8
+      `UPDATE chat_providers SET label = ?2, protocol = ?3, base_url = ?4, key_ciphertext = ?5, updated_at = ?6, endpoints = ?8, reasoning_dialect = ?9
          WHERE user_id = ?1 AND id = ?7`,
-      label, protocol, baseUrl, ciphertext, at, id, JSON.stringify(endpoints),
+      label, protocol, baseUrl, ciphertext, at, id, JSON.stringify(endpoints), dialect,
     )
     return {
       id,
@@ -595,6 +608,7 @@ export class AssistantStore {
       protocol,
       baseUrl,
       endpoints,
+      reasoningDialect: dialect,
       hasKey: Boolean(ciphertext),
       keyHint: hint,
       createdAt: existing.created_at,
@@ -623,7 +637,7 @@ export class AssistantStore {
    */
   async vendorAccess(id: string): Promise<{ protocol: AssistantProtocol, baseUrl: string, apiKey: string } | null> {
     const row = await this.one<ProviderRow>(
-      `SELECT id, label, protocol, base_url, endpoints, key_ciphertext, created_at, updated_at
+      `SELECT id, label, protocol, base_url, endpoints, reasoning_dialect, key_ciphertext, created_at, updated_at
          FROM chat_providers WHERE user_id = ?1 AND id = ?2`,
       this.userId, id,
     )
@@ -2639,10 +2653,23 @@ export interface ProviderRow {
   protocol: AssistantProtocol
   base_url: string
   endpoints?: string | null
+  reasoning_dialect?: string | null
   key_ciphertext?: string | null
   has_key?: number | null
   created_at: number
   updated_at: number
+}
+
+/**
+ * A pin that can be honoured on this wire, or null.
+ *
+ * The dialects are not interchangeable across protocols — an effort shape means nothing to a Gemini body —
+ * so a value that does not belong to the protocol is dropped rather than stored and then ignored at the
+ * far end of a request.
+ */
+function compatibleDialect(protocol: AssistantProtocol, value: ReasoningDialect | null | undefined): ReasoningDialect | null {
+  if (!value) return null
+  return dialectsForProtocol(protocol).includes(value) ? value : null
 }
 
 function toProvider(r: ProviderRow): AssistantProvider {
@@ -2652,6 +2679,7 @@ function toProvider(r: ProviderRow): AssistantProvider {
     protocol: pickEnum(r.protocol, ASSISTANT_PROTOCOLS, 'openai'),
     baseUrl: r.base_url,
     endpoints: parseProviderEndpoints(r.endpoints),
+    reasoningDialect: reasoningDialectValue(r.reasoning_dialect),
     hasKey: bool(r.has_key ?? Boolean(r.key_ciphertext)),
     // The ciphertext is never decrypted to build a view, so no listing can carry a key out.
     keyHint: '',

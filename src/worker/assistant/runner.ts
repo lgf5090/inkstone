@@ -361,6 +361,7 @@ export class AssistantRunner {
           topP: model.topP,
           extraBody: customParamBody(model.customParams),
           reasoning: model.reasoning,
+          reasoningDialect: call.reasoningDialect,
           signal: input.signal,
         }, calls, usage)) {
           if (event.type === 'text') text += event.delta ?? ''
@@ -540,6 +541,7 @@ export class AssistantRunner {
         temperature: 0.2,
         // A summary is arithmetic on text, not a question: thinking only costs the reader's budget.
         reasoning: 'off',
+        reasoningDialect: call.reasoningDialect,
         signal: controller.signal,
       })) {
         if (event.type === 'text') text += event.delta
@@ -715,6 +717,7 @@ export class AssistantRunner {
         maxOutputTokens: 600,
         temperature: 0,
         reasoning: 'off',
+        reasoningDialect: call.reasoningDialect,
         signal: controller.signal,
       })) {
         if (event.type === 'text') text += event.delta
@@ -778,6 +781,7 @@ export class AssistantRunner {
         maxOutputTokens: Math.min(limits.maxOutputTokens, 800),
         temperature: this.settings.temperature,
         reasoning: resolved.model.reasoning,
+        reasoningDialect: call.reasoningDialect,
         signal,
       }, calls, usage)) {
         if (event.type === 'text') text += event.delta ?? ''

@@ -138,6 +138,66 @@ describe('asking the vendor what a key can call, before saving', () => {
   })
 })
 
+describe('the thinking dialect a provider is pinned to', () => {
+  const dialectSelect = () => document.querySelector<HTMLSelectElement>(`select[aria-label="${t('assistant.settings.dialect')}"]`)
+  const dialectValues = () => [...(dialectSelect()?.options ?? [])].map((option) => option.value)
+  /** The protocol select has no label of its own; its options are what identify it. */
+  const protocolSelect = () => [...document.querySelectorAll<HTMLSelectElement>('select')]
+    .find((node) => [...node.options].some((option) => option.value === 'anthropic'))
+  const choose = (node: HTMLSelectElement | null | undefined, value: string, name: string) => {
+    expect(node, `${name} is not rendered`).toBeTruthy()
+    act(() => {
+      node!.value = value
+      node!.dispatchEvent(new Event('change', { bubbles: true }))
+    })
+  }
+  const sentBody = async () => {
+    await act(async () => { submit()!.click() })
+    return vi.mocked(useAssistant.getState().addProvider).mock.calls[0]?.[0] as Record<string, unknown>
+  }
+
+  it('starts on automatic, which sends no pin at all', async () => {
+    expect(dialectSelect()?.value).toBe('')
+    expect(dialectSelect()?.querySelector('option')?.textContent).toBe(t('assistant.settings.dialect.auto'))
+    expect((await sentBody()).reasoningDialect).toBe(null)
+  })
+
+  it('offers only the dialects the chosen wire can carry', () => {
+    // An effort shape means nothing in a Gemini body, so the list is the reader's protocol's own set rather
+    // than every dialect the app knows about.
+    expect(dialectValues()).toEqual(['', 'openai', 'deepseek', 'qwen', 'openrouter'])
+    choose(protocolSelect(), 'anthropic', 'the protocol select')
+    expect(dialectValues()).toEqual(['', 'claude-budget', 'claude-effort'])
+    choose(protocolSelect(), 'gemini', 'the protocol select')
+    expect(dialectValues()).toEqual(['', 'gemini-budget', 'gemini-level'])
+  })
+
+  it('sends the pin the reader chose', async () => {
+    choose(dialectSelect(), 'deepseek', 'the dialect select')
+    expect((await sentBody()).reasoningDialect).toBe('deepseek')
+  })
+
+  it('drops a pin that no longer fits after the protocol is switched', async () => {
+    choose(dialectSelect(), 'deepseek', 'the dialect select')
+    choose(protocolSelect(), 'anthropic', 'the protocol select')
+    expect(dialectSelect()?.value, 'the stale pin is still shown as taken').toBe('')
+    expect((await sentBody()).reasoningDialect).toBe(null)
+  })
+
+  it('reads back the pin a saved provider carries', async () => {
+    const provider = {
+      id: 'p1', label: 'Gateway', protocol: 'openai', baseUrl: 'https://gw.internal.example/v1',
+      endpoints: {}, hasKey: true, keyHint: '1234', reasoningDialect: 'qwen', createdAt: 1, updatedAt: 1,
+    } as unknown as AssistantProvider
+    await act(async () => { root.render(createElement(ProviderForm, { open: true, provider, onClose: () => undefined })) })
+    expect(dialectSelect()?.value).toBe('qwen')
+    await act(async () => {
+      buttons().find((node) => node.textContent?.trim() === t('assistant.settings.edit_provider'))!.click()
+    })
+    expect((vi.mocked(useAssistant.getState().updateProvider).mock.calls[0]?.[1] as Record<string, unknown>).reasoningDialect).toBe('qwen')
+  })
+})
+
 describe('an address box that got something else typed into it', () => {
   it('names the box, and refuses to send a half-address', () => {
     const box = geminiBox()

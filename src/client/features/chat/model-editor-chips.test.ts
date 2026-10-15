@@ -7,7 +7,7 @@
 import { act, createElement } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import type { AssistantModel } from '@shared/assistant'
+import type { AssistantModel, AssistantProvider } from '@shared/assistant'
 import { CONTEXT_WINDOW_STEPS, DEFAULT_LIMITS, TOKEN_STEPS, formatTokenStep } from '@shared/assistant'
 import { initI18n, t } from '../../lib/i18n'
 import { installTestGlobals } from '../../lib/test-render'
@@ -34,6 +34,22 @@ function model(over: Partial<AssistantModel> = {}): AssistantModel {
         topP: null,
         customParams: [],
         protocol: null,
+        ...over,
+    }
+}
+
+function provider(over: Partial<AssistantProvider> = {}): AssistantProvider {
+    return {
+        id: 'p1',
+        label: 'DeepSeek',
+        protocol: 'openai',
+        baseUrl: 'https://api.deepseek.com',
+        endpoints: {},
+        hasKey: true,
+        keyHint: 'abcd',
+        reasoningDialect: null,
+        createdAt: 1,
+        updatedAt: 1,
         ...over,
     }
 }
@@ -66,7 +82,7 @@ const press = (node: HTMLElement | undefined, name: string) => {
     act(() => { node!.click() })
 }
 
-function open(over: Partial<AssistantModel> = {}, limits = DEFAULT_LIMITS) {
+function open(over: Partial<AssistantModel> = {}, limits = DEFAULT_LIMITS, providerOver: Partial<AssistantProvider> = {}) {
     const host = document.createElement('div')
     document.body.appendChild(host)
     root = createRoot(host)
@@ -74,7 +90,7 @@ function open(over: Partial<AssistantModel> = {}, limits = DEFAULT_LIMITS) {
     act(() => {
         root.render(createElement(ModelEditorDialog, {
             model: model(over),
-            providerLabel: 'DeepSeek',
+            provider: provider(providerOver),
             limits: limits,
             onClose: () => undefined,
             onSave: saved,
@@ -222,6 +238,73 @@ describe('the capabilities the model row no longer carries', () => {
         expect(saved.mock.calls[0]?.[0].reasoning).toBe('off')
     })
 })
+})
+
+describe('the thinking levels a model is offered', () => {
+    const select = () => document.body.querySelector<HTMLSelectElement>(`select[aria-label="${t('assistant.composer.thinking')}"]`)
+    const levels = () => [...(select()?.options ?? [])].map((option) => option.textContent?.trim())
+    /** The note beside the field, reached through the association the field itself declares. */
+    const thinkingHint = () => {
+        const described = select()?.getAttribute('aria-describedby') ?? ''
+        const id = described.split(' ').filter(Boolean).at(-1)
+        return id ? document.getElementById(id)?.textContent ?? '' : ''
+    }
+
+    it('lists the rungs the model’s own service has, in its order', () => {
+        // DeepSeek publishes four rungs of effort and a way to stop thinking, and its middle rung is not
+        // the same word as another vendor's middle rung — the list is read from the vendor, not from us.
+        open()
+        expect(levels()).toEqual([
+            t('assistant.reasoning.auto'),
+            t('assistant.reasoning.off'),
+            t('assistant.reasoning.low'),
+            t('assistant.reasoning.medium'),
+            t('assistant.reasoning.high'),
+        ])
+    })
+
+    it('gives a 3.x Gemini its levels rather than the budget form it refuses', () => {
+        open({ model: 'gemini-3.8-flash' }, DEFAULT_LIMITS, { label: 'Google', protocol: 'gemini', baseUrl: 'https://generativelanguage.googleapis.com/v1beta' })
+        expect(levels()).toEqual([
+            t('assistant.reasoning.auto'),
+            t('assistant.reasoning.minimal'),
+            t('assistant.reasoning.low'),
+            t('assistant.reasoning.medium'),
+            t('assistant.reasoning.high'),
+        ])
+    })
+
+    it('says out loud that a model which cannot stop thinking has no Off level', () => {
+        open({ model: 'claude-opus-4-7' }, DEFAULT_LIMITS, { label: 'Anthropic', protocol: 'anthropic', baseUrl: 'https://api.anthropic.com/v1' })
+        expect(levels()).toEqual([
+            t('assistant.reasoning.auto'),
+            t('assistant.reasoning.minimal'),
+            t('assistant.reasoning.low'),
+            t('assistant.reasoning.medium'),
+            t('assistant.reasoning.high'),
+            t('assistant.reasoning.xhigh'),
+            t('assistant.reasoning.max'),
+        ])
+        expect(thinkingHint()).toContain(t('assistant.model.reasoning_no_off'))
+        expect(thinkingHint()).not.toContain(t('assistant.model.reasoning_hint'))
+    })
+
+    it('keeps a stored level the model no longer offers, so the row still says what is saved', () => {
+        // The reader changed the provider under a model that was set to a level the new service cannot read;
+        // the option stays in the list rather than the select falling back to a level that is not stored.
+        open({ reasoning: 'max', model: 'gemini-2.5-flash' }, DEFAULT_LIMITS, { label: 'Google', protocol: 'gemini', baseUrl: 'https://generativelanguage.googleapis.com/v1beta' })
+        expect(levels()).toContain(t('assistant.reasoning.max'))
+        expect(select()?.value).toBe('max')
+    })
+
+    it('honours the dialect the reader pinned on the provider', () => {
+        // A gateway on an internal host: nothing about the address or the id says DeepSeek, so the pin is
+        // the only thing that can put the vendor's own ladder in this list.
+        open({ model: 'my-deployment' }, DEFAULT_LIMITS, { label: 'Gateway', baseUrl: 'https://gw.internal.example/v1', reasoningDialect: 'deepseek' })
+        expect(levels()).toContain(t('assistant.reasoning.high'))
+        expect(levels()).not.toContain(t('assistant.reasoning.xhigh'))
+        expect(levels()).toContain(t('assistant.reasoning.off'))
+    })
 })
 
 describe('the wire protocol a model is called on', () => {

@@ -7,9 +7,9 @@
  * is inside a tab.
  */
 import { type ReactNode } from 'react'
-import { formatTokenStep } from '@shared/assistant'
+import { formatTokenStep, REASONING_DIALECTS, type ReasoningDialect } from '@shared/assistant'
 import { cn } from '../../lib/cn'
-import { t } from '../../lib/i18n'
+import { t, type MessageKey } from '../../lib/i18n'
 
 export function Group({ title, children }: { title: string, children: ReactNode }) {
   return (
@@ -68,4 +68,15 @@ export const PROTOCOL_LABELS: Record<string, () => string> = {
   anthropic: () => t('assistant.settings.protocol.anthropic'),
   gemini: () => t('assistant.settings.protocol.gemini'),
 }
+
+/**
+ * The name each thinking dialect is offered under in the provider form.
+ *
+ * The key is the dialect id with its hyphen spelled as an underscore, because a message key may not carry a
+ * hyphen; the label itself names the field that dialect sends, which is what tells two dialects of one
+ * vendor apart (a 2.5 Gemini's budget from a 3.x one's level).
+ */
+export const DIALECT_LABELS = Object.fromEntries(
+  REASONING_DIALECTS.map((dialect) => [dialect, `assistant.settings.dialect.${dialect.replace(/-/g, '_')}`]),
+) as Record<ReasoningDialect, MessageKey>
 

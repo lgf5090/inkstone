@@ -7,22 +7,41 @@
  * show a half-configured assistant so the reader can fix it.
  */
 
-import type { AssistantModel, AssistantProtocol, AssistantSettings } from '@shared/assistant'
-import { parseProviderEndpoints } from '@shared/assistant'
+import type { AssistantModel, AssistantProtocol, AssistantSettings, ReasoningDialect } from '@shared/assistant'
+import { modelWire, parseProviderEndpoints, reasoningDialectValue } from '@shared/assistant'
+import { dialectsForProtocol } from '@shared/reasoning'
 import type { AssistantStore } from './store'
 import type { ProviderRow } from './store'
 
 /**
- * Which door this model is called through.
+ * Which door this model is called through, and what thinking shape that door speaks.
  *
  * A gateway can answer on more than one wire with the same key, so the model names the protocol and the
  * provider supplies the address for it. A protocol with no address of its own falls back to the provider's
  * base URL, which is what every provider written before this column had.
+ *
+ * The dialect rides along because it is read from the same two facts — the address, and the model's own
+ * name — and because a pin that no longer fits the wire has to be dropped here rather than sent as a
+ * field the far end does not know.
  */
-export function modelEndpoint(model: AssistantModel, provider: ProviderRow): { protocol: AssistantProtocol, baseUrl: string } {
-  const protocol = model.protocol ?? pickProtocol(provider.protocol)
-  const endpoints = parseProviderEndpoints(provider.endpoints)
-  return { protocol, baseUrl: endpoints[protocol] || provider.base_url }
+export interface ModelEndpoint {
+  protocol: AssistantProtocol
+  baseUrl: string
+  reasoningDialect: ReasoningDialect | null
+}
+
+export function modelEndpoint(model: AssistantModel, provider: ProviderRow): ModelEndpoint {
+  const { protocol, baseUrl } = modelWire(model, {
+    protocol: pickProtocol(provider.protocol),
+    baseUrl: provider.base_url,
+    endpoints: parseProviderEndpoints(provider.endpoints),
+  })
+  const pinned = reasoningDialectValue(provider.reasoning_dialect)
+  return {
+    protocol,
+    baseUrl,
+    reasoningDialect: pinned && dialectsForProtocol(protocol).includes(pinned) ? pinned : null,
+  }
 }
 
 function pickProtocol(value: string): AssistantProtocol {

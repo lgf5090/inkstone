@@ -13,8 +13,8 @@
  */
 
 import { assertRelayableEndpoint, pickRelayHeaders } from '@shared/ai-proxy-guard'
-import type { AssistantProtocol, AssistantReasoning } from '@shared/assistant'
-import { REASONING_BUDGET_TOKENS } from '@shared/assistant'
+import type { AssistantProtocol, AssistantReasoning, ReasoningDialect } from '@shared/assistant'
+import { anthropicReasoning, geminiThinkingConfig, openAiReasoningFields, reasoningDialect } from '@shared/reasoning'
 import { NO_REDIRECT, isRedirectResponse } from '../lib/no-redirect'
 
 export interface ToolSchema {
@@ -68,6 +68,13 @@ export interface UpstreamRequest {
   extraBody?: Record<string, string | number | boolean>
   /** How much the model is asked to think. `auto` sends nothing and lets the vendor decide. */
   reasoning: AssistantReasoning
+  /**
+   * The vendor's thinking shape when the reader pinned it on the provider.
+   *
+   * Null leaves the decision to `reasoningDialect`, which reads the address and the model's own name —
+   * right for every service that announces itself and no help at all for a gateway that does not.
+   */
+  reasoningDialect?: ReasoningDialect | null
   /**
    * The reader asked for a live web search this turn.
    *
@@ -263,6 +270,11 @@ function jsonHeaders(apiKey: string, extra: Record<string, string> = {}): Record
 
 // -------------------------------------------------------------------- OpenAI
 
+/** The thinking shape this request has to satisfy: the reader's pin, or what the address and model say. */
+function dialectOf(protocol: AssistantProtocol, request: UpstreamRequest): ReasoningDialect {
+  return reasoningDialect(protocol, request.baseUrl, request.model, request.reasoningDialect)
+}
+
 function openAiBody(request: UpstreamRequest): Record<string, unknown> {
   const messages: Record<string, unknown>[] = [{ role: 'system', content: request.system }]
   for (const turn of request.turns) {
@@ -296,7 +308,7 @@ function openAiBody(request: UpstreamRequest): Record<string, unknown> {
     ...(request.temperature === null ? {} : { temperature: request.temperature }),
     ...(request.topP == null ? {} : { top_p: request.topP }),
     max_tokens: request.maxOutputTokens,
-    ...openAiReasoning(request),
+    ...openAiReasoningFields(dialectOf('openai', request), request.reasoning),
     ...request.extraBody,
     ...(request.tools.length
       ? {
@@ -309,16 +321,6 @@ function openAiBody(request: UpstreamRequest): Record<string, unknown> {
   }
 }
 
-/**
- * What each level costs on the wire, per protocol.
- *
- * Measured against a live DeepSeek key: the model thinks unless it is told not to, and
- * `thinking:{type:'disabled'}` is the only switch that stops it — `reasoning_effort` and
- * `enable_thinking` come back 200 with the reasoning still attached, i.e. a control that silently did
- * nothing. So the OpenAI-shaped request carries both: `thinking` for the servers that read it, and
- * `reasoning_effort` for the ones that read that instead. Unknown fields are ignored upstream, which is
- * what makes one shape safe across both.
- */
 /** A user turn with pictures is a part list; one without is the plain string every server accepts. */
 function openAiUserContent(turn: ModelTurn): unknown {
   if (!turn.images?.length) return turn.content
@@ -326,26 +328,6 @@ function openAiUserContent(turn: ModelTurn): unknown {
     { type: 'text', text: turn.content },
     ...turn.images.map((image) => ({ type: 'image_url', image_url: { url: image.dataUrl } })),
   ]
-}
-
-function openAiReasoning(request: UpstreamRequest): Record<string, unknown> {
-  if (request.reasoning === 'auto') return {}
-  if (request.reasoning === 'off') return { thinking: { type: 'disabled' } }
-  return { thinking: { type: 'enabled' }, reasoning_effort: request.reasoning }
-}
-
-/** Anthropic wants a token budget under the answer ceiling; 1024 is its own documented floor. */
-function anthropicThinking(request: UpstreamRequest): Record<string, unknown> {
-  if (request.reasoning === 'auto' || request.reasoning === 'off') return {}
-  const budget = Math.min(REASONING_BUDGET_TOKENS[request.reasoning], Math.max(1024, request.maxOutputTokens - 1024))
-  return { thinking: { type: 'enabled', budget_tokens: Math.max(1024, budget) } }
-}
-
-/** Gemini: -1 leaves the decision to the model, 0 turns thinking off, a number asks for that much. */
-function geminiThinking(request: UpstreamRequest): Record<string, unknown> {
-  if (request.reasoning === 'auto') return {}
-  if (request.reasoning === 'off') return { thinkingConfig: { thinkingBudget: 0 } }
-  return { thinkingConfig: { thinkingBudget: REASONING_BUDGET_TOKENS[request.reasoning], includeThoughts: true } }
 }
 
 async function* streamOpenAi(request: UpstreamRequest): AsyncGenerator<UpstreamEvent> {
@@ -467,6 +449,7 @@ async function* streamAnthropic(request: UpstreamRequest): AsyncGenerator<Upstre
     }))
     if (results.length) blocks.push({ role: 'user', content: results })
   }
+  const thinking = anthropicReasoning(dialectOf('anthropic', request), request.reasoning, request.maxOutputTokens)
   const response = await postStream({
     url: url.toString(),
     init: {
@@ -477,13 +460,11 @@ async function* streamAnthropic(request: UpstreamRequest): AsyncGenerator<Upstre
         system: request.system,
         messages: blocks,
         max_tokens: request.maxOutputTokens,
-        // Anthropic refuses a temperature other than 1 while thinking is on, so the level wins and the
-        // reader's sampling setting is left at the vendor's default for that request.
-        ...(anthropicThinking(request).thinking || request.temperature === null
-          ? {}
-          : { temperature: request.temperature }),
-        ...(request.topP == null ? {} : { top_p: request.topP }),
-        ...anthropicThinking(request),
+        // Whether the reader's sampling settings may travel at all is the model's own rule, not this
+        // request's: see `anthropicReasoning` for which models refuse them and why.
+        ...(thinking.sampling && request.temperature !== null ? { temperature: request.temperature } : {}),
+        ...(thinking.sampling && request.topP != null ? { top_p: request.topP } : {}),
+        ...thinking.fields,
         stream: true,
         ...request.extraBody,
         ...(request.tools.length || request.webSearch
@@ -608,7 +589,7 @@ async function* streamGemini(request: UpstreamRequest): AsyncGenerator<UpstreamE
           ...(request.temperature === null ? {} : { temperature: request.temperature }),
           ...(request.topP == null ? {} : { topP: request.topP }),
           maxOutputTokens: request.maxOutputTokens,
-          ...geminiThinking(request),
+          ...geminiThinkingConfig(dialectOf('gemini', request), request.reasoning, request.model),
         },
         // One `tools` array: Google's grounding entry is a sibling of the function declarations, and a
         // second `tools` key in this object would silently drop whichever came first.

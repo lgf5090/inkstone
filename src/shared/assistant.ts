@@ -12,6 +12,24 @@ import type { MessageKey } from './locales/en-US'
 
 export type AssistantProtocol = 'openai' | 'anthropic' | 'gemini'
 
+/**
+ * A vendor's thinking contract, as `reasoning.ts` names them.
+ *
+ * It is part of the provider record because a provider is where the reader can pin it: the rest of the time
+ * it is read off the address and the model's own name, which is right for every service that announces
+ * itself and no help at all for a gateway that does not.
+ */
+export const REASONING_DIALECTS = [
+  'openai', 'deepseek', 'qwen', 'openrouter', 'gemini-budget', 'gemini-level', 'claude-budget', 'claude-effort',
+] as const
+export type ReasoningDialect = (typeof REASONING_DIALECTS)[number]
+
+export function reasoningDialectValue(value: unknown): ReasoningDialect | null {
+  return typeof value === 'string' && (REASONING_DIALECTS as readonly string[]).includes(value)
+    ? (value as ReasoningDialect)
+    : null
+}
+
 export const ASSISTANT_PROTOCOLS = ['openai', 'anthropic', 'gemini'] as const
 
 export const ASSISTANT_MEMORY_CATEGORIES = [
@@ -76,6 +94,13 @@ export interface AssistantProvider {
   hasKey: boolean
   /** Last four characters, for the settings row that has to prove which key is stored. */
   keyHint: string
+  /**
+   * The thinking shape the reader pinned for this address, or null to let it be read off the address.
+   *
+   * A service that announces itself in its hostname and model names needs no pin; a gateway, a proxy or a
+   * vendor whose naming is guesswork is exactly what this is for.
+   */
+  reasoningDialect: ReasoningDialect | null
   createdAt: number
   updatedAt: number
 }
@@ -98,6 +123,23 @@ export function parseProviderEndpoints(value: unknown): Partial<Record<Assistant
     out[protocol as AssistantProtocol] = url.trim().slice(0, 300)
   }
   return out
+}
+
+/**
+ * The wire a model is called on: the protocol it names, and that protocol's address.
+ *
+ * A gateway can answer on more than one wire with one key, so a model may name its protocol and the
+ * provider supplies the matching address; a protocol with no address of its own falls back to the
+ * provider's base URL, which is what every provider written before the per-protocol map had. The worker
+ * builds the request out of this pair and the settings screens read the model's thinking dialect off it, so
+ * the rule is stated once instead of twice with room to disagree.
+ */
+export function modelWire(
+  model: Pick<AssistantModel, 'protocol'>,
+  provider: Pick<AssistantProvider, 'protocol' | 'baseUrl' | 'endpoints'>,
+): { protocol: AssistantProtocol, baseUrl: string } {
+  const protocol = model.protocol ?? provider.protocol
+  return { protocol, baseUrl: provider.endpoints[protocol] || provider.baseUrl }
 }
 
 /** One row of a vendor's own listing: what this key can call, named the way the vendor names it. */
@@ -254,18 +296,28 @@ export interface AssistantModel {
 }
 
 /**
- * The thinking levels the composer offers.
+ * How much thinking a model is asked for.
  *
- * `low`/`medium`/`high` reach the vendor as `reasoning_effort`, which some servers honour and others
- * ignore, so they also ask for thinking explicitly; `off` is the one level that works everywhere it is
- * supported, and `auto` sends nothing at all.
+ * The scale runs from `off` to `max` and is the app's own, because the services do not agree on one: Claude
+ * publishes five rungs of effort, a 3.x Gemini three levels, DeepSeek four, and Qwen only a switch. A model
+ * is therefore offered the rungs its own service has (`reasoningRungs` in `reasoning.ts`) rather than all of
+ * these, and `auto` — leaving the decision to the model — is the one value every service shares.
  */
-export type AssistantReasoning = 'auto' | 'off' | 'low' | 'medium' | 'high'
+export type AssistantReasoning = 'auto' | 'off' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh' | 'max'
 
-export const ASSISTANT_REASONING_LEVELS: readonly AssistantReasoning[] = ['auto', 'off', 'low', 'medium', 'high']
+export const ASSISTANT_REASONING_LEVELS: readonly AssistantReasoning[] = [
+  'auto', 'off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max',
+]
 
-/** Token budgets a level means for the protocols that take a number rather than a name. */
-export const REASONING_BUDGET_TOKENS: Record<'low' | 'medium' | 'high', number> = { low: 1024, medium: 4096, high: 10_240 }
+/** Token budgets a rung means for the protocols that take a number rather than a name. */
+export const REASONING_BUDGET_TOKENS: Record<Exclude<AssistantReasoning, 'auto' | 'off'>, number> = {
+  minimal: 512,
+  low: 1024,
+  medium: 4096,
+  high: 10_240,
+  xhigh: 32_768,
+  max: 65_536,
+}
 
 /** The context budgets the composer's slider snaps to, in tokens. */
 /**

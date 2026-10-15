@@ -51,6 +51,7 @@ import { useUi } from '../../store/ui'
 import { PASTE_FILE_MIN_CHARS, useAssistant } from './assistant-store'
 import { AssistantBubble } from './MessageParts'
 import { ChatOutline } from './ChatOutline'
+import { modelReasoning, reasoningOptions } from './model-reasoning'
 
 /** The composer's "common requests" list: the same openers the empty thread offers, by key. */
 const QUICK_PROMPT_KEYS = ['assistant.chat.ask_1', 'assistant.chat.ask_2', 'assistant.chat.ask_3', 'assistant.chat.ask_4'] as const
@@ -773,6 +774,7 @@ function Composer({
   const attachPastedText = useAssistant((state) => state.attachPastedText)
   const dropAttachment = useAssistant((state) => state.dropAttachment)
   const models = useAssistant((state) => state.models)
+  const providers = useAssistant((state) => state.providers)
   const settings = useAssistant((state) => state.settings)
   const activateModel = useAssistant((state) => state.activateModel)
   const updateModel = useAssistant((state) => state.updateModel)
@@ -805,6 +807,12 @@ function Composer({
   // not a thing to hold a conversation with.
   const enabled = models.filter((model) => model.enabled && model.purpose === 'chat')
   const active = enabled.find((model) => model.id === settings?.activeModelId) ?? null
+  // The chip lists the levels the answering model's own service has rather than a fixed five, so a model
+  // that can only be switched on and off is not offered three depths nothing will read.
+  const activeReasoning = useMemo(
+    () => (active ? modelReasoning(active, providers.find((entry) => entry.id === active.providerId) ?? null) : null),
+    [active, providers],
+  )
   const uploading = pending.some((entry) => entry.status === 'uploading')
 
   useLayoutEffect(() => {
@@ -1039,6 +1047,7 @@ function Composer({
                 <>
                   <ReasoningMenu
                     value={active.reasoning}
+                    rungs={activeReasoning ? reasoningOptions(activeReasoning, active.reasoning) : [active.reasoning]}
                     disabled={active.reasoning === 'off'}
                     onChange={(next) => void updateModel(active.id, { reasoning: next })}
                   />
