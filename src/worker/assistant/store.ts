@@ -40,7 +40,7 @@ import type {
   ToolActivity,
   UsageCounters,
 } from '@shared/assistant'
-import { ASSISTANT_MCP_TOOL_MODES, MAX_MCP_LABEL_CHARS, MAX_ANSWER_VERSIONS, MAX_CHAT_ATTACHMENTS, parseModelModalities, parseProviderEndpoints, reasoningValue, type AssistantAnswerVersion, type AssistantMcpServer, type AssistantMcpToolMode, type AssistantModelModality, type ChatAttachment } from '@shared/assistant'
+import { ASSISTANT_MCP_TOOL_MODES, ASSISTANT_MCP_TRANSPORTS, DEFAULT_MCP_TIMEOUT_SECONDS, MAX_MCP_DESCRIPTION_CHARS, MAX_MCP_DISABLED_TOOLS, MAX_MCP_HEADER_VALUE_CHARS, MAX_MCP_LABEL_CHARS, MAX_MCP_TOOL_NAME_CHARS, MAX_MCP_TIMEOUT_SECONDS, MIN_MCP_TIMEOUT_SECONDS, MAX_ANSWER_VERSIONS, MAX_CHAT_ATTACHMENTS, isMcpHeaderName, parseModelModalities, parseProviderEndpoints, reasoningValue, type AssistantAnswerVersion, type AssistantMcpServer, type AssistantMcpToolMode, type AssistantMcpTransport, type AssistantModelModality, type ChatAttachment } from '@shared/assistant'
 import {
   ASSISTANT_MEMORY_CATEGORIES,
   ASSISTANT_PROTOCOLS,
@@ -325,11 +325,68 @@ interface McpServerRow {
   id: string
   label: string
   url: string
+  description?: string | null
+  transport?: string | null
+  timeout_seconds?: number | null
   has_key?: number | null
   enabled: number | null
   tool_mode: string | null
+  disabled_tools?: string | null
   created_at: number
   updated_at: number
+}
+
+/**
+ * The stored headers, from the ciphertext's own plaintext.
+ *
+ * A row written before this was a map holds one bearer token, so a plaintext that is not a JSON object is
+ * read as exactly that: one `Authorization` header. That keeps an already-working server working without a
+ * second code path anywhere else.
+ */
+function clampTimeout(value: unknown): number {
+  const numeric = num(value)
+  if (numeric === null) return DEFAULT_MCP_TIMEOUT_SECONDS
+  return Math.min(Math.max(Math.round(numeric), MIN_MCP_TIMEOUT_SECONDS), MAX_MCP_TIMEOUT_SECONDS)
+}
+
+export function parseMcpHeaderBlob(plaintext: string): Record<string, string> {
+  const trimmed = plaintext.trim()
+  if (!trimmed) return {}
+  try {
+    const parsed: unknown = JSON.parse(trimmed)
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+      const out: Record<string, string> = {}
+      for (const [name, value] of Object.entries(parsed as Record<string, unknown>)) {
+        if (typeof value === 'string' && isMcpHeaderName(name)) out[name] = value.slice(0, MAX_MCP_HEADER_VALUE_CHARS)
+      }
+      return out
+    }
+  } catch {
+    // Not a map: the token an older row holds.
+  }
+  return { Authorization: `Bearer ${trimmed}` }
+}
+
+/**
+ * The stored off-list, as names.
+ *
+ * A row written by an older version has no column and a hand-edited row can hold anything, so this is the
+ * one place the JSON is trusted: a value that is not a list of strings reads as "nothing is off", which is
+ * what the server did before this existed.
+ */
+function parseDisabledTools(value: string | null | undefined): string[] {
+  if (!value) return []
+  try {
+    const parsed: unknown = JSON.parse(value)
+    if (!Array.isArray(parsed)) return []
+    return parsed
+      .filter((entry): entry is string => typeof entry === 'string')
+      .map((entry) => entry.trim().slice(0, MAX_MCP_TOOL_NAME_CHARS))
+      .filter(Boolean)
+      .slice(0, MAX_MCP_DISABLED_TOOLS)
+  } catch {
+    return []
+  }
 }
 
 function toMcpServer(r: McpServerRow): AssistantMcpServer {
@@ -337,8 +394,12 @@ function toMcpServer(r: McpServerRow): AssistantMcpServer {
     id: r.id,
     label: r.label,
     url: r.url,
+    description: (r.description ?? '').slice(0, MAX_MCP_DESCRIPTION_CHARS),
+    transport: pickEnum(r.transport, ASSISTANT_MCP_TRANSPORTS, 'streamableHttp'),
+    timeoutSeconds: clampTimeout(r.timeout_seconds),
     enabled: bool(r.enabled),
     toolMode: pickEnum(r.tool_mode, ASSISTANT_MCP_TOOL_MODES, 'ask'),
+    disabledTools: parseDisabledTools(r.disabled_tools),
     hasKey: bool(r.has_key),
     createdAt: r.created_at,
     updatedAt: r.updated_at,
@@ -1313,70 +1374,102 @@ export class AssistantStore {
    */
   async listMcpServers(): Promise<AssistantMcpServer[]> {
     const rows = await this.rows<McpServerRow>(
-      `SELECT id, label, url, length(header_ciphertext) > 0 AS has_key, enabled, tool_mode, created_at, updated_at
+      `SELECT id, label, url, description, transport, timeout_seconds, length(header_ciphertext) > 0 AS has_key, enabled, tool_mode, disabled_tools, created_at, updated_at
          FROM chat_mcp_servers WHERE user_id = ?1 ORDER BY created_at`,
       this.userId,
     )
     return rows.map(toMcpServer)
   }
 
-  async mcpServerRecord(id: string): Promise<{ row: AssistantMcpServer, token: string, ciphertext: string } | null> {
+  async mcpServerRecord(id: string): Promise<{ row: AssistantMcpServer, headers: Record<string, string>, ciphertext: string } | null> {
     const r = await this.one<McpServerRow & { header_ciphertext: string | null }>(
-      `SELECT id, label, url, header_ciphertext, length(header_ciphertext) > 0 AS has_key, enabled, tool_mode, created_at, updated_at
+      `SELECT id, label, url, description, transport, timeout_seconds, header_ciphertext, length(header_ciphertext) > 0 AS has_key, enabled, tool_mode, disabled_tools, created_at, updated_at
          FROM chat_mcp_servers WHERE user_id = ?1 AND id = ?2`,
       this.userId, id,
     )
     if (!r) return null
     const ciphertext = r.header_ciphertext ?? ''
-    return {
-      row: toMcpServer(r),
-      ciphertext,
-      token: ciphertext ? (await decryptAssistantKey(this.env, this.userId, ciphertext)) ?? '' : '',
-    }
+    const plaintext = ciphertext ? (await decryptAssistantKey(this.env, this.userId, ciphertext)) ?? '' : ''
+    return { row: toMcpServer(r), ciphertext, headers: parseMcpHeaderBlob(plaintext) }
   }
 
-  async createMcpServer(input: { label: string, url: string, token?: string, toolMode?: AssistantMcpToolMode }): Promise<AssistantMcpServer> {
+  async createMcpServer(input: {
+    label: string
+    url: string
+    description?: string
+    transport?: AssistantMcpTransport
+    timeoutSeconds?: number
+    headers?: Record<string, string> | null
+    toolMode?: AssistantMcpToolMode
+  }): Promise<AssistantMcpServer> {
     const id = newId()
     const at = Date.now()
-    const token = (input.token ?? '').trim()
-    const ciphertext = token ? await encryptAssistantKey(this.env, this.userId, token) : ''
+    const headers = input.headers ?? {}
+    const ciphertext = Object.keys(headers).length ? await encryptAssistantKey(this.env, this.userId, JSON.stringify(headers)) : ''
     const label = input.label.slice(0, MAX_MCP_LABEL_CHARS)
+    const description = (input.description ?? '').slice(0, MAX_MCP_DESCRIPTION_CHARS)
+    const transport = input.transport ?? 'streamableHttp'
+    const timeoutSeconds = clampTimeout(input.timeoutSeconds)
     await this.write(
-      `INSERT INTO chat_mcp_servers (id, user_id, label, url, header_ciphertext, enabled, tool_mode, created_at, updated_at)
-       VALUES (?2, ?1, ?3, ?4, ?5, 1, ?6, ?7, ?7)`,
-      id, label, input.url, ciphertext, input.toolMode ?? 'ask', at,
+      `INSERT INTO chat_mcp_servers (id, user_id, label, url, description, transport, timeout_seconds, header_ciphertext, enabled, tool_mode, created_at, updated_at)
+       VALUES (?2, ?1, ?3, ?4, ?5, ?6, ?7, ?8, 1, ?9, ?10, ?10)`,
+      id, label, input.url, description, transport, timeoutSeconds, ciphertext, input.toolMode ?? 'ask', at,
     )
-    return { id, label, url: input.url, enabled: true, toolMode: input.toolMode ?? 'ask', hasKey: Boolean(ciphertext), createdAt: at, updatedAt: at }
+    return {
+      id, label, url: input.url, description, transport, timeoutSeconds,
+      enabled: true, toolMode: input.toolMode ?? 'ask', disabledTools: [],
+      hasKey: Boolean(ciphertext), createdAt: at, updatedAt: at,
+    }
   }
 
   async updateMcpServer(
     id: string,
-    patch: { label?: string, url?: string, token?: string | null, enabled?: boolean, toolMode?: AssistantMcpToolMode },
+    patch: {
+      label?: string
+      url?: string
+      description?: string
+      transport?: AssistantMcpTransport
+      timeoutSeconds?: number
+      headers?: Record<string, string> | null
+      enabled?: boolean
+      toolMode?: AssistantMcpToolMode
+      disabledTools?: string[]
+    },
   ): Promise<AssistantMcpServer | null> {
     const existing = await this.mcpServerRecord(id)
     if (!existing) return null
     const at = Date.now()
-    // Three cases, and the third is the one a form gets wrong: an untouched token field means keep what is
-    // stored, not clear it.
+    // An untouched header box means keep what is stored rather than clear it, and an empty one clears:
+    // the form cannot send back values it was never given.
     let ciphertext = existing.ciphertext
-    if (patch.token === null) ciphertext = ''
-    else if (typeof patch.token === 'string' && patch.token.trim()) {
-      ciphertext = await encryptAssistantKey(this.env, this.userId, patch.token.trim())
+    if (patch.headers === null) ciphertext = ''
+    else if (patch.headers && Object.keys(patch.headers).length) {
+      ciphertext = await encryptAssistantKey(this.env, this.userId, JSON.stringify(patch.headers))
     }
+    // The off-list is stored de-duplicated and capped: it is written from a list of switches, and a row
+    // that grew with every press would eventually cost more than the listing it filters.
+    const disabledTools = patch.disabledTools === undefined
+      ? existing.row.disabledTools
+      : [...new Set(patch.disabledTools.map((entry) => entry.trim().slice(0, MAX_MCP_TOOL_NAME_CHARS)).filter(Boolean))].slice(0, MAX_MCP_DISABLED_TOOLS)
     await this.write(
       `UPDATE chat_mcp_servers
-          SET label = ?2, url = ?3, header_ciphertext = ?4, enabled = ?5, tool_mode = ?6, updated_at = ?7
-        WHERE user_id = ?1 AND id = ?8`,
+          SET label = ?2, url = ?3, description = ?4, transport = ?5, timeout_seconds = ?6, header_ciphertext = ?7,
+              enabled = ?8, tool_mode = ?9, disabled_tools = ?10, updated_at = ?11
+        WHERE user_id = ?1 AND id = ?12`,
       (patch.label ?? existing.row.label).slice(0, MAX_MCP_LABEL_CHARS),
       patch.url ?? existing.row.url,
+      (patch.description ?? existing.row.description).slice(0, MAX_MCP_DESCRIPTION_CHARS),
+      patch.transport ?? existing.row.transport,
+      clampTimeout(patch.timeoutSeconds ?? existing.row.timeoutSeconds),
       ciphertext,
       patch.enabled === undefined ? (existing.row.enabled ? 1 : 0) : patch.enabled ? 1 : 0,
       patch.toolMode ?? existing.row.toolMode,
+      JSON.stringify(disabledTools),
       at,
       id,
     )
     const reread = await this.one<McpServerRow>(
-      `SELECT id, label, url, length(header_ciphertext) > 0 AS has_key, enabled, tool_mode, created_at, updated_at
+      `SELECT id, label, url, description, transport, timeout_seconds, length(header_ciphertext) > 0 AS has_key, enabled, tool_mode, disabled_tools, created_at, updated_at
          FROM chat_mcp_servers WHERE user_id = ?1 AND id = ?2`,
       this.userId, id,
     )

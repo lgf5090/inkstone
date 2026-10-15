@@ -13,6 +13,7 @@ import type {
   AssistantConversation,
   AssistantMessage,
   AssistantMemory,
+  AssistantMcpServer,
   AssistantModel,
   AssistantProvider,
   AssistantSettings,
@@ -21,7 +22,7 @@ import type {
   ChatStreamEvent,
   Task,
 } from '../src/shared/assistant'
-import { DEFAULT_SEMANTIC_MODEL, MAX_ANSWER_VERSIONS, MAX_CONTEXT_BUDGET_TOKENS, MAX_PROMPT_CONTENT_CHARS, MAX_PROMPT_TITLE_CHARS } from '../src/shared/assistant'
+import { DEFAULT_SEMANTIC_MODEL, MAX_ANSWER_VERSIONS, MAX_CONTEXT_BUDGET_TOKENS, MAX_MCP_TIMEOUT_SECONDS, MAX_PROMPT_CONTENT_CHARS, MAX_PROMPT_TITLE_CHARS } from '../src/shared/assistant'
 import { makeD1 } from './doubles/d1-sqlite'
 import { testBindings, testDurableObjectNamespace, testR2Bucket } from './doubles/bindings'
 import { AI_EMBEDDING_MODEL } from '../src/worker/mcp/ai-search'
@@ -1835,9 +1836,89 @@ describe('external MCP servers', () => {
     })
   }
 
-  async function addServer(url = 'https://mcp.example.test/mcp') {
-    return call<{ server: { id: string } }>('POST', '/api/assistant/mcp', { label: 'Example', url, token: 'ctx7sk-secret-value-1234' })
+  /**
+   * The same third party, speaking the older transport: a stream that names where to post and answers on it.
+   *
+   * Every call is recorded with the address it went to, because that is the whole difference between the two
+   * types: one posts to the url the reader saved, the other opens it and posts where it is told.
+   */
+  function fakeSseServer() {
+    const encoder = new TextEncoder()
+    const calls: string[] = []
+    let open: ReadableStreamDefaultController<Uint8Array> | null = null
+    const fetchImpl = vi.fn(async (url: unknown, init?: RequestInit) => {
+      const method = init?.method ?? 'GET'
+      calls.push(`${String(url)} ${method === 'GET' ? 'GET' : 'POST'}`)
+      if (method === 'GET') {
+        return new Response(new ReadableStream<Uint8Array>({
+          start(controller) {
+            open = controller
+            controller.enqueue(encoder.encode('event: endpoint\ndata: /messages\n\n'))
+          },
+        }), { headers: { 'content-type': 'text/event-stream' } })
+      }
+      const body = JSON.parse(String(init?.body ?? '{}')) as { id?: number, method?: string }
+      if (body.id !== undefined) {
+        open?.enqueue(encoder.encode(`event: message\ndata: ${JSON.stringify({
+          jsonrpc: '2.0',
+          id: body.id,
+          result: { tools: [{ name: 'resolve-library-id', description: 'Find a library id', inputSchema: { type: 'object' } }] },
+        })}\n\n`))
+      }
+      return new Response(null, { status: 202 })
+    })
+    return { calls, fetchImpl }
   }
+
+  async function addServer(url = 'https://mcp.example.test/mcp') {
+    return call<{ server: { id: string } }>('POST', '/api/assistant/mcp', {
+      label: 'Example',
+      url,
+      headers: { Authorization: 'Bearer ctx7sk-secret-value-1234' },
+    })
+  }
+
+  /**
+   * The catalogue the settings screen reads: one entry per server, its tools, and which are switched off.
+   *
+   * Separate from the turn's own tool list, which is what the model is offered — a server switched off at
+   * its own level is still listed here, because that is where its per-tool switches live.
+   */
+  async function catalog() {
+    return call<{
+      servers: { serverId: string, serverLabel: string, tools: { name: string, remoteName: string, description: string, disabled: boolean }[] }[]
+      problems: { serverId: string }[]
+    }>('GET', '/api/assistant/mcp/tools')
+  }
+
+  /** The namespaced name a turn would be offered for one remote tool, from the catalogue above. */
+  async function offeredName(fragment: string): Promise<string> {
+    const { servers } = await catalog()
+    return servers.flatMap((entry) => entry.tools).find((entry) => entry.name.includes(fragment))!.name
+  }
+
+  it('reaches a server through the type it was saved as, not through the default one', async () => {
+    const legacy = fakeSseServer()
+    vi.stubGlobal('fetch', legacy.fetchImpl)
+    const created = await call<{ server: { id: string, transport: string } }>('POST', '/api/assistant/mcp', {
+      label: 'Legacy',
+      url: 'https://mcp.example.test/sse',
+      transport: 'sse',
+    })
+    expect(created.server.transport).toBe('sse')
+    const listed = await catalog()
+    vi.unstubAllGlobals()
+    // Nothing was skipped and the tool is there, which is only reachable through the stream: a server
+    // called as Streamable HTTP would have had its POST answered with a 404 by this one.
+    expect(listed.problems).toEqual([])
+    expect(listed.servers[0]?.tools.map((tool) => tool.remoteName)).toEqual(['resolve-library-id'])
+    expect(legacy.calls).toEqual([
+      'https://mcp.example.test/sse GET',
+      'https://mcp.example.test/messages POST',
+      'https://mcp.example.test/messages POST',
+      'https://mcp.example.test/messages POST',
+    ])
+  })
 
   it('stores a server, keeps its token out of every read, and lists its tools', async () => {
     const calls: string[] = []
@@ -1850,13 +1931,18 @@ describe('external MCP servers', () => {
     expect(listed.servers[0]?.toolMode).toBe('ask')
     // The token must not appear anywhere a listing can carry it.
     expect(JSON.stringify(listed)).not.toContain('ctx7sk-secret-value-1234')
-    const tools = await call<{ tools: { name: string }[], problems: unknown[] }>('GET', '/api/assistant/mcp/tools')
+    const tools = await catalog()
     expect(tools.problems).toEqual([])
-    expect(tools.tools.map((entry) => entry.name)).toEqual([
+    expect(tools.servers).toHaveLength(1)
+    expect(tools.servers[0]?.serverLabel).toBe('Example')
+    expect(tools.servers[0]?.tools.map((entry) => entry.name)).toEqual([
       expect.stringMatching(/^mcp_[a-z0-9]+_resolve-library-id$/),
       expect.stringMatching(/^mcp_[a-z0-9]+_drop_everything$/),
       expect.stringMatching(/^mcp_[a-z0-9]+_web_lookup$/),
     ])
+    // Nothing is switched off until the reader says so, and each row says what its own name is.
+    expect(tools.servers[0]?.tools.every((entry) => entry.disabled === false)).toBe(true)
+    expect(tools.servers[0]?.tools.map((entry) => entry.remoteName)).toEqual(['resolve-library-id', 'drop_everything', 'web_lookup'])
     // The handshake asked for the session and echoed it back on the next call.
     expect(calls.some((entry) => entry.includes(':initialize:'))).toBe(true)
     expect(calls.some((entry) => entry.includes(':tools/list:'))).toBe(true)
@@ -1878,8 +1964,7 @@ describe('external MCP servers', () => {
     const calls: string[] = []
     vi.stubGlobal('fetch', fakeMcpServer(calls))
     const created = await addServer()
-    const tools = await call<{ tools: { name: string }[] }>('GET', '/api/assistant/mcp/tools')
-    const resolveName = tools.tools.find((entry) => entry.name.includes('resolve-library-id'))!.name
+    const resolveName = await offeredName('resolve-library-id')
 
     // The model asks for it; in `ask` mode nothing has run yet and a proposal is shown instead.
     const answerFrames = [
@@ -1919,8 +2004,7 @@ describe('external MCP servers', () => {
     vi.stubGlobal('fetch', fakeMcpServer(calls))
     const created = await addServer()
     await call('PATCH', `/api/assistant/mcp/${created.server.id}`, { toolMode: 'auto' })
-    const tools = await call<{ tools: { name: string }[] }>('GET', '/api/assistant/mcp/tools')
-    const resolveName = tools.tools.find((entry) => entry.name.includes('resolve-library-id'))!.name
+    const resolveName = await offeredName('resolve-library-id')
     const answerFrames = [
       `data: ${JSON.stringify({ choices: [{ index: 0, finish_reason: 'tool_calls', delta: { tool_calls: [{ index: 0, id: 'call-1', function: { name: resolveName, arguments: '{"query":"svelte"}' } }] } }] })}\n\n`,
       `data: ${JSON.stringify({ choices: [{ index: 0, finish_reason: 'stop', delta: { content: '查到了。' } }] })}\n\n`,
@@ -1936,31 +2020,101 @@ describe('external MCP servers', () => {
     expect(events.filter((event) => event.type === 'tool').map((event) => event.tool).at(-1)?.approval).toBeUndefined()
 
     await call('PATCH', `/api/assistant/mcp/${created.server.id}`, { enabled: false })
-    expect((await call<{ tools: unknown[] }>('GET', '/api/assistant/mcp/tools')).tools).toEqual([])
+    // The turn is offered nothing, while the settings catalogue still lists the server: that is where the
+    // switches that turn it back on live.
+    const listed = await catalog()
+    expect(listed.servers).toHaveLength(1)
     vi.unstubAllGlobals()
   })
 
-  it('keeps a stored token through an unrelated edit, and drops it only when told to', async () => {
+
+  it('switches one tool off without touching its neighbours, and leaves it out of the turn', async () => {
+    await useExampleModel()
+    const calls: string[] = []
+    vi.stubGlobal('fetch', fakeMcpServer(calls))
+    const created = await addServer()
+    await call('PATCH', `/api/assistant/mcp/${created.server.id}`, { toolMode: 'auto', disabledTools: ['drop_everything'] })
+    const resolveName = await offeredName('resolve-library-id')
+
+    const listed = await catalog()
+    const rows = listed.servers[0]!.tools
+    expect(rows.find((entry) => entry.remoteName === 'drop_everything')?.disabled).toBe(true)
+    expect(rows.find((entry) => entry.remoteName === 'resolve-library-id')?.disabled).toBe(false)
+
+    // The model is not offered the switched-off tool at all: a schema would let it name one that can
+    // never run, and the turn would then have to refuse after the fact.
+    const bodies: string[] = []
+    const mcp = fakeMcpServer(calls)
+    vi.stubGlobal('fetch', vi.fn(async (url: unknown, init?: RequestInit) => {
+      const body = String(init?.body ?? '')
+      if (body.includes('"model":"example-model"')) {
+        bodies.push(body)
+        return new Response(sse(FINAL_FRAMES), { headers: { 'content-type': 'text/event-stream' } })
+      }
+      return mcp(url, init)
+    }))
+    await chatEvents({ message: '查一下 react-query' })
+    await settleTurns()
+    vi.unstubAllGlobals()
+    const offered = JSON.parse(bodies[0] ?? '{}') as { tools?: { function?: { name?: string } }[] }
+    const names = (offered.tools ?? []).map((entry) => entry.function?.name ?? '')
+    expect(names).toContain(resolveName)
+    expect(names.some((name) => name.includes('drop_everything'))).toBe(false)
+  })
+
+  it('refuses a switch list that is not a list of tool names', async () => {
+    vi.stubGlobal('fetch', fakeMcpServer([]))
+    const created = await addServer()
+    expect(await status('PATCH', `/api/assistant/mcp/${created.server.id}`, { disabledTools: 'drop_everything' })).toBe(400)
+    expect(await status('PATCH', `/api/assistant/mcp/${created.server.id}`, { disabledTools: [7] })).toBe(200)
+    // The number is not a name and is dropped rather than stored, so nothing can be filtered by it later.
+    expect((await catalog()).servers[0]!.tools.every((entry) => entry.disabled === false)).toBe(true)
+    vi.unstubAllGlobals()
+  })
+
+  it('keeps a stored header through an unrelated edit, and drops it only when told to', async () => {
     vi.stubGlobal('fetch', fakeMcpServer([]))
     const created = await addServer()
     const renamed = await call<{ server: { hasKey: boolean } }>('PATCH', `/api/assistant/mcp/${created.server.id}`, { label: 'Renamed' })
-    expect(renamed.server.hasKey, 'an edit that did not touch the token cleared it').toBe(true)
-    const cleared = await call<{ server: { hasKey: boolean } }>('PATCH', `/api/assistant/mcp/${created.server.id}`, { token: null })
+    expect(renamed.server.hasKey, 'an edit that did not touch the headers cleared them').toBe(true)
+    const cleared = await call<{ server: { hasKey: boolean } }>('PATCH', `/api/assistant/mcp/${created.server.id}`, { headers: null })
     expect(cleared.server.hasKey).toBe(false)
-    const retyped = await call<{ server: { hasKey: boolean } }>('PATCH', `/api/assistant/mcp/${created.server.id}`, { token: 'another-secret-999' })
+    const retyped = await call<{ server: { hasKey: boolean } }>('PATCH', `/api/assistant/mcp/${created.server.id}`, { headers: { Authorization: 'Bearer another-secret-999' } })
     expect(retyped.server.hasKey).toBe(true)
     expect(JSON.stringify(retyped)).not.toContain('another-secret-999')
+    vi.unstubAllGlobals()
+  })
+
+  it('stores what the form says about a server, and reads the header names back without the values', async () => {
+    vi.stubGlobal('fetch', fakeMcpServer([]))
+    const created = await call<{ server: AssistantMcpServer }>('POST', '/api/assistant/mcp', {
+      label: 'Docs',
+      url: 'https://mcp.example.test/mcp',
+      description: 'Library documentation',
+      transport: 'streamableHttp',
+      timeoutSeconds: 90,
+      headers: { Authorization: 'Bearer ctx7sk-secret-value-1234', 'X-Client': 'inkstone' },
+    })
+    expect(created.server.description).toBe('Library documentation')
+    expect(created.server.timeoutSeconds).toBe(90)
+    expect(created.server.transport).toBe('streamableHttp')
+    const detail = await call<{ server: AssistantMcpServer, headerNames: string[] }>('GET', `/api/assistant/mcp/${created.server.id}`)
+    expect(detail.headerNames.sort()).toEqual(['Authorization', 'X-Client'])
+    expect(JSON.stringify(detail), 'a header value reached the client').not.toContain('ctx7sk-secret-value-1234')
+    // A timeout past its own bounds is clamped rather than refused, the way every other limit here is.
+    const slow = await call<{ server: AssistantMcpServer }>('PATCH', `/api/assistant/mcp/${created.server.id}`, { timeoutSeconds: 10_000 })
+    expect(slow.server.timeoutSeconds).toBe(MAX_MCP_TIMEOUT_SECONDS)
+    expect(await status('PATCH', `/api/assistant/mcp/${created.server.id}`, { headers: { 'Not A Name': 'x' } })).toBe(400)
     vi.unstubAllGlobals()
   })
 
   it('offers nothing from a server set to off, while it stays configured', async () => {
     vi.stubGlobal('fetch', fakeMcpServer([]))
     const created = await addServer()
-    expect((await call<{ tools: unknown[] }>('GET', '/api/assistant/mcp/tools')).tools.length).toBeGreaterThan(0)
+    expect((await catalog()).servers[0]!.tools.length).toBeGreaterThan(0)
     const off = await call<{ server: { enabled: boolean, toolMode: string } }>('PATCH', `/api/assistant/mcp/${created.server.id}`, { toolMode: 'off' })
     expect(off.server.toolMode).toBe('off')
     expect(off.server.enabled, 'switching the mode off must not silently disable the row').toBe(true)
-    expect((await call<{ tools: unknown[] }>('GET', '/api/assistant/mcp/tools')).tools).toEqual([])
     vi.unstubAllGlobals()
   })
 
@@ -1982,9 +2136,9 @@ describe('external MCP servers', () => {
     async function addSearchServer(): Promise<string> {
       vi.stubGlobal('fetch', fakeMcpServer([]))
       await addServer()
-      const tools = await call<{ tools: { name: string }[] }>('GET', '/api/assistant/mcp/tools')
+      const name = await offeredName('web_lookup')
       vi.unstubAllGlobals()
-      return tools.tools.find((entry) => entry.name.includes('web_lookup'))!.name
+      return name
     }
 
     /** Records what the runner put on the wire, while the MCP handshake still gets answered. */

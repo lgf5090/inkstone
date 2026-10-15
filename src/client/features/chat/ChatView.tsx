@@ -712,7 +712,7 @@ function Composer({
 
   const webSearch = useAssistant((state) => state.webSearch)
   const setWebSearch = useAssistant((state) => state.setWebSearch)
-  const mcpTools = useAssistant((state) => state.mcpTools)
+  const mcpCatalog = useAssistant((state) => state.mcpCatalog)
   const mcpServers = useAssistant((state) => state.mcpServers)
   const loadMcp = useAssistant((state) => state.loadMcp)
 
@@ -722,16 +722,21 @@ function Composer({
     if (next.sigil === '/') {
       // A server that has not been listed yet is awaited rather than skipped: showing the built-ins alone
       // would read as if the reader's own tools had disappeared.
-      const pending = mcpServers.some((server) => server.enabled && server.toolMode !== 'off') && mcpTools.length === 0
+      const offered = new Set(mcpServers.filter((server) => server.enabled && server.toolMode !== 'off').map((server) => server.id))
+      const pending = offered.size > 0 && mcpCatalog.length === 0
       setTriggerBusy(pending)
       if (pending) await loadMcp()
       // The reader's own MCP tools sit beside the built-in ones, marked by their namespaced name so the
-      // row says which server it came from.
-      const external: TriggerRow[] = useAssistant.getState().mcpTools.map((tool) => ({
-        id: tool.name,
-        label: tool.name,
-        hint: tool.description.slice(0, 40),
-      }))
+      // row says which server it came from. A tool switched off in settings, or one on a server that is off
+      // or only asks, is not pinned here either: the pin would name a tool the turn never offers.
+      const external: TriggerRow[] = useAssistant.getState().mcpCatalog
+        .filter((entry) => offered.has(entry.serverId))
+        .flatMap((entry) => entry.tools.filter((tool) => !tool.disabled))
+        .map((tool) => ({
+          id: tool.name,
+          label: tool.name,
+          hint: tool.description.slice(0, 40),
+        }))
       setTriggerRows(filterRows([...TOOL_TRIGGER_ROWS, ...external], next.query))
       setTriggerBusy(false)
       return

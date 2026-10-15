@@ -5,10 +5,13 @@
  * Two things are pinned that a browser probe cannot: the address check that keeps the worker from being
  * pointed at the network it runs inside, and the fact that a stored token never comes back out.
  */
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { mcpToolName, mcpToolOrigin } from '../src/shared/assistant'
 import {
   flattenMcpContent,
-  mcpToolName,
+  mcpCallTool,
+  mcpInitialize,
+  mcpListTools,
   mcpUrlProblem,
   parseMcpBody,
 } from '../src/worker/assistant/mcp-client'
@@ -72,6 +75,88 @@ describe('the reply a server sends back', () => {
   it('surfaces a server-reported error as the message, not as a success', () => {
     const envelope = parseMcpBody(frame({ jsonrpc: '2.0', id: 3, error: { code: -32601, message: 'unknown tool' } }), 3)
     expect(envelope?.error?.message).toBe('unknown tool')
+  })
+})
+
+/**
+ * An SSE server: one stream that stays open, the endpoint event, and every answer on that stream.
+ *
+ * The answers are put on the stream rather than in the POST's body on purpose — a client that read only
+ * the POST response would look correct against a server that answers there.
+ */
+function sseServer(endpoint = '/messages?session=abc') {
+  const encoder = new TextEncoder()
+  const posted: string[] = []
+  let open: ReadableStreamDefaultController<Uint8Array> | null = null
+  const fetchImpl = vi.fn(async (_url: string, init?: RequestInit) => {
+    if ((init?.method ?? 'GET') === 'GET') {
+      const body = new ReadableStream<Uint8Array>({
+        start(controller) {
+          open = controller
+          controller.enqueue(encoder.encode(`event: endpoint\ndata: ${endpoint}\n\n`))
+        },
+      })
+      return new Response(body, { headers: { 'content-type': 'text/event-stream' } })
+    }
+    const request = JSON.parse(String(init?.body ?? '{}')) as { id?: number, method: string }
+    posted.push(request.method)
+    if (request.id !== undefined) {
+      const result = request.method === 'tools/list'
+        ? { tools: [{ name: 'resolve-library-id', description: 'finds a library', inputSchema: { type: 'object' } }] }
+        : { content: [{ type: 'text', text: 'the-library-id' }] }
+      open?.enqueue(encoder.encode(`event: message\ndata: ${JSON.stringify({ jsonrpc: '2.0', id: request.id, result })}\n\n`))
+    }
+    return new Response(null, { status: 202 })
+  })
+  return { fetchImpl, posted }
+}
+
+describe('the older SSE transport', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it('opens a stream, posts where it is told, and reads the answer back off that stream', async () => {
+    const server = sseServer()
+    vi.stubGlobal('fetch', server.fetchImpl)
+    const session = await mcpInitialize('https://mcp.example.test/sse', { Authorization: 'Bearer x' }, 30, 'sse')
+    const listing = await mcpListTools(session, '01SERVERAAAAAAAAAAAAAAAAAA1', 'Context7')
+    expect(listing.tools.map((tool) => tool.remoteName)).toEqual(['resolve-library-id'])
+    // The handshake is what this transport requires before a call on the same stream, so it is sent per
+    // call rather than once per process.
+    expect(server.posted).toEqual(['initialize', 'notifications/initialized', 'tools/list'])
+    await expect(mcpCallTool(session, 'resolve-library-id', { libraryName: 'next.js' })).resolves.toContain('the-library-id')
+  })
+
+  it('resolves the endpoint against the stream it came from', async () => {
+    const server = sseServer('messages')
+    vi.stubGlobal('fetch', server.fetchImpl)
+    const session = await mcpInitialize('https://mcp.example.test/sse', {}, 30, 'sse')
+    await mcpListTools(session, '01SERVERAAAAAAAAAAAAAAAAAA1', 'Relative')
+    expect(server.fetchImpl.mock.calls.map((call) => String(call[0]))).toEqual([
+      'https://mcp.example.test/sse',
+      'https://mcp.example.test/messages',
+      'https://mcp.example.test/messages',
+      'https://mcp.example.test/messages',
+    ])
+  })
+
+  it('refuses an endpoint the server names inside the network', async () => {
+    const server = sseServer('http://127.0.0.1:9000/messages')
+    vi.stubGlobal('fetch', server.fetchImpl)
+    const session = await mcpInitialize('https://mcp.example.test/sse', {}, 30, 'sse')
+    // The address check is the same one the reader's own URL goes through: the server is not allowed to
+    // be the one that decides what the worker fetches.
+    await expect(mcpListTools(session, '01SERVERAAAAAAAAAAAAAAAAAA1', 'Local')).rejects.toThrow(/will not call/)
+  })
+
+  it('says so when the server never names an endpoint', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(
+      new ReadableStream<Uint8Array>({ start(controller) { controller.close() } }),
+      { headers: { 'content-type': 'text/event-stream' } },
+    )))
+    const session = await mcpInitialize('https://mcp.example.test/sse', {}, 30, 'sse')
+    await expect(mcpListTools(session, '01SERVERAAAAAAAAAAAAAAAAAA1', 'Quiet')).rejects.toThrow(/before naming where to post/)
   })
 })
 

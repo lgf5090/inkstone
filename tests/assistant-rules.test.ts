@@ -19,6 +19,8 @@ import {
   normalizeLimits,
   titleFromMessage,
   endpointFieldState,
+  parseMcpHeaderLines,
+  parseMcpServerJson,
 } from '../src/shared/assistant'
 import {
   AUTO_SUPERSEDE_CONFIDENCE,
@@ -325,6 +327,45 @@ describe('schedules', () => {
     expect(isValidTimeZone('Asia/Shanghai')).toBe(true)
     expect(isValidTimeZone('Mars/Shady')).toBe(false)
     expect(isValidTimeZone('')).toBe(false)
+  })
+})
+
+describe('a pasted MCP config', () => {
+  it('takes the HTTP servers and names what it left behind', () => {
+    const pasted = JSON.stringify({
+      mcpServers: {
+        context7: { type: 'streamableHttp', url: 'https://mcp.context7.com/mcp', headers: { CONTEXT7_API_KEY: 'ctx7sk-x' } },
+        // The block every README publishes also lists a local command, which a Worker cannot run.
+        filesystem: { command: 'npx', args: ['-y', '@modelcontextprotocol/server-filesystem'] },
+        // The older transport, which is a real choice here rather than a line to skip.
+        legacy: { type: 'sse', url: 'https://old.example.test/sse' },
+        socket: { type: 'websocket', url: 'https://sock.example.test/ws' },
+        broken: { url: 'http://plain.example.test/mcp' },
+      },
+    })
+    const parsed = parseMcpServerJson(pasted)
+    expect(parsed.servers.map((entry) => entry.name)).toEqual(['context7', 'legacy'])
+    // The type travels with the entry, because the two are addressed differently: one takes the POST,
+    // the other is the stream that says where the POST goes.
+    expect(parsed.servers.map((entry) => entry.transport)).toEqual(['streamableHttp', 'sse'])
+    expect(parsed.servers[0]?.headers).toEqual({ CONTEXT7_API_KEY: 'ctx7sk-x' })
+    expect(parsed.skipped).toEqual([
+      { name: 'filesystem', reason: 'command' },
+      { name: 'socket', reason: 'transport' },
+      { name: 'broken', reason: 'not_http' },
+    ])
+  })
+
+  it('refuses a paste with no block rather than reading it as empty', () => {
+    expect(() => parseMcpServerJson('{"servers": {}}')).toThrow()
+  })
+})
+
+describe('the MCP headers box', () => {
+  it('reads both the JSON and the form spelling, and names a name it cannot send', () => {
+    const parsed = parseMcpHeaderLines('Authorization: Bearer a\nX-Client=inkstone\nNot A Name: x')
+    expect(parsed.headers).toEqual({ Authorization: 'Bearer a', 'X-Client': 'inkstone' })
+    expect(parsed.problems).toEqual(['Not A Name'])
   })
 })
 

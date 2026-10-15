@@ -634,24 +634,194 @@ export interface AssistantToolSpec {
 export const ASSISTANT_MCP_TOOL_MODES = ['off', 'ask', 'auto'] as const
 export type AssistantMcpToolMode = (typeof ASSISTANT_MCP_TOOL_MODES)[number]
 
+/**
+ * The transports this client can speak, and what each one needs before it works.
+ *
+ * The protocol names three. `streamableHttp` is one address that takes `POST`s, which is what a server
+ * built this year speaks. `sse` is the older shape: a `GET` that stays open, an `endpoint` event naming
+ * where to post, and every answer — the handshake's as much as a tool call's — arriving back on that same
+ * stream. `stdio` cannot be here: it starts a child process, and a worker has none. A server that is only
+ * a local command is used through a tunnel that fronts it with one of the two HTTP transports.
+ *
+ * Both of these require https, so a local server on plain http over a tunnel has to have https in front
+ * of it first; that is the transport's own rule, not a setting.
+ */
+export const ASSISTANT_MCP_TRANSPORTS = ['streamableHttp', 'sse'] as const
+export type AssistantMcpTransport = (typeof ASSISTANT_MCP_TRANSPORTS)[number]
+
 export interface AssistantMcpServer {
   id: string
   label: string
   url: string
+  /** Free text the reader types about the third party; shown on its card. */
+  description: string
+  transport: AssistantMcpTransport
+  /** How long one listing or call may take. A slow third party is the reader's call, within bounds. */
+  timeoutSeconds: number
   enabled: boolean
   toolMode: AssistantMcpToolMode
-  /** Whether a bearer header is stored. The value itself never leaves the worker. */
+  /**
+   * The server's own names for the tools the reader has switched off.
+   *
+   * Kept as a list of switched-off names rather than of switched-on ones because a tool the server adds
+   * later must arrive usable: a server whose whole point is `search` should not have every new function
+   * hidden behind a settings visit, and a name here that the server no longer offers simply stops
+   * matching anything.
+   */
+  disabledTools: string[]
+  /** Whether any request header is stored. The values themselves never leave the worker. */
   hasKey: boolean
   createdAt: number
   updatedAt: number
 }
 
+/** Bounds on what one server's own settings may be, checked in the route and mirrored by the form. */
+export const MAX_MCP_DESCRIPTION_CHARS = 240
+export const MAX_MCP_HEADERS = 8
+export const MAX_MCP_HEADER_NAME_CHARS = 64
+export const MAX_MCP_HEADER_VALUE_CHARS = 1024
+export const MIN_MCP_TIMEOUT_SECONDS = 5
+export const MAX_MCP_TIMEOUT_SECONDS = 120
+export const DEFAULT_MCP_TIMEOUT_SECONDS = 30
+
+/** The characters a header name may use, which is the wire's own token set rather than a guess. */
+const MCP_HEADER_NAME_RE = /^[!#$%&'*+.^_`|~0-9A-Za-z-]+$/
+
+export function isMcpHeaderName(name: string): boolean {
+  return name.length > 0 && name.length <= MAX_MCP_HEADER_NAME_CHARS && MCP_HEADER_NAME_RE.test(name)
+}
+
+/**
+ * The headers box, read line by line.
+ *
+ * Every client's own config spells these differently — a JSON blob uses `Name: value`, a form uses
+ * `Name=value` — and the box is where a reader pastes one, so both are accepted rather than making them
+ * translate. A bad name is reported instead of dropped: a header silently missing is a 401 the reader
+ * cannot explain.
+ */
+export function parseMcpHeaderLines(text: string): { headers: Record<string, string>, problems: string[] } {
+  const headers: Record<string, string> = {}
+  const problems: string[] = []
+  for (const raw of text.split(/\r?\n/)) {
+    const line = raw.trim()
+    if (!line) continue
+    const at = line.search(/[:=]/)
+    const name = (at < 0 ? line : line.slice(0, at)).trim()
+    const value = at < 0 ? '' : line.slice(at + 1).trim()
+    if (!isMcpHeaderName(name)) {
+      problems.push(name || line)
+      continue
+    }
+    headers[name] = value.slice(0, MAX_MCP_HEADER_VALUE_CHARS)
+  }
+  return { headers, problems }
+}
+
+/** Why one entry of a pasted config file cannot be used, in codes the client turns into its own words. */
+export type McpImportSkip = 'command' | 'no_url' | 'not_http' | 'transport'
+
+export interface McpImportResult {
+  servers: { name: string, url: string, transport: AssistantMcpTransport, headers?: Record<string, string> }[]
+  skipped: { name: string, reason: McpImportSkip }[]
+}
+
+/**
+ * A pasted `mcpServers` block, as every MCP client's README spells it.
+ *
+ * The shape is the reference clients' own, so a reader can copy a snippet from a server's page and paste
+ * it here untouched. What this app cannot run is reported as a skipped entry rather than failing the
+ * paste: one `stdio` server in a list of five must not hide the four that work.
+ */
+export function parseMcpServerJson(text: string): McpImportResult {
+  const servers: McpImportResult['servers'] = []
+  const skipped: McpImportResult['skipped'] = []
+  const parsed = JSON.parse(text) as unknown
+  const block = (parsed ?? {}) as { mcpServers?: unknown }
+  const entries = block.mcpServers && typeof block.mcpServers === 'object' && !Array.isArray(block.mcpServers)
+    ? Object.entries(block.mcpServers as Record<string, unknown>)
+    : null
+  if (entries === null) throw new Error('no mcpServers block')
+  for (const [name, value] of entries) {
+    const entry = (value ?? {}) as { type?: unknown, url?: unknown, headers?: unknown, command?: unknown }
+    if (typeof entry.command === 'string') {
+      skipped.push({ name, reason: 'command' })
+      continue
+    }
+    // The two spellings every client's config uses for the two address shapes, and an entry that names
+    // neither is read as the current one, which is what a bare `url` has always meant.
+    const type = typeof entry.type === 'string' ? entry.type.trim() : ''
+    const transport: AssistantMcpTransport | null = type === '' || type === 'streamableHttp' || type === 'http'
+      ? 'streamableHttp'
+      : type === 'sse'
+        ? 'sse'
+        : null
+    if (transport === null) {
+      skipped.push({ name, reason: 'transport' })
+      continue
+    }
+    if (typeof entry.url !== 'string' || !entry.url.trim()) {
+      skipped.push({ name, reason: 'no_url' })
+      continue
+    }
+    if (!entry.url.trim().startsWith('https://')) {
+      skipped.push({ name, reason: 'not_http' })
+      continue
+    }
+    const headers: Record<string, string> = {}
+    if (entry.headers && typeof entry.headers === 'object' && !Array.isArray(entry.headers)) {
+      for (const [headerName, headerValue] of Object.entries(entry.headers as Record<string, unknown>)) {
+        if (isMcpHeaderName(headerName) && typeof headerValue === 'string') {
+          headers[headerName] = headerValue.slice(0, MAX_MCP_HEADER_VALUE_CHARS)
+        }
+      }
+    }
+    servers.push({
+      name: name.slice(0, MAX_MCP_LABEL_CHARS),
+      url: entry.url.trim().slice(0, MAX_MCP_URL_CHARS),
+      transport,
+      ...(Object.keys(headers).length ? { headers } : {}),
+    })
+  }
+  return { servers, skipped }
+}
+
 export const MAX_MCP_SERVERS = 8
 export const MAX_MCP_TOOLS_PER_SERVER = 24
+/** A disabled-tool list is a reader's own choices, bounded the way the listing itself is. */
+export const MAX_MCP_DISABLED_TOOLS = 200
 /** A tool name the upstreams accept: `^[a-zA-Z0-9_-]{1,64}$` after namespacing. */
 export const MAX_MCP_TOOL_NAME_CHARS = 64
 export const MAX_MCP_LABEL_CHARS = 60
 export const MAX_MCP_URL_CHARS = 2048
+
+/**
+ * The name one remote tool is offered under.
+ *
+ * Both sides need the same answer: the worker builds it to offer the tool and to resolve a call back to its
+ * server, and the transcript reads it back the other way to say which third party a past call went to. A
+ * second copy of this spelling on the client would drift from the one the model was given.
+ */
+export function mcpToolName(serverId: string, remoteName: string): string {
+  const owner = serverId.replace(/[^a-z0-9]/gi, '').slice(-6).toLowerCase()
+  const clean = remoteName.trim().replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, MAX_MCP_TOOL_NAME_CHARS - 8)
+  return `mcp_${owner}_${clean}`.slice(0, MAX_MCP_TOOL_NAME_CHARS)
+}
+
+/**
+ * Which configured server a namespaced name came from, and the tool's own name back out of it.
+ *
+ * Only the six-character owner survives the round trip, so the remote name read back is the sanitized one
+ * the wire carries — good enough to name a card, and never what a call is built from: the worker resolves
+ * the real name by listing the server it matched.
+ */
+export function mcpToolOrigin(name: string, servers: readonly { id: string, label: string }[]): { serverId: string, serverLabel: string, remoteName: string } | null {
+  for (const server of servers) {
+    const prefix = mcpToolName(server.id, '')
+    if (!name.startsWith(prefix)) continue
+    return { serverId: server.id, serverLabel: server.label, remoteName: name.slice(prefix.length) }
+  }
+  return null
+}
 
 /** What one external tool looks like after listing, in the shape the composer and executor both need. */
 export interface AssistantMcpTool {
@@ -662,6 +832,35 @@ export interface AssistantMcpTool {
   serverId: string
   serverLabel: string
   description: string
+  /** Whether the reader switched this one off. Only the settings listing fills it in. */
+  disabled?: boolean
+}
+
+/**
+ * One server's listing as the settings screen draws it.
+ *
+ * Cheaper than a tool definition: nothing here can be called, so the screen can ask every server —
+ * including the ones switched off at the server level — what it offers without opening a session per
+ * turn. `serverId` is what groups them back under their card.
+ */
+/**
+ * One server as its own editor opens it.
+ *
+ * The header names are here and the values are not: the form has to show what is already configured — a
+ * blank box reads as "nothing is set", and a box that came back filled would put a token in a browser.
+ * They are fetched per server rather than listed, because reading them means decrypting the row.
+ */
+export interface AssistantMcpServerDetail {
+  server: AssistantMcpServer
+  headerNames: string[]
+}
+
+export interface AssistantMcpCatalogEntry {
+  serverId: string
+  serverLabel: string
+  tools: { remoteName: string, name: string, description: string, disabled: boolean }[]
+  /** Why this server answered nothing, in the reader's own language where the client can say it. */
+  error?: string
 }
 
 /**

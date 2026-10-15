@@ -1045,8 +1045,12 @@ export const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
     label TEXT NOT NULL,
     url TEXT NOT NULL,
     header_ciphertext TEXT NOT NULL DEFAULT '',
+    description TEXT NOT NULL DEFAULT '',
+    transport TEXT NOT NULL DEFAULT 'streamableHttp',
+    timeout_seconds INTEGER NOT NULL DEFAULT 30,
     enabled INTEGER NOT NULL DEFAULT 1,
     tool_mode TEXT NOT NULL DEFAULT 'ask',
+    disabled_tools TEXT NOT NULL DEFAULT '[]',
     created_at INTEGER NOT NULL,
     updated_at INTEGER NOT NULL,
     PRIMARY KEY (user_id, id)
@@ -1078,6 +1082,43 @@ export const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
     statements: [
       `ALTER TABLE chat_models ADD COLUMN protocol TEXT`,
     ],  },
+  {
+    // An MCP server is one switch for the reader and a dozen switches inside it: a third party's tools are
+    // not equally trusted, and hiding a whole server was the only thing the row could say before. The
+    // column holds the server's own names for the tools that are off.
+    version: 57,
+    skipIfColumnExists: { table: 'chat_mcp_servers', column: 'disabled_tools' },
+    statements: [
+      `ALTER TABLE chat_mcp_servers ADD COLUMN disabled_tools TEXT NOT NULL DEFAULT '[]'`,
+    ],
+  },
+  {
+    // A server's card said where it lives and nothing about what it is for. A reader with three of them is
+    // the one who needs the reminder, and the form's own placeholder is the whole reason it exists.
+    version: 58,
+    skipIfColumnExists: { table: 'chat_mcp_servers', column: 'description' },
+    statements: [
+      `ALTER TABLE chat_mcp_servers ADD COLUMN description TEXT NOT NULL DEFAULT ''`,
+    ],
+  },
+  {
+    // Which protocol the address speaks. Stored rather than assumed even though one transport is offered
+    // today: a row has to say what it is, or a second one could never be told apart from the first.
+    version: 59,
+    skipIfColumnExists: { table: 'chat_mcp_servers', column: 'transport' },
+    statements: [
+      `ALTER TABLE chat_mcp_servers ADD COLUMN transport TEXT NOT NULL DEFAULT 'streamableHttp'`,
+    ],
+  },
+  {
+    // How long to wait for one answer. It was a constant in the client, which made a slow third party
+    // unfixable from the screen that added it.
+    version: 60,
+    skipIfColumnExists: { table: 'chat_mcp_servers', column: 'timeout_seconds' },
+    statements: [
+      `ALTER TABLE chat_mcp_servers ADD COLUMN timeout_seconds INTEGER NOT NULL DEFAULT 30`,
+    ],
+  },
 ]
 
 const FTS_STATEMENT = `CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(

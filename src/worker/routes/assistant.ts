@@ -14,13 +14,23 @@ import { Hono, type Context } from 'hono'
 import {
   ASSISTANT_MEMORY_CATEGORIES,
   ASSISTANT_MCP_TOOL_MODES,
+  ASSISTANT_MCP_TRANSPORTS,
   ASSISTANT_MODEL_KINDS,
   MAX_CONTEXT_BUDGET_TOKENS,
+  MAX_MCP_DESCRIPTION_CHARS,
+  MAX_MCP_DISABLED_TOOLS,
+  MAX_MCP_HEADERS,
+  MAX_MCP_HEADER_VALUE_CHARS,
   MAX_MCP_LABEL_CHARS,
+  MAX_MCP_TIMEOUT_SECONDS,
+  MIN_MCP_TIMEOUT_SECONDS,
+  isMcpHeaderName,
   MAX_MCP_SERVERS,
+  MAX_MCP_TOOL_NAME_CHARS,
   MAX_MCP_URL_CHARS,
   endpointFieldState,
   parseModelModalities,
+  type AssistantMcpTransport,
   ASSISTANT_MODEL_PURPOSES,
   ASSISTANT_PROTOCOLS,
   ASSISTANT_TOOL_SPECS,
@@ -53,7 +63,7 @@ import { ApiError } from '../lib/errors'
 import { requireAuth } from '../middleware/auth'
 import { FORM_BODY_LIMITS, JSON_BODY_LIMITS, readFormDataWithinLimit, readJson, readStreamWithinLimit } from '../lib/request'
 import { mcpProbe, mcpUrlProblem } from '../assistant/mcp-client'
-import { isExternalToolName, loadExternalTools } from '../assistant/mcp-tools'
+import { isExternalToolName, listMcpCatalog, loadExternalTools } from '../assistant/mcp-tools'
 import { isValidId } from '../lib/id'
 import { isInlineSafe } from '../lib/image'
 import { AssistantStore } from '../assistant/store'
@@ -200,6 +210,47 @@ assistantRoutes.post('/conversations', async (c) => {
  */
 assistantRoutes.get('/mcp', async (c) => c.json({ servers: await store(c).listMcpServers() }))
 
+/**
+ * The fields a server's own form sets, validated once for the three routes that accept them.
+ *
+ * The header values are the one secret here, so they arrive as an object rather than as text the client
+ * parsed: a name the wire cannot carry is refused by name, and the count is bounded because every header
+ * travels on every request this server is asked for.
+ */
+function mcpServerFields(body: Record<string, unknown>): {
+  description?: string
+  transport?: AssistantMcpTransport
+  timeoutSeconds?: number
+  headers?: Record<string, string> | null
+} {
+  const out: ReturnType<typeof mcpServerFields> = {}
+  if (body.description !== undefined) out.description = text(body.description, MAX_MCP_DESCRIPTION_CHARS)
+  const transport = pickValue(body.transport, ASSISTANT_MCP_TRANSPORTS)
+  if (transport !== undefined) out.transport = transport
+  if (body.timeoutSeconds !== undefined) {
+    const seconds = Number(body.timeoutSeconds)
+    if (!Number.isFinite(seconds)) throw ApiError.badRequest('The timeout has to be a number of seconds.')
+    out.timeoutSeconds = Math.min(Math.max(Math.round(seconds), MIN_MCP_TIMEOUT_SECONDS), MAX_MCP_TIMEOUT_SECONDS)
+  }
+  if (body.headers !== undefined) {
+    if (body.headers === null) out.headers = null
+    else if (typeof body.headers === 'object' && !Array.isArray(body.headers)) {
+      const entries = Object.entries(body.headers as Record<string, unknown>)
+      if (entries.length > MAX_MCP_HEADERS) throw ApiError.badRequest(`At most ${MAX_MCP_HEADERS} headers can be stored.`)
+      const headers: Record<string, string> = {}
+      for (const [name, value] of entries) {
+        if (!isMcpHeaderName(name)) throw ApiError.badRequest(`"${name}" cannot be sent as a header name.`)
+        if (typeof value !== 'string') throw ApiError.badRequest(`The value of "${name}" has to be text.`)
+        headers[name] = value.slice(0, MAX_MCP_HEADER_VALUE_CHARS)
+      }
+      out.headers = headers
+    } else {
+      throw ApiError.badRequest('headers has to be an object of name and value pairs.')
+    }
+  }
+  return out
+}
+
 assistantRoutes.post('/mcp', async (c) => {
   const s = store(c)
   const body = await readJson<Record<string, unknown>>(c, JSON_BODY_LIMITS.small)
@@ -213,7 +264,7 @@ assistantRoutes.post('/mcp', async (c) => {
   const server = await s.createMcpServer({
     label,
     url,
-    token: typeof body.token === 'string' ? body.token : '',
+    ...mcpServerFields(body),
     toolMode: pickValue(body.toolMode, ASSISTANT_MCP_TOOL_MODES) ?? 'ask',
   })
   return c.json({ server }, 201)
@@ -229,13 +280,26 @@ assistantRoutes.patch('/mcp/:id', async (c) => {
     const problem = mcpUrlProblem(url)
     if (problem) throw ApiError.badRequest(problem)
   }
+  // The off-list is the server's own tool names, so it is only ever a list of bounded strings: the model
+  // is never handed a name this route invented, and a name the server does not offer simply stops matching.
+  let disabledTools: string[] | undefined
+  if (body.disabledTools !== undefined) {
+    if (!Array.isArray(body.disabledTools)) throw ApiError.badRequest('disabledTools must be an array')
+    if (body.disabledTools.length > MAX_MCP_DISABLED_TOOLS) {
+      throw ApiError.badRequest(`At most ${MAX_MCP_DISABLED_TOOLS} tools can be switched off`)
+    }
+    disabledTools = body.disabledTools
+      .filter((entry): entry is string => typeof entry === 'string')
+      .map((entry) => entry.trim())
+      .filter((entry) => Boolean(entry) && entry.length <= MAX_MCP_TOOL_NAME_CHARS)
+  }
   const updated = await s.updateMcpServer(id, {
     ...(body.label !== undefined ? { label: text(body.label, MAX_MCP_LABEL_CHARS) } : {}),
     ...(url === undefined ? {} : { url }),
-    // An empty string means "remove it"; the settings form sends null for the same thing.
-    ...(body.token === null || body.token === '' ? { token: null } : typeof body.token === 'string' ? { token: body.token } : {}),
+    ...mcpServerFields(body),
     ...(body.enabled !== undefined ? { enabled: Boolean(body.enabled) } : {}),
     ...(pickValue(body.toolMode, ASSISTANT_MCP_TOOL_MODES) !== undefined ? { toolMode: pickValue(body.toolMode, ASSISTANT_MCP_TOOL_MODES) } : {}),
+    ...(disabledTools === undefined ? {} : { disabledTools }),
   })
   if (!updated) throw ApiError.notFound('Server not found')
   return c.json({ server: updated })
@@ -259,9 +323,11 @@ assistantRoutes.post('/mcp/:id/test', async (c) => {
   const record = await s.mcpServerRecord(id)
   if (!record) throw ApiError.notFound('Server not found')
   const body = await readJson<Record<string, unknown>>(c, JSON_BODY_LIMITS.small).catch(() => ({}) as Record<string, unknown>)
-  const token = typeof body.token === 'string' && body.token.trim() ? body.token.trim() : record.token
-  const headers: Record<string, string> = token ? { authorization: `Bearer ${token}` } : {}
-  const result = await mcpProbe(record.row.url, headers, record.row.id, record.row.label)
+  // A test can carry the values the form is holding, so a reader can check a key before saving it; the
+  // response never echoes them back either way.
+  const headers = 'headers' in body ? mcpServerFields(body).headers ?? {} : record.headers
+  // Tested the way the turn will call it: a server saved as an SSE endpoint has to answer as one.
+  const result = await mcpProbe(record.row.url, headers, record.row.id, record.row.label, record.row.timeoutSeconds, record.row.transport)
   return c.json({
     ok: result.ok,
     error: result.error,
@@ -269,12 +335,29 @@ assistantRoutes.post('/mcp/:id/test', async (c) => {
   })
 })
 
+/**
+ * What the settings screen draws: every server's tools, with the ones switched off marked.
+ *
+ * This is the catalogue rather than the turn's toolbox — nothing here is callable — so a server that is
+ * switched off is listed too: its per-tool switches live under the same card, and a reader about to switch
+ * it back on has to be able to see what they had turned off inside it.
+ */
 assistantRoutes.get('/mcp/tools', async (c) => {
-  const loaded = await loadExternalTools(store(c))
-  return c.json({
-    tools: loaded.definitions.map((definition) => ({ name: definition.name, description: definition.description })),
-    problems: loaded.problems,
-  })
+  const catalog = await listMcpCatalog(store(c))
+  return c.json({ servers: catalog.servers, problems: catalog.problems })
+})
+
+/**
+ * One server as its editor opens it: the row, plus the names of the headers it stores.
+ *
+ * Registered after `/mcp/tools`, which would otherwise be read as an id. The names are read here rather
+ * than listed with every row because reading them means decrypting that row, and the values are never in
+ * the answer at all: a token that comes back to the browser can be read by any extension or screenshot.
+ */
+assistantRoutes.get('/mcp/:id', async (c) => {
+  const record = await store(c).mcpServerRecord(requiredId(c.req.param('id')))
+  if (!record) throw ApiError.notFound('Server not found')
+  return c.json({ server: record.row, headerNames: Object.keys(record.headers) })
 })
 
 assistantRoutes.get('/conversations/:id', async (c) => {

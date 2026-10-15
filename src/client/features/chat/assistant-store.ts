@@ -20,6 +20,8 @@ import type {
   AssistantMemory,
   AssistantMessage,
   AssistantAnswerVersion,
+  AssistantMcpCatalogEntry,
+  AssistantMcpServerDetail,
   AssistantMcpServer,
   AssistantModel,
   AssistantNotification,
@@ -148,15 +150,43 @@ interface AssistantState {
   providers: AssistantProvider[]
   models: AssistantModel[]
 
-  /** The reader's external MCP servers, and the tools they currently expose. */
+  /** The reader's external MCP servers, and the tools each of them currently offers. */
   mcpServers: AssistantMcpServer[]
   mcpProblems: { serverId: string, label: string, error: string }[]
-  mcpTools: { name: string, description: string }[]
+  /** One entry per server, switched-off tools included, so the screen can draw every switch it needs. */
+  mcpCatalog: AssistantMcpCatalogEntry[]
+  /** True while the listing is in flight: a switch flipped against a stale list would be a lie. */
+  mcpCatalogLoading: boolean
   loadMcp: () => Promise<void>
-  addMcpServer: (body: { label: string, url: string, token?: string, toolMode?: string }) => Promise<boolean>
+  addMcpServer: (body: Record<string, unknown>) => Promise<boolean>
+  /** One server as its editor opens it: the row plus the header names it stores, never the values. */
+  /**
+   * Just the server rows.
+   *
+   * The transcript names a past call's third party from them (`context7: query-docs` rather than
+   * `mcp_rzmbk9_query-docs`), which is a label and not a listing: `loadMcp` would ask every configured
+   * server for its tools to draw a chip, which is a network round trip per thread open.
+   */
+  loadMcpServers: () => Promise<void>
+
+  /**
+   * Run one stored third-party call again with what it was handed.
+   *
+   * The answer comes back to the caller and is never written into the thread: what the model was given is
+   * a record of the turn, and a call made now is a new observation.
+   */
+
+  loadMcpServer: (id: string) => Promise<AssistantMcpServerDetail | null>
   patchMcpServer: (id: string, body: Record<string, unknown>) => Promise<void>
+  /**
+   * One press on a tool's switch, or on the card's all-of-them pair.
+   *
+   * The whole off-list is written every time rather than a delta: the row holds a list, so a request that
+   * added one name would race the request that removed another, and the loser would silently win.
+   */
+  setMcpToolsEnabled: (server: AssistantMcpServer, remoteNames: readonly string[], enabled: boolean) => Promise<void>
   removeMcpServer: (id: string) => Promise<void>
-  testMcpServer: (id: string) => Promise<{ ok: boolean, error: string, count: number }>
+  testMcpServer: (id: string, headers?: Record<string, string>) => Promise<{ ok: boolean, error: string, count: number }>
 
   setView: (view: AssistantView) => void
   bootstrap: (force?: boolean) => Promise<void>
@@ -464,7 +494,8 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
   models: [],
   mcpServers: [],
   mcpProblems: [],
-  mcpTools: [],
+  mcpCatalog: [],
+  mcpCatalogLoading: false,
   vendorModels: [],
   vendorModelsError: null,
   vendorModelsLoading: false,
@@ -529,11 +560,14 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
   },
 
   loadMcp: async () => {
+    set({ mcpCatalogLoading: true })
     try {
       const [servers, listing] = await Promise.all([api.assistant.mcpServers(), api.assistant.mcpTools()])
-      set({ mcpServers: servers.servers, mcpTools: listing.tools, mcpProblems: listing.problems })
+      set({ mcpServers: servers.servers, mcpCatalog: listing.servers, mcpProblems: listing.problems })
     } catch (error) {
       toast(error)
+    } finally {
+      set({ mcpCatalogLoading: false })
     }
   },
 
@@ -557,6 +591,15 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
     }
   },
 
+  setMcpToolsEnabled: async (server, remoteNames, enabled) => {
+    const off = new Set(server.disabledTools)
+    for (const remoteName of remoteNames) {
+      if (enabled) off.delete(remoteName)
+      else off.add(remoteName)
+    }
+    await get().patchMcpServer(server.id, { disabledTools: [...off] })
+  },
+
   removeMcpServer: async (id) => {
     try {
       await api.assistant.removeMcpServer(id)
@@ -566,9 +609,29 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
     }
   },
 
-  testMcpServer: async (id) => {
+  loadMcpServers: async () => {
     try {
-      const result = await api.assistant.testMcpServer(id)
+      const { servers } = await api.assistant.mcpServers()
+      set({ mcpServers: servers })
+    } catch (error) {
+      // Naming whose call a past chip was is decoration: a thread has to open whether or not this lands.
+      console.warn('[inkstone] the MCP server list could not be read', error)
+    }
+  },
+
+
+  loadMcpServer: async (id) => {
+    try {
+      return await api.assistant.mcpServer(id)
+    } catch (error) {
+      toast(error)
+      return null
+    }
+  },
+
+  testMcpServer: async (id, headers) => {
+    try {
+      const result = await api.assistant.testMcpServer(id, headers)
       await get().loadMcp()
       return { ok: result.ok, error: result.error, count: result.tools.length }
     } catch (error) {
