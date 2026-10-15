@@ -50,6 +50,7 @@ import {
 import { useUi } from '../../store/ui'
 import { PASTE_FILE_MIN_CHARS, useAssistant } from './assistant-store'
 import { AssistantBubble } from './MessageParts'
+import { ChatOutline } from './ChatOutline'
 
 /** The composer's "common requests" list: the same openers the empty thread offers, by key. */
 const QUICK_PROMPT_KEYS = ['assistant.chat.ask_1', 'assistant.chat.ask_2', 'assistant.chat.ask_3', 'assistant.chat.ask_4'] as const
@@ -117,13 +118,21 @@ export function ChatView() {
     return last && last.role === 'assistant' ? last : null
   }, [messages])
 
+  // The outline's stops are the turns the reader wrote — the only fixed points in a thread whose answers
+  // vary in length. A new array on every store write would re-register the outline's scroll listener on
+  // each streamed token, so it is derived only when the rows themselves change.
+  const anchors = useMemo(
+    () => messages.filter((message) => message.role === 'user').map((message) => ({ id: message.id, text: message.content })),
+    [messages],
+  )
+
   return (
     <div className="flex h-full min-h-0">
       <aside className="hidden w-64 shrink-0 border-r border-[var(--border-subtle)] bg-[var(--bg-sunken)] lg:flex">
         <ConversationList activeId={activeId} onPick={() => undefined} />
       </aside>
 
-      <section className="flex min-w-0 flex-1 flex-col">
+      <section className="relative flex min-w-0 flex-1 flex-col">
         <div className="flex h-9 shrink-0 items-center gap-1 border-b border-[var(--border-subtle)] px-2">
           <IconButton label={t('assistant.chat.history')} size="sm" className="lg:hidden" onClick={() => setListOpen(true)}>
             <History size={15} />
@@ -199,6 +208,7 @@ export function ChatView() {
           onStop={stop}
           disabled={blocked}
         />
+        <ChatOutline anchors={anchors} scrollerRef={scrollRef} />
       </section>
 
       <Modal open={listOpen} onClose={() => setListOpen(false)} title={t('assistant.chat.history')} width={360} bodyClassName="p-0">
@@ -218,6 +228,8 @@ export function MessageRow({ message, onRetry, busy = false }: { message: Assist
   const retryLabel = message.status === 'complete' ? 'assistant.chat.regenerate' : 'assistant.chat.retry'
   const fileIndex = useAssistant((state) => state.fileIndex)
   if (message.role === 'user') {
+    // The id is also the outline's anchor: a stored turn is a fixed point in the thread, while the live
+    // turn below — which the server has not named yet — is not.
     return (
       <UserBubble
         text={message.content}
@@ -225,6 +237,7 @@ export function MessageRow({ message, onRetry, busy = false }: { message: Assist
         fileIndex={fileIndex}
         messageId={message.id}
         busy={busy}
+        anchorId={message.id}
       />
     )
   }
@@ -267,13 +280,14 @@ export function UserBubble({
   fileIndex = {},
   messageId,
   busy = false,
-}: { text: string, attachments?: string[], fileIndex?: Record<string, ChatAttachment>, messageId?: string, busy?: boolean }) {
+  anchorId,
+}: { text: string, attachments?: string[], fileIndex?: Record<string, ChatAttachment>, messageId?: string, busy?: boolean, anchorId?: string }) {
   const [copied, setCopied] = useState(false)
   const [draft, setDraft] = useState<string | null>(null)
   const toast = useUi((state) => state.toast)
   const removable = !!messageId && !!text
   return (
-    <div className="flex animate-[ink-fade-in_var(--dur-base)_var(--ease-out)] justify-end">
+    <div data-chat-anchor={anchorId} className="flex animate-[ink-fade-in_var(--dur-base)_var(--ease-out)] justify-end">
       <div className="group flex max-w-[85%] flex-col items-end gap-1">
         {attachments.length > 0 && <MessageAttachments ids={attachments} index={fileIndex} />}
         {text && (
