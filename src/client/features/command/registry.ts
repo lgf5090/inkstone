@@ -8,7 +8,7 @@
  */
 import type { ComponentType } from 'react'
 import {
-  Archive, Clipboard, Columns2, Download, Eye, EyeOff, FolderPlus, ImagePlus, IndentDecrease, IndentIncrease, Keyboard, LayoutTemplate, Link2, ListTree, MoveDown, MoveUp, Palette, Pencil, Plus, Presentation, ScanSearch, Settings, Share2, Smile, SquarePen, Star, Sun, Moon, Trash2, WandSparkles, Waypoints, ChevronsDownUp, ChevronsUpDown, Search, Zap, Activity, Compass, ListChecks, Rss,
+  Archive, Clipboard, Columns2, Download, Eye, EyeOff, FolderPlus, ImagePlus, IndentDecrease, IndentIncrease, Keyboard, LayoutTemplate, Link2, ListTree, MoveDown, MoveUp, Palette, Pencil, Pin, Plus, Presentation, ScanSearch, Settings, Share2, Smile, SquarePen, Star, Sun, Moon, Trash2, WandSparkles, Waypoints, ChevronsDownUp, ChevronsUpDown, Search, Zap, Activity, Compass, ListChecks, Rss,
 } from 'lucide-react'
 import type { MessageKey } from '@shared/locales/en-US'
 import { api } from '../../lib/api'
@@ -564,6 +564,14 @@ export function appCommands(): AppCommand[] {
         icon: Star,
         group: t("common.navigation"),
         run: () => openView('starred'),
+    },
+    {
+        id: 'cmd-pinned',
+        kind: 'command',
+        label: t("command.open_pinned"),
+        icon: Pin,
+        group: t("common.navigation"),
+        run: () => openView('pinned'),
     },
     ...(quickAddOn
         ? [

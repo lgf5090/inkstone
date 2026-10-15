@@ -1,6 +1,6 @@
 import { useEffect, useId, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Archive, ChevronDown, Clock, FileText, FolderClosed, Hash, Inbox, Star, Trash2, X } from 'lucide-react';
+import { Archive, ChevronDown, Clock, FileText, FolderClosed, Hash, Inbox, Pin, Star, Trash2, X } from 'lucide-react';
 import { cn } from '../../lib/cn';
 import { t } from '../../lib/i18n';
 import { useDialogFocus, useEscape, useLockScroll } from '../../components/overlay';
@@ -31,6 +31,7 @@ export function MobileLibraryFilters() {
         { view: 'all' as const, label: t('navigation.all_notes'), icon: FileText, count: counts.all },
         { view: 'recent' as const, label: t('navigation.recently_edited'), icon: Clock },
         { view: 'starred' as const, label: t('navigation.favorites'), icon: Star, count: counts.starred },
+        { view: 'pinned' as const, label: t('navigation.pinned'), icon: Pin, count: counts.pinned },
         { view: 'unfiled' as const, label: t('navigation.unfiled'), icon: Inbox, count: counts.unfiled },
         { view: 'archived' as const, label: t('navigation.archive'), icon: Archive, count: counts.archived },
         { view: 'trash' as const, label: t('navigation.trash'), icon: Trash2, count: counts.trash },

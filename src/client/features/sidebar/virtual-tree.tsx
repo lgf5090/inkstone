@@ -1,5 +1,5 @@
 import { useMemo, useRef, useState } from 'react';
-import { CalendarDays, CheckSquare, ChevronRight, Inbox } from 'lucide-react';
+import { CalendarDays, ChevronRight, Inbox } from 'lucide-react';
 import type { NoteSummary } from '@shared/types';
 import { cn } from '../../lib/cn';
 import { IconButton } from '../../components/primitives';
@@ -77,13 +77,6 @@ export function CalendarTree() {
     const { calendarVisible } = useCalendarTreePreferences();
     return calendarVisible
         ? <VirtualTree ns={CALENDAR_TREE} rootIcon={<CalendarDays size={14}/>} periodTree/>
-        : null;
-}
-
-export function TodoTree() {
-    const { todoVisible } = useCalendarTreePreferences();
-    return todoVisible
-        ? <VirtualTree ns={TODO_TREE} rootIcon={<CheckSquare size={14}/>} periodTree/>
         : null;
 }
 

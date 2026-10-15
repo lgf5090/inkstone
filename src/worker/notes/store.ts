@@ -277,6 +277,7 @@ export class NotesStore {
     }
 
     if (view === 'starred') where += ' AND n.is_starred = 1'
+    if (view === 'pinned') where += ' AND n.is_pinned = 1'
     if (view === 'unfiled') where += ' AND n.folder_id IS NULL'
     if (view === 'untagged') {
       where += ' AND NOT EXISTS (SELECT 1 FROM note_tags nt WHERE nt.note_id = n.id)'

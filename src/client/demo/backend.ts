@@ -164,6 +164,7 @@ export function createDemoBackend(): DemoBackend {
     else {
       notes = notes.filter((note) => note.deletedAt === null)
       if (view === 'starred') notes = notes.filter((note) => note.isStarred)
+      if (view === 'pinned') notes = notes.filter((note) => note.isPinned)
       if (view === 'unfiled') notes = notes.filter((note) => note.folderId === null)
       if (view === 'archived') notes = notes.filter((note) => note.isArchived)
       if (view === 'folder') notes = notes.filter((note) => note.folderId === query.folderId)

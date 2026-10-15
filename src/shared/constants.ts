@@ -167,7 +167,7 @@ export const PROSE_WIDTH_CH: Record<string, string> = {
   full: '100%',
 }
 
-export const VIEW_KINDS: ViewKind[] = ['all', 'recent', 'starred', 'unfiled', 'untagged', 'archived', 'trash', 'folder', 'tag']
+export const VIEW_KINDS: ViewKind[] = ['all', 'recent', 'starred', 'pinned', 'unfiled', 'untagged', 'archived', 'trash', 'folder', 'tag']
 
 export const SIDEBAR_TABS: SidebarTab[] = ['library', 'tags', 'recent', 'graph', 'backlinks', 'outlinks', 'history']
 

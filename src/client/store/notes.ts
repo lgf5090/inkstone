@@ -2978,6 +2978,7 @@ export function createContextualNote(input?: {
         ...(folderId ? { folderId } : {}),
         ...(ui.view === 'tag' && ui.tags.length && input?.content === undefined ? { tags: [...ui.tags] } : {}),
         ...(ui.view === 'starred' ? { isStarred: true } : {}),
+        ...(ui.view === 'pinned' ? { isPinned: true } : {}),
     });
 }
 function toastError(err: unknown, fallback: string): void {
@@ -2995,6 +2996,7 @@ export interface NoteGroup {
 export interface NavigationCounts {
     all: number;
     starred: number;
+    pinned: number;
     unfiled: number;
     untagged: number;
     archived: number;
@@ -3007,7 +3009,7 @@ interface NavigationProjection {
 let navigationProjectionNotes: Record<string, NoteSummary> | null = null;
 let navigationProjectionFolders: Folder[] | null = null;
 let navigationProjectionCache: NavigationProjection = {
-    counts: { all: 0, starred: 0, unfiled: 0, untagged: 0, archived: 0, trash: 0 },
+    counts: { all: 0, starred: 0, pinned: 0, unfiled: 0, untagged: 0, archived: 0, trash: 0 },
     folderCounts: new Map(),
 };
 function selectNavigationProjection(notes: Record<string, NoteSummary>, folders: Folder[]): NavigationProjection {
@@ -3016,7 +3018,7 @@ function selectNavigationProjection(notes: Record<string, NoteSummary>, folders:
     navigationProjectionNotes = notes;
     navigationProjectionFolders = folders;
     const folderIds = new Set(folders.map((folder) => folder.id));
-    const counts: NavigationCounts = { all: 0, starred: 0, unfiled: 0, untagged: 0, archived: 0, trash: 0 };
+    const counts: NavigationCounts = { all: 0, starred: 0, pinned: 0, unfiled: 0, untagged: 0, archived: 0, trash: 0 };
     const folderCounts = new Map<string, number>();
     for (const note of Object.values(notes)) {
         if (note.deletedAt) {
@@ -3030,6 +3032,8 @@ function selectNavigationProjection(notes: Record<string, NoteSummary>, folders:
         counts.all++;
         if (note.isStarred)
             counts.starred++;
+        if (note.isPinned)
+            counts.pinned++;
         const owner = noteFolderOwner(note, folderIds);
         if (owner === null) {
             counts.unfiled++;
@@ -3056,6 +3060,7 @@ function selectNavigationProjection(notes: Record<string, NoteSummary>, folders:
 function navigationCountsEqual(a: NavigationCounts, b: NavigationCounts): boolean {
     return a.all === b.all &&
         a.starred === b.starred &&
+        a.pinned === b.pinned &&
         a.unfiled === b.unfiled &&
         a.untagged === b.untagged &&
         a.archived === b.archived &&
@@ -3133,6 +3138,8 @@ function matchesView(note: NoteSummary, view: ViewKind, ctx: ViewContext): boole
     switch (view) {
         case 'starred':
             return note.isStarred;
+        case 'pinned':
+            return note.isPinned;
         case 'unfiled':
             return isUnfiled(note, folderIds);
         case 'untagged':

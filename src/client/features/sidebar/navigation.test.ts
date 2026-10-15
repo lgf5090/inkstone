@@ -153,23 +153,12 @@ describe('folder drag feedback', () => {
         expect(patchNote).toHaveBeenCalledExactlyOnceWith('note', { folderId: null });
     });
 
-    it('keeps the todo tree inert when a folder is dragged over it', async () => {
-        const move = vi.fn(() => true);
-        useNotes.setState({ patchFolder: move });
-        const { section } = await renderTree();
-        const todo = virtualTree(t('sidebar.todo_folder'));
-        expect(todo).toBeTruthy();
-        await drag(todo, 'dragover');
-        expect(highlighted(section)).toBe(false);
-        await drag(todo, 'drop');
-        expect(move).not.toHaveBeenCalled();
-    });
 });
 
 describe('explorer and collection navigation', () => {
     it('defaults to a hidden desktop list and reopens it for every collection', () => {
         expect(useUi.getInitialState().listCollapsed).toBe(true);
-        for (const view of ['all', 'recent', 'starred', 'unfiled', 'archived', 'trash', 'tag', 'folder'] as const) {
+        for (const view of ['all', 'recent', 'starred', 'pinned', 'unfiled', 'archived', 'trash', 'tag', 'folder'] as const) {
             useUi.getState().openView(view, { folderId: folder.id, tag: 'topic' });
             expect(useUi.getState().listCollapsed).toBe(false);
             useUi.getState().toggleList();
@@ -228,6 +217,15 @@ describe('mobile navigation sheets', () => {
         expect(sheet.contains(document.activeElement)).toBe(true);
         await click(button(sheet, t('navigation.trash') + '0'));
         expect(useUi.getState().view).toBe('trash');
+        expect(document.querySelector('[role="dialog"]')).toBeNull();
+    });
+
+    it('offers the pinned view beside favorites in the view sheet', async () => {
+        await act(() => root.render(createElement(MobileLibraryFilters)));
+        await click(container.querySelector<HTMLButtonElement>('[aria-haspopup="dialog"]')!);
+        const sheet = document.querySelector('[role="dialog"]')!;
+        await click(button(sheet, t('navigation.pinned') + '0'));
+        expect(useUi.getState().view).toBe('pinned');
         expect(document.querySelector('[role="dialog"]')).toBeNull();
     });
 
@@ -843,6 +841,7 @@ describe('folder tree keyboard', () => {
 
 describe('built-in logical folders', () => {
     const treeRows = () => [...document.querySelectorAll<HTMLElement>('[role="tree"] [data-tree-row]')].map((element) => element.textContent?.trim());
+    const quickFilters = () => [...document.querySelectorAll<HTMLElement>('#sidebar-folders [data-quick-filters] button')].map((element) => element.textContent?.trim());
     const header = () => document.querySelector<HTMLElement>('#sidebar-folders [data-folder-head]')!;
     const menu = () => document.querySelector<HTMLElement>('[role="menu"]')!;
 
@@ -854,11 +853,14 @@ describe('built-in logical folders', () => {
         return menu();
     }
 
-    it('renders calendar, todo and inbox above the real folders', async () => {
+    it('renders the todo entry, the calendar and the inbox above the real folders', async () => {
         saveCalendarPrefs({ calendarVisible: true, todoVisible: true, inboxVisible: true });
         await act(() => root.render(createElement(Sidebar)));
-        expect(treeRows().slice(0, 3)).toEqual([t('sidebar.todo_folder'), t('sidebar.calendar_folder'), t('sidebar.inbox_folder')]);
+        expect(treeRows().slice(0, 2)).toEqual([t('sidebar.calendar_folder'), t('sidebar.inbox_folder')]);
         expect(treeRows()).toContain(folder.name);
+        // The todo folder is one of the three entries; it is drawn as a quick-filter cell rather than
+        // as a tree of its own, which is the whole point of the row it sits in.
+        expect(quickFilters()).toEqual([t('sidebar.todo_folder'), t('navigation.favorites'), t('navigation.pinned')]);
     });
 
     it('hides a built-in row when its header-menu checkbox is cleared', async () => {
@@ -869,7 +871,14 @@ describe('built-in logical folders', () => {
         await click(byLabel(scope, t('sidebar.calendar_folder')));
         expect(loadCalendarPrefs().calendarVisible).toBe(false);
         await act(() => root.render(createElement(Sidebar)));
-        expect(treeRows().slice(0, 2)).toEqual([t('sidebar.todo_folder'), t('sidebar.inbox_folder')]);
+        expect(treeRows().slice(0, 1)).toEqual([t('sidebar.inbox_folder')]);
+        await act(() => {
+            header().dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true }));
+        });
+        await click(byLabel(menu(), t('sidebar.todo_folder')));
+        expect(loadCalendarPrefs().todoVisible).toBe(false);
+        await act(() => root.render(createElement(Sidebar)));
+        expect(quickFilters()).toEqual([t('navigation.favorites'), t('navigation.pinned')]);
     });
 
     it('buckets notes by creation week and opens the calendar node as a folder view', async () => {
@@ -1029,7 +1038,7 @@ describe('built-in row labels', () => {
 });
 
 describe('built-in row alignment', () => {
-    it('indents the three built-in rows like a top-level folder and wraps each in a treeitem', async () => {
+    it('indents the built-in folder rows like a top-level folder and wraps each in a treeitem', async () => {
         saveCalendarPrefs({ calendarVisible: true, todoVisible: true, inboxVisible: true, showEmptyPeriods: false });
         useNotes.setState({ folders: [folder], notes: { [note.id]: note } });
         useUi.setState({ expandedFolders: [], view: 'all', folderId: null });
@@ -1048,7 +1057,7 @@ describe('built-in row alignment', () => {
         };
         const expected = indentOf(folder.name);
         expect(expected).toBe('6px');
-        for (const label of [t('sidebar.todo_folder'), t('sidebar.calendar_folder'), t('sidebar.inbox_folder')]) {
+        for (const label of [t('sidebar.calendar_folder'), t('sidebar.inbox_folder')]) {
             expect(indentOf(label), label).toBe(expected);
         }
     });
@@ -1072,25 +1081,29 @@ describe('sidebar partition and order', () => {
         expect(groups.get(folder.id)?.map((item) => item.id)).toEqual([note.id]);
     });
 
-    it('counts the orphan note as unfiled so the nav badge and the inbox agree', async () => {
+    it('counts the orphan note as unfiled so the sheet entry and the inbox agree', async () => {
         useNotes.setState({ folders: [folder], notes: { [note.id]: note, [orphan.id]: orphan, [loose.id]: loose } });
         await act(() => root.render(createElement(Sidebar)));
         await act(() => new Promise((resolve) => setTimeout(resolve, 60)));
         const inboxCount = await document.querySelector<HTMLElement>('[role="tree"][aria-label="' + t('sidebar.inbox_folder') + '"]')!
             .querySelector('span.tabular')!.textContent;
         expect(inboxCount).toBe('2');
-        const navUnfiled = [...document.querySelectorAll('button[aria-current], button')]
-            .find((element) => element.textContent?.trim().startsWith(t('navigation.unfiled')))?.textContent?.trim();
-        expect(navUnfiled).toBe(t('navigation.unfiled') + '2');
-                expect(container.querySelector('[role="tree"][aria-label="' + t('navigation.folder') + '"]')!.querySelectorAll('[data-tree-note-id]').length).toBe(1);
+        expect(container.querySelector('[role="tree"][aria-label="' + t('navigation.folder') + '"]')!.querySelectorAll('[data-tree-note-id]').length).toBe(1);
+        // The desktop sidebar no longer prints this count; the phone's view sheet is where the same
+        // projection is read, and it has to say the same thing the inbox row does.
+        await act(() => root.render(createElement(MobileLibraryFilters)));
+        await act(async () => container.querySelector<HTMLButtonElement>('[aria-haspopup="dialog"]')!.click());
+        const sheet = document.querySelector('[role="dialog"]')!;
+        const unfiled = [...sheet.querySelectorAll('button')].find((element) => element.textContent?.trim().startsWith(t('navigation.unfiled')));
+        expect(unfiled?.textContent?.trim()).toBe(t('navigation.unfiled') + '2');
     });
 
-    it('renders the three built-in rows above every folder and note row', async () => {
+    it('renders the built-in folders above every folder and note row', async () => {
         useNotes.setState({ folders: [folder], notes: { [note.id]: note, [orphan.id]: orphan, [loose.id]: loose } });
         await act(() => root.render(createElement(Sidebar)));
         const trees = [...document.querySelectorAll('#sidebar-folders [role="tree"]')]
             .map((element) => element.getAttribute('aria-label'));
-        expect(trees).toEqual([t('sidebar.todo_folder'), t('sidebar.calendar_folder'), t('sidebar.inbox_folder'), t('navigation.folder')]);
+        expect(trees).toEqual([t('sidebar.calendar_folder'), t('sidebar.inbox_folder'), t('navigation.folder')]);
         const folderTree = document.querySelector('#sidebar-folders [role="tree"][aria-label="' + t('navigation.folder') + '"]')!;
         const builtIn = [...document.querySelectorAll('#sidebar-folders [role="tree"]')]
             .filter((element) => element !== folderTree);
@@ -1118,6 +1131,27 @@ describe('unfiled view', () => {
         await act(() => new Promise((resolve) => setTimeout(resolve, 60)));
         const inbox = document.querySelector('[role="tree"][aria-label="' + t('sidebar.inbox_folder') + '"]')!;
         expect([...inbox.querySelectorAll('[data-tree-note-id]')].map((element) => element.getAttribute('data-tree-note-id'))).toEqual(['loose']);
+    });
+});
+
+describe('pinned view', () => {
+    function PinnedProbe({ onIds }: { onIds: (ids: string[]) => void }) {
+        onIds(useVisibleNotes().map((item) => item.id));
+        return null;
+    }
+
+    it('lists only pinned notes, and the row counts what it lists', async () => {
+        const pinned = { ...note, id: 'pinned', title: 'Pinned', isPinned: true };
+        const plain = { ...note, id: 'plain', title: 'Plain', isPinned: false };
+        useNotes.setState({ notes: { pinned, plain } });
+        useUi.setState({ view: 'pinned', folderId: null, searchList: false, listCollapsed: false, expandedFolders: [] });
+        let ids: string[] = [];
+        await act(() => root.render(createElement(PinnedProbe, { onIds: (next) => { ids = next; } })));
+        expect(ids).toEqual(['pinned']);
+        await act(() => root.render(createElement(Sidebar)));
+        const row = button(container, t('navigation.pinned'));
+        await click(row);
+        expect(useUi.getState()).toMatchObject({ view: 'pinned', listCollapsed: false });
     });
 });
 

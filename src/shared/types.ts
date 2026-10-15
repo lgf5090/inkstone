@@ -758,6 +758,7 @@ export type ViewKind =
   | 'all'
   | 'recent'
   | 'starred'
+  | 'pinned'
   | 'unfiled'
   | 'untagged'
   | 'archived'

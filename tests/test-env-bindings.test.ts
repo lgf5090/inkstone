@@ -30,6 +30,7 @@ const BOUND_BY_THE_FACTORY = [
   'tests/backup-snapshot-templates.test.ts',
   'tests/do-auth-guard.test.ts',
   'tests/excalidraw-official-catalog-route.test.ts',
+  'tests/notes-pinned-view.test.ts',
 ]
 
 function scannedFiles(): string[] {

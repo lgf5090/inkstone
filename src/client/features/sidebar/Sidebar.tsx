@@ -1,6 +1,6 @@
 import { APP_SHORTCUTS } from '../../lib/shortcuts';
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react';
-import { Archive, ArrowDown, ArrowUp, ArrowUpDown, Brush, ChevronRight, ChevronsDownUp, ChevronsUpDown, Clock, CornerUpLeft, Download, FilePlus2, FileText, FolderInput, FolderPlus, Inbox, LayoutTemplate, LogOut, Moon, MoreHorizontal, Network, Palette, PanelLeft, PanelLeftClose, Pencil, ScanSearch, Settings, Settings2, Smile, SortAsc, SquareChevronRight, Star, Sun, Trash2, Waypoints, Zap, } from 'lucide-react';import { LIMITS } from '@shared/constants';
+import { Archive, ArrowDown, ArrowUp, ArrowUpDown, Brush, CheckSquare, ChevronRight, ChevronsDownUp, ChevronsUpDown, CornerUpLeft, Download, FilePlus2, FileText, FolderInput, FolderPlus, Inbox, LayoutTemplate, LogOut, Moon, MoreHorizontal, Network, Palette, PanelLeft, PanelLeftClose, Pencil, Pin, ScanSearch, Settings, Settings2, Smile, SortAsc, SquareChevronRight, Star, Sun, Trash2, Waypoints, Zap, } from 'lucide-react';import { LIMITS } from '@shared/constants';
 import type { NoteSummary, ViewKind } from '@shared/types';
 import { cn } from '../../lib/cn';
 import { numericCollator } from '../../lib/collator';
@@ -42,7 +42,8 @@ import { openOmnisearch } from '../omnisearch/store';
 import { ExplorerNote, groupExplorerNotes } from './ExplorerNote';
 import { FolderMotionIcon } from '../../components/FolderMotionIcon';
 import { TemplateQuickActions } from '../templates/quick-actions';
-import { CalendarTree, InboxTree, isDropBlockedTarget, TodoTree } from './virtual-tree';
+import { CalendarTree, InboxTree, isDropBlockedTarget } from './virtual-tree';
+import { TODO_TREE } from '../../lib/calendar-tree';
 import { SidebarCalendar } from './sidebar-calendar';
 import { useBreakpoint } from '../../lib/hooks';
 // The graph canvas and its scene maths are only needed once a reader opens that tab, and the
@@ -73,31 +74,21 @@ export function Sidebar({ collapsed = false, onCollapse, }: {
     return (<>
         {collapsed ? <SidebarRail onExpand={onCollapse}/> : (<aside className="flex h-full min-h-0 flex-col bg-[var(--bg-sunken)]">
       <header className="flex h-11 shrink-0 items-center justify-between border-b border-[var(--border-subtle)] px-3">
-        <div className="flex min-w-0 items-center gap-[9px] select-none">
-          <Logo size={24}/>
-          <span className="min-w-0 truncate font-serif text-[length:var(--text-15-5)] font-semibold tracking-[0.02em] text-[var(--text-primary)]">
-            {t("common.product_name")}
-          </span>
+        <Logo size={24}/>
+        <div className="flex shrink-0 items-center gap-0.5">
+          <SearchButton variant="header"/>
+          <CommandPaletteEntry/>
+          <OmnisearchEntry onCollapse={Boolean(onCollapse)}/>
+          {onCollapse && (<Tooltip label={t("sidebar.collapse_navigation")}>
+              <IconButton label={t("sidebar.collapse_navigation")} size="sm" onClick={onCollapse}>
+                <PanelLeftClose size={15}/>
+              </IconButton>
+            </Tooltip>)}
         </div>
-        <CommandPaletteEntry/>
-        <OmnisearchEntry onCollapse={Boolean(onCollapse)}/>
-        {onCollapse && (<Tooltip label={t("sidebar.collapse_navigation")}>
-            <IconButton label={t("sidebar.collapse_navigation")} size="sm" onClick={onCollapse}>
-              <PanelLeftClose size={15}/>
-            </IconButton>
-          </Tooltip>)}
       </header>
-
-      <div className="shrink-0 px-2 pt-2"><SearchButton /></div>
 
       <div className="min-h-0 shrink overflow-y-auto px-2 pt-2 pb-1" data-sidebar-fixed>
         <SidebarCalendar />
-        <div className="space-y-px">
-          <ViewItem icon={<FileText size={14}/>} label={t("navigation.all_notes")} view="all" count={counts.all} active={view === 'all'} onSelect={openView}/>
-          <ViewItem icon={<Clock size={14}/>} label={t("navigation.recently_edited")} view="recent" active={view === 'recent'} onSelect={openView}/>
-          <ViewItem icon={<Star size={14}/>} label={t("navigation.favorites")} view="starred" count={counts.starred} active={view === 'starred'} onSelect={openView}/>
-          <ViewItem icon={<Inbox size={14}/>} label={t("navigation.unfiled")} view="unfiled" count={counts.unfiled} active={view === 'unfiled'} onSelect={openView}/>
-        </div>
       </div>
 
       <SidebarTabStrip />
@@ -311,8 +302,7 @@ function ViewItem({ icon, label, view, count, active, onSelect, }: {
 }) {
     const [dropping, setDropping] = useDropState(false);
     const patchNote = useNotes((s) => s.patchNote);
-    const toast = useUi((s) => s.toast);
-    const acceptsDrop = view === 'unfiled' || view === 'starred' || view === 'archived' || view === 'trash';
+    const acceptsDrop = view === 'starred' || view === 'archived' || view === 'trash';
     const deleteNote = useNotes((s) => s.deleteNote);
     return (<button type="button" aria-current={active ? 'page' : undefined} onClick={() => onSelect(view)} onDragOver={(e) => {
             if (!acceptsDrop || !isNoteDrag(e))
@@ -328,19 +318,6 @@ function ViewItem({ icon, label, view, count, active, onSelect, }: {
             if (ids.length === 0)
                 return;
             e.preventDefault();
-            if (view === 'unfiled') {
-                void (async () => {
-                    const previous = await moveNotesToFolder(ids, null);
-                    if (previous.length === 0)
-                        return;
-                    toast({
-                        title: t("folders.moved_value0_to_value1", { value0: previous.length, value1: t("navigation.unfiled") }),
-                        tone: 'success',
-                        action: { label: t("common.undo"), run: () => void restoreNoteFolders(previous) },
-                    });
-                })();
-                return;
-            }
             void (async () => {
                 for (const id of ids) {
                     if (view === 'starred')
@@ -360,6 +337,33 @@ function ViewItem({ icon, label, view, count, active, onSelect, }: {
       <span className="min-w-0 flex-1 truncate text-[length:var(--text-12-5)] font-medium">{label}</span>
       {count != null && count > 0 && (<span className="shrink-0 text-[length:var(--text-11)] tabular text-[var(--text-quaternary)]">{count}</span>)}
     </button>);
+}
+function CollectionCell({ icon, label, active, onSelect }: {
+    icon: React.ReactNode;
+    label: string;
+    active: boolean;
+    onSelect: () => void;
+}) {
+    // A third of the panel is not a full-width row: "Favorites" beside a 14px icon asks for more than
+    // these cells have, so the name sits under the icon, at the size the narrowest cell can hold in
+    // either language. The counts live where the room is — the phone's view sheet lists them.
+    return (<button type="button" aria-current={active ? 'page' : undefined} onClick={onSelect} className={cn('flex h-11 min-w-0 flex-1 flex-col items-center justify-center gap-[var(--sp-0-5)] rounded-[var(--r-md)] px-0.5 md:h-10', 'transition-colors duration-[var(--dur-fast)]', active
+        ? 'bg-[var(--accent-soft)] text-[var(--text-primary)]'
+        : 'text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]')}>
+      <span className={cn('shrink-0', active ? 'text-[var(--accent)]' : 'text-[var(--text-tertiary)]')}>{icon}</span>
+      <span className="max-w-full min-w-0 truncate text-[length:var(--text-11)] font-medium">{label}</span>
+    </button>);
+}
+/**
+ * The todo folder's entry in the panel's quick-filter row.
+ *
+ * It opens the folder as a list instead of holding its period tree open inside the panel: the tree is
+ * what made the row below the toolbar as tall as the report, and the list is where a reader works
+ * through the day's items anyway.
+ */
+function TodoFilterCell() {
+    const active = useUi((s) => s.view === 'folder' && s.folderId === TODO_TREE.rootId);
+    return <CollectionCell icon={<CheckSquare size={14}/>} label={t("sidebar.todo_folder")} active={active} onSelect={() => useUi.getState().openView('folder', { folderId: TODO_TREE.rootId })}/>;
 }
 export function FolderSection({ mobile = false }: { mobile?: boolean }) {
     const locale = useLocale();
@@ -403,6 +407,9 @@ export function FolderSection({ mobile = false }: { mobile?: boolean }) {
     const headerMenu = useContextMenu();
     const { inboxFolderId } = useFolderPreferences();
     const { calendarVisible, todoVisible, inboxVisible } = useCalendarTreePreferences();
+    const counts = useNavigationCounts();
+    const view = useUi((s) => s.view);
+    const openView = useUi((s) => s.openView);
     useEffect(() => () => window.clearTimeout(createdTimerRef.current), []);
     const create = (parentId: string | null) => {
         if (creatingRef.current)
@@ -555,8 +562,10 @@ export function FolderSection({ mobile = false }: { mobile?: boolean }) {
             setRootDropping(false);
             void move(folderId, null, null);
         }}>
-      {/* The toolbar and the filter box are one pinned block: they decide what the tree
-          below is showing, so they stay put while that tree scrolls. */}
+      {/* Everything that decides or frames what the tree shows is one pinned block: the toolbar, the
+          filter box, the view entries and the calendar and inbox folders. They stay put while the
+          folder tree itself scrolls, because a reader reaching for one of them has to reach it from
+          wherever in the tree they are. */}
       <div className="sidebar-chrome bg-[var(--bg-sunken)]">
       <div ref={headerRef} data-folder-head className={cn('group/head flex items-center', mobile ? 'justify-between pr-1' : 'justify-center')} onContextMenu={(event) => {
             setHeaderMenuOpen(false);
@@ -614,13 +623,19 @@ export function FolderSection({ mobile = false }: { mobile?: boolean }) {
         />
         {filtering && (searchedFolders.shown > 0 || notesMatched > 0) && (<p data-folder-match-count className="px-2 pt-1 text-[length:var(--text-10-5)] tabular text-[var(--text-quaternary)]">{notesMatched > 0 ? t("folders.note_match_count", { value0: searchedFolders.shown, value1: notesMatched }) : t("folders.match_count", { value0: searchedFolders.shown })}</p>)}
       </>)}
-      </div>
 
       {!filtering && (<>
-        <TodoTree />
+        {/* The phone's own header already carries this entry, so the row is the desktop's. */}
+        {!mobile && (<ViewItem icon={<FileText size={14}/>} label={t("navigation.all_notes")} view="all" count={counts.all} active={view === 'all'} onSelect={openView}/>)}
+        <div data-quick-filters className="mt-0.5 flex items-center gap-1">
+          {todoVisible && <TodoFilterCell/>}
+          <CollectionCell icon={<Star size={14}/>} label={t("navigation.favorites")} active={view === 'starred'} onSelect={() => openView('starred')}/>
+          <CollectionCell icon={<Pin size={14}/>} label={t("navigation.pinned")} active={view === 'pinned'} onSelect={() => openView('pinned')}/>
+        </div>
         <CalendarTree />
         <InboxTree />
       </>)}
+      </div>
       {tree.length === 0 && !filtering ? (<button type="button" disabled={creating} onClick={() => void create(null)} className="mt-0.5 flex h-10 w-full items-center gap-2 rounded-[var(--r-md)] px-2 text-[length:var(--text-12)] text-[var(--text-quaternary)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-secondary)] disabled:pointer-events-none disabled:opacity-45 md:h-[30px]">
         <FolderPlus size={13}/>{t("sidebar.create_first_folder")}</button>) : null}
       {filtering && searchedFolders.nodes.length === 0 && unfiledMatches.length === 0 ? (<p data-folder-no-match className="px-2 py-2 text-[length:var(--text-11-5)] text-[var(--text-quaternary)]">{t("folders.no_match")}</p>) : null}

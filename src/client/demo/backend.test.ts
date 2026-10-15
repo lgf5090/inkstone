@@ -63,6 +63,24 @@ describe('demo sync facets stay consistent with what they carry', () => {
   })
 })
 
+describe('demo pinned view', () => {
+  it('drops a note from the list as soon as it is unpinned', async () => {
+    const list = async (view: string) => {
+      const response = await backend.fetch(new Request(`http://localhost/api/notes?view=${view}`))
+      return (await response.json() as ListNotesResponse).notes
+    }
+    // Every seeded note carries the pin, so the view starts out holding the whole library.
+    const before = await list('pinned')
+    expect(before.length).toBeGreaterThan(0)
+    const target = before[0]!
+    const unpinned = await call('PATCH', `/api/notes/${target.id}`, { rev: target.rev, isPinned: false })
+    expect(unpinned.status).toBe(200)
+    const after = await list('pinned')
+    expect(after.map((note) => note.id)).not.toContain(target.id)
+    expect(after).toHaveLength(before.length - 1)
+  })
+})
+
 describe('demo tag filters match the worker', () => {
   async function listNotes(query: string) {
     const response = await backend.fetch(new Request(`http://localhost/api/notes?${query}`))

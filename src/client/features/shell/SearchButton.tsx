@@ -5,7 +5,7 @@ import { IconButton, Kbd } from '../../components/primitives'
 import { useUi } from '../../store/ui'
 import { t } from '../../lib/i18n'
 
-export function SearchButton({ variant = 'row' }: { variant?: 'row' | 'icon' | 'mobile' }) {
+export function SearchButton({ variant = 'row' }: { variant?: 'row' | 'icon' | 'header' | 'mobile' }) {
   const open = useUi((state) => state.openSearchList)
   const label = t('shell.search_all_notes')
 
@@ -13,6 +13,16 @@ export function SearchButton({ variant = 'row' }: { variant?: 'row' | 'icon' | '
     return (
       <Tooltip label={label} combo={APP_SHORTCUTS.search} side="right">
         <IconButton label={label} onClick={() => open()}><Search size={16} /></IconButton>
+      </Tooltip>
+    )
+  }
+
+  // The sidebar header's own row of controls is drawn at `sm`, so this entry takes that size and
+  // drops its tooltip below the button rather than beside it.
+  if (variant === 'header') {
+    return (
+      <Tooltip label={label} combo={APP_SHORTCUTS.search} side="bottom">
+        <IconButton label={label} size="sm" onClick={() => open()}><Search size={15} /></IconButton>
       </Tooltip>
     )
   }

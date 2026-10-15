@@ -486,6 +486,9 @@ const allowed = new Map([
   ["src/client/components/primitives.tsx", [
     "// dicebear ships full micah style data; keep it out of the boot chunk.",
   ]],
+  ["src/client/demo/backend.test.ts", [
+    "// Every seeded note carries the pin, so the view starts out holding the whole library.",
+  ]],
   ["src/client/demo/backend.ts", [
     "// Same subtree cascade as the worker: leaving `a/x` behind when `a` becomes `b` would",
     "// orphan the whole branch. Deepest first so each pass only sees its own exact name.",
@@ -6434,6 +6437,10 @@ const allowed = new Map([
   ["src/client/features/shell/AppTabPlaceholder.tsx", [
     "/**\n * The container standing in for an app that has not been written yet.\n *\n * It is deliberately the real frame — header, body, the same tokens the notebook uses — so the\n * day an app lands it replaces this file's own body and nothing about the rail, the address or\n * the layout has to change. It says plainly that there is no app here rather than drawing a\n * picture of one, because a mock is read as a bug the moment a reader tries to use it.\n */",
   ]],
+  ["src/client/features/shell/SearchButton.tsx", [
+    "// The sidebar header's own row of controls is drawn at `sm`, so this entry takes that size and",
+    "// drops its tooltip below the button rather than beside it.",
+  ]],
   ["src/client/features/shell/app-rail.test.ts", [
     "// Middle-click and modifier-click are open-in-a-new-tab and friends; intercepting them would",
     "// turn a rail that links real addresses into one that only appears to.",
@@ -6483,8 +6490,13 @@ const allowed = new Map([
     "// A folder the query named shows what it holds; one the query only walks through shows the note",
     "// it walked through, and nothing else.",
     "/**\n * The collapsed rail's Omnisearch entry. It has to be a `RailButton` so it lines up with the other\n * icons, which is the one shape {@link OmnisearchEntry} does not draw.\n */",
-    "/* The toolbar and the filter box are one pinned block: they decide what the tree\n          below is showing, so they stay put while that tree scrolls. */",
     "/**\n * How long a folder keeps its \"just created\" mark.\n *\n * The mark is what plays the row's entry animation and draws the folder icon, and the draw is the slow\n * of them — `ink-draw` runs 760ms with a 90ms delay on the second stroke in `app.css`. So this outlives\n * the animations rather than timing them: cleared at the draw's own length the mark would vanish while\n * the icon was still being traced, and the row would spend the rest of the second looking like every\n * other row without having finished saying it is new.\n */",
+    "/**\n * The todo folder's entry in the panel's quick-filter row.\n *\n * It opens the folder as a list instead of holding its period tree open inside the panel: the tree is\n * what made the row below the toolbar as tall as the report, and the list is where a reader works\n * through the day's items anyway.\n */",
+    "/* Everything that decides or frames what the tree shows is one pinned block: the toolbar, the\n          filter box, the view entries and the calendar and inbox folders. They stay put while the\n          folder tree itself scrolls, because a reader reaching for one of them has to reach it from\n          wherever in the tree they are. */",
+    "/* The phone's own header already carries this entry, so the row is the desktop's. */",
+    "// A third of the panel is not a full-width row: \"Favorites\" beside a 14px icon asks for more than",
+    "// these cells have, so the name sits under the icon, at the size the narrowest cell can hold in",
+    "// either language. The counts live where the room is — the phone's view sheet lists them.",
   ]],
   ["src/client/features/sidebar/SidebarOutlinks.tsx", [
     "/**\n * The links the note itself points at, read off its own text rather than the server's\n * link table: the table is rebuilt on save, so a link typed a moment ago is already\n * here while the backlink on the other side is not. A target that resolves to no note\n * is kept and shown apart — that is the list a reader uses to find the titles they\n * mis-typed.\n */",
@@ -6517,6 +6529,10 @@ const allowed = new Map([
     "// heading (the selected tab icon above already says what this panel is), the controls",
     "// own the row and centre in it, and anything that has no room left goes into the",
     "// common.more_actions menu rather than widening the row.",
+    "// The todo folder is one of the three entries; it is drawn as a quick-filter cell rather than",
+    "// as a tree of its own, which is the whole point of the row it sits in.",
+    "// The desktop sidebar no longer prints this count; the phone's view sheet is where the same",
+    "// projection is read, and it has to say the same thing the inbox row does.",
   ]],
   ["src/client/features/sidebar/sidebar-calendar.test.ts", [
     "// Collapsing the block hides the heatmap but used to leave the whole-vault",
@@ -6549,6 +6565,10 @@ const allowed = new Map([
     "// see-through slot between the tab strip and the toolbar: the rows travelling under the",
     "// pinned block paint in it. jsdom has no paint to watch, so the padding is what this holds",
     "// down; the gap below the strip is a margin on the column, which the pin does not scroll.",
+    "// The view entries belong to the library panel's own pinned block now, so the fixed area holds",
+    "// the calendar and nothing else.",
+    "// The folder tree is the one tree left outside the pinned block, which is what lets it be the",
+    "// only thing that scrolls under the entries above it.",
   ]],
   ["src/client/features/sidebar/virtual-tree.tsx", [
     "// The synthetic tree root is built at `depth: -1` (see `VirtualTree`), so every row steps one",
@@ -16835,6 +16855,11 @@ const allowed = new Map([
     "// Corrupt row on purpose: tags owned by another account must never surface on this page.",
     "// The routes read a mid-batch SELECT by index (count, page, tags) while still using",
     "// results.at(-1) for the change seq, so position alignment is load bearing.",
+  ]],
+  ["tests/notes-pinned-view.test.ts", [
+    "// Typed as the context `app.fetch` actually declares, so every field the route may read has to be",
+    "// there: the ambient Workers interface is wider than hono needs and cannot be faked outside a Worker.",
+    "// The other views answer for their own state, so neither of the two above is lost to the pin.",
   ]],
   ["tests/notes-tag-views.test.ts", [
     "// The route spells the subtree rule in SQL and the offline shell spells it in TypeScript;",

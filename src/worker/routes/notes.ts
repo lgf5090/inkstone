@@ -48,7 +48,7 @@ notesRoutes.use('*', requireAuth)
 
 const SNAPSHOT_DIFF_THRESHOLD = 400
 
-const NOTE_VIEWS = new Set<ViewKind>(['all', 'recent', 'starred', 'unfiled', 'untagged', 'archived', 'trash', 'folder', 'tag'])
+const NOTE_VIEWS = new Set<ViewKind>(['all', 'recent', 'starred', 'pinned', 'unfiled', 'untagged', 'archived', 'trash', 'folder', 'tag'])
 const NOTE_SORTS = new Set<SortKey>(['updated', 'created', 'title'])
 /** Ids per dependent-table delete when emptying the trash. */
 const TRASH_EMPTY_BATCH = 500

@@ -80,25 +80,46 @@ describe('sidebar tab strip', () => {
         expect(group.className).toBe('flex shrink-0 items-center');
     });
 
-    it('holds the calendar and the view rows outside the panel, above the strip', () => {
+    it('holds the calendar outside the panel, above the strip', () => {
         const fixed = container.querySelector<HTMLElement>('[data-sidebar-fixed]')!;
         expect(fixed).toBeTruthy();
         expect(fixed.contains(panel())).toBe(false);
         expect(fixed.querySelector(`section[aria-label="${t('sidebar.calendar_title')}"]`)).toBeTruthy();
-        expect(fixed.textContent).toContain(t('navigation.all_notes'));
-        expect(fixed.textContent).toContain(t('navigation.unfiled'));
+        // The view entries belong to the library panel's own pinned block now, so the fixed area holds
+        // the calendar and nothing else.
+        expect(fixed.textContent).not.toContain(t('navigation.all_notes'));
+        expect(panel().textContent).toContain(t('navigation.all_notes'));
         const strip = container.querySelector('[role="tablist"]')!;
         expect(fixed.compareDocumentPosition(strip) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
         expect(panel().compareDocumentPosition(strip) & Node.DOCUMENT_POSITION_PRECEDING).toBeTruthy();
     });
 
-    it('keeps the calendar and the view rows on screen whatever tab is open', async () => {
+    it('keeps the calendar on screen whatever tab is open', async () => {
         for (const id of ['tags', 'recent', 'backlinks', 'outlinks', 'history', 'graph']) {
             await act(async () => tabs().find((tab) => tab.dataset.tab === id)?.click());
             const fixed = container.querySelector<HTMLElement>('[data-sidebar-fixed]')!;
-            expect(fixed.textContent, `tab ${id} lost the view rows`).toContain(t('navigation.unfiled'));
-            expect(panel().textContent).not.toContain(t('navigation.all_notes'));
+            expect(fixed.querySelector(`section[aria-label="${t('sidebar.calendar_title')}"]`), `tab ${id} lost the calendar`).toBeTruthy();
+            expect(fixed.textContent).not.toContain(t('navigation.all_notes'));
         }
+    });
+
+    it('pins the view entries and the built-in folders above the folder tree', () => {
+        const chrome = panel().querySelector('.sidebar-chrome')!;
+        const views = chrome.querySelector<HTMLElement>('[data-quick-filters]')!;
+        expect(views).toBeTruthy();
+        expect(views.textContent).toContain(t('sidebar.todo_folder'));
+        expect(views.textContent).toContain(t('navigation.favorites'));
+        expect(views.textContent).toContain(t('navigation.pinned'));
+        const calendar = chrome.querySelector(`[role="tree"][aria-label="${t('sidebar.calendar_folder')}"]`)!;
+        const inbox = chrome.querySelector(`[role="tree"][aria-label="${t('sidebar.inbox_folder')}"]`)!;
+        expect(calendar).toBeTruthy();
+        expect(inbox).toBeTruthy();
+        // The folder tree is the one tree left outside the pinned block, which is what lets it be the
+        // only thing that scrolls under the entries above it.
+        expect(chrome.querySelector(`[role="tree"][aria-label="${t('navigation.folder')}"]`)).toBeNull();
+        expect(panel().querySelector(`[role="tree"][aria-label="${t('navigation.folder')}"]`)).toBeTruthy();
+        expect(views.compareDocumentPosition(calendar) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+        expect(calendar.compareDocumentPosition(inbox) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     });
 
     it('swaps the whole body when the tag tab is chosen', async () => {
