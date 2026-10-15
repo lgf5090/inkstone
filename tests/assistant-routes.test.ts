@@ -200,6 +200,59 @@ describe('conversations', () => {
   })
 })
 
+describe('re-taking a turn', () => {
+  /**
+   * A thread with two answers, written straight into the store.
+   *
+   * These routes are about rows that already stand — a streamed turn would only make the fixture slower
+   * — and the rollup is written too, because an edit has to take it back.
+   */
+  async function thread() {
+    const { AssistantStore } = await import('../src/worker/assistant/store')
+    const store = new AssistantStore(env.DB as D1Database, USER, env)
+    const conversation = await store.createConversation('Planning')
+    const first = await store.addMessage({ conversationId: conversation.id, role: 'user', content: 'FIRST ASK' })
+    const firstAnswer = await store.addMessage({ conversationId: conversation.id, role: 'assistant', content: 'FIRST ANSWER' })
+    const second = await store.addMessage({ conversationId: conversation.id, role: 'user', content: 'SECOND ASK' })
+    const secondAnswer = await store.addMessage({ conversationId: conversation.id, role: 'assistant', content: 'SECOND ANSWER' })
+    await store.setSummary(conversation.id, 'A paragraph about the first turn.', firstAnswer.createdAt)
+    return { store, conversation, first, firstAnswer, second, secondAnswer }
+  }
+
+  it('retypes the reader\'s own message and takes back what was written below it', async () => {
+    const { store, conversation, first } = await thread()
+    const result = await call<{ message: AssistantMessage, removed: number }>(
+      'PATCH', `/api/assistant/conversations/${conversation.id}/messages/${first.id}`, { content: 'RETYPED' },
+    )
+    expect(result.message.content).toBe('RETYPED')
+    // The answer written from the old words, and the turn after it, were answers to a question that no
+    // longer exists; the thread is asked again from what is left.
+    expect(result.removed).toBe(3)
+    expect((await store.messages(conversation.id)).map((entry) => entry.content)).toEqual(['RETYPED'])
+    // The rollup described the rows that are gone.
+    expect((await store.getConversation(conversation.id))?.summary).toBeNull()
+  })
+
+  it('refuses to retype an answer, and refuses a message of another thread', async () => {
+    const { conversation, firstAnswer } = await thread()
+    expect(await status('PATCH', `/api/assistant/conversations/${conversation.id}/messages/${firstAnswer.id}`, { content: 'NOPE' })).toBe(400)
+    const other = await call<{ conversation: AssistantConversation }>('POST', '/api/assistant/conversations', { title: 'Elsewhere' })
+    expect(await status('PATCH', `/api/assistant/conversations/${other.conversation.id}/messages/${firstAnswer.id}`, { content: 'NOPE' })).toBe(404)
+    expect(await status('DELETE', `/api/assistant/conversations/${other.conversation.id}/messages/${firstAnswer.id}`)).toBe(404)
+  })
+
+  it('takes the pair back when the reader deletes their own turn', async () => {
+    const { conversation, first, firstAnswer, second, secondAnswer } = await thread()
+    const result = await call<{ removed: string[], messages: AssistantMessage[] }>(
+      'DELETE', `/api/assistant/conversations/${conversation.id}/messages/${first.id}`,
+    )
+    // A question with no answer under it is half a turn, so both rows go; the turn after them is the
+    // reader's own and is left alone.
+    expect(result.removed).toEqual([first.id, firstAnswer.id])
+    expect(result.messages.map((entry) => entry.id)).toEqual([second.id, secondAnswer.id])
+  })
+})
+
 describe('memories', () => {
   async function createMemory(content: string, category = 'fact'): Promise<AssistantMemory> {
     const result = await call<{ memory: AssistantMemory }>('POST', '/api/assistant/memories', { content, category })

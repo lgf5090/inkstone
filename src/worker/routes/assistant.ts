@@ -41,6 +41,7 @@ import {
   AUTOMATION_KINDS,
   MAX_AUTOMATION_MESSAGE_CHARS,
   MAX_CONVERSATION_TITLE_CHARS,
+  MAX_MESSAGE_CHARS,
   MAX_MEMORY_CHARS,
   MAX_PROMPT_CONTENT_CHARS,
   MAX_PROMPT_TITLE_CHARS,
@@ -484,6 +485,57 @@ assistantRoutes.post('/conversations/:id/messages/:messageId/versions/:versionId
   return c.json({ message: swapped })
 })
 
+/**
+ * Rewrite what the reader asked, or take the turn back.
+ *
+ * Both are the reader's own row: an edit is a retype of their words, so the answer it drew — which was
+ * written from the text that is now gone — is removed with it and the client asks again. A delete takes
+ * the pair. Either way the conversation's rollup is dropped, because the paragraph described rows that
+ * no longer stand as they were.
+ *
+ * A turn still being written is refused rather than raced: the runner is appending to the same table.
+ */
+assistantRoutes.patch('/conversations/:id/messages/:messageId', async (c) => {
+  const s = store(c)
+  const conversationId = requiredId(c.req.param('id'))
+  const messageId = requiredId(c.req.param('messageId'))
+  const body = await readJson<{ content?: unknown }>(c, JSON_BODY_LIMITS.small)
+  const content = text(body.content, MAX_MESSAGE_CHARS)
+  if (!(await s.getConversation(conversationId))) throw ApiError.notFound('Conversation not found')
+  const message = await s.getMessage(messageId)
+  if (!message || message.conversationId !== conversationId) throw ApiError.notFound('Message not found')
+  if (message.role !== 'user') throw ApiError.badRequest('Only your own message can be edited.')
+  if (message.source === 'import') throw ApiError.conflict('A message restored from a backup cannot be edited.')
+  if (await s.isRunning(conversationId)) throw ApiError.conflict('Stop the running reply first.')
+  const messages = await s.messages(conversationId)
+  const index = messages.findIndex((entry) => entry.id === messageId)
+  if (index < 0) throw ApiError.notFound('Message not found')
+  await s.updateMessageContent(messageId, content)
+  for (const later of messages.slice(index + 1)) await s.deleteMessage(later.id)
+  await s.clearSummary(conversationId)
+  return c.json({ message: await s.getMessage(messageId), removed: messages.length - index - 1 })
+})
+
+assistantRoutes.delete('/conversations/:id/messages/:messageId', async (c) => {
+  const s = store(c)
+  const conversationId = requiredId(c.req.param('id'))
+  const messageId = requiredId(c.req.param('messageId'))
+  if (!(await s.getConversation(conversationId))) throw ApiError.notFound('Conversation not found')
+  const message = await s.getMessage(messageId)
+  if (!message || message.conversationId !== conversationId) throw ApiError.notFound('Message not found')
+  if (await s.isRunning(conversationId)) throw ApiError.conflict('Stop the running reply first.')
+  const messages = await s.messages(conversationId)
+  const index = messages.findIndex((entry) => entry.id === messageId)
+  if (index < 0) throw ApiError.notFound('Message not found')
+  // A turn is a pair, and half of one is a question with no answer under it: the reply that followed the
+  // reader's own row goes too. Anything after that pair is a turn the reader has not touched.
+  const answer = messages[index + 1]
+  const removed = message.role === 'user' && answer?.role === 'assistant' ? [message, answer] : [message]
+  for (const entry of removed) await s.deleteMessage(entry.id)
+  await s.clearSummary(conversationId)
+  return c.json({ removed: removed.map((entry) => entry.id), messages: await s.messages(conversationId) })
+})
+
 assistantRoutes.patch('/conversations/:id', async (c) => {
   const s = store(c)
   const id = requiredId(c.req.param('id'))
@@ -678,7 +730,7 @@ async function offlineTurn(
   message: string,
   send: (payload: unknown) => boolean,
 ): Promise<string | null> {
-  const content = message.trim().slice(0, 16_000)
+  const content = message.trim().slice(0, MAX_MESSAGE_CHARS)
   if (!content) {
     await send({ type: 'error', code: 'bad_request', message: 'Write something first.' })
     return null

@@ -10,18 +10,19 @@
  */
 import { Z_INDEX } from '../../lib/z-index'
 import { type ClipboardEvent as ReactClipboardEvent, type KeyboardEvent, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import { ArrowUp, ArrowUpRight, History, MoreHorizontal, Paperclip, Plus, Square, Star } from 'lucide-react'
+import { ArrowUp, ArrowUpRight, Check, Copy, History, MoreHorizontal, Paperclip, Pencil, Plus, Square, Star, Trash2 } from 'lucide-react'
 import type { AssistantConversation, AssistantMessage, ChatAttachment } from '@shared/assistant'
 import { DEBOUNCE } from '@shared/constants'
 import { cn } from '../../lib/cn'
 import { t } from '../../lib/i18n'
+import { COPY_RESET_MS } from '../../lib/motion'
 import { relativeTime } from '../../lib/time'
 import { useDebouncedDraft } from '../../lib/hooks'
 import { compileQuery } from '../../lib/query-match'
 import type { MoveMenuFolder } from '../../lib/tree'
 import { Button, Divider, IconButton, Spinner } from '../../components/primitives'
 import { FilterInput } from '../../components/FilterInput'
-import { Input } from '../../components/form'
+import { Input, Textarea } from '../../components/form'
 import { Menu, Modal, confirm, prompt, submenuFor } from '../../components/overlay'
 import { api } from '../../lib/api'
 import { FolderMoveMenu } from '../folders/FolderMoveMenu'
@@ -163,6 +164,7 @@ export function ChatView() {
                 <MessageRow
                   key={message.id}
                   message={message}
+                  busy={streaming}
                   onRetry={message.id === lastAnswer?.id && !streaming ? () => void send('', { retry: true }) : undefined}
                 />
               ))}
@@ -211,12 +213,20 @@ export function ChatView() {
   )
 }
 
-export function MessageRow({ message, onRetry }: { message: AssistantMessage, onRetry?: () => void }) {
+export function MessageRow({ message, onRetry, busy = false }: { message: AssistantMessage, onRetry?: () => void, busy?: boolean }) {
   // A finished answer can be asked again; a half one is only ever resumed by its own retry.
   const retryLabel = message.status === 'complete' ? 'assistant.chat.regenerate' : 'assistant.chat.retry'
   const fileIndex = useAssistant((state) => state.fileIndex)
   if (message.role === 'user') {
-    return <UserBubble text={message.content} attachments={message.attachments ?? []} fileIndex={fileIndex} />
+    return (
+      <UserBubble
+        text={message.content}
+        attachments={message.attachments ?? []}
+        fileIndex={fileIndex}
+        messageId={message.id}
+        busy={busy}
+      />
+    )
   }
   return (
     <AssistantBubble
@@ -242,22 +252,128 @@ export function MessageRow({ message, onRetry }: { message: AssistantMessage, on
   )
 }
 
+/**
+ * One of the reader's own messages, and what they may do with it.
+ *
+ * The row is theirs alone — copy it back out, retype it and let the answer be written again from the new
+ * words, or take the turn back — so the three controls hang under the bubble rather than beside the
+ * answer's footer. They are drawn only for a message that is stored: the live turn's copy of the same
+ * words has no row to edit and no answer to displace yet, and `busy` is the turn that is still being
+ * written, which the server refuses to have re-taken under it.
+ */
 export function UserBubble({
   text,
   attachments = [],
   fileIndex = {},
-}: { text: string, attachments?: string[], fileIndex?: Record<string, ChatAttachment> }) {
+  messageId,
+  busy = false,
+}: { text: string, attachments?: string[], fileIndex?: Record<string, ChatAttachment>, messageId?: string, busy?: boolean }) {
+  const [copied, setCopied] = useState(false)
+  const [draft, setDraft] = useState<string | null>(null)
+  const toast = useUi((state) => state.toast)
+  const removable = !!messageId && !!text
   return (
     <div className="flex animate-[ink-fade-in_var(--dur-base)_var(--ease-out)] justify-end">
-      <div className="flex max-w-[85%] flex-col items-end gap-1">
+      <div className="group flex max-w-[85%] flex-col items-end gap-1">
         {attachments.length > 0 && <MessageAttachments ids={attachments} index={fileIndex} />}
         {text && (
           <div className="whitespace-pre-wrap break-words rounded-[var(--r-lg)] rounded-br-[var(--r-xs)] bg-[var(--accent-soft)] px-3 py-2 text-[length:var(--text-13-5)] leading-relaxed text-[var(--text-primary)]">
             {text}
           </div>
         )}
+        {text && (
+          <div className="flex items-center gap-0.5 transition-opacity duration-[var(--dur-fast)] md:opacity-0 md:group-hover:opacity-100 md:group-focus-within:opacity-100">
+            <IconButton
+              size="sm"
+              label={copied ? t('assistant.chat.copied') : t('assistant.chat.copy')}
+              onClick={() => {
+                void navigator.clipboard.writeText(text).then(() => {
+                  setCopied(true)
+                  window.setTimeout(() => setCopied(false), COPY_RESET_MS)
+                }).catch(() => toast({ title: t('preview.could_not_copy'), tone: 'danger' }))
+              }}
+            >
+              {copied ? <Check size={14} /> : <Copy size={14} />}
+            </IconButton>
+            {removable && (
+              <>
+                <IconButton size="sm" label={t('assistant.chat.edit_message')} disabled={busy} onClick={() => setDraft(text)}>
+                  <Pencil size={14} />
+                </IconButton>
+                <IconButton
+                  size="sm"
+                  label={t('assistant.chat.delete_message')}
+                  disabled={busy}
+                  onClick={() => {
+                    // The pair goes together, so the question the reader is about to lose is spelled out
+                    // in the dialog rather than deleted on a single press.
+                    void confirm({
+                      title: t('assistant.chat.delete_message_title'),
+                      description: t('assistant.chat.delete_message_hint'),
+                      confirmLabel: t('common.delete'),
+                      tone: 'danger',
+                    }).then((agreed) => {
+                      if (agreed) void useAssistant.getState().removeMessage(messageId!)
+                    })
+                  }}
+                >
+                  <Trash2 size={14} />
+                </IconButton>
+              </>
+            )}
+          </div>
+        )}
       </div>
+      {draft !== null && messageId && (
+        <EditMessageDialog
+          text={draft}
+          onClose={() => setDraft(null)}
+          onSave={(content) => {
+            setDraft(null)
+            // The turn re-answers itself: the dialog has nothing left to hold, and the replaced answer
+            // arrives in the thread like any other.
+            void useAssistant.getState().editMessage(messageId, content)
+          }}
+        />
+      )}
     </div>
+  )
+}
+
+/**
+ * Retyping one of the reader's own messages.
+ *
+ * The words are the only thing being edited, so this is a box and nothing else — but the answer that hung
+ * below them was written from the old text and the thread is asked again from here, which the note under
+ * the box says out loud: saving is not a silent rewrite of a transcript.
+ */
+function EditMessageDialog({ text, onClose, onSave }: { text: string, onClose: () => void, onSave: (content: string) => void }) {
+  const [value, setValue] = useState(text)
+  const trimmed = value.trim()
+  return (
+    <Modal
+      open
+      onClose={onClose}
+      title={t('assistant.chat.edit_message_title')}
+      description={t('assistant.chat.edit_message_hint')}
+      width={480}
+      footer={(
+        <>
+          <Button variant="secondary" onClick={onClose}>{t('common.cancel')}</Button>
+          <Button variant="primary" disabled={!trimmed || trimmed === text.trim()} onClick={() => onSave(trimmed)}>
+            {t('assistant.chat.edit_message_save')}
+          </Button>
+        </>
+      )}
+    >
+      <Textarea
+        autoFocus
+        rows={6}
+        aria-label={t('assistant.chat.edit_message_title')}
+        value={value}
+        onChange={(event) => setValue(event.target.value)}
+      />
+    </Modal>
   )
 }
 

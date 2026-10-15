@@ -1139,6 +1139,20 @@ export class AssistantStore {
     )
   }
 
+  /**
+   * Drop the rollup a conversation was carrying.
+   *
+   * The summary is a paragraph about a span of rows, and the next turn only ever rolls forward from the
+   * mark it was written at. A transcript that lost a turn — or whose turn was retyped — is no longer the
+   * one that paragraph describes, so it goes rather than standing over words that have changed.
+   */
+  async clearSummary(id: string): Promise<void> {
+    await this.write(
+      `UPDATE chat_conversations SET summary = NULL, summary_upto = NULL WHERE user_id = ?1 AND id = ?2`,
+      id,
+    )
+  }
+
   async deleteConversation(id: string): Promise<void> {
     await this.write(`DELETE FROM chat_messages WHERE user_id = ?1 AND conversation_id = ?2`, id)
     await this.write(`DELETE FROM chat_answer_versions WHERE user_id = ?1 AND conversation_id = ?2`, id)
@@ -1245,6 +1259,20 @@ export class AssistantStore {
     // A displaced answer is worth nothing once its turn is gone, and leaving it behind would keep the
     // pager's count alive over a row that no longer exists.
     await this.write(`DELETE FROM chat_answer_versions WHERE user_id = ?1 AND message_id = ?2`, id)
+  }
+
+  /**
+   * Rewrite what the reader asked.
+   *
+   * Only the words change here: the answer that followed them was drawn from the text that is now gone,
+   * so the caller removes that turn and writes a new one. Nothing edits an answer — a model's own output
+   * is what it said, and the way to replace it is to ask again.
+   */
+  async updateMessageContent(id: string, content: string): Promise<void> {
+    await this.write(
+      `UPDATE chat_messages SET content = ?2 WHERE user_id = ?1 AND id = ?3`,
+      content, id,
+    )
   }
 
   /**

@@ -199,6 +199,15 @@ interface AssistantState {
   loadAnswerVersions: (messageId: string) => Promise<AssistantAnswerVersion[]>
   /** Make one of those answers the turn's live one again. */
   activateAnswerVersion: (messageId: string, versionId: string) => Promise<void>
+  /**
+   * Retype one of the reader's own messages, then answer it again.
+   *
+   * The turn the server removed is the one this replaces, so the words land first, the thread is
+   * re-read, and the same turn is asked for once more — the reader edited a question, not a transcript.
+   */
+  editMessage: (messageId: string, content: string) => Promise<void>
+  /** Take one turn back: the reader's message and the answer that was drawn from it. */
+  removeMessage: (messageId: string) => Promise<void>
   setConversationQuery: (query: string) => Promise<void>
   /** The folder tree and the tag list, both counted for conversations. */
   loadTaxonomy: () => Promise<void>
@@ -674,6 +683,31 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
         answerVersions: { ...current.answerVersions, [messageId]: undefined },
       }))
       void get().loadAnswerVersions(messageId)
+    } catch (error) {
+      toast(error)
+    }
+  },
+
+  editMessage: async (messageId, content) => {
+    const conversationId = get().activeId
+    if (!conversationId) return
+    try {
+      await api.assistant.editMessage(conversationId, messageId, content)
+      await get().openConversation(conversationId)
+      await get().send('', { retry: true })
+    } catch (error) {
+      toast(error)
+    }
+  },
+
+  removeMessage: async (messageId) => {
+    const conversationId = get().activeId
+    if (!conversationId) return
+    try {
+      // The rows the server kept come back with the answer, so the thread is re-read from what is
+      // actually stored rather than from a guess about which rows the pair covered.
+      const { messages } = await api.assistant.removeMessage(conversationId, messageId)
+      set({ messages, answerVersions: {} })
     } catch (error) {
       toast(error)
     }

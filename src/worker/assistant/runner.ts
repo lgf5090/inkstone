@@ -12,7 +12,7 @@
  *    who closes the tab still finds the half-answer and the reason.
  */
 
-import { toolPayloadText } from '@shared/assistant'
+import { MAX_MESSAGE_CHARS, toolPayloadText } from '@shared/assistant'
 import type { AssistantMessage, AssistantModelModality, AssistantProtocol, AssistantSettings, ChatStreamEvent, ToolActivity } from '@shared/assistant'
 import { contextBudgetFor, customParamBody, MAX_CHAT_ATTACHMENTS, MAX_TURN_SCOPES, MAX_TURN_TOOLS, estimateTokens, titleFromMessage, type AssistantTurnScope } from '@shared/assistant'
 import { hasHistoricalIntent, memoryTokenBudget } from '@shared/assistant-memory'
@@ -186,7 +186,7 @@ export class AssistantRunner {
       }
     } else {
       if (!message) throw ApiError.badRequest('Write something first.')
-      if (message.length > 16_000) throw ApiError.badRequest('That message is too long for one turn.')
+      if (message.length > MAX_MESSAGE_CHARS) throw ApiError.badRequest('That message is too long for one turn.')
       if (!conversation) {
         conversation = await this.store.createConversation(titleFromMessage(message))
         // The route had no id to claim yet, so the lease is taken here: without it a second tab could
@@ -869,7 +869,7 @@ export function buildContextWindow(history: HistoryEntry[], maxTokens: number, s
   return {
     messages: kept.map((entry) => ({
       ...entry,
-      content: entry.role === 'assistant' ? entry.content : entry.content.slice(0, 16_000),
+      content: entry.role === 'assistant' ? entry.content : entry.content.slice(0, MAX_MESSAGE_CHARS),
     })),
     overflow: eligible.slice(0, Math.max(0, eligible.length - kept.length)),
   }

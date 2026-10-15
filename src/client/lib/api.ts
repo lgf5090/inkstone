@@ -838,6 +838,21 @@ export const api = {
         `/api/assistant/conversations/${conversationId}/messages/${messageId}/versions/${versionId}/activate`,
         { method: 'POST' },
       ),
+    /**
+     * Retype one of your own messages. The answer under it was written from the old words, so the server
+     * removes that turn and the caller asks again.
+     */
+    editMessage: (conversationId: string, messageId: string, content: string) =>
+      request<{ message: AssistantMessage, removed: number }>(
+        `/api/assistant/conversations/${conversationId}/messages/${messageId}`,
+        { method: 'PATCH', body: { content } },
+      ),
+    /** Take a turn back: the message and, under a reader's own row, the answer it drew. */
+    removeMessage: (conversationId: string, messageId: string) =>
+      request<{ removed: string[], messages: AssistantMessage[] }>(
+        `/api/assistant/conversations/${conversationId}/messages/${messageId}`,
+        { method: 'DELETE' },
+      ),
     pinConversation: (id: string, pinned: boolean) =>
       request<{ conversation: AssistantConversation }>(`/api/assistant/conversations/${id}`, { method: 'PATCH', body: { pinned } }),
     uploadChatFile: (file: File, onProgress: (sent: number, total: number) => void) =>
