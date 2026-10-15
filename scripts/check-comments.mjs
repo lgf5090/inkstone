@@ -1092,6 +1092,8 @@ const allowed = new Map([
     "/* The row's reasoning icon is a switch between off and automatic; which of the three depths a\n                model is asked for is a fact about that model, so it is chosen here rather than on the row. */",
     "/** The three token numbers, each of which may be left empty — see the fields' own hints for what a\n   *  blank one means. None of them is required, and a blank is not the same as typing the default in. */",
     "/**\n * One row of preset buttons under a number field. The reader picks 256K rather than typing 262144,\n * and the field still takes any number the presets do not offer.\n *\n * Pressing the preset that is already taken takes it back, which is how a number is cleared without\n * deleting digits by hand: the field is optional, and a row with no way to empty it reads as required.\n */",
+    "/** How many picks sit on one line. A fixed count keeps the two full rows aligned instead of ragged. */",
+    "/**\n * One of the three token numbers: the field, its quick picks, and what a blank one means.\n *\n * Drawn as a full-width row rather than a third of one, because the picks are ten buttons wide: in a\n * column each set wrapped onto three ragged lines and the three settings read as one crowded block.\n */",
   ]],
   ["src/client/features/chat/ModelPickerDialog.tsx", [
     "/** The vendor families in the list, so the chips are the account's own, not a list of brands. */",

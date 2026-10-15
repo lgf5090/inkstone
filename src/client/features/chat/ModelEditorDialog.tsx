@@ -105,14 +105,18 @@ const MODALITY_KEYS: Record<AssistantModelModality, Parameters<typeof t>[0]> = {
  * Pressing the preset that is already taken takes it back, which is how a number is cleared without
  * deleting digits by hand: the field is optional, and a row with no way to empty it reads as required.
  */
-function ChipRow({ label, steps, value, onPick }: {
+const CHIP_COLUMNS = { 3: 'grid-cols-3', 5: 'grid-cols-5' } as const
+
+function ChipRow({ label, steps, value, onPick, columns = 5 }: {
   label: string
   steps: readonly number[]
   value: number | null
   onPick: (tokens: number | null) => void
+  /** How many picks sit on one line. A fixed count keeps the two full rows aligned instead of ragged. */
+  columns?: 3 | 5
 }) {
   return (
-    <div role='group' aria-label={label} className="mt-1 flex flex-wrap gap-1">
+    <div role='group' aria-label={label} className={cn('mt-1.5 grid gap-1', CHIP_COLUMNS[columns])}>
       {steps.map((tokens) => (
         <button
           key={tokens}
@@ -120,7 +124,7 @@ function ChipRow({ label, steps, value, onPick }: {
           aria-pressed={value === tokens}
           onClick={() => onPick(value === tokens ? null : tokens)}
           className={cn(
-            'rounded-full border px-2 py-0.5 text-[length:var(--text-10-5)] tabular-nums',
+            'rounded-full border px-1.5 py-1 text-center text-[length:var(--text-10-5)] tabular-nums',
             'transition-[background-color,border-color,color] duration-[var(--dur-fast)] ease-[var(--ease-out)]',
             value === tokens
               ? 'border-[var(--accent)] bg-[var(--accent-soft)] font-medium text-[var(--accent-on-soft)]'
@@ -131,6 +135,37 @@ function ChipRow({ label, steps, value, onPick }: {
         </button>
       ))}
     </div>
+  )
+}
+
+/**
+ * One of the three token numbers: the field, its quick picks, and what a blank one means.
+ *
+ * Drawn as a full-width row rather than a third of one, because the picks are ten buttons wide: in a
+ * column each set wrapped onto three ragged lines and the three settings read as one crowded block.
+ */
+function TokenField({ labelKey, hintKey, value, steps, columns = 5, onChange }: {
+  labelKey: Parameters<typeof t>[0]
+  hintKey: Parameters<typeof t>[0]
+  value: number | null
+  steps: readonly number[]
+  columns?: 3 | 5
+  onChange: (tokens: number | null) => void
+}) {
+  const label = t(labelKey)
+  return (
+    <Field label={label} hint={t(hintKey)}>
+      <Input
+        type="number"
+        inputMode="numeric"
+        aria-label={label}
+        value={value ?? ''}
+        placeholder={t('assistant.model.unset')}
+        onChange={(event) => onChange(numberOrNull(event.target.value))}
+        className="w-36"
+      />
+      <ChipRow label={label} steps={steps} value={value} columns={columns} onPick={onChange} />
+    </Field>
   )
 }
 
@@ -308,58 +343,29 @@ export function ModelEditorDialog({
               </div>
               <p className="mt-1 text-[length:var(--text-11)] leading-snug text-[var(--text-quaternary)]">{t('assistant.model.modalities_hint')}</p>
             </Field>
-            <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-3">
-              <Field label={t('assistant.model.context')}>
-                <Input
-                  type="number"
-                  inputMode="numeric"
-                  aria-label={t('assistant.model.context')}
-                  value={draft.contextTokens ?? ''}
-                  placeholder={t('assistant.model.unset')}
-                  onChange={(event) => patch({ contextTokens: numberOrNull(event.target.value) })}
-                />
-                <ChipRow
-                  label={t('assistant.model.context')}
-                  steps={CONTEXT_WINDOW_STEPS}
-                  value={draft.contextTokens}
-                  onPick={(tokens) => patch({ contextTokens: tokens })}
-                />
-                <p className="mt-1 text-[length:var(--text-11)] leading-snug text-[var(--text-quaternary)]">{t('assistant.model.context_hint')}</p>
-              </Field>
-              <Field label={t('assistant.model.max_input')}>
-                <Input
-                  type="number"
-                  inputMode="numeric"
-                  aria-label={t('assistant.model.max_input')}
-                  value={draft.maxInputTokens ?? ''}
-                  placeholder={t('assistant.model.unset')}
-                  onChange={(event) => patch({ maxInputTokens: numberOrNull(event.target.value) })}
-                />
-                <ChipRow
-                  label={t('assistant.model.max_input')}
-                  steps={TOKEN_STEPS}
-                  value={draft.maxInputTokens}
-                  onPick={(tokens) => patch({ maxInputTokens: tokens })}
-                />
-                <p className="mt-1 text-[length:var(--text-11)] leading-snug text-[var(--text-quaternary)]">{t('assistant.model.max_input_hint')}</p>
-              </Field>
-              <Field label={t('assistant.model.max_output')}>
-                <Input
-                  type="number"
-                  inputMode="numeric"
-                  aria-label={t('assistant.model.max_output')}
-                  value={draft.maxOutputTokens ?? ''}
-                  placeholder={t('assistant.model.unset')}
-                  onChange={(event) => patch({ maxOutputTokens: numberOrNull(event.target.value) })}
-                />
-                <ChipRow
-                  label={t('assistant.model.max_output')}
-                  steps={TOKEN_STEPS}
-                  value={draft.maxOutputTokens}
-                  onPick={(tokens) => patch({ maxOutputTokens: tokens })}
-                />
-                <p className="mt-1 text-[length:var(--text-11)] leading-snug text-[var(--text-quaternary)]">{t('assistant.model.max_output_hint')}</p>
-              </Field>
+            <div className="flex flex-col gap-3.5">
+              <TokenField
+                labelKey="assistant.model.context"
+                hintKey="assistant.model.context_hint"
+                value={draft.contextTokens}
+                steps={CONTEXT_WINDOW_STEPS}
+                columns={3}
+                onChange={(tokens) => patch({ contextTokens: tokens })}
+              />
+              <TokenField
+                labelKey="assistant.model.max_input"
+                hintKey="assistant.model.max_input_hint"
+                value={draft.maxInputTokens}
+                steps={TOKEN_STEPS}
+                onChange={(tokens) => patch({ maxInputTokens: tokens })}
+              />
+              <TokenField
+                labelKey="assistant.model.max_output"
+                hintKey="assistant.model.max_output_hint"
+                value={draft.maxOutputTokens}
+                steps={TOKEN_STEPS}
+                onChange={(tokens) => patch({ maxOutputTokens: tokens })}
+              />
             </div>
 
             <SettingRow title={`${t('assistant.model.temperature')} · ${draft.temperature ?? t('assistant.model.off_means_default')}`}>
