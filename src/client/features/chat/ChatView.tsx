@@ -78,6 +78,7 @@ export function ChatView() {
   const turn = useAssistant((state) => state.turn)
   const remoteStreaming = useAssistant((state) => state.remoteStreaming)
   const send = useAssistant((state) => state.send)
+  const loadMcpServers = useAssistant((state) => state.loadMcpServers)
   const newConversation = useAssistant((state) => state.newConversation)
   const stop = useAssistant((state) => state.stop)
   const scrollRef = useRef<HTMLDivElement>(null)
@@ -92,6 +93,13 @@ export function ChatView() {
   useEffect(() => {
     stickToBottom.current = true
   }, [activeId])
+
+  // The server rows name whose call each third-party chip was, so the transcript reads `Context7 ·
+  // query-docs` instead of the namespaced name the model was offered. One read of the reader's own rows,
+  // asked once per mount, and `loadMcpServers` says out loud why it is allowed to fail.
+  useEffect(() => {
+    void loadMcpServers()
+  }, [loadMcpServers])
 
   useLayoutEffect(() => {
     const el = scrollRef.current
@@ -219,6 +227,7 @@ function MessageRow({ message, onRetry }: { message: AssistantMessage, onRetry?:
       cancelled={message.status === 'cancelled'}
       streaming={false}
       stage={undefined}
+      messageId={message.id}
       onRetry={onRetry}
       retryLabel={retryLabel}
       usage={message.usage}

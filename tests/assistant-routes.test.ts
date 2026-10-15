@@ -1991,9 +1991,15 @@ describe('external MCP servers', () => {
     expect(ran[0]).toContain('query')
     expect(ran[0]).toContain('react-query')
     const threadId = events.find((event) => event.type === 'start')!.conversationId!
-    const after = await call<{ messages: { tools: { name: string, status: string }[] }[] }>('GET', `/api/assistant/conversations/${threadId}`)
+    const after = await call<{ messages: { tools: { name: string, status: string, args?: string, result?: string }[] }[] }>('GET', `/api/assistant/conversations/${threadId}`)
     const settled = after.messages.flatMap((message) => message.tools).filter((entry) => entry.name.includes('resolve-library-id'))
     expect(settled.some((entry) => entry.status === 'success'), 'the chip still says pending').toBe(true)
+    // The payloads survive the row as well as the stream: a thread reopened tomorrow has to be able to
+    // answer what was asked and what came back, which is the whole point of keeping them.
+    // The approved replay is its own entry: the proposal's answer is the card's notice, and the call's
+    // own text lands on the run that happened.
+    expect(settled.map((entry) => entry.args ?? '').join('\n'), 'the stored call lost its arguments').toContain('react-query')
+    expect(settled.map((entry) => entry.result ?? '').join('\n'), 'the stored call lost its answer').toContain('ran resolve-library-id')
     vi.unstubAllGlobals()
     void created
   })
@@ -2027,6 +2033,53 @@ describe('external MCP servers', () => {
     vi.unstubAllGlobals()
   })
 
+  it('runs one stored call again, and refuses where the turn itself would have asked first', async () => {
+    await useExampleModel()
+    const calls: string[] = []
+    const mcp = fakeMcpServer(calls)
+    vi.stubGlobal('fetch', mcp)
+    const created = await addServer()
+    await call('PATCH', `/api/assistant/mcp/${created.server.id}`, { toolMode: 'auto' })
+    const resolveName = await offeredName('resolve-library-id')
+    const answerFrames = [
+      `data: ${JSON.stringify({ choices: [{ index: 0, finish_reason: 'tool_calls', delta: { tool_calls: [{ index: 0, id: 'call-1', function: { name: resolveName, arguments: '{"query":"svelte"}' } }] } }] })}\n\n`,
+      `data: ${JSON.stringify({ choices: [{ index: 0, finish_reason: 'stop', delta: { content: '查到了。' } }] })}\n\n`,
+    ]
+    vi.stubGlobal('fetch', vi.fn(async (url: unknown, init?: RequestInit) => {
+      const body = String(init?.body ?? '')
+      if (body.includes('"model":"example-model"')) return new Response(sse(answerFrames), { headers: { 'content-type': 'text/event-stream' } })
+      return mcp(url, init)
+    }))
+    const events = await chatEvents({ message: '查 svelte' })
+    await settleTurns()
+    const conversationId = events.find((entry) => entry.type === 'start')!.conversationId!
+
+    const thread = await call<{ messages: AssistantMessage[] }>('GET', `/api/assistant/conversations/${conversationId}`)
+    const answer = thread.messages.find((entry) => entry.role === 'assistant')!
+    const called = answer.tools.find((entry) => entry.name.includes('resolve-library-id'))!
+    expect(called.args, 'the stored call has nothing to replay').toContain('svelte')
+
+    const before = calls.filter((entry) => entry.includes(':tools/call:resolve-library-id')).length
+    const again = await call<{ ok: boolean, result: string }>('POST', '/api/assistant/mcp/replay', {
+      conversationId: answer.conversationId,
+      messageId: answer.id,
+      toolId: called.id,
+    })
+    expect(again.ok).toBe(true)
+    // The arguments are the ones on the row rather than anything the caller sent.
+    expect(again.result).toContain('ran resolve-library-id')
+    expect(again.result).toContain('svelte')
+    expect(calls.filter((entry) => entry.includes(':tools/call:resolve-library-id')).length).toBe(before + 1)
+
+    // A call that is not to a third party has nothing to run, and a server that asks each time would be
+    // letting this route do what its own mode refuses.
+    expect(await status('POST', '/api/assistant/mcp/replay', { conversationId: answer.conversationId, messageId: answer.id, toolId: 'nope' })).toBe(404)
+    await call('PATCH', `/api/assistant/mcp/${created.server.id}`, { toolMode: 'ask' })
+    expect(await status('POST', '/api/assistant/mcp/replay', { conversationId: answer.conversationId, messageId: answer.id, toolId: called.id })).toBe(409)
+    await call('PATCH', `/api/assistant/mcp/${created.server.id}`, { enabled: false })
+    expect(await status('POST', '/api/assistant/mcp/replay', { conversationId: answer.conversationId, messageId: answer.id, toolId: called.id })).toBe(409)
+    vi.unstubAllGlobals()
+  })
 
   it('switches one tool off without touching its neighbours, and leaves it out of the turn', async () => {
     await useExampleModel()

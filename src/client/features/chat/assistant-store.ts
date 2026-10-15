@@ -175,6 +175,7 @@ interface AssistantState {
    * The answer comes back to the caller and is never written into the thread: what the model was given is
    * a record of the turn, and a call made now is a new observation.
    */
+  replayMcpTool: (conversationId: string, messageId: string, toolId: string) => Promise<{ ok: boolean, error: string, result: string }>
 
   loadMcpServer: (id: string) => Promise<AssistantMcpServerDetail | null>
   patchMcpServer: (id: string, body: Record<string, unknown>) => Promise<void>
@@ -619,6 +620,13 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
     }
   },
 
+  replayMcpTool: async (conversationId, messageId, toolId) => {
+    try {
+      return await api.assistant.replayMcpTool(conversationId, messageId, toolId)
+    } catch (error) {
+      return { ok: false, error: error instanceof Error ? error.message : String(error), result: '' }
+    }
+  },
 
   loadMcpServer: async (id) => {
     try {
@@ -1109,20 +1117,15 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
       const action = approve
         ? await api.assistant.approveAction(actionId)
         : await api.assistant.declineAction(actionId)
+      // An approved call may have answered with something: that answer is what the reader opens the row
+      // to see, so it travels back with the card's own outcome. A cancelled call never ran and has none.
+      const settle = (tool: ToolActivity) => (tool.approval?.id === actionId && action.action
+        ? { ...tool, approval: action.action, ...(action.result ? { result: action.result } : {}) }
+        : tool)
       set((current) => ({
-        messages: current.messages.map((message) => ({
-          ...message,
-          tools: message.tools.map((tool) => (tool.approval?.id === actionId && action.action
-            ? { ...tool, approval: action.action }
-            : tool)),
-        })),
+        messages: current.messages.map((message) => ({ ...message, tools: message.tools.map(settle) })),
         turn: current.turn
-          ? {
-              ...current.turn,
-              tools: current.turn.tools.map((tool) => (tool.approval?.id === actionId && action.action
-                ? { ...tool, approval: action.action }
-                : tool)),
-            }
+          ? { ...current.turn, tools: current.turn.tools.map(settle) }
           : current.turn,
       }))
       const view = get().view

@@ -12,6 +12,7 @@
  *    who closes the tab still finds the half-answer and the reason.
  */
 
+import { toolPayloadText } from '@shared/assistant'
 import type { AssistantMessage, AssistantModelModality, AssistantProtocol, AssistantSettings, ChatStreamEvent, ToolActivity } from '@shared/assistant'
 import { customParamBody, MAX_CHAT_ATTACHMENTS, MAX_TURN_SCOPES, MAX_TURN_TOOLS, estimateTokens, titleFromMessage, type AssistantTurnScope } from '@shared/assistant'
 import { hasHistoricalIntent, memoryTokenBudget } from '@shared/assistant-memory'
@@ -336,13 +337,19 @@ export class AssistantRunner {
         }
         if (!calls.length) break
         for (const call of calls) {
-          const activity: ToolActivity = { id: call.id, name: call.name, status: 'running' }
+          // What the model asked for travels with the chip, so a thread opened tomorrow can still answer
+          // "what did it search for". It is the same text the model produced, clipped by the shared cap.
+          const activity: ToolActivity = { id: call.id, name: call.name, status: 'running', args: toolPayloadText(call.args) }
           tools.push(activity)
           yield { type: 'tool', tool: { ...activity } }
           try {
             const result = await executor.execute(call.name, call.args, call.id)
             call.result = JSON.stringify(result ?? null)
             call.error = false
+            // What came back, kept beside the arguments above. The `result` sent to the model stays the
+            // compact JSON the wire wants; what the reader is shown is the tool's own text where the tool
+            // returned text, because a quoted JSON string is not what the search returned.
+            activity.result = toolPayloadText(result)
             const approval = executor.approvalFor(call.id)
             if (approval) activity.approval = (await this.store.getPendingAction(approval.id)) ?? undefined
           } catch (error) {

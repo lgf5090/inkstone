@@ -25,6 +25,7 @@ import {
   MAX_MCP_TIMEOUT_SECONDS,
   MIN_MCP_TIMEOUT_SECONDS,
   isMcpHeaderName,
+  mcpToolOrigin,
   MAX_MCP_SERVERS,
   MAX_MCP_TOOL_NAME_CHARS,
   MAX_MCP_URL_CHARS,
@@ -62,7 +63,7 @@ import type { AppBindings } from '../env'
 import { ApiError } from '../lib/errors'
 import { requireAuth } from '../middleware/auth'
 import { FORM_BODY_LIMITS, JSON_BODY_LIMITS, readFormDataWithinLimit, readJson, readStreamWithinLimit } from '../lib/request'
-import { mcpProbe, mcpUrlProblem } from '../assistant/mcp-client'
+import { McpError, mcpCallTool, mcpInitialize, mcpListTools, mcpProbe, mcpUrlProblem } from '../assistant/mcp-client'
 import { isExternalToolName, listMcpCatalog, loadExternalTools } from '../assistant/mcp-tools'
 import { isValidId } from '../lib/id'
 import { isInlineSafe } from '../lib/image'
@@ -345,6 +346,69 @@ assistantRoutes.post('/mcp/:id/test', async (c) => {
 assistantRoutes.get('/mcp/tools', async (c) => {
   const catalog = await listMcpCatalog(store(c))
   return c.json({ servers: catalog.servers, problems: catalog.problems })
+})
+
+/**
+ * Run one stored third-party call again, with the arguments it was given.
+ *
+ * A reader looking at a call that came back wrong has one question the transcript cannot answer: is it
+ * still wrong? They can press this and see. Three rules keep it from being a way around the approval
+ * gate the turn itself respects:
+ *  - only a call whose host is set to run directly is repeatable — a server in Ask mode refuses here, so
+ *    a second write can only ever happen where the first one would have run unprompted anyway;
+ *  - the arguments are the ones on the row, not anything a client sends, so this replays the call that
+ *    happened rather than a new one wearing its name;
+ *  - the answer is returned, never written back. What the model was handed stays what the model was
+ *    handed, and the fresh answer is the reader's to read.
+ */
+assistantRoutes.post('/mcp/replay', async (c) => {
+  const s = store(c)
+  const body = await readJson<{ conversationId?: unknown, messageId?: unknown, toolId?: unknown }>(c, JSON_BODY_LIMITS.small)
+  const conversationId = requiredId(body.conversationId)
+  const messageId = requiredId(body.messageId)
+  // A call's own id is the provider's — `call-1` on the wire — and not an id this app mints, so it is
+  // bounded text matched against the row rather than validated as one.
+  const toolId = typeof body.toolId === 'string' ? body.toolId.trim().slice(0, 128) : ''
+  if (!toolId) throw ApiError.badRequest('Which call?')
+  const message = await s.getMessage(messageId)
+  if (!message || message.conversationId !== conversationId || message.role !== 'assistant') {
+    throw ApiError.notFound('Message not found')
+  }
+  const activity = message.tools.find((tool) => tool.id === toolId)
+  if (!activity) throw ApiError.notFound('That call is not on this message.')
+  if (!isExternalToolName(activity.name)) throw ApiError.badRequest('Only a call to a third party can be run again.')
+  if (!activity.args) throw ApiError.badRequest('That call did not store what it was handed.')
+
+  const servers = await s.listMcpServers()
+  const origin = mcpToolOrigin(activity.name, servers)
+  const server = origin ? servers.find((entry) => entry.id === origin.serverId) : undefined
+  if (!server) throw ApiError.notFound('The server this call went to is no longer configured.')
+  if (!server.enabled) throw ApiError.conflict('That server is switched off.')
+  if (server.toolMode !== 'auto') throw ApiError.conflict('That server asks before every call, so this one is not run again from here.')
+  const record = await s.mcpServerRecord(server.id)
+  if (!record) throw ApiError.notFound('The server this call went to is no longer configured.')
+
+  let args: Record<string, unknown>
+  try {
+    const parsed = JSON.parse(activity.args) as unknown
+    args = parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed as Record<string, unknown> : {}
+  } catch {
+    throw ApiError.badRequest('What that call was handed is not readable.')
+  }
+
+  try {
+    const session = await mcpInitialize(server.url, record.headers, server.timeoutSeconds, server.transport)
+    // The stored name is the namespaced one, and the namespacing is lossy: the server is asked what it
+    // offers so the call carries the same remote name the first one did.
+    const listing = await mcpListTools(session, server.id, server.label)
+    const tool = listing.tools.find((entry) => entry.name === activity.name)
+    if (!tool) throw ApiError.notFound('That server no longer offers this function.')
+    if (server.disabledTools.includes(tool.remoteName)) throw ApiError.conflict('That function is switched off on its card.')
+    return c.json({ ok: true, error: '', result: await mcpCallTool(session, tool.remoteName, args) })
+  } catch (error) {
+    if (error instanceof ApiError) throw error
+    return c.json({ ok: false, error: error instanceof McpError ? error.message : 'The server could not be reached.', result: '' })
+  }
 })
 
 /**
@@ -656,12 +720,12 @@ assistantRoutes.post('/actions/:id/approve', async (c) => {
   if (!stored) throw ApiError.notFound('This action no longer exists.')
   if (!(await s.getConversation(stored.conversationId))) throw ApiError.notFound('This conversation no longer exists.')
   const settings = await s.getSettings()
-  const action = await runApprovedAction(s, await approvalContext(c, s, settings), id)
-  if (action) {
+  const outcome = await runApprovedAction(s, await approvalContext(c, s, settings), id)
+  if (outcome.action) {
     const located = await s.messageForAction(id)
-    if (located) await s.attachActionToMessage(located.messageId, located.toolId, action)
+    if (located) await s.attachActionToMessage(located.messageId, located.toolId, outcome.action, outcome.result)
   }
-  return c.json({ action })
+  return c.json(outcome)
 })
 
 assistantRoutes.post('/actions/:id/cancel', async (c) => {

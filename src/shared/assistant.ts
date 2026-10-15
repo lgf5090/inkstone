@@ -594,6 +594,50 @@ export interface ToolActivity {
   status: 'running' | 'success' | 'error'
   error?: string
   approval?: PendingAction
+  /**
+   * What the model asked the tool for, as JSON — and what came back.
+   *
+   * Both are the same text the tool itself worked from and the model was handed, kept so the thread can
+   * show a reader *why* a call happened when they open it: a chip that says "searched notes" is not
+   * answerable to anything, while the query that was searched is. Capped by `MAX_TOOL_PAYLOAD_CHARS` at
+   * both ends, because a listing tool can return a whole note and a message row is not a file store.
+   */
+  args?: string
+  result?: string
+}
+
+/**
+ * How much of a tool's arguments or answer one activity may carry.
+ *
+ * A payload past this is truncated with a marker rather than dropped: the reader sees that the call did
+ * happen and roughly what it cost, and the message row keeps a bound the thread can render without one
+ * answer making the conversation slow to open.
+ */
+export const MAX_TOOL_PAYLOAD_CHARS = 4_000
+
+function clipped(value: string, maxChars: number): string {
+  if (value.length <= maxChars) return value
+  return `${value.slice(0, maxChars)}\n… [${value.length - maxChars} more characters]`
+}
+
+export function clipToolPayload(value: string): string {
+  return clipped(value, MAX_TOOL_PAYLOAD_CHARS)
+}
+
+/**
+ * A tool's own value, as the thread shows it.
+ *
+ * A remote tool answers with text and a note reader answers with a structure, so the two are kept in the
+ * shape that reads: text stays text, anything else is indented JSON. A value that cannot be serialized is
+ * named rather than dropped, because a call that happened must not look like one that did not.
+ */
+export function toolPayloadText(value: unknown): string {
+  if (typeof value === 'string') return clipToolPayload(value)
+  try {
+    return clipToolPayload(JSON.stringify(value ?? null, null, 2))
+  } catch {
+    return '[the value could not be shown as text]'
+  }
 }
 
 export interface PendingAction {

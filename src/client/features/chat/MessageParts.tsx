@@ -20,12 +20,14 @@ import {
   ChevronRight,
   Copy,
   Loader2,
+  Play,
   RotateCcw,
   ShieldAlert,
+  Wrench,
   XCircle
 } from 'lucide-react'
 import type { AssistantAnswerVersion, ToolActivity } from '@shared/assistant'
-import { ASSISTANT_TOOL_BY_NAME } from '@shared/assistant'
+import { ASSISTANT_TOOL_BY_NAME, mcpToolOrigin } from '@shared/assistant'
 import { cn } from '../../lib/cn'
 import { COPY_RESET_MS } from '../../lib/motion'
 import { t } from '../../lib/i18n'
@@ -49,30 +51,204 @@ export function MarkdownReply({ source }: { source: string }) {
   return <div className="ink-prose ink-chat-prose min-w-0" dangerouslySetInnerHTML={html} />
 }
 
-export function ToolChip({ tool }: { tool: ToolActivity }) {
-  const spec = ASSISTANT_TOOL_BY_NAME.get(tool.name)
-  const label = spec ? t(spec.labelKey) : tool.name
+/**
+ * What the reply did, as one fold rather than a row of pills per call.
+ *
+ * A turn that searched, read two notes and called a third party used to open as four chips in a row, and
+ * a long thread read as a wall of them. The group is the answer to "what did it do" and the rows inside
+ * are the answer to "what exactly" — which is what a reader wants when the answer looks wrong.
+ *
+ * It opens by itself while a call is in flight, because that is the half of a turn worth watching, and
+ * folds once the turn settles; from then on it is whatever the reader last chose.
+ */
+export function ToolCallList({ tools, messageId }: { tools: ToolActivity[], messageId?: string }) {
+  const [open, setOpen] = useState<boolean | null>(null)
+  const [rows, setRows] = useState<Record<string, boolean>>({})
+  const running = tools.some((tool) => tool.status === 'running')
+  const expanded = open ?? running
   return (
-    <span
-      data-tool-chip={tool.name}
-      title={tool.error ?? undefined}
+    <div className="min-w-0 max-w-full" role="group" aria-label={t('assistant.chat.tools_group')}>
+      <button
+        type="button"
+        aria-expanded={expanded}
+        onClick={() => setOpen(!expanded)}
+        className="inline-flex max-w-full items-center gap-1.5 rounded-[var(--r-sm)] px-1 py-0.5 text-[length:var(--text-11)] text-[var(--text-tertiary)] transition-colors duration-[var(--dur-fast)] ease-[var(--ease-out)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-secondary)]"
+      >
+        <Wrench size={11} className="shrink-0 text-[var(--text-quaternary)]" />
+        <span className="min-w-0 truncate">{t('assistant.chat.tools_group')}</span>
+        <span className="shrink-0 tabular-nums text-[var(--text-quaternary)]">{t('assistant.chat.tool_calls', { count: tools.length })}</span>
+        <ChevronDown size={11} className={cn('shrink-0 transition-transform duration-[var(--dur-fast)]', expanded && 'rotate-180')} />
+      </button>
+      {expanded && (
+        <ul className="mt-1 flex max-w-full flex-col gap-1">
+          {tools.map((tool) => (
+            <li key={tool.id} className="min-w-0 max-w-full">
+              <ToolCallRow
+                tool={tool}
+                messageId={messageId}
+                open={Boolean(rows[tool.id])}
+                onToggle={() => setRows((current) => ({ ...current, [tool.id]: !current[tool.id] }))}
+              />
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  )
+}
+
+const TOOL_STATUS_KEYS = {
+  running: 'assistant.chat.tool_running',
+  success: 'assistant.chat.tool_done',
+  error: 'assistant.chat.tool_failed',
+} as const
+
+/**
+ * The name a stored call wears on its row.
+ *
+ * A third party's function arrives namespaced (`mcp_rzmbk9_query-docs`), which says nothing to a reader.
+ * The configured servers are already in the store, so the row says `Context7 · query-docs` where that
+ * list has landed and keeps the raw name when it has not — a chip is never worth a failed read.
+ */
+function useToolLabel(name: string) {
+  const servers = useAssistant((state) => state.mcpServers)
+  const locale = useLocale()
+  return useMemo(() => {
+    if (!name.startsWith('mcp_')) {
+      const spec = ASSISTANT_TOOL_BY_NAME.get(name)
+      return { label: spec ? t(spec.labelKey) : name, external: false }
+    }
+    const origin = mcpToolOrigin(name, servers)
+    return {
+      label: origin ? `${origin.serverLabel} · ${origin.remoteName}` : name,
+      external: true,
+    }
+  }, [name, servers, locale])
+}
+
+/**
+ * One call, folded.
+ *
+ * The row states what happened before anything is opened — a spinner, a check or a cross, and the word
+ * for it — and the payloads underneath are the text the model was actually given and handed back. A
+ * third-party call also offers to run again: a reader looking at an answer built on a stale lookup has no
+ * other way to ask whether it is still stale.
+ */
+function ToolCallRow({ tool, messageId, open, onToggle }: {
+  tool: ToolActivity
+  messageId?: string
+  open: boolean
+  onToggle: () => void
+}) {
+  const { label, external } = useToolLabel(tool.name)
+  const replay = useAssistant((state) => state.replayMcpTool)
+  const [copied, setCopied] = useState(false)
+  const [busy, setBusy] = useState(false)
+  const [again, setAgain] = useState<{ ok: boolean, error: string, result: string } | null>(null)
+  const body = [
+    tool.args ? { key: 'assistant.chat.tool_args' as const, text: tool.args } : null,
+    tool.result ? { key: 'assistant.chat.tool_result' as const, text: tool.result } : null,
+  ].filter((entry): entry is { key: 'assistant.chat.tool_args' | 'assistant.chat.tool_result', text: string } => entry !== null)
+  return (
+    <div
       className={cn(
-        'inline-flex max-w-full items-center gap-1.5 rounded-full border px-2 py-[2px] text-[length:var(--text-11)]',
+        'max-w-full min-w-0 overflow-hidden rounded-[var(--r-md)] border',
         tool.status === 'error'
-          ? 'border-[color-mix(in_oklab,var(--danger)_35%,transparent)] bg-[var(--danger-soft)] text-[var(--danger)]'
-          : 'border-[var(--border-subtle)] bg-[var(--bg-inset)] text-[var(--text-tertiary)]',
+          ? 'border-[color-mix(in_oklab,var(--danger)_35%,transparent)] bg-[var(--danger-soft)]'
+          : 'border-[var(--border-subtle)] bg-[var(--bg-inset)]',
       )}
     >
-      {tool.status === 'running'
-        ? <Loader2 size={11} className="shrink-0 animate-spin" />
-        : tool.status === 'error'
-          ? <XCircle size={11} className="shrink-0" />
-          : <Check size={11} className="shrink-0 text-[var(--success)]" />}
-      <span className="min-w-0 truncate">
-        {label}
-        {tool.detail ? <span className="text-[var(--text-quaternary)]"> · {tool.detail}</span> : null}
-      </span>
-    </span>
+      <button
+        type="button"
+        data-tool-chip={tool.name}
+        title={tool.error ?? undefined}
+        aria-expanded={open}
+        onClick={onToggle}
+        className="flex w-full items-center gap-2 px-2 py-1.5 text-left transition-colors duration-[var(--dur-fast)] ease-[var(--ease-out)] hover:bg-[var(--bg-hover)]"
+      >
+        {tool.status === 'running'
+          ? <Loader2 size={12} className="shrink-0 animate-spin text-[var(--text-quaternary)]" />
+          : tool.status === 'error'
+            ? <XCircle size={12} className="shrink-0 text-[var(--danger)]" />
+            : <Check size={12} className="shrink-0 text-[var(--success)]" />}
+        <span className="min-w-0 flex-1 truncate text-[length:var(--text-11-5)] text-[var(--text-secondary)]">
+          {label}
+          {tool.detail ? <span className="text-[var(--text-quaternary)]"> · {tool.detail}</span> : null}
+        </span>
+        <span
+          className={cn(
+            'shrink-0 text-[length:var(--text-10-5)]',
+            tool.status === 'error' ? 'text-[var(--danger)]' : 'text-[var(--text-quaternary)]',
+          )}
+        >
+          {t(TOOL_STATUS_KEYS[tool.status] ?? TOOL_STATUS_KEYS.success)}
+        </span>
+        <ChevronDown size={11} className={cn('shrink-0 text-[var(--text-quaternary)] transition-transform duration-[var(--dur-fast)]', open && 'rotate-180')} />
+      </button>
+      {open && (
+        <div className="flex max-w-full min-w-0 flex-col gap-1.5 border-t border-[var(--border-subtle)] px-2 py-1.5">
+          {tool.error && (
+            <p className="min-w-0 break-words text-[length:var(--text-11)] text-[var(--danger)]">{tool.error}</p>
+          )}
+          {body.length === 0 && !tool.error && (
+            <p className="text-[length:var(--text-11)] text-[var(--text-quaternary)]">{t('assistant.chat.tool_no_data')}</p>
+          )}
+          {body.map((entry) => (
+            <div key={entry.key} className="min-w-0">
+              <p className="text-[length:var(--text-10-5)] uppercase tracking-[var(--tracking-label)] text-[var(--text-quaternary)]">{t(entry.key)}</p>
+              {/* A tool answers with whatever it likes, so this is text as it arrived — never markdown and
+                  never HTML, or a remote server's own output would render as this app's interface. */}
+              <pre
+                aria-label={t(entry.key)}
+                className="mt-0.5 max-h-[280px] max-w-full overflow-auto whitespace-pre-wrap break-words rounded-[var(--r-sm)] border-l border-[var(--border-subtle)] bg-[var(--bg-surface)] px-2 py-1.5 font-mono text-[length:var(--text-10-5)] leading-relaxed text-[var(--text-tertiary)]"
+              >{entry.text}</pre>
+            </div>
+          ))}
+          <div className="flex flex-wrap items-center gap-1">
+            {tool.result && (
+              <button
+                type="button"
+                onClick={() => {
+                  void navigator.clipboard.writeText(tool.result ?? '').then(() => {
+                    setCopied(true)
+                    window.setTimeout(() => setCopied(false), COPY_RESET_MS)
+                  })
+                }}
+                className="inline-flex items-center gap-1 rounded-[var(--r-sm)] px-1 py-0.5 text-[length:var(--text-11)] text-[var(--text-quaternary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-secondary)]"
+              >
+                {copied ? <Check size={11} /> : <Copy size={11} />}
+                {copied ? t('assistant.chat.copied') : t('assistant.chat.copy')}
+              </button>
+            )}
+            {external && messageId && tool.args && tool.status !== 'running' && (
+              <button
+                type="button"
+                disabled={busy}
+                title={t('assistant.chat.replay_hint')}
+                onClick={() => {
+                  setBusy(true)
+                  void replay(useAssistant.getState().activeId ?? '', messageId, tool.id)
+                    .then(setAgain)
+                    .finally(() => setBusy(false))
+                }}
+                className="inline-flex items-center gap-1 rounded-[var(--r-sm)] px-1 py-0.5 text-[length:var(--text-11)] font-medium text-[var(--accent-on-soft)] hover:bg-[var(--accent-soft)] disabled:opacity-50"
+              >
+                {busy ? <Loader2 size={11} className="animate-spin" /> : <Play size={11} />}
+                {busy ? t('assistant.chat.replaying') : t('assistant.chat.replay')}
+              </button>
+            )}
+          </div>
+          {again && (
+            <div className="min-w-0 rounded-[var(--r-sm)] border border-[var(--border-subtle)] bg-[var(--bg-surface)] px-2 py-1.5">
+              <p className="text-[length:var(--text-10-5)] uppercase tracking-[var(--tracking-label)] text-[var(--text-quaternary)]">{t('assistant.chat.replay_result')}</p>
+              {again.ok
+                ? <pre aria-label={t('assistant.chat.replay_result')} className="mt-0.5 max-h-[280px] max-w-full overflow-auto whitespace-pre-wrap break-words font-mono text-[length:var(--text-10-5)] leading-relaxed text-[var(--text-tertiary)]">{again.result}</pre>
+                : <p className="mt-0.5 break-words text-[length:var(--text-11)] text-[var(--danger)]">{again.error}</p>}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
   )
 }
 
@@ -221,6 +397,7 @@ export function AssistantBubble({
   streaming,
   cancelled,
   stage,
+  messageId,
   onRetry,
   retryLabel = 'assistant.chat.retry',
   usage,
@@ -237,6 +414,8 @@ export function AssistantBubble({
   streaming: boolean
   cancelled?: boolean
   stage?: 'reading' | 'searching' | 'generating' | 'waiting'
+  /** The row this reply is stored on, which is what a third-party call is run again from. */
+  messageId?: string
   onRetry?: () => void
   retryLabel?: 'assistant.chat.retry' | 'assistant.chat.regenerate'
   usage?: { inputTokens: number, outputTokens: number } | null
@@ -275,11 +454,7 @@ export function AssistantBubble({
   return (
     <div className="group flex gap-2.5">
       <div className="min-w-0 flex-1 space-y-2">
-        {tools.length > 0 && (
-          <div role="group" aria-label={t('assistant.chat.tools_taken')} className="flex flex-wrap gap-1">
-            {tools.map((tool) => <ToolChip key={tool.id} tool={tool} />)}
-          </div>
-        )}
+        {tools.length > 0 && <ToolCallList tools={tools} messageId={messageId} />}
         {tools.map((tool) => tool.approval && <ApprovalCard key={tool.approval.id} action={tool.approval} />)}
         {reasoning && (
           <button

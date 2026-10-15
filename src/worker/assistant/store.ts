@@ -9,7 +9,7 @@
  *    written by an older build, restored from a backup file, or edited by hand — stored text is input.
  */
 
-import { ASSISTANT_MODEL_KINDS, ASSISTANT_MODEL_PURPOSES, parseCustomParams } from '@shared/assistant'
+import { ASSISTANT_MODEL_KINDS, ASSISTANT_MODEL_PURPOSES, clipToolPayload, parseCustomParams } from '@shared/assistant'
 import type {
   AssistantConversation,
   AssistantMemory,
@@ -263,6 +263,8 @@ export function decodeTools(value: unknown): ToolActivity[] {
       id: raw.id,
       name: raw.name,
       ...(typeof raw.detail === 'string' ? { detail: raw.detail.slice(0, 300) } : {}),
+      ...(typeof raw.args === 'string' ? { args: clipToolPayload(raw.args) } : {}),
+      ...(typeof raw.result === 'string' ? { result: clipToolPayload(raw.result) } : {}),
       status: pickEnum(raw.status, ['running', 'success', 'error'] as const, 'success'),
       ...(typeof raw.error === 'string' ? { error: raw.error.slice(0, 300) } : {}),
       ...(approval ? { approval } : {}),
@@ -2284,13 +2286,15 @@ export class AssistantStore {
   }
 
   /** Rewrites one tool entry inside a stored message's `tools` JSON. */
-  async attachActionToMessage(messageId: string, toolId: string, action: PendingAction): Promise<void> {
+  async attachActionToMessage(messageId: string, toolId: string, action: PendingAction, result?: string): Promise<void> {
     const r = await this.one<{ tools: string | null }>(
       `SELECT tools FROM chat_messages WHERE user_id = ?1 AND id = ?2`,
       this.userId, messageId,
     )
     if (!r) return
-    const tools = decodeTools(r.tools).map((tool) => (tool.id === toolId ? { ...tool, approval: action } : tool))
+    const tools = decodeTools(r.tools).map((tool) => (tool.id === toolId
+      ? { ...tool, approval: action, ...(result ? { result: clipToolPayload(result) } : {}) }
+      : tool))
     await this.write(`UPDATE chat_messages SET tools = ?2 WHERE user_id = ?1 AND id = ?3`, JSON.stringify(tools), messageId)
   }
 

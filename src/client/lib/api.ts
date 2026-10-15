@@ -818,6 +818,16 @@ export const api = {
       ),
     /** The names the composer's / picker can offer, with the servers that failed to list. */
     mcpTools: () => request<{ servers: AssistantMcpCatalogEntry[], problems: { serverId: string, label: string, error: string }[] }>('/api/assistant/mcp/tools'),
+    /**
+     * Run one stored third-party call again, with what it was handed the first time.
+     *
+     * The arguments travel as the ids of the row they are on, never as text: the worker reads them back
+     * out of the message, so a client cannot ask for a call that never happened.
+     */
+    replayMcpTool: (conversationId: string, messageId: string, toolId: string) =>
+      request<{ ok: boolean, error: string, result: string }>(
+        '/api/assistant/mcp/replay', { method: 'POST', body: { conversationId, messageId, toolId } },
+      ),
 
     /** The answers one turn displaced, oldest first. */
     answerVersions: (conversationId: string, messageId: string) =>
@@ -855,9 +865,9 @@ export const api = {
     cancel: (conversationId: string) =>
       request<{ cancelled: true }>('/api/assistant/chat/cancel', { method: 'POST', body: { conversationId } }),
     approveAction: (id: string) =>
-      request<{ action: PendingAction }>(`/api/assistant/actions/${id}/approve`, { method: 'POST', body: {} }),
+      request<{ action: PendingAction, result?: string }>(`/api/assistant/actions/${id}/approve`, { method: 'POST', body: {} }),
     declineAction: (id: string) =>
-      request<{ action: PendingAction }>(`/api/assistant/actions/${id}/cancel`, { method: 'POST', body: {} }),
+      request<{ action: PendingAction, result?: string }>(`/api/assistant/actions/${id}/cancel`, { method: 'POST', body: {} }),
     memories: (params: { q?: string, status?: string, category?: string } = {}) =>
       request<{ memories: AssistantMemory[], total: number, counts: { active: number, historical: number, review: number } }>(
         `/api/assistant/memories${toQuery(params)}`,

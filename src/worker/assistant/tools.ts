@@ -16,7 +16,7 @@
  */
 
 import type { AssistantSettings, Task } from '@shared/assistant'
-import { ASSISTANT_TOOL_SPECS, MAX_TASK_TITLE_CHARS, TASK_PRIORITIES, TASK_STATUSES, type AssistantMemoryCategory, type AutomationKind } from '@shared/assistant'
+import { ASSISTANT_TOOL_SPECS, MAX_TASK_TITLE_CHARS, TASK_PRIORITIES, TASK_STATUSES, toolPayloadText, type AssistantMemoryCategory, type AutomationKind } from '@shared/assistant'
 import { MEMORY_CATEGORIES_FOR_TOOLS } from './memory-service'
 import { parseLocalTime, toLocalMinute } from '@shared/assistant-time'
 import { hasHistoricalIntent } from '@shared/assistant-memory'
@@ -903,8 +903,9 @@ export async function runApprovedAction(store: AssistantStore, ctx: ToolContext,
   if (!(await store.claimPendingAction(actionId, 'approved'))) {
     throw ApiError.conflict('This action was already handled.')
   }
+  let output: unknown
   try {
-    await definition.commit(stored.targetId, ctx, stored.args ?? {})
+    output = await definition.commit(stored.targetId, ctx, stored.args ?? {})
   } catch (error) {
     await store.resolvePendingAction(actionId, {
       status: 'failed',
@@ -912,7 +913,12 @@ export async function runApprovedAction(store: AssistantStore, ctx: ToolContext,
     })
     if (!(error instanceof ToolError)) console.error('[inkstone] approved assistant action failed:', error instanceof Error ? error.message : error)
   }
-  return await store.getPendingAction(actionId)
+  return {
+    action: await store.getPendingAction(actionId),
+    // A tool that answers with something hands it back, so the card's call can be read afterwards: an
+    // approved remote call is otherwise the one tool result no thread ever shows.
+    ...(output === undefined ? {} : { result: toolPayloadText(output) }),
+  }
 }
 
 export async function cancelApprovedAction(store: AssistantStore, actionId: string) {
