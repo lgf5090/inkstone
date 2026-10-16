@@ -7178,12 +7178,6 @@ const allowed = new Map([
   ["src/client/features/workspace/versions-diff.test.ts", [
     "/** The pre-change implementation: materialize every line, then truncate the array. */",
   ]],
-  ["src/client/lib/ai/components/CodeBlock.tsx", [
-    "/**\n * How long this block keeps its \"copied\" mark before the button returns to \"copy\".\n *\n * `COPY_RESET_MS` in `lib/motion` is the dwell the copy affordances elsewhere share. This one is named\n * rather than folded into that value because naming a number is a different change from retiming one,\n * and a reader has no way to notice 2000 becoming 1500; it should join the shared constant the next\n * time the affordance itself is worked on.\n */",
-    "// The check mark and the failure toast cannot both be a lie: a clipboard write is refused when the",
-    "// page is not a secure context or the reader has denied the permission, and an empty catch left the",
-    "// button looking as if nothing had happened at all. `copied` is set only once the write has answered.",
-  ]],
   ["src/client/lib/ai/stream-client.ts", [
     "// Reading the body only buys a better sentence about a failure that is already certain: `errText`",
     "// above is the answer the caller gets when the server sent no JSON, and the `{ ok: false }` below",
