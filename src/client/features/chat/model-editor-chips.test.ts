@@ -34,6 +34,7 @@ function model(over: Partial<AssistantModel> = {}): AssistantModel {
         topP: null,
         customParams: [],
         protocol: null,
+        fallbackModelId: null,
         inputPrice: null,
         outputPrice: null,
         priceCurrency: '',
@@ -94,6 +95,7 @@ function open(over: Partial<AssistantModel> = {}, limits = DEFAULT_LIMITS, provi
         root.render(createElement(ModelEditorDialog, {
             model: model(over),
             provider: provider(providerOver),
+            models: [],
             limits: limits,
             onClose: () => undefined,
             onSave: saved,

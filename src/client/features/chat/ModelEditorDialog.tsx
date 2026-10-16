@@ -76,6 +76,8 @@ export interface ModelDraft {
   customParams: AssistantCustomParam[]
   /** Null means the model is called on whatever wire its provider speaks. */
   protocol: AssistantProtocol | null
+  /** The model to try when this one cannot answer at all. Null is no spare, which is what most models are. */
+  fallbackModelId: string | null
   /** What a million tokens cost, so the usage screen can put a number on a turn. Blank is unpriced. */
   inputPrice: number | null
   outputPrice: number | null
@@ -98,6 +100,7 @@ export function draftFromModel(model: AssistantModel): ModelDraft {
     topP: model.topP,
     customParams: model.customParams.map((param) => ({ ...param })),
     protocol: model.protocol,
+    fallbackModelId: model.fallbackModelId,
     inputPrice: model.inputPrice,
     outputPrice: model.outputPrice,
     priceCurrency: model.priceCurrency,
@@ -171,6 +174,7 @@ function numberOrNull(value: string): number | null {
 export function ModelEditorDialog({
   model,
   provider,
+  models,
   limits,
   onClose,
   onSave,
@@ -178,6 +182,8 @@ export function ModelEditorDialog({
   model: AssistantModel
   /** The provider that answers for this model, which is half of what its thinking dialect is read from. */
   provider: AssistantProvider | null
+  /** Every model the reader has, so the spare can be picked by name rather than typed as an id. */
+  models: readonly AssistantModel[]
   /** The account's ceilings, which are what an emptied field inherits — named beside each field. */
   limits: AssistantLimits
   onClose: () => void
@@ -187,6 +193,10 @@ export function ModelEditorDialog({
   // The rungs this model's own service publishes, and whether it can be stopped at all. Read from the same
   // rule the worker builds the request with, so the levels offered here are the levels that travel.
   const reasoning = modelReasoning(model, provider)
+  // A model cannot be its own spare, and a model the reader has switched off cannot answer — except the one
+  // already picked, which stays listed so turning it off is something the reader can see and undo here.
+  const spares = models.filter((entry) =>
+    entry.id !== model.id && (entry.enabled || entry.id === draft.fallbackModelId))
   const [more, setMore] = useState(false)
   const [copied, setCopied] = useState(false)
   const toast = useUi((state) => state.toast)
@@ -295,6 +305,19 @@ export function ModelEditorDialog({
               >
                 <option value="">{t('assistant.model.protocol.follow')}</option>
                 {ASSISTANT_PROTOCOLS.map((entry) => <option key={entry} value={entry}>{PROTOCOL_NAMES[entry]}</option>)}
+              </Select>
+            </Field>
+
+            {/* The spare sits with the protocol because both answer "how is this model reached": a turn
+                that cannot be answered here is handed to the model named below rather than failing. */}
+            <Field label={t('assistant.model.fallback')} hint={t('assistant.model.fallback_hint')}>
+              <Select
+                aria-label={t('assistant.model.fallback')}
+                value={draft.fallbackModelId ?? ''}
+                onChange={(event) => patch({ fallbackModelId: event.target.value || null })}
+              >
+                <option value="">{t('assistant.model.fallback_none')}</option>
+                {spares.map((entry) => <option key={entry.id} value={entry.id}>{entry.label}</option>)}
               </Select>
             </Field>
 

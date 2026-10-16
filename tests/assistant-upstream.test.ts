@@ -252,6 +252,121 @@ describe('failure paths', () => {
   })
 })
 
+/**
+ * A failed attempt is not a failed turn.
+ *
+ * A provider that rate-limits, blinks, or refuses one key usually answers a moment later, so the request is
+ * sent again — with a different key when the account holds more than one. What the retry must never do is
+ * repeat a call whose answer the reader has already watched arrive, because the second answer would be
+ * appended to the first and the turn would be filed as if one model had written both.
+ */
+describe('retrying a failed attempt', () => {
+  /** The authorization each attempt was sent with, in order. */
+  async function attemptsFor(retry: UpstreamRequest['retry']): Promise<string[]> {
+    const seen: string[] = []
+    vi.stubGlobal('fetch', vi.fn(async (_url: unknown, init: RequestInit) => {
+      const headers = init.headers as Record<string, string>
+      seen.push(headers.authorization ?? headers['x-api-key'] ?? '')
+      if (seen.length === 1) return new Response('bad gateway', { status: 502 })
+      return response([openAiFrame({ content: 'ok' })])
+    }))
+    for await (const _event of streamUpstream('openai', request({ retry }))) void _event
+    return seen
+  }
+
+  it('answers on the second attempt after the provider blinked', async () => {
+    let calls = 0
+    vi.stubGlobal('fetch', vi.fn(async () => {
+      calls++
+      return calls === 1 ? new Response('bad gateway', { status: 502 }) : response([openAiFrame({ content: 'ok' })])
+    }))
+    const events: UpstreamEvent[] = []
+    for await (const event of streamUpstream('openai', request({ retry: { attempts: 1, baseMs: 0 } }))) events.push(event)
+    expect(calls).toBe(2)
+    expect(events).toEqual([{ type: 'text', delta: 'ok' }])
+  })
+
+  it('signs each attempt with a different key when the ring rotates', async () => {
+    const seen = await attemptsFor({
+      attempts: 1,
+      baseMs: 0,
+      // The second key is what a provider's ring would hand back after the first was refused.
+      rotateKey: async () => 'sk-second',
+    })
+    expect(seen).toEqual(['Bearer sk-test', 'Bearer sk-second'])
+  })
+
+  it('stops when the ring hands back the key that was just refused', async () => {
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({ error: { message: 'bad key' } }), { status: 401 }))
+    vi.stubGlobal('fetch', fetchMock)
+    const caught = await streamUpstream('openai', request({
+      retry: { attempts: 2, baseMs: 0, rotateKey: async () => 'sk-test' },
+    })).next().then(() => null).catch((error: unknown) => error)
+    expect((caught as UpstreamError).kind).toBe('auth')
+    // The same key twice cannot succeed, and waiting first would only have delayed the news.
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('gives up after the attempts the caller allowed', async () => {
+    const fetchMock = vi.fn(async () => new Response('down', { status: 503 }))
+    vi.stubGlobal('fetch', fetchMock)
+    const caught = await streamUpstream('openai', request({ retry: { attempts: 2, baseMs: 0 } }))
+      .next().then(() => null).catch((error: unknown) => error)
+    expect(fetchMock).toHaveBeenCalledTimes(3)
+    expect((caught as UpstreamError).kind).toBe('unreachable')
+  })
+
+  it('does not repeat a request the provider refused on its own terms', async () => {
+    const fetchMock = vi.fn(async () => new Response('{"error":"bad field"}', { status: 400 }))
+    vi.stubGlobal('fetch', fetchMock)
+    const caught = await streamUpstream('openai', request({ retry: { attempts: 2, baseMs: 0 } }))
+      .next().then(() => null).catch((error: unknown) => error)
+    expect((caught as UpstreamError).kind).toBe('bad-request')
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('does not repeat a call whose answer has already started streaming', async () => {
+    const encoder = new TextEncoder()
+    let pulls = 0
+    const fetchMock = vi.fn(async () => new Response(new ReadableStream<Uint8Array>({
+      // The frame is produced on demand, so the break is only reached once the reader has taken it — which
+      // is the ordering the guard is about: a failure after words have been shown cannot be papered over.
+      pull(controller) {
+        pulls++
+        if (pulls === 1) controller.enqueue(encoder.encode(openAiFrame({ content: 'half' })))
+        else controller.error(new UpstreamError('unreachable', 'the stream broke'))
+      },
+    }), { headers: { 'content-type': 'text/event-stream' } }))
+    vi.stubGlobal('fetch', fetchMock)
+    const events: UpstreamEvent[] = []
+    const caught = await (async () => {
+      try {
+        for await (const event of streamUpstream('openai', request({ retry: { attempts: 3, baseMs: 0 } }))) events.push(event)
+        return null
+      } catch (error) {
+        return error
+      }
+    })()
+    expect(events).toEqual([{ type: 'text', delta: 'half' }])
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    expect(caught).toBeInstanceOf(UpstreamError)
+  })
+
+  it('reads the wait the provider asked for off the header', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response('slow down', { status: 429, headers: { 'retry-after': '7' } })))
+    const caught = await streamUpstream('openai', request()).next().then(() => null).catch((error: unknown) => error)
+    expect((caught as UpstreamError).retryAfterMs).toBe(7_000)
+  })
+
+  it('makes no second attempt when the caller allowed none', async () => {
+    const fetchMock = vi.fn(async () => new Response('down', { status: 503 }))
+    vi.stubGlobal('fetch', fetchMock)
+    const caught = await streamUpstream('openai', request()).next().then(() => null).catch((error: unknown) => error)
+    expect((caught as UpstreamError).kind).toBe('unreachable')
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+  })
+})
+
 describe('readSse', () => {
   it('yields each data payload and ignores comment lines', async () => {
     const body = sseBody([': ping\n\n', 'data: {"a":1}\n\ndata: {"b":2}\n\n'])

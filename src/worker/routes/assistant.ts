@@ -1905,6 +1905,21 @@ function price(value: unknown): number | null {
   return Number.isFinite(numeric) && numeric >= 0 ? Math.min(numeric, 1_000_000) : null
 }
 
+/**
+ * The model a reader named as this one's spare, or null for none.
+ *
+ * A self-reference is refused because it is a chain of one that can never answer; an id that is not one of
+ * the reader's own models is refused because the turn could not resolve it. Both are answered rather than
+ * stored, since a spare that silently does nothing is worse than being told the pick was wrong.
+ */
+async function spareModelFor(s: AssistantStore, selfId: string, value: unknown): Promise<string | null> {
+  if (value === null || value === '') return null
+  if (!isValidId(value)) throw ApiError.badRequest('That fallback model does not exist.')
+  if (value === selfId) throw ApiError.badRequest('A model cannot fall back to itself.')
+  if (!(await s.getModel(value))) throw ApiError.badRequest('That fallback model does not exist.')
+  return value
+}
+
 assistantRoutes.patch('/models/:id', async (c) => {
   const s = store(c)
   const id = requiredId(c.req.param('id'))
@@ -1924,6 +1939,7 @@ assistantRoutes.patch('/models/:id', async (c) => {
     ...(pickValue(body.kind, ASSISTANT_MODEL_KINDS) !== undefined ? { kind: pickValue(body.kind, ASSISTANT_MODEL_KINDS) } : {}),
     // Null is a value here: it is the reader putting the model back on the provider's own protocol.
     ...(body.protocol !== undefined ? { protocol: pickValue(body.protocol, ASSISTANT_PROTOCOLS) ?? null } : {}),
+    ...(body.fallbackModelId !== undefined ? { fallbackModelId: await spareModelFor(s, id, body.fallbackModelId) } : {}),
     ...(body.supportsTools !== undefined ? { supportsTools: Boolean(body.supportsTools) } : {}),
     ...(body.maxInputTokens !== undefined ? { maxInputTokens: clampTokens(body.maxInputTokens, 1, MAX_TOKEN_CEILING) } : {}),
     // An unknown modality is dropped, not defaulted: a list of one typo must not silently reset the

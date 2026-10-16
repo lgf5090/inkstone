@@ -10,6 +10,11 @@
  * The key is put on the request here and nowhere else: no route echoes it, and the browser never holds
  * it. Every address is vetted by the same guard the existing AI relay uses, and redirects are refused,
  * or a reader-supplied base URL would hand the worker an address it never checked.
+ *
+ * A provider that rate-limits, blinks, or refuses a key is not a turn that has to fail. `retry` is how a
+ * caller says a second attempt is worth making, and `rotateKey` is what makes one worth anything on an
+ * account that holds several: the retry is attempted only while nothing has been streamed yet, because
+ * words the reader has already watched arrive cannot be unsaid by sending the request again.
  */
 
 import { assertRelayableEndpoint, pickRelayHeaders } from '@shared/ai-proxy-guard'
@@ -154,7 +159,27 @@ export interface UpstreamRequest {
    * the runner does something else rather than sending a field that would be ignored.
    */
   webSearch?: boolean
+  /** Absent means one attempt: the caller is the one that knows whether repeating a failure is useful. */
+  retry?: UpstreamRetry
   signal: AbortSignal
+}
+
+/**
+ * How a failed attempt is followed up.
+ *
+ * A provider that rate-limits, goes down for a moment, or refuses one key is usually answering fine a
+ * second later, so the same request is worth sending again. `attempts` is how many extra tries are
+ * allowed, and `rotateKey` is what makes a retry worth anything on an account holding several keys: a
+ * 429 or a 401 is the one failure a different key fixes, and the ring hands the next attempt the least
+ * recently used one.
+ */
+export interface UpstreamRetry {
+  /** Extra attempts after the first. */
+  attempts: number
+  /** The first backoff in ms, doubled per attempt. Overridable so a test does not sit on the clock. */
+  baseMs?: number
+  /** The key for the next attempt. Absent leaves the same key on the wire. */
+  rotateKey?: () => Promise<string>
 }
 
 export class UpstreamError extends Error {
@@ -162,6 +187,13 @@ export class UpstreamError extends Error {
     readonly kind: 'auth' | 'rate' | 'quota' | 'unreachable' | 'unsupported' | 'bad-request' | 'timeout',
     message: string,
     readonly status?: number,
+    /**
+     * How long the provider asked the caller to wait, in ms, when it said so.
+     *
+     * A 429 usually names a number, and guessing shorter than it only earns another 429 — so this is
+     * believed over the caller's own backoff when it is present.
+     */
+    readonly retryAfterMs?: number,
   ) {
     super(message)
     this.name = 'UpstreamError'
@@ -172,7 +204,47 @@ export class UpstreamError extends Error {
 const FIRST_CHUNK_TIMEOUT_MS = 60_000
 const IDLE_CHUNK_TIMEOUT_MS = 90_000
 
+/** The backoff a retry starts from, how far it may grow, and the longest wait a `Retry-After` can ask. */
+const RETRY_BASE_MS = 400
+const RETRY_MAX_MS = 8_000
+const RETRY_AFTER_CAP_MS = 30_000
+
+/**
+ * One request to a provider, with the caller's retry policy applied to it.
+ *
+ * The retry lives here rather than in the runner because it is a fact about the wire — the request never
+ * reached a model, or was refused before one byte of an answer came back — and every caller that talks to
+ * a provider gets the same behaviour for free. The one thing it will not do is repeat a call that has
+ * already streamed: `produced` is set by the first event yielded, and a failure after it is the turn's own
+ * to report rather than something to paper over with a second answer.
+ */
 export async function* streamUpstream(
+  protocol: AssistantProtocol,
+  request: UpstreamRequest,
+): AsyncGenerator<UpstreamEvent> {
+  const attempts = Math.max(0, request.retry?.attempts ?? 0)
+  let apiKey = request.apiKey
+  for (let attempt = 0; ; attempt++) {
+    let produced = false
+    try {
+      for await (const event of streamOnce(protocol, { ...request, apiKey })) {
+        produced = true
+        yield event
+      }
+      return
+    } catch (error) {
+      if (produced || attempt >= attempts || !retryable(error)) throw error
+      const next = await nextAttemptKey(error, request.retry, apiKey)
+      // Null is "no other key to try", which is what a rejection naming the key itself comes to when the
+      // ring holds only the one that was just refused.
+      if (next === null) throw error
+      await wait(backoffMs(attempt, request.retry, error), request.signal)
+      apiKey = next
+    }
+  }
+}
+
+async function* streamOnce(
   protocol: AssistantProtocol,
   request: UpstreamRequest,
 ): AsyncGenerator<UpstreamEvent> {
@@ -184,6 +256,66 @@ export async function* streamUpstream(
     default:
       return yield* streamOpenAi(request)
   }
+}
+
+/**
+ * Whether a second attempt could plausibly answer where the first did not.
+ *
+ * Everything the provider says about its own availability, its rate, or the key is worth repeating. What
+ * it says about the request is not: a body it refused on its own terms will be refused again, and the
+ * caller's fallback chain is the place that decides what to do about a model it does not know.
+ */
+function retryable(error: unknown): boolean {
+  if (!(error instanceof UpstreamError)) return false
+  return error.kind !== 'bad-request' && error.kind !== 'unsupported'
+}
+
+/**
+ * The key the next attempt is sent with, or null when there is nothing left to change.
+ *
+ * A ring of one hands the same key back, and repeating a rejection that names the key is only a wait: the
+ * two kinds that mean "this key is spent" therefore stop here rather than burning the caller's budget on
+ * attempts that cannot succeed. A rate limit is the exception, because it is about the moment rather than
+ * the key, and a moment passes.
+ */
+async function nextAttemptKey(
+  error: unknown,
+  retry: UpstreamRetry | undefined,
+  current: string,
+): Promise<string | null> {
+  const spent = error instanceof UpstreamError && (error.kind === 'auth' || error.kind === 'quota')
+  if (!retry?.rotateKey) return spent ? null : current
+  const next = await retry.rotateKey()
+  return next === current && spent ? null : next
+}
+
+/** How long to wait before an attempt, with jitter so a fleet of turns does not retry in lockstep. */
+function backoffMs(attempt: number, retry: UpstreamRetry | undefined, error: unknown): number {
+  const after = error instanceof UpstreamError ? error.retryAfterMs : undefined
+  if (after !== undefined) return Math.min(after, RETRY_AFTER_CAP_MS)
+  const base = Math.max(0, retry?.baseMs ?? RETRY_BASE_MS)
+  const scaled = Math.min(base * 2 ** attempt, RETRY_MAX_MS)
+  return scaled + Math.random() * scaled * 0.25
+}
+
+/** A pause a reader's stop can cut short, so a retry never outlives the turn it belongs to. */
+function wait(ms: number, signal: AbortSignal): Promise<void> {
+  if (ms <= 0) return Promise.resolve()
+  return new Promise((resolve, reject) => {
+    if (signal.aborted) {
+      reject(new AbortError())
+      return
+    }
+    const onAbort = () => {
+      clearTimeout(timer)
+      reject(new AbortError())
+    }
+    const timer = setTimeout(() => {
+      signal.removeEventListener('abort', onAbort)
+      resolve()
+    }, ms)
+    signal.addEventListener('abort', onAbort, { once: true })
+  })
 }
 
 // --------------------------------------------------------------------- fetch
@@ -237,6 +369,7 @@ export class AbortError extends Error {
 async function describeFailure(response: Response): Promise<UpstreamError> {
   const text = (await response.text().catch(() => '')).slice(0, 600)
   const lower = text.toLowerCase()
+  const after = retryAfterMs(response)
   if (response.status === 401 || response.status === 403) {
     return new UpstreamError('auth', 'The provider rejected the API key.', response.status)
   }
@@ -244,15 +377,30 @@ async function describeFailure(response: Response): Promise<UpstreamError> {
     const quota = /quota|exhausted|insufficient|billing|balance/.test(lower)
     return new UpstreamError(quota ? 'quota' : 'rate', quota
       ? 'The provider reports the account is out of quota.'
-      : 'The provider is rate-limiting this account. Try again shortly.', response.status)
+      : 'The provider is rate-limiting this account. Try again shortly.', response.status, after)
   }
   if (response.status === 404 || /model|not found|unsupported/.test(lower)) {
     return new UpstreamError('unsupported', `The provider does not know that model (${response.status}).`, response.status)
   }
   if (response.status >= 500) {
-    return new UpstreamError('unreachable', `The provider is unavailable (${response.status}).`, response.status)
+    return new UpstreamError('unreachable', `The provider is unavailable (${response.status}).`, response.status, after)
   }
   return new UpstreamError('bad-request', `The provider rejected the request (${response.status}).`, response.status)
+}
+
+/**
+ * How long the provider asked the caller to wait, in ms.
+ *
+ * The header is either a number of seconds or an HTTP date, and both are seen in the wild. A value that is
+ * neither is ignored rather than guessed at, because a wrong number here would be worse than the backoff.
+ */
+function retryAfterMs(response: Response): number | undefined {
+  const raw = response.headers.get('retry-after')?.trim()
+  if (!raw) return undefined
+  const seconds = Number(raw)
+  if (Number.isFinite(seconds) && seconds >= 0) return Math.round(seconds * 1000)
+  const at = Date.parse(raw)
+  return Number.isFinite(at) ? Math.max(0, at - Date.now()) : undefined
 }
 
 /**

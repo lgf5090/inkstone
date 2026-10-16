@@ -13,7 +13,7 @@
  */
 
 import { MAX_MESSAGE_CHARS, toolPayloadText } from '@shared/assistant'
-import type { AssistantMessage, AssistantModelModality, AssistantProtocol, AssistantSettings, ChatStreamEvent, ToolActivity } from '@shared/assistant'
+import type { AssistantMessage, AssistantModel, AssistantModelModality, AssistantProtocol, AssistantSettings, ChatStreamEvent, ToolActivity } from '@shared/assistant'
 import { contextBudgetFor, customParamBody, MAX_CHAT_ATTACHMENTS, MAX_TURN_SCOPES, MAX_TURN_TOOLS, estimateTokens, titleFromMessage, type AssistantTurnScope } from '@shared/assistant'
 import { hasHistoricalIntent, memoryTokenBudget } from '@shared/assistant-memory'
 import { expandChatAttachments, type AttachmentPayload } from './attachments'
@@ -31,8 +31,8 @@ import { AutomationService } from './automations'
 import { resolveNoteScope, type NoteScope } from './note-scope'
 import { matchVaultFolders, noteTitleIfLive } from './vault'
 import { parametersSchema, ToolError, ToolExecutor, type ToolContext } from './tools'
-import { AbortError, streamUpstream, type ModelTurn, type ToolCallRecord, type ToolSchema, type UpstreamError, type UpstreamRequest, type UpstreamSource } from './upstream'
-import { loadModelAndProvider, modelEndpoint } from './model-config'
+import { AbortError, streamUpstream, UpstreamError, type ModelTurn, type ToolCallRecord, type ToolSchema, type UpstreamRequest, type UpstreamRetry, type UpstreamSource } from './upstream'
+import { loadModelAndProvider, modelEndpoint, type ModelEndpoint } from './model-config'
 import { fuseMemoryRecall, rankMemoriesByVector, semanticModel } from './semantic'
 
 /** The two protocols with a vendor-side web search that can simply be asked for. */
@@ -70,6 +70,24 @@ const RAISE_ACCOUNT_OUTPUT_CAP = 'Raise the assistant’s own “Max output toke
  */
 const SUMMARIZE_DEADLINE_MS = 45_000
 const CONFLICT_JUDGE_DEADLINE_MS = 30_000
+
+/**
+ * How many extra attempts a model call gets before the turn reports the failure.
+ *
+ * Two is enough to ride out the two things that actually happen — a rate limit and a provider blinking —
+ * without turning a genuinely broken key into a half-minute of waiting. The retry itself is the wire's
+ * (see `streamUpstream`); what the runner supplies is the budget and the key ring behind it.
+ */
+const UPSTREAM_RETRY_ATTEMPTS = 2
+
+/**
+ * How many models a turn may walk down before it gives up.
+ *
+ * A chain is meant to be a primary and a spare, not a tour of the reader's whole catalogue: each extra
+ * model is another round trip the reader waits through, and one that answers on the fourth try has already
+ * spent the patience the first three were trying to save.
+ */
+const MAX_FALLBACK_MODELS = 3
 
 const MAX_RELEVANT_MEMORIES = 8
 const ALWAYS_INCLUDE_PREFERENCES = 4
@@ -118,6 +136,19 @@ interface HistoryEntry {
   createdAt: number
   calls?: ToolCallRecord[]
   images?: { mime: string, dataUrl: string }[]
+}
+
+/**
+ * One model a turn may be answered by, with everything needed to call it already read.
+ *
+ * The provider is carried beside the model because the fallback chain crosses providers — a spare model
+ * is usually another service's — and re-reading it per call would make the chain and the request disagree
+ * about which key and address belong to which model.
+ */
+interface ResolvedCall {
+  model: AssistantModel
+  provider: ProviderRow
+  call: ModelEndpoint
 }
 
 export class AssistantRunner {
@@ -289,10 +320,20 @@ export class AssistantRunner {
       if (!resolved.model || !resolved.provider) {
         throw ApiError.badRequest('No model is configured yet. Pick one under Assistant settings, or turn on offline mode.')
       }
-      const { model, provider } = resolved
-      const call = modelEndpoint(model, provider)
+      const primary: ResolvedCall = {
+        model: resolved.model,
+        provider: resolved.provider,
+        call: modelEndpoint(resolved.model, resolved.provider),
+      }
+      // The reader's own model first, then whatever chain it names. Read once, because the model that
+      // answers the first step is the one that answers the whole turn: a reply that changed voice after a
+      // tool call would be two answers sold as one.
+      const chain = await this.modelChain(primary)
+      // Which of the chain is answering right now. Mutated by the failover step rather than returned from
+      // it, because a generator's value is not reachable through `for await`.
+      const served = { current: primary }
+      let { model, provider, call } = primary
       modelLabel = model.label
-      const apiKey = await this.signKey(provider)
       const limits = this.settings.limits
       // A 1M model and a 4K model do not get fed the same amount: the reader sets this per model on the
       // composer's context control, and the assistant-wide ceiling is what a model without one falls back
@@ -368,7 +409,8 @@ export class AssistantRunner {
       // the account's number answers only for a model the reader has not set: taking the lower of the two
       // let the account default (1024) silently outrank a model the reader had set to 64000. Kept in a
       // name because a turn cut off at it has to say the number that cut it.
-      const outputCap = model.maxOutputTokens ?? limits.maxOutputTokens
+      const capFor = (entry: ResolvedCall) => entry.model.maxOutputTokens ?? limits.maxOutputTokens
+      let outputCap = capFor(primary)
       let steps = 0
 
       for (;;) {
@@ -384,23 +426,27 @@ export class AssistantRunner {
         // Judged per step and only the last step's verdict is kept: a step cut off mid-tool-call is
         // repaired by the step after it, while a cut-off *answer* is what must not be filed as whole.
         this.turnTruncated = false
-        for await (const event of this.step(call.protocol, {
-          baseUrl: call.baseUrl,
+        // The first step is where a model may be swapped for one further down the chain; every step after
+        // it is answered by whichever model got through, so a reply never changes voice halfway.
+        const candidates = steps === 1 ? chain : [served.current]
+        for await (const event of this.stepWithFailover(candidates, served, (entry, apiKey) => ({
+          baseUrl: entry.call.baseUrl,
           apiKey,
-          model: model.model,
+          model: entry.model.model,
           system,
           turns,
           // A model that invents tool calls is silenced by not sending the schemas at all.
-          tools: model.supportsTools ? schemas : [],
+          tools: entry.model.supportsTools ? schemas : [],
           webSearch: this.webSearchNative,
-          maxOutputTokens: outputCap,
-          temperature: model.temperature,
-          topP: model.topP,
-          extraBody: customParamBody(model.customParams),
-          reasoning: model.reasoning,
-          reasoningDialect: call.reasoningDialect,
+          maxOutputTokens: capFor(entry),
+          temperature: entry.model.temperature,
+          topP: entry.model.topP,
+          extraBody: customParamBody(entry.model.customParams),
+          reasoning: entry.model.reasoning,
+          reasoningDialect: entry.call.reasoningDialect,
+          retry: this.retryFor(entry.provider),
           signal: input.signal,
-        }, calls, usage)) {
+        }), calls, usage)) {
           if (event.type === 'text') text += event.delta ?? ''
           if (event.type === 'reasoning') reasoning += event.delta ?? ''
           // A reader who pressed stop released the lease; on a platform that does not report the
@@ -409,6 +455,12 @@ export class AssistantRunner {
           if (++eventsSeen % 16 === 0 && !(await this.store.isRunning(conversationId))) throw new AbortError()
           yield event
         }
+        // Everything below is about the model that actually answered, which a failover may have moved.
+        model = served.current.model
+        provider = served.current.provider
+        call = served.current.call
+        modelLabel = model.label
+        outputCap = capFor(served.current)
         // The step's words go into the answer before anything can end the turn. A step that asked for no
         // tool is the one that wrote the answer, and it ends the turn right here — accumulating after this
         // point filed every plain reply as empty, which is what the reader saw as a finished turn with no
@@ -556,6 +608,79 @@ export class AssistantRunner {
   }
 
   /**
+   * One step, walked down the chain until a model answers it.
+   *
+   * A model that cannot be reached at all — the vendor has retired it, the service is down, the account's
+   * keys are all spent — is the case the reader's fallback exists for, and the next candidate is tried. The
+   * two things that stop that are the ones that would make it dishonest: a failure *after* words have been
+   * streamed, which cannot be taken back, and a failure that is about the request itself, which the next
+   * model would refuse just as flatly.
+   *
+   * What a failed attempt produced is rolled back with it. A trace, a set of search results or a truncation
+   * flag left behind by an attempt that never answered would be attributed to the model that did, and the
+   * turn would report a cap it was never cut off at.
+   */
+  private async *stepWithFailover(
+    candidates: readonly ResolvedCall[],
+    served: { current: ResolvedCall },
+    requestFor: (entry: ResolvedCall, apiKey: string) => UpstreamRequest,
+    calls: ToolCallRecord[],
+    usage: { inputTokens: number, outputTokens: number },
+  ): AsyncGenerator<ChatStreamEvent> {
+    let failure: unknown = null
+    for (const entry of candidates) {
+      const attemptCalls: ToolCallRecord[] = []
+      const attemptUsage = { inputTokens: 0, outputTokens: 0 }
+      const sourcesBefore = new Set(this.turnSources.keys())
+      const truncatedBefore = this.turnTruncated
+      let spoke = false
+      try {
+        const apiKey = await this.signKey(entry.provider)
+        for await (const event of this.step(entry.call.protocol, requestFor(entry, apiKey), attemptCalls, attemptUsage)) {
+          spoke = true
+          yield event
+        }
+        // Only a call that got through is charged, and only its calls and counters are kept.
+        usage.inputTokens += attemptUsage.inputTokens
+        usage.outputTokens += attemptUsage.outputTokens
+        calls.push(...attemptCalls)
+        served.current = entry
+        return
+      } catch (error) {
+        failure = error
+        if (spoke || !worthAnotherModel(error)) throw error
+        for (const url of this.turnSources.keys()) if (!sourcesBefore.has(url)) this.turnSources.delete(url)
+        this.turnTruncated = truncatedBefore
+      }
+    }
+    throw failure ?? new Error('No model in the fallback chain could answer.')
+  }
+
+  /**
+   * The models this turn may be answered by, in the order they will be tried.
+   *
+   * The reader's own choice comes first and each model may name the one behind it. The walk stops at a
+   * model already in the chain, which is what two models naming each other would otherwise become, and at
+   * a model that has since been turned off or deleted — a dangling name is skipped rather than followed
+   * into a failure the reader cannot see the cause of.
+   */
+  private async modelChain(primary: ResolvedCall): Promise<ResolvedCall[]> {
+    const chain: ResolvedCall[] = [primary]
+    const seen = new Set([primary.model.id])
+    while (chain.length < MAX_FALLBACK_MODELS) {
+      const nextId = chain[chain.length - 1]!.model.fallbackModelId
+      if (!nextId || seen.has(nextId)) break
+      seen.add(nextId)
+      const model = await this.store.getModel(nextId)
+      if (!model || !model.enabled) break
+      const provider = await this.store.providerRecord(model.providerId)
+      if (!provider) break
+      chain.push({ model, provider, call: modelEndpoint(model, provider) })
+    }
+    return chain
+  }
+
+  /**
    * The key this call signs with, taken from the provider's ring and marked as just used.
    *
    * Marking it is what makes the rotation rotate: the next call sorts the least recently used key first,
@@ -566,6 +691,17 @@ export class AssistantRunner {
     if (!picked) return ''
     await this.store.markProviderKeyUsed(provider.id, picked.keyId)
     return picked.key
+  }
+
+  /**
+   * The retry policy every call to a provider is made under.
+   *
+   * A second attempt is signed with a fresh key, which is the whole point of the reader's ring: a 429 or a
+   * 401 on one key is answered by the next one, and the ring hands out the least recently used so a retry
+   * does not land on the key that just failed.
+   */
+  private retryFor(provider: ProviderRow): UpstreamRetry {
+    return { attempts: UPSTREAM_RETRY_ATTEMPTS, rotateKey: async () => await this.signKey(provider) }
   }
 
   /** Charges one or more model calls against the reader's daily ceiling, refusing when it is spent. */
@@ -611,6 +747,7 @@ export class AssistantRunner {
         // A summary is arithmetic on text, not a question: thinking only costs the reader's budget.
         reasoning: 'off',
         reasoningDialect: call.reasoningDialect,
+        retry: this.retryFor(resolved.provider),
         signal: controller.signal,
       })) {
         if (event.type === 'text') text += event.delta
@@ -861,6 +998,7 @@ export class AssistantRunner {
         temperature: 0,
         reasoning: 'off',
         reasoningDialect: call.reasoningDialect,
+        retry: this.retryFor(resolved.provider),
         signal: controller.signal,
       })) {
         if (event.type === 'text') text += event.delta
@@ -907,26 +1045,35 @@ export class AssistantRunner {
       parameters: parametersSchema(definition.fields),
     }))
     const turns: ModelTurn[] = [{ role: 'user', content: prompt }]
-    const call = modelEndpoint(resolved.model, resolved.provider)
+    // A routine runs unwatched, so a model the vendor has retired or a service that is down would fail it
+    // silently. It walks the same fallback chain a turn does, for the same reason.
+    const primary: ResolvedCall = {
+      model: resolved.model,
+      provider: resolved.provider,
+      call: modelEndpoint(resolved.model, resolved.provider),
+    }
+    const chain = await this.modelChain(primary)
+    const served = { current: primary }
     const usage = { inputTokens: 0, outputTokens: 0 }
     let text = ''
     let steps = 0
     for (;;) {
       steps++
       const calls: ToolCallRecord[] = []
-      for await (const event of this.step(call.protocol, {
-        baseUrl: call.baseUrl,
-        apiKey: await this.signKey(resolved.provider),
-        model: resolved.model.model,
+      for await (const event of this.stepWithFailover(steps === 1 ? chain : [served.current], served, (entry, apiKey) => ({
+        baseUrl: entry.call.baseUrl,
+        apiKey,
+        model: entry.model.model,
         system,
         turns,
         tools: schemas,
         maxOutputTokens: Math.min(limits.maxOutputTokens, 800),
         temperature: this.settings.temperature,
-        reasoning: resolved.model.reasoning,
-        reasoningDialect: call.reasoningDialect,
+        reasoning: entry.model.reasoning,
+        reasoningDialect: entry.call.reasoningDialect,
+        retry: this.retryFor(entry.provider),
         signal,
-      }, calls, usage)) {
+      }), calls, usage)) {
         if (event.type === 'text') text += event.delta ?? ''
       }
       if (!calls.length) break
@@ -1050,6 +1197,18 @@ function errorCode(error: unknown): string {
   if (status === 429) return 'rate_limited'
   if ((error as UpstreamError)?.kind === 'quota' || (error as UpstreamError)?.kind === 'rate') return 'rate_limited'
   return 'internal'
+}
+
+/**
+ * Whether a failure says something about one model's door rather than about the request.
+ *
+ * A model the vendor has retired, a service that is down, a key that is out of quota or was refused: all
+ * four are answered by trying the reader's spare. A request the provider rejected on its own terms is not,
+ * because the next model would reject it too and the reader would only have waited longer to be told.
+ * Anything that is not an upstream failure at all — a stop, a bug — is the turn's own to report.
+ */
+function worthAnotherModel(error: unknown): boolean {
+  return error instanceof UpstreamError && error.kind !== 'bad-request'
 }
 
 function describeUpstreamFailure(error: unknown): string {

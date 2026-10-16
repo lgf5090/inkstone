@@ -234,6 +234,7 @@ export function ModelTab({ settings }: { settings: AssistantSettings }) {
                 <ModelEditorDialog
                   model={editing}
                   provider={providers.find((entry) => entry.id === editing.providerId) ?? null}
+                  models={models}
                   limits={settings.limits}
                   onClose={() => setEditing(null)}
                   onSave={(draft) => void updateModel(editing.id, draft)}

@@ -1711,6 +1711,13 @@ describe('chat attachments', () => {
   it('feeds an attached file to the model and keeps it on the next turn', async () => {
     await useExampleModel()
     const uploaded = await uploadFile('购物清单.txt', '买咖啡豆和燕麦奶', 'text/plain')
+    // Every call is stubbed: what this test is about is the file travelling with the turn, and a turn left
+    // to the real network spent ten seconds failing to reach a host that does not answer.
+    const bodies: string[] = []
+    vi.stubGlobal('fetch', vi.fn(async (_url: unknown, init?: RequestInit) => {
+      bodies.push(String(init?.body ?? ''))
+      return new Response(sse(FINAL_FRAMES), { headers: { 'content-type': 'text/event-stream' } })
+    }))
     const events = await chatEvents({ message: '我附的文件里要买什么？', attachments: [uploaded.attachment.id] })
     await settleTurns()
     const conversationId = events.find((event) => event.type === 'start')!.conversationId!
@@ -1719,16 +1726,13 @@ describe('chat attachments', () => {
     expect(userTurn.attachments).toEqual([uploaded.attachment.id])
     // The stored row is what the reader typed; the file joins the model's view, not the transcript.
     expect(userTurn.content).toBe('我附的文件里要买什么？')
+    expect(bodies.join('\n')).toContain('买咖啡豆和燕麦奶')
     // The body the model is fed carries the file, so a second turn can still be told what it said.
-    const bodies: string[] = []
-    vi.stubGlobal('fetch', vi.fn(async (_url: unknown, init?: RequestInit) => {
-      bodies.push(String(init?.body ?? ''))
-      return new Response(sse(FINAL_FRAMES), { headers: { 'content-type': 'text/event-stream' } })
-    }))
+    bodies.length = 0
     await chatEvents({ conversationId, message: '再说一遍清单里的东西' })
     await settleTurns()
     vi.unstubAllGlobals()
-    expect(bodies.some((body) => body.includes('买咖啡豆和燕麦奶'))).toBe(true)
+    expect(bodies.join('\n')).toContain('买咖啡豆和燕麦奶')
   })
 
   it('feeds a document the browser read into the model, and names one it could not', async () => {
@@ -1787,8 +1791,12 @@ describe('chat attachments', () => {
 
   it('drops an id that is not a real attachment before it reaches the model', async () => {
     await useExampleModel()
+    // Stubbed: what is being read here is which ids survive the gate, and a turn left to the real network
+    // would spend its time failing to reach a host rather than answering.
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(sse(FINAL_FRAMES), { headers: { 'content-type': 'text/event-stream' } })))
     const events = await chatEvents({ message: '附件呢？', attachments: ['nope', '../etc/passwd', '0123456789abcdefghjkmnpqrs'] })
     await settleTurns()
+    vi.unstubAllGlobals()
     const conversationId = events.find((event) => event.type === 'start')!.conversationId!
     const detail = await call<{ messages: AssistantMessage[] }>('GET', `/api/assistant/conversations/${conversationId}`)
     // A shape that is not an id never becomes a row, and neither does an id the reader does not own.
@@ -1798,8 +1806,11 @@ describe('chat attachments', () => {
   it('carries the attachment ids through a backup round-trip', async () => {
     const uploaded = await uploadFile('keep.txt', '要留在备份里', 'text/plain')
     await useExampleModel()
+    // Stubbed for the same reason as the turn above: the round trip is the subject here, not reachability.
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(sse(FINAL_FRAMES), { headers: { 'content-type': 'text/event-stream' } })))
     const events = await chatEvents({ message: '记住这个附件', attachments: [uploaded.attachment.id] })
     await settleTurns()
+    vi.unstubAllGlobals()
     const conversationId = events.find((event) => event.type === 'start')!.conversationId!
     const payload = await call('GET', '/api/assistant/export') as Record<string, unknown>
     expect(JSON.stringify(payload)).toContain(uploaded.attachment.id)
@@ -2987,6 +2998,95 @@ describe('provider key rotation', () => {
     await call('DELETE', `/api/assistant/providers/${providerId}/keys/${added.key.id}`)
     const listed = await call<{ keys: unknown[] }>('GET', `/api/assistant/providers/${providerId}/keys`)
     expect(listed.keys).toHaveLength(0)
+  })
+})
+
+/**
+ * The model a turn is handed to when the chosen one cannot answer at all.
+ *
+ * A spare is the reader's answer to a vendor retiring a model, a service going down, or an account running
+ * out of quota — the three failures that are facts about one model's door rather than about the question.
+ * What it must not become is a second chance for a request the provider refused on its own terms, which the
+ * spare would refuse just as flatly after the reader had waited for it.
+ */
+describe('the model a turn falls back to', () => {
+  async function activeModelId(): Promise<string> {
+    const models = await call<{ models: AssistantModel[] }>('GET', '/api/assistant/models')
+    return models.models[0]!.id
+  }
+
+  /** A second provider on its own host, so the stub can tell the two apart by address. */
+  async function addSpare(): Promise<AssistantModel> {
+    const created = await call<{ provider: AssistantProvider }>('POST', '/api/assistant/providers', {
+      label: 'Spare',
+      protocol: 'openai',
+      baseUrl: 'https://spare.example.com',
+      apiKey: 'sk-spare-1111',
+      models: ['spare-model'],
+    })
+    const models = await call<{ models: AssistantModel[] }>('GET', '/api/assistant/models')
+    return models.models.find((entry) => entry.providerId === created.provider.id)!
+  }
+
+  it('saves a spare, and refuses the model itself or one that is not there', async () => {
+    await useExampleModel()
+    const primary = await activeModelId()
+    const spare = await addSpare()
+    const saved = await call<{ model: AssistantModel }>('PATCH', `/api/assistant/models/${primary}`, { fallbackModelId: spare.id })
+    expect(saved.model.fallbackModelId).toBe(spare.id)
+    // A chain of one that can never answer, and a name nothing can resolve: both are refused rather than
+    // stored, because a spare that silently does nothing is worse than being told the pick was wrong.
+    expect(await status('PATCH', `/api/assistant/models/${primary}`, { fallbackModelId: primary })).toBe(400)
+    expect(await status('PATCH', `/api/assistant/models/${primary}`, { fallbackModelId: oid('zz9') })).toBe(400)
+    const cleared = await call<{ model: AssistantModel }>('PATCH', `/api/assistant/models/${primary}`, { fallbackModelId: null })
+    expect(cleared.model.fallbackModelId).toBe(null)
+  })
+
+  it('answers with the spare when the chosen model cannot answer at all', async () => {
+    await useExampleModel()
+    const primary = await activeModelId()
+    const spare = await addSpare()
+    await call('PATCH', `/api/assistant/models/${primary}`, { fallbackModelId: spare.id })
+
+    const hosts: string[] = []
+    vi.stubGlobal('fetch', vi.fn(async (url: unknown) => {
+      const host = new URL(String(url)).host
+      hosts.push(host)
+      // `retry-after: 0` keeps the retry budget real without making the test sit out the backoff.
+      return host === 'api.example.com'
+        ? new Response('rate limited', { status: 429, headers: { 'retry-after': '0' } })
+        : new Response(sse(FINAL_FRAMES), { headers: { 'content-type': 'text/event-stream' } })
+    }))
+    const events = await chatEvents({ message: 'what is on my list?' })
+    await settleTurns()
+    vi.unstubAllGlobals()
+
+    // The chosen model gets its retries first, and only then is the spare asked.
+    expect(hosts).toEqual(['api.example.com', 'api.example.com', 'api.example.com', 'spare.example.com'])
+    expect(events.some((event) => event.type === 'error')).toBe(false)
+    const conversationId = events.find((event) => event.type === 'start')!.conversationId!
+    const detail = await call<{ messages: AssistantMessage[] }>('GET', `/api/assistant/conversations/${conversationId}`)
+    expect(detail.messages[1]!.content).toContain('Nothing is on the list.')
+    expect(detail.messages[1]!.status).toBe('complete')
+    // The turn is filed against the model that answered it, not the one that could not.
+    expect(detail.messages[1]!.modelLabel).toBe(spare.label)
+  })
+
+  it('does not hand a request the provider refused to the spare', async () => {
+    await useExampleModel()
+    const primary = await activeModelId()
+    const spare = await addSpare()
+    await call('PATCH', `/api/assistant/models/${primary}`, { fallbackModelId: spare.id })
+    const hosts: string[] = []
+    vi.stubGlobal('fetch', vi.fn(async (url: unknown) => {
+      hosts.push(new URL(String(url)).host)
+      return new Response('{"error":"bad field"}', { status: 400 })
+    }))
+    const events = await chatEvents({ message: 'hello' })
+    await settleTurns()
+    vi.unstubAllGlobals()
+    expect(hosts).toEqual(['api.example.com'])
+    expect(events.some((event) => event.type === 'error')).toBe(true)
   })
 })
 

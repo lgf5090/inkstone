@@ -1285,6 +1285,15 @@ export const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
       `ALTER TABLE chat_providers ADD COLUMN key_last_used_at INTEGER`,
     ],
   },
+  {
+    // The model a turn falls back to when this one cannot answer at all. A plain column rather than a
+    // table: a spare is one model, not a set, and the chain is followed through the column itself.
+    version: 80,
+    skipIfColumnExists: { table: 'chat_models', column: 'fallback_model_id' },
+    statements: [
+      `ALTER TABLE chat_models ADD COLUMN fallback_model_id TEXT`,
+    ],
+  },
 ]
 
 const FTS_STATEMENT = `CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(

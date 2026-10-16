@@ -315,6 +315,14 @@ export interface AssistantModel {
    */
   protocol: AssistantProtocol | null
   /**
+   * The model to try when this one cannot answer at all.
+   *
+   * Null is "no spare", which is what most models are. Only a failure that says something about this
+   * model's own door is followed — a retired model, a provider that is down, a key out of quota — because
+   * a request the provider refused on its own terms would be refused by the next model too.
+   */
+  fallbackModelId: string | null
+  /**
    * What a million tokens of this model costs, as the provider publishes it.
    *
    * Null is "not priced" rather than free — a local model and an unpriced one look the same in a total,

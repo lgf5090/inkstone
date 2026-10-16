@@ -936,6 +936,7 @@ export class AssistantStore {
       reasoning, contextTokens, vision, enabled: true,
       purpose: 'chat', kind: 'text', supportsTools: true, maxInputTokens: null, modalities: [], topP: null, customParams: [],
       protocol: input.protocol ?? null,
+      fallbackModelId: null,
       inputPrice: null, outputPrice: null, priceCurrency: '',
     }
   }
@@ -949,6 +950,8 @@ export class AssistantStore {
       maxInputTokens?: number | null, topP?: number | null, customParams?: AssistantCustomParam[],
       modalities?: readonly AssistantModelModality[]
       protocol?: AssistantProtocol | null
+      /** Null is "no spare"; a value names the model to try when this one cannot answer. */
+      fallbackModelId?: string | null
       inputPrice?: number | null
       outputPrice?: number | null
       priceCurrency?: string
@@ -977,6 +980,7 @@ export class AssistantStore {
       ...(patch.topP !== undefined ? { topP: patch.topP } : {}),
       ...(patch.customParams !== undefined ? { customParams: parseCustomParams(patch.customParams) } : {}),
       ...(patch.protocol !== undefined ? { protocol: patch.protocol } : {}),
+      ...(patch.fallbackModelId !== undefined ? { fallbackModelId: patch.fallbackModelId } : {}),
       ...(patch.inputPrice !== undefined ? { inputPrice: patch.inputPrice } : {}),
       ...(patch.outputPrice !== undefined ? { outputPrice: patch.outputPrice } : {}),
       ...(patch.priceCurrency !== undefined ? { priceCurrency: patch.priceCurrency } : {}),
@@ -986,18 +990,26 @@ export class AssistantStore {
          reasoning = ?6, context_tokens = ?7, vision = ?8, enabled = ?9,
          purpose = ?11, kind = ?12, supports_tools = ?13, max_input_tokens = ?14,
          modalities = ?17, top_p = ?15, custom_params = ?16, protocol = ?18,
-         input_price = ?19, output_price = ?20, price_currency = ?21
+         input_price = ?19, output_price = ?20, price_currency = ?21, fallback_model_id = ?22
          WHERE user_id = ?1 AND id = ?10`,
       next.label, next.model, next.temperature, next.maxOutputTokens,
       next.reasoning, next.contextTokens, next.vision ? 1 : 0, next.enabled ? 1 : 0, id,
       next.purpose, next.kind, next.supportsTools ? 1 : 0, next.maxInputTokens,
       next.topP, JSON.stringify(next.customParams), JSON.stringify(next.modalities), next.protocol,
-      next.inputPrice, next.outputPrice, next.priceCurrency,
+      next.inputPrice, next.outputPrice, next.priceCurrency, next.fallbackModelId,
     )
     return next
   }
 
+  /**
+   * Removes a model, and the spare references that pointed at it.
+   *
+   * A deleted model cannot answer, so a chain that still names it would stop one model short of where the
+   * reader thought it went. Clearing the column here keeps the fallback list honest; the chain would skip
+   * a dangling name anyway, but the editor would go on showing a spare that no longer exists.
+   */
   async deleteModel(id: string): Promise<void> {
+    await this.write(`UPDATE chat_models SET fallback_model_id = NULL WHERE user_id = ?1 AND fallback_model_id = ?2`, id)
     await this.write(`DELETE FROM chat_models WHERE user_id = ?1 AND id = ?2`, id)
   }
 
@@ -3460,7 +3472,7 @@ function toProviderKey(r: ProviderKeyRow): AssistantProviderKey {
  */
 export const MODEL_SELECT_COLUMNS = `id, provider_id, model, label, temperature, max_output_tokens,
   reasoning, context_tokens, vision, purpose, kind, supports_tools, max_input_tokens, modalities, top_p,
-  custom_params, protocol, input_price, output_price, price_currency, enabled, position`
+  custom_params, protocol, fallback_model_id, input_price, output_price, price_currency, enabled, position`
 
 interface PromptRow {
   id: string
@@ -3523,6 +3535,7 @@ interface ModelRow {
   top_p: number | null
   custom_params: string | null
   protocol: string | null
+  fallback_model_id: string | null
   input_price: number | null
   output_price: number | null
   price_currency: string | null
@@ -3556,6 +3569,9 @@ function toModel(r: ModelRow): AssistantModel {
     protocol: typeof r.protocol === 'string' && (ASSISTANT_PROTOCOLS as readonly string[]).includes(r.protocol)
       ? r.protocol as AssistantProtocol
       : null,
+    // A dangling name — the spare has since been deleted — reads back as "no spare" rather than as an id
+    // nothing can resolve, because the chain would stop there anyway.
+    fallbackModelId: r.fallback_model_id ?? null,
     inputPrice: num(r.input_price),
     outputPrice: num(r.output_price),
     priceCurrency: r.price_currency ?? '',
