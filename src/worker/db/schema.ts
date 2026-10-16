@@ -1380,6 +1380,18 @@ export const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
       `ALTER TABLE chat_memories ADD COLUMN project_id TEXT`,
     ],
   },
+  {
+    // The note a memory was saved as, when the reader asked for one. Nullable and never defaulted: a
+    // memory that has not been written out is not a memory with an empty note, and the two read
+    // differently in the list. It is a pointer into the vault rather than a copy of the text, so a note
+    // the reader deletes leaves the memory whole and its link pointing at nothing — which the screen
+    // says out loud instead of offering a note that is not there.
+    version: 88,
+    skipIfColumnExists: { table: 'chat_memories', column: 'note_id' },
+    statements: [
+      `ALTER TABLE chat_memories ADD COLUMN note_id TEXT`,
+    ],
+  },
 ]
 
 const FTS_STATEMENT = `CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(

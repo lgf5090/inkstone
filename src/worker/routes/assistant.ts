@@ -1339,6 +1339,19 @@ assistantRoutes.patch('/memories/:id', async (c) => {
   return c.json({ memory: result.memory, superseded: result.superseded, reviews: result.reviews.length })
 })
 
+assistantRoutes.post('/memories/:id/note', async (c) => {
+  const s = store(c)
+  const id = requiredId(c.req.param('id'))
+  const body = await readJson<{ noteId?: unknown }>(c, JSON_BODY_LIMITS.small)
+  // The note is created by the client, which owns choosing the folder and the title; this records the
+  // link. The field is required and `null` is a value of its own — it is what a reader gets after
+  // deleting the note — so a missing field is a bad request rather than a quiet unlink.
+  if (body.noteId !== null && !isValidId(body.noteId)) throw ApiError.badRequest('Unknown note id.')
+  const memory = await s.setMemoryNote(id, body.noteId === null ? null : body.noteId)
+  if (!memory) throw ApiError.notFound('Memory not found')
+  return c.json({ memory })
+})
+
 assistantRoutes.post('/memories/:id/correct', async (c) => {
   const s = store(c)
   const settings = await s.getSettings()

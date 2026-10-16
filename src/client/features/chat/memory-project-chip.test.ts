@@ -28,6 +28,7 @@ const filed: AssistantMemory = {
   validFrom: null,
   validUntil: null,
   projectId: PROJECT,
+  noteId: null,
   createdAt: 1,
   updatedAt: 2,
 }

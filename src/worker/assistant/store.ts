@@ -105,7 +105,7 @@ const TASK_STATUS_VALUES = ['todo', 'in_progress', 'done'] as const
 const TASK_PRIORITY_VALUES = ['low', 'medium', 'high', 'urgent'] as const
 
 const MEMORY_COLUMNS
-  = `id, content, category, source, status, superseded_by, valid_from, valid_until, project_id, created_at, updated_at`
+  = `id, content, category, source, status, superseded_by, valid_from, valid_until, project_id, note_id, created_at, updated_at`
 
 /**
  * Which memories a turn may see: the account's own, plus the project it is answering in.
@@ -2463,6 +2463,7 @@ export class AssistantStore {
       validFrom,
       validUntil: null,
       projectId,
+      noteId: null,
       createdAt: at,
       updatedAt: at,
     }
@@ -2498,6 +2499,21 @@ export class AssistantStore {
     const updated = await this.getMemory(id)
     if (updated) await this.embedQuietly(updated.id, updated.content)
     return updated
+  }
+
+  /**
+   * Point a memory at the note it was written out as.
+   *
+   * The note is created by the client — it has to choose the folder and the title, and the notes module
+   * owns creating a note — so this stores the link rather than making one. A null clears it, which is
+   * what a reader who deleted the note gets: the fact stays, the pointer goes.
+   */
+  async setMemoryNote(id: string, noteId: string | null): Promise<AssistantMemory | null> {
+    await this.write(
+      `UPDATE chat_memories SET note_id = ?2, updated_at = ?3 WHERE user_id = ?1 AND id = ?4`,
+      noteId, Date.now(), id,
+    )
+    return this.getMemory(id)
   }
 
   async setMemoryLifecycle(
@@ -4162,6 +4178,7 @@ interface MemoryRow {
   valid_from: string | null
   valid_until: string | null
   project_id: string | null
+  note_id: string | null
   created_at: number
   updated_at: number
 }
@@ -4177,6 +4194,7 @@ function toMemory(r: MemoryRow): AssistantMemory {
     validFrom: r.valid_from,
     validUntil: r.valid_until,
     projectId: r.project_id,
+    noteId: r.note_id,
     createdAt: r.created_at,
     updatedAt: r.updated_at,
   }

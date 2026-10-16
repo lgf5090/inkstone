@@ -7,7 +7,7 @@
  * used to say" still answers — and a plain edit stays a plain edit, for fixing a typo.
  */
 import { useEffect, useMemo, useState } from 'react'
-import { Archive, ArchiveRestore, GitCompare, History, Pencil, Plus, RefreshCw, Search, Trash2 } from 'lucide-react'
+import { Archive, ArchiveRestore, GitCompare, History, NotebookPen, Pencil, Plus, RefreshCw, Search, Trash2 } from 'lucide-react'
 import type { AssistantMemory } from '@shared/assistant'
 import { ASSISTANT_MEMORY_CATEGORIES } from '@shared/assistant'
 import { api } from '../../lib/api'
@@ -20,6 +20,9 @@ import { Modal, confirm } from '../../components/overlay'
 import { Empty } from '../../components/feedback'
 import { AssistantHeader } from './AssistantHeader'
 import { useAssistant } from './assistant-store'
+import { useNotes } from '../../store/notes'
+import { navigateToPath } from '../../lib/app-history'
+import { folderPathLabel } from '../../lib/folders'
 
 const CATEGORY_LABELS: Record<string, () => string> = {
   preference: () => t('assistant.memory.category.preference'),
@@ -72,6 +75,7 @@ export function MemoryView() {
   const [editing, setEditing] = useState<AssistantMemory | 'new' | null>(null)
   const [correcting, setCorrecting] = useState<AssistantMemory | null>(null)
   const [historyOf, setHistoryOf] = useState<AssistantMemory | null>(null)
+  const [writing, setWriting] = useState<AssistantMemory | null>(null)
   const [draft, setDraft] = useState(query)
   const debounced = useDebounced(draft, 250)
 
@@ -225,6 +229,21 @@ export function MemoryView() {
                       >
                         {memory.status === 'historical' ? <ArchiveRestore size={13} /> : <Archive size={13} />}
                       </IconButton>
+                      <IconButton
+                        label={memory.noteId ? t('assistant.memory.open_note') : t('assistant.memory.save_note')}
+                        size="xs"
+                        onClick={() => {
+                          if (!memory.noteId) {
+                            setWriting(memory)
+                            return
+                          }
+                          // The note is the memory's own copy, so the way to change it is to go there.
+                          navigateToPath('/notes')
+                          void useNotes.getState().openNote(memory.noteId)
+                        }}
+                      >
+                        <NotebookPen size={13} />
+                      </IconButton>
                       <IconButton label={t('assistant.memory.edit')} size="xs" onClick={() => setEditing(memory)}>
                         <Pencil size={13} />
                       </IconButton>
@@ -257,6 +276,7 @@ export function MemoryView() {
       <MemoryEditor memory={editing} onClose={() => setEditing(null)} />
       <CorrectDialog memory={correcting} onClose={() => setCorrecting(null)} />
       <HistoryDialog memory={historyOf} onClose={() => setHistoryOf(null)} />
+      <SaveNoteDialog memory={writing} onClose={() => setWriting(null)} />
     </div>
   )
 }
@@ -409,6 +429,68 @@ function HistoryDialog({ memory, onClose }: { memory: AssistantMemory | null, on
           )}
         </div>
       )}
+    </Modal>
+  )
+}
+
+/**
+ * Writing one memory out as a note.
+ *
+ * A remembered fact is a sentence the assistant wrote down; a note is where the reader can turn it into
+ * something with paragraphs, links and a place in the vault. The dialog asks the two things only they can
+ * answer — what it is called and where it lives — and the note's body is the memory itself, unedited, so
+ * nothing is quietly rewritten on the way out.
+ */
+function SaveNoteDialog({ memory, onClose }: { memory: AssistantMemory | null, onClose: () => void }) {
+  const save = useAssistant((state) => state.saveMemoryAsNote)
+  const folders = useNotes((state) => state.folders)
+  const [title, setTitle] = useState('')
+  const [folderId, setFolderId] = useState('')
+  const [busy, setBusy] = useState(false)
+
+  useEffect(() => {
+    setTitle(memory ? memory.content.slice(0, 80) : '')
+    setFolderId('')
+    setBusy(false)
+  }, [memory])
+
+  if (!memory) return null
+  const submit = async () => {
+    if (busy) return
+    setBusy(true)
+    const noteId = await save(memory.id, folderId || null, title)
+    setBusy(false)
+    if (noteId) onClose()
+  }
+  return (
+    <Modal
+      open
+      onClose={onClose}
+      title={t('assistant.memory.save_note')}
+      description={t('assistant.memory.save_note_hint')}
+      width={440}
+      footer={(
+        <>
+          <Button variant="secondary" onClick={onClose}>{t('common.cancel')}</Button>
+          <Button variant="primary" disabled={busy || !title.trim()} onClick={() => void submit()}>
+            {t('assistant.memory.save_note')}
+          </Button>
+        </>
+      )}
+    >
+      <div className="flex flex-col gap-3">
+        <Field label={t('assistant.memory.save_note_title')}>
+          <Input value={title} onChange={(event) => setTitle(event.target.value)} maxLength={300} autoFocus />
+        </Field>
+        <Field label={t('assistant.memory.save_note_folder')}>
+          <Select value={folderId} onChange={(event) => setFolderId(event.target.value)}>
+            <option value="">{t('assistant.memory.save_note_root')}</option>
+            {folders.map((folder) => (
+              <option key={folder.id} value={folder.id}>{folderPathLabel(folders, folder.id)}</option>
+            ))}
+          </Select>
+        </Field>
+      </div>
     </Modal>
   )
 }

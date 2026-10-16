@@ -1228,6 +1228,8 @@ const allowed = new Map([
     "// on a page the reader opened to look at exactly this; without it the chip would be an id.",
     "// A fact learned inside a project is only recalled there, so the row has to say which",
     "// one: a reader wondering why the assistant forgot something is looking at this line.",
+    "// The note is the memory's own copy, so the way to change it is to go there.",
+    "/**\n * Writing one memory out as a note.\n *\n * A remembered fact is a sentence the assistant wrote down; a note is where the reader can turn it into\n * something with paragraphs, links and a place in the vault. The dialog asks the two things only they can\n * answer — what it is called and where it lives — and the note's body is the memory itself, unedited, so\n * nothing is quietly rewritten on the way out.\n */",
   ]],
   ["src/client/features/chat/MessageMenu.tsx", [
     "/**\n * A message's own menu: what the reader can do with one turn, wherever the pointer happens to be.\n *\n * The hover row under a message carries the two or three actions a reader reaches for most, and that is\n * the right size for a row of icons. The rest — copy as plain text, read it aloud, keep it as a note,\n * download it, quote it back — have had nowhere to live, so an action existed only if some surface\n * happened to draw a button for it. A context menu is where a reader looks for the rest of them, and it\n * costs nothing on screen until it is asked for.\n *\n * The rows are built by a plain function so the shape of the menu is testable without a pointer: which\n * rows each role offers, and which of them are only there when they can actually do something.\n */",
@@ -1589,6 +1591,12 @@ const allowed = new Map([
     "/**\n   * Start a thread the reader asked not to keep.\n   *\n   * The conversation is made by the first turn rather than here, so it is created with the flag and with a\n   * title taken from what was asked — the same path every other new conversation takes.\n   */",
     "// Only when this turn is the one that makes the conversation: the flag is read at creation and",
     "// never again, because the promise is about the whole thread.",
+    "/** Write a memory out as a note in the vault, and remember which note it became. */",
+    "// The note is made here rather than by the assistant's tools: the reader is choosing a folder and a",
+    "// title in a dialog, and the notes module is what owns creating a note. The server is then told",
+    "// which note this memory became, which is the half that survives a reload.",
+    "// The vault's own list is stale until it hears about the new note, and the reader is about to be",
+    "// sent to it.",
   ]],
   ["src/client/features/chat/canvas-panel.test.ts", [
     "/**\n * The side panel: the drafts a conversation keeps.\n *\n * What is pinned here is the shape of the contract rather than the editor inside it. The panel is the\n * drive — an empty conversation says so, a draft can be picked out of the list, and a rename is committed\n * once the typing settles rather than once per keystroke — and the menu is the door: a reply offers the\n * canvas only where there is a row to hang a draft on, which is why the live turn and the reader's own\n * messages do not.\n *\n * The real editor is CodeMirror and is not what this file is about; a textarea stands in for it so the\n * panel's own wiring is what is exercised.\n */",
@@ -1741,6 +1749,14 @@ const allowed = new Map([
     "// Without the request the chip would print an id, or nothing at all.",
     "// An account-wide fact is recalled everywhere, so a chip on it would be a claim about a restriction",
     "// that does not exist.",
+  ]],
+  ["src/client/features/chat/memory-save-note.test.ts", [
+    "/**\n * A memory written out as a note.\n *\n * Two halves have to hold for this to be worth anything: the note really is created with the fact as its\n * body, and the memory remembers which note it became — otherwise the reader saves the same fact twice and\n * the button never becomes \"open the note\".\n *\n * The memory's own text is copied, not summarised: what was remembered is what the note says, and the two\n * then live apart, which is what the dialog tells the reader before they press the button.\n */",
+    "// What the page's own mount-time read answers. A test swaps this before rendering, because the page",
+    "// reads its list itself and would otherwise overwrite whatever the store was seeded with.",
+    "// The page reads its own list on mount, so the fixture has to come back from that read rather than",
+    "// only from the store this file seeds.",
+    "// The dialog arrives with the fact as the title, which is what the reader would have typed.",
   ]],
   ["src/client/features/chat/message-menu.test.ts", [
     "/**\n * The rows a message's menu offers.\n *\n * A menu is a promise about what can be done with a turn, so what is pinned is which rows appear for\n * which role and which of them are left out when they have nothing to do. A row that cannot act — a\n * \"delete\" on a turn the server has not stored, a \"regenerate\" on an older answer — is worse than a\n * missing one, because the reader presses it and nothing happens.\n */",
@@ -7794,6 +7810,7 @@ const allowed = new Map([
     "/**\n     * The drafts a conversation keeps in its side panel.\n     *\n     * Fetched with the thread rather than stored on it: a draft is a document, and a listing that carried\n     * every one of them would make opening a conversation pay for work the reader may not do.\n     */",
     "/**\n * Which turns a share link covers, as the query the worker reads it back from.\n *\n * Nothing at all for the whole thread, so the everyday link's request is the one it has always been and a\n * reader who never narrows anything sees no difference in the wire.\n */",
     "/** The conversations that wrote one note: the note's own \"from a conversation\" backlinks. */",
+    "/** Link a memory to the note it was written out as, or unlink it after the note is gone. */",
   ]],
   ["src/client/lib/app-history.ts", [
     "/**\n * The address bar as the one source of truth for which app tab is up.\n *\n * The tab is a path rather than a store field so that a rail button is an ordinary link: the\n * address a reader copies is the screen they are looking at, the back button walks the tabs they\n * visited, and a cold load of `/calendar` needs nothing but the document the server already sends.\n * `history.pushState` fires no event of its own, so the writers here announce their own changes and\n * `popstate` covers everything the browser does by itself.\n */",
@@ -15047,6 +15064,7 @@ const allowed = new Map([
     "/**\n   * Where the card leads: a page on the web, or a note in this vault.\n   *\n   * Absent on every citation stored before notes could be cited, which is why it is optional and why the\n   * reader of this field treats a missing value as `web`.\n   */",
     "/** The note the card opens, when `kind` is `note`. A url is not enough: the app opens by id. */",
     "/**\n * Whether a citation names a note in this vault.\n *\n * Checked by id rather than by url: the url a note citation stores is the app's own relative path, which\n * is not a page a browser can be sent to, and the id is what the client opens with. A stored citation\n * whose id is not a note id is read as a web page and must then have a real url, which is what keeps a\n * backup from turning into a card that leads nowhere.\n */",
+    "/**\n   * The note this fact was written out as, when the reader asked for one.\n   *\n   * A pointer rather than a copy: the memory stays the fact, and the note is where it can be edited as\n   * prose. Null means it has not been written out — not that it was written out and lost — so the list\n   * offers \"save as a note\" only while it is null.\n   */",
   ]],
   ["src/shared/backup-format.ts", [
     "/** The account's own template library, absent from a backup taken before it was worth keeping. */",
@@ -16387,6 +16405,7 @@ const allowed = new Map([
     "/** The conversations that wrote this note, newest first: the note's \"from a conversation\" backlinks. */",
     "// The origin of a note the thread wrote goes with it: a backlink panel must not offer to open a",
     "// conversation that no longer exists.",
+    "/**\n   * Point a memory at the note it was written out as.\n   *\n   * The note is created by the client — it has to choose the folder and the title, and the notes module\n   * owns creating a note — so this stores the link rather than making one. A null clears it, which is\n   * what a reader who deleted the note gets: the fact stays, the pointer goes.\n   */",
   ]],
   ["src/worker/assistant/tools.ts", [
     "/**\n * The tools the assistant can reach, and the executor that runs them.\n *\n * Three things are enforced here rather than asked of the model, because a model that is confident and\n * wrong is the failure mode this app has to survive:\n *  - **budgets** — a per-turn call cap, a per-tool cap and a duplicate-call refusal, so a reasoning\n *    loop cannot spend the reader's AI quota or write a hundred tasks;\n *  - **validation** — arguments are checked against the same declaration that generates the JSON\n *    Schema the provider is given, so the two can never disagree;\n *  - **approval** — a destructive tool never runs during the turn. `prepare` resolves the exact target\n *    and writes a pending action; `commit` runs only when the reader presses Approve, once, on that\n *    target. The model can propose; it cannot delete.\n *\n * Scheduled runs get read-only tools plus `notify_reader`, so a routine that has drifted cannot edit\n * the vault while nobody is watching.\n */",
@@ -16883,6 +16902,11 @@ const allowed = new Map([
     "// rather than defaulted, because the two are different claims: every memory that existed before this",
     "// column was learned in the account's own context, and \"no project\" is exactly what that means. A",
     "// default would say the same thing, but a null says it without pretending a project was chosen.",
+    "// The note a memory was saved as, when the reader asked for one. Nullable and never defaulted: a",
+    "// memory that has not been written out is not a memory with an empty note, and the two read",
+    "// differently in the list. It is a pointer into the vault rather than a copy of the text, so a note",
+    "// the reader deletes leaves the memory whole and its link pointing at nothing — which the screen",
+    "// says out loud instead of offering a note that is not there.",
   ]],
   ["src/worker/db/writes.ts", [
     "/** Keeps tags, backlinks, full-text indexes, and change records consistent with note writes. */",
@@ -17461,6 +17485,9 @@ const allowed = new Map([
     "// The thread's project, re-read rather than remembered: an approved memory write must land in the",
     "// same scope the proposal was made in, and a thread moved between projects since then has moved.",
     "/**\n * The conversations that wrote one note.\n *\n * The notebook's backlink panel asks this beside the note's own `[[links]]`, because a note the assistant\n * wrote has none: what points at it is a conversation, and a conversation is not a note. The note id is\n * validated by shape and the store's own `user_id` filter bounds what a foreign id could reach, so this\n * route cannot be used to read another account's threads.\n */",
+    "// The note is created by the client, which owns choosing the folder and the title; this records the",
+    "// link. The field is required and `null` is a value of its own — it is what a reader gets after",
+    "// deleting the note — so a missing field is a bad request rather than a quiet unlink.",
   ]],
   ["src/worker/routes/auth.ts", [
     "// Account-wide cap so a distributed botnet cannot retry one account",

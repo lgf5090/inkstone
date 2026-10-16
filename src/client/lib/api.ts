@@ -1003,6 +1003,9 @@ export const api = {
       }),
     memoryStatus: (id: string, status: string) =>
       request<{ memory: AssistantMemory }>(`/api/assistant/memories/${id}/status`, { method: 'POST', body: { status } }),
+    /** Link a memory to the note it was written out as, or unlink it after the note is gone. */
+    memoryNote: (id: string, noteId: string | null) =>
+      request<{ memory: AssistantMemory }>(`/api/assistant/memories/${id}/note`, { method: 'POST', body: { noteId } }),
     semantic: () => request<{
       enabled: boolean, available: boolean, model: string, vectors: number, pending: number, today: number, cap: number
     }>('/api/assistant/semantic'),

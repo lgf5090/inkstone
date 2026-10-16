@@ -51,6 +51,7 @@ import { leadingProse } from './save-to-note'
 import { extractPdfText } from './pdf-text'
 import { downloadSkillBundle } from './skill-bundle'
 import { useUi } from '../../store/ui'
+import { useNotes } from '../../store/notes'
 
 export type AssistantView = 'chat' | 'memory' | 'tasks' | 'automations' | 'skills' | 'projects' | 'settings'
 
@@ -378,6 +379,8 @@ interface AssistantState {
   editMemory: (id: string, content: string, category: string) => Promise<void>
   correctMemory: (id: string, content: string) => Promise<void>
   setMemoryStatus: (id: string, status: string) => Promise<void>
+  /** Write a memory out as a note in the vault, and remember which note it became. */
+  saveMemoryAsNote: (id: string, folderId: string | null, title: string) => Promise<string | null>
   removeMemory: (id: string) => Promise<void>
   resolveReview: (id: string, action: string) => Promise<void>
 
@@ -1690,6 +1693,32 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
       await get().loadMemories()
     } catch (error) {
       toast(error)
+    }
+  },
+
+  saveMemoryAsNote: async (id, folderId, title) => {
+    const memory = get().memories.find((entry) => entry.id === id)
+    if (!memory) return null
+    try {
+      // The note is made here rather than by the assistant's tools: the reader is choosing a folder and a
+      // title in a dialog, and the notes module is what owns creating a note. The server is then told
+      // which note this memory became, which is the half that survives a reload.
+      const note = await api.notes.create({
+        title: title.trim().slice(0, 300) || memory.content.slice(0, 120),
+        content: memory.content,
+        folderId,
+      })
+      const { memory: updated } = await api.assistant.memoryNote(id, note.id)
+      set((state) => ({
+        memories: state.memories.map((entry) => (entry.id === id ? updated : entry)),
+      }))
+      // The vault's own list is stale until it hears about the new note, and the reader is about to be
+      // sent to it.
+      void useNotes.getState().openNote(note.id)
+      return note.id
+    } catch (error) {
+      toast(error)
+      return null
     }
   },
 

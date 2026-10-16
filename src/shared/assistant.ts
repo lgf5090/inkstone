@@ -1707,6 +1707,14 @@ export interface AssistantMemory {
    * inside a project recalls that project's facts plus the account's own, never another project's.
    */
   projectId: string | null
+  /**
+   * The note this fact was written out as, when the reader asked for one.
+   *
+   * A pointer rather than a copy: the memory stays the fact, and the note is where it can be edited as
+   * prose. Null means it has not been written out — not that it was written out and lost — so the list
+   * offers "save as a note" only while it is null.
+   */
+  noteId: string | null
   createdAt: number
   updatedAt: number
 }
