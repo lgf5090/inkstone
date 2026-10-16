@@ -12,9 +12,11 @@ import { cn } from '../../lib/cn'
 import { t, type MessageKey } from '../../lib/i18n'
 import { relativeTime } from '../../lib/time'
 import { treeIndent, treeItemProps, useTreeKeyboard, type MoveMenuFolder } from '../../lib/tree'
-import { TagChip } from '../../components/TagChip'
+import { ChatFolderMenu, ConversationTagChip, NewRootFolderRow, useChatFolderMenu } from './ChatTaxonomyMenus'
 import { FolderMotionIcon } from '../../components/FolderMotionIcon'
 import { useUi } from '../../store/ui'
+import { useNotes } from '../../store/notes'
+import type { Folder } from '@shared/types'
 import { useAssistant, CONVERSATION_LIST_TABS, type ConversationListTab } from './assistant-store'
 
 /** One folder, its children, and where it sits among its siblings — what a tree row and a picker both read. */
@@ -153,7 +155,22 @@ function FolderTreeRow({
   const hasChildren = branch.children.length > 0
   const open = hasChildren && expanded.has(branch.node.id)
   const active = filter === branch.node.id
-  const onKeyDown = useTreeKeyboard()
+  const folderMenu = useChatFolderMenu(branch.node)
+  // F2 and Delete are what the notebook's rail binds on a folder row, and the same gestures have to work
+  // on the same rows wherever they are shown.
+  const onKeyDown = useTreeKeyboard({
+    onKey: (event) => {
+      if (event.key === 'F2') {
+        folderMenu.items.find((item) => item.id === 'rename')?.onSelect?.()
+        return true
+      }
+      if (event.key === 'Delete') {
+        folderMenu.items.find((item) => item.id === 'delete')?.onSelect?.()
+        return true
+      }
+      return false
+    },
+  })
   return (
     <li {...treeItemProps({
       level: branch.depth + 1,
@@ -163,6 +180,7 @@ function FolderTreeRow({
       posInSet: branch.index + 1,
     })}>
       <div
+        onContextMenu={folderMenu.menu.onContextMenu}
         className={cn(
           'group relative flex h-11 items-center gap-1 rounded-[var(--r-md)] pr-1 md:h-[30px]',
           'transition-colors duration-[var(--dur-fast)]',
@@ -217,6 +235,7 @@ function FolderTreeRow({
         </span>
       </div>
 
+      <ChatFolderMenu state={folderMenu} />
       {hasChildren && open && (
         <ul role="group" className="space-y-px">
           {branch.children.map((child) => (
@@ -228,8 +247,32 @@ function FolderTreeRow({
   )
 }
 
+/**
+ * The taxonomy's nodes with anything the notebook has that it has not counted yet.
+ *
+ * The tree is the notebook's own, so a folder made a second ago is already in the notes store while the
+ * assistant's counts are a read behind — and hiding a row the reader just created reads as a failure.
+ * The union shows it at once with a count of nothing, and the next taxonomy read fills the number in.
+ */
+function withStoredFolders(nodes: ChatFolderNode[], stored: readonly Folder[]): ChatFolderNode[] {
+  if (!stored.length) return nodes
+  const known = new Set(nodes.map((node) => node.id))
+  const missing = stored
+    .filter((folder) => !known.has(folder.id))
+    .map((folder) => ({ id: folder.id, name: folder.name, parentId: folder.parentId, icon: folder.icon, color: folder.color, count: 0 }))
+  return missing.length ? [...nodes, ...missing] : nodes
+}
+
 export function ConversationFolders() {
-  const nodes = useAssistant((state) => state.folderNodes)
+  const taxonomy = useAssistant((state) => state.folderNodes)
+  const storedFolders = useNotes((state) => state.folders)
+  const loadTaxonomy = useAssistant((state) => state.loadTaxonomy)
+  const nodes = useMemo(() => withStoredFolders(taxonomy, storedFolders), [taxonomy, storedFolders])
+  // A write from anywhere — this panel, the notes rail, another device — leaves the counts stale, and
+  // re-reading them is one small request. Keyed on the array identity so it fires on a real change only.
+  useEffect(() => {
+    void loadTaxonomy()
+  }, [storedFolders, loadTaxonomy])
   const filter = useAssistant((state) => state.folderFilter)
   const setFilter = useAssistant((state) => state.setFolderFilter)
   const unfiled = useAssistant((state) => state.unfiledCount)
@@ -279,6 +322,7 @@ export function ConversationFolders() {
           ))}
         </ul>
       )}
+      <NewRootFolderRow />
     </nav>
   )
 }
@@ -302,19 +346,14 @@ export function ConversationTags() {
   }
   return (
     <div className="flex flex-wrap gap-1 px-1.5 pb-2 pt-1" role="group" aria-label={t('assistant.chat.tag_filter')}>
-      {tags.map((tag: ConversationTag & { count: number }) => {
-        const on = active === tag.id
-        return (
-          <TagChip
-            key={tag.id}
-            label={tag.name}
-            pressed={on}
-            color={tag.color}
-            count={tag.count}
-            onPress={() => void setFilter(on ? null : tag.id)}
-          />
-        )
-      })}
+      {tags.map((tag: ConversationTag & { count: number }) => (
+        <ConversationTagChip
+          key={tag.id}
+          tag={tag}
+          pressed={active === tag.id}
+          onPress={() => void setFilter(active === tag.id ? null : tag.id)}
+        />
+      ))}
     </div>
   )
 }
