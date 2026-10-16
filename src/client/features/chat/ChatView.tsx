@@ -978,6 +978,7 @@ ${current}` : seed))
   const addTurnTool = useAssistant((state) => state.addTurnTool)
   const dropTurnTool = useAssistant((state) => state.dropTurnTool)
   const addTurnScope = useAssistant((state) => state.addTurnScope)
+  const applySkill = useAssistant((state) => state.applySkill)
   const dropTurnScope = useAssistant((state) => state.dropTurnScope)
   const toast = useUi((state) => state.toast)
   // Translated at render, so a reader who switches language sees the new words without a reload.
@@ -987,7 +988,7 @@ ${current}` : seed))
   useEffect(() => { void loadPrompts() }, [loadPrompts])
   const quickPrompts = useMemo(
     () => (savedPrompts.length
-      ? savedPrompts.map((prompt) => ({ id: prompt.id, label: prompt.title, text: prompt.content }))
+      ? savedPrompts.map((prompt) => ({ id: prompt.id, label: prompt.title, text: prompt.content, prompt }))
       : QUICK_PROMPT_KEYS.map((key, index) => ({ id: String(index), label: t(key) }))),
     [savedPrompts],
   )
@@ -1223,7 +1224,13 @@ ${current}` : seed))
                 })
               }}
               onNote={() => setPickingNote(true)}
-              onPrompt={(text) => setValue((current) => (current.trim() ? `${current.trim()}\n${text}` : text))}
+              onPrompt={(row) => {
+                const text = row.text ?? row.label
+                setValue((current) => (current.trim() ? `${current.trim()}\n${text}` : text))
+                // A saved prompt is a standing arrangement, so its words arrive with the turn it was
+                // written for: the chips below the box change, which is what says the change happened.
+                if (row.prompt) applySkill(row.prompt)
+              }}
               onManagePrompts={() => setView('prompts')}
             />
             <IconButton label={t('assistant.attach.add_file')} size="sm" onClick={() => fileRef.current?.click()} className="size-7 rounded-[var(--r-md)]">

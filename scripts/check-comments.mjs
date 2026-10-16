@@ -1111,12 +1111,13 @@ const allowed = new Map([
     "/**\n * Writes one conversation out as a Markdown file.\n *\n * Fetched on the press rather than carried in the list: a conversation's rows are only in the store for\n * the thread that is open, and the reader may export one they are not reading.\n */",
     "// This box wraps the composer, so every keystroke in a half-written Chinese sentence bubbles",
     "// through here — and Escape is the key the input method is holding to drop that candidate.",
+    "// A saved prompt is a standing arrangement, so its words arrive with the turn it was",
+    "// written for: the chips below the box change, which is what says the change happened.",
   ]],
   ["src/client/features/chat/ComposerControls.tsx", [
     "/** The token count, spelled the way the reference's slider spells it: 32K, 128K, 262K. */",
     "/** Picks a note to write about; the assistant reads it with its own note tools. */",
     "/**\n * Dictation, when the browser offers it.\n *\n * The button is drawn disabled rather than hidden on a browser without speech recognition: a control\n * that is missing is a feature the reader never learns exists, while a dead one with a reason is\n * legible.\n */",
-    "/** `text` is what goes into the box; a saved prompt shows its title and inserts its content. */",
     "// The submenu's own list and the keyboard/search list are built from one array, so the manager entry cannot",
     "// appear in one and be missing from the other.",
     "// The app's own submenu renderer, because the bare one it replaces drew its rows straight onto",
@@ -1133,6 +1134,7 @@ const allowed = new Map([
     "// browser's `title`: the native one waits a second and paints in the operating system's chrome, which",
     "// on these five looked like a different application's.",
     "/** The levels this model's own service has, in the order it publishes them. */",
+    "/**\n * One row of the composer's prompt submenu.\n *\n * `text` is what goes into the box — a saved prompt shows its title and inserts its content, while the\n * app's own openers have nothing behind them but the label. `prompt` is the saved row itself, and a row\n * that has one brings its tools, its knowledge and its model along with the words.\n */",
   ]],
   ["src/client/features/chat/ComposerTriggers.tsx", [
     "/**\n * The composer's inline triggers: `@` cites a note, `/` picks a tool, `#` narrows the knowledge base.\n *\n * A trigger is a sigil that opens a token — at the caret's start or after whitespace — followed by the\n * words typed since. It ends at the next whitespace, so `[[a]] @no` reads `no` as the query and leaves\n * the rest of the message alone. Detection is a pure function of the text and the caret because both the\n * panel and the keyboard handler need the same answer, and a drift between them shows up as a panel that\n * filters one string while replacing another.\n */",
@@ -1240,6 +1242,8 @@ const allowed = new Map([
   ]],
   ["src/client/features/chat/NoteScopePicker.tsx", [
     "/**\n * Choosing which folders the assistant may read.\n *\n * Two surfaces ask the same question — the account's standing scope, and one project's knowledge — so the\n * picker is one component with a value and a change handler rather than two lists that drift apart. The\n * paths are shown rather than names because a vault has two \"Notes\" before lunch.\n *\n * The list is capped because the scope travels in the system prompt on every turn: a reader who selects\n * the whole tree one folder at a time would be paying for that list with every message.\n */",
+    "/** One notebook folder, named both ways: a chip shows the name, a picker shows the path. */",
+    "/**\n * The reader's note folders with their full paths.\n *\n * Asked for by every surface that has to name a folder — the standing scope, a project's knowledge, a\n * prompt's — and none of them can name one from an id alone.\n */",
   ]],
   ["src/client/features/chat/NotificationCenter.tsx", [
     "/**\n * The notification centre: what the schedules delivered.\n *\n * It is a drawer rather than a page because a reminder is read on the way past, not navigated to.\n * The bodies arrive as Markdown from the digest and from an AI routine, so they are rendered through\n * the same sanitized pipeline as a reply rather than as raw text.\n */",
@@ -1253,8 +1257,13 @@ const allowed = new Map([
     "/* Filing is done here rather than by dragging, because what a drag means here is\n                      \"answer under this brief\", which is worth seeing spelled out. */",
   ]],
   ["src/client/features/chat/PromptsView.tsx", [
-    "/**\n * The reader's own prompt library.\n *\n * A prompt is a piece of the reader's work, not a setting: it is written once and pasted into many\n * conversations, so it gets its own view, its own search, and a delete that asks first. The composer\n * reads the same list through the store, which is why nothing here keeps a copy.\n */",
     "/* The wrapper carries the row's growth: the field hands its own `className` to the `<input>`, which\n            cannot size the box around it. */",
+    "/**\n * The reader's own prompt library.\n *\n * A prompt is a piece of the reader's work, not a setting: it is written once and pasted into many\n * conversations, so it gets its own view, its own search, and a delete that asks first. The composer\n * reads the same list through the store, which is why nothing here keeps a copy.\n *\n * A prompt may also carry the arrangement around its words — the tools it wants, the folders it reads,\n * the model that answers — because a phrase the reader types twice a week is rarely only a phrase: half\n * of what they retype each time is \"and look in my work folder with the big model\". Those three travel\n * with the text and are applied together when the prompt is picked, which is what makes it a skill\n * rather than a snippet.\n */",
+    "/** What the editor holds while it is open: the saved row, or an empty one being written. */",
+    "/** The binding summary one row shows under its words, or nothing when the prompt is only words. */",
+    "// The built-in registry is what a reader may pin by name; a remote tool they have not listed here would",
+    "// be a name nothing can resolve later, so the picker offers only what the assistant always has.",
+    "// The model bound to a prompt is named by id, so the list has to be there before the editor can offer it.",
   ]],
   ["src/client/features/chat/SelectionBar.tsx", [
     "/**\n * The bar that appears once a reader has picked out turns.\n *\n * Selection is a mode rather than a modifier because the alternative is a checkbox on every message all\n * of the time, which is furniture nobody asked for in a conversation. The bar is what makes the mode\n * legible: it says how many rows are picked, and every action it offers acts on exactly those.\n */",
@@ -1385,6 +1394,9 @@ const allowed = new Map([
     "// The suffix is named here rather than on the server because a conversation's name is interface copy",
     "// and the worker carries no catalog — the same reason the fork route takes the title as an argument.",
     "/** Deletes exactly the turns a reader selected. */",
+    "/**\n   * Arm the turn with everything one saved prompt stands for, not only its words.\n   *\n   * The text is the composer's business — it appends to what the reader was already typing — so this\n   * covers the other three: the tools and knowledge the prompt wants are added to this turn's pins, and\n   * its model becomes the one that answers.\n   */",
+    "// The pins a skill names replace this turn's rather than joining them: the two rows of chips, and the",
+    "// model chip beside them, then say exactly what the skill promised, which is the point of saving one.",
   ]],
   ["src/client/features/chat/chat-outline.test.ts", [
     "/**\n * The rail and the panel that stand beside a thread.\n *\n * Both of them are read off the thread's own DOM — which turn has passed the reading line, and how far\n * down to land when one is chosen — so these cases lay out the boxes a browser would and then scroll:\n * a test that only counted buttons would pass over an outline that marks the wrong turn.\n */",
@@ -1430,13 +1442,14 @@ const allowed = new Map([
     "// An email fragment and a path are not requests for a picker.",
     "// The tool catalog the `/` panel offers is the one the assistant can actually call.",
     "// The submenu is its own portal; its entries are plain buttons inside a group.",
-    "// Picking a saved prompt inserts what it says, not what it is called.",
     "// A chip's accessible name carries its value, so the label is a prefix of the name rather than all of it.",
     "// The row is icons only, so the value the chip used to draw is now the whole of what it says.",
     "/**\n * What a pointer is told when it arrives on a control.\n *\n * jsdom lays nothing out, so the anchor's box has to be stated before `Tooltip` will place anything at\n * all — that measurement is the component's own guard against a hidden trigger. `mouseover` is the event\n * React reads as an entry (it synthesises `onMouseEnter` from the delegated pointer events), and the\n * panel is behind the tooltip's own delay, which fake timers step over.\n */",
     "// There is no visible word anywhere, so the state rides on the name and on the button.",
     "// The switch says what it is set to; what a search costs the model is the hint's job.",
     "// The rungs a model's own service offers; DeepSeek's four plus the two values every service shares.",
+    "// Picking a saved prompt inserts what it says, not what it is called — and hands over the whole row,",
+    "// because a prompt that carries a tool set or a folder is more than its words.",
   ]],
   ["src/client/features/chat/conversation-drag.ts", [
     "/**\n * Dragging a conversation onto a folder.\n *\n * A conversation is moved by the same gesture a note is, and by a payload of its own: a note drag carries\n * a note id, and a drop target that read one as the other would file the wrong row — or file a\n * conversation because some note id happened to name it. So the type is distinct, and only the folder\n * row that knows about conversations accepts it.\n */",
@@ -1565,6 +1578,10 @@ const allowed = new Map([
   ["src/client/features/chat/send-search.test.ts", [
     "/**\n * The web-search switch's way from a click to the request.\n *\n * Two half-wires have to be pinned together: the toggle writing the store, and the store reaching the\n * stream input. A chip that looked switched on while the turn went out without the flag is the worst\n * kind of control, because it is believed.\n */",
     "// The after-turn refreshes are not this switch; they would reach for api methods the mock has none of.",
+  ]],
+  ["src/client/features/chat/skill-apply.test.ts", [
+    "/**\n * Applying a saved prompt arms the turn, not only the text box.\n *\n * The point of binding tools, folders and a model to a prompt is that one press arranges all four. What\n * is pinned here is the arrangement: the pins take the place of the turn's own rather than joining them,\n * the ceilings the turn obeys are the ceilings a saved prompt obeys, and a prompt that names no model\n * leaves the reader's current one alone.\n */",
+    "// The same prompt a second time, and one that names no model at all: neither is a reason to write.",
   ]],
   ["src/client/features/chat/speech.ts", [
     "/**\n * Reading a reply aloud.\n *\n * The browser's own speech synthesis is the only engine available without a key and without shipping a\n * voice, so this is a thin wrapper rather than a feature: it strips the Markdown first, because a\n * screen reader that spells out `##` and `**` is worse than not offering the button, and it refuses\n * quietly where the API is missing instead of throwing inside a click handler.\n */",
@@ -14577,6 +14594,9 @@ const allowed = new Map([
     "/**\n   * What every conversation inside this project is answered under.\n   *\n   * It rides in the system prompt beside the reader's own instructions, so it is a standing brief rather\n   * than a per-turn one — the reason a project exists at all, as opposed to a folder that only files.\n   */",
     "/**\n   * The folders this project reads its knowledge from, as folder ids.\n   *\n   * Empty is \"the account's own scope answers\", not \"nothing\": a project that names no folders has not\n   * said anything, and saying nothing cannot narrow what the reader already allowed.\n   */",
     "/** The model this project prefers, when the reader has said so. */",
+    "/**\n   * What applying the prompt arranges for the turn, in the same shapes the composer's own `/` and `#`\n   * picks use. A prompt that only carries words has three empty bindings, which is how every prompt\n   * written before these columns existed still reads.\n   */",
+    "/** Whichever model should answer; null leaves the reader's current pick alone. */",
+    "/**\n * What the reader writes into a prompt, as opposed to what comes back.\n *\n * Every field is optional because both halves of an edit arrive from the same form and the server keeps\n * whatever the request did not name; the timestamps and id are the server's to assign.\n */",
   ]],
   ["src/shared/backup-format.ts", [
     "/** The account's own template library, absent from a backup taken before it was worth keeping. */",
@@ -15403,7 +15423,6 @@ const allowed = new Map([
     "// encoder and cosine helpers are the only implementation of either.",
     "// The chat's own uploads: a pasted picture or a dropped document that feeds one turn. The key column",
     "// is the R2 object path, so deleting the row and deleting the object are the same operation.",
-    "/**\n   * The reader's own saved prompts, the library behind the composer's `/` and ➕ entries.\n   *\n   * `group_name` rather than `group`: the latter is reserved in SQLite's own grammar, and a column that\n   * needs quoting in every hand-written statement is a tax paid forever for a name saved once.\n   */",
     "/**\n   * The answers a retry displaced, one row each.\n   *\n   * The turn itself keeps a single `chat_messages` row and the reader pages through these. Storing the\n   * model as text rather than as an id is deliberate: a version the reader can still open must survive\n   * the model that produced it being deleted.\n   */",
     "/**\n   * External MCP servers the reader added.\n   *\n   * The bearer header is stored encrypted, and only its length is ever selected: a listing that returned\n   * the ciphertext would let a stolen backup be replayed against the third party.\n   */",
     "// The same counters as `chat_usage_daily`, split by the model that answered. A day's total answers",
@@ -15414,6 +15433,7 @@ const allowed = new Map([
     "// app's `shares`: that one is keyed by note and joined to `notes` everywhere, and a shared thread has",
     "// neither a note id nor a note title. The passcode hash, the expiry and the view count mean the same",
     "// thing in both, which is why the code that reads them is shared and only the table is not.",
+    "/**\n   * The reader's own saved prompts, the library behind the composer's `/` and ➕ entries.\n   *\n   * `group_name` rather than `group`: the latter is reserved in SQLite's own grammar, and a column that\n   * needs quoting in every hand-written statement is a tax paid forever for a name saved once.\n   *\n   * The three binding columns turn a saved string into a standing arrangement: the words plus the tools\n   * it wants, the note folders it reads, and the model that answers. They hold JSON ids rather than a\n   * link table because a prompt's whole point is to travel with the reader as one small object, and\n   * nothing ever queries a prompt *by* its tools.\n   */",
   ]],
   ["src/worker/assistant/semantic.ts", [
     "/**\n * Semantic recall for memories, on the deployment's own Workers AI stack.\n *\n * The reference project shipped its own embedding pipeline; this app already has one for notes\n * (`src/worker/mcp/ai-search.ts`), so the model name, the blob layout, the cosine helper and the\n * rank-fusion are imported from there rather than reimplemented — two encoders would silently stop\n * matching each other's vectors, and every recall would come back empty with no error to read.\n *\n * A memory is embedded when it is written, which is rare and small: the whole set is a few dozen\n * rows, so ranking is a scan rather than an index. The daily cap is the reader's, counted in the same\n * table as the request cap.\n */",
@@ -15589,6 +15609,7 @@ const allowed = new Map([
     "/** The day `count` days before `day`, so a window of 7 includes today. */",
     "/**\n * The pages a stored answer searched.\n *\n * Read the same forgiving way tools are: a row written by an older build, or a backup from one, simply\n * has no sources, and a malformed entry is dropped rather than failing the whole transcript read.\n */",
     "/**\n   * Files a conversation under a project, which is what gives it the project's instructions.\n   *\n   * A project that no longer exists is refused rather than silently kept: a conversation whose project\n   * row vanished must not go on answering under instructions nobody can see or edit.\n   */",
+    "/**\n * The knowledge a saved prompt reads, decoded the forgiving way the transcript reads its tools.\n *\n * A row written before these columns existed holds nothing, and one half-written holds a shape that is\n * not a scope; both read as \"no extra folders\" rather than failing the list.\n */",
   ]],
   ["src/worker/assistant/tools.ts", [
     "/**\n * The tools the assistant can reach, and the executor that runs them.\n *\n * Three things are enforced here rather than asked of the model, because a model that is confident and\n * wrong is the failure mode this app has to survive:\n *  - **budgets** — a per-turn call cap, a per-tool cap and a duplicate-call refusal, so a reasoning\n *    loop cannot spend the reader's AI quota or write a hundred tasks;\n *  - **validation** — arguments are checked against the same declaration that generates the JSON\n *    Schema the provider is given, so the two can never disagree;\n *  - **approval** — a destructive tool never runs during the turn. `prepare` resolves the exact target\n *    and writes a pending action; `commit` runs only when the reader presses Approve, once, on that\n *    target. The model can propose; it cannot delete.\n *\n * Scheduled runs get read-only tools plus `notify_reader`, so a routine that has drifted cannot edit\n * the vault while nobody is watching.\n */",
@@ -15997,6 +16018,9 @@ const allowed = new Map([
     "// The folders a project reads its knowledge from, as a JSON array of folder ids.",
     "// The model a project prefers, when the reader has said so.",
     "// Which project a conversation belongs to.",
+    "// The tools a saved prompt asks the turn to have, as a JSON array of registry names.",
+    "// The note folders and tags a saved prompt reads, in the same shape one turn pins with `#`.",
+    "// The model a saved prompt answers with, when the reader named one.",
   ]],
   ["src/worker/db/writes.ts", [
     "/** Keeps tags, backlinks, full-text indexes, and change records consistent with note writes. */",
@@ -16444,8 +16468,6 @@ const allowed = new Map([
     "/**\n * A per-model context budget in tokens.\n *\n * The ceiling is the hardware-sized one, not the composer's chip list: capping here at the largest chip\n * (262K) silently rewrote a 1M model's own window down to a quarter of what it is, and the reader had no\n * way to see it — the field showed the number they typed until the page was reloaded.\n */",
     "// ------------------------------------------------------------------ external MCP servers",
     "/**\n * The reader's own third-party MCP servers.\n *\n * Two rules hold here. The stored token is never read back — the listing only says whether one is stored —\n * and the address is checked before anything is fetched, because this is the one place the worker is asked\n * to reach a URL a person typed.\n */",
-    "// An external tool is not in the built-in registry, so its namespaced shape is what says it is real —",
-    "// the call itself is refused later if the server turned out not to offer it.",
     "/**\n * The settings screen's \"test\" button: connect, handshake, list.\n *\n * The token is taken from the stored row when the body does not carry a new one, so a reader can test what\n * they already saved without retyping it — and the response still never echoes it back.\n */",
     "/**\n * What the reader's key can actually call, straight from the vendor.\n *\n * The picker offers these ids rather than a bundled list, so a model that is not on this account never\n * looks like a bug. A failure is reported in the body rather than as a status the client has to\n * special-case: the screen still has to open, with the manual entry as the way forward.\n */",
     "/**\n * The extra addresses a provider answers on, each vetted exactly like the primary one.\n *\n * A gateway that speaks three wires still may not be pointed inside the network, so an entry that fails\n * the guard fails the save rather than being dropped in silence.\n */",
@@ -16492,6 +16514,13 @@ const allowed = new Map([
     "// Null is a real answer — the conversation leaves the project — and an unknown id is refused rather",
     "// than kept, so a conversation cannot go on inheriting instructions nobody can edit.",
     "// A standing brief is read every turn in the project, so it gets the same ceiling as a message.",
+    "/**\n * The two lists that narrow a turn, read the one way they are ever written: with the message, or saved\n * ahead of time on a prompt that stands for a kind of message.\n *\n * A tool the assistant cannot call is not a request but a caller naming something the turn should not\n * reach, and an external tool is not in the built-in registry, so its namespaced shape is what says it is\n * real — the call itself is still refused later if the server turned out not to offer it.\n */",
+    "/** A pinned folder or tag: the id has to be one, and the label is only ever shown, never trusted. */",
+    "/**\n * The model a saved prompt asks for, kept only when this account actually has it.\n *\n * A prompt names its model by id and the reader may delete that model later, so the check happens where\n * the mistake is still fixable: an answer that quietly came from a different model than the skill asked\n * for is the kind of wrong that reads as the model's own behaviour.\n */",
+    "// The three bindings are a turn preset: the same two lists the composer pins with `/` and `#`, read",
+    "// through the same filter, because a saved prompt must not reach past the turn it stands for.",
+    "// Read the same forgiving way the create does: clearing the group, or the words, is an edit a reader",
+    "// is entitled to make, and `text` would answer it with \"This cannot be empty.\"",
   ]],
   ["src/worker/routes/auth.ts", [
     "// Account-wide cap so a distributed botnet cannot retry one account",
@@ -17141,6 +17170,10 @@ const allowed = new Map([
     "// somebody already has a copy of.",
     "// Shaped like a source, so only the store's own check can turn it away: the type says `string`,",
     "// and an answer that showed a chip leading nowhere would read as one that searched.",
+    "// A tool the assistant cannot call and a scope with no real id are not things the reader asked for:",
+    "// they name a reach the turn does not have, so both are dropped rather than saved to be trusted later.",
+    "// Another account's model is refused at the save, not remembered as a preference to fail on later.",
+    "// A patch that names only the title leaves the three bindings where they were.",
   ]],
   ["tests/assistant-rules.test.ts", [
     "/**\n * The rules the assistant is built on, tested where they are written.\n *\n * These are the parts a browser session cannot prove: what a Chinese sentence means to the conflict\n * rules, how a wall-clock schedule survives a daylight-saving change, how many tokens a Han vault\n * really costs. Each fixture is chosen so a plausible-but-wrong implementation would fail it — the\n * pair that differs only in a change word, a date the reader never stated, a schedule that crosses a\n * clock change — rather than so the function merely runs.\n */",

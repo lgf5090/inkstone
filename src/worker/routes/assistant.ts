@@ -742,6 +742,36 @@ assistantRoutes.delete('/conversations', async (c) => {
 // ----------------------------------------------------------------------- chat
 
 /**
+ * The two lists that narrow a turn, read the one way they are ever written: with the message, or saved
+ * ahead of time on a prompt that stands for a kind of message.
+ *
+ * A tool the assistant cannot call is not a request but a caller naming something the turn should not
+ * reach, and an external tool is not in the built-in registry, so its namespaced shape is what says it is
+ * real — the call itself is still refused later if the server turned out not to offer it.
+ */
+function pinnedTools(value: unknown): string[] {
+  const callable = new Set(ASSISTANT_TOOL_SPECS.map((spec) => spec.name))
+  return Array.isArray(value)
+    ? [...new Set(value.filter((name): name is string =>
+      typeof name === 'string' && (callable.has(name) || isExternalToolName(name))))].slice(0, MAX_TURN_TOOLS)
+    : []
+}
+
+/** A pinned folder or tag: the id has to be one, and the label is only ever shown, never trusted. */
+function pinnedScopes(value: unknown): AssistantTurnScope[] {
+  return (Array.isArray(value) ? value : [])
+    .map((entry): AssistantTurnScope | null => {
+      if (typeof entry !== 'object' || entry === null) return null
+      const record = entry as Record<string, unknown>
+      if (record.kind !== 'tag' && record.kind !== 'folder') return null
+      if (typeof record.id !== 'string' || !isValidId(record.id)) return null
+      return { kind: record.kind, id: record.id, name: typeof record.name === 'string' ? record.name.slice(0, 60) : '' }
+    })
+    .filter((entry): entry is AssistantTurnScope => entry !== null)
+    .slice(0, MAX_TURN_SCOPES)
+}
+
+/**
  * One turn, streamed as server-sent events.
  *
  * The reader's own disconnect is the abort signal: when the write fails the generator stops, so a
@@ -762,23 +792,8 @@ assistantRoutes.post('/chat', async (c) => {
 
   // A tool the assistant cannot actually call is not a request, and a scope has to be a real id: both
   // narrow what the turn may reach, so neither may be invented by the caller.
-  // An external tool is not in the built-in registry, so its namespaced shape is what says it is real —
-  // the call itself is refused later if the server turned out not to offer it.
-  const callable = new Set(ASSISTANT_TOOL_SPECS.map((spec) => spec.name))
-  const tools = Array.isArray(body.tools)
-    ? [...new Set(body.tools.filter((name): name is string =>
-      typeof name === 'string' && (callable.has(name) || isExternalToolName(name))))].slice(0, MAX_TURN_TOOLS)
-    : []
-  const scopes: AssistantTurnScope[] = (Array.isArray(body.scopes) ? body.scopes : [])
-    .map((entry): AssistantTurnScope | null => {
-      if (typeof entry !== 'object' || entry === null) return null
-      const record = entry as Record<string, unknown>
-      if (record.kind !== 'tag' && record.kind !== 'folder') return null
-      if (typeof record.id !== 'string' || !isValidId(record.id)) return null
-      return { kind: record.kind, id: record.id, name: typeof record.name === 'string' ? record.name.slice(0, 60) : '' }
-    })
-    .filter((entry): entry is AssistantTurnScope => entry !== null)
-    .slice(0, MAX_TURN_SCOPES)
+  const tools = pinnedTools(body.tools)
+  const scopes = pinnedScopes(body.scopes)
 
   if (conversationId) {
     if (!(await s.getConversation(conversationId))) throw ApiError.notFound('Conversation not found')
@@ -1448,18 +1463,39 @@ assistantRoutes.get('/prompts', async (c) => {
   return c.json({ prompts })
 })
 
+/**
+ * The model a saved prompt asks for, kept only when this account actually has it.
+ *
+ * A prompt names its model by id and the reader may delete that model later, so the check happens where
+ * the mistake is still fixable: an answer that quietly came from a different model than the skill asked
+ * for is the kind of wrong that reads as the model's own behaviour.
+ */
+async function pinnedModel(s: AssistantStore, value: unknown): Promise<string | null> {
+  if (value === null) return null
+  if (typeof value !== 'string' || !isValidId(value) || !(await s.getModel(value))) {
+    throw ApiError.badRequest('Choose one of your own models, or none.')
+  }
+  return value
+}
+
 assistantRoutes.post('/prompts', async (c) => {
   // A prompt is prose: the small limit is for ids and flags, and 8 KB would refuse a paragraph.
   const body = await readJson<Record<string, unknown>>(c, JSON_BODY_LIMITS.settings)
+  const s = store(c)
   // Either half may be empty on its own — a prompt can be a block of text with no name, or a name the
   // reader fills in later — so neither goes through `text`, which refuses an empty value outright.
   const title = optionalPromptText(body.title, MAX_PROMPT_TITLE_CHARS)
   const content = optionalPromptText(body.content, MAX_PROMPT_CONTENT_CHARS)
   if (!title && !content) throw ApiError.badRequest('A prompt needs a title or the words themselves.')
-  const prompt = await store(c).insertPrompt({
+  const prompt = await s.insertPrompt({
     title: title || content.slice(0, 40),
     content,
     group: body.group === undefined ? '' : optionalPromptText(body.group, 60),
+    // The three bindings are a turn preset: the same two lists the composer pins with `/` and `#`, read
+    // through the same filter, because a saved prompt must not reach past the turn it stands for.
+    tools: pinnedTools(body.tools),
+    scopes: pinnedScopes(body.scopes),
+    modelId: body.modelId === undefined ? null : await pinnedModel(s, body.modelId),
   })
   return c.json({ prompt }, 201)
 })
@@ -1469,9 +1505,14 @@ assistantRoutes.patch('/prompts/:id', async (c) => {
   const id = requiredId(c.req.param('id'))
   const body = await readJson<Record<string, unknown>>(c, JSON_BODY_LIMITS.settings)
   const updated = await s.updatePrompt(id, {
-    ...(body.title !== undefined ? { title: text(body.title, MAX_PROMPT_TITLE_CHARS) } : {}),
-    ...(body.content !== undefined ? { content: text(body.content, MAX_PROMPT_CONTENT_CHARS) } : {}),
-    ...(body.group !== undefined ? { group: text(body.group, 60) } : {}),
+    // Read the same forgiving way the create does: clearing the group, or the words, is an edit a reader
+    // is entitled to make, and `text` would answer it with "This cannot be empty."
+    ...(body.title !== undefined ? { title: optionalPromptText(body.title, MAX_PROMPT_TITLE_CHARS) } : {}),
+    ...(body.content !== undefined ? { content: optionalPromptText(body.content, MAX_PROMPT_CONTENT_CHARS) } : {}),
+    ...(body.group !== undefined ? { group: optionalPromptText(body.group, 60) } : {}),
+    ...(body.tools !== undefined ? { tools: pinnedTools(body.tools) } : {}),
+    ...(body.scopes !== undefined ? { scopes: pinnedScopes(body.scopes) } : {}),
+    ...(body.modelId !== undefined ? { modelId: await pinnedModel(s, body.modelId) } : {}),
   })
   if (!updated) throw ApiError.notFound('Prompt not found')
   return c.json({ prompt: updated })

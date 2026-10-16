@@ -40,6 +40,11 @@ export const ASSISTANT_SCHEMA_STATEMENTS: readonly string[] = [
    *
    * `group_name` rather than `group`: the latter is reserved in SQLite's own grammar, and a column that
    * needs quoting in every hand-written statement is a tax paid forever for a name saved once.
+   *
+   * The three binding columns turn a saved string into a standing arrangement: the words plus the tools
+   * it wants, the note folders it reads, and the model that answers. They hold JSON ids rather than a
+   * link table because a prompt's whole point is to travel with the reader as one small object, and
+   * nothing ever queries a prompt *by* its tools.
    */
   `CREATE TABLE IF NOT EXISTS chat_prompts (
     user_id TEXT NOT NULL,
@@ -47,6 +52,9 @@ export const ASSISTANT_SCHEMA_STATEMENTS: readonly string[] = [
     title TEXT NOT NULL,
     content TEXT NOT NULL,
     group_name TEXT NOT NULL DEFAULT '',
+    tools TEXT NOT NULL DEFAULT '[]',
+    scopes TEXT NOT NULL DEFAULT '[]',
+    model_id TEXT,
     created_at INTEGER NOT NULL,
     updated_at INTEGER NOT NULL,
     PRIMARY KEY (user_id, id)
@@ -519,5 +527,5 @@ export const ASSISTANT_REQUIRED_COLUMNS: Readonly<Record<string, readonly string
   chat_usage_daily: ['user_id', 'day', 'requests', 'input_tokens', 'output_tokens', 'tool_calls', 'scheduled_runs', 'embeddings', 'errors'],
   chat_activity: ['user_id', 'id', 'type', 'summary', 'created_at'],
   chat_active_runs: ['user_id', 'conversation_id', 'started_at', 'lease_until'],
-  chat_prompts: ['user_id', 'id', 'title', 'content', 'group_name', 'created_at', 'updated_at'],
+  chat_prompts: ['user_id', 'id', 'title', 'content', 'group_name', 'tools', 'scopes', 'model_id', 'created_at', 'updated_at'],
 }

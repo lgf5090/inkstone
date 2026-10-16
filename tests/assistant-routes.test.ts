@@ -23,7 +23,7 @@ import type {
   ChatStreamEvent,
   Task,
 } from '../src/shared/assistant'
-import { DEFAULT_SEMANTIC_MODEL, MAX_ANSWER_VERSIONS, MAX_MCP_TIMEOUT_SECONDS, MAX_PROMPT_CONTENT_CHARS, MAX_PROMPT_TITLE_CHARS, MAX_REASONING_CHARS, MAX_TOKEN_CEILING } from '../src/shared/assistant'
+import { DEFAULT_SEMANTIC_MODEL, MAX_ANSWER_VERSIONS, MAX_MCP_TIMEOUT_SECONDS, MAX_PROMPT_CONTENT_CHARS, MAX_PROMPT_TITLE_CHARS, MAX_REASONING_CHARS, MAX_TOKEN_CEILING, MAX_TURN_SCOPES, MAX_TURN_TOOLS, ASSISTANT_TOOL_BY_NAME } from '../src/shared/assistant'
 import { makeD1 } from './doubles/d1-sqlite'
 import { testBindings, testDurableObjectNamespace, testR2Bucket } from './doubles/bindings'
 import { AI_EMBEDDING_MODEL } from '../src/worker/mcp/ai-search'
@@ -1950,6 +1950,61 @@ describe('prompt library', () => {
     expect(await status('DELETE', `/api/assistant/prompts/${mine.prompt.id}`)).toBe(200)
     asUser(USER)
     expect((await call<{ prompts: ChatPrompt[] }>('GET', '/api/assistant/prompts')).prompts.map((entry) => entry.id)).toEqual([mine.prompt.id])
+  })
+
+  it('saves the arrangement a prompt brings to the turn, and refuses what it cannot call', async () => {
+    await useExampleModel()
+    const models = await call<{ models: AssistantModel[] }>('GET', '/api/assistant/models')
+    const created = await call<{ prompt: ChatPrompt }>('POST', '/api/assistant/prompts', {
+      title: '周报',
+      content: '按项目分段。',
+      tools: ['search_notes', 'list_tasks', 'invent_a_tool', 'search_notes'],
+      scopes: [
+        { kind: 'folder', id: FOLDER_A, name: '工作' },
+        { kind: 'tag', id: 'no such id', name: 'x' },
+        { kind: 'note', id: FOLDER_B, name: 'y' },
+      ],
+      modelId: models.models[0]!.id,
+    })
+    // A tool the assistant cannot call and a scope with no real id are not things the reader asked for:
+    // they name a reach the turn does not have, so both are dropped rather than saved to be trusted later.
+    expect(created.prompt.tools).toEqual(['search_notes', 'list_tasks'])
+    expect(created.prompt.scopes).toEqual([{ kind: 'folder', id: FOLDER_A, name: '工作' }])
+    expect(created.prompt.modelId).toBe(models.models[0]!.id)
+    expect((await call<{ prompts: ChatPrompt[] }>('GET', '/api/assistant/prompts')).prompts[0]).toMatchObject({
+      tools: ['search_notes', 'list_tasks'],
+      scopes: [{ kind: 'folder', id: FOLDER_A, name: '工作' }],
+      modelId: models.models[0]!.id,
+    })
+    // Another account's model is refused at the save, not remembered as a preference to fail on later.
+    expect(await status('POST', '/api/assistant/prompts', { title: '借来的模型', modelId: OTHER })).toBe(400)
+    const cleared = await call<{ prompt: ChatPrompt }>('PATCH', `/api/assistant/prompts/${created.prompt.id}`, {
+      modelId: null, tools: [], scopes: [],
+    })
+    expect(cleared.prompt.modelId).toBeNull()
+    expect(cleared.prompt.tools).toEqual([])
+    expect(cleared.prompt.scopes).toEqual([])
+    // A patch that names only the title leaves the three bindings where they were.
+    const renamed = await call<{ prompt: ChatPrompt }>('PATCH', `/api/assistant/prompts/${created.prompt.id}`, { title: '改个名' })
+    expect(renamed.prompt.modelId).toBeNull()
+    expect(renamed.prompt.tools).toEqual([])
+  })
+
+  it('holds a saved prompt to the same ceilings as the turn it stands for', async () => {
+    const tools = [...ASSISTANT_TOOL_BY_NAME.keys()]
+    expect(tools.length).toBeGreaterThan(MAX_TURN_TOOLS)
+    const created = await call<{ prompt: ChatPrompt }>('POST', '/api/assistant/prompts', {
+      title: '全都想要',
+      content: '把每个工具和每个文件夹都点上。',
+      tools,
+      scopes: Array.from({ length: MAX_TURN_SCOPES + 8 }, (_, index) => ({
+        kind: 'folder' as const,
+        id: oid(`s${index}`),
+        name: `f${index}`,
+      })),
+    })
+    expect(created.prompt.tools).toHaveLength(MAX_TURN_TOOLS)
+    expect(created.prompt.scopes).toHaveLength(MAX_TURN_SCOPES)
   })
 })
 

@@ -8,7 +8,7 @@
 import { act, createElement, type ReactElement } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import type { AssistantModel } from '@shared/assistant'
+import type { AssistantModel, ChatPrompt } from '@shared/assistant'
 import type { PendingAttachment } from './assistant-store'
 import { initI18n, t } from '../../lib/i18n'
 import { installTestGlobals } from '../../lib/test-render'
@@ -198,8 +198,28 @@ describe('plus menu', () => {
     const rows = [...document.body.querySelectorAll('[role="group"] button')].map((node) => node.textContent?.trim())
     expect(rows).toEqual(['周报', t('assistant.prompts.manage')])
     await click([...document.body.querySelectorAll('[role="group"] button')].find((node) => node.textContent?.trim() === '周报'))
-    // Picking a saved prompt inserts what it says, not what it is called.
-    expect(onPrompt).toHaveBeenCalledWith('把这周做的事写成周报')
+    // Picking a saved prompt inserts what it says, not what it is called — and hands over the whole row,
+    // because a prompt that carries a tool set or a folder is more than its words.
+    expect(onPrompt).toHaveBeenCalledWith(expect.objectContaining({ id: 'p1', text: '把这周做的事写成周报' }))
+  })
+
+  it('hands the saved prompt itself to the composer, bindings and all', async () => {
+    const onPrompt = vi.fn()
+    const prompt: ChatPrompt = {
+      id: 'p2', title: '查资料', content: '先搜我的笔记。', group: '',
+      tools: ['search_notes'], scopes: [{ kind: 'folder', id: 'f1', name: '工作' }], modelId: 'm1',
+      createdAt: 1, updatedAt: 1,
+    }
+    await act(async () => {
+      root.render(createElement(PlusMenu, {
+        onFiles: vi.fn(), onFolder: vi.fn(), onUrl: vi.fn(), onNote: vi.fn(), onPrompt, onManagePrompts: vi.fn(),
+        prompts: [{ id: prompt.id, label: prompt.title, text: prompt.content, prompt }],
+      }))
+    })
+    await click(byAria(t('assistant.attach.menu')))
+    await click(byText(t('assistant.attach.quick_prompts')))
+    await click([...document.body.querySelectorAll('[role="group"] button')].find((node) => node.textContent?.trim() === '查资料'))
+    expect(onPrompt.mock.calls[0]![0].prompt).toEqual(prompt)
   })
 
   it('opens the prompt manager from the same submenu', async () => {

@@ -3,6 +3,7 @@ import { CLIENT_HEADER } from '@shared/constants'
 import type { ReaderUsage } from '@shared/types'
 import type { ChatAttachment,
   ChatPrompt,
+  ChatPromptInput,
   MessageFeedback,
 } from '@shared/assistant'
 import type { MarkdownBackupManifest } from '@shared/backup-format'
@@ -896,9 +897,9 @@ export const api = {
       request<{ attachment: ChatAttachment }>('/api/assistant/files/url', { method: 'POST', body: { url } }),
     prompts: (query?: string) =>
       request<{ prompts: ChatPrompt[] }>(`/api/assistant/prompts${query ? `?q=${encodeURIComponent(query)}` : ''}`),
-    createPrompt: (body: { title: string, content: string, group?: string }) =>
+    createPrompt: (body: ChatPromptInput) =>
       request<{ prompt: ChatPrompt }>('/api/assistant/prompts', { method: 'POST', body }),
-    updatePrompt: (id: string, body: { title?: string, content?: string, group?: string }) =>
+    updatePrompt: (id: string, body: ChatPromptInput) =>
       request<{ prompt: ChatPrompt }>(`/api/assistant/prompts/${id}`, { method: 'PATCH', body }),
     removePrompt: (id: string) => request<{ deleted: boolean }>(`/api/assistant/prompts/${id}`, { method: 'DELETE' }),
     chatFiles: () => request<{ files: ChatAttachment[] }>('/api/assistant/files'),

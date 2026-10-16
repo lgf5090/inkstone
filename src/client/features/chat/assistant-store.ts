@@ -39,7 +39,7 @@ import type {
 } from '@shared/assistant'
 import type { ChatPrompt } from '@shared/assistant'
 import { DEBOUNCE } from '@shared/constants'
-import { MAX_CHAT_ATTACHMENTS, MAX_TURN_SCOPES, MAX_TURN_TOOLS, type AssistantTurnScope, type ChatAttachment } from '@shared/assistant'
+import { MAX_CHAT_ATTACHMENTS, MAX_TURN_SCOPES, MAX_TURN_TOOLS, type AssistantTurnScope, type ChatAttachment, type ChatPromptInput } from '@shared/assistant'
 import { api, ApiError } from '../../lib/api'
 import { t } from '../../lib/i18n'
 import { IS_DEMO_MODE } from '../../lib/runtime'
@@ -261,9 +261,17 @@ interface AssistantState {
   clearAttachments: () => void
   prompts: ChatPrompt[]
   loadPrompts: (query?: string) => Promise<void>
-  createPrompt: (input: { title: string, content: string, group?: string }) => Promise<ChatPrompt | null>
-  savePrompt: (id: string, input: { title?: string, content?: string, group?: string }) => Promise<void>
+  createPrompt: (input: ChatPromptInput) => Promise<ChatPrompt | null>
+  savePrompt: (id: string, input: ChatPromptInput) => Promise<void>
   removePrompt: (id: string) => Promise<void>
+  /**
+   * Arm the turn with everything one saved prompt stands for, not only its words.
+   *
+   * The text is the composer's business — it appends to what the reader was already typing — so this
+   * covers the other three: the tools and knowledge the prompt wants are added to this turn's pins, and
+   * its model becomes the one that answers.
+   */
+  applySkill: (prompt: ChatPrompt) => void
   stop: () => void
   renameConversation: (id: string, title: string) => Promise<void>
   pinConversation: (id: string, pinned: boolean) => Promise<void>
@@ -1035,6 +1043,13 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
     } catch (error) {
       toast(error)
     }
+  },
+
+  applySkill: (prompt) => {
+    // The pins a skill names replace this turn's rather than joining them: the two rows of chips, and the
+    // model chip beside them, then say exactly what the skill promised, which is the point of saving one.
+    set({ turnTools: [...prompt.tools].slice(0, MAX_TURN_TOOLS), turnScopes: [...prompt.scopes].slice(0, MAX_TURN_SCOPES) })
+    if (prompt.modelId && prompt.modelId !== get().settings?.activeModelId) void get().activateModel(prompt.modelId)
   },
 
   addTurnTool: (name) => set((current) => (current.turnTools.includes(name)

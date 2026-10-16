@@ -1224,6 +1224,30 @@ export const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
       `ALTER TABLE chat_conversations ADD COLUMN project_id TEXT`,
     ],
   },
+  {
+    // The tools a saved prompt asks the turn to have, as a JSON array of registry names.
+    version: 73,
+    skipIfColumnExists: { table: 'chat_prompts', column: 'tools' },
+    statements: [
+      `ALTER TABLE chat_prompts ADD COLUMN tools TEXT NOT NULL DEFAULT '[]'`,
+    ],
+  },
+  {
+    // The note folders and tags a saved prompt reads, in the same shape one turn pins with `#`.
+    version: 74,
+    skipIfColumnExists: { table: 'chat_prompts', column: 'scopes' },
+    statements: [
+      `ALTER TABLE chat_prompts ADD COLUMN scopes TEXT NOT NULL DEFAULT '[]'`,
+    ],
+  },
+  {
+    // The model a saved prompt answers with, when the reader named one.
+    version: 75,
+    skipIfColumnExists: { table: 'chat_prompts', column: 'model_id' },
+    statements: [
+      `ALTER TABLE chat_prompts ADD COLUMN model_id TEXT`,
+    ],
+  },
 ]
 
 const FTS_STATEMENT = `CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(

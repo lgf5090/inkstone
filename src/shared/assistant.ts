@@ -650,8 +650,32 @@ export interface ChatPrompt {
   content: string
   /** Free-text grouping; empty means the prompt is unfiled. */
   group: string
+  /**
+   * What applying the prompt arranges for the turn, in the same shapes the composer's own `/` and `#`
+   * picks use. A prompt that only carries words has three empty bindings, which is how every prompt
+   * written before these columns existed still reads.
+   */
+  tools: string[]
+  scopes: AssistantTurnScope[]
+  /** Whichever model should answer; null leaves the reader's current pick alone. */
+  modelId: string | null
   createdAt: number
   updatedAt: number
+}
+
+/**
+ * What the reader writes into a prompt, as opposed to what comes back.
+ *
+ * Every field is optional because both halves of an edit arrive from the same form and the server keeps
+ * whatever the request did not name; the timestamps and id are the server's to assign.
+ */
+export interface ChatPromptInput {
+  title?: string
+  content?: string
+  group?: string
+  tools?: string[]
+  scopes?: AssistantTurnScope[]
+  modelId?: string | null
 }
 
 /** Ceilings for one turn's inline picks, so a composer cannot ask for the whole vault. */

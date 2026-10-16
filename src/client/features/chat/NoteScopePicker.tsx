@@ -16,13 +16,21 @@ import { api } from '../../lib/api'
 
 export const MAX_SCOPE_FOLDERS = 12
 
-export function NoteScopePicker({ value, onChange, disabled }: {
-  value: readonly string[]
-  onChange: (ids: string[]) => void
-  disabled?: boolean
-}) {
-  const [folders, setFolders] = useState<{ id: string, path: string }[]>([])
+/** One notebook folder, named both ways: a chip shows the name, a picker shows the path. */
+export interface VaultFolderOption {
+  id: string
+  name: string
+  path: string
+}
 
+/**
+ * The reader's note folders with their full paths.
+ *
+ * Asked for by every surface that has to name a folder — the standing scope, a project's knowledge, a
+ * prompt's — and none of them can name one from an id alone.
+ */
+export function useVaultFolders(): VaultFolderOption[] {
+  const [folders, setFolders] = useState<VaultFolderOption[]>([])
   useEffect(() => {
     void api.folders.list().then((result) => {
       const byId = new Map(result.folders.map((folder) => [folder.id, folder]))
@@ -35,9 +43,18 @@ export function NoteScopePicker({ value, onChange, disabled }: {
         }
         return parts.join(' / ')
       }
-      setFolders(result.folders.map((folder) => ({ id: folder.id, path: pathOf(folder.id) })))
+      setFolders(result.folders.map((folder) => ({ id: folder.id, name: folder.name, path: pathOf(folder.id) })))
     }).catch(() => setFolders([]))
   }, [])
+  return folders
+}
+
+export function NoteScopePicker({ value, onChange, disabled }: {
+  value: readonly string[]
+  onChange: (ids: string[]) => void
+  disabled?: boolean
+}) {
+  const folders = useVaultFolders()
 
   if (!folders.length) {
     return <p className="text-[length:var(--text-11-5)] text-[var(--text-quaternary)]">{t('assistant.settings.note_scope_none')}</p>

@@ -29,7 +29,7 @@ import {
   Sparkles,
   Wand2,
 } from 'lucide-react'
-import type { AssistantModel, AssistantReasoning } from '@shared/assistant'
+import type { AssistantModel, AssistantReasoning, ChatPrompt } from '@shared/assistant'
 import { CONTEXT_TOKEN_STEPS } from '@shared/assistant'
 import { cn } from '../../lib/cn'
 import { t, type MessageKey } from '../../lib/i18n'
@@ -273,6 +273,20 @@ export function ApprovalMenu({ auto, onChange }: { auto: boolean, onChange: (nex
   )
 }
 
+/**
+ * One row of the composer's prompt submenu.
+ *
+ * `text` is what goes into the box — a saved prompt shows its title and inserts its content, while the
+ * app's own openers have nothing behind them but the label. `prompt` is the saved row itself, and a row
+ * that has one brings its tools, its knowledge and its model along with the words.
+ */
+export interface QuickPromptRow {
+  id: string
+  label: string
+  text?: string
+  prompt?: ChatPrompt
+}
+
 export function PlusMenu({
   onFiles,
   onFolder,
@@ -286,15 +300,14 @@ export function PlusMenu({
   onFolder: () => void
   onUrl: () => void
   onNote: () => void
-  onPrompt: (text: string) => void
-  /** `text` is what goes into the box; a saved prompt shows its title and inserts its content. */
-  prompts: { id: string, label: string, text?: string }[]
+  onPrompt: (row: QuickPromptRow) => void
+  prompts: QuickPromptRow[]
   onManagePrompts: () => void
 }) {
   const anchor = useMenuAnchor()
   // The submenu's own list and the keyboard/search list are built from one array, so the manager entry cannot
   // appear in one and be missing from the other.
-  const promptRows = [...prompts, { id: '__manage', label: t('assistant.prompts.manage') }]
+  const promptRows: QuickPromptRow[] = [...prompts, { id: '__manage', label: t('assistant.prompts.manage') }]
   const items: MenuItem[] = [
     { id: 'note', label: t('assistant.attach.reference_note'), icon: <MessageSquareQuote size={13} />, onSelect: onNote },
     { id: 'file', label: t('assistant.attach.add_file'), icon: <FilePlus2 size={13} />, onSelect: onFiles },
@@ -311,7 +324,7 @@ export function PlusMenu({
       submenu: submenuFor(promptRows.map((promptEntry) => ({
         id: promptEntry.id,
         label: promptEntry.label,
-        onSelect: () => (promptEntry.id === '__manage' ? onManagePrompts() : onPrompt(promptEntry.text ?? promptEntry.label)),
+        onSelect: () => (promptEntry.id === '__manage' ? onManagePrompts() : onPrompt(promptEntry)),
       })), 220),
     },
   ]

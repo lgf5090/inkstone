@@ -19,6 +19,7 @@ import type {
   AssistantMessage,
   AssistantModel,
   AssistantSource,
+  AssistantTurnScope,
   ChatPrompt,
   MessageFeedback,
   AssistantModelKind,
@@ -873,7 +874,7 @@ export class AssistantStore {
     }
     const limitBind = q.add(options.limit ?? 200)
     const list = await this.rows<PromptRow>(
-      `SELECT id, title, content, group_name, created_at, updated_at FROM chat_prompts
+      `SELECT id, title, content, group_name, tools, scopes, model_id, created_at, updated_at FROM chat_prompts
         WHERE ${q.where} ORDER BY updated_at DESC LIMIT ${limitBind}`,
       ...q.binds,
     )
@@ -882,25 +883,38 @@ export class AssistantStore {
 
   async getPrompt(id: string): Promise<ChatPrompt | null> {
     const r = await this.one<PromptRow>(
-      `SELECT id, title, content, group_name, created_at, updated_at FROM chat_prompts WHERE user_id = ?1 AND id = ?2`,
+      `SELECT id, title, content, group_name, tools, scopes, model_id, created_at, updated_at
+         FROM chat_prompts WHERE user_id = ?1 AND id = ?2`,
       this.userId, id,
     )
     return r ? toPrompt(r) : null
   }
 
-  async insertPrompt(input: { title: string, content: string, group?: string }): Promise<ChatPrompt> {
+  async insertPrompt(input: {
+    title: string, content: string, group?: string,
+    tools?: string[], scopes?: AssistantTurnScope[], modelId?: string | null,
+  }): Promise<ChatPrompt> {
     const id = newId()
     const at = Date.now()
     const group = input.group?.trim() ?? ''
+    const tools = input.tools ?? []
+    const scopes = input.scopes ?? []
+    const modelId = input.modelId ?? null
     await this.write(
-      `INSERT INTO chat_prompts (id, user_id, title, content, group_name, created_at, updated_at)
-       VALUES (?2, ?1, ?3, ?4, ?5, ?6, ?6)`,
-      id, input.title, input.content, group, at,
+      `INSERT INTO chat_prompts (id, user_id, title, content, group_name, tools, scopes, model_id, created_at, updated_at)
+       VALUES (?2, ?1, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?9)`,
+      id, input.title, input.content, group, JSON.stringify(tools), JSON.stringify(scopes), modelId, at,
     )
-    return { id, title: input.title, content: input.content, group, createdAt: at, updatedAt: at }
+    return {
+      id, title: input.title, content: input.content, group, tools, scopes, modelId,
+      createdAt: at, updatedAt: at,
+    }
   }
 
-  async updatePrompt(id: string, patch: { title?: string, content?: string, group?: string }): Promise<ChatPrompt | null> {
+  async updatePrompt(id: string, patch: {
+    title?: string, content?: string, group?: string,
+    tools?: string[], scopes?: AssistantTurnScope[], modelId?: string | null,
+  }): Promise<ChatPrompt | null> {
     const existing = await this.getPrompt(id)
     if (!existing) return null
     const next: ChatPrompt = {
@@ -908,12 +922,17 @@ export class AssistantStore {
       ...(patch.title !== undefined ? { title: patch.title } : {}),
       ...(patch.content !== undefined ? { content: patch.content } : {}),
       ...(patch.group !== undefined ? { group: patch.group } : {}),
+      ...(patch.tools !== undefined ? { tools: patch.tools } : {}),
+      ...(patch.scopes !== undefined ? { scopes: patch.scopes } : {}),
+      ...(patch.modelId !== undefined ? { modelId: patch.modelId } : {}),
       updatedAt: Date.now(),
     }
     await this.write(
-      `UPDATE chat_prompts SET title = ?2, content = ?3, group_name = ?4, updated_at = ?5
-         WHERE user_id = ?1 AND id = ?6`,
-      next.title, next.content, next.group, next.updatedAt, id,
+      `UPDATE chat_prompts SET title = ?2, content = ?3, group_name = ?4, tools = ?5, scopes = ?6,
+         model_id = ?7, updated_at = ?8
+         WHERE user_id = ?1 AND id = ?9`,
+      next.title, next.content, next.group, JSON.stringify(next.tools), JSON.stringify(next.scopes),
+      next.modelId, next.updatedAt, id,
     )
     return next
   }
@@ -2950,6 +2969,9 @@ interface PromptRow {
   title: string
   content: string
   group_name: string | null
+  tools: string | null
+  scopes: string | null
+  model_id: string | null
   created_at: number
   updated_at: number
 }
@@ -2960,9 +2982,29 @@ function toPrompt(r: PromptRow): ChatPrompt {
     title: r.title,
     content: r.content,
     group: r.group_name ?? '',
+    tools: decodeStringList(r.tools),
+    scopes: decodeTurnScopes(r.scopes),
+    modelId: r.model_id ?? null,
     createdAt: Number(r.created_at),
     updatedAt: Number(r.updated_at),
   }
+}
+
+/**
+ * The knowledge a saved prompt reads, decoded the forgiving way the transcript reads its tools.
+ *
+ * A row written before these columns existed holds nothing, and one half-written holds a shape that is
+ * not a scope; both read as "no extra folders" rather than failing the list.
+ */
+function decodeTurnScopes(value: unknown): AssistantTurnScope[] {
+  const parsed = parseJson(value)
+  if (!Array.isArray(parsed)) return []
+  return parsed
+    .filter((entry): entry is AssistantTurnScope =>
+      Boolean(entry) && typeof entry === 'object'
+        && typeof (entry as { id?: unknown }).id === 'string'
+        && ((entry as { kind?: unknown }).kind === 'tag' || (entry as { kind?: unknown }).kind === 'folder'))
+    .map((entry) => ({ kind: entry.kind, id: entry.id, name: typeof entry.name === 'string' ? entry.name : '' }))
 }
 
 interface ModelRow {
