@@ -8,7 +8,7 @@
  */
 import type { ComponentType } from 'react'
 import {
-  Archive, Clipboard, Columns2, Download, Eye, EyeOff, FolderPlus, ImagePlus, IndentDecrease, IndentIncrease, Keyboard, LayoutTemplate, Link2, ListTree, MoveDown, MoveUp, Palette, Pencil, Pin, Plus, Presentation, ScanSearch, Settings, Share2, Smile, SquarePen, Star, Sun, Moon, Trash2, WandSparkles, Waypoints, ChevronsDownUp, ChevronsUpDown, Search, Zap, Activity, Compass, ListChecks, Rss,
+  Archive, Clipboard, Columns2, Download, Eye, EyeOff, FolderPlus, ImagePlus, IndentDecrease, IndentIncrease, Keyboard, LayoutTemplate, Link2, ListTree, MoveDown, MoveUp, Palette, Pencil, Pin, Plus, Presentation, ScanSearch, Settings, Share2, Smile, SquarePen, Star, Sun, Moon, Trash2, WandSparkles, Waypoints, ChevronsDownUp, ChevronsUpDown, Search, Zap, Activity, Compass, ListChecks, Rss, BookMarked, Brain, MessageSquare,
 } from 'lucide-react'
 import type { MessageKey } from '@shared/locales/en-US'
 import { api } from '../../lib/api'
@@ -31,6 +31,9 @@ import { openOmnisearch } from '../omnisearch/store'
 import { openRssSection } from '../rss/rss-commands'
 import { createContextualNote, useNotes } from '../../store/notes'
 import { useQuickAdd } from '../../store/quickadd'
+import { navigateToPath } from '../../lib/app-history'
+import { appTab } from '../shell/app-tabs'
+import { useAssistant, type AssistantView } from '../chat/assistant-store'
 import { useSession } from '../../store/session'
 import { useUi } from '../../store/ui'
 
@@ -619,7 +622,90 @@ export function appCommands(): AppCommand[] {
                 }]
             })
         : []),
+        ...assistantCommands(),
     ]
+}
+
+/**
+ * The assistant's own surfaces, reachable from the palette.
+ *
+ * The chat app is a container of its own, so every one of these is the same pair: the address that puts
+ * that container up, and the view inside it. Written as a list rather than one command because a reader
+ * who wants their task list should not have to land in the thread and then go looking for the tab.
+ */
+function assistantCommands(): AppCommand[] {
+  const open = (view: AssistantView) => () => {
+    navigateToPath(appTab('chat').path)
+    useAssistant.getState().setView(view)
+  }
+  return [
+    {
+      id: 'assistant-chat',
+      kind: 'command',
+      label: t('assistant.view.chat'),
+      group: t('command.group_assistant'),
+      icon: MessageSquare,
+      run: open('chat'),
+    },
+    {
+      id: 'assistant-new',
+      kind: 'command',
+      label: t('assistant.chat.new'),
+      group: t('command.group_assistant'),
+      icon: SquarePen,
+      run: () => {
+        navigateToPath(appTab('chat').path)
+        useAssistant.getState().setView('chat')
+        void useAssistant.getState().newConversation()
+      },
+    },
+    {
+      id: 'assistant-memory',
+      kind: 'command',
+      label: t('assistant.view.memory'),
+      group: t('command.group_assistant'),
+      icon: Brain,
+      run: open('memory'),
+    },
+    {
+      id: 'assistant-tasks',
+      kind: 'command',
+      label: t('assistant.view.tasks'),
+      group: t('command.group_assistant'),
+      icon: ListChecks,
+      run: open('tasks'),
+    },
+    {
+      id: 'assistant-automations',
+      kind: 'command',
+      label: t('assistant.view.automations'),
+      group: t('command.group_assistant'),
+      icon: ListTree,
+      run: open('automations'),
+    },
+    {
+      id: 'assistant-prompts',
+      kind: 'command',
+      label: t('assistant.view.prompts'),
+      group: t('command.group_assistant'),
+      icon: BookMarked,
+      run: open('prompts'),
+    },
+    {
+      id: 'assistant-settings',
+      kind: 'command',
+      label: t('assistant.view.settings'),
+      group: t('command.group_assistant'),
+      icon: Settings,
+      run: () => {
+        navigateToPath(appTab('chat').path)
+        useAssistant.getState().setView('settings')
+        // Read once the container is up: the panel shows what the server last said, and a reader who
+        // opened the palette to change a model should not be looking at a stale list.
+        void useAssistant.getState().loadSettings()
+      },
+    },
+  ]
 }
 
 /** One command by id, or null when nothing registers that id. */

@@ -1672,6 +1672,9 @@ const allowed = new Map([
     "// The three layout commands share one prefix on purpose: the palette matches on the label, so a",
     "// reader who knows only the word for layout has to land on all three rather than on the one",
     "// whose name doubles as the inline-rendering toggle in the toolbar.",
+    "/**\n * The assistant's own surfaces, reachable from the palette.\n *\n * The chat app is a container of its own, so every one of these is the same pair: the address that puts\n * that container up, and the view inside it. Written as a list rather than one command because a reader\n * who wants their task list should not have to land in the thread and then go looking for the tab.\n */",
+    "// Read once the container is up: the panel shows what the server last said, and a reader who",
+    "// opened the palette to change a model should not be looking at a stale list.",
   ]],
   ["src/client/features/emoji/EmojiPicker.test.ts", [
     "/** huō-jiàn, rocket: the Han word the set carries for it. */",

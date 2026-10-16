@@ -60,7 +60,7 @@ function renderable(value: unknown): boolean {
 describe('the command registry', () => {
   it('lists every command with the pieces the palette renders', () => {
     const commands = appCommands()
-    expect(commands.length, 'the palette used to own this list; nothing may be dropped on the way out').toBe(55)
+    expect(commands.length, 'the palette used to own this list; nothing may be dropped on the way out').toBe(62)
     expect(new Set(commands.map((entry) => entry.id)).size).toBe(commands.length)
     for (const entry of commands) {
       expect(entry.kind).toBe('command')

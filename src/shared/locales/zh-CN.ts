@@ -207,6 +207,7 @@ export const ZH_CN_MESSAGES = {
     "command.change_accent_color": "更换强调色",
     "command.check_uncheck_tasks": "勾选 / 取消勾选任务",
     "command.code_block_language_autocomplete": "代码块（可补全语言名）",
+    "command.group_assistant": "助手",
     "command.commands": "命令",
     "command.content_match": "正文匹配",
     "command.continue_lists_automatically_press_enter_on_an_empty_item_to_exit": "在列表中自动延续；空项回车退出列表",

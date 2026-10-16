@@ -207,6 +207,7 @@ export const EN_US_MESSAGES = {
     "command.change_accent_color": "Change accent color",
     "command.check_uncheck_tasks": "Check/uncheck tasks",
     "command.code_block_language_autocomplete": "Code block (language autocomplete)",
+    "command.group_assistant": "Assistant",
     "command.commands": "Commands",
     "command.content_match": "Content match",
     "command.continue_lists_automatically_press_enter_on_an_empty_item_to_exit": "Continue lists automatically; press Enter on an empty item to exit",
