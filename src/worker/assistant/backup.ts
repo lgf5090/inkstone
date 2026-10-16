@@ -230,6 +230,7 @@ export async function importAssistant(store: AssistantStore, raw: Record<string,
     const id = idValue(memory.id)
     if (!id) continue
     const updatedAt = numberValue(memory.updated_at, Date.now())
+    const projectId = idValue(memory.project_id)
     const existing = await store.getMemory(id)
     // Never overwrite a newer local edit with an older backup copy.
     if (existing && existing.updatedAt >= updatedAt) {
@@ -246,6 +247,9 @@ export async function importAssistant(store: AssistantStore, raw: Record<string,
       superseded_by: null,
       valid_from: dateValue(memory.valid_from),
       valid_until: dateValue(memory.valid_until),
+      // Same rule as a task's project: a fact filed under a project that did not come with the backup
+      // would be a fact no turn can ever recall — worse than an unfiled one, which every turn recalls.
+      project_id: projectId && knownProjects.has(projectId) ? projectId : null,
       created_at: numberValue(memory.created_at, updatedAt),
       updated_at: updatedAt,
     }

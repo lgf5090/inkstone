@@ -74,6 +74,7 @@ function context(over: Partial<ToolContext> = {}): ToolContext {
     dayEnd: 1_700_000_000_000,
     mode: 'chat',
     memoryHistory: {} as ToolContext['memoryHistory'],
+    memoryScope: { projectId: null },
     automations: {} as ToolContext['automations'],
     noteScope: async () => scope,
     ...over,

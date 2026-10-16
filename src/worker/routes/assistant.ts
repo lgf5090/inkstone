@@ -1194,12 +1194,15 @@ assistantRoutes.post('/actions/:id/approve', async (c) => {
   const id = requiredId(c.req.param('id'))
   const stored = await s.getPendingAction(id)
   if (!stored) throw ApiError.notFound('This action no longer exists.')
-  if (!(await s.getConversation(stored.conversationId))) throw ApiError.notFound('This conversation no longer exists.')
+  const conversation = await s.getConversation(stored.conversationId)
+  if (!conversation) throw ApiError.notFound('This conversation no longer exists.')
   const settings = await s.getSettings()
   // A tool that makes a file (an image) leaves it in this array, because the turn it belongs to was
   // written before the reader pressed Approve and there is no `addMessage` left to carry the id.
   const generated: string[] = []
-  const outcome = await runApprovedAction(s, await approvalContext(c, s, settings, generated), id)
+  // The thread's project, re-read rather than remembered: an approved memory write must land in the
+  // same scope the proposal was made in, and a thread moved between projects since then has moved.
+  const outcome = await runApprovedAction(s, await approvalContext(c, s, settings, generated, conversation.projectId ?? null), id)
   if (outcome.action) {
     const located = await s.messageForAction(id)
     if (located) {
@@ -1232,7 +1235,8 @@ async function approvalContext(
   c: Context<AppBindings>,
   s: AssistantStore,
   settings: Awaited<ReturnType<AssistantStore['getSettings']>>,
-  generatedAttachments?: string[],
+  generatedAttachments: string[] | undefined,
+  projectId: string | null,
 ) {
   const scope = await resolveNoteScope(c.env.DB, s.userId, settings.noteScope)
   const external = await loadExternalTools(s)
@@ -1247,6 +1251,7 @@ async function approvalContext(
     dayEnd: readerDayEnd(settings.timezone),
     mode: 'chat' as const,
     memoryHistory: new MemoryHistoryService(s, {}, settings.conflictReview),
+    memoryScope: { projectId },
     automations: new AutomationService(s, settings),
     noteScope: async () => scope,
     ...(generatedAttachments ? { generatedAttachments } : {}),

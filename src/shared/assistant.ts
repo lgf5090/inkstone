@@ -1672,6 +1672,14 @@ export interface AssistantMemory {
   /** Only when the text stated one: `YYYY`, `YYYY-MM` or `YYYY-MM-DD`. Never guessed. */
   validFrom: string | null
   validUntil: string | null
+  /**
+   * The project this fact belongs to, or null for one that belongs to the account.
+   *
+   * A project is a context — a client, an engagement, a piece of work — and what is true inside one is
+   * not automatically true in the next. So a fact is filed where it was learned, and a turn answering
+   * inside a project recalls that project's facts plus the account's own, never another project's.
+   */
+  projectId: string | null
   createdAt: number
   updatedAt: number
 }

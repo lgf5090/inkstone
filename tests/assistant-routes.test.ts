@@ -2090,6 +2090,33 @@ describe('backup', () => {
     expect(mine.memories).toHaveLength(1)
   })
 
+  it('keeps the project a fact was filed under, and unfiles a project the backup did not bring', async () => {
+    const project = await call<{ project: { id: string } }>('POST', '/api/assistant/projects', { name: 'Client A' })
+    const { AssistantStore } = await import('../src/worker/assistant/store')
+    const store = new AssistantStore(env.DB as D1Database, USER, env)
+    // No route files a fact under a project — the reader's own additions belong to the account — so the
+    // row is written the way a turn inside the project writes it.
+    const filed = await store.insertMemory({
+      content: 'The budget review is monthly', category: 'fact', source: 'assistant', projectId: project.project.id,
+    })
+    const payload = await call('GET', '/api/assistant/export') as { data: { projects: unknown[], memories: unknown[] } }
+
+    // A restore that carries the project keeps the fact where it was filed. `project_id` is nullable, so a
+    // forgotten column would not drop the row the way a NOT NULL one does — it would quietly promote every
+    // project's facts to the account's own, which is the failure nobody would notice until they leaked.
+    asUser(OTHER)
+    await call('POST', '/api/assistant/import', payload)
+    const restored = await call<{ memories: AssistantMemory[] }>('GET', '/api/assistant/memories')
+    expect(restored.memories.find((memory) => memory.id === filed.id)?.projectId).toBe(project.project.id)
+
+    // One that does not bring the project leaves the fact unfiled, rather than filing it under a project
+    // that is not there: a fact under a missing project is a fact no turn can ever recall.
+    asUser('0123456789abcdefghjkmnpqrv')
+    await call('POST', '/api/assistant/import', { ...payload, data: { ...payload.data, projects: [] } })
+    const orphaned = await call<{ memories: AssistantMemory[] }>('GET', '/api/assistant/memories')
+    expect(orphaned.memories.find((memory) => memory.id === filed.id)?.projectId).toBeNull()
+  })
+
   it('imports a new automation paused', async () => {
     const created = await call<{ automation: Automation }>('POST', '/api/assistant/automations', {
       name: 'Weekly review',

@@ -21,7 +21,7 @@ import {
 } from '../mcp/ai-search'
 import type { AssistantMemory } from '@shared/assistant'
 import type { Env } from '../env'
-import type { AssistantStore } from './store'
+import type { AssistantStore, MemoryScope } from './store'
 
 export interface MemoryEmbeddingStatus {
   available: boolean
@@ -170,11 +170,14 @@ export async function rankMemoriesByVector(
   statuses: readonly string[],
   limit: number,
   model = AI_EMBEDDING_MODEL,
+  scope?: MemoryScope,
 ): Promise<AssistantMemory[]> {
   const ai = env.AI
   if (!ai) return []
   const [rows, queryVector] = await Promise.all([
-    store.memoryEmbeddingsWithMemory(model, statuses),
+    // Scoped at the read, not after it: a vector from another project must never be a candidate, or a
+    // project's facts would surface in a thread that is not allowed to recall them.
+    store.memoryEmbeddingsWithMemory(model, statuses, 500, scope),
     embedWithModel(ai, model, query),
   ])
   if (!rows.length) return []

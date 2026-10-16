@@ -6044,6 +6044,7 @@ console.log(\`Hello, \${name}!\`)
     "assistant.memory.earlier": "更早",
     "assistant.memory.no_earlier": "没有更早的版本。",
     "assistant.memory.past": "过去",
+    "assistant.memory.in_project": "只在项目「{name}」里被回忆",
     "assistant.memory.unsure": "待确认",
     "assistant.memory.source_manual": "手动添加",
     "assistant.memory.source_agent": "对话中学到",

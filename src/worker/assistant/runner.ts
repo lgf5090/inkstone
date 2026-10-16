@@ -25,7 +25,7 @@ import type { Env } from '../env'
 import { ApiError } from '../lib/errors'
 import { newId, isValidId } from '../lib/id'
 import type { McpWriteContext } from '../mcp/writes'
-import type { AssistantStore, ProviderRow } from './store'
+import type { AssistantStore, MemoryScope, ProviderRow } from './store'
 import { MemoryHistoryService, type ConflictJudge } from './memory-service'
 import { AutomationService } from './automations'
 import { resolveNoteScope, type NoteScope } from './note-scope'
@@ -824,6 +824,17 @@ export class AssistantRunner {
     return entries
   }
 
+  /**
+   * Which memories this turn may see: the account's own, plus the project the thread belongs to.
+   *
+   * Read from the conversation rather than the request, because it is a property of where the thread
+   * lives. A thread outside every project sees the account's memories and nothing else — narrower than
+   * "no filter", which is why this is a scope and not an optional argument.
+   */
+  private get memoryScope(): MemoryScope {
+    return { projectId: this.conversationProjectId }
+  }
+
   private async recallMemories(query: string): Promise<Awaited<ReturnType<AssistantStore['searchMemories']>>> {
     const past = hasHistoricalIntent(query)
     const selected = new Map<string, Awaited<ReturnType<AssistantStore['searchMemories']>>[number]>()
@@ -836,7 +847,12 @@ export class AssistantRunner {
         }
       }
     }
-    for (const memory of await this.store.listMemories({ category: 'preference', status: 'active', limit: ALWAYS_INCLUDE_PREFERENCES })) {
+    for (const memory of await this.store.listMemories({
+      category: 'preference',
+      status: 'active',
+      limit: ALWAYS_INCLUDE_PREFERENCES,
+      scope: this.memoryScope,
+    })) {
       if (selected.size >= MAX_RELEVANT_MEMORIES) break
       selected.set(memory.id, memory)
     }
@@ -852,7 +868,7 @@ export class AssistantRunner {
    * quality rather than the answer.
    */
   private async fusedMemoryRecall(query: string, past: boolean) {
-    const lexical = await this.store.searchMemories(query, MAX_RELEVANT_MEMORIES, past ? 'all' : 'current')
+    const lexical = await this.store.searchMemories(query, MAX_RELEVANT_MEMORIES, past ? 'all' : 'current', this.memoryScope)
     if (!this.settings.semanticMemory || !this.deps.env.AI) return lexical
     try {
       const semantic = await rankMemoriesByVector(
@@ -862,6 +878,7 @@ export class AssistantRunner {
         past ? ['active', 'uncertain', 'historical'] : ['active', 'uncertain'],
         MAX_RELEVANT_MEMORIES,
         semanticModel(this.settings),
+        this.memoryScope,
       )
       return fuseMemoryRecall(lexical, semantic, MAX_RELEVANT_MEMORIES)
     } catch {
@@ -970,6 +987,7 @@ export class AssistantRunner {
       mode: conversationId ? 'chat' : 'scheduled',
       ...(conversationId ? { conversationId } : {}),
       memoryHistory: this.memoryHistory,
+      memoryScope: this.memoryScope,
       automations: this.automations,
       noteScope: () => this.noteScope(),
       ...(generatedAttachments ? { generatedAttachments } : {}),

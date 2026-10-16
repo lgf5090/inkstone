@@ -162,6 +162,23 @@ describe('a boot onto a database whose ledger lies', () => {
       VALUES ('s2', 'c1', 'u1', '01jqz0000000000000000000aa', 1)`)
   })
 
+  it('files a fact that predates the scope as the account\'s own', async () => {
+    const sqlite = await installed()
+    sqlite.exec(`INSERT INTO chat_memories (id, user_id, content, category, source, status, created_at, updated_at)
+      VALUES ('m1', 'u1', 'Prefers tea', 'preference', 'manual', 'active', 1, 1)`)
+    // The shape a database built before version 87 has. Every fact that existed then was learned in the
+    // account's own context, so null — which is what "no project" means — is the reading that loses
+    // nothing; a default would say the same thing while pretending a project had been chosen.
+    sqlite.exec('ALTER TABLE chat_memories DROP COLUMN project_id')
+    sqlite.exec('DELETE FROM schema_migrations WHERE version = 87')
+
+    await reboot(sqlite)
+
+    expect(columnsOf(sqlite, 'chat_memories')).toContain('project_id')
+    expect(sqlite.prepare(`SELECT content, project_id FROM chat_memories WHERE id = 'm1'`).get())
+      .toEqual({ content: 'Prefers tea', project_id: null })
+  })
+
   it('keeps the data of the rows it does not touch', async () => {
     const sqlite = await installed()
     sqlite.exec(`INSERT INTO users (id, username, password_hash, login, name, role, settings, created_at, last_seen_at)

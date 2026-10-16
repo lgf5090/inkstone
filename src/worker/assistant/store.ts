@@ -105,7 +105,32 @@ const TASK_STATUS_VALUES = ['todo', 'in_progress', 'done'] as const
 const TASK_PRIORITY_VALUES = ['low', 'medium', 'high', 'urgent'] as const
 
 const MEMORY_COLUMNS
-  = `id, content, category, source, status, superseded_by, valid_from, valid_until, created_at, updated_at`
+  = `id, content, category, source, status, superseded_by, valid_from, valid_until, project_id, created_at, updated_at`
+
+/**
+ * Which memories a turn may see: the account's own, plus the project it is answering in.
+ *
+ * A fact filed under one project is not automatically true in the next, so a turn recalls the account's
+ * own memories and its project's, and never a third project's. `projectId: null` is a turn that is not
+ * inside a project — it sees the account's memories and nothing else, which is narrower than "no filter"
+ * and is why this is a scope rather than an optional argument.
+ */
+export interface MemoryScope {
+  projectId: string | null
+}
+
+/**
+ * The scope as a predicate. `undefined` means no filter at all, and is only ever the management screen's
+ * own read — a turn always has a scope, even when that scope is the account's memories alone.
+ *
+ * `column` is qualified where the query joins, because an unqualified `project_id` across two tables is a
+ * name the database has to guess at.
+ */
+function applyMemoryScope(q: Query, scope: MemoryScope | undefined, column = 'project_id'): void {
+  if (!scope) return
+  if (scope.projectId) q.raw(`(${column} IS NULL OR ${column} = ${q.add(scope.projectId)})`)
+  else q.raw(`${column} IS NULL`)
+}
 
 /**
  * The provider columns a listing may read.
@@ -2264,11 +2289,15 @@ export class AssistantStore {
     model: string,
     statuses: readonly string[],
     limit = 500,
+    scope?: MemoryScope,
   ): Promise<{ memory: AssistantMemory, vector: ArrayBuffer, norm: number | null }[]> {
     if (!statuses.length) return []
     const q = new Query(this.userId)
     const modelBind = q.add(model)
     q.inList('m.status', statuses)
+    // Qualified: both tables in this join carry a `user_id`, so an unqualified column here would be a
+    // name the database has to guess at.
+    applyMemoryScope(q, scope, 'm.project_id')
     const limitBind = q.add(limit)
     const columns = MEMORY_COLUMNS.split(', ').map((column) => `m.${column}`).join(', ')
     const rows = await this.rows<MemoryRow & { vector: ArrayBuffer, norm: number | null }>(
@@ -2295,8 +2324,9 @@ export class AssistantStore {
     return before
   }
 
-  async listMemories(opts: { query?: string, category?: string, status?: string, limit?: number } = {}): Promise<AssistantMemory[]> {
+  async listMemories(opts: { query?: string, category?: string, status?: string, limit?: number, scope?: MemoryScope } = {}): Promise<AssistantMemory[]> {
     const q = new Query(this.userId).raw(this.statusClause(opts.status ?? 'all'))
+    applyMemoryScope(q, opts.scope)
     if (opts.category) q.eq(`category`, opts.category)
     if (opts.query) q.raw(`content LIKE ${q.add(containsPattern(opts.query))} ESCAPE '\\'`)
     const limit = q.add(opts.limit ?? 500)
@@ -2324,11 +2354,12 @@ export class AssistantStore {
    * queries this app's readers type. Substring matching over a set that is small by design is what
    * makes a two-character Chinese query recall the sentence that contains it.
    */
-  async searchMemories(query: string, limit = 8, status: 'current' | 'all' = 'current'): Promise<AssistantMemory[]> {
+  async searchMemories(query: string, limit = 8, status: 'current' | 'all' = 'current', scope?: MemoryScope): Promise<AssistantMemory[]> {
     const terms = memorySearchTerms(query)
     if (!terms.length) return []
     const q = new Query(this.userId)
     if (status === 'current') q.raw(`status != 'historical'`)
+    applyMemoryScope(q, scope)
     q.or(terms.map((term) => `content LIKE ${q.add(containsPattern(term))} ESCAPE '\\'`))
     const limitBind = q.add(limit)
     const list = await this.rows<MemoryRow>(
@@ -2364,16 +2395,19 @@ export class AssistantStore {
     source: AssistantMemorySource
     validFrom?: string | null
     status?: AssistantMemoryStatus
+    /** The project the fact was learned in; null for one that belongs to the account. */
+    projectId?: string | null
   }): Promise<AssistantMemory> {
     const id = newId()
     const at = Date.now()
     const status = input.status ?? 'active'
     const validFrom = input.validFrom ?? null
+    const projectId = input.projectId ?? null
     await this.write(
       `INSERT INTO chat_memories
-         (id, user_id, content, category, source, status, superseded_by, valid_from, valid_until, created_at, updated_at)
-       VALUES (?2, ?1, ?3, ?4, ?5, ?6, NULL, ?7, NULL, ?8, ?9)`,
-      id, input.content, input.category, input.source, status, validFrom, at, at,
+         (id, user_id, content, category, source, status, superseded_by, valid_from, valid_until, project_id, created_at, updated_at)
+       VALUES (?2, ?1, ?3, ?4, ?5, ?6, NULL, ?7, NULL, ?8, ?9, ?10)`,
+      id, input.content, input.category, input.source, status, validFrom, projectId, at, at,
     )
     await this.embedQuietly(id, input.content)
     return {
@@ -2385,18 +2419,27 @@ export class AssistantStore {
       supersededBy: null,
       validFrom,
       validUntil: null,
+      projectId,
       createdAt: at,
       updatedAt: at,
     }
   }
 
-  /** An identical current memory exists: refresh it rather than storing the same fact twice. */
-  async findDuplicateMemory(content: string): Promise<AssistantMemory | null> {
+  /**
+   * An identical current memory exists: refresh it rather than storing the same fact twice.
+   *
+   * Scoped, because the same sentence can be a fact in two different projects and they are two facts:
+   * "the budget is 40k" said about one client is not a reason to drop the other client's.
+   */
+  async findDuplicateMemory(content: string, scope?: MemoryScope): Promise<AssistantMemory | null> {
+    const q = new Query(this.userId)
+    const contentBind = q.add(content)
+    applyMemoryScope(q, scope)
     const r = await this.one<MemoryRow>(
       `SELECT ${MEMORY_COLUMNS} FROM chat_memories
-        WHERE user_id = ?1 AND content = ?2 COLLATE NOCASE AND status != 'historical'
+        WHERE ${q.where} AND content = ${contentBind} COLLATE NOCASE AND status != 'historical'
         ORDER BY updated_at DESC LIMIT 1`,
-      this.userId, content,
+      ...q.binds,
     )
     if (!r) return null
     const at = Date.now()
@@ -2755,6 +2798,25 @@ export class AssistantStore {
   }
 
   async deleteProject(id: string): Promise<void> {
+    // The project's facts go with it. Neither alternative is acceptable: keeping them would either
+    // resurrect them as the account's own — one client's facts surfacing in every other conversation —
+    // or strand them under a project that no longer exists, listed on the memory page and unreachable by
+    // any turn. A conversation is a record and stays; a fact about a context that is gone does not.
+    const filed = await this.rows<{ id: string, content: string }>(
+      `SELECT id, content FROM chat_memories WHERE user_id = ?1 AND project_id = ?2`, id,
+    )
+    if (filed.length) {
+      // The vectors go with the facts: `memoryEmbeddingCount` is a plain count of rows, so a vector whose
+      // memory is gone would keep inflating the number on the settings card while no turn could recall it.
+      // The review rows are not cleaned here — `listReviews` already drops the ones whose memory is
+      // missing, so a delete would be a second copy of that rule.
+      const marks = filed.map((_, index) => `?${index + 2}`).join(', ')
+      await this.write(`DELETE FROM chat_memory_embeddings WHERE user_id = ?1 AND memory_id IN (${marks})`, ...filed.map((memory) => memory.id))
+    }
+    await this.write(`DELETE FROM chat_memories WHERE user_id = ?1 AND project_id = ?2`, id)
+    // The activity feed quoted each fact when it was learned; the fact is gone, so the quote goes too —
+    // the same promise `deleteMemory` keeps, for the same reason.
+    for (const memory of filed) await this.deleteActivityQuoting('memory.created', memory.content)
     await this.write(`UPDATE chat_tasks SET project_id = NULL WHERE user_id = ?1 AND project_id = ?2`, id)
     await this.write(`DELETE FROM chat_projects WHERE user_id = ?1 AND id = ?2`, id)
   }
@@ -3620,7 +3682,7 @@ const EXPORT_COLUMNS: Readonly<Record<string, readonly string[]>> = {
   chat_conversation_tags: ['conversation_id', 'tag_id', 'created_at'],
   chat_messages: ['id', 'conversation_id', 'role', 'content', 'reasoning', 'tools', 'attachments', 'status', 'error', 'source', 'input_tokens', 'output_tokens', 'duration_ms', 'model_label', 'created_at'],
   chat_answer_versions: ['id', 'message_id', 'conversation_id', 'content', 'reasoning', 'tools', 'model_label', 'input_tokens', 'output_tokens', 'duration_ms', 'created_at'],
-  chat_memories: ['id', 'content', 'category', 'source', 'status', 'superseded_by', 'valid_from', 'valid_until', 'created_at', 'updated_at'],
+  chat_memories: ['id', 'content', 'category', 'source', 'status', 'superseded_by', 'valid_from', 'valid_until', 'project_id', 'created_at', 'updated_at'],
   chat_tasks: ['id', 'title', 'description', 'status', 'priority', 'due_at', 'project_id', 'created_at', 'updated_at', 'completed_at'],
   chat_projects: ['id', 'name', 'description', 'created_at', 'updated_at'],
   chat_automations: ['id', 'name', 'kind', 'message', 'schedule', 'enabled', 'status', 'next_run', 'last_run', 'last_result', 'last_error', 'run_count', 'created_at', 'updated_at'],
@@ -4056,6 +4118,7 @@ interface MemoryRow {
   superseded_by: string | null
   valid_from: string | null
   valid_until: string | null
+  project_id: string | null
   created_at: number
   updated_at: number
 }
@@ -4070,6 +4133,7 @@ function toMemory(r: MemoryRow): AssistantMemory {
     supersededBy: r.superseded_by,
     validFrom: r.valid_from,
     validUntil: r.valid_until,
+    projectId: r.project_id,
     createdAt: r.created_at,
     updatedAt: r.updated_at,
   }

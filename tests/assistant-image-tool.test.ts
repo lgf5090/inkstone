@@ -75,6 +75,7 @@ function context(store: AssistantStore, over: Partial<ToolContext> = {}): ToolCo
     mode: 'chat',
     conversationId: 'c1',
     memoryHistory: {} as ToolContext['memoryHistory'],
+    memoryScope: { projectId: null },
     automations: {} as ToolContext['automations'],
     noteScope: async () => ({ restricted: false, folderIds: new Set(), tagIds: new Set(), noteIds: new Set() }),
     ...over,

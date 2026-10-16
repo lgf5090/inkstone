@@ -23,7 +23,7 @@ import {
 } from '@shared/assistant-memory'
 import { estimateTokens } from '@shared/assistant'
 import { ApiError } from '../lib/errors'
-import type { AssistantStore } from './store'
+import type { AssistantStore, MemoryScope } from './store'
 import type { MemoryReviewRow } from './store'
 
 /** The categories the tools may name. The shared list is the source; this is the same array typed for a schema. */
@@ -56,9 +56,23 @@ export class MemoryHistoryService {
     private readonly conflictReviewEnabled = true,
   ) {}
 
-  async create(input: { content: string, category: AssistantMemoryCategory, source: AssistantMemory['source'] }): Promise<WriteResult> {
+  /**
+   * A new fact, filed where it was learned.
+   *
+   * `projectId` is the context the turn is answering in, and it decides what this fact is compared
+   * against: a duplicate and a conflict are both questions about the same scope. "The budget is 40k" said
+   * about one client is not a reason to drop the other client's, and a fact about one engagement is not
+   * an update to a fact about the account.
+   */
+  async create(input: {
+    content: string
+    category: AssistantMemoryCategory
+    source: AssistantMemory['source']
+    projectId?: string | null
+  }): Promise<WriteResult> {
     const content = input.content.trim()
-    const duplicate = await this.store.findDuplicateMemory(content)
+    const projectId = input.projectId ?? null
+    const duplicate = await this.store.findDuplicateMemory(content, { projectId })
     // Saved first: nothing below may lose the memory, and a failed comparison leaves a plain fact.
     if (duplicate) return { memory: duplicate, superseded: [], reviews: [] }
     const memory = await this.store.insertMemory({
@@ -66,6 +80,7 @@ export class MemoryHistoryService {
       category: input.category,
       source: input.source,
       validFrom: extractStatedDate(content),
+      projectId,
     })
     return this.afterWrite(memory)
   }
@@ -91,6 +106,9 @@ export class MemoryHistoryService {
       category: category ?? old.category,
       source: 'manual',
       validFrom: extractStatedDate(trimmed),
+      // A correction stays in the scope of what it corrects: replacing a project's fact with an
+      // account-wide one would be a promotion the reader never asked for.
+      projectId: old.projectId,
     })
     const superseded = await this.supersede(old.id, created.id, { validUntil: created.validFrom })
     const rest = await this.afterWrite(created)
@@ -234,13 +252,16 @@ export class MemoryHistoryService {
   }
 
   private async detectConflicts(memory: AssistantMemory): Promise<WriteResult> {
+    // Only the scope this fact was filed in: the account's own facts, or one project's. A comparison
+    // across scopes would let one client's fact silently retire another's.
+    const scope: MemoryScope = { projectId: memory.projectId }
     const candidates = new Map<string, AssistantMemory>()
-    for (const found of await this.store.searchMemories(memory.content, CONFLICT_CANDIDATES, 'current')) {
+    for (const found of await this.store.searchMemories(memory.content, CONFLICT_CANDIDATES, 'current', scope)) {
       candidates.set(found.id, found)
     }
     // The same single-valued topic without shared words: "I moved to Paris" against "I live in London".
     for (const terms of slotSearchTerms(memory.content)) {
-      for (const found of await this.store.searchMemories(terms, CONFLICT_CANDIDATES, 'current')) {
+      for (const found of await this.store.searchMemories(terms, CONFLICT_CANDIDATES, 'current', scope)) {
         candidates.set(found.id, found)
       }
     }

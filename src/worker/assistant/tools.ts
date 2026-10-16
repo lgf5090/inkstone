@@ -16,7 +16,7 @@
  */
 
 import type { AssistantSettings, Task } from '@shared/assistant'
-import { ASSISTANT_TOOL_SPECS, MAX_TASK_TITLE_CHARS, TASK_PRIORITIES, TASK_STATUSES, toolPayloadText, toolModeFor, type AssistantMemoryCategory, type AutomationKind } from '@shared/assistant'
+import { ASSISTANT_TOOL_SPECS, MAX_TASK_TITLE_CHARS, TASK_PRIORITIES, TASK_STATUSES, toolPayloadText, toolModeFor, type AssistantMemory, type AssistantMemoryCategory, type AutomationKind } from '@shared/assistant'
 import { MEMORY_CATEGORIES_FOR_TOOLS } from './memory-service'
 import { parseLocalTime, toLocalMinute } from '@shared/assistant-time'
 import { hasHistoricalIntent } from '@shared/assistant-memory'
@@ -26,7 +26,7 @@ import type { McpWriteContext } from '../mcp/writes'
 import { createMcpNote, editMcpNote, trashMcpNote } from '../mcp/writes'
 import { readMcpNote, searchMcpNotes } from '../mcp/retrieval'
 import { ApiError } from '../lib/errors'
-import type { AssistantStore } from './store'
+import type { AssistantStore, MemoryScope } from './store'
 import { assertNoteReadable, noteTitleForLog, readableNoteIds, type NoteScope } from './note-scope'
 import {
   SCOPE_NOTE,
@@ -73,6 +73,14 @@ export interface ToolContext {
   /** The provider's own id for this call, reused as the note write's idempotency key. */
   callId?: string
   memoryHistory: MemoryHistoryService
+  /**
+   * Which memories this turn may recall, edit or forget.
+   *
+   * The account's own, plus the project the conversation belongs to. It is one value rather than a
+   * project id so that "not in a project" is a scope of its own — the account's memories and nothing
+   * else — rather than the absence of a filter.
+   */
+  memoryScope: MemoryScope
   automations: AutomationService
   /** Resolved once per turn by the runner: the note tools all ask it, and a second answer would be a race. */
   noteScope: () => Promise<NoteScope>
@@ -337,6 +345,19 @@ export const TASK_TOOLS: ToolDefinition[] = [
   }),
 ]
 
+/**
+ * A memory this turn may touch, or a refusal.
+ *
+ * The tools see what recall sees. Without this a turn could edit a memory it cannot read, because an id
+ * is a stable string that travels through conversations: "I know its name" must not be a permission.
+ * A memory filed under no project belongs to the account and is therefore in every turn's scope.
+ */
+function memoryInScope(memory: AssistantMemory | null, ctx: ToolContext): AssistantMemory {
+  if (!memory) throw new ToolError('Memory not found.')
+  if (memory.projectId && memory.projectId !== ctx.memoryScope.projectId) throw new ToolError('Memory not found.')
+  return memory
+}
+
 export const MEMORY_TOOLS: ToolDefinition[] = [
   tool({
     name: 'remember',
@@ -352,6 +373,9 @@ export const MEMORY_TOOLS: ToolDefinition[] = [
         content: String(args.content),
         category: (args.category as AssistantMemoryCategory | undefined) ?? 'other',
         source: 'assistant',
+        // Filed where it was learned: a fact about the project this conversation belongs to stays with
+        // it, and a conversation outside every project files into the account's own.
+        projectId: ctx.memoryScope.projectId,
       })
       await ctx.store.recordActivity('memory.created', result.memory.content)
       return {
@@ -377,7 +401,7 @@ export const MEMORY_TOOLS: ToolDefinition[] = [
     async run(args, ctx) {
       const query = String(args.query)
       const include = args.include_history === true || hasHistoricalIntent(query)
-      const found = await ctx.store.searchMemories(query, 10, include ? 'all' : 'current')
+      const found = await ctx.store.searchMemories(query, 10, include ? 'all' : 'current', ctx.memoryScope)
       return {
         memories: found.map((memory) => ({
           id: memory.id,
@@ -399,8 +423,7 @@ export const MEMORY_TOOLS: ToolDefinition[] = [
       category: { type: 'string', enum: MEMORY_CATEGORIES_FOR_TOOLS, optional: true },
     },
     async run(args, ctx) {
-      const existing = await ctx.store.getMemory(String(args.id))
-      if (!existing) throw new ToolError('Memory not found.')
+      const existing = memoryInScope(await ctx.store.getMemory(String(args.id)), ctx)
       const result = await ctx.memoryHistory.update(existing.id, {
         content: String(args.content),
         category: (args.category as AssistantMemoryCategory | undefined) ?? existing.category,
@@ -415,8 +438,7 @@ export const MEMORY_TOOLS: ToolDefinition[] = [
     description: 'Propose deleting a memory by id. Nothing is deleted until the reader approves it.',
     fields: { id: { type: 'string', minLength: 1, maxLength: 26 } },
     async prepare(args, ctx) {
-      const memory = await ctx.store.getMemory(String(args.id))
-      if (!memory) throw new ToolError('Memory not found.')
+      const memory = memoryInScope(await ctx.store.getMemory(String(args.id)), ctx)
       return { targetId: memory.id, targetLabel: quoted(memory.content) }
     },
     async commit(targetId, ctx) {
@@ -766,7 +788,9 @@ export const SEARCH_TOOLS: ToolDefinition[] = [
       const query = String(args.query)
       const [tasks, memories, conversations] = await Promise.all([
         ctx.store.listTasks({ query, limit: 5 }),
-        ctx.store.searchMemories(query, 5, 'all'),
+        // Scoped like every other read of a memory: this tool answers inside a turn, and a turn does not
+        // see another project's facts just because it asked a broader question.
+        ctx.store.searchMemories(query, 5, 'all', ctx.memoryScope),
         ctx.store.listConversations(query, { limit: 5 }),
       ])
       const scope = await ctx.noteScope()

@@ -1369,6 +1369,17 @@ export const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
       `DROP INDEX IF EXISTS idx_chat_share_links_conversation`,
     ],
   },
+  {
+    // Which project a remembered fact belongs to; null for one that belongs to the account. Nullable
+    // rather than defaulted, because the two are different claims: every memory that existed before this
+    // column was learned in the account's own context, and "no project" is exactly what that means. A
+    // default would say the same thing, but a null says it without pretending a project was chosen.
+    version: 87,
+    skipIfColumnExists: { table: 'chat_memories', column: 'project_id' },
+    statements: [
+      `ALTER TABLE chat_memories ADD COLUMN project_id TEXT`,
+    ],
+  },
 ]
 
 const FTS_STATEMENT = `CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(

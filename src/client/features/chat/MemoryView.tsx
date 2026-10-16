@@ -67,6 +67,8 @@ export function MemoryView() {
   const removeMemory = useAssistant((state) => state.removeMemory)
   const setStatus = useAssistant((state) => state.setMemoryStatus)
   const resolveReview = useAssistant((state) => state.resolveReview)
+  const projects = useAssistant((state) => state.projects)
+  const loadProjects = useAssistant((state) => state.loadProjects)
   const [editing, setEditing] = useState<AssistantMemory | 'new' | null>(null)
   const [correcting, setCorrecting] = useState<AssistantMemory | null>(null)
   const [historyOf, setHistoryOf] = useState<AssistantMemory | null>(null)
@@ -76,6 +78,12 @@ export function MemoryView() {
   useEffect(() => {
     void loadMemories()
   }, [loadMemories])
+
+  useEffect(() => {
+    // A fact filed under a project says so, and the names live on a slice another page loads. One request
+    // on a page the reader opened to look at exactly this; without it the chip would be an id.
+    if (!useAssistant.getState().projects.length) void loadProjects()
+  }, [loadProjects])
 
   useEffect(() => {
     if (debounced !== query) void setFilter({ query: debounced })
@@ -173,7 +181,11 @@ export function MemoryView() {
                 {CATEGORY_LABELS[category]?.() ?? category} · {items.length}
               </p>
               <ul className="overflow-hidden rounded-[var(--r-lg)] border border-[var(--border-subtle)] bg-[var(--bg-surface)]">
-                {items.map((memory) => (
+                {items.map((memory) => {
+                  // A fact learned inside a project is only recalled there, so the row has to say which
+                  // one: a reader wondering why the assistant forgot something is looking at this line.
+                  const project = memory.projectId ? projects.find((entry) => entry.id === memory.projectId) : undefined
+                  return (
                   <li key={memory.id} className="group flex items-start gap-2 border-b border-[var(--border-subtle)] px-3 py-2 transition-colors duration-[var(--dur-fast)] last:border-b-0 hover:bg-[var(--bg-hover)]">
                     <div className="min-w-0 flex-1">
                       <p className={memory.status === 'historical' ? 'text-[length:var(--text-13)] leading-relaxed text-[var(--text-tertiary)]' : 'text-[length:var(--text-13)] leading-relaxed text-[var(--text-primary)]'}>
@@ -187,6 +199,14 @@ export function MemoryView() {
                         {relativeTime(memory.updatedAt)}
                         {memory.validFrom && ` · ${t('assistant.memory.since', { date: memory.validFrom })}`}
                         {memory.validUntil && ` · ${t('assistant.memory.until', { date: memory.validUntil })}`}
+                        {project && (
+                          <span
+                            className="ml-1.5 rounded-[var(--r-sm)] bg-[var(--bg-inset)] px-1.5 py-0.5 text-[length:var(--text-10)]"
+                            title={t('assistant.memory.in_project', { name: project.name })}
+                          >
+                            {project.name}
+                          </span>
+                        )}
                       </p>
                     </div>
                     <div className="flex shrink-0 items-center gap-px">
@@ -226,7 +246,8 @@ export function MemoryView() {
                       </IconButton>
                     </div>
                   </li>
-                ))}
+                  )
+                })}
               </ul>
             </section>
           ))
