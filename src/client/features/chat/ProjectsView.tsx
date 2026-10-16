@@ -11,12 +11,12 @@
  */
 
 import { useEffect, useRef, useState } from 'react'
-import { FolderOpen, ListChecks, Pencil, Plus, Trash2 } from 'lucide-react'
+import { FolderOpen, ListChecks, MessageSquare, Pencil, Plus, Sparkles, Trash2 } from 'lucide-react'
 import type { Project } from '@shared/assistant'
 import { NoteScopePicker } from './NoteScopePicker'
 import { api } from '../../lib/api'
 import { Button } from '../../components/primitives'
-import { Field, Input, Textarea } from '../../components/form'
+import { Field, Input, Select, Textarea } from '../../components/form'
 import { Menu, Modal, confirm, type MenuItem } from '../../components/overlay'
 import { Empty } from '../../components/feedback'
 import { useUi } from '../../store/ui'
@@ -31,18 +31,27 @@ interface Draft {
   description: string
   instructions: string
   noteScope: string[]
+  modelId: string | null
 }
 
-const EMPTY: Draft = { id: null, name: '', description: '', instructions: '', noteScope: [] }
+const EMPTY: Draft = { id: null, name: '', description: '', instructions: '', noteScope: [], modelId: null }
 
 function draftFrom(project: Project): Draft {
-  return { id: project.id, name: project.name, description: project.description, instructions: project.instructions, noteScope: project.noteScope }
+  return {
+    id: project.id,
+    name: project.name,
+    description: project.description,
+    instructions: project.instructions,
+    noteScope: project.noteScope,
+    modelId: project.modelId,
+  }
 }
 
 export function ProjectsView({ onOpen }: { onOpen?: () => void }) {
   const toast = useUi((s) => s.toast)
   const projects = useAssistant((state) => state.projects)
   const conversations = useAssistant((state) => state.conversations)
+  const models = useAssistant((state) => state.models)
   const [loading, setLoading] = useState(true)
   const [draft, setDraft] = useState<Draft | null>(null)
   const [busy, setBusy] = useState(false)
@@ -63,6 +72,7 @@ export function ProjectsView({ onOpen }: { onOpen?: () => void }) {
         description: draft.description,
         instructions: draft.instructions,
         noteScope: draft.noteScope,
+        modelId: draft.modelId,
       }
       if (draft.id) await api.assistant.updateProject(draft.id, body)
       else await api.assistant.createProject(body)
@@ -107,6 +117,16 @@ export function ProjectsView({ onOpen }: { onOpen?: () => void }) {
 
   const inProject = (id: string) => conversations.filter((entry) => entry.projectId === id)
   const unfiled = conversations.filter((entry) => !entry.projectId)
+  const modelLabel = (id: string) => models.find((model) => model.id === id)?.label ?? t('assistant.projects.model_unknown')
+
+  // The brief is worth reading here, but reading the threads it governs is what the reader came for — and
+  // the project filter already exists on the chat list, so this hands over to it rather than growing a
+  // second list of conversations inside the settings screen.
+  const openConversations = async (projectId: string) => {
+    await useAssistant.getState().setProjectFilter(projectId)
+    useAssistant.getState().setView('chat')
+    onOpen?.()
+  }
 
   return (
     <div className="no-scrollbar h-full overflow-y-auto">
@@ -133,6 +153,9 @@ export function ProjectsView({ onOpen }: { onOpen?: () => void }) {
                   <div className="flex items-center gap-2">
                     <ListChecks size={14} className="shrink-0 text-[var(--accent)]" />
                     <span className="min-w-0 flex-1 truncate text-[length:var(--text-13-5)] font-semibold text-[var(--text-primary)]">{project.name}</span>
+                    <Button size="sm" variant="ghost" icon={<MessageSquare size={13} />} onClick={() => void openConversations(project.id)}>
+                      {t('assistant.projects.open_conversations')}
+                    </Button>
                     <Button size="sm" variant="ghost" icon={<Pencil size={13} />} onClick={() => setDraft(draftFrom(project))}>
                       {t('common.edit')}
                     </Button>
@@ -154,6 +177,14 @@ export function ProjectsView({ onOpen }: { onOpen?: () => void }) {
                       ? t('assistant.projects.knowledge_count', { count: project.noteScope.length })
                       : t('assistant.projects.knowledge_none')}
                   </p>
+                  {/* Named rather than left to the editor: which model a project answers with is the sort
+                      of thing a reader wants to check at a glance across several projects. */}
+                  {project.modelId && (
+                    <p className="mt-1 flex items-center gap-1.5 text-[length:var(--text-11)] text-[var(--text-quaternary)]">
+                      <Sparkles size={11} />
+                      {t('assistant.projects.model_uses', { model: modelLabel(project.modelId) })}
+                    </p>
+                  )}
 
                   {/* Filing is done here rather than by dragging, because what a drag means here is
                       "answer under this brief", which is worth seeing spelled out. */}
@@ -259,6 +290,7 @@ function ProjectEditor({ draft, busy, onChange, onSave, onClose }: {
   onClose: () => void
 }) {
   const patch = (part: Partial<Draft>) => onChange({ ...draft, ...part })
+  const models = useAssistant((state) => state.models)
   return (
     <Modal
       open
@@ -289,6 +321,18 @@ function ProjectEditor({ draft, busy, onChange, onSave, onClose }: {
         </Field>
         <Field label={t('assistant.projects.knowledge')} hint={t('assistant.projects.knowledge_hint')}>
           <NoteScopePicker value={draft.noteScope} onChange={(ids) => patch({ noteScope: ids })} disabled={busy} />
+        </Field>
+        {/* A standing choice, not a per-turn one: the point of a project is that its conversations are
+            answered the same way, and the model is part of that. Empty means the account's own default. */}
+        <Field label={t('assistant.projects.model')} hint={t('assistant.projects.model_hint')}>
+          <Select
+            aria-label={t('assistant.projects.model')}
+            value={draft.modelId ?? ''}
+            onChange={(event) => patch({ modelId: event.target.value || null })}
+          >
+            <option value="">{t('assistant.projects.model_default')}</option>
+            {models.map((model) => <option key={model.id} value={model.id}>{model.label}</option>)}
+          </Select>
         </Field>
       </div>
     </Modal>

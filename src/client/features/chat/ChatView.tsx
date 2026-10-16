@@ -137,6 +137,14 @@ export function ChatView() {
     ? conversations.find((conversation) => conversation.id === activeId)?.title || t('assistant.chat.untitled')
     : t('assistant.chat.new_title')
 
+  // Which brief this thread is answered under, read from the same row the title came from. A reader who
+  // cannot see the project cannot tell why an answer sounds the way it does.
+  const projects = useAssistant((state) => state.projects)
+  const activeProject = useMemo(() => {
+    const projectId = conversations.find((conversation) => conversation.id === activeId)?.projectId
+    return projectId ? projects.find((project) => project.id === projectId) ?? null : null
+  }, [conversations, activeId, projects])
+
   const streaming = (!!turn && !turn.done) || remoteStreaming
   // A live reply belongs to its own conversation; only show it in the thread that owns it.
   const turnHere = turn && turn.conversationId === (activeId ?? null) ? turn : null
@@ -204,6 +212,14 @@ export function ChatView() {
           <span className="min-w-0 truncate text-[length:var(--text-12)] text-[var(--text-tertiary)]">
             {title}
           </span>
+          {activeProject && (
+            <span
+              className="shrink-0 rounded-[var(--r-sm)] bg-[var(--bg-inset)] px-1.5 py-0.5 text-[length:var(--text-10)] text-[var(--text-quaternary)]"
+              title={t('assistant.chat.in_project', { name: activeProject.name })}
+            >
+              {activeProject.name}
+            </span>
+          )}
           <div className="ml-auto flex shrink-0 items-center gap-1">
             <IconButton label={t('assistant.chat.find')} size="sm" onClick={() => setFinding((open) => !open)}>
               <Search size={15} />

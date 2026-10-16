@@ -1151,6 +1151,8 @@ const allowed = new Map([
     "/* The row is icons only: five settings, the two ways in for an attachment, dictation and send all\n              share a phone's width, so nothing here carries a word. */",
     "// Not a delete and not a star: the thread stays whole and searchable, and the archive tab is",
     "// where it can be read — or taken back out — again.",
+    "// Which brief this thread is answered under, read from the same row the title came from. A reader who",
+    "// cannot see the project cannot tell why an answer sounds the way it does.",
   ]],
   ["src/client/features/chat/ComposerControls.tsx", [
     "/** The token count, spelled the way the reference's slider spells it: 32K, 128K, 262K. */",
@@ -1301,6 +1303,11 @@ const allowed = new Map([
     "// `bootstrap` alone would leave the list showing the project the reader just made.",
     "/* Filing is done here rather than by dragging, because what a drag means here is\n                      \"answer under this brief\", which is worth seeing spelled out. */",
     "/**\n * The row-level way into a project.\n *\n * A menu rather than a `<select>`: a form field that is greyed out whenever there is nothing to pick\n * reads as broken, and a menu states the action and explains itself when it cannot run.\n */",
+    "// The brief is worth reading here, but reading the threads it governs is what the reader came for — and",
+    "// the project filter already exists on the chat list, so this hands over to it rather than growing a",
+    "// second list of conversations inside the settings screen.",
+    "/* Named rather than left to the editor: which model a project answers with is the sort\n                      of thing a reader wants to check at a glance across several projects. */",
+    "/* A standing choice, not a per-turn one: the point of a project is that its conversations are\n            answered the same way, and the model is part of that. Empty means the account's own default. */",
   ]],
   ["src/client/features/chat/ProviderKeys.tsx", [
     "/**\n * The keys one provider rotates through.\n *\n * The provider's own key is the first of the ring and is edited with the provider; this is where the second\n * and third arrive, which is what turns a rate limit from a failed turn into a moment. A key is written\n * once and never read back — the row carries the last four characters the worker kept, which tells two\n * apart and is useless to anyone reading over a shoulder.\n *\n * The list is read when the section is opened rather than with the tab: most providers never carry a second\n * key, and a request per provider for a fact nobody is looking at is a request too many.\n */",
@@ -1682,6 +1689,13 @@ const allowed = new Map([
     "/** How many pages are read before the cap is trusted to have been reached. */",
     "// A scanned page, an encrypted file, or one this browser cannot open: no text is a real answer, and",
     "// the file is still attached and named rather than the upload failing.",
+  ]],
+  ["src/client/features/chat/projects-view.test.ts", [
+    "/**\n * The projects screen: the standing brief, its knowledge folders, and the model it answers with.\n *\n * A project's whole point is that everything inside it is answered the same way, so what is pinned here is\n * that the three standing choices actually reach the server — a field the editor draws but the save body\n * forgets is a setting that silently reverts on the next open — and that the card hands the reader over to\n * the conversations it governs rather than keeping a second list of them.\n */",
+    "// The knowledge picker reads the notebook's own folder tree; empty is enough for a form test.",
+    "// The list arrives from the mount effect; one microtask turn is enough for a stubbed loader.",
+    "// Null, not undefined: the route reads null as \"the project has no preferred model\", and undefined as",
+    "// \"the client did not say\" — the second would leave a stale choice in place after the reader cleared it.",
   ]],
   ["src/client/features/chat/provider-form.test.ts", [
     "/**\n * The provider form's own guard rail.\n *\n * A browser can autocomplete a saved username into the text box sitting above a password field, and the\n * address boxes are optional. The reader must see which box says what, before any request is sent — and\n * the save they did mean must still go through.\n */",
