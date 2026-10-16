@@ -28,6 +28,17 @@ import { readMcpNote, searchMcpNotes } from '../mcp/retrieval'
 import { ApiError } from '../lib/errors'
 import type { AssistantStore } from './store'
 import { assertNoteReadable, noteTitleForLog, readableNoteIds, type NoteScope } from './note-scope'
+import {
+  SCOPE_NOTE,
+  countVaultNotes,
+  folderSubtree,
+  listVaultFolders,
+  listVaultNotes,
+  listVaultTags,
+  matchVaultFolders,
+  resolveVaultTag,
+  type VaultFilter,
+} from './vault'
 import type { MemoryHistoryService } from './memory-service'
 import type { AutomationService } from './automations'
 
@@ -166,6 +177,33 @@ async function resolveProjectIdOrThrow(ref: unknown, ctx: ToolContext): Promise<
   const found = await ctx.store.resolveProject(String(ref).slice(0, 200))
   if (!found) throw new ToolError(`Project "${String(ref).slice(0, 80)}" does not exist. Create it first with create_project.`)
   return found.id
+}
+
+/**
+ * The folder and tag a question was narrowed to, as ids the SQL can use.
+ *
+ * A name the vault does not have is refused with what it does have, rather than passed through as a
+ * filter that matches nothing: an empty listing reads to the model as "you have no such notes", which
+ * is a different answer from "that folder is not one of yours", and only one of them is true.
+ */
+async function vaultFilterFor(args: Record<string, unknown>, ctx: ToolContext): Promise<VaultFilter> {
+  const filter: VaultFilter = {}
+  const folderRef = typeof args.folder === 'string' ? args.folder.trim() : ''
+  if (folderRef) {
+    const matches = await matchVaultFolders(ctx.env.DB, ctx.store.userId, folderRef)
+    if (!matches.length) throw new ToolError(`No folder matches "${folderRef.slice(0, 60)}". Call list_folders to see the folder names.`)
+    if (matches.length > 1) {
+      throw new ToolError(`Several folders match "${folderRef.slice(0, 60)}": ${matches.slice(0, 5).map((match) => match.label).join('; ')}. Give the full path.`)
+    }
+    filter.folderIds = await folderSubtree(ctx.env.DB, ctx.store.userId, matches[0]!.id)
+  }
+  const tagRef = typeof args.tag === 'string' ? args.tag.replace(/^#/, '').trim() : ''
+  if (tagRef) {
+    const tag = await resolveVaultTag(ctx.env.DB, ctx.store.userId, tagRef)
+    if (!tag) throw new ToolError(`No tag matches "${tagRef.slice(0, 60)}". Call list_tags to see the tag names.`)
+    filter.tagId = tag.id
+  }
+  return filter
 }
 
 export const TASK_TOOLS: ToolDefinition[] = [
@@ -392,8 +430,82 @@ export const NOTE_TOOLS: ToolDefinition[] = [
           title: hit.title,
           excerpt: hit.snippet.slice(0, 400),
         })),
-        ...(scope.restricted ? { scope: 'limited to the folders the reader allowed the assistant to read' } : {}),
+        ...(scope.restricted ? { scope: SCOPE_NOTE } : {}),
       }
+    },
+  }),
+  tool({
+    name: 'list_notes',
+    permission: 'read',
+    maxCallsPerTurn: 4,
+    description: 'List the reader\'s notes, newest first, with the folder and tags each one carries. Use it to answer how much the notebook holds, what is inside a folder, or which note a title refers to; `search_notes` is for reading what the notes say about a topic.',
+    fields: {
+      view: { type: 'string', enum: ['recent', 'starred', 'archived'], description: "Which notes: 'recent' (default), 'starred' for the reader's favourites, 'archived' for the ones they filed away.", optional: true },
+      folder: { type: 'string', description: 'Folder name or full path to list inside, subfolders included.', maxLength: 200, optional: true },
+      tag: { type: 'string', description: 'Tag name to list inside.', maxLength: 200, optional: true },
+      limit: { type: 'integer', minimum: 1, maximum: 50, description: 'How many notes to return. Defaults to 20.', optional: true },
+    },
+    async run(args, ctx) {
+      const listing = await listVaultNotes(ctx.env.DB, ctx.store.userId, await ctx.noteScope(), {
+        view: args.view as 'recent' | 'starred' | 'archived' | undefined,
+        ...(await vaultFilterFor(args, ctx)),
+        limit: typeof args.limit === 'number' ? args.limit : undefined,
+      })
+      return {
+        total: listing.total,
+        returned: listing.notes.length,
+        notes: listing.notes.map((note) => ({
+          id: note.id,
+          title: note.title,
+          folder: note.folder,
+          tags: note.tags,
+          updated_at: new Date(note.updatedAt).toISOString(),
+          ...(note.excerpt ? { excerpt: note.excerpt } : {}),
+        })),
+        ...(listing.total > listing.notes.length ? { note: 'More notes match than are listed; raise limit or narrow the question.' } : {}),
+        ...(listing.scopeLimited ? { scope: SCOPE_NOTE } : {}),
+      }
+    },
+  }),
+  tool({
+    name: 'count_notes',
+    permission: 'read',
+    maxCallsPerTurn: 3,
+    description: 'Count the reader\'s notes and say where they sit: the total, the folders holding the most, and the tags in use. Use this whenever the question is about how many notes there are.',
+    fields: {
+      folder: { type: 'string', description: 'Count inside this folder and its subfolders.', maxLength: 200, optional: true },
+      tag: { type: 'string', description: 'Count notes carrying this tag.', maxLength: 200, optional: true },
+    },
+    async run(args, ctx) {
+      const counts = await countVaultNotes(ctx.env.DB, ctx.store.userId, await ctx.noteScope(), await vaultFilterFor(args, ctx))
+      return {
+        total: counts.total,
+        starred: counts.starred,
+        archived: counts.archived,
+        by_folder: counts.folders,
+        by_tag: counts.tags,
+        ...(counts.scopeLimited ? { scope: SCOPE_NOTE } : {}),
+      }
+    },
+  }),
+  tool({
+    name: 'list_folders',
+    permission: 'read',
+    maxCallsPerTurn: 2,
+    description: 'List the reader\'s notebook folders, with how many notes each holds directly. Use it to name a folder correctly before asking about its contents.',
+    fields: {},
+    async run(_args, ctx) {
+      return { folders: await listVaultFolders(ctx.env.DB, ctx.store.userId, await ctx.noteScope()) }
+    },
+  }),
+  tool({
+    name: 'list_tags',
+    permission: 'read',
+    maxCallsPerTurn: 2,
+    description: 'List the tags the reader\'s notes carry, most used first. Use it to name a tag correctly before asking about its notes.',
+    fields: {},
+    async run(_args, ctx) {
+      return { tags: await listVaultTags(ctx.env.DB, ctx.store.userId, await ctx.noteScope()) }
     },
   }),
   tool({
