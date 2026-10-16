@@ -1162,6 +1162,93 @@ describe('drawing a picture', () => {
 })
 
 /**
+ * The program a turn runs.
+ *
+ * The path this pins is the one no unit test can see: the binding has to travel from the request's
+ * environment, through the runner, into the tool context the executor reads before it decides what to
+ * offer. A `code_execute` that is wired up but never reaches the model looks exactly like a tool the model
+ * chose not to use, which is why the schema the provider was sent is asserted as well as the result.
+ *
+ * The loader is a stub here on purpose — what the module the tool builds actually does when it runs is
+ * `tests/code-sandbox.test.ts`. What this case is for is that the app hands it the model's own program.
+ */
+describe('running code', () => {
+  const CODE_CALL_FRAMES = [
+    openAiFrame({ choices: [{ index: 0, finish_reason: null, delta: { tool_calls: [{ index: 0, id: 'c1', function: { name: 'code_execute', arguments: JSON.stringify({ code: 'return 6 * 7' }) } }] } }] }),
+    openAiFrame({ choices: [{ index: 0, finish_reason: 'tool_calls', delta: {} }] }),
+  ]
+
+  /** A sandbox that answers every program the same way, recording what it was asked to compile. */
+  function useSandbox(): WorkerLoaderWorkerCode[] {
+    const seen: WorkerLoaderWorkerCode[] = []
+    env = {
+      ...env,
+      CODE_SANDBOX: {
+        get(_name: string | null, getCode: () => WorkerLoaderWorkerCode) {
+          return {
+            getEntrypoint: () => ({
+              fetch: async () => {
+                seen.push(getCode())
+                return Response.json({ logs: ['working'], result: 42, error: null })
+              },
+            }),
+          }
+        },
+      } as unknown as WorkerLoader,
+    }
+    return seen
+  }
+
+  it('hands the model\'s own program to the sandbox and shows the reader the result', async () => {
+    await useExampleModel()
+    const seen = useSandbox()
+    const bodies: string[] = []
+    let chatCalls = 0
+    vi.stubGlobal('fetch', vi.fn(async (_url: unknown, init?: RequestInit) => {
+      bodies.push(String(init?.body ?? ''))
+      chatCalls++
+      return new Response(sse(chatCalls === 1 ? CODE_CALL_FRAMES : FINAL_FRAMES), { headers: { 'content-type': 'text/event-stream' } })
+    }))
+
+    const events = await chatEvents({ message: 'what is 6 times 7?' })
+    await settleTurns()
+    vi.unstubAllGlobals()
+
+    expect(events.some((event) => event.type === 'error')).toBe(false)
+    // On the table for this turn: the binding reached the executor through the route.
+    expect(bodies[0]).toContain('code_execute')
+    // And the model's own text is what was compiled, wrapped in the harness rather than run bare.
+    expect(seen).toHaveLength(1)
+    expect(seen[0]!.modules['index.js']).toContain('return 6 * 7')
+
+    const conversationId = events.find((event) => event.type === 'start')!.conversationId!
+    const detail = await call<{ messages: AssistantMessage[] }>('GET', `/api/assistant/conversations/${conversationId}`)
+    const answer = detail.messages.find((message) => message.role === 'assistant')!
+    const chip = answer.tools[0]!
+    expect(chip.name).toBe('code_execute')
+    expect(chip.status).toBe('success')
+    // What the reader can open the chip to read, and what the model was handed back.
+    expect(chip.result).toContain('42')
+  })
+
+  it('leaves the tool out of a turn on a deployment with no sandbox', async () => {
+    await useExampleModel()
+    const bodies: string[] = []
+    vi.stubGlobal('fetch', vi.fn(async (_url: unknown, init?: RequestInit) => {
+      bodies.push(String(init?.body ?? ''))
+      return new Response(sse(FINAL_FRAMES), { headers: { 'content-type': 'text/event-stream' } })
+    }))
+
+    await chatEvents({ message: 'what is 6 times 7?' })
+    await settleTurns()
+    vi.unstubAllGlobals()
+
+    // `testBindings` has no CODE_SANDBOX, which is the deployment this app runs on by default.
+    expect(bodies[0]).not.toContain('code_execute')
+  })
+})
+
+/**
  * The thread the reader asked not to keep.
  *
  * The promise is a list of exclusions, so that is what is asserted: not in the everyday list, not in a

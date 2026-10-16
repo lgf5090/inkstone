@@ -205,9 +205,9 @@ describe('who may be offered an external tool', () => {
       commit: async () => 'done',
     }
     const budget = { maxToolCalls: 4 }
-    // The reader's policy is part of the context the executor reads, so the context here carries the
-    // defaults rather than the two fields this case happens to be about.
-    const context = (mode: string) => ({ mode, settings: DEFAULT_ASSISTANT_SETTINGS }) as never
+    // The reader's policy and the deployment's bindings are both part of the context the executor reads,
+    // so the context here carries them rather than only the two fields this case happens to be about.
+    const context = (mode: string) => ({ mode, settings: DEFAULT_ASSISTANT_SETTINGS, env: {} }) as never
     expect(new ToolExecutor(context('chat'), budget, [definition]).available().map((entry) => entry.name))
       .toContain(definition.name)
     // An automation has no reader to press Approve, so an approval-gated remote tool must not be offered.

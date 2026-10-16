@@ -43,6 +43,7 @@ import type { MemoryHistoryService } from './memory-service'
 import type { AutomationService } from './automations'
 import { saveChatUpload } from './chat-files'
 import { generateImage, IMAGE_SIZES } from './image-generation'
+import { runSandboxedCode } from './code-sandbox'
 import { modelEndpoint } from './model-config'
 
 export type FieldKind = 'string' | 'number' | 'integer' | 'boolean' | 'object'
@@ -112,6 +113,15 @@ interface BaseTool {
    * passed through as-is.
    */
   external?: boolean
+  /**
+   * A deployment capability this tool cannot work without, checked before the tool is offered.
+   *
+   * The app runs on a laptop as well as on a full deployment, so a binding is often optional — and a tool
+   * whose binding is missing is left out of the list rather than offered and then failing. The model would
+   * otherwise spend a turn on a call that cannot succeed, and the reader would read the resulting error as
+   * their app being broken. It is not a settings problem they can fix, so it is not raised as one.
+   */
+  requires?: (env: Env) => boolean
 }
 
 export interface ImmediateTool extends BaseTool {
@@ -869,6 +879,37 @@ function imageFilename(prompt: string, mime: string): string {
   return `${words || 'image'}.${mime === 'image/jpeg' ? 'jpg' : mime.slice('image/'.length)}`
 }
 
+export const CODE_TOOLS: ToolDefinition[] = [
+  tool({
+    name: 'code_execute',
+    permission: 'write',
+    // Enough for the loop this tool exists for — run, read the error, fix the line, run again — and no
+    // more. Past that the model is searching rather than computing, and the reader is paying per request.
+    maxCallsPerTurn: 3,
+    requires: (env) => Boolean(env.CODE_SANDBOX),
+    description: 'Run a short JavaScript program and read back what it printed and returned. Write the body of an async function: `return` the value you want back, and `console.log` anything you want to see along the way. It runs with no network, no imports and no access to the reader\'s notes or files, so it is a scratchpad for calculation and text handling rather than a way to reach anything. Use it when a number or a transformation has to be right.',
+    fields: {
+      code: {
+        type: 'string',
+        minLength: 1,
+        maxLength: 20_000,
+        description: 'The program itself. Top-level `await` and `return` both work, and `console.log` comes back to you. If the result carries an `error`, fix that line and run again.',
+      },
+    },
+    async run(args, ctx) {
+      const loader = ctx.env.CODE_SANDBOX
+      // Narrowing the optional binding. `requires` keeps the tool off the list without it, so this is
+      // reached only by an approved proposal replayed after the deployment lost its sandbox.
+      if (!loader) throw new ToolError('This deployment has no code sandbox configured.')
+      try {
+        return await runSandboxedCode(loader, String(args.code))
+      } catch (error) {
+        throw new ToolError(error instanceof Error ? error.message : 'The code sandbox failed.')
+      }
+    },
+  }),
+]
+
 export const ALL_TOOLS: ToolDefinition[] = [
   ...TASK_TOOLS,
   ...MEMORY_TOOLS,
@@ -877,6 +918,7 @@ export const ALL_TOOLS: ToolDefinition[] = [
   ...PROJECT_TOOLS,
   ...SEARCH_TOOLS,
   ...IMAGE_TOOLS,
+  ...CODE_TOOLS,
 ]
 
 const TOOL_BY_NAME = new Map(ALL_TOOLS.map((definition) => [definition.name, definition]))
@@ -1037,6 +1079,9 @@ export class ToolExecutor {
    * would leave a schedule that runs every morning and says nothing.
    */
   private offers(definition: ToolDefinition): boolean {
+    // A capability the deployment does not have takes the tool away before the reader's policy is asked,
+    // because no policy can put it back.
+    if (definition.requires && !definition.requires(this.ctx.env)) return false
     const mode = toolModeFor(this.ctx.settings, definition.permission)
     if (this.ctx.mode === 'chat') return mode !== 'off'
     return mode === 'auto' || definition.name === 'notify_reader'

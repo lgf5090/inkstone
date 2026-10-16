@@ -1383,6 +1383,7 @@ export const ASSISTANT_TOOL_SPECS: readonly AssistantToolSpec[] = [
   { name: 'search', labelKey: 'assistant.tool.search', permission: 'read' },
   { name: 'notify_reader', labelKey: 'assistant.tool.notify_reader', permission: 'write' },
   { name: 'image_generate', labelKey: 'assistant.tool.image_generate', permission: 'write' },
+  { name: 'code_execute', labelKey: 'assistant.tool.code_execute', permission: 'write' },
 ]
 
 /** A page the model actually consulted, as the vendor reported it. */
