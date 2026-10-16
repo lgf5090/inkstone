@@ -4278,6 +4278,28 @@ const allowed = new Map([
   ["src/client/features/preview/Lightbox.tsx", [
     "/* The lightbox reads the img IDL property, an absolute URL that never\n              passed the renderer’s protocol filter. */",
   ]],
+  ["src/client/features/preview/MarkdownBody.tsx", [
+    "/**\n * Read-only Markdown, drawn the way a note's preview draws it.\n *\n * Every surface that shows Markdown nobody is editing owes the reader the same document: highlighted\n * code behind a copy button that works, a formula drawn rather than spelled out, a diagram rather than\n * a placeholder that never resolves. `renderMarkdown` produces only the first half of that — the\n * enhancement pass is what draws the rest — and a surface that stops at the render ships code blocks\n * that look finished with buttons that answer nothing, which is what the chat's replies did.\n *\n * What a read-only surface cannot answer for itself is how much of a block it can host. A board or a\n * mind map is a live React root and only the preview pane has somewhere to mount one; a query block\n * reads notes the surface may not have. So those answers are fixed here, once, for every such surface:\n * a still instead of a root, the fence's own text instead of an answer nothing can fill. They are\n * written at the call rather than assembled behind a parameter because\n * `tests/kanban-render-channel.test.ts` reads this call site and fails if a channel stops being named.\n *\n * Two passes run at different cadences on purpose. The render itself is repainted on every token while\n * an answer streams, so the passes that draw a picture wait for the text to stop moving: a diagram\n * redrawn per token flickers through every half-written state, and the module behind it is the largest\n * thing either surface loads. The highlight a reader watches land, and the source fallbacks that keep a\n * block from sitting at \"loading\" forever, run with the render.\n */",
+    "/** What a surface with a vault behind it does when the reader follows one of the document's own links. */",
+    "/** A note the document names and the vault does not have; the surface decides whether to make one. */",
+    "/** Whether each channel is allowed to draw. A surface whose reader has settings passes them. */",
+    "/** Folds a code block longer than this many lines; 0 never folds. */",
+    "/** Rewrites the markup before it is enhanced — a share page's own access rules. */",
+    "/**\n   * Reads `![[note]]` embeds standing in this document. A surface whose readers have no vault passes\n   * nothing, and its own markup transform is what tells those placeholders so.\n   */",
+    "// Every asynchronous pass stamps itself with this before it awaits: a token that arrives mid-draw",
+    "// replaces the markup under it, and the answer that was being written belongs to the text that is gone.",
+    "// The text that has stopped moving, which is the only text worth drawing a diagram for.",
+    "// `locale` is what the renderer reads to name its own built-ins, and `transformHtml` is a decision",
+    "// the caller makes about this document rather than about the string.",
+    "// A fresh literal on every render would make React rewrite the host each time anything else in the",
+    "// thread changed, which repaints the answer mid-stream.",
+    "// Registered before the pass below: a board's cards live in the render's fence set rather than in",
+    "// the markup, and both a still and a live board read that set.",
+    "// The host may have been repainted between the press and the write, and a check mark on a button",
+    "// that is no longer on screen would be a lie about a copy the reader cannot see.",
+    "// A card over a link is the vault answering \"which note is this\", so it is offered exactly where a",
+    "// link can be followed; a share page's readers get neither.",
+  ]],
   ["src/client/features/preview/NoteProperties.tsx", [
     "// Read the live buffer rather than taking the rendered text as a prop: a debounced or",
     "// cached copy here would silently overwrite whatever was typed in the last few frames.",
@@ -4917,6 +4939,7 @@ const allowed = new Map([
     "// The branch below is for `[[#heading]]`, which carries its target in the same datum: an element",
     "// without one is not a wiki link at all, and the card it would produce is a copy of the note the",
     "// reader is already looking at.",
+    "/**\n * `enabled` is the surface's own answer about whether a link there can be followed at all. A share\n * page's readers have no vault, so a card promising them the note behind a link would be a panel with\n * nothing behind it; the reader's setting and the link editor still gate it either way.\n */",
   ]],
   ["src/client/features/preview/link-preview.ts", [
     "/** Where a destination stops being worth printing in full: a `data:` URI can hold megabytes. */",
@@ -4926,6 +4949,12 @@ const allowed = new Map([
     "/** The words a source-editor span shows, with whichever markdown shape it was written in taken off. */",
     "/**\n * The link a hovered span carries, or null when the span is not a link. The editor's marks announce\n * themselves with `data-mdlink` because their text is the markdown source; the rendered preview needs\n * no such hint since it holds a real anchor or image.\n */",
     "/** The card header: the words the reader sees, falling back to the host, then to the address. */",
+  ]],
+  ["src/client/features/preview/markdown-body.test.ts", [
+    "/**\n * The read-only Markdown renderer the chat's replies and a shared note both go through.\n *\n * What this pins is the half of a Markdown surface that is not the renderer: that a fenced block comes\n * out highlighted with a copy button that answers, and that a `[[note]]` is a door when the surface was\n * given somewhere to open it. A surface that only calls `renderMarkdown` has neither, and the shape of\n * that failure — a block that looks finished, a button that does nothing, a word that looks like a link\n * and is not one — is invisible to any assertion about the markup alone.\n */",
+    "/** Waits for the enhancement pass to land on the host, which is asynchronous and lazily imports Prism. */",
+    "// Nothing to assert but the absence of a navigation: the container is still the one the test made,",
+    "// which is what a link that was never wired cannot change.",
   ]],
   ["src/client/features/preview/markdown-tabs.test.ts", [
     "// jsdom only moves `document.activeElement` for a node that is in the document, which is what the",
@@ -6643,16 +6672,18 @@ const allowed = new Map([
     "// finds the page without opening the section first",
   ]],
   ["src/client/features/share/SharePage.tsx", [
-    "// A shared page is read by visitors who have no settings of their own; the author's choice to",
-    "// hide diagrams is theirs, not a property of the note, so a shared note always draws.",
-    "// Registered first: a board's cards live in the render's fence set, not in the markup, and",
-    "// the still the share page draws reads that set.",
     "// `?present=<token>` is the seat the speaker handed out. It is read once rather than followed:",
     "// this document has no router, and a show that started mid-read is a different show.",
+    "// The access rules are this note's, and they are a property of the markup rather than of the pass",
+    "// that draws it, so they are folded in before the body is handed over.",
+    "/* `--prose-width` is the measure the prose stylesheet reads: a shared note is the whole\n                page rather than a document in a column, so this page hands it no ceiling. */",
   ]],
   ["src/client/features/share/share-form.ts", [
     "// A new or replaced passcode must be at least 8 characters (the server",
     "// enforces the same minimum); short codes are trivially brute-forced.",
+  ]],
+  ["src/client/features/share/share-page.test.ts", [
+    "/**\n * The page a visitor with no account reads.\n *\n * It shares its renderer with the chat now, so what this pins is the half that is this page's own: the\n * access rules it folds into the markup before anything draws it, and that the body still arrives\n * enhanced — highlighted code behind a copy button — rather than as paragraphs of plain text.\n */",
   ]],
   ["src/client/features/shell/AppRail.tsx", [
     "/**\n * The left rail: one button per app container, the outermost piece of chrome the notebook has.\n *\n * Each entry is a real `<a>` to the container's own path, with the click intercepted for the\n * in-place case. That keeps the browser's own behaviour on the rail — middle-click and\n * open-in-new-tab reach a container directly, and the address a reader copies is the one they\n * are looking at — while a plain left click still swaps the container without a reload.\n */",

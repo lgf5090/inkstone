@@ -68,7 +68,12 @@ export function resolveHoverCandidate(
   return { anchor: link, title: parsed.alias ?? summary.title, noteId: sourceNoteId, missing: false, headline: parsed.heading ?? summary.title }
 }
 
-export function useLinkHoverHost(sourceNoteId: string | null) {
+/**
+ * `enabled` is the surface's own answer about whether a link there can be followed at all. A share
+ * page's readers have no vault, so a card promising them the note behind a link would be a panel with
+ * nothing behind it; the reader's setting and the link editor still gate it either way.
+ */
+export function useLinkHoverHost(sourceNoteId: string | null, options: { enabled?: boolean } = {}) {
   const preview = useSession((s) => s.settings.preview)
   // The link editor and a preview card are two panels over the same span, and the card wins the race
   // by 320ms; while the reader is editing a link there is nothing left to preview about it.
@@ -80,7 +85,7 @@ export function useLinkHoverHost(sourceNoteId: string | null) {
   const hover = useLinkHover({
     resolve,
     delay: preview.linkHoverDelayMs,
-    enabled: preview.linkHover && !editing,
+    enabled: preview.linkHover && !editing && (options.enabled ?? true),
     armOnNonLink: true,
   })
   const handlePin = useCallback((card: WikiLinkHoverCardState, rect: DOMRect) => {

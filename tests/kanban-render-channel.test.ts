@@ -53,10 +53,10 @@ describe('kanban render channels', () => {
     expect(Object.fromEntries([...channels].sort())).toEqual({
       [path.join('editor', 'live-preview.ts')]: 'snapshot',
       [path.join('features', 'preview', 'card-content.ts')]: 'snapshot',
+      [path.join('features', 'preview', 'MarkdownBody.tsx')]: 'snapshot',
       [path.join('features', 'preview', 'Preview.tsx')]: 'live',
       [path.join('features', 'presentation', 'presenter-view', 'use-presenter-slide-media.ts')]: 'snapshot',
       [path.join('features', 'presentation', 'use-slide-html.ts')]: 'snapshot',
-      [path.join('features', 'share', 'SharePage.tsx')]: 'snapshot',
     })
   })
 

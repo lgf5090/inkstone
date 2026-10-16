@@ -1,40 +1,31 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { KeyRound, Lock, Moon, Sun } from 'lucide-react';
 import { LIMITS } from '@shared/constants';
 import type { PublicNote } from '@shared/types';
 import { api, ApiError } from '../../lib/api';
 import { fullTime } from '../../lib/time';
 import { readingMinutes, countText } from '@shared/markdown-utils';
-import { renderMarkdown } from '../../lib/markdown/renderer';
-import { registerFenceBodies } from '../../lib/markdown/fence-bodies';
-import { destroyChartInstances, enhancePreview, renderPendingCharts, renderPendingMermaid, resetMermaidNode, toggleCodeBlockCollapse } from '../../lib/markdown/enhance';
 import { Avatar, Button, Logo } from '../../components/primitives';
 import { Input } from '../../components/form';
 import { LoadingBlock } from '../../components/feedback';
 import { Tooltip } from '../../components/overlay';
-import { useUi } from '../../store/ui';
 import { AudienceView } from '../presentation/audience-view';
-import { moveMarkdownTabFocus, selectMarkdownTab } from '../preview/markdown-tabs';
-import { t, useLocale } from "../../lib/i18n";
+import { MarkdownBody } from '../preview/MarkdownBody';
+import { t } from "../../lib/i18n";
 
 export function SharePage({ slug }: {
     slug: string;
 }) {
-    const locale = useLocale();
     const [note, setNote] = useState<PublicNote | null>(null);
     const [needPassword, setNeedPassword] = useState(false);
     const [password, setPassword] = useState('');
     const [error, setError] = useState<string | null>(null);
     const [loading, setLoading] = useState(true);
     const [dark, setDark] = useState(() => document.documentElement.dataset.theme === 'dark');
-    const toast = useUi((s) => s.toast);
-    const hostRef = useRef<HTMLDivElement>(null);
     // `?present=<token>` is the seat the speaker handed out. It is read once rather than followed:
     // this document has no router, and a show that started mid-read is a different show.
     const [presentToken] = useState(() => new URLSearchParams(window.location.search).get('present'));
     const requestRef = useRef<AbortController | null>(null);
-    const enhancementRevisionRef = useRef(0);
-    const copyResetTimersRef = useRef(new Map<HTMLElement, number>());
     const originalTitleRef = useRef(document.title);
     const appliedTitleRef = useRef<string | null>(null);
     const load = useCallback(async (pwd?: string) => {
@@ -89,107 +80,9 @@ export function SharePage({ slug }: {
             appliedTitleRef.current = null;
         };
     }, [load]);
-    const rendered = useMemo(() => {
-        if (!note)
-            return null;
-        const result = renderMarkdown(note.content);
-        return {
-            ...result,
-            html: addShareAccess(result.html, note.share.slug),
-        };
-    }, [note, locale]);
-    const htmlObj = useMemo(() => ({ __html: rendered?.html ?? '' }), [rendered]);
-    useEffect(() => {
-        if (!rendered || !hostRef.current)
-            return;
-        const host = hostRef.current;
-        const revision = ++enhancementRevisionRef.current;
-        let cancelled = false;
-        const isCurrent = () => !cancelled && enhancementRevisionRef.current === revision && hostRef.current === host;
-        void (async () => {
-            // A shared page is read by visitors who have no settings of their own; the author's choice to
-            // hide diagrams is theirs, not a property of the note, so a shared note always draws.
-            // Registered first: a board's cards live in the render's fence set, not in the markup, and
-            // the still the share page draws reads that set.
-            if (rendered) registerFenceBodies(host, rendered.fences);
-            await enhancePreview(host, { math: true, mermaid: true, chart: true, kanban: 'snapshot', mindmap: 'snapshot', excalidraw: 'source', dataview: 'source', dark, codeBlockCollapseLines: 24 });
-            if (!isCurrent())
-                return;
-            await renderPendingMermaid(host, dark, { isCurrent });
-            if (!isCurrent())
-                return;
-            await renderPendingCharts(host, dark);
-        })();
-        return () => {
-            cancelled = true;
-        };
-    }, [rendered, dark]);
-    useEffect(() => () => {
-        enhancementRevisionRef.current++;
-        for (const timer of copyResetTimersRef.current.values())
-            window.clearTimeout(timer);
-        copyResetTimersRef.current.clear();
-        destroyChartInstances(hostRef.current);
-    }, []);
-    const onContentClick = (event: React.MouseEvent) => {
-        const target = event.target as HTMLElement;
-        const mermaidRetry = target.closest<HTMLElement>('[data-mermaid-retry]');
-        if (mermaidRetry) {
-            const block = mermaidRetry.closest<HTMLElement>('[data-mermaid]');
-            const host = hostRef.current;
-            if (block && host) {
-                resetMermaidNode(block);
-                const revision = ++enhancementRevisionRef.current;
-                void renderPendingMermaid(host, dark, {
-                    isCurrent: () => enhancementRevisionRef.current === revision && hostRef.current === host,
-                });
-            }
-            return;
-        }
-        const copyButton = target.closest<HTMLElement>('[data-copy]');
-        if (copyButton) {
-            const code = copyButton.closest('.code-block')?.querySelector('pre')?.textContent ?? '';
-            if (!navigator.clipboard?.writeText) {
-                toast({ title: t("preview.could_not_copy"), tone: 'danger' });
-                return;
-            }
-            void navigator.clipboard.writeText(code).then(() => {
-                if (!hostRef.current?.contains(copyButton))
-                    return;
-                const existingTimer = copyResetTimersRef.current.get(copyButton);
-                if (existingTimer !== undefined)
-                    window.clearTimeout(existingTimer);
-                copyButton.textContent = t("common.copied");
-                copyButton.classList.add('copied');
-                const timer = window.setTimeout(() => {
-                    if (hostRef.current?.contains(copyButton)) {
-                        copyButton.textContent = t("common.copy");
-                        copyButton.classList.remove('copied');
-                    }
-                    copyResetTimersRef.current.delete(copyButton);
-                }, 900);
-                copyResetTimersRef.current.set(copyButton, timer);
-            }).catch(() => toast({ title: t("preview.could_not_copy"), tone: 'danger' }));
-            return;
-        }
-        const collapseButton = target.closest<HTMLButtonElement>('[data-code-collapse]');
-        if (collapseButton) {
-            toggleCodeBlockCollapse(collapseButton);
-            return;
-        }
-        const tabButton = target.closest<HTMLButtonElement>('[data-tab-button]');
-        if (tabButton) {
-            event.preventDefault();
-            selectMarkdownTab(tabButton);
-        }
-    };
-    const onContentKeyDown = (event: React.KeyboardEvent) => {
-        const tab = (event.target as HTMLElement).closest<HTMLButtonElement>('[data-tab-button]');
-        if (tab && ['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) {
-            event.preventDefault();
-            moveMarkdownTabFocus(tab, event.key);
-        }
-    };
+    // The access rules are this note's, and they are a property of the markup rather than of the pass
+    // that draws it, so they are folded in before the body is handed over.
+    const transformHtml = useCallback((html: string) => addShareAccess(html, slug), [slug]);
     const toggleTheme = () => {
         const next = !dark;
         setDark(next);
@@ -257,7 +150,11 @@ export function SharePage({ slug }: {
               </div>
             </header>
 
-            <div ref={hostRef} onClick={onContentClick} onKeyDown={onContentKeyDown} className="ink-prose" style={{ maxWidth: 'none' }} dangerouslySetInnerHTML={htmlObj}/>
+            {/* `--prose-width` is the measure the prose stylesheet reads: a shared note is the whole
+                page rather than a document in a column, so this page hands it no ceiling. */}
+            <div style={{ '--prose-width': 'none' } as React.CSSProperties}>
+              <MarkdownBody source={note.content} transformHtml={transformHtml}/>
+            </div>
 
             <footer className="mt-16 border-t border-[var(--border-subtle)] pt-6 text-center">
               <a href="/" className="inline-flex items-center gap-1.5 text-[length:var(--text-11-5)] text-[var(--text-quaternary)] transition-colors hover:text-[var(--accent)]">
