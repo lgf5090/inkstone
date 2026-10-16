@@ -61,6 +61,8 @@ import {
   type TaskStatus,
   type AssistantKeyUsage,
   type AssistantModel,
+  type AssistantUsageDay,
+  type AssistantUsageSlice,
   type UsageFilter,
 } from '@shared/assistant'
 import { assertRelayableEndpoint } from '@shared/ai-proxy-guard'
@@ -2017,18 +2019,18 @@ assistantRoutes.get('/stats', async (c) => {
   }
   // Only the dimension table can answer a filtered question: the plain day table has no model or key.
   const narrowed = Boolean(filter.model || filter.providerId)
-  const [total, days, modelRows, keyRows, conversations, models] = await Promise.all([
+  const [total, days, modelRows, keyRows, seriesRows, conversations, models] = await Promise.all([
     narrowed ? s.usageRangeIn(from, day, filter) : s.usageRange(from, day),
     narrowed ? s.usageDaysIn(from, day, filter) : s.usageDays(from, day),
     narrowed ? s.modelUsageRangeIn(from, day, filter) : s.modelUsageRange(from, day),
     s.keyUsageRange(from, day),
+    s.usageSeries(from, day, filter),
     s.usageByConversation(from, day),
     s.listModels(),
   ])
   const spend = new Map<string, number>()
   let unpriced = 0
   const byModel = modelRows.map((row) => {
-    const model = models.find((entry) => entry.label === row.modelLabel || entry.model === row.modelLabel)
     const base = {
       label: row.modelLabel,
       requests: row.requests,
@@ -2037,14 +2039,13 @@ assistantRoutes.get('/stats', async (c) => {
       toolCalls: row.toolCalls,
       errors: row.errors,
     }
-    if (!model || (model.inputPrice === null && model.outputPrice === null)) {
+    const price = priceUsage(models, row.modelLabel, row.inputTokens, row.outputTokens)
+    if (!price) {
       unpriced++
       return { ...base, currency: '', cost: null }
     }
-    const currency = model.priceCurrency || 'USD'
-    const cost = ((model.inputPrice ?? 0) * row.inputTokens + (model.outputPrice ?? 0) * row.outputTokens) / 1_000_000
-    spend.set(currency, (spend.get(currency) ?? 0) + cost)
-    return { ...base, currency, cost }
+    spend.set(price.currency, (spend.get(price.currency) ?? 0) + price.amount)
+    return { ...base, currency: price.currency, cost: price.amount }
   })
   return c.json({
     range: range === 0 ? 'all' : String(range),
@@ -2054,6 +2055,7 @@ assistantRoutes.get('/stats', async (c) => {
     days,
     models: byModel,
     keys: foldKeyUsage(keyRows, models),
+    series: buildUsageSeries(seriesRows, models),
     // Built from the key rows, which the filter never narrows, so picking one filter cannot empty the
     // other picker.
     modelOptions: [...new Set(keyRows.map((row) => row.modelLabel).filter(Boolean))].sort((left, right) => left.localeCompare(right)),
@@ -2064,6 +2066,129 @@ assistantRoutes.get('/stats', async (c) => {
     limits: settings.limits,
   })
 })
+
+/**
+ * What one model's tokens cost, or null when the reader has not priced it.
+ *
+ * Null is a claim of its own: an unpriced model is not a free one, and a chart that counted it as zero would
+ * understate the bill for exactly the models the reader has not got round to entering.
+ */
+function priceUsage(
+  models: AssistantModel[],
+  label: string,
+  inputTokens: number,
+  outputTokens: number,
+): { currency: string, amount: number } | null {
+  const model = models.find((entry) => entry.label === label || entry.model === label)
+  if (!model || (model.inputPrice === null && model.outputPrice === null)) return null
+  return {
+    currency: model.priceCurrency || 'USD',
+    amount: ((model.inputPrice ?? 0) * inputTokens + (model.outputPrice ?? 0) * outputTokens) / 1_000_000,
+  }
+}
+
+/** One bar's worth of a day, while the rows are still being folded into it. */
+interface SliceTally {
+  id: string
+  label: string
+  requests: number
+  inputTokens: number
+  outputTokens: number
+  unpriced: boolean
+  costs: Map<string, number>
+}
+
+interface DayTally {
+  requests: number
+  inputTokens: number
+  outputTokens: number
+  models: Map<string, SliceTally>
+  keys: Map<string, SliceTally>
+}
+
+/**
+ * The window day by day, priced and split both ways.
+ *
+ * The chart's toggle asks the same days to be grouped by model and by key, so both splits are built here
+ * from one set of rows — and the slices are ordered by their whole-window weight rather than per day, or a
+ * stack would reorder itself every time a quiet day came round and the chart would be unreadable.
+ */
+function buildUsageSeries(
+  rows: Awaited<ReturnType<ReturnType<typeof store>['usageSeries']>>,
+  models: AssistantModel[],
+): AssistantUsageDay[] {
+  const byDay = new Map<string, DayTally>()
+  const weight = new Map<string, number>()
+  for (const row of rows) {
+    const tally = byDay.get(row.day) ?? { requests: 0, inputTokens: 0, outputTokens: 0, models: new Map(), keys: new Map() }
+    byDay.set(row.day, tally)
+    tally.requests += row.requests
+    tally.inputTokens += row.inputTokens
+    tally.outputTokens += row.outputTokens
+    const price = priceUsage(models, row.modelLabel, row.inputTokens, row.outputTokens)
+    // The day is split by model and by key over the same rows, so one unpriced row marks both of its slices.
+    foldSlice('m', weight, tally.models, row.modelLabel || '', row.modelLabel, row, price)
+    foldSlice('k', weight, tally.keys, `${row.providerId}:${row.keyId}`, keySliceLabel(row), row, price)
+  }
+  const order = (prefix: 'm' | 'k') => (left: SliceTally, right: SliceTally) =>
+    (weight.get(`${prefix}:${right.id}`) ?? 0) - (weight.get(`${prefix}:${left.id}`) ?? 0) || left.label.localeCompare(right.label)
+  return [...byDay]
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([day, tally]) => ({
+      day,
+      requests: tally.requests,
+      inputTokens: tally.inputTokens,
+      outputTokens: tally.outputTokens,
+      // The day's own cost is the models' — the key split describes the same money, not more of it.
+      costs: sumCosts([...tally.models.values()]),
+      models: [...tally.models.values()].sort(order('m')).map(finishSlice),
+      keys: [...tally.keys.values()].sort(order('k')).map(finishSlice),
+    }))
+}
+
+function foldSlice(
+  prefix: 'm' | 'k',
+  weight: Map<string, number>,
+  into: Map<string, SliceTally>,
+  id: string,
+  label: string,
+  row: { requests: number, inputTokens: number, outputTokens: number },
+  price: { currency: string, amount: number } | null,
+): void {
+  const slice = into.get(id) ?? { id, label, requests: 0, inputTokens: 0, outputTokens: 0, unpriced: false, costs: new Map() }
+  into.set(id, slice)
+  slice.requests += row.requests
+  slice.inputTokens += row.inputTokens
+  slice.outputTokens += row.outputTokens
+  if (price) slice.costs.set(price.currency, (slice.costs.get(price.currency) ?? 0) + price.amount)
+  else if (label) slice.unpriced = true
+  const key = `${prefix}:${id}`
+  weight.set(key, (weight.get(key) ?? 0) + row.inputTokens + row.outputTokens)
+}
+
+function finishSlice(tally: SliceTally): AssistantUsageSlice {
+  return {
+    id: tally.id,
+    label: tally.label,
+    requests: tally.requests,
+    inputTokens: tally.inputTokens,
+    outputTokens: tally.outputTokens,
+    costs: [...tally.costs].map(([currency, amount]) => ({ currency, amount })),
+    unpriced: tally.unpriced,
+  }
+}
+
+/** One currency's entries added up, kept apart rather than summed across: a bill is in one currency. */
+function sumCosts(slices: readonly SliceTally[]): Array<{ currency: string, amount: number }> {
+  const out = new Map<string, number>()
+  for (const slice of slices) for (const [currency, amount] of slice.costs) out.set(currency, (out.get(currency) ?? 0) + amount)
+  return [...out].map(([currency, amount]) => ({ currency, amount }))
+}
+
+/** How a key slice is named, spelled the way the usage panel's own key picker spells it. */
+function keySliceLabel(row: { providerLabel: string, keyId: string, keyLabel: string }): string {
+  return row.keyId ? `${row.providerLabel} · ${row.keyLabel}` : row.providerLabel
+}
 
 /**
  * Folds the per-(key, model) rows into one row per key, pricing each model's tokens as it goes.

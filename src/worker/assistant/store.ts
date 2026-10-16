@@ -3063,6 +3063,49 @@ export class AssistantStore {
     }))
   }
 
+  /**
+   * The window broken down by day *and* by what paid for it.
+   *
+   * The charts need the same rows read two ways — a bar per day grouped by model, or the same bars grouped
+   * by key — and the per-model cards need them a third time, per model across days. One query answers all
+   * three: three queries would be three chances to disagree about the window, and the client is the only
+   * place that knows which grouping the reader asked for.
+   */
+  async usageSeries(from: string, to: string, filter: UsageFilter): Promise<Array<{
+    day: string
+    modelLabel: string
+    providerId: string
+    providerLabel: string
+    keyId: string
+    keyLabel: string
+  } & UsageCounters>> {
+    const binds: unknown[] = [this.userId, from, to]
+    const where = this.dimensionWhere(filter, binds)
+    const { results } = await this.db.prepare(
+      `SELECT day, model_label, provider_id, provider_label, key_id, key_label,
+              SUM(requests) AS requests, SUM(input_tokens) AS input_tokens,
+              SUM(output_tokens) AS output_tokens, SUM(tool_calls) AS tool_calls, SUM(errors) AS errors
+         FROM chat_usage_daily_key WHERE user_id = ?1 AND day >= ?2 AND day <= ?3${where}
+        GROUP BY day, model_label, provider_id, provider_label, key_id, key_label
+        ORDER BY day ASC`,
+    ).bind(...binds).all<Record<string, number | string>>()
+    return (results ?? []).map((row) => ({
+      day: String(row.day ?? ''),
+      modelLabel: String(row.model_label ?? ''),
+      providerId: String(row.provider_id ?? ''),
+      providerLabel: String(row.provider_label ?? ''),
+      keyId: String(row.key_id ?? ''),
+      keyLabel: String(row.key_label ?? ''),
+      requests: Number(row.requests ?? 0),
+      inputTokens: Number(row.input_tokens ?? 0),
+      outputTokens: Number(row.output_tokens ?? 0),
+      toolCalls: Number(row.tool_calls ?? 0),
+      scheduledRuns: 0,
+      embeddings: 0,
+      errors: Number(row.errors ?? 0),
+    }))
+  }
+
   /** The first day this account has any usage on, so "all" has somewhere to start. */
   async firstUsageDay(): Promise<string | null> {
     const row = await this.one<{ day: string | null }>(

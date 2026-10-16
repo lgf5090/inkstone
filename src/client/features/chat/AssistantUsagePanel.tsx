@@ -1,14 +1,14 @@
 /**
  * What the assistant has been spending, drawn from one answer.
  *
- * Three views of one window rather than three independent widgets: the totals, the days and the models
- * all come from a single `/stats` response, so a range switch cannot leave one panel describing last
- * week and another describing last month. The chart library is loaded on the first draw and shared with
- * the note charts, which reach the same chunk.
+ * Four views of one window rather than four independent widgets: the totals, the days, the models and the
+ * per-day series all come from a single `/stats` response, so a range switch cannot leave one panel
+ * describing last week and another describing last month. The chart library is loaded on the first draw and
+ * shared with the note charts, which reach the same chunk.
  *
  * Cost is shown per currency and never added across them. A model the reader has not priced is reported
  * as unpriced — "no price" and "free" are different claims, and a total that confused them would be a
- * number nobody could act on.
+ * number nobody could act on. The cost chart draws one currency at a time for the same reason.
  */
 
 import { useEffect, useMemo, useRef, useState } from 'react'
@@ -21,10 +21,17 @@ import { Segmented } from '../../components/form'
 import { Menu, type MenuItem } from '../../components/overlay'
 import { cn } from '../../lib/cn'
 import { useThemeDark } from '../../lib/hooks'
+import { CostBars, ModelTrend } from './UsageCharts'
 import { Group } from './assistant-settings-shared'
 
 const RANGES = ['7', '30', 'all'] as const
 type Range = (typeof RANGES)[number]
+
+/** Which dimension the cost chart's bars are stacked by. */
+type Grouping = 'model' | 'key'
+
+/** How many models get their own pair of charts: the ones with the most usage, and no further. */
+const MAX_MODEL_SECTIONS = 4
 
 /** Tokens, shortened the way a reader reads them at a glance. */
 function compact(value: number): string {
@@ -38,6 +45,7 @@ function money(amount: number, currency: string): string {
   // a reader who just spent something the same numbers as one who spent nothing.
   return `${currency} ${amount.toFixed(amount < 1 ? 4 : 2)}`
 }
+
 
 /**
  * The daily token bars.
@@ -192,6 +200,7 @@ export function UsagePanel() {
   const [range, setRange] = useState<Range>('7')
   const [model, setModel] = useState<string | null>(null)
   const [key, setKey] = useState<string | null>(null)
+  const [group, setGroup] = useState<Grouping>('model')
   const [stats, setStats] = useState<AssistantStats | null>(null)
   const [loading, setLoading] = useState(true)
   const [reload, setReload] = useState(0)
@@ -219,6 +228,13 @@ export function UsagePanel() {
   }, [stats])
 
   const peakTokens = Math.max(1, ...(stats?.models ?? []).map((model) => model.inputTokens + model.outputTokens))
+
+  // The currency the cost chart draws: the one the window was mostly billed in. A window priced in two is
+  // two bills, and one stacked bar of both would be adding different money together.
+  const mainSpend = useMemo(
+    () => [...(stats?.spend ?? [])].sort((left, right) => right.amount - left.amount)[0] ?? null,
+    [stats],
+  )
 
   // The options come from the key breakdown, which the server leaves unfiltered, so choosing one filter
   // never empties the other dropdown: a model list narrowed to the key already picked would strand the
@@ -263,7 +279,22 @@ export function UsagePanel() {
           <p className="py-3 text-[length:var(--text-12)] text-[var(--text-quaternary)]">{t('assistant.stats.unavailable')}</p>
         ) : (
           <div className="space-y-3 py-2">
-            <div className="grid grid-cols-2 gap-2 md:grid-cols-4">
+            {/* The money leads, because it is the number a reader opens this screen to check. It is a card
+                rather than a line of text so a glance is enough, and the unpriced count travels inside it:
+                a total that quietly left models out is worse than one that says what it left out. */}
+            <div className="grid grid-cols-2 gap-2 md:grid-cols-5">
+              <div className="rounded-[var(--r-md)] bg-[var(--bg-inset)] px-2.5 py-2">
+                <p className="text-[length:var(--text-10-5)] text-[var(--text-quaternary)]">
+                  <Coins size={11} className="mr-1 inline align-[-1px]" />
+                  {t('assistant.stats.cost')}
+                </p>
+                <p className="mt-0.5 text-[length:var(--text-15)] font-semibold tabular text-[var(--text-primary)]">
+                  {mainSpend ? money(mainSpend.amount, mainSpend.currency) : t('assistant.stats.cost_none')}
+                </p>
+                {stats.unpricedModels > 0 && (
+                  <p className="text-[length:var(--text-10-5)] text-[var(--text-quaternary)]">{t('assistant.stats.unpriced', { count: stats.unpricedModels })}</p>
+                )}
+              </div>
               {[
                 [t('assistant.stats.requests'), stats.total.requests.toLocaleString()],
                 [t('assistant.stats.tokens_in'), compact(stats.total.inputTokens)],
@@ -277,20 +308,32 @@ export function UsagePanel() {
               ))}
             </div>
 
-            <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[length:var(--text-12)]">
-              <span className="flex items-center gap-1.5 text-[var(--text-secondary)]">
-                <Coins size={13} className="text-[var(--text-quaternary)]" />
-                {t('assistant.stats.cost')}
-              </span>
-              {stats.spend.length === 0
-                ? <span className="text-[var(--text-quaternary)]">{t('assistant.stats.cost_none')}</span>
-                : stats.spend.map((entry) => (
-                    <span key={entry.currency} className="tabular text-[var(--text-primary)]">{money(entry.amount, entry.currency)}</span>
-                  ))}
-              {stats.unpricedModels > 0 && (
-                <span className="text-[var(--text-quaternary)]">{t('assistant.stats.unpriced', { count: stats.unpricedModels })}</span>
-              )}
-            </div>
+            {stats.series.length > 0 && (
+              <div>
+                <div className="mb-1 flex flex-wrap items-center justify-between gap-2">
+                  <p className="text-[length:var(--text-11)] text-[var(--text-tertiary)]">
+                    {t('assistant.stats.cost_chart')}{mainSpend ? ` (${mainSpend.currency})` : ''}
+                  </p>
+                  {/* The same days, grouped two ways: which model the money went to, or which key paid for
+                      it. Both splits arrive on the same series, so the switch costs no request. */}
+                  <Segmented
+                    size="sm"
+                    label={t('assistant.stats.group_by')}
+                    value={group}
+                    onChange={(next) => setGroup(next as Grouping)}
+                    options={[
+                      { value: 'model', label: t('assistant.stats.filter_model') },
+                      { value: 'key', label: t('assistant.stats.filter_key') },
+                    ]}
+                  />
+                </div>
+                {mainSpend ? (
+                  <CostBars series={stats.series} group={group} currency={mainSpend.currency} />
+                ) : (
+                  <p className="py-3 text-[length:var(--text-12)] text-[var(--text-quaternary)]">{t('assistant.stats.cost_none')}</p>
+                )}
+              </div>
+            )}
 
             {stats.days.length > 0 && (
               <div>
@@ -326,6 +369,18 @@ export function UsagePanel() {
                 </ul>
               </div>
             )}
+
+            {/* Each of the busiest models gets its own pair of charts. Bounded, because a reader with a
+                dozen models would otherwise scroll past a dozen canvases to reach the conversations — and
+                the ranking above already says which ones did not make the cut. */}
+            {stats.models.slice(0, MAX_MODEL_SECTIONS).map((entry) => (
+              <div key={entry.label}>
+                <p className="mb-1 text-[length:var(--text-12)] font-medium text-[var(--text-secondary)]">
+                  {entry.label || t('assistant.stats.unknown_model')}
+                </p>
+                <ModelTrend series={stats.series} label={entry.label} />
+              </div>
+            ))}
 
             {stats.conversations.length > 0 && (
               <div>

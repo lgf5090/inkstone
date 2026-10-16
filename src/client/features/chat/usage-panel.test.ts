@@ -13,6 +13,7 @@ import type { AssistantStats } from '@shared/assistant'
 import { DEFAULT_ASSISTANT_SETTINGS } from '@shared/assistant'
 import { initI18n, t } from '../../lib/i18n'
 import { installTestGlobals, renderElement, type RenderedElement } from '../../lib/test-render'
+import { api } from '../../lib/api'
 import { UsagePanel } from './AssistantUsagePanel'
 
 const STATS: AssistantStats = {
@@ -29,6 +30,31 @@ const STATS: AssistantStats = {
     { label: 'local-llama', requests: 2, inputTokens: 500_000, outputTokens: 100_000, toolCalls: 0, errors: 1, currency: '', cost: null },
   ],
   conversations: [{ id: 'c1', title: 'Planning', requests: 8, inputTokens: 1_000_000, outputTokens: 200_000, updatedAt: 1_700_000_000_000 }],
+  // The same two days the charts read: one bar per day, already split both ways so the grouping switch
+  // costs no second request.
+  series: [
+    {
+      day: '2026-10-10',
+      requests: 5,
+      inputTokens: 1_000_000,
+      outputTokens: 200_000,
+      costs: [{ currency: 'CNY', amount: 1.2 }],
+      models: [{ id: 'deepseek-chat', label: 'deepseek-chat', requests: 5, inputTokens: 1_000_000, outputTokens: 200_000, costs: [{ currency: 'CNY', amount: 1.2 }], unpriced: false }],
+      keys: [{ id: 'p1:', label: 'DeepSeek', requests: 5, inputTokens: 1_000_000, outputTokens: 200_000, costs: [{ currency: 'CNY', amount: 1.2 }], unpriced: false }],
+    },
+    {
+      day: '2026-10-12',
+      requests: 7,
+      inputTokens: 1_500_000,
+      outputTokens: 300_000,
+      costs: [{ currency: 'CNY', amount: 2 }],
+      models: [
+        { id: 'deepseek-chat', label: 'deepseek-chat', requests: 5, inputTokens: 1_000_000, outputTokens: 200_000, costs: [{ currency: 'CNY', amount: 1.2 }], unpriced: false },
+        { id: 'local-llama', label: 'local-llama', requests: 2, inputTokens: 500_000, outputTokens: 100_000, costs: [], unpriced: true },
+      ],
+      keys: [{ id: 'p1:', label: 'DeepSeek', requests: 7, inputTokens: 1_500_000, outputTokens: 300_000, costs: [{ currency: 'CNY', amount: 2 }], unpriced: false }],
+    },
+  ],
   keys: [
     { providerId: 'p1', providerLabel: 'DeepSeek', keyId: '', keyLabel: 'DeepSeek', requests: 10, inputTokens: 2_000_000, outputTokens: 400_000, toolCalls: 4, errors: 0, costs: [{ currency: 'CNY', amount: 3.2 }], unpriced: false },
     { providerId: 'p2', providerLabel: 'Local', keyId: '', keyLabel: 'Local', requests: 2, inputTokens: 500_000, outputTokens: 100_000, toolCalls: 0, errors: 1, costs: [], unpriced: true },
@@ -89,5 +115,24 @@ describe('the usage screen', () => {
     // One cell per day of the window, whatever the window's length — the map is drawn from the range, not
     // from the days that happen to have usage, or a quiet week would look like a short one.
     expect(rendered.container.querySelectorAll('[role="group"][aria-label] span[title]').length).toBe(7)
+  })
+
+  it('draws the cost chart in one named currency, grouped by model or by key from the same answer', async () => {
+    rendered = renderElement(createElement(UsagePanel))
+    await act(async () => { await Promise.resolve() })
+    await vi.waitFor(() => expect(text()).toContain(t('assistant.stats.cost_chart')), { timeout: 5000, interval: 10 })
+    // The currency the bars are drawn in is named: a window priced in two is two bills, and stacking them
+    // would be adding different money together.
+    expect(text()).toContain(`${t('assistant.stats.cost_chart')} (CNY)`)
+    const toggle = document.querySelector<HTMLElement>(`[role="radiogroup"][aria-label="${t('assistant.stats.group_by')}"]`)
+    expect(toggle, 'the grouping switch is not rendered').toBeTruthy()
+    expect(toggle!.textContent).toContain(t('assistant.stats.filter_key'))
+    // Both splits travel on the one series, so switching the grouping is a redraw rather than a request.
+    const calls = vi.mocked(api.assistant.stats).mock.calls.length
+    act(() => {
+      const next = [...toggle!.querySelectorAll<HTMLButtonElement>('button')].find((node) => node.textContent?.trim() === t('assistant.stats.filter_key'))
+      next?.click()
+    })
+    expect(vi.mocked(api.assistant.stats).mock.calls.length).toBe(calls)
   })
 })

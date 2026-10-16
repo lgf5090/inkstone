@@ -2880,6 +2880,58 @@ describe('usage attribution', () => {
     expect(row!.outputTokens).toBe(6)
   })
 
+  it('prices the window day by day, split by model and by key from the same rows', async () => {
+    await useExampleModel()
+    const models = await call<{ models: AssistantModel[] }>('GET', '/api/assistant/models')
+    // A price makes the series a claim rather than a zero: the chart's bars are this arithmetic.
+    await call('PATCH', `/api/assistant/models/${models.models[0]!.id}`, { inputPrice: 1, outputPrice: 2, priceCurrency: 'cny' })
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(sse(FINAL_FRAMES), { headers: { 'content-type': 'text/event-stream' } })))
+    await chatEvents({ message: 'hello' })
+    await settleTurns()
+    vi.unstubAllGlobals()
+
+    const stats = await call<{
+      series: Array<{
+        day: string
+        requests: number
+        costs: { currency: string, amount: number }[]
+        models: { id: string, label: string, costs: { currency: string, amount: number }[], unpriced: boolean }[]
+        keys: { id: string, label: string, costs: { currency: string, amount: number }[] }[]
+      }>
+      models: { label: string, currency: string, cost: number | null }[]
+    }>('GET', '/api/assistant/stats?range=all')
+
+    // 20 tokens in at 1/M and 6 out at 2/M.
+    const expected = (1 * 20 + 2 * 6) / 1_000_000
+    expect(stats.series).toHaveLength(1)
+    const day = stats.series[0]!
+    expect(day.requests).toBeGreaterThanOrEqual(1)
+    expect(day.costs).toEqual([{ currency: 'CNY', amount: expect.closeTo(expected, 12) }])
+    // The same rows read both ways, so the two splits describe one day's money rather than two days'.
+    expect(day.models.map((entry) => entry.label)).toEqual([stats.models[0]!.label])
+    expect(day.models[0]!.costs[0]!.amount).toBeCloseTo(expected, 12)
+    expect(day.keys).toHaveLength(1)
+    expect(day.keys[0]!.label).toBe('Example')
+    expect(day.keys[0]!.id.endsWith(':'), 'a provider with one key is its own slice, keyless').toBe(true)
+    expect(day.keys[0]!.costs[0]!.amount).toBeCloseTo(expected, 12)
+  })
+
+  it('leaves an unpriced model out of the money without counting it as free', async () => {
+    await useExampleModel()
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(sse(FINAL_FRAMES), { headers: { 'content-type': 'text/event-stream' } })))
+    await chatEvents({ message: 'hello' })
+    await settleTurns()
+    vi.unstubAllGlobals()
+
+    const stats = await call<{ series: { costs: unknown[], models: { unpriced: boolean, costs: unknown[] }[] }[] }>(
+      'GET', '/api/assistant/stats?range=all',
+    )
+    // The day still happened — its tokens are there — but nothing priced it, so no bar is drawn for it.
+    expect(stats.series[0]!.models[0]!.unpriced).toBe(true)
+    expect(stats.series[0]!.models[0]!.costs).toEqual([])
+    expect(stats.series[0]!.costs).toEqual([])
+  })
+
   it('narrows the window to one model or one key, and to nothing when neither matches', async () => {
     await useExampleModel()
     vi.stubGlobal('fetch', vi.fn(async () => new Response(sse(FINAL_FRAMES), { headers: { 'content-type': 'text/event-stream' } })))

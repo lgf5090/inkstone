@@ -1219,6 +1219,14 @@ export interface AssistantStats {
   days: Array<{ day: string } & AssistantUsage>
   models: AssistantModelUsage[]
   keys: AssistantKeyUsage[]
+  /**
+   * The window day by day, each day already split by model and by key.
+   *
+   * One series rather than three because the same days are read three ways — a bar per day grouped by model,
+   * the same bars grouped by key, and one model's own line across the window — and three queries would be
+   * three chances to describe a different window.
+   */
+  series: AssistantUsageDay[]
   /** Every model label seen in the window, unfiltered, so the model picker keeps all its choices. */
   modelOptions: string[]
   conversations: AssistantConversationUsage[]
@@ -1228,6 +1236,31 @@ export interface AssistantStats {
   unpricedModels: number
   generatedAt: number
   limits: AssistantLimits
+}
+
+/** One day of the window, with what it cost and what paid for it. */
+export interface AssistantUsageDay {
+  day: string
+  requests: number
+  inputTokens: number
+  outputTokens: number
+  /** Empty when nothing that day was priced: "no price" is not the same claim as "cost nothing". */
+  costs: Array<{ currency: string, amount: number }>
+  models: AssistantUsageSlice[]
+  keys: AssistantUsageSlice[]
+}
+
+/** One bar of a day: what a single model, or a single key, contributed to it. */
+export interface AssistantUsageSlice {
+  /** The model label, or `providerId:keyId` when the day is split by key. */
+  id: string
+  label: string
+  requests: number
+  inputTokens: number
+  outputTokens: number
+  costs: Array<{ currency: string, amount: number }>
+  /** True when this slice names a model the reader has not priced, so a chart can say what it left out. */
+  unpriced: boolean
 }
 
 /** One provider key's share of the window, folded across whatever models it paid for. */
