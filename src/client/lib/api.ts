@@ -3,6 +3,7 @@ import { CLIENT_HEADER } from '@shared/constants'
 import type { ReaderUsage } from '@shared/types'
 import type { ChatAttachment,
   ChatPrompt,
+  MessageFeedback,
 } from '@shared/assistant'
 import type { MarkdownBackupManifest } from '@shared/backup-format'
 import type {
@@ -846,6 +847,12 @@ export const api = {
       request<{ message: AssistantMessage, removed: number }>(
         `/api/assistant/conversations/${conversationId}/messages/${messageId}`,
         { method: 'PATCH', body: { content } },
+      ),
+    /** The reader's verdict on one answer, or null to take it back. */
+    rateAnswer: (conversationId: string, messageId: string, feedback: MessageFeedback | null) =>
+      request<{ message: AssistantMessage }>(
+        `/api/assistant/conversations/${conversationId}/messages/${messageId}/feedback`,
+        { method: 'PATCH', body: { feedback } },
       ),
     /** Take a turn back: the message and, under a reader's own row, the answer it drew. */
     removeMessage: (conversationId: string, messageId: string) =>

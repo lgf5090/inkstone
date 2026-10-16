@@ -32,6 +32,21 @@ describe('what a reply offers', () => {
     expect(rows).not.toContain('edit')
     expect(rows).not.toContain('delete')
   })
+
+  it('offers the two verdicts only where a verdict can be stored', () => {
+    const rated = ids({ role: 'assistant', text: 'answer', onRate: () => {} })
+    expect(rated).toContain('rate-up')
+    expect(rated).toContain('rate-down')
+    // A turn still streaming has no row to record a verdict on, so the caller passes no handler and the
+    // rows stay out rather than being drawn and doing nothing.
+    expect(ids({ role: 'assistant', text: 'answer' })).not.toContain('rate-up')
+  })
+
+  it('marks the verdict already recorded', () => {
+    const rows = messageMenuItems({ role: 'assistant', text: 'answer', onRate: () => {}, feedback: 'down' })
+    expect(rows.find((row) => row.id === 'rate-down')?.checked).toBe(true)
+    expect(rows.find((row) => row.id === 'rate-up')?.checked).toBeUndefined()
+  })
 })
 
 describe('what the reader\'s own message offers', () => {

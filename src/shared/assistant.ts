@@ -1052,6 +1052,10 @@ export const ASSISTANT_TOOL_BY_NAME: ReadonlyMap<string, AssistantToolSpec> = ne
   ASSISTANT_TOOL_SPECS.map((spec) => [spec.name, spec]),
 )
 
+/** A verdict a reader can leave on one answer. */
+export const MESSAGE_FEEDBACK = ['up', 'down'] as const
+export type MessageFeedback = (typeof MESSAGE_FEEDBACK)[number]
+
 export interface AssistantMessage {
   id: string
   conversationId: string
@@ -1076,6 +1080,14 @@ export interface AssistantMessage {
   createdAt: number
   /** `import` marks a message restored from a backup: it is data, never live owner input. */
   source: 'chat' | 'import'
+  /**
+   * The reader's verdict on this answer, when they gave one.
+   *
+   * Stored beside the message rather than in a table of its own: a turn has at most one verdict, and the
+   * thing that reads it is the transcript. The value is what the column holds, so a backup and a restore
+   * agree about what a downvote was.
+   */
+  feedback?: MessageFeedback
   usage?: { inputTokens: number, outputTokens: number } | null
   /** How long the model took, in milliseconds — the denominator of the tokens-per-second figure. */
   durationMs?: number

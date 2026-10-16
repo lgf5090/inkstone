@@ -1118,6 +1118,8 @@ const allowed = new Map([
     "// line after it would quietly stop being part of what the reader quoted.",
     "/**\n * The two ways this menu opens, held in one place.\n *\n * A message offers it from its own right-click and from the overflow button on its hover row, and the\n * two anchor differently: a press is a point, a button is an element the panel should line up under.\n * Keeping both in one state object means one panel is mounted whichever way it was asked for, rather\n * than a second copy of the same rows anchored at the other place.\n */",
     "/** The menu itself, anchored where it was asked for. */",
+    "/** The verdict already left on this answer, so the menu can show which thumb is down. */",
+    "/** Present only where a verdict can be recorded — a stored answer, not a turn still streaming. */",
   ]],
   ["src/client/features/chat/MessageParts.tsx", [
     "/**\n * The pieces of one assistant reply.\n *\n * Three things the reference project got wrong in ways only a reader notices:\n *  - it reused the note prose class, so a one-line answer filled a screen;\n *  - it stored the tool chip's words in English inside the message row, so a Chinese interface showed\n *    English pills that no translation could reach;\n *  - it kept the Approve button live after the reply was saved, because it read the approval out of the\n *    message rather than out of the pending-action table.\n *\n * So the chip's words come from the locale catalog by tool name, the prose is its own class, and the\n * approval card is driven by the action's current status.\n */",
@@ -1142,6 +1144,8 @@ const allowed = new Map([
     "// drawn, and a `[[note]]` is a door into the notebook rather than a word that looks like a link.",
     "/* Only a settled answer is offered: a half-written reply saved twice is two notes, and the\n                one worth keeping is the one the model finished. */",
     "/* `body` is what the reader can see — an earlier answer paged back to included — so the menu\n          acts on that text rather than on whichever version happens to be newest. */",
+    "/** The verdict already left on this answer, so the thumb that is down stays down. */",
+    "/** Absent on a live turn: a verdict needs a row to be stored on. */",
   ]],
   ["src/client/features/chat/ModelEditorDialog.tsx", [
     "/**\n * The model's own editor: what it is for, what it can do, and the numbers it is given.\n *\n * The composer's chips cover the two settings a reader changes often. This covers the rest, which are\n * per-model facts rather than per-conversation choices: whether the endpoint answers in pictures, how\n * much it claims to take in, and the vendor-specific fields our request builder does not know about.\n * Everything here is read by the request path — a switch that changed nothing would be worse than no\n * switch, because it would be believed.\n */",
@@ -1296,6 +1300,11 @@ const allowed = new Map([
     "// What the reader had on screen when they asked. The notebook's own pointer is the only thing that",
     "// makes \"summarise this\" work without naming the note, and it costs two ids on the wire.",
     "/**\n   * Text the composer has been asked to start from — a quote of a turn.\n   *\n   * The draft lives in the composer's own state, so a menu elsewhere on screen cannot reach it. This is\n   * the one-way handover: the menu writes a block here, the composer takes it once and clears it, and\n   * nothing else reads it.\n   */",
+    "/** Records or takes back the reader's verdict on one answer. */",
+    "// Pressing the same thumb again takes the verdict back, which is what a reader expects a toggle to",
+    "// do — and the only way to undo a mis-press without a dialog.",
+    "// Painted before the round trip: a verdict is the reader's opinion, not the server's, and the row is",
+    "// put back where it was if the write is refused.",
   ]],
   ["src/client/features/chat/chat-outline.test.ts", [
     "/**\n * The rail and the panel that stand beside a thread.\n *\n * Both of them are read off the thread's own DOM — which turn has passed the reading line, and how far\n * down to land when one is chosen — so these cases lay out the boxes a browser would and then scroll:\n * a test that only counted buttons would pass over an outline that marks the wrong turn.\n */",
@@ -1388,6 +1397,8 @@ const allowed = new Map([
     "// The live turn has no id yet, so it has neither: the row would act on a message that does not exist.",
     "// A blank line between two paragraphs ends a blockquote in Markdown, so the lines below it would",
     "// silently stop being part of the quote the reader asked for.",
+    "// A turn still streaming has no row to record a verdict on, so the caller passes no handler and the",
+    "// rows stay out rather than being drawn and doing nothing.",
   ]],
   ["src/client/features/chat/model-editor-chips.test.ts", [
     "/**\n * The model editor's quick picks and the badges the list derives from them.\n *\n * The chips exist so a reader sets 256K without typing 262144, and the badges exist so the same facts are\n * readable without opening the editor. Both are pinned by what they change in the draft, not by markup.\n */",
@@ -7264,6 +7275,7 @@ const allowed = new Map([
     "/**\n     * Run one stored third-party call again, with what it was handed the first time.\n     *\n     * The arguments travel as the ids of the row they are on, never as text: the worker reads them back\n     * out of the message, so a client cannot ask for a call that never happened.\n     */",
     "/**\n     * Retype one of your own messages. The answer under it was written from the old words, so the server\n     * removes that turn and the caller asks again.\n     */",
     "/** Take a turn back: the message and, under a reader's own row, the answer it drew. */",
+    "/** The reader's verdict on one answer, or null to take it back. */",
   ]],
   ["src/client/lib/app-history.ts", [
     "/**\n * The address bar as the one source of truth for which app tab is up.\n *\n * The tab is a path rather than a store field so that a rail button is an ordinary link: the\n * address a reader copies is the screen they are looking at, the back button walks the tabs they\n * visited, and a cold load of `/calendar` needs nothing but the document the server already sends.\n * `history.pushState` fires no event of its own, so the writers here announce their own changes and\n * `popstate` covers everything the browser does by itself.\n */",
@@ -14414,6 +14426,8 @@ const allowed = new Map([
     "/**\n * The wire a model is called on: the protocol it names, and that protocol's address.\n *\n * A gateway can answer on more than one wire with one key, so a model may name its protocol and the\n * provider supplies the matching address; a protocol with no address of its own falls back to the\n * provider's base URL, which is what every provider written before the per-protocol map had. The worker\n * builds the request out of this pair and the settings screens read the model's thinking dialect off it, so\n * the rule is stated once instead of twice with room to disagree.\n */",
     "/**\n * How much thinking a model is asked for.\n *\n * The scale runs from `off` to `max` and is the app's own, because the services do not agree on one: Claude\n * publishes five rungs of effort, a 3.x Gemini three levels, DeepSeek four, and Qwen only a switch. A model\n * is therefore offered the rungs its own service has (`reasoningRungs` in `reasoning.ts`) rather than all of\n * these, and `auto` — leaving the decision to the model — is the one value every service shares.\n */",
     "/** Token budgets a rung means for the protocols that take a number rather than a name. */",
+    "/** A verdict a reader can leave on one answer. */",
+    "/**\n   * The reader's verdict on this answer, when they gave one.\n   *\n   * Stored beside the message rather than in a table of its own: a turn has at most one verdict, and the\n   * thing that reads it is the transcript. The value is what the column holds, so a backup and a restore\n   * agree about what a downvote was.\n   */",
   ]],
   ["src/shared/backup-format.ts", [
     "/** The account's own template library, absent from a backup taken before it was worth keeping. */",
@@ -15374,6 +15388,7 @@ const allowed = new Map([
     "// a Claude effort dialect left on a provider switched to the OpenAI wire would build a body nothing",
     "// there reads.",
     "/**\n * A pin that can be honoured on this wire, or null.\n *\n * The dialects are not interchangeable across protocols — an effort shape means nothing to a Gemini body —\n * so a value that does not belong to the protocol is dropped rather than stored and then ignored at the\n * far end of a request.\n */",
+    "/**\n   * Records the reader's verdict on one answer, or clears it.\n   *\n   * One row is touched and nothing else: the verdict is about this answer, and rewriting the turn would\n   * change its place in the transcript and its version count. A message that is not this account's is\n   * not found rather than updated, which is what the caller's 404 is built on.\n   */",
   ]],
   ["src/worker/assistant/tools.ts", [
     "/**\n * The tools the assistant can reach, and the executor that runs them.\n *\n * Three things are enforced here rather than asked of the model, because a model that is confident and\n * wrong is the failure mode this app has to survive:\n *  - **budgets** — a per-turn call cap, a per-tool cap and a duplicate-call refusal, so a reasoning\n *    loop cannot spend the reader's AI quota or write a hundred tasks;\n *  - **validation** — arguments are checked against the same declaration that generates the JSON\n *    Schema the provider is given, so the two can never disagree;\n *  - **approval** — a destructive tool never runs during the turn. `prepare` resolves the exact target\n *    and writes a pending action; `commit` runs only when the reader presses Approve, once, on that\n *    target. The model can propose; it cannot delete.\n *\n * Scheduled runs get read-only tools plus `notify_reader`, so a routine that has drifted cannot edit\n * the vault while nobody is watching.\n */",
@@ -15761,6 +15776,9 @@ const allowed = new Map([
     "// Which thinking contract an address speaks, when the reader has to say so: a gateway's hostname and a",
     "// proxied model name are the two things the inference in `reasoning.ts` cannot read. Null is \"no pin\",",
     "// which is how a model's own protocol column already says \"follow the provider\".",
+    "// The reader's verdict on one answer: 'up', 'down' or ''. Kept on the message rather than in a table",
+    "// of its own because a turn has at most one verdict and the transcript is what reads it — but it is",
+    "// stored at all so the judgement outlives the scroll, which a chip held in a component would not.",
   ]],
   ["src/worker/db/writes.ts", [
     "/** Keeps tags, backlinks, full-text indexes, and change records consistent with note writes. */",
@@ -16241,6 +16259,8 @@ const allowed = new Map([
     "// reader's own row goes too. Anything after that pair is a turn the reader has not touched.",
     "// What the reader had on screen. Only ids survive, and the runner re-reads both against this",
     "// account before either reaches the prompt — a caller cannot name someone else's note.",
+    "// `null` is a real answer here — the reader pressing the same thumb twice takes it back — and an",
+    "// unknown word is refused rather than stored, so a client that invents a third verdict finds out.",
   ]],
   ["src/worker/routes/auth.ts", [
     "// Account-wide cap so a distributed botnet cannot retry one account",
@@ -16862,6 +16882,9 @@ const allowed = new Map([
     "// The rollup described the rows that are gone.",
     "// A question with no answer under it is half a turn, so both rows go; the turn after them is the",
     "// reader's own and is left alone.",
+    "// The verdict survives a re-read, which is the whole point of storing it on the row: a chip held in",
+    "// a component would be gone by the next morning.",
+    "// The reader's own words are not an answer, and a message in another thread is not this one's.",
   ]],
   ["tests/assistant-rules.test.ts", [
     "/**\n * The rules the assistant is built on, tested where they are written.\n *\n * These are the parts a browser session cannot prove: what a Chinese sentence means to the conflict\n * rules, how a wall-clock schedule survives a daylight-saving change, how many tokens a Han vault\n * really costs. Each fixture is chosen so a plausible-but-wrong implementation would fail it — the\n * pair that differs only in a change word, a date the reader never stated, a schedule that crosses a\n * clock change — rather than so the function merely runs.\n */",

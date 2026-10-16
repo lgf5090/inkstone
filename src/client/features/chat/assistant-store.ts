@@ -35,6 +35,7 @@ import type {
   Project,
   Task as AssistantTask,
   ToolActivity,
+  MessageFeedback,
 } from '@shared/assistant'
 import type { ChatPrompt } from '@shared/assistant'
 import { DEBOUNCE } from '@shared/constants'
@@ -218,6 +219,8 @@ interface AssistantState {
   editMessage: (messageId: string, content: string) => Promise<void>
   /** Take one turn back: the reader's message and the answer that was drawn from it. */
   removeMessage: (messageId: string) => Promise<void>
+  /** Records or takes back the reader's verdict on one answer. */
+  rateAnswer: (messageId: string, feedback: MessageFeedback) => Promise<void>
   setConversationQuery: (query: string) => Promise<void>
   /** The folder tree and the tag list, both counted for conversations. */
   loadTaxonomy: () => Promise<void>
@@ -720,6 +723,33 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
       const { messages } = await api.assistant.removeMessage(conversationId, messageId)
       set({ messages, answerVersions: {} })
     } catch (error) {
+      toast(error)
+    }
+  },
+
+  rateAnswer: async (messageId, feedback) => {
+    const state = get()
+    const conversationId = state.activeId
+    const current = state.messages.find((message) => message.id === messageId)?.feedback
+    // Pressing the same thumb again takes the verdict back, which is what a reader expects a toggle to
+    // do — and the only way to undo a mis-press without a dialog.
+    const next = current === feedback ? null : feedback
+    // Painted before the round trip: a verdict is the reader's opinion, not the server's, and the row is
+    // put back where it was if the write is refused.
+    const paint = (value: MessageFeedback | undefined) => set((s) => ({
+      messages: s.messages.map((message) => {
+        if (message.id !== messageId) return message
+        const { feedback: _dropped, ...rest } = message
+        return value ? { ...rest, feedback: value } : rest
+      }),
+    }))
+    paint(next ?? undefined)
+    if (!conversationId) return
+    try {
+      const { message } = await api.assistant.rateAnswer(conversationId, messageId, next)
+      paint(message.feedback)
+    } catch (error) {
+      paint(current)
       toast(error)
     }
   },

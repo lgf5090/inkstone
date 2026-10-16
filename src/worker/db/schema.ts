@@ -1147,6 +1147,16 @@ export const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
       `ALTER TABLE chat_providers ADD COLUMN reasoning_dialect TEXT`,
     ],
   },
+  {
+    // The reader's verdict on one answer: 'up', 'down' or ''. Kept on the message rather than in a table
+    // of its own because a turn has at most one verdict and the transcript is what reads it — but it is
+    // stored at all so the judgement outlives the scroll, which a chip held in a component would not.
+    version: 64,
+    skipIfColumnExists: { table: 'chat_messages', column: 'feedback' },
+    statements: [
+      `ALTER TABLE chat_messages ADD COLUMN feedback TEXT NOT NULL DEFAULT ''`,
+    ],
+  },
 ]
 
 const FTS_STATEMENT = `CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(

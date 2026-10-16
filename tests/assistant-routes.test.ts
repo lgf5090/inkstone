@@ -251,6 +251,23 @@ describe('re-taking a turn', () => {
     expect(result.removed).toEqual([first.id, firstAnswer.id])
     expect(result.messages.map((entry) => entry.id)).toEqual([second.id, secondAnswer.id])
   })
+
+  it('records a verdict on an answer, takes it back, and refuses anything else', async () => {
+    const { store, conversation, first, firstAnswer } = await thread()
+    const rate = (body: unknown, messageId = firstAnswer.id) => call<{ message: AssistantMessage }>(
+      'PATCH', `/api/assistant/conversations/${conversation.id}/messages/${messageId}/feedback`, body,
+    )
+    expect((await rate({ feedback: 'up' })).message.feedback).toBe('up')
+    // The verdict survives a re-read, which is the whole point of storing it on the row: a chip held in
+    // a component would be gone by the next morning.
+    expect((await store.getMessage(firstAnswer.id))?.feedback).toBe('up')
+    expect((await rate({ feedback: null })).message.feedback).toBeUndefined()
+    expect(await status('PATCH', `/api/assistant/conversations/${conversation.id}/messages/${firstAnswer.id}/feedback`, { feedback: 'maybe' })).toBe(400)
+    // The reader's own words are not an answer, and a message in another thread is not this one's.
+    expect(await status('PATCH', `/api/assistant/conversations/${conversation.id}/messages/${first.id}/feedback`, { feedback: 'up' })).toBe(400)
+    const other = await call<{ conversation: AssistantConversation }>('POST', '/api/assistant/conversations', { title: 'Elsewhere' })
+    expect(await status('PATCH', `/api/assistant/conversations/${other.conversation.id}/messages/${firstAnswer.id}/feedback`, { feedback: 'up' })).toBe(404)
+  })
 })
 
 describe('memories', () => {

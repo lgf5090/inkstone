@@ -19,6 +19,7 @@ import type {
   AssistantMessage,
   AssistantModel,
   ChatPrompt,
+  MessageFeedback,
   AssistantModelKind,
   AssistantModelPurpose,
   AssistantCustomParam,
@@ -290,12 +291,13 @@ interface MessageRow {
   duration_ms: number | null
   model_label: string | null
   reasoning: string | null
+  feedback: string | null
   created_at: number
   version_count?: number | null
 }
 
 const MESSAGE_COLUMNS
-  = `id, conversation_id, role, content, reasoning, tools, attachments, status, error, source, input_tokens, output_tokens, duration_ms, model_label, created_at`
+  = `id, conversation_id, role, content, reasoning, tools, attachments, status, error, source, input_tokens, output_tokens, duration_ms, model_label, feedback, created_at`
 /** How many answers this turn has already displaced; only the transcript list pays for it. */
 const MESSAGE_VERSION_COUNT
   = `(SELECT COUNT(*) FROM chat_answer_versions v WHERE v.user_id = chat_messages.user_id AND v.message_id = chat_messages.id) AS version_count`
@@ -323,6 +325,7 @@ function toMessage(r: MessageRow): AssistantMessage {
     usage: { inputTokens: r.input_tokens ?? 0, outputTokens: r.output_tokens ?? 0 },
     durationMs: r.duration_ms ?? 0,
     modelLabel: r.model_label ?? '',
+    ...(r.feedback === 'up' || r.feedback === 'down' ? { feedback: r.feedback } : {}),
     versionCount: r.version_count ?? undefined,
   }
 }
@@ -1232,8 +1235,8 @@ export class AssistantStore {
     const reasoning = clipReasoning(input.reasoning ?? '')
     await this.write(
       `INSERT INTO chat_messages
-         (id, user_id, conversation_id, role, content, reasoning, tools, attachments, status, error, source, input_tokens, output_tokens, duration_ms, model_label, created_at)
-       VALUES (?2, ?1, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)`,
+         (id, user_id, conversation_id, role, content, reasoning, tools, attachments, status, error, source, input_tokens, output_tokens, duration_ms, model_label, feedback, created_at)
+       VALUES (?2, ?1, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, '', ?16)`,
       id, input.conversationId, input.role, input.content, reasoning, JSON.stringify(tools), JSON.stringify(attachments),
       status, error, source, usage?.inputTokens ?? 0, usage?.outputTokens ?? 0, durationMs, input.modelLabel ?? '', at,
     )
@@ -1268,8 +1271,22 @@ export class AssistantStore {
     return r ? toMessage(r) : null
   }
 
-  async deleteMessage(id: string): Promise<void> {
-    await this.deleteMessageRow(id)
+  /**
+   * Records the reader's verdict on one answer, or clears it.
+   *
+   * One row is touched and nothing else: the verdict is about this answer, and rewriting the turn would
+   * change its place in the transcript and its version count. A message that is not this account's is
+   * not found rather than updated, which is what the caller's 404 is built on.
+   */
+  async setMessageFeedback(id: string, feedback: MessageFeedback | null): Promise<boolean> {
+    const result = await this.write(
+      `UPDATE chat_messages SET feedback = ?3 WHERE user_id = ?1 AND id = ?2`,
+      id, feedback ?? '',
+    )
+    return result > 0
+  }
+
+  async deleteMessage(id: string): Promise<void> {    await this.deleteMessageRow(id)
     // A displaced answer is worth nothing once its turn is gone, and leaving it behind would keep the
     // pager's count alive over a row that no longer exists.
     await this.write(`DELETE FROM chat_answer_versions WHERE user_id = ?1 AND message_id = ?2`, id)

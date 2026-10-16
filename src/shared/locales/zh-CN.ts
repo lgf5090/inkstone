@@ -5928,6 +5928,8 @@ console.log(\`Hello, \${name}!\`)
     "assistant.chat.message_actions": "这条消息的操作",
     "assistant.chat.you": "你",
     "assistant.chat.assistant": "助手",
+    "assistant.chat.rate_up": "这个回答不错",
+    "assistant.chat.rate_down": "这个回答有问题",
     "assistant.chat.save_to_note": "保存到笔记",
     "assistant.chat.saved_to_note": "已存成笔记「{title}」",
     "assistant.chat.saved_note_open": "打开笔记",

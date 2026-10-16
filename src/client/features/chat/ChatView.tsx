@@ -260,6 +260,8 @@ export function MessageRow({ message, onRetry, busy = false }: { message: Assist
       onRetry={onRetry}
       retryLabel={retryLabel}
       usage={message.usage}
+      feedback={message.feedback}
+      onRate={message.role === 'assistant' ? (verdict) => void useAssistant.getState().rateAnswer(message.id, verdict) : undefined}
       durationMs={message.durationMs ?? 0}
       modelLabel={message.modelLabel ?? ''}
       versionCount={message.versionCount ?? 0}

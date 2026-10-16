@@ -12,8 +12,9 @@
  */
 
 import { useCallback, useRef, useState, type MouseEvent, type RefObject } from 'react'
-import { Copy, CornerUpLeft, Download, NotebookPen, Pencil, RotateCcw, Trash2, Volume2, type LucideIcon } from 'lucide-react'
+import { Copy, CornerUpLeft, Download, NotebookPen, Pencil, RotateCcw, ThumbsDown, ThumbsUp, Trash2, Volume2, type LucideIcon } from 'lucide-react'
 import { toPlainText } from '@shared/markdown-utils'
+import type { MessageFeedback } from '@shared/assistant'
 import { Z_INDEX } from '../../lib/z-index'
 import { getLocale, t } from '../../lib/i18n'
 import { Menu, useContextMenu, type MenuItem } from '../../components/overlay'
@@ -37,6 +38,10 @@ export interface MessageMenuTarget {
   onRetryLabel?: 'assistant.chat.retry' | 'assistant.chat.regenerate'
   onEdit?: () => void
   onDelete?: () => void
+  /** The verdict already left on this answer, so the menu can show which thumb is down. */
+  feedback?: MessageFeedback
+  /** Present only where a verdict can be recorded — a stored answer, not a turn still streaming. */
+  onRate?: (feedback: MessageFeedback) => void
 }
 
 interface ItemSpec {
@@ -45,6 +50,7 @@ interface ItemSpec {
   label: string
   run: () => void
   separatorBefore?: boolean
+  checked?: boolean
 }
 
 function copy(text: string): void {
@@ -104,6 +110,25 @@ export function messageMenuItems(target: MessageMenuTarget): MenuItem[] {
       },
     )
   }
+  if (target.onRate) {
+    specs.push(
+      {
+        id: 'rate-up',
+        icon: ThumbsUp,
+        label: t('assistant.chat.rate_up'),
+        run: () => target.onRate!('up'),
+        checked: target.feedback === 'up',
+        separatorBefore: true,
+      },
+      {
+        id: 'rate-down',
+        icon: ThumbsDown,
+        label: t('assistant.chat.rate_down'),
+        run: () => target.onRate!('down'),
+        checked: target.feedback === 'down',
+      },
+    )
+  }
   if (target.onRetry) {
     specs.push({
       id: 'retry',
@@ -124,6 +149,7 @@ export function messageMenuItems(target: MessageMenuTarget): MenuItem[] {
     label: spec.label,
     icon: <spec.icon size={13} />,
     ...(spec.separatorBefore ? { separatorBefore: true } : {}),
+    ...(spec.checked ? { checked: true } : {}),
     onSelect: spec.run,
   }))
 }

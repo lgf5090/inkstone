@@ -27,10 +27,12 @@ import {
   RotateCcw,
   ShieldAlert,
   Sparkles,
+  ThumbsDown,
+  ThumbsUp,
   Wrench,
   XCircle
 } from 'lucide-react'
-import type { AssistantAnswerVersion, ToolActivity } from '@shared/assistant'
+import type { AssistantAnswerVersion, MessageFeedback, ToolActivity } from '@shared/assistant'
 import { ASSISTANT_TOOL_BY_NAME, mcpToolOrigin } from '@shared/assistant'
 import { cn } from '../../lib/cn'
 import { COPY_RESET_MS } from '../../lib/motion'
@@ -426,6 +428,8 @@ export function AssistantBubble({
   durationMs = 0,
   modelLabel = '',
   versionCount = 0,
+  feedback,
+  onRate,
   loadVersions,
   onActivate,
 }: {
@@ -445,6 +449,10 @@ export function AssistantBubble({
   modelLabel?: string
   /** How many earlier answers this turn still holds. The pager appears at two or more pages. */
   versionCount?: number
+  /** The verdict already left on this answer, so the thumb that is down stays down. */
+  feedback?: MessageFeedback
+  /** Absent on a live turn: a verdict needs a row to be stored on. */
+  onRate?: (feedback: MessageFeedback) => void
   loadVersions?: () => Promise<AssistantAnswerVersion[]>
   onActivate?: (versionId: string) => void
 }) {
@@ -581,6 +589,36 @@ export function AssistantBubble({
                 {t('assistant.chat.save_to_note')}
               </button>
             )}
+            {onRate && (
+              <>
+                <button
+                  type="button"
+                  onClick={() => onRate('up')}
+                  aria-pressed={feedback === 'up'}
+                  aria-label={t('assistant.chat.rate_up')}
+                  title={t('assistant.chat.rate_up')}
+                  className={cn(
+                    'inline-flex shrink-0 items-center rounded-[var(--r-sm)] px-1 py-0.5 text-[var(--text-quaternary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-secondary)]',
+                    feedback === 'up' && 'text-[var(--accent)]',
+                  )}
+                >
+                  <ThumbsUp size={11} />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => onRate('down')}
+                  aria-pressed={feedback === 'down'}
+                  aria-label={t('assistant.chat.rate_down')}
+                  title={t('assistant.chat.rate_down')}
+                  className={cn(
+                    'inline-flex shrink-0 items-center rounded-[var(--r-sm)] px-1 py-0.5 text-[var(--text-quaternary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-secondary)]',
+                    feedback === 'down' && 'text-[var(--danger)]',
+                  )}
+                >
+                  <ThumbsDown size={11} />
+                </button>
+              </>
+            )}
             {body && (
               <span ref={menu.buttonRef}>
                 <button
@@ -639,6 +677,8 @@ export function AssistantBubble({
           role: 'assistant',
           text: body,
           ...(onRetry && !viewing ? { onRetry, onRetryLabel: retryLabel } : {}),
+          ...(feedback ? { feedback } : {}),
+          ...(onRate && !streaming && !viewing ? { onRate } : {}),
         }}
       />
     </div>

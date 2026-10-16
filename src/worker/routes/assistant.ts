@@ -48,6 +48,8 @@ import {
   MAX_TASK_NOTES_CHARS,
   MAX_TASK_TITLE_CHARS,
   MEMORY_REVIEW_ACTIONS,
+  MESSAGE_FEEDBACK,
+  type MessageFeedback,
   ASSISTANT_SETTING_KEYS,
   normalizeAssistantSettings,
   titleFromMessage,
@@ -534,6 +536,28 @@ assistantRoutes.delete('/conversations/:id/messages/:messageId', async (c) => {
   for (const entry of removed) await s.deleteMessage(entry.id)
   await s.clearSummary(conversationId)
   return c.json({ removed: removed.map((entry) => entry.id), messages: await s.messages(conversationId) })
+})
+
+assistantRoutes.patch('/conversations/:id/messages/:messageId/feedback', async (c) => {
+  const s = store(c)
+  const conversationId = requiredId(c.req.param('id'))
+  const messageId = requiredId(c.req.param('messageId'))
+  const body = await readJson<{ feedback?: unknown }>(c, JSON_BODY_LIMITS.small)
+  // `null` is a real answer here — the reader pressing the same thumb twice takes it back — and an
+  // unknown word is refused rather than stored, so a client that invents a third verdict finds out.
+  const asked = body.feedback
+  const feedback = asked === null
+    ? null
+    : typeof asked === 'string' && (MESSAGE_FEEDBACK as readonly string[]).includes(asked)
+      ? asked as MessageFeedback
+      : undefined
+  if (feedback === undefined) throw ApiError.badRequest('A verdict is "up", "down" or null.')
+  if (!(await s.getConversation(conversationId))) throw ApiError.notFound('Conversation not found')
+  const message = await s.getMessage(messageId)
+  if (!message || message.conversationId !== conversationId) throw ApiError.notFound('Message not found')
+  if (message.role !== 'assistant') throw ApiError.badRequest('Only an answer can be rated.')
+  await s.setMessageFeedback(messageId, feedback)
+  return c.json({ message: await s.getMessage(messageId) })
 })
 
 assistantRoutes.patch('/conversations/:id', async (c) => {
