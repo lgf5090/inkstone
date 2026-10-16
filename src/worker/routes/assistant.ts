@@ -1155,10 +1155,16 @@ assistantRoutes.post('/actions/:id/approve', async (c) => {
   if (!stored) throw ApiError.notFound('This action no longer exists.')
   if (!(await s.getConversation(stored.conversationId))) throw ApiError.notFound('This conversation no longer exists.')
   const settings = await s.getSettings()
-  const outcome = await runApprovedAction(s, await approvalContext(c, s, settings), id)
+  // A tool that makes a file (an image) leaves it in this array, because the turn it belongs to was
+  // written before the reader pressed Approve and there is no `addMessage` left to carry the id.
+  const generated: string[] = []
+  const outcome = await runApprovedAction(s, await approvalContext(c, s, settings, generated), id)
   if (outcome.action) {
     const located = await s.messageForAction(id)
-    if (located) await s.attachActionToMessage(located.messageId, located.toolId, outcome.action, outcome.result)
+    if (located) {
+      await s.attachActionToMessage(located.messageId, located.toolId, outcome.action, outcome.result)
+      if (generated.length) await s.appendMessageAttachments(located.messageId, generated)
+    }
   }
   return c.json(outcome)
 })
@@ -1181,7 +1187,12 @@ assistantRoutes.post('/actions/:id/cancel', async (c) => {
  * finished: the note may have been edited since, and the reader's settings may have changed. The scope
  * is re-read from settings for the same reason — an exclusion added after the proposal must hold.
  */
-async function approvalContext(c: Context<AppBindings>, s: AssistantStore, settings: Awaited<ReturnType<AssistantStore['getSettings']>>) {
+async function approvalContext(
+  c: Context<AppBindings>,
+  s: AssistantStore,
+  settings: Awaited<ReturnType<AssistantStore['getSettings']>>,
+  generatedAttachments?: string[],
+) {
   const scope = await resolveNoteScope(c.env.DB, s.userId, settings.noteScope)
   const external = await loadExternalTools(s)
   return {
@@ -1197,6 +1208,7 @@ async function approvalContext(c: Context<AppBindings>, s: AssistantStore, setti
     memoryHistory: new MemoryHistoryService(s, {}, settings.conflictReview),
     automations: new AutomationService(s, settings),
     noteScope: async () => scope,
+    ...(generatedAttachments ? { generatedAttachments } : {}),
     writeContext: {
       env: c.env,
       userId: s.userId,

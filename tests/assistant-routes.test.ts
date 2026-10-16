@@ -28,6 +28,7 @@ import type {
 } from '../src/shared/assistant'
 import { DEFAULT_SEMANTIC_MODEL, MAX_ANSWER_VERSIONS, MAX_ARTIFACTS_PER_CONVERSATION, MAX_MCP_TIMEOUT_SECONDS, MAX_SKILL_CONTENT_CHARS, MAX_SKILL_ICON_CHARS, MAX_SKILL_TITLE_CHARS, MAX_REASONING_CHARS, MAX_TOKEN_CEILING, MAX_TURN_SCOPES, MAX_TURN_TOOLS, ASSISTANT_TOOL_BY_NAME } from '../src/shared/assistant'
 import { makeD1 } from './doubles/d1-sqlite'
+import { toBase64 } from '../src/worker/lib/encoding'
 import { testBindings, testDurableObjectNamespace, testR2Bucket } from './doubles/bindings'
 import { AI_EMBEDDING_MODEL } from '../src/worker/mcp/ai-search'
 
@@ -1062,6 +1063,100 @@ describe('lease and streaming turn', () => {
     )
     expect(detail.messages[1]!.content).toContain('Nothing is on the list.')
     expect(detail.messages[1]!.status).toBe('complete')
+  })
+})
+
+/**
+ * The picture a turn draws.
+ *
+ * The whole path is what is pinned here, because each half of it can look finished while the reader still
+ * sees nothing: the model has to ask for the picture, the worker has to call the reader's own image model
+ * on its own wire, and the bytes have to end up on the answer. A picture that is generated and stored but
+ * never attached is a chip in the transcript and no image, which is the failure this case exists to catch.
+ */
+describe('drawing a picture', () => {
+  /** The model asks for an image, then answers once it has one. */
+  const IMAGE_CALL_FRAMES = [
+    openAiFrame({ choices: [{ index: 0, finish_reason: null, delta: { tool_calls: [{ index: 0, id: 'c1', function: { name: 'image_generate', arguments: '{"prompt":"a cat on a keyboard"}' } }] } }] }),
+    openAiFrame({ choices: [{ index: 0, finish_reason: 'tool_calls', delta: {} }] }),
+  ]
+
+  /** A PNG header, which is all the signature check reads. */
+  const PNG = new Uint8Array([
+    0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a,
+    0x00, 0x00, 0x00, 0x0d, 0x49, 0x48, 0x44, 0x52,
+    0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01,
+    0x08, 0x06, 0x00, 0x00, 0x00, 0x1f, 0x15, 0xc4, 0x89,
+  ])
+
+  /** A second model on the example provider, marked by its purpose as the one that draws. */
+  async function useImageModel(): Promise<void> {
+    const provider = (await call<{ providers: AssistantProvider[] }>('GET', '/api/assistant/providers')).providers[0]!
+    const created = await call<{ model: AssistantModel }>('POST', '/api/assistant/models', {
+      providerId: provider.id,
+      model: 'gpt-image-1',
+      label: 'Image',
+    })
+    await call('PATCH', `/api/assistant/models/${created.model.id}`, { purpose: 'image_generate' })
+  }
+
+  it('attaches what it drew to the answer, and serves it back', async () => {
+    await useExampleModel()
+    await useImageModel()
+    const seen: string[] = []
+    let chatCalls = 0
+    vi.stubGlobal('fetch', vi.fn(async (input: string | URL) => {
+      const url = String(input)
+      seen.push(url)
+      if (url.endsWith('/images/generations')) {
+        return new Response(JSON.stringify({ data: [{ b64_json: toBase64(PNG) }] }), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        })
+      }
+      chatCalls++
+      return new Response(sse(chatCalls === 1 ? IMAGE_CALL_FRAMES : FINAL_FRAMES), { headers: { 'content-type': 'text/event-stream' } })
+    }))
+
+    const events = await chatEvents({ message: 'draw me a cat' })
+    await settleTurns()
+    vi.unstubAllGlobals()
+
+    // The image model is called on its own door, not the chat one.
+    expect(seen).toContain('https://api.example.com/v1/images/generations')
+    expect(events.some((event) => event.type === 'error')).toBe(false)
+
+    const conversationId = events.find((event) => event.type === 'start')!.conversationId!
+    const detail = await call<{
+      messages: { role: string, attachments?: string[] }[],
+      attachments: { id: string, kind: string, filename: string, mime: string }[],
+    }>('GET', `/api/assistant/conversations/${conversationId}`)
+
+    const answer = detail.messages.find((message) => message.role === 'assistant')!
+    expect(answer.attachments).toHaveLength(1)
+    const id = answer.attachments![0]!
+    expect(detail.attachments.find((entry) => entry.id === id)).toMatchObject({
+      kind: 'image', mime: 'image/png', filename: 'a cat on a keyboard.png',
+    })
+
+    // And it is served to the reader's own browser, which is what draws the `<img>` in the reply.
+    const file = await app.fetch(new Request(`http://localhost/api/assistant/files/${id}`), env, ctx)
+    expect(file.status).toBe(200)
+    expect(file.headers.get('content-type')).toContain('image/png')
+  })
+
+  it('says which setting to fix when no image model is configured', async () => {
+    await useExampleModel()
+    vi.stubGlobal('fetch', vi.fn(async (input: string | URL) => String(input).endsWith('/images/generations')
+      ? new Response('{}', { status: 200, headers: { 'content-type': 'application/json' } })
+      : new Response(sse(IMAGE_CALL_FRAMES), { headers: { 'content-type': 'text/event-stream' } })))
+
+    const events = await chatEvents({ message: 'draw me a cat' })
+    await settleTurns()
+    vi.unstubAllGlobals()
+
+    const failed = events.find((event) => event.type === 'tool' && event.tool?.status === 'error') as { tool: { error: string } } | undefined
+    expect(failed?.tool.error).toContain('No image model is configured')
   })
 })
 

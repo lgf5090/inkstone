@@ -42,6 +42,7 @@ import { useLocale } from '../../lib/i18n'
 import { Button } from '../../components/primitives'
 import { MarkdownBody } from '../preview/MarkdownBody'
 import { useAssistant } from './assistant-store'
+import { MessageAttachments } from './ChatAttachments'
 import { CHAT_NOTE_LINKS } from './note-links'
 import { MessageMenu, useMessageMenu } from './MessageMenu'
 import { SelectionTick, type MessageSelection } from './SelectionBar'
@@ -435,6 +436,7 @@ export function AssistantBubble({
   modelLabel = '',
   versionCount = 0,
   sources = [],
+  attachments = [],
   feedback,
   onRate,
   selection,
@@ -460,6 +462,8 @@ export function AssistantBubble({
   versionCount?: number
   /** The pages a web search consulted on this turn. Empty for an answer that did not search. */
   sources?: AssistantSource[]
+  /** The files this answer made, by attachment id: a picture the assistant drew for the reader. */
+  attachments?: string[]
   /** The verdict already left on this answer, so the thumb that is down stays down. */
   feedback?: MessageFeedback
   /** Absent on a live turn: a verdict needs a row to be stored on. */
@@ -475,6 +479,9 @@ export function AssistantBubble({
   const [showReasoning, setShowReasoning] = useState(false)
   const [versions, setVersions] = useState<AssistantAnswerVersion[] | null>(null)
   const menu = useMessageMenu()
+  // The rows behind the ids this answer carries, so a picture it drew can be drawn here rather than
+  // named by an id nobody can resolve.
+  const fileIndex = useAssistant((state) => state.fileIndex)
   const [page, setPage] = useState<number | null>(null)
   const [swapping, setSwapping] = useState(false)
   const pages = (versions?.length ?? versionCount) + 1
@@ -550,6 +557,10 @@ export function AssistantBubble({
                 </div>
               )
             : null}
+        {/* The files this answer made — a picture it drew — shown with it, the same way the reader's own
+            attachments are shown on their message. The body above may say anything about them; the
+            picture itself is what the reader came for. */}
+        {attachments.length > 0 && <MessageAttachments ids={attachments} index={fileIndex} />}
         {cancelled && <p className="text-[length:var(--text-11)] text-[var(--text-quaternary)]">{t('assistant.chat.stopped')}</p>}
         {error && (
           <div role="alert" className="flex flex-wrap items-center gap-2 rounded-[var(--r-md)] border border-[color-mix(in_oklab,var(--danger)_30%,transparent)] bg-[var(--danger-soft)] px-2.5 py-1.5 text-[length:var(--text-12)] text-[var(--danger)]">

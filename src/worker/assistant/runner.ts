@@ -296,6 +296,10 @@ export class AssistantRunner {
     // empty, and an empty trace is what the fold needs to stay away.
     let reasoning = ''
     const tools: ToolActivity[] = []
+    // The files this turn's tools made — an image the reader asked for — so they hang off the answer that
+    // produced them rather than only off the call that drew them. This turn owns the array; the tool
+    // context carries it, so every tool the executor runs is handed the same one.
+    const generatedAttachments: string[] = []
     const finish = async (
       status: AssistantMessage['status'],
       error: string | null,
@@ -307,6 +311,7 @@ export class AssistantRunner {
       content: answer,
       reasoning,
       tools,
+      attachments: generatedAttachments,
       status,
       error,
       durationMs: Math.max(0, Date.now() - startedAt),
@@ -386,7 +391,7 @@ export class AssistantRunner {
       }
 
       yield { type: 'stage', stage: 'generating' }
-      const executor = new ToolExecutor(await this.toolContext(conversationId), { maxToolCalls: limits.maxToolCalls }, external.definitions)
+      const executor = new ToolExecutor(await this.toolContext(conversationId, generatedAttachments), { maxToolCalls: limits.maxToolCalls }, external.definitions)
       const schemas: ToolSchema[] = executor.available().map((definition) => ({
         name: definition.name,
         description: definition.description,
@@ -943,7 +948,7 @@ export class AssistantRunner {
     return (results ?? []).map((row) => row.name)
   }
 
-  private async toolContext(conversationId?: string): Promise<ToolContext> {
+  private async toolContext(conversationId?: string, generatedAttachments?: string[]): Promise<ToolContext> {
     const bounds = localDayBounds(this.settings.timezone)
     const store = this.store
     return {
@@ -959,6 +964,7 @@ export class AssistantRunner {
       memoryHistory: this.memoryHistory,
       automations: this.automations,
       noteScope: () => this.noteScope(),
+      ...(generatedAttachments ? { generatedAttachments } : {}),
       ...(conversationId
         ? {
             writeContext: {

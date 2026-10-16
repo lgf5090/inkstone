@@ -6418,6 +6418,7 @@ console.log(\`Hello, \${name}!\`)
     "assistant.tool.create_project": "正在创建项目",
     "assistant.tool.search": "正在搜索",
     "assistant.tool.notify_reader": "正在发送通知",
+    "assistant.tool.image_generate": "正在绘图",
     "assistant.chat.folder_filter": "\u5bf9\u8bdd\u6587\u4ef6\u5939",
     "assistant.chat.all": "\u5168\u90e8\u5bf9\u8bdd",
     "assistant.chat.unfiled": "\u672a\u5f52\u6863",

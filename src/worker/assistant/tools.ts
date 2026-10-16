@@ -41,6 +41,9 @@ import {
 } from './vault'
 import type { MemoryHistoryService } from './memory-service'
 import type { AutomationService } from './automations'
+import { saveChatUpload } from './chat-files'
+import { generateImage, IMAGE_SIZES } from './image-generation'
+import { modelEndpoint } from './model-config'
 
 export type FieldKind = 'string' | 'number' | 'integer' | 'boolean' | 'object'
 
@@ -81,6 +84,14 @@ export interface ToolContext {
    * server the reader removed in between simply has no entry here and the action reads as gone.
    */
   externalByName?: Map<string, ToolDefinition>
+  /**
+   * Where a tool that makes a file leaves it.
+   *
+   * The turn owns one of these arrays, so what `image_generate` drew is attached to the answer that
+   * produced it rather than to the tool call that ran mid-stream: the reader sees the picture in the
+   * reply, and reopening the thread tomorrow shows it again without the model having to be asked.
+   */
+  generatedAttachments?: string[]
 }
 
 export interface PreparedTarget {
@@ -783,6 +794,81 @@ export const SEARCH_TOOLS: ToolDefinition[] = [
   }),
 ]
 
+export const IMAGE_TOOLS: ToolDefinition[] = [
+  tool({
+    name: 'image_generate',
+    permission: 'write',
+    // Two is the ceiling because a picture costs real money at the vendor, and a model that decides to
+    // "try a few variations" is spending the reader's balance on a whim.
+    maxCallsPerTurn: 2,
+    description: 'Draw a picture with the reader\'s own image model, and show it in the reply. Use it when the reader asks for an image. Afterwards describe what you drew in words: the picture is already on screen, so do not paste a link, a data URI or base64.',
+    fields: {
+      prompt: {
+        type: 'string',
+        minLength: 1,
+        maxLength: 2000,
+        description: 'What to draw, written out in full: subject, style, composition and lighting. The image model sees only this.',
+      },
+      size: {
+        type: 'string',
+        enum: IMAGE_SIZES,
+        optional: true,
+        description: 'Only when a particular shape was asked for; otherwise leave it out and let the model choose.',
+      },
+    },
+    async run(args, ctx) {
+      const prompt = String(args.prompt)
+      // The first enabled model whose purpose is image generation. There is no "active image model"
+      // setting to consult: the reader marks a model as the image one by its purpose, and a second one
+      // listed after it is a spare rather than a preference to be resolved here.
+      const model = (await ctx.store.listModels()).find((entry) => entry.enabled && entry.purpose === 'image_generate')
+      if (!model) {
+        throw new ToolError('No image model is configured. Add one under Assistant settings → Models and set its purpose to image generation.')
+      }
+      const provider = await ctx.store.providerRecord(model.providerId)
+      if (!provider) throw new ToolError('The image model\'s provider is missing. Check Assistant settings → Models.')
+      const picked = await ctx.store.pickProviderKey(provider)
+      if (!picked) throw new ToolError('The image model\'s provider has no usable API key.')
+      const call = modelEndpoint(model, provider)
+      let drawn
+      try {
+        drawn = await generateImage({
+          protocol: call.protocol,
+          baseUrl: call.baseUrl,
+          apiKey: picked.key,
+          model: model.model,
+          prompt,
+          ...(typeof args.size === 'string' ? { size: args.size } : {}),
+        })
+      } catch (error) {
+        throw new ToolError(error instanceof Error ? error.message : 'The image model failed.')
+      }
+      await ctx.store.markProviderKeyUsed(provider.id, picked.keyId)
+      const attachment = await saveChatUpload(ctx.store, ctx.env, {
+        bytes: drawn.bytes,
+        mime: drawn.mime,
+        filename: imageFilename(prompt, drawn.mime),
+      })
+      ctx.generatedAttachments?.push(attachment.id)
+      return {
+        drawn: { filename: attachment.filename, mime: attachment.mime, bytes: attachment.size },
+        note: 'The picture is attached to this reply and the reader can already see it. Describe what you drew in words; do not repeat the prompt back or paste a link.',
+      }
+    },
+  }),
+]
+
+/** A name the reader can tell apart in the attachment chip, taken from what they asked for. */
+function imageFilename(prompt: string, mime: string): string {
+  const words = prompt
+    .replace(/[\\/:*?"<>|]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 40)
+    .trim()
+  return `${words || 'image'}.${mime === 'image/jpeg' ? 'jpg' : mime.slice('image/'.length)}`
+}
+
 export const ALL_TOOLS: ToolDefinition[] = [
   ...TASK_TOOLS,
   ...MEMORY_TOOLS,
@@ -790,6 +876,7 @@ export const ALL_TOOLS: ToolDefinition[] = [
   ...AUTOMATION_TOOLS,
   ...PROJECT_TOOLS,
   ...SEARCH_TOOLS,
+  ...IMAGE_TOOLS,
 ]
 
 const TOOL_BY_NAME = new Map(ALL_TOOLS.map((definition) => [definition.name, definition]))
@@ -913,6 +1000,17 @@ export class ToolExecutor {
     return this.calls
   }
 
+  /**
+   * The context one call runs under.
+   *
+   * The turn's own attachment collector rides along untouched: it belongs to the turn, which is the only
+   * party that can put what it holds on the answer, and a second one made here would collect into an
+   * array nobody reads.
+   */
+  private contextFor(callId: string): ToolContext {
+    return { ...this.ctx, callId }
+  }
+
   budgetExhausted(): boolean {
     return this.calls >= this.budget.maxToolCalls
   }
@@ -976,16 +1074,16 @@ export class ToolExecutor {
       // A read or a write *is* the call. A deletion goes through the same prepare/commit pair the
       // approval card runs, minus the wait: skipping `prepare` would also skip the lookup that decides
       // what this tool is allowed to touch.
-      if (definition.permission !== 'destructive') return await definition.run(args, { ...this.ctx, callId })
-      const prepared = await definition.prepare(args, { ...this.ctx, callId })
-      return await definition.commit(prepared.targetId, { ...this.ctx, callId }, args)
+      if (definition.permission !== 'destructive') return await definition.run(args, this.contextFor(callId))
+      const prepared = await definition.prepare(args, this.contextFor(callId))
+      return await definition.commit(prepared.targetId, this.contextFor(callId), args)
     }
     if (!this.ctx.conversationId) throw new ToolError(`"${name}" needs the reader's approval and can only be used in chat.`)
     // A deletion looks its target up, and the card reads that name back. A read or a write has no such
     // lookup, so what the model proposed is kept whole instead: approving replays exactly the call that
     // was shown, which is the same promise the deletion path keeps by remembering its target.
     const prepared = definition.permission === 'destructive'
-      ? await definition.prepare(args, { ...this.ctx, callId })
+      ? await definition.prepare(args, this.contextFor(callId))
       : { targetId: '', targetLabel: '' }
     const action = await this.ctx.store.createPendingAction({
       conversationId: this.ctx.conversationId,

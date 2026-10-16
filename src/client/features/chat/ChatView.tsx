@@ -390,6 +390,7 @@ export function MessageRow({ message, onRetry, busy = false, selection, onStartP
       retryLabel={retryLabel}
       usage={message.usage}
       sources={message.sources}
+      attachments={message.attachments ?? []}
       feedback={message.feedback}
       onRate={message.role === 'assistant' ? (verdict) => void useAssistant.getState().rateAnswer(message.id, verdict) : undefined}
       selection={selection}

@@ -493,7 +493,13 @@ async function adoptThread(conversationId: string): Promise<void> {
       return
     }
     if (useAssistant.getState().activeId === conversationId) {
-      useAssistant.setState({ messages: detail.messages, messagesReady: true })
+      useAssistant.setState({
+        messages: detail.messages,
+        messagesReady: true,
+        // Merged rather than replaced: the rows this turn already had are still the reader's, and a
+        // picture the assistant drew is a row the thread has never seen before this read.
+        fileIndex: { ...useAssistant.getState().fileIndex, ...Object.fromEntries((detail.attachments ?? []).map((entry) => [entry.id, entry])) },
+      })
       if (!detail.streaming) {
         if (useAssistant.getState().turn?.done) useAssistant.setState({ turn: null })
         return

@@ -3005,6 +3005,25 @@ export class AssistantStore {
     await this.write(`UPDATE chat_messages SET tools = ?2 WHERE user_id = ?1 AND id = ?3`, JSON.stringify(tools), messageId)
   }
 
+  /**
+   * Add files to an answer that has already been filed.
+   *
+   * The approval path is the only caller: a tool that drew a picture ran a minute after the turn it
+   * belongs to was written, so there is no `addMessage` left to carry the id. Merged rather than replaced,
+   * because an answer may already carry files, and deduped because approving twice must not list the same
+   * one twice.
+   */
+  async appendMessageAttachments(messageId: string, ids: readonly string[]): Promise<void> {
+    if (!ids.length) return
+    const row = await this.one<{ attachments: string | null }>(
+      `SELECT attachments FROM chat_messages WHERE user_id = ?1 AND id = ?2`,
+      this.userId, messageId,
+    )
+    if (!row) return
+    const merged = [...new Set([...decodeStringList(row.attachments), ...ids])].slice(0, MAX_CHAT_ATTACHMENTS)
+    await this.write(`UPDATE chat_messages SET attachments = ?2 WHERE user_id = ?1 AND id = ?3`, JSON.stringify(merged), messageId)
+  }
+
   /** Which message holds a proposal, so approving it can refresh the right bubble. */
   async messageForAction(actionId: string): Promise<{ messageId: string, toolId: string } | null> {
     const list = await this.rows<{ id: string, tools: string | null }>(
