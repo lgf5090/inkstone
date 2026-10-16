@@ -899,6 +899,9 @@ const allowed = new Map([
   ["src/client/features/chat/AssistantDock.tsx", [
     "/**\n * The assistant, docked beside the note.\n *\n * Asking about what you are writing used to mean leaving the page: the chat tab replaces the notebook,\n * so \"is this paragraph clear?\" cost a reader the paragraph. The dock is the same conversation in a\n * column of the notebook's own frame — same store, same composer, same replies — so the thread that\n * answers a question about this note is the thread they can come back to later.\n *\n * It is deliberately not a second assistant. There is one active conversation, and the chat tab and this\n * panel are two windows onto it: switching between them keeps the answer that is streaming, because the\n * turn lives in the store rather than in either surface.\n *\n * The note on screen is the context by default. That is the whole point of the panel, so it is switched\n * on when the panel opens rather than inherited from whatever the chat tab was last set to — and it is\n * drawn as a chip the reader can take off, because a context they cannot see is one they cannot correct.\n */",
     "// The panel exists to ask about this page, so opening it points the next turn at the page.",
+    "// The answer a selection-request is waiting for. Read only once the turn is over: a paragraph still",
+    "// being written is not something to paste into a note.",
+    "/**\n * Where the answer goes, once the reader has read it.\n *\n * The row is the half of \"select and ask\" that lives outside the editor: the request was made from a\n * range of the note, so the answer is offered back into that range, after it, or as a note of its own.\n * It appears only once the turn has finished — a half-written paragraph is not something to paste — and\n * it stays until it is used or dismissed, because the reader may well have scrolled away while it was\n * being written.\n */",
   ]],
   ["src/client/features/chat/AssistantHeader.tsx", [
     "/**\n * The title block every assistant page opens with.\n *\n * The surfaces behind the rail are one page with different contents, and each of them had written this\n * pair out for itself: a serif title at one size, and a line under it saying what the page is for. Three\n * copies drifted — one of them put its action beside the title and the others did not — so the shape\n * lives here. The action rides the title line, which is where a page's primary button belongs on a page\n * that also has a list under it.\n */",
@@ -1427,6 +1430,8 @@ const allowed = new Map([
   ]],
   ["src/client/features/chat/assistant-dock.test.ts", [
     "/**\n * The docked assistant.\n *\n * What is pinned here is the three things the panel promises and nothing about how a reply is drawn: it\n * shows the same thread the chat tab does, it points the next turn at the note on screen even when the\n * chat tab was last told otherwise, and it can be closed from inside itself.\n *\n * The composer's own wiring is covered where it lives; a stub stands in for it here so a mount does not\n * pull in the model picker, the trigger panel and their fetches.\n */",
+    "// The note store stamps every local write with this, so a module mock has to answer for it.",
+    "// The row goes with the answer it was about: leaving it would offer to paste it again.",
   ]],
   ["src/client/features/chat/assistant-settings-shared.tsx", [
     "/**\n * What the assistant settings tabs share.\n *\n * The frame they hang in is AssistantSettingsView.tsx; this file is the parts more than one tab draws:\n * the section wrapper a tab groups its rows with, the three protocol names, and the preset row both token\n * editors are built from. They live here rather than in the shell because the shell no longer knows what\n * is inside a tab.\n */",
@@ -1658,6 +1663,31 @@ const allowed = new Map([
     "// draft and the committed query from drifting apart between the two commits below.",
     "// The empty box holds one icon, so the one inside its own wrapper is the search glyph.",
     "// One commit per settled burst: the text reaches the store, which is what asks the server again.",
+  ]],
+  ["src/client/features/chat/editor-ai.test.ts", [
+    "/**\n * Selection to assistant, and back.\n *\n * The three parts that can go wrong are pinned here: how much of a note a request carries, where an\n * answer lands, and what happens when the note moved while the answer was being written. The last one is\n * the reason this file exists — a replace that trusts stale offsets writes over the reader's paragraph,\n * and nothing about the screen says so.\n */",
+    "// The note store stamps every local write with this, so a module mock has to answer for it.",
+    "// A question about a passage is a question about the note it came from.",
+  ]],
+  ["src/client/features/chat/editor-ai.ts", [
+    "/**\n * A passage of a note, and what the reader wants done with it.\n *\n * The editor's AI entries are one act with three parts: the text that was selected, the question the\n * assistant is asked about it, and the place the answer goes back to. All three have to survive the\n * round trip through the conversation — which takes seconds and leaves the editor entirely — so the\n * range is kept here rather than in a closure that would die with the menu.\n *\n * The range is stored as offsets, and offsets are only true of the document they were taken from. Rather\n * than trust them, the request carries the text they held: applying the answer refuses when the passage\n * no longer says what it said, because a silently shifted replace writes the model's paragraph over the\n * reader's. What comes back is a note that changed while they were waiting — a real thing they can see —\n * instead of a corrupted one they cannot.\n */",
+    "/** The range the answer replaces. `from === to` means \"nothing was selected, put it at the caret\". */",
+    "/** What that range said when the request was made. */",
+    "/**\n * How much of the note a single request may carry.\n *\n * The composer refuses messages past 16k characters, and the prompt is not the only thing in the\n * message — so an excerpt of 8k leaves room for the instructions and for the reader to add a word of\n * their own. A selection is nearly always far shorter; this is the ceiling for \"the whole note\".\n */",
+    "/** What each action is called in the menu and in the result row. */",
+    "/**\n * The passage a request carries: the selection, or the note itself when nothing was selected.\n *\n * A continuation reads the end of the passage and everything else reads the beginning, because that is\n * the half each of them needs: \"continue from where this stops\" is a question about the last paragraph,\n * and a summary of an eight-thousand-character note is a summary of its opening.\n */",
+    "/** The question the assistant is asked about the passage. `ask` has no question — the reader writes it. */",
+    "/**\n * Write an answer back into the note the request came from.\n *\n * The write goes through the note store rather than through the editor's view: the reader may have moved\n * to another note while the answer was being written, and the paragraph still belongs where they selected\n * it. The store is what the editor re-renders from, so the change lands in the document — and as one\n * transaction, which is what makes it one press of undo.\n *\n * Returns whether the note took the text, so the caller can keep the request open when it did not.\n */",
+    "// An insertion keeps the note's own spacing: one blank line between paragraphs, and none where the",
+    "// caret already sits against a blank line or the end of the document.",
+    "/**\n * The answer the assistant last finished, which is what the result row offers to keep.\n *\n * A turn that has finished but has not been adopted into the thread yet is still the newest answer, so\n * it is read first; the stored rows answer the case where the reader has since opened another\n * conversation and the live turn is gone.\n */",
+    "/** How much of a selection rides in the composer as a quote, which the reader then asks about. */",
+    "/** The selected text, empty when the caret is a caret. */",
+    "/** The whole document, which is what an unselected request is about. */",
+    "/**\n * Ask, or ask-and-replace, from the editor.\n *\n * `ask` only puts the passage in the composer: the reader's own question is the half of the request the\n * editor cannot write for them, and a menu entry that sent something they did not read would be a\n * surprise in a box they own. The four actions that do send are the ones whose question is entirely\n * \"this passage, rewritten/summarised/continued/translated\" — the passage is the question.\n *\n * Returns whether anything was started, so the caller can leave the menu closed either way and the\n * reader gets a reason when nothing happened.\n */",
+    "// The store refuses a second turn while one is streaming, and a refusal the reader cannot see would",
+    "// look like the menu having done nothing at all.",
+    "/** A passage as a Markdown block quote, which is how a question about it stays a question about it. */",
   ]],
   ["src/client/features/chat/filter-persist.test.ts", [
     "/**\n * The store built from scratch, with the same generation's API mock.\n *\n * The persisted entry is read while the module is being built, so a test that wants to know what a\n * reload does has to reload — and the mock the new store reached for is a new instance too.\n */",
@@ -7540,6 +7570,7 @@ const allowed = new Map([
     "// the focus the command is about to hand back to the editor.",
     "/**\n * The palette is a menu header, and a header is placed before it is measured. These are what the\n * panel actually is, so the maths that flips a menu away from the viewport edge can see it.\n */",
     "// The mode is a finger's shortcut for a handle, so it is only offered where a handle is hard to hit.",
+    "/**\n     * One of the AI entries, run against whatever the caret is holding.\n     *\n     * The command reads the document itself rather than a copy captured when the menu opened: the\n     * selection is where the reader left it, and a note they kept typing in while the menu was up is a\n     * note whose offsets have moved. The whole document is the subject when nothing is selected, which is\n     * what makes \"summarise this note\" reachable from the same menu.\n     */",
   ]],
   ["src/client/features/workspace/VersionsPanel.tsx", [
     "// The middle is only materialized when the LCS actually needs it; the unchanged head and",

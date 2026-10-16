@@ -1,6 +1,6 @@
 import { useRef, useState, type ReactNode, type RefObject } from 'react';
 import type { EditorView } from '@codemirror/view';
-import { Blocks, Bold, Braces, CaseUpper, ChevronDown, Code, FileText, Heading, Highlighter, Image as ImageIcon, Italic, Link2, List, ListOrdered, ListTodo, MoveVertical, Quote, Sigma, Smile, Sparkles, Strikethrough, Table, Type, Underline, WandSparkles } from 'lucide-react';
+import { Blocks, Bold, Braces, CaseUpper, ChevronDown, Code, FileText, Heading, Highlighter, Image as ImageIcon, Italic, Link2, List, ListOrdered, ListTodo, MoveVertical, Quote, Sigma, Smile, Sparkles, Strikethrough, Table, Type, Underline, Wand2, WandSparkles } from 'lucide-react';
 import { IconButton } from '../../components/primitives';
 import { Menu, Tooltip } from '../../components/overlay';
 import { cn } from '../../lib/cn';
@@ -12,12 +12,14 @@ import { blockCarryItems, blockMenuItems, codeMenuItems, formatMenuItems, headin
 import { isTouchPointer } from '../../editor/dragger';
 import { useSession } from '../../store/session';
 import { useUi } from '../../store/ui';
+import { useNotes } from '../../store/notes';
 import { t } from '../../lib/i18n';
 import { editorCombo } from '../../editor/shortcuts';
 import { APP_SHORTCUTS } from '../../lib/shortcuts';
 import { closeEmojiPicker, isEmojiPickerOpen, openEmojiPicker, useEmojiPicker } from '../../store/emoji-picker';
+import { EDITOR_AI_LABELS, runEditorAi, type EditorAiAction } from '../chat/editor-ai';
 
-type ToolbarMenu = 'heading' | 'reference' | 'image' | 'note' | 'code' | 'math' | 'block' | 'carry' | 'format' | 'text-color' | 'highlight-color';
+type ToolbarMenu = 'heading' | 'reference' | 'image' | 'note' | 'code' | 'math' | 'block' | 'carry' | 'format' | 'text-color' | 'highlight-color' | 'ai';
 
 /**
  * The palette is a menu header, and a header is placed before it is measured. These are what the
@@ -46,6 +48,7 @@ export function EditorToolbar({ runCommand, view, onPickImage, mobile = false, s
     const formatRef = useRef<HTMLButtonElement>(null);
     const textColorRef = useRef<HTMLButtonElement>(null);
     const highlightColorRef = useRef<HTMLButtonElement>(null);
+    const aiRef = useRef<HTMLButtonElement>(null);
     const [openMenu, setToolbarMenu] = useState<ToolbarMenu | null>(null);
     const draggerOn = useSession((state) => state.settings.editor.dragger);
     const draggerTextDrag = useSession((state) => state.settings.editor.draggerMobileTextDrag);
@@ -74,6 +77,40 @@ export function EditorToolbar({ runCommand, view, onPickImage, mobile = false, s
         setToolbarMenu(null);
         onPickImage();
     };
+    /**
+     * One of the AI entries, run against whatever the caret is holding.
+     *
+     * The command reads the document itself rather than a copy captured when the menu opened: the
+     * selection is where the reader left it, and a note they kept typing in while the menu was up is a
+     * note whose offsets have moved. The whole document is the subject when nothing is selected, which is
+     * what makes "summarise this note" reachable from the same menu.
+     */
+    const runAi = (action: EditorAiAction) => {
+        setToolbarMenu(null);
+        run((target) => {
+            const noteId = useUi.getState().activeNoteId;
+            if (!noteId)
+                return false;
+            const doc = target.state.doc.toString();
+            const range = target.state.selection.main;
+            const selection = range.empty ? '' : doc.slice(range.from, range.to);
+            const at = range.empty ? doc.length : range.to;
+            return runEditorAi({
+                action,
+                noteId,
+                noteTitle: useNotes.getState().notes[noteId]?.title ?? '',
+                selection,
+                whole: doc,
+                from: range.empty ? at : range.from,
+                to: at,
+            });
+        });
+    };
+    const aiItems = (['ask', 'rewrite', 'summarize', 'continue', 'translate'] as const).map((action) => ({
+        id: action,
+        label: t(EDITOR_AI_LABELS[action]),
+        onSelect: () => runAi(action),
+    }));
     const menus = [
         { id: 'heading', anchor: headingRef, label: t('workspace.title_level'), items: headingMenuItems(run), width: 224 },
         { id: 'reference', anchor: referenceRef, label: t('workspace.links_and_references'), items: referenceMenuItems(run), width: 200 },
@@ -84,6 +121,7 @@ export function EditorToolbar({ runCommand, view, onPickImage, mobile = false, s
         { id: 'block', anchor: blockRef, label: t('workspace.content_blocks'), items: blockMenuItems(run), width: 176 },
         { id: 'carry', anchor: carryRef, label: t('dragger.block_actions'), items: blockCarryItems(run, dragModeRow), width: 190 },
         { id: 'format', anchor: formatRef, label: t('workspace.more_formats'), items: formatMenuItems(run), width: 200 },
+        { id: 'ai', anchor: aiRef, label: t('assistant.edit.menu'), items: aiItems, width: 190 },
     ] as const;
     const anchors: Record<ToolbarMenu, RefObject<HTMLButtonElement | null>> = {
         heading: headingRef,
@@ -97,6 +135,7 @@ export function EditorToolbar({ runCommand, view, onPickImage, mobile = false, s
         format: formatRef,
         'text-color': textColorRef,
         'highlight-color': highlightColorRef,
+        ai: aiRef,
     };
     const labels: Record<ToolbarMenu, string> = {
         heading: t('workspace.title_level'),
@@ -110,6 +149,7 @@ export function EditorToolbar({ runCommand, view, onPickImage, mobile = false, s
         format: t('workspace.more_formats'),
         'text-color': t('workspace.text_color'),
         'highlight-color': t('workspace.highlight_color'),
+        ai: t('assistant.edit.menu'),
     };
     const menuButton = (id: ToolbarMenu, icon: ReactNode, primary?: { label: string; combo?: string; onClick: () => void }) => {
         const lastUsed = id === 'text-color' ? recent.text[0] : id === 'highlight-color' ? recent.highlight[0] : undefined;
@@ -156,6 +196,8 @@ export function EditorToolbar({ runCommand, view, onPickImage, mobile = false, s
       {menuButton('block', <Blocks size={14}/>)}
       {draggerOn && menuButton('carry', <MoveVertical size={14}/>)}
       {menuButton('format', <CaseUpper size={14}/>)}
+      <Divider />
+      {menuButton('ai', <Wand2 size={14}/>)}
       {linterEnabled && (<><Divider />
         <ToolButton label={t('linter.command.lint_note')} combo={APP_SHORTCUTS.lintNote} onClick={() => {
                     void import('../../lib/linter/drive').then((drive) => drive.lintCurrentNote());

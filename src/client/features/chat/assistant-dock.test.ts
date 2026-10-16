@@ -16,11 +16,15 @@ import type { AssistantMessage } from '@shared/assistant'
 import { initI18n, t } from '../../lib/i18n'
 import { installTestGlobals } from '../../lib/test-render'
 import { useUi } from '../../store/ui'
+import { useNotes } from '../../store/notes'
 import { AssistantDock } from './AssistantDock'
 import { useAssistant } from './assistant-store'
+import { useEditorAi } from './editor-ai'
 
 vi.mock('../../lib/api', () => ({
   ApiError: class ApiError extends Error {},
+  // The note store stamps every local write with this, so a module mock has to answer for it.
+  CLIENT_ID: 'test-client',
   api: {
     assistant: {
       skills: vi.fn(async () => ({ skills: [] })),
@@ -57,6 +61,7 @@ const ANSWER: AssistantMessage = {
 }
 
 const assistantOriginal = useAssistant.getState()
+const notesOriginal = useNotes.getState()
 let uiOriginal = useUi.getState()
 let root: Root
 let host: HTMLElement
@@ -79,6 +84,8 @@ afterEach(() => {
   host.remove()
   document.body.innerHTML = ''
   useAssistant.setState(assistantOriginal, true)
+  useNotes.setState(notesOriginal, true)
+  useEditorAi.setState({ request: null })
   useUi.setState(uiOriginal, true)
   uiOriginal = useUi.getState()
   vi.clearAllMocks()
@@ -110,5 +117,38 @@ describe('the docked assistant', () => {
   it('says the open note is in context before the first question', async () => {
     await show({ loaded: true, activeId: null, messages: [], messagesReady: true })
     expect(document.body.textContent).toContain(t('assistant.dock.hint'))
+  })
+
+  it('offers to write a selection request back into the note', async () => {
+    useNotes.setState({
+      contents: { n1: 'before the old words after' },
+      notes: { n1: { id: 'n1', title: 'A note' } as never },
+    })
+    useEditorAi.setState({ request: { noteId: 'n1', action: 'rewrite', from: 7, to: 20, source: 'the old words' } })
+    await show({
+      loaded: true,
+      activeId: 'c1',
+      messages: [ANSWER],
+      messagesReady: true,
+      turn: {
+        conversationId: 'c1',
+        userText: 'rewrite this',
+        attachments: [],
+        assistantId: 'm2',
+        text: 'NEW',
+        reasoning: '',
+        tools: [],
+        stage: undefined,
+        error: null,
+        done: true,
+      },
+    })
+    const replace = [...document.body.querySelectorAll('button')]
+      .find((node) => node.textContent === t('assistant.edit.replace'))
+    expect(replace, 'the replace action is missing').toBeTruthy()
+    act(() => { replace!.click() })
+    expect(useNotes.getState().contents.n1).toBe('before NEW after')
+    // The row goes with the answer it was about: leaving it would offer to paste it again.
+    expect(useEditorAi.getState().request).toBeNull()
   })
 })

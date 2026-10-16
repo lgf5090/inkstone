@@ -19,12 +19,20 @@ import { ArrowUpRight, Plus, Sparkles, X } from 'lucide-react'
 import { cn } from '../../lib/cn'
 import { t } from '../../lib/i18n'
 import { navigateToPath } from '../../lib/app-history'
-import { IconButton, Spinner } from '../../components/primitives'
+import { IconButton, Button, Spinner } from '../../components/primitives'
 import { Tooltip } from '../../components/overlay'
 import { useUi } from '../../store/ui'
 import { useAssistant } from './assistant-store'
 import { AssistantBubble } from './MessageParts'
 import { ChatComposer, MessageRow, UserBubble } from './ChatView'
+import {
+  applyEditorAiResult,
+  EDITOR_AI_LABELS,
+  lastAnswerText,
+  useEditorAi,
+  type EditorAiRequest,
+} from './editor-ai'
+import { saveReplyAsNote } from './save-to-note'
 
 export function AssistantDock() {
   const bootstrap = useAssistant((state) => state.bootstrap)
@@ -43,6 +51,7 @@ export function AssistantDock() {
   const blocked = useAssistant((state) => !state.settings?.activeModelId && !state.settings?.offlineMode)
   const fileIndex = useAssistant((state) => state.fileIndex)
   const setOpen = useUi((state) => state.setAssistantDock)
+  const request = useEditorAi((state) => state.request)
   const scrollRef = useRef<HTMLDivElement>(null)
   const stickToBottom = useRef(true)
 
@@ -58,6 +67,9 @@ export function AssistantDock() {
   const streaming = (!!turn && !turn.done) || remoteStreaming
   const turnHere = turn && turn.conversationId === (activeId ?? null) ? turn : null
   const empty = !messages.length && !turnHere
+  // The answer a selection-request is waiting for. Read only once the turn is over: a paragraph still
+  // being written is not something to paste into a note.
+  const answer = request && !streaming ? lastAnswerText() : ''
 
   useLayoutEffect(() => {
     const el = scrollRef.current
@@ -179,6 +191,53 @@ export function AssistantDock() {
           navigateToPath('/chat')
         }}
       />
+      {request && !streaming && answer.trim() && <AiResultRow request={request} answer={answer} />}
     </aside>
+  )
+}
+
+/**
+ * Where the answer goes, once the reader has read it.
+ *
+ * The row is the half of "select and ask" that lives outside the editor: the request was made from a
+ * range of the note, so the answer is offered back into that range, after it, or as a note of its own.
+ * It appears only once the turn has finished — a half-written paragraph is not something to paste — and
+ * it stays until it is used or dismissed, because the reader may well have scrolled away while it was
+ * being written.
+ */
+function AiResultRow({ request, answer }: { request: EditorAiRequest, answer: string }) {
+  const clear = useEditorAi((state) => state.clear)
+  const toast = useUi((state) => state.toast)
+  const apply = (mode: 'replace' | 'insert') => {
+    if (!applyEditorAiResult(answer, mode)) return
+    toast({ title: t(mode === 'replace' ? 'assistant.edit.replaced' : 'assistant.edit.inserted'), tone: 'success' })
+    clear()
+  }
+  return (
+    <div
+      role="group"
+      aria-label={t('assistant.edit.result')}
+      className="flex shrink-0 flex-wrap items-center gap-1 border-t border-[var(--border-subtle)] bg-[var(--bg-sunken)] px-2 py-1.5"
+    >
+      <span className="min-w-0 truncate text-[length:var(--text-11)] text-[var(--text-quaternary)]">
+        {t(EDITOR_AI_LABELS[request.action])}
+      </span>
+      <div className="ml-auto flex shrink-0 items-center gap-1">
+        {request.from < request.to && (
+          <Button size="sm" variant="secondary" onClick={() => apply('replace')}>
+            {t('assistant.edit.replace')}
+          </Button>
+        )}
+        <Button size="sm" variant="secondary" onClick={() => apply('insert')}>
+          {t('assistant.edit.insert')}
+        </Button>
+        <Button size="sm" variant="ghost" onClick={() => void saveReplyAsNote(answer)}>
+          {t('assistant.edit.save_note')}
+        </Button>
+        <IconButton label={t('assistant.edit.dismiss')} size="sm" onClick={clear}>
+          <X size={13} />
+        </IconButton>
+      </div>
+    </div>
   )
 }
