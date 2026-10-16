@@ -1173,6 +1173,15 @@ export interface AssistantConversationUsage {
  * One window, its days, its models and its most expensive conversations, so the three panels on that
  * screen cannot disagree about which range they are describing: they are all read from one answer.
  */
+/** Which slice of the usage dimension tables a stats query is restricted to. */
+export interface UsageFilter {
+  /** A model label, as the transcript spells it. */
+  model?: string
+  /** A provider id, optionally narrowed to one of its keys by `keyId`. */
+  providerId?: string
+  keyId?: string
+}
+
 export interface AssistantStats {
   range: '7' | '30' | 'all'
   from: string
@@ -1181,6 +1190,8 @@ export interface AssistantStats {
   days: Array<{ day: string } & AssistantUsage>
   models: AssistantModelUsage[]
   keys: AssistantKeyUsage[]
+  /** Every model label seen in the window, unfiltered, so the model picker keeps all its choices. */
+  modelOptions: string[]
   conversations: AssistantConversationUsage[]
   /** One entry per currency the reader's prices are in, never summed across them. */
   spend: Array<{ currency: string, amount: number }>

@@ -2843,6 +2843,36 @@ describe('usage attribution', () => {
     expect(row!.inputTokens).toBe(20)
     expect(row!.outputTokens).toBe(6)
   })
+
+  it('narrows the window to one model or one key, and to nothing when neither matches', async () => {
+    await useExampleModel()
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(sse(FINAL_FRAMES), { headers: { 'content-type': 'text/event-stream' } })))
+    await chatEvents({ message: 'hello' })
+    await settleTurns()
+    vi.unstubAllGlobals()
+
+    const all = await call<{ total: { inputTokens: number }, keys: { providerId: string, providerLabel: string }[], modelOptions: string[] }>(
+      'GET', '/api/assistant/stats?range=all',
+    )
+    const entry = all.keys.find((candidate) => candidate.providerLabel === 'Example')!
+    const modelLabel = all.modelOptions[0]!
+    expect(entry).toBeTruthy()
+    expect(modelLabel).toBeTruthy()
+
+    const byKey = await call<{ total: { inputTokens: number }, models: { label: string }[] }>(
+      'GET', `/api/assistant/stats?range=all&key=${entry.providerId}`,
+    )
+    expect(byKey.total.inputTokens).toBe(20)
+    expect(byKey.models.map((model) => model.label)).toEqual([modelLabel])
+
+    const byModel = await call<{ total: { inputTokens: number } }>(
+      'GET', `/api/assistant/stats?range=all&model=${encodeURIComponent(modelLabel)}`,
+    )
+    expect(byModel.total.inputTokens).toBe(20)
+
+    const none = await call<{ total: { inputTokens: number } }>('GET', '/api/assistant/stats?range=all&model=nope')
+    expect(none.total.inputTokens).toBe(0)
+  })
 })
 
 describe('backup round trip', () => {

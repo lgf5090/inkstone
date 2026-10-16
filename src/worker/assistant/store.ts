@@ -36,6 +36,7 @@ import type {
   ChatFolderNode,
   ChatProjectNode,
   ConversationTag,
+  UsageFilter,
   PendingAction,
   Project,
   Task,
@@ -2806,6 +2807,98 @@ export class AssistantStore {
         GROUP BY model_label
         ORDER BY (SUM(input_tokens) + SUM(output_tokens)) DESC, model_label ASC`,
     ).bind(this.userId, from, to).all<Record<string, number | string>>()
+    return (results ?? []).map((row) => ({
+      modelLabel: String(row.model_label ?? ''),
+      requests: Number(row.requests ?? 0),
+      inputTokens: Number(row.input_tokens ?? 0),
+      outputTokens: Number(row.output_tokens ?? 0),
+      toolCalls: Number(row.tool_calls ?? 0),
+      scheduledRuns: 0,
+      embeddings: 0,
+      errors: Number(row.errors ?? 0),
+    }))
+  }
+
+  /** The `AND` suffix a stats filter adds to a dimension-table query, binding its values as it goes. */
+  private dimensionWhere(filter: UsageFilter, binds: unknown[]): string {
+    const clauses: string[] = []
+    if (filter.model) {
+      binds.push(filter.model)
+      clauses.push(`model_label = ?${binds.length}`)
+    }
+    if (filter.providerId) {
+      binds.push(filter.providerId)
+      clauses.push(`provider_id = ?${binds.length}`)
+    }
+    if (filter.keyId !== undefined) {
+      binds.push(filter.keyId)
+      clauses.push(`key_id = ?${binds.length}`)
+    }
+    return clauses.length ? ` AND ${clauses.join(' AND ')}` : ''
+  }
+
+  /**
+   * The day totals for one slice of the key dimension.
+   *
+   * Read from `chat_usage_daily_key` rather than the plain day table because only that table knows which
+   * model or key a token came from. Rows written before the dimension existed are absent, so a filtered
+   * view starts from the day it was added — the unfiltered view stays the whole history.
+   */
+  async usageRangeIn(from: string, to: string, filter: UsageFilter): Promise<UsageCounters> {
+    const binds: unknown[] = [this.userId, from, to]
+    const where = this.dimensionWhere(filter, binds)
+    const r = await this.one<Record<string, number | null>>(
+      `SELECT COALESCE(SUM(requests),0) AS requests, COALESCE(SUM(input_tokens),0) AS input_tokens,
+              COALESCE(SUM(output_tokens),0) AS output_tokens, COALESCE(SUM(tool_calls),0) AS tool_calls,
+              COALESCE(SUM(errors),0) AS errors
+         FROM chat_usage_daily_key WHERE user_id = ?1 AND day >= ?2 AND day <= ?3${where}`,
+      ...binds,
+    )
+    if (!r) return { ...EMPTY_USAGE }
+    return {
+      requests: r.requests ?? 0,
+      inputTokens: r.input_tokens ?? 0,
+      outputTokens: r.output_tokens ?? 0,
+      toolCalls: r.tool_calls ?? 0,
+      scheduledRuns: 0,
+      embeddings: 0,
+      errors: r.errors ?? 0,
+    }
+  }
+
+  /** The day rows for one slice of the key dimension, for the trend and the heat map. */
+  async usageDaysIn(from: string, to: string, filter: UsageFilter): Promise<Array<{ day: string } & UsageCounters>> {
+    const binds: unknown[] = [this.userId, from, to]
+    const where = this.dimensionWhere(filter, binds)
+    const { results } = await this.db.prepare(
+      `SELECT day, SUM(requests) AS requests, SUM(input_tokens) AS input_tokens,
+              SUM(output_tokens) AS output_tokens, SUM(tool_calls) AS tool_calls, SUM(errors) AS errors
+         FROM chat_usage_daily_key WHERE user_id = ?1 AND day >= ?2 AND day <= ?3${where}
+        GROUP BY day ORDER BY day ASC`,
+    ).bind(...binds).all<Record<string, number | string>>()
+    return (results ?? []).map((row) => ({
+      day: String(row.day ?? ''),
+      requests: Number(row.requests ?? 0),
+      inputTokens: Number(row.input_tokens ?? 0),
+      outputTokens: Number(row.output_tokens ?? 0),
+      toolCalls: Number(row.tool_calls ?? 0),
+      scheduledRuns: 0,
+      embeddings: 0,
+      errors: Number(row.errors ?? 0),
+    }))
+  }
+
+  /** The per-model rows for one slice of the key dimension, most used first. */
+  async modelUsageRangeIn(from: string, to: string, filter: UsageFilter): Promise<Array<{ modelLabel: string } & UsageCounters>> {
+    const binds: unknown[] = [this.userId, from, to]
+    const where = this.dimensionWhere(filter, binds)
+    const { results } = await this.db.prepare(
+      `SELECT model_label, SUM(requests) AS requests, SUM(input_tokens) AS input_tokens,
+              SUM(output_tokens) AS output_tokens, SUM(tool_calls) AS tool_calls, SUM(errors) AS errors
+         FROM chat_usage_daily_key WHERE user_id = ?1 AND day >= ?2 AND day <= ?3${where}
+        GROUP BY model_label
+        ORDER BY (SUM(input_tokens) + SUM(output_tokens)) DESC, model_label ASC`,
+    ).bind(...binds).all<Record<string, number | string>>()
     return (results ?? []).map((row) => ({
       modelLabel: String(row.model_label ?? ''),
       requests: Number(row.requests ?? 0),

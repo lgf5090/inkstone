@@ -34,6 +34,7 @@ const STATS: AssistantStats = {
     { providerId: 'p2', providerLabel: 'Local', keyId: '', keyLabel: 'Local', requests: 2, inputTokens: 500_000, outputTokens: 100_000, toolCalls: 0, errors: 1, costs: [], unpriced: true },
   ],
   spend: [{ currency: 'CNY', amount: 3.2 }],
+  modelOptions: ['deepseek-chat', 'local-llama'],
   unpricedModels: 1,
   generatedAt: 1_700_000_000_000,
   limits: DEFAULT_ASSISTANT_SETTINGS.limits,

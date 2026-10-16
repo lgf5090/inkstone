@@ -61,6 +61,7 @@ import {
   type TaskStatus,
   type AssistantKeyUsage,
   type AssistantModel,
+  type UsageFilter,
 } from '@shared/assistant'
 import { assertRelayableEndpoint } from '@shared/ai-proxy-guard'
 import { localDayBounds, parseLocalTime } from '@shared/assistant-time'
@@ -1937,10 +1938,23 @@ assistantRoutes.get('/stats', async (c) => {
   const range = asked === '30' ? 30 : asked === 'all' ? 0 : 7
   const day = usageDay()
   const from = range === 0 ? (await s.firstUsageDay()) ?? day : dayBefore(day, range - 1)
+  // A filter narrows the window to one model, one provider key, or both. `key` is `providerId` or
+  // `providerId:keyId`; the key half is empty until a provider carries more than one key.
+  const filter: UsageFilter = {}
+  const modelParam = c.req.query('model')?.trim()
+  if (modelParam) filter.model = modelParam.slice(0, 120)
+  const keyParam = c.req.query('key')?.trim()
+  if (keyParam) {
+    const [providerId, keyId] = keyParam.split(':')
+    if (providerId) filter.providerId = providerId.slice(0, 60)
+    if (keyId !== undefined) filter.keyId = keyId.slice(0, 60)
+  }
+  // Only the dimension table can answer a filtered question: the plain day table has no model or key.
+  const narrowed = Boolean(filter.model || filter.providerId)
   const [total, days, modelRows, keyRows, conversations, models] = await Promise.all([
-    s.usageRange(from, day),
-    s.usageDays(from, day),
-    s.modelUsageRange(from, day),
+    narrowed ? s.usageRangeIn(from, day, filter) : s.usageRange(from, day),
+    narrowed ? s.usageDaysIn(from, day, filter) : s.usageDays(from, day),
+    narrowed ? s.modelUsageRangeIn(from, day, filter) : s.modelUsageRange(from, day),
     s.keyUsageRange(from, day),
     s.usageByConversation(from, day),
     s.listModels(),
@@ -1974,6 +1988,9 @@ assistantRoutes.get('/stats', async (c) => {
     days,
     models: byModel,
     keys: foldKeyUsage(keyRows, models),
+    // Built from the key rows, which the filter never narrows, so picking one filter cannot empty the
+    // other picker.
+    modelOptions: [...new Set(keyRows.map((row) => row.modelLabel).filter(Boolean))].sort((left, right) => left.localeCompare(right)),
     conversations,
     spend: [...spend].map(([currency, amount]) => ({ currency, amount })),
     unpricedModels: unpriced,

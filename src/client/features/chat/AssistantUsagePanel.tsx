@@ -12,12 +12,13 @@
  */
 
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Coins, RefreshCw } from 'lucide-react'
+import { ChevronDown, Coins, RefreshCw } from 'lucide-react'
 import type { AssistantStats } from '@shared/assistant'
 import { t, useLocale } from '../../lib/i18n'
 import { api } from '../../lib/api'
 import { Button, Spinner } from '../../components/primitives'
 import { Segmented } from '../../components/form'
+import { Menu, type MenuItem } from '../../components/overlay'
 import { cn } from '../../lib/cn'
 import { useThemeDark } from '../../lib/hooks'
 import { Group } from './assistant-settings-shared'
@@ -138,8 +139,59 @@ function UsageHeatmap({ counts, from, to }: { counts: ReadonlyMap<string, number
   )
 }
 
+/**
+ * One filter chip.
+ *
+ * A menu rather than a `<select>` so it can carry the "all" row, a tick on the choice in force and a
+ * search box once the list is long — the same control the composer's own pickers use.
+ */
+function FilterMenu({ label, value, options, onChange }: {
+  label: string
+  value: string | null
+  options: Array<{ id: string, label: string }>
+  onChange: (id: string | null) => void
+}) {
+  const ref = useRef<HTMLButtonElement>(null)
+  const [open, setOpen] = useState(false)
+  const current = options.find((option) => option.id === value)
+  const items: MenuItem[] = [
+    { id: 'all', label: t('assistant.stats.filter_all'), checked: value === null, onSelect: () => onChange(null) },
+    ...options.map((option) => ({
+      id: option.id,
+      label: option.label,
+      checked: value === option.id,
+      onSelect: () => onChange(option.id),
+    })),
+  ]
+  return (
+    <>
+      <Button
+        ref={ref}
+        size="sm"
+        variant={value ? 'secondary' : 'ghost'}
+        icon={<ChevronDown size={13} />}
+        onClick={() => setOpen((next) => !next)}
+      >
+        {current ? current.label : label}
+      </Button>
+      <Menu
+        anchor={ref}
+        open={open}
+        onClose={() => setOpen(false)}
+        items={items}
+        align="end"
+        width={220}
+        searchable={options.length > 8}
+        label={label}
+      />
+    </>
+  )
+}
+
 export function UsagePanel() {
   const [range, setRange] = useState<Range>('7')
+  const [model, setModel] = useState<string | null>(null)
+  const [key, setKey] = useState<string | null>(null)
   const [stats, setStats] = useState<AssistantStats | null>(null)
   const [loading, setLoading] = useState(true)
   const [reload, setReload] = useState(0)
@@ -149,7 +201,7 @@ export function UsagePanel() {
   useEffect(() => {
     let cancelled = false
     setLoading(true)
-    void api.assistant.stats(range).then((result) => {
+    void api.assistant.stats(range, { model: model ?? undefined, key: key ?? undefined }).then((result) => {
       if (cancelled) return
       setStats(result)
     }).catch(() => {
@@ -158,7 +210,7 @@ export function UsagePanel() {
       if (!cancelled) setLoading(false)
     })
     return () => { cancelled = true }
-  }, [range, reload])
+  }, [range, reload, model, key])
 
   const counts = useMemo(() => {
     const map = new Map<string, number>()
@@ -167,6 +219,23 @@ export function UsagePanel() {
   }, [stats])
 
   const peakTokens = Math.max(1, ...(stats?.models ?? []).map((model) => model.inputTokens + model.outputTokens))
+
+  // The options come from the key breakdown, which the server leaves unfiltered, so choosing one filter
+  // never empties the other dropdown: a model list narrowed to the key already picked would strand the
+  // reader with no way back.
+  const modelOptions = useMemo(
+    () => (stats?.modelOptions ?? []).map((label) => ({ id: label, label })),
+    [stats],
+  )
+
+  const keyOptions = useMemo(() => {
+    const seen = new Map<string, string>()
+    for (const entry of stats?.keys ?? []) {
+      const id = `${entry.providerId}:${entry.keyId}`
+      if (!seen.has(id)) seen.set(id, entry.keyId ? `${entry.providerLabel} · ${entry.keyLabel}` : entry.providerLabel)
+    }
+    return [...seen].map(([id, label]) => ({ id, label }))
+  }, [stats])
 
   return (
     <>
@@ -179,6 +248,8 @@ export function UsagePanel() {
             onChange={(next) => setRange(next as Range)}
             options={RANGES.map((entry) => ({ value: entry, label: t(`assistant.stats.range_${entry}`) }))}
           />
+          <FilterMenu label={t('assistant.stats.filter_model')} value={model} options={modelOptions} onChange={setModel} />
+          <FilterMenu label={t('assistant.stats.filter_key')} value={key} options={keyOptions} onChange={setKey} />
           <span className="flex-1" />
           <Button size="sm" variant="ghost" onClick={() => setReload((value) => value + 1)}>
             <RefreshCw size={13} />

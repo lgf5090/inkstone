@@ -1011,8 +1011,8 @@ export const api = {
     usage: () =>
       request<{ day: string, today: AssistantUsage, last7Days: AssistantUsage, limits: AssistantLimits }>('/api/assistant/usage'),
     /** One window of spending, per day, per model and per conversation. */
-    stats: (range: '7' | '30' | 'all') =>
-      request<AssistantStats>(`/api/assistant/stats?range=${range}`),
+    stats: (range: '7' | '30' | 'all', filter: { model?: string, key?: string } = {}) =>
+      request<AssistantStats>(`/api/assistant/stats${toQuery({ range, model: filter.model, key: filter.key })}`),
     activity: () =>
       request<{ activity: { id: string, type: string, summary: string, created_at: number }[] }>('/api/assistant/activity'),
     exportUrl: '/api/assistant/export',

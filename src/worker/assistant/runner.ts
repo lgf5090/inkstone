@@ -297,7 +297,7 @@ export class AssistantRunner {
       // composer's context control, and the assistant-wide ceiling is what a model without one falls back
       // to — for the window and for the input ceiling over it alike.
       const contextTokens = contextBudgetFor(model, limits)
-      if (!(await this.reserve(1, limits.maxRequestsPerDay, { providerId: provider.id, providerLabel: provider.label }))) {
+      if (!(await this.reserve(1, limits.maxRequestsPerDay, { providerId: provider.id, providerLabel: provider.label }, model.label))) {
         throw ApiError.conflict(`The daily limit of ${limits.maxRequestsPerDay} assistant requests is reached. It is adjustable in Assistant settings.`)
       }
 
@@ -444,7 +444,7 @@ export class AssistantRunner {
         turns.push({ role: 'assistant', content: text, calls })
         text = ''
         if (steps >= limits.maxAgentSteps || executor.budgetExhausted()) break
-        if (!(await this.reserve(1, limits.maxRequestsPerDay, { providerId: provider.id, providerLabel: provider.label }))) {
+        if (!(await this.reserve(1, limits.maxRequestsPerDay, { providerId: provider.id, providerLabel: provider.label }, model.label))) {
           yield { type: 'error', code: 'rate_limited', message: 'The daily assistant request limit was reached during this turn.' }
           break
         }
@@ -559,12 +559,13 @@ export class AssistantRunner {
     count: number,
     maxPerDay: number,
     keyRef?: { providerId: string, providerLabel: string },
+    modelLabel = '',
   ): Promise<boolean> {
     const today = await this.store.todayUsage()
     if (today.requests + count > maxPerDay) return false
-    // The request is charged to the key that will answer it, so a per-key view can count calls as well
-    // as tokens. The model label is left out here: the same turn opens its own row for the model.
-    await this.store.incrementUsage({ requests: count }, undefined, '', keyRef)
+    // The request is charged with the model and key that will answer it, so a per-key or per-model view
+    // counts calls as well as tokens rather than losing them to an unlabelled row.
+    await this.store.incrementUsage({ requests: count }, undefined, modelLabel, keyRef)
     return true
   }
 
