@@ -5,7 +5,7 @@
  * notes and chats at once and a single tag colours both. Nothing here invents a second taxonomy —
  * these two components read the counts the assistant API computes over those shared tables.
  */
-import { useEffect, useMemo, useRef } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { ChevronRight, FolderClosed, Inbox, Layers, Pin, Star, Tags } from 'lucide-react'
 import type { AssistantConversation, ChatFolderNode, ConversationTag } from '@shared/assistant'
 import { cn } from '../../lib/cn'
@@ -13,6 +13,7 @@ import { t, type MessageKey } from '../../lib/i18n'
 import { relativeTime } from '../../lib/time'
 import { treeIndent, treeItemProps, useTreeKeyboard, type MoveMenuFolder } from '../../lib/tree'
 import { ChatFolderMenu, ConversationTagChip, NewRootFolderRow, useChatFolderMenu } from './ChatTaxonomyMenus'
+import { isConversationDrag, readConversationDrag } from './conversation-drag'
 import { FolderMotionIcon } from '../../components/FolderMotionIcon'
 import { useUi } from '../../store/ui'
 import { useNotes } from '../../store/notes'
@@ -158,6 +159,8 @@ function FolderTreeRow({
   const folderMenu = useChatFolderMenu(branch.node)
   // F2 and Delete are what the notebook's rail binds on a folder row, and the same gestures have to work
   // on the same rows wherever they are shown.
+  const moveConversation = useAssistant((state) => state.moveConversation)
+  const [over, setOver] = useState(false)
   const onKeyDown = useTreeKeyboard({
     onKey: (event) => {
       if (event.key === 'F2') {
@@ -181,12 +184,28 @@ function FolderTreeRow({
     })}>
       <div
         onContextMenu={folderMenu.menu.onContextMenu}
+        onDragOver={(event) => {
+          // Only a conversation is accepted here: a note drag passing over the chat's tree is on its way
+          // somewhere else, and claiming it would move a row the reader did not point at this panel.
+          if (!isConversationDrag(event)) return
+          event.preventDefault()
+          setOver(true)
+        }}
+        onDragLeave={() => setOver(false)}
+        onDrop={(event) => {
+          const id = readConversationDrag(event)
+          setOver(false)
+          if (!id) return
+          event.preventDefault()
+          void moveConversation(id, branch.node.id)
+        }}
         className={cn(
           'group relative flex h-11 items-center gap-1 rounded-[var(--r-md)] pr-1 md:h-[30px]',
           'transition-colors duration-[var(--dur-fast)]',
           active
             ? 'text-[var(--text-primary)] hover:bg-[var(--bg-hover)]'
             : 'text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]',
+          over && 'ring-1 ring-[var(--accent)] ring-inset',
         )}
         style={{ paddingLeft: treeIndent(branch.depth) }}
       >

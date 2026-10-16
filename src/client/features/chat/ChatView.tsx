@@ -54,11 +54,30 @@ import { MessageMenu, useMessageMenu } from './MessageMenu'
 import { AssistantBubble } from './MessageParts'
 import { CHAT_NOTE_LINKS } from './note-links'
 import { SelectionBar, SelectionTick, selectedMessages, type MessageSelection } from './SelectionBar'
+import { downloadTranscript } from './transcript'
+import { writeConversationDrag } from './conversation-drag'
 import { ThreadFinder } from './ThreadFinder'
 import { ChatOutline } from './ChatOutline'
 import { modelReasoning, reasoningOptions } from './model-reasoning'
 
 /** The composer's "common requests" list: the same openers the empty thread offers, by key. */
+/**
+ * Writes one conversation out as a Markdown file.
+ *
+ * Fetched on the press rather than carried in the list: a conversation's rows are only in the store for
+ * the thread that is open, and the reader may export one they are not reading.
+ */
+async function exportConversation(conversationId: string, title: string): Promise<void> {
+  const toast = useUi.getState().toast
+  try {
+    const detail = await api.assistant.conversation(conversationId)
+    downloadTranscript(detail.messages, title)
+    toast({ title: t('assistant.chat.exported', { title }), tone: 'success' })
+  } catch (error) {
+    toast({ title: error instanceof Error ? error.message : t('assistant.toast.failed'), tone: 'danger' })
+  }
+}
+
 const QUICK_PROMPT_KEYS = ['assistant.chat.ask_1', 'assistant.chat.ask_2', 'assistant.chat.ask_3', 'assistant.chat.ask_4'] as const
 
 const SUGGESTION_KEYS = [
@@ -720,7 +739,13 @@ function ConversationRow({
   ]
 
   return (
-    <li className="group relative" onContextMenu={(event) => { event.preventDefault(); onToggleMenu() }}>
+    <li
+      className="group relative"
+      draggable
+      title={t('assistant.chat.drop_into_folder')}
+      onDragStart={(event) => writeConversationDrag(event, conversation.id)}
+      onContextMenu={(event) => { event.preventDefault(); onToggleMenu() }}
+    >
       <button
         type="button"
         onClick={onOpen}
@@ -795,6 +820,14 @@ function ConversationRow({
             label: t('assistant.chat.tags'),
             submenu: submenuFor(tagItems),
             subItems: tagItems,
+          },
+          {
+            id: 'export',
+            label: t('assistant.chat.export_markdown'),
+            separatorBefore: true,
+            onSelect: () => {
+              void exportConversation(conversation.id, title)
+            },
           },
           {
             id: 'delete',

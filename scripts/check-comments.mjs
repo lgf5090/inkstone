@@ -993,6 +993,8 @@ const allowed = new Map([
     "/**\n * The taxonomy's nodes with anything the notebook has that it has not counted yet.\n *\n * The tree is the notebook's own, so a folder made a second ago is already in the notes store while the\n * assistant's counts are a read behind — and hiding a row the reader just created reads as a failure.\n * The union shows it at once with a count of nothing, and the next taxonomy read fills the number in.\n */",
     "// A write from anywhere — this panel, the notes rail, another device — leaves the counts stale, and",
     "// re-reading them is one small request. Keyed on the array identity so it fires on a real change only.",
+    "// Only a conversation is accepted here: a note drag passing over the chat's tree is on its way",
+    "// somewhere else, and claiming it would move a row the reader did not point at this panel.",
   ]],
   ["src/client/features/chat/ChatTaxonomyMenus.tsx", [
     "/**\n * Managing the shared taxonomy from the chat's sidebar.\n *\n * A conversation's folders and tags are the notebook's own rows, so creating, renaming, recolouring and\n * deleting one here is the same act as doing it in the notes rail — and it goes through the same writes:\n * the store's folder mutations and the tags feature's own entry points carry the optimistic update, the\n * sync and the rollback, and this file only decides which rows a menu offers.\n *\n * The folder menu is the notebook rail's set minus everything that is about a *note* — creating a note\n * in this folder, exporting it, making it the inbox. That is the honest reading of where the reader is:\n * a panel for filing chats is not a place to file a note, and offering it would be furniture from\n * another screen.\n */",
@@ -1090,6 +1092,7 @@ const allowed = new Map([
     "// asked for in a conversation, so the ticks exist only while the reader is picking. `null` is \"not",
     "// picking\"; an empty set is \"picking with nothing chosen yet\", which the bar has words for.",
     "/* Ctrl/Cmd+F is the reader's own reflex for this box, so it opens the thread's own find instead of\n          the browser's bar over a page that is one conversation. */",
+    "/**\n * Writes one conversation out as a Markdown file.\n *\n * Fetched on the press rather than carried in the list: a conversation's rows are only in the store for\n * the thread that is open, and the reader may export one they are not reading.\n */",
   ]],
   ["src/client/features/chat/ComposerControls.tsx", [
     "/** The token count, spelled the way the reference's slider spells it: 32K, 128K, 262K. */",
@@ -1400,6 +1403,11 @@ const allowed = new Map([
     "// There is no visible word anywhere, so the state rides on the name and on the button.",
     "// The switch says what it is set to; what a search costs the model is the hint's job.",
     "// The rungs a model's own service offers; DeepSeek's four plus the two values every service shares.",
+  ]],
+  ["src/client/features/chat/conversation-drag.ts", [
+    "/**\n * Dragging a conversation onto a folder.\n *\n * A conversation is moved by the same gesture a note is, and by a payload of its own: a note drag carries\n * a note id, and a drop target that read one as the other would file the wrong row — or file a\n * conversation because some note id happened to name it. So the type is distinct, and only the folder\n * row that knows about conversations accepts it.\n */",
+    "/** The conversation being dragged, or null for a drag that is not a conversation's. */",
+    "/** True while a conversation is over the target, which is what says the drop is accepted. */",
   ]],
   ["src/client/features/chat/conversation-search.test.ts", [
     "/**\n * The conversation list's search box is the app's shared filter box, not a bare input.\n *\n * The notes rails and the assistant rail asked the same question with two different controls: one drew\n * a search icon, a clear button and an Escape that takes the text back out, and the other drew a text\n * field with none of them, so the same action looked different and cost different keystrokes depending\n * on which sidebar the reader was in. What is pinned here is the chrome the shared box owes every\n * listing, and the one thing a listing with a server behind it must not claim: the settled text is\n * handed to the store verbatim, because the endpoint answers a `LIKE` and not the compiled query.\n */",
