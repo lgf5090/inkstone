@@ -29,8 +29,8 @@ import {
   Sparkles,
   Wand2,
 } from 'lucide-react'
-import type { AssistantModel, AssistantReasoning, AssistantSkill } from '@shared/assistant'
-import { CONTEXT_TOKEN_STEPS } from '@shared/assistant'
+import type { AssistantModel, AssistantReasoning, AssistantSkill, AssistantToolMode } from '@shared/assistant'
+import { ASSISTANT_TOOL_MODES, CONTEXT_TOKEN_STEPS } from '@shared/assistant'
 import { cn } from '../../lib/cn'
 import { t, type MessageKey } from '../../lib/i18n'
 import { Menu, Modal, Tooltip, prompt, submenuFor, type MenuItem } from '../../components/overlay'
@@ -252,18 +252,20 @@ export function WebSearchMenu({ value, onChange }: { value: boolean, onChange: (
   )
 }
 
-export function ApprovalMenu({ auto, onChange }: { auto: boolean, onChange: (next: boolean) => void }) {
+export function ApprovalMenu({ mode, onChange }: { mode: AssistantToolMode, onChange: (next: AssistantToolMode) => void }) {
   const anchor = useMenuAnchor()
-  const items: MenuItem[] = [
-    { id: 'ask', label: t('assistant.approval.ask'), icon: !auto ? <Check size={13} /> : undefined, onSelect: () => onChange(false) },
-    { id: 'auto', label: t('assistant.approval.auto'), icon: auto ? <Check size={13} /> : undefined, onSelect: () => onChange(true) },
-  ]
+  const items: MenuItem[] = ASSISTANT_TOOL_MODES.map((entry) => ({
+    id: entry,
+    label: t(`assistant.approval.${entry}` as 'assistant.approval.ask'),
+    icon: mode === entry ? <Check size={13} /> : undefined,
+    onSelect: () => onChange(entry),
+  }))
   return (
     <>
       <ControlChip
         refObject={anchor.ref}
         label={t('assistant.composer.approval')}
-        value={auto ? t('assistant.approval.auto') : t('assistant.approval.ask')}
+        value={t(`assistant.approval.${mode}` as 'assistant.approval.ask')}
         icon={<ShieldQuestion size={12} />}
         active={anchor.open}
         onClick={anchor.toggle}

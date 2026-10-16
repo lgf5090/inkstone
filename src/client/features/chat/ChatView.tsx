@@ -1310,7 +1310,12 @@ ${current}` : seed))
               <Paperclip size={14} />
             </IconButton>
             <div className="ml-auto flex min-w-0 max-w-full flex-wrap items-center justify-end gap-0.5">
-              {settings && <ApprovalMenu auto={settings.autoApproveWrites} onChange={(next) => void saveSettings({ autoApproveWrites: next })} />}
+              {settings && (
+                <ApprovalMenu
+                  mode={settings.toolModes.destructive}
+                  onChange={(next) => void saveSettings({ toolModes: { ...settings.toolModes, destructive: next } })}
+                />
+              )}
               {active && (
                 <>
                   <ReasoningMenu

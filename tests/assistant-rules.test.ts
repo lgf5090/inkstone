@@ -399,6 +399,30 @@ describe('the skills bundle', () => {
   })
 })
 
+describe('the reader’s tool policy', () => {
+  it('answers for a class the reader has not touched', () => {
+    expect(normalizeAssistantSettings({}).toolModes).toEqual({ read: 'auto', write: 'auto', destructive: 'ask' })
+  })
+
+  it('keeps the class the reader set and the default for the rest', () => {
+    expect(normalizeAssistantSettings({ toolModes: { write: 'off' } }).toolModes).toEqual({ read: 'auto', write: 'off', destructive: 'ask' })
+  })
+
+  it('refuses a mode that is not one of the three', () => {
+    expect(normalizeAssistantSettings({ toolModes: { read: 'sometimes' } }).toolModes.read).toBe('auto')
+    expect(normalizeAssistantSettings({ toolModes: 'auto' }).toolModes).toEqual({ read: 'auto', write: 'auto', destructive: 'ask' })
+  })
+
+  it('carries an account’s old auto-approve switch over to the class it governed', () => {
+    // The setting used to be one boolean over the destructive class. Reading its absence as "the reader
+    // never said" would flip a reader's own choice back to "ask me every time" behind their back.
+    expect(normalizeAssistantSettings({ autoApproveWrites: true }).toolModes.destructive).toBe('auto')
+    expect(normalizeAssistantSettings({ autoApproveWrites: false }).toolModes.destructive).toBe('ask')
+    // A map that says something wins over the boolean it replaced.
+    expect(normalizeAssistantSettings({ autoApproveWrites: true, toolModes: { destructive: 'off' } }).toolModes.destructive).toBe('off')
+  })
+})
+
 describe('the MCP headers box', () => {
   it('reads both the JSON and the form spelling, and names a name it cannot send', () => {
     const parsed = parseMcpHeaderLines('Authorization: Bearer a\nX-Client=inkstone\nNot A Name: x')

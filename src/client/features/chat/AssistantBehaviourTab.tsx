@@ -3,6 +3,7 @@
  */
 import { useEffect, useMemo, useState } from 'react'
 import { type AssistantSettings } from '@shared/assistant'
+import { ASSISTANT_TOOL_MODES, ASSISTANT_TOOL_PERMISSIONS } from '@shared/assistant'
 import { isValidTimeZone } from '@shared/assistant-schedule'
 import { t } from '../../lib/i18n'
 import { Button } from '../../components/primitives'
@@ -81,6 +82,27 @@ export function BehaviourTab({ settings }: { settings: AssistantSettings }) {
             <option value="settings">{t('assistant.view.settings')}</option>
           </Select>
         </SettingRow>
+      </Group>
+
+      <Group title={t('assistant.settings.tool_access')}>
+        {ASSISTANT_TOOL_PERMISSIONS.map((permission) => (
+          <SettingRow
+            key={permission}
+            title={t(`assistant.settings.tool_access.${permission}` as 'assistant.settings.tool_access.read')}
+            description={t(`assistant.settings.tool_access.${permission}_hint` as 'assistant.settings.tool_access.read_hint')}
+          >
+            <Segmented
+              size="sm"
+              label={t(`assistant.settings.tool_access.${permission}` as 'assistant.settings.tool_access.read')}
+              value={settings.toolModes[permission]}
+              onChange={(value) => void saveSettings({ toolModes: { ...settings.toolModes, [permission]: value } })}
+              options={ASSISTANT_TOOL_MODES.map((mode) => ({
+                value: mode,
+                label: t(`assistant.approval.${mode}` as 'assistant.approval.ask'),
+              }))}
+            />
+          </SettingRow>
+        ))}
       </Group>
     </>
   )

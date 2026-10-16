@@ -439,6 +439,33 @@ export function semanticModelValue(value: unknown, fallback = DEFAULT_SEMANTIC_M
   return typeof value === 'string' && SEMANTIC_MODEL_PATTERN.test(value.trim()) ? value.trim() : fallback
 }
 
+/**
+ * What the reader allows a tool to do: never offered to the model, offered but held for an approval
+ * press, or run on the model's own say-so.
+ *
+ * One vocabulary for the assistant's own tools and for the servers it calls out to, because a reader who
+ * has learned what "ask" means in one place should not have to learn a second meaning in the other.
+ */
+export const ASSISTANT_TOOL_MODES = ['off', 'ask', 'auto'] as const
+export type AssistantToolMode = (typeof ASSISTANT_TOOL_MODES)[number]
+
+/**
+ * What the assistant may do unattended, one answer per kind of tool.
+ *
+ * The kind is what the reader is really deciding about, not the individual tool: "ask before writing to
+ * my notes" and "never delete anything" are policies about classes of action, and a reader who wanted to
+ * enumerate thirty-five tools by hand would be doing the registry's job for it. The defaults are what
+ * this app has always done — reads and writes run, deletions wait for a press.
+ */
+export type AssistantToolModes = Record<ToolPermission, AssistantToolMode>
+
+export const DEFAULT_TOOL_MODES: AssistantToolModes = { read: 'auto', write: 'auto', destructive: 'ask' }
+
+/** What the reader allows this kind of tool to do. */
+export function toolModeFor(settings: Pick<AssistantSettings, 'toolModes'>, permission: ToolPermission): AssistantToolMode {
+  return settings.toolModes[permission]
+}
+
 export interface AssistantSettings {
   agentName: string
   language: 'en-US' | 'zh-CN'
@@ -461,11 +488,11 @@ export interface AssistantSettings {
   /** Ask the model to double-check an ambiguous conflict. One request per check. */
   aiConflictCheck: boolean
   /**
-   * Run the assistant's write tools immediately instead of holding each one for approval. Reads never
-   * need approval either way; this is the difference between a chat that edits the notebook while you
-   * watch and one that asks first.
+   * What the assistant may do without asking, by kind of tool. Reads and writes run unattended by
+   * default; a deletion waits for the reader's press. The composer's own chip is the same setting, seen
+   * one class at a time, so there is one answer to "may it delete this?" rather than two that can drift.
    */
-  autoApproveWrites: boolean
+  toolModes: AssistantToolModes
   /** Answer from the offline stub instead of a provider, so the app is usable with no key. */
   offlineMode: boolean
   /** Which of the assistant's surfaces the container opens on. */
@@ -489,7 +516,7 @@ export const DEFAULT_ASSISTANT_SETTINGS: AssistantSettings = {
   autoMemory: false,
   conflictReview: true,
   aiConflictCheck: false,
-  autoApproveWrites: false,
+  toolModes: { ...DEFAULT_TOOL_MODES },
   offlineMode: false,
   startView: 'chat',
   noteScope: [],
@@ -537,6 +564,25 @@ function stringList(value: unknown, max: number, itemMax: number): string[] {
 }
 
 /**
+ * The reader's tool policy, read class by class.
+ *
+ * Two shapes arrive here. One is the map this app writes today, where a class the reader has not touched
+ * is simply absent and the default answers for it. The other is a config written before the map existed,
+ * which carried one boolean for the whole destructive class: an account that had switched auto-approve on
+ * gets it back as `destructive: 'auto'`, because a setting silently reverting to "ask me every time" is
+ * a reader's preference being changed behind their back.
+ */
+function toolModesValue(raw: Record<string, unknown>): AssistantToolModes {
+  const stored = record(raw.toolModes)
+  const legacy = booleanValue(raw.autoApproveWrites, false)
+  return {
+    read: enumValue(stored.read, ASSISTANT_TOOL_MODES, DEFAULT_TOOL_MODES.read),
+    write: enumValue(stored.write, ASSISTANT_TOOL_MODES, DEFAULT_TOOL_MODES.write),
+    destructive: enumValue(stored.destructive, ASSISTANT_TOOL_MODES, legacy ? 'auto' : DEFAULT_TOOL_MODES.destructive),
+  }
+}
+
+/**
  * Every settings field a client may patch, as one list rather than as a route that names them.
  *
  * A hand-copied list is how a field stops saving without any test going red: the switch renders, the
@@ -577,7 +623,7 @@ export function normalizeAssistantSettings(value: unknown): AssistantSettings {
     autoMemory: booleanValue(raw.autoMemory, DEFAULT_ASSISTANT_SETTINGS.autoMemory),
     conflictReview: booleanValue(raw.conflictReview, DEFAULT_ASSISTANT_SETTINGS.conflictReview),
     aiConflictCheck: booleanValue(raw.aiConflictCheck, DEFAULT_ASSISTANT_SETTINGS.aiConflictCheck),
-    autoApproveWrites: booleanValue(raw.autoApproveWrites, DEFAULT_ASSISTANT_SETTINGS.autoApproveWrites),
+    toolModes: toolModesValue(raw),
     offlineMode: booleanValue(raw.offlineMode, DEFAULT_ASSISTANT_SETTINGS.offlineMode),
     startView,
     noteScope: stringList(raw.noteScope, 12, 26),
@@ -914,7 +960,9 @@ export interface PendingAction {
   expiresAt: number
 }
 
-export type ToolPermission = 'read' | 'write' | 'destructive'
+/** The three kinds of action, in the order a reader thinks about them: reading, changing, removing. */
+export const ASSISTANT_TOOL_PERMISSIONS = ['read', 'write', 'destructive'] as const
+export type ToolPermission = (typeof ASSISTANT_TOOL_PERMISSIONS)[number]
 
 export interface AssistantToolSpec {
   name: string
@@ -931,8 +979,8 @@ export interface AssistantToolSpec {
  * but gated behind an approval card for every call, or run on the model's own say-so. Nothing is auto by
  * default — a server the reader pasted in from a blog post gets no write access to their notes silently.
  */
-export const ASSISTANT_MCP_TOOL_MODES = ['off', 'ask', 'auto'] as const
-export type AssistantMcpToolMode = (typeof ASSISTANT_MCP_TOOL_MODES)[number]
+export const ASSISTANT_MCP_TOOL_MODES = ASSISTANT_TOOL_MODES
+export type AssistantMcpToolMode = (typeof ASSISTANT_TOOL_MODES)[number]
 
 /**
  * The transports this client can speak, and what each one needs before it works.

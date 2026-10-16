@@ -16,7 +16,7 @@
  */
 
 import type { AssistantSettings, Task } from '@shared/assistant'
-import { ASSISTANT_TOOL_SPECS, MAX_TASK_TITLE_CHARS, TASK_PRIORITIES, TASK_STATUSES, toolPayloadText, type AssistantMemoryCategory, type AutomationKind } from '@shared/assistant'
+import { ASSISTANT_TOOL_SPECS, MAX_TASK_TITLE_CHARS, TASK_PRIORITIES, TASK_STATUSES, toolPayloadText, toolModeFor, type AssistantMemoryCategory, type AutomationKind } from '@shared/assistant'
 import { MEMORY_CATEGORIES_FOR_TOOLS } from './memory-service'
 import { parseLocalTime, toLocalMinute } from '@shared/assistant-time'
 import { hasHistoricalIntent } from '@shared/assistant-memory'
@@ -924,7 +924,24 @@ export class ToolExecutor {
       : ALL_TOOLS.filter((definition) => definition.permission === 'read' || definition.name === 'notify_reader')
     // An automation has no reader watching, so a remote tool that needs an Approve press is not offered.
     const remote = this.ctx.mode === 'chat' ? this.external : this.external.filter((definition) => definition.permission !== 'destructive')
-    return [...own, ...remote]
+    // The reader's policy comes last and can only ever take tools away: it is a ceiling on what the turn
+    // may reach, not a second list of things to reach for.
+    return [...own, ...remote].filter((definition) => this.offers(definition))
+  }
+
+  /**
+   * Whether the reader's policy leaves this tool on the table.
+   *
+   * In chat the answer is the policy itself: a class the reader closed is closed. In an unwatched run
+   * there are two more things to say. A tool held for approval is not offered at all, because a card
+   * nobody can press is a call that fails rather than one that waits. And `notify_reader` is never taken
+   * away there — a routine exists to tell the reader something, so a policy that silenced the telling
+   * would leave a schedule that runs every morning and says nothing.
+   */
+  private offers(definition: ToolDefinition): boolean {
+    const mode = toolModeFor(this.ctx.settings, definition.permission)
+    if (this.ctx.mode === 'chat') return mode !== 'off'
+    return mode === 'auto' || definition.name === 'notify_reader'
   }
 
   find(name: string): ToolDefinition | undefined {
@@ -955,29 +972,33 @@ export class ToolExecutor {
     this.perTool.set(name, used + 1)
     this.signatures.set(signature, (this.signatures.get(signature) ?? 0) + 1)
 
-    if (definition.permission !== 'destructive') {
-      return await definition.run(args, { ...this.ctx, callId })
-    }
-    if (this.ctx.settings.autoApproveWrites) {
-      // The same prepare/commit pair the approval card runs, minus the wait: skipping `prepare` would
-      // also skip the lookup that decides what this tool is allowed to touch.
+    if (toolModeFor(this.ctx.settings, definition.permission) === 'auto') {
+      // A read or a write *is* the call. A deletion goes through the same prepare/commit pair the
+      // approval card runs, minus the wait: skipping `prepare` would also skip the lookup that decides
+      // what this tool is allowed to touch.
+      if (definition.permission !== 'destructive') return await definition.run(args, { ...this.ctx, callId })
       const prepared = await definition.prepare(args, { ...this.ctx, callId })
       return await definition.commit(prepared.targetId, { ...this.ctx, callId }, args)
     }
     if (!this.ctx.conversationId) throw new ToolError(`"${name}" needs the reader's approval and can only be used in chat.`)
-    const prepared = await definition.prepare(args, { ...this.ctx, callId })
+    // A deletion looks its target up, and the card reads that name back. A read or a write has no such
+    // lookup, so what the model proposed is kept whole instead: approving replays exactly the call that
+    // was shown, which is the same promise the deletion path keeps by remembering its target.
+    const prepared = definition.permission === 'destructive'
+      ? await definition.prepare(args, { ...this.ctx, callId })
+      : { targetId: '', targetLabel: '' }
     const action = await this.ctx.store.createPendingAction({
       conversationId: this.ctx.conversationId,
       tool: definition.name,
       targetId: prepared.targetId,
       targetLabel: prepared.targetLabel,
       // What the model proposed, kept so approving runs exactly that and not a re-derivation.
-      args: definition.external ? args : undefined,
+      args: definition.permission === 'destructive' && !definition.external ? undefined : args,
     })
     this.approvals.set(callId, { id: action.id, toolId: callId })
     return {
       status: 'awaiting_reader_approval',
-      action: `${definition.name} ${prepared.targetLabel}`,
+      action: `${definition.name} ${prepared.targetLabel}`.trim(),
       note: 'Nothing has changed yet. The reader now sees an Approve button for exactly this action. Tell them briefly what you proposed. Do not call this tool again for the same item, and do not say it is done.',
     }
   }
@@ -1005,9 +1026,7 @@ export async function runApprovedAction(store: AssistantStore, ctx: ToolContext,
   const stored = await store.getPendingAction(actionId)
   if (!stored) throw ApiError.notFound('This action no longer exists.')
   const definition = ctx.externalByName?.get(stored.tool) ?? TOOL_BY_NAME.get(stored.tool)
-  if (!definition || definition.permission !== 'destructive') {
-    throw ApiError.notFound('This action no longer exists.')
-  }
+  if (!definition) throw ApiError.notFound('This action no longer exists.')
   if (stored.status === 'expired') {
     await store.resolvePendingAction(actionId, { status: 'expired' })
     throw ApiError.conflict('This request expired. Ask again to get a new one.')
@@ -1017,7 +1036,12 @@ export async function runApprovedAction(store: AssistantStore, ctx: ToolContext,
   }
   let output: unknown
   try {
-    output = await definition.commit(stored.targetId, ctx, stored.args ?? {})
+    // A deletion is redone from the target it named. A read or a write has no target to redo from, so the
+    // arguments that were shown on the card are replayed whole — the call the reader approved, and no
+    // other.
+    output = definition.permission === 'destructive'
+      ? await definition.commit(stored.targetId, ctx, stored.args ?? {})
+      : await definition.run(stored.args ?? {}, { ...ctx, callId: stored.id })
   } catch (error) {
     await store.resolvePendingAction(actionId, {
       status: 'failed',

@@ -160,12 +160,15 @@ describe('thinking and context chips', () => {
 })
 
 describe('approval chip', () => {
-  it('offers both arms and writes the chosen one', async () => {
+  it('offers all three arms and writes the chosen one', async () => {
     const onChange = vi.fn()
-    await act(async () => { root.render(createElement(ApprovalMenu, { auto: false, onChange })) })
+    await act(async () => { root.render(createElement(ApprovalMenu, { mode: 'ask', onChange })) })
     await click(byAria(t('assistant.composer.approval')))
     await click(byText(t('assistant.approval.auto')))
-    expect(onChange).toHaveBeenCalledWith(true)
+    expect(onChange).toHaveBeenCalledWith('auto')
+    await click(byAria(t('assistant.composer.approval')))
+    await click(byText(t('assistant.approval.off')))
+    expect(onChange).toHaveBeenCalledWith('off')
   })
 })
 
@@ -283,7 +286,7 @@ describe('anchored menus', () => {
       ['model', () => createElement(ModelMenu, { models: [model()], activeId: 'm1', onPick: vi.fn(), onManage: vi.fn(), onVision: vi.fn() })],
       ['thinking', () => createElement(ReasoningMenu, { value: 'auto', rungs: ['auto', 'off', 'low', 'medium', 'high'], disabled: false, onChange: vi.fn() })],
       ['context', () => createElement(ContextMenu, { value: null, onPick: vi.fn() })],
-      ['approval', () => createElement(ApprovalMenu, { auto: false, onChange: vi.fn() })],
+      ['approval', () => createElement(ApprovalMenu, { mode: 'ask', onChange: vi.fn() })],
     ]
     for (const [name, element] of cases) {
       await act(async () => { root.render(element()) })

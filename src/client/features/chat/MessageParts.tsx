@@ -290,7 +290,11 @@ export function ApprovalCard({ action }: { action: ToolActivity['approval'] }) {
   const [busy, setBusy] = useState<'approve' | 'cancel' | null>(null)
   if (!action) return null
   const spec = action.tool ? ASSISTANT_TOOL_BY_NAME.get(action.tool) : undefined
-  const question = spec?.approvalKey ? t(spec.approvalKey, { title: action.targetLabel }) : action.targetLabel
+  // A deletion has a sentence of its own, because what it would remove is the thing worth reading.
+  // Everything else is held for approval as the call itself, so the tool's own name is the question.
+  const question = spec?.approvalKey
+    ? t(spec.approvalKey, { title: action.targetLabel })
+    : spec ? t(spec.labelKey) : action.targetLabel
 
   if (action.status !== 'pending') {
     return (
