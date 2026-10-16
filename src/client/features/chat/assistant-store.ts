@@ -113,6 +113,16 @@ interface AssistantState {
   /** The composer's live-web-search switch, kept between turns like the other per-composer settings. */
   webSearch: boolean
   setWebSearch: (value: boolean) => void
+  /**
+   * Text the composer has been asked to start from — a quote of a turn.
+   *
+   * The draft lives in the composer's own state, so a menu elsewhere on screen cannot reach it. This is
+   * the one-way handover: the menu writes a block here, the composer takes it once and clears it, and
+   * nothing else reads it.
+   */
+  composerSeed: string | null
+  seedComposer: (text: string) => void
+  clearComposerSeed: () => void
   /** The composer's queue: files uploaded for a turn that has not been sent yet. */
   pending: PendingAttachment[]
   /** Attachment rows behind the open conversation, by id, so a bubble can name what it carries. */
@@ -468,6 +478,7 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
   unfiledCount: 0,
   tagNodes: [],
   webSearch: false,
+  composerSeed: null,
   pending: [],
   prompts: [],
   turnTools: [],
@@ -976,6 +987,10 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
   dropTurnScope: (id) => set((current) => ({ turnScopes: current.turnScopes.filter((entry) => entry.id !== id) })),
 
   setWebSearch: (value) => set({ webSearch: value }),
+
+  seedComposer: (text) => set({ composerSeed: text }),
+
+  clearComposerSeed: () => set({ composerSeed: null }),
 
   send: async (text, opts = {}) => {
     const state = get()

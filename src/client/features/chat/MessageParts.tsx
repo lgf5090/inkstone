@@ -21,6 +21,7 @@ import {
   Copy,
   FileText,
   Loader2,
+  MoreHorizontal,
   NotebookPen,
   Play,
   RotateCcw,
@@ -39,6 +40,7 @@ import { Button } from '../../components/primitives'
 import { MarkdownBody } from '../preview/MarkdownBody'
 import { useAssistant } from './assistant-store'
 import { CHAT_NOTE_LINKS } from './note-links'
+import { MessageMenu, useMessageMenu } from './MessageMenu'
 import { noteRefsFromToolResult } from './note-refs'
 import { saveReplyAsNote } from './save-to-note'
 
@@ -449,6 +451,7 @@ export function AssistantBubble({
   const [copied, setCopied] = useState(false)
   const [showReasoning, setShowReasoning] = useState(false)
   const [versions, setVersions] = useState<AssistantAnswerVersion[] | null>(null)
+  const menu = useMessageMenu()
   const [page, setPage] = useState<number | null>(null)
   const [swapping, setSwapping] = useState(false)
   const pages = (versions?.length ?? versionCount) + 1
@@ -475,7 +478,7 @@ export function AssistantBubble({
     })
   }
   return (
-    <div className="group flex gap-2.5">
+    <div className="group flex gap-2.5" onContextMenu={body ? menu.onContextMenu : undefined}>
       <div className="min-w-0 flex-1 space-y-2">
         {tools.length > 0 && <ToolCallList tools={tools} messageId={messageId} />}
         {tools.map((tool) => tool.approval && <ApprovalCard key={tool.approval.id} action={tool.approval} />)}
@@ -578,6 +581,18 @@ export function AssistantBubble({
                 {t('assistant.chat.save_to_note')}
               </button>
             )}
+            {body && (
+              <span ref={menu.buttonRef}>
+                <button
+                  type="button"
+                  onClick={menu.openFromButton}
+                  aria-label={t('assistant.chat.message_actions')}
+                  className="inline-flex items-center rounded-[var(--r-sm)] px-1 py-0.5 text-[var(--text-quaternary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-secondary)]"
+                >
+                  <MoreHorizontal size={11} />
+                </button>
+              </span>
+            )}
             {pages > 1 && (
               <AnswerVersionPager
                 total={pages}
@@ -616,6 +631,16 @@ export function AssistantBubble({
           </div>
         )}
       </div>
+      {/* `body` is what the reader can see — an earlier answer paged back to included — so the menu
+          acts on that text rather than on whichever version happens to be newest. */}
+      <MessageMenu
+        menu={menu}
+        target={{
+          role: 'assistant',
+          text: body,
+          ...(onRetry && !viewing ? { onRetry, onRetryLabel: retryLabel } : {}),
+        }}
+      />
     </div>
   )
 }

@@ -50,6 +50,7 @@ import {
 import { useUi } from '../../store/ui'
 import { MarkdownBody } from '../preview/MarkdownBody'
 import { PASTE_FILE_MIN_CHARS, useAssistant } from './assistant-store'
+import { MessageMenu, useMessageMenu } from './MessageMenu'
 import { AssistantBubble } from './MessageParts'
 import { CHAT_NOTE_LINKS } from './note-links'
 import { ChatOutline } from './ChatOutline'
@@ -288,9 +289,27 @@ export function UserBubble({
   const [copied, setCopied] = useState(false)
   const [draft, setDraft] = useState<string | null>(null)
   const toast = useUi((state) => state.toast)
+  const menu = useMessageMenu()
   const removable = !!messageId && !!text
+  // The pair goes together, so the question the reader is about to lose is spelled out in the dialog
+  // rather than deleted on a single press. Both the hover row and the menu reach it through here.
+  const askToDelete = () => {
+    if (!messageId) return
+    void confirm({
+      title: t('assistant.chat.delete_message_title'),
+      description: t('assistant.chat.delete_message_hint'),
+      confirmLabel: t('common.delete'),
+      tone: 'danger',
+    }).then((agreed) => {
+      if (agreed) void useAssistant.getState().removeMessage(messageId)
+    })
+  }
   return (
-    <div data-chat-anchor={anchorId} className="flex animate-[ink-fade-in_var(--dur-base)_var(--ease-out)] justify-end">
+    <div
+      data-chat-anchor={anchorId}
+      onContextMenu={text ? menu.onContextMenu : undefined}
+      className="flex animate-[ink-fade-in_var(--dur-base)_var(--ease-out)] justify-end"
+    >
       <div className="group flex max-w-[85%] flex-col items-end gap-1">
         {attachments.length > 0 && <MessageAttachments ids={attachments} index={fileIndex} />}
         {text && (
@@ -328,30 +347,27 @@ export function UserBubble({
                 <IconButton size="sm" label={t('assistant.chat.edit_message')} disabled={busy} onClick={() => setDraft(text)}>
                   <Pencil size={14} />
                 </IconButton>
-                <IconButton
-                  size="sm"
-                  label={t('assistant.chat.delete_message')}
-                  disabled={busy}
-                  onClick={() => {
-                    // The pair goes together, so the question the reader is about to lose is spelled out
-                    // in the dialog rather than deleted on a single press.
-                    void confirm({
-                      title: t('assistant.chat.delete_message_title'),
-                      description: t('assistant.chat.delete_message_hint'),
-                      confirmLabel: t('common.delete'),
-                      tone: 'danger',
-                    }).then((agreed) => {
-                      if (agreed) void useAssistant.getState().removeMessage(messageId!)
-                    })
-                  }}
-                >
+                <IconButton size="sm" label={t('assistant.chat.delete_message')} disabled={busy} onClick={askToDelete}>
                   <Trash2 size={14} />
                 </IconButton>
               </>
             )}
+            <span ref={menu.buttonRef}>
+              <IconButton size="sm" label={t('assistant.chat.message_actions')} onClick={menu.openFromButton}>
+                <MoreHorizontal size={14} />
+              </IconButton>
+            </span>
           </div>
         )}
       </div>
+      <MessageMenu
+        menu={menu}
+        target={{
+          role: 'user',
+          text,
+          ...(removable ? { onEdit: () => setDraft(text), onDelete: askToDelete } : {}),
+        }}
+      />
       {draft !== null && messageId && (
         <EditMessageDialog
           text={draft}
@@ -777,10 +793,22 @@ function Composer({
   disabled?: boolean
 }) {
   const [value, setValue] = useState('')
+  const seed = useAssistant((state) => state.composerSeed)
   const ref = useRef<HTMLTextAreaElement>(null)
   const boxRef = useRef<HTMLDivElement>(null)
   const fileRef = useRef<HTMLInputElement>(null)
   const folderRef = useRef<HTMLInputElement>(null)
+  // A quote from a message menu lands at the top of whatever the reader was already writing, and the
+  // handover is spent on arrival: leaving it in the store would re-insert it on the next render.
+  useEffect(() => {
+    if (seed === null) return
+    setValue((current) => (current.trim() ? `${seed}
+
+${current}` : seed))
+    useAssistant.getState().clearComposerSeed()
+    const box = ref.current
+    if (box) box.focus()
+  }, [seed])
   const pending = useAssistant((state) => state.pending)
   const attachFiles = useAssistant((state) => state.attachFiles)
   const attachUrl = useAssistant((state) => state.attachUrl)

@@ -1052,8 +1052,6 @@ const allowed = new Map([
     "// A trace restored from the row is the one this answer was written by: the fold is skipped only",
     "// when the model never reported any.",
     "/**\n * One of the reader's own messages, and what they may do with it.\n *\n * The row is theirs alone — copy it back out, retype it and let the answer be written again from the new\n * words, or take the turn back — so the three controls hang under the bubble rather than beside the\n * answer's footer. They are drawn only for a message that is stored: the live turn's copy of the same\n * words has no row to edit and no answer to displace yet, and `busy` is the turn that is still being\n * written, which the server refuses to have re-taken under it.\n */",
-    "// The pair goes together, so the question the reader is about to lose is spelled out",
-    "// in the dialog rather than deleted on a single press.",
     "// The turn re-answers itself: the dialog has nothing left to hold, and the replaced answer",
     "// arrives in the thread like any other.",
     "/**\n * Retyping one of the reader's own messages.\n *\n * The words are the only thing being edited, so this is a box and nothing else — but the answer that hung\n * below them was written from the old text and the thread is asked again from here, which the note under\n * the box says out loud: saving is not a silent rewrite of a transcript.\n */",
@@ -1065,6 +1063,10 @@ const allowed = new Map([
     "// The chip lists the levels the answering model's own service has rather than a fixed five, so a model",
     "// that can only be switched on and off is not offered three depths nothing will read.",
     "/* The reader's own words are Markdown too: a `[[note]]` the composer inserted, a fenced\n                block pasted in, a list typed out — all of them mean what they say. Formulas, diagrams\n                and charts are declined because a chat bubble is a sentence, not a document, and the\n                three of them are the only channels that would pull a library in to draw one. */",
+    "// The pair goes together, so the question the reader is about to lose is spelled out in the dialog",
+    "// rather than deleted on a single press. Both the hover row and the menu reach it through here.",
+    "// A quote from a message menu lands at the top of whatever the reader was already writing, and the",
+    "// handover is spent on arrival: leaving it in the store would re-insert it on the next render.",
   ]],
   ["src/client/features/chat/ComposerControls.tsx", [
     "/** The token count, spelled the way the reference's slider spells it: 32K, 128K, 262K. */",
@@ -1104,6 +1106,19 @@ const allowed = new Map([
     "/**\n * Why the rules flagged this pair. The server stores a stable code, never prose, so the sentence is\n * the interface's own — and an unknown code (a model-written reason, or a rule this build does not\n * have) still says something true rather than printing a raw key.\n */",
     "/* The box is the shared field; the wrapper is what gives it the row's remaining width, because\n              the field hands its own `className` to the `<input>` rather than to the box around it. */",
   ]],
+  ["src/client/features/chat/MessageMenu.tsx", [
+    "/**\n * A message's own menu: what the reader can do with one turn, wherever the pointer happens to be.\n *\n * The hover row under a message carries the two or three actions a reader reaches for most, and that is\n * the right size for a row of icons. The rest — copy as plain text, read it aloud, keep it as a note,\n * download it, quote it back — have had nowhere to live, so an action existed only if some surface\n * happened to draw a button for it. A context menu is where a reader looks for the rest of them, and it\n * costs nothing on screen until it is asked for.\n *\n * The rows are built by a plain function so the shape of the menu is testable without a pointer: which\n * rows each role offers, and which of them are only there when they can actually do something.\n */",
+    "/** A point on screen, in the shape `Menu` anchors to. */",
+    "/** The turn as stored: Markdown for a reply, the reader's own words for their message. */",
+    "/** Offered only where asking again means something — the newest answer of the thread. */",
+    "/** The name a downloaded turn takes, from its own first line. */",
+    "/**\n * The rows this message offers.\n *\n * A row that cannot do anything is left out rather than drawn disabled: a menu of greyed-out entries is\n * a menu a reader has to read twice, and every one of these is knowable from the message alone.\n */",
+    "/**\n * The block a quote puts in the composer: the turn, marked as somebody's words at a time.\n *\n * The speaker and the clock go in the quote because a transcript of `>` lines with no attribution reads\n * as the reader's own thought by the time the model sees it.\n */",
+    "// A blank line keeps its marker: an unmarked empty line ends the blockquote in Markdown, and every",
+    "// line after it would quietly stop being part of what the reader quoted.",
+    "/**\n * The two ways this menu opens, held in one place.\n *\n * A message offers it from its own right-click and from the overflow button on its hover row, and the\n * two anchor differently: a press is a point, a button is an element the panel should line up under.\n * Keeping both in one state object means one panel is mounted whichever way it was asked for, rather\n * than a second copy of the same rows anchored at the other place.\n */",
+    "/** The menu itself, anchored where it was asked for. */",
+  ]],
   ["src/client/features/chat/MessageParts.tsx", [
     "/**\n * The pieces of one assistant reply.\n *\n * Three things the reference project got wrong in ways only a reader notices:\n *  - it reused the note prose class, so a one-line answer filled a screen;\n *  - it stored the tool chip's words in English inside the message row, so a Chinese interface showed\n *    English pills that no translation could reach;\n *  - it kept the Approve button live after the reply was saved, because it read the approval out of the\n *    message rather than out of the pending-action table.\n *\n * So the chip's words come from the locale catalog by tool name, the prose is its own class, and the\n * approval card is driven by the action's current status.\n */",
     "/**\n * The answers one turn has already displaced, walked with two arrows.\n *\n * The live answer is the last page; anything before it is a read-only look, and the reader has to press\n * \"use this one\" before it becomes the turn's answer again. That is the notes app's version history in\n * miniature, and for the same reason: looking must never overwrite.\n */",
@@ -1126,6 +1141,7 @@ const allowed = new Map([
     "// The reply is read by the same renderer a note's preview is, so a formula is drawn, a diagram is",
     "// drawn, and a `[[note]]` is a door into the notebook rather than a word that looks like a link.",
     "/* Only a settled answer is offered: a half-written reply saved twice is two notes, and the\n                one worth keeping is the one the model finished. */",
+    "/* `body` is what the reader can see — an earlier answer paged back to included — so the menu\n          acts on that text rather than on whichever version happens to be newest. */",
   ]],
   ["src/client/features/chat/ModelEditorDialog.tsx", [
     "/**\n * The model's own editor: what it is for, what it can do, and the numbers it is given.\n *\n * The composer's chips cover the two settings a reader changes often. This covers the rest, which are\n * per-model facts rather than per-conversation choices: whether the endpoint answers in pictures, how\n * much it claims to take in, and the vendor-specific fields our request builder does not know about.\n * Everything here is read by the request path — a switch that changed nothing would be worse than no\n * switch, because it would be believed.\n */",
@@ -1279,6 +1295,7 @@ const allowed = new Map([
     "// actually stored rather than from a guess about which rows the pair covered.",
     "// What the reader had on screen when they asked. The notebook's own pointer is the only thing that",
     "// makes \"summarise this\" work without naming the note, and it costs two ids on the wire.",
+    "/**\n   * Text the composer has been asked to start from — a quote of a turn.\n   *\n   * The draft lives in the composer's own state, so a menu elsewhere on screen cannot reach it. This is\n   * the one-way handover: the menu writes a block here, the composer takes it once and clears it, and\n   * nothing else reads it.\n   */",
   ]],
   ["src/client/features/chat/chat-outline.test.ts", [
     "/**\n * The rail and the panel that stand beside a thread.\n *\n * Both of them are read off the thread's own DOM — which turn has passed the reading line, and how far\n * down to land when one is chosen — so these cases lay out the boxes a browser would and then scroll:\n * a test that only counted buttons would pass over an outline that marks the wrong turn.\n */",
@@ -1364,6 +1381,14 @@ const allowed = new Map([
     "/** Render the tab. Only the screen's own cases do; the last one writes through the store alone. */",
     "// The row's own switch is the server, and the tools stay folded until asked for.",
   ]],
+  ["src/client/features/chat/message-menu.test.ts", [
+    "/**\n * The rows a message's menu offers.\n *\n * A menu is a promise about what can be done with a turn, so what is pinned is which rows appear for\n * which role and which of them are left out when they have nothing to do. A row that cannot act — a\n * \"delete\" on a turn the server has not stored, a \"regenerate\" on an older answer — is worse than a\n * missing one, because the reader presses it and nothing happens.\n */",
+    "// Read-aloud is offered where the browser has a voice; jsdom has none, which is the same code path",
+    "// as a browser without the API, so the row's absence here is the guard working rather than a gap.",
+    "// The live turn has no id yet, so it has neither: the row would act on a message that does not exist.",
+    "// A blank line between two paragraphs ends a blockquote in Markdown, so the lines below it would",
+    "// silently stop being part of the quote the reader asked for.",
+  ]],
   ["src/client/features/chat/model-editor-chips.test.ts", [
     "/**\n * The model editor's quick picks and the badges the list derives from them.\n *\n * The chips exist so a reader sets 256K without typing 262144, and the badges exist so the same facts are\n * readable without opening the editor. Both are pinned by what they change in the draft, not by markup.\n */",
     "/** The modal portals onto document.body, so that is where its controls have to be looked for. */",
@@ -1440,6 +1465,12 @@ const allowed = new Map([
   ["src/client/features/chat/send-search.test.ts", [
     "/**\n * The web-search switch's way from a click to the request.\n *\n * Two half-wires have to be pinned together: the toggle writing the store, and the store reaching the\n * stream input. A chip that looked switched on while the turn went out without the flag is the worst\n * kind of control, because it is believed.\n */",
     "// The after-turn refreshes are not this switch; they would reach for api methods the mock has none of.",
+  ]],
+  ["src/client/features/chat/speech.ts", [
+    "/**\n * Reading a reply aloud.\n *\n * The browser's own speech synthesis is the only engine available without a key and without shipping a\n * voice, so this is a thin wrapper rather than a feature: it strips the Markdown first, because a\n * screen reader that spells out `##` and `**` is worse than not offering the button, and it refuses\n * quietly where the API is missing instead of throwing inside a click handler.\n */",
+    "/** Whether this browser can read anything aloud. */",
+    "/** Stops whatever is being read, if anything is. */",
+    "/**\n * Reads `text` in `language`, replacing whatever was being read.\n *\n * Replacing rather than queueing: a reader who presses read on a second reply wants that one, and two\n * voices talking over each other is the failure this avoids.\n */",
   ]],
   ["src/client/features/chat/stored-reasoning.test.ts", [
     "/**\n * What a reopened thread shows of the thinking behind an answer.\n *\n * The fold used to exist only while a turn was streaming, because the trace was never filed with the\n * answer. Now it is a column on the row, and this pins the join between the two: a message read from the\n * server hands its own reasoning to the bubble, and one that never had any draws no fold at all.\n */",
