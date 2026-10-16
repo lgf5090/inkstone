@@ -28,6 +28,7 @@ import { readMcpNote, searchMcpNotes } from '../mcp/retrieval'
 import { ApiError } from '../lib/errors'
 import type { AssistantStore, MemoryScope } from './store'
 import { assertNoteReadable, noteTitleForLog, readableNoteIds, type NoteScope } from './note-scope'
+import { oneHopNeighbours } from './note-graph'
 import {
   SCOPE_NOTE,
   countVaultNotes,
@@ -455,7 +456,7 @@ export const NOTE_TOOLS: ToolDefinition[] = [
     name: 'search_notes',
     permission: 'read',
     maxCallsPerTurn: 3,
-    description: 'Search the reader\'s notes. Returns titles, ids and short excerpts.',
+    description: 'Search the reader\'s notes. Returns titles, ids and short excerpts, plus the notes one link away from the best hits — read those when the question is about what a note refers to.',
     fields: { query: { type: 'string', minLength: 1, maxLength: 200 } },
     async run(args, ctx) {
       const scope = await ctx.noteScope()
@@ -467,12 +468,27 @@ export const NOTE_TOOLS: ToolDefinition[] = [
         ...(scope.tagIds.size ? { tags: [...scope.tagIds] } : {}),
       })
       const allowed = await readableNoteIds(ctx.env.DB, ctx.store.userId, response.results.map((hit) => hit.id), scope)
+      const hits = response.results.filter((hit) => allowed.has(hit.id)).slice(0, 8)
+      // The vault's knowledge is mostly in its links: the page that says "see [[the plan]]" answers a
+      // question about the plan without mentioning it. One hop from the best hits, titles only — a
+      // neighbour is an invitation to read it, not a second copy of its text.
+      const related = await oneHopNeighbours(ctx.env.DB, ctx.store.userId, hits.map((hit) => hit.id), scope)
       return {
-        results: response.results.filter((hit) => allowed.has(hit.id)).slice(0, 8).map((hit) => ({
+        results: hits.map((hit) => ({
           id: hit.id,
           title: hit.title,
           excerpt: hit.snippet.slice(0, 400),
         })),
+        ...(related.length
+          ? {
+              related: related.map((entry) => ({
+                id: entry.id,
+                title: entry.title,
+                via: entry.via,
+                direction: entry.direction,
+              })),
+            }
+          : {}),
         ...(scope.restricted ? { scope: SCOPE_NOTE } : {}),
       }
     },

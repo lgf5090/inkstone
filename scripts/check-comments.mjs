@@ -15899,6 +15899,15 @@ const allowed = new Map([
     "/** How many hits of one search become cards. The rest stay in the tool's own result. */",
     "/**\n * The citations one tool call earned, in the order the tool named them.\n *\n * `read_note` says which section it was asked for, so the card can say \"that section\" instead of naming\n * the whole note — which is the closest thing to a block-level pointer the vault has, since a note's body\n * carries no stable anchors of its own.\n */",
   ]],
+  ["src/worker/assistant/note-graph.ts", [
+    "/**\n * The notes one link away from the notes a search found.\n *\n * A vault's knowledge is mostly in the links rather than in any one note: the page that says \"see\n * [[the plan]]\" is answering a question about the plan, and a search that returns only the pages whose\n * text matched will miss it. One hop, in both directions — what a hit points at, and what points back at\n * it — is the whole of the addition: two hops is a different feature (a graph walk) and would put the\n * reader's entire vault in front of the model for every question.\n *\n * Titles only. A neighbour is an invitation to read, not a copy of the note: the model already has the\n * search results in full, and shipping every linked note's text would spend the reader's budget on pages\n * the question was never about.\n *\n * The scope is enforced by the caller, on the way in and on the way out: a neighbour is looked up among\n * the notes the turn may read, and a linked note outside that set is not named. A title is enough to\n * leak what a page is about, so \"only the id is a permission\" is not true here.\n */",
+    "/** How many seeds one search expands, and how many neighbours come back at most. */",
+    "/** The note the link was found on, so the model can say why this one is here. */",
+    "/** Which way the link runs: the hit points at it, or it points at the hit. */",
+    "/**\n * The rows as one list: the seeds themselves are dropped (a note does not relate to itself), a note\n * reached from two different seeds appears once — the first reason found wins, which is why outbound\n * runs before inbound — and the list is capped.\n */",
+    "/**\n * One hop from these notes, inside the turn's scope.\n *\n * Outbound first: a note's own \"see also\" is a stronger signal than something that happened to mention\n * it, and the cap means the order decides what survives.\n */",
+    "// The same gate the note tools use: a neighbour outside the scope is not named, however it was found.",
+  ]],
   ["src/worker/assistant/note-mentions.ts", [
     "/**\n * `[[note]]` mentions resolved into the note's own words.\n *\n * The composer's `@` inserts a wikilink and nothing else — the title is what the reader sees and what\n * the transcript keeps. On its own the model could only call `read_note` and hope the title it guessed\n * is unique, so a mention is resolved here against the notes the reader actually allowed, and the words\n * ride with the turn the way an attachment's do. The scope is enforced by the same helper every note\n * tool passes through, so a mention can never reach past it.\n */",
     "/** How much of a mentioned note joins the turn, and how many mentions are read at all. */",
@@ -16481,6 +16490,9 @@ const allowed = new Map([
     "// Scoped like every other read of a memory: this tool answers inside a turn, and a turn does not",
     "// see another project's facts just because it asked a broader question.",
     "/**\n * Leave a mark on the note that says which conversation wrote it.\n *\n * The notebook's backlink panel is built from `[[links]]` inside note text, so a note the assistant\n * wrote has no backlinks at all — nothing points at it, because a conversation is not a note. This is\n * what lets the note say where it came from.\n *\n * Best-effort on purpose: the note is already written and stored by the time this runs, and a failure\n * here would report the whole call as failed for something the reader can neither see nor act on. The\n * loss is one backlink, and it is logged rather than swallowed.\n */",
+    "// The vault's knowledge is mostly in its links: the page that says \"see [[the plan]]\" answers a",
+    "// question about the plan without mentioning it. One hop from the best hits, titles only — a",
+    "// neighbour is an invitation to read it, not a second copy of its text.",
   ]],
   ["src/worker/assistant/upstream.ts", [
     "/** A JSON Schema object, built by `toolSchemaFor` from the tool's own declared parameters. */",
@@ -18051,6 +18063,9 @@ const allowed = new Map([
   ]],
   ["tests/assistant-note-citations.test.ts", [
     "/**\n * The notes a reply cites.\n *\n * A search the assistant ran leaves no trace in its answer unless the reply carries what it read, so the\n * tool results are read back into citations here. The two things worth pinning are which tools count — a\n * listing is a table of contents, not a source — and that the url a citation stores is the app's own note\n * path, because a transcript is exported and shared and must not carry the origin it was written on.\n */",
+  ]],
+  ["tests/assistant-note-graph.test.ts", [
+    "/**\n * The notes one link away.\n *\n * What is pinned here is the shaping, not the SQL: a note does not relate to itself, a note reached from two\n * seeds is listed once, outbound beats inbound when both exist (a note's own \"see also\" is the stronger\n * signal), and the list is capped so a hub note does not hand the model the whole vault.\n *\n * The query itself is exercised where the notes are: this module's only judgement is which rows survive.\n */",
   ]],
   ["tests/assistant-note-scope.test.ts", [
     "/**\n * What one turn of the assistant is allowed to read.\n *\n * The reader can point the assistant at a couple of folders, and that is a permission: a model that\n * ignores the line in its prompt describing the scope must still be refused by the SQL underneath. The\n * note they had open when they asked is the one deliberate exception, and this is where it is pinned —\n * a widening that reached a folder instead of one named note would be the bug this file exists for.\n */",
