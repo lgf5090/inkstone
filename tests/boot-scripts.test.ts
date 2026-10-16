@@ -11,9 +11,24 @@ afterEach(() => {
   document.documentElement.lang = 'en-US'
   document.body.replaceChildren()
   localStorage.clear()
+  sessionStorage.clear()
   vi.unstubAllGlobals()
   vi.restoreAllMocks()
 })
+
+type BootRecovery = { fail: () => void; ready: () => void; booted: () => boolean }
+
+const startBootScript = (): BootRecovery => {
+  new Function(bootScript)()
+  return (window as unknown as { __inkstoneBoot: BootRecovery }).__inkstoneBoot
+}
+
+const failScriptLoad = (): void => {
+  const script = document.createElement('script')
+  script.type = 'module'
+  document.head.appendChild(script)
+  script.dispatchEvent(new Event('error'))
+}
 
 it('applies stored theme, accent, background, locale, and font scale', () => {
   vi.stubGlobal('matchMedia', vi.fn(() => ({ matches: false })))
@@ -95,4 +110,57 @@ it('uses the localized fallback when the error body is unreadable', async () => 
   form.dispatchEvent(new Event('submit', { cancelable: true }))
   await new Promise((resolve) => setTimeout(resolve, 0))
   expect(document.getElementById('error')!.textContent).toBe('sign-in failed fallback')
+})
+
+it('reloads once for a failed start-up, then explains itself instead of looping', () => {
+  document.body.innerHTML = '<div id="boot" aria-hidden="true"></div>'
+  const reload = vi.fn()
+  vi.stubGlobal('location', { reload })
+  const recovery = startBootScript()
+
+  recovery.fail()
+  expect(reload).toHaveBeenCalledTimes(1)
+
+  recovery.fail()
+  expect(reload).toHaveBeenCalledTimes(1)
+  const panel = document.querySelector('#boot .boot-failure')!
+  expect(panel.getAttribute('role')).toBe('alert')
+  expect(panel.querySelector('.boot-failure-title')!.textContent).toBe('Inkstone could not start')
+  expect(panel.querySelector('.boot-failure-action')!.textContent).toBe('Reload')
+  expect(document.getElementById('boot')!.hasAttribute('aria-hidden')).toBe(false)
+})
+
+it('answers a module script that never loads before the app is up', () => {
+  document.body.innerHTML = '<div id="boot"></div>'
+  const reload = vi.fn()
+  vi.stubGlobal('location', { reload })
+  startBootScript()
+
+  failScriptLoad()
+  expect(reload).toHaveBeenCalled()
+})
+
+it('leaves a script that fails after the app booted to the feature that loaded it', () => {
+  document.body.innerHTML = '<div id="boot"></div>'
+  const reload = vi.fn()
+  vi.stubGlobal('location', { reload })
+  const recovery = startBootScript()
+
+  recovery.ready()
+  failScriptLoad()
+  expect(reload).not.toHaveBeenCalled()
+  expect(document.querySelector('#boot .boot-failure')).toBeNull()
+})
+
+it('frees the reload guard for the next deploy once the app renders', () => {
+  document.body.innerHTML = '<div id="boot"></div>'
+  const reload = vi.fn()
+  vi.stubGlobal('location', { reload })
+  const recovery = startBootScript()
+
+  recovery.ready()
+  expect(sessionStorage.getItem('inkstone.boot-recovery')).toBeNull()
+
+  recovery.fail()
+  expect(reload).toHaveBeenCalledTimes(1)
 })

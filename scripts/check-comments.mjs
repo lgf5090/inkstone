@@ -84,6 +84,9 @@ const allowed = new Map([
     "// `translateServiceMessage` answers a reader's language by finding that text's key in the catalog by",
     "// its value: such a key is in use without ever being named. Only the code that raises those messages",
     "// is read for them, because the same word written as interface copy in a component proves nothing.",
+    "// The start-up failure screen is the one message that cannot come from the catalog: a document",
+    "// served one build behind loses the locale chunk, and the screen exists to be readable exactly",
+    "// then. It lives in the script that runs before any module, so the copy ships with it.",
   ]],
   ["scripts/excalidraw-patch.mjs", [
     "/**\n * The vendored engine build is a minified IIFE that was written for Obsidian, so six of its teardown\n * and asset paths throw when it is hosted by this app instead. The only way in is exact-string\n * replacement on minified text, which fails silently: rename one local and the `.replace()` becomes a\n * no-op that ships an unpatched bundle, and every gate still passes because nothing reads the result.\n *\n * This module is the single source for those edits (they used to be duplicated verbatim in\n * `vite.config.ts` and `scripts/patch-excalidraw.mjs`), and it reports every patch as applied,\n * already-present or unmatched so the caller can refuse to build on a miss.\n */",
@@ -7737,6 +7740,10 @@ const allowed = new Map([
   ["src/client/lib/async.ts", [
     "/**\n * Resolves when the work does or when it has had long enough, so a slow artifact delays what\n * comes next instead of hanging it. The timeout is the contract: the caller cannot wait\n * forever, and it must not learn about a failure it can do nothing about.\n */",
   ]],
+  ["src/client/lib/boot.ts", [
+    "/**\n * The start-up overlay belongs to the document, and so does the code that answers a failed boot:\n * `public/boot.js` runs before any module, which is the only way to still be running when the module\n * graph itself is what failed to load. These two calls are its client-side seam — a rejection out of\n * `start()` is reported instead of dying as an unhandled rejection that leaves the overlay pulsing\n * forever, and a rendered app releases the reload guard so the next deploy can recover the same way.\n */",
+    "// Nothing is rendered and the overlay has no room for detail, so the console is the record of why.",
+  ]],
   ["src/client/lib/calendar-activity.test.ts", [
     "// A mulberry32 PRNG so the differential run is deterministic across runs.",
     "// One random op against the map, mirroring the differential fuzz test's branch",
@@ -14134,6 +14141,11 @@ const allowed = new Map([
     "/** `--z-pinned-menu`: a menu opened from a pinned card; the shelf's drop veil rides this tier. */",
     "/**\n * The stacking tiers a surface sets from JavaScript, read off the scale in\n * `src/client/styles/tokens.css`.\n *\n * That list is the authority — this map is a mirror of the bands whose `z-index` reaches a component\n * as a prop or an inline style rather than as a class, and `tests/shared-component-contract.test.ts`\n * fails if a value here stops matching a band there, if the scale stops being strictly increasing, or\n * if a key here stops naming the token it carries. A surface whose stack level is fixed in CSS reads\n * the custom property (`z-[var(--z-modal)]`) and needs no key here.\n */",
     "/** `--z-workspace`: a full-height workspace panel, and the drawer that opens over it. */",
+  ]],
+  ["src/client/main.tsx", [
+    "// Every import above `createRoot` is a request for a content-hashed file. After a deploy the names",
+    "// in this document are the previous build's, so a rejected import has to reach the recovery in",
+    "// `boot.ts` — the overlay is otherwise the last thing the page ever shows.",
   ]],
   ["src/client/store/date-filter.test.ts", [
     "// C-08. The predicate used to build a `YYYY-MM-DD` string from every note's",

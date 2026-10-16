@@ -179,6 +179,14 @@ const allowedHanFragments = new Map([
     [path.resolve('src/client/lib/markdown/media-layout.test.ts'), ['\u8bbe\u8ba1\u8349\u56fe', '\u8bbe\u8ba1\u8349\u56fe', '\u8bbe\u8ba1\u8349\u56fe']],
     [path.resolve('src/client/lib/markdown/media-block.test.ts'), ['\u8bbe\u8ba1\u8349\u56fe']],
     [path.resolve('src/client/lib/markdown/media-layout-source.test.ts'), ['\u8bbe\u8ba1\u8349\u56fe']],
+    // The start-up failure screen is the one message that cannot come from the catalog: a document
+    // served one build behind loses the locale chunk, and the screen exists to be readable exactly
+    // then. It lives in the script that runs before any module, so the copy ships with it.
+    [path.resolve('public/boot.js'), [
+        '\u8fd9\u4e2a\u9875\u9762\u6765\u81ea\u65e7\u7248\u672c\uff0c\u91cd\u65b0\u52a0\u8f7d\u53ef\u4ee5\u53d6\u5230\u5f53\u524d\u7248\u672c\u3002',
+        'Inkstone \u6ca1\u80fd\u542f\u52a8',
+        '\u91cd\u65b0\u52a0\u8f7d',
+    ]],
 ]);
 /**
  * Named constants that hold the vocabulary a note is written *with* rather than the copy a page renders.
