@@ -1121,6 +1121,41 @@ export interface AssistantStats {
   limits: AssistantLimits
 }
 
+/** The link a published conversation is read at, in the shape every share in this app uses. */
+export interface ConversationShareInfo {
+  slug: string
+  url: string
+  hasPassword: boolean
+  expiresAt: number | null
+  views: number
+  createdAt: number
+}
+
+/**
+ * A published conversation as a stranger reads it.
+ *
+ * Every field here is one somebody looking over the reader's shoulder would have seen: who spoke, what
+ * they said, when, which model answered, and the pages a search consulted. Reasoning, tool rows and
+ * attachments are deliberately absent — they quote the reader's own notes and files — and the worker
+ * builds this shape instead of stripping a row, so nothing new can leak into it by being added to a
+ * message later.
+ */
+export interface PublicConversation {
+  title: string
+  createdAt: number
+  updatedAt: number
+  messages: Array<{
+    role: 'user' | 'assistant'
+    content: string
+    createdAt: number
+    modelLabel: string
+    sources?: AssistantSource[]
+  }>
+  author: { name: string, avatarUrl: string }
+  site: { name: string }
+  share: { slug: string }
+}
+
 export const ASSISTANT_TOOL_BY_NAME: ReadonlyMap<string, AssistantToolSpec> = new Map(
   ASSISTANT_TOOL_SPECS.map((spec) => [spec.name, spec]),
 )

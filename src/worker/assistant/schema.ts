@@ -390,6 +390,22 @@ export const ASSISTANT_SCHEMA_STATEMENTS: readonly string[] = [
   `CREATE INDEX IF NOT EXISTS idx_chat_usage_model_user
      ON chat_usage_daily_model(user_id, day DESC)`,
 
+  // One published conversation behind an unguessable slug. Its own table rather than a row in the notes
+  // app's `shares`: that one is keyed by note and joined to `notes` everywhere, and a shared thread has
+  // neither a note id nor a note title. The passcode hash, the expiry and the view count mean the same
+  // thing in both, which is why the code that reads them is shared and only the table is not.
+  `CREATE TABLE IF NOT EXISTS chat_share_links (
+    slug TEXT PRIMARY KEY,
+    conversation_id TEXT NOT NULL,
+    user_id TEXT NOT NULL,
+    password_hash TEXT,
+    expires_at INTEGER,
+    views INTEGER NOT NULL DEFAULT 0,
+    created_at INTEGER NOT NULL
+  )`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS idx_chat_share_links_conversation
+     ON chat_share_links(user_id, conversation_id)`,
+
   `CREATE TABLE IF NOT EXISTS chat_activity (
     user_id TEXT NOT NULL,
     id TEXT NOT NULL,
@@ -431,6 +447,7 @@ export const ASSISTANT_REQUIRED_TABLES: readonly string[] = [
   'chat_pending_actions',
   'chat_usage_daily',
   'chat_usage_daily_model',
+  'chat_share_links',
   'chat_activity',
   'chat_active_runs',
 ]
@@ -461,6 +478,7 @@ export const ASSISTANT_REQUIRED_INDEXES: readonly string[] = [
   'idx_chat_actions_conversation',
   'idx_chat_actions_pending',
   'idx_chat_usage_model_user',
+  'idx_chat_share_links_conversation',
   'idx_chat_activity_user',
   'idx_chat_active_runs_user',
   'idx_chat_prompts_user',
@@ -471,6 +489,7 @@ export const ASSISTANT_REQUIRED_INDEXES: readonly string[] = [
 export const ASSISTANT_REQUIRED_COLUMNS: Readonly<Record<string, readonly string[]>> = {
   chat_settings: ['user_id', 'config', 'updated_at'],
   chat_usage_daily_model: ['user_id', 'day', 'model_label', 'requests', 'input_tokens', 'output_tokens', 'tool_calls', 'errors'],
+  chat_share_links: ['slug', 'conversation_id', 'user_id', 'password_hash', 'expires_at', 'views', 'created_at'],
   chat_providers: ['user_id', 'id', 'label', 'protocol', 'base_url', 'endpoints', 'reasoning_dialect', 'key_ciphertext', 'created_at', 'updated_at'],
   chat_models: ['user_id', 'id', 'provider_id', 'model', 'label', 'temperature', 'max_output_tokens', 'reasoning', 'context_tokens', 'vision',
     'purpose', 'kind', 'supports_tools', 'max_input_tokens', 'modalities', 'top_p', 'custom_params', 'protocol',

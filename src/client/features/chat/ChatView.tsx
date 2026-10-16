@@ -56,6 +56,7 @@ import { CHAT_NOTE_LINKS } from './note-links'
 import { SelectionBar, SelectionTick, selectedMessages, type MessageSelection } from './SelectionBar'
 import { downloadTranscript } from './transcript'
 import { writeConversationDrag } from './conversation-drag'
+import { ConversationSharePanel } from '../share/ConversationSharePanel'
 import { ThreadFinder } from './ThreadFinder'
 import { ChatOutline } from './ChatOutline'
 import { modelReasoning, reasoningOptions } from './model-reasoning'
@@ -704,6 +705,7 @@ function ConversationRow({
   const starConversation = useAssistant((state) => state.starConversation)
   const attachNewTag = useAssistant((state) => state.attachNewTag)
   const anchor = useRef<HTMLSpanElement>(null)
+  const [sharing, setSharing] = useState(false)
   const title = conversation.title || t('assistant.chat.untitled')
   const assigned = new Set((conversation.tags ?? []).map((tag) => tag.id))
 
@@ -778,6 +780,9 @@ function ConversationRow({
           <MoreHorizontal size={14} />
         </IconButton>
       </span>
+      {sharing && (
+        <ConversationSharePanel conversationId={conversation.id} title={title} onClose={() => setSharing(false)} />
+      )}
       <Menu
         anchor={anchor}
         open={menuOpen}
@@ -821,6 +826,15 @@ function ConversationRow({
             label: t('assistant.chat.tags'),
             submenu: submenuFor(tagItems),
             subItems: tagItems,
+          },
+          {
+            id: 'share',
+            label: t('assistant.share.title'),
+            separatorBefore: true,
+            onSelect: () => {
+              onCloseMenu()
+              setSharing(true)
+            },
           },
           {
             id: 'export',

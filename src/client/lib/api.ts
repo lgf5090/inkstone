@@ -6,6 +6,7 @@ import type { ChatAttachment,
   MessageFeedback,
 } from '@shared/assistant'
 import type { MarkdownBackupManifest } from '@shared/backup-format'
+import type { ConversationShareInfo, PublicConversation } from '@shared/assistant'
 import type {
   PublicSharePresence,
   SharePresencePosition,
@@ -688,6 +689,9 @@ export const api = {
     remove: (noteId: string) => request<{ ok: true }>(`/api/share/${noteId}`, { method: 'DELETE' }),
     read: (slug: string, password?: string, signal?: AbortSignal) =>
       request<PublicNote>(`/api/public/${slug}`, { method: 'POST', body: { password }, signal }),
+    /** The same read for a published conversation, which has an address of its own. */
+    readConversation: (slug: string, password?: string, signal?: AbortSignal) =>
+      request<PublicConversation>(`/api/public/conversation/${slug}`, { method: 'POST', body: { password }, signal }),
   },
 
   /**
@@ -789,6 +793,12 @@ export const api = {
     /** A folder from the notebook's tree; null files the conversation back to unfiled. */
     moveConversation: (id: string, folderId: string | null) =>
       request<{ conversation: AssistantConversation }>(`/api/assistant/conversations/${id}`, { method: 'PATCH', body: { folderId } }),
+    conversationShare: (id: string, signal?: AbortSignal) =>
+      request<{ share: ConversationShareInfo | null }>(`/api/assistant/conversations/${id}/share`, { signal }),
+    createConversationShare: (id: string, body: { password?: string | null, expiresIn?: number | null, rotate?: boolean }) =>
+      request<{ share: ConversationShareInfo }>(`/api/assistant/conversations/${id}/share`, { method: 'POST', body }),
+    removeConversationShare: (id: string) =>
+      request<{ ok: true }>(`/api/assistant/conversations/${id}/share`, { method: 'DELETE' }),
     conversationFolders: () =>
       request<{ folders: ChatFolderNode[], unfiled: number }>('/api/assistant/folders'),
     conversationTags: () =>

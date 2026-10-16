@@ -30,6 +30,13 @@ import {
   type SharePageMeta,
   type ShareRow,
 } from '../share/store'
+import {
+  assertConversationShareAccess,
+  countConversationShareView,
+  findConversationShare,
+  loadSharedConversation,
+} from '../assistant/share'
+import type { PublicConversation } from '@shared/assistant'
 
 
 export const shareManageRoutes = new Hono<AppBindings>()
@@ -37,6 +44,9 @@ export const shareManageRoutes = new Hono<AppBindings>()
 export const shareRoutes = new Hono<AppBindings>()
 
 export const sharePageRoutes = new Hono<AppBindings>()
+
+/** The published conversation's own address, beside `/s/<slug>` for a published note. */
+export const conversationSharePageRoutes = new Hono<AppBindings>()
 
 const VIEW_WINDOW_MS = 60_000
 const VIEW_LIMIT = 60
@@ -110,6 +120,11 @@ function toShareInfo(row: ShareRow, origin: string): ShareInfo {
   }
 }
 
+
+/** The same visitor window a note share counts with: one view per visitor per minute, capped per link. */
+function conversationShareView(slug: string, ip: string, now: number): boolean {
+  return noteShareView(`chat:${slug}`, ip, now)
+}
 
 shareManageRoutes.use('*', requireAuth)
 
@@ -252,6 +267,98 @@ shareRoutes.post('/:slug', async (c) => {
   return c.json(body_)
 })
 
+
+/**
+ * A published conversation, read by somebody with no account.
+ *
+ * A path of its own rather than a branch inside the note read: what is emitted is a transcript, and a
+ * reader that had to tell two payload shapes apart would be a second kind of "did it work". The passcode
+ * gate, the attempt throttle and the view counting are the note route's, called from here rather than
+ * copied — the only thing that differs is what is loaded afterwards.
+ */
+shareRoutes.post('/conversation/:slug', async (c) => {
+  const slug = c.req.param('slug')
+  if (!isValidSlug(slug)) throw ApiError.notFound('The link does not exist or has been revoked')
+  const body = await readOptionalJson<{ password?: string }>(c, JSON_BODY_LIMITS.small, {})
+  const password = typeof body.password === 'string' ? body.password.slice(0, LIMITS.passwordMaxLength) : ''
+
+  const share = await findConversationShare(c.env.DB, slug)
+  if (!share) throw ApiError.notFound('The link does not exist or has been revoked')
+  if (share.expires_at && share.expires_at < Date.now()) throw ApiError.notFound('The link has expired')
+
+  await assertConversationShareAccess(c.env.DB, slug, requestClientIp(c), share, password)
+
+  const conversation = await loadSharedConversation(c.env.DB, share.conversation_id, share.user_id)
+  if (!conversation) throw ApiError.notFound('The conversation has been deleted')
+
+  if (conversationShareView(slug, requestClientIp(c), Date.now())) {
+    c.executionCtx?.waitUntil(countConversationShareView(c.env.DB, slug))
+  }
+
+  const payload: PublicConversation = {
+    title: conversation.title,
+    createdAt: conversation.createdAt,
+    updatedAt: conversation.updatedAt,
+    messages: conversation.messages,
+    author: await sharedAuthor(c.env.DB, share.user_id),
+    site: { name: c.env.APP_NAME || 'Inkstone' },
+    share: { slug },
+  }
+  return c.json(payload)
+})
+
+/**
+ * Who published it.
+ *
+ * The same two fields a shared note carries: a name and an avatar, read from the account row. Nothing
+ * else about the account is anyone's business, which is why this is a projection rather than the row.
+ */
+async function sharedAuthor(db: D1Database, userId: string): Promise<{ name: string; avatarUrl: string }> {
+  const row = await db
+    .prepare(`SELECT name, avatar_url FROM users WHERE id = ?1`)
+    .bind(userId)
+    .first<{ name: string | null, avatar_url: string | null }>()
+  return { name: row?.name?.trim() || 'Inkstone', avatarUrl: row?.avatar_url ?? '' }
+}
+
+conversationSharePageRoutes.get('/:slug', async (c) => {
+  const slug = c.req.param('slug')
+  const url = new URL(c.req.url)
+  if (!isValidSlug(slug)) return renderConversationShareShell(c, url, null)
+
+  const row = await findConversationShare(c.env.DB, slug)
+  // The title is only given away when there is no passcode to get past: a link's preview must not be the
+  // hole a guarded conversation leaks its first line through.
+  const meta = row && (!row.expires_at || row.expires_at > Date.now())
+    ? await c.env.DB
+      .prepare(`SELECT title FROM chat_conversations WHERE user_id = ?1 AND id = ?2`)
+      .bind(row.user_id, row.conversation_id)
+      .first<{ title: string }>()
+    : null
+  return renderConversationShareShell(c, url, row && meta && !row.password_hash ? meta.title : null)
+})
+
+async function renderConversationShareShell(
+  c: Context<AppBindings>,
+  url: URL,
+  title: string | null,
+) {
+  const shell = await c.env.ASSETS.fetch(new Request(new URL('/index.html', url.origin)))
+  if (!shell.ok) return shell
+  let html = await shell.text()
+  const siteName = c.env.APP_NAME || 'Inkstone'
+  const heading = title?.trim() || 'A shared conversation'
+  const tags = [
+    `<title>${escapeHtml(heading)} · ${escapeHtml(siteName)}</title>`,
+    `<meta property="og:type" content="article" />`,
+    `<meta property="og:title" content="${escapeHtml(heading)}" />`,
+    `<meta property="og:site_name" content="${escapeHtml(siteName)}" />`,
+    `<meta name="twitter:card" content="summary" />`,
+    `<meta name="robots" content="noindex, nofollow" />`,
+  ].join('\n    ')
+  html = html.replace(/<title>[\s\S]*?<\/title>/i, '').replace('</head>', `    ${tags}\n  </head>`)
+  return c.html(html, 200, { 'Cache-Control': 'no-store', 'X-Robots-Tag': 'noindex' })
+}
 
 sharePageRoutes.get('/:slug', async (c) => {
   const slug = c.req.param('slug')

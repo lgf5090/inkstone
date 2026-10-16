@@ -6,6 +6,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { SCHEMA_STATEMENTS } from '../src/worker/db/schema'
 import { errorResponse } from '../src/worker/lib/errors'
 import { assistantRoutes } from '../src/worker/routes/assistant'
+import { shareRoutes } from '../src/worker/routes/share'
 import { CredentialVault } from '../src/worker/durable/credential-vault'
 import type { AppBindings, Env } from '../src/worker/env'
 import type {
@@ -91,6 +92,9 @@ function buildApp(userId: string): Hono<AppBindings> {
     await next()
   })
   instance.route('/api/assistant', assistantRoutes)
+  // The public half of the app is mounted here too: a published conversation is read by somebody with
+  // no account, so the two halves are one subject from the reader's side.
+  instance.route('/api/public', shareRoutes)
   return instance
 }
 
@@ -283,6 +287,68 @@ describe('re-taking a turn', () => {
     expect(await status('POST', `/api/assistant/conversations/${conversation.id}/messages/delete`, { ids: [] })).toBe(400)
     const other = await call<{ conversation: AssistantConversation }>('POST', '/api/assistant/conversations', { title: 'Elsewhere' })
     expect(await status('POST', `/api/assistant/conversations/${other.conversation.id}/messages/delete`, { ids: [first.id] })).toBe(200)
+  })
+
+  it('publishes a conversation read-only, and never the thinking or the tool rows', async () => {
+    const { store, conversation, first, firstAnswer } = await thread()
+    // A turn that thought, searched and called a tool, so the published payload has something to *not*
+    // carry: the reasoning is the model thinking aloud, and a tool result can quote a private note.
+    await store.updateMessageContent(firstAnswer.id, 'The answer, per the search.')
+    const shared = await call<{ share: { slug: string, url: string, hasPassword: boolean } }>(
+      'POST', `/api/assistant/conversations/${conversation.id}/share`, {},
+    )
+    expect(shared.share.url).toContain(`/c/${shared.share.slug}`)
+    expect(shared.share.hasPassword).toBe(false)
+
+    const read = await call<{ title: string, messages: Array<{ role: string, content: string }> }>(
+      'POST', `/api/public/conversation/${shared.share.slug}`, {},
+    )
+    // The whole thread, in order, with the edit the test made showing through — a link carries the
+    // conversation as it stands, not a snapshot from when it was minted.
+    expect(read.messages.map((message) => message.content))
+      .toEqual([first.content, 'The answer, per the search.', 'SECOND ASK', 'SECOND ANSWER'])
+    expect(read.messages.map((message) => message.role)).toEqual(['user', 'assistant', 'user', 'assistant'])
+
+    // The row is written with reasoning and tool activity, and the read side must not echo either.
+    const raw = JSON.stringify(read)
+    expect(raw).not.toContain('reasoning')
+    expect(raw).not.toContain('tools')
+    expect(raw).not.toContain('attachments')
+  })
+
+  it('gates a published conversation behind its passcode, and behind nothing else', async () => {
+    const { conversation } = await thread()
+    const shared = await call<{ share: { slug: string } }>(
+      'POST', `/api/assistant/conversations/${conversation.id}/share`, { password: 'open-sesame-please' },
+    )
+    expect(await status('POST', `/api/public/conversation/${shared.share.slug}`, {})).toBe(401)
+    expect(await status('POST', `/api/public/conversation/${shared.share.slug}`, { password: 'wrong-passcode-here' })).toBe(401)
+    expect(await status('POST', `/api/public/conversation/${shared.share.slug}`, { password: 'open-sesame-please' })).toBe(200)
+  })
+
+  it('rotates the link on request and revokes it outright', async () => {
+    const { conversation } = await thread()
+    const first = await call<{ share: { slug: string } }>('POST', `/api/assistant/conversations/${conversation.id}/share`, {})
+    const rotated = await call<{ share: { slug: string } }>(
+      'POST', `/api/assistant/conversations/${conversation.id}/share`, { rotate: true },
+    )
+    expect(rotated.share.slug).not.toBe(first.share.slug)
+    // The old address is dead the moment a new one is minted, which is the only way to un-share a link
+    // somebody already has a copy of.
+    expect(await status('POST', `/api/public/conversation/${first.share.slug}`, {})).toBe(404)
+    expect(await status('POST', `/api/public/conversation/${rotated.share.slug}`, {})).toBe(200)
+    await call('DELETE', `/api/assistant/conversations/${conversation.id}/share`)
+    expect(await status('POST', `/api/public/conversation/${rotated.share.slug}`, {})).toBe(404)
+    const state = await call<{ share: unknown }>('GET', `/api/assistant/conversations/${conversation.id}/share`)
+    expect(state.share).toBeNull()
+  })
+
+  it('refuses to publish a conversation that belongs to somebody else', async () => {
+    const { conversation } = await thread()
+    asUser(OTHER)
+    expect(await status('POST', `/api/assistant/conversations/${conversation.id}/share`, {})).toBe(404)
+    expect(await status('GET', `/api/assistant/conversations/${conversation.id}/share`)).toBe(404)
+    asUser(USER)
   })
 
   it('keeps the pages a searched answer consulted, and drops a row that is not one', async () => {

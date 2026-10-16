@@ -76,6 +76,7 @@ import { AutomationService } from '../assistant/automations'
 import { AssistantRunner } from '../assistant/runner'
 import { cancelApprovedAction, runApprovedAction } from '../assistant/tools'
 import { exportAssistant, importAssistant } from '../assistant/backup'
+import { ChatShareStore, conversationSharePasswordHash, type ChatShareRow } from '../assistant/share'
 import { suggestActiveModel } from '../assistant/model-config'
 import { listVendorModels } from '../assistant/vendor-models'
 import { memoryEmbeddingStatus, reindexMemoryEmbeddings, semanticModel } from '../assistant/semantic'
@@ -577,6 +578,88 @@ assistantRoutes.post('/conversations/:id/messages/delete', async (c) => {
   if (await s.isRunning(conversationId)) throw ApiError.conflict('Stop the running reply first.')
   const removed = await s.deleteMessages(conversationId, ids)
   return c.json({ removed, messages: await s.messages(conversationId) })
+})
+
+/** A published link, in the shape the settings panel draws. */
+export function conversationShareInfo(row: ChatShareRow, origin: string): {
+  slug: string
+  url: string
+  hasPassword: boolean
+  expiresAt: number | null
+  views: number
+  createdAt: number
+} {
+  return {
+    slug: row.slug,
+    url: `${origin.replace(/\/$/, '')}/c/${encodeURIComponent(row.slug)}`,
+    hasPassword: Boolean(row.password_hash),
+    expiresAt: row.expires_at,
+    views: row.views,
+    createdAt: row.created_at,
+  }
+}
+
+/**
+ * The link a conversation is published behind, if any.
+ *
+ * Emitted with the origin in it because the reader's next act is to paste it somewhere; the settings
+ * panel is the only caller, and a client that had to assemble a URL would be a second place the format
+ * lives.
+ */
+assistantRoutes.get('/conversations/:id/share', async (c) => {
+  const userId = c.get('userId')
+  const conversationId = requiredId(c.req.param('id'))
+  const shares = new ChatShareStore(c.env.DB, userId)
+  if (!(await shares.liveConversationExists(conversationId))) throw ApiError.notFound('Conversation not found')
+  const row = await shares.shareFor(conversationId)
+  return c.json({ share: row ? conversationShareInfo(row, new URL(c.req.url).origin) : null })
+})
+
+/**
+ * Publishes a conversation, or refreshes the link it already has.
+ *
+ * `rotate` is the reader's "give me a new address" — the old slug stops resolving the moment it lands,
+ * which is the only way to un-share a link somebody already has a copy of. Everything else about the
+ * request is optional and keeps what it had, so the panel can send one field at a time.
+ */
+assistantRoutes.post('/conversations/:id/share', async (c) => {
+  const userId = c.get('userId')
+  const conversationId = requiredId(c.req.param('id'))
+  const body = await readJson<{ password?: unknown, expiresIn?: unknown, rotate?: unknown }>(c, JSON_BODY_LIMITS.small)
+  const assistant = store(c)
+  const shares = new ChatShareStore(c.env.DB, userId)
+  if (!(await shares.liveConversationExists(conversationId))) throw ApiError.notFound('Conversation not found')
+  if (
+    body.expiresIn !== undefined &&
+    body.expiresIn !== null &&
+    (!Number.isFinite(body.expiresIn) || (body.expiresIn as number) < 0)
+  ) {
+    throw ApiError.badRequest('expiresIn must be a non-negative number or null')
+  }
+  const expiresAt = typeof body.expiresIn === 'number' && body.expiresIn > 0
+    ? Date.now() + Math.min(body.expiresIn, 365 * 24 * 60 * 60 * 1000)
+    : null
+  const passcode = await conversationSharePasswordHash(body.password)
+  const written = await shares.upsertShare({
+    conversationId,
+    passwordHash: passcode.hash,
+    expiresAt,
+    now: Date.now(),
+    replacePassword: passcode.named,
+    replaceExpiry: body.expiresIn !== undefined,
+    rotate: body.rotate === true,
+  })
+  if (!written) throw new ApiError(409, 'conflict', 'Share state changed. Refresh and try again')
+  const row = await shares.shareFor(conversationId)
+  await assistant.recordActivity('conversation.shared', row!.slug)
+  return c.json({ share: conversationShareInfo(row!, new URL(c.req.url).origin) })
+})
+
+assistantRoutes.delete('/conversations/:id/share', async (c) => {
+  const userId = c.get('userId')
+  const conversationId = requiredId(c.req.param('id'))
+  await new ChatShareStore(c.env.DB, userId).deleteShare(conversationId)
+  return c.json({ ok: true })
 })
 
 assistantRoutes.post('/conversations/:id/fork', async (c) => {

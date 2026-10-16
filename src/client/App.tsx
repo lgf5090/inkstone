@@ -19,6 +19,9 @@ const AppTabHost = lazy(() =>
 const SharePage = lazy(() =>
   import('./features/share/SharePage').then((module) => ({ default: module.SharePage })),
 )
+const ConversationSharePage = lazy(() =>
+  import('./features/share/ConversationSharePage').then((module) => ({ default: module.ConversationSharePage })),
+)
 const PresentationOverlay = lazy(() =>
   import('./features/presentation').then((module) => ({ default: module.PresentationOverlay })),
 )
@@ -53,15 +56,22 @@ export function App() {
     const match = /^\/s\/([A-Za-z0-9_-]+)/.exec(location.pathname)
     return match?.[1] ?? null
   })
+  // A published conversation lives at an address of its own rather than under `/s/`: the two share the
+  // promise but not the payload, and one path that had to be told apart would be a second kind of
+  // "did it work" for both of them.
+  const [conversationShareSlug] = useState(() => {
+    const match = /^\/c\/([A-Za-z0-9_-]+)/.exec(location.pathname)
+    return match?.[1] ?? null
+  })
   // The presenter console is a second window over the same app, and it is a document that has been
   // handed a capability rather than an account session: it speaks on the BroadcastChannel and reads
   // nothing of its own. Booting the notebook here would ask it to log in to a room it is already in.
   const [isPresenter] = useState(() => new URLSearchParams(location.search).has('presenter'))
 
   useEffect(() => {
-    if (shareSlug || isPresenter) return
+    if (shareSlug || conversationShareSlug || isPresenter) return
     void load()
-  }, [load, shareSlug, isPresenter])
+  }, [load, shareSlug, conversationShareSlug, isPresenter])
 
   useEffect(() => watchSystemTheme(), [])
 
@@ -71,16 +81,16 @@ export function App() {
   }, [isPresenter])
 
   useEffect(() => {
-    if ((shareSlug || isPresenter) || status !== 'loading') return
+    if ((shareSlug || conversationShareSlug || isPresenter) || status !== 'loading') return
     requestOfflineWarmup()
-  }, [shareSlug, isPresenter, status])
+  }, [shareSlug, conversationShareSlug, isPresenter, status])
 
   useEffect(() => {
-    if (shareSlug || isPresenter || status !== 'loading') dismissBootScreen()
+    if (shareSlug || conversationShareSlug || isPresenter || status !== 'loading') dismissBootScreen()
   }, [status, shareSlug, isPresenter])
 
   useEffect(() => {
-    if (shareSlug || isPresenter) return
+    if (shareSlug || conversationShareSlug || isPresenter) return
     const timer = window.setTimeout(() => dismissBootScreen(), BOOT_WATCHDOG_MS)
     return () => window.clearTimeout(timer)
   }, [shareSlug, isPresenter])
@@ -95,12 +105,12 @@ export function App() {
     )
   }
 
-  if (shareSlug) {
+  if (shareSlug || conversationShareSlug) {
     return (
       <>
         <ErrorBoundary>
           <Suspense fallback={<PageFallback />}>
-            <SharePage slug={shareSlug} />
+            {shareSlug ? <SharePage slug={shareSlug} /> : <ConversationSharePage slug={conversationShareSlug!} />}
           </Suspense>
         </ErrorBoundary>
         <Toaster />
