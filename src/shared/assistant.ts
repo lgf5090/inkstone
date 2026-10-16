@@ -669,20 +669,27 @@ export interface AssistantTurnScope {
   name: string
 }
 
-/** One saved prompt: the reader's own words, kept out of the model's way until asked for. */
-export const MAX_PROMPT_TITLE_CHARS = 120
-export const MAX_PROMPT_CONTENT_CHARS = 8_000
+/** One saved skill: the reader's own words, plus the arrangement they travel with. */
+export const MAX_SKILL_TITLE_CHARS = 120
+export const MAX_SKILL_CONTENT_CHARS = 8_000
+/**
+ * Long enough for one emoji, including the multi-code-point ones a family or a flag is written with —
+ * `👨‍👩‍👧` is five UTF-16 units — and short enough that nothing but an icon fits.
+ */
+export const MAX_SKILL_ICON_CHARS = 8
 
-export interface ChatPrompt {
+export interface AssistantSkill {
   id: string
   title: string
   content: string
-  /** Free-text grouping; empty means the prompt is unfiled. */
+  /** Free-text grouping; empty means the skill is unfiled. */
   group: string
+  /** The emoji it wears in the library; empty means it shows the generic glyph. */
+  icon: string
   /**
-   * What applying the prompt arranges for the turn, in the same shapes the composer's own `/` and `#`
-   * picks use. A prompt that only carries words has three empty bindings, which is how every prompt
-   * written before these columns existed still reads.
+   * What applying the skill arranges for the turn, in the same shapes the composer's own `/` and `#`
+   * picks use. A skill that only carries words has three empty bindings, which is how every one written
+   * before these columns existed still reads.
    */
   tools: string[]
   scopes: AssistantTurnScope[]
@@ -693,15 +700,16 @@ export interface ChatPrompt {
 }
 
 /**
- * What the reader writes into a prompt, as opposed to what comes back.
+ * What the reader writes into a skill, as opposed to what comes back.
  *
  * Every field is optional because both halves of an edit arrive from the same form and the server keeps
  * whatever the request did not name; the timestamps and id are the server's to assign.
  */
-export interface ChatPromptInput {
+export interface AssistantSkillInput {
   title?: string
   content?: string
   group?: string
+  icon?: string
   tools?: string[]
   scopes?: AssistantTurnScope[]
   modelId?: string | null

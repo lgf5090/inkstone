@@ -2,8 +2,8 @@ import type { RssFetchResult } from '@shared/rss/model'
 import { CLIENT_HEADER } from '@shared/constants'
 import type { ReaderUsage } from '@shared/types'
 import type { ChatAttachment,
-  ChatPrompt,
-  ChatPromptInput,
+  AssistantSkill,
+  AssistantSkillInput,
   MessageFeedback,
 } from '@shared/assistant'
 import type { MarkdownBackupManifest } from '@shared/backup-format'
@@ -914,13 +914,13 @@ export const api = {
       downloadChatFileWithProgress(id, onProgress),
     addChatFileFromUrl: (url: string) =>
       request<{ attachment: ChatAttachment }>('/api/assistant/files/url', { method: 'POST', body: { url } }),
-    prompts: (query?: string) =>
-      request<{ prompts: ChatPrompt[] }>(`/api/assistant/prompts${query ? `?q=${encodeURIComponent(query)}` : ''}`),
-    createPrompt: (body: ChatPromptInput) =>
-      request<{ prompt: ChatPrompt }>('/api/assistant/prompts', { method: 'POST', body }),
-    updatePrompt: (id: string, body: ChatPromptInput) =>
-      request<{ prompt: ChatPrompt }>(`/api/assistant/prompts/${id}`, { method: 'PATCH', body }),
-    removePrompt: (id: string) => request<{ deleted: boolean }>(`/api/assistant/prompts/${id}`, { method: 'DELETE' }),
+    skills: (query?: string) =>
+      request<{ skills: AssistantSkill[] }>(`/api/assistant/skills${query ? `?q=${encodeURIComponent(query)}` : ''}`),
+    createSkill: (body: AssistantSkillInput) =>
+      request<{ skill: AssistantSkill }>('/api/assistant/skills', { method: 'POST', body }),
+    updateSkill: (id: string, body: AssistantSkillInput) =>
+      request<{ skill: AssistantSkill }>(`/api/assistant/skills/${id}`, { method: 'PATCH', body }),
+    removeSkill: (id: string) => request<{ deleted: boolean }>(`/api/assistant/skills/${id}`, { method: 'DELETE' }),
     chatFiles: () => request<{ files: ChatAttachment[] }>('/api/assistant/files'),
     deleteChatFile: (id: string) => request<{ deleted: boolean }>(`/api/assistant/files/${id}`, { method: 'DELETE' }),
     starConversation: (id: string, starred: boolean) =>

@@ -130,7 +130,7 @@ export function useChatFolderMenu(node: ChatFolderNode) {
 
 function refresh(): void {
   // The light read rather than `bootstrap`: a folder write changes nothing about the model, the
-  // providers or the prompts, and re-reading all of them per menu press would be a lot of requests for
+  // providers or the skills, and re-reading all of them per menu press would be a lot of requests for
   // one number.
   void useAssistant.getState().loadTaxonomy()
 }

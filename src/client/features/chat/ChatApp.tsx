@@ -22,7 +22,7 @@ import { ChatView } from './ChatView'
 import { MemoryView } from './MemoryView'
 import { TasksView } from './TasksView'
 import { AutomationsView } from './AutomationsView'
-import { PromptsView } from './PromptsView'
+import { SkillsView } from './SkillsView'
 import { AssistantSettingsView } from './AssistantSettingsView'
 import { ProjectsView } from './ProjectsView'
 import { NotificationCenter } from './NotificationCenter'
@@ -32,7 +32,7 @@ const VIEW_ICONS: Record<AssistantView, typeof MessageSquare> = {
   memory: Brain,
   tasks: CheckSquare,
   automations: LayoutList,
-  prompts: BookMarked,
+  skills: BookMarked,
   projects: FolderKanban,
   settings: Settings2,
 }
@@ -46,7 +46,7 @@ const VIEW_TAB_LABELS: Record<AssistantView, MessageKey> = {
   memory: 'assistant.view.memory',
   tasks: 'assistant.view.tasks',
   automations: 'assistant.view.automations',
-  prompts: 'assistant.view.prompts',
+  skills: 'assistant.view.skills',
   projects: 'assistant.projects.title',
   settings: 'common.settings',
 }
@@ -56,7 +56,7 @@ const VIEW_LABELS: Record<AssistantView, MessageKey> = {
   memory: 'assistant.view.memory',
   tasks: 'assistant.view.tasks',
   automations: 'assistant.view.automations',
-  prompts: 'assistant.view.prompts',
+  skills: 'assistant.view.skills',
   projects: 'assistant.projects.title',
   settings: 'assistant.view.settings',
 }
@@ -146,7 +146,7 @@ export function ChatApp() {
           {view === 'memory' && <MemoryView />}
           {view === 'tasks' && <TasksView />}
           {view === 'automations' && <AutomationsView />}
-          {view === 'prompts' && <PromptsView />}
+          {view === 'skills' && <SkillsView />}
           {view === 'projects' && <ProjectsView />}
           {view === 'settings' && <AssistantSettingsView />}
         </div>

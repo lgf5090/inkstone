@@ -20,7 +20,7 @@ import type {
   AssistantModel,
   AssistantSource,
   AssistantTurnScope,
-  ChatPrompt,
+  AssistantSkill,
   MessageFeedback,
   AssistantModelKind,
   AssistantModelPurpose,
@@ -1093,10 +1093,14 @@ export class AssistantStore {
     return row
   }
 
-  // ------------------------------------------------------------------ prompts
+  // ------------------------------------------------------------------- skills
 
-  /** The reader's saved prompts, newest first; `group` narrows to one folder of them. */
-  async listPrompts(options: { query?: string, group?: string, limit?: number } = {}): Promise<ChatPrompt[]> {
+  // The rows live in `chat_prompts`, the name the table shipped under; the surface was renamed to skills
+  // and the storage name was not (see the note in `assistant/schema.ts`). One name for one concept in
+  // every statement below, so the mismatch is read once here rather than puzzled over at each query.
+
+  /** The reader's saved skills, newest first; `group` narrows to one folder of them. */
+  async listSkills(options: { query?: string, group?: string, limit?: number } = {}): Promise<AssistantSkill[]> {
     const q = new Query(this.userId)
     if (options.group) q.eq(`group_name`, options.group)
     if (options.query) {
@@ -1105,55 +1109,57 @@ export class AssistantStore {
       q.raw(`(title LIKE ${pattern} ESCAPE '\\' OR content LIKE ${inBody} ESCAPE '\\')`)
     }
     const limitBind = q.add(options.limit ?? 200)
-    const list = await this.rows<PromptRow>(
-      `SELECT id, title, content, group_name, tools, scopes, model_id, created_at, updated_at FROM chat_prompts
+    const list = await this.rows<SkillRow>(
+      `SELECT ${SKILL_SELECT_COLUMNS} FROM chat_prompts
         WHERE ${q.where} ORDER BY updated_at DESC LIMIT ${limitBind}`,
       ...q.binds,
     )
-    return list.map(toPrompt)
+    return list.map(toSkill)
   }
 
-  async getPrompt(id: string): Promise<ChatPrompt | null> {
-    const r = await this.one<PromptRow>(
-      `SELECT id, title, content, group_name, tools, scopes, model_id, created_at, updated_at
+  async getSkill(id: string): Promise<AssistantSkill | null> {
+    const r = await this.one<SkillRow>(
+      `SELECT ${SKILL_SELECT_COLUMNS}
          FROM chat_prompts WHERE user_id = ?1 AND id = ?2`,
       this.userId, id,
     )
-    return r ? toPrompt(r) : null
+    return r ? toSkill(r) : null
   }
 
-  async insertPrompt(input: {
-    title: string, content: string, group?: string,
+  async insertSkill(input: {
+    title: string, content: string, group?: string, icon?: string,
     tools?: string[], scopes?: AssistantTurnScope[], modelId?: string | null,
-  }): Promise<ChatPrompt> {
+  }): Promise<AssistantSkill> {
     const id = newId()
     const at = Date.now()
     const group = input.group?.trim() ?? ''
+    const icon = input.icon?.trim() ?? ''
     const tools = input.tools ?? []
     const scopes = input.scopes ?? []
     const modelId = input.modelId ?? null
     await this.write(
-      `INSERT INTO chat_prompts (id, user_id, title, content, group_name, tools, scopes, model_id, created_at, updated_at)
-       VALUES (?2, ?1, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?9)`,
-      id, input.title, input.content, group, JSON.stringify(tools), JSON.stringify(scopes), modelId, at,
+      `INSERT INTO chat_prompts (id, user_id, title, content, group_name, tools, scopes, model_id, icon, created_at, updated_at)
+       VALUES (?2, ?1, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?10)`,
+      id, input.title, input.content, group, JSON.stringify(tools), JSON.stringify(scopes), modelId, icon, at,
     )
     return {
-      id, title: input.title, content: input.content, group, tools, scopes, modelId,
+      id, title: input.title, content: input.content, group, icon, tools, scopes, modelId,
       createdAt: at, updatedAt: at,
     }
   }
 
-  async updatePrompt(id: string, patch: {
-    title?: string, content?: string, group?: string,
+  async updateSkill(id: string, patch: {
+    title?: string, content?: string, group?: string, icon?: string,
     tools?: string[], scopes?: AssistantTurnScope[], modelId?: string | null,
-  }): Promise<ChatPrompt | null> {
-    const existing = await this.getPrompt(id)
+  }): Promise<AssistantSkill | null> {
+    const existing = await this.getSkill(id)
     if (!existing) return null
-    const next: ChatPrompt = {
+    const next: AssistantSkill = {
       ...existing,
       ...(patch.title !== undefined ? { title: patch.title } : {}),
       ...(patch.content !== undefined ? { content: patch.content } : {}),
       ...(patch.group !== undefined ? { group: patch.group } : {}),
+      ...(patch.icon !== undefined ? { icon: patch.icon } : {}),
       ...(patch.tools !== undefined ? { tools: patch.tools } : {}),
       ...(patch.scopes !== undefined ? { scopes: patch.scopes } : {}),
       ...(patch.modelId !== undefined ? { modelId: patch.modelId } : {}),
@@ -1161,16 +1167,16 @@ export class AssistantStore {
     }
     await this.write(
       `UPDATE chat_prompts SET title = ?2, content = ?3, group_name = ?4, tools = ?5, scopes = ?6,
-         model_id = ?7, updated_at = ?8
-         WHERE user_id = ?1 AND id = ?9`,
+         model_id = ?7, icon = ?8, updated_at = ?9
+         WHERE user_id = ?1 AND id = ?10`,
       next.title, next.content, next.group, JSON.stringify(next.tools), JSON.stringify(next.scopes),
-      next.modelId, next.updatedAt, id,
+      next.modelId, next.icon, next.updatedAt, id,
     )
     return next
   }
 
-  async deletePrompt(id: string): Promise<boolean> {
-    const existing = await this.getPrompt(id)
+  async deleteSkill(id: string): Promise<boolean> {
+    const existing = await this.getSkill(id)
     if (!existing) return false
     await this.write(`DELETE FROM chat_prompts WHERE user_id = ?1 AND id = ?2`, id)
     return true
@@ -3588,7 +3594,13 @@ export const MODEL_SELECT_COLUMNS = `id, provider_id, model, label, temperature,
   reasoning, context_tokens, vision, purpose, kind, supports_tools, max_input_tokens, modalities, top_p,
   custom_params, protocol, fallback_model_id, input_price, output_price, price_currency, enabled, position`
 
-interface PromptRow {
+/**
+ * The columns a skill row is read with. One list, because two hand-copied ones are how a new column ends
+ * up written but never read back: the editor saved an icon and the reader saw the old blank.
+ */
+const SKILL_SELECT_COLUMNS = `id, title, content, group_name, tools, scopes, model_id, icon, created_at, updated_at`
+
+interface SkillRow {
   id: string
   title: string
   content: string
@@ -3596,16 +3608,18 @@ interface PromptRow {
   tools: string | null
   scopes: string | null
   model_id: string | null
+  icon: string | null
   created_at: number
   updated_at: number
 }
 
-function toPrompt(r: PromptRow): ChatPrompt {
+function toSkill(r: SkillRow): AssistantSkill {
   return {
     id: r.id,
     title: r.title,
     content: r.content,
     group: r.group_name ?? '',
+    icon: r.icon ?? '',
     tools: decodeStringList(r.tools),
     scopes: decodeTurnScopes(r.scopes),
     modelId: r.model_id ?? null,
@@ -3615,7 +3629,7 @@ function toPrompt(r: PromptRow): ChatPrompt {
 }
 
 /**
- * The knowledge a saved prompt reads, decoded the forgiving way the transcript reads its tools.
+ * The knowledge a saved skill reads, decoded the forgiving way the transcript reads its tools.
  *
  * A row written before these columns existed holds nothing, and one half-written holds a shape that is
  * not a scope; both read as "no extra folders" rather than failing the list.

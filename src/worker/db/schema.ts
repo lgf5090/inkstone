@@ -1294,6 +1294,16 @@ export const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
       `ALTER TABLE chat_models ADD COLUMN fallback_model_id TEXT`,
     ],
   },
+  {
+    // The emoji a saved skill wears in the library, so a reader with a dozen of them can find one by
+    // sight rather than by reading every title. Empty is a skill that never picked one, which is every
+    // row written before this column existed.
+    version: 81,
+    skipIfColumnExists: { table: 'chat_prompts', column: 'icon' },
+    statements: [
+      `ALTER TABLE chat_prompts ADD COLUMN icon TEXT NOT NULL DEFAULT ''`,
+    ],
+  },
 ]
 
 const FTS_STATEMENT = `CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(

@@ -81,7 +81,7 @@ async function exportConversation(conversationId: string, title: string): Promis
   }
 }
 
-const QUICK_PROMPT_KEYS = ['assistant.chat.ask_1', 'assistant.chat.ask_2', 'assistant.chat.ask_3', 'assistant.chat.ask_4'] as const
+const QUICK_SKILL_KEYS = ['assistant.chat.ask_1', 'assistant.chat.ask_2', 'assistant.chat.ask_3', 'assistant.chat.ask_4'] as const
 
 const SUGGESTION_KEYS = [
   'assistant.chat.ask_1',
@@ -1054,15 +1054,15 @@ ${current}` : seed))
   const dropTurnScope = useAssistant((state) => state.dropTurnScope)
   const toast = useUi((state) => state.toast)
   // Translated at render, so a reader who switches language sees the new words without a reload.
-  // Their own saved prompts come first; the built-in openers are the empty library's fallback.
-  const savedPrompts = useAssistant((state) => state.prompts)
-  const loadPrompts = useAssistant((state) => state.loadPrompts)
-  useEffect(() => { void loadPrompts() }, [loadPrompts])
-  const quickPrompts = useMemo(
-    () => (savedPrompts.length
-      ? savedPrompts.map((prompt) => ({ id: prompt.id, label: prompt.title, text: prompt.content, prompt }))
-      : QUICK_PROMPT_KEYS.map((key, index) => ({ id: String(index), label: t(key) }))),
-    [savedPrompts],
+  // Their own saved skills come first; the built-in openers are the empty library's fallback.
+  const savedSkills = useAssistant((state) => state.skills)
+  const loadSkills = useAssistant((state) => state.loadSkills)
+  useEffect(() => { void loadSkills() }, [loadSkills])
+  const quickSkills = useMemo(
+    () => (savedSkills.length
+      ? savedSkills.map((skill) => ({ id: skill.id, label: skill.title, text: skill.content, skill }))
+      : QUICK_SKILL_KEYS.map((key, index) => ({ id: String(index), label: t(key) }))),
+    [savedSkills],
   )
   // Only a model the reader marked as answering chat belongs in the picker; an embedding endpoint is
   // not a thing to hold a conversation with.
@@ -1288,7 +1288,7 @@ ${current}` : seed))
               share a phone's width, so nothing here carries a word. */}
           <div className="flex min-w-0 flex-wrap items-center gap-0.5 px-0.5 pt-0.5">
             <PlusMenu
-              prompts={quickPrompts}
+              skills={quickSkills}
               onFiles={() => fileRef.current?.click()}
               onFolder={() => folderRef.current?.click()}
               onUrl={() => {
@@ -1297,14 +1297,14 @@ ${current}` : seed))
                 })
               }}
               onNote={() => setPickingNote(true)}
-              onPrompt={(row) => {
+              onSkill={(row) => {
                 const text = row.text ?? row.label
                 setValue((current) => (current.trim() ? `${current.trim()}\n${text}` : text))
-                // A saved prompt is a standing arrangement, so its words arrive with the turn it was
+                // A saved skill is a standing arrangement, so its words arrive with the turn it was
                 // written for: the chips below the box change, which is what says the change happened.
-                if (row.prompt) applySkill(row.prompt)
+                if (row.skill) applySkill(row.skill)
               }}
-              onManagePrompts={() => setView('prompts')}
+              onManageSkills={() => setView('skills')}
             />
             <IconButton label={t('assistant.attach.add_file')} size="sm" onClick={() => fileRef.current?.click()} className="size-7 rounded-[var(--r-md)]">
               <Paperclip size={14} />

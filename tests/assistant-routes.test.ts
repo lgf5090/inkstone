@@ -18,13 +18,13 @@ import type {
   AssistantModel,
   AssistantProvider,
   AssistantSettings,
-  ChatPrompt,
+  AssistantSkill,
   Automation,
   ChatStreamEvent,
   Project,
   Task,
 } from '../src/shared/assistant'
-import { DEFAULT_SEMANTIC_MODEL, MAX_ANSWER_VERSIONS, MAX_MCP_TIMEOUT_SECONDS, MAX_PROMPT_CONTENT_CHARS, MAX_PROMPT_TITLE_CHARS, MAX_REASONING_CHARS, MAX_TOKEN_CEILING, MAX_TURN_SCOPES, MAX_TURN_TOOLS, ASSISTANT_TOOL_BY_NAME } from '../src/shared/assistant'
+import { DEFAULT_SEMANTIC_MODEL, MAX_ANSWER_VERSIONS, MAX_MCP_TIMEOUT_SECONDS, MAX_SKILL_CONTENT_CHARS, MAX_SKILL_ICON_CHARS, MAX_SKILL_TITLE_CHARS, MAX_REASONING_CHARS, MAX_TOKEN_CEILING, MAX_TURN_SCOPES, MAX_TURN_TOOLS, ASSISTANT_TOOL_BY_NAME } from '../src/shared/assistant'
 import { makeD1 } from './doubles/d1-sqlite'
 import { testBindings, testDurableObjectNamespace, testR2Bucket } from './doubles/bindings'
 import { AI_EMBEDDING_MODEL } from '../src/worker/mcp/ai-search'
@@ -2001,55 +2001,60 @@ describe('model editor fields', () => {
   })
 })
 
-describe('prompt library', () => {
-  it('creates, searches, edits and deletes the reader\u2019s own prompts', async () => {
-    const created = await call<{ prompt: ChatPrompt }>('POST', '/api/assistant/prompts', {
-      title: '周报', content: '把这周做的事写成周报，按项目分段。', group: '写作',
+describe('skill library', () => {
+  it('creates, searches, edits and deletes the reader\u2019s own skills', async () => {
+    const created = await call<{ skill: AssistantSkill }>('POST', '/api/assistant/skills', {
+      title: '周报', content: '把这周做的事写成周报，按项目分段。', group: '写作', icon: '📝',
     })
-    expect(created.prompt.id).toBeTruthy()
-    expect(created.prompt.group).toBe('写作')
+    expect(created.skill.id).toBeTruthy()
+    expect(created.skill.group).toBe('写作')
+    expect(created.skill.icon).toBe('📝')
 
-    const found = await call<{ prompts: ChatPrompt[] }>('GET', '/api/assistant/prompts?q=分段')
-    expect(found.prompts.map((entry) => entry.id)).toEqual([created.prompt.id])
+    const found = await call<{ skills: AssistantSkill[] }>('GET', '/api/assistant/skills?q=分段')
+    expect(found.skills.map((entry) => entry.id)).toEqual([created.skill.id])
 
-    const edited = await call<{ prompt: ChatPrompt }>('PATCH', `/api/assistant/prompts/${created.prompt.id}`, { title: '每周周报' })
-    expect(edited.prompt.title).toBe('每周周报')
-    expect(edited.prompt.content).toContain('分段')
+    const edited = await call<{ skill: AssistantSkill }>('PATCH', `/api/assistant/skills/${created.skill.id}`, { title: '每周周报', icon: '🗓️' })
+    expect(edited.skill.title).toBe('每周周报')
+    expect(edited.skill.content).toContain('分段')
+    expect(edited.skill.icon).toBe('🗓️')
 
-    expect((await call<{ deleted: boolean }>('DELETE', `/api/assistant/prompts/${created.prompt.id}`)).deleted).toBe(true)
-    expect((await call<{ prompts: ChatPrompt[] }>('GET', '/api/assistant/prompts')).prompts).toEqual([])
-    expect((await call<{ deleted: boolean }>('DELETE', `/api/assistant/prompts/${created.prompt.id}`)).deleted).toBe(false)
+    expect((await call<{ deleted: boolean }>('DELETE', `/api/assistant/skills/${created.skill.id}`)).deleted).toBe(true)
+    expect((await call<{ skills: AssistantSkill[] }>('GET', '/api/assistant/skills')).skills).toEqual([])
+    expect((await call<{ deleted: boolean }>('DELETE', `/api/assistant/skills/${created.skill.id}`)).deleted).toBe(false)
   })
 
-  it('refuses an empty prompt and an over-long one is cut, not stored whole', async () => {
-    expect(await status('POST', '/api/assistant/prompts', { title: '  ', content: '  ' })).toBe(400)
-    // Either half alone is enough: a paragraph with no name is still a prompt the reader will want back.
-    const contentOnly = await call<{ prompt: ChatPrompt }>('POST', '/api/assistant/prompts', { content: '只要正文，标题以后再说。' })
-    expect(contentOnly.prompt.content).toContain('只要正文')
-    expect(contentOnly.prompt.title.length).toBeGreaterThan(0)
-    const titleOnly = await call<{ prompt: ChatPrompt }>('POST', '/api/assistant/prompts', { title: '只有标题' })
-    expect(titleOnly.prompt.title).toBe('只有标题')
-    const long = await call<{ prompt: ChatPrompt }>('POST', '/api/assistant/prompts', {
-      title: 'x'.repeat(400), content: 'y'.repeat(10_000),
+  it('refuses an empty skill and an over-long one is cut, not stored whole', async () => {
+    expect(await status('POST', '/api/assistant/skills', { title: '  ', content: '  ' })).toBe(400)
+    // Either half alone is enough: a paragraph with no name is still a skill the reader will want back.
+    const contentOnly = await call<{ skill: AssistantSkill }>('POST', '/api/assistant/skills', { content: '只要正文，标题以后再说。' })
+    expect(contentOnly.skill.content).toContain('只要正文')
+    expect(contentOnly.skill.title.length).toBeGreaterThan(0)
+    const titleOnly = await call<{ skill: AssistantSkill }>('POST', '/api/assistant/skills', { title: '只有标题' })
+    expect(titleOnly.skill.title).toBe('只有标题')
+    // A skill with no icon carries an empty one rather than a null the reader would have to guard against.
+    expect(titleOnly.skill.icon).toBe('')
+    const long = await call<{ skill: AssistantSkill }>('POST', '/api/assistant/skills', {
+      title: 'x'.repeat(400), content: 'y'.repeat(10_000), icon: '🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀',
     })
-    expect(long.prompt.title.length).toBeLessThanOrEqual(MAX_PROMPT_TITLE_CHARS)
-    expect(long.prompt.content.length).toBeLessThanOrEqual(MAX_PROMPT_CONTENT_CHARS)
+    expect(long.skill.title.length).toBeLessThanOrEqual(MAX_SKILL_TITLE_CHARS)
+    expect(long.skill.content.length).toBeLessThanOrEqual(MAX_SKILL_CONTENT_CHARS)
+    expect(long.skill.icon.length).toBeLessThanOrEqual(MAX_SKILL_ICON_CHARS)
   })
 
-  it('keeps one account\u2019s prompts out of another\u2019s list', async () => {
-    const mine = await call<{ prompt: ChatPrompt }>('POST', '/api/assistant/prompts', { title: '只属于我', content: '别读' })
+  it('keeps one account\u2019s skills out of another\u2019s list', async () => {
+    const mine = await call<{ skill: AssistantSkill }>('POST', '/api/assistant/skills', { title: '只属于我', content: '别读' })
     asUser('0123456789abcdefghjkmnpqrst')
-    expect((await call<{ prompts: ChatPrompt[] }>('GET', '/api/assistant/prompts')).prompts).toEqual([])
-    expect(await status('PATCH', `/api/assistant/prompts/${mine.prompt.id}`, { title: '改掉' })).toBe(404)
-    expect(await status('DELETE', `/api/assistant/prompts/${mine.prompt.id}`)).toBe(200)
+    expect((await call<{ skills: AssistantSkill[] }>('GET', '/api/assistant/skills')).skills).toEqual([])
+    expect(await status('PATCH', `/api/assistant/skills/${mine.skill.id}`, { title: '改掉' })).toBe(404)
+    expect(await status('DELETE', `/api/assistant/skills/${mine.skill.id}`)).toBe(200)
     asUser(USER)
-    expect((await call<{ prompts: ChatPrompt[] }>('GET', '/api/assistant/prompts')).prompts.map((entry) => entry.id)).toEqual([mine.prompt.id])
+    expect((await call<{ skills: AssistantSkill[] }>('GET', '/api/assistant/skills')).skills.map((entry) => entry.id)).toEqual([mine.skill.id])
   })
 
-  it('saves the arrangement a prompt brings to the turn, and refuses what it cannot call', async () => {
+  it('saves the arrangement a skill brings to the turn, and refuses what it cannot call', async () => {
     await useExampleModel()
     const models = await call<{ models: AssistantModel[] }>('GET', '/api/assistant/models')
-    const created = await call<{ prompt: ChatPrompt }>('POST', '/api/assistant/prompts', {
+    const created = await call<{ skill: AssistantSkill }>('POST', '/api/assistant/skills', {
       title: '周报',
       content: '按项目分段。',
       tools: ['search_notes', 'list_tasks', 'invent_a_tool', 'search_notes'],
@@ -2062,32 +2067,32 @@ describe('prompt library', () => {
     })
     // A tool the assistant cannot call and a scope with no real id are not things the reader asked for:
     // they name a reach the turn does not have, so both are dropped rather than saved to be trusted later.
-    expect(created.prompt.tools).toEqual(['search_notes', 'list_tasks'])
-    expect(created.prompt.scopes).toEqual([{ kind: 'folder', id: FOLDER_A, name: '工作' }])
-    expect(created.prompt.modelId).toBe(models.models[0]!.id)
-    expect((await call<{ prompts: ChatPrompt[] }>('GET', '/api/assistant/prompts')).prompts[0]).toMatchObject({
+    expect(created.skill.tools).toEqual(['search_notes', 'list_tasks'])
+    expect(created.skill.scopes).toEqual([{ kind: 'folder', id: FOLDER_A, name: '工作' }])
+    expect(created.skill.modelId).toBe(models.models[0]!.id)
+    expect((await call<{ skills: AssistantSkill[] }>('GET', '/api/assistant/skills')).skills[0]).toMatchObject({
       tools: ['search_notes', 'list_tasks'],
       scopes: [{ kind: 'folder', id: FOLDER_A, name: '工作' }],
       modelId: models.models[0]!.id,
     })
     // Another account's model is refused at the save, not remembered as a preference to fail on later.
-    expect(await status('POST', '/api/assistant/prompts', { title: '借来的模型', modelId: OTHER })).toBe(400)
-    const cleared = await call<{ prompt: ChatPrompt }>('PATCH', `/api/assistant/prompts/${created.prompt.id}`, {
+    expect(await status('POST', '/api/assistant/skills', { title: '借来的模型', modelId: OTHER })).toBe(400)
+    const cleared = await call<{ skill: AssistantSkill }>('PATCH', `/api/assistant/skills/${created.skill.id}`, {
       modelId: null, tools: [], scopes: [],
     })
-    expect(cleared.prompt.modelId).toBeNull()
-    expect(cleared.prompt.tools).toEqual([])
-    expect(cleared.prompt.scopes).toEqual([])
+    expect(cleared.skill.modelId).toBeNull()
+    expect(cleared.skill.tools).toEqual([])
+    expect(cleared.skill.scopes).toEqual([])
     // A patch that names only the title leaves the three bindings where they were.
-    const renamed = await call<{ prompt: ChatPrompt }>('PATCH', `/api/assistant/prompts/${created.prompt.id}`, { title: '改个名' })
-    expect(renamed.prompt.modelId).toBeNull()
-    expect(renamed.prompt.tools).toEqual([])
+    const renamed = await call<{ skill: AssistantSkill }>('PATCH', `/api/assistant/skills/${created.skill.id}`, { title: '改个名' })
+    expect(renamed.skill.modelId).toBeNull()
+    expect(renamed.skill.tools).toEqual([])
   })
 
-  it('holds a saved prompt to the same ceilings as the turn it stands for', async () => {
+  it('holds a saved skill to the same ceilings as the turn it stands for', async () => {
     const tools = [...ASSISTANT_TOOL_BY_NAME.keys()]
     expect(tools.length).toBeGreaterThan(MAX_TURN_TOOLS)
-    const created = await call<{ prompt: ChatPrompt }>('POST', '/api/assistant/prompts', {
+    const created = await call<{ skill: AssistantSkill }>('POST', '/api/assistant/skills', {
       title: '全都想要',
       content: '把每个工具和每个文件夹都点上。',
       tools,
@@ -2097,8 +2102,8 @@ describe('prompt library', () => {
         name: `f${index}`,
       })),
     })
-    expect(created.prompt.tools).toHaveLength(MAX_TURN_TOOLS)
-    expect(created.prompt.scopes).toHaveLength(MAX_TURN_SCOPES)
+    expect(created.skill.tools).toHaveLength(MAX_TURN_TOOLS)
+    expect(created.skill.scopes).toHaveLength(MAX_TURN_SCOPES)
   })
 })
 

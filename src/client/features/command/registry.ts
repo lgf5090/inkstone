@@ -692,12 +692,12 @@ function assistantCommands(): AppCommand[] {
       run: open('automations'),
     },
     {
-      id: 'assistant-prompts',
+      id: 'assistant-skills',
       kind: 'command',
-      label: t('assistant.view.prompts'),
+      label: t('assistant.view.skills'),
       group: t('command.group_assistant'),
       icon: BookMarked,
-      run: open('prompts'),
+      run: open('skills'),
     },
     {
       id: 'assistant-settings',

@@ -43,8 +43,9 @@ import {
   MAX_CONVERSATION_TITLE_CHARS,
   MAX_MESSAGE_CHARS,
   MAX_MEMORY_CHARS,
-  MAX_PROMPT_CONTENT_CHARS,
-  MAX_PROMPT_TITLE_CHARS,
+  MAX_SKILL_CONTENT_CHARS,
+  MAX_SKILL_ICON_CHARS,
+  MAX_SKILL_TITLE_CHARS,
   MAX_TASK_NOTES_CHARS,
   MAX_TASK_TITLE_CHARS,
   MEMORY_REVIEW_ACTIONS,
@@ -143,8 +144,8 @@ function store(c: Context<AppBindings>): AssistantStore {
 }
 
 
-/** A prompt field: trimmed and capped, and empty is allowed here because the pair is checked together. */
-function optionalPromptText(value: unknown, max: number): string {
+/** A skill field: trimmed and capped, and empty is allowed here because the pair is checked together. */
+function optionalSkillText(value: unknown, max: number): string {
   if (value === undefined || value === null) return ''
   if (typeof value !== 'string') throw ApiError.badRequest('A text value is required.')
   return value.trim().slice(0, max)
@@ -847,7 +848,7 @@ assistantRoutes.delete('/conversations', async (c) => {
 
 /**
  * The two lists that narrow a turn, read the one way they are ever written: with the message, or saved
- * ahead of time on a prompt that stands for a kind of message.
+ * ahead of time on a skill that stands for a kind of message.
  *
  * A tool the assistant cannot call is not a request but a caller naming something the turn should not
  * reach, and an external tool is not in the built-in registry, so its namespaced shape is what says it is
@@ -955,7 +956,7 @@ assistantRoutes.post('/chat', async (c) => {
         tools,
         scopes,
         // What the reader had on screen. Only ids survive, and the runner re-reads both against this
-        // account before either reaches the prompt — a caller cannot name someone else's note.
+        // account before either reaches the skill — a caller cannot name someone else's note.
         ...(typeof body.contextNoteId === 'string' && isValidId(body.contextNoteId) ? { contextNoteId: body.contextNoteId } : {}),
         ...(typeof body.contextFolderId === 'string' && isValidId(body.contextFolderId) ? { contextFolderId: body.contextFolderId } : {}),
         webSearch: body.webSearch === true,
@@ -1576,24 +1577,24 @@ assistantRoutes.delete('/files/:id', async (c) => {
   return c.json({ deleted: Boolean(removed) })
 })
 
-// -------------------------------------------------------------------- prompts
+// -------------------------------------------------------------------- skills
 
-/** The reader's own prompt library, the words behind the composer's `/` and ➕ entries. */
-assistantRoutes.get('/prompts', async (c) => {
+/** The reader's own skill library, the words behind the composer's `/` and ➕ entries. */
+assistantRoutes.get('/skills', async (c) => {
   const query = c.req.query('q')?.trim().slice(0, 200)
   const group = c.req.query('group')?.trim().slice(0, 60)
-  const prompts = await store(c).listPrompts({
+  const skills = await store(c).listSkills({
     ...(query ? { query } : {}),
     ...(group ? { group } : {}),
     limit: Math.min(500, Math.max(1, Number(c.req.query('limit')) || 200)),
   })
-  return c.json({ prompts })
+  return c.json({ skills })
 })
 
 /**
- * The model a saved prompt asks for, kept only when this account actually has it.
+ * The model a saved skill asks for, kept only when this account actually has it.
  *
- * A prompt names its model by id and the reader may delete that model later, so the check happens where
+ * A skill names its model by id and the reader may delete that model later, so the check happens where
  * the mistake is still fixable: an answer that quietly came from a different model than the skill asked
  * for is the kind of wrong that reads as the model's own behaviour.
  */
@@ -1605,48 +1606,51 @@ async function pinnedModel(s: AssistantStore, value: unknown): Promise<string | 
   return value
 }
 
-assistantRoutes.post('/prompts', async (c) => {
-  // A prompt is prose: the small limit is for ids and flags, and 8 KB would refuse a paragraph.
+assistantRoutes.post('/skills', async (c) => {
+  // A skill is prose: the small limit is for ids and flags, and 8 KB would refuse a paragraph.
   const body = await readJson<Record<string, unknown>>(c, JSON_BODY_LIMITS.settings)
   const s = store(c)
-  // Either half may be empty on its own — a prompt can be a block of text with no name, or a name the
+  // Either half may be empty on its own — a skill can be a block of text with no name, or a name the
   // reader fills in later — so neither goes through `text`, which refuses an empty value outright.
-  const title = optionalPromptText(body.title, MAX_PROMPT_TITLE_CHARS)
-  const content = optionalPromptText(body.content, MAX_PROMPT_CONTENT_CHARS)
-  if (!title && !content) throw ApiError.badRequest('A prompt needs a title or the words themselves.')
-  const prompt = await s.insertPrompt({
+  const title = optionalSkillText(body.title, MAX_SKILL_TITLE_CHARS)
+  const content = optionalSkillText(body.content, MAX_SKILL_CONTENT_CHARS)
+  if (!title && !content) throw ApiError.badRequest('A skill needs a title or the words themselves.')
+  const skill = await s.insertSkill({
     title: title || content.slice(0, 40),
     content,
-    group: body.group === undefined ? '' : optionalPromptText(body.group, 60),
+    group: body.group === undefined ? '' : optionalSkillText(body.group, 60),
+    // One emoji, not prose: the limit is the multi-code-point forms a family or a flag is written with.
+    icon: optionalSkillText(body.icon, MAX_SKILL_ICON_CHARS),
     // The three bindings are a turn preset: the same two lists the composer pins with `/` and `#`, read
-    // through the same filter, because a saved prompt must not reach past the turn it stands for.
+    // through the same filter, because a saved skill must not reach past the turn it stands for.
     tools: pinnedTools(body.tools),
     scopes: pinnedScopes(body.scopes),
     modelId: body.modelId === undefined ? null : await pinnedModel(s, body.modelId),
   })
-  return c.json({ prompt }, 201)
+  return c.json({ skill }, 201)
 })
 
-assistantRoutes.patch('/prompts/:id', async (c) => {
+assistantRoutes.patch('/skills/:id', async (c) => {
   const s = store(c)
   const id = requiredId(c.req.param('id'))
   const body = await readJson<Record<string, unknown>>(c, JSON_BODY_LIMITS.settings)
-  const updated = await s.updatePrompt(id, {
+  const updated = await s.updateSkill(id, {
     // Read the same forgiving way the create does: clearing the group, or the words, is an edit a reader
     // is entitled to make, and `text` would answer it with "This cannot be empty."
-    ...(body.title !== undefined ? { title: optionalPromptText(body.title, MAX_PROMPT_TITLE_CHARS) } : {}),
-    ...(body.content !== undefined ? { content: optionalPromptText(body.content, MAX_PROMPT_CONTENT_CHARS) } : {}),
-    ...(body.group !== undefined ? { group: optionalPromptText(body.group, 60) } : {}),
+    ...(body.title !== undefined ? { title: optionalSkillText(body.title, MAX_SKILL_TITLE_CHARS) } : {}),
+    ...(body.content !== undefined ? { content: optionalSkillText(body.content, MAX_SKILL_CONTENT_CHARS) } : {}),
+    ...(body.group !== undefined ? { group: optionalSkillText(body.group, 60) } : {}),
+    ...(body.icon !== undefined ? { icon: optionalSkillText(body.icon, MAX_SKILL_ICON_CHARS) } : {}),
     ...(body.tools !== undefined ? { tools: pinnedTools(body.tools) } : {}),
     ...(body.scopes !== undefined ? { scopes: pinnedScopes(body.scopes) } : {}),
     ...(body.modelId !== undefined ? { modelId: await pinnedModel(s, body.modelId) } : {}),
   })
-  if (!updated) throw ApiError.notFound('Prompt not found')
-  return c.json({ prompt: updated })
+  if (!updated) throw ApiError.notFound('Skill not found')
+  return c.json({ skill: updated })
 })
 
-assistantRoutes.delete('/prompts/:id', async (c) => {
-  const removed = await store(c).deletePrompt(requiredId(c.req.param('id')))
+assistantRoutes.delete('/skills/:id', async (c) => {
+  const removed = await store(c).deleteSkill(requiredId(c.req.param('id')))
   return c.json({ deleted: removed })
 })
 

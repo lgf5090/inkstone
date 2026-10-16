@@ -29,7 +29,7 @@ import {
   Sparkles,
   Wand2,
 } from 'lucide-react'
-import type { AssistantModel, AssistantReasoning, ChatPrompt } from '@shared/assistant'
+import type { AssistantModel, AssistantReasoning, AssistantSkill } from '@shared/assistant'
 import { CONTEXT_TOKEN_STEPS } from '@shared/assistant'
 import { cn } from '../../lib/cn'
 import { t, type MessageKey } from '../../lib/i18n'
@@ -274,17 +274,17 @@ export function ApprovalMenu({ auto, onChange }: { auto: boolean, onChange: (nex
 }
 
 /**
- * One row of the composer's prompt submenu.
+ * One row of the composer's skill submenu.
  *
- * `text` is what goes into the box — a saved prompt shows its title and inserts its content, while the
- * app's own openers have nothing behind them but the label. `prompt` is the saved row itself, and a row
+ * `text` is what goes into the box — a saved skill shows its title and inserts its words, while the
+ * app's own openers have nothing behind them but the label. `skill` is the saved row itself, and a row
  * that has one brings its tools, its knowledge and its model along with the words.
  */
-export interface QuickPromptRow {
+export interface QuickSkillRow {
   id: string
   label: string
   text?: string
-  prompt?: ChatPrompt
+  skill?: AssistantSkill
 }
 
 export function PlusMenu({
@@ -292,39 +292,39 @@ export function PlusMenu({
   onFolder,
   onUrl,
   onNote,
-  onPrompt,
-  prompts,
-  onManagePrompts,
+  onSkill,
+  skills,
+  onManageSkills,
 }: {
   onFiles: () => void
   onFolder: () => void
   onUrl: () => void
   onNote: () => void
-  onPrompt: (row: QuickPromptRow) => void
-  prompts: QuickPromptRow[]
-  onManagePrompts: () => void
+  onSkill: (row: QuickSkillRow) => void
+  skills: QuickSkillRow[]
+  onManageSkills: () => void
 }) {
   const anchor = useMenuAnchor()
   // The submenu's own list and the keyboard/search list are built from one array, so the manager entry cannot
   // appear in one and be missing from the other.
-  const promptRows: QuickPromptRow[] = [...prompts, { id: '__manage', label: t('assistant.prompts.manage') }]
+  const skillRows: QuickSkillRow[] = [...skills, { id: '__manage', label: t('assistant.skills.manage') }]
   const items: MenuItem[] = [
     { id: 'note', label: t('assistant.attach.reference_note'), icon: <MessageSquareQuote size={13} />, onSelect: onNote },
     { id: 'file', label: t('assistant.attach.add_file'), icon: <FilePlus2 size={13} />, onSelect: onFiles },
     { id: 'folder', label: t('assistant.attach.add_folder'), icon: <FolderPlus size={13} />, onSelect: onFolder },
     { id: 'url', label: t('assistant.attach.add_url'), icon: <Link2 size={13} />, onSelect: onUrl },
     {
-      id: 'prompts',
-      label: t('assistant.attach.quick_prompts'),
+      id: 'skills',
+      label: t('assistant.attach.quick_skills'),
       icon: <Wand2 size={13} />,
       separatorBefore: true,
-      subItems: promptRows.map((promptEntry) => ({ id: promptEntry.id, label: promptEntry.label })),
+      subItems: skillRows.map((skillEntry) => ({ id: skillEntry.id, label: skillEntry.label })),
       // The app's own submenu renderer, because the bare one it replaces drew its rows straight onto
       // the page: with no panel background the composer's own words showed through the menu.
-      submenu: submenuFor(promptRows.map((promptEntry) => ({
-        id: promptEntry.id,
-        label: promptEntry.label,
-        onSelect: () => (promptEntry.id === '__manage' ? onManagePrompts() : onPrompt(promptEntry)),
+      submenu: submenuFor(skillRows.map((skillEntry) => ({
+        id: skillEntry.id,
+        label: skillEntry.label,
+        onSelect: () => (skillEntry.id === '__manage' ? onManageSkills() : onSkill(skillEntry)),
       })), 220),
     },
   ]

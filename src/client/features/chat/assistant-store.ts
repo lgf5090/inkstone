@@ -39,9 +39,9 @@ import type {
   ToolActivity,
   MessageFeedback,
 } from '@shared/assistant'
-import type { ChatPrompt } from '@shared/assistant'
+import type { AssistantSkill } from '@shared/assistant'
 import { DEBOUNCE } from '@shared/constants'
-import { MAX_CHAT_ATTACHMENTS, MAX_TURN_SCOPES, MAX_TURN_TOOLS, type AssistantTurnScope, type ChatAttachment, type ChatPromptInput } from '@shared/assistant'
+import { MAX_CHAT_ATTACHMENTS, MAX_TURN_SCOPES, MAX_TURN_TOOLS, type AssistantTurnScope, type ChatAttachment, type AssistantSkillInput } from '@shared/assistant'
 import { api, ApiError } from '../../lib/api'
 import { t } from '../../lib/i18n'
 import { IS_DEMO_MODE } from '../../lib/runtime'
@@ -49,9 +49,9 @@ import { streamAssistantTurn } from './stream'
 import { extractPdfText } from './pdf-text'
 import { useUi } from '../../store/ui'
 
-export type AssistantView = 'chat' | 'memory' | 'tasks' | 'automations' | 'prompts' | 'projects' | 'settings'
+export type AssistantView = 'chat' | 'memory' | 'tasks' | 'automations' | 'skills' | 'projects' | 'settings'
 
-export const ASSISTANT_VIEWS: readonly AssistantView[] = ['chat', 'memory', 'tasks', 'automations', 'prompts', 'projects', 'settings']
+export const ASSISTANT_VIEWS: readonly AssistantView[] = ['chat', 'memory', 'tasks', 'automations', 'skills', 'projects', 'settings']
 
 /** The five pickers the conversation list's tab strip offers, in the order it draws them. */
 export type ConversationListTab = 'folders' | 'projects' | 'tags' | 'starred' | 'pinned'
@@ -288,19 +288,19 @@ interface AssistantState {
   dropTurnScope: (id: string) => void
   dropAttachment: (localId: string) => Promise<void>
   clearAttachments: () => void
-  prompts: ChatPrompt[]
-  loadPrompts: (query?: string) => Promise<void>
-  createPrompt: (input: ChatPromptInput) => Promise<ChatPrompt | null>
-  savePrompt: (id: string, input: ChatPromptInput) => Promise<void>
-  removePrompt: (id: string) => Promise<void>
+  skills: AssistantSkill[]
+  loadSkills: (query?: string) => Promise<void>
+  createSkill: (input: AssistantSkillInput) => Promise<AssistantSkill | null>
+  saveSkill: (id: string, input: AssistantSkillInput) => Promise<void>
+  removeSkill: (id: string) => Promise<void>
   /**
-   * Arm the turn with everything one saved prompt stands for, not only its words.
+   * Arm the turn with everything one saved skill stands for, not only its words.
    *
    * The text is the composer's business — it appends to what the reader was already typing — so this
-   * covers the other three: the tools and knowledge the prompt wants are added to this turn's pins, and
+   * covers the other three: the tools and knowledge the skill wants are added to this turn's pins, and
    * its model becomes the one that answers.
    */
-  applySkill: (prompt: ChatPrompt) => void
+  applySkill: (skill: AssistantSkill) => void
   stop: () => void
   renameConversation: (id: string, title: string) => Promise<void>
   pinConversation: (id: string, pinned: boolean) => Promise<void>
@@ -555,7 +555,7 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
   folderContextOn: true,
   composerSeed: null,
   pending: [],
-  prompts: [],
+  skills: [],
   turnTools: [],
   turnScopes: [],
   fileIndex: {},
@@ -1133,49 +1133,49 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
     set({ pending: [] })
   },
 
-  loadPrompts: async (query) => {
+  loadSkills: async (query) => {
     try {
-      const { prompts } = await api.assistant.prompts(query)
-      set({ prompts })
+      const { skills } = await api.assistant.skills(query)
+      set({ skills })
     } catch (error) {
       toast(error)
     }
   },
 
-  createPrompt: async (input) => {
+  createSkill: async (input) => {
     try {
-      const { prompt } = await api.assistant.createPrompt(input)
-      set((state) => ({ prompts: [prompt, ...state.prompts] }))
-      return prompt
+      const { skill } = await api.assistant.createSkill(input)
+      set((state) => ({ skills: [skill, ...state.skills] }))
+      return skill
     } catch (error) {
       toast(error)
       return null
     }
   },
 
-  savePrompt: async (id, input) => {
+  saveSkill: async (id, input) => {
     try {
-      const { prompt } = await api.assistant.updatePrompt(id, input)
-      set((state) => ({ prompts: state.prompts.map((entry) => (entry.id === id ? prompt : entry)) }))
+      const { skill } = await api.assistant.updateSkill(id, input)
+      set((state) => ({ skills: state.skills.map((entry) => (entry.id === id ? skill : entry)) }))
     } catch (error) {
       toast(error)
     }
   },
 
-  removePrompt: async (id) => {
-    set((state) => ({ prompts: state.prompts.filter((entry) => entry.id !== id) }))
+  removeSkill: async (id) => {
+    set((state) => ({ skills: state.skills.filter((entry) => entry.id !== id) }))
     try {
-      await api.assistant.removePrompt(id)
+      await api.assistant.removeSkill(id)
     } catch (error) {
       toast(error)
     }
   },
 
-  applySkill: (prompt) => {
+  applySkill: (skill) => {
     // The pins a skill names replace this turn's rather than joining them: the two rows of chips, and the
     // model chip beside them, then say exactly what the skill promised, which is the point of saving one.
-    set({ turnTools: [...prompt.tools].slice(0, MAX_TURN_TOOLS), turnScopes: [...prompt.scopes].slice(0, MAX_TURN_SCOPES) })
-    if (prompt.modelId && prompt.modelId !== get().settings?.activeModelId) void get().activateModel(prompt.modelId)
+    set({ turnTools: [...skill.tools].slice(0, MAX_TURN_TOOLS), turnScopes: [...skill.scopes].slice(0, MAX_TURN_SCOPES) })
+    if (skill.modelId && skill.modelId !== get().settings?.activeModelId) void get().activateModel(skill.modelId)
   },
 
   addTurnTool: (name) => set((current) => (current.turnTools.includes(name)
@@ -1396,7 +1396,7 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
       if (view === 'tasks') await get().loadTasks()
       if (view === 'memory') await get().loadMemories()
       if (view === 'automations') await get().loadAutomations()
-      if (view === 'prompts') await get().loadPrompts()
+      if (view === 'skills') await get().loadSkills()
     } catch (error) {
       toast(error)
     }

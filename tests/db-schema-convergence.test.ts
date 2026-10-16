@@ -87,6 +87,22 @@ describe('a boot onto a database whose ledger lies', () => {
     expect(columnsOf(sqlite, 'rewrite_queue')).toContain('claimed_at')
   })
 
+  it('gives a skill library built before icons the column it now reads', async () => {
+    const sqlite = await installed()
+    sqlite.exec(`INSERT INTO chat_prompts (user_id, id, title, content, group_name, tools, scopes, model_id, icon, created_at, updated_at)
+      VALUES ('u1', 's1', '周报', '按项目分段。', '', '[]', '[]', NULL, '📝', 1, 1)`)
+    // The shape a database built before version 81 has: the rows are there, the column is not, and the
+    // ledger has not spent the number either — so the migration itself is what has to carry them across.
+    sqlite.exec('ALTER TABLE chat_prompts DROP COLUMN icon')
+    sqlite.exec('DELETE FROM schema_migrations WHERE version = 81')
+    expect(columnsOf(sqlite, 'chat_prompts')).not.toContain('icon')
+
+    await reboot(sqlite)
+    expect(columnsOf(sqlite, 'chat_prompts')).toContain('icon')
+    // The row survives the rebuild with the empty icon every pre-existing skill is meant to read as.
+    expect(sqlite.prepare(`SELECT title, icon FROM chat_prompts WHERE id = 's1'`).get()).toEqual({ title: '周报', icon: '' })
+  })
+
   it('keeps the data of the rows it does not touch', async () => {
     const sqlite = await installed()
     sqlite.exec(`INSERT INTO users (id, username, password_hash, login, name, role, settings, created_at, last_seen_at)

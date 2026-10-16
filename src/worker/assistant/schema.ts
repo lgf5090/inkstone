@@ -58,15 +58,23 @@ export const ASSISTANT_SCHEMA_STATEMENTS: readonly string[] = [
      ON chat_provider_keys(user_id, provider_id, created_at)`,
 
   /**
-   * The reader's own saved prompts, the library behind the composer's `/` and ➕ entries.
+   * The reader's own saved skills, the library behind the composer's `/` and ➕ entries.
+   *
+   * The table keeps the name it shipped under (`chat_prompts`, migration 48). A skill is what the row
+   * always meant — the words plus the arrangement around them — so the product surface was renamed and
+   * the storage name was not: renaming a table is not one of the two statements the migration ledger can
+   * replay (`CREATE ... IF NOT EXISTS` and `ADD COLUMN`), and the boot creates the new name before the
+   * ledger runs, so a rename migration could not tell a fresh database from one whose rows it had to
+   * carry across. A wrong guess there is silent data loss, which is not worth the tidier noun.
    *
    * `group_name` rather than `group`: the latter is reserved in SQLite's own grammar, and a column that
    * needs quoting in every hand-written statement is a tax paid forever for a name saved once.
    *
    * The three binding columns turn a saved string into a standing arrangement: the words plus the tools
    * it wants, the note folders it reads, and the model that answers. They hold JSON ids rather than a
-   * link table because a prompt's whole point is to travel with the reader as one small object, and
-   * nothing ever queries a prompt *by* its tools.
+   * link table because a skill's whole point is to travel with the reader as one small object, and
+   * nothing ever queries a skill *by* its tools. `icon` is the emoji it wears in the list, so a reader
+   * with a dozen of them can find one by sight rather than by reading every title.
    */
   `CREATE TABLE IF NOT EXISTS chat_prompts (
     user_id TEXT NOT NULL,
@@ -77,6 +85,7 @@ export const ASSISTANT_SCHEMA_STATEMENTS: readonly string[] = [
     tools TEXT NOT NULL DEFAULT '[]',
     scopes TEXT NOT NULL DEFAULT '[]',
     model_id TEXT,
+    icon TEXT NOT NULL DEFAULT '',
     created_at INTEGER NOT NULL,
     updated_at INTEGER NOT NULL,
     PRIMARY KEY (user_id, id)
@@ -588,5 +597,5 @@ export const ASSISTANT_REQUIRED_COLUMNS: Readonly<Record<string, readonly string
   chat_usage_daily: ['user_id', 'day', 'requests', 'input_tokens', 'output_tokens', 'tool_calls', 'scheduled_runs', 'embeddings', 'errors'],
   chat_activity: ['user_id', 'id', 'type', 'summary', 'created_at'],
   chat_active_runs: ['user_id', 'conversation_id', 'started_at', 'lease_until'],
-  chat_prompts: ['user_id', 'id', 'title', 'content', 'group_name', 'tools', 'scopes', 'model_id', 'created_at', 'updated_at'],
+  chat_prompts: ['user_id', 'id', 'title', 'content', 'group_name', 'tools', 'scopes', 'model_id', 'icon', 'created_at', 'updated_at'],
 }
