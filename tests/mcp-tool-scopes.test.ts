@@ -6,7 +6,7 @@
  * than as a decision somebody made. That is why the switch is applied at registration, and why this file
  * speaks the real protocol over a linked transport instead of reading the registration table.
  */
-import { InMemoryTransport } from '@modelcontextprotocol/server'
+import { InMemoryTransport, type JSONObject } from '@modelcontextprotocol/server'
 import { describe, expect, it } from 'vitest'
 import type { Env } from '../src/worker/env'
 import { createInkstoneMcpServer, mcpServerToolCatalog } from '../src/worker/mcp/server'
@@ -42,16 +42,16 @@ async function offeredTools(disabled: string[]): Promise<string[]> {
   }
   await server.connect(serverSide)
   await client.start()
-  const ask = (id: number, method: string, params: unknown = {}) => new Promise<JsonRpcMessage>((resolve) => {
+  const ask = (id: number, method: string, params: JSONObject = {}) => new Promise<JsonRpcMessage>((resolve) => {
     waiting.set(id, resolve)
-    void client.send({ jsonrpc: '2.0', id, method, params } as never)
+    void client.send({ jsonrpc: '2.0', id, method, params })
   })
   await ask(1, 'initialize', {
     protocolVersion: '2025-03-26',
     capabilities: {},
     clientInfo: { name: 'inkstone-test', version: '1' },
   })
-  await client.send({ jsonrpc: '2.0', method: 'notifications/initialized' } as never)
+  await client.send({ jsonrpc: '2.0', method: 'notifications/initialized' })
   const listed = await ask(2, 'tools/list')
   return (listed.result?.tools ?? []).map((tool) => tool.name)
 }
