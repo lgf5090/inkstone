@@ -79,7 +79,7 @@ import { requireAuth } from '../middleware/auth'
 import { FORM_BODY_LIMITS, JSON_BODY_LIMITS, readFormDataWithinLimit, readJson, readStreamWithinLimit } from '../lib/request'
 import { McpError, mcpCallTool, mcpInitialize, mcpListTools, mcpProbe, mcpUrlProblem } from '../assistant/mcp-client'
 import { isExternalToolName, listMcpCatalog, loadExternalTools } from '../assistant/mcp-tools'
-import { finishMcpAuthorization, startMcpAuthorization, withMcpOAuthHeaders } from '../assistant/mcp-oauth'
+import { deleteMcpOAuthClient, finishMcpAuthorization, startMcpAuthorization, withMcpOAuthHeaders } from '../assistant/mcp-oauth'
 import { isValidId } from '../lib/id'
 import { isInlineSafe } from '../lib/image'
 import { AssistantStore, dayBefore, usageDay } from '../assistant/store'
@@ -533,15 +533,41 @@ assistantRoutes.get('/mcp/oauth/callback', async (c) => {
   }
 })
 
-/** Take the token away, and leave the server's own configuration alone. */
+/**
+ * Log the reader out: take the token away and leave the registration alone.
+ *
+ * Not the same press as the one below. A reader clearing a token means "stop using my account for now";
+ * the client this app registered at the issuer is still theirs, and re-authorizing reuses it.
+ */
 assistantRoutes['delete']('/mcp/:id/authorize', async (c) => {
   const s = store(c)
   const id = requiredId(c.req.param('id'))
   const record = await s.mcpServerRecord(id)
   if (!record) throw ApiError.notFound('Server not found')
-  await s.clearMcpAuthorization(id)
+  await s.revokeMcpTokens(id)
   await s.recordActivity('mcp.revoked', `${record.row.label}: authorization revoked`)
   return c.json({ ok: true })
+})
+
+/**
+ * Withdraw the client registration itself, at the issuer and here.
+ *
+ * A different act from the one above, and deliberately a different route: this tells the third party to
+ * forget that this app ever registered, using the address and token its registration endpoint handed back.
+ * A client the reader registered by hand cannot be withdrawn remotely — nothing was ever given that could
+ * — so the answer says plainly whether the issuer was told, rather than reporting a success it did not have.
+ */
+assistantRoutes['delete']('/mcp/:id/client', async (c) => {
+  const s = store(c)
+  const id = requiredId(c.req.param('id'))
+  const record = await s.mcpServerRecord(id)
+  if (!record) throw ApiError.notFound('Server not found')
+  const found = await s.mcpAuthorization(id)
+  const registration = found?.secrets.registration ?? null
+  const revokedAtIssuer = registration ? await deleteMcpOAuthClient((input, init) => fetch(input, init), registration) : false
+  await s.forgetMcpClient(id)
+  await s.recordActivity('mcp.client_revoked', `${record.row.label}: client registration withdrawn`)
+  return c.json({ ok: true, revokedAtIssuer })
 })
 
 assistantRoutes.get('/conversations/:id', async (c) => {

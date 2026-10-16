@@ -864,6 +864,15 @@ export const api = {
     authorizeMcpServer: (id: string, clientId?: string) =>
       request<{ url: string }>(`/api/assistant/mcp/${id}/authorize`, { method: 'POST', body: clientId ? { clientId } : {} }),
     revokeMcpServer: (id: string) => request<{ ok: true }>(`/api/assistant/mcp/${id}/authorize`, { method: 'DELETE' }),
+    /**
+     * Withdraw the client registration itself, at the issuer when it can be and here always.
+     *
+     * A different press from the one above: that one logs the reader out, this one uninstalls the app. The
+     * answer carries whether the issuer was actually told, because a client registered by hand has nothing
+     * at the far end to delete.
+     */
+    revokeMcpClient: (id: string) =>
+      request<{ ok: true, revokedAtIssuer: boolean }>(`/api/assistant/mcp/${id}/client`, { method: 'DELETE' }),
 
     /** The answers one turn displaced, oldest first. */
     answerVersions: (conversationId: string, messageId: string) =>

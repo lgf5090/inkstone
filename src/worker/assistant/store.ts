@@ -412,6 +412,7 @@ export function parseMcpOAuthMeta(value: string | null | undefined): McpOAuthSta
       ? record.scopes.filter((entry): entry is string => typeof entry === 'string' && entry.length > 0).slice(0, 16)
       : [],
     clientId: text('clientId', 512),
+    dynamic: record.dynamic === true || record.dynamic === 1,
     authorized: record.authorized === true || record.authorized === 1,
     expiresAt: Number.isFinite(Number(record.expiresAt)) ? Math.max(0, Math.trunc(Number(record.expiresAt))) : 0,
   }
@@ -433,9 +434,17 @@ function normaliseMcpOAuthSecrets(value: unknown): McpOAuthSecrets {
   const tokens = record.tokens
   const shape = tokens && typeof tokens === 'object' && !Array.isArray(tokens) ? tokens as Record<string, unknown> : null
   const access = text(shape?.access, 8192)
+  // The registration address and its token are only ever useful together, so they are read back as a pair
+  // or not at all — a lone half would draw a button whose press could not delete anything.
+  const registration = record.registration && typeof record.registration === 'object' && !Array.isArray(record.registration)
+    ? record.registration as Record<string, unknown>
+    : null
+  const clientUri = text(registration?.clientUri, 2048)
+  const registrationToken = text(registration?.accessToken, 2048)
   return {
     clientId: text(record.clientId, 512),
     clientSecret: text(record.clientSecret, 2048),
+    registration: clientUri && registrationToken ? { clientUri, accessToken: registrationToken } : null,
     tokens: shape && access ? {
       access,
       refresh: text(shape.refresh, 8192),
@@ -532,7 +541,16 @@ function toMcpServer(r: McpServerRow): AssistantMcpServer {
     toolMode: pickEnum(r.tool_mode, ASSISTANT_MCP_TOOL_MODES, 'ask'),
     toolModes: parseToolModes(r.tool_modes),
     hasKey: bool(r.has_key),
-    authorization: status ? { issuer: status.issuer, scopes: status.scopes, authorized: status.authorized, expiresAt: status.expiresAt } : null,
+    authorization: status
+      ? {
+          issuer: status.issuer,
+          scopes: status.scopes,
+          authorized: status.authorized,
+          expiresAt: status.expiresAt,
+          clientId: status.clientId,
+          dynamic: status.dynamic,
+        }
+      : null,
     createdAt: r.created_at,
     updatedAt: r.updated_at,
   }
@@ -1901,7 +1919,11 @@ export class AssistantStore {
    * none would show the reader an authorized server that every call then refuses.
    */
   async setMcpAuthorization(id: string, status: McpOAuthStatus, secrets: McpOAuthSecrets): Promise<void> {
-    const ciphertext = secrets.tokens || secrets.pending
+    // The blob is kept while there is anything worth vaulting: a token, a round trip in flight, or a client
+    // registration. Writing it away on a bare logout would drop the client id too, and the next Authorize
+    // press would register a second client while the first one lived on at the issuer with nothing left to
+    // withdraw it.
+    const ciphertext = secrets.tokens || secrets.pending || secrets.clientId
       ? await encryptMcpOAuth(this.env, id, secrets)
       : ''
     await this.write(
@@ -1911,8 +1933,25 @@ export class AssistantStore {
     )
   }
 
-  /** Take the authorization away, which is what the reader means by "stop letting this server in". */
-  async clearMcpAuthorization(id: string): Promise<void> {
+  /**
+   * Take the token away, and leave the client registration where it is.
+   *
+   * This is the reader logging out. The registration at the issuer is a separate thing they did — and a
+   * separate thing they may still want to undo — so it stays until they say otherwise. The row keeps its
+   * client id and endpoints, which is what lets the next Authorize press reuse the same client instead of
+   * registering another.
+   */
+  async revokeMcpTokens(id: string): Promise<void> {
+    const found = await this.mcpAuthorization(id)
+    if (!found) return
+    const { status, secrets } = found
+    await this.setMcpAuthorization(id, { ...status, authorized: false, expiresAt: 0 }, {
+      ...secrets, tokens: null, pending: null,
+    })
+  }
+
+  /** Take the whole authorization away, client registration included: what the reader means by "uninstall". */
+  async forgetMcpClient(id: string): Promise<void> {
     await this.write(
       `UPDATE chat_mcp_servers SET oauth_ciphertext = '', oauth_meta = '{}', updated_at = ?2
          WHERE user_id = ?1 AND id = ?3`,

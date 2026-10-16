@@ -232,6 +232,8 @@ interface AssistantState {
   /** Opens the third party's own login in a popup and waits for the reader to come back. */
   authorizeMcp: (id: string) => Promise<boolean>
   revokeMcp: (id: string) => Promise<void>
+  /** Withdraw the client registration itself, at the issuer when it can be; false means only cleared here. */
+  revokeMcpClient: (id: string) => Promise<boolean>
   testMcpServer: (id: string, headers?: Record<string, string>) => Promise<{ ok: boolean, error: string, count: number }>
 
   setView: (view: AssistantView) => void
@@ -757,6 +759,23 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
       await get().loadMcp()
     } catch (error) {
       toast(error)
+    }
+  },
+
+  revokeMcpClient: async (id) => {
+    try {
+      const { revokedAtIssuer } = await api.assistant.revokeMcpClient(id)
+      await get().loadMcp()
+      // The difference between the two outcomes is not a failure: a client the reader registered by hand has
+      // nothing at the far end to delete, and saying "withdrawn here only" is the honest answer.
+      useUi.getState().toast({
+        title: t(revokedAtIssuer ? 'assistant.mcp.client_revoked' : 'assistant.mcp.client_revoked_local'),
+        tone: revokedAtIssuer ? 'success' : 'default',
+      })
+      return revokedAtIssuer
+    } catch (error) {
+      toast(error)
+      return false
     }
   },
 

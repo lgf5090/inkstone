@@ -482,6 +482,7 @@ function ServerCard({ server, tools, problem, loading, expanded, onToggleExpande
   const testMcpServer = useAssistant((state) => state.testMcpServer)
   const authorizeMcp = useAssistant((state) => state.authorizeMcp)
   const revokeMcp = useAssistant((state) => state.revokeMcp)
+  const revokeMcpClient = useAssistant((state) => state.revokeMcpClient)
   const [query, setQuery] = useState('')
   const [busy, setBusy] = useState(false)
   const [authorizing, setAuthorizing] = useState(false)
@@ -532,6 +533,15 @@ function ServerCard({ server, tools, problem, loading, expanded, onToggleExpande
         // access they are revoking when they press the button beside it.
         <p className="pl-3.5 text-[length:var(--text-11)] text-[var(--text-quaternary)]">
           {t('assistant.mcp.authorized_to', { issuer: server.authorization.issuer.replace(/^https:\/\//, '') })}
+        </p>
+      )}
+      {server.authorization && (
+        // The client id is public in the spec's own terms — it rides in the redirect — and it is what names
+        // this app on the reader's own account page at their provider, which is where a lingering entry
+        // would otherwise have to be hunted down.
+        <p className="truncate pl-3.5 text-[length:var(--text-11)] text-[var(--text-quaternary)]" title={server.authorization.clientId}>
+          {t('assistant.mcp.client_id', { client: server.authorization.clientId || t('assistant.mcp.client_unknown') })}
+          {server.authorization.scopes.length > 0 && <> · {t('assistant.mcp.scopes', { scopes: server.authorization.scopes.join(' ') })}</>}
         </p>
       )}
 
@@ -585,6 +595,12 @@ function ServerCard({ server, tools, problem, loading, expanded, onToggleExpande
         )}
         {server.authorization?.authorized && (
           <Button size="sm" variant="ghost" onClick={() => void revokeMcp(server.id)}>{t('assistant.mcp.revoke')}</Button>
+        )}
+        {/* A second, rarer press: not "log me out" but "uninstall this app". Kept beside the first so the two
+            are read together, because the difference between them is the whole point of naming the client
+            above — one leaves the registration in place, the other withdraws it. */}
+        {server.authorization && (
+          <Button size="sm" variant="ghost" onClick={() => void revokeMcpClient(server.id)}>{t('assistant.mcp.revoke_client')}</Button>
         )}
         <button
           type="button"

@@ -1013,6 +1013,21 @@ export interface AssistantMcpAuthorization {
   authorized: boolean
   /** When the stored token stops working, or 0 when the issuer never said. */
   expiresAt: number
+  /**
+   * The client id this app holds at that issuer.
+   *
+   * Public by the spec's own terms: it rides in the address bar on every redirect. It is shown so the
+   * reader can see which of their registered apps this is — and so "withdraw the registration" has
+   * something to name.
+   */
+  clientId: string
+  /**
+   * True when the id came from the issuer's own registration endpoint rather than from the reader's hands.
+   *
+   * Only a dynamic registration can be withdrawn at the issuer (RFC 7592), because that is the only one
+   * this app was ever handed the means to delete. A hand-typed id can only be forgotten here.
+   */
+  dynamic: boolean
 }
 
 export interface AssistantMcpServer {

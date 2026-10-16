@@ -50,6 +50,23 @@ export interface McpOAuthClient {
   clientSecret: string
 }
 
+/**
+ * Where the issuer says this app may be withdrawn, and the token good for that one act (RFC 7592).
+ *
+ * Handed back by the registration endpoint and stored in the vault, never in the plain column: the access
+ * token here deletes the client, so it is as much a credential as the client secret is.
+ */
+export interface McpOAuthRegistration {
+  clientUri: string
+  accessToken: string
+}
+
+/** The client a registration call produced, together with the means to undo it — null when the issuer gave none. */
+export interface McpOAuthRegistrationResult {
+  client: McpOAuthClient
+  registration: McpOAuthRegistration | null
+}
+
 export interface McpOAuthTokens {
   access: string
   refresh: string
@@ -60,6 +77,8 @@ export interface McpOAuthTokens {
 
 /** The secret half of one server's authorization, as it is kept in the vault. */
 export interface McpOAuthSecrets extends McpOAuthClient {
+  /** How to withdraw this client at the issuer, when the issuer allowed it. */
+  registration: McpOAuthRegistration | null
   tokens: McpOAuthTokens | null
   /** The round trip the reader is still inside: the verifier that went out and the state to match. */
   pending: { verifier: string, state: string, startedAt: number } | null
@@ -74,6 +93,8 @@ export interface McpOAuthSecrets extends McpOAuthClient {
  */
 export interface McpOAuthStatus extends McpOAuthEndpoints {
   clientId: string
+  /** True when the id came from the issuer's registration endpoint, so it can be withdrawn there too. */
+  dynamic: boolean
   authorized: boolean
   expiresAt: number
 }
@@ -204,10 +225,12 @@ export async function registerMcpOAuthClient(
   redirectUri: string,
   clientName: string,
   suppliedClientId: string,
-): Promise<McpOAuthClient> {
+): Promise<McpOAuthRegistrationResult> {
   if (!endpoints.registrationEndpoint) {
     if (!suppliedClientId) throw ApiError.badRequest('This authorization server does not register clients, so a client id has to be supplied.')
-    return { clientId: suppliedClientId, clientSecret: '' }
+    // An id the reader typed is theirs, registered by hand with their provider; there is no registration
+    // address here that could delete it, and pretending otherwise would offer a button that cannot work.
+    return { client: { clientId: suppliedClientId, clientSecret: '' }, registration: null }
   }
   const response = await fetchImpl(endpoints.registrationEndpoint, {
     method: 'POST',
@@ -234,9 +257,44 @@ export async function registerMcpOAuthClient(
   if (!response.ok || typeof parsed?.client_id !== 'string' || !parsed.client_id) {
     throw ApiError.badRequest(`The authorization server refused to register this app (HTTP ${response.status}).`)
   }
+  // The two RFC 7592 fields are kept only as a pair: an address with no token, or a token with no address,
+  // cannot delete anything, and a half-remembered registration is worse than an honestly absent one.
+  const clientUri = typeof parsed.registration_client_uri === 'string' ? parsed.registration_client_uri.slice(0, 2048) : ''
+  const accessToken = typeof parsed.registration_access_token === 'string' ? parsed.registration_access_token.slice(0, 2048) : ''
   return {
-    clientId: parsed.client_id.slice(0, 512),
-    clientSecret: typeof parsed.client_secret === 'string' ? parsed.client_secret.slice(0, 2048) : '',
+    client: {
+      clientId: parsed.client_id.slice(0, 512),
+      clientSecret: typeof parsed.client_secret === 'string' ? parsed.client_secret.slice(0, 2048) : '',
+    },
+    registration: clientUri && accessToken ? { clientUri, accessToken } : null,
+  }
+}
+
+/**
+ * Ask the issuer to forget this app.
+ *
+ * RFC 7592 gives a dynamically registered client the address of its own registration and a token good for
+ * exactly one thing: deleting it. This is not the same act as clearing the token — a reader logging out is
+ * not a reader uninstalling — so it is its own function with its own route, and it is the only place that
+ * tells the third party anything about the reader's decision to stop.
+ *
+ * A server that never handed out those two fields cannot be asked, which is why the caller checks for them
+ * before getting here. A call that fails to reach the issuer returns false rather than throwing: the local
+ * registration is worth clearing either way, and the reader is owed an honest answer about which half ran.
+ */
+export async function deleteMcpOAuthClient(fetchImpl: FetchLike, registration: McpOAuthRegistration): Promise<boolean> {
+  const problem = mcpUrlProblem(registration.clientUri)
+  if (problem) return false
+  try {
+    const response = await fetchImpl(registration.clientUri, {
+      method: 'DELETE',
+      headers: { authorization: `Bearer ${registration.accessToken}`, accept: 'application/json' },
+    })
+    // 204 is the spec's own answer; a server that has already forgotten this client answers 404, which is
+    // the outcome that was wanted, not a failure. Anything else means the registration is still there.
+    return response.ok || response.status === 404
+  } catch {
+    return false
   }
 }
 
@@ -428,17 +486,25 @@ export async function startMcpAuthorization(input: {
 }): Promise<string> {
   const endpoints = await discoverMcpOAuth(input.fetchImpl ?? fetchOAuth, input.mcpUrl, input.resourceMetadataUrl)
   const existing = await input.store.mcpAuthorization(input.serverId)
-  const client = await registerMcpOAuthClient(
-    input.fetchImpl ?? fetchOAuth,
-    endpoints,
-    input.redirectUri,
-    input.clientName,
-    existing?.secrets.clientId || input.suppliedClientId || '',
-  )
+  // A client this app already registered here is reused rather than registered again. A reader who presses
+  // Authorize a second time means "log in again", not "install the app twice" — and a second registration
+  // would quietly abandon the first one, which nobody would then be able to withdraw.
+  const known = existing?.secrets.registration ? existing.secrets : null
+  const registered = known && !input.suppliedClientId
+    ? { client: { clientId: known.clientId, clientSecret: known.clientSecret }, registration: known.registration }
+    : await registerMcpOAuthClient(
+      input.fetchImpl ?? fetchOAuth,
+      endpoints,
+      input.redirectUri,
+      input.clientName,
+      existing?.secrets.clientId || input.suppliedClientId || '',
+    )
+  const client = registered.client
   const pending = { verifier: newCodeVerifier(), state: encodeState(input.serverId, newOAuthState()), startedAt: Date.now() }
   const secrets: McpOAuthSecrets = {
     clientId: client.clientId,
     clientSecret: client.clientSecret,
+    registration: registered.registration,
     // A second press before the first one came back is a reader trying again, not a new agreement: the
     // tokens they already have stay, and only the in-flight round trip is replaced.
     tokens: existing?.secrets.tokens ?? null,
@@ -448,6 +514,7 @@ export async function startMcpAuthorization(input: {
   await input.store.setMcpAuthorization(input.serverId, {
     ...endpoints,
     clientId: client.clientId,
+    dynamic: Boolean(registered.registration),
     authorized: Boolean(secrets.tokens),
     expiresAt: secrets.tokens?.expiresAt ?? 0,
   }, secrets)

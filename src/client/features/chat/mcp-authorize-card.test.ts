@@ -27,6 +27,7 @@ vi.mock('../../lib/api', () => ({
       testMcpServer: vi.fn(async () => ({ ok: true, error: '', tools: [] })),
       authorizeMcpServer: vi.fn(async () => ({ url: 'https://auth.example.test/authorize?state=abc' })),
       revokeMcpServer: vi.fn(async () => ({ ok: true })),
+      revokeMcpClient: vi.fn(async () => ({ ok: true, revokedAtIssuer: true })),
       settings: vi.fn(async () => ({ settings: {}, models: [] })),
       models: vi.fn(async () => ({ models: [] })),
       providers: vi.fn(async () => ({ providers: [] })),
@@ -74,6 +75,7 @@ async function openTab(over: Partial<AssistantMcpServer> = {}, problems: Assista
     loadMcp: vi.fn(async () => undefined),
     authorizeMcp: vi.fn(async () => true),
     revokeMcp: vi.fn(async () => undefined),
+    revokeMcpClient: vi.fn(async () => true),
     testMcpServer: vi.fn(async () => ({ ok: true, error: '', count: 1 })),
   })
   await act(async () => { root.render(createElement(McpTab)) })
@@ -109,7 +111,7 @@ describe('a server that wants a login', () => {
   })
 
   it('offers it again when a round trip was started and never finished', async () => {
-    await openTab({ authorization: { issuer: 'https://auth.example.test', scopes: ['mcp:tools'], authorized: false, expiresAt: 0 } })
+    await openTab({ authorization: { issuer: 'https://auth.example.test', scopes: ['mcp:tools'], authorized: false, expiresAt: 0, clientId: 'client-42', dynamic: true } })
     expect(byLabel(t('assistant.mcp.authorize'))).toBeTruthy()
     expect(byLabel(t('assistant.mcp.reauthorize'))).toBeUndefined()
   })
@@ -117,7 +119,7 @@ describe('a server that wants a login', () => {
   it('says who the reader logged in with, and offers to take that away', async () => {
     await openTab({
       hasKey: true,
-      authorization: { issuer: 'https://auth.example.test', scopes: ['mcp:tools'], authorized: true, expiresAt: Date.now() + 60_000 },
+      authorization: { issuer: 'https://auth.example.test', scopes: ['mcp:tools'], authorized: true, expiresAt: Date.now() + 60_000, clientId: 'client-42', dynamic: true },
     })
     expect(document.body.textContent).toContain('auth.example.test')
     expect(byLabel(t('assistant.mcp.authorize'))).toBeUndefined()
@@ -127,9 +129,27 @@ describe('a server that wants a login', () => {
     expect(useAssistant.getState().revokeMcp).toHaveBeenCalledWith('s1')
   })
 
+  it('names the registered client and offers to withdraw it, apart from revoking access', async () => {
+    await openTab({
+      hasKey: true,
+      authorization: { issuer: 'https://auth.example.test', scopes: ['mcp:tools'], authorized: true, expiresAt: Date.now() + 60_000, clientId: 'client-42', dynamic: true },
+    })
+    // Both the id and the scopes are on screen: the reader's account page at their provider lists clients
+    // by id, so a registration they want gone is only findable if the screen names it.
+    expect(document.body.textContent).toContain('client-42')
+    expect(document.body.textContent).toContain('mcp:tools')
+    // Two separate presses, because they are two separate acts: logging out leaves the registration, and
+    // withdrawing it is the rarer one that tells the provider to forget this app.
+    expect(byLabel(t('assistant.mcp.revoke'))).toBeTruthy()
+    click(byLabel(t('assistant.mcp.revoke_client')))
+    await act(async () => { await Promise.resolve() })
+    expect(useAssistant.getState().revokeMcpClient).toHaveBeenCalledWith('s1')
+    expect(useAssistant.getState().revokeMcp).not.toHaveBeenCalled()
+  })
+
   it('asks to be let in again when a server refuses one it already holds a token for', async () => {
     await openTab(
-      { hasKey: true, authorization: { issuer: 'https://auth.example.test', scopes: [], authorized: true, expiresAt: 0 } },
+      { hasKey: true, authorization: { issuer: 'https://auth.example.test', scopes: [], authorized: true, expiresAt: 0, clientId: 'client-42', dynamic: true } },
       [REFUSAL],
     )
     // Not the plain first-run word: the reader has done this, and something about it stopped working.

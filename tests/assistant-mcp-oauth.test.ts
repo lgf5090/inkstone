@@ -106,6 +106,8 @@ interface Stack {
   grants: string[]
   /** The address each token POST went to, so a metadata-chosen one is visible. */
   tokenUrls: string[]
+  /** Every method aimed at the registration endpoint, so a withdrawal is visible as a DELETE. */
+  registrations: string[]
 }
 
 /**
@@ -114,10 +116,11 @@ interface Stack {
  * Two sides in one stub because the flow crosses between them four times: a test that could only watch one
  * would be asserting the shape of its own double rather than what this app actually sent.
  */
-function oauthStack(over: { tokenEndpoint?: string, pkce?: string[], expiresIn?: number } = {}): Stack {
+function oauthStack(over: { tokenEndpoint?: string, pkce?: string[], expiresIn?: number, registrationUri?: boolean } = {}): Stack {
   const toMcp: string[] = []
   const grants: string[] = []
   const tokenUrls: string[] = []
+  const registrations: string[] = []
   let issued = 0
   const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), {
     status, headers: { 'content-type': 'application/json' },
@@ -136,7 +139,23 @@ function oauthStack(over: { tokenEndpoint?: string, pkce?: string[], expiresIn?:
           code_challenge_methods_supported: over.pkce ?? ['S256'],
         })
       }
-      if (url.pathname === '/register') return json({ client_id: 'client-42', client_secret: 'issued-secret' })
+      if (url.pathname === '/register') {
+        registrations.push(String(init?.method ?? 'GET'))
+        return json({
+          client_id: 'client-42',
+          client_secret: 'issued-secret',
+          // RFC 7592: where the client may be deleted, and the token good for that one act. A server that
+          // omits these is the case the withdrawal button must not pretend to handle.
+          ...(over.registrationUri === false ? {} : {
+            registration_client_uri: `${AUTH}/register/client-42`,
+            registration_access_token: 'registration-token',
+          }),
+        })
+      }
+      if (url.pathname === '/register/client-42') {
+        registrations.push(String(init?.method ?? 'GET'))
+        return new Response(null, { status: 204 })
+      }
       if (url.pathname === '/token') {
         const form = new URLSearchParams(String(init?.body ?? ''))
         grants.push(form.get('grant_type') ?? '')
@@ -167,7 +186,7 @@ function oauthStack(over: { tokenEndpoint?: string, pkce?: string[], expiresIn?:
     }
     return new Response('unexpected address', { status: 404 })
   })
-  return { fetchImpl, toMcp, grants, tokenUrls }
+  return { fetchImpl, toMcp, grants, tokenUrls, registrations }
 }
 
 async function addServer(): Promise<string> {
@@ -297,7 +316,7 @@ describe('authorizing a third-party MCP server', () => {
     expect((await listed()).authorization).toBeNull()
   })
 
-  it('revokes on request and leaves the server itself configured', async () => {
+  it('logs out without forgetting the client it registered', async () => {
     const stack = oauthStack()
     vi.stubGlobal('fetch', stack.fetchImpl)
     const id = await addServer()
@@ -305,11 +324,54 @@ describe('authorizing a third-party MCP server', () => {
     await call('DELETE', `/api/assistant/mcp/${id}/authorize`, {})
     const row = await listed()
     expect(row.label).toBe('Example')
-    expect(row.authorization).toBeNull()
+    // The registration stays. A reader clearing a token has not uninstalled the app, and the client this
+    // app registered is still theirs — leaving it here is what lets the next login reuse it rather than
+    // abandoning it at the issuer with nothing left to withdraw it.
+    expect(row.authorization).toMatchObject({ authorized: false, clientId: 'client-42' })
     // Revoked rather than never started: the next call carries no token, and the server's own answer to
     // that is what the reader then sees.
     await call<{ ok: boolean }>('POST', `/api/assistant/mcp/${id}/test`, {})
     expect(stack.toMcp.at(-1)).toBe('')
+    expect(stack.registrations).toEqual(['POST'])
+  })
+
+  it('withdraws the client registration at the provider and here', async () => {
+    const stack = oauthStack()
+    vi.stubGlobal('fetch', stack.fetchImpl)
+    const id = await addServer()
+    await authorized(id, stack)
+    const done = await call<{ ok: boolean, revokedAtIssuer: boolean }>('DELETE', `/api/assistant/mcp/${id}/client`, {})
+    expect(done).toEqual({ ok: true, revokedAtIssuer: true })
+    // A DELETE aimed at the registration address the issuer handed back — not at the server, not at the
+    // token endpoint. That address is the whole of what "uninstall" means to the third party.
+    expect(stack.registrations).toEqual(['POST', 'DELETE'])
+    expect((await listed()).authorization).toBeNull()
+    await call<{ ok: boolean }>('POST', `/api/assistant/mcp/${id}/test`, {})
+    expect(stack.toMcp.at(-1)).toBe('')
+  })
+
+  it('reuses the client it already registered instead of registering another', async () => {
+    const stack = oauthStack()
+    vi.stubGlobal('fetch', stack.fetchImpl)
+    const id = await addServer()
+    await authorized(id, stack)
+    const again = await call<{ url: string }>('POST', `/api/assistant/mcp/${id}/authorize`, {})
+    // One registration, however many times the reader logs in: a second client at the same issuer would be
+    // an orphan nothing could delete.
+    expect(stack.registrations).toEqual(['POST'])
+    expect(new URL(again.url).searchParams.get('client_id')).toBe('client-42')
+  })
+
+  it('says so when the issuer gave no way to withdraw the client', async () => {
+    const stack = oauthStack({ registrationUri: false })
+    vi.stubGlobal('fetch', stack.fetchImpl)
+    const id = await addServer()
+    await authorized(id, stack)
+    const done = await call<{ ok: boolean, revokedAtIssuer: boolean }>('DELETE', `/api/assistant/mcp/${id}/client`, {})
+    // Honest about the half that could not run: nothing was ever given that could delete this client.
+    expect(done).toEqual({ ok: true, revokedAtIssuer: false })
+    expect(stack.registrations).toEqual(['POST'])
+    expect((await listed()).authorization).toBeNull()
   })
 
   it('stores the token where a stolen row cannot be read back as one', async () => {
