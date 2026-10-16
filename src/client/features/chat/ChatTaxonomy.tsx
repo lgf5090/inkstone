@@ -6,7 +6,7 @@
  * these two components read the counts the assistant API computes over those shared tables.
  */
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { ChevronRight, FolderClosed, Inbox, Layers, Pin, Star, Tags } from 'lucide-react'
+import { ChevronRight, FolderClosed, FolderKanban, Inbox, Layers, Pin, Star, Tags } from 'lucide-react'
 import type { AssistantConversation, ChatFolderNode, ConversationTag } from '@shared/assistant'
 import { cn } from '../../lib/cn'
 import { t, type MessageKey } from '../../lib/i18n'
@@ -377,8 +377,45 @@ export function ConversationTags() {
   )
 }
 
+/**
+ * The project picks.
+ *
+ * A project is not a folder: it says what a conversation is *about*, and one thread answers under one
+ * brief at a time. So the list is flat — every project beside the count of threads that inherit it —
+ * with a row for the ones that answer under nothing.
+ */
+export function ConversationProjects() {
+  const projects = useAssistant((state) => state.projectNodes)
+  const active = useAssistant((state) => state.projectFilter)
+  const setFilter = useAssistant((state) => state.setProjectFilter)
+  const unfiled = useAssistant((state) => state.unfiledProjectCount)
+  const total = useMemo(() => projects.reduce((sum, node) => sum + node.count, 0) + unfiled, [projects, unfiled])
+  return (
+    <nav aria-label={t('assistant.chat.project_filter')} className="px-1.5 pb-1">
+      <div className="space-y-px">
+        <ViewRow active={active === 'all'} count={total} icon={<Layers size={14} />} label={t('assistant.chat.all')} onSelect={() => void setFilter('all')} />
+        <ViewRow active={active === 'none'} count={unfiled} icon={<Inbox size={14} />} label={t('assistant.chat.project_none')} onSelect={() => void setFilter('none')} />
+        {projects.map((project) => (
+          <ViewRow
+            key={project.id}
+            active={active === project.id}
+            count={project.count}
+            icon={<FolderKanban size={14} />}
+            label={project.name}
+            onSelect={() => void setFilter(project.id)}
+          />
+        ))}
+      </div>
+      {!projects.length && (
+        <p className="px-2 py-2 text-[length:var(--text-12)] text-[var(--text-quaternary)]">{t('assistant.chat.project_none_yet')}</p>
+      )}
+    </nav>
+  )
+}
+
 const TAB_ICONS: Record<ConversationListTab, React.ReactNode> = {
   folders: <FolderClosed size={14} />,
+  projects: <FolderKanban size={14} />,
   tags: <Tags size={14} />,
   starred: <Star size={14} />,
   pinned: <Pin size={14} />,
@@ -386,6 +423,7 @@ const TAB_ICONS: Record<ConversationListTab, React.ReactNode> = {
 
 const TAB_LABELS: Record<ConversationListTab, MessageKey> = {
   folders: 'assistant.chat.tab.folders',
+  projects: 'assistant.chat.tab.projects',
   tags: 'assistant.chat.tab.tags',
   starred: 'assistant.chat.tab.starred',
   pinned: 'assistant.chat.tab.pinned',
@@ -522,6 +560,7 @@ export function ConversationTaxonomyPanel({ onOpen }: { onOpen?: () => void }) {
       className="no-scrollbar max-h-56 shrink-0 overflow-y-auto px-1.5 pb-1"
     >
       {tab === 'folders' && <ConversationFolders />}
+      {tab === 'projects' && <ConversationProjects />}
       {tab === 'tags' && <ConversationTags />}
       {tab === 'starred' && <FlaggedList kind="starred" onOpen={onOpen} />}
       {tab === 'pinned' && <FlaggedList kind="pinned" onOpen={onOpen} />}

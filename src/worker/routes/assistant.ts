@@ -173,10 +173,13 @@ function readerDayEnd(timezone: string): number {
 assistantRoutes.get('/conversations', async (c) => {
   const query = c.req.query('q')?.trim().slice(0, 200)
   const folder = c.req.query('folder')
+  const project = c.req.query('project')
   const tag = c.req.query('tag')?.trim().slice(0, 26)
-  const filter: { folderId?: string | null, tagId?: string, starred?: boolean, pinned?: boolean } = {}
+  const filter: { folderId?: string | null, projectId?: string | null, tagId?: string, starred?: boolean, pinned?: boolean } = {}
   // `folder=none` is the unfiled view; an absent parameter is the whole list.
   if (folder !== undefined) filter.folderId = folder === 'none' ? null : (isValidId(folder) ? folder : 'none')
+  // `project=none` reads the conversations that answer under no brief, the same convention as the folder filter.
+  if (project !== undefined) filter.projectId = project === 'none' ? null : (isValidId(project) ? project : 'none')
   if (tag) filter.tagId = tag
   if (c.req.query('starred') === '1') filter.starred = true
   if (c.req.query('pinned') === '1') filter.pinned = true
@@ -1299,6 +1302,9 @@ function clampLimit(value: string | undefined, fallback: number): number {
 // ------------------------------------------------------------------ projects
 
 assistantRoutes.get('/projects', async (c) => c.json({ projects: await store(c).listProjects() }))
+
+/** Each project with how many conversations answer under it, plus the ones under none. */
+assistantRoutes.get('/projects/summary', async (c) => c.json(await store(c).conversationProjectSummary()))
 
 assistantRoutes.post('/projects', async (c) => {
   const s = store(c)

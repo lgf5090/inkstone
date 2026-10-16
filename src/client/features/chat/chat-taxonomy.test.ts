@@ -1,5 +1,5 @@
 /**
- * The conversation list's four pickers live in one tab container, the same shape the notebook's sidebar
+ * The conversation list's pickers live in one tab container, the same shape the notebook's sidebar
  * uses. What is pinned here is the coupling between the strip and the panel: exactly one tab is
  * selected, the panel answers to that tab, and the two shortlists reach the store's flag endpoints
  * rather than re-reading the whole conversation list.
@@ -64,33 +64,34 @@ async function render(element: ReactElement) {
 }
 
 const tabs = () => [...container.querySelectorAll<HTMLButtonElement>('[role="tab"]')]
+const tab = (name: string) => tabs().find((entry) => entry.dataset.tab === name)!
 const panel = () => container.querySelector<HTMLElement>(`#${CHAT_TAXONOMY_PANEL_ID}`)
 
 describe('conversation tab strip', () => {
-  it('offers the four pickers in the order the store names them', () => {
-    expect(tabs().map((tab) => tab.dataset.tab)).toEqual([...CONVERSATION_LIST_TABS])
-    expect(tabs().filter((tab) => tab.getAttribute('aria-selected') === 'true')).toHaveLength(1)
+  it('offers the pickers in the order the store names them', () => {
+    expect(tabs().map((entry) => entry.dataset.tab)).toEqual([...CONVERSATION_LIST_TABS])
+    expect(tabs().filter((entry) => entry.getAttribute('aria-selected') === 'true')).toHaveLength(1)
   })
 
   it('names each tab in the reader language and points it at the panel', () => {
-    for (const tab of tabs()) {
-      expect(tab.title.length, `${tab.dataset.tab} has no tooltip`).toBeGreaterThan(0)
-      expect(tab.getAttribute('aria-controls')).toBe(CHAT_TAXONOMY_PANEL_ID)
+    for (const entry of tabs()) {
+      expect(entry.title.length, `${entry.dataset.tab} has no tooltip`).toBeGreaterThan(0)
+      expect(entry.getAttribute('aria-controls')).toBe(CHAT_TAXONOMY_PANEL_ID)
     }
-    expect(tabs().map((tab) => tab.title)).toEqual([
-      t('assistant.chat.tab.folders'), t('assistant.chat.tab.tags'),
+    expect(tabs().map((entry) => entry.title)).toEqual([
+      t('assistant.chat.tab.folders'), t('assistant.chat.tab.projects'), t('assistant.chat.tab.tags'),
       t('assistant.chat.tab.starred'), t('assistant.chat.tab.pinned'),
     ])
   })
 
   it('moves the selection with the arrow keys and wraps at both ends', async () => {
     await act(async () => {
-      tabs()[0].focus()
-      tabs()[0].dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowLeft', bubbles: true, cancelable: true }))
+      tab('folders').focus()
+      tab('folders').dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowLeft', bubbles: true, cancelable: true }))
     })
     expect(useAssistant.getState().listTab).toBe('pinned')
     await act(async () => {
-      tabs()[3].dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true, cancelable: true }))
+      tab('pinned').dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true, cancelable: true }))
     })
     expect(useAssistant.getState().listTab).toBe('folders')
   })
@@ -98,9 +99,9 @@ describe('conversation tab strip', () => {
   it('asks for the shortlist only when a flag tab is opened', async () => {
     const loadFlagged = useAssistant.getState().loadFlagged
     expect(loadFlagged).not.toHaveBeenCalled()
-    await act(async () => { tabs()[2].click() })
+    await act(async () => { tab('starred').click() })
     expect(loadFlagged).toHaveBeenCalledTimes(1)
-    await act(async () => { tabs()[0].click() })
+    await act(async () => { tab('folders').click() })
     expect(loadFlagged).toHaveBeenCalledTimes(1)
   })
 })
@@ -118,7 +119,7 @@ describe('conversation taxonomy panel', () => {
   it('swaps to the tag chips, and says so when there are none', async () => {
     await render(createElement('div', null,
       createElement(ConversationTabStrip), createElement(ConversationTaxonomyPanel)))
-    await act(async () => { tabs()[1].click() })
+    await act(async () => { tab('tags').click() })
     expect(panel()?.getAttribute('aria-labelledby')).toBe(chatTaxonomyTabId('tags'))
     expect(panel()?.querySelector('[role="group"]')).not.toBeNull()
     expect(panel()?.textContent).toContain('urgent')
@@ -130,13 +131,13 @@ describe('conversation taxonomy panel', () => {
     const onOpen = vi.fn()
     await render(createElement('div', null,
       createElement(ConversationTabStrip), createElement(ConversationTaxonomyPanel, { onOpen })))
-    await act(async () => { tabs()[2].click() })
+    await act(async () => { tab('starred').click() })
     expect(panel()?.textContent).toContain('Starred one')
     const row = panel()!.querySelectorAll('button')[0]
     await act(async () => { row.click() })
     expect(useAssistant.getState().openConversation).toHaveBeenCalledWith('s1')
     expect(onOpen).toHaveBeenCalledTimes(1)
-    await act(async () => { tabs()[3].click() })
+    await act(async () => { tab('pinned').click() })
     expect(panel()?.textContent).toContain('Pinned one')
     expect(panel()?.textContent).not.toContain('Starred one')
   })
@@ -145,9 +146,9 @@ describe('conversation taxonomy panel', () => {
     useAssistant.setState({ flagged: { starred: [], pinned: [] } })
     await render(createElement('div', null,
       createElement(ConversationTabStrip), createElement(ConversationTaxonomyPanel)))
-    await act(async () => { tabs()[2].click() })
+    await act(async () => { tab('starred').click() })
     expect(panel()?.textContent).toContain(t('assistant.chat.empty_starred'))
-    await act(async () => { tabs()[3].click() })
+    await act(async () => { tab('pinned').click() })
     expect(panel()?.textContent).toContain(t('assistant.chat.empty_pinned'))
   })
 
@@ -168,7 +169,7 @@ describe('conversation taxonomy panel', () => {
     })
     await render(createElement('div', null,
       createElement(ConversationTabStrip), createElement(ConversationTaxonomyPanel)))
-    await act(async () => { tabs()[1].click() })
+    await act(async () => { tab('tags').click() })
     const chips = [...panel()?.querySelectorAll<HTMLButtonElement>('button[aria-pressed]') ?? []]
     expect(chips).toHaveLength(2)
     expect(chips[0]?.textContent).toContain('urgent')
@@ -188,12 +189,42 @@ describe('conversation taxonomy panel', () => {
     })
     await render(createElement('div', null,
       createElement(ConversationTabStrip), createElement(ConversationTaxonomyPanel)))
-    await act(async () => { tabs()[1].click() })
+    await act(async () => { tab('tags').click() })
     const chip = panel()?.querySelector<HTMLButtonElement>('button[aria-pressed]')
     expect(chip?.getAttribute('aria-pressed')).toBe('true')
     await act(async () => { chip?.click() })
     // Pressing the chip that is in force is how the reader takes the filter off again.
     expect(useAssistant.getState().setTagFilter).toHaveBeenCalledWith(null)
+  })
+
+  it('lists the projects with their counts and filters on the one picked', async () => {
+    useAssistant.setState({
+      projectNodes: [
+        { id: 'p1', name: 'Research', count: 3 },
+        { id: 'p2', name: 'Drafts', count: 0 },
+      ],
+      unfiledProjectCount: 2,
+      projectFilter: 'all',
+      // Picking a project asks the server for the list; the row's own state is what is under test here.
+      setProjectFilter: vi.fn(async () => undefined),
+    })
+    await render(createElement('div', null,
+      createElement(ConversationTabStrip), createElement(ConversationTaxonomyPanel)))
+    await act(async () => { tab('projects').click() })
+    expect(panel()?.getAttribute('aria-labelledby')).toBe(chatTaxonomyTabId('projects'))
+    expect(panel()?.textContent).toContain('Research')
+    expect(panel()?.textContent).toContain('Drafts')
+    const rows = [...panel()?.querySelectorAll<HTMLButtonElement>('button') ?? []]
+    await act(async () => { rows.find((row) => row.textContent?.includes('Research'))?.click() })
+    expect(useAssistant.getState().setProjectFilter).toHaveBeenCalledWith('p1')
+  })
+
+  it('says so when there are no projects yet', async () => {
+    useAssistant.setState({ projectNodes: [], unfiledProjectCount: 0 })
+    await render(createElement('div', null,
+      createElement(ConversationTabStrip), createElement(ConversationTaxonomyPanel)))
+    await act(async () => { tab('projects').click() })
+    expect(panel()?.textContent).toContain(t('assistant.chat.project_none_yet'))
   })
 })
 

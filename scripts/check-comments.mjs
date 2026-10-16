@@ -1017,6 +1017,7 @@ const allowed = new Map([
     "// re-reading them is one small request. Keyed on the array identity so it fires on a real change only.",
     "// Only a conversation is accepted here: a note drag passing over the chat's tree is on its way",
     "// somewhere else, and claiming it would move a row the reader did not point at this panel.",
+    "/**\n * The project picks.\n *\n * A project is not a folder: it says what a conversation is *about*, and one thread answers under one\n * brief at a time. So the list is flat — every project beside the count of threads that inherit it —\n * with a row for the ones that answer under nothing.\n */",
   ]],
   ["src/client/features/chat/ChatTaxonomyMenus.tsx", [
     "/**\n * Managing the shared taxonomy from the chat's sidebar.\n *\n * A conversation's folders and tags are the notebook's own rows, so creating, renaming, recolouring and\n * deleting one here is the same act as doing it in the notes rail — and it goes through the same writes:\n * the store's folder mutations and the tags feature's own entry points carry the optimistic update, the\n * sync and the rollback, and this file only decides which rows a menu offers.\n *\n * The folder menu is the notebook rail's set minus everything that is about a *note* — creating a note\n * in this folder, exporting it, making it the inbox. That is the honest reading of where the reader is:\n * a panel for filing chats is not a place to file a note, and offering it would be furniture from\n * another screen.\n */",
@@ -1319,7 +1320,6 @@ const allowed = new Map([
     "/** 'all', 'none' (unfiled), or a folder id from the notebook's tree. */",
     "/** Conversations with no folder; the tree counts the rest. */",
     "/** The folder tree and the tag list, both counted for conversations. */",
-    "/** The four pickers the conversation list's tab strip offers, in the order it draws them. */",
     "/** Which of the four pickers the list column's tab panel currently shows. */",
     "/** The shortlists two of the tabs jump to; kept apart from the filtered main list. */",
     "/**\n * A paste at least this long is turned into a text file instead of being pasted into the box.\n *\n * The reader pasted it as context, not as something to scroll past for the next three turns.\n */",
@@ -1412,6 +1412,9 @@ const allowed = new Map([
     "/**\n   * Send the reader through the third party's own login, and come back when they have.\n   *\n   * The address is opened as a popup rather than navigated to: this screen holds a form somebody may be\n   * half way through typing, and a page that leaves to log in and returns to nothing is the oldest complaint\n   * about this kind of flow. When the popup closes the list is read again, because the answer to \"did it\n   * work\" is on the server and nowhere else.\n   */",
     "// Blocked, not failed: the reader's provider never saw them. Saying where the address went would",
     "// be a second way to leak a state parameter, so the answer is simply to allow the popup.",
+    "/** The five pickers the conversation list's tab strip offers, in the order it draws them. */",
+    "/** 'all', 'none' (under no brief), or a project id. */",
+    "/** Conversations under no project; the projects list counts the rest. */",
   ]],
   ["src/client/features/chat/chat-outline.test.ts", [
     "/**\n * The rail and the panel that stand beside a thread.\n *\n * Both of them are read off the thread's own DOM — which turn has passed the reading line, and how far\n * down to land when one is chosen — so these cases lay out the boxes a browser would and then scroll:\n * a test that only counted buttons would pass over an outline that marks the wrong turn.\n */",
@@ -1427,7 +1430,6 @@ const allowed = new Map([
     "// page is on — and the search reads eight boxes to find it rather than all two hundred.",
   ]],
   ["src/client/features/chat/chat-taxonomy.test.ts", [
-    "/**\n * The conversation list's four pickers live in one tab container, the same shape the notebook's sidebar\n * uses. What is pinned here is the coupling between the strip and the panel: exactly one tab is\n * selected, the panel answers to that tab, and the two shortlists reach the store's flag endpoints\n * rather than re-reading the whole conversation list.\n */",
     "/**\n * The folder picker is the notes rail's tree, not a list that happens to be indented: the rows say what\n * level they sit at and whether they are open, the arrow keys walk them, a branch folds, and the\n * folder's own mark and colour are the ones the server chose for it.\n */",
     "// A branch left open by the case before this one would be the state this case reads as its own.",
     "// Choosing a folder asks the server for the list; which folder the row shows as in force is the",
@@ -1443,6 +1445,8 @@ const allowed = new Map([
     "// Pressing the chip that is in force is how the reader takes the filter off again.",
     "/**\n * The move picker is the notes rail's, so the chat hands it the nesting rather than a flat list with the\n * depth written into the label: children under their parent, the count of what sits directly inside, and\n * the folder's own mark and colour, which is what the picker draws beside each row.\n */",
     "// Roots sort by name, and the orphan joins them rather than vanishing with its missing parent.",
+    "/**\n * The conversation list's pickers live in one tab container, the same shape the notebook's sidebar\n * uses. What is pinned here is the coupling between the strip and the panel: exactly one tab is\n * selected, the panel answers to that tab, and the two shortlists reach the store's flag endpoints\n * rather than re-reading the whole conversation list.\n */",
+    "// Picking a project asks the server for the list; the row's own state is what is under test here.",
   ]],
   ["src/client/features/chat/composer-controls.test.ts", [
     "/**\n * The composer's control row: seven chips that each own a menu, plus the attachment chips.\n *\n * What is pinned is the drive, not the markup — a click on each row has to reach the store or the\n * callback the composer wired, because every one of these controls is a setting the reader can only\n * change from here.\n */",
@@ -1479,8 +1483,8 @@ const allowed = new Map([
     "// One commit per settled burst: the text reaches the store, which is what asks the server again.",
   ]],
   ["src/client/features/chat/filter-persist.test.ts", [
-    "/**\n * The conversation list's three filters outlive the page they were set on.\n *\n * `listTab`, `folderFilter` and `tagFilter` are this device's view of rows the server owns, so they are\n * kept the way `store/ui.ts` keeps `expandedFolders`: read once when the store is built, validated per\n * key, and written back by one debounced write. What is pinned here is the three parts of that contract\n * a reader can feel — the write happens once and after the debounce, a stored entry comes back on the\n * next build of the store, and an entry naming a folder or tag that no longer exists is taken back off\n * rather than left to answer \"no conversations\" forever.\n */",
     "/**\n * The store built from scratch, with the same generation's API mock.\n *\n * The persisted entry is read while the module is being built, so a test that wants to know what a\n * reload does has to reload — and the mock the new store reached for is a new instance too.\n */",
+    "/**\n * The conversation list's filters outlive the page they were set on.\n *\n * `listTab`, `folderFilter`, `projectFilter` and `tagFilter` are this device's view of rows the server\n * owns, so they are kept the way `store/ui.ts` keeps `expandedFolders`: read once when the store is\n * built, validated per key, and written back by one debounced write. What is pinned here is the three\n * parts of that contract a reader can feel — the write happens once and after the debounce, a stored\n * entry comes back on the next build of the store, and an entry naming a folder, project or tag that no\n * longer exists is taken back off rather than left to answer \"no conversations\" forever.\n */",
   ]],
   ["src/client/features/chat/mcp-authorize-card.test.ts", [
     "/**\n * The settings screen's answer to a server that wants a login.\n *\n * A third party that refuses a call is not broken, and the fix is not a field on this screen — it is the\n * reader pressing a button and logging in at the other end. What is pinned here is that the screen says so\n * in the one case where it is true, keeps quiet in the ordinary case where a server answers with the key it\n * was given, and that the press reaches the flow.\n */",
@@ -14628,6 +14632,7 @@ const allowed = new Map([
     "/** The OAuth arrangement, once the reader started one. Null means this server has never been asked. */",
     "/**\n * One third party that would not answer, with the part the screen can act on.\n *\n * `needsAuthorization` travels as a flag rather than being read back out of `error`, because `error` is a\n * sentence — it is shown to a reader in their own language, and re-parsed by anybody who wanted a button out\n * of it would find one only in the language the worker happened to write it in.\n */",
     "/** True when the refusal was for want of a login, which is the one refusal this app can fix from here. */",
+    "/** A project, with how many conversations answer under its brief. */",
   ]],
   ["src/shared/backup-format.ts", [
     "/** The account's own template library, absent from a backup taken before it was worth keeping. */",
@@ -15697,6 +15702,8 @@ const allowed = new Map([
     "/** Take the authorization away, which is what the reader means by \"stop letting this server in\". */",
     "// A token is minted for one resource. Retyping the address of the server therefore takes the",
     "// authorization with it, rather than leaving a bearer from the old issuer to be offered to the new one.",
+    "// Projects do not nest the way folders do, so this is an equality rather than a subtree walk.",
+    "/** How many conversations answer under each project, and how many answer under none. */",
   ]],
   ["src/worker/assistant/tools.ts", [
     "/**\n * The tools the assistant can reach, and the executor that runs them.\n *\n * Three things are enforced here rather than asked of the model, because a model that is confident and\n * wrong is the failure mode this app has to survive:\n *  - **budgets** — a per-turn call cap, a per-tool cap and a duplicate-call refusal, so a reasoning\n *    loop cannot spend the reader's AI quota or write a hundred tasks;\n *  - **validation** — arguments are checked against the same declaration that generates the JSON\n *    Schema the provider is given, so the two can never disagree;\n *  - **approval** — a destructive tool never runs during the turn. `prepare` resolves the exact target\n *    and writes a pending action; `commit` runs only when the reader presses Approve, once, on that\n *    target. The model can propose; it cannot delete.\n *\n * Scheduled runs get read-only tools plus `notify_reader`, so a routine that has drifted cannot edit\n * the vault while nobody is watching.\n */",
@@ -16624,6 +16631,8 @@ const allowed = new Map([
     "/** The page a reader lands on when their provider sends them back. No script, no styling, one link home. */",
     "/**\n * The half of the dance the third party drives.\n *\n * Reached by the reader's browser, from the provider, so it is a page rather than an API call — and it is\n * still behind `requireAuth`, which is what makes the state below a confirmation rather than the only\n * defence: the row that gets the token is found inside *this* session's own servers, so another reader's\n * correctly-signed reply for the same server id simply has no row to land on.\n */",
     "/** Take the token away, and leave the server's own configuration alone. */",
+    "// `project=none` reads the conversations that answer under no brief, the same convention as the folder filter.",
+    "/** Each project with how many conversations answer under it, plus the ones under none. */",
   ]],
   ["src/worker/routes/auth.ts", [
     "// Account-wide cap so a distributed botnet cannot retry one account",

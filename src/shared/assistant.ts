@@ -712,6 +712,13 @@ export interface ChatFolderNode {
   count: number
 }
 
+/** A project, with how many conversations answer under its brief. */
+export interface ChatProjectNode {
+  id: string
+  name: string
+  count: number
+}
+
 export interface ToolActivity {
   id: string
   /** One of `ASSISTANT_TOOL_SPECS[].name`; the client renders the chip's words from the catalog. */

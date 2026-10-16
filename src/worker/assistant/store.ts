@@ -34,6 +34,7 @@ import type {
   AutomationRun,
   AutomationStatus,
   ChatFolderNode,
+  ChatProjectNode,
   ConversationTag,
   PendingAction,
   Project,
@@ -1046,7 +1047,7 @@ export class AssistantStore {
    */
   async listConversations(
     query?: string,
-    filter: { folderId?: string | null, tagId?: string, starred?: boolean, pinned?: boolean, limit?: number } = {},
+    filter: { folderId?: string | null, projectId?: string | null, tagId?: string, starred?: boolean, pinned?: boolean, limit?: number } = {},
   ): Promise<AssistantConversation[]> {
     const limit = filter.limit ?? 100
     const q = new Query(this.userId)
@@ -1055,6 +1056,11 @@ export class AssistantStore {
       if (ids && !ids.length) return []
       if (!ids) q.raw('folder_id IS NULL')
       else q.inList('folder_id', ids)
+    }
+    if (filter.projectId !== undefined) {
+      // Projects do not nest the way folders do, so this is an equality rather than a subtree walk.
+      if (filter.projectId === null) q.raw('project_id IS NULL')
+      else q.eq('project_id', filter.projectId)
     }
     if (filter.starred) q.raw('starred = 1')
     if (filter.pinned) q.raw('pinned = 1')
@@ -1112,6 +1118,26 @@ export class AssistantStore {
         id: row.id, name: row.name, parentId: row.parent_id ?? null,
         icon: row.icon ?? null, color: row.color ?? null, count: row.n ?? 0,
       })),
+      unfiled: unfiled?.n ?? 0,
+    }
+  }
+
+  /** How many conversations answer under each project, and how many answer under none. */
+  async conversationProjectSummary(): Promise<{ projects: ChatProjectNode[], unfiled: number }> {
+    const rows = await this.rows<{ id: string, name: string, n: number }>(
+      `SELECT p.id, p.name,
+              (SELECT count(*) FROM chat_conversations c WHERE c.user_id = ?1 AND c.project_id = p.id) AS n
+         FROM chat_projects p
+        WHERE p.user_id = ?1
+        ORDER BY p.name`,
+      this.userId,
+    )
+    const unfiled = await this.one<{ n: number }>(
+      `SELECT count(*) AS n FROM chat_conversations WHERE user_id = ?1 AND project_id IS NULL`,
+      this.userId,
+    )
+    return {
+      projects: rows.map((row) => ({ id: row.id, name: row.name, count: row.n ?? 0 })),
       unfiled: unfiled?.n ?? 0,
     }
   }

@@ -61,6 +61,7 @@ import type {
   AssistantMcpServerDetail,
   AssistantConversation,
   ChatFolderNode,
+  ChatProjectNode,
   ConversationTag,
   AssistantImportSummary,
   AssistantLimits,
@@ -785,7 +786,7 @@ export const api = {
    * these routes, and nothing in the notebook calls them.
    */
   assistant: {
-    conversations: (params: { q?: string, folder?: string, tag?: string, starred?: string, pinned?: string } = {}) =>
+    conversations: (params: { q?: string, folder?: string, project?: string, tag?: string, starred?: string, pinned?: string } = {}) =>
       request<{ conversations: AssistantConversation[] }>(`/api/assistant/conversations${toQuery(params)}`),
     createConversation: (title?: string, folderId?: string | null) =>
       request<{ conversation: AssistantConversation }>('/api/assistant/conversations', {
@@ -805,6 +806,8 @@ export const api = {
       request<{ ok: true }>(`/api/assistant/conversations/${id}/share`, { method: 'DELETE' }),
     conversationFolders: () =>
       request<{ folders: ChatFolderNode[], unfiled: number }>('/api/assistant/folders'),
+    conversationProjects: () =>
+      request<{ projects: ChatProjectNode[], unfiled: number }>('/api/assistant/projects/summary'),
     conversationTags: () =>
       request<{ tags: (ConversationTag & { count: number })[] }>('/api/assistant/tags'),
     addConversationTag: (id: string, tagId: string) =>

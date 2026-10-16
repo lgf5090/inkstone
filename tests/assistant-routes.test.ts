@@ -1487,6 +1487,23 @@ describe('projects', () => {
     // The read path omits the field rather than spelling null, so absence is the "left the project" answer.
     expect(after.conversation.projectId ?? null).toBeNull()
   })
+
+  it('filters conversations by project and counts them per project', async () => {
+    const project = await call<{ project: Project }>('POST', '/api/assistant/projects', { name: 'Counting' })
+    const inside = await call<{ conversation: AssistantConversation }>('POST', '/api/assistant/conversations', { title: 'Inside' })
+    const outside = await call<{ conversation: AssistantConversation }>('POST', '/api/assistant/conversations', { title: 'Outside' })
+    await call('PATCH', `/api/assistant/conversations/${inside.conversation.id}`, { projectId: project.project.id })
+
+    const filtered = await call<{ conversations: AssistantConversation[] }>('GET', `/api/assistant/conversations?project=${project.project.id}`)
+    expect(filtered.conversations.map((entry) => entry.id)).toEqual([inside.conversation.id])
+    const unfiled = await call<{ conversations: AssistantConversation[] }>('GET', '/api/assistant/conversations?project=none')
+    expect(unfiled.conversations.map((entry) => entry.id)).toContain(outside.conversation.id)
+    expect(unfiled.conversations.map((entry) => entry.id)).not.toContain(inside.conversation.id)
+
+    const summary = await call<{ projects: { id: string, count: number }[], unfiled: number }>('GET', '/api/assistant/projects/summary')
+    expect(summary.projects.find((row) => row.id === project.project.id)?.count).toBe(1)
+    expect(summary.unfiled).toBeGreaterThanOrEqual(1)
+  })
 })
 
 describe('starring and pinning', () => {

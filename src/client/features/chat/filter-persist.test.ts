@@ -1,13 +1,13 @@
 // @vitest-environment jsdom
 /**
- * The conversation list's three filters outlive the page they were set on.
+ * The conversation list's filters outlive the page they were set on.
  *
- * `listTab`, `folderFilter` and `tagFilter` are this device's view of rows the server owns, so they are
- * kept the way `store/ui.ts` keeps `expandedFolders`: read once when the store is built, validated per
- * key, and written back by one debounced write. What is pinned here is the three parts of that contract
- * a reader can feel — the write happens once and after the debounce, a stored entry comes back on the
- * next build of the store, and an entry naming a folder or tag that no longer exists is taken back off
- * rather than left to answer "no conversations" forever.
+ * `listTab`, `folderFilter`, `projectFilter` and `tagFilter` are this device's view of rows the server
+ * owns, so they are kept the way `store/ui.ts` keeps `expandedFolders`: read once when the store is
+ * built, validated per key, and written back by one debounced write. What is pinned here is the three
+ * parts of that contract a reader can feel — the write happens once and after the debounce, a stored
+ * entry comes back on the next build of the store, and an entry naming a folder, project or tag that no
+ * longer exists is taken back off rather than left to answer "no conversations" forever.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { DEBOUNCE } from '@shared/constants'
@@ -21,6 +21,7 @@ vi.mock('../../lib/api', () => ({
       conversations: vi.fn(async () => ({ conversations: [] })),
       conversationFolders: vi.fn(async () => ({ folders: [], unfiled: 0 })),
       conversationTags: vi.fn(async () => ({ tags: [] })),
+      conversationProjects: vi.fn(async () => ({ projects: [], unfiled: 0 })),
     },
   },
 }))
@@ -66,16 +67,17 @@ describe('the conversation list filters', () => {
     await store.getState().setListTab('tags')
     vi.advanceTimersByTime(DEBOUNCE.persist)
     expect(JSON.parse(localStorage.getItem(key) ?? '{}')).toEqual({
-      listTab: 'tags', folderFilter: 'f1', tagFilter: 't1',
+      listTab: 'tags', folderFilter: 'f1', projectFilter: 'all', tagFilter: 't1',
     })
   })
 
   it('come back when the store is built again', async () => {
     const first = await rebuild()
-    localStorage.setItem(first.key, JSON.stringify({ listTab: 'pinned', folderFilter: 'f7', tagFilter: null }))
+    localStorage.setItem(first.key, JSON.stringify({ listTab: 'pinned', folderFilter: 'f7', projectFilter: 'p9', tagFilter: null }))
     const { store } = await rebuild()
     expect(store.getState().listTab).toBe('pinned')
     expect(store.getState().folderFilter).toBe('f7')
+    expect(store.getState().projectFilter).toBe('p9')
     expect(store.getState().tagFilter).toBeNull()
   })
 
@@ -89,25 +91,28 @@ describe('the conversation list filters', () => {
 
   it('drop a filter the tree no longer offers', async () => {
     const first = await rebuild()
-    localStorage.setItem(first.key, JSON.stringify({ listTab: 'folders', folderFilter: 'gone', tagFilter: 'also-gone' }))
+    localStorage.setItem(first.key, JSON.stringify({ listTab: 'folders', folderFilter: 'gone', projectFilter: 'gone-project', tagFilter: 'also-gone' }))
     const { store, assistant } = await rebuild()
     vi.mocked(assistant.conversationFolders).mockResolvedValue({ folders: [FOLDER], unfiled: 0 })
     vi.mocked(assistant.conversationTags).mockResolvedValue({ tags: [] as (ConversationTag & { count: number })[] })
     expect(store.getState().folderFilter).toBe('gone')
     await store.getState().loadTaxonomy()
     expect(store.getState().folderFilter).toBe('all')
+    expect(store.getState().projectFilter).toBe('all')
     expect(store.getState().tagFilter).toBeNull()
   })
 
   it('keep a filter the tree still offers', async () => {
     const first = await rebuild()
-    localStorage.setItem(first.key, JSON.stringify({ listTab: 'folders', folderFilter: 'live', tagFilter: 'kept' }))
+    localStorage.setItem(first.key, JSON.stringify({ listTab: 'folders', folderFilter: 'live', projectFilter: 'kept-project', tagFilter: 'kept' }))
     const { store, assistant } = await rebuild()
     vi.mocked(assistant.conversationFolders).mockResolvedValue({ folders: [FOLDER], unfiled: 0 })
+    vi.mocked(assistant.conversationProjects).mockResolvedValue({ projects: [{ id: 'kept-project', name: 'Kept', count: 2 }], unfiled: 0 })
     const kept: ConversationTag & { count: number } = { id: 'kept', name: 'Kept', color: null, count: 3 }
     vi.mocked(assistant.conversationTags).mockResolvedValue({ tags: [kept] })
     await store.getState().loadTaxonomy()
     expect(store.getState().folderFilter).toBe('live')
+    expect(store.getState().projectFilter).toBe('kept-project')
     expect(store.getState().tagFilter).toBe('kept')
   })
 })

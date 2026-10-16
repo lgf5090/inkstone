@@ -16,6 +16,7 @@ import { create } from 'zustand'
 import type {
   AssistantConversation,
   ChatFolderNode,
+  ChatProjectNode,
   ConversationTag,
   AssistantMemory,
   AssistantMessage,
@@ -51,10 +52,10 @@ export type AssistantView = 'chat' | 'memory' | 'tasks' | 'automations' | 'promp
 
 export const ASSISTANT_VIEWS: readonly AssistantView[] = ['chat', 'memory', 'tasks', 'automations', 'prompts', 'projects', 'settings']
 
-/** The four pickers the conversation list's tab strip offers, in the order it draws them. */
-export type ConversationListTab = 'folders' | 'tags' | 'starred' | 'pinned'
+/** The five pickers the conversation list's tab strip offers, in the order it draws them. */
+export type ConversationListTab = 'folders' | 'projects' | 'tags' | 'starred' | 'pinned'
 
-export const CONVERSATION_LIST_TABS: readonly ConversationListTab[] = ['folders', 'tags', 'starred', 'pinned']
+export const CONVERSATION_LIST_TABS: readonly ConversationListTab[] = ['folders', 'projects', 'tags', 'starred', 'pinned']
 
 /**
  * A paste at least this long is turned into a text file instead of being pasted into the box.
@@ -107,6 +108,11 @@ interface AssistantState {
   folderNodes: ChatFolderNode[]
   /** Conversations with no folder; the tree counts the rest. */
   unfiledCount: number
+  /** 'all', 'none' (under no brief), or a project id. */
+  projectFilter: string
+  projectNodes: ChatProjectNode[]
+  /** Conversations under no project; the projects list counts the rest. */
+  unfiledProjectCount: number
   tagNodes: (ConversationTag & { count: number })[]
   /** Which of the four pickers the list column's tab panel currently shows. */
   listTab: ConversationListTab
@@ -233,6 +239,7 @@ interface AssistantState {
   /** The folder tree and the tag list, both counted for conversations. */
   loadTaxonomy: () => Promise<void>
   setFolderFilter: (value: string) => Promise<void>
+  setProjectFilter: (value: string) => Promise<void>
   setTagFilter: (tagId: string | null) => Promise<void>
   setListTab: (tab: ConversationListTab) => Promise<void>
   loadFlagged: () => Promise<void>
@@ -437,7 +444,7 @@ async function adoptThread(conversationId: string): Promise<void> {
 /** Exported so a test can read and clear exactly the entry this store owns. */
 export const ASSISTANT_UI_STORAGE_KEY = IS_DEMO_MODE ? 'inkstone.demo.assistantUi' : 'inkstone.assistant.ui'
 
-const PERSISTED_KEYS = ['listTab', 'folderFilter', 'tagFilter'] as const
+const PERSISTED_KEYS = ['listTab', 'folderFilter', 'projectFilter', 'tagFilter'] as const
 
 /** An id is 26 characters today; the ceiling is what stops a hand-edited entry from growing the store. */
 const MAX_FILTER_ID_CHARS = 128
@@ -447,6 +454,7 @@ type PersistedKey = typeof PERSISTED_KEYS[number]
 const PERSISTED_DEFAULTS: Pick<AssistantState, PersistedKey> = {
   listTab: 'folders',
   folderFilter: 'all',
+  projectFilter: 'all',
   tagFilter: null,
 }
 
@@ -478,6 +486,8 @@ function loadPersisted(): Partial<AssistantState> {
     // 'all' and 'none' are the two built-in picks and a folder id is an id: one read covers all three.
     const folder = readFilterId(value.folderFilter)
     if (folder) out.folderFilter = folder
+    const project = readFilterId(value.projectFilter)
+    if (project) out.projectFilter = project
     const tag = readFilterId(value.tagFilter)
     if (tag) out.tagFilter = tag
     return out
@@ -520,6 +530,8 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
   ...loadPersisted(),
   folderNodes: [],
   unfiledCount: 0,
+  projectNodes: [],
+  unfiledProjectCount: 0,
   tagNodes: [],
   webSearch: false,
   composerSeed: null,
@@ -612,9 +624,10 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
     try {
       const state = get()
       const query = state.conversationQuery.trim()
-      const params: { q?: string, folder?: string, tag?: string } = {}
+      const params: { q?: string, folder?: string, project?: string, tag?: string } = {}
       if (query) params.q = query
       if (state.folderFilter !== 'all') params.folder = state.folderFilter
+      if (state.projectFilter !== 'all') params.project = state.projectFilter
       if (state.tagFilter) params.tag = state.tagFilter
       const result = await api.assistant.conversations(params)
       if (token !== conversationRequest) return
@@ -866,8 +879,18 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
 
   loadTaxonomy: async () => {
     try {
-      const [folders, tags] = await Promise.all([api.assistant.conversationFolders(), api.assistant.conversationTags()])
-      set({ folderNodes: folders.folders, unfiledCount: folders.unfiled, tagNodes: tags.tags })
+      const [folders, tags, projects] = await Promise.all([
+        api.assistant.conversationFolders(),
+        api.assistant.conversationTags(),
+        api.assistant.conversationProjects(),
+      ])
+      set({
+        folderNodes: folders.folders,
+        unfiledCount: folders.unfiled,
+        tagNodes: tags.tags,
+        projectNodes: projects.projects,
+        unfiledProjectCount: projects.unfiled,
+      })
       // A filter restored from this device can name a row that is gone — deleted, or merged away on
       // another machine. Left alone it answers "no conversations" forever, with no row in the picker
       // left to click it off, so a choice the real tree no longer offers is dropped as soon as the
@@ -875,6 +898,8 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
       const state = get()
       if (state.folderFilter !== 'all' && state.folderFilter !== 'none'
         && !folders.folders.some((node) => node.id === state.folderFilter)) await state.setFolderFilter('all')
+      if (state.projectFilter !== 'all' && state.projectFilter !== 'none'
+        && !projects.projects.some((node) => node.id === state.projectFilter)) await state.setProjectFilter('all')
       if (state.tagFilter && !tags.tags.some((tag) => tag.id === state.tagFilter)) await state.setTagFilter(null)
     } catch (error) {
       toast(error)
@@ -883,6 +908,11 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
 
   setFolderFilter: async (value) => {
     set({ folderFilter: value })
+    await get().loadConversations()
+  },
+
+  setProjectFilter: async (value) => {
+    set({ projectFilter: value })
     await get().loadConversations()
   },
 
