@@ -54,6 +54,14 @@ describe('what a reply offers', () => {
     expect(ids({ role: 'assistant', text: 'answer' })).not.toContain('select')
   })
 
+  it('offers to publish a turn only where there is a stored row behind it', () => {
+    expect(ids({ role: 'assistant', text: 'answer', onShare: () => {} })).toContain('share')
+    expect(ids({ role: 'user', text: 'question', onShare: () => {} })).toContain('share')
+    // A turn still arriving has no id, and a link to a message that does not exist yet is a dead link the
+    // reader would only discover after sending it.
+    expect(ids({ role: 'assistant', text: 'answer' })).not.toContain('share')
+  })
+
   it('marks the verdict already recorded', () => {
     const rows = messageMenuItems({ role: 'assistant', text: 'answer', onRate: () => {}, feedback: 'down' })
     expect(rows.find((row) => row.id === 'rate-down')?.checked).toBe(true)

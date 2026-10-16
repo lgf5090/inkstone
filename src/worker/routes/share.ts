@@ -290,7 +290,9 @@ shareRoutes.post('/conversation/:slug', async (c) => {
 
   await assertConversationShareAccess(c.env.DB, slug, requestClientIp(c), share, password)
 
-  const conversation = await loadSharedConversation(c.env.DB, share.conversation_id, share.user_id)
+  // The link's own scope, so a narrowed publication shows the turns it named rather than the thread
+  // around them. Read from the row and not from the request: what a visitor sees is what was published.
+  const conversation = await loadSharedConversation(c.env.DB, share.conversation_id, share.user_id, share.scope)
   if (!conversation) throw ApiError.notFound('The conversation has been deleted')
 
   if (conversationShareView(slug, requestClientIp(c), Date.now())) {

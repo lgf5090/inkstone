@@ -6,7 +6,7 @@
  * legible: it says how many rows are picked, and every action it offers acts on exactly those.
  */
 
-import { Copy, Download, Trash2, X } from 'lucide-react'
+import { Copy, Download, Share2, Trash2, X } from 'lucide-react'
 import type { AssistantMessage } from '@shared/assistant'
 import { t } from '../../lib/i18n'
 import { Button, IconButton } from '../../components/primitives'
@@ -24,9 +24,11 @@ export function selectedMessages(messages: readonly AssistantMessage[], selected
   return messages.filter((message) => selected.has(message.id))
 }
 
-export function SelectionBar({ picked, title, onDelete, onExit }: {
+export function SelectionBar({ picked, title, onShare, onDelete, onExit }: {
   picked: AssistantMessage[]
   title: string
+  /** Publishes exactly the ticked turns behind one link, which is what the mode is for beyond copying. */
+  onShare: () => void
   onDelete: () => void
   onExit: () => void
 }) {
@@ -64,6 +66,10 @@ export function SelectionBar({ picked, title, onDelete, onExit }: {
       >
         <Download size={13} />
         {t('assistant.chat.select_export')}
+      </Button>
+      <Button size="sm" variant="ghost" disabled={!count} onClick={onShare}>
+        <Share2 size={13} />
+        {t('assistant.chat.select_share')}
       </Button>
       <Button size="sm" variant="ghost" className="text-[var(--danger)]" disabled={!count} onClick={onDelete}>
         <Trash2 size={13} />

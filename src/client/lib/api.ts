@@ -818,12 +818,12 @@ export const api = {
     /** Put a conversation away or take it back out. Not a delete: the thread stays whole and searchable. */
     setConversationArchived: (id: string, archived: boolean) =>
       request<{ conversation: AssistantConversation }>(`/api/assistant/conversations/${id}`, { method: 'PATCH', body: { archived } }),
-    conversationShare: (id: string, signal?: AbortSignal) =>
-      request<{ share: ConversationShareInfo | null }>(`/api/assistant/conversations/${id}/share`, { signal }),
-    createConversationShare: (id: string, body: { password?: string | null, expiresIn?: number | null, rotate?: boolean }) =>
+    conversationShare: (id: string, messageIds: readonly string[] = [], signal?: AbortSignal) =>
+      request<{ share: ConversationShareInfo | null }>(`/api/assistant/conversations/${id}/share${shareScopeQuery(messageIds)}`, { signal }),
+    createConversationShare: (id: string, body: { password?: string | null, expiresIn?: number | null, rotate?: boolean, messageIds?: readonly string[] }) =>
       request<{ share: ConversationShareInfo }>(`/api/assistant/conversations/${id}/share`, { method: 'POST', body }),
-    removeConversationShare: (id: string) =>
-      request<{ ok: true }>(`/api/assistant/conversations/${id}/share`, { method: 'DELETE' }),
+    removeConversationShare: (id: string, messageIds: readonly string[] = []) =>
+      request<{ ok: true }>(`/api/assistant/conversations/${id}/share${shareScopeQuery(messageIds)}`, { method: 'DELETE' }),
     conversationFolders: () =>
       request<{ folders: ChatFolderNode[], unfiled: number }>('/api/assistant/folders'),
     conversationProjects: () =>
@@ -1078,6 +1078,16 @@ export const api = {
     importBackup: (payload: unknown) =>
       request<{ imported: AssistantImportSummary }>('/api/assistant/import', { method: 'POST', body: payload }),
   },
+}
+
+/**
+ * Which turns a share link covers, as the query the worker reads it back from.
+ *
+ * Nothing at all for the whole thread, so the everyday link's request is the one it has always been and a
+ * reader who never narrows anything sees no difference in the wire.
+ */
+function shareScopeQuery(messageIds: readonly string[]): string {
+  return messageIds.length ? `?messageIds=${messageIds.map(encodeURIComponent).join(',')}` : ''
 }
 
 function toQuery(params: Record<string, string | number | undefined>): string {

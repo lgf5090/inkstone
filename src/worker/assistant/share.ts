@@ -15,7 +15,7 @@
 import { LIMITS } from '@shared/constants'
 import { sharePasscodeProblem } from '@shared/share-passcode'
 import type { AssistantSource, PublicConversation } from '@shared/assistant'
-import { isValidSlug, newSlug } from '../lib/id'
+import { isValidId, isValidSlug, newSlug } from '../lib/id'
 import { ApiError } from '../lib/errors'
 import { hashPassword, verifyPassword } from '../lib/password'
 import { assertAttemptBudget, assertNotLocked, clearLoginFailures, consumeAttemptBudget, recordLoginFailure } from '../lib/throttle'
@@ -23,11 +23,42 @@ import { assertAttemptBudget, assertNotLocked, clearLoginFailures, consumeAttemp
 /** How much of a thread a public link carries: enough for a real conversation, bounded for a page. */
 export const MAX_SHARED_MESSAGES = 400
 
-/** One live link for one conversation: re-sharing refreshes the row rather than minting a second one. */
+/**
+ * How many turns one reader may pick for a single link.
+ *
+ * A bound rather than a preference: the picked ids are the link's key and the filter its read runs, and
+ * both are happier small. Fifty exchanges is already more than anybody reads in a link they were sent.
+ */
+export const MAX_SHARED_PICK = 50
+
+/** The scope of a link that publishes the whole thread, which is what a link without a scope means. */
+export const WHOLE_THREAD = ''
+
+/**
+ * A selection, written down in one canonical form.
+ *
+ * Sorted and de-duplicated so that the same set of turns is the same link however it was ticked, and
+ * joined into a string because that string is part of the row's key. The ids are validated before they
+ * get here, and validated again when the string is read back, because a key built out of text is a key
+ * that has to be safe to put in a query.
+ */
+export function messageScope(ids: readonly string[]): string {
+  return [...new Set(ids.filter(isValidId))].sort().join(',')
+}
+
+/** The turns a scope names. An unreadable or unknown id is dropped rather than passed on. */
+export function scopeMessageIds(scope: string): string[] {
+  if (!scope) return []
+  return scope.split(',').filter(isValidId).slice(0, MAX_SHARED_PICK)
+}
+
+/** One live link for one conversation and one scope: re-sharing refreshes the row rather than minting a
+ *  second one. */
 export interface ChatShareRow {
   slug: string
   conversation_id: string
   user_id: string
+  scope: string
   password_hash: string | null
   expires_at: number | null
   views: number
@@ -40,15 +71,35 @@ export class ChatShareStore {
     readonly userId: string,
   ) {}
 
-  /** The link this account has on one of its conversations, or null. */
-  async shareFor(conversationId: string): Promise<ChatShareRow | null> {
+  /** The link this account has on one conversation under one scope, or null. */
+  async shareFor(conversationId: string, scope: string = WHOLE_THREAD): Promise<ChatShareRow | null> {
     return await this.db
       .prepare(
-        `SELECT slug, conversation_id, user_id, password_hash, expires_at, views, created_at
-           FROM chat_share_links WHERE user_id = ?1 AND conversation_id = ?2`,
+        `SELECT slug, conversation_id, user_id, scope, password_hash, expires_at, views, created_at
+           FROM chat_share_links WHERE user_id = ?1 AND conversation_id = ?2 AND scope = ?3`,
       )
-      .bind(this.userId, conversationId)
+      .bind(this.userId, conversationId, scope)
       .first<ChatShareRow>()
+  }
+
+  /**
+   * Which of the picked turns are really in this conversation.
+   *
+   * Asked before a link is written, because the scope becomes part of the row's key and a link that named
+   * a turn from somewhere else would be a link whose read returns nothing — a broken page rather than a
+   * refusal, and one nobody would think to look for in the key.
+   */
+  async messagesInConversation(conversationId: string, ids: readonly string[]): Promise<string[]> {
+    if (!ids.length) return []
+    const placeholders = ids.map((_, index) => `?${index + 3}`).join(', ')
+    const { results } = await this.db
+      .prepare(
+        `SELECT id FROM chat_messages
+          WHERE user_id = ?1 AND conversation_id = ?2 AND id IN (${placeholders})`,
+      )
+      .bind(this.userId, conversationId, ...ids)
+      .all<{ id: string }>()
+    return (results ?? []).map((row) => row.id)
   }
 
   /**
@@ -76,6 +127,7 @@ export class ChatShareStore {
    */
   async upsertShare(input: {
     conversationId: string
+    scope: string
     passwordHash: string | null
     expiresAt: number | null
     now: number
@@ -83,27 +135,27 @@ export class ChatShareStore {
     replaceExpiry: boolean
     rotate: boolean
   }): Promise<boolean> {
-    const existing = await this.shareFor(input.conversationId)
+    const existing = await this.shareFor(input.conversationId, input.scope)
     if (!existing) {
       await this.db
         .prepare(
-          `INSERT INTO chat_share_links (slug, conversation_id, user_id, password_hash, expires_at, views, created_at)
-           VALUES (?1, ?2, ?3, ?4, ?5, 0, ?6)`,
+          `INSERT INTO chat_share_links (slug, conversation_id, user_id, scope, password_hash, expires_at, views, created_at)
+           VALUES (?1, ?2, ?3, ?4, ?5, ?6, 0, ?7)`,
         )
-        .bind(newSlug(), input.conversationId, this.userId, input.passwordHash, input.expiresAt, input.now)
+        .bind(newSlug(), input.conversationId, this.userId, input.scope, input.passwordHash, input.expiresAt, input.now)
         .run()
       return true
     }
     const slug = input.rotate ? newSlug() : existing.slug
     const result = await this.db
       .prepare(
-        `UPDATE chat_share_links SET slug = ?3,
-           password_hash = CASE WHEN ?4 THEN ?5 ELSE password_hash END,
-           expires_at = CASE WHEN ?6 THEN ?7 ELSE expires_at END
-         WHERE user_id = ?1 AND conversation_id = ?2`,
+        `UPDATE chat_share_links SET slug = ?4,
+           password_hash = CASE WHEN ?5 THEN ?6 ELSE password_hash END,
+           expires_at = CASE WHEN ?7 THEN ?8 ELSE expires_at END
+         WHERE user_id = ?1 AND conversation_id = ?2 AND scope = ?3`,
       )
       .bind(
-        this.userId, input.conversationId, slug,
+        this.userId, input.conversationId, input.scope, slug,
         input.replacePassword ? 1 : 0, input.passwordHash,
         input.replaceExpiry ? 1 : 0, input.expiresAt,
       )
@@ -111,10 +163,10 @@ export class ChatShareStore {
     return (result.meta?.changes ?? 0) > 0
   }
 
-  async deleteShare(conversationId: string): Promise<void> {
+  async deleteShare(conversationId: string, scope: string = WHOLE_THREAD): Promise<void> {
     await this.db
-      .prepare(`DELETE FROM chat_share_links WHERE user_id = ?1 AND conversation_id = ?2`)
-      .bind(this.userId, conversationId)
+      .prepare(`DELETE FROM chat_share_links WHERE user_id = ?1 AND conversation_id = ?2 AND scope = ?3`)
+      .bind(this.userId, conversationId, scope)
       .run()
   }
 }
@@ -124,7 +176,7 @@ export async function findConversationShare(db: D1Database, slug: string): Promi
   if (!isValidSlug(slug)) return null
   return await db
     .prepare(
-      `SELECT slug, conversation_id, user_id, password_hash, expires_at, views, created_at
+      `SELECT slug, conversation_id, user_id, scope, password_hash, expires_at, views, created_at
          FROM chat_share_links WHERE slug = ?1`,
     )
     .bind(slug)
@@ -192,19 +244,25 @@ export async function loadSharedConversation(
   db: D1Database,
   conversationId: string,
   userId: string,
+  scope: string = WHOLE_THREAD,
 ): Promise<{ title: string; createdAt: number; updatedAt: number, messages: PublicConversation['messages'] } | null> {
   const conversation = await db
     .prepare(`SELECT title, created_at, updated_at FROM chat_conversations WHERE user_id = ?1 AND id = ?2`)
     .bind(userId, conversationId)
     .first<{ title: string; created_at: number; updated_at: number }>()
   if (!conversation) return null
+  // A scoped link carries the exchanges it names and nothing around them: the reader picked those turns
+  // and the rest of the thread is not what they handed over. The ids are the link's own key, already
+  // checked against this conversation when it was made.
+  const picked = scopeMessageIds(scope)
+  const onlyPicked = picked.length ? `AND id IN (${picked.map((_, index) => `?${index + 4}`).join(', ')})` : ''
   const { results } = await db
     .prepare(
       `SELECT role, content, created_at, model_label, sources
-         FROM chat_messages WHERE user_id = ?1 AND conversation_id = ?2
+         FROM chat_messages WHERE user_id = ?1 AND conversation_id = ?2 ${onlyPicked}
         ORDER BY created_at ASC, rowid ASC LIMIT ?3`,
     )
-    .bind(userId, conversationId, MAX_SHARED_MESSAGES)
+    .bind(userId, conversationId, MAX_SHARED_MESSAGES, ...picked)
     .all<{ role: string, content: string, created_at: number, model_label: string | null, sources: string | null }>()
   return {
     title: conversation.title,

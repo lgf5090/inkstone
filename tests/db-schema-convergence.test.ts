@@ -137,6 +137,31 @@ describe('a boot onto a database whose ledger lies', () => {
       .toEqual({ title: 'Keeper', ephemeral: 0 })
   })
 
+  it('reads a share link that predates the scope as the whole thread, and moves its key', async () => {
+    const sqlite = await installed()
+    sqlite.exec(`INSERT INTO chat_share_links (slug, conversation_id, user_id, created_at) VALUES ('s1', 'c1', 'u1', 1)`)
+    // The shape a database built before version 86 has: no scope column, and a key that admits one link per
+    // conversation. The index goes before the column, which SQLite will not drop while something is keyed
+    // on it.
+    sqlite.exec('DROP INDEX IF EXISTS idx_chat_share_links_scope')
+    sqlite.exec('ALTER TABLE chat_share_links DROP COLUMN scope')
+    sqlite.exec('CREATE UNIQUE INDEX idx_chat_share_links_conversation ON chat_share_links(user_id, conversation_id)')
+    sqlite.exec('DELETE FROM schema_migrations WHERE version = 86')
+
+    await reboot(sqlite)
+
+    expect(columnsOf(sqlite, 'chat_share_links')).toContain('scope')
+    // Every link made before this column existed published the whole thread, which is the reading that
+    // loses nothing — the other way round, a conversation already sent to somebody would come back showing
+    // a single message.
+    expect(sqlite.prepare(`SELECT scope FROM chat_share_links WHERE slug = 's1'`).get()).toEqual({ scope: '' })
+    // And the key now admits a second publication of the same thread.
+    expect(indexesOf(sqlite)).toContain('idx_chat_share_links_scope')
+    expect(indexesOf(sqlite)).not.toContain('idx_chat_share_links_conversation')
+    sqlite.exec(`INSERT INTO chat_share_links (slug, conversation_id, user_id, scope, created_at)
+      VALUES ('s2', 'c1', 'u1', '01jqz0000000000000000000aa', 1)`)
+  })
+
   it('keeps the data of the rows it does not touch', async () => {
     const sqlite = await installed()
     sqlite.exec(`INSERT INTO users (id, username, password_hash, login, name, role, settings, created_at, last_seen_at)

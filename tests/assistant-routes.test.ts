@@ -529,6 +529,96 @@ describe('re-taking a turn', () => {
   })
 })
 
+/**
+ * Publishing some of a thread rather than all of it.
+ *
+ * The link is the same object either way — same slug rules, same passcode, same expiry — so what these
+ * cases pin is the scope: what a visitor gets, that a narrowed link and the thread's own link are two
+ * separate publications, and that neither one's revocation reaches the other.
+ */
+describe('sharing a selection', () => {
+  /** Four turns in one thread, so a scope has something to leave out. */
+  async function thread() {
+    const { AssistantStore } = await import('../src/worker/assistant/store')
+    const store = new AssistantStore(env.DB as D1Database, USER, env)
+    const conversation = await store.createConversation('Planning')
+    const first = await store.addMessage({ conversationId: conversation.id, role: 'user', content: 'FIRST ASK' })
+    const firstAnswer = await store.addMessage({ conversationId: conversation.id, role: 'assistant', content: 'FIRST ANSWER' })
+    const second = await store.addMessage({ conversationId: conversation.id, role: 'user', content: 'SECOND ASK' })
+    const secondAnswer = await store.addMessage({ conversationId: conversation.id, role: 'assistant', content: 'SECOND ANSWER' })
+    return { store, conversation, first, firstAnswer, second, secondAnswer }
+  }
+
+  const read = async (slug: string) =>
+    await call<{ messages: { role: string, content: string }[] }>('POST', `/api/public/conversation/${slug}`, {})
+
+  it('publishes exactly the picked turns, in the thread\'s own order', async () => {
+    const { conversation, first, firstAnswer } = await thread()
+    // Named back to front on purpose: the reader ticked two boxes, not an order.
+    const shared = await call<{ share: { slug: string } }>(
+      'POST', `/api/assistant/conversations/${conversation.id}/share`,
+      { messageIds: [firstAnswer.id, first.id] },
+    )
+    expect((await read(shared.share.slug)).messages.map((message) => message.content))
+      .toEqual(['FIRST ASK', 'FIRST ANSWER'])
+  })
+
+  it('keeps the thread\'s own link and a narrowed one as two publications', async () => {
+    const { conversation, second, secondAnswer } = await thread()
+    const whole = await call<{ share: { slug: string } }>('POST', `/api/assistant/conversations/${conversation.id}/share`, {})
+    const narrowed = await call<{ share: { slug: string } }>(
+      'POST', `/api/assistant/conversations/${conversation.id}/share`,
+      { messageIds: [second.id, secondAnswer.id] },
+    )
+    expect(narrowed.share.slug).not.toBe(whole.share.slug)
+    // Narrowing must not rewrite the address the reader already sent somebody.
+    expect((await read(whole.share.slug)).messages).toHaveLength(4)
+    expect((await read(narrowed.share.slug)).messages.map((message) => message.content))
+      .toEqual(['SECOND ASK', 'SECOND ANSWER'])
+    // And the panel asks about the link it is showing, not the thread's own.
+    expect((await call<{ share: { slug: string } }>('GET', `/api/assistant/conversations/${conversation.id}/share`)).share.slug)
+      .toBe(whole.share.slug)
+    expect((await call<{ share: { slug: string } }>(
+      'GET', `/api/assistant/conversations/${conversation.id}/share?messageIds=${second.id},${secondAnswer.id}`,
+    )).share.slug).toBe(narrowed.share.slug)
+  })
+
+  it('revokes one publication without taking the other down', async () => {
+    const { conversation, first } = await thread()
+    const whole = await call<{ share: { slug: string } }>('POST', `/api/assistant/conversations/${conversation.id}/share`, {})
+    const narrowed = await call<{ share: { slug: string } }>(
+      'POST', `/api/assistant/conversations/${conversation.id}/share`, { messageIds: [first.id] },
+    )
+    await call('DELETE', `/api/assistant/conversations/${conversation.id}/share?messageIds=${first.id}`)
+    expect(await status('POST', `/api/public/conversation/${narrowed.share.slug}`, {})).toBe(404)
+    expect(await status('POST', `/api/public/conversation/${whole.share.slug}`, {})).toBe(200)
+  })
+
+  it('refuses a turn that is not in this conversation', async () => {
+    const { store, conversation, first } = await thread()
+    const elsewhere = await call<{ conversation: AssistantConversation }>('POST', '/api/assistant/conversations', { title: 'Elsewhere' })
+    const foreign = await store.addMessage({ conversationId: elsewhere.conversation.id, role: 'user', content: 'ELSEWHERE' })
+    // Refused at the moment of sharing rather than minted into a link that reads as empty: a page with
+    // nothing on it is harder to explain than a refusal while the reader is still looking at the ticks.
+    expect(await status('POST', `/api/assistant/conversations/${conversation.id}/share`, { messageIds: [first.id, foreign.id] })).toBe(400)
+    expect(await status('POST', `/api/assistant/conversations/${conversation.id}/share`, { messageIds: ['not-a-message'] })).toBe(400)
+  })
+
+  it('can still be taken down after the turns it named are gone', async () => {
+    const { conversation, first, firstAnswer } = await thread()
+    const shared = await call<{ share: { slug: string } }>(
+      'POST', `/api/assistant/conversations/${conversation.id}/share`, { messageIds: [first.id, firstAnswer.id] },
+    )
+    await call('POST', `/api/assistant/conversations/${conversation.id}/messages/delete`, { ids: [first.id, firstAnswer.id] })
+    // The link resolves to an empty transcript rather than vanishing: what it published is gone, not the
+    // promise that it published something.
+    expect((await read(shared.share.slug)).messages).toEqual([])
+    // And the reader can still find it to take it down, which a check on the messages would have stopped.
+    await call('DELETE', `/api/assistant/conversations/${conversation.id}/share?messageIds=${first.id},${firstAnswer.id}`)
+    expect(await status('POST', `/api/public/conversation/${shared.share.slug}`, {})).toBe(404)
+  })
+})
+
 describe('memories', () => {
   async function createMemory(content: string, category = 'fact'): Promise<AssistantMemory> {
     const result = await call<{ memory: AssistantMemory }>('POST', '/api/assistant/memories', { content, category })

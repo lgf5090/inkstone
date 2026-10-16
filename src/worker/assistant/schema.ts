@@ -492,17 +492,25 @@ export const ASSISTANT_SCHEMA_STATEMENTS: readonly string[] = [
   // app's `shares`: that one is keyed by note and joined to `notes` everywhere, and a shared thread has
   // neither a note id nor a note title. The passcode hash, the expiry and the view count mean the same
   // thing in both, which is why the code that reads them is shared and only the table is not.
+  //
+  // `scope` is what the link publishes: the empty string for the whole thread, otherwise the picked
+  // message ids in a canonical order. It is a column rather than a second table because everything else
+  // about the link — the slug, the passcode, the expiry, the view count — means the same thing whichever
+  // part of the thread it points at, and a reader who narrows a link should not be handed a second set of
+  // rules for it. It is part of the key so that one thread can have a link for the whole of it and links
+  // for particular exchanges at the same time, without either one overwriting the other.
   `CREATE TABLE IF NOT EXISTS chat_share_links (
     slug TEXT PRIMARY KEY,
     conversation_id TEXT NOT NULL,
     user_id TEXT NOT NULL,
+    scope TEXT NOT NULL DEFAULT '',
     password_hash TEXT,
     expires_at INTEGER,
     views INTEGER NOT NULL DEFAULT 0,
     created_at INTEGER NOT NULL
   )`,
-  `CREATE UNIQUE INDEX IF NOT EXISTS idx_chat_share_links_conversation
-     ON chat_share_links(user_id, conversation_id)`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS idx_chat_share_links_scope
+     ON chat_share_links(user_id, conversation_id, scope)`,
 
   `CREATE TABLE IF NOT EXISTS chat_activity (
     user_id TEXT NOT NULL,
@@ -583,7 +591,7 @@ export const ASSISTANT_REQUIRED_INDEXES: readonly string[] = [
   'idx_chat_usage_model_user',
   'idx_chat_usage_key_user',
   'idx_chat_provider_keys_provider',
-  'idx_chat_share_links_conversation',
+  'idx_chat_share_links_scope',
   'idx_chat_activity_user',
   'idx_chat_active_runs_user',
   'idx_chat_prompts_user',
@@ -596,7 +604,7 @@ export const ASSISTANT_REQUIRED_COLUMNS: Readonly<Record<string, readonly string
   chat_projects: ['user_id', 'id', 'name', 'description', 'instructions', 'note_scope', 'model_id', 'created_at', 'updated_at'],
   chat_usage_daily_model: ['user_id', 'day', 'model_label', 'requests', 'input_tokens', 'output_tokens', 'tool_calls', 'errors'],
   chat_usage_daily_key: ['user_id', 'day', 'model_label', 'provider_id', 'provider_label', 'key_id', 'key_label', 'requests', 'input_tokens', 'output_tokens', 'tool_calls', 'errors'],
-  chat_share_links: ['slug', 'conversation_id', 'user_id', 'password_hash', 'expires_at', 'views', 'created_at'],
+  chat_share_links: ['slug', 'conversation_id', 'user_id', 'scope', 'password_hash', 'expires_at', 'views', 'created_at'],
   chat_providers: ['user_id', 'id', 'label', 'protocol', 'base_url', 'endpoints', 'reasoning_dialect', 'key_ciphertext', 'key_last_used_at', 'created_at', 'updated_at'],
   chat_provider_keys: ['user_id', 'id', 'provider_id', 'label', 'key_ciphertext', 'key_hint', 'enabled', 'last_used_at', 'error_count', 'last_error', 'created_at', 'updated_at'],
   chat_models: ['user_id', 'id', 'provider_id', 'model', 'label', 'temperature', 'max_output_tokens', 'reasoning', 'context_tokens', 'vision',

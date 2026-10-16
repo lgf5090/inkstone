@@ -441,6 +441,7 @@ export function AssistantBubble({
   onRate,
   selection,
   onStartPicking,
+  onShare,
   loadVersions,
   onActivate,
 }: {
@@ -472,6 +473,8 @@ export function AssistantBubble({
   selection?: MessageSelection
   /** Turns the thread into a picker, starting from this answer. */
   onStartPicking?: (messageId: string) => void
+  /** Publishes this one answer behind a link. Absent on a turn still arriving, which has no row yet. */
+  onShare?: (messageId: string) => void
   loadVersions?: () => Promise<AssistantAnswerVersion[]>
   onActivate?: (versionId: string) => void
 }) {
@@ -740,6 +743,7 @@ export function AssistantBubble({
           ...(messageId && !streaming ? { onFork: () => void useAssistant.getState().forkFrom(messageId) } : {}),
           ...(messageId && !streaming ? { onOpenCanvas: () => void useAssistant.getState().createArtifactFromReply(body) } : {}),
           ...(messageId && onStartPicking ? { onSelect: () => onStartPicking(messageId) } : {}),
+          ...(messageId && onShare && !streaming ? { onShare: () => onShare(messageId) } : {}),
         }}
       />
     </div>

@@ -91,7 +91,7 @@ import { AutomationService } from '../assistant/automations'
 import { AssistantRunner } from '../assistant/runner'
 import { cancelApprovedAction, runApprovedAction } from '../assistant/tools'
 import { exportAssistant, importAssistant } from '../assistant/backup'
-import { ChatShareStore, conversationSharePasswordHash, type ChatShareRow } from '../assistant/share'
+import { ChatShareStore, conversationSharePasswordHash, messageScope, MAX_SHARED_PICK, type ChatShareRow } from '../assistant/share'
 import { suggestActiveModel } from '../assistant/model-config'
 import { listVendorModels } from '../assistant/vendor-models'
 import { memoryEmbeddingStatus, reindexMemoryEmbeddings, semanticModel } from '../assistant/semantic'
@@ -749,18 +749,47 @@ export function conversationShareInfo(row: ChatShareRow, origin: string): {
 }
 
 /**
+ * The turns a share request names. Absent, or nothing, is the whole thread — which is what every link
+ * made before a reader could pick meant, and what a link for the whole of it still means.
+ *
+ * Only the shape is checked here. Whether those turns are really in the conversation is a separate
+ * question, and one only creating a link has to answer: a read or a revoke names the link that exists,
+ * and a reader who has since deleted the messages it pointed at must still be able to find and take down
+ * what they published.
+ */
+function askedMessageIds(asked: unknown): string[] {
+  if (asked === undefined || asked === null) return []
+  if (!Array.isArray(asked)) throw ApiError.badRequest('messageIds must be an array of message ids')
+  const named = [...new Set<unknown>(asked)]
+  if (named.length > MAX_SHARED_PICK) throw ApiError.badRequest(`Pick at most ${MAX_SHARED_PICK} messages`)
+  const ids: string[] = []
+  for (const id of named) {
+    if (!isValidId(id)) throw ApiError.badRequest('messageIds must be message ids')
+    ids.push(id)
+  }
+  return ids
+}
+
+/** The scope a read or a revoke names, taken from the query string the panel sends. */
+function scopeFromQuery(value: string | undefined): unknown {
+  if (value === undefined) return undefined
+  return value ? value.split(',') : []
+}
+
+/**
  * The link a conversation is published behind, if any.
  *
  * Emitted with the origin in it because the reader's next act is to paste it somewhere; the settings
  * panel is the only caller, and a client that had to assemble a URL would be a second place the format
- * lives.
+ * lives. The scope comes in the query so the panel can ask about the link it is showing rather than the
+ * thread's own, which are two different links once the reader has narrowed one.
  */
 assistantRoutes.get('/conversations/:id/share', async (c) => {
   const userId = c.get('userId')
   const conversationId = requiredId(c.req.param('id'))
   const shares = new ChatShareStore(c.env.DB, userId)
   if (!(await shares.liveConversationExists(conversationId))) throw ApiError.notFound('Conversation not found')
-  const row = await shares.shareFor(conversationId)
+  const row = await shares.shareFor(conversationId, messageScope(askedMessageIds(scopeFromQuery(c.req.query('messageIds')))))
   return c.json({ share: row ? conversationShareInfo(row, new URL(c.req.url).origin) : null })
 })
 
@@ -774,10 +803,17 @@ assistantRoutes.get('/conversations/:id/share', async (c) => {
 assistantRoutes.post('/conversations/:id/share', async (c) => {
   const userId = c.get('userId')
   const conversationId = requiredId(c.req.param('id'))
-  const body = await readJson<{ password?: unknown, expiresIn?: unknown, rotate?: unknown }>(c, JSON_BODY_LIMITS.small)
+  const body = await readJson<{ password?: unknown, expiresIn?: unknown, rotate?: unknown, messageIds?: unknown }>(c, JSON_BODY_LIMITS.small)
   const assistant = store(c)
   const shares = new ChatShareStore(c.env.DB, userId)
   if (!(await shares.liveConversationExists(conversationId))) throw ApiError.notFound('Conversation not found')
+  const picked = askedMessageIds(body.messageIds)
+  // Checked here and only here: this is the one request where the ids came from the reader's screen, so a
+  // turn that is not in this conversation is a mistake worth refusing rather than a link worth writing.
+  if (picked.length && (await shares.messagesInConversation(conversationId, picked)).length !== picked.length) {
+    throw ApiError.badRequest('Those messages are not in this conversation')
+  }
+  const scope = messageScope(picked)
   if (
     body.expiresIn !== undefined &&
     body.expiresIn !== null &&
@@ -791,6 +827,7 @@ assistantRoutes.post('/conversations/:id/share', async (c) => {
   const passcode = await conversationSharePasswordHash(body.password)
   const written = await shares.upsertShare({
     conversationId,
+    scope,
     passwordHash: passcode.hash,
     expiresAt,
     now: Date.now(),
@@ -799,7 +836,7 @@ assistantRoutes.post('/conversations/:id/share', async (c) => {
     rotate: body.rotate === true,
   })
   if (!written) throw new ApiError(409, 'conflict', 'Share state changed. Refresh and try again')
-  const row = await shares.shareFor(conversationId)
+  const row = await shares.shareFor(conversationId, scope)
   await assistant.recordActivity('conversation.shared', row!.slug)
   return c.json({ share: conversationShareInfo(row!, new URL(c.req.url).origin) })
 })
@@ -807,7 +844,8 @@ assistantRoutes.post('/conversations/:id/share', async (c) => {
 assistantRoutes.delete('/conversations/:id/share', async (c) => {
   const userId = c.get('userId')
   const conversationId = requiredId(c.req.param('id'))
-  await new ChatShareStore(c.env.DB, userId).deleteShare(conversationId)
+  const shares = new ChatShareStore(c.env.DB, userId)
+  await shares.deleteShare(conversationId, messageScope(askedMessageIds(scopeFromQuery(c.req.query('messageIds')))))
   return c.json({ ok: true })
 })
 

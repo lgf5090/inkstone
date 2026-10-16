@@ -10,7 +10,7 @@
  * from `share-form.ts` rather than written again.
  */
 
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Check, Copy, ExternalLink, Eye, Globe, Link2, Lock, RefreshCw, Trash2 } from 'lucide-react'
 import { LIMITS } from '@shared/constants'
 import type { ConversationShareInfo } from '@shared/assistant'
@@ -33,13 +33,22 @@ const EXPIRY_OPTIONS = [
   { value: String(30 * 24 * 3600000), label: () => t('share.30_days') },
 ]
 
-export function ConversationSharePanel({ conversationId, title, onClose }: {
+export function ConversationSharePanel({ conversationId, title, messageIds = [], onClose }: {
   conversationId: string
   title: string
+  /**
+   * The turns this link covers. Empty is the whole thread, which is what the sidebar's own entry shares —
+   * so a reader who never picks anything sees the panel they have always seen.
+   */
+  messageIds?: readonly string[]
   onClose: () => void
 }) {
   const toast = useUi((s) => s.toast)
   useLocale()
+  // The caller builds the array fresh on every render, so the string is what the effect and the requests
+  // key off: two renders that picked the same turns are the same link, and a re-render is not a reload.
+  const scopeKey = messageIds.join(',')
+  const picked = useMemo(() => (scopeKey ? scopeKey.split(',') : []), [scopeKey])
   const [share, setShare] = useState<ConversationShareInfo | null | undefined>(undefined)
   const [loadError, setLoadError] = useState<string | null>(null)
   const [busy, setBusy] = useState<'save' | 'revoke' | 'rotate' | null>(null)
@@ -54,7 +63,7 @@ export function ConversationSharePanel({ conversationId, title, onClose }: {
     let cancelled = false
     setShare(undefined)
     setLoadError(null)
-    void api.assistant.conversationShare(conversationId).then((result) => {
+    void api.assistant.conversationShare(conversationId, picked).then((result) => {
       if (cancelled) return
       setShare(result.share)
       setUsePassword(Boolean(result.share?.hasPassword))
@@ -63,7 +72,7 @@ export function ConversationSharePanel({ conversationId, title, onClose }: {
       if (!cancelled) setLoadError(error instanceof Error ? error.message : String(error))
     })
     return () => { cancelled = true }
-  }, [conversationId, reload])
+  }, [conversationId, picked, reload])
 
   useEffect(() => () => window.clearTimeout(copiedTimer.current), [])
 
@@ -75,6 +84,7 @@ export function ConversationSharePanel({ conversationId, title, onClose }: {
         password: usePassword ? password : null,
         ...(expiresIn === undefined ? {} : { expiresIn }),
         ...(rotate ? { rotate: true } : {}),
+        ...(picked.length ? { messageIds: picked } : {}),
       })
       setShare(result.share)
       setPassword('')
@@ -102,7 +112,7 @@ export function ConversationSharePanel({ conversationId, title, onClose }: {
     if (!agreed) return
     setBusy('revoke')
     try {
-      await api.assistant.removeConversationShare(conversationId)
+      await api.assistant.removeConversationShare(conversationId, picked)
       setShare(null)
       setUsePassword(false)
       setPassword('')
@@ -132,7 +142,7 @@ export function ConversationSharePanel({ conversationId, title, onClose }: {
     <Modal
       open
       onClose={onClose}
-      title={t('assistant.share.title')}
+      title={picked.length ? t('assistant.share.title_picked') : t('assistant.share.title')}
       description={`"${title}"`}
       width={480}
       footer={share ? (
@@ -248,6 +258,14 @@ export function ConversationSharePanel({ conversationId, title, onClose }: {
               ]}
             />
           </Field>
+
+          {/* A narrowed link is not the thread, and a reader who thinks it is has sent more than they
+              meant to. Said before the link exists, not after. */}
+          {picked.length > 0 && (
+            <p className="rounded-[var(--r-md)] border border-[var(--border-subtle)] px-3 py-2.5 text-[length:var(--text-11-5)] leading-relaxed text-[var(--text-secondary)]">
+              {t('assistant.share.picked_scope', { count: picked.length })}
+            </p>
+          )}
 
           {/* What the visitor gets is not the same list as what the reader sees, so it is spelled out
               where the decision is made rather than discovered after sending the link. */}

@@ -12,7 +12,7 @@
  */
 
 import { useCallback, useRef, useState, type MouseEvent, type RefObject } from 'react'
-import { Copy, CornerUpLeft, Download, GitBranch, ListChecks, NotebookPen, PanelRight, Pencil, RotateCcw, ThumbsDown, ThumbsUp, Trash2, Volume2, type LucideIcon } from 'lucide-react'
+import { Copy, CornerUpLeft, Download, GitBranch, ListChecks, NotebookPen, PanelRight, Pencil, RotateCcw, Share2, ThumbsDown, ThumbsUp, Trash2, Volume2, type LucideIcon } from 'lucide-react'
 import { toPlainText } from '@shared/markdown-utils'
 import type { MessageFeedback } from '@shared/assistant'
 import { Z_INDEX } from '../../lib/z-index'
@@ -46,6 +46,8 @@ export interface MessageMenuTarget {
   onFork?: () => void
   /** Turns the thread into a picker with this message already ticked. */
   onSelect?: () => void
+  /** Publishes this turn behind a link. Present for a stored turn, which is the only kind with an id. */
+  onShare?: () => void
   /**
    * Present for a stored reply: keeps a copy of it as a draft in the conversation's side panel.
    *
@@ -127,6 +129,11 @@ export function messageMenuItems(target: MessageMenuTarget): MenuItem[] {
         run: () => downloadTextFile(`${downloadName(target.text, 'assistant')}.md`, target.text, 'text/markdown;charset=utf-8'),
       },
     )
+  }
+  // Beside the picking row below it rather than among the copies above: both of them are about what
+  // leaves this app, and a reader looking for one will find the other.
+  if (target.onShare) {
+    specs.push({ id: 'share', icon: Share2, label: t('assistant.chat.share_message'), run: target.onShare, separatorBefore: true })
   }
   if (target.onRate) {
     specs.push(

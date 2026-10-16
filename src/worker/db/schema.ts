@@ -1351,6 +1351,24 @@ export const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
       `ALTER TABLE chat_conversations ADD COLUMN ephemeral INTEGER NOT NULL DEFAULT 0`,
     ],
   },
+  {
+    // What a published link points at: the whole thread, or the exchanges the reader picked. The empty
+    // string is the whole conversation, which is what every link made before this column existed meant —
+    // so the default is the reading that loses nothing. The key moves to include the scope because one
+    // thread may now be published in more than one shape at once, and a reader who narrows a link must
+    // not have that overwrite the link they already sent.
+    //
+    // The old index is dropped here rather than redefined where it was written: `CREATE INDEX IF NOT
+    // EXISTS` will not replace an index that already exists, so a database carrying the old one would
+    // keep the old key and refuse the second link. The replacement is created by the boot's index pass,
+    // which runs after the migrations — after this column exists for it to be keyed on.
+    version: 86,
+    skipIfColumnExists: { table: 'chat_share_links', column: 'scope' },
+    statements: [
+      `ALTER TABLE chat_share_links ADD COLUMN scope TEXT NOT NULL DEFAULT ''`,
+      `DROP INDEX IF EXISTS idx_chat_share_links_conversation`,
+    ],
+  },
 ]
 
 const FTS_STATEMENT = `CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(

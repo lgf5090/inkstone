@@ -133,6 +133,10 @@ export function ChatView() {
     return next
   })
   const startPicking = (id: string) => setSelected(new Set([id]))
+  // The turns the share panel is open for: `null` while it is closed. One entry is "share this message"
+  // from a turn's own menu, several is the picking bar's — the panel and the link are the same either
+  // way, and only the scope differs.
+  const [shareScope, setShareScope] = useState<string[] | null>(null)
 
   const title = activeId
     ? conversations.find((conversation) => conversation.id === activeId)?.title || t('assistant.chat.untitled')
@@ -292,6 +296,7 @@ export function ChatView() {
                   busy={streaming}
                   onRetry={message.id === lastAnswer?.id && !streaming ? () => void send('', { retry: true }) : undefined}
                   onStartPicking={startPicking}
+                  onShare={(id) => setShareScope([id])}
                   selection={selected ? { active: true, checked: selected.has(message.id), onToggle: () => togglePicked(message.id) } : undefined}
                 />
               ))}
@@ -323,6 +328,7 @@ export function ChatView() {
           <SelectionBar
             picked={picked}
             title={title}
+            onShare={() => setShareScope(picked.map((message) => message.id))}
             onDelete={() => {
               void confirm({
                 title: t('assistant.chat.select_delete_title'),
@@ -357,6 +363,15 @@ export function ChatView() {
 
       {canvasOpen && activeId && <CanvasPanel />}
 
+      {activeId && shareScope && (
+        <ConversationSharePanel
+          conversationId={activeId}
+          title={title}
+          messageIds={shareScope}
+          onClose={() => setShareScope(null)}
+        />
+      )}
+
       <Modal open={listOpen} onClose={() => setListOpen(false)} title={t('assistant.chat.history')} width={360} bodyClassName="p-0">
         <div className="h-[60vh]">
           <ConversationList
@@ -369,12 +384,13 @@ export function ChatView() {
   )
 }
 
-export function MessageRow({ message, onRetry, busy = false, selection, onStartPicking }: {
+export function MessageRow({ message, onRetry, busy = false, selection, onStartPicking, onShare }: {
   message: AssistantMessage
   onRetry?: () => void
   busy?: boolean
   selection?: MessageSelection
   onStartPicking?: (messageId: string) => void
+  onShare?: (messageId: string) => void
 }) {
   // A finished answer can be asked again; a half one is only ever resumed by its own retry.
   const retryLabel = message.status === 'complete' ? 'assistant.chat.regenerate' : 'assistant.chat.retry'
@@ -392,6 +408,7 @@ export function MessageRow({ message, onRetry, busy = false, selection, onStartP
         anchorId={message.id}
         selection={selection}
         onStartPicking={onStartPicking}
+        onShare={onShare}
       />
     )
   }
@@ -416,6 +433,7 @@ export function MessageRow({ message, onRetry, busy = false, selection, onStartP
       onRate={message.role === 'assistant' ? (verdict) => void useAssistant.getState().rateAnswer(message.id, verdict) : undefined}
       selection={selection}
       onStartPicking={onStartPicking}
+      onShare={onShare}
       durationMs={message.durationMs ?? 0}
       modelLabel={message.modelLabel ?? ''}
       versionCount={message.versionCount ?? 0}
@@ -443,6 +461,7 @@ export function UserBubble({
   anchorId,
   selection,
   onStartPicking,
+  onShare,
 }: {
   text: string
   attachments?: string[]
@@ -452,6 +471,7 @@ export function UserBubble({
   anchorId?: string
   selection?: MessageSelection
   onStartPicking?: (messageId: string) => void
+  onShare?: (messageId: string) => void
 }) {
   const [copied, setCopied] = useState(false)
   const [draft, setDraft] = useState<string | null>(null)
@@ -542,6 +562,7 @@ export function UserBubble({
           ...(removable ? { onEdit: () => setDraft(text), onDelete: askToDelete } : {}),
           ...(messageId ? { onFork: () => void useAssistant.getState().forkFrom(messageId) } : {}),
           ...(messageId && onStartPicking ? { onSelect: () => onStartPicking(messageId) } : {}),
+          ...(messageId && onShare ? { onShare: () => onShare(messageId) } : {}),
         }}
       />
       {draft !== null && messageId && (
