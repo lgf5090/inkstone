@@ -2932,6 +2932,57 @@ describe('usage attribution', () => {
     expect(stats.series[0]!.costs).toEqual([])
   })
 
+  it('answers the account totals from the whole history, which no range narrows', async () => {
+    const { usageDay } = await import('../src/worker/assistant/store')
+    await useExampleModel()
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(sse(FINAL_FRAMES), { headers: { 'content-type': 'text/event-stream' } })))
+    await chatEvents({ message: 'hello' })
+    await settleTurns()
+    vi.unstubAllGlobals()
+
+    const { overview } = await call<{
+      overview: {
+        totalTokens: number
+        peakDay: string | null
+        peakTokens: number
+        longestTurnMs: number
+        currentStreak: number
+        longestStreak: number
+        activity: { day: string, tokens: number }[]
+      }
+    }>('GET', '/api/assistant/stats/overview')
+
+    // 20 tokens in and 6 out, on the one day this account has ever been used.
+    expect(overview.totalTokens).toBe(26)
+    expect(overview.peakDay).toBe(usageDay())
+    expect(overview.peakTokens).toBe(26)
+    expect(overview.currentStreak).toBe(1)
+    expect(overview.longestStreak).toBe(1)
+    expect(overview.activity).toEqual([{ day: usageDay(), tokens: 26 }])
+    // The turn is timed, so the longest one is a real number rather than a missing field.
+    expect(overview.longestTurnMs).toBeGreaterThanOrEqual(0)
+  })
+
+  it('counts a streak over consecutive days, and lets a day not yet spent on pass', async () => {
+    const { usageDay, dayBefore } = await import('../src/worker/assistant/store')
+    const today = usageDay()
+    // Today is deliberately left empty: a reader who opens the screen before their first question must not
+    // watch their own streak read zero. The lone day a week back is a run of one, not of four.
+    for (const day of [dayBefore(today, 1), dayBefore(today, 2), dayBefore(today, 3)]) {
+      insert('chat_usage_daily', { day, requests: 1, input_tokens: 10, output_tokens: 5 })
+    }
+    insert('chat_usage_daily', { day: dayBefore(today, 6), requests: 1, input_tokens: 1, output_tokens: 1 })
+
+    const { overview } = await call<{ overview: { currentStreak: number, longestStreak: number, totalTokens: number, activity: unknown[] } }>(
+      'GET', '/api/assistant/stats/overview',
+    )
+    expect(overview.currentStreak).toBe(3)
+    expect(overview.longestStreak).toBe(3)
+    expect(overview.totalTokens).toBe(3 * 15 + 2)
+    // Every day with usage, oldest first — the map's own data, which no range narrows.
+    expect(overview.activity).toHaveLength(4)
+  })
+
   it('narrows the window to one model or one key, and to nothing when neither matches', async () => {
     await useExampleModel()
     vi.stubGlobal('fetch', vi.fn(async () => new Response(sse(FINAL_FRAMES), { headers: { 'content-type': 'text/event-stream' } })))

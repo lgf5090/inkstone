@@ -6,10 +6,13 @@
  * honesty around it: the tokens of a window, a cost per currency, and the models left out of that cost
  * because nobody has priced them. The chart is the library's own business — jsdom has no canvas, which is
  * also the case the panel has to survive.
+ *
+ * The screen has two views and the split is the point of one of them: a window's numbers follow the range
+ * control, the account's totals cannot follow anything or they would not be totals.
  */
 import { act, createElement } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import type { AssistantStats } from '@shared/assistant'
+import type { AssistantStats, AssistantUsageOverview } from '@shared/assistant'
 import { DEFAULT_ASSISTANT_SETTINGS } from '@shared/assistant'
 import { initI18n, t } from '../../lib/i18n'
 import { installTestGlobals, renderElement, type RenderedElement } from '../../lib/test-render'
@@ -66,13 +69,45 @@ const STATS: AssistantStats = {
   limits: DEFAULT_ASSISTANT_SETTINGS.limits,
 }
 
+const OVERVIEW: AssistantUsageOverview = {
+  totalTokens: 4_200_000,
+  peakDay: '2026-10-12',
+  peakTokens: 1_800_000,
+  longestTurnMs: 125_000,
+  currentStreak: 2,
+  longestStreak: 5,
+  activity: [
+    { day: '2026-10-10', tokens: 1_200_000 },
+    { day: '2026-10-11', tokens: 1_200_000 },
+    { day: '2026-10-12', tokens: 1_800_000 },
+  ],
+}
+
 vi.mock('../../lib/api', () => ({
-  api: { assistant: { stats: vi.fn(async () => STATS) } },
+  api: {
+    assistant: {
+      stats: vi.fn(async () => STATS),
+      usageOverview: vi.fn(async () => ({ overview: OVERVIEW })),
+    },
+  },
 }))
 
 let rendered: RenderedElement | null = null
 
 const text = () => rendered!.container.textContent ?? ''
+const buttons = () => [...rendered!.container.querySelectorAll<HTMLButtonElement>('button')]
+const byText = (label: string) => buttons().find((node) => node.textContent?.trim() === label)
+const radiogroup = (label: string) => rendered!.container.querySelector<HTMLElement>(`[role="radiogroup"][aria-label="${label}"]`)
+
+/** Switches the screen to its account view, which is where the totals live. */
+async function openAccount(): Promise<void> {
+  await vi.waitFor(() => expect(radiogroup(t('assistant.stats.view'))).toBeTruthy(), { timeout: 5000, interval: 10 })
+  act(() => {
+    [...radiogroup(t('assistant.stats.view'))!.querySelectorAll<HTMLButtonElement>('button')]
+      .find((node) => node.textContent?.trim() === t('assistant.stats.view_account'))?.click()
+  })
+  await act(async () => { await Promise.resolve() })
+}
 
 beforeEach(async () => {
   installTestGlobals()
@@ -96,25 +131,13 @@ describe('the usage screen', () => {
     expect(text()).toContain('500K')
   })
 
-  it('names the money, and says which models are not in it', async () => {
+  it('names the money, and says how much of it was left out', async () => {
     rendered = renderElement(createElement(UsagePanel))
     await act(async () => { await Promise.resolve() })
     await vi.waitFor(() => expect(text()).toContain('CNY'), { timeout: 5000, interval: 10 })
     // A cheap window shows fractions of a unit, so the fourth decimal is not noise.
     expect(text()).toContain('CNY 3.20')
     expect(text()).toContain(t('assistant.stats.unpriced', { count: 1 }))
-    expect(text()).toContain(t('assistant.stats.no_price'))
-  })
-
-  it('lists each model with its own share, and the days as cells', async () => {
-    rendered = renderElement(createElement(UsagePanel))
-    await act(async () => { await Promise.resolve() })
-    await vi.waitFor(() => expect(text()).toContain('deepseek-chat'), { timeout: 5000, interval: 10 })
-    expect(text()).toContain('local-llama')
-    expect(text()).toContain('Planning')
-    // One cell per day of the window, whatever the window's length — the map is drawn from the range, not
-    // from the days that happen to have usage, or a quiet week would look like a short one.
-    expect(rendered.container.querySelectorAll('[role="group"][aria-label] span[title]').length).toBe(7)
   })
 
   it('draws the cost chart in one named currency, grouped by model or by key from the same answer', async () => {
@@ -124,15 +147,81 @@ describe('the usage screen', () => {
     // The currency the bars are drawn in is named: a window priced in two is two bills, and stacking them
     // would be adding different money together.
     expect(text()).toContain(`${t('assistant.stats.cost_chart')} (CNY)`)
-    const toggle = document.querySelector<HTMLElement>(`[role="radiogroup"][aria-label="${t('assistant.stats.group_by')}"]`)
+    const toggle = radiogroup(t('assistant.stats.group_by'))
     expect(toggle, 'the grouping switch is not rendered').toBeTruthy()
     expect(toggle!.textContent).toContain(t('assistant.stats.filter_key'))
     // Both splits travel on the one series, so switching the grouping is a redraw rather than a request.
     const calls = vi.mocked(api.assistant.stats).mock.calls.length
     act(() => {
-      const next = [...toggle!.querySelectorAll<HTMLButtonElement>('button')].find((node) => node.textContent?.trim() === t('assistant.stats.filter_key'))
-      next?.click()
+      [...toggle!.querySelectorAll<HTMLButtonElement>('button')]
+        .find((node) => node.textContent?.trim() === t('assistant.stats.filter_key'))?.click()
     })
     expect(vi.mocked(api.assistant.stats).mock.calls.length).toBe(calls)
+  })
+
+  it('gives each busy model its own pair of charts, and names the conversation that spent most', async () => {
+    rendered = renderElement(createElement(UsagePanel))
+    await act(async () => { await Promise.resolve() })
+    await vi.waitFor(() => expect(text()).toContain('deepseek-chat'), { timeout: 5000, interval: 10 })
+    expect(text()).toContain('local-llama')
+    expect(text()).toContain('Planning')
+    // One cost chart plus a pair of canvases per model: that is what "its own pair" means, and the library
+    // is what draws them.
+    expect(rendered.container.querySelectorAll('canvas').length).toBe(5)
+  })
+
+  it('keeps the account totals out of the range control, which no window can narrow', async () => {
+    rendered = renderElement(createElement(UsagePanel))
+    await act(async () => { await Promise.resolve() })
+    await openAccount()
+    expect(text()).toContain('4,200,000')
+    expect(text()).toContain('1,800,000')
+    // 125 s read the way a reader says it.
+    expect(text()).toContain(t('assistant.stats.minutes', { count: 2 }))
+    expect(text()).toContain(t('assistant.stats.days', { count: 2 }))
+    expect(text()).toContain(t('assistant.stats.days', { count: 5 }))
+  })
+
+  it('says which models are unpriced rather than counting them as free', async () => {
+    rendered = renderElement(createElement(UsagePanel))
+    await act(async () => { await Promise.resolve() })
+    await openAccount()
+    await vi.waitFor(() => expect(text()).toContain('deepseek-chat'), { timeout: 5000, interval: 10 })
+    expect(text()).toContain(t('assistant.stats.no_price'))
+  })
+
+  it('measures the activity map three ways over one grid of days', async () => {
+    rendered = renderElement(createElement(UsagePanel))
+    await act(async () => { await Promise.resolve() })
+    await openAccount()
+    const map = () => rendered!.container.querySelector(`[role="group"][aria-label="${t('assistant.stats.heatmap')}"]`)
+    expect(map(), 'the activity map is not rendered').toBeTruthy()
+    const cells = () => [...map()!.querySelectorAll('span[title]')]
+    // Whole weeks of squares, including the days with nothing on them: a map that skipped them would show
+    // a shape the reader never had.
+    expect(cells().length % 7).toBe(0)
+    expect(cells().some((cell) => cell.getAttribute('title')?.includes('2026-10-12'))).toBe(true)
+    const byDay = cells().length
+    // The switch changes what a square means, not how many there are — it is one grid read three ways.
+    for (const mode of ['assistant.stats.heat_weekly', 'assistant.stats.heat_cumulative'] as const) {
+      act(() => {
+        [...radiogroup(t('assistant.stats.heat_mode'))!.querySelectorAll<HTMLButtonElement>('button')]
+          .find((node) => node.textContent?.trim() === t(mode))?.click()
+      })
+      expect(cells().length).toBe(byDay)
+    }
+  })
+
+  it('offers the account view as a switch, so neither view has to be scrolled past to reach the other', async () => {
+    rendered = renderElement(createElement(UsagePanel))
+    await act(async () => { await Promise.resolve() })
+    await vi.waitFor(() => expect(text()).toContain(t('assistant.stats.title')), { timeout: 5000, interval: 10 })
+    expect(text()).not.toContain(t('assistant.stats.total_tokens'))
+    await openAccount()
+    expect(text()).toContain(t('assistant.stats.total_tokens'))
+    expect(text()).not.toContain(t('assistant.stats.cost_chart'))
+    act(() => { byText(t('assistant.stats.view_detail'))?.click() })
+    await act(async () => { await Promise.resolve() })
+    expect(text()).toContain(t('assistant.stats.cost_chart'))
   })
 })

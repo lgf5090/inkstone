@@ -2244,6 +2244,8 @@ function foldKeyUsage(
   return [...byKey.values()].sort((left, right) => (right.inputTokens + right.outputTokens) - (left.inputTokens + left.outputTokens))
 }
 
+assistantRoutes.get('/stats/overview', async (c) => c.json({ overview: await store(c).usageOverview() }))
+
 assistantRoutes.get('/activity', async (c) => c.json({ activity: await store(c).listActivity(100) }))
 
 // -------------------------------------------------------------- export/import

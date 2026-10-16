@@ -74,6 +74,7 @@ import type {
   AssistantSettings,
   AssistantUsage,
   AssistantStats,
+  AssistantUsageOverview,
   AssistantVendorModel,
   Automation as AssistantAutomation,
   AutomationRun as AssistantAutomationRun,
@@ -1026,6 +1027,9 @@ export const api = {
     /** One window of spending, per day, per model and per conversation. */
     stats: (range: '7' | '30' | 'all', filter: { model?: string, key?: string } = {}) =>
       request<AssistantStats>(`/api/assistant/stats${toQuery({ range, model: filter.model, key: filter.key })}`),
+    /** The account's own totals, which no range narrows — see the type for why. */
+    usageOverview: () =>
+      request<{ overview: AssistantUsageOverview }>('/api/assistant/stats/overview'),
     activity: () =>
       request<{ activity: { id: string, type: string, summary: string, created_at: number }[] }>('/api/assistant/activity'),
     exportUrl: '/api/assistant/export',

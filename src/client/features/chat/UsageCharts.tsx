@@ -11,10 +11,11 @@
  */
 import { useEffect, useMemo, useRef } from 'react'
 import type { ChartConfiguration } from 'chart.js'
-import type { AssistantUsageDay, AssistantUsageSlice } from '@shared/assistant'
+import type { AssistantStats, AssistantUsageDay, AssistantUsageSlice } from '@shared/assistant'
 import { t } from '../../lib/i18n'
 import { chartPalette } from '../../lib/markdown/chart'
 import { useThemeDark } from '../../lib/hooks'
+import { compact } from './usage-format'
 
 interface ChartColors {
   palette: string[]
@@ -87,12 +88,6 @@ const modelOn = (day: AssistantUsageDay, label: string): AssistantUsageSlice | u
 
 /** A cost axis reads in the same decimals the totals do: fractions of a unit for a cheap window. */
 const costTick = (value: number): string => value.toFixed(value < 1 ? 4 : 2)
-
-function compact(value: number): string {
-  if (value < 1000) return String(value)
-  if (value < 1_000_000) return `${(value / 1000).toFixed(value < 10_000 ? 1 : 0)}K`
-  return `${(value / 1_000_000).toFixed(1)}M`
-}
 
 /** What was spent each day, stacked by whichever dimension the reader is asking about. */
 export function CostBars({ series, group, currency }: {
@@ -217,4 +212,29 @@ export function ModelTrend({ series, label }: { series: AssistantUsageDay[], lab
       </div>
     </div>
   )
+}
+
+/** The window's tokens in and out, day by day: the shape a reader reads a week by. */
+export function TokenTrend({ days }: { days: AssistantStats['days'] }) {
+  const build = useMemo(() => (colors: ChartColors): ChartConfiguration => ({
+    type: 'bar',
+    data: {
+      labels: days.map((entry) => entry.day.slice(5)),
+      datasets: [
+        { label: t('assistant.stats.tokens_in'), data: days.map((entry) => entry.inputTokens), backgroundColor: colors.palette[0], borderRadius: 2 },
+        { label: t('assistant.stats.tokens_out'), data: days.map((entry) => entry.outputTokens), backgroundColor: withAlpha(colors.palette[0] ?? '', 0.45), borderRadius: 2 },
+      ],
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      animation: false,
+      plugins: { legend: { labels: { color: colors.text, boxWidth: 10, font: { size: 10 } } } },
+      scales: {
+        x: { stacked: true, ticks: { color: colors.text, font: { size: 10 }, maxRotation: 0, autoSkipPadding: 12 }, grid: { display: false } },
+        y: { stacked: true, beginAtZero: true, ticks: { color: colors.text, font: { size: 10 }, callback: (value) => compact(Number(value)) }, grid: { color: colors.grid } },
+      },
+    },
+  }), [days])
+  return <ChartCanvas height="h-40" label={t('assistant.stats.daily_tokens')} build={build} />
 }

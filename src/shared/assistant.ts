@@ -1263,6 +1263,33 @@ export interface AssistantUsageSlice {
   unpriced: boolean
 }
 
+/**
+ * The account's own numbers, over its whole life rather than a window.
+ *
+ * These are the figures a reader checks to see what the assistant has cost them in total, so none of them
+ * is scoped to the range the usage screen is showing: a cumulative total that reset when the range changed
+ * would not be cumulative.
+ */
+export interface AssistantUsageOverview {
+  /** Every token the assistant has ever been charged for. */
+  totalTokens: number
+  /** The busiest single day, and what it spent. Null until there is a day to name. */
+  peakDay: string | null
+  peakTokens: number
+  /** The longest a single turn has ever taken, in ms. Zero until one has been timed. */
+  longestTurnMs: number
+  /**
+   * Consecutive days ending today.
+   *
+   * A day not yet spent on does not break the run — otherwise the number would read zero every morning
+   * until the reader's first question of the day.
+   */
+  currentStreak: number
+  longestStreak: number
+  /** Every day with usage, oldest first. The activity map draws from this rather than from any range. */
+  activity: Array<{ day: string, tokens: number }>
+}
+
 /** One provider key's share of the window, folded across whatever models it paid for. */
 export interface AssistantKeyUsage {
   providerId: string

@@ -3106,6 +3106,55 @@ export class AssistantStore {
     }))
   }
 
+  /**
+   * The account's own numbers, over its whole life rather than a window.
+   *
+   * The activity map is every day the reader has ever spent anything on and the streaks are runs of those
+   * days, so none of this can be answered from a range the reader picked — the panel's range control belongs
+   * to the trend below these, not to them. `chat_usage_daily` is the table to ask, because it is the one
+   * that holds the whole history rather than only the days the key dimension has existed for.
+   */
+  async usageOverview(): Promise<{
+    totalTokens: number
+    peakDay: string | null
+    peakTokens: number
+    longestTurnMs: number
+    currentStreak: number
+    longestStreak: number
+    activity: Array<{ day: string, tokens: number }>
+  }> {
+    const [total, peak, longest, rows] = await Promise.all([
+      this.one<{ tokens: number | null }>(
+        `SELECT COALESCE(SUM(input_tokens + output_tokens), 0) AS tokens FROM chat_usage_daily WHERE user_id = ?1`,
+        this.userId,
+      ),
+      this.one<{ day: string, tokens: number }>(
+        `SELECT day, (input_tokens + output_tokens) AS tokens FROM chat_usage_daily
+          WHERE user_id = ?1 ORDER BY tokens DESC, day ASC LIMIT 1`,
+        this.userId,
+      ),
+      // Only the assistant's own turns: a reader's message is filed with no duration, and the number this
+      // answers is how long a turn took rather than how long the row sat there.
+      this.one<{ ms: number | null }>(
+        `SELECT MAX(duration_ms) AS ms FROM chat_messages WHERE user_id = ?1 AND role = 'assistant'`,
+        this.userId,
+      ),
+      this.db.prepare(
+        `SELECT day, (input_tokens + output_tokens) AS tokens FROM chat_usage_daily
+          WHERE user_id = ?1 AND (input_tokens + output_tokens) > 0 ORDER BY day ASC`,
+      ).bind(this.userId).all<Record<string, number | string>>(),
+    ])
+    const activity = (rows.results ?? []).map((row) => ({ day: String(row.day ?? ''), tokens: Number(row.tokens ?? 0) }))
+    return {
+      totalTokens: Number(total?.tokens ?? 0),
+      peakDay: peak?.day ?? null,
+      peakTokens: Number(peak?.tokens ?? 0),
+      longestTurnMs: Number(longest?.ms ?? 0),
+      ...usageStreaks(activity.map((entry) => entry.day), usageDay()),
+      activity,
+    }
+  }
+
   /** The first day this account has any usage on, so "all" has somewhere to start. */
   async firstUsageDay(): Promise<string | null> {
     const row = await this.one<{ day: string | null }>(
@@ -3418,6 +3467,28 @@ export function startOfDayMillis(day: string): number {
 /** The day `count` days before `day`, so a window of 7 includes today. */
 export function dayBefore(day: string, count: number): string {
   return usageDay(new Date(startOfDayMillis(day) - count * 86_400_000))
+}
+
+/**
+ * The runs of consecutive days a reader has spent something on.
+ *
+ * The current run counts back from today, and a day not yet spent on does not break it — otherwise a reader
+ * would watch their own streak read zero every morning until their first question. The longest run is just
+ * the longest the whole history has ever been, so a broken streak is not a number lost.
+ */
+function usageStreaks(days: readonly string[], today: string): { currentStreak: number, longestStreak: number } {
+  const spent = new Set(days)
+  let longest = 0
+  let run = 0
+  let previous: string | null = null
+  for (const day of [...spent].sort()) {
+    run = previous !== null && dayBefore(day, 1) === previous ? run + 1 : 1
+    previous = day
+    if (run > longest) longest = run
+  }
+  let current = 0
+  for (let cursor = spent.has(today) ? today : dayBefore(today, 1); spent.has(cursor); cursor = dayBefore(cursor, 1)) current++
+  return { currentStreak: current, longestStreak: longest }
 }
 
 export interface MemoryReviewRow {
