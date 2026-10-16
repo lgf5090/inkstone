@@ -1150,7 +1150,10 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
   newConversation: () => {
     const live = get().turn
     if (live && !live.done) return
-    set({ activeId: null, messages: [], messagesReady: true, remoteStreaming: false, turn: null, noteContextOn: true, folderContextOn: true, artifacts: [], artifactsReady: true, canvasOpen: false, activeArtifactId: null, ephemeral: false })
+    // The pins go with the thread they were added to. They are "this turn's" by definition — the row the
+    // composer draws is the record of what this question was asked about — so a new conversation that
+    // inherited them would answer a question nobody asked, in a folder nobody named.
+    set({ activeId: null, messages: [], messagesReady: true, remoteStreaming: false, turn: null, noteContextOn: true, folderContextOn: true, artifacts: [], artifactsReady: true, canvasOpen: false, activeArtifactId: null, ephemeral: false, turnTools: [], turnScopes: [] })
   },
 
   /**

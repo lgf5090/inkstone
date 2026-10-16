@@ -1,6 +1,6 @@
 import { APP_SHORTCUTS, NOTE_LIST_SHORTCUTS } from '../../lib/shortcuts';
 import { memo, useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
-import { Archive, ArrowDownWideNarrow, Brush, CalendarDays, CheckSquare2, Columns2, Copy, FileCode, FileDown, FileText, FolderInput, Link2, MoreHorizontal, Network, Pin, PictureInPicture2, PinOff, PanelLeft, Plus, RotateCcw, Star, StarOff, Trash2, X, Zap, } from 'lucide-react';
+import { Archive, ArrowDownWideNarrow, Brush, CalendarDays, CheckSquare2, Columns2, Copy, FileCode, FileDown, FileText, FolderInput, Link2, MoreHorizontal, Network, Pin, PictureInPicture2, PinOff, PanelLeft, Plus, RotateCcw, Sparkles, Star, StarOff, Trash2, X, Zap, } from 'lucide-react';
 import { isMindmapDocumentTitle } from '../../lib/markdown/mindmap/document';
 import type { NoteSummary, SearchHit, SortKey, ViewKind } from '@shared/types';
 import { cn } from '../../lib/cn';
@@ -18,6 +18,7 @@ import { FilterInput } from '../../components/FilterInput';
 import { Menu, Tooltip, confirm, useContextMenu, type MenuItem } from '../../components/overlay';
 import { Empty, NoteListSkeleton } from '../../components/feedback';
 import { useUi } from '../../store/ui';
+import { startChatAboutNote } from '../chat/start-chat';
 import { useQuickAdd } from '../../store/quickadd';
 import { createContextualNote, useNotes, useVisibleNotes } from '../../store/notes';
 import { folderPathLabel } from '../../lib/folders';
@@ -576,6 +577,13 @@ const NoteRow = memo(function NoteRow({ note, highlight, density, tagColors, pos
                 icon: note.isStarred ? <StarOff size={13}/> : <Star size={13}/>,
                 combo: active ? APP_SHORTCUTS.star : undefined,
                 onSelect: () => void patchNote(note.id, { isStarred: !note.isStarred }),
+            },
+            {
+                id: 'ask-about',
+                label: t("assistant.scope.about_note"),
+                icon: <Sparkles size={13}/>,
+                separatorBefore: true,
+                onSelect: () => startChatAboutNote(note.id),
             },
             { id: 'duplicate', label: t("notes.create_a_copy"), icon: <Copy size={13}/>, onSelect: () => void duplicateNote(note.id) },
             { id: 'new-drawing', label: t("common.new_drawing"), icon: <Brush size={13}/>, onSelect: () => void useNotes.getState().createExcalidrawNote(note.folderId) },

@@ -1597,6 +1597,9 @@ const allowed = new Map([
     "// which note this memory became, which is the half that survives a reload.",
     "// The vault's own list is stale until it hears about the new note, and the reader is about to be",
     "// sent to it.",
+    "// The pins go with the thread they were added to. They are \"this turn's\" by definition — the row the",
+    "// composer draws is the record of what this question was asked about — so a new conversation that",
+    "// inherited them would answer a question nobody asked, in a folder nobody named.",
   ]],
   ["src/client/features/chat/canvas-panel.test.ts", [
     "/**\n * The side panel: the drafts a conversation keeps.\n *\n * What is pinned here is the shape of the contract rather than the editor inside it. The panel is the\n * drive — an empty conversation says so, a draft can be picked out of the list, and a rename is committed\n * once the typing settles rather than once per keystroke — and the menu is the door: a reply offers the\n * canvas only where there is a row to hang a draft on, which is why the live turn and the reader's own\n * messages do not.\n *\n * The real editor is CodeMirror and is not what this file is about; a textarea stands in for it so the\n * panel's own wiring is what is exercised.\n */",
@@ -1895,6 +1898,13 @@ const allowed = new Map([
     "/** Stops whatever is being read, if anything is. */",
     "/**\n * Reads `text` in `language`, replacing whatever was being read.\n *\n * Replacing rather than queueing: a reader who presses read on a second reply wants that one, and two\n * voices talking over each other is the failure this avoids.\n */",
   ]],
+  ["src/client/features/chat/start-chat.test.ts", [
+    "/**\n * Starting a thread that is about one note, or one folder.\n *\n * The command is small and its contract is what matters: a *new* thread (a chip describes what one thread\n * was asked about, so it must not follow the reader into another), the scope already pinned, and the\n * assistant in front of them — the dock in the notebook, the chat tab everywhere else.\n */",
+  ]],
+  ["src/client/features/chat/start-chat.ts", [
+    "/**\n * Starting a conversation that is about one note, or one folder.\n *\n * The composer can be pointed at a note by hand, but \"what did I decide about this?\" is asked from the\n * thing itself — the row in the list, the folder in the tree — and a reader who has to open the assistant,\n * start a thread and then find the note has already lost the thought. So the command starts the thread and\n * pins the scope before the reader types: a new conversation, one chip, the composer waiting.\n *\n * A new conversation rather than the open one: the pin would otherwise follow them into a thread about\n * something else, and the chips of a thread are the record of what it was asked about. What is *not* done\n * here is sending anything — the question is the reader's, and a menu entry that asked it for them would be\n * guessing at it.\n */",
+    "/** Put the assistant in front of the reader: the notebook's dock where it exists, the chat tab otherwise. */",
+  ]],
   ["src/client/features/chat/stored-reasoning.test.ts", [
     "/**\n * What a reopened thread shows of the thinking behind an answer.\n *\n * The fold used to exist only while a turn was streaming, because the trace was never filed with the\n * answer. Now it is a column on the row, and this pins the join between the two: a message read from the\n * server hands its own reasoning to the bubble, and one that never had any draws no fold at all.\n */",
   ]],
@@ -2037,6 +2047,9 @@ const allowed = new Map([
     "/**\n * The assistant's own surfaces, reachable from the palette.\n *\n * The chat app is a container of its own, so every one of these is the same pair: the address that puts\n * that container up, and the view inside it. Written as a list rather than one command because a reader\n * who wants their task list should not have to land in the thread and then go looking for the tab.\n */",
     "// Read once the container is up: the panel shows what the server last said, and a reader who",
     "// opened the palette to change a model should not be looking at a stale list.",
+    "// The two scoped starts: they need something to be about, so they only appear while there is",
+    "// something on screen to point at. The scope is pinned to a fresh thread rather than the open one,",
+    "// because a chip is the record of what a thread was asked about.",
   ]],
   ["src/client/features/emoji/EmojiPicker.test.ts", [
     "/** huō-jiàn, rocket: the Han word the set carries for it. */",

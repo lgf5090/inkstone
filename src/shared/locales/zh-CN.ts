@@ -6005,6 +6005,8 @@ console.log(\`Hello, \${name}!\`)
     "assistant.canvas.remove_title": "删除这篇草稿？",
     "assistant.canvas.remove_hint": "它复制自的那条回复不受影响。",
     "assistant.canvas.need_conversation": "先发一条消息——草稿随会话保存。",
+    "assistant.scope.about_note": "就这篇笔记对话",
+    "assistant.scope.about_folder": "就这个文件夹对话",
     "assistant.dock.title": "助手",
     "assistant.dock.toggle": "助手面板",
     "assistant.dock.close": "关闭助手面板",

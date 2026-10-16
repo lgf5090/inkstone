@@ -1,6 +1,6 @@
 import { APP_SHORTCUTS } from '../../lib/shortcuts';
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react';
-import { Archive, ArrowDown, ArrowUp, ArrowUpDown, Brush, CheckSquare, ChevronRight, ChevronsDownUp, ChevronsUpDown, CornerUpLeft, Download, FilePlus2, FileText, FolderInput, FolderPlus, Inbox, LayoutTemplate, LogOut, Moon, MoreHorizontal, Network, Palette, PanelLeft, PanelLeftClose, Pencil, Pin, ScanSearch, Settings, Settings2, Smile, SortAsc, SquareChevronRight, Star, Sun, Trash2, Waypoints, Zap, } from 'lucide-react';import { LIMITS } from '@shared/constants';
+import { Archive, ArrowDown, ArrowUp, ArrowUpDown, Brush, CheckSquare, ChevronRight, ChevronsDownUp, ChevronsUpDown, CornerUpLeft, Download, FilePlus2, FileText, FolderInput, FolderPlus, Inbox, LayoutTemplate, LogOut, Moon, MoreHorizontal, Network, Palette, PanelLeft, PanelLeftClose, Pencil, Pin, ScanSearch, Settings, Settings2, Smile, SortAsc, Sparkles, SquareChevronRight, Star, Sun, Trash2, Waypoints, Zap, } from 'lucide-react';import { LIMITS } from '@shared/constants';
 import type { NoteSummary, ViewKind } from '@shared/types';
 import { cn } from '../../lib/cn';
 import { numericCollator } from '../../lib/collator';
@@ -46,6 +46,7 @@ import { CalendarTree, InboxTree, isDropBlockedTarget } from './virtual-tree';
 import { TODO_TREE } from '../../lib/calendar-tree';
 import { SidebarCalendar } from './sidebar-calendar';
 import { useBreakpoint } from '../../lib/hooks';
+import { startChatAboutFolder } from '../chat/start-chat';
 // The graph canvas and its scene maths are only needed once a reader opens that tab, and the
 // sidebar rides in the first bundle.
 const LocalGraphPanel = lazy(() => import('../graph/LocalGraphPanel').then((m) => ({ default: m.LocalGraphPanel })));
@@ -849,6 +850,13 @@ function FolderRow({ node, notesByFolder, mobile, canOpenToSide, siblings, index
                 } },
             ]}/>) },
         ...lintItems,
+        {
+            id: 'ask-about',
+            label: t("assistant.scope.about_folder"),
+            icon: <Sparkles size={13}/>,
+            separatorBefore: true,
+            onSelect: () => startChatAboutFolder(node.id),
+        },
         { id: 'delete', label: t("sidebar.delete_folder"), icon: <Trash2 size={13}/>, tone: 'danger', separatorBefore: true, onSelect: () => void remove() },
     ];
     const onKeyDown = useTreeKeyboard({

@@ -8,7 +8,7 @@
  */
 import type { ComponentType } from 'react'
 import {
-  Archive, Clipboard, Columns2, Download, Eye, EyeOff, FolderPlus, ImagePlus, IndentDecrease, IndentIncrease, Keyboard, LayoutTemplate, Link2, ListTree, MoveDown, MoveUp, Palette, Pencil, Pin, Plus, Presentation, ScanSearch, Settings, Share2, Smile, SquarePen, Star, Sun, Moon, Trash2, WandSparkles, Waypoints, ChevronsDownUp, ChevronsUpDown, Search, Zap, Activity, Compass, ListChecks, Rss, BookMarked, Brain, FolderKanban, MessageSquare,
+  Archive, Clipboard, Columns2, Download, Eye, EyeOff, FolderPlus, ImagePlus, IndentDecrease, IndentIncrease, Keyboard, LayoutTemplate, Link2, ListTree, MoveDown, MoveUp, Palette, Pencil, Pin, Plus, Presentation, ScanSearch, Settings, Share2, Smile, SquarePen, Sparkles, Star, Sun, Moon, Trash2, WandSparkles, Waypoints, ChevronsDownUp, ChevronsUpDown, Search, Zap, Activity, Compass, ListChecks, Rss, BookMarked, Brain, FolderKanban, MessageSquare,
 } from 'lucide-react'
 import type { MessageKey } from '@shared/locales/en-US'
 import { api } from '../../lib/api'
@@ -34,6 +34,7 @@ import { useQuickAdd } from '../../store/quickadd'
 import { navigateToPath } from '../../lib/app-history'
 import { appTab } from '../shell/app-tabs'
 import { useAssistant, type AssistantView } from '../chat/assistant-store'
+import { startChatAboutFolder, startChatAboutNote } from '../chat/start-chat'
 import { useSession } from '../../store/session'
 import { useUi } from '../../store/ui'
 
@@ -659,6 +660,29 @@ function assistantCommands(): AppCommand[] {
         void useAssistant.getState().newConversation()
       },
     },
+    // The two scoped starts: they need something to be about, so they only appear while there is
+    // something on screen to point at. The scope is pinned to a fresh thread rather than the open one,
+    // because a chip is the record of what a thread was asked about.
+    ...(useUi.getState().activeNoteId && useNotes.getState().notes[useUi.getState().activeNoteId!]
+      ? [{
+          id: 'assistant-about-note',
+          kind: 'command' as const,
+          label: t('assistant.scope.about_note'),
+          group: t('command.group_assistant'),
+          icon: Sparkles,
+          run: () => startChatAboutNote(useUi.getState().activeNoteId!),
+        }]
+      : []),
+    ...(useUi.getState().folderId
+      ? [{
+          id: 'assistant-about-folder',
+          kind: 'command' as const,
+          label: t('assistant.scope.about_folder'),
+          group: t('command.group_assistant'),
+          icon: FolderKanban,
+          run: () => startChatAboutFolder(useUi.getState().folderId!),
+        }]
+      : []),
     {
       id: 'assistant-memory',
       kind: 'command',
