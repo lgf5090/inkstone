@@ -1180,6 +1180,7 @@ export interface AssistantStats {
   total: AssistantUsage
   days: Array<{ day: string } & AssistantUsage>
   models: AssistantModelUsage[]
+  keys: AssistantKeyUsage[]
   conversations: AssistantConversationUsage[]
   /** One entry per currency the reader's prices are in, never summed across them. */
   spend: Array<{ currency: string, amount: number }>
@@ -1187,6 +1188,23 @@ export interface AssistantStats {
   unpricedModels: number
   generatedAt: number
   limits: AssistantLimits
+}
+
+/** One provider key's share of the window, folded across whatever models it paid for. */
+export interface AssistantKeyUsage {
+  providerId: string
+  providerLabel: string
+  /** Empty until a provider carries more than one key; the row is the provider's own key when so. */
+  keyId: string
+  keyLabel: string
+  requests: number
+  inputTokens: number
+  outputTokens: number
+  toolCalls: number
+  errors: number
+  /** One entry per currency the key's models are priced in; empty when they are all unpriced. */
+  costs: Array<{ currency: string, amount: number }>
+  unpriced: boolean
 }
 
 /** The link a published conversation is read at, in the shape every share in this app uses. */

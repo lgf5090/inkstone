@@ -2696,7 +2696,12 @@ export class AssistantStore {
    * rather than written into the SQL: an unmapped key is dropped instead of becoming a column reference
    * that fails the statement — and a failing statement here would mark a finished answer as an error.
    */
-  async incrementUsage(counters: Partial<UsageCounters>, day = usageDay(), modelLabel = ''): Promise<void> {
+  async incrementUsage(
+    counters: Partial<UsageCounters>,
+    day = usageDay(),
+    modelLabel = '',
+    keyRef?: { providerId: string, providerLabel: string, keyId?: string, keyLabel?: string },
+  ): Promise<void> {
     await this.write(`INSERT INTO chat_usage_daily (user_id, day) VALUES (?1, ?2) ON CONFLICT(user_id, day) DO NOTHING`, day)
     // The model row is opened before the counters are applied so the two are written the same way, and
     // only when a label was given: a scheduled embedding or a failed call belongs to the day's totals
@@ -2708,7 +2713,36 @@ export class AssistantStore {
         day, modelLabel.slice(0, 120),
       )
     }
-    for (const [table, extra] of [['chat_usage_daily', []], ...(modelLabel ? [['chat_usage_daily_model', [modelLabel.slice(0, 120)]]] : [])] as [string, unknown[]][]) {
+    // A third row records which provider and key answered, so a reader rotating keys can see what each
+    // one spent. It is opened only when a provider is known: a failed call that never resolved a model
+    // has no key to charge.
+    if (keyRef?.providerId) {
+      await this.write(
+        `INSERT INTO chat_usage_daily_key (user_id, day, model_label, provider_id, provider_label, key_id, key_label)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
+         ON CONFLICT(user_id, day, model_label, provider_id, key_id) DO NOTHING`,
+        day, modelLabel.slice(0, 120), keyRef.providerId.slice(0, 60), keyRef.providerLabel.slice(0, 120),
+        (keyRef.keyId ?? '').slice(0, 60), (keyRef.keyLabel ?? '').slice(0, 120),
+      )
+    }
+    const targets: Array<{ table: string, guard: string, extra: unknown[] }> = [
+      { table: 'chat_usage_daily', guard: 'user_id = ?1 AND day = ?2', extra: [] },
+    ]
+    if (modelLabel) {
+      targets.push({
+        table: 'chat_usage_daily_model',
+        guard: 'user_id = ?1 AND day = ?2 AND model_label = ?3',
+        extra: [modelLabel.slice(0, 120)],
+      })
+    }
+    if (keyRef?.providerId) {
+      targets.push({
+        table: 'chat_usage_daily_key',
+        guard: 'user_id = ?1 AND day = ?2 AND model_label = ?3 AND provider_id = ?4 AND key_id = ?5',
+        extra: [modelLabel.slice(0, 120), keyRef.providerId.slice(0, 60), (keyRef.keyId ?? '').slice(0, 60)],
+      })
+    }
+    for (const { table, guard, extra } of targets) {
       const sets: string[] = []
       const binds: unknown[] = [this.userId, day, ...extra]
       for (const [key, amount] of Object.entries(counters) as [keyof UsageCounters, number][]) {
@@ -2718,12 +2752,48 @@ export class AssistantStore {
         sets.push(`${column} = ${column} + ?${binds.length}`)
       }
       if (!sets.length) continue
-      const guard = table === 'chat_usage_daily'
-        ? `user_id = ?1 AND day = ?2`
-        : `user_id = ?1 AND day = ?2 AND model_label = ?3`
       await this.db.prepare(`UPDATE ${table} SET ${sets.join(', ')} WHERE ${guard}`)
         .bind(...binds).run()
     }
+  }
+
+  /**
+   * The per-provider-and-key rows between two days, most used first.
+   *
+   * One row per (model, provider, key), so a key that ran two models is summed here rather than losing
+   * one of them. Rows written before the key dimension existed are absent, which is the honest reading:
+   * their key was never recorded.
+   */
+  async keyUsageRange(from: string, to: string): Promise<Array<{
+    providerId: string
+    providerLabel: string
+    keyId: string
+    keyLabel: string
+    modelLabel: string
+  } & UsageCounters>> {
+    const { results } = await this.db.prepare(
+      `SELECT provider_id, provider_label, key_id, key_label, model_label,
+              SUM(requests) AS requests, SUM(input_tokens) AS input_tokens,
+              SUM(output_tokens) AS output_tokens, SUM(tool_calls) AS tool_calls, SUM(errors) AS errors
+         FROM chat_usage_daily_key
+        WHERE user_id = ?1 AND day >= ?2 AND day <= ?3
+        GROUP BY provider_id, provider_label, key_id, key_label, model_label
+        ORDER BY (SUM(input_tokens) + SUM(output_tokens)) DESC, provider_label ASC`,
+    ).bind(this.userId, from, to).all<Record<string, number | string>>()
+    return (results ?? []).map((row) => ({
+      providerId: String(row.provider_id ?? ''),
+      providerLabel: String(row.provider_label ?? ''),
+      keyId: String(row.key_id ?? ''),
+      keyLabel: String(row.key_label ?? ''),
+      modelLabel: String(row.model_label ?? ''),
+      requests: Number(row.requests ?? 0),
+      inputTokens: Number(row.input_tokens ?? 0),
+      outputTokens: Number(row.output_tokens ?? 0),
+      toolCalls: Number(row.tool_calls ?? 0),
+      scheduledRuns: 0,
+      embeddings: 0,
+      errors: Number(row.errors ?? 0),
+    }))
   }
 
   /** The per-model rows between two days, most used first. */

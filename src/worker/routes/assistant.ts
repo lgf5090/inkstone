@@ -59,6 +59,8 @@ import {
   type MemoryReviewAction,
   type TaskPriority,
   type TaskStatus,
+  type AssistantKeyUsage,
+  type AssistantModel,
 } from '@shared/assistant'
 import { assertRelayableEndpoint } from '@shared/ai-proxy-guard'
 import { localDayBounds, parseLocalTime } from '@shared/assistant-time'
@@ -1935,10 +1937,11 @@ assistantRoutes.get('/stats', async (c) => {
   const range = asked === '30' ? 30 : asked === 'all' ? 0 : 7
   const day = usageDay()
   const from = range === 0 ? (await s.firstUsageDay()) ?? day : dayBefore(day, range - 1)
-  const [total, days, modelRows, conversations, models] = await Promise.all([
+  const [total, days, modelRows, keyRows, conversations, models] = await Promise.all([
     s.usageRange(from, day),
     s.usageDays(from, day),
     s.modelUsageRange(from, day),
+    s.keyUsageRange(from, day),
     s.usageByConversation(from, day),
     s.listModels(),
   ])
@@ -1970,6 +1973,7 @@ assistantRoutes.get('/stats', async (c) => {
     total,
     days,
     models: byModel,
+    keys: foldKeyUsage(keyRows, models),
     conversations,
     spend: [...spend].map(([currency, amount]) => ({ currency, amount })),
     unpricedModels: unpriced,
@@ -1977,6 +1981,60 @@ assistantRoutes.get('/stats', async (c) => {
     limits: settings.limits,
   })
 })
+
+/**
+ * Folds the per-(key, model) rows into one row per key, pricing each model's tokens as it goes.
+ *
+ * A key that paid for two models is one row here, because the reader rotates keys and not models — the
+ * model split is what the `models` list already answers. Cost is kept per currency and never summed
+ * across them, the same rule the model rows follow.
+ */
+function foldKeyUsage(
+  rows: Awaited<ReturnType<ReturnType<typeof store>['keyUsageRange']>>,
+  models: AssistantModel[],
+): AssistantKeyUsage[] {
+  const byKey = new Map<string, AssistantKeyUsage>()
+  const spend = new Map<string, Map<string, number>>()
+  for (const row of rows) {
+    const id = `${row.providerId}\u0000${row.keyId}`
+    const entry = byKey.get(id) ?? {
+      providerId: row.providerId,
+      providerLabel: row.providerLabel,
+      keyId: row.keyId,
+      keyLabel: row.keyLabel,
+      requests: 0,
+      inputTokens: 0,
+      outputTokens: 0,
+      toolCalls: 0,
+      errors: 0,
+      costs: [],
+      unpriced: false,
+    }
+    entry.requests += row.requests
+    entry.inputTokens += row.inputTokens
+    entry.outputTokens += row.outputTokens
+    entry.toolCalls += row.toolCalls
+    entry.errors += row.errors
+    byKey.set(id, entry)
+    const model = models.find((candidate) => candidate.label === row.modelLabel || candidate.model === row.modelLabel)
+    if (!model || (model.inputPrice === null && model.outputPrice === null)) {
+      // Only a row that names a model can be unpriced. A bare request charge carries no model and
+      // prices nothing, so it must not mark the whole key as unpriced.
+      if (row.modelLabel) entry.unpriced = true
+      continue
+    }
+    const currency = model.priceCurrency || 'USD'
+    const cost = ((model.inputPrice ?? 0) * row.inputTokens + (model.outputPrice ?? 0) * row.outputTokens) / 1_000_000
+    const perCurrency = spend.get(id) ?? new Map<string, number>()
+    perCurrency.set(currency, (perCurrency.get(currency) ?? 0) + cost)
+    spend.set(id, perCurrency)
+  }
+  for (const [id, perCurrency] of spend) {
+    const entry = byKey.get(id)
+    if (entry) entry.costs = [...perCurrency].map(([currency, amount]) => ({ currency, amount }))
+  }
+  return [...byKey.values()].sort((left, right) => (right.inputTokens + right.outputTokens) - (left.inputTokens + left.outputTokens))
+}
 
 assistantRoutes.get('/activity', async (c) => c.json({ activity: await store(c).listActivity(100) }))
 

@@ -29,6 +29,10 @@ const STATS: AssistantStats = {
     { label: 'local-llama', requests: 2, inputTokens: 500_000, outputTokens: 100_000, toolCalls: 0, errors: 1, currency: '', cost: null },
   ],
   conversations: [{ id: 'c1', title: 'Planning', requests: 8, inputTokens: 1_000_000, outputTokens: 200_000, updatedAt: 1_700_000_000_000 }],
+  keys: [
+    { providerId: 'p1', providerLabel: 'DeepSeek', keyId: '', keyLabel: 'DeepSeek', requests: 10, inputTokens: 2_000_000, outputTokens: 400_000, toolCalls: 4, errors: 0, costs: [{ currency: 'CNY', amount: 3.2 }], unpriced: false },
+    { providerId: 'p2', providerLabel: 'Local', keyId: '', keyLabel: 'Local', requests: 2, inputTokens: 500_000, outputTokens: 100_000, toolCalls: 0, errors: 1, costs: [], unpriced: true },
+  ],
   spend: [{ currency: 'CNY', amount: 3.2 }],
   unpricedModels: 1,
   generatedAt: 1_700_000_000_000,

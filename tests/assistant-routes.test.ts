@@ -2826,6 +2826,25 @@ describe('external MCP servers', () => {
   })
 })
 
+describe('usage attribution', () => {
+  it('charges a turn to the provider key as well as the model', async () => {
+    await useExampleModel()
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(sse(FINAL_FRAMES), { headers: { 'content-type': 'text/event-stream' } })))
+    await chatEvents({ message: 'hello' })
+    await settleTurns()
+    vi.unstubAllGlobals()
+
+    const stats = await call<{ keys: { providerLabel: string, requests: number, inputTokens: number, outputTokens: number }[] }>(
+      'GET', '/api/assistant/stats?range=all',
+    )
+    const row = stats.keys.find((entry) => entry.providerLabel === 'Example')
+    expect(row).toBeTruthy()
+    expect(row!.requests).toBeGreaterThanOrEqual(1)
+    expect(row!.inputTokens).toBe(20)
+    expect(row!.outputTokens).toBe(6)
+  })
+})
+
 describe('backup round trip', () => {
   it('carries the reasoning along with the message it belongs to', async () => {
     const { AssistantStore } = await import('../src/worker/assistant/store')

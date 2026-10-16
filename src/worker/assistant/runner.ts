@@ -297,7 +297,7 @@ export class AssistantRunner {
       // composer's context control, and the assistant-wide ceiling is what a model without one falls back
       // to — for the window and for the input ceiling over it alike.
       const contextTokens = contextBudgetFor(model, limits)
-      if (!(await this.reserve(1, limits.maxRequestsPerDay))) {
+      if (!(await this.reserve(1, limits.maxRequestsPerDay, { providerId: provider.id, providerLabel: provider.label }))) {
         throw ApiError.conflict(`The daily limit of ${limits.maxRequestsPerDay} assistant requests is reached. It is adjustable in Assistant settings.`)
       }
 
@@ -444,7 +444,7 @@ export class AssistantRunner {
         turns.push({ role: 'assistant', content: text, calls })
         text = ''
         if (steps >= limits.maxAgentSteps || executor.budgetExhausted()) break
-        if (!(await this.reserve(1, limits.maxRequestsPerDay))) {
+        if (!(await this.reserve(1, limits.maxRequestsPerDay, { providerId: provider.id, providerLabel: provider.label }))) {
           yield { type: 'error', code: 'rate_limited', message: 'The daily assistant request limit was reached during this turn.' }
           break
         }
@@ -455,12 +455,13 @@ export class AssistantRunner {
         usage.outputTokens = estimateTokens(answer)
       }
       // The label travels with the counters so the day's models can be told apart: a reader with two
-      // providers has two prices, and one total cannot be split after the fact.
+      // providers has two prices, and one total cannot be split after the fact. The provider rides along
+      // too, so the same counters can be read back per key.
       await this.store.incrementUsage({
         inputTokens: usage.inputTokens,
         outputTokens: usage.outputTokens,
         toolCalls: executor.callCount,
-      }, undefined, modelLabel)
+      }, undefined, modelLabel, { providerId: provider.id, providerLabel: provider.label })
       if (stopped()) {
         yield { type: 'done', finalMessage: await finish('cancelled', null, usage) }
         return
@@ -554,10 +555,16 @@ export class AssistantRunner {
   }
 
   /** Charges one or more model calls against the reader's daily ceiling, refusing when it is spent. */
-  private async reserve(count: number, maxPerDay: number): Promise<boolean> {
+  private async reserve(
+    count: number,
+    maxPerDay: number,
+    keyRef?: { providerId: string, providerLabel: string },
+  ): Promise<boolean> {
     const today = await this.store.todayUsage()
     if (today.requests + count > maxPerDay) return false
-    await this.store.incrementUsage({ requests: count })
+    // The request is charged to the key that will answer it, so a per-key view can count calls as well
+    // as tokens. The model label is left out here: the same turn opens its own row for the model.
+    await this.store.incrementUsage({ requests: count }, undefined, '', keyRef)
     return true
   }
 

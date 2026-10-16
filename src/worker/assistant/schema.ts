@@ -411,6 +411,30 @@ export const ASSISTANT_SCHEMA_STATEMENTS: readonly string[] = [
   `CREATE INDEX IF NOT EXISTS idx_chat_usage_model_user
      ON chat_usage_daily_model(user_id, day DESC)`,
 
+  // The same counters a third time, split by the provider and key that answered as well as the model.
+  // The model table cannot answer "which key spent this" — a provider with two keys on one model would
+  // collide on its primary key — and the reader who is rotating keys is asking exactly that. The model
+  // label rides along so a key-scoped view can still show which models that key paid for. Labels are
+  // stored beside ids because a label is what the transcript shows and what survives a row being renamed
+  // or deleted; `key_id` stays empty until a provider carries more than one key.
+  `CREATE TABLE IF NOT EXISTS chat_usage_daily_key (
+    user_id TEXT NOT NULL,
+    day TEXT NOT NULL,
+    model_label TEXT NOT NULL DEFAULT '',
+    provider_id TEXT NOT NULL DEFAULT '',
+    provider_label TEXT NOT NULL DEFAULT '',
+    key_id TEXT NOT NULL DEFAULT '',
+    key_label TEXT NOT NULL DEFAULT '',
+    requests INTEGER NOT NULL DEFAULT 0,
+    input_tokens INTEGER NOT NULL DEFAULT 0,
+    output_tokens INTEGER NOT NULL DEFAULT 0,
+    tool_calls INTEGER NOT NULL DEFAULT 0,
+    errors INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (user_id, day, model_label, provider_id, key_id)
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_chat_usage_key_user
+     ON chat_usage_daily_key(user_id, day DESC)`,
+
   // One published conversation behind an unguessable slug. Its own table rather than a row in the notes
   // app's `shares`: that one is keyed by note and joined to `notes` everywhere, and a shared thread has
   // neither a note id nor a note title. The passcode hash, the expiry and the view count mean the same
@@ -468,6 +492,7 @@ export const ASSISTANT_REQUIRED_TABLES: readonly string[] = [
   'chat_pending_actions',
   'chat_usage_daily',
   'chat_usage_daily_model',
+  'chat_usage_daily_key',
   'chat_share_links',
   'chat_activity',
   'chat_active_runs',
@@ -500,6 +525,7 @@ export const ASSISTANT_REQUIRED_INDEXES: readonly string[] = [
   'idx_chat_actions_conversation',
   'idx_chat_actions_pending',
   'idx_chat_usage_model_user',
+  'idx_chat_usage_key_user',
   'idx_chat_share_links_conversation',
   'idx_chat_activity_user',
   'idx_chat_active_runs_user',
@@ -512,6 +538,7 @@ export const ASSISTANT_REQUIRED_COLUMNS: Readonly<Record<string, readonly string
   chat_settings: ['user_id', 'config', 'updated_at'],
   chat_projects: ['user_id', 'id', 'name', 'description', 'instructions', 'note_scope', 'model_id', 'created_at', 'updated_at'],
   chat_usage_daily_model: ['user_id', 'day', 'model_label', 'requests', 'input_tokens', 'output_tokens', 'tool_calls', 'errors'],
+  chat_usage_daily_key: ['user_id', 'day', 'model_label', 'provider_id', 'provider_label', 'key_id', 'key_label', 'requests', 'input_tokens', 'output_tokens', 'tool_calls', 'errors'],
   chat_share_links: ['slug', 'conversation_id', 'user_id', 'password_hash', 'expires_at', 'views', 'created_at'],
   chat_providers: ['user_id', 'id', 'label', 'protocol', 'base_url', 'endpoints', 'reasoning_dialect', 'key_ciphertext', 'created_at', 'updated_at'],
   chat_models: ['user_id', 'id', 'provider_id', 'model', 'label', 'temperature', 'max_output_tokens', 'reasoning', 'context_tokens', 'vision',
