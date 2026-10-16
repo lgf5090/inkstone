@@ -22,6 +22,10 @@ import {
   endpointFieldState,
   parseMcpHeaderLines,
   parseMcpServerJson,
+  skillBundleOf,
+  skillBundleEntries,
+  SKILL_BUNDLE_VERSION,
+  type AssistantSkill,
 } from '../src/shared/assistant'
 import {
   AUTO_SUPERSEDE_CONFIDENCE,
@@ -359,6 +363,39 @@ describe('a pasted MCP config', () => {
 
   it('refuses a paste with no block rather than reading it as empty', () => {
     expect(() => parseMcpServerJson('{"servers": {}}')).toThrow()
+  })
+})
+
+describe('the skills bundle', () => {
+  const skill = (over: Partial<AssistantSkill> = {}): AssistantSkill => ({
+    id: 's1', title: '周报', content: '按项目分段。', group: '写作', icon: '📝',
+    tools: ['search_notes'], scopes: [{ kind: 'folder', id: 'f1', name: '工作' }], modelId: 'm1',
+    createdAt: 1, updatedAt: 2,
+    ...over,
+  })
+
+  it('carries the words and the arrangement, and nothing the server assigns', () => {
+    const bundle = skillBundleOf([skill()])
+    expect(bundle.version).toBe(SKILL_BUNDLE_VERSION)
+    expect(bundle.skills).toEqual([{
+      title: '周报', content: '按项目分段。', group: '写作', icon: '📝',
+      tools: ['search_notes'], scopes: [{ kind: 'folder', id: 'f1', name: '工作' }], modelId: 'm1',
+    }])
+    // The id and the two timestamps belong to the machine the row is on. A bundle that carried them would
+    // name a row that already exists on the importing side, or one that was deleted there long ago.
+    expect(bundle.skills[0]).not.toHaveProperty('id')
+    expect(bundle.skills[0]).not.toHaveProperty('createdAt')
+    expect(bundle.skills[0]).not.toHaveProperty('updatedAt')
+  })
+
+  it('reads back either the bundle object or a bare list, and says so when neither', () => {
+    expect(skillBundleEntries({ version: 1, skills: [{ title: 'a' }] })).toEqual([{ title: 'a' }])
+    // A reader who hand-writes one skill should not have to guess at a version envelope.
+    expect(skillBundleEntries([{ title: 'a' }])).toEqual([{ title: 'a' }])
+    expect(skillBundleEntries({ skills: 'nope' })).toBeNull()
+    expect(skillBundleEntries({ version: 1 })).toBeNull()
+    expect(skillBundleEntries(null)).toBeNull()
+    expect(skillBundleEntries('text')).toBeNull()
   })
 })
 

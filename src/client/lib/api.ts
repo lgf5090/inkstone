@@ -4,6 +4,8 @@ import type { ReaderUsage } from '@shared/types'
 import type { ChatAttachment,
   AssistantSkill,
   AssistantSkillInput,
+  AssistantSkillBundle,
+  SkillImportResult,
   MessageFeedback,
 } from '@shared/assistant'
 import type { MarkdownBackupManifest } from '@shared/backup-format'
@@ -921,6 +923,9 @@ export const api = {
     updateSkill: (id: string, body: AssistantSkillInput) =>
       request<{ skill: AssistantSkill }>(`/api/assistant/skills/${id}`, { method: 'PATCH', body }),
     removeSkill: (id: string) => request<{ deleted: boolean }>(`/api/assistant/skills/${id}`, { method: 'DELETE' }),
+    exportSkills: () => request<{ bundle: AssistantSkillBundle }>('/api/assistant/skills/export'),
+    importSkills: (skills: unknown[]) =>
+      request<SkillImportResult>('/api/assistant/skills/import', { method: 'POST', body: { skills } }),
     chatFiles: () => request<{ files: ChatAttachment[] }>('/api/assistant/files'),
     deleteChatFile: (id: string) => request<{ deleted: boolean }>(`/api/assistant/files/${id}`, { method: 'DELETE' }),
     starConversation: (id: string, starred: boolean) =>

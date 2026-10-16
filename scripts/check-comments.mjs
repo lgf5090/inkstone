@@ -1314,6 +1314,12 @@ const allowed = new Map([
     "// The model bound to a skill is named by id, so the list has to be there before the editor can offer it.",
     "/* The wrapper carries the row's growth: the field hands its own `className` to the `<input>`, which\n            cannot size the box around it. */",
     "/* The skill's own mark when it has one, the generic glyph when it does not. Both occupy\n                        the same column, so a mixed list still reads down a straight edge. */",
+    "// A bundle's rows are not patched into the list the way a single edit is: an import may add hundreds,",
+    "// and this view is the one that knows which search is on screen, so it re-reads with its own.",
+    "// Counted by reason rather than listed: a file that came from somewhere else tends to fail the same",
+    "// way many times over, and the same sentence eighty times is not a report.",
+    "// Cleared before the read, so picking the same file twice in a row still fires a change.",
+    "/* An empty list is where the idea of a skill is least obvious, so the examples are offered\n                here as well as in the menu — this is the one place a reader has nothing else to press. */",
   ]],
   ["src/client/features/chat/TasksView.tsx", [
     "/**\n * The assistant's task list.\n *\n * Three tabs rather than one long list, because the question a reader opens this for is \"what is on\n * me today\", and a completed task should leave the way without leaving the database.\n *\n * The Today tab's set is decided by the *server*: \"today\" is a span in the reader's timezone, and a\n * browser in another zone would otherwise disagree with the reminder engine about what is overdue.\n */",
@@ -1470,6 +1476,8 @@ const allowed = new Map([
     "/**\n   * Whether the note the reader has open rides along as context with the next turn.\n   *\n   * The notebook's own pointer is what makes \"summarise this\" work without naming the note, but a\n   * pointer the reader cannot see is a pointer they cannot correct — so it is drawn as a chip the reader\n   * can take off, and these two flags are what the chip and the send path both read.\n   */",
     "// A muted chip is this thread's correction, not a setting: the next thread starts from the pointer.",
     "/**\n   * Arm the turn with everything one saved skill stands for, not only its words.\n   *\n   * The text is the composer's business — it appends to what the reader was already typing — so this\n   * covers the other three: the tools and knowledge the skill wants are added to this turn's pins, and\n   * its model becomes the one that answers.\n   */",
+    "/** Fetch the whole library and hand it to the reader as a file. */",
+    "/**\n   * Send a bundle's entries in, and say what came of them.\n   *\n   * The list is not patched here the way the single-skill actions patch it: an import may add hundreds of\n   * rows, and the caller is the one that knows which search is on screen, so it re-reads with its own.\n   */",
   ]],
   ["src/client/features/chat/chat-outline.test.ts", [
     "/**\n * The rail and the panel that stand beside a thread.\n *\n * Both of them are read off the thread's own DOM — which turn has passed the reading line, and how far\n * down to land when one is chosen — so these cases lay out the boxes a browser would and then scroll:\n * a test that only counted buttons would pass over an outline that marks the wrong turn.\n */",
@@ -1682,6 +1690,15 @@ const allowed = new Map([
   ["src/client/features/chat/skill-apply.test.ts", [
     "/**\n * Applying a saved skill arms the turn, not only the text box.\n *\n * The point of binding tools, folders and a model to a skill is that one press arranges all four. What\n * is pinned here is the arrangement: the pins take the place of the turn's own rather than joining them,\n * the ceilings the turn obeys are the ceilings a saved skill obeys, and a skill that names no model\n * leaves the reader's current one alone.\n */",
     "// The same skill a second time, and one that names no model at all: neither is a reason to write.",
+  ]],
+  ["src/client/features/chat/skill-bundle.ts", [
+    "/**\n * The skills library as a file, in both directions.\n *\n * The write is the same one every other export uses. The read is the half that has to be careful, because\n * a reader may hand this app anything at all: only the outermost shape is judged here — whether the text\n * parses, and whether it holds a list — and the entries go on to the server unread. That is deliberate.\n * What a skill entry may contain is a rule about what this app will store, and a rule answered in two\n * places is two answers that drift; the server is the trust boundary, so it is the one that answers.\n */",
+    "/** Writes the library to the reader's downloads folder. */",
+    "/**\n * The entries a chosen file holds.\n *\n * Every failure is a sentence the reader can act on rather than a stack: \"that is not JSON\" and \"that\n * holds no list\" are the two things they can fix by picking another file, and anything past them is the\n * server's to report per entry.\n */",
+  ]],
+  ["src/client/features/chat/skill-examples.ts", [
+    "/**\n * Four skills to start a library with.\n *\n * A skill is easiest to understand by using one, and an empty list teaches nothing — so the empty state\n * offers these instead of only explaining itself. They are the four shapes readers most often retype:\n * translate it, sum it up, write it out, review it. All four are words with no bindings, because a tool\n * set or a folder that the reader did not choose is an arrangement they would have to undo first.\n *\n * The titles and the words are catalog copy, read before they are edited like every other label. The\n * emoji is not: it is a glyph that reads the same in every language, so it stays out of the catalog.\n */",
+    "/** The starter set, in the shape the import route reads. */",
   ]],
   ["src/client/features/chat/speech.ts", [
     "/**\n * Reading a reply aloud.\n *\n * The browser's own speech synthesis is the only engine available without a key and without shipping a\n * voice, so this is a thin wrapper rather than a feature: it strips the Markdown first, because a\n * screen reader that spells out `##` and `**` is worse than not offering the button, and it refuses\n * quietly where the API is missing instead of throwing inside a click handler.\n */",
@@ -14749,6 +14766,13 @@ const allowed = new Map([
     "/** The emoji it wears in the library; empty means it shows the generic glyph. */",
     "/**\n   * What applying the skill arranges for the turn, in the same shapes the composer's own `/` and `#`\n   * picks use. A skill that only carries words has three empty bindings, which is how every one written\n   * before these columns existed still reads.\n   */",
     "/**\n * What the reader writes into a skill, as opposed to what comes back.\n *\n * Every field is optional because both halves of an edit arrive from the same form and the server keeps\n * whatever the request did not name; the timestamps and id are the server's to assign.\n */",
+    "/**\n * One skill as it travels in a bundle: everything the reader wrote, and nothing the server assigns.\n *\n * The id and the timestamps are left out on purpose — a skill that lands on another machine is a new row\n * there, not the same row seen twice, and an id from someone else's account would either collide with a\n * row that already exists or dangle after a delete. The bindings do travel, because half of what makes a\n * skill a skill is the arrangement: `tools` are the built-in registry's own names, which mean the same\n * thing everywhere, while a folder id or a model id that the importing account does not have is dropped\n * on the way in rather than failing the file.\n */",
+    "/** The file a reader downloads, and the shape an import reads back. */",
+    "/** The bundle's own shape version, so a later reader can tell what it is looking at. */",
+    "/** As many skills as the list route will hand over in one read, so an export never silently truncates. */",
+    "/** The reader's library as the file it downloads. */",
+    "/**\n * The entries a downloaded file holds, or `null` when the parsed JSON is not a bundle at all.\n *\n * A bare array is read as well as the bundle object, because a reader who hand-writes one skill should\n * not have to guess at a version envelope. The entries themselves are handed on unread: what an entry\n * may contain is the server's question, and answering it in two places is how the two answers drift.\n */",
+    "/** Why one entry of an imported file could not be used, in codes the client turns into its own words. */",
   ]],
   ["src/shared/backup-format.ts", [
     "/** The account's own template library, absent from a backup taken before it was worth keeping. */",
@@ -16444,6 +16468,8 @@ const allowed = new Map([
     "// replace the caller's honest overflow answer with a stream plumbing error.",
     "// The reader is released below and the source is dropped with it.",
     "/** The same ceiling read as text: `null` means the far side sent more than `maxBytes`. */",
+    "// A whole skill library arriving at once: the ceiling is the number of skills the list route will hand",
+    "// over, times the most a single one may hold. Nothing smaller can refuse a file this app can produce.",
   ]],
   ["src/worker/lib/rewrite-drain.ts", [
     "/** Notes a single queue row may rewrite per round; the tail is re-queued for the next one. */",
@@ -16874,6 +16900,10 @@ const allowed = new Map([
     "// Either half may be empty on its own — a skill can be a block of text with no name, or a name the",
     "// One emoji, not prose: the limit is the multi-code-point forms a family or a flag is written with.",
     "// through the same filter, because a saved skill must not reach past the turn it stands for.",
+    "/**\n * The whole library as one file.\n *\n * Read from the server rather than from the list the client already holds: the list is paged and\n * search-narrowed, and an export that quietly left out everything past the page would be worse than none.\n */",
+    "/**\n * The model an imported skill asks for, kept only when this account has it.\n *\n * Unlike the create route, an id this account has never heard of is dropped rather than refused. A bundle\n * written on another machine names models that do not exist here, and one such name must not throw away\n * the ninety other skills in the same file.\n */",
+    "/**\n * A bundle read back in, one skill at a time.\n *\n * Each entry goes through the same filters the create route uses, so a file cannot reach past what a\n * reader could have typed: an uncallable tool is dropped, a scope has to be a real id shape, and a model\n * has to be one of this account's. What cannot be read at all is reported rather than failing the file —\n * one malformed skill in a list of ten must not hide the other nine.\n */",
+    "// A skill is a name or the words; an entry with neither is not a skill this app could have saved.",
   ]],
   ["src/worker/routes/auth.ts", [
     "// Account-wide cap so a distributed botnet cannot retry one account",
@@ -17572,6 +17602,13 @@ const allowed = new Map([
     "// Every day with usage, oldest first — the map's own data, which no range narrows.",
     "// Either half alone is enough: a paragraph with no name is still a skill the reader will want back.",
     "// A skill with no icon carries an empty one rather than a null the reader would have to guard against.",
+    "// The uncallable tool was never stored, so the bundle cannot carry it either.",
+    "// Nothing the server assigns travels: the importing account would be naming a row it does not have.",
+    "// The same file, read into an account that has none of the models it names.",
+    "// The words, the icon and the tools travel. The model does not: this account has never heard of it,",
+    "// and a file that fails whole because of one binding it could not carry is a file nobody can use.",
+    "// A skill that arrives is a new row, not the row it was written from.",
+    "// A tool the assistant cannot call is dropped on the way in, the same as it would be on a save.",
   ]],
   ["tests/assistant-rules.test.ts", [
     "/**\n * The rules the assistant is built on, tested where they are written.\n *\n * These are the parts a browser session cannot prove: what a Chinese sentence means to the conflict\n * rules, how a wall-clock schedule survives a daylight-saving change, how many tokens a Han vault\n * really costs. Each fixture is chosen so a plausible-but-wrong implementation would fail it — the\n * pair that differs only in a change word, a date the reader never stated, a schedule that crosses a\n * clock change — rather than so the function merely runs.\n */",
@@ -17599,6 +17636,9 @@ const allowed = new Map([
     "// input ceiling as much as for the window it clamps.",
     "// The id travels with the title because the model has to name the note to a tool, and \"this note\"",
     "// without an id is a search that can land on a different note with the same words.",
+    "// The id and the two timestamps belong to the machine the row is on. A bundle that carried them would",
+    "// name a row that already exists on the importing side, or one that was deleted there long ago.",
+    "// A reader who hand-writes one skill should not have to guess at a version envelope.",
   ]],
   ["tests/assistant-upstream.test.ts", [
     "/**\n * The provider wire, tested against recorded frames rather than a live service.\n *\n * The three protocols all stream JSON in pieces, and the piece that matters — a tool call's arguments\n * arriving three characters at a time — is exactly what a hand-written parser gets wrong in a way no\n * other test can see. The failure looks like a tool that was called with `{}`.\n */",

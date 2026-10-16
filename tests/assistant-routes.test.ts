@@ -2105,6 +2105,84 @@ describe('skill library', () => {
     expect(created.skill.tools).toHaveLength(MAX_TURN_TOOLS)
     expect(created.skill.scopes).toHaveLength(MAX_TURN_SCOPES)
   })
+
+  it('writes the library out as a bundle another account can read back', async () => {
+    await useExampleModel()
+    const models = await call<{ models: AssistantModel[] }>('GET', '/api/assistant/models')
+    const created = await call<{ skill: AssistantSkill }>('POST', '/api/assistant/skills', {
+      title: '周报',
+      content: '按项目分段。',
+      group: '写作',
+      icon: '📝',
+      tools: ['search_notes', 'invent_a_tool'],
+      scopes: [{ kind: 'folder', id: FOLDER_A, name: '工作' }],
+      modelId: models.models[0]!.id,
+    })
+    const exported = await call<{ bundle: { version: number, skills: Record<string, unknown>[] } }>('GET', '/api/assistant/skills/export')
+    expect(exported.bundle.version).toBe(1)
+    expect(exported.bundle.skills).toEqual([{
+      title: '周报',
+      content: '按项目分段。',
+      group: '写作',
+      icon: '📝',
+      // The uncallable tool was never stored, so the bundle cannot carry it either.
+      tools: ['search_notes'],
+      scopes: [{ kind: 'folder', id: FOLDER_A, name: '工作' }],
+      modelId: models.models[0]!.id,
+    }])
+    // Nothing the server assigns travels: the importing account would be naming a row it does not have.
+    expect(exported.bundle.skills[0]).not.toHaveProperty('id')
+    expect(exported.bundle.skills[0]).not.toHaveProperty('updatedAt')
+
+    // The same file, read into an account that has none of the models it names.
+    asUser('0123456789abcdefghjkmnpqrst')
+    expect(await call<{ imported: number, skipped: unknown[] }>('POST', '/api/assistant/skills/import', {
+      skills: exported.bundle.skills,
+    })).toEqual({ imported: 1, skipped: [] })
+    const mine = await call<{ skills: AssistantSkill[] }>('GET', '/api/assistant/skills')
+    expect(mine.skills).toHaveLength(1)
+    // The words, the icon and the tools travel. The model does not: this account has never heard of it,
+    // and a file that fails whole because of one binding it could not carry is a file nobody can use.
+    expect(mine.skills[0]).toMatchObject({
+      title: '周报', content: '按项目分段。', group: '写作', icon: '📝', tools: ['search_notes'], modelId: null,
+    })
+    expect(mine.skills[0]!.scopes).toEqual([{ kind: 'folder', id: FOLDER_A, name: '工作' }])
+    // A skill that arrives is a new row, not the row it was written from.
+    expect(mine.skills[0]!.id).not.toBe(created.skill.id)
+  })
+
+  it('keeps the readable entries of a bundle and says why the others were not', async () => {
+    const result = await call<{ imported: number, skipped: { title: string, reason: string }[] }>(
+      'POST', '/api/assistant/skills/import', {
+        skills: [
+          { title: '好的', content: '留着。' },
+          'not an object',
+          null,
+          { title: '   ', content: '  ' },
+          { title: 'x'.repeat(400), content: 'y'.repeat(10_000), icon: '🚀'.repeat(20), tools: ['search_notes', 'invent_a_tool'] },
+        ],
+      },
+    )
+    expect(result.imported).toBe(2)
+    expect(result.skipped).toEqual([
+      { title: '', reason: 'shape' },
+      { title: '', reason: 'shape' },
+      { title: '', reason: 'empty' },
+    ])
+    const mine = await call<{ skills: AssistantSkill[] }>('GET', '/api/assistant/skills')
+    const long = mine.skills.find((entry) => entry.content.startsWith('y'))!
+    expect(long.title.length).toBeLessThanOrEqual(MAX_SKILL_TITLE_CHARS)
+    expect(long.content.length).toBeLessThanOrEqual(MAX_SKILL_CONTENT_CHARS)
+    expect(long.icon.length).toBeLessThanOrEqual(MAX_SKILL_ICON_CHARS)
+    // A tool the assistant cannot call is dropped on the way in, the same as it would be on a save.
+    expect(long.tools).toEqual(['search_notes'])
+  })
+
+  it('reads a file with no list as nothing at all rather than as one empty skill', async () => {
+    expect(await call<{ imported: number, skipped: unknown[] }>('POST', '/api/assistant/skills/import', {})).toEqual({ imported: 0, skipped: [] })
+    expect(await call<{ imported: number, skipped: unknown[] }>('POST', '/api/assistant/skills/import', { skills: 'nope' })).toEqual({ imported: 0, skipped: [] })
+    expect((await call<{ skills: AssistantSkill[] }>('GET', '/api/assistant/skills')).skills).toEqual([])
+  })
 })
 
 describe('model input modalities', () => {

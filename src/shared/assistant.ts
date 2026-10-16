@@ -715,6 +715,76 @@ export interface AssistantSkillInput {
   modelId?: string | null
 }
 
+/**
+ * One skill as it travels in a bundle: everything the reader wrote, and nothing the server assigns.
+ *
+ * The id and the timestamps are left out on purpose — a skill that lands on another machine is a new row
+ * there, not the same row seen twice, and an id from someone else's account would either collide with a
+ * row that already exists or dangle after a delete. The bindings do travel, because half of what makes a
+ * skill a skill is the arrangement: `tools` are the built-in registry's own names, which mean the same
+ * thing everywhere, while a folder id or a model id that the importing account does not have is dropped
+ * on the way in rather than failing the file.
+ */
+export interface AssistantSkillExport {
+  title: string
+  content: string
+  group: string
+  icon: string
+  tools: string[]
+  scopes: AssistantTurnScope[]
+  modelId: string | null
+}
+
+/** The file a reader downloads, and the shape an import reads back. */
+export interface AssistantSkillBundle {
+  /** The bundle's own shape version, so a later reader can tell what it is looking at. */
+  version: number
+  skills: AssistantSkillExport[]
+}
+
+export const SKILL_BUNDLE_VERSION = 1
+/** As many skills as the list route will hand over in one read, so an export never silently truncates. */
+export const MAX_SKILL_BUNDLE_SKILLS = 500
+
+/** The reader's library as the file it downloads. */
+export function skillBundleOf(skills: readonly AssistantSkill[]): AssistantSkillBundle {
+  return {
+    version: SKILL_BUNDLE_VERSION,
+    skills: skills.map((skill) => ({
+      title: skill.title,
+      content: skill.content,
+      group: skill.group,
+      icon: skill.icon,
+      tools: skill.tools,
+      scopes: skill.scopes,
+      modelId: skill.modelId,
+    })),
+  }
+}
+
+/**
+ * The entries a downloaded file holds, or `null` when the parsed JSON is not a bundle at all.
+ *
+ * A bare array is read as well as the bundle object, because a reader who hand-writes one skill should
+ * not have to guess at a version envelope. The entries themselves are handed on unread: what an entry
+ * may contain is the server's question, and answering it in two places is how the two answers drift.
+ */
+export function skillBundleEntries(parsed: unknown): unknown[] | null {
+  if (Array.isArray(parsed)) return parsed
+  if (parsed && typeof parsed === 'object' && Array.isArray((parsed as { skills?: unknown }).skills)) {
+    return (parsed as { skills: unknown[] }).skills
+  }
+  return null
+}
+
+/** Why one entry of an imported file could not be used, in codes the client turns into its own words. */
+export type SkillImportSkip = 'shape' | 'empty'
+
+export interface SkillImportResult {
+  imported: number
+  skipped: { title: string, reason: SkillImportSkip }[]
+}
+
 /** Ceilings for one turn's inline picks, so a composer cannot ask for the whole vault. */
 export const MAX_TURN_TOOLS = 6
 export const MAX_TURN_SCOPES = 6

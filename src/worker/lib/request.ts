@@ -1,4 +1,5 @@
 import { LIMITS } from '@shared/constants'
+import { MAX_SKILL_BUNDLE_SKILLS, MAX_SKILL_CONTENT_CHARS } from '@shared/assistant'
 import { utf8ByteLength } from '@shared/text-utils'
 import { ApiError } from './errors'
 
@@ -10,6 +11,9 @@ export const JSON_BODY_LIMITS = {
   quickAdd: 1024 * 1024,
   backup: 32 * 1024,
   profile: 256 * 1024,
+  // A whole skill library arriving at once: the ceiling is the number of skills the list route will hand
+  // over, times the most a single one may hold. Nothing smaller can refuse a file this app can produce.
+  skillBundle: MAX_SKILL_BUNDLE_SKILLS * (MAX_SKILL_CONTENT_CHARS + 1024) + 64 * 1024,
   note: LIMITS.contentMaxBytes * 6 + 64 * 1024,
 } as const
 

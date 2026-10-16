@@ -46,6 +46,9 @@ import {
   MAX_SKILL_CONTENT_CHARS,
   MAX_SKILL_ICON_CHARS,
   MAX_SKILL_TITLE_CHARS,
+  MAX_SKILL_BUNDLE_SKILLS,
+  skillBundleOf,
+  type SkillImportSkip,
   MAX_TASK_NOTES_CHARS,
   MAX_TASK_TITLE_CHARS,
   MEMORY_REVIEW_ACTIONS,
@@ -1652,6 +1655,70 @@ assistantRoutes.patch('/skills/:id', async (c) => {
 assistantRoutes.delete('/skills/:id', async (c) => {
   const removed = await store(c).deleteSkill(requiredId(c.req.param('id')))
   return c.json({ deleted: removed })
+})
+
+/**
+ * The whole library as one file.
+ *
+ * Read from the server rather than from the list the client already holds: the list is paged and
+ * search-narrowed, and an export that quietly left out everything past the page would be worse than none.
+ */
+assistantRoutes.get('/skills/export', async (c) => {
+  const skills = await store(c).listSkills({ limit: MAX_SKILL_BUNDLE_SKILLS })
+  return c.json({ bundle: skillBundleOf(skills) })
+})
+
+/**
+ * The model an imported skill asks for, kept only when this account has it.
+ *
+ * Unlike the create route, an id this account has never heard of is dropped rather than refused. A bundle
+ * written on another machine names models that do not exist here, and one such name must not throw away
+ * the ninety other skills in the same file.
+ */
+async function importableModel(s: AssistantStore, value: unknown): Promise<string | null> {
+  if (typeof value !== 'string' || !isValidId(value) || !(await s.getModel(value))) return null
+  return value
+}
+
+/**
+ * A bundle read back in, one skill at a time.
+ *
+ * Each entry goes through the same filters the create route uses, so a file cannot reach past what a
+ * reader could have typed: an uncallable tool is dropped, a scope has to be a real id shape, and a model
+ * has to be one of this account's. What cannot be read at all is reported rather than failing the file —
+ * one malformed skill in a list of ten must not hide the other nine.
+ */
+assistantRoutes.post('/skills/import', async (c) => {
+  const body = await readJson<{ skills?: unknown }>(c, JSON_BODY_LIMITS.skillBundle)
+  const entries = Array.isArray(body.skills) ? body.skills.slice(0, MAX_SKILL_BUNDLE_SKILLS) : []
+  const s = store(c)
+  const skipped: { title: string, reason: SkillImportSkip }[] = []
+  let imported = 0
+  for (const entry of entries) {
+    if (!entry || typeof entry !== 'object' || Array.isArray(entry)) {
+      skipped.push({ title: '', reason: 'shape' })
+      continue
+    }
+    const record = entry as Record<string, unknown>
+    const title = optionalSkillText(record.title, MAX_SKILL_TITLE_CHARS)
+    const content = optionalSkillText(record.content, MAX_SKILL_CONTENT_CHARS)
+    // A skill is a name or the words; an entry with neither is not a skill this app could have saved.
+    if (!title && !content) {
+      skipped.push({ title: '', reason: 'empty' })
+      continue
+    }
+    await s.insertSkill({
+      title: title || content.slice(0, 40),
+      content,
+      group: optionalSkillText(record.group, 60),
+      icon: optionalSkillText(record.icon, MAX_SKILL_ICON_CHARS),
+      tools: pinnedTools(record.tools),
+      scopes: pinnedScopes(record.scopes),
+      modelId: await importableModel(s, record.modelId),
+    })
+    imported++
+  }
+  return c.json({ imported, skipped })
 })
 
 // ------------------------------------------------------------------- semantic

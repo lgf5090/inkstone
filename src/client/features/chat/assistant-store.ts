@@ -41,12 +41,13 @@ import type {
 } from '@shared/assistant'
 import type { AssistantSkill } from '@shared/assistant'
 import { DEBOUNCE } from '@shared/constants'
-import { MAX_CHAT_ATTACHMENTS, MAX_TURN_SCOPES, MAX_TURN_TOOLS, type AssistantTurnScope, type ChatAttachment, type AssistantSkillInput } from '@shared/assistant'
+import { MAX_CHAT_ATTACHMENTS, MAX_TURN_SCOPES, MAX_TURN_TOOLS, type AssistantTurnScope, type ChatAttachment, type AssistantSkillInput, type SkillImportResult } from '@shared/assistant'
 import { api, ApiError } from '../../lib/api'
 import { t } from '../../lib/i18n'
 import { IS_DEMO_MODE } from '../../lib/runtime'
 import { streamAssistantTurn } from './stream'
 import { extractPdfText } from './pdf-text'
+import { downloadSkillBundle } from './skill-bundle'
 import { useUi } from '../../store/ui'
 
 export type AssistantView = 'chat' | 'memory' | 'tasks' | 'automations' | 'skills' | 'projects' | 'settings'
@@ -293,6 +294,15 @@ interface AssistantState {
   createSkill: (input: AssistantSkillInput) => Promise<AssistantSkill | null>
   saveSkill: (id: string, input: AssistantSkillInput) => Promise<void>
   removeSkill: (id: string) => Promise<void>
+  /** Fetch the whole library and hand it to the reader as a file. */
+  exportSkills: () => Promise<void>
+  /**
+   * Send a bundle's entries in, and say what came of them.
+   *
+   * The list is not patched here the way the single-skill actions patch it: an import may add hundreds of
+   * rows, and the caller is the one that knows which search is on screen, so it re-reads with its own.
+   */
+  importSkills: (entries: unknown[]) => Promise<SkillImportResult | null>
   /**
    * Arm the turn with everything one saved skill stands for, not only its words.
    *
@@ -1168,6 +1178,24 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
       await api.assistant.removeSkill(id)
     } catch (error) {
       toast(error)
+    }
+  },
+
+  exportSkills: async () => {
+    try {
+      const { bundle } = await api.assistant.exportSkills()
+      downloadSkillBundle(bundle)
+    } catch (error) {
+      toast(error)
+    }
+  },
+
+  importSkills: async (entries) => {
+    try {
+      return await api.assistant.importSkills(entries)
+    } catch (error) {
+      toast(error)
+      return null
     }
   },
 

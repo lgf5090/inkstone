@@ -12,9 +12,9 @@
  * is the fourth, smaller part: a dozen skills in a list are easier to tell apart by sight than by
  * reading every title.
  */
-import { useEffect, useMemo, useState } from 'react'
-import { FileText, Folder, Pencil, Plus, Search, Trash2, Wrench } from 'lucide-react'
-import type { AssistantModel, AssistantTurnScope, AssistantSkill } from '@shared/assistant'
+import { useEffect, useMemo, useRef, useState, type ChangeEvent } from 'react'
+import { Download, FileText, Folder, MoreHorizontal, Pencil, Plus, Search, Sparkles, Trash2, Upload, Wrench } from 'lucide-react'
+import type { AssistantModel, AssistantTurnScope, AssistantSkill, SkillImportSkip } from '@shared/assistant'
 import { MAX_SKILL_CONTENT_CHARS, MAX_SKILL_ICON_CHARS, MAX_SKILL_TITLE_CHARS, MAX_TURN_SCOPES, MAX_TURN_TOOLS } from '@shared/assistant'
 import { ASSISTANT_TOOL_BY_NAME } from '@shared/assistant'
 import { t } from '../../lib/i18n'
@@ -22,9 +22,12 @@ import { cn } from '../../lib/cn'
 import { useDebounced } from '../../lib/hooks'
 import { Button, IconButton } from '../../components/primitives'
 import { Field, Input, Select, Textarea } from '../../components/form'
-import { Modal, confirm } from '../../components/overlay'
+import { Menu, Modal, confirm, type MenuItem } from '../../components/overlay'
+import { useUi } from '../../store/ui'
 import { useAssistant } from './assistant-store'
 import { NoteScopePicker, useVaultFolders } from './NoteScopePicker'
+import { readSkillBundleFile } from './skill-bundle'
+import { exampleSkills } from './skill-examples'
 
 const UNGROUPED = '__none__'
 
@@ -190,9 +193,15 @@ export function SkillsView() {
   const removeSkill = useAssistant((state) => state.removeSkill)
   const models = useAssistant((state) => state.models)
   const loadSettings = useAssistant((state) => state.loadSettings)
+  const exportSkills = useAssistant((state) => state.exportSkills)
+  const importSkills = useAssistant((state) => state.importSkills)
+  const toast = useUi((state) => state.toast)
   const [query, setQuery] = useState('')
   const [draft, setDraft] = useState<Draft | null>(null)
   const [busy, setBusy] = useState(false)
+  const [menuOpen, setMenuOpen] = useState(false)
+  const anchor = useRef<HTMLSpanElement>(null)
+  const bundleRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => { void loadSkills() }, [loadSkills])
   // The model bound to a skill is named by id, so the list has to be there before the editor can offer it.
@@ -245,6 +254,52 @@ export function SkillsView() {
     if (ok) await removeSkill(skill.id)
   }
 
+  // A bundle's rows are not patched into the list the way a single edit is: an import may add hundreds,
+  // and this view is the one that knows which search is on screen, so it re-reads with its own.
+  const runImport = async (entries: unknown[]) => {
+    const result = await importSkills(entries)
+    if (!result) return
+    await loadSkills(settledQuery.trim() || undefined)
+    // Counted by reason rather than listed: a file that came from somewhere else tends to fail the same
+    // way many times over, and the same sentence eighty times is not a report.
+    const byReason = new Map<SkillImportSkip, number>()
+    for (const entry of result.skipped) byReason.set(entry.reason, (byReason.get(entry.reason) ?? 0) + 1)
+    toast({
+      title: result.imported
+        ? t('assistant.skills.import_done', { count: result.imported })
+        : t('assistant.skills.import_none'),
+      ...(byReason.size
+        ? {
+          description: t('assistant.skills.import_skipped', {
+            count: result.skipped.length,
+            reasons: [...byReason]
+              .map(([reason, count]) => `${t(`assistant.skills.import.reason.${reason}` as 'assistant.skills.import.reason.shape')} ×${count}`)
+              .join(', '),
+          }),
+        }
+        : {}),
+      tone: result.imported ? 'success' : 'danger',
+    })
+  }
+
+  const takeBundle = async (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0] ?? null
+    // Cleared before the read, so picking the same file twice in a row still fires a change.
+    event.target.value = ''
+    if (!file) return
+    try {
+      await runImport(await readSkillBundleFile(file))
+    } catch (error) {
+      toast({ title: error instanceof Error ? error.message : t('assistant.toast.failed'), tone: 'danger' })
+    }
+  }
+
+  const menuItems: MenuItem[] = [
+    { id: 'import', label: t('assistant.skills.import'), icon: <Upload size={13} />, onSelect: () => bundleRef.current?.click() },
+    { id: 'export', label: t('assistant.skills.export'), icon: <Download size={13} />, onSelect: () => void exportSkills() },
+    { id: 'examples', label: t('assistant.skills.add_examples'), icon: <Sparkles size={13} />, separatorBefore: true, onSelect: () => void runImport(exampleSkills()) },
+  ]
+
   return (
     <div className="flex h-full min-h-0 flex-col">
       <div className="flex items-center gap-2 px-3 py-2.5">
@@ -260,9 +315,25 @@ export function SkillsView() {
           />
         </div>
         <Button size="sm" variant="primary" icon={<Plus size={14} />} onClick={() => setDraft(EMPTY)}>{t('assistant.skills.new')}</Button>
+        <span ref={anchor}>
+          <IconButton label={t('assistant.skills.more')} size="sm" onClick={() => setMenuOpen((open) => !open)}>
+            <MoreHorizontal size={15} />
+          </IconButton>
+        </span>
+        <Menu anchor={anchor} open={menuOpen} onClose={() => setMenuOpen(false)} items={menuItems} width={200} label={t('assistant.skills.more')} />
+        <input ref={bundleRef} type="file" accept="application/json,.json" hidden onChange={(event) => void takeBundle(event)} />
       </div>
       <div className="no-scrollbar min-h-0 flex-1 overflow-y-auto px-2 pb-3">
-        {!skills.length && <p className="px-2 py-6 text-center text-[length:var(--text-12-5)] text-[var(--text-quaternary)]">{t('assistant.skills.empty')}</p>}
+        {!skills.length && (
+          <div className="px-2 py-6 text-center">
+            <p className="text-[length:var(--text-12-5)] text-[var(--text-quaternary)]">{t('assistant.skills.empty')}</p>
+            {/* An empty list is where the idea of a skill is least obvious, so the examples are offered
+                here as well as in the menu — this is the one place a reader has nothing else to press. */}
+            <Button size="sm" variant="secondary" className="mt-2" icon={<Sparkles size={13} />} onClick={() => void runImport(exampleSkills())}>
+              {t('assistant.skills.add_examples')}
+            </Button>
+          </div>
+        )}
         {groups.map((bucket) => (
           <section key={bucket.key} className="mb-2">
             <h3 className="px-2 py-1 text-[length:var(--text-10-5)] font-semibold uppercase tracking-[var(--tracking-label)] text-[var(--text-quaternary)]">{bucket.label}</h3>
