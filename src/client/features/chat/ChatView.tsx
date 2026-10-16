@@ -10,7 +10,7 @@
  */
 import { Z_INDEX } from '../../lib/z-index'
 import { type ClipboardEvent as ReactClipboardEvent, type KeyboardEvent, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import { ArrowUp, ArrowUpRight, Check, Copy, History, MoreHorizontal, Paperclip, Pencil, Plus, Square, Star, Trash2 } from 'lucide-react'
+import { ArrowUp, ArrowUpRight, Check, Copy, History, MoreHorizontal, Paperclip, Pencil, Plus, Search, Square, Star, Trash2 } from 'lucide-react'
 import type { AssistantConversation, AssistantMessage, ChatAttachment } from '@shared/assistant'
 import { DEBOUNCE } from '@shared/constants'
 import { cn } from '../../lib/cn'
@@ -53,6 +53,8 @@ import { PASTE_FILE_MIN_CHARS, useAssistant } from './assistant-store'
 import { MessageMenu, useMessageMenu } from './MessageMenu'
 import { AssistantBubble } from './MessageParts'
 import { CHAT_NOTE_LINKS } from './note-links'
+import { SelectionBar, SelectionTick, selectedMessages, type MessageSelection } from './SelectionBar'
+import { ThreadFinder } from './ThreadFinder'
 import { ChatOutline } from './ChatOutline'
 import { modelReasoning, reasoningOptions } from './model-reasoning'
 
@@ -90,6 +92,27 @@ export function ChatView() {
   const scrollRef = useRef<HTMLDivElement>(null)
   const stickToBottom = useRef(true)
   const [listOpen, setListOpen] = useState(false)
+  const [finding, setFinding] = useState(false)
+  // Selection is a mode, not a modifier: a checkbox on every message all the time is furniture nobody
+  // asked for in a conversation, so the ticks exist only while the reader is picking. `null` is "not
+  // picking"; an empty set is "picking with nothing chosen yet", which the bar has words for.
+  const [selected, setSelected] = useState<ReadonlySet<string> | null>(null)
+  const picked = useMemo(
+    () => (selected ? selectedMessages(messages, selected) : []),
+    [messages, selected],
+  )
+  const togglePicked = (id: string) => setSelected((current) => {
+    if (!current) return current
+    const next = new Set(current)
+    if (next.has(id)) next.delete(id)
+    else next.add(id)
+    return next
+  })
+  const startPicking = (id: string) => setSelected(new Set([id]))
+
+  const title = activeId
+    ? conversations.find((conversation) => conversation.id === activeId)?.title || t('assistant.chat.untitled')
+    : t('assistant.chat.new_title')
 
   const streaming = (!!turn && !turn.done) || remoteStreaming
   // A live reply belongs to its own conversation; only show it in the thread that owns it.
@@ -136,17 +159,29 @@ export function ChatView() {
         <ConversationList activeId={activeId} onPick={() => undefined} />
       </aside>
 
-      <section className="relative flex min-w-0 flex-1 flex-col">
+      {/* Ctrl/Cmd+F is the reader's own reflex for this box, so it opens the thread's own find instead of
+          the browser's bar over a page that is one conversation. */}
+      <section
+        className="relative flex min-w-0 flex-1 flex-col"
+        onKeyDown={(event) => {
+          if (event.key === 'f' && (event.metaKey || event.ctrlKey)) {
+            event.preventDefault()
+            setFinding(true)
+          }
+          if (event.key === 'Escape' && finding) setFinding(false)
+        }}
+      >
         <div className="flex h-9 shrink-0 items-center gap-1 border-b border-[var(--border-subtle)] px-2">
           <IconButton label={t('assistant.chat.history')} size="sm" className="lg:hidden" onClick={() => setListOpen(true)}>
             <History size={15} />
           </IconButton>
           <span className="min-w-0 truncate text-[length:var(--text-12)] text-[var(--text-tertiary)]">
-            {activeId
-              ? conversations.find((conversation) => conversation.id === activeId)?.title || t('assistant.chat.untitled')
-              : t('assistant.chat.new_title')}
+            {title}
           </span>
           <div className="ml-auto flex shrink-0 items-center gap-1">
+            <IconButton label={t('assistant.chat.find')} size="sm" onClick={() => setFinding((open) => !open)}>
+              <Search size={15} />
+            </IconButton>
             <Button size="sm" variant="ghost" icon={<Plus size={14} />} onClick={newConversation} disabled={streaming}>
               {t('assistant.chat.new')}
             </Button>
@@ -179,6 +214,8 @@ export function ChatView() {
                   message={message}
                   busy={streaming}
                   onRetry={message.id === lastAnswer?.id && !streaming ? () => void send('', { retry: true }) : undefined}
+                  onStartPicking={startPicking}
+                  selection={selected ? { active: true, checked: selected.has(message.id), onToggle: () => togglePicked(message.id) } : undefined}
                 />
               ))}
               {turnHere && (
@@ -205,6 +242,25 @@ export function ChatView() {
           )}
         </div>
 
+        {selected && (
+          <SelectionBar
+            picked={picked}
+            title={title}
+            onDelete={() => {
+              void confirm({
+                title: t('assistant.chat.select_delete_title'),
+                description: t('assistant.chat.select_delete_hint'),
+                confirmLabel: t('common.delete'),
+                tone: 'danger',
+              }).then((agreed) => {
+                if (!agreed) return
+                void useAssistant.getState().removeMessages(picked.map((message) => message.id))
+                setSelected(null)
+              })
+            }}
+            onExit={() => setSelected(null)}
+          />
+        )}
         <Composer
           streaming={streaming}
           sendOnEnter={useAssistant((state) => state.settings?.sendOnEnter ?? true)}
@@ -213,6 +269,13 @@ export function ChatView() {
           disabled={blocked}
         />
         <ChatOutline anchors={anchors} scrollerRef={scrollRef} />
+        {finding && (
+          <ThreadFinder
+            scroller={scrollRef}
+            revision={messages.length}
+            onClose={() => setFinding(false)}
+          />
+        )}
       </section>
 
       <Modal open={listOpen} onClose={() => setListOpen(false)} title={t('assistant.chat.history')} width={360} bodyClassName="p-0">
@@ -227,7 +290,13 @@ export function ChatView() {
   )
 }
 
-export function MessageRow({ message, onRetry, busy = false }: { message: AssistantMessage, onRetry?: () => void, busy?: boolean }) {
+export function MessageRow({ message, onRetry, busy = false, selection, onStartPicking }: {
+  message: AssistantMessage
+  onRetry?: () => void
+  busy?: boolean
+  selection?: MessageSelection
+  onStartPicking?: (messageId: string) => void
+}) {
   // A finished answer can be asked again; a half one is only ever resumed by its own retry.
   const retryLabel = message.status === 'complete' ? 'assistant.chat.regenerate' : 'assistant.chat.retry'
   const fileIndex = useAssistant((state) => state.fileIndex)
@@ -242,6 +311,8 @@ export function MessageRow({ message, onRetry, busy = false }: { message: Assist
         messageId={message.id}
         busy={busy}
         anchorId={message.id}
+        selection={selection}
+        onStartPicking={onStartPicking}
       />
     )
   }
@@ -262,6 +333,8 @@ export function MessageRow({ message, onRetry, busy = false }: { message: Assist
       usage={message.usage}
       feedback={message.feedback}
       onRate={message.role === 'assistant' ? (verdict) => void useAssistant.getState().rateAnswer(message.id, verdict) : undefined}
+      selection={selection}
+      onStartPicking={onStartPicking}
       durationMs={message.durationMs ?? 0}
       modelLabel={message.modelLabel ?? ''}
       versionCount={message.versionCount ?? 0}
@@ -287,7 +360,18 @@ export function UserBubble({
   messageId,
   busy = false,
   anchorId,
-}: { text: string, attachments?: string[], fileIndex?: Record<string, ChatAttachment>, messageId?: string, busy?: boolean, anchorId?: string }) {
+  selection,
+  onStartPicking,
+}: {
+  text: string
+  attachments?: string[]
+  fileIndex?: Record<string, ChatAttachment>
+  messageId?: string
+  busy?: boolean
+  anchorId?: string
+  selection?: MessageSelection
+  onStartPicking?: (messageId: string) => void
+}) {
   const [copied, setCopied] = useState(false)
   const [draft, setDraft] = useState<string | null>(null)
   const toast = useUi((state) => state.toast)
@@ -310,8 +394,15 @@ export function UserBubble({
     <div
       data-chat-anchor={anchorId}
       onContextMenu={text ? menu.onContextMenu : undefined}
-      className="flex animate-[ink-fade-in_var(--dur-base)_var(--ease-out)] justify-end"
+      className="flex animate-[ink-fade-in_var(--dur-base)_var(--ease-out)] items-start justify-end gap-2"
     >
+      {selection?.active && messageId && (
+        <SelectionTick
+          label={t('assistant.chat.select_messages')}
+          checked={selection.checked}
+          onToggle={selection.onToggle}
+        />
+      )}
       <div className="group flex max-w-[85%] flex-col items-end gap-1">
         {attachments.length > 0 && <MessageAttachments ids={attachments} index={fileIndex} />}
         {text && (
@@ -369,6 +460,7 @@ export function UserBubble({
           text,
           ...(removable ? { onEdit: () => setDraft(text), onDelete: askToDelete } : {}),
           ...(messageId ? { onFork: () => void useAssistant.getState().forkFrom(messageId) } : {}),
+          ...(messageId && onStartPicking ? { onSelect: () => onStartPicking(messageId) } : {}),
         }}
       />
       {draft !== null && messageId && (

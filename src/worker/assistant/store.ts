@@ -1313,6 +1313,24 @@ export class AssistantStore {
   }
 
   /**
+   * Deletes a set of turns the reader picked out, without the pairing a single delete applies.
+   *
+   * One message's own delete takes its neighbour with it, because half a turn is not a turn. A selection
+   * is different: the reader pointed at exactly these rows, and adding the ones they did not point at
+   * would delete something they can see on screen. Ids that are not this conversation's are ignored
+   * rather than refused, so a stale screen cannot delete a stranger's row.
+   */
+  async deleteMessages(conversationId: string, ids: readonly string[]): Promise<string[]> {
+    const wanted = new Set(ids.filter((id) => /^[0-9a-hjkmnp-tv-z]{6,64}$/.test(id)))
+    if (!wanted.size) return []
+    const rows = await this.messages(conversationId)
+    const removed = rows.filter((row) => wanted.has(row.id)).map((row) => row.id)
+    for (const id of removed) await this.deleteMessage(id)
+    if (removed.length) await this.clearSummary(conversationId)
+    return removed
+  }
+
+  /**
    * Records the reader's verdict on one answer, or clears it.
    *
    * One row is touched and nothing else: the verdict is about this answer, and rewriting the turn would

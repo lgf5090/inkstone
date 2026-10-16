@@ -560,6 +560,25 @@ assistantRoutes.patch('/conversations/:id/messages/:messageId/feedback', async (
   return c.json({ message: await s.getMessage(messageId) })
 })
 
+/**
+ * Deletes a selection of turns.
+ *
+ * Registered before the single-message `DELETE` below would not conflict — the paths differ — but it is
+ * kept beside the fork because both are bulk operations on one conversation, and both take their input
+ * in the body rather than in the path.
+ */
+assistantRoutes.post('/conversations/:id/messages/delete', async (c) => {
+  const s = store(c)
+  const conversationId = requiredId(c.req.param('id'))
+  const body = await readJson<{ ids?: unknown }>(c, JSON_BODY_LIMITS.small)
+  const ids = (Array.isArray(body.ids) ? body.ids : []).filter((id): id is string => typeof id === 'string' && isValidId(id))
+  if (!ids.length) throw ApiError.badRequest('Select at least one message.')
+  if (!(await s.getConversation(conversationId))) throw ApiError.notFound('Conversation not found')
+  if (await s.isRunning(conversationId)) throw ApiError.conflict('Stop the running reply first.')
+  const removed = await s.deleteMessages(conversationId, ids)
+  return c.json({ removed, messages: await s.messages(conversationId) })
+})
+
 assistantRoutes.post('/conversations/:id/fork', async (c) => {
   const s = store(c)
   const conversationId = requiredId(c.req.param('id'))

@@ -1067,6 +1067,10 @@ const allowed = new Map([
     "// rather than deleted on a single press. Both the hover row and the menu reach it through here.",
     "// A quote from a message menu lands at the top of whatever the reader was already writing, and the",
     "// handover is spent on arrival: leaving it in the store would re-insert it on the next render.",
+    "// Selection is a mode, not a modifier: a checkbox on every message all the time is furniture nobody",
+    "// asked for in a conversation, so the ticks exist only while the reader is picking. `null` is \"not",
+    "// picking\"; an empty set is \"picking with nothing chosen yet\", which the bar has words for.",
+    "/* Ctrl/Cmd+F is the reader's own reflex for this box, so it opens the thread's own find instead of\n          the browser's bar over a page that is one conversation. */",
   ]],
   ["src/client/features/chat/ComposerControls.tsx", [
     "/** The token count, spelled the way the reference's slider spells it: 32K, 128K, 262K. */",
@@ -1121,6 +1125,7 @@ const allowed = new Map([
     "/** The verdict already left on this answer, so the menu can show which thumb is down. */",
     "/** Present only where a verdict can be recorded — a stored answer, not a turn still streaming. */",
     "/** Present for a stored turn: a branch carries the thread up to and including this message. */",
+    "/** Turns the thread into a picker with this message already ticked. */",
   ]],
   ["src/client/features/chat/MessageParts.tsx", [
     "/**\n * The pieces of one assistant reply.\n *\n * Three things the reference project got wrong in ways only a reader notices:\n *  - it reused the note prose class, so a one-line answer filled a screen;\n *  - it stored the tool chip's words in English inside the message row, so a Chinese interface showed\n *    English pills that no translation could reach;\n *  - it kept the Approve button live after the reply was saved, because it read the approval out of the\n *    message rather than out of the pending-action table.\n *\n * So the chip's words come from the locale catalog by tool name, the prose is its own class, and the\n * approval card is driven by the action's current status.\n */",
@@ -1147,6 +1152,8 @@ const allowed = new Map([
     "/* `body` is what the reader can see — an earlier answer paged back to included — so the menu\n          acts on that text rather than on whichever version happens to be newest. */",
     "/** The verdict already left on this answer, so the thumb that is down stays down. */",
     "/** Absent on a live turn: a verdict needs a row to be stored on. */",
+    "/** Present while the reader is picking turns out of the thread. */",
+    "/** Turns the thread into a picker, starting from this answer. */",
   ]],
   ["src/client/features/chat/ModelEditorDialog.tsx", [
     "/**\n * The model's own editor: what it is for, what it can do, and the numbers it is given.\n *\n * The composer's chips cover the two settings a reader changes often. This covers the rest, which are\n * per-model facts rather than per-conversation choices: whether the endpoint answers in pictures, how\n * much it claims to take in, and the vendor-specific fields our request builder does not know about.\n * Everything here is read by the request path — a switch that changed nothing would be worse than no\n * switch, because it would be believed.\n */",
@@ -1195,11 +1202,23 @@ const allowed = new Map([
     "/**\n * The reader's own prompt library.\n *\n * A prompt is a piece of the reader's work, not a setting: it is written once and pasted into many\n * conversations, so it gets its own view, its own search, and a delete that asks first. The composer\n * reads the same list through the store, which is why nothing here keeps a copy.\n */",
     "/* The wrapper carries the row's growth: the field hands its own `className` to the `<input>`, which\n            cannot size the box around it. */",
   ]],
+  ["src/client/features/chat/SelectionBar.tsx", [
+    "/**\n * The bar that appears once a reader has picked out turns.\n *\n * Selection is a mode rather than a modifier because the alternative is a checkbox on every message all\n * of the time, which is furniture nobody asked for in a conversation. The bar is what makes the mode\n * legible: it says how many rows are picked, and every action it offers acts on exactly those.\n */",
+    "/** The turns the reader ticked, in the order they appear in the thread. */",
+    "/** The tick a message shows while the mode is on. */",
+  ]],
   ["src/client/features/chat/TasksView.tsx", [
     "/**\n * The assistant's task list.\n *\n * Three tabs rather than one long list, because the question a reader opens this for is \"what is on\n * me today\", and a completed task should leave the way without leaving the database.\n *\n * The Today tab's set is decided by the *server*: \"today\" is a span in the reader's timezone, and a\n * browser in another zone would otherwise disagree with the reminder engine about what is overdue.\n */",
     "/** End of the reader's local day, in the same milliseconds the server compares against. */",
     "// A column stretches its children; the filter is a row of its own size, as it is on the pages",
     "// beside this one, rather than a bar the width of the list under it.",
+  ]],
+  ["src/client/features/chat/ThreadFinder.tsx", [
+    "/**\n * The find box over an open thread.\n *\n * It marks the rendered transcript rather than searching the stored rows, so what it highlights is\n * exactly what the reader is looking at — including the code block they are hunting for. The panel owns\n * its marks: they are made when the query or the thread changes and taken out when it closes, and\n * nothing about the search is written to a store.\n */",
+    "/** The scrolling element the thread lives in. */",
+    "/** Bumped by the thread when its content changes, so the marks are remade over the new answer. */",
+    "// Closing takes the marks out. Every render of the thread that replaces the markup would drop them",
+    "// anyway, but a reader who searched and closed would otherwise be left reading a highlighted page.",
   ]],
   ["src/client/features/chat/answer-versions.test.ts", [
     "/**\n * The answer pager: two arrows over the answers one turn has already displaced.\n *\n * Pinned here is the drive, not the markup — each press has to change what the bubble shows, and only an\n * explicit \"use this one\" may reach the server. A reader who steps back out of curiosity must not silently\n * rewrite their own thread. Labels come from the catalog, so the case says the same thing in either locale.\n */",
@@ -1309,6 +1328,7 @@ const allowed = new Map([
     "/** Starts a new conversation that carries this one up to the given message. */",
     "// The suffix is named here rather than on the server because a conversation's name is interface copy",
     "// and the worker carries no catalog — the same reason the fork route takes the title as an argument.",
+    "/** Deletes exactly the turns a reader selected. */",
   ]],
   ["src/client/features/chat/chat-outline.test.ts", [
     "/**\n * The rail and the panel that stand beside a thread.\n *\n * Both of them are read off the thread's own DOM — which turn has passed the reading line, and how far\n * down to land when one is chosen — so these cases lay out the boxes a browser would and then scroll:\n * a test that only counted buttons would pass over an outline that marks the wrong turn.\n */",
@@ -1477,6 +1497,10 @@ const allowed = new Map([
     "/**\n * The first line of prose in a reply, without the marks that made it a heading or a list item.\n *\n * A reply usually opens with a heading, so the title is the heading's own words rather than a run of\n * `#` in front of them — the marks are structure for the body and noise in a name.\n */",
     "/** Writes a reply into a new note, and offers the reader the way in. */",
   ]],
+  ["src/client/features/chat/selection-bar.test.ts", [
+    "/**\n * A selection written out as a document.\n *\n * The text is the part worth pinning: a transcript that loses a speaker, or the fence around an answer's\n * code, is not the thing the reader asked to keep.\n */",
+    "// The fence has to survive: an answer whose code arrives as prose is not the answer.",
+  ]],
   ["src/client/features/chat/send-search.test.ts", [
     "/**\n * The web-search switch's way from a click to the request.\n *\n * Two half-wires have to be pinned together: the toggle writing the store, and the store reaching the\n * stream input. A chip that looked switched on while the turn went out without the flag is the worst\n * kind of control, because it is believed.\n */",
     "// The after-turn refreshes are not this switch; they would reach for api methods the mock has none of.",
@@ -1508,6 +1532,19 @@ const allowed = new Map([
     "/**\n * A new tag has to reach the conversation it was made for, or say why it did not.\n *\n * `createTag` is optimistic — it validates the name, answers a duplicate with the tag that already\n * exists, seeds the local cache and posts the row without waiting — so its id is in hand before the\n * server has a row to point at, and the attach route refuses an unknown tag. The old path caught that\n * refusal and threw the answer away: the reader typed a name, nothing appeared, and no one said so.\n * What is pinned here is the two honest outcomes: the conversation is filed once the row is back, or a\n * danger toast says it was not.\n */",
     "// The row lands on the second read, which is what a POST still on the wire looks like from here.",
   ]],
+  ["src/client/features/chat/thread-find.test.ts", [
+    "/**\n * Finding a phrase in the thread.\n *\n * The marks are the whole feature, and they are also the only thing here that can damage a page: a pass\n * that misses a node leaves the reader scrolling a transcript that no longer holds their words, and a\n * pass that nests its own marks makes the second press match the first press's leftovers. Both are\n * pinned here, along with the code block a reader most often searches for.\n */",
+  ]],
+  ["src/client/features/chat/thread-find.ts", [
+    "/**\n * Finding a phrase in the thread that is already on screen.\n *\n * A reply can be hundreds of lines and the reader knows the words they are looking for, so the search is\n * over the rendered transcript rather than over the stored rows: what is highlighted is what they can\n * see, including the code block they are hunting for. The marks live in the DOM for as long as the panel\n * is open and are taken out again by walking the same nodes — nothing about this reaches the store.\n *\n * Two things are deliberately not searched: text inside an existing mark (which would double-wrap on the\n * second press) and `script`/`style` text. Everything else is, code and table cells included.\n */",
+    "/** Takes every mark this module made back out of the tree, leaving the text as it was. */",
+    "// Adjacent text nodes left by a previous pass are merged so the next search sees whole words: two",
+    "// half-words side by side are two nodes, and a phrase spanning them would never be found.",
+    "/**\n * Wraps every occurrence of `query`, and answers with the marks in the order they appear.\n *\n * The query is matched case-insensitively over each text node's own content, which means a phrase that\n * spans an element boundary — `hello **world**` — is not a hit. That is the same limitation the browser's\n * own find has on a line break, and paying for the alternative would mean rebuilding the markup.\n */",
+    "/** Brings one hit into view and marks it as the one the count is pointing at. */",
+    "// Scrolled inside the thread rather than with `scrollIntoView`: the browser also scrolls every",
+    "// ancestor, which drags the page behind the overlay around when the thread is in a dialog.",
+  ]],
   ["src/client/features/chat/time-format.ts", [
     "/**\n * Instants in the assistant's own timezone.\n *\n * The reader's browser and the assistant's configured zone are usually the same, but the whole point of\n * the setting is that they need not be: a reminder set for 09:00 in Shanghai has to read as 09:00 in\n * the list even when the laptop is in Berlin. The notebook's own date helpers deliberately follow the\n * browser, so this surface keeps its own two formatters rather than changing theirs.\n */",
     "/**\n * Whether a stored instant means \"by the end of that day\".\n *\n * A due date typed as a bare date is saved at 23:59 local, and printing the time on it reads as a\n * deadline an hour before the day is over.\n */",
@@ -1523,6 +1560,11 @@ const allowed = new Map([
     "// The state of each call is on the row itself, so a folded group already answered \"did it work\".",
     "// The ids of the row, never its arguments: the worker reads those back out of the message.",
     "// What the model was handed is untouched: the turn's own result is still the one it read.",
+  ]],
+  ["src/client/features/chat/transcript.ts", [
+    "/**\n * A selection of turns, written out as one Markdown document.\n *\n * Held apart from the panel that offers it because the text is the part worth pinning: a transcript that\n * drops a speaker's name, or the code fence inside an answer, is not a transcript. The speaker headings\n * are the interface's own words, so they come from the catalog like every other label.\n */",
+    "/** One speaker's turn, in the shape a reader would write it down. */",
+    "/** Writes the selection to a file the reader can keep. */",
   ]],
   ["src/client/features/chat/user-message-actions.test.ts", [
     "/**\n * The three controls under the reader's own message.\n *\n * The row is the only place their words can be taken back out of the thread, so what is pinned is which\n * of them is drawn, what each one reaches — the clipboard, the editor, the confirmation — and that a\n * turn being written right now is left alone.\n */",
@@ -7281,6 +7323,7 @@ const allowed = new Map([
     "/** Take a turn back: the message and, under a reader's own row, the answer it drew. */",
     "/** The reader's verdict on one answer, or null to take it back. */",
     "/** A new conversation carrying this one up to and including one message. */",
+    "/** Deletes the turns a reader selected, without the pairing a single delete applies. */",
   ]],
   ["src/client/lib/app-history.ts", [
     "/**\n * The address bar as the one source of truth for which app tab is up.\n *\n * The tab is a path rather than a store field so that a rail button is an ordinary link: the\n * address a reader copies is the screen they are looking at, the back button walks the tabs they\n * visited, and a cold load of `/calendar` needs nothing but the document the server already sends.\n * `history.pushState` fires no event of its own, so the writers here announce their own changes and\n * `popstate` covers everything the browser does by itself.\n */",
@@ -15397,6 +15440,7 @@ const allowed = new Map([
     "/**\n   * A new conversation holding this one up to and including one message.\n   *\n   * The point of branching is to try a different answer without losing the thread that led there, so the\n   * rows are copied rather than referenced: the two conversations then diverge freely, and deleting\n   * either leaves the other whole. The copied turns keep their words, their thinking, their tools and\n   * their verdicts; only the ids and the timestamps are new, because the rowid is what orders a thread.\n   *\n   * The summary is deliberately not copied. It describes a conversation that ended somewhere else, and\n   * carrying it would have the fork summarised by a rollup of turns it does not have.\n   */",
     "// One millisecond apart so the copied thread keeps the order it was read in: `addMessage` stamps",
     "// `created_at` itself and a loop over the same tick would give every row the same one.",
+    "/**\n   * Deletes a set of turns the reader picked out, without the pairing a single delete applies.\n   *\n   * One message's own delete takes its neighbour with it, because half a turn is not a turn. A selection\n   * is different: the reader pointed at exactly these rows, and adding the ones they did not point at\n   * would delete something they can see on screen. Ids that are not this conversation's are ignored\n   * rather than refused, so a stale screen cannot delete a stranger's row.\n   */",
   ]],
   ["src/worker/assistant/tools.ts", [
     "/**\n * The tools the assistant can reach, and the executor that runs them.\n *\n * Three things are enforced here rather than asked of the model, because a model that is confident and\n * wrong is the failure mode this app has to survive:\n *  - **budgets** — a per-turn call cap, a per-tool cap and a duplicate-call refusal, so a reasoning\n *    loop cannot spend the reader's AI quota or write a hundred tasks;\n *  - **validation** — arguments are checked against the same declaration that generates the JSON\n *    Schema the provider is given, so the two can never disagree;\n *  - **approval** — a destructive tool never runs during the turn. `prepare` resolves the exact target\n *    and writes a pending action; `commit` runs only when the reader presses Approve, once, on that\n *    target. The model can propose; it cannot delete.\n *\n * Scheduled runs get read-only tools plus `notify_reader`, so a routine that has drifted cannot edit\n * the vault while nobody is watching.\n */",
@@ -16271,6 +16315,7 @@ const allowed = new Map([
     "// unknown word is refused rather than stored, so a client that invents a third verdict finds out.",
     "// The title is the client's, because a name is interface copy and the worker carries no catalog. It is",
     "// clamped here the way every other stored title is, and the source's own name is the fallback.",
+    "/**\n * Deletes a selection of turns.\n *\n * Registered before the single-message `DELETE` below would not conflict — the paths differ — but it is\n * kept beside the fork because both are bulk operations on one conversation, and both take their input\n * in the body rather than in the path.\n */",
   ]],
   ["src/worker/routes/auth.ts", [
     "// Account-wide cap so a distributed botnet cannot retry one account",
@@ -16898,6 +16943,9 @@ const allowed = new Map([
     "// The copied thread is what led to that message, in order, with its own ids — a branch that shared",
     "// rows would be two conversations editing each other.",
     "// The original keeps its own name and its turn count; a branch is not a rename of anything.",
+    "// A selection is not a turn: deleting a single message takes its pair with it, and this must not —",
+    "// the reader pointed at two rows and the two rows are what goes.",
+    "// The rollup described rows that are gone.",
   ]],
   ["tests/assistant-rules.test.ts", [
     "/**\n * The rules the assistant is built on, tested where they are written.\n *\n * These are the parts a browser session cannot prove: what a Chinese sentence means to the conflict\n * rules, how a wall-clock schedule survives a daylight-saving change, how many tokens a Han vault\n * really costs. Each fixture is chosen so a plausible-but-wrong implementation would fail it — the\n * pair that differs only in a change word, a date the reader never stated, a schedule that crosses a\n * clock change — rather than so the function merely runs.\n */",

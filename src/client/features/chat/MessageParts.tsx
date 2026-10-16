@@ -43,6 +43,7 @@ import { MarkdownBody } from '../preview/MarkdownBody'
 import { useAssistant } from './assistant-store'
 import { CHAT_NOTE_LINKS } from './note-links'
 import { MessageMenu, useMessageMenu } from './MessageMenu'
+import { SelectionTick, type MessageSelection } from './SelectionBar'
 import { noteRefsFromToolResult } from './note-refs'
 import { saveReplyAsNote } from './save-to-note'
 
@@ -430,6 +431,8 @@ export function AssistantBubble({
   versionCount = 0,
   feedback,
   onRate,
+  selection,
+  onStartPicking,
   loadVersions,
   onActivate,
 }: {
@@ -453,6 +456,10 @@ export function AssistantBubble({
   feedback?: MessageFeedback
   /** Absent on a live turn: a verdict needs a row to be stored on. */
   onRate?: (feedback: MessageFeedback) => void
+  /** Present while the reader is picking turns out of the thread. */
+  selection?: MessageSelection
+  /** Turns the thread into a picker, starting from this answer. */
+  onStartPicking?: (messageId: string) => void
   loadVersions?: () => Promise<AssistantAnswerVersion[]>
   onActivate?: (versionId: string) => void
 }) {
@@ -486,7 +493,14 @@ export function AssistantBubble({
     })
   }
   return (
-    <div className="group flex gap-2.5" onContextMenu={body ? menu.onContextMenu : undefined}>
+    <div className="group flex items-start gap-2.5" onContextMenu={body ? menu.onContextMenu : undefined}>
+      {selection?.active && messageId && (
+        <SelectionTick
+          label={t('assistant.chat.select_messages')}
+          checked={selection.checked}
+          onToggle={selection.onToggle}
+        />
+      )}
       <div className="min-w-0 flex-1 space-y-2">
         {tools.length > 0 && <ToolCallList tools={tools} messageId={messageId} />}
         {tools.map((tool) => tool.approval && <ApprovalCard key={tool.approval.id} action={tool.approval} />)}
@@ -680,6 +694,7 @@ export function AssistantBubble({
           ...(feedback ? { feedback } : {}),
           ...(onRate && !streaming && !viewing ? { onRate } : {}),
           ...(messageId && !streaming ? { onFork: () => void useAssistant.getState().forkFrom(messageId) } : {}),
+          ...(messageId && onStartPicking ? { onSelect: () => onStartPicking(messageId) } : {}),
         }}
       />
     </div>

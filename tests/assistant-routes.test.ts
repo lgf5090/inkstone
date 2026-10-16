@@ -268,8 +268,24 @@ describe('re-taking a turn', () => {
     expect(await status('PATCH', `/api/assistant/conversations/${other.conversation.id}/messages/${firstAnswer.id}/feedback`, { feedback: 'up' })).toBe(404)
   })
 
-  it('branches a conversation at a message, leaving the original whole', async () => {
-    const { conversation, first, firstAnswer, second, secondAnswer } = await thread()
+  it('deletes exactly the turns a reader selected, and nothing beside them', async () => {
+    const { store, conversation, first, firstAnswer, second, secondAnswer } = await thread()
+    const result = await call<{ removed: string[], messages: AssistantMessage[] }>(
+      'POST', `/api/assistant/conversations/${conversation.id}/messages/delete`,
+      { ids: [firstAnswer.id, secondAnswer.id] },
+    )
+    // A selection is not a turn: deleting a single message takes its pair with it, and this must not —
+    // the reader pointed at two rows and the two rows are what goes.
+    expect(result.removed.sort()).toEqual([firstAnswer.id, secondAnswer.id].sort())
+    expect(result.messages.map((entry) => entry.id)).toEqual([first.id, second.id])
+    // The rollup described rows that are gone.
+    expect((await store.getConversation(conversation.id))?.summary).toBeNull()
+    expect(await status('POST', `/api/assistant/conversations/${conversation.id}/messages/delete`, { ids: [] })).toBe(400)
+    const other = await call<{ conversation: AssistantConversation }>('POST', '/api/assistant/conversations', { title: 'Elsewhere' })
+    expect(await status('POST', `/api/assistant/conversations/${other.conversation.id}/messages/delete`, { ids: [first.id] })).toBe(200)
+  })
+
+  it('branches a conversation at a message, leaving the original whole', async () => {    const { conversation, first, firstAnswer, second, secondAnswer } = await thread()
     const result = await call<{ conversation: AssistantConversation, messages: AssistantMessage[] }>(
       'POST', `/api/assistant/conversations/${conversation.id}/fork`, { messageId: firstAnswer.id, title: 'Planning (branch)' },
     )

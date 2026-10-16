@@ -223,6 +223,8 @@ interface AssistantState {
   rateAnswer: (messageId: string, feedback: MessageFeedback) => Promise<void>
   /** Starts a new conversation that carries this one up to the given message. */
   forkFrom: (messageId: string) => Promise<void>
+  /** Deletes exactly the turns a reader selected. */
+  removeMessages: (ids: readonly string[]) => Promise<void>
   setConversationQuery: (query: string) => Promise<void>
   /** The folder tree and the tag list, both counted for conversations. */
   loadTaxonomy: () => Promise<void>
@@ -769,6 +771,17 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
       await get().loadConversations()
       await get().openConversation(conversation.id)
       toast({ title: t('assistant.chat.forked', { title: conversation.title }), tone: 'success' })
+    } catch (error) {
+      toast(error)
+    }
+  },
+
+  removeMessages: async (ids) => {
+    const conversationId = get().activeId
+    if (!conversationId || !ids.length) return
+    try {
+      const { messages } = await api.assistant.deleteMessages(conversationId, ids)
+      set({ messages, answerVersions: {} })
     } catch (error) {
       toast(error)
     }

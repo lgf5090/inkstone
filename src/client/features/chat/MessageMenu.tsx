@@ -12,7 +12,7 @@
  */
 
 import { useCallback, useRef, useState, type MouseEvent, type RefObject } from 'react'
-import { Copy, CornerUpLeft, Download, GitBranch, NotebookPen, Pencil, RotateCcw, ThumbsDown, ThumbsUp, Trash2, Volume2, type LucideIcon } from 'lucide-react'
+import { Copy, CornerUpLeft, Download, GitBranch, ListChecks, NotebookPen, Pencil, RotateCcw, ThumbsDown, ThumbsUp, Trash2, Volume2, type LucideIcon } from 'lucide-react'
 import { toPlainText } from '@shared/markdown-utils'
 import type { MessageFeedback } from '@shared/assistant'
 import { Z_INDEX } from '../../lib/z-index'
@@ -44,6 +44,8 @@ export interface MessageMenuTarget {
   onRate?: (feedback: MessageFeedback) => void
   /** Present for a stored turn: a branch carries the thread up to and including this message. */
   onFork?: () => void
+  /** Turns the thread into a picker with this message already ticked. */
+  onSelect?: () => void
 }
 
 interface ItemSpec {
@@ -142,6 +144,9 @@ export function messageMenuItems(target: MessageMenuTarget): MenuItem[] {
       run: target.onRetry,
       separatorBefore: true,
     })
+  }
+  if (target.onSelect) {
+    specs.push({ id: 'select', icon: ListChecks, label: t('assistant.chat.select_messages'), run: target.onSelect, separatorBefore: true })
   }
   if (target.onEdit) {
     specs.push({ id: 'edit', icon: Pencil, label: t('assistant.chat.edit_message'), run: target.onEdit, separatorBefore: !target.onRetry })

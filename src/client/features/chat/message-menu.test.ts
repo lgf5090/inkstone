@@ -48,6 +48,12 @@ describe('what a reply offers', () => {
     expect(ids({ role: 'assistant', text: 'answer', onFork: () => {} })).toContain('fork')
   })
 
+  it('offers the picker entry only for a message that can be picked', () => {
+    expect(ids({ role: 'user', text: 'question', onSelect: () => {} })).toContain('select')
+    expect(ids({ role: 'assistant', text: 'answer', onSelect: () => {} })).toContain('select')
+    expect(ids({ role: 'assistant', text: 'answer' })).not.toContain('select')
+  })
+
   it('marks the verdict already recorded', () => {
     const rows = messageMenuItems({ role: 'assistant', text: 'answer', onRate: () => {}, feedback: 'down' })
     expect(rows.find((row) => row.id === 'rate-down')?.checked).toBe(true)

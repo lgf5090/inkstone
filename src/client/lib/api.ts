@@ -848,6 +848,12 @@ export const api = {
         `/api/assistant/conversations/${conversationId}/messages/${messageId}`,
         { method: 'PATCH', body: { content } },
       ),
+    /** Deletes the turns a reader selected, without the pairing a single delete applies. */
+    deleteMessages: (conversationId: string, ids: readonly string[]) =>
+      request<{ removed: string[], messages: AssistantMessage[] }>(
+        `/api/assistant/conversations/${conversationId}/messages/delete`,
+        { method: 'POST', body: { ids } },
+      ),
     /** A new conversation carrying this one up to and including one message. */
     forkConversation: (conversationId: string, messageId: string, title: string) =>
       request<{ conversation: AssistantConversation, messages: AssistantMessage[] }>(
