@@ -727,6 +727,7 @@ export function AssistantBubble({
           ...(feedback ? { feedback } : {}),
           ...(onRate && !streaming && !viewing ? { onRate } : {}),
           ...(messageId && !streaming ? { onFork: () => void useAssistant.getState().forkFrom(messageId) } : {}),
+          ...(messageId && !streaming ? { onOpenCanvas: () => void useAssistant.getState().createArtifactFromReply(body) } : {}),
           ...(messageId && onStartPicking ? { onSelect: () => onStartPicking(messageId) } : {}),
         }}
       />

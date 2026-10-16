@@ -12,7 +12,7 @@
 import type { AssistantImportSummary, AssistantSettings } from '@shared/assistant'
 import { clipReasoning, normalizeAssistantSettings } from '@shared/assistant'
 import { parseScheduleSpec } from '@shared/assistant-schedule'
-import { ASSISTANT_MEMORY_CATEGORIES, AUTOMATION_KINDS } from '@shared/assistant'
+import { ASSISTANT_MEMORY_CATEGORIES, AUTOMATION_KINDS, MAX_ARTIFACT_CONTENT_CHARS, MAX_ARTIFACT_TITLE_CHARS } from '@shared/assistant'
 import { ApiError } from '../lib/errors'
 import { AssistantStore } from './store'
 
@@ -76,6 +76,7 @@ export async function importAssistant(store: AssistantStore, raw: Record<string,
   const skipped: string[] = []
   const summary: ImportSummary = {
     conversations: 0,
+    artifacts: 0,
     messages: 0,
     answerVersions: 0,
     memories: 0,
@@ -138,6 +139,27 @@ export async function importAssistant(store: AssistantStore, raw: Record<string,
   }
 
   const conversations = new Set((await store.listConversations(undefined, { limit: 500 })).map((entry) => entry.id))
+
+  // The drafts those threads were keeping. Restored after the conversations, so a draft whose thread did
+  // not come back is dropped rather than left orphaned — the panel reads them by conversation id.
+  for (const artifact of rows(data.artifacts)) {
+    const id = idValue(artifact.id)
+    const conversationId = idValue(artifact.conversation_id)
+    if (!id || !conversationId || !conversations.has(conversationId)) continue
+    // Every column is named because they are all NOT NULL, and `importRow` binds a column it is not given
+    // as NULL — which `INSERT OR IGNORE` turns into a silently dropped row. `note_id` is the one exception:
+    // it is the seam a later build fills, and null is what a draft that is only a draft carries.
+    await store.importRow('chat_artifacts', {
+      id,
+      conversation_id: conversationId,
+      title: textValue(artifact.title, MAX_ARTIFACT_TITLE_CHARS),
+      content: textValue(artifact.content, MAX_ARTIFACT_CONTENT_CHARS),
+      note_id: null,
+      created_at: numberValue(artifact.created_at, Date.now()),
+      updated_at: numberValue(artifact.updated_at, Date.now()),
+    })
+    summary.artifacts++
+  }
 
   for (const link of rows(data.conversation_tags)) {
     const conversationId = idValue(link.conversation_id)

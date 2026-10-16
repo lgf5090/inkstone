@@ -14,6 +14,7 @@
 
 import { create } from 'zustand'
 import type {
+  AssistantArtifact,
   AssistantConversation,
   ChatFolderNode,
   ChatProjectNode,
@@ -41,11 +42,12 @@ import type {
 } from '@shared/assistant'
 import type { AssistantSkill } from '@shared/assistant'
 import { DEBOUNCE } from '@shared/constants'
-import { MAX_CHAT_ATTACHMENTS, MAX_TURN_SCOPES, MAX_TURN_TOOLS, type AssistantTurnScope, type ChatAttachment, type AssistantSkillInput, type SkillImportResult, type AssistantMcpToolMode } from '@shared/assistant'
+import { MAX_ARTIFACT_CONTENT_CHARS, MAX_ARTIFACT_TITLE_CHARS, MAX_CHAT_ATTACHMENTS, MAX_TURN_SCOPES, MAX_TURN_TOOLS, type AssistantTurnScope, type ChatAttachment, type AssistantSkillInput, type SkillImportResult, type AssistantMcpToolMode } from '@shared/assistant'
 import { api, ApiError } from '../../lib/api'
 import { t } from '../../lib/i18n'
 import { IS_DEMO_MODE } from '../../lib/runtime'
 import { streamAssistantTurn } from './stream'
+import { leadingProse } from './save-to-note'
 import { extractPdfText } from './pdf-text'
 import { downloadSkillBundle } from './skill-bundle'
 import { useUi } from '../../store/ui'
@@ -163,6 +165,21 @@ interface AssistantState {
   answerVersions: Record<string, AssistantAnswerVersion[] | undefined>
   remoteStreaming: boolean
   turn: LiveTurn | null
+
+  /**
+   * The drafts the open conversation keeps, and which of them the side panel is showing.
+   *
+   * Read with the thread and held here rather than fetched by the panel itself, for the same reason the
+   * messages are: the panel is one of the conversation's surfaces, so leaving it for the memory tab and
+   * coming back must not re-fetch a document the reader is in the middle of editing.
+   */
+  artifacts: AssistantArtifact[]
+  /** False until the first read lands, so the panel can tell "none yet" from "not yet known". */
+  artifactsReady: boolean
+  /** Whether the side panel is open. Kept here so it survives a switch of surface, like the thread does. */
+  canvasOpen: boolean
+  /** The draft the panel is editing; null means it is showing the list of them. */
+  activeArtifactId: string | null
 
   memories: AssistantMemory[]
   memoryCounts: { active: number, historical: number, review: number }
@@ -325,6 +342,24 @@ interface AssistantState {
   /** Put a conversation away without deleting it, or bring it back into the everyday list. */
   archiveConversation: (id: string, archived: boolean) => Promise<void>
   deleteConversation: (id: string) => Promise<void>
+
+  /** Open or close the side panel; the reader's own toggle, kept for the session. */
+  setCanvasOpen: (open: boolean) => void
+  /** Show one draft in the panel, or the list of them when the id is null. */
+  selectArtifact: (id: string | null) => void
+  /** Re-read the open conversation's drafts. */
+  loadArtifacts: () => Promise<void>
+  /**
+   * Keep a reply as a draft and open the panel on it.
+   *
+   * The reply is copied, never moved: the message stays the record of what was said, and the draft is the
+   * copy that is meant to change. The title is the reply's own first line, so the list reads as documents
+   * rather than as timestamps.
+   */
+  createArtifactFromReply: (text: string) => Promise<void>
+  /** Rewrite a draft's name or body. The server stores what it is sent and keeps the rest. */
+  saveArtifact: (id: string, patch: { title?: string, content?: string }) => Promise<void>
+  removeArtifact: (id: string) => Promise<void>
   decideAction: (actionId: string, approve: boolean) => Promise<void>
 
   loadMemories: () => Promise<void>
@@ -586,6 +621,10 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
   answerVersions: {},
   remoteStreaming: false,
   turn: null,
+  artifacts: [],
+  artifactsReady: false,
+  canvasOpen: false,
+  activeArtifactId: null,
 
   memories: [],
   memoryCounts: { active: 0, historical: 0, review: 0 },
@@ -1063,11 +1102,13 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
     // A reply still arriving belongs to its own conversation; navigating away must not cancel it.
     if (turn && !turn.done && turn.conversationId !== id) set({ turn: null })
     // A muted chip is this thread's correction, not a setting: the next thread starts from the pointer.
-    set({ activeId: id, messages: [], messagesReady: false, remoteStreaming: false, noteContextOn: true, folderContextOn: true })
+    // The panel starts closed on every thread and shows no draft until that thread's own read lands.
+    set({ activeId: id, messages: [], messagesReady: false, remoteStreaming: false, noteContextOn: true, folderContextOn: true, artifacts: [], artifactsReady: false, canvasOpen: false, activeArtifactId: null })
     if (!id) {
-      set({ messagesReady: true })
+      set({ messagesReady: true, artifactsReady: true })
       return
     }
+    void get().loadArtifacts()
     try {
       const detail = await api.assistant.conversation(id)
       if (get().activeId !== id) return
@@ -1087,7 +1128,7 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
   newConversation: () => {
     const live = get().turn
     if (live && !live.done) return
-    set({ activeId: null, messages: [], messagesReady: true, remoteStreaming: false, turn: null, noteContextOn: true, folderContextOn: true })
+    set({ activeId: null, messages: [], messagesReady: true, remoteStreaming: false, turn: null, noteContextOn: true, folderContextOn: true, artifacts: [], artifactsReady: true, canvasOpen: false, activeArtifactId: null })
   },
 
   attachFiles: async (files) => {
@@ -1443,8 +1484,80 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
   deleteConversation: async (id) => {
     try {
       await api.assistant.deleteConversation(id)
-      if (get().activeId === id) set({ activeId: null, messages: [], turn: null })
+      if (get().activeId === id) set({ activeId: null, messages: [], turn: null, artifacts: [], artifactsReady: true, canvasOpen: false, activeArtifactId: null })
       await get().loadConversations()
+    } catch (error) {
+      toast(error)
+    }
+  },
+
+  setCanvasOpen: (open) => set({ canvasOpen: open }),
+
+  selectArtifact: (id) => set({ activeArtifactId: id }),
+
+  loadArtifacts: async () => {
+    const conversationId = get().activeId
+    if (!conversationId) {
+      set({ artifacts: [], artifactsReady: true })
+      return
+    }
+    try {
+      const { artifacts } = await api.assistant.conversationArtifacts(conversationId)
+      // The reader may have switched threads while the read was in flight.
+      if (get().activeId !== conversationId) return
+      set({ artifacts, artifactsReady: true })
+    } catch (error) {
+      if (get().activeId !== conversationId) return
+      set({ artifactsReady: true })
+      toast(error)
+    }
+  },
+
+  createArtifactFromReply: async (text) => {
+    const conversationId = get().activeId
+    if (!conversationId) {
+      // A draft hangs off a thread, so a reply can only be kept once one exists to hold it.
+      useUi.getState().toast({ title: t('assistant.canvas.need_conversation'), tone: 'warning' })
+      return
+    }
+    try {
+      const { artifact } = await api.assistant.createConversationArtifact(conversationId, {
+        // The reply's own opening line, so the panel's list reads as documents and not as timestamps.
+        title: leadingProse(text).slice(0, MAX_ARTIFACT_TITLE_CHARS),
+        content: text.slice(0, MAX_ARTIFACT_CONTENT_CHARS),
+      })
+      set((current) => ({
+        artifacts: [artifact, ...current.artifacts],
+        artifactsReady: true,
+        canvasOpen: true,
+        activeArtifactId: artifact.id,
+      }))
+    } catch (error) {
+      toast(error)
+    }
+  },
+
+  saveArtifact: async (id, patch) => {
+    const conversationId = get().activeId
+    if (!conversationId) return
+    try {
+      const { artifact } = await api.assistant.updateConversationArtifact(conversationId, id, patch)
+      set((current) => ({ artifacts: current.artifacts.map((entry) => (entry.id === id ? artifact : entry)) }))
+    } catch (error) {
+      toast(error)
+    }
+  },
+
+  removeArtifact: async (id) => {
+    const conversationId = get().activeId
+    if (!conversationId) return
+    try {
+      await api.assistant.removeConversationArtifact(conversationId, id)
+      set((current) => ({
+        artifacts: current.artifacts.filter((entry) => entry.id !== id),
+        // The panel falls back to its list when the draft it was showing is gone.
+        activeArtifactId: current.activeArtifactId === id ? null : current.activeArtifactId,
+      }))
     } catch (error) {
       toast(error)
     }

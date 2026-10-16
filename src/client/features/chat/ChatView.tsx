@@ -10,7 +10,7 @@
  */
 import { Z_INDEX } from '../../lib/z-index'
 import { type ClipboardEvent as ReactClipboardEvent, type KeyboardEvent, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import { ArrowUp, ArrowUpRight, Check, Copy, FileText, FolderOpen, History, MoreHorizontal, Paperclip, Pencil, Plus, Search, Square, Star, Trash2, X } from 'lucide-react'
+import { ArrowUp, ArrowUpRight, Check, Copy, FileText, FolderOpen, History, MoreHorizontal, PanelRight, Paperclip, Pencil, Plus, Search, Square, Star, Trash2, X } from 'lucide-react'
 import type { AssistantConversation, AssistantMessage, ChatAttachment } from '@shared/assistant'
 import { mcpToolModeFor } from '@shared/assistant'
 import { DEBOUNCE } from '@shared/constants'
@@ -55,6 +55,7 @@ import { MarkdownBody } from '../preview/MarkdownBody'
 import { PASTE_FILE_MIN_CHARS, useAssistant } from './assistant-store'
 import { MessageMenu, useMessageMenu } from './MessageMenu'
 import { AssistantBubble } from './MessageParts'
+import { CanvasPanel } from './CanvasPanel'
 import { CHAT_NOTE_LINKS } from './note-links'
 import { SelectionBar, SelectionTick, selectedMessages, type MessageSelection } from './SelectionBar'
 import { downloadTranscript } from './transcript'
@@ -169,6 +170,10 @@ export function ChatView() {
   // A reader with no model configured cannot ask anything real; the settings tab is the way out.
   const blocked = useAssistant((state) => !state.settings?.activeModelId && !state.settings?.offlineMode)
 
+  // The side panel is the conversation's own workspace, so it has nothing to show until a thread is open.
+  const canvasOpen = useAssistant((state) => state.canvasOpen)
+  const setCanvasOpen = useAssistant((state) => state.setCanvasOpen)
+
   // Retry re-answers the reader's last message and drops the reply that followed it, so it belongs to
   // the newest answer only — offered on an older one it would silently rewrite a different turn.
   const lastAnswer = useMemo(() => {
@@ -221,6 +226,15 @@ export function ChatView() {
             </span>
           )}
           <div className="ml-auto flex shrink-0 items-center gap-1">
+            <IconButton
+              label={t('assistant.canvas.title')}
+              size="sm"
+              active={canvasOpen}
+              disabled={!activeId}
+              onClick={() => setCanvasOpen(!canvasOpen)}
+            >
+              <PanelRight size={15} />
+            </IconButton>
             <IconButton label={t('assistant.chat.find')} size="sm" onClick={() => setFinding((open) => !open)}>
               <Search size={15} />
             </IconButton>
@@ -319,6 +333,8 @@ export function ChatView() {
           />
         )}
       </section>
+
+      {canvasOpen && activeId && <CanvasPanel />}
 
       <Modal open={listOpen} onClose={() => setListOpen(false)} title={t('assistant.chat.history')} width={360} bodyClassName="p-0">
         <div className="h-[60vh]">

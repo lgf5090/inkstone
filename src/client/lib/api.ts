@@ -61,6 +61,7 @@ import type {
   AssistantMcpProblem,
   AssistantMcpServer,
   AssistantMcpServerDetail,
+  AssistantArtifact,
   AssistantConversation,
   ChatFolderNode,
   ChatProjectNode,
@@ -840,6 +841,22 @@ export const api = {
         attachments: ChatAttachment[],
         streaming: boolean
       }>(`/api/assistant/conversations/${id}`),
+    /**
+     * The drafts a conversation keeps in its side panel.
+     *
+     * Fetched with the thread rather than stored on it: a draft is a document, and a listing that carried
+     * every one of them would make opening a conversation pay for work the reader may not do.
+     */
+    conversationArtifacts: (id: string) =>
+      request<{ artifacts: AssistantArtifact[] }>(`/api/assistant/conversations/${id}/artifacts`),
+    createConversationArtifact: (id: string, body: { title?: string, content: string }) =>
+      request<{ artifact: AssistantArtifact }>(`/api/assistant/conversations/${id}/artifacts`, { method: 'POST', body }),
+    updateConversationArtifact: (id: string, artifactId: string, body: { title?: string, content?: string }) =>
+      request<{ artifact: AssistantArtifact }>(
+        `/api/assistant/conversations/${id}/artifacts/${artifactId}`, { method: 'PATCH', body },
+      ),
+    removeConversationArtifact: (id: string, artifactId: string) =>
+      request<{ ok: true }>(`/api/assistant/conversations/${id}/artifacts/${artifactId}`, { method: 'DELETE' }),
     renameConversation: (id: string, title: string) =>
       request<{ conversation: AssistantConversation }>(`/api/assistant/conversations/${id}`, { method: 'PATCH', body: { title } }),
     // ------------------------------------------------------------ external MCP servers

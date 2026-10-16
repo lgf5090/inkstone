@@ -11,6 +11,7 @@
 
 import { ASSISTANT_MODEL_KINDS, ASSISTANT_MODEL_PURPOSES, clipToolPayload, parseCustomParams, isSourceUrl } from '@shared/assistant'
 import type {
+  AssistantArtifact,
   AssistantConversation,
   AssistantMemory,
   AssistantMemoryCategory,
@@ -49,7 +50,7 @@ import type {
 } from '@shared/assistant'
 import { dialectsForProtocol } from '@shared/reasoning'
 import type { McpOAuthSecrets, McpOAuthStatus } from './mcp-oauth'
-import { ASSISTANT_MCP_TOOL_MODES, ASSISTANT_MCP_TRANSPORTS, DEFAULT_MCP_TIMEOUT_SECONDS, MAX_MCP_DESCRIPTION_CHARS, MAX_MCP_TOOL_OVERRIDES, MAX_MCP_HEADER_VALUE_CHARS, MAX_MCP_LABEL_CHARS, MAX_MCP_TOOL_NAME_CHARS, MAX_MCP_TIMEOUT_SECONDS, MIN_MCP_TIMEOUT_SECONDS, MAX_ANSWER_VERSIONS, MAX_CHAT_ATTACHMENTS, clipReasoning, isMcpHeaderName, parseModelModalities, parseProviderEndpoints, reasoningDialectValue, reasoningValue, type AssistantAnswerVersion, type AssistantMcpServer, type AssistantMcpToolMode, type AssistantMcpTransport, type AssistantModelModality, type ChatAttachment } from '@shared/assistant'
+import { ASSISTANT_MCP_TOOL_MODES, ASSISTANT_MCP_TRANSPORTS, DEFAULT_MCP_TIMEOUT_SECONDS, MAX_MCP_DESCRIPTION_CHARS, MAX_MCP_TOOL_OVERRIDES, MAX_MCP_HEADER_VALUE_CHARS, MAX_MCP_LABEL_CHARS, MAX_MCP_TOOL_NAME_CHARS, MAX_MCP_TIMEOUT_SECONDS, MIN_MCP_TIMEOUT_SECONDS, MAX_ARTIFACT_CONTENT_CHARS, MAX_ARTIFACT_TITLE_CHARS, MAX_ANSWER_VERSIONS, MAX_CHAT_ATTACHMENTS, clipReasoning, isMcpHeaderName, parseModelModalities, parseProviderEndpoints, reasoningDialectValue, reasoningValue, type AssistantAnswerVersion, type AssistantMcpServer, type AssistantMcpToolMode, type AssistantMcpTransport, type AssistantModelModality, type ChatAttachment } from '@shared/assistant'
 import {
   ASSISTANT_MEMORY_CATEGORIES,
   ASSISTANT_PROTOCOLS,
@@ -1602,6 +1603,9 @@ export class AssistantStore {
     await this.write(`DELETE FROM chat_pending_actions WHERE user_id = ?1 AND conversation_id = ?2`, id)
     await this.write(`DELETE FROM chat_active_runs WHERE user_id = ?1 AND conversation_id = ?2`, id)
     await this.write(`DELETE FROM chat_conversation_tags WHERE user_id = ?1 AND conversation_id = ?2`, id)
+    // A draft belongs to its thread: a conversation the reader deleted must not leave one behind to be
+    // found by nothing.
+    await this.write(`DELETE FROM chat_artifacts WHERE user_id = ?1 AND conversation_id = ?2`, id)
     await this.write(`DELETE FROM chat_conversations WHERE user_id = ?1 AND id = ?2`, id)
   }
 
@@ -1615,8 +1619,100 @@ export class AssistantStore {
     await this.write(`DELETE FROM chat_pending_actions WHERE user_id = ?1`)
     await this.write(`DELETE FROM chat_active_runs WHERE user_id = ?1`)
     await this.write(`DELETE FROM chat_conversation_tags WHERE user_id = ?1`)
+    await this.write(`DELETE FROM chat_artifacts WHERE user_id = ?1`)
     await this.write(`DELETE FROM chat_conversations WHERE user_id = ?1`)
     return before?.n ?? 0
+  }
+
+  // -------------------------------------------------------------------- drafts
+
+  /**
+   * The drafts one conversation keeps, newest change first.
+   *
+   * Ordered by when they were last touched rather than when they were made: a reader working across three
+   * of them wants the one they were just in at the top, and the created-at order would bury it.
+   */
+  async listArtifacts(conversationId: string): Promise<AssistantArtifact[]> {
+    const list = await this.rows<ArtifactRow>(
+      `SELECT ${ARTIFACT_COLUMNS} FROM chat_artifacts
+        WHERE user_id = ?1 AND conversation_id = ?2
+        ORDER BY updated_at DESC, id DESC`,
+      this.userId, conversationId,
+    )
+    return list.map(toArtifact)
+  }
+
+  async getArtifact(id: string): Promise<AssistantArtifact | null> {
+    const row = await this.one<ArtifactRow>(
+      `SELECT ${ARTIFACT_COLUMNS} FROM chat_artifacts WHERE user_id = ?1 AND id = ?2`,
+      this.userId, id,
+    )
+    return row ? toArtifact(row) : null
+  }
+
+  /** How many a conversation already carries, so the route can refuse one past the cap before inserting it. */
+  async countArtifacts(conversationId: string): Promise<number> {
+    const row = await this.one<{ n: number }>(
+      `SELECT count(*) AS n FROM chat_artifacts WHERE user_id = ?1 AND conversation_id = ?2`,
+      this.userId, conversationId,
+    )
+    return row?.n ?? 0
+  }
+
+  /**
+   * Make a draft.
+   *
+   * `note_id` is written as null and is the seam a later build fills to sync a draft back into the
+   * notebook; there is deliberately no way to set it yet, so the column is a reservation rather than a
+   * second, half-wired link. Adding one later is an additive change to this signature.
+   */
+  async createArtifact(input: { conversationId: string, title: string, content: string }): Promise<AssistantArtifact> {
+    const id = newId()
+    const at = Date.now()
+    const title = input.title.slice(0, MAX_ARTIFACT_TITLE_CHARS)
+    const content = input.content.slice(0, MAX_ARTIFACT_CONTENT_CHARS)
+    await this.write(
+      `INSERT INTO chat_artifacts (id, user_id, conversation_id, title, content, note_id, created_at, updated_at)
+       VALUES (?2, ?1, ?3, ?4, ?5, ?6, ?7, ?8)`,
+      id, input.conversationId, title, content, null, at, at,
+    )
+    return {
+      id,
+      conversationId: input.conversationId,
+      title,
+      content,
+      noteId: null,
+      createdAt: at,
+      updatedAt: at,
+    }
+  }
+
+  /**
+   * Rewrite a draft's name or its body.
+   *
+   * A field that is not named keeps what it had, so a title typed after a body edit does not blank the
+   * body. `note_id` is carried across rather than written, for the same reason: an edit here is not a
+   * statement about the link, and the surface that sets one does not exist yet.
+   */
+  async updateArtifact(
+    id: string,
+    patch: { title?: string, content?: string },
+  ): Promise<AssistantArtifact | null> {
+    const existing = await this.getArtifact(id)
+    if (!existing) return null
+    const title = patch.title === undefined ? existing.title : patch.title.slice(0, MAX_ARTIFACT_TITLE_CHARS)
+    const content = patch.content === undefined ? existing.content : patch.content.slice(0, MAX_ARTIFACT_CONTENT_CHARS)
+    const at = Date.now()
+    await this.write(
+      `UPDATE chat_artifacts SET title = ?2, content = ?3, note_id = ?4, updated_at = ?5
+        WHERE user_id = ?1 AND id = ?6`,
+      title, content, existing.noteId, at, id,
+    )
+    return { ...existing, title, content, updatedAt: at }
+  }
+
+  async deleteArtifact(id: string): Promise<boolean> {
+    return (await this.write(`DELETE FROM chat_artifacts WHERE user_id = ?1 AND id = ?2`, id)) > 0
   }
 
   async messages(conversationId: string, limit = 500): Promise<AssistantMessage[]> {
@@ -3449,6 +3545,7 @@ export class AssistantStore {
       .bind(this.userId).all<Record<string, unknown>>().then((r) => r.results ?? [])
     return {
       conversations: await select('chat_conversations'),
+      artifacts: await select('chat_artifacts'),
       conversation_tags: await select('chat_conversation_tags'),
       messages: await select('chat_messages'),
       answer_versions: await select('chat_answer_versions'),
@@ -3470,6 +3567,7 @@ export class AssistantStore {
  */
 const EXPORT_COLUMNS: Readonly<Record<string, readonly string[]>> = {
   chat_conversations: ['id', 'title', 'summary', 'summary_upto', 'pinned', 'starred', 'archived', 'folder_id', 'created_at', 'updated_at'],
+  chat_artifacts: ['id', 'conversation_id', 'title', 'content', 'note_id', 'created_at', 'updated_at'],
   chat_conversation_tags: ['conversation_id', 'tag_id', 'created_at'],
   chat_messages: ['id', 'conversation_id', 'role', 'content', 'reasoning', 'tools', 'attachments', 'status', 'error', 'source', 'input_tokens', 'output_tokens', 'duration_ms', 'model_label', 'created_at'],
   chat_answer_versions: ['id', 'message_id', 'conversation_id', 'content', 'reasoning', 'tools', 'model_label', 'input_tokens', 'output_tokens', 'duration_ms', 'created_at'],
@@ -3803,6 +3901,30 @@ function toChatAttachment(r: ChatAttachmentRow): ChatAttachment {
     size: r.size,
     key: r.key,
     createdAt: r.created_at,
+  }
+}
+
+const ARTIFACT_COLUMNS = `id, conversation_id, title, content, note_id, created_at, updated_at`
+
+interface ArtifactRow {
+  id: string
+  conversation_id: string
+  title: string
+  content: string
+  note_id: string | null
+  created_at: number
+  updated_at: number
+}
+
+function toArtifact(row: ArtifactRow): AssistantArtifact {
+  return {
+    id: row.id,
+    conversationId: row.conversation_id,
+    title: row.title,
+    content: row.content,
+    noteId: row.note_id ?? null,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
   }
 }
 

@@ -145,6 +145,24 @@ export const ASSISTANT_SCHEMA_STATEMENTS: readonly string[] = [
   `CREATE INDEX IF NOT EXISTS idx_chat_conversations_project
      ON chat_conversations(user_id, project_id, updated_at DESC)`,
 
+  // The drafts a conversation keeps beside it: a reply the reader pulled into a panel to work on, rather
+  // than one they would have had to edit in place and so rewrite the transcript. `note_id` is where a
+  // later build records the note a draft was saved to, so the two can be synced; it is null for a draft
+  // that is still only a draft, which is every row written until that build exists.
+  `CREATE TABLE IF NOT EXISTS chat_artifacts (
+    user_id TEXT NOT NULL,
+    id TEXT NOT NULL,
+    conversation_id TEXT NOT NULL,
+    title TEXT NOT NULL DEFAULT '',
+    content TEXT NOT NULL DEFAULT '',
+    note_id TEXT,
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL,
+    PRIMARY KEY (user_id, id)
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_chat_artifacts_conversation
+     ON chat_artifacts(user_id, conversation_id, updated_at DESC)`,
+
   // The chat's own uploads: a pasted picture or a dropped document that feeds one turn. The key column
   // is the R2 object path, so deleting the row and deleting the object are the same operation.
   `CREATE TABLE IF NOT EXISTS chat_attachments (
@@ -512,6 +530,7 @@ export const ASSISTANT_REQUIRED_TABLES: readonly string[] = [
   'chat_providers',
   'chat_models',
   'chat_conversations',
+  'chat_artifacts',
   'chat_attachments',
   'chat_conversation_tags',
   'chat_messages',
@@ -539,6 +558,7 @@ export const ASSISTANT_REQUIRED_INDEXES: readonly string[] = [
   'idx_chat_conversations_user',
   'idx_chat_conversations_folder',
   'idx_chat_conversations_project',
+  'idx_chat_artifacts_conversation',
   'idx_chat_attachments_user',
   'idx_chat_conversation_tags_tag',
   'idx_chat_messages_conversation',
@@ -582,6 +602,7 @@ export const ASSISTANT_REQUIRED_COLUMNS: Readonly<Record<string, readonly string
     'purpose', 'kind', 'supports_tools', 'max_input_tokens', 'modalities', 'top_p', 'custom_params', 'protocol', 'fallback_model_id',
     'input_price', 'output_price', 'price_currency', 'enabled', 'position'],
   chat_conversations: ['user_id', 'id', 'title', 'summary', 'summary_upto', 'pinned', 'starred', 'archived', 'folder_id', 'project_id', 'created_at', 'updated_at'],
+  chat_artifacts: ['user_id', 'id', 'conversation_id', 'title', 'content', 'note_id', 'created_at', 'updated_at'],
   chat_attachments: ['user_id', 'id', 'kind', 'filename', 'mime', 'size', 'key', 'extracted_text', 'created_at'],
   chat_conversation_tags: ['user_id', 'conversation_id', 'tag_id', 'created_at'],
   chat_messages: ['user_id', 'id', 'conversation_id', 'role', 'content', 'reasoning', 'tools', 'attachments', 'status', 'error', 'source', 'input_tokens', 'output_tokens', 'duration_ms', 'model_label', 'feedback', 'sources', 'created_at'],

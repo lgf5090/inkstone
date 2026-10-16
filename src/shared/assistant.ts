@@ -861,6 +861,42 @@ export interface AssistantConversation {
   summaryUpto?: number | null
 }
 
+/**
+ * A working draft kept beside a conversation.
+ *
+ * A reply is where a document usually starts — a plan, a spec, a run of code — and the thread is the wrong
+ * place to edit one: a message is a record of what was said, so rewriting it would leave the transcript
+ * disagreeing with itself. An artifact is the copy that is meant to be changed. It belongs to the
+ * conversation rather than to a note, so it survives a reload and travels with a shared thread; `noteId`
+ * is the seam a later build uses to sync one back into the notebook, and stays null until it does.
+ */
+export interface AssistantArtifact {
+  id: string
+  conversationId: string
+  title: string
+  content: string
+  /** The note this draft was saved to, once a build links the two; null while it is only a draft. */
+  noteId: string | null
+  createdAt: number
+  updatedAt: number
+}
+
+/** How long a draft's own name may be. The same bound every other stored title carries. */
+export const MAX_ARTIFACT_TITLE_CHARS = 200
+
+/**
+ * How much one draft may hold.
+ *
+ * Larger than a message, because a draft is the document a message was only the seed of — a whole spec or
+ * a long file — and smaller than a note store, because it is a row on a conversation and not a file. A
+ * draft past this is refused rather than silently truncated: the reader is editing it, and half a document
+ * saved without a word is the failure they would least forgive.
+ */
+export const MAX_ARTIFACT_CONTENT_CHARS = 100_000
+
+/** How many drafts one conversation may carry, so the panel's own list stays a list. */
+export const MAX_ARTIFACTS_PER_CONVERSATION = 50
+
 /** A folder of the note tree, with how many conversations it holds. */
 export interface ChatFolderNode {
   id: string
@@ -1706,6 +1742,8 @@ export interface AssistantNotification {
 /** What an assistant backup reported after a merge, so the toast can say what arrived. */
 export interface AssistantImportSummary {
   conversations: number
+  /** The drafts those conversations were carrying, restored with them. */
+  artifacts: number
   messages: number
   /** Answers the reader had paged away from, restored with their threads. */
   answerVersions: number

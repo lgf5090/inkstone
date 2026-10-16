@@ -1,5 +1,5 @@
 import { LIMITS } from '@shared/constants'
-import { MAX_SKILL_BUNDLE_SKILLS, MAX_SKILL_CONTENT_CHARS } from '@shared/assistant'
+import { MAX_ARTIFACT_CONTENT_CHARS, MAX_SKILL_BUNDLE_SKILLS, MAX_SKILL_CONTENT_CHARS } from '@shared/assistant'
 import { utf8ByteLength } from '@shared/text-utils'
 import { ApiError } from './errors'
 
@@ -15,6 +15,9 @@ export const JSON_BODY_LIMITS = {
   // over, times the most a single one may hold. Nothing smaller can refuse a file this app can produce.
   skillBundle: MAX_SKILL_BUNDLE_SKILLS * (MAX_SKILL_CONTENT_CHARS + 1024) + 64 * 1024,
   note: LIMITS.contentMaxBytes * 6 + 64 * 1024,
+  // One draft in the side panel: the most it may hold, times the worst-case bytes per character and the
+  // escaping a JSON body adds — the same arithmetic the note ceiling above is built from.
+  artifact: MAX_ARTIFACT_CONTENT_CHARS * 6 + 64 * 1024,
 } as const
 
 export const FORM_BODY_LIMITS = {

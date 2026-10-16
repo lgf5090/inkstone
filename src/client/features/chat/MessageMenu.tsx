@@ -12,7 +12,7 @@
  */
 
 import { useCallback, useRef, useState, type MouseEvent, type RefObject } from 'react'
-import { Copy, CornerUpLeft, Download, GitBranch, ListChecks, NotebookPen, Pencil, RotateCcw, ThumbsDown, ThumbsUp, Trash2, Volume2, type LucideIcon } from 'lucide-react'
+import { Copy, CornerUpLeft, Download, GitBranch, ListChecks, NotebookPen, PanelRight, Pencil, RotateCcw, ThumbsDown, ThumbsUp, Trash2, Volume2, type LucideIcon } from 'lucide-react'
 import { toPlainText } from '@shared/markdown-utils'
 import type { MessageFeedback } from '@shared/assistant'
 import { Z_INDEX } from '../../lib/z-index'
@@ -46,6 +46,13 @@ export interface MessageMenuTarget {
   onFork?: () => void
   /** Turns the thread into a picker with this message already ticked. */
   onSelect?: () => void
+  /**
+   * Present for a stored reply: keeps a copy of it as a draft in the conversation's side panel.
+   *
+   * A copy and not a move — the reply stays the record of what was said, and the draft is what the reader
+   * edits. Offered only where there is a row to hang a draft on, which is why the live turn has none.
+   */
+  onOpenCanvas?: () => void
 }
 
 interface ItemSpec {
@@ -106,6 +113,13 @@ export function messageMenuItems(target: MessageMenuTarget): MenuItem[] {
   if (target.role === 'assistant') {
     specs.push(
       { id: 'save', icon: NotebookPen, label: t('assistant.chat.save_to_note'), run: () => saveReplyAsNote(target.text) },
+    )
+    // Between keeping it as a note and taking it away: a note is where a reply goes when it is finished,
+    // and the panel is where one goes while it is still being worked on.
+    if (target.onOpenCanvas) {
+      specs.push({ id: 'canvas', icon: PanelRight, label: t('assistant.canvas.open'), run: target.onOpenCanvas })
+    }
+    specs.push(
       {
         id: 'download',
         icon: Download,

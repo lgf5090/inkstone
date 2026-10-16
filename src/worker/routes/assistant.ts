@@ -44,6 +44,9 @@ import {
   MAX_AUTOMATION_MESSAGE_CHARS,
   MAX_CONVERSATION_TITLE_CHARS,
   MAX_MESSAGE_CHARS,
+  MAX_ARTIFACT_CONTENT_CHARS,
+  MAX_ARTIFACT_TITLE_CHARS,
+  MAX_ARTIFACTS_PER_CONVERSATION,
   MAX_MEMORY_CHARS,
   MAX_SKILL_CONTENT_CHARS,
   MAX_SKILL_ICON_CHARS,
@@ -868,6 +871,70 @@ assistantRoutes.delete('/conversations/:id/tags/:tagId', async (c) => {
   const tagId = requiredId(c.req.param('tagId'))
   if (!(await s.getConversation(id))) throw ApiError.notFound('Conversation not found')
   await s.removeConversationTag(id, tagId)
+  return c.json({ ok: true })
+})
+
+/**
+ * The drafts a conversation keeps beside it.
+ *
+ * They hang off the conversation rather than off a message because the panel is a workspace for the
+ * thread, not a property of one turn: a draft started from an answer is edited while the reader keeps
+ * talking, and a draft is not a copy of the message it came from — the message stays what it was.
+ *
+ * The conversation is in every path so the store's own `user_id` filter and the conversation check
+ * together bound what a foreign id could reach, the same pairing the answer-version routes use.
+ */
+assistantRoutes.get('/conversations/:id/artifacts', async (c) => {
+  const s = store(c)
+  const id = requiredId(c.req.param('id'))
+  if (!(await s.getConversation(id))) throw ApiError.notFound('Conversation not found')
+  return c.json({ artifacts: await s.listArtifacts(id) })
+})
+
+assistantRoutes.post('/conversations/:id/artifacts', async (c) => {
+  const s = store(c)
+  const id = requiredId(c.req.param('id'))
+  if (!(await s.getConversation(id))) throw ApiError.notFound('Conversation not found')
+  const body = await readJson<{ title?: unknown, content?: unknown }>(c, JSON_BODY_LIMITS.artifact)
+  // The body is not trimmed: a draft is the document itself, and a code block's own leading whitespace is
+  // part of what the reader is editing. Empty after whitespace is still refused, because a draft with
+  // nothing in it is not a document the panel can show.
+  const raw = body.content
+  if (typeof raw !== 'string' || !raw.trim()) throw ApiError.badRequest('A draft needs a body.')
+  if (await s.countArtifacts(id) >= MAX_ARTIFACTS_PER_CONVERSATION) {
+    throw ApiError.conflict(`A conversation can hold ${MAX_ARTIFACTS_PER_CONVERSATION} drafts.`)
+  }
+  const title = optionalText(body.title, MAX_ARTIFACT_TITLE_CHARS) ?? ''
+  const artifact = await s.createArtifact({ conversationId: id, title, content: raw.slice(0, MAX_ARTIFACT_CONTENT_CHARS) })
+  return c.json({ artifact }, 201)
+})
+
+assistantRoutes.patch('/conversations/:id/artifacts/:artifactId', async (c) => {
+  const s = store(c)
+  const id = requiredId(c.req.param('id'))
+  const artifactId = requiredId(c.req.param('artifactId'))
+  if (!(await s.getConversation(id))) throw ApiError.notFound('Conversation not found')
+  const existing = await s.getArtifact(artifactId)
+  if (!existing || existing.conversationId !== id) throw ApiError.notFound('Draft not found')
+  const body = await readJson<{ title?: unknown, content?: unknown }>(c, JSON_BODY_LIMITS.artifact)
+  const patch: { title?: string, content?: string } = {}
+  // Empty is a real answer on both fields here: a reader clearing a draft's name has left it untitled, and
+  // one clearing its body has emptied it on purpose. Neither is a mistake to be refused.
+  if (typeof body.title === 'string') patch.title = body.title.slice(0, MAX_ARTIFACT_TITLE_CHARS)
+  if (typeof body.content === 'string') patch.content = body.content.slice(0, MAX_ARTIFACT_CONTENT_CHARS)
+  const artifact = await s.updateArtifact(artifactId, patch)
+  if (!artifact) throw ApiError.notFound('Draft not found')
+  return c.json({ artifact })
+})
+
+assistantRoutes.delete('/conversations/:id/artifacts/:artifactId', async (c) => {
+  const s = store(c)
+  const id = requiredId(c.req.param('id'))
+  const artifactId = requiredId(c.req.param('artifactId'))
+  if (!(await s.getConversation(id))) throw ApiError.notFound('Conversation not found')
+  const existing = await s.getArtifact(artifactId)
+  if (!existing || existing.conversationId !== id) throw ApiError.notFound('Draft not found')
+  await s.deleteArtifact(artifactId)
   return c.json({ ok: true })
 })
 

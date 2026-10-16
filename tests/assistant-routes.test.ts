@@ -11,6 +11,7 @@ import { CredentialVault } from '../src/worker/durable/credential-vault'
 import type { AppBindings, Env } from '../src/worker/env'
 import type {
   AssistantAnswerVersion,
+  AssistantArtifact,
   AssistantConversation,
   AssistantMessage,
   AssistantMemory,
@@ -25,7 +26,7 @@ import type {
   Project,
   Task,
 } from '../src/shared/assistant'
-import { DEFAULT_SEMANTIC_MODEL, MAX_ANSWER_VERSIONS, MAX_MCP_TIMEOUT_SECONDS, MAX_SKILL_CONTENT_CHARS, MAX_SKILL_ICON_CHARS, MAX_SKILL_TITLE_CHARS, MAX_REASONING_CHARS, MAX_TOKEN_CEILING, MAX_TURN_SCOPES, MAX_TURN_TOOLS, ASSISTANT_TOOL_BY_NAME } from '../src/shared/assistant'
+import { DEFAULT_SEMANTIC_MODEL, MAX_ANSWER_VERSIONS, MAX_ARTIFACTS_PER_CONVERSATION, MAX_MCP_TIMEOUT_SECONDS, MAX_SKILL_CONTENT_CHARS, MAX_SKILL_ICON_CHARS, MAX_SKILL_TITLE_CHARS, MAX_REASONING_CHARS, MAX_TOKEN_CEILING, MAX_TURN_SCOPES, MAX_TURN_TOOLS, ASSISTANT_TOOL_BY_NAME } from '../src/shared/assistant'
 import { makeD1 } from './doubles/d1-sqlite'
 import { testBindings, testDurableObjectNamespace, testR2Bucket } from './doubles/bindings'
 import { AI_EMBEDDING_MODEL } from '../src/worker/mcp/ai-search'
@@ -203,6 +204,105 @@ describe('conversations', () => {
     asUser(USER)
     const listed = await call<{ conversations: AssistantConversation[] }>('GET', '/api/assistant/conversations')
     expect(listed.conversations).toHaveLength(1)
+  })
+})
+
+describe('drafts', () => {
+  const newConversation = async (title = 'Planning') =>
+    (await call<{ conversation: AssistantConversation }>('POST', '/api/assistant/conversations', { title })).conversation
+
+  it('keeps a reply as a draft, renames it and deletes it', async () => {
+    const conversation = await newConversation()
+    const made = await call<{ artifact: AssistantArtifact }>(
+      'POST', `/api/assistant/conversations/${conversation.id}/artifacts`,
+      { title: 'A plan', content: '# A plan\n\nFirst, the thing.' },
+    )
+    expect(made.artifact.title).toBe('A plan')
+    expect(made.artifact.content).toBe('# A plan\n\nFirst, the thing.')
+    expect(made.artifact.noteId).toBeNull()
+
+    const listed = await call<{ artifacts: AssistantArtifact[] }>('GET', `/api/assistant/conversations/${conversation.id}/artifacts`)
+    expect(listed.artifacts.map((entry) => entry.id)).toEqual([made.artifact.id])
+
+    const renamed = await call<{ artifact: AssistantArtifact }>(
+      'PATCH', `/api/assistant/conversations/${conversation.id}/artifacts/${made.artifact.id}`,
+      { title: 'A better plan', content: 'Rewritten.' },
+    )
+    expect(renamed.artifact.title).toBe('A better plan')
+    expect(renamed.artifact.content).toBe('Rewritten.')
+
+    expect(await status('DELETE', `/api/assistant/conversations/${conversation.id}/artifacts/${made.artifact.id}`)).toBe(200)
+    const after = await call<{ artifacts: AssistantArtifact[] }>('GET', `/api/assistant/conversations/${conversation.id}/artifacts`)
+    expect(after.artifacts).toHaveLength(0)
+  })
+
+  it('keeps the body it is not sent, and takes an emptied one', async () => {
+    const conversation = await newConversation()
+    const made = await call<{ artifact: AssistantArtifact }>(
+      'POST', `/api/assistant/conversations/${conversation.id}/artifacts`, { title: 'Draft', content: 'Body' },
+    )
+    // A title-only write must not blank the body: the two fields are committed on the same debounce from
+    // the panel, and one arriving alone is not a statement about the other.
+    const titled = await call<{ artifact: AssistantArtifact }>(
+      'PATCH', `/api/assistant/conversations/${conversation.id}/artifacts/${made.artifact.id}`, { title: 'Renamed' },
+    )
+    expect(titled.artifact.content).toBe('Body')
+    // Empty is a real answer here, unlike on creation: the reader cleared the draft on purpose.
+    const emptied = await call<{ artifact: AssistantArtifact }>(
+      'PATCH', `/api/assistant/conversations/${conversation.id}/artifacts/${made.artifact.id}`, { content: '' },
+    )
+    expect(emptied.artifact.content).toBe('')
+    expect(emptied.artifact.title).toBe('Renamed')
+  })
+
+  it('refuses an empty body and a draft of another conversation', async () => {
+    const conversation = await newConversation()
+    const other = await newConversation('Elsewhere')
+    expect(await status('POST', `/api/assistant/conversations/${conversation.id}/artifacts`, { title: 'x', content: '   ' })).toBe(400)
+
+    const made = await call<{ artifact: AssistantArtifact }>(
+      'POST', `/api/assistant/conversations/${conversation.id}/artifacts`, { title: 'Mine', content: 'Body' },
+    )
+    // The draft's own conversation is in the path, so naming a different one reaches nothing.
+    expect(await status('PATCH', `/api/assistant/conversations/${other.id}/artifacts/${made.artifact.id}`, { title: 'NOPE' })).toBe(404)
+    expect(await status('DELETE', `/api/assistant/conversations/${other.id}/artifacts/${made.artifact.id}`)).toBe(404)
+    // And a conversation that is not this account's is refused before the draft is even read.
+    asUser(OTHER)
+    expect(await status('GET', `/api/assistant/conversations/${conversation.id}/artifacts`)).toBe(404)
+    expect(await status('POST', `/api/assistant/conversations/${conversation.id}/artifacts`, { title: 'x', content: 'Body' })).toBe(404)
+  })
+
+  it('takes its drafts with it when the conversation goes', async () => {
+    const conversation = await newConversation()
+    await call('POST', `/api/assistant/conversations/${conversation.id}/artifacts`, { title: 'One', content: 'Body' })
+    expect(await status('DELETE', `/api/assistant/conversations/${conversation.id}`)).toBe(200)
+    // The row is gone rather than orphaned: the listing is by conversation, so nothing could ever read it.
+    const remaining = sqlite.prepare('SELECT count(*) AS n FROM chat_artifacts WHERE user_id = ?').get(USER) as { n: number }
+    expect(remaining.n).toBe(0)
+  })
+
+  it('refuses a draft past the cap', async () => {
+    const conversation = await newConversation()
+    for (let index = 0; index < MAX_ARTIFACTS_PER_CONVERSATION; index++) {
+      await call('POST', `/api/assistant/conversations/${conversation.id}/artifacts`, { title: `Draft ${index}`, content: 'Body' })
+    }
+    expect(await status('POST', `/api/assistant/conversations/${conversation.id}/artifacts`, { title: 'One more', content: 'Body' })).toBe(409)
+  })
+
+  it('survives a backup round-trip', async () => {
+    const conversation = await newConversation('With a draft')
+    const made = await call<{ artifact: AssistantArtifact }>(
+      'POST', `/api/assistant/conversations/${conversation.id}/artifacts`, { title: 'A plan', content: 'Body' },
+    )
+    const payload = await call('GET', '/api/assistant/export') as Record<string, unknown>
+    await call('DELETE', `/api/assistant/conversations/${conversation.id}`)
+    const summary = await call<{ imported: { artifacts: number } }>('POST', '/api/assistant/import', payload)
+    expect(summary.imported.artifacts).toBe(1)
+    // Every column is NOT NULL, so a field the import forgets is bound as NULL and `INSERT OR IGNORE`
+    // drops the whole row rather than complaining — the draft would simply not come back.
+    const restored = await call<{ artifacts: AssistantArtifact[] }>('GET', `/api/assistant/conversations/${conversation.id}/artifacts`)
+    expect(restored.artifacts.map((entry) => entry.id)).toEqual([made.artifact.id])
+    expect(restored.artifacts[0]?.content).toBe('Body')
   })
 })
 
