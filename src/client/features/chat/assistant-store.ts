@@ -221,6 +221,8 @@ interface AssistantState {
   removeMessage: (messageId: string) => Promise<void>
   /** Records or takes back the reader's verdict on one answer. */
   rateAnswer: (messageId: string, feedback: MessageFeedback) => Promise<void>
+  /** Starts a new conversation that carries this one up to the given message. */
+  forkFrom: (messageId: string) => Promise<void>
   setConversationQuery: (query: string) => Promise<void>
   /** The folder tree and the tag list, both counted for conversations. */
   loadTaxonomy: () => Promise<void>
@@ -750,6 +752,24 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
       paint(message.feedback)
     } catch (error) {
       paint(current)
+      toast(error)
+    }
+  },
+
+  forkFrom: async (messageId) => {
+    const state = get()
+    const conversationId = state.activeId
+    if (!conversationId) return
+    const source = state.conversations.find((entry) => entry.id === conversationId)
+    // The suffix is named here rather than on the server because a conversation's name is interface copy
+    // and the worker carries no catalog — the same reason the fork route takes the title as an argument.
+    const title = `${source?.title || t('assistant.chat.untitled')}${t('assistant.chat.fork_suffix')}`
+    try {
+      const { conversation } = await api.assistant.forkConversation(conversationId, messageId, title.slice(0, 200))
+      await get().loadConversations()
+      await get().openConversation(conversation.id)
+      toast({ title: t('assistant.chat.forked', { title: conversation.title }), tone: 'success' })
+    } catch (error) {
       toast(error)
     }
   },

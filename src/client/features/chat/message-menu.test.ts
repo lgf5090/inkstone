@@ -42,6 +42,12 @@ describe('what a reply offers', () => {
     expect(ids({ role: 'assistant', text: 'answer' })).not.toContain('rate-up')
   })
 
+  it('offers a branch only where there is a stored turn to branch from', () => {
+    expect(ids({ role: 'user', text: 'question', onFork: () => {} })).toContain('fork')
+    expect(ids({ role: 'user', text: 'question' })).not.toContain('fork')
+    expect(ids({ role: 'assistant', text: 'answer', onFork: () => {} })).toContain('fork')
+  })
+
   it('marks the verdict already recorded', () => {
     const rows = messageMenuItems({ role: 'assistant', text: 'answer', onRate: () => {}, feedback: 'down' })
     expect(rows.find((row) => row.id === 'rate-down')?.checked).toBe(true)

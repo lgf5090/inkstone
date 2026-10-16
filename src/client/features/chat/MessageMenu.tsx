@@ -12,7 +12,7 @@
  */
 
 import { useCallback, useRef, useState, type MouseEvent, type RefObject } from 'react'
-import { Copy, CornerUpLeft, Download, NotebookPen, Pencil, RotateCcw, ThumbsDown, ThumbsUp, Trash2, Volume2, type LucideIcon } from 'lucide-react'
+import { Copy, CornerUpLeft, Download, GitBranch, NotebookPen, Pencil, RotateCcw, ThumbsDown, ThumbsUp, Trash2, Volume2, type LucideIcon } from 'lucide-react'
 import { toPlainText } from '@shared/markdown-utils'
 import type { MessageFeedback } from '@shared/assistant'
 import { Z_INDEX } from '../../lib/z-index'
@@ -42,6 +42,8 @@ export interface MessageMenuTarget {
   feedback?: MessageFeedback
   /** Present only where a verdict can be recorded — a stored answer, not a turn still streaming. */
   onRate?: (feedback: MessageFeedback) => void
+  /** Present for a stored turn: a branch carries the thread up to and including this message. */
+  onFork?: () => void
 }
 
 interface ItemSpec {
@@ -128,6 +130,9 @@ export function messageMenuItems(target: MessageMenuTarget): MenuItem[] {
         checked: target.feedback === 'down',
       },
     )
+  }
+  if (target.onFork) {
+    specs.push({ id: 'fork', icon: GitBranch, label: t('assistant.chat.fork'), run: target.onFork, separatorBefore: !target.onRate })
   }
   if (target.onRetry) {
     specs.push({

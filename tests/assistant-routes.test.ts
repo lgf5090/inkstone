@@ -252,8 +252,7 @@ describe('re-taking a turn', () => {
     expect(result.messages.map((entry) => entry.id)).toEqual([second.id, secondAnswer.id])
   })
 
-  it('records a verdict on an answer, takes it back, and refuses anything else', async () => {
-    const { store, conversation, first, firstAnswer } = await thread()
+  it('records a verdict on an answer, takes it back, and refuses anything else', async () => {    const { store, conversation, first, firstAnswer } = await thread()
     const rate = (body: unknown, messageId = firstAnswer.id) => call<{ message: AssistantMessage }>(
       'PATCH', `/api/assistant/conversations/${conversation.id}/messages/${messageId}/feedback`, body,
     )
@@ -267,6 +266,24 @@ describe('re-taking a turn', () => {
     expect(await status('PATCH', `/api/assistant/conversations/${conversation.id}/messages/${first.id}/feedback`, { feedback: 'up' })).toBe(400)
     const other = await call<{ conversation: AssistantConversation }>('POST', '/api/assistant/conversations', { title: 'Elsewhere' })
     expect(await status('PATCH', `/api/assistant/conversations/${other.conversation.id}/messages/${firstAnswer.id}/feedback`, { feedback: 'up' })).toBe(404)
+  })
+
+  it('branches a conversation at a message, leaving the original whole', async () => {
+    const { conversation, first, firstAnswer, second, secondAnswer } = await thread()
+    const result = await call<{ conversation: AssistantConversation, messages: AssistantMessage[] }>(
+      'POST', `/api/assistant/conversations/${conversation.id}/fork`, { messageId: firstAnswer.id, title: 'Planning (branch)' },
+    )
+    expect(result.conversation.title).toBe('Planning (branch)')
+    expect(result.conversation.id).not.toBe(conversation.id)
+    // The copied thread is what led to that message, in order, with its own ids — a branch that shared
+    // rows would be two conversations editing each other.
+    expect(result.messages.map((entry) => entry.content)).toEqual([first.content, firstAnswer.content])
+    expect(result.messages.map((entry) => entry.id)).not.toContain(first.id)
+    const source = await call<{ messages: AssistantMessage[] }>('GET', `/api/assistant/conversations/${conversation.id}`)
+    expect(source.messages.map((entry) => entry.id)).toEqual([first.id, firstAnswer.id, second.id, secondAnswer.id])
+    // The original keeps its own name and its turn count; a branch is not a rename of anything.
+    expect((await call<{ conversation: AssistantConversation }>('GET', `/api/assistant/conversations/${conversation.id}`)).conversation.title).toBe('Planning')
+    expect(await status('POST', `/api/assistant/conversations/${conversation.id}/fork`, { messageId: 'not-a-message', title: 'x' })).toBe(404)
   })
 })
 

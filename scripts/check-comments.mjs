@@ -1120,6 +1120,7 @@ const allowed = new Map([
     "/** The menu itself, anchored where it was asked for. */",
     "/** The verdict already left on this answer, so the menu can show which thumb is down. */",
     "/** Present only where a verdict can be recorded — a stored answer, not a turn still streaming. */",
+    "/** Present for a stored turn: a branch carries the thread up to and including this message. */",
   ]],
   ["src/client/features/chat/MessageParts.tsx", [
     "/**\n * The pieces of one assistant reply.\n *\n * Three things the reference project got wrong in ways only a reader notices:\n *  - it reused the note prose class, so a one-line answer filled a screen;\n *  - it stored the tool chip's words in English inside the message row, so a Chinese interface showed\n *    English pills that no translation could reach;\n *  - it kept the Approve button live after the reply was saved, because it read the approval out of the\n *    message rather than out of the pending-action table.\n *\n * So the chip's words come from the locale catalog by tool name, the prose is its own class, and the\n * approval card is driven by the action's current status.\n */",
@@ -1305,6 +1306,9 @@ const allowed = new Map([
     "// do — and the only way to undo a mis-press without a dialog.",
     "// Painted before the round trip: a verdict is the reader's opinion, not the server's, and the row is",
     "// put back where it was if the write is refused.",
+    "/** Starts a new conversation that carries this one up to the given message. */",
+    "// The suffix is named here rather than on the server because a conversation's name is interface copy",
+    "// and the worker carries no catalog — the same reason the fork route takes the title as an argument.",
   ]],
   ["src/client/features/chat/chat-outline.test.ts", [
     "/**\n * The rail and the panel that stand beside a thread.\n *\n * Both of them are read off the thread's own DOM — which turn has passed the reading line, and how far\n * down to land when one is chosen — so these cases lay out the boxes a browser would and then scroll:\n * a test that only counted buttons would pass over an outline that marks the wrong turn.\n */",
@@ -7276,6 +7280,7 @@ const allowed = new Map([
     "/**\n     * Retype one of your own messages. The answer under it was written from the old words, so the server\n     * removes that turn and the caller asks again.\n     */",
     "/** Take a turn back: the message and, under a reader's own row, the answer it drew. */",
     "/** The reader's verdict on one answer, or null to take it back. */",
+    "/** A new conversation carrying this one up to and including one message. */",
   ]],
   ["src/client/lib/app-history.ts", [
     "/**\n * The address bar as the one source of truth for which app tab is up.\n *\n * The tab is a path rather than a store field so that a rail button is an ordinary link: the\n * address a reader copies is the screen they are looking at, the back button walks the tabs they\n * visited, and a cold load of `/calendar` needs nothing but the document the server already sends.\n * `history.pushState` fires no event of its own, so the writers here announce their own changes and\n * `popstate` covers everything the browser does by itself.\n */",
@@ -15389,6 +15394,9 @@ const allowed = new Map([
     "// there reads.",
     "/**\n * A pin that can be honoured on this wire, or null.\n *\n * The dialects are not interchangeable across protocols — an effort shape means nothing to a Gemini body —\n * so a value that does not belong to the protocol is dropped rather than stored and then ignored at the\n * far end of a request.\n */",
     "/**\n   * Records the reader's verdict on one answer, or clears it.\n   *\n   * One row is touched and nothing else: the verdict is about this answer, and rewriting the turn would\n   * change its place in the transcript and its version count. A message that is not this account's is\n   * not found rather than updated, which is what the caller's 404 is built on.\n   */",
+    "/**\n   * A new conversation holding this one up to and including one message.\n   *\n   * The point of branching is to try a different answer without losing the thread that led there, so the\n   * rows are copied rather than referenced: the two conversations then diverge freely, and deleting\n   * either leaves the other whole. The copied turns keep their words, their thinking, their tools and\n   * their verdicts; only the ids and the timestamps are new, because the rowid is what orders a thread.\n   *\n   * The summary is deliberately not copied. It describes a conversation that ended somewhere else, and\n   * carrying it would have the fork summarised by a rollup of turns it does not have.\n   */",
+    "// One millisecond apart so the copied thread keeps the order it was read in: `addMessage` stamps",
+    "// `created_at` itself and a loop over the same tick would give every row the same one.",
   ]],
   ["src/worker/assistant/tools.ts", [
     "/**\n * The tools the assistant can reach, and the executor that runs them.\n *\n * Three things are enforced here rather than asked of the model, because a model that is confident and\n * wrong is the failure mode this app has to survive:\n *  - **budgets** — a per-turn call cap, a per-tool cap and a duplicate-call refusal, so a reasoning\n *    loop cannot spend the reader's AI quota or write a hundred tasks;\n *  - **validation** — arguments are checked against the same declaration that generates the JSON\n *    Schema the provider is given, so the two can never disagree;\n *  - **approval** — a destructive tool never runs during the turn. `prepare` resolves the exact target\n *    and writes a pending action; `commit` runs only when the reader presses Approve, once, on that\n *    target. The model can propose; it cannot delete.\n *\n * Scheduled runs get read-only tools plus `notify_reader`, so a routine that has drifted cannot edit\n * the vault while nobody is watching.\n */",
@@ -16261,6 +16269,8 @@ const allowed = new Map([
     "// account before either reaches the prompt — a caller cannot name someone else's note.",
     "// `null` is a real answer here — the reader pressing the same thumb twice takes it back — and an",
     "// unknown word is refused rather than stored, so a client that invents a third verdict finds out.",
+    "// The title is the client's, because a name is interface copy and the worker carries no catalog. It is",
+    "// clamped here the way every other stored title is, and the source's own name is the fallback.",
   ]],
   ["src/worker/routes/auth.ts", [
     "// Account-wide cap so a distributed botnet cannot retry one account",
@@ -16885,6 +16895,9 @@ const allowed = new Map([
     "// The verdict survives a re-read, which is the whole point of storing it on the row: a chip held in",
     "// a component would be gone by the next morning.",
     "// The reader's own words are not an answer, and a message in another thread is not this one's.",
+    "// The copied thread is what led to that message, in order, with its own ids — a branch that shared",
+    "// rows would be two conversations editing each other.",
+    "// The original keeps its own name and its turn count; a branch is not a rename of anything.",
   ]],
   ["tests/assistant-rules.test.ts", [
     "/**\n * The rules the assistant is built on, tested where they are written.\n *\n * These are the parts a browser session cannot prove: what a Chinese sentence means to the conflict\n * rules, how a wall-clock schedule survives a daylight-saving change, how many tokens a Han vault\n * really costs. Each fixture is chosen so a plausible-but-wrong implementation would fail it — the\n * pair that differs only in a change word, a date the reader never stated, a schedule that crosses a\n * clock change — rather than so the function merely runs.\n */",

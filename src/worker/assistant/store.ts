@@ -1128,6 +1128,47 @@ export class AssistantStore {
     return { id, title, pinned: false, starred: false, folderId, createdAt: at, updatedAt: at, messageCount: 0, tags: [], summary: null, summaryUpto: null }
   }
 
+  /**
+   * A new conversation holding this one up to and including one message.
+   *
+   * The point of branching is to try a different answer without losing the thread that led there, so the
+   * rows are copied rather than referenced: the two conversations then diverge freely, and deleting
+   * either leaves the other whole. The copied turns keep their words, their thinking, their tools and
+   * their verdicts; only the ids and the timestamps are new, because the rowid is what orders a thread.
+   *
+   * The summary is deliberately not copied. It describes a conversation that ended somewhere else, and
+   * carrying it would have the fork summarised by a rollup of turns it does not have.
+   */
+  async forkConversation(from: string, uptoMessageId: string, title: string): Promise<AssistantConversation | null> {
+    const source = await this.getConversation(from)
+    if (!source) return null
+    const rows = await this.messages(from)
+    const cut = rows.findIndex((row) => row.id === uptoMessageId)
+    if (cut < 0) return null
+    const fork = await this.createConversation(title, source.folderId)
+    const base = Date.now()
+    for (const [index, row] of rows.slice(0, cut + 1).entries()) {
+      await this.addMessage({
+        conversationId: fork.id,
+        role: row.role,
+        content: row.content,
+        reasoning: row.reasoning ?? '',
+        tools: row.tools,
+        attachments: row.attachments ?? [],
+        status: row.status,
+        error: row.error,
+        source: row.source,
+        usage: row.usage ?? null,
+        durationMs: row.durationMs,
+        modelLabel: row.modelLabel,
+        // One millisecond apart so the copied thread keeps the order it was read in: `addMessage` stamps
+        // `created_at` itself and a loop over the same tick would give every row the same one.
+        createdAt: base + index,
+      })
+    }
+    return (await this.getConversation(fork.id)) ?? fork
+  }
+
   async renameConversation(id: string, title: string): Promise<void> {
     await this.write(
       `UPDATE chat_conversations SET title = ?2, updated_at = ?3 WHERE user_id = ?1 AND id = ?4`,

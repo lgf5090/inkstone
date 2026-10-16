@@ -848,6 +848,12 @@ export const api = {
         `/api/assistant/conversations/${conversationId}/messages/${messageId}`,
         { method: 'PATCH', body: { content } },
       ),
+    /** A new conversation carrying this one up to and including one message. */
+    forkConversation: (conversationId: string, messageId: string, title: string) =>
+      request<{ conversation: AssistantConversation, messages: AssistantMessage[] }>(
+        `/api/assistant/conversations/${conversationId}/fork`,
+        { method: 'POST', body: { messageId, title } },
+      ),
     /** The reader's verdict on one answer, or null to take it back. */
     rateAnswer: (conversationId: string, messageId: string, feedback: MessageFeedback | null) =>
       request<{ message: AssistantMessage }>(

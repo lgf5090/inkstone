@@ -679,6 +679,7 @@ export function AssistantBubble({
           ...(onRetry && !viewing ? { onRetry, onRetryLabel: retryLabel } : {}),
           ...(feedback ? { feedback } : {}),
           ...(onRate && !streaming && !viewing ? { onRate } : {}),
+          ...(messageId && !streaming ? { onFork: () => void useAssistant.getState().forkFrom(messageId) } : {}),
         }}
       />
     </div>

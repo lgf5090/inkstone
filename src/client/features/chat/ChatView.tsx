@@ -368,6 +368,7 @@ export function UserBubble({
           role: 'user',
           text,
           ...(removable ? { onEdit: () => setDraft(text), onDelete: askToDelete } : {}),
+          ...(messageId ? { onFork: () => void useAssistant.getState().forkFrom(messageId) } : {}),
         }}
       />
       {draft !== null && messageId && (

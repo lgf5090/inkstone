@@ -560,6 +560,23 @@ assistantRoutes.patch('/conversations/:id/messages/:messageId/feedback', async (
   return c.json({ message: await s.getMessage(messageId) })
 })
 
+assistantRoutes.post('/conversations/:id/fork', async (c) => {
+  const s = store(c)
+  const conversationId = requiredId(c.req.param('id'))
+  const body = await readJson<{ messageId?: unknown, title?: unknown }>(c, JSON_BODY_LIMITS.small)
+  const messageId = requiredId(body.messageId)
+  // The title is the client's, because a name is interface copy and the worker carries no catalog. It is
+  // clamped here the way every other stored title is, and the source's own name is the fallback.
+  const source = await s.getConversation(conversationId)
+  if (!source) throw ApiError.notFound('Conversation not found')
+  const asked = typeof body.title === 'string' ? body.title.trim() : ''
+  const title = (asked || source.title || 'Untitled').slice(0, MAX_CONVERSATION_TITLE_CHARS)
+  const fork = await s.forkConversation(conversationId, messageId, title)
+  if (!fork) throw ApiError.notFound('Message not found')
+  await s.recordActivity('conversation.forked', fork.title)
+  return c.json({ conversation: fork, messages: await s.messages(fork.id) })
+})
+
 assistantRoutes.patch('/conversations/:id', async (c) => {
   const s = store(c)
   const id = requiredId(c.req.param('id'))
