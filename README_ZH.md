@@ -46,7 +46,7 @@ Inkstone 是运行在 Cloudflare Workers 上的浏览器笔记本。笔记始终
 | Cloudflare R2 或 Workers KV | 通过 `FILES` 或 `FILES_KV` 绑定存放附件及上传头像的二进制 |
 | Workers KV `OAUTH_KV` | OAuth 客户端注册、授权码、访问令牌、刷新令牌和授权记录；不存放笔记正文 |
 | Workers AI `AI` 绑定 | 可选生成语义搜索向量；未配置时继续使用关键词搜索 |
-| Worker Loader `CODE_SANDBOX` 绑定 | 助手 `code_execute` 工具背后的可选运行时：把程序编译进一个既无绑定也无网络的独立 Worker；未配置时该工具不出现 |
+| QuickJS（WebAssembly） | 助手 `code_execute` 工具背后的解释器，随 Worker 一起打包、部署时编译；没有绑定、没有网络、没有定时器、没有 import，超过应用自己的时限即被中断 |
 | 浏览器 IndexedDB | 本地缓存与尚未上传的离线写入 |
 | `SyncHub` Durable Object | 在线客户端之间的实时变更通知 |
 | `CredentialVault` Durable Object | 隔离保存用于加密备份凭据的密钥 |

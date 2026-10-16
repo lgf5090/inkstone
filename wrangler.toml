@@ -48,9 +48,6 @@ bucket_name = "inkstone-files"
 [[kv_namespaces]]
 binding = "OAUTH_KV"
 
-[[worker_loaders]]
-binding = "CODE_SANDBOX"
-
 [[durable_objects.bindings]]
 name = "SYNC_HUB"
 class_name = "SyncHub"

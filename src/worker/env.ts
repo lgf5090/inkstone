@@ -37,16 +37,6 @@ export interface Env {
   AI?: {
     run: <T = unknown>(model: string, inputs: unknown) => Promise<T>
   }
-
-  /**
-   * The runtime the code interpreter loads its scratch Workers into.
-   *
-   * Optional, and its absence is not an error: a deployment that has not been given the binding simply
-   * has no `code_execute` tool, which is a smaller app rather than a broken one. The binding is a
-   * deployment capability like `FILES` or `AI`, so it is declared here as one and checked where the tool
-   * is offered, not where it runs.
-   */
-  CODE_SANDBOX?: WorkerLoader
 }
 
 export interface DatabaseState {

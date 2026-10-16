@@ -910,25 +910,20 @@ export const CODE_TOOLS: ToolDefinition[] = [
     // Enough for the loop this tool exists for — run, read the error, fix the line, run again — and no
     // more. Past that the model is searching rather than computing, and the reader is paying per request.
     maxCallsPerTurn: 3,
-    requires: (env) => Boolean(env.CODE_SANDBOX),
-    description: 'Run a short JavaScript program and read back what it printed and returned. Write the body of an async function: `return` the value you want back, and `console.log` anything you want to see along the way. It runs with no network, no imports and no access to the reader\'s notes or files, so it is a scratchpad for calculation and text handling rather than a way to reach anything. Use it when a number or a transformation has to be right.',
+    description: 'Run a short JavaScript program and read back what it printed and returned. Write the body of an async function: `return` the value you want back, and `console.log` anything you want to see along the way. It is a small interpreter with no network, no imports, no timers and no access to the reader\'s notes or files, so it is a scratchpad for calculation and text handling rather than a way to reach anything. Use it when a number or a transformation has to be right.',
     fields: {
       code: {
         type: 'string',
         minLength: 1,
         maxLength: 20_000,
-        description: 'The program itself. Top-level `await` and `return` both work, and `console.log` comes back to you. If the result carries an `error`, fix that line and run again.',
+        description: 'The program itself. `return` and `await` both work, and `console.log` comes back to you. If the result carries an `error`, fix that line and run again.',
       },
     },
-    async run(args, ctx) {
-      const loader = ctx.env.CODE_SANDBOX
-      // Narrowing the optional binding. `requires` keeps the tool off the list without it, so this is
-      // reached only by an approved proposal replayed after the deployment lost its sandbox.
-      if (!loader) throw new ToolError('This deployment has no code sandbox configured.')
+    async run(args) {
       try {
-        return await runSandboxedCode(loader, String(args.code))
+        return await runSandboxedCode(String(args.code))
       } catch (error) {
-        throw new ToolError(error instanceof Error ? error.message : 'The code sandbox failed.')
+        throw new ToolError(error instanceof Error ? error.message : 'The code interpreter failed.')
       }
     },
   }),

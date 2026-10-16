@@ -1,9 +1,52 @@
+import { createRequire } from 'node:module'
+import { dirname, resolve as resolvePath } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { defineConfig } from 'vitest/config'
+import { defineConfig, type Plugin } from 'vitest/config'
 
 const resolve = (path: string) => fileURLToPath(new URL(path, import.meta.url))
+const require = createRequire(import.meta.url)
+
+/**
+ * A `.wasm` import, the way the platform serves it.
+ *
+ * In a deployment the bundler turns a WebAssembly file into a module compiled at deploy time; Workers
+ * refuse to compile one from bytes at runtime. Vite would instead hand back an asset URL, which is a
+ * string — so a test of the interpreter would be testing a path the product never takes. This compiles
+ * the file the way the platform does, which is the whole point: the sandbox test runs the real engine.
+ *
+ * The specifier is claimed at `resolveId` rather than `load`, because Vite's own asset handling answers
+ * first otherwise and hands back the URL this plugin exists to avoid.
+ */
+/** The query this hook appends to a wasm file, so its own ids are recognisable and never re-claimed. */
+const MARKER = '?inkstone-wasm-module'
+
+const wasmAsModule = (): Plugin => ({
+  name: 'inkstone:wasm-module',
+  enforce: 'pre',
+  resolveId(source, importer) {
+    // A package may expose its module under a subpath rather than a file name — `pkg/wasm` is the usual
+    // shape — so that specifier is followed to the file it names. A relative path is resolved against the
+    // module that wrote it, which is the only reading that means anything. An id this hook already claimed
+    // is left alone, or the marker would be applied to itself.
+    if (source.includes(MARKER)) return null
+    const isPackageSubpath = /^[^./\\][^:]*\/wasm$/.test(source)
+    const isRelative = source.startsWith('.') && source.endsWith('.wasm')
+    if (!isRelative && !isPackageSubpath) return null
+    const path = isRelative && importer
+      ? resolvePath(dirname(importer.startsWith('file:') ? fileURLToPath(importer) : importer), source)
+      : require.resolve(source)
+    if (!path.endsWith('.wasm')) return null
+    return `${path}${MARKER}`
+  },
+  load(id) {
+    if (!id.includes(MARKER)) return null
+    const path = id.split('?')[0] ?? ''
+    return `import { readFileSync } from 'node:fs'\nexport default new WebAssembly.Module(readFileSync(${JSON.stringify(path)}))\n`
+  },
+})
 
 export default defineConfig({
+  plugins: [wasmAsModule()],
   resolve: {
     alias: {
       '@': resolve('./src/client'),
@@ -39,7 +82,9 @@ export default defineConfig({
           exclude: ['src/worker/lib/request.test.ts', 'src/client/demo/backend.test.ts', 'src/worker/lib/obsidian-import.test.ts', 'tests/backup-retention.test.ts', 'src/client/lib/linter/**', '**/*.tmp.*'],
           server: {
             deps: {
-              inline: ['@cloudflare/workers-oauth-provider'],
+              // Both halves of the interpreter, so the `.wasm` import inside the variant reaches this
+              // config's own loader instead of Node's, which cannot read a WebAssembly file as a module.
+              inline: ['@cloudflare/workers-oauth-provider', 'quickjs-emscripten-core', '@jitl/quickjs-wasmfile-release-sync'],
             },
           },
         },

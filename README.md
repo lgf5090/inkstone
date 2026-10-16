@@ -45,7 +45,7 @@ Every new account automatically receives two standard starter notes, one in Chin
 | Cloudflare R2 or Workers KV | Attachment and uploaded-avatar binaries through the `FILES` or `FILES_KV` binding |
 | Workers KV `OAUTH_KV` | OAuth client registrations, authorization codes, access and refresh tokens, and grants; note bodies are not stored here |
 | Workers AI `AI` binding | Optional embedding generation for semantic search; unavailable deployments continue to use lexical search |
-| Worker Loader `CODE_SANDBOX` binding | Optional runtime behind the assistant's `code_execute` tool, which compiles a program into a Worker of its own with no bindings and no network; without it the tool is not offered |
+| QuickJS (WebAssembly) | The interpreter behind the assistant's `code_execute` tool, bundled with the Worker and compiled at deploy time; it has no bindings, no network, no timers and no imports, and is stopped at a deadline the app enforces |
 | Browser IndexedDB | Local cache and pending offline writes |
 | `SyncHub` Durable Object | Realtime change notifications between active clients |
 | `CredentialVault` Durable Object | Isolated storage for the key used to encrypt backup credentials |
