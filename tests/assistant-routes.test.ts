@@ -1625,10 +1625,16 @@ describe('backup', () => {
   })
 })
 
-async function uploadFile(name: string, content: string | Uint8Array, mime: string): Promise<{ attachment: { id: string, kind: string, key: string, filename: string, size: number } }> {
+async function uploadFile(
+  name: string,
+  content: string | Uint8Array,
+  mime: string,
+  extractedText?: string,
+): Promise<{ attachment: { id: string, kind: string, key: string, filename: string, size: number } }> {
   const form = new FormData()
   const bytes = typeof content === 'string' ? new TextEncoder().encode(content) : content
   form.append('file', new Blob([bytes as unknown as BlobPart], { type: mime }), name)
+  if (extractedText) form.append('text', extractedText)
   const response = await app.fetch(new Request('http://localhost/api/assistant/files', { method: 'POST', body: form }), env, ctx)
   const text = await response.text()
   if (!response.ok) throw new Error(`${response.status} ${text}`)
@@ -1723,6 +1729,25 @@ describe('chat attachments', () => {
     await settleTurns()
     vi.unstubAllGlobals()
     expect(bodies.some((body) => body.includes('买咖啡豆和燕麦奶'))).toBe(true)
+  })
+
+  it('feeds a document the browser read into the model, and names one it could not', async () => {
+    await useExampleModel()
+    const read = await uploadFile('manual.pdf', new Uint8Array([37, 80, 68, 70]), 'application/pdf', '第一章 导言：燕麦奶比牛奶便宜')
+    const blank = await uploadFile('scan.pdf', new Uint8Array([37, 80, 68, 70]), 'application/pdf')
+    const bodies: string[] = []
+    vi.stubGlobal('fetch', vi.fn(async (_url: unknown, init?: RequestInit) => {
+      bodies.push(String(init?.body ?? ''))
+      return new Response(sse(FINAL_FRAMES), { headers: { 'content-type': 'text/event-stream' } })
+    }))
+    await chatEvents({ message: '这两份文件讲了什么？', attachments: [read.attachment.id, blank.attachment.id] })
+    await settleTurns()
+    vi.unstubAllGlobals()
+    const body = bodies.join('\n')
+    expect(body).toContain('燕麦奶比牛奶便宜')
+    expect(body).toContain('text read from the file')
+    // The one the browser could not read is named rather than silently presented as empty.
+    expect(body).toContain('not text; contents not read')
   })
 
   it('sends a picture as an image part when the model can see', async () => {

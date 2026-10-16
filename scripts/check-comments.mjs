@@ -1419,6 +1419,9 @@ const allowed = new Map([
     "/** The five pickers the conversation list's tab strip offers, in the order it draws them. */",
     "/** 'all', 'none' (under no brief), or a project id. */",
     "/** Conversations under no project; the projects list counts the rest. */",
+    "/** Whether a file's own words can be read here: only a PDF has a parser in the browser today. */",
+    "// A PDF's words are read here, in the browser, because the worker has no parser: the text rides",
+    "// along with the bytes so the model is shown the contents on every later turn too.",
   ]],
   ["src/client/features/chat/chat-outline.test.ts", [
     "/**\n * The rail and the panel that stand beside a thread.\n *\n * Both of them are read off the thread's own DOM — which turn has passed the reading line, and how far\n * down to land when one is chosen — so these cases lay out the boxes a browser would and then scroll:\n * a test that only counted buttons would pass over an outline that marks the wrong turn.\n */",
@@ -1580,6 +1583,13 @@ const allowed = new Map([
     "/** The tools whose payload describes notes, by name. */",
     "/** The shape every note id in this app has: a 26-character Crockford-ish ULID. */",
     "/**\n * The notes a call mentioned, in the order the payload named them.\n *\n * A result that is not the JSON this app wrote — a third-party server's own text, or an error string —\n * yields nothing rather than a guess: a chip is a promise that pressing it opens something.\n */",
+  ]],
+  ["src/client/features/chat/pdf-text.ts", [
+    "/**\n * A PDF's words, read in the browser.\n *\n * The worker cannot pull text out of a PDF — it has no parser and no DOM — so the browser reads it at\n * upload time, where PDF.js already runs for the reading app, and sends the words along with the bytes.\n * The library is imported lazily so an attachment that is not a PDF never pays for it, and the\n * extraction is bounded so a nine-hundred-page manual does not arrive as one enormous prompt.\n */",
+    "/** How much text a document may contribute; the worker clamps again on its side. */",
+    "/** How many pages are read before the cap is trusted to have been reached. */",
+    "// A scanned page, an encrypted file, or one this browser cannot open: no text is a real answer, and",
+    "// the file is still attached and named rather than the upload failing.",
   ]],
   ["src/client/features/chat/provider-form.test.ts", [
     "/**\n * The provider form's own guard rail.\n *\n * A browser can autocomplete a saved username into the text box sitting above a password field, and the\n * address boxes are optional. The reader must see which box says what, before any request is sent — and\n * the save they did mean must still go through.\n */",
@@ -7454,6 +7464,8 @@ const allowed = new Map([
     "/** One window of spending, per day, per model and per conversation. */",
     "/** The same read for a published conversation, which has an address of its own. */",
     "/**\n     * Ask the worker to start a login at this server's own identity provider.\n     *\n     * The answer is an address rather than a redirect on purpose: this call is a `fetch`, and a redirect to\n     * an external site would drag the session cookie along with it. The caller opens the address itself.\n     */",
+    "// The browser's own reading of a document, when it could make one; the server stores it beside the",
+    "// bytes so the model is shown the contents on every turn rather than only the one that uploaded it.",
   ]],
   ["src/client/lib/app-history.ts", [
     "/**\n * The address bar as the one source of truth for which app tab is up.\n *\n * The tab is a path rather than a store field so that a rail button is an ordinary link: the\n * address a reader copies is the screen they are looking at, the back button walks the tabs they\n * visited, and a cold load of `/calendar` needs nothing but the document the server already sends.\n * `history.pushState` fires no event of its own, so the writers here announce their own changes and\n * `popstate` covers everything the browser does by itself.\n */",
@@ -15196,6 +15208,10 @@ const allowed = new Map([
     "/** Which sense a file needs, if any: a clip and a recording are not the same ask of a model. */",
     "// A recording or a clip is named the way a picture is when the model cannot be shown one, so the",
     "// transcript never reads as if the model had been given something it was not.",
+    "// One place spends the per-turn budget, so a text file and a document the browser read are held to the",
+    "// same ceiling and the same \"first N characters\" honesty.",
+    "// A PDF's words were read by the browser's own parser at upload time, because the worker cannot",
+    "// pull them out of the bytes; a file that had none is named and nothing more is claimed.",
   ]],
   ["src/worker/assistant/automations.ts", [
     "/**\n * Reminders and routines.\n *\n * The reference project armed a Durable Object alarm per schedule. This app runs on D1 with a cron\n * tick, so \"armed\" only means *next_run is in the future and the row is enabled*: the tick sweeps due\n * rows once a minute. That trades a precise alarm for a one-minute window, which is what a reminder\n * can absorb and a scheduler cannot.\n *\n * The two properties that matter and are easy to lose are kept here: a run that takes longer than the\n * sweep interval is claimed so the next tick does not start it twice, and a schedule whose next\n * occurrence is computed from the slot that fired rather than from \"now\" cannot drift later every time\n * it runs.\n */",
@@ -15236,6 +15252,9 @@ const allowed = new Map([
     "/**\n * The two object bindings, behind one pair of calls.\n *\n * A deployment may run its files on R2 or on the KV namespace, and the notebook already supports both;\n * a chat upload that only worked on one would strand the reader who chose the other.\n */",
     "/**\n * Stores one upload and records its row.\n *\n * The ceiling is checked before the object is written, not after: a half-saved 30 MB file that the\n * reader cannot use is storage they pay for.\n */",
     "// A row that did not land leaves an object nothing can name: take it back rather than leak it.",
+    "/** What a browser-extracted document may contribute, before the per-turn budget is even consulted. */",
+    "// The browser's own reading of a document's text is clamped here as well as there: a client is not a",
+    "// trust boundary, and an unbounded string would ride into every later turn's prompt.",
   ]],
   ["src/worker/assistant/mcp-client.ts", [
     "/** A short, safe reason when `ok` is false: never the upstream body, which can carry the key. */",
@@ -15732,6 +15751,8 @@ const allowed = new Map([
     "/**\n   * The day totals for one slice of the key dimension.\n   *\n   * Read from `chat_usage_daily_key` rather than the plain day table because only that table knows which\n   * model or key a token came from. Rows written before the dimension existed are absent, so a filtered\n   * view starts from the day it was added — the unfiltered view stays the whole history.\n   */",
     "/** The day rows for one slice of the key dimension, for the trend and the heat map. */",
     "/** The per-model rows for one slice of the key dimension, most used first. */",
+    "/** The words the bytes carry but the worker cannot read — a PDF's text layer, read in the browser. */",
+    "/**\n   * The text a document's own bytes could not be decoded into, by attachment id.\n   *\n   * Kept out of {@link chatAttachments} because it is model-facing prompt fuel, not a field the client\n   * renders, and a whole PDF's text has no business riding in a list response.\n   */",
   ]],
   ["src/worker/assistant/tools.ts", [
     "/**\n * The tools the assistant can reach, and the executor that runs them.\n *\n * Three things are enforced here rather than asked of the model, because a model that is confident and\n * wrong is the failure mode this app has to survive:\n *  - **budgets** — a per-turn call cap, a per-tool cap and a duplicate-call refusal, so a reasoning\n *    loop cannot spend the reader's AI quota or write a hundred tasks;\n *  - **validation** — arguments are checked against the same declaration that generates the JSON\n *    Schema the provider is given, so the two can never disagree;\n *  - **approval** — a destructive tool never runs during the turn. `prepare` resolves the exact target\n *    and writes a pending action; `commit` runs only when the reader presses Approve, once, on that\n *    target. The model can propose; it cannot delete.\n *\n * Scheduled runs get read-only tools plus `notify_reader`, so a routine that has drifted cannot edit\n * the vault while nobody is watching.\n */",
@@ -16147,6 +16168,9 @@ const allowed = new Map([
     "// What the MCP server's own discovery said: endpoints, scopes, client id and when the token dies.",
     "// Plain on purpose — none of it is a secret, and a settings screen that lists ten servers would pay",
     "// ten vault round trips to say \"authorized until Friday\".",
+    "// The words a document's own bytes carry but the worker cannot pull out — a PDF's text layer, read",
+    "// in the browser where the parser already runs. Stored beside the file so the model is shown the",
+    "// contents on every turn, not only the one that carried the upload.",
   ]],
   ["src/worker/db/writes.ts", [
     "/** Keeps tags, backlinks, full-text indexes, and change records consistent with note writes. */",
@@ -16669,6 +16693,8 @@ const allowed = new Map([
     "// Only the dimension table can answer a filtered question: the plain day table has no model or key.",
     "// Built from the key rows, which the filter never narrows, so picking one filter cannot empty the",
     "// other picker.",
+    "// The browser's own reading of the document, when it could make one. Absent is fine: the file is",
+    "// still stored and named, and the model is told the contents were not read.",
   ]],
   ["src/worker/routes/auth.ts", [
     "// Account-wide cap so a distributed botnet cannot retry one account",
@@ -17342,6 +17368,7 @@ const allowed = new Map([
     "// A patch that names only the title leaves the three bindings where they were.",
     "// Both read paths spell the columns out by hand, so the list has to carry them too.",
     "// The read path omits the field rather than spelling null, so absence is the \"left the project\" answer.",
+    "// The one the browser could not read is named rather than silently presented as empty.",
   ]],
   ["tests/assistant-rules.test.ts", [
     "/**\n * The rules the assistant is built on, tested where they are written.\n *\n * These are the parts a browser session cannot prove: what a Chinese sentence means to the conflict\n * rules, how a wall-clock schedule survives a daylight-saving change, how many tokens a Han vault\n * really costs. Each fixture is chosen so a plausible-but-wrong implementation would fail it — the\n * pair that differs only in a change word, a date the reader never stated, a schedule that crosses a\n * clock change — rather than so the function merely runs.\n */",

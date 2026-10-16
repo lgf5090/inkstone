@@ -909,14 +909,33 @@ export class AssistantStore {
     mime: string
     size: number
     key: string
+    /** The words the bytes carry but the worker cannot read — a PDF's text layer, read in the browser. */
+    extractedText?: string
   }): Promise<ChatAttachment> {
     const at = Date.now()
     await this.write(
-      `INSERT INTO chat_attachments (user_id, id, kind, filename, mime, size, key, created_at)
-       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)`,
-      input.id, input.kind, input.filename, input.mime, input.size, input.key, at,
+      `INSERT INTO chat_attachments (user_id, id, kind, filename, mime, size, key, extracted_text, created_at)
+       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)`,
+      input.id, input.kind, input.filename, input.mime, input.size, input.key, input.extractedText ?? null, at,
     )
-    return { ...input, createdAt: at }
+    return { id: input.id, kind: input.kind, filename: input.filename, mime: input.mime, size: input.size, key: input.key, createdAt: at }
+  }
+
+  /**
+   * The text a document's own bytes could not be decoded into, by attachment id.
+   *
+   * Kept out of {@link chatAttachments} because it is model-facing prompt fuel, not a field the client
+   * renders, and a whole PDF's text has no business riding in a list response.
+   */
+  async chatAttachmentTexts(ids: readonly string[]): Promise<Map<string, string>> {
+    if (!ids.length) return new Map()
+    const q = new Query(this.userId)
+    q.inList('id', ids.slice(0, MAX_CHAT_ATTACHMENTS))
+    const rows = await this.rows<{ id: string, extracted_text: string | null }>(
+      `SELECT id, extracted_text FROM chat_attachments WHERE ${q.where}`,
+      ...q.binds,
+    )
+    return new Map(rows.filter((row) => row.extracted_text).map((row) => [row.id, row.extracted_text as string]))
   }
 
   /** The reader's own attachment rows, in the order they were named. */

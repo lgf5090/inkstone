@@ -25,6 +25,8 @@ export const CHAT_TEXT_INLINE_BYTES = 512 * 1024
 /** Per-file and per-message character ceilings, so one upload cannot evict the conversation. */
 export const CHAT_FILE_CHAR_CAP = 24_000
 export const CHAT_TOTAL_CHAR_CAP = 64_000
+/** What a browser-extracted document may contribute, before the per-turn budget is even consulted. */
+export const CHAT_EXTRACTED_CHAR_CAP = 48_000
 
 export type ChatAttachmentKind = 'image' | 'file'
 
@@ -112,7 +114,7 @@ export async function deleteChatObject(env: Env, key: string): Promise<void> {
 export async function saveChatUpload(
   store: AssistantStore,
   env: Env,
-  input: { bytes: Uint8Array, mime: string, filename: string },
+  input: { bytes: Uint8Array, mime: string, filename: string, extractedText?: string },
 ): Promise<ChatAttachment> {
   const filename = (input.filename.trim() || 'file').replace(/[/\\]/g, '_').slice(0, 160)
   const mime = input.mime.slice(0, 120)
@@ -125,8 +127,11 @@ export async function saveChatUpload(
   const id = newId()
   const key = chatObjectKey(kind, store.userId, id, mime, filename)
   await putChatObject(env, key, input.bytes, mime)
+  // The browser's own reading of a document's text is clamped here as well as there: a client is not a
+  // trust boundary, and an unbounded string would ride into every later turn's prompt.
+  const extractedText = input.extractedText?.slice(0, CHAT_EXTRACTED_CHAR_CAP)
   try {
-    return await store.createChatAttachment({ id, kind, filename, mime, size: input.bytes.length, key })
+    return await store.createChatAttachment({ id, kind, filename, mime, size: input.bytes.length, key, extractedText })
   } catch (error) {
     // A row that did not land leaves an object nothing can name: take it back rather than leak it.
     await deleteChatObject(env, key).catch(() => undefined)

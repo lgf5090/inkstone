@@ -1485,11 +1485,15 @@ assistantRoutes.post('/files', async (c) => {
   const form = await readFormDataWithinLimit(c.req, FORM_BODY_LIMITS.attachment)
   const file = form.get('file')
   if (!(file instanceof File)) throw ApiError.badRequest('Missing file field.')
+  // The browser's own reading of the document, when it could make one. Absent is fine: the file is
+  // still stored and named, and the model is told the contents were not read.
+  const extractedText = form.get('text')
   try {
     const attachment = await saveChatUpload(s, c.env, {
       bytes: new Uint8Array(await file.arrayBuffer()),
       mime: file.type,
       filename: file.name,
+      ...(typeof extractedText === 'string' && extractedText ? { extractedText } : {}),
     })
     return c.json({ attachment }, 201)
   } catch (error) {

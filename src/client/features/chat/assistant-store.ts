@@ -46,6 +46,7 @@ import { api, ApiError } from '../../lib/api'
 import { t } from '../../lib/i18n'
 import { IS_DEMO_MODE } from '../../lib/runtime'
 import { streamAssistantTurn } from './stream'
+import { extractPdfText } from './pdf-text'
 import { useUi } from '../../store/ui'
 
 export type AssistantView = 'chat' | 'memory' | 'tasks' | 'automations' | 'prompts' | 'projects' | 'settings'
@@ -63,6 +64,11 @@ export const CONVERSATION_LIST_TABS: readonly ConversationListTab[] = ['folders'
  * The reader pasted it as context, not as something to scroll past for the next three turns.
  */
 export const PASTE_FILE_MIN_CHARS = 2000
+
+/** Whether a file's own words can be read here: only a PDF has a parser in the browser today. */
+function isPdfFile(file: File): boolean {
+  return file.type === 'application/pdf' || /\.pdf$/i.test(file.name)
+}
 
 /** One file on its way to the server, or waiting there for the reader to press send. */
 export interface PendingAttachment {
@@ -1029,12 +1035,15 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
         }],
       }))
       try {
+        // A PDF's words are read here, in the browser, because the worker has no parser: the text rides
+        // along with the bytes so the model is shown the contents on every later turn too.
+        const extractedText = isPdfFile(file) ? await extractPdfText(file) : ''
         const stored = await api.assistant.uploadChatFile(file, (sent, total) => {
           const progress = total > 0 ? sent / total : 0
           set((current) => ({
             pending: current.pending.map((entry) => (entry.localId === localId ? { ...entry, progress } : entry)),
           }))
-        })
+        }, extractedText || undefined)
         set((current) => ({
           pending: current.pending.map((entry) => (
             entry.localId === localId

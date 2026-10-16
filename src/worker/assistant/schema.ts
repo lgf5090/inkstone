@@ -122,6 +122,7 @@ export const ASSISTANT_SCHEMA_STATEMENTS: readonly string[] = [
     mime TEXT NOT NULL DEFAULT '',
     size INTEGER NOT NULL,
     key TEXT NOT NULL,
+    extracted_text TEXT,
     created_at INTEGER NOT NULL,
     PRIMARY KEY (user_id, id)
   )`,
@@ -545,7 +546,7 @@ export const ASSISTANT_REQUIRED_COLUMNS: Readonly<Record<string, readonly string
     'purpose', 'kind', 'supports_tools', 'max_input_tokens', 'modalities', 'top_p', 'custom_params', 'protocol',
     'input_price', 'output_price', 'price_currency', 'enabled', 'position'],
   chat_conversations: ['user_id', 'id', 'title', 'summary', 'summary_upto', 'pinned', 'starred', 'folder_id', 'project_id', 'created_at', 'updated_at'],
-  chat_attachments: ['user_id', 'id', 'kind', 'filename', 'mime', 'size', 'key', 'created_at'],
+  chat_attachments: ['user_id', 'id', 'kind', 'filename', 'mime', 'size', 'key', 'extracted_text', 'created_at'],
   chat_conversation_tags: ['user_id', 'conversation_id', 'tag_id', 'created_at'],
   chat_messages: ['user_id', 'id', 'conversation_id', 'role', 'content', 'reasoning', 'tools', 'attachments', 'status', 'error', 'source', 'input_tokens', 'output_tokens', 'duration_ms', 'model_label', 'feedback', 'sources', 'created_at'],
   chat_answer_versions: ['user_id', 'id', 'message_id', 'conversation_id', 'content', 'reasoning', 'tools', 'model_label', 'input_tokens', 'output_tokens', 'duration_ms', 'created_at'],

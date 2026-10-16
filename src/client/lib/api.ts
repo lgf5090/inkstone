@@ -339,10 +339,14 @@ export type PresenceStatus = { running: false, viewers: number } | { running: tr
 function uploadChatFileWithProgress(
   file: File,
   onProgress: (sent: number, total: number) => void,
+  extractedText?: string,
 ): Promise<ChatAttachment> {
   return new Promise((resolve, reject) => {
     const form = new FormData()
     form.append('file', file)
+    // The browser's own reading of a document, when it could make one; the server stores it beside the
+    // bytes so the model is shown the contents on every turn rather than only the one that uploaded it.
+    if (extractedText) form.append('text', extractedText)
     const xhr = new XMLHttpRequest()
     xhr.open('POST', '/api/assistant/files')
     xhr.responseType = 'text'
@@ -901,8 +905,8 @@ export const api = {
       ),
     pinConversation: (id: string, pinned: boolean) =>
       request<{ conversation: AssistantConversation }>(`/api/assistant/conversations/${id}`, { method: 'PATCH', body: { pinned } }),
-    uploadChatFile: (file: File, onProgress: (sent: number, total: number) => void) =>
-      uploadChatFileWithProgress(file, onProgress),
+    uploadChatFile: (file: File, onProgress: (sent: number, total: number) => void, extractedText?: string) =>
+      uploadChatFileWithProgress(file, onProgress, extractedText),
     chatFileUrl: (id: string) => `/api/assistant/files/${id}`,
     downloadChatFile: (id: string, onProgress: (received: number, total: number) => void) =>
       downloadChatFileWithProgress(id, onProgress),

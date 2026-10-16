@@ -62,9 +62,23 @@ export async function expandChatAttachments(
   if (!ids.length) return { block: '', images: [] }
   const rows = await store.chatAttachments(ids)
   const found = new Map(rows.map((row) => [row.id, row]))
+  const extracted = await store.chatAttachmentTexts(ids)
   const images: { mime: string, dataUrl: string }[] = []
   const lines: string[] = []
   let used = 0
+  // One place spends the per-turn budget, so a text file and a document the browser read are held to the
+  // same ceiling and the same "first N characters" honesty.
+  const pushText = (header: string, text: string, fence: string, source: string): void => {
+    const room = Math.max(0, Math.min(CHAT_FILE_CHAR_CAP, CHAT_TOTAL_CHAR_CAP - used))
+    if (!room) {
+      lines.push(`${header} (this turn's attachment budget is full; contents not read)`)
+      return
+    }
+    const taken = text.slice(0, room)
+    used += taken.length
+    const note = text.length > taken.length ? ` (first ${room} characters)` : ''
+    lines.push(`${header}${note}${source}\n\`\`\`${fence}\n${taken}\n\`\`\``)
+  }
   for (const id of ids) {
     const row = found.get(id)
     if (!row) {
@@ -99,7 +113,11 @@ export async function expandChatAttachments(
         lines.push(`${header} (the reader can play this; this model is not marked as able to take ${modality})`)
         continue
       }
-      lines.push(`${header} (not text; contents not read)`)
+      // A PDF's words were read by the browser's own parser at upload time, because the worker cannot
+      // pull them out of the bytes; a file that had none is named and nothing more is claimed.
+      const text = extracted.get(row.id)
+      if (text) pushText(header, text, '', ' (text read from the file)')
+      else lines.push(`${header} (not text; contents not read)`)
       continue
     }
     const bytes = await readChatObject(env, row.key)
@@ -111,16 +129,7 @@ export async function expandChatAttachments(
       lines.push(`${header} (larger than ${Math.round(CHAT_TEXT_INLINE_BYTES / 1024)} KB; contents not read)`)
       continue
     }
-    const text = new TextDecoder().decode(bytes)
-    const room = Math.max(0, Math.min(CHAT_FILE_CHAR_CAP, CHAT_TOTAL_CHAR_CAP - used))
-    if (!room) {
-      lines.push(`${header} (this turn's attachment budget is full; contents not read)`)
-      continue
-    }
-    const taken = text.slice(0, room)
-    used += taken.length
-    const note = text.length > taken.length ? ` (first ${room} characters)` : ''
-    lines.push(`${header}${note}\n\`\`\`${fenceForAttachment(row.filename)}\n${taken}\n\`\`\``)
+    pushText(header, new TextDecoder().decode(bytes), fenceForAttachment(row.filename), '')
   }
   return { block: lines.join('\n\n'), images }
 }

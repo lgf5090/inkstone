@@ -1266,6 +1266,16 @@ export const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
       `ALTER TABLE chat_mcp_servers ADD COLUMN oauth_meta TEXT NOT NULL DEFAULT '{}'`,
     ],
   },
+  {
+    // The words a document's own bytes carry but the worker cannot pull out — a PDF's text layer, read
+    // in the browser where the parser already runs. Stored beside the file so the model is shown the
+    // contents on every turn, not only the one that carried the upload.
+    version: 78,
+    skipIfColumnExists: { table: 'chat_attachments', column: 'extracted_text' },
+    statements: [
+      `ALTER TABLE chat_attachments ADD COLUMN extracted_text TEXT`,
+    ],
+  },
 ]
 
 const FTS_STATEMENT = `CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(
