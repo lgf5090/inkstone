@@ -1304,6 +1304,21 @@ export const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
       `ALTER TABLE chat_prompts ADD COLUMN icon TEXT NOT NULL DEFAULT ''`,
     ],
   },
+  {
+    // The three-way mode moves from the server's own row down to each of its tools: "this server may
+    // write" and "this one function may write" are different questions, and only the second one is the
+    // reader's real answer. A tool that was switched off is exactly a tool set to 'off', so the old list
+    // is converted rather than carried alongside — two fields for one setting is how two answers drift.
+    version: 82,
+    skipIfColumnExists: { table: 'chat_mcp_servers', column: 'tool_modes' },
+    statements: [
+      `ALTER TABLE chat_mcp_servers ADD COLUMN tool_modes TEXT NOT NULL DEFAULT '{}'`,
+      `UPDATE chat_mcp_servers SET tool_modes = (
+         SELECT json_group_object(value, 'off') FROM json_each(chat_mcp_servers.disabled_tools)
+       ) WHERE json_valid(disabled_tools) AND json_array_length(disabled_tools) > 0`,
+      `ALTER TABLE chat_mcp_servers DROP COLUMN disabled_tools`,
+    ],
+  },
 ]
 
 const FTS_STATEMENT = `CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(

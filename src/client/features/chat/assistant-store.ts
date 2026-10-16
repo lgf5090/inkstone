@@ -41,7 +41,7 @@ import type {
 } from '@shared/assistant'
 import type { AssistantSkill } from '@shared/assistant'
 import { DEBOUNCE } from '@shared/constants'
-import { MAX_CHAT_ATTACHMENTS, MAX_TURN_SCOPES, MAX_TURN_TOOLS, type AssistantTurnScope, type ChatAttachment, type AssistantSkillInput, type SkillImportResult } from '@shared/assistant'
+import { MAX_CHAT_ATTACHMENTS, MAX_TURN_SCOPES, MAX_TURN_TOOLS, type AssistantTurnScope, type ChatAttachment, type AssistantSkillInput, type SkillImportResult, type AssistantMcpToolMode } from '@shared/assistant'
 import { api, ApiError } from '../../lib/api'
 import { t } from '../../lib/i18n'
 import { IS_DEMO_MODE } from '../../lib/runtime'
@@ -221,7 +221,13 @@ interface AssistantState {
    * The whole off-list is written every time rather than a delta: the row holds a list, so a request that
    * added one name would race the request that removed another, and the loser would silently win.
    */
-  setMcpToolsEnabled: (server: AssistantMcpServer, remoteNames: readonly string[], enabled: boolean) => Promise<void>
+  /**
+   * Answer for some of one server's tools at once.
+   *
+   * The map is written whole rather than one key at a time because the server's own mode is the default
+   * a tool is measured against, and that comparison only happens where the whole map is in hand.
+   */
+  setMcpToolModes: (server: AssistantMcpServer, modes: Record<string, AssistantMcpToolMode>) => Promise<void>
   removeMcpServer: (id: string) => Promise<void>
   /** Opens the third party's own login in a popup and waits for the reader to come back. */
   authorizeMcp: (id: string) => Promise<boolean>
@@ -697,13 +703,16 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
     }
   },
 
-  setMcpToolsEnabled: async (server, remoteNames, enabled) => {
-    const off = new Set(server.disabledTools)
-    for (const remoteName of remoteNames) {
-      if (enabled) off.delete(remoteName)
-      else off.add(remoteName)
+  setMcpToolModes: async (server, modes) => {
+    // The server's own answer is the default, so a tool set back to it is not an exception and is dropped:
+    // that is what keeps the map a list of the tools the reader actually disagreed about, and what makes
+    // "follow the server again" reachable without a fourth option on every row.
+    const next: Record<string, AssistantMcpToolMode> = { ...server.toolModes }
+    for (const [remoteName, mode] of Object.entries(modes)) {
+      if (mode === server.toolMode) delete next[remoteName]
+      else next[remoteName] = mode
     }
-    await get().patchMcpServer(server.id, { disabledTools: [...off] })
+    await get().patchMcpServer(server.id, { toolModes: next })
   },
 
   removeMcpServer: async (id) => {

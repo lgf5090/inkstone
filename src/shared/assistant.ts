@@ -1025,22 +1025,38 @@ export interface AssistantMcpServer {
   /** How long one listing or call may take. A slow third party is the reader's call, within bounds. */
   timeoutSeconds: number
   enabled: boolean
+  /** What every tool of this server does unless the reader has said otherwise for that one tool. */
   toolMode: AssistantMcpToolMode
   /**
-   * The server's own names for the tools the reader has switched off.
+   * One tool's own answer, for the tools the reader has singled out.
    *
-   * Kept as a list of switched-off names rather than of switched-on ones because a tool the server adds
-   * later must arrive usable: a server whose whole point is `search` should not have every new function
-   * hidden behind a settings visit, and a name here that the server no longer offers simply stops
-   * matching anything.
+   * Kept as exceptions rather than as a row per tool because a tool the server adds later must arrive
+   * usable: a server whose whole point is `search` should not have every new function hidden behind a
+   * settings visit. A name here that the server no longer offers simply stops matching anything, and a
+   * name set back to what the server already says is dropped, so this stays the list of tools the reader
+   * has actually disagreed about.
    */
-  disabledTools: string[]
+  toolModes: Record<string, AssistantMcpToolMode>
   /** Whether any request header is stored. The values themselves never leave the worker. */
   hasKey: boolean
   /** The OAuth arrangement, once the reader started one. Null means this server has never been asked. */
   authorization: AssistantMcpAuthorization | null
   createdAt: number
   updatedAt: number
+}
+
+/**
+ * What one tool of a server may do: the reader's own answer for that tool, or the server's.
+ *
+ * One function rather than a ternary in each of the three places that ask — the listing that offers the
+ * tool, the call that runs it, and the row that shows it — because two spellings of "which one wins" is
+ * how a tool ends up looking switched off and answering anyway.
+ */
+export function mcpToolModeFor(
+  server: Pick<AssistantMcpServer, 'toolMode' | 'toolModes'>,
+  remoteName: string,
+): AssistantMcpToolMode {
+  return server.toolModes[remoteName] ?? server.toolMode
 }
 
 /** Bounds on what one server's own settings may be, checked in the route and mirrored by the form. */
@@ -1155,8 +1171,10 @@ export function parseMcpServerJson(text: string): McpImportResult {
 
 export const MAX_MCP_SERVERS = 8
 export const MAX_MCP_TOOLS_PER_SERVER = 24
-/** A disabled-tool list is a reader's own choices, bounded the way the listing itself is. */
-export const MAX_MCP_DISABLED_TOOLS = 200
+/** A reader's own per-tool answers are bounded the way the listing itself is. */
+export const MAX_MCP_TOOL_OVERRIDES = 200
+/** How much of a tool's published argument form the card keeps. It is shown, never parsed here. */
+export const MAX_MCP_SCHEMA_CHARS = 4000
 /** A tool name the upstreams accept: `^[a-zA-Z0-9_-]{1,64}$` after namespacing. */
 export const MAX_MCP_TOOL_NAME_CHARS = 64
 export const MAX_MCP_LABEL_CHARS = 60
@@ -1200,8 +1218,16 @@ export interface AssistantMcpTool {
   serverId: string
   serverLabel: string
   description: string
-  /** Whether the reader switched this one off. Only the settings listing fills it in. */
-  disabled?: boolean
+  /** What this tool does: its own answer when the reader gave one, the server's otherwise. */
+  mode?: AssistantMcpToolMode
+  /**
+   * The tool's own `inputSchema`, as text.
+   *
+   * Kept so the card can answer "what does this one take?" — the question a reader has before deciding
+   * whether to hand a third party the reach it is asking for. Text rather than a parsed object because
+   * nothing here reads it: it is shown, and a schema this app cannot parse is still worth showing.
+   */
+  inputSchema?: string
 }
 
 /**
@@ -1226,7 +1252,8 @@ export interface AssistantMcpServerDetail {
 export interface AssistantMcpCatalogEntry {
   serverId: string
   serverLabel: string
-  tools: { remoteName: string, name: string, description: string, disabled: boolean }[]
+  /** Every tool the server offers, with the mode each one is running under and its argument form. */
+  tools: AssistantMcpTool[]
   /** Why this server answered nothing, in the reader's own language where the client can say it. */
   error?: string
 }

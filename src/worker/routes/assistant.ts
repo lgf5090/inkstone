@@ -18,7 +18,8 @@ import {
   ASSISTANT_MODEL_KINDS,
   MAX_TOKEN_CEILING,
   MAX_MCP_DESCRIPTION_CHARS,
-  MAX_MCP_DISABLED_TOOLS,
+  MAX_MCP_TOOL_OVERRIDES,
+  mcpToolModeFor,
   MAX_MCP_HEADERS,
   MAX_MCP_HEADER_VALUE_CHARS,
   MAX_MCP_LABEL_CHARS,
@@ -31,6 +32,7 @@ import {
   MAX_MCP_URL_CHARS,
   endpointFieldState,
   parseModelModalities,
+  type AssistantMcpToolMode,
   type AssistantMcpTransport,
   ASSISTANT_MODEL_PURPOSES,
   ASSISTANT_PROTOCOLS,
@@ -298,18 +300,24 @@ assistantRoutes.patch('/mcp/:id', async (c) => {
     const problem = mcpUrlProblem(url)
     if (problem) throw ApiError.badRequest(problem)
   }
-  // The off-list is the server's own tool names, so it is only ever a list of bounded strings: the model
-  // is never handed a name this route invented, and a name the server does not offer simply stops matching.
-  let disabledTools: string[] | undefined
-  if (body.disabledTools !== undefined) {
-    if (!Array.isArray(body.disabledTools)) throw ApiError.badRequest('disabledTools must be an array')
-    if (body.disabledTools.length > MAX_MCP_DISABLED_TOOLS) {
-      throw ApiError.badRequest(`At most ${MAX_MCP_DISABLED_TOOLS} tools can be switched off`)
+  // The exceptions are keyed by the server's own tool names, so the map is only ever bounded strings
+  // against the three words: the model is never handed a name this route invented, and a name the server
+  // does not offer simply stops matching anything.
+  let toolModes: Record<string, AssistantMcpToolMode> | undefined
+  if (body.toolModes !== undefined) {
+    const raw = body.toolModes
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) throw ApiError.badRequest('toolModes must be an object')
+    const entries = Object.entries(raw as Record<string, unknown>)
+    if (entries.length > MAX_MCP_TOOL_OVERRIDES) {
+      throw ApiError.badRequest(`At most ${MAX_MCP_TOOL_OVERRIDES} tools can be answered for`)
     }
-    disabledTools = body.disabledTools
-      .filter((entry): entry is string => typeof entry === 'string')
-      .map((entry) => entry.trim())
-      .filter((entry) => Boolean(entry) && entry.length <= MAX_MCP_TOOL_NAME_CHARS)
+    toolModes = {}
+    for (const [name, mode] of entries) {
+      const trimmed = name.trim()
+      const chosen = pickValue(mode, ASSISTANT_MCP_TOOL_MODES)
+      if (!trimmed || trimmed.length > MAX_MCP_TOOL_NAME_CHARS || chosen === undefined) continue
+      toolModes[trimmed] = chosen
+    }
   }
   const updated = await s.updateMcpServer(id, {
     ...(body.label !== undefined ? { label: text(body.label, MAX_MCP_LABEL_CHARS) } : {}),
@@ -317,7 +325,7 @@ assistantRoutes.patch('/mcp/:id', async (c) => {
     ...mcpServerFields(body),
     ...(body.enabled !== undefined ? { enabled: Boolean(body.enabled) } : {}),
     ...(pickValue(body.toolMode, ASSISTANT_MCP_TOOL_MODES) !== undefined ? { toolMode: pickValue(body.toolMode, ASSISTANT_MCP_TOOL_MODES) } : {}),
-    ...(disabledTools === undefined ? {} : { disabledTools }),
+    ...(toolModes === undefined ? {} : { toolModes }),
   })
   if (!updated) throw ApiError.notFound('Server not found')
   return c.json({ server: updated })
@@ -423,7 +431,7 @@ assistantRoutes.post('/mcp/replay', async (c) => {
     const listing = await mcpListTools(session, server.id, server.label)
     const tool = listing.tools.find((entry) => entry.name === activity.name)
     if (!tool) throw ApiError.notFound('That server no longer offers this function.')
-    if (server.disabledTools.includes(tool.remoteName)) throw ApiError.conflict('That function is switched off on its card.')
+    if (mcpToolModeFor(server, tool.remoteName) === 'off') throw ApiError.conflict('That function is switched off on its card.')
     return c.json({ ok: true, error: '', result: await mcpCallTool(session, tool.remoteName, args) })
   } catch (error) {
     if (error instanceof ApiError) throw error

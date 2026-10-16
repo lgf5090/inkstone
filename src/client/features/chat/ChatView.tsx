@@ -12,6 +12,7 @@ import { Z_INDEX } from '../../lib/z-index'
 import { type ClipboardEvent as ReactClipboardEvent, type KeyboardEvent, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { ArrowUp, ArrowUpRight, Check, Copy, FileText, FolderOpen, History, MoreHorizontal, Paperclip, Pencil, Plus, Search, Square, Star, Trash2, X } from 'lucide-react'
 import type { AssistantConversation, AssistantMessage, ChatAttachment } from '@shared/assistant'
+import { mcpToolModeFor } from '@shared/assistant'
 import { DEBOUNCE } from '@shared/constants'
 import { cn } from '../../lib/cn'
 import { t } from '../../lib/i18n'
@@ -1132,16 +1133,17 @@ ${current}` : seed))
     if (next.sigil === '/') {
       // A server that has not been listed yet is awaited rather than skipped: showing the built-ins alone
       // would read as if the reader's own tools had disappeared.
-      const offered = new Set(mcpServers.filter((server) => server.enabled && server.toolMode !== 'off').map((server) => server.id))
-      const pending = offered.size > 0 && mcpCatalog.length === 0
+      const offered = mcpServers.filter((server) => server.enabled && server.toolMode !== 'off')
+      const pending = offered.length > 0 && mcpCatalog.length === 0
       setTriggerBusy(pending)
       if (pending) await loadMcp()
       // The reader's own MCP tools sit beside the built-in ones, marked by their namespaced name so the
       // row says which server it came from. A tool switched off in settings, or one on a server that is off
       // or only asks, is not pinned here either: the pin would name a tool the turn never offers.
-      const external: TriggerRow[] = useAssistant.getState().mcpCatalog
-        .filter((entry) => offered.has(entry.serverId))
-        .flatMap((entry) => entry.tools.filter((tool) => !tool.disabled))
+      const catalog = useAssistant.getState().mcpCatalog
+      const external: TriggerRow[] = offered
+        .flatMap((server) => (catalog.find((entry) => entry.serverId === server.id)?.tools ?? [])
+          .filter((tool) => mcpToolModeFor(server, tool.remoteName) !== 'off'))
         .map((tool) => ({
           id: tool.name,
           label: tool.name,

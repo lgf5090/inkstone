@@ -2,14 +2,17 @@
  * The reader's external MCP servers, turned into tools the assistant can be offered.
  *
  * A remote tool is not trusted because it came from a URL the reader pasted. Two rules do most of the work:
- * the server's own `toolMode` decides whether every call needs an Approve press, and the arguments the model
- * proposed are stored with the proposal so what runs after approval is exactly what was shown.
+ * the tool's own mode — the reader's answer for that one tool, or the server's for all of them — decides
+ * whether every call needs an Approve press, and the arguments the model proposed are stored with the
+ * proposal so what runs after approval is exactly what was shown.
  *
  * One session is opened per server per turn, and a server that will not answer is reported as a problem
  * rather than failing the turn: a dead third party must not stop the assistant from replying about notes.
  */
 import {
+  MAX_MCP_SCHEMA_CHARS,
   MAX_MCP_TOOLS_PER_SERVER,
+  mcpToolModeFor,
   mcpToolName,
   type AssistantMcpCatalogEntry,
   type AssistantMcpProblem,
@@ -108,14 +111,14 @@ export async function loadExternalTools(store: AssistantStore): Promise<External
       problems.push({ serverId: server.id, label: server.label, error: 'Skipped: the turn already offers enough tools.', needsAuthorization: false })
       return
     }
-    const off = new Set(server.disabledTools)
     for (const tool of listing.tools.slice(0, MAX_MCP_TOOLS_PER_SERVER)) {
       if (full()) break
+      const mode = mcpToolModeFor(server, tool.remoteName)
       // A tool the reader switched off is not offered at all: no schema, no definition, so the model cannot
       // name it and nothing has to be refused later.
-      if (off.has(tool.remoteName)) continue
+      if (mode === 'off') continue
       schemas[tool.name] = asSchema(listing.schemas[tool.name])
-      if (server.toolMode === 'auto') {
+      if (mode === 'auto') {
         definitions.push({
           name: tool.name,
           description: tool.description || `Remote tool ${tool.remoteName} from ${server.label}.`,
@@ -153,27 +156,47 @@ export async function loadExternalTools(store: AssistantStore): Promise<External
 /**
  * Every server's tools for the settings screen, switched-off ones included.
  *
- * A server that is off at its own level is still listed: that is where its per-tool switches live, and a
- * reader who has just switched a server back on wants the tools they had already switched off to still be
- * there. The schemas are dropped — nothing here is callable — because the screen draws names and
- * descriptions, not argument forms.
+ * A server that is off at its own level is still listed: that is where its per-tool answers live, and a
+ * reader who has just switched a server back on wants what they had already decided about its tools to
+ * still be there. Each row carries the mode it is running under and the argument form the server
+ * published, because "what would this one be allowed to do, and what would it take" is the question the
+ * card exists to answer.
  */
 export async function listMcpCatalog(store: AssistantStore): Promise<{ servers: AssistantMcpCatalogEntry[], problems: AssistantMcpProblem[] }> {
   const servers: AssistantMcpCatalogEntry[] = []
   const { problems } = await visitListings(store, await store.listMcpServers(), (server, _session, listing) => {
-    const off = new Set(server.disabledTools)
     servers.push({
       serverId: server.id,
       serverLabel: server.label,
       tools: listing.tools.slice(0, MAX_MCP_TOOLS_PER_SERVER).map((tool) => ({
         name: tool.name,
         remoteName: tool.remoteName,
+        serverId: server.id,
+        serverLabel: server.label,
         description: tool.description,
-        disabled: off.has(tool.remoteName),
+        mode: mcpToolModeFor(server, tool.remoteName),
+        inputSchema: schemaText(listing.schemas[tool.name]),
       })),
     })
   })
   return { servers, problems }
+}
+
+/**
+ * A tool's published argument form, as text for the card.
+ *
+ * Capped rather than refused: a schema is shown, never parsed here, and one long enough to matter is
+ * still worth showing its opening. Empty is a tool that published none, which is legal MCP.
+ */
+function schemaText(schema: Record<string, unknown> | undefined): string {
+  if (!schema) return ''
+  try {
+    const text = JSON.stringify(schema, null, 2)
+    return text.length > MAX_MCP_SCHEMA_CHARS ? `${text.slice(0, MAX_MCP_SCHEMA_CHARS)}\n…` : text
+  } catch {
+    // A schema with a cycle in it is not JSON at all; the card says nothing rather than failing the listing.
+    return ''
+  }
 }
 
 /** The name a turn's pin or a model call uses for one remote tool. */

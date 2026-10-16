@@ -103,6 +103,23 @@ describe('a boot onto a database whose ledger lies', () => {
     expect(sqlite.prepare(`SELECT title, icon FROM chat_prompts WHERE id = 's1'`).get()).toEqual({ title: '周报', icon: '' })
   })
 
+  it('moves an MCP server’s switched-off list into the per-tool answers', async () => {
+    const sqlite = await installed()
+    // The shape a database built before version 82 has: the old list column and no map. (A fresh install
+    // carries the old column too, because the migration that first created this table declared it and a
+    // migration is history — the new schema does not, so nothing reads it there and nothing writes it.)
+    sqlite.exec(`INSERT INTO chat_mcp_servers (user_id, id, label, url, enabled, tool_mode, disabled_tools, created_at, updated_at)
+      VALUES ('u1', 's1', 'Example', 'https://mcp.example.test/mcp', 1, 'ask', '["drop_everything"]', 1, 1)`)
+    sqlite.exec('ALTER TABLE chat_mcp_servers DROP COLUMN tool_modes')
+    sqlite.exec('DELETE FROM schema_migrations WHERE version = 82')
+    expect(columnsOf(sqlite, 'chat_mcp_servers')).not.toContain('tool_modes')
+
+    await reboot(sqlite)
+    expect(columnsOf(sqlite, 'chat_mcp_servers')).toContain('tool_modes')
+    // One column for one setting: the list is converted rather than carried beside the map it became.
+    expect(sqlite.prepare(`SELECT tool_modes FROM chat_mcp_servers WHERE id = 's1'`).get()).toEqual({ tool_modes: '{"drop_everything":"off"}' })
+  })
+
   it('keeps the data of the rows it does not touch', async () => {
     const sqlite = await installed()
     sqlite.exec(`INSERT INTO users (id, username, password_hash, login, name, role, settings, created_at, last_seen_at)

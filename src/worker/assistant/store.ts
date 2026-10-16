@@ -49,7 +49,7 @@ import type {
 } from '@shared/assistant'
 import { dialectsForProtocol } from '@shared/reasoning'
 import type { McpOAuthSecrets, McpOAuthStatus } from './mcp-oauth'
-import { ASSISTANT_MCP_TOOL_MODES, ASSISTANT_MCP_TRANSPORTS, DEFAULT_MCP_TIMEOUT_SECONDS, MAX_MCP_DESCRIPTION_CHARS, MAX_MCP_DISABLED_TOOLS, MAX_MCP_HEADER_VALUE_CHARS, MAX_MCP_LABEL_CHARS, MAX_MCP_TOOL_NAME_CHARS, MAX_MCP_TIMEOUT_SECONDS, MIN_MCP_TIMEOUT_SECONDS, MAX_ANSWER_VERSIONS, MAX_CHAT_ATTACHMENTS, clipReasoning, isMcpHeaderName, parseModelModalities, parseProviderEndpoints, reasoningDialectValue, reasoningValue, type AssistantAnswerVersion, type AssistantMcpServer, type AssistantMcpToolMode, type AssistantMcpTransport, type AssistantModelModality, type ChatAttachment } from '@shared/assistant'
+import { ASSISTANT_MCP_TOOL_MODES, ASSISTANT_MCP_TRANSPORTS, DEFAULT_MCP_TIMEOUT_SECONDS, MAX_MCP_DESCRIPTION_CHARS, MAX_MCP_TOOL_OVERRIDES, MAX_MCP_HEADER_VALUE_CHARS, MAX_MCP_LABEL_CHARS, MAX_MCP_TOOL_NAME_CHARS, MAX_MCP_TIMEOUT_SECONDS, MIN_MCP_TIMEOUT_SECONDS, MAX_ANSWER_VERSIONS, MAX_CHAT_ATTACHMENTS, clipReasoning, isMcpHeaderName, parseModelModalities, parseProviderEndpoints, reasoningDialectValue, reasoningValue, type AssistantAnswerVersion, type AssistantMcpServer, type AssistantMcpToolMode, type AssistantMcpTransport, type AssistantModelModality, type ChatAttachment } from '@shared/assistant'
 import {
   ASSISTANT_MEMORY_CATEGORIES,
   ASSISTANT_PROTOCOLS,
@@ -375,7 +375,7 @@ interface McpServerRow {
   oauth_meta?: string | null
   enabled: number | null
   tool_mode: string | null
-  disabled_tools?: string | null
+  tool_modes?: string | null
   created_at: number
   updated_at: number
 }
@@ -492,19 +492,31 @@ export function parseMcpHeaderBlob(plaintext: string): Record<string, string> {
  * one place the JSON is trusted: a value that is not a list of strings reads as "nothing is off", which is
  * what the server did before this existed.
  */
-function parseDisabledTools(value: string | null | undefined): string[] {
-  if (!value) return []
+/**
+ * One server's per-tool exceptions, decoded rather than trusted.
+ *
+ * A row written before this column existed holds nothing, and one written by another branch could hold
+ * anything at all; both read as "the server's own answer stands for every tool" rather than failing the
+ * list. Names are capped and trimmed the way the rest of the row is, because they are the server's own
+ * spelling and a name this app invented would never match the tool it was meant to govern.
+ */
+function parseToolModes(value: string | null | undefined): Record<string, AssistantMcpToolMode> {
+  if (!value) return {}
+  let parsed: unknown
   try {
-    const parsed: unknown = JSON.parse(value)
-    if (!Array.isArray(parsed)) return []
-    return parsed
-      .filter((entry): entry is string => typeof entry === 'string')
-      .map((entry) => entry.trim().slice(0, MAX_MCP_TOOL_NAME_CHARS))
-      .filter(Boolean)
-      .slice(0, MAX_MCP_DISABLED_TOOLS)
+    parsed = JSON.parse(value)
   } catch {
-    return []
+    return {}
   }
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {}
+  const modes: Record<string, AssistantMcpToolMode> = {}
+  for (const [name, mode] of Object.entries(parsed as Record<string, unknown>)) {
+    const trimmed = name.trim().slice(0, MAX_MCP_TOOL_NAME_CHARS)
+    if (!trimmed || !(ASSISTANT_MCP_TOOL_MODES as readonly string[]).includes(mode as string)) continue
+    modes[trimmed] = mode as AssistantMcpToolMode
+    if (Object.keys(modes).length >= MAX_MCP_TOOL_OVERRIDES) break
+  }
+  return modes
 }
 
 function toMcpServer(r: McpServerRow): AssistantMcpServer {
@@ -518,7 +530,7 @@ function toMcpServer(r: McpServerRow): AssistantMcpServer {
     timeoutSeconds: clampTimeout(r.timeout_seconds),
     enabled: bool(r.enabled),
     toolMode: pickEnum(r.tool_mode, ASSISTANT_MCP_TOOL_MODES, 'ask'),
-    disabledTools: parseDisabledTools(r.disabled_tools),
+    toolModes: parseToolModes(r.tool_modes),
     hasKey: bool(r.has_key),
     authorization: status ? { issuer: status.issuer, scopes: status.scopes, authorized: status.authorized, expiresAt: status.expiresAt } : null,
     createdAt: r.created_at,
@@ -1843,7 +1855,7 @@ export class AssistantStore {
    */
   async listMcpServers(): Promise<AssistantMcpServer[]> {
     const rows = await this.rows<McpServerRow>(
-      `SELECT id, label, url, description, transport, timeout_seconds, length(header_ciphertext) > 0 AS has_key, oauth_meta, enabled, tool_mode, disabled_tools, created_at, updated_at
+      `SELECT id, label, url, description, transport, timeout_seconds, length(header_ciphertext) > 0 AS has_key, oauth_meta, enabled, tool_mode, tool_modes, created_at, updated_at
          FROM chat_mcp_servers WHERE user_id = ?1 ORDER BY created_at`,
       this.userId,
     )
@@ -1852,7 +1864,7 @@ export class AssistantStore {
 
   async mcpServerRecord(id: string): Promise<{ row: AssistantMcpServer, headers: Record<string, string>, ciphertext: string } | null> {
     const r = await this.one<McpServerRow & { header_ciphertext: string | null }>(
-      `SELECT id, label, url, description, transport, timeout_seconds, header_ciphertext, length(header_ciphertext) > 0 AS has_key, oauth_meta, enabled, tool_mode, disabled_tools, created_at, updated_at
+      `SELECT id, label, url, description, transport, timeout_seconds, header_ciphertext, length(header_ciphertext) > 0 AS has_key, oauth_meta, enabled, tool_mode, tool_modes, created_at, updated_at
          FROM chat_mcp_servers WHERE user_id = ?1 AND id = ?2`,
       this.userId, id,
     )
@@ -1932,7 +1944,7 @@ export class AssistantStore {
     )
     return {
       id, label, url: input.url, description, transport, timeoutSeconds,
-      enabled: true, toolMode: input.toolMode ?? 'ask', disabledTools: [],
+      enabled: true, toolMode: input.toolMode ?? 'ask', toolModes: {},
       hasKey: Boolean(ciphertext), authorization: null, createdAt: at, updatedAt: at,
     }
   }
@@ -1948,7 +1960,7 @@ export class AssistantStore {
       headers?: Record<string, string> | null
       enabled?: boolean
       toolMode?: AssistantMcpToolMode
-      disabledTools?: string[]
+      toolModes?: Record<string, AssistantMcpToolMode>
     },
   ): Promise<AssistantMcpServer | null> {
     const existing = await this.mcpServerRecord(id)
@@ -1961,18 +1973,21 @@ export class AssistantStore {
     else if (patch.headers && Object.keys(patch.headers).length) {
       ciphertext = await encryptAssistantKey(this.env, this.userId, JSON.stringify(patch.headers))
     }
-    // The off-list is stored de-duplicated and capped: it is written from a list of switches, and a row
-    // that grew with every press would eventually cost more than the listing it filters.
-    const disabledTools = patch.disabledTools === undefined
-      ? existing.row.disabledTools
-      : [...new Set(patch.disabledTools.map((entry) => entry.trim().slice(0, MAX_MCP_TOOL_NAME_CHARS)).filter(Boolean))].slice(0, MAX_MCP_DISABLED_TOOLS)
+    // The exceptions are stored trimmed, de-duplicated by name and capped: they are written from a row of
+    // switches, and a map that grew with every press would eventually cost more than the listing it filters.
+    const toolModes = patch.toolModes === undefined
+      ? existing.row.toolModes
+      : Object.fromEntries(Object.entries(patch.toolModes)
+        .map(([name, mode]) => [name.trim().slice(0, MAX_MCP_TOOL_NAME_CHARS), mode] as const)
+        .filter(([name]) => Boolean(name))
+        .slice(0, MAX_MCP_TOOL_OVERRIDES))
     // A token is minted for one resource. Retyping the address of the server therefore takes the
     // authorization with it, rather than leaving a bearer from the old issuer to be offered to the new one.
     const urlChanged = patch.url !== undefined && patch.url !== existing.row.url
     await this.write(
       `UPDATE chat_mcp_servers
           SET label = ?2, url = ?3, description = ?4, transport = ?5, timeout_seconds = ?6, header_ciphertext = ?7,
-              enabled = ?8, tool_mode = ?9, disabled_tools = ?10, updated_at = ?11,
+              enabled = ?8, tool_mode = ?9, tool_modes = ?10, updated_at = ?11,
               oauth_ciphertext = CASE WHEN ?12 THEN '' ELSE oauth_ciphertext END,
               oauth_meta = CASE WHEN ?12 THEN '{}' ELSE oauth_meta END
         WHERE user_id = ?1 AND id = ?13`,
@@ -1984,13 +1999,13 @@ export class AssistantStore {
       ciphertext,
       patch.enabled === undefined ? (existing.row.enabled ? 1 : 0) : patch.enabled ? 1 : 0,
       patch.toolMode ?? existing.row.toolMode,
-      JSON.stringify(disabledTools),
+      JSON.stringify(toolModes),
       at,
       urlChanged ? 1 : 0,
       id,
     )
     const reread = await this.one<McpServerRow>(
-      `SELECT id, label, url, description, transport, timeout_seconds, length(header_ciphertext) > 0 AS has_key, oauth_meta, enabled, tool_mode, disabled_tools, created_at, updated_at
+      `SELECT id, label, url, description, transport, timeout_seconds, length(header_ciphertext) > 0 AS has_key, oauth_meta, enabled, tool_mode, tool_modes, created_at, updated_at
          FROM chat_mcp_servers WHERE user_id = ?1 AND id = ?2`,
       this.userId, id,
     )

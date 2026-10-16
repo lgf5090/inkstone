@@ -247,7 +247,7 @@ export const ASSISTANT_SCHEMA_STATEMENTS: readonly string[] = [
     timeout_seconds INTEGER NOT NULL DEFAULT 30,
     enabled INTEGER NOT NULL DEFAULT 1,
     tool_mode TEXT NOT NULL DEFAULT 'ask',
-    disabled_tools TEXT NOT NULL DEFAULT '[]',
+    tool_modes TEXT NOT NULL DEFAULT '{}',
     created_at INTEGER NOT NULL,
     updated_at INTEGER NOT NULL,
     PRIMARY KEY (user_id, id)
@@ -585,7 +585,7 @@ export const ASSISTANT_REQUIRED_COLUMNS: Readonly<Record<string, readonly string
   chat_conversation_tags: ['user_id', 'conversation_id', 'tag_id', 'created_at'],
   chat_messages: ['user_id', 'id', 'conversation_id', 'role', 'content', 'reasoning', 'tools', 'attachments', 'status', 'error', 'source', 'input_tokens', 'output_tokens', 'duration_ms', 'model_label', 'feedback', 'sources', 'created_at'],
   chat_answer_versions: ['user_id', 'id', 'message_id', 'conversation_id', 'content', 'reasoning', 'tools', 'model_label', 'input_tokens', 'output_tokens', 'duration_ms', 'created_at'],
-  chat_mcp_servers: ['user_id', 'id', 'label', 'url', 'description', 'transport', 'timeout_seconds', 'header_ciphertext', 'oauth_ciphertext', 'oauth_meta', 'enabled', 'tool_mode', 'disabled_tools', 'created_at', 'updated_at'],
+  chat_mcp_servers: ['user_id', 'id', 'label', 'url', 'description', 'transport', 'timeout_seconds', 'header_ciphertext', 'oauth_ciphertext', 'oauth_meta', 'enabled', 'tool_mode', 'tool_modes', 'created_at', 'updated_at'],
   chat_memories: ['user_id', 'id', 'content', 'category', 'source', 'status', 'superseded_by', 'valid_from', 'valid_until', 'created_at', 'updated_at'],
   chat_memory_embeddings: ['user_id', 'memory_id', 'model', 'vector', 'norm', 'updated_at'],
   chat_memory_reviews: ['user_id', 'id', 'memory_id', 'other_id', 'relationship', 'reason', 'created_at'],

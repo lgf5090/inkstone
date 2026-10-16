@@ -15,6 +15,7 @@ import type {
   AssistantMessage,
   AssistantMemory,
   AssistantMcpServer,
+  AssistantMcpTool,
   AssistantModel,
   AssistantProvider,
   AssistantSettings,
@@ -2563,7 +2564,7 @@ describe('external MCP servers', () => {
    */
   async function catalog() {
     return call<{
-      servers: { serverId: string, serverLabel: string, tools: { name: string, remoteName: string, description: string, disabled: boolean }[] }[]
+      servers: { serverId: string, serverLabel: string, tools: AssistantMcpTool[] }[]
       problems: { serverId: string }[]
     }>('GET', '/api/assistant/mcp/tools')
   }
@@ -2617,8 +2618,8 @@ describe('external MCP servers', () => {
       expect.stringMatching(/^mcp_[a-z0-9]+_drop_everything$/),
       expect.stringMatching(/^mcp_[a-z0-9]+_web_lookup$/),
     ])
-    // Nothing is switched off until the reader says so, and each row says what its own name is.
-    expect(tools.servers[0]?.tools.every((entry) => entry.disabled === false)).toBe(true)
+    // Nothing is answered for until the reader says so: every row runs under the server's own mode.
+    expect(tools.servers[0]?.tools.every((entry) => entry.mode === 'ask')).toBe(true)
     expect(tools.servers[0]?.tools.map((entry) => entry.remoteName)).toEqual(['resolve-library-id', 'drop_everything', 'web_lookup'])
     // The handshake asked for the session and echoed it back on the next call.
     expect(calls.some((entry) => entry.includes(':initialize:'))).toBe(true)
@@ -2758,18 +2759,19 @@ describe('external MCP servers', () => {
     vi.unstubAllGlobals()
   })
 
-  it('switches one tool off without touching its neighbours, and leaves it out of the turn', async () => {
+  it('answers for one tool without touching its neighbours, and leaves it out of the turn', async () => {
     await useExampleModel()
     const calls: string[] = []
     vi.stubGlobal('fetch', fakeMcpServer(calls))
     const created = await addServer()
-    await call('PATCH', `/api/assistant/mcp/${created.server.id}`, { toolMode: 'auto', disabledTools: ['drop_everything'] })
+    await call('PATCH', `/api/assistant/mcp/${created.server.id}`, { toolMode: 'auto', toolModes: { drop_everything: 'off' } })
     const resolveName = await offeredName('resolve-library-id')
 
     const listed = await catalog()
     const rows = listed.servers[0]!.tools
-    expect(rows.find((entry) => entry.remoteName === 'drop_everything')?.disabled).toBe(true)
-    expect(rows.find((entry) => entry.remoteName === 'resolve-library-id')?.disabled).toBe(false)
+    // The server says run directly; one of its tools disagrees, and each row shows its own answer.
+    expect(rows.find((entry) => entry.remoteName === 'drop_everything')?.mode).toBe('off')
+    expect(rows.find((entry) => entry.remoteName === 'resolve-library-id')?.mode).toBe('auto')
 
     // The model is not offered the switched-off tool at all: a schema would let it name one that can
     // never run, and the turn would then have to refuse after the fact.
@@ -2792,13 +2794,17 @@ describe('external MCP servers', () => {
     expect(names.some((name) => name.includes('drop_everything'))).toBe(false)
   })
 
-  it('refuses a switch list that is not a list of tool names', async () => {
+  it('refuses a per-tool answer that is not a map of the three words', async () => {
     vi.stubGlobal('fetch', fakeMcpServer([]))
     const created = await addServer()
-    expect(await status('PATCH', `/api/assistant/mcp/${created.server.id}`, { disabledTools: 'drop_everything' })).toBe(400)
-    expect(await status('PATCH', `/api/assistant/mcp/${created.server.id}`, { disabledTools: [7] })).toBe(200)
-    // The number is not a name and is dropped rather than stored, so nothing can be filtered by it later.
-    expect((await catalog()).servers[0]!.tools.every((entry) => entry.disabled === false)).toBe(true)
+    expect(await status('PATCH', `/api/assistant/mcp/${created.server.id}`, { toolModes: 'drop_everything' })).toBe(400)
+    expect(await status('PATCH', `/api/assistant/mcp/${created.server.id}`, { toolModes: ['drop_everything'] })).toBe(400)
+    // An unknown mode and an empty name are dropped rather than stored, so nothing is ever filtered by
+    // a word this app does not have.
+    const patched = await call<{ server: AssistantMcpServer }>('PATCH', `/api/assistant/mcp/${created.server.id}`, {
+      toolModes: { drop_everything: 'sometimes', '': 'off', web_lookup: 'auto' },
+    })
+    expect(patched.server.toolModes).toEqual({ web_lookup: 'auto' })
     vi.unstubAllGlobals()
   })
 

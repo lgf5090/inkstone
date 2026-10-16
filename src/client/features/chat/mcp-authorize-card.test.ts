@@ -10,7 +10,7 @@
 import { act, createElement } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import type { AssistantMcpProblem, AssistantMcpServer } from '@shared/assistant'
+import type { AssistantMcpCatalogEntry, AssistantMcpProblem, AssistantMcpServer } from '@shared/assistant'
 import { initI18n, t } from '../../lib/i18n'
 import { installTestGlobals } from '../../lib/test-render'
 import { useUi } from '../../store/ui'
@@ -34,10 +34,10 @@ vi.mock('../../lib/api', () => ({
   },
 }))
 
-const CATALOG = [{
+const CATALOG: AssistantMcpCatalogEntry[] = [{
   serverId: 's1',
   serverLabel: 'Example',
-  tools: [{ name: 'mcp_s1_do', remoteName: 'do', description: 'Does one thing', disabled: false }],
+  tools: [{ name: 'mcp_s1_do', remoteName: 'do', serverId: 's1', serverLabel: 'Example', description: 'Does one thing', mode: 'ask' }],
 }]
 
 const REFUSAL: AssistantMcpProblem = {
@@ -47,7 +47,7 @@ const REFUSAL: AssistantMcpProblem = {
 const serverOf = (over: Partial<AssistantMcpServer>): AssistantMcpServer => ({
   id: 's1', label: 'Example', url: 'https://mcp.example.test/mcp', description: '',
   transport: 'streamableHttp', timeoutSeconds: 30, enabled: true,
-  toolMode: 'ask', disabledTools: [], hasKey: false, authorization: null, createdAt: 1, updatedAt: 1,
+  toolMode: 'ask', toolModes: {}, hasKey: false, authorization: null, createdAt: 1, updatedAt: 1,
   ...over,
 })
 

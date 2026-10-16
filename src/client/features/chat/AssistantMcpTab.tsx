@@ -29,6 +29,8 @@ import {
   parseMcpServerJson,
   type AssistantMcpProblem,
   type AssistantMcpServer,
+  type AssistantMcpTool,
+  type AssistantMcpToolMode,
 } from '@shared/assistant'
 import { cn } from '../../lib/cn'
 import { matchesQuery } from '../../lib/fuzzy'
@@ -462,11 +464,11 @@ function ImportDialog({ open, onClose }: { open: boolean, onClose: () => void })
  * The header states the three things a reader needs before trusting a third party: whether it answers, what
  * it is allowed to do, and how many of its functions are on. The tools themselves are one press away rather
  * than always drawn — a server can offer two dozen of them, and a settings page that opens as a wall of
- * switches is one nobody checks.
+ * rows is one nobody checks.
  */
 function ServerCard({ server, tools, problem, loading, expanded, onToggleExpanded, onOpen, onEdit, onRemove }: {
   server: AssistantMcpServer
-  tools: { name: string, remoteName: string, description: string, disabled: boolean }[]
+  tools: AssistantMcpTool[]
   problem?: AssistantMcpProblem
   loading: boolean
   expanded: boolean
@@ -476,7 +478,7 @@ function ServerCard({ server, tools, problem, loading, expanded, onToggleExpande
   onRemove: () => void
 }) {
   const patchMcpServer = useAssistant((state) => state.patchMcpServer)
-  const setMcpToolsEnabled = useAssistant((state) => state.setMcpToolsEnabled)
+  const setMcpToolModes = useAssistant((state) => state.setMcpToolModes)
   const testMcpServer = useAssistant((state) => state.testMcpServer)
   const authorizeMcp = useAssistant((state) => state.authorizeMcp)
   const revokeMcp = useAssistant((state) => state.revokeMcp)
@@ -489,8 +491,9 @@ function ServerCard({ server, tools, problem, loading, expanded, onToggleExpande
   const needsLogin = Boolean(problem?.needsAuthorization) || Boolean(server.authorization && !server.authorization.authorized)
   const refusal = problem?.error ?? outcome
   const pinyinVersion = usePinyinVersion()
-  const off = useMemo(() => new Set(server.disabledTools), [server.disabledTools])
-  const on = tools.filter((tool) => !off.has(tool.remoteName)).length
+  const modeOf = (tool: AssistantMcpTool) => tool.mode ?? server.toolMode
+  const on = tools.filter((tool) => modeOf(tool) !== 'off').length
+  const [detail, setDetail] = useState<string | null>(null)
   const shown = useMemo(
     () => tools.filter((tool) => matchesQuery(`${tool.remoteName} ${tool.description}`, query)),
     // A Chinese name is matched through the dictionary, and a listing filtered before it lands is a
@@ -620,7 +623,9 @@ function ServerCard({ server, tools, problem, loading, expanded, onToggleExpande
                   size="sm"
                   variant="ghost"
                   disabled={on === tools.length}
-                  onClick={() => void setMcpToolsEnabled(server, tools.map((tool) => tool.remoteName), true)}
+                  onClick={() => void setMcpToolModes(server, Object.fromEntries(
+                    tools.map((tool): [string, AssistantMcpToolMode] => [tool.remoteName, server.toolMode]),
+                  ))}
                 >
                   {t('assistant.mcp.enable_all')}
                 </Button>
@@ -628,25 +633,49 @@ function ServerCard({ server, tools, problem, loading, expanded, onToggleExpande
                   size="sm"
                   variant="ghost"
                   disabled={on === 0}
-                  onClick={() => void setMcpToolsEnabled(server, tools.map((tool) => tool.remoteName), false)}
+                  onClick={() => void setMcpToolModes(server, Object.fromEntries(
+                    tools.map((tool): [string, AssistantMcpToolMode] => [tool.remoteName, 'off']),
+                  ))}
                 >
                   {t('assistant.mcp.disable_all')}
                 </Button>
               </div>
               <ul className="flex flex-col divide-y divide-[var(--border-subtle)]">
                 {shown.map((tool) => (
-                  <li key={tool.remoteName} className="flex items-start gap-2 py-1.5">
-                    <div className="min-w-0 flex-1">
-                      <p className="truncate font-mono text-[length:var(--text-11-5)] text-[var(--text-secondary)]">{tool.remoteName}</p>
-                      {tool.description && (
-                        <p className="line-clamp-2 text-[length:var(--text-10-5)] leading-relaxed text-[var(--text-quaternary)]">{tool.description}</p>
-                      )}
+                  <li key={tool.remoteName} className="flex flex-col gap-1 py-1.5">
+                    <div className="flex items-start gap-2">
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate font-mono text-[length:var(--text-11-5)] text-[var(--text-secondary)]">{tool.remoteName}</p>
+                        {tool.description && (
+                          <p className="line-clamp-2 text-[length:var(--text-10-5)] leading-relaxed text-[var(--text-quaternary)]">{tool.description}</p>
+                        )}
+                      </div>
+                      {/* One tool at a time, because "this server may write" and "this one function may write"
+                          are different questions and only the second one is usually the reader's answer. */}
+                      <Segmented
+                        size="sm"
+                        label={tool.remoteName}
+                        value={modeOf(tool)}
+                        options={ASSISTANT_MCP_TOOL_MODES.map((mode) => ({ value: mode, label: t(MCP_MODE_KEYS[mode]) }))}
+                        onChange={(mode) => void setMcpToolModes(server, { [tool.remoteName]: mode })}
+                      />
                     </div>
-                    <Switch
-                      label={tool.remoteName}
-                      checked={!off.has(tool.remoteName)}
-                      onChange={(next) => void setMcpToolsEnabled(server, [tool.remoteName], next)}
-                    />
+                    {tool.inputSchema && (
+                      <>
+                        <button
+                          type="button"
+                          aria-expanded={detail === tool.remoteName}
+                          onClick={() => setDetail(detail === tool.remoteName ? null : tool.remoteName)}
+                          className="inline-flex w-fit items-center gap-1 rounded-[var(--r-sm)] px-1 py-0.5 text-[length:var(--text-10-5)] text-[var(--text-quaternary)] transition-colors duration-[var(--dur-fast)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]"
+                        >
+                          <ChevronDown size={11} className={cn('transition-transform duration-[var(--dur-fast)]', detail === tool.remoteName && 'rotate-180')} />
+                          {t('assistant.mcp.tool_schema')}
+                        </button>
+                        {detail === tool.remoteName && (
+                          <pre className="max-h-56 overflow-auto rounded-[var(--r-sm)] bg-[var(--bg-surface)] p-1.5 text-[length:var(--text-10-5)] leading-relaxed text-[var(--text-tertiary)]">{tool.inputSchema}</pre>
+                        )}
+                      </>
+                    )}
                   </li>
                 ))}
               </ul>
