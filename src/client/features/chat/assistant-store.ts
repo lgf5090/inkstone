@@ -46,9 +46,9 @@ import { IS_DEMO_MODE } from '../../lib/runtime'
 import { streamAssistantTurn } from './stream'
 import { useUi } from '../../store/ui'
 
-export type AssistantView = 'chat' | 'memory' | 'tasks' | 'automations' | 'prompts' | 'settings'
+export type AssistantView = 'chat' | 'memory' | 'tasks' | 'automations' | 'prompts' | 'projects' | 'settings'
 
-export const ASSISTANT_VIEWS: readonly AssistantView[] = ['chat', 'memory', 'tasks', 'automations', 'prompts', 'settings']
+export const ASSISTANT_VIEWS: readonly AssistantView[] = ['chat', 'memory', 'tasks', 'automations', 'prompts', 'projects', 'settings']
 
 /** The four pickers the conversation list's tab strip offers, in the order it draws them. */
 export type ConversationListTab = 'folders' | 'tags' | 'starred' | 'pinned'
@@ -1401,7 +1401,7 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
 
   addProject: async (name) => {
     try {
-      await api.assistant.createProject(name)
+      await api.assistant.createProject({ name })
       await get().loadProjects()
     } catch (error) {
       toast(error)

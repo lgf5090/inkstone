@@ -982,7 +982,7 @@ export class AssistantStore {
     }
     const limitBind = q.add(limit)
     const list = await this.rows<ConversationRow>(
-      `SELECT c.id, c.title, c.summary, c.summary_upto, c.pinned, c.starred, c.folder_id, c.created_at, c.updated_at,
+      `SELECT c.id, c.title, c.summary, c.summary_upto, c.pinned, c.starred, c.folder_id, c.project_id, c.created_at, c.updated_at,
               (SELECT count(*) FROM chat_messages m WHERE m.conversation_id = c.id) AS message_count
          FROM chat_conversations c WHERE ${q.where}
          ORDER BY c.updated_at DESC LIMIT ${limitBind}`,
@@ -1038,6 +1038,21 @@ export class AssistantStore {
       }
     }
     return [...found]
+  }
+
+  /**
+   * Files a conversation under a project, which is what gives it the project's instructions.
+   *
+   * A project that no longer exists is refused rather than silently kept: a conversation whose project
+   * row vanished must not go on answering under instructions nobody can see or edit.
+   */
+  async setConversationProject(id: string, projectId: string | null): Promise<boolean> {
+    if (projectId && !(await this.getProject(projectId))) return false
+    const result = await this.write(
+      `UPDATE chat_conversations SET project_id = ?3, updated_at = ?4 WHERE user_id = ?1 AND id = ?2`,
+      id, projectId, Date.now(),
+    )
+    return result > 0
   }
 
   async setConversationFolder(id: string, folderId: string | null): Promise<void> {
@@ -1145,7 +1160,7 @@ export class AssistantStore {
 
   async getConversation(id: string): Promise<AssistantConversation | null> {
     const r = await this.one<ConversationRow>(
-      `SELECT c.id, c.title, c.summary, c.summary_upto, c.pinned, c.starred, c.folder_id, c.created_at, c.updated_at,
+      `SELECT c.id, c.title, c.summary, c.summary_upto, c.pinned, c.starred, c.folder_id, c.project_id, c.created_at, c.updated_at,
               (SELECT count(*) FROM chat_messages m WHERE m.conversation_id = c.id) AS message_count
          FROM chat_conversations c WHERE c.user_id = ?1 AND c.id = ?2`,
       this.userId, id,
@@ -2177,21 +2192,29 @@ export class AssistantStore {
       `INSERT INTO chat_projects (id, user_id, name, description, created_at, updated_at) VALUES (?2, ?1, ?3, ?4, ?5, ?6)`,
       id, name, description, at, at,
     )
-    return { id, name, description, createdAt: at, updatedAt: at }
+    return { id, name, description, instructions: '', noteScope: [], modelId: null, createdAt: at, updatedAt: at }
   }
 
-  async updateProject(id: string, patch: { name?: string, description?: string }): Promise<Project | null> {
+  async updateProject(id: string, patch: {
+    name?: string, description?: string, instructions?: string,
+    noteScope?: string[], modelId?: string | null,
+  }): Promise<Project | null> {
     const existing = await this.getProject(id)
     if (!existing) return null
     const next: Project = {
       ...existing,
       ...(patch.name !== undefined ? { name: patch.name.trim() } : {}),
       ...(patch.description !== undefined ? { description: patch.description } : {}),
+      ...(patch.instructions !== undefined ? { instructions: patch.instructions } : {}),
+      ...(patch.noteScope !== undefined ? { noteScope: patch.noteScope } : {}),
+      ...(patch.modelId !== undefined ? { modelId: patch.modelId } : {}),
       updatedAt: Date.now(),
     }
     await this.write(
-      `UPDATE chat_projects SET name = ?2, description = ?3, updated_at = ?4 WHERE user_id = ?1 AND id = ?5`,
-      next.name, next.description, next.updatedAt, id,
+      `UPDATE chat_projects SET name = ?2, description = ?3, instructions = ?4, note_scope = ?5,
+         model_id = ?6, updated_at = ?7 WHERE user_id = ?1 AND id = ?8`,
+      next.name, next.description, next.instructions, JSON.stringify(next.noteScope),
+      next.modelId, next.updatedAt, id,
     )
     return next
   }
@@ -3030,6 +3053,7 @@ interface ConversationRow {
   pinned: number
   starred: number
   folder_id: string | null
+  project_id: string | null
   created_at: number
   updated_at: number
   message_count: number
@@ -3042,6 +3066,7 @@ function toConversation(r: ConversationRow): AssistantConversation {
     pinned: bool(r.pinned),
     starred: bool(r.starred),
     folderId: r.folder_id ?? null,
+    ...(r.project_id ? { projectId: r.project_id } : {}),
     createdAt: r.created_at,
     updatedAt: r.updated_at,
     messageCount: r.message_count ?? 0,
@@ -3110,12 +3135,24 @@ interface ProjectRow {
   id: string
   name: string
   description: string | null
+  instructions: string | null
+  note_scope: string | null
+  model_id: string | null
   created_at: number
   updated_at: number
 }
 
 function toProject(r: ProjectRow): Project {
-  return { id: r.id, name: r.name, description: r.description ?? '', createdAt: r.created_at, updatedAt: r.updated_at }
+  return {
+    id: r.id,
+    name: r.name,
+    description: r.description ?? '',
+    instructions: r.instructions ?? '',
+    noteScope: decodeStringList(r.note_scope),
+    modelId: r.model_id,
+    createdAt: r.created_at,
+    updatedAt: r.updated_at,
+  }
 }
 
 interface AutomationRow {

@@ -899,7 +899,6 @@ const allowed = new Map([
     "// Another device, or the backfill this row itself starts, can leave the saved model behind the one",
     "// the field shows; the field follows the setting rather than the other way round.",
     "/* The model a reader picks is what the next write embeds with, so the field stays reachable on a\n          deployment that has no binding yet — the same rule the switch follows. */",
-    "// The list is a flat set of parent pointers; the scope is read by a person, so show the path.",
   ]],
   ["src/client/features/chat/AssistantModelTab.tsx", [
     "/**\n * The model tab: which provider answers, and which of its models are on.\n *\n * The provider rows and the add-provider form are one surface, because the form is how a provider\n * arrives — including the question it asks the vendor before anything is saved, so the ids it stores are\n * the ones that key can really call rather than a preset's guess.\n */",
@@ -1237,10 +1236,19 @@ const allowed = new Map([
     "// What the footer is about to do, said in the two numbers the save reports: a saved provider's",
     "// checklist changes in both directions, and \"add 2\" alone would hide the row it is deleting.",
   ]],
+  ["src/client/features/chat/NoteScopePicker.tsx", [
+    "/**\n * Choosing which folders the assistant may read.\n *\n * Two surfaces ask the same question — the account's standing scope, and one project's knowledge — so the\n * picker is one component with a value and a change handler rather than two lists that drift apart. The\n * paths are shown rather than names because a vault has two \"Notes\" before lunch.\n *\n * The list is capped because the scope travels in the system prompt on every turn: a reader who selects\n * the whole tree one folder at a time would be paying for that list with every message.\n */",
+  ]],
   ["src/client/features/chat/NotificationCenter.tsx", [
     "/**\n * The notification centre: what the schedules delivered.\n *\n * It is a drawer rather than a page because a reminder is read on the way past, not navigated to.\n * The bodies arrive as Markdown from the digest and from an AI routine, so they are rendered through\n * the same sanitized pipeline as a reply rather than as raw text.\n */",
     "// A collapsed row shows one line; expanding it must not re-parse the body on every keystroke.",
     "/* The rows are one card rather than a stack of floating boxes: at 380px the per-row border\n                doubled the visible edges and made a short list read as three unrelated things. */",
+  ]],
+  ["src/client/features/chat/ProjectsView.tsx", [
+    "/**\n * The projects screen: standing briefs the assistant answers under.\n *\n * A project is not another place to file things — conversations already live in the notebook's folders.\n * It is a brief and a knowledge selection that every conversation inside it inherits, which is what makes\n * it different from a folder: the folder says where a thread sits, the project says what it is about.\n *\n * Kept lean on purpose: the list, the editor, and which project the current conversation belongs to. The\n * editor is where the real content is — instructions and the folders whose notes the assistant may read —\n * so it gets the room and the list does not.\n */",
+    "// A write changes both the project rows and which conversation sits in which, so both are re-read;",
+    "// `bootstrap` alone would leave the list showing the project the reader just made.",
+    "/* Filing is done here rather than by dragging, because what a drag means here is\n                      \"answer under this brief\", which is worth seeing spelled out. */",
   ]],
   ["src/client/features/chat/PromptsView.tsx", [
     "/**\n * The reader's own prompt library.\n *\n * A prompt is a piece of the reader's work, not a setting: it is written once and pasted into many\n * conversations, so it gets its own view, its own search, and a delete that asks first. The composer\n * reads the same list through the store, which is why nothing here keeps a copy.\n */",
@@ -14380,6 +14388,7 @@ const allowed = new Map([
     "/** The folder the notebook was filtered to, named as a path. */",
     "// What the reader had on screen. It sits after the scope lines on purpose: the scope is what the",
     "// turn is *allowed* to reach, and this is what it was *asked* about, so the permission reads first.",
+    "/** The project this conversation belongs to, whose brief and knowledge it inherits. */",
   ]],
   ["src/shared/assistant-schedule.ts", [
     "/**\n * Wall-clock schedules for the assistant's automations.\n *\n * Every rule is stored as a wall-clock time plus the owner's IANA timezone, because \"remind me at\n * 09:00\" means nine o'clock *where the reader is*, not nine o'clock in UTC. The conversions below\n * are the only place that answer that question, so a reminder, a task due date and the cron tick all\n * agree about what \"today\" is.\n *\n * Daylight saving:\n *  - a wall time inside the spring-forward gap runs at the first valid instant after the gap;\n *  - a wall time that occurs twice in the fall-back overlap runs once, at the earlier occurrence.\n */",
@@ -14559,6 +14568,11 @@ const allowed = new Map([
     "/**\n   * The pages a web search consulted, quoted from the vendor's own report.\n   *\n   * Kept with the answer because a claim that came from somewhere outside the vault has to say where:\n   * the reader is deciding whether to believe a sentence, and \"I searched the web\" is not a source.\n   * Empty for every turn that did not search.\n   */",
     "/** The link a published conversation is read at, in the shape every share in this app uses. */",
     "/**\n * A published conversation as a stranger reads it.\n *\n * Every field here is one somebody looking over the reader's shoulder would have seen: who spoke, what\n * they said, when, which model answered, and the pages a search consulted. Reasoning, tool rows and\n * attachments are deliberately absent — they quote the reader's own notes and files — and the worker\n * builds this shape instead of stripping a row, so nothing new can leak into it by being added to a\n * message later.\n */",
+    "/** The project this conversation belongs to, whose instructions and knowledge it inherits. */",
+    "/** The project this turn was answered under, so the thread can say where its brief came from. */",
+    "/**\n   * What every conversation inside this project is answered under.\n   *\n   * It rides in the system prompt beside the reader's own instructions, so it is a standing brief rather\n   * than a per-turn one — the reason a project exists at all, as opposed to a folder that only files.\n   */",
+    "/**\n   * The folders this project reads its knowledge from, as folder ids.\n   *\n   * Empty is \"the account's own scope answers\", not \"nothing\": a project that names no folders has not\n   * said anything, and saying nothing cannot narrow what the reader already allowed.\n   */",
+    "/** The model this project prefers, when the reader has said so. */",
   ]],
   ["src/shared/backup-format.ts", [
     "/** The account's own template library, absent from a backup taken before it was worth keeping. */",
@@ -15363,6 +15377,12 @@ const allowed = new Map([
     "// What a search found. Collected as it arrives rather than at the end because the vendor reports",
     "// it beside the text it feeds; Gemini repeats its whole list on every frame, so the same page",
     "// would otherwise be listed a dozen times.",
+    "/** Set with the conversation, before anything asks for the scope or the prompt. */",
+    "// The project comes from the row that was just read, so a conversation moved between projects is",
+    "// answered under the one it is in now.",
+    "// The project's folders narrow, never widen: where they and the account's scope do not meet, the",
+    "// account's own permission stands and the project contributes no folder of its own.",
+    "/**\n   * The conversation's project, resolved once per turn.\n   *\n   * Its brief rides in the prompt and its folders narrow what the note tools may read — the narrow\n   * direction only, because a project is the reader telling the assistant what this work is about, not a\n   * second permission. When the two scopes do not overlap the project's is dropped rather than left as a\n   * set with nothing in it, which would make every tool answer \"not found\" for a reason the reader\n   * cannot see.\n   */",
   ]],
   ["src/worker/assistant/scheduler.ts", [
     "/**\n * The minute sweep that runs what is due.\n *\n * Wired into the worker's cron handler alongside the existing queue drains, and deliberately kept out\n * of the hourly branch: a reminder is cheap and late delivery is visible, while the heavy work that\n * runs on the hour (backups, attachment cleanup) must not be able to take the reminders down with it.\n *\n * A routine that calls a model can outlive the sweep that started it, so each automation is claimed\n * before it runs and the claim is only released when it is re-armed — which is what stops a slow AI\n * digest from being started twice by two overlapping ticks.\n */",
@@ -15561,6 +15581,7 @@ const allowed = new Map([
     "/** Midnight UTC of a `YYYY-MM-DD` day, which is the frame the daily counters are written in. */",
     "/** The day `count` days before `day`, so a window of 7 includes today. */",
     "/**\n * The pages a stored answer searched.\n *\n * Read the same forgiving way tools are: a row written by an older build, or a backup from one, simply\n * has no sources, and a malformed entry is dropped rather than failing the whole transcript read.\n */",
+    "/**\n   * Files a conversation under a project, which is what gives it the project's instructions.\n   *\n   * A project that no longer exists is refused rather than silently kept: a conversation whose project\n   * row vanished must not go on answering under instructions nobody can see or edit.\n   */",
   ]],
   ["src/worker/assistant/tools.ts", [
     "/**\n * The tools the assistant can reach, and the executor that runs them.\n *\n * Three things are enforced here rather than asked of the model, because a model that is confident and\n * wrong is the failure mode this app has to survive:\n *  - **budgets** — a per-turn call cap, a per-tool cap and a duplicate-call refusal, so a reasoning\n *    loop cannot spend the reader's AI quota or write a hundred tasks;\n *  - **validation** — arguments are checked against the same declaration that generates the JSON\n *    Schema the provider is given, so the two can never disagree;\n *  - **approval** — a destructive tool never runs during the turn. `prepare` resolves the exact target\n *    and writes a pending action; `commit` runs only when the reader presses Approve, once, on that\n *    target. The model can propose; it cannot delete.\n *\n * Scheduled runs get read-only tools plus `notify_reader`, so a routine that has drifted cannot edit\n * the vault while nobody is watching.\n */",
@@ -15965,6 +15986,10 @@ const allowed = new Map([
     "// in, and a closed list would be a list this app has to keep up to date for no gain.",
     "// The pages a web search consulted. A JSON array on the row because it is read with the answer and",
     "// written once: a table of sources would be joined for every message to show a list of links.",
+    "// A project's standing instructions: the text every conversation inside it is answered under.",
+    "// The folders a project reads its knowledge from, as a JSON array of folder ids.",
+    "// The model a project prefers, when the reader has said so.",
+    "// Which project a conversation belongs to.",
   ]],
   ["src/worker/db/writes.ts", [
     "/** Keeps tags, backlinks, full-text indexes, and change records consistent with note writes. */",
@@ -16457,6 +16482,9 @@ const allowed = new Map([
     "/** A published link, in the shape the settings panel draws. */",
     "/**\n * The link a conversation is published behind, if any.\n *\n * Emitted with the origin in it because the reader's next act is to paste it somewhere; the settings\n * panel is the only caller, and a client that had to assemble a URL would be a second place the format\n * lives.\n */",
     "/**\n * Publishes a conversation, or refreshes the link it already has.\n *\n * `rotate` is the reader's \"give me a new address\" — the old slug stops resolving the moment it lands,\n * which is the only way to un-share a link somebody already has a copy of. Everything else about the\n * request is optional and keeps what it had, so the panel can send one field at a time.\n */",
+    "// Null is a real answer — the conversation leaves the project — and an unknown id is refused rather",
+    "// than kept, so a conversation cannot go on inheriting instructions nobody can edit.",
+    "// A standing brief is read every turn in the project, so it gets the same ceiling as a message.",
   ]],
   ["src/worker/routes/auth.ts", [
     "// Account-wide cap so a distributed botnet cannot retry one account",

@@ -1174,6 +1174,38 @@ export const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
     ],
   },
   {
+    // A project's standing instructions: the text every conversation inside it is answered under.
+    version: 69,
+    skipIfColumnExists: { table: 'chat_projects', column: 'instructions' },
+    statements: [
+      `ALTER TABLE chat_projects ADD COLUMN instructions TEXT NOT NULL DEFAULT ''`,
+    ],
+  },
+  {
+    // The folders a project reads its knowledge from, as a JSON array of folder ids.
+    version: 70,
+    skipIfColumnExists: { table: 'chat_projects', column: 'note_scope' },
+    statements: [
+      `ALTER TABLE chat_projects ADD COLUMN note_scope TEXT NOT NULL DEFAULT '[]'`,
+    ],
+  },
+  {
+    // The model a project prefers, when the reader has said so.
+    version: 71,
+    skipIfColumnExists: { table: 'chat_projects', column: 'model_id' },
+    statements: [
+      `ALTER TABLE chat_projects ADD COLUMN model_id TEXT`,
+    ],
+  },
+  {
+    // Which project a conversation belongs to.
+    version: 72,
+    skipIfColumnExists: { table: 'chat_conversations', column: 'project_id' },
+    statements: [
+      `ALTER TABLE chat_conversations ADD COLUMN project_id TEXT`,
+    ],
+  },
+  {
     // The pages a web search consulted. A JSON array on the row because it is read with the answer and
     // written once: a table of sources would be joined for every message to show a list of links.
     version: 68,

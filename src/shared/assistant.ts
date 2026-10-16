@@ -666,6 +666,8 @@ export interface AssistantConversation {
   starred: boolean
   /** A folder from the notebook's own tree; null means the conversation is unfiled. */
   folderId: string | null
+  /** The project this conversation belongs to, whose instructions and knowledge it inherits. */
+  projectId?: string | null
   createdAt: number
   updatedAt: number
   messageCount: number
@@ -1186,6 +1188,8 @@ export interface AssistantMessage {
    * Empty for every turn that did not search.
    */
   sources?: AssistantSource[]
+  /** The project this turn was answered under, so the thread can say where its brief came from. */
+  projectId?: string | null
   /**
    * Attachment ids this message carries, in the order the reader added them. The bytes live under the
    * chat's own object prefix; the ids are what both the transcript and the model call need.
@@ -1284,6 +1288,22 @@ export interface Project {
   id: string
   name: string
   description: string
+  /**
+   * What every conversation inside this project is answered under.
+   *
+   * It rides in the system prompt beside the reader's own instructions, so it is a standing brief rather
+   * than a per-turn one — the reason a project exists at all, as opposed to a folder that only files.
+   */
+  instructions: string
+  /**
+   * The folders this project reads its knowledge from, as folder ids.
+   *
+   * Empty is "the account's own scope answers", not "nothing": a project that names no folders has not
+   * said anything, and saying nothing cannot narrow what the reader already allowed.
+   */
+  noteScope: string[]
+  /** The model this project prefers, when the reader has said so. */
+  modelId: string | null
   createdAt: number
   updatedAt: number
 }

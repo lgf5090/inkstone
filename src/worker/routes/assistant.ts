@@ -683,7 +683,7 @@ assistantRoutes.patch('/conversations/:id', async (c) => {
   const s = store(c)
   const id = requiredId(c.req.param('id'))
   if (!(await s.getConversation(id))) throw ApiError.notFound('Conversation not found')
-  const body = await readJson<{ title?: unknown, pinned?: unknown, starred?: unknown, folderId?: unknown }>(c, JSON_BODY_LIMITS.small)
+  const body = await readJson<{ title?: unknown, pinned?: unknown, starred?: unknown, folderId?: unknown, projectId?: unknown }>(c, JSON_BODY_LIMITS.small)
   if (typeof body.title === 'string') await s.renameConversation(id, text(body.title, MAX_CONVERSATION_TITLE_CHARS))
   if (typeof body.pinned === 'boolean') await s.setConversationPinned(id, body.pinned)
   if (typeof body.starred === 'boolean') await s.setConversationStarred(id, body.starred)
@@ -691,6 +691,13 @@ assistantRoutes.patch('/conversations/:id', async (c) => {
   else if (typeof body.folderId === 'string') {
     if (!isValidId(body.folderId) || !(await s.knownFolder(body.folderId))) throw ApiError.badRequest('Unknown folder.')
     await s.setConversationFolder(id, body.folderId)
+  }
+  // Null is a real answer — the conversation leaves the project — and an unknown id is refused rather
+  // than kept, so a conversation cannot go on inheriting instructions nobody can edit.
+  if (body.projectId === null) await s.setConversationProject(id, null)
+  else if (typeof body.projectId === 'string') {
+    if (!isValidId(body.projectId) || !(await s.getProject(body.projectId))) throw ApiError.badRequest('Unknown project.')
+    await s.setConversationProject(id, body.projectId)
   }
   const conversation = await s.getConversation(id)
   if (conversation) conversation.tags = (await s.tagsForConversations([id])).get(id) ?? []
@@ -1194,10 +1201,18 @@ assistantRoutes.post('/projects', async (c) => {
 assistantRoutes.patch('/projects/:id', async (c) => {
   const s = store(c)
   const id = requiredId(c.req.param('id'))
-  const body = await readJson<{ name?: unknown, description?: unknown }>(c, JSON_BODY_LIMITS.small)
+  const body = await readJson<{ name?: unknown, description?: unknown, instructions?: unknown, noteScope?: unknown, modelId?: unknown }>(c, JSON_BODY_LIMITS.small)
   const project = await s.updateProject(id, {
     ...(body.name !== undefined ? { name: text(body.name, 200) } : {}),
     ...(body.description !== undefined ? { description: optionalText(body.description, 2000) ?? '' } : {}),
+    // A standing brief is read every turn in the project, so it gets the same ceiling as a message.
+    ...(body.instructions !== undefined ? { instructions: text(body.instructions, MAX_MESSAGE_CHARS) } : {}),
+    ...(Array.isArray(body.noteScope)
+      ? { noteScope: body.noteScope.filter((id): id is string => typeof id === 'string' && isValidId(id)).slice(0, 12) }
+      : {}),
+    ...(body.modelId !== undefined
+      ? { modelId: body.modelId === null ? null : isValidId(body.modelId) ? body.modelId : undefined }
+      : {}),
   })
   if (!project) throw ApiError.notFound('Project not found')
   return c.json({ project })

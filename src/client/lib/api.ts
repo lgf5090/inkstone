@@ -791,6 +791,8 @@ export const api = {
         body: folderId === undefined ? { title } : { title, folderId },
       }),
     /** A folder from the notebook's tree; null files the conversation back to unfiled. */
+    setConversationProject: (id: string, projectId: string | null) =>
+      request<{ conversation: AssistantConversation }>(`/api/assistant/conversations/${id}`, { method: 'PATCH', body: { projectId } }),
     moveConversation: (id: string, folderId: string | null) =>
       request<{ conversation: AssistantConversation }>(`/api/assistant/conversations/${id}`, { method: 'PATCH', body: { folderId } }),
     conversationShare: (id: string, signal?: AbortSignal) =>
@@ -953,8 +955,11 @@ export const api = {
       request<{ task: AssistantTask }>(`/api/assistant/tasks/${id}`, { method: 'PATCH', body }),
     deleteTask: (id: string) => request<{ deleted: true }>(`/api/assistant/tasks/${id}`, { method: 'DELETE' }),
     projects: () => request<{ projects: AssistantProject[] }>('/api/assistant/projects'),
-    createProject: (name: string, description?: string) =>
-      request<{ project: AssistantProject }>('/api/assistant/projects', { method: 'POST', body: { name, description } }),
+    getProject: (id: string) => request<{ project: AssistantProject }>(`/api/assistant/projects/${id}`),
+    createProject: (body: { name: string, description?: string }) =>
+      request<{ project: AssistantProject }>('/api/assistant/projects', { method: 'POST', body }),
+    updateProject: (id: string, body: { name?: string, description?: string, instructions?: string, noteScope?: string[], modelId?: string | null }) =>
+      request<{ project: AssistantProject }>(`/api/assistant/projects/${id}`, { method: 'PATCH', body }),
     deleteProject: (id: string) => request<{ deleted: true }>(`/api/assistant/projects/${id}`, { method: 'DELETE' }),
     automations: () =>
       request<{ automations: AssistantAutomation[], runs: AssistantAutomationRun[], timezone: string }>('/api/assistant/automations'),

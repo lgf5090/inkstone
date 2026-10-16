@@ -4,7 +4,6 @@
 import { useEffect, useState } from 'react'
 import { type AssistantSettings } from '@shared/assistant'
 import { SEMANTIC_MODEL_PATTERN } from '@shared/assistant'
-import { cn } from '../../lib/cn'
 import { t } from '../../lib/i18n'
 import { api } from '../../lib/api'
 import { Button } from '../../components/primitives'
@@ -13,6 +12,7 @@ import { confirm } from '../../components/overlay'
 import { useUi } from '../../store/ui'
 import { useAssistant } from './assistant-store'
 import { Group } from './assistant-settings-shared'
+import { NoteScopePicker } from './NoteScopePicker'
 
 export function MemoryTab({ settings }: { settings: AssistantSettings }) {
   const saveSettings = useAssistant((state) => state.saveSettings)
@@ -178,59 +178,14 @@ function SemanticRecallRow({ settings }: { settings: AssistantSettings }) {
 function NoteScopeRow() {
   const settings = useAssistant((state) => state.settings)
   const saveSettings = useAssistant((state) => state.saveSettings)
-  const [folders, setFolders] = useState<{ id: string, path: string }[]>([])
-
-  useEffect(() => {
-    void api.folders.list().then((result) => {
-      // The list is a flat set of parent pointers; the scope is read by a person, so show the path.
-      const byId = new Map(result.folders.map((folder) => [folder.id, folder]))
-      const pathOf = (id: string): string => {
-        const parts: string[] = []
-        let cursor = byId.get(id)
-        for (let depth = 0; cursor && depth < 12; depth++) {
-          parts.unshift(cursor.name)
-          cursor = cursor.parentId ? byId.get(cursor.parentId) : undefined
-        }
-        return parts.join(' / ')
-      }
-      setFolders(result.folders.map((folder) => ({ id: folder.id, path: pathOf(folder.id) })))
-    }).catch(() => setFolders([]))
-  }, [])
-
   const scope = settings?.noteScope ?? []
-  const toggle = (id: string) => {
-    const next = scope.includes(id) ? scope.filter((entry) => entry !== id) : [...scope, id]
-    void saveSettings({ noteScope: next.slice(0, 12) })
-  }
-
   return (
     <Group title={t('assistant.settings.note_scope')}>
       <div className="py-3">
         <p className="text-[length:var(--text-12)] leading-relaxed text-[var(--text-tertiary)]">{t('assistant.settings.note_scope_hint')}</p>
-        {folders.length === 0 ? (
-          <p className="mt-2 text-[length:var(--text-11-5)] text-[var(--text-quaternary)]">{t('assistant.settings.note_scope_none')}</p>
-        ) : (
-          <ul className="mt-2 flex max-h-52 flex-col gap-px overflow-y-auto">
-            {folders.map((folder) => (
-              <li key={folder.id}>
-                <button
-                  type="button"
-                  aria-pressed={scope.includes(folder.id)}
-                  onClick={() => toggle(folder.id)}
-                  className={cn(
-                    'flex w-full items-center gap-2 rounded-[var(--r-sm)] px-2 py-1 text-left text-[length:var(--text-12-5)]',
-                    scope.includes(folder.id)
-                      ? 'bg-[var(--accent-soft)] text-[var(--accent-on-soft)]'
-                      : 'text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]',
-                  )}
-                >
-                  <span aria-hidden className={cn('size-2 shrink-0 rounded-full border', scope.includes(folder.id) ? 'border-[var(--accent)] bg-[var(--accent)]' : 'border-[var(--border-strong)]')} />
-                  <span className="min-w-0 truncate">{folder.path}</span>
-                </button>
-              </li>
-            ))}
-          </ul>
-        )}
+        <div className="mt-2">
+          <NoteScopePicker value={scope} onChange={(ids) => void saveSettings({ noteScope: ids })} />
+        </div>
       </div>
     </Group>
   )

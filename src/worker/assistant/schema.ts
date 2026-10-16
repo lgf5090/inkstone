@@ -92,6 +92,7 @@ export const ASSISTANT_SCHEMA_STATEMENTS: readonly string[] = [
     pinned INTEGER NOT NULL DEFAULT 0,
     starred INTEGER NOT NULL DEFAULT 0,
     folder_id TEXT,
+    project_id TEXT,
     created_at INTEGER NOT NULL,
     updated_at INTEGER NOT NULL,
     PRIMARY KEY (user_id, id)
@@ -100,6 +101,8 @@ export const ASSISTANT_SCHEMA_STATEMENTS: readonly string[] = [
      ON chat_conversations(user_id, updated_at DESC, id)`,
   `CREATE INDEX IF NOT EXISTS idx_chat_conversations_folder
      ON chat_conversations(user_id, folder_id, updated_at DESC)`,
+  `CREATE INDEX IF NOT EXISTS idx_chat_conversations_project
+     ON chat_conversations(user_id, project_id, updated_at DESC)`,
 
   // The chat's own uploads: a pasted picture or a dropped document that feeds one turn. The key column
   // is the R2 object path, so deleting the row and deleting the object are the same operation.
@@ -278,6 +281,9 @@ export const ASSISTANT_SCHEMA_STATEMENTS: readonly string[] = [
     id TEXT NOT NULL,
     name TEXT NOT NULL,
     description TEXT NOT NULL DEFAULT '',
+    instructions TEXT NOT NULL DEFAULT '',
+    note_scope TEXT NOT NULL DEFAULT '[]',
+    model_id TEXT,
     created_at INTEGER NOT NULL,
     updated_at INTEGER NOT NULL,
     PRIMARY KEY (user_id, id)
@@ -457,6 +463,7 @@ export const ASSISTANT_REQUIRED_INDEXES: readonly string[] = [
   'idx_chat_models_provider',
   'idx_chat_conversations_user',
   'idx_chat_conversations_folder',
+  'idx_chat_conversations_project',
   'idx_chat_attachments_user',
   'idx_chat_conversation_tags_tag',
   'idx_chat_messages_conversation',
@@ -488,13 +495,14 @@ export const ASSISTANT_REQUIRED_INDEXES: readonly string[] = [
 
 export const ASSISTANT_REQUIRED_COLUMNS: Readonly<Record<string, readonly string[]>> = {
   chat_settings: ['user_id', 'config', 'updated_at'],
+  chat_projects: ['user_id', 'id', 'name', 'description', 'instructions', 'note_scope', 'model_id', 'created_at', 'updated_at'],
   chat_usage_daily_model: ['user_id', 'day', 'model_label', 'requests', 'input_tokens', 'output_tokens', 'tool_calls', 'errors'],
   chat_share_links: ['slug', 'conversation_id', 'user_id', 'password_hash', 'expires_at', 'views', 'created_at'],
   chat_providers: ['user_id', 'id', 'label', 'protocol', 'base_url', 'endpoints', 'reasoning_dialect', 'key_ciphertext', 'created_at', 'updated_at'],
   chat_models: ['user_id', 'id', 'provider_id', 'model', 'label', 'temperature', 'max_output_tokens', 'reasoning', 'context_tokens', 'vision',
     'purpose', 'kind', 'supports_tools', 'max_input_tokens', 'modalities', 'top_p', 'custom_params', 'protocol',
     'input_price', 'output_price', 'price_currency', 'enabled', 'position'],
-  chat_conversations: ['user_id', 'id', 'title', 'summary', 'summary_upto', 'pinned', 'starred', 'folder_id', 'created_at', 'updated_at'],
+  chat_conversations: ['user_id', 'id', 'title', 'summary', 'summary_upto', 'pinned', 'starred', 'folder_id', 'project_id', 'created_at', 'updated_at'],
   chat_attachments: ['user_id', 'id', 'kind', 'filename', 'mime', 'size', 'key', 'created_at'],
   chat_conversation_tags: ['user_id', 'conversation_id', 'tag_id', 'created_at'],
   chat_messages: ['user_id', 'id', 'conversation_id', 'role', 'content', 'reasoning', 'tools', 'attachments', 'status', 'error', 'source', 'input_tokens', 'output_tokens', 'duration_ms', 'model_label', 'feedback', 'sources', 'created_at'],
@@ -504,7 +512,6 @@ export const ASSISTANT_REQUIRED_COLUMNS: Readonly<Record<string, readonly string
   chat_memory_embeddings: ['user_id', 'memory_id', 'model', 'vector', 'norm', 'updated_at'],
   chat_memory_reviews: ['user_id', 'id', 'memory_id', 'other_id', 'relationship', 'reason', 'created_at'],
   chat_tasks: ['user_id', 'id', 'title', 'description', 'status', 'priority', 'due_at', 'project_id', 'created_at', 'updated_at', 'completed_at'],
-  chat_projects: ['user_id', 'id', 'name', 'description', 'created_at', 'updated_at'],
   chat_automations: ['user_id', 'id', 'name', 'kind', 'message', 'schedule', 'enabled', 'status', 'next_run', 'last_run', 'last_result', 'last_error', 'run_count', 'claimed_at', 'created_at', 'updated_at'],
   chat_runs: ['user_id', 'id', 'automation_id', 'automation_name', 'started_at', 'finished_at', 'status', 'result', 'error'],
   chat_notifications: ['user_id', 'id', 'title', 'body', 'automation_id', 'read_at', 'created_at'],

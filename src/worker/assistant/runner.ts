@@ -133,6 +133,8 @@ export class AssistantRunner {
   private contextNoteId: string | null = null
   private contextFolderId: string | null = null
   private contextPromise: Promise<{ openNote: { id: string, title: string } | null, browsingFolder: string | null }> | null = null
+  /** Set with the conversation, before anything asks for the scope or the prompt. */
+  private conversationProjectId: string | null = null
   /** Set when a step's model call was cut off at the output cap instead of stopping by itself. */
   private turnTruncated = false
 
@@ -171,6 +173,9 @@ export class AssistantRunner {
     this.contextNoteId = isValidId(input.contextNoteId ?? '') ? input.contextNoteId! : null
     this.contextFolderId = isValidId(input.contextFolderId ?? '') ? input.contextFolderId! : null
     let conversation = input.conversationId ? await this.store.getConversation(input.conversationId) : null
+    // The project comes from the row that was just read, so a conversation moved between projects is
+    // answered under the one it is in now.
+    this.conversationProjectId = conversation?.projectId ?? null
     if (input.conversationId && !conversation) throw ApiError.notFound('Conversation not found')
 
     // The turn's existing answer, when this is a regeneration of a turn that already has one. The row
@@ -313,6 +318,7 @@ export class AssistantRunner {
       const memories = this.memoryHistory.promptMemories(selected, memoryTokenBudget(contextTokens))
       const history = await this.contextHistory(conversationId, model.vision, model.modalities)
       const context = await this.contextLabels()
+      const project = await this.project()
       const system = buildSystemPrompt({
         agentName: this.settings.agentName,
         language: this.settings.language,
@@ -327,6 +333,7 @@ export class AssistantRunner {
         turnTools: this.turnTools,
         openNote: context.openNote,
         browsingFolder: context.browsingFolder,
+        project: project?.instructions ? { name: project.name, instructions: project.instructions } : null,
       })
       const historyBudget = Math.max(500, contextTokens - estimateTokens(system) - 600)
       let window = buildContextWindow(history, historyBudget, conversation.summaryUpto ?? null)
@@ -679,9 +686,16 @@ export class AssistantRunner {
   }
 
   /** Resolved once per turn: every note tool consults it, and a second read would be a second answer. */
-  private noteScope(): Promise<NoteScope> {
+  private async noteScope(): Promise<NoteScope> {
     if (!this.scopePromise) {
-      this.scopePromise = resolveNoteScope(this.deps.env.DB, this.store.userId, this.settings.noteScope, {
+      const project = await this.project()
+      const base = this.settings.noteScope
+      // The project's folders narrow, never widen: where they and the account's scope do not meet, the
+      // account's own permission stands and the project contributes no folder of its own.
+      const effective = project && project.scopeIds.length
+        ? base.filter((id) => project.scopeIds.includes(id))
+        : base
+      this.scopePromise = resolveNoteScope(this.deps.env.DB, this.store.userId, effective, {
         folderIds: this.turnScopes.filter((entry) => entry.kind === 'folder').map((entry) => entry.id),
         tagIds: this.turnScopes.filter((entry) => entry.kind === 'tag').map((entry) => entry.id),
         // The note the reader had open. This is the one narrowing a turn may widen: "summarise this"
@@ -691,6 +705,32 @@ export class AssistantRunner {
       })
     }
     return this.scopePromise
+  }
+
+  /**
+   * The conversation's project, resolved once per turn.
+   *
+   * Its brief rides in the prompt and its folders narrow what the note tools may read — the narrow
+   * direction only, because a project is the reader telling the assistant what this work is about, not a
+   * second permission. When the two scopes do not overlap the project's is dropped rather than left as a
+   * set with nothing in it, which would make every tool answer "not found" for a reason the reader
+   * cannot see.
+   */
+  private projectPromise: Promise<{ name: string, instructions: string, scopeIds: string[] } | null> | null = null
+
+  private project() {
+    if (!this.projectPromise) {
+      this.projectPromise = (async () => {
+        const projectId = this.conversationProjectId
+        if (!projectId) return null
+        const project = await this.store.getProject(projectId)
+        if (!project) return null
+        const brief = project.instructions.trim()
+        if (!project.noteScope.length && !brief) return null
+        return { name: project.name, instructions: brief, scopeIds: project.noteScope }
+      })()
+    }
+    return this.projectPromise
   }
 
   /**
