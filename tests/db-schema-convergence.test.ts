@@ -289,6 +289,9 @@ const ACCOUNT_GLOBAL_KEYS = new Map<string, string>([
   // which is why the slug, not the account, is the identity of the row.
   ['shares', 'newSlug(), unguessable'],
   ['share_presence', 'one room per share slug'],
+  // The conversation share keeps the shape the note share was verified on: the same `newSlug()`, and a
+  // public read that must find the row without knowing the owner, because the link *is* the capability.
+  ['chat_share_links', 'newSlug(), unguessable; public read by slug alone'],
   // A monotonic ledger counter: the whole point is a sequence no account may restart, and every read
   // filters on `user_id`.
   ['changes', 'seq INTEGER PRIMARY KEY AUTOINCREMENT'],

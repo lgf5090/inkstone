@@ -10,6 +10,7 @@
 import { useEffect, useRef, useState, type RefObject } from 'react'
 import { ChevronDown, ChevronUp, X } from 'lucide-react'
 import { t } from '../../lib/i18n'
+import { isImeComposing } from '../../lib/ime'
 import { Input } from '../../components/form'
 import { IconButton } from '../../components/primitives'
 import { clearFindMarks, focusFindHit, markFindHits } from './thread-find'
@@ -70,6 +71,9 @@ export function ThreadFinder({ scroller, revision, onClose }: {
         value={query}
         onChange={(event) => setQuery(event.target.value)}
         onKeyDown={(event) => {
+          // A composition owns Enter and Escape first: the keys pick or drop a candidate, and stepping to
+          // the next hit while the reader is still typing a search term would move the page under them.
+          if (isImeComposing(event)) return
           if (event.key === 'Enter') {
             event.preventDefault()
             step(event.shiftKey ? -1 : 1)

@@ -361,7 +361,9 @@ describe('re-taking a turn', () => {
       content: 'It is 12 degrees.',
       sources: [
         { url: 'https://weather.example/today', title: 'Today', cited: '12 degrees' },
-        { url: 'not a url', title: 'junk' } as never,
+        // Shaped like a source, so only the store's own check can turn it away: the type says `string`,
+        // and an answer that showed a chip leading nowhere would read as one that searched.
+        { url: 'not a url', title: 'junk' },
       ],
     })
     const read = await store.getMessage(written.id)

@@ -1109,6 +1109,8 @@ const allowed = new Map([
     "// picking\"; an empty set is \"picking with nothing chosen yet\", which the bar has words for.",
     "/* Ctrl/Cmd+F is the reader's own reflex for this box, so it opens the thread's own find instead of\n          the browser's bar over a page that is one conversation. */",
     "/**\n * Writes one conversation out as a Markdown file.\n *\n * Fetched on the press rather than carried in the list: a conversation's rows are only in the store for\n * the thread that is open, and the reader may export one they are not reading.\n */",
+    "// This box wraps the composer, so every keystroke in a half-written Chinese sentence bubbles",
+    "// through here — and Escape is the key the input method is holding to drop that candidate.",
   ]],
   ["src/client/features/chat/ComposerControls.tsx", [
     "/** The token count, spelled the way the reference's slider spells it: 32K, 128K, 262K. */",
@@ -1271,6 +1273,8 @@ const allowed = new Map([
     "/** Bumped by the thread when its content changes, so the marks are remade over the new answer. */",
     "// Closing takes the marks out. Every render of the thread that replaces the markup would drop them",
     "// anyway, but a reader who searched and closed would otherwise be left reading a highlighted page.",
+    "// A composition owns Enter and Escape first: the keys pick or drop a candidate, and stepping to",
+    "// the next hit while the reader is still typing a search term would move the page under them.",
   ]],
   ["src/client/features/chat/answer-versions.test.ts", [
     "/**\n * The answer pager: two arrows over the answers one turn has already displaced.\n *\n * Pinned here is the drive, not the markup — each press has to change what the bubble shows, and only an\n * explicit \"use this one\" may reach the server. A reader who steps back out of curiosity must not silently\n * rewrite their own thread. Labels come from the catalog, so the case says the same thing in either locale.\n */",
@@ -15435,6 +15439,9 @@ const allowed = new Map([
     "/**\n * The transcript, with every field that is not for a stranger left out.\n *\n * Reasoning is absent because it is the model thinking aloud rather than the answer; tool rows are absent\n * because their results quote the reader's own notes; attachments are absent because they are the\n * reader's files under a private prefix. What is left is what someone looking over the reader's shoulder\n * would have seen: who spoke, what they said, when, and which model answered.\n */",
     "/**\n * The passcode gate of the public read, mirroring the notes side.\n *\n * Two throttles rather than one: per visitor per link, and per link overall, so a single hostile client\n * cannot spend the whole link's budget guessing and lock the reader out of their own share.\n */",
     "/** Hashes a passcode the reader set, after checking it against the shared rules. `named` is the route's\n *  \"the request actually mentioned this field\" test, which is what keeps an untouched one. */",
+    "/** What the pre-rendered document may say before anybody types a passcode. */",
+    "/**\n * The link and its conversation's title in one read, addressed by slug.\n *\n * The shell needs both at once — the title only goes out when the link is live and unguarded — and a\n * route that joined two tables itself would be a route that owns this table's shape.\n */",
+    "/**\n * Who published it, as the two fields a shared page may show.\n *\n * Nothing else about the account is anyone's business, which is why this is a projection of two columns\n * rather than the row — the same pair a shared note prints. Read apart from the transcript, and falling\n * back rather than joining: a link that outlives the account row still has to show the conversation.\n */",
   ]],
   ["src/worker/assistant/store.ts", [
     "/**\n * Every read and write the assistant makes against D1.\n *\n * Two rules hold throughout, and both come from the difference between this app and the single-user\n * project it was ported from:\n *  - every statement carries `user_id`, so one reader's conversations, memories and schedules can\n *    never surface in another's assistant;\n *  - anything read out of a JSON column is decoded rather than trusted, because a row may have been\n *    written by an older build, restored from a backup file, or edited by hand — stored text is input.\n */",
@@ -16667,7 +16674,6 @@ const allowed = new Map([
     "/** The published conversation's own address, beside `/s/<slug>` for a published note. */",
     "/** The same visitor window a note share counts with: one view per visitor per minute, capped per link. */",
     "/**\n * A published conversation, read by somebody with no account.\n *\n * A path of its own rather than a branch inside the note read: what is emitted is a transcript, and a\n * reader that had to tell two payload shapes apart would be a second kind of \"did it work\". The passcode\n * gate, the attempt throttle and the view counting are the note route's, called from here rather than\n * copied — the only thing that differs is what is loaded afterwards.\n */",
-    "/**\n * Who published it.\n *\n * The same two fields a shared note carries: a name and an avatar, read from the account row. Nothing\n * else about the account is anyone's business, which is why this is a projection rather than the row.\n */",
     "// The title is only given away when there is no passcode to get past: a link's preview must not be the",
     "// hole a guarded conversation leaks its first line through.",
   ]],
@@ -17133,6 +17139,8 @@ const allowed = new Map([
     "// The row is written with reasoning and tool activity, and the read side must not echo either.",
     "// The old address is dead the moment a new one is minted, which is the only way to un-share a link",
     "// somebody already has a copy of.",
+    "// Shaped like a source, so only the store's own check can turn it away: the type says `string`,",
+    "// and an answer that showed a chip leading nowhere would read as one that searched.",
   ]],
   ["tests/assistant-rules.test.ts", [
     "/**\n * The rules the assistant is built on, tested where they are written.\n *\n * These are the parts a browser session cannot prove: what a Chinese sentence means to the conflict\n * rules, how a wall-clock schedule survives a daylight-saving change, how many tokens a Han vault\n * really costs. Each fixture is chosen so a plausible-but-wrong implementation would fail it — the\n * pair that differs only in a change word, a date the reader never stated, a schedule that crosses a\n * clock change — rather than so the function merely runs.\n */",
@@ -17474,6 +17482,8 @@ const allowed = new Map([
     "// guard that cannot fail is the kind of assurance `reader_books` already had.",
     "// The same table with the account leading its key is not an offender, so the rule is about the",
     "// shape and not about this table's name.",
+    "// The conversation share keeps the shape the note share was verified on: the same `newSlug()`, and a",
+    "// public read that must find the row without knowing the owner, because the link *is* the capability.",
   ]],
   ["tests/do-auth-guard.test.ts", [
     "/**\n * Both objects read one binding, `DO_AUTH_KEY`, so every case here is that key present, blank or\n * absent on top of a real `Env`.\n */",

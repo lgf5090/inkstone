@@ -16,6 +16,7 @@ import { DEBOUNCE } from '@shared/constants'
 import { cn } from '../../lib/cn'
 import { t } from '../../lib/i18n'
 import { COPY_RESET_MS } from '../../lib/motion'
+import { isImeComposing } from '../../lib/ime'
 import { relativeTime } from '../../lib/time'
 import { useDebouncedDraft } from '../../lib/hooks'
 import { compileQuery } from '../../lib/query-match'
@@ -184,6 +185,9 @@ export function ChatView() {
       <section
         className="relative flex min-w-0 flex-1 flex-col"
         onKeyDown={(event) => {
+          // This box wraps the composer, so every keystroke in a half-written Chinese sentence bubbles
+          // through here — and Escape is the key the input method is holding to drop that candidate.
+          if (isImeComposing(event)) return
           if (event.key === 'f' && (event.metaKey || event.ctrlKey)) {
             event.preventDefault()
             setFinding(true)

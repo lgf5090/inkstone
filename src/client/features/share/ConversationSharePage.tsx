@@ -148,7 +148,7 @@ export function ConversationSharePage({ slug }: { slug: string }) {
         ) : conversation ? (
           <article className="pt-7 md:pt-10">
             <header className="mb-6 md:mb-8">
-              <h1 className="text-[length:var(--text-24)] leading-[1.25] font-bold tracking-[-0.03em] text-[var(--text-primary)] md:text-[length:var(--text-30)]">
+              <h1 className="text-[length:var(--text-26)] leading-[1.25] font-bold tracking-[-0.03em] text-[var(--text-primary)] md:text-[length:var(--text-30)]">
                 {conversation.title || t('assistant.chat.untitled')}
               </h1>
               <div className="mt-4 flex flex-wrap items-center gap-x-3 gap-y-1.5 text-[length:var(--text-12)] text-[var(--text-quaternary)]">

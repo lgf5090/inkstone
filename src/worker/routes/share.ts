@@ -34,6 +34,8 @@ import {
   assertConversationShareAccess,
   countConversationShareView,
   findConversationShare,
+  loadConversationShareAuthor,
+  loadConversationShareMeta,
   loadSharedConversation,
 } from '../assistant/share'
 import type { PublicConversation } from '@shared/assistant'
@@ -300,42 +302,21 @@ shareRoutes.post('/conversation/:slug', async (c) => {
     createdAt: conversation.createdAt,
     updatedAt: conversation.updatedAt,
     messages: conversation.messages,
-    author: await sharedAuthor(c.env.DB, share.user_id),
+    author: await loadConversationShareAuthor(c.env.DB, share.user_id),
     site: { name: c.env.APP_NAME || 'Inkstone' },
     share: { slug },
   }
   return c.json(payload)
 })
 
-/**
- * Who published it.
- *
- * The same two fields a shared note carries: a name and an avatar, read from the account row. Nothing
- * else about the account is anyone's business, which is why this is a projection rather than the row.
- */
-async function sharedAuthor(db: D1Database, userId: string): Promise<{ name: string; avatarUrl: string }> {
-  const row = await db
-    .prepare(`SELECT name, avatar_url FROM users WHERE id = ?1`)
-    .bind(userId)
-    .first<{ name: string | null, avatar_url: string | null }>()
-  return { name: row?.name?.trim() || 'Inkstone', avatarUrl: row?.avatar_url ?? '' }
-}
-
 conversationSharePageRoutes.get('/:slug', async (c) => {
   const slug = c.req.param('slug')
   const url = new URL(c.req.url)
-  if (!isValidSlug(slug)) return renderConversationShareShell(c, url, null)
-
-  const row = await findConversationShare(c.env.DB, slug)
+  const meta = await loadConversationShareMeta(c.env.DB, slug)
   // The title is only given away when there is no passcode to get past: a link's preview must not be the
   // hole a guarded conversation leaks its first line through.
-  const meta = row && (!row.expires_at || row.expires_at > Date.now())
-    ? await c.env.DB
-      .prepare(`SELECT title FROM chat_conversations WHERE user_id = ?1 AND id = ?2`)
-      .bind(row.user_id, row.conversation_id)
-      .first<{ title: string }>()
-    : null
-  return renderConversationShareShell(c, url, row && meta && !row.password_hash ? meta.title : null)
+  const live = meta && (!meta.expires_at || meta.expires_at > Date.now())
+  return renderConversationShareShell(c, url, live && !meta.password_hash ? meta.title : null)
 })
 
 async function renderConversationShareShell(

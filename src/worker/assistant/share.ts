@@ -128,6 +128,51 @@ export async function countConversationShareView(db: D1Database, slug: string): 
   await db.prepare(`UPDATE chat_share_links SET views = views + 1 WHERE slug = ?1`).bind(slug).run()
 }
 
+/** What the pre-rendered document may say before anybody types a passcode. */
+export interface ConversationShareMeta {
+  title: string
+  password_hash: string | null
+  expires_at: number | null
+}
+
+/**
+ * The link and its conversation's title in one read, addressed by slug.
+ *
+ * The shell needs both at once — the title only goes out when the link is live and unguarded — and a
+ * route that joined two tables itself would be a route that owns this table's shape.
+ */
+export async function loadConversationShareMeta(db: D1Database, slug: string): Promise<ConversationShareMeta | null> {
+  if (!isValidSlug(slug)) return null
+  return await db
+    .prepare(
+      `SELECT c.title, s.password_hash, s.expires_at
+         FROM chat_share_links s JOIN chat_conversations c ON c.user_id = s.user_id AND c.id = s.conversation_id
+        WHERE s.slug = ?1`,
+    )
+    .bind(slug)
+    .first<ConversationShareMeta>()
+}
+
+/**
+ * Who published it, as the two fields a shared page may show.
+ *
+ * Nothing else about the account is anyone's business, which is why this is a projection of two columns
+ * rather than the row — the same pair a shared note prints. Read apart from the transcript, and falling
+ * back rather than joining: a link that outlives the account row still has to show the conversation.
+ */
+export interface ConversationShareAuthor {
+  name: string
+  avatarUrl: string
+}
+
+export async function loadConversationShareAuthor(db: D1Database, userId: string): Promise<ConversationShareAuthor> {
+  const row = await db
+    .prepare(`SELECT name, avatar_url FROM users WHERE id = ?1`)
+    .bind(userId)
+    .first<{ name: string | null, avatar_url: string | null }>()
+  return { name: row?.name?.trim() || 'Inkstone', avatarUrl: row?.avatar_url ?? '' }
+}
+
 /**
  * The transcript, with every field that is not for a stranger left out.
  *

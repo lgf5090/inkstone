@@ -1174,6 +1174,25 @@ export const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
     ],
   },
   {
+    // The pages a web search consulted. A JSON array on the row because it is read with the answer and
+    // written once: a table of sources would be joined for every message to show a list of links.
+    version: 68,
+    skipIfColumnExists: { table: 'chat_messages', column: 'sources' },
+    statements: [
+      `ALTER TABLE chat_messages ADD COLUMN sources TEXT NOT NULL DEFAULT '[]'`,
+    ],
+  },
+  {
+    // The reader's verdict on one answer: 'up', 'down' or ''. Kept on the message rather than in a table
+    // of its own because a turn has at most one verdict and the transcript is what reads it — but it is
+    // stored at all so the judgement outlives the scroll, which a chip held in a component would not.
+    version: 64,
+    skipIfColumnExists: { table: 'chat_messages', column: 'feedback' },
+    statements: [
+      `ALTER TABLE chat_messages ADD COLUMN feedback TEXT NOT NULL DEFAULT ''`,
+    ],
+  },
+  {
     // A project's standing instructions: the text every conversation inside it is answered under.
     version: 69,
     skipIfColumnExists: { table: 'chat_projects', column: 'instructions' },
@@ -1203,25 +1222,6 @@ export const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
     skipIfColumnExists: { table: 'chat_conversations', column: 'project_id' },
     statements: [
       `ALTER TABLE chat_conversations ADD COLUMN project_id TEXT`,
-    ],
-  },
-  {
-    // The pages a web search consulted. A JSON array on the row because it is read with the answer and
-    // written once: a table of sources would be joined for every message to show a list of links.
-    version: 68,
-    skipIfColumnExists: { table: 'chat_messages', column: 'sources' },
-    statements: [
-      `ALTER TABLE chat_messages ADD COLUMN sources TEXT NOT NULL DEFAULT '[]'`,
-    ],
-  },
-  {
-    // The reader's verdict on one answer: 'up', 'down' or ''. Kept on the message rather than in a table
-    // of its own because a turn has at most one verdict and the transcript is what reads it — but it is
-    // stored at all so the judgement outlives the scroll, which a chip held in a component would not.
-    version: 64,
-    skipIfColumnExists: { table: 'chat_messages', column: 'feedback' },
-    statements: [
-      `ALTER TABLE chat_messages ADD COLUMN feedback TEXT NOT NULL DEFAULT ''`,
     ],
   },
 ]
