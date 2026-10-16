@@ -6351,6 +6351,7 @@ console.log(\`Hello, \${name}!\`)
     "assistant.chat.unfiled": "\u672a\u5f52\u6863",
     "assistant.chat.tag_filter": "\u5bf9\u8bdd\u6807\u7b7e",
     "assistant.chat.move_to": "\u79fb\u52a8\u5230\u6587\u4ef6\u5939",
+    "assistant.chat.move_to_project": "\u79fb\u52a8\u5230\u9879\u76ee",
     "assistant.chat.tags": "\u6807\u7b7e",
     "assistant.chat.new_tag": "\u65b0\u5efa\u6807\u7b7e",
     "assistant.chat.tag_name": "\u6807\u7b7e\u540d\u79f0",

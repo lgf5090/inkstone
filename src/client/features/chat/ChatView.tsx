@@ -24,7 +24,7 @@ import type { MoveMenuFolder } from '../../lib/tree'
 import { Button, Divider, IconButton, Spinner } from '../../components/primitives'
 import { FilterInput } from '../../components/FilterInput'
 import { Input, Textarea } from '../../components/form'
-import { Menu, Modal, confirm, prompt, submenuFor } from '../../components/overlay'
+import { Menu, Modal, confirm, prompt, submenuFor, type MenuItem } from '../../components/overlay'
 import { api } from '../../lib/api'
 import { FolderMoveMenu } from '../folders/FolderMoveMenu'
 import { ConversationTabStrip, ConversationTaxonomyPanel, moveMenuTree } from './ChatTaxonomy'
@@ -708,6 +708,8 @@ function ConversationRow({
   const toggleConversationTag = useAssistant((state) => state.toggleConversationTag)
   const starConversation = useAssistant((state) => state.starConversation)
   const attachNewTag = useAssistant((state) => state.attachNewTag)
+  const projects = useAssistant((state) => state.projects)
+  const setConversationProject = useAssistant((state) => state.setConversationProject)
   const anchor = useRef<HTMLSpanElement>(null)
   const [sharing, setSharing] = useState(false)
   const title = conversation.title || t('assistant.chat.untitled')
@@ -744,6 +746,22 @@ function ConversationRow({
       },
     },
   ]
+
+  // A conversation answers under one project's brief at a time, so the picker is a flat list with the
+  // current one ticked and a way back out. An empty list says why rather than opening onto nothing.
+  const projectItems: MenuItem[] = projects.length
+    ? [
+        ...(conversation.projectId
+          ? [{ id: 'project-out', label: t('assistant.projects.remove_conversation'), onSelect: () => void setConversationProject(conversation.id, null) }]
+          : []),
+        ...projects.map((project) => ({
+          id: `project-${project.id}`,
+          label: project.name,
+          checked: conversation.projectId === project.id,
+          onSelect: () => void setConversationProject(conversation.id, project.id),
+        })),
+      ]
+    : [{ id: 'project-empty', label: t('assistant.projects.move_needs_project'), disabled: true }]
 
   return (
     <li
@@ -824,6 +842,12 @@ function ConversationRow({
                 }}
               />
             ),
+          },
+          {
+            id: 'project',
+            label: t('assistant.chat.move_to_project'),
+            submenu: submenuFor(projectItems),
+            subItems: projectItems,
           },
           {
             id: 'tags',

@@ -1119,6 +1119,8 @@ const allowed = new Map([
     "// through here — and Escape is the key the input method is holding to drop that candidate.",
     "// A saved prompt is a standing arrangement, so its words arrive with the turn it was",
     "// written for: the chips below the box change, which is what says the change happened.",
+    "// A conversation answers under one project's brief at a time, so the picker is a flat list with the",
+    "// current one ticked and a way back out. An empty list says why rather than opening onto nothing.",
   ]],
   ["src/client/features/chat/ComposerControls.tsx", [
     "/** The token count, spelled the way the reference's slider spells it: 32K, 128K, 262K. */",
