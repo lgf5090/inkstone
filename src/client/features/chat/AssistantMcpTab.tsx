@@ -27,6 +27,7 @@ import {
   MIN_MCP_TIMEOUT_SECONDS,
   parseMcpHeaderLines,
   parseMcpServerJson,
+  type AssistantMcpProblem,
   type AssistantMcpServer,
 } from '@shared/assistant'
 import { cn } from '../../lib/cn'
@@ -121,7 +122,7 @@ export function McpTab() {
           key={server.id}
           server={server}
           tools={catalog.find((entry) => entry.serverId === server.id)?.tools ?? []}
-          problem={problems.find((entry) => entry.serverId === server.id)?.error}
+          problem={problems.find((entry) => entry.serverId === server.id)}
           loading={loading}
           expanded={Boolean(open[server.id])}
           onToggleExpanded={() => setOpen((current) => ({ ...current, [server.id]: !current[server.id] }))}
@@ -466,7 +467,7 @@ function ImportDialog({ open, onClose }: { open: boolean, onClose: () => void })
 function ServerCard({ server, tools, problem, loading, expanded, onToggleExpanded, onOpen, onEdit, onRemove }: {
   server: AssistantMcpServer
   tools: { name: string, remoteName: string, description: string, disabled: boolean }[]
-  problem?: string
+  problem?: AssistantMcpProblem
   loading: boolean
   expanded: boolean
   onToggleExpanded: () => void
@@ -477,9 +478,16 @@ function ServerCard({ server, tools, problem, loading, expanded, onToggleExpande
   const patchMcpServer = useAssistant((state) => state.patchMcpServer)
   const setMcpToolsEnabled = useAssistant((state) => state.setMcpToolsEnabled)
   const testMcpServer = useAssistant((state) => state.testMcpServer)
+  const authorizeMcp = useAssistant((state) => state.authorizeMcp)
+  const revokeMcp = useAssistant((state) => state.revokeMcp)
   const [query, setQuery] = useState('')
   const [busy, setBusy] = useState(false)
+  const [authorizing, setAuthorizing] = useState(false)
   const [outcome, setOutcome] = useState('')
+  // Two ways a server is waiting on a login: it said 401 to the last listing, or the reader started a round
+  // trip here and never came back from it. Both mean the same press.
+  const needsLogin = Boolean(problem?.needsAuthorization) || Boolean(server.authorization && !server.authorization.authorized)
+  const refusal = problem?.error ?? outcome
   const pinyinVersion = usePinyinVersion()
   const off = useMemo(() => new Set(server.disabledTools), [server.disabledTools])
   const on = tools.filter((tool) => !off.has(tool.remoteName)).length
@@ -515,6 +523,14 @@ function ServerCard({ server, tools, problem, loading, expanded, onToggleExpande
 
       {server.description && <p className="pl-3.5 text-[length:var(--text-11-5)] text-[var(--text-tertiary)]">{server.description}</p>}
       <p className="truncate pl-3.5 font-mono text-[length:var(--text-10-5)] text-[var(--text-quaternary)]" title={server.url}>{server.url}</p>
+      {server.authorization?.authorized && (
+        // Which provider the login went through is named because it is not always the server's own: a
+        // documentation tool may sit behind the reader's company identity, and that is the account whose
+        // access they are revoking when they press the button beside it.
+        <p className="pl-3.5 text-[length:var(--text-11)] text-[var(--text-quaternary)]">
+          {t('assistant.mcp.authorized_to', { issuer: server.authorization.issuer.replace(/^https:\/\//, '') })}
+        </p>
+      )}
 
       <div className="flex flex-wrap items-center gap-2 pl-3.5">
         <Segmented
@@ -541,6 +557,32 @@ function ServerCard({ server, tools, problem, loading, expanded, onToggleExpande
         >
           {t('assistant.mcp.test')}
         </Button>
+        {/* A server that needs a login is not broken, and the one thing that fixes it is not a settings
+            field: the reader's own account at the other end. So the answer to a refused call is a button
+            here rather than a paragraph about OAuth somewhere else. */}
+        {needsLogin && (
+          <Button
+            size="sm"
+            variant="primary"
+            loading={authorizing}
+            onClick={() => {
+              setAuthorizing(true)
+              void authorizeMcp(server.id).then(async (done) => {
+                setAuthorizing(false)
+                if (done) {
+                  const result = await testMcpServer(server.id)
+                  onOpen()
+                  setOutcome(result.ok ? '' : result.error)
+                }
+              })
+            }}
+          >
+            {server.authorization?.authorized ? t('assistant.mcp.reauthorize') : t('assistant.mcp.authorize')}
+          </Button>
+        )}
+        {server.authorization?.authorized && (
+          <Button size="sm" variant="ghost" onClick={() => void revokeMcp(server.id)}>{t('assistant.mcp.revoke')}</Button>
+        )}
         <button
           type="button"
           aria-expanded={expanded}
@@ -553,7 +595,7 @@ function ServerCard({ server, tools, problem, loading, expanded, onToggleExpande
         </button>
       </div>
 
-      {(problem ?? outcome) && <p className="pl-3.5 text-[length:var(--text-11-5)] text-[var(--warning)]">{problem ?? outcome}</p>}
+      {refusal && <p className="pl-3.5 text-[length:var(--text-11-5)] text-[var(--warning)]">{refusal}</p>}
 
       {expanded && (
         <div className="ml-3.5 flex flex-col gap-2 rounded-[var(--r-md)] border border-[var(--border-subtle)] bg-[var(--bg-inset)] p-2">

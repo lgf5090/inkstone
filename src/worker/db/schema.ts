@@ -1225,7 +1225,7 @@ export const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
     ],
   },
   {
-    // The tools a saved prompt asks the turn to have, as a JSON array of registry names.
+    // A saved prompt's tool set: the names the assistant can actually call, as a JSON array.
     version: 73,
     skipIfColumnExists: { table: 'chat_prompts', column: 'tools' },
     statements: [
@@ -1246,6 +1246,24 @@ export const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
     skipIfColumnExists: { table: 'chat_prompts', column: 'model_id' },
     statements: [
       `ALTER TABLE chat_prompts ADD COLUMN model_id TEXT`,
+    ],
+  },
+  {
+    // The tokens of an authorized MCP server, vaulted the same way its static headers already are.
+    version: 76,
+    skipIfColumnExists: { table: 'chat_mcp_servers', column: 'oauth_ciphertext' },
+    statements: [
+      `ALTER TABLE chat_mcp_servers ADD COLUMN oauth_ciphertext TEXT NOT NULL DEFAULT ''`,
+    ],
+  },
+  {
+    // What the MCP server's own discovery said: endpoints, scopes, client id and when the token dies.
+    // Plain on purpose — none of it is a secret, and a settings screen that lists ten servers would pay
+    // ten vault round trips to say "authorized until Friday".
+    version: 77,
+    skipIfColumnExists: { table: 'chat_mcp_servers', column: 'oauth_meta' },
+    statements: [
+      `ALTER TABLE chat_mcp_servers ADD COLUMN oauth_meta TEXT NOT NULL DEFAULT '{}'`,
     ],
   },
 ]

@@ -45,6 +45,7 @@ import type {
   ReasoningDialect,
 } from '@shared/assistant'
 import { dialectsForProtocol } from '@shared/reasoning'
+import type { McpOAuthSecrets, McpOAuthStatus } from './mcp-oauth'
 import { ASSISTANT_MCP_TOOL_MODES, ASSISTANT_MCP_TRANSPORTS, DEFAULT_MCP_TIMEOUT_SECONDS, MAX_MCP_DESCRIPTION_CHARS, MAX_MCP_DISABLED_TOOLS, MAX_MCP_HEADER_VALUE_CHARS, MAX_MCP_LABEL_CHARS, MAX_MCP_TOOL_NAME_CHARS, MAX_MCP_TIMEOUT_SECONDS, MIN_MCP_TIMEOUT_SECONDS, MAX_ANSWER_VERSIONS, MAX_CHAT_ATTACHMENTS, clipReasoning, isMcpHeaderName, parseModelModalities, parseProviderEndpoints, reasoningDialectValue, reasoningValue, type AssistantAnswerVersion, type AssistantMcpServer, type AssistantMcpToolMode, type AssistantMcpTransport, type AssistantModelModality, type ChatAttachment } from '@shared/assistant'
 import {
   ASSISTANT_MEMORY_CATEGORIES,
@@ -63,7 +64,7 @@ import type { Env } from '../env'
 import { tagScopePredicate } from '../db/rows'
 import { newId } from '../lib/id'
 import { parseStoredJson } from '../lib/json'
-import { decryptAssistantKey, encryptAssistantKey } from '../lib/crypto'
+import { decryptAssistantKey, decryptMcpOAuth, encryptAssistantKey, encryptMcpOAuth } from '../lib/crypto'
 
 /** How long a reader has to approve a destructive proposal. */
 export const PENDING_ACTION_TTL_MS = 30 * 60 * 1000
@@ -365,11 +366,86 @@ interface McpServerRow {
   transport?: string | null
   timeout_seconds?: number | null
   has_key?: number | null
+  oauth_meta?: string | null
   enabled: number | null
   tool_mode: string | null
   disabled_tools?: string | null
   created_at: number
   updated_at: number
+}
+
+/**
+ * The plain half of one server's authorization, decoded rather than trusted.
+ *
+ * The column is written by this app and read by this app, but a restore from a backup file and a boot onto
+ * a database another branch spent are both in this program's future, so an unusable value means "no
+ * authorization started here" rather than a broken settings screen.
+ */
+export function parseMcpOAuthMeta(value: string | null | undefined): McpOAuthStatus | null {
+  if (!value) return null
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(value)
+  } catch {
+    return null
+  }
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return null
+  const record = parsed as Record<string, unknown>
+  const text = (key: string, max: number) => (typeof record[key] === 'string' ? (record[key] as string).slice(0, max) : '')
+  const issuer = text('issuer', 512)
+  const authorizationEndpoint = text('authorizationEndpoint', 2048)
+  const tokenEndpoint = text('tokenEndpoint', 2048)
+  // Half a discovered document is worse than none: an authorize press would build a URL out of guesses.
+  if (!issuer || !authorizationEndpoint || !tokenEndpoint) return null
+  return {
+    issuer,
+    authorizationEndpoint,
+    tokenEndpoint,
+    registrationEndpoint: text('registrationEndpoint', 2048),
+    scopes: Array.isArray(record.scopes)
+      ? record.scopes.filter((entry): entry is string => typeof entry === 'string' && entry.length > 0).slice(0, 16)
+      : [],
+    clientId: text('clientId', 512),
+    authorized: record.authorized === true || record.authorized === 1,
+    expiresAt: Number.isFinite(Number(record.expiresAt)) ? Math.max(0, Math.trunc(Number(record.expiresAt))) : 0,
+  }
+}
+
+/** The three columns that make a stored authorization unusable, kept in one place so the two agree. */
+const MCP_OAUTH_COLUMNS = 'oauth_ciphertext, oauth_meta'
+
+/**
+ * The stored secret half of an authorization, read back as the shape this app writes.
+ *
+ * A vault blob is somebody's bytes: it may have been written by an older build, or restored from a file that
+ * predates a field. Anything missing reads as "nothing there" rather than as a half-token, because a call
+ * made with half a bearer fails at the third party in a way the reader cannot diagnose from here.
+ */
+function normaliseMcpOAuthSecrets(value: unknown): McpOAuthSecrets {
+  const record = (value && typeof value === 'object' && !Array.isArray(value) ? value : {}) as Record<string, unknown>
+  const text = (field: unknown, max: number) => (typeof field === 'string' ? field.slice(0, max) : '')
+  const tokens = record.tokens
+  const shape = tokens && typeof tokens === 'object' && !Array.isArray(tokens) ? tokens as Record<string, unknown> : null
+  const access = text(shape?.access, 8192)
+  return {
+    clientId: text(record.clientId, 512),
+    clientSecret: text(record.clientSecret, 2048),
+    tokens: shape && access ? {
+      access,
+      refresh: text(shape.refresh, 8192),
+      expiresAt: Number.isFinite(Number(shape.expiresAt)) ? Math.max(0, Math.trunc(Number(shape.expiresAt))) : 0,
+      tokenType: text(shape.tokenType, 32) || 'Bearer',
+    } : null,
+    pending: (() => {
+      const pending = record.pending
+      if (!pending || typeof pending !== 'object' || Array.isArray(pending)) return null
+      const entry = pending as Record<string, unknown>
+      const verifier = text(entry.verifier, 128)
+      const state = text(entry.state, 256)
+      if (!verifier || !state) return null
+      return { verifier, state, startedAt: Number.isFinite(Number(entry.startedAt)) ? Number(entry.startedAt) : 0 }
+    })(),
+  }
 }
 
 /**
@@ -426,6 +502,7 @@ function parseDisabledTools(value: string | null | undefined): string[] {
 }
 
 function toMcpServer(r: McpServerRow): AssistantMcpServer {
+  const status = parseMcpOAuthMeta(r.oauth_meta)
   return {
     id: r.id,
     label: r.label,
@@ -437,6 +514,7 @@ function toMcpServer(r: McpServerRow): AssistantMcpServer {
     toolMode: pickEnum(r.tool_mode, ASSISTANT_MCP_TOOL_MODES, 'ask'),
     disabledTools: parseDisabledTools(r.disabled_tools),
     hasKey: bool(r.has_key),
+    authorization: status ? { issuer: status.issuer, scopes: status.scopes, authorized: status.authorized, expiresAt: status.expiresAt } : null,
     createdAt: r.created_at,
     updatedAt: r.updated_at,
   }
@@ -1580,7 +1658,7 @@ export class AssistantStore {
    */
   async listMcpServers(): Promise<AssistantMcpServer[]> {
     const rows = await this.rows<McpServerRow>(
-      `SELECT id, label, url, description, transport, timeout_seconds, length(header_ciphertext) > 0 AS has_key, enabled, tool_mode, disabled_tools, created_at, updated_at
+      `SELECT id, label, url, description, transport, timeout_seconds, length(header_ciphertext) > 0 AS has_key, oauth_meta, enabled, tool_mode, disabled_tools, created_at, updated_at
          FROM chat_mcp_servers WHERE user_id = ?1 ORDER BY created_at`,
       this.userId,
     )
@@ -1589,7 +1667,7 @@ export class AssistantStore {
 
   async mcpServerRecord(id: string): Promise<{ row: AssistantMcpServer, headers: Record<string, string>, ciphertext: string } | null> {
     const r = await this.one<McpServerRow & { header_ciphertext: string | null }>(
-      `SELECT id, label, url, description, transport, timeout_seconds, header_ciphertext, length(header_ciphertext) > 0 AS has_key, enabled, tool_mode, disabled_tools, created_at, updated_at
+      `SELECT id, label, url, description, transport, timeout_seconds, header_ciphertext, length(header_ciphertext) > 0 AS has_key, oauth_meta, enabled, tool_mode, disabled_tools, created_at, updated_at
          FROM chat_mcp_servers WHERE user_id = ?1 AND id = ?2`,
       this.userId, id,
     )
@@ -1597,6 +1675,52 @@ export class AssistantStore {
     const ciphertext = r.header_ciphertext ?? ''
     const plaintext = ciphertext ? (await decryptAssistantKey(this.env, this.userId, ciphertext)) ?? '' : ''
     return { row: toMcpServer(r), ciphertext, headers: parseMcpHeaderBlob(plaintext) }
+  }
+
+  /**
+   * The stored authorization of one server, both halves.
+   *
+   * The plain half says what was discovered and whether a token is there; the vaulted half is the token and
+   * the client's own credentials. They are read together because nothing that wants one can act on the other:
+   * refreshing needs the endpoint *and* the refresh token, and a call needs the token *and* the expiry that
+   * says whether to fetch a new one first.
+   */
+  async mcpAuthorization(id: string): Promise<{ status: McpOAuthStatus, secrets: McpOAuthSecrets } | null> {
+    const r = await this.one<{ oauth_ciphertext: string | null, oauth_meta: string | null }>(
+      `SELECT ${MCP_OAUTH_COLUMNS} FROM chat_mcp_servers WHERE user_id = ?1 AND id = ?2`,
+      this.userId, id,
+    )
+    const status = r ? parseMcpOAuthMeta(r.oauth_meta) : null
+    if (!status) return null
+    const ciphertext = r?.oauth_ciphertext ?? ''
+    const secrets = ciphertext ? await decryptMcpOAuth<McpOAuthSecrets>(this.env, id, ciphertext) : null
+    return { status, secrets: normaliseMcpOAuthSecrets(secrets) }
+  }
+
+  /**
+   * Save what an authorization round trip produced.
+   *
+   * Writing the two halves together is deliberate: a status that claims a token exists while the vault holds
+   * none would show the reader an authorized server that every call then refuses.
+   */
+  async setMcpAuthorization(id: string, status: McpOAuthStatus, secrets: McpOAuthSecrets): Promise<void> {
+    const ciphertext = secrets.tokens || secrets.pending
+      ? await encryptMcpOAuth(this.env, id, secrets)
+      : ''
+    await this.write(
+      `UPDATE chat_mcp_servers SET oauth_ciphertext = ?2, oauth_meta = ?3, updated_at = ?4
+         WHERE user_id = ?1 AND id = ?5`,
+      ciphertext, JSON.stringify(status), Date.now(), id,
+    )
+  }
+
+  /** Take the authorization away, which is what the reader means by "stop letting this server in". */
+  async clearMcpAuthorization(id: string): Promise<void> {
+    await this.write(
+      `UPDATE chat_mcp_servers SET oauth_ciphertext = '', oauth_meta = '{}', updated_at = ?2
+         WHERE user_id = ?1 AND id = ?3`,
+      Date.now(), id,
+    )
   }
 
   async createMcpServer(input: {
@@ -1624,7 +1748,7 @@ export class AssistantStore {
     return {
       id, label, url: input.url, description, transport, timeoutSeconds,
       enabled: true, toolMode: input.toolMode ?? 'ask', disabledTools: [],
-      hasKey: Boolean(ciphertext), createdAt: at, updatedAt: at,
+      hasKey: Boolean(ciphertext), authorization: null, createdAt: at, updatedAt: at,
     }
   }
 
@@ -1657,11 +1781,16 @@ export class AssistantStore {
     const disabledTools = patch.disabledTools === undefined
       ? existing.row.disabledTools
       : [...new Set(patch.disabledTools.map((entry) => entry.trim().slice(0, MAX_MCP_TOOL_NAME_CHARS)).filter(Boolean))].slice(0, MAX_MCP_DISABLED_TOOLS)
+    // A token is minted for one resource. Retyping the address of the server therefore takes the
+    // authorization with it, rather than leaving a bearer from the old issuer to be offered to the new one.
+    const urlChanged = patch.url !== undefined && patch.url !== existing.row.url
     await this.write(
       `UPDATE chat_mcp_servers
           SET label = ?2, url = ?3, description = ?4, transport = ?5, timeout_seconds = ?6, header_ciphertext = ?7,
-              enabled = ?8, tool_mode = ?9, disabled_tools = ?10, updated_at = ?11
-        WHERE user_id = ?1 AND id = ?12`,
+              enabled = ?8, tool_mode = ?9, disabled_tools = ?10, updated_at = ?11,
+              oauth_ciphertext = CASE WHEN ?12 THEN '' ELSE oauth_ciphertext END,
+              oauth_meta = CASE WHEN ?12 THEN '{}' ELSE oauth_meta END
+        WHERE user_id = ?1 AND id = ?13`,
       (patch.label ?? existing.row.label).slice(0, MAX_MCP_LABEL_CHARS),
       patch.url ?? existing.row.url,
       (patch.description ?? existing.row.description).slice(0, MAX_MCP_DESCRIPTION_CHARS),
@@ -1672,10 +1801,11 @@ export class AssistantStore {
       patch.toolMode ?? existing.row.toolMode,
       JSON.stringify(disabledTools),
       at,
+      urlChanged ? 1 : 0,
       id,
     )
     const reread = await this.one<McpServerRow>(
-      `SELECT id, label, url, description, transport, timeout_seconds, length(header_ciphertext) > 0 AS has_key, enabled, tool_mode, disabled_tools, created_at, updated_at
+      `SELECT id, label, url, description, transport, timeout_seconds, length(header_ciphertext) > 0 AS has_key, oauth_meta, enabled, tool_mode, disabled_tools, created_at, updated_at
          FROM chat_mcp_servers WHERE user_id = ?1 AND id = ?2`,
       this.userId, id,
     )

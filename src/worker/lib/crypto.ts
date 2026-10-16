@@ -70,6 +70,34 @@ export async function decryptAssistantKey(env: Env, userId: string, stored: stri
   return typeof apiKey === 'string' && apiKey.length > 0 && apiKey.length <= 4096 ? apiKey : null
 }
 
+/**
+ * One MCP server's outbound OAuth material.
+ *
+ * Scoped to the server's own id rather than to the account, because the thing being kept is not this
+ * reader's credential in general but a token one third party minted for one resource: a ciphertext written
+ * into another server's row then fails to decrypt instead of leaking a bearer across two issuers.
+ *
+ * The payload is opaque to the vault — one field, whatever the authorization server handed back — so a
+ * large JWT from a large identity provider does not have to be truncated to fit.
+ */
+export async function encryptMcpOAuth(env: Env, serverId: string, payload: unknown): Promise<string> {
+  if (!isValidId(serverId)) throw new Error('invalid_mcp_credential')
+  return encryptCredential(env, `mcp:${serverId}`, { blob: JSON.stringify(payload ?? {}) })
+}
+
+export async function decryptMcpOAuth<T>(env: Env, serverId: string, stored: string): Promise<T | null> {
+  if (!isValidId(serverId) || stored.length > 24 * 1024) return null
+  const value = await decryptCredential(env, `mcp:${serverId}`, stored)
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null
+  const blob = (value as Record<string, unknown>).blob
+  if (typeof blob !== 'string') return null
+  try {
+    return JSON.parse(blob) as T
+  } catch {
+    return null
+  }
+}
+
 async function encryptCredential(env: Env, scope: string, value: unknown): Promise<string> {
   const response = await vaultRequest(env, '/encrypt', { scope, value })
   if (!response.ok) throw new CryptoUnavailableError()

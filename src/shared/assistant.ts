@@ -835,6 +835,24 @@ export type AssistantMcpToolMode = (typeof ASSISTANT_MCP_TOOL_MODES)[number]
 export const ASSISTANT_MCP_TRANSPORTS = ['streamableHttp', 'sse'] as const
 export type AssistantMcpTransport = (typeof ASSISTANT_MCP_TRANSPORTS)[number]
 
+/**
+ * What the reader knows about one server's login without the worker opening the vault.
+ *
+ * Nothing here is a credential. The token itself stays ciphertext at rest and never crosses this boundary,
+ * because the screen that shows it is the one a screenshot goes from — and a reader does not need to see
+ * their own bearer token to notice that a server is authorized until Friday.
+ */
+export interface AssistantMcpAuthorization {
+  /** The identity provider this server sends its readers to, once discovered. */
+  issuer: string
+  /** The scopes the resource asked for. Empty means the server asked for none, not that none were given. */
+  scopes: string[]
+  /** True when there is a token to send — which is not the same as it still working. */
+  authorized: boolean
+  /** When the stored token stops working, or 0 when the issuer never said. */
+  expiresAt: number
+}
+
 export interface AssistantMcpServer {
   id: string
   label: string
@@ -857,6 +875,8 @@ export interface AssistantMcpServer {
   disabledTools: string[]
   /** Whether any request header is stored. The values themselves never leave the worker. */
   hasKey: boolean
+  /** The OAuth arrangement, once the reader started one. Null means this server has never been asked. */
+  authorization: AssistantMcpAuthorization | null
   createdAt: number
   updatedAt: number
 }
@@ -1047,6 +1067,21 @@ export interface AssistantMcpCatalogEntry {
   tools: { remoteName: string, name: string, description: string, disabled: boolean }[]
   /** Why this server answered nothing, in the reader's own language where the client can say it. */
   error?: string
+}
+
+/**
+ * One third party that would not answer, with the part the screen can act on.
+ *
+ * `needsAuthorization` travels as a flag rather than being read back out of `error`, because `error` is a
+ * sentence — it is shown to a reader in their own language, and re-parsed by anybody who wanted a button out
+ * of it would find one only in the language the worker happened to write it in.
+ */
+export interface AssistantMcpProblem {
+  serverId: string
+  label: string
+  error: string
+  /** True when the refusal was for want of a login, which is the one refusal this app can fix from here. */
+  needsAuthorization: boolean
 }
 
 /**

@@ -35,7 +35,7 @@ vi.mock('../../lib/api', () => ({
 const SERVER: AssistantMcpServer = {
   id: 's1', label: 'Example', url: 'https://mcp.example.test/mcp', description: '',
   transport: 'streamableHttp', timeoutSeconds: 30, enabled: true,
-  toolMode: 'ask', disabledTools: ['drop_everything'], hasKey: true, createdAt: 1, updatedAt: 1,
+  toolMode: 'ask', disabledTools: ['drop_everything'], hasKey: true, authorization: null, createdAt: 1, updatedAt: 1,
 }
 
 const CATALOG = [{

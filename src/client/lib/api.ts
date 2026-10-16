@@ -56,6 +56,7 @@ import type {
 import type {
   AssistantAnswerVersion,
   AssistantMcpCatalogEntry,
+  AssistantMcpProblem,
   AssistantMcpServer,
   AssistantMcpServerDetail,
   AssistantConversation,
@@ -832,7 +833,7 @@ export const api = {
         `/api/assistant/mcp/${id}/test`, { method: 'POST', body: headers === undefined ? {} : { headers } },
       ),
     /** The names the composer's / picker can offer, with the servers that failed to list. */
-    mcpTools: () => request<{ servers: AssistantMcpCatalogEntry[], problems: { serverId: string, label: string, error: string }[] }>('/api/assistant/mcp/tools'),
+    mcpTools: () => request<{ servers: AssistantMcpCatalogEntry[], problems: AssistantMcpProblem[] }>('/api/assistant/mcp/tools'),
     /**
      * Run one stored third-party call again, with what it was handed the first time.
      *
@@ -843,6 +844,15 @@ export const api = {
       request<{ ok: boolean, error: string, result: string }>(
         '/api/assistant/mcp/replay', { method: 'POST', body: { conversationId, messageId, toolId } },
       ),
+    /**
+     * Ask the worker to start a login at this server's own identity provider.
+     *
+     * The answer is an address rather than a redirect on purpose: this call is a `fetch`, and a redirect to
+     * an external site would drag the session cookie along with it. The caller opens the address itself.
+     */
+    authorizeMcpServer: (id: string, clientId?: string) =>
+      request<{ url: string }>(`/api/assistant/mcp/${id}/authorize`, { method: 'POST', body: clientId ? { clientId } : {} }),
+    revokeMcpServer: (id: string) => request<{ ok: true }>(`/api/assistant/mcp/${id}/authorize`, { method: 'DELETE' }),
 
     /** The answers one turn displaced, oldest first. */
     answerVersions: (conversationId: string, messageId: string) =>

@@ -21,6 +21,7 @@ import type {
   AssistantMessage,
   AssistantAnswerVersion,
   AssistantMcpCatalogEntry,
+  AssistantMcpProblem,
   AssistantMcpServerDetail,
   AssistantMcpServer,
   AssistantModel,
@@ -163,7 +164,7 @@ interface AssistantState {
 
   /** The reader's external MCP servers, and the tools each of them currently offers. */
   mcpServers: AssistantMcpServer[]
-  mcpProblems: { serverId: string, label: string, error: string }[]
+  mcpProblems: AssistantMcpProblem[]
   /** One entry per server, switched-off tools included, so the screen can draw every switch it needs. */
   mcpCatalog: AssistantMcpCatalogEntry[]
   /** True while the listing is in flight: a switch flipped against a stale list would be a lie. */
@@ -198,6 +199,9 @@ interface AssistantState {
    */
   setMcpToolsEnabled: (server: AssistantMcpServer, remoteNames: readonly string[], enabled: boolean) => Promise<void>
   removeMcpServer: (id: string) => Promise<void>
+  /** Opens the third party's own login in a popup and waits for the reader to come back. */
+  authorizeMcp: (id: string) => Promise<boolean>
+  revokeMcp: (id: string) => Promise<void>
   testMcpServer: (id: string, headers?: Record<string, string>) => Promise<{ ok: boolean, error: string, count: number }>
 
   setView: (view: AssistantView) => void
@@ -349,6 +353,30 @@ function toast(error: unknown): void {
   useUi.getState().toast({
     title: error instanceof ApiError || error instanceof Error ? error.message : t('assistant.toast.failed'),
     tone: 'danger',
+  })
+}
+
+/** How often a popup is asked whether the reader has finished logging in, and how long to keep asking. */
+const POPUP_POLL_MS = 700
+const POPUP_WAIT_MS = 5 * 60 * 1000
+
+/**
+ * Resolves when the reader's provider has handed them back, or when they have plainly given up.
+ *
+ * The worker learns the outcome from the callback, so the popup itself carries no message back — and a page
+ * on somebody else's origin is not allowed to post into this one anyway. What can be watched from here is
+ * whether the tab is still open: closed means the reader saw an answer, either way, and the list is worth
+ * reading again. The deadline is for the case where they never come back at all.
+ */
+function followedPopup(tab: Window): Promise<void> {
+  return new Promise((resolve) => {
+    const startedAt = Date.now()
+    const timer = window.setInterval(() => {
+      if (tab.closed || Date.now() - startedAt > POPUP_WAIT_MS) {
+        window.clearInterval(timer)
+        resolve()
+      }
+    }, POPUP_POLL_MS)
   })
 }
 
@@ -607,8 +635,7 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
     }
   },
 
-  addMcpServer: async (body) => {
-    try {
+  addMcpServer: async (body) => {    try {
       await api.assistant.createMcpServer(body)
       await get().loadMcp()
       return true
@@ -639,6 +666,42 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
   removeMcpServer: async (id) => {
     try {
       await api.assistant.removeMcpServer(id)
+      await get().loadMcp()
+    } catch (error) {
+      toast(error)
+    }
+  },
+
+  /**
+   * Send the reader through the third party's own login, and come back when they have.
+   *
+   * The address is opened as a popup rather than navigated to: this screen holds a form somebody may be
+   * half way through typing, and a page that leaves to log in and returns to nothing is the oldest complaint
+   * about this kind of flow. When the popup closes the list is read again, because the answer to "did it
+   * work" is on the server and nowhere else.
+   */
+  authorizeMcp: async (id) => {
+    try {
+      const { url } = await api.assistant.authorizeMcpServer(id)
+      const tab = window.open(url, 'inkstone-mcp-oauth', 'popup=yes,width=520,height=720')
+      if (!tab) {
+        // Blocked, not failed: the reader's provider never saw them. Saying where the address went would
+        // be a second way to leak a state parameter, so the answer is simply to allow the popup.
+        useUi.getState().toast({ title: t('assistant.mcp.authorize_blocked'), tone: 'danger' })
+        return false
+      }
+      await followedPopup(tab)
+      await get().loadMcp()
+      return true
+    } catch (error) {
+      toast(error)
+      return false
+    }
+  },
+
+  revokeMcp: async (id) => {
+    try {
+      await api.assistant.revokeMcpServer(id)
       await get().loadMcp()
     } catch (error) {
       toast(error)

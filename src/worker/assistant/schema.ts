@@ -195,6 +195,11 @@ export const ASSISTANT_SCHEMA_STATEMENTS: readonly string[] = [
    *
    * The bearer header is stored encrypted, and only its length is ever selected: a listing that returned
    * the ciphertext would let a stolen backup be replayed against the third party.
+   *
+   * The two `oauth_` columns are the outbound half of the MCP authorization spec, split because the two
+   * halves have different secrecy. The token, the client secret and the PKCE verifier go through the vault;
+   * the discovered endpoints, the granted scopes and the expiry are plain, because the settings screen has
+   * to say "authorized until Friday" for a whole list of servers without paying one decrypt per row.
    */
   `CREATE TABLE IF NOT EXISTS chat_mcp_servers (
     user_id TEXT NOT NULL,
@@ -202,6 +207,8 @@ export const ASSISTANT_SCHEMA_STATEMENTS: readonly string[] = [
     label TEXT NOT NULL,
     url TEXT NOT NULL,
     header_ciphertext TEXT NOT NULL DEFAULT '',
+    oauth_ciphertext TEXT NOT NULL DEFAULT '',
+    oauth_meta TEXT NOT NULL DEFAULT '{}',
     description TEXT NOT NULL DEFAULT '',
     transport TEXT NOT NULL DEFAULT 'streamableHttp',
     timeout_seconds INTEGER NOT NULL DEFAULT 30,
@@ -515,7 +522,7 @@ export const ASSISTANT_REQUIRED_COLUMNS: Readonly<Record<string, readonly string
   chat_conversation_tags: ['user_id', 'conversation_id', 'tag_id', 'created_at'],
   chat_messages: ['user_id', 'id', 'conversation_id', 'role', 'content', 'reasoning', 'tools', 'attachments', 'status', 'error', 'source', 'input_tokens', 'output_tokens', 'duration_ms', 'model_label', 'feedback', 'sources', 'created_at'],
   chat_answer_versions: ['user_id', 'id', 'message_id', 'conversation_id', 'content', 'reasoning', 'tools', 'model_label', 'input_tokens', 'output_tokens', 'duration_ms', 'created_at'],
-  chat_mcp_servers: ['user_id', 'id', 'label', 'url', 'description', 'transport', 'timeout_seconds', 'header_ciphertext', 'enabled', 'tool_mode', 'disabled_tools', 'created_at', 'updated_at'],
+  chat_mcp_servers: ['user_id', 'id', 'label', 'url', 'description', 'transport', 'timeout_seconds', 'header_ciphertext', 'oauth_ciphertext', 'oauth_meta', 'enabled', 'tool_mode', 'disabled_tools', 'created_at', 'updated_at'],
   chat_memories: ['user_id', 'id', 'content', 'category', 'source', 'status', 'superseded_by', 'valid_from', 'valid_until', 'created_at', 'updated_at'],
   chat_memory_embeddings: ['user_id', 'memory_id', 'model', 'vector', 'norm', 'updated_at'],
   chat_memory_reviews: ['user_id', 'id', 'memory_id', 'other_id', 'relationship', 'reason', 'created_at'],

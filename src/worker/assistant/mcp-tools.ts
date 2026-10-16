@@ -12,12 +12,14 @@ import {
   MAX_MCP_TOOLS_PER_SERVER,
   mcpToolName,
   type AssistantMcpCatalogEntry,
+  type AssistantMcpProblem,
   type AssistantMcpServer,
   type AssistantMcpTool,
 } from '@shared/assistant'
 import type { AssistantStore } from './store'
 import type { PreparedTarget, ToolContext, ToolDefinition } from './tools'
-import { mcpCallTool, mcpInitialize, mcpListTools, type McpSession, type McpToolListing } from './mcp-client'
+import { McpError, mcpCallTool, mcpInitialize, mcpListTools, type McpSession, type McpToolListing } from './mcp-client'
+import { withMcpOAuthHeaders } from './mcp-oauth'
 
 /** How many remote tools one turn may offer at all: their schemas travel with every request. */
 const MAX_EXTERNAL_TOOLS_PER_TURN = 24
@@ -32,7 +34,7 @@ export interface ExternalToolsResult {
   /** Namespaced name to the server's own JSON Schema, which is what the model is told about arguments. */
   schemas: Record<string, Record<string, unknown>>
   /** Servers that could not be listed, with the reason the settings screen should show. */
-  problems: { serverId: string, label: string, error: string }[]
+  problems: AssistantMcpProblem[]
   called: () => number
 }
 
@@ -61,16 +63,26 @@ async function visitListings(
   store: AssistantStore,
   servers: AssistantMcpServer[],
   visit: (server: AssistantMcpServer, session: McpSession, listing: McpToolListing) => void,
-): Promise<{ problems: { serverId: string, label: string, error: string }[] }> {
-  const problems: { serverId: string, label: string, error: string }[] = []
+): Promise<{ problems: AssistantMcpProblem[] }> {
+  const problems: AssistantMcpProblem[] = []
   for (const server of servers) {
     const record = await store.mcpServerRecord(server.id)
     if (!record) continue
     let session: McpSession
     try {
-      session = await mcpInitialize(server.url, record.headers, server.timeoutSeconds, server.transport)
+      // The reader's own headers plus whatever token this server's authorization produced, resolved per
+      // server: an expired token is exchanged here, before the handshake, rather than failing the turn.
+      const headers = await withMcpOAuthHeaders(store, server.id, server.url, record.headers)
+      session = await mcpInitialize(server.url, headers, server.timeoutSeconds, server.transport)
     } catch (error) {
-      problems.push({ serverId: server.id, label: server.label, error: error instanceof Error ? error.message : 'unreachable' })
+      // A refusal is not one thing: a server that answered 401 is asking for a login, and that is the one
+      // case this screen has a button for. The message goes to the reader; the status goes to the interface.
+      problems.push({
+        serverId: server.id,
+        label: server.label,
+        error: error instanceof Error ? error.message : 'unreachable',
+        needsAuthorization: error instanceof McpError && error.status === 401,
+      })
       continue
     }
     visit(server, session, await mcpListTools(session, server.id, server.label))
@@ -93,7 +105,7 @@ export async function loadExternalTools(store: AssistantStore): Promise<External
 
   const { problems: failures } = await visitListings(store, await store.enabledMcpServers(), (server, session, listing) => {
     if (full()) {
-      problems.push({ serverId: server.id, label: server.label, error: 'Skipped: the turn already offers enough tools.' })
+      problems.push({ serverId: server.id, label: server.label, error: 'Skipped: the turn already offers enough tools.', needsAuthorization: false })
       return
     }
     const off = new Set(server.disabledTools)
@@ -146,7 +158,7 @@ export async function loadExternalTools(store: AssistantStore): Promise<External
  * there. The schemas are dropped — nothing here is callable — because the screen draws names and
  * descriptions, not argument forms.
  */
-export async function listMcpCatalog(store: AssistantStore): Promise<{ servers: AssistantMcpCatalogEntry[], problems: { serverId: string, label: string, error: string }[] }> {
+export async function listMcpCatalog(store: AssistantStore): Promise<{ servers: AssistantMcpCatalogEntry[], problems: AssistantMcpProblem[] }> {
   const servers: AssistantMcpCatalogEntry[] = []
   const { problems } = await visitListings(store, await store.listMcpServers(), (server, _session, listing) => {
     const off = new Set(server.disabledTools)

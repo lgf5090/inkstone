@@ -10,13 +10,28 @@ const MAX_CIPHERTEXT_LENGTH = 24 * 1024
 /**
  * `ai:` carries the chat assistant's provider key. The scope is the account id, so a ciphertext stored
  * for one reader cannot be replayed against another's derived key even by someone who can write rows.
+ *
+ * `mcp:` carries one server's outbound OAuth material, scoped to that server's id rather than the account
+ * so a token minted for one third party cannot be read back out of another's row.
  */
-const CREDENTIAL_SCOPE_PATTERN = /^(?:backup|totp|ai):[0-9a-hjkmnp-tv-z]{26}$/
+const CREDENTIAL_SCOPE_PATTERN = /^(?:backup|totp|ai|mcp):[0-9a-hjkmnp-tv-z]{26}$/
 const CIPHERTEXT_PATTERN = /^v1\.([A-Za-z0-9_-]+)$/
 const HKDF_SALT = utf8('inkstone.backup-credentials.v1')
 const BACKUP_SECRET_FIELDS = new Set(['password', 'accessKeyId', 'secretAccessKey'])
 const TOTP_SECRET_FIELDS = new Set(['secret'])
 const AI_SECRET_FIELDS = new Set(['apiKey'])
+const MCP_SECRET_FIELDS = new Set(['blob'])
+/**
+ * How long one field of a record may be, by scope.
+ *
+ * A password, a TOTP secret and an API key are all short things, and the 4 kB bound is what stops a row
+ * from being used to smuggle an archive into the vault. An OAuth token set is not: an access token, a
+ * refresh token, a client secret and an in-flight verifier are each somebody else's opaque string, and the
+ * large identity providers write JWTs of several kilobytes routinely. The bound stays per scope so the
+ * extra room is exactly as wide as the one kind of credential that needs it.
+ */
+const MAX_FIELD_LENGTH: Record<string, number> = { mcp: 16 * 1024 }
+const DEFAULT_MAX_FIELD_LENGTH = 4096
 
 type CredentialRecord = Record<string, string>
 
@@ -167,7 +182,10 @@ function isCredentialRecord(scope: string, value: unknown): value is CredentialR
     ? TOTP_SECRET_FIELDS
     : scope.startsWith('ai:')
       ? AI_SECRET_FIELDS
-      : BACKUP_SECRET_FIELDS
+      : scope.startsWith('mcp:')
+        ? MCP_SECRET_FIELDS
+        : BACKUP_SECRET_FIELDS
+  const cap = MAX_FIELD_LENGTH[scope.split(':')[0]!] ?? DEFAULT_MAX_FIELD_LENGTH
   const entries = Object.entries(value)
   if (entries.length < 1 || entries.length > allowed.size) return false
   return entries.every(
@@ -175,7 +193,7 @@ function isCredentialRecord(scope: string, value: unknown): value is CredentialR
       allowed.has(key) &&
       typeof field === 'string' &&
       field.length > 0 &&
-      field.length <= 4096,
+      field.length <= cap,
   )
 }
 

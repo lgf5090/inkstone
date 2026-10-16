@@ -68,6 +68,7 @@ import { requireAuth } from '../middleware/auth'
 import { FORM_BODY_LIMITS, JSON_BODY_LIMITS, readFormDataWithinLimit, readJson, readStreamWithinLimit } from '../lib/request'
 import { McpError, mcpCallTool, mcpInitialize, mcpListTools, mcpProbe, mcpUrlProblem } from '../assistant/mcp-client'
 import { isExternalToolName, listMcpCatalog, loadExternalTools } from '../assistant/mcp-tools'
+import { finishMcpAuthorization, startMcpAuthorization, withMcpOAuthHeaders } from '../assistant/mcp-oauth'
 import { isValidId } from '../lib/id'
 import { isInlineSafe } from '../lib/image'
 import { AssistantStore, dayBefore, usageDay } from '../assistant/store'
@@ -331,8 +332,11 @@ assistantRoutes.post('/mcp/:id/test', async (c) => {
   // A test can carry the values the form is holding, so a reader can check a key before saving it; the
   // response never echoes them back either way.
   const headers = 'headers' in body ? mcpServerFields(body).headers ?? {} : record.headers
+  // Tested with the token the reader would have to have for the test to mean anything, so a server that
+  // needs authorizing answers "needs authorizing" here rather than pretending to be broken.
+  const authorized = await withMcpOAuthHeaders(s, id, record.row.url, headers)
   // Tested the way the turn will call it: a server saved as an SSE endpoint has to answer as one.
-  const result = await mcpProbe(record.row.url, headers, record.row.id, record.row.label, record.row.timeoutSeconds, record.row.transport)
+  const result = await mcpProbe(record.row.url, authorized, record.row.id, record.row.label, record.row.timeoutSeconds, record.row.transport)
   return c.json({
     ok: result.ok,
     error: result.error,
@@ -401,7 +405,7 @@ assistantRoutes.post('/mcp/replay', async (c) => {
   }
 
   try {
-    const session = await mcpInitialize(server.url, record.headers, server.timeoutSeconds, server.transport)
+    const session = await mcpInitialize(server.url, await withMcpOAuthHeaders(s, server.id, server.url, record.headers), server.timeoutSeconds, server.transport)
     // The stored name is the namespaced one, and the namespacing is lossy: the server is asked what it
     // offers so the call carries the same remote name the first one did.
     const listing = await mcpListTools(session, server.id, server.label)
@@ -426,6 +430,98 @@ assistantRoutes.get('/mcp/:id', async (c) => {
   const record = await store(c).mcpServerRecord(requiredId(c.req.param('id')))
   if (!record) throw ApiError.notFound('Server not found')
   return c.json({ server: record.row, headerNames: Object.keys(record.headers) })
+})
+
+// ------------------------------------------------ outbound MCP OAuth (client)
+
+/**
+ * Where the identity provider sends the reader back to.
+ *
+ * One fixed path, and the only address ever registered with a third party — a redirect that could be pointed
+ * elsewhere would be a way to have somebody else's provider hand a code to somebody else's site.
+ */
+function mcpOAuthRedirect(c: Context<AppBindings>): string {
+  return `${new URL(c.req.url).origin}/api/assistant/mcp/oauth/callback`
+}
+
+/**
+ * Start a reader's login at a third party's own identity provider.
+ *
+ * The answer is an address the browser opens, not a redirect: this route is a `fetch` from the settings
+ * screen, and a worker that answered a `fetch` with a 302 to an external site would have the reader's
+ * session cookie follow it. The client puts the URL in a new tab and lets the provider do the rest.
+ */
+assistantRoutes.post('/mcp/:id/authorize', async (c) => {
+  const s = store(c)
+  const id = requiredId(c.req.param('id'))
+  const record = await s.mcpServerRecord(id)
+  if (!record) throw ApiError.notFound('Server not found')
+  const body = await readJson<{ clientId?: unknown }>(c, JSON_BODY_LIMITS.small).catch(() => ({}) as { clientId?: unknown })
+  const url = await startMcpAuthorization({
+    store: s,
+    serverId: id,
+    mcpUrl: record.row.url,
+    clientName: `${record.row.label} · ${c.env.APP_NAME || 'Inkstone'}`,
+    redirectUri: mcpOAuthRedirect(c),
+    // A server with no dynamic registration can still be used by a reader who registered this app by hand
+    // with its provider, so the id they type is the one that gets sent.
+    suppliedClientId: typeof body.clientId === 'string' ? body.clientId.slice(0, 512) : '',
+  })
+  await s.recordActivity('mcp.authorized', `${record.row.label}: authorization started at ${new URL(url).host}`)
+  return c.json({ url })
+})
+
+/** The page a reader lands on when their provider sends them back. No script, no styling, one link home. */
+function mcpOAuthResultPage(title: string, detail: string, home: string): string {
+  const say = (value: string) => value.replace(/[&<>"']/g, (character) => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
+  })[character]!)
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8">`
+    + `<meta name="viewport" content="width=device-width, initial-scale=1">`
+    + `<meta name="robots" content="noindex">`
+    + `<title>${say(title)} · Inkstone</title></head>`
+    + `<body><h1>${say(title)}</h1><p>${say(detail)}</p><p><a href="${say(home)}">Back to the assistant</a></p></body></html>`
+}
+
+/**
+ * The half of the dance the third party drives.
+ *
+ * Reached by the reader's browser, from the provider, so it is a page rather than an API call — and it is
+ * still behind `requireAuth`, which is what makes the state below a confirmation rather than the only
+ * defence: the row that gets the token is found inside *this* session's own servers, so another reader's
+ * correctly-signed reply for the same server id simply has no row to land on.
+ */
+assistantRoutes.get('/mcp/oauth/callback', async (c) => {
+  const s = store(c)
+  const state = c.req.query('state') ?? ''
+  const code = c.req.query('code') ?? ''
+  const providerError = c.req.query('error') ?? ''
+  const home = `${new URL(c.req.url).origin}/chat`
+  try {
+    if (!code && !providerError) throw ApiError.badRequest('Neither a code nor a reason came back.')
+    const done = await finishMcpAuthorization({
+      store: s,
+      state,
+      code,
+      providerError: providerError || undefined,
+      redirectUri: mcpOAuthRedirect(c),
+    })
+    return c.html(mcpOAuthResultPage('Authorized', `${done.label} can now be used by the assistant. This tab can be closed.`, home))
+  } catch (error) {
+    const detail = error instanceof ApiError ? error.message : 'The authorization could not be completed.'
+    return c.html(mcpOAuthResultPage('Not authorized', detail, home), 400)
+  }
+})
+
+/** Take the token away, and leave the server's own configuration alone. */
+assistantRoutes['delete']('/mcp/:id/authorize', async (c) => {
+  const s = store(c)
+  const id = requiredId(c.req.param('id'))
+  const record = await s.mcpServerRecord(id)
+  if (!record) throw ApiError.notFound('Server not found')
+  await s.clearMcpAuthorization(id)
+  await s.recordActivity('mcp.revoked', `${record.row.label}: authorization revoked`)
+  return c.json({ ok: true })
 })
 
 assistantRoutes.get('/conversations/:id', async (c) => {
