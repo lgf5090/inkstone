@@ -4962,7 +4962,6 @@ console.log(\`Hello, \${name}!\`)
     "excalidraw.expand": "展开",
     "excalidraw.analyzing_diagram": "正在分析图表架构与节点关联…",
     "excalidraw.send": "发送",
-    "excalidraw.apply": "应用",
     "excalidraw.no_diagram_preview": "生成或编写 Mermaid 代码后将在此处实时预览",
     "excalidraw.no_elements_warning": "未能在 Mermaid 脚本中解析出可插入的图形元素",
     "excalidraw.mermaid_editor": "Mermaid 编辑器",
