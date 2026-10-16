@@ -1148,6 +1148,32 @@ export const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
     ],
   },
   {
+    // What the model costs, so the usage screen can answer "what did this cost me" instead of leaving the
+    // reader to multiply tokens by a price they looked up elsewhere. One version per column, for the
+    // reason the entries above give.
+    version: 65,
+    skipIfColumnExists: { table: 'chat_models', column: 'input_price' },
+    statements: [
+      `ALTER TABLE chat_models ADD COLUMN input_price REAL`,
+    ],
+  },
+  {
+    version: 66,
+    skipIfColumnExists: { table: 'chat_models', column: 'output_price' },
+    statements: [
+      `ALTER TABLE chat_models ADD COLUMN output_price REAL`,
+    ],
+  },
+  {
+    // The currency the two prices are in. Free text because the bill is in whatever the provider bills
+    // in, and a closed list would be a list this app has to keep up to date for no gain.
+    version: 67,
+    skipIfColumnExists: { table: 'chat_models', column: 'price_currency' },
+    statements: [
+      `ALTER TABLE chat_models ADD COLUMN price_currency TEXT NOT NULL DEFAULT ''`,
+    ],
+  },
+  {
     // The reader's verdict on one answer: 'up', 'down' or ''. Kept on the message rather than in a table
     // of its own because a turn has at most one verdict and the transcript is what reads it — but it is
     // stored at all so the judgement outlives the scroll, which a chip held in a component would not.

@@ -868,6 +868,7 @@ const allowed = new Map([
   ["src/client/features/chat/AssistantDataTab.tsx", [
     "/**\n * The data tab: importing and exporting the assistant's own records.\n */",
     "/**\n   * The summary is read back from the server rather than counted here, so the toast cannot claim a\n   * merge that did not happen; the skipped notes are what an imported file was not allowed to change.\n   */",
+    "/* The numbers come first: a reader who opens this tab is usually asking what the assistant has\n          been costing, and the export and delete rows below are what they do about it. */",
   ]],
   ["src/client/features/chat/AssistantHeader.tsx", [
     "/**\n * The title block every assistant page opens with.\n *\n * The surfaces behind the rail are one page with different contents, and each of them had written this\n * pair out for itself: a serif title at one size, and a line under it saying what the page is for. Three\n * copies drifted — one of them put its action beside the title and the others did not — so the shape\n * lives here. The action rides the title line, which is where a page's primary button belongs on a page\n * that also has a list under it.\n */",
@@ -927,6 +928,19 @@ const allowed = new Map([
   ]],
   ["src/client/features/chat/AssistantSettingsView.tsx", [
     "/**\n * Assistant settings: the model it answers from, how it behaves, what it may spend, and what it keeps.\n *\n * The provider key is write-only from here. The form sends it once and never reads it back — the row\n * shows only whether a key is stored — because a key that comes back to the browser can be read by any\n * extension, any XSS, and any screenshot, and the assistant has no need of it on this side.\n */",
+  ]],
+  ["src/client/features/chat/AssistantUsagePanel.tsx", [
+    "/**\n * What the assistant has been spending, drawn from one answer.\n *\n * Three views of one window rather than three independent widgets: the totals, the days and the models\n * all come from a single `/stats` response, so a range switch cannot leave one panel describing last\n * week and another describing last month. The chart library is loaded on the first draw and shared with\n * the note charts, which reach the same chunk.\n *\n * Cost is shown per currency and never added across them. A model the reader has not priced is reported\n * as unpriced — \"no price\" and \"free\" are different claims, and a total that confused them would be a\n * number nobody could act on.\n */",
+    "/** Tokens, shortened the way a reader reads them at a glance. */",
+    "// Four decimals because a single cheap turn is fractions of a cent, and rounding it to two would show",
+    "// a reader who just spent something the same numbers as one who spent nothing.",
+    "/**\n * The daily token bars.\n *\n * Chart.js rather than a hand-drawn SVG because the app already ships it for note charts, and because\n * the two series — tokens in and tokens out — are what the reader compares day by day. The canvas is\n * destroyed with the effect: a chart left behind holds its resize observer and repaints off screen.\n */",
+    "// Drawing is the one thing here that can fail on its own — a context that cannot be had, a library",
+    "// that will not load — and the numbers above it are what the reader came for. So the chart is",
+    "// best-effort and the panel stays.",
+    "/**\n * The window as a year of days.\n *\n * Drawn here rather than through the notebook's calendar: that component is the calendar app's, with a\n * cursor, a lunar layer and a day-click contract, and dragging all of it into a settings panel to show\n * one year of intensity would be a page of props for a grid of squares.\n */",
+    "// Five steps rather than a continuous tint: a reader compares squares, and forty shades of one",
+    "// colour is a comparison nobody can make by eye.",
   ]],
   ["src/client/features/chat/AutomationsView.tsx", [
     "/**\n * Reminders and routines.\n *\n * The schedule editor builds a `ScheduleSpec` and shows the sentence it means before anything is sent,\n * because the commonest mistake in a scheduler is a form that says one thing and stores another. The\n * sentence is assembled from the locale catalog, so a reader whose interface is Chinese reads the\n * schedule in their own language rather than as an English string pasted next to it.\n *\n * Times are typed as wall-clock readings in the assistant's timezone, which is what \"remind me at 9\"\n * means to the reader; the conversion is the server's job and lives in `assistant-schedule`.\n */",
@@ -1195,6 +1209,9 @@ const allowed = new Map([
     "// The rungs this model's own service publishes, and whether it can be stopped at all. Read from the same",
     "// rule the worker builds the request with, so the levels offered here are the levels that travel.",
     "/* The row's reasoning icon is a switch between off and automatic; which of the depths a model is\n                asked for is a fact about that model, so it is chosen here rather than on the row — and the\n                depths are the ones its own service names, not a fixed list every vendor is shown. */",
+    "/** What a million tokens cost, so the usage screen can put a number on a turn. Blank is unpriced. */",
+    "/** A typed price, or null for a field the reader has cleared. */",
+    "/* The price rows sit with the token ceilings: all three are about what this model is\n                allowed or expected to cost, and a reader setting them is reading a pricing page. */",
   ]],
   ["src/client/features/chat/ModelPickerDialog.tsx", [
     "/** The vendor families in the list, so the chips are the account's own, not a list of brands. */",
@@ -1592,6 +1609,13 @@ const allowed = new Map([
     "/**\n * A selection of turns, written out as one Markdown document.\n *\n * Held apart from the panel that offers it because the text is the part worth pinning: a transcript that\n * drops a speaker's name, or the code fence inside an answer, is not a transcript. The speaker headings\n * are the interface's own words, so they come from the catalog like every other label.\n */",
     "/** One speaker's turn, in the shape a reader would write it down. */",
     "/** Writes the selection to a file the reader can keep. */",
+  ]],
+  ["src/client/features/chat/usage-panel.test.ts", [
+    "/**\n * The usage screen.\n *\n * What a reader comes here for is a number they can act on, so what is pinned is the arithmetic and the\n * honesty around it: the tokens of a window, a cost per currency, and the models left out of that cost\n * because nobody has priced them. The chart is the library's own business — jsdom has no canvas, which is\n * also the case the panel has to survive.\n */",
+    "// 2.5M in, 0.5M out: the scale a reader can take in, not the seven digits underneath it.",
+    "// A cheap window shows fractions of a unit, so the fourth decimal is not noise.",
+    "// One cell per day of the window, whatever the window's length — the map is drawn from the range, not",
+    "// from the days that happen to have usage, or a quiet week would look like a short one.",
   ]],
   ["src/client/features/chat/user-message-actions.test.ts", [
     "/**\n * The three controls under the reader's own message.\n *\n * The row is the only place their words can be taken back out of the thread, so what is pinned is which\n * of them is drawn, what each one reaches — the clipboard, the editor, the confirmation — and that a\n * turn being written right now is left alone.\n */",
@@ -7351,6 +7375,7 @@ const allowed = new Map([
     "/** The reader's verdict on one answer, or null to take it back. */",
     "/** A new conversation carrying this one up to and including one message. */",
     "/** Deletes the turns a reader selected, without the pairing a single delete applies. */",
+    "/** One window of spending, per day, per model and per conversation. */",
   ]],
   ["src/client/lib/app-history.ts", [
     "/**\n * The address bar as the one source of truth for which app tab is up.\n *\n * The tab is a path rather than a store field so that a rail button is an ordinary link: the\n * address a reader copies is the screen they are looking at, the back button walks the tabs they\n * visited, and a cold load of `/calendar` needs nothing but the document the server already sends.\n * `history.pushState` fires no event of its own, so the writers here announce their own changes and\n * `popstate` covers everything the browser does by itself.\n */",
@@ -14503,6 +14528,13 @@ const allowed = new Map([
     "/** Token budgets a rung means for the protocols that take a number rather than a name. */",
     "/** A verdict a reader can leave on one answer. */",
     "/**\n   * The reader's verdict on this answer, when they gave one.\n   *\n   * Stored beside the message rather than in a table of its own: a turn has at most one verdict, and the\n   * thing that reads it is the transcript. The value is what the column holds, so a backup and a restore\n   * agree about what a downvote was.\n   */",
+    "/**\n   * What a million tokens of this model costs, as the provider publishes it.\n   *\n   * Null is \"not priced\" rather than free — a local model and an unpriced one look the same in a total,\n   * and the statistics say which models they could not price instead of counting them as zero. Prices\n   * are per million of the side they name, which is the unit every provider quotes in.\n   */",
+    "/** The currency those two numbers are in, free text: `USD`, `CNY`, whatever the bill is in. */",
+    "/** One model's share of a window, with what it cost when the reader has priced it. */",
+    "/** Empty when the model is unpriced, which `cost: null` then says out loud. */",
+    "/**\n * What the usage screen is drawn from.\n *\n * One window, its days, its models and its most expensive conversations, so the three panels on that\n * screen cannot disagree about which range they are describing: they are all read from one answer.\n */",
+    "/** One entry per currency the reader's prices are in, never summed across them. */",
+    "/** How many of the models used in this window have no price, so a total can say what it left out. */",
   ]],
   ["src/shared/backup-format.ts", [
     "/** The account's own template library, absent from a backup taken before it was worth keeping. */",
@@ -15299,6 +15331,8 @@ const allowed = new Map([
     "// is a question about the page in front of them, and refusing it because the folder they",
     "// excluded happens to hold it would answer a question nobody asked.",
     "/**\n   * The note and folder the reader had on screen, named for the prompt.\n   *\n   * Both are read rather than taken from the request: the note has to be one they own and have not\n   * deleted, and the folder's name is this vault's — a caller that named its own folder would be\n   * writing a line of the system prompt.\n   */",
+    "// The label travels with the counters so the day's models can be told apart: a reader with two",
+    "// providers has two prices, and one total cannot be split after the fact.",
   ]],
   ["src/worker/assistant/scheduler.ts", [
     "/**\n * The minute sweep that runs what is due.\n *\n * Wired into the worker's cron handler alongside the existing queue drains, and deliberately kept out\n * of the hourly branch: a reminder is cheap and late delivery is visible, while the heavy work that\n * runs on the hour (backups, attachment cleanup) must not be able to take the reminders down with it.\n *\n * A routine that calls a model can outlive the sweep that started it, so each automation is claimed\n * before it runs and the claim is only released when it is re-armed — which is what stops a slow AI\n * digest from being started twice by two overlapping ticks.\n */",
@@ -15318,6 +15352,10 @@ const allowed = new Map([
     "/**\n   * The reader's own saved prompts, the library behind the composer's `/` and ➕ entries.\n   *\n   * `group_name` rather than `group`: the latter is reserved in SQLite's own grammar, and a column that\n   * needs quoting in every hand-written statement is a tax paid forever for a name saved once.\n   */",
     "/**\n   * The answers a retry displaced, one row each.\n   *\n   * The turn itself keeps a single `chat_messages` row and the reader pages through these. Storing the\n   * model as text rather than as an id is deliberate: a version the reader can still open must survive\n   * the model that produced it being deleted.\n   */",
     "/**\n   * External MCP servers the reader added.\n   *\n   * The bearer header is stored encrypted, and only its length is ever selected: a listing that returned\n   * the ciphertext would let a stolen backup be replayed against the third party.\n   */",
+    "// The same counters as `chat_usage_daily`, split by the model that answered. A day's total answers",
+    "// \"how much did I use\"; this answers \"which model, and what did it cost\", which is the question a",
+    "// reader with two providers and two prices actually has. Label rather than id because the label is",
+    "// what the transcript shows and what survives a model row being deleted or renamed.",
   ]],
   ["src/worker/assistant/semantic.ts", [
     "/**\n * Semantic recall for memories, on the deployment's own Workers AI stack.\n *\n * The reference project shipped its own embedding pipeline; this app already has one for notes\n * (`src/worker/mcp/ai-search.ts`), so the model name, the blob layout, the cosine helper and the\n * rank-fusion are imported from there rather than reimplemented — two encoders would silently stop\n * matching each other's vectors, and every recall would come back empty with no error to read.\n *\n * A memory is embedded when it is written, which is rare and small: the whole set is a few dozen\n * rows, so ranking is a scan rather than an index. The daily cap is the reader's, counted in the same\n * table as the request cap.\n */",
@@ -15468,6 +15506,15 @@ const allowed = new Map([
     "// One millisecond apart so the copied thread keeps the order it was read in: `addMessage` stamps",
     "// `created_at` itself and a loop over the same tick would give every row the same one.",
     "/**\n   * Deletes a set of turns the reader picked out, without the pairing a single delete applies.\n   *\n   * One message's own delete takes its neighbour with it, because half a turn is not a turn. A selection\n   * is different: the reader pointed at exactly these rows, and adding the ones they did not point at\n   * would delete something they can see on screen. Ids that are not this conversation's are ignored\n   * rather than refused, so a stale screen cannot delete a stranger's row.\n   */",
+    "// The model row is opened before the counters are applied so the two are written the same way, and",
+    "// only when a label was given: a scheduled embedding or a failed call belongs to the day's totals",
+    "// without belonging to any model's.",
+    "/** The per-model rows between two days, most used first. */",
+    "/** The first day this account has any usage on, so \"all\" has somewhere to start. */",
+    "/**\n   * The conversations that spent the most in a window, by the turns they hold.\n   *\n   * Counted from the messages rather than from a per-conversation counter, because a message is what\n   * actually cost anything and a counter would have to be kept in step with every delete and every\n   * restored backup — the rows are the truth, so they are what is read.\n   */",
+    "/** Every day in the range that has a number on it, for the trend and the heat map. */",
+    "/** Midnight UTC of a `YYYY-MM-DD` day, which is the frame the daily counters are written in. */",
+    "/** The day `count` days before `day`, so a window of 7 includes today. */",
   ]],
   ["src/worker/assistant/tools.ts", [
     "/**\n * The tools the assistant can reach, and the executor that runs them.\n *\n * Three things are enforced here rather than asked of the model, because a model that is confident and\n * wrong is the failure mode this app has to survive:\n *  - **budgets** — a per-turn call cap, a per-tool cap and a duplicate-call refusal, so a reasoning\n *    loop cannot spend the reader's AI quota or write a hundred tasks;\n *  - **validation** — arguments are checked against the same declaration that generates the JSON\n *    Schema the provider is given, so the two can never disagree;\n *  - **approval** — a destructive tool never runs during the turn. `prepare` resolves the exact target\n *    and writes a pending action; `commit` runs only when the reader presses Approve, once, on that\n *    target. The model can propose; it cannot delete.\n *\n * Scheduled runs get read-only tools plus `notify_reader`, so a routine that has drifted cannot edit\n * the vault while nobody is watching.\n */",
@@ -15858,6 +15905,11 @@ const allowed = new Map([
     "// The reader's verdict on one answer: 'up', 'down' or ''. Kept on the message rather than in a table",
     "// of its own because a turn has at most one verdict and the transcript is what reads it — but it is",
     "// stored at all so the judgement outlives the scroll, which a chip held in a component would not.",
+    "// What the model costs, so the usage screen can answer \"what did this cost me\" instead of leaving the",
+    "// reader to multiply tokens by a price they looked up elsewhere. One version per column, for the",
+    "// reason the entries above give.",
+    "// The currency the two prices are in. Free text because the bill is in whatever the provider bills",
+    "// in, and a closed list would be a list this app has to keep up to date for no gain.",
   ]],
   ["src/worker/db/writes.ts", [
     "/** Keeps tags, backlinks, full-text indexes, and change records consistent with note writes. */",
@@ -16343,6 +16395,10 @@ const allowed = new Map([
     "// The title is the client's, because a name is interface copy and the worker carries no catalog. It is",
     "// clamped here the way every other stored title is, and the source's own name is the fallback.",
     "/**\n * Deletes a selection of turns.\n *\n * Registered before the single-message `DELETE` below would not conflict — the paths differ — but it is\n * kept beside the fork because both are bulk operations on one conversation, and both take their input\n * in the body rather than in the path.\n */",
+    "/** A per-million-token price, or null for a model the reader has not priced. */",
+    "// A price is a number the reader read off a bill or a pricing page, so it is taken as given and only",
+    "// kept out of the negatives. Null clears it, which is how a model stops being counted into a total.",
+    "/**\n * What the assistant has spent, per day and per model.\n *\n * `range` is a window rather than a pair of dates because the screen offers three windows and nothing\n * else: a reader picking \"last 30 days\" is asking about a window, and a caller free to send arbitrary\n * dates could only ask the same question with more ways to get it wrong.\n *\n * Cost is summed per currency and never across them. A model the reader has not priced is reported as\n * unpriced rather than as free: \"no price\" and \"costs nothing\" are different claims, and a total that\n * silently treats one as the other is worse than no total.\n */",
   ]],
   ["src/worker/routes/auth.ts", [
     "// Account-wide cap so a distributed botnet cannot retry one account",
@@ -16973,6 +17029,7 @@ const allowed = new Map([
     "// A selection is not a turn: deleting a single message takes its pair with it, and this must not —",
     "// the reader pointed at two rows and the two rows are what goes.",
     "// The rollup described rows that are gone.",
+    "// 1M input at 1 + 0.5M output at 2, per million: the arithmetic the reader would otherwise do by hand.",
   ]],
   ["tests/assistant-rules.test.ts", [
     "/**\n * The rules the assistant is built on, tested where they are written.\n *\n * These are the parts a browser session cannot prove: what a Chinese sentence means to the conflict\n * rules, how a wall-clock schedule survives a daylight-saving change, how many tokens a Han vault\n * really costs. Each fixture is chosen so a plausible-but-wrong implementation would fail it — the\n * pair that differs only in a change word, a date the reader never stated, a schedule that crosses a\n * clock change — rather than so the function merely runs.\n */",

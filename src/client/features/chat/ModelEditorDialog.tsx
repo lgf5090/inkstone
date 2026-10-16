@@ -76,6 +76,10 @@ export interface ModelDraft {
   customParams: AssistantCustomParam[]
   /** Null means the model is called on whatever wire its provider speaks. */
   protocol: AssistantProtocol | null
+  /** What a million tokens cost, so the usage screen can put a number on a turn. Blank is unpriced. */
+  inputPrice: number | null
+  outputPrice: number | null
+  priceCurrency: string
 }
 
 export function draftFromModel(model: AssistantModel): ModelDraft {
@@ -94,7 +98,17 @@ export function draftFromModel(model: AssistantModel): ModelDraft {
     topP: model.topP,
     customParams: model.customParams.map((param) => ({ ...param })),
     protocol: model.protocol,
+    inputPrice: model.inputPrice,
+    outputPrice: model.outputPrice,
+    priceCurrency: model.priceCurrency,
   }
+}
+
+/** A typed price, or null for a field the reader has cleared. */
+function priceValue(raw: string): number | null {
+  if (!raw.trim()) return null
+  const numeric = Number(raw)
+  return Number.isFinite(numeric) && numeric >= 0 ? numeric : null
 }
 
 const MODALITY_KEYS: Record<AssistantModelModality, Parameters<typeof t>[0]> = {
@@ -359,6 +373,41 @@ export function ModelEditorDialog({
                 onChange={(tokens) => patch({ maxOutputTokens: tokens })}
               />
             </div>
+
+            {/* The price rows sit with the token ceilings: all three are about what this model is
+                allowed or expected to cost, and a reader setting them is reading a pricing page. */}
+            <SettingRow title={t('assistant.stats.model_price')} description={t('assistant.stats.model_price_hint')}>
+              <div className="flex items-center gap-1.5">
+                <Input
+                  type="number"
+                  min={0}
+                  step="0.01"
+                  value={draft.inputPrice ?? ''}
+                  aria-label={`${t('assistant.stats.model_price')} · ${t('assistant.stats.tokens_in')}`}
+                  placeholder={t('assistant.stats.tokens_in')}
+                  onChange={(event) => patch({ inputPrice: priceValue(event.target.value) })}
+                  className="w-24"
+                />
+                <Input
+                  type="number"
+                  min={0}
+                  step="0.01"
+                  value={draft.outputPrice ?? ''}
+                  aria-label={`${t('assistant.stats.model_price')} · ${t('assistant.stats.tokens_out')}`}
+                  placeholder={t('assistant.stats.tokens_out')}
+                  onChange={(event) => patch({ outputPrice: priceValue(event.target.value) })}
+                  className="w-24"
+                />
+                <Input
+                  value={draft.priceCurrency}
+                  aria-label={t('assistant.stats.model_currency')}
+                  placeholder={t('assistant.stats.model_currency')}
+                  maxLength={8}
+                  onChange={(event) => patch({ priceCurrency: event.target.value.toUpperCase() })}
+                  className="w-20"
+                />
+              </div>
+            </SettingRow>
 
             <SettingRow title={`${t('assistant.model.temperature')} · ${draft.temperature ?? t('assistant.model.off_means_default')}`}>
               <Switch checked={draft.temperature !== null} label={t('assistant.model.temperature')} onChange={(checked) => patch({ temperature: checked ? 0.7 : null })} />

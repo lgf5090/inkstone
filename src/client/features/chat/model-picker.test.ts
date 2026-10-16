@@ -44,6 +44,7 @@ function model(id: string, vendorId: string): AssistantModel {
     id, providerId: 'p1', model: vendorId, label: vendorId, temperature: null, maxOutputTokens: 4096,
     enabled: true, reasoning: 'auto', contextTokens: null, vision: true, purpose: 'chat', kind: 'text',
     supportsTools: true, maxInputTokens: null, modalities: [], topP: null, customParams: [], protocol: null,
+    inputPrice: null, outputPrice: null, priceCurrency: '',
   }
 }
 

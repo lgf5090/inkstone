@@ -441,11 +441,13 @@ export class AssistantRunner {
         usage.inputTokens = estimateTokens(system) + turns.reduce((total, turn) => total + estimateTokens(turn.content), 0)
         usage.outputTokens = estimateTokens(answer)
       }
+      // The label travels with the counters so the day's models can be told apart: a reader with two
+      // providers has two prices, and one total cannot be split after the fact.
       await this.store.incrementUsage({
         inputTokens: usage.inputTokens,
         outputTokens: usage.outputTokens,
         toolCalls: executor.callCount,
-      })
+      }, undefined, modelLabel)
       if (stopped()) {
         yield { type: 'done', finalMessage: await finish('cancelled', null, usage) }
         return

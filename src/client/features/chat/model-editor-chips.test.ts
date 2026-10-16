@@ -34,6 +34,9 @@ function model(over: Partial<AssistantModel> = {}): AssistantModel {
         topP: null,
         customParams: [],
         protocol: null,
+        inputPrice: null,
+        outputPrice: null,
+        priceCurrency: '',
         ...over,
     }
 }

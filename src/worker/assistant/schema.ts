@@ -73,6 +73,9 @@ export const ASSISTANT_SCHEMA_STATEMENTS: readonly string[] = [
     top_p REAL,
     custom_params TEXT NOT NULL DEFAULT '[]',
     protocol TEXT,
+    input_price REAL,
+    output_price REAL,
+    price_currency TEXT NOT NULL DEFAULT '',
     enabled INTEGER NOT NULL DEFAULT 1,
     position REAL NOT NULL DEFAULT 0,
     PRIMARY KEY (user_id, id)
@@ -368,6 +371,24 @@ export const ASSISTANT_SCHEMA_STATEMENTS: readonly string[] = [
     PRIMARY KEY (user_id, day)
   )`,
 
+  // The same counters as `chat_usage_daily`, split by the model that answered. A day's total answers
+  // "how much did I use"; this answers "which model, and what did it cost", which is the question a
+  // reader with two providers and two prices actually has. Label rather than id because the label is
+  // what the transcript shows and what survives a model row being deleted or renamed.
+  `CREATE TABLE IF NOT EXISTS chat_usage_daily_model (
+    user_id TEXT NOT NULL,
+    day TEXT NOT NULL,
+    model_label TEXT NOT NULL,
+    requests INTEGER NOT NULL DEFAULT 0,
+    input_tokens INTEGER NOT NULL DEFAULT 0,
+    output_tokens INTEGER NOT NULL DEFAULT 0,
+    tool_calls INTEGER NOT NULL DEFAULT 0,
+    errors INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (user_id, day, model_label)
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_chat_usage_model_user
+     ON chat_usage_daily_model(user_id, day DESC)`,
+
   `CREATE TABLE IF NOT EXISTS chat_activity (
     user_id TEXT NOT NULL,
     id TEXT NOT NULL,
@@ -408,6 +429,7 @@ export const ASSISTANT_REQUIRED_TABLES: readonly string[] = [
   'chat_notifications',
   'chat_pending_actions',
   'chat_usage_daily',
+  'chat_usage_daily_model',
   'chat_activity',
   'chat_active_runs',
 ]
@@ -437,6 +459,7 @@ export const ASSISTANT_REQUIRED_INDEXES: readonly string[] = [
   'idx_chat_notifications_unread',
   'idx_chat_actions_conversation',
   'idx_chat_actions_pending',
+  'idx_chat_usage_model_user',
   'idx_chat_activity_user',
   'idx_chat_active_runs_user',
   'idx_chat_prompts_user',
@@ -446,9 +469,11 @@ export const ASSISTANT_REQUIRED_INDEXES: readonly string[] = [
 
 export const ASSISTANT_REQUIRED_COLUMNS: Readonly<Record<string, readonly string[]>> = {
   chat_settings: ['user_id', 'config', 'updated_at'],
+  chat_usage_daily_model: ['user_id', 'day', 'model_label', 'requests', 'input_tokens', 'output_tokens', 'tool_calls', 'errors'],
   chat_providers: ['user_id', 'id', 'label', 'protocol', 'base_url', 'endpoints', 'reasoning_dialect', 'key_ciphertext', 'created_at', 'updated_at'],
   chat_models: ['user_id', 'id', 'provider_id', 'model', 'label', 'temperature', 'max_output_tokens', 'reasoning', 'context_tokens', 'vision',
-    'purpose', 'kind', 'supports_tools', 'max_input_tokens', 'modalities', 'top_p', 'custom_params', 'protocol', 'enabled', 'position'],
+    'purpose', 'kind', 'supports_tools', 'max_input_tokens', 'modalities', 'top_p', 'custom_params', 'protocol',
+    'input_price', 'output_price', 'price_currency', 'enabled', 'position'],
   chat_conversations: ['user_id', 'id', 'title', 'summary', 'summary_upto', 'pinned', 'starred', 'folder_id', 'created_at', 'updated_at'],
   chat_attachments: ['user_id', 'id', 'kind', 'filename', 'mime', 'size', 'key', 'created_at'],
   chat_conversation_tags: ['user_id', 'conversation_id', 'tag_id', 'created_at'],

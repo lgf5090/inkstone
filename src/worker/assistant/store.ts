@@ -708,6 +708,7 @@ export class AssistantStore {
       reasoning, contextTokens, vision, enabled: true,
       purpose: 'chat', kind: 'text', supportsTools: true, maxInputTokens: null, modalities: [], topP: null, customParams: [],
       protocol: input.protocol ?? null,
+      inputPrice: null, outputPrice: null, priceCurrency: '',
     }
   }
 
@@ -720,6 +721,9 @@ export class AssistantStore {
       maxInputTokens?: number | null, topP?: number | null, customParams?: AssistantCustomParam[],
       modalities?: readonly AssistantModelModality[]
       protocol?: AssistantProtocol | null
+      inputPrice?: number | null
+      outputPrice?: number | null
+      priceCurrency?: string
     },
   ): Promise<AssistantModel | null> {
     const existing = await this.getModel(id)
@@ -745,17 +749,22 @@ export class AssistantStore {
       ...(patch.topP !== undefined ? { topP: patch.topP } : {}),
       ...(patch.customParams !== undefined ? { customParams: parseCustomParams(patch.customParams) } : {}),
       ...(patch.protocol !== undefined ? { protocol: patch.protocol } : {}),
+      ...(patch.inputPrice !== undefined ? { inputPrice: patch.inputPrice } : {}),
+      ...(patch.outputPrice !== undefined ? { outputPrice: patch.outputPrice } : {}),
+      ...(patch.priceCurrency !== undefined ? { priceCurrency: patch.priceCurrency } : {}),
     }
     await this.write(
       `UPDATE chat_models SET label = ?2, model = ?3, temperature = ?4, max_output_tokens = ?5,
          reasoning = ?6, context_tokens = ?7, vision = ?8, enabled = ?9,
          purpose = ?11, kind = ?12, supports_tools = ?13, max_input_tokens = ?14,
-         modalities = ?17, top_p = ?15, custom_params = ?16, protocol = ?18
+         modalities = ?17, top_p = ?15, custom_params = ?16, protocol = ?18,
+         input_price = ?19, output_price = ?20, price_currency = ?21
          WHERE user_id = ?1 AND id = ?10`,
       next.label, next.model, next.temperature, next.maxOutputTokens,
       next.reasoning, next.contextTokens, next.vision ? 1 : 0, next.enabled ? 1 : 0, id,
       next.purpose, next.kind, next.supportsTools ? 1 : 0, next.maxInputTokens,
       next.topP, JSON.stringify(next.customParams), JSON.stringify(next.modalities), next.protocol,
+      next.inputPrice, next.outputPrice, next.priceCurrency,
     )
     return next
   }
@@ -2454,19 +2463,121 @@ export class AssistantStore {
    * rather than written into the SQL: an unmapped key is dropped instead of becoming a column reference
    * that fails the statement — and a failing statement here would mark a finished answer as an error.
    */
-  async incrementUsage(counters: Partial<UsageCounters>, day = usageDay()): Promise<void> {
+  async incrementUsage(counters: Partial<UsageCounters>, day = usageDay(), modelLabel = ''): Promise<void> {
     await this.write(`INSERT INTO chat_usage_daily (user_id, day) VALUES (?1, ?2) ON CONFLICT(user_id, day) DO NOTHING`, day)
-    const sets: string[] = []
-    const binds: unknown[] = [this.userId, day]
-    for (const [key, amount] of Object.entries(counters) as [keyof UsageCounters, number][]) {
-      const column = USAGE_COLUMNS[key]
-      if (!column || !amount) continue
-      binds.push(Math.round(amount))
-      sets.push(`${column} = ${column} + ?${binds.length}`)
+    // The model row is opened before the counters are applied so the two are written the same way, and
+    // only when a label was given: a scheduled embedding or a failed call belongs to the day's totals
+    // without belonging to any model's.
+    if (modelLabel) {
+      await this.write(
+        `INSERT INTO chat_usage_daily_model (user_id, day, model_label) VALUES (?1, ?2, ?3)
+         ON CONFLICT(user_id, day, model_label) DO NOTHING`,
+        day, modelLabel.slice(0, 120),
+      )
     }
-    if (!sets.length) return
-    await this.db.prepare(`UPDATE chat_usage_daily SET ${sets.join(', ')} WHERE user_id = ?1 AND day = ?2`)
-      .bind(...binds).run()
+    for (const [table, extra] of [['chat_usage_daily', []], ...(modelLabel ? [['chat_usage_daily_model', [modelLabel.slice(0, 120)]]] : [])] as [string, unknown[]][]) {
+      const sets: string[] = []
+      const binds: unknown[] = [this.userId, day, ...extra]
+      for (const [key, amount] of Object.entries(counters) as [keyof UsageCounters, number][]) {
+        const column = USAGE_COLUMNS[key]
+        if (!column || !amount) continue
+        binds.push(Math.round(amount))
+        sets.push(`${column} = ${column} + ?${binds.length}`)
+      }
+      if (!sets.length) continue
+      const guard = table === 'chat_usage_daily'
+        ? `user_id = ?1 AND day = ?2`
+        : `user_id = ?1 AND day = ?2 AND model_label = ?3`
+      await this.db.prepare(`UPDATE ${table} SET ${sets.join(', ')} WHERE ${guard}`)
+        .bind(...binds).run()
+    }
+  }
+
+  /** The per-model rows between two days, most used first. */
+  async modelUsageRange(from: string, to: string): Promise<Array<{ modelLabel: string } & UsageCounters>> {
+    const { results } = await this.db.prepare(
+      `SELECT model_label, SUM(requests) AS requests, SUM(input_tokens) AS input_tokens,
+              SUM(output_tokens) AS output_tokens, SUM(tool_calls) AS tool_calls, SUM(errors) AS errors
+         FROM chat_usage_daily_model
+        WHERE user_id = ?1 AND day >= ?2 AND day <= ?3
+        GROUP BY model_label
+        ORDER BY (SUM(input_tokens) + SUM(output_tokens)) DESC, model_label ASC`,
+    ).bind(this.userId, from, to).all<Record<string, number | string>>()
+    return (results ?? []).map((row) => ({
+      modelLabel: String(row.model_label ?? ''),
+      requests: Number(row.requests ?? 0),
+      inputTokens: Number(row.input_tokens ?? 0),
+      outputTokens: Number(row.output_tokens ?? 0),
+      toolCalls: Number(row.tool_calls ?? 0),
+      scheduledRuns: 0,
+      embeddings: 0,
+      errors: Number(row.errors ?? 0),
+    }))
+  }
+
+  /** The first day this account has any usage on, so "all" has somewhere to start. */
+  async firstUsageDay(): Promise<string | null> {
+    const row = await this.one<{ day: string | null }>(
+      `SELECT MIN(day) AS day FROM chat_usage_daily WHERE user_id = ?1`,
+      this.userId,
+    )
+    return row?.day ?? null
+  }
+
+  /**
+   * The conversations that spent the most in a window, by the turns they hold.
+   *
+   * Counted from the messages rather than from a per-conversation counter, because a message is what
+   * actually cost anything and a counter would have to be kept in step with every delete and every
+   * restored backup — the rows are the truth, so they are what is read.
+   */
+  async usageByConversation(from: string, to: string, limit = 8): Promise<Array<{
+    id: string
+    title: string
+    requests: number
+    inputTokens: number
+    outputTokens: number
+    updatedAt: number
+  }>> {
+    const { results } = await this.db.prepare(
+      `SELECT c.id AS id, c.title AS title, c.updated_at AS updated_at,
+              COUNT(m.id) AS requests,
+              COALESCE(SUM(m.input_tokens), 0) AS input_tokens,
+              COALESCE(SUM(m.output_tokens), 0) AS output_tokens
+         FROM chat_messages m
+         JOIN chat_conversations c ON c.user_id = m.user_id AND c.id = m.conversation_id
+        WHERE m.user_id = ?1 AND m.created_at >= ?2 AND m.created_at < ?3
+        GROUP BY c.id, c.title, c.updated_at
+        ORDER BY (COALESCE(SUM(m.input_tokens), 0) + COALESCE(SUM(m.output_tokens), 0)) DESC, c.updated_at DESC
+        LIMIT ?4`,
+    ).bind(this.userId, startOfDayMillis(from), startOfDayMillis(to) + 86_400_000, Math.max(1, Math.min(50, limit)))
+      .all<Record<string, number | string>>()
+    return (results ?? []).map((row) => ({
+      id: String(row.id ?? ''),
+      title: String(row.title ?? ''),
+      requests: Number(row.requests ?? 0),
+      inputTokens: Number(row.input_tokens ?? 0),
+      outputTokens: Number(row.output_tokens ?? 0),
+      updatedAt: Number(row.updated_at ?? 0),
+    }))
+  }
+
+  /** Every day in the range that has a number on it, for the trend and the heat map. */
+  async usageDays(from: string, to: string): Promise<Array<{ day: string } & UsageCounters>> {
+    const { results } = await this.db.prepare(
+      `SELECT day, requests, input_tokens, output_tokens, tool_calls, scheduled_runs, embeddings, errors
+         FROM chat_usage_daily WHERE user_id = ?1 AND day >= ?2 AND day <= ?3 ORDER BY day ASC`,
+    ).bind(this.userId, from, to).all<Record<string, number | string>>()
+    return (results ?? []).map((row) => ({
+      day: String(row.day ?? ''),
+      requests: Number(row.requests ?? 0),
+      inputTokens: Number(row.input_tokens ?? 0),
+      outputTokens: Number(row.output_tokens ?? 0),
+      toolCalls: Number(row.tool_calls ?? 0),
+      scheduledRuns: Number(row.scheduled_runs ?? 0),
+      embeddings: Number(row.embeddings ?? 0),
+      errors: Number(row.errors ?? 0),
+    }))
   }
 
   async usageRange(from: string, to: string): Promise<UsageCounters> {
@@ -2707,6 +2818,17 @@ export function usageDay(date = new Date()): string {
   return date.toISOString().slice(0, 10)
 }
 
+/** Midnight UTC of a `YYYY-MM-DD` day, which is the frame the daily counters are written in. */
+export function startOfDayMillis(day: string): number {
+  const parsed = Date.parse(`${day}T00:00:00.000Z`)
+  return Number.isFinite(parsed) ? parsed : Date.now()
+}
+
+/** The day `count` days before `day`, so a window of 7 includes today. */
+export function dayBefore(day: string, count: number): string {
+  return usageDay(new Date(startOfDayMillis(day) - count * 86_400_000))
+}
+
 export interface MemoryReviewRow {
   id: string
   memory_id: string
@@ -2770,7 +2892,7 @@ function toProvider(r: ProviderRow): AssistantProvider {
  */
 export const MODEL_SELECT_COLUMNS = `id, provider_id, model, label, temperature, max_output_tokens,
   reasoning, context_tokens, vision, purpose, kind, supports_tools, max_input_tokens, modalities, top_p,
-  custom_params, protocol, enabled, position`
+  custom_params, protocol, input_price, output_price, price_currency, enabled, position`
 
 interface PromptRow {
   id: string
@@ -2810,6 +2932,9 @@ interface ModelRow {
   top_p: number | null
   custom_params: string | null
   protocol: string | null
+  input_price: number | null
+  output_price: number | null
+  price_currency: string | null
   enabled: number
   position: number
 }
@@ -2840,6 +2965,9 @@ function toModel(r: ModelRow): AssistantModel {
     protocol: typeof r.protocol === 'string' && (ASSISTANT_PROTOCOLS as readonly string[]).includes(r.protocol)
       ? r.protocol as AssistantProtocol
       : null,
+    inputPrice: num(r.input_price),
+    outputPrice: num(r.output_price),
+    priceCurrency: r.price_currency ?? '',
     enabled: bool(r.enabled),
   }
 }

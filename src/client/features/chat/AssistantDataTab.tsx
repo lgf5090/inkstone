@@ -11,6 +11,7 @@ import { confirm } from '../../components/overlay'
 import { useUi } from '../../store/ui'
 import { useAssistant } from './assistant-store'
 import { Group } from './assistant-settings-shared'
+import { UsagePanel } from './AssistantUsagePanel'
 
 const IMPORT_KEYS: Record<string, 'assistant.settings.import_conversations' | 'assistant.settings.import_messages' | 'assistant.settings.import_memories' | 'assistant.settings.import_tasks' | 'assistant.settings.import_projects' | 'assistant.settings.import_automations' | 'assistant.settings.import_notifications'> = {
   conversations: 'assistant.settings.import_conversations',
@@ -61,6 +62,10 @@ export function DataTab() {
 
   return (
     <>
+      {/* The numbers come first: a reader who opens this tab is usually asking what the assistant has
+          been costing, and the export and delete rows below are what they do about it. */}
+      <UsagePanel />
+
       <Group title={t('assistant.settings.data')}>
         <SettingRow title={t('assistant.settings.export')} description={t('assistant.settings.export_hint')}>
           <a

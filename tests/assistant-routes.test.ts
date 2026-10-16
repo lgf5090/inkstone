@@ -285,6 +285,40 @@ describe('re-taking a turn', () => {
     expect(await status('POST', `/api/assistant/conversations/${other.conversation.id}/messages/delete`, { ids: [first.id] })).toBe(200)
   })
 
+  it('reports what was spent, split by model and kept per currency', async () => {
+    await useExampleModel()
+    const models = await call<{ models: AssistantModel[] }>('GET', '/api/assistant/models')
+    const model = models.models[0]!
+    await call('PATCH', `/api/assistant/models/${model.id}`, { inputPrice: 1, outputPrice: 2, priceCurrency: 'usd' })
+    const { AssistantStore } = await import('../src/worker/assistant/store')
+    const store = new AssistantStore(env.DB as D1Database, USER, env)
+    await store.incrementUsage({ requests: 2, inputTokens: 1_000_000, outputTokens: 500_000, toolCalls: 3 }, undefined, model.label)
+    const stats = await call<{
+      total: { requests: number, inputTokens: number }
+      models: Array<{ label: string, cost: number | null, currency: string }>
+      spend: Array<{ currency: string, amount: number }>
+      unpricedModels: number
+    }>('GET', '/api/assistant/stats?range=7')
+    expect(stats.total.requests).toBe(2)
+    expect(stats.models[0]).toMatchObject({ label: model.label, currency: 'USD' })
+    // 1M input at 1 + 0.5M output at 2, per million: the arithmetic the reader would otherwise do by hand.
+    expect(stats.models[0]!.cost).toBeCloseTo(2)
+    expect(stats.spend).toEqual([{ currency: 'USD', amount: 2 }])
+    expect(stats.unpricedModels).toBe(0)
+  })
+
+  it('says a model is unpriced rather than counting it as free', async () => {
+    await useExampleModel()
+    const models = await call<{ models: AssistantModel[] }>('GET', '/api/assistant/models')
+    const { AssistantStore } = await import('../src/worker/assistant/store')
+    const store = new AssistantStore(env.DB as D1Database, USER, env)
+    await store.incrementUsage({ requests: 1, inputTokens: 10 }, undefined, models.models[0]!.label)
+    const stats = await call<{ models: Array<{ cost: number | null }>, spend: unknown[], unpricedModels: number }>('GET', '/api/assistant/stats?range=7')
+    expect(stats.models[0]!.cost).toBeNull()
+    expect(stats.unpricedModels).toBe(1)
+    expect(stats.spend).toEqual([])
+  })
+
   it('branches a conversation at a message, leaving the original whole', async () => {    const { conversation, first, firstAnswer, second, secondAnswer } = await thread()
     const result = await call<{ conversation: AssistantConversation, messages: AssistantMessage[] }>(
       'POST', `/api/assistant/conversations/${conversation.id}/fork`, { messageId: firstAnswer.id, title: 'Planning (branch)' },

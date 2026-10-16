@@ -70,7 +70,7 @@ import { McpError, mcpCallTool, mcpInitialize, mcpListTools, mcpProbe, mcpUrlPro
 import { isExternalToolName, listMcpCatalog, loadExternalTools } from '../assistant/mcp-tools'
 import { isValidId } from '../lib/id'
 import { isInlineSafe } from '../lib/image'
-import { AssistantStore } from '../assistant/store'
+import { AssistantStore, dayBefore, usageDay } from '../assistant/store'
 import { MemoryHistoryService } from '../assistant/memory-service'
 import { AutomationService } from '../assistant/automations'
 import { AssistantRunner } from '../assistant/runner'
@@ -1588,6 +1588,13 @@ function pickValue<T extends string>(value: unknown, allowed: readonly T[]): T |
   return typeof value === 'string' && (allowed as readonly string[]).includes(value) ? value as T : undefined
 }
 
+/** A per-million-token price, or null for a model the reader has not priced. */
+function price(value: unknown): number | null {
+  if (value === null || value === '') return null
+  const numeric = Number(value)
+  return Number.isFinite(numeric) && numeric >= 0 ? Math.min(numeric, 1_000_000) : null
+}
+
 assistantRoutes.patch('/models/:id', async (c) => {
   const s = store(c)
   const id = requiredId(c.req.param('id'))
@@ -1620,6 +1627,11 @@ assistantRoutes.patch('/models/:id', async (c) => {
     ...(body.contextTokens !== undefined ? { contextTokens: contextBudgetValue(body.contextTokens) } : {}),
     ...(body.vision !== undefined ? { vision: Boolean(body.vision) } : {}),
     ...(body.enabled !== undefined ? { enabled: Boolean(body.enabled) } : {}),
+    // A price is a number the reader read off a bill or a pricing page, so it is taken as given and only
+    // kept out of the negatives. Null clears it, which is how a model stops being counted into a total.
+    ...(body.inputPrice !== undefined ? { inputPrice: price(body.inputPrice) } : {}),
+    ...(body.outputPrice !== undefined ? { outputPrice: price(body.outputPrice) } : {}),
+    ...(body.priceCurrency !== undefined ? { priceCurrency: text(body.priceCurrency, 8).toUpperCase() } : {}),
   })
   if (!updated) throw ApiError.notFound('Model not found')
   return c.json({ model: updated })
@@ -1646,6 +1658,67 @@ assistantRoutes.get('/usage', async (c) => {
   const weekStart = new Date(Date.now() - 6 * 86_400_000).toISOString().slice(0, 10)
   const [today, week] = await Promise.all([s.todayUsage(), s.usageRange(weekStart, day)])
   return c.json({ day, today, last7Days: week, limits: settings.limits })
+})
+
+/**
+ * What the assistant has spent, per day and per model.
+ *
+ * `range` is a window rather than a pair of dates because the screen offers three windows and nothing
+ * else: a reader picking "last 30 days" is asking about a window, and a caller free to send arbitrary
+ * dates could only ask the same question with more ways to get it wrong.
+ *
+ * Cost is summed per currency and never across them. A model the reader has not priced is reported as
+ * unpriced rather than as free: "no price" and "costs nothing" are different claims, and a total that
+ * silently treats one as the other is worse than no total.
+ */
+assistantRoutes.get('/stats', async (c) => {
+  const s = store(c)
+  const settings = await s.getSettings()
+  const asked = c.req.query('range')
+  const range = asked === '30' ? 30 : asked === 'all' ? 0 : 7
+  const day = usageDay()
+  const from = range === 0 ? (await s.firstUsageDay()) ?? day : dayBefore(day, range - 1)
+  const [total, days, modelRows, conversations, models] = await Promise.all([
+    s.usageRange(from, day),
+    s.usageDays(from, day),
+    s.modelUsageRange(from, day),
+    s.usageByConversation(from, day),
+    s.listModels(),
+  ])
+  const spend = new Map<string, number>()
+  let unpriced = 0
+  const byModel = modelRows.map((row) => {
+    const model = models.find((entry) => entry.label === row.modelLabel || entry.model === row.modelLabel)
+    const base = {
+      label: row.modelLabel,
+      requests: row.requests,
+      inputTokens: row.inputTokens,
+      outputTokens: row.outputTokens,
+      toolCalls: row.toolCalls,
+      errors: row.errors,
+    }
+    if (!model || (model.inputPrice === null && model.outputPrice === null)) {
+      unpriced++
+      return { ...base, currency: '', cost: null }
+    }
+    const currency = model.priceCurrency || 'USD'
+    const cost = ((model.inputPrice ?? 0) * row.inputTokens + (model.outputPrice ?? 0) * row.outputTokens) / 1_000_000
+    spend.set(currency, (spend.get(currency) ?? 0) + cost)
+    return { ...base, currency, cost }
+  })
+  return c.json({
+    range: range === 0 ? 'all' : String(range),
+    from,
+    to: day,
+    total,
+    days,
+    models: byModel,
+    conversations,
+    spend: [...spend].map(([currency, amount]) => ({ currency, amount })),
+    unpricedModels: unpriced,
+    generatedAt: Date.now(),
+    limits: settings.limits,
+  })
 })
 
 assistantRoutes.get('/activity', async (c) => c.json({ activity: await store(c).listActivity(100) }))

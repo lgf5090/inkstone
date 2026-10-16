@@ -293,6 +293,17 @@ export interface AssistantModel {
    * serve an Anthropic-shaped model beside an OpenAI-shaped one.
    */
   protocol: AssistantProtocol | null
+  /**
+   * What a million tokens of this model costs, as the provider publishes it.
+   *
+   * Null is "not priced" rather than free — a local model and an unpriced one look the same in a total,
+   * and the statistics say which models they could not price instead of counting them as zero. Prices
+   * are per million of the side they name, which is the unit every provider quotes in.
+   */
+  inputPrice: number | null
+  outputPrice: number | null
+  /** The currency those two numbers are in, free text: `USD`, `CNY`, whatever the bill is in. */
+  priceCurrency: string
 }
 
 /**
@@ -1047,6 +1058,50 @@ export const ASSISTANT_TOOL_SPECS: readonly AssistantToolSpec[] = [
   { name: 'search', labelKey: 'assistant.tool.search', permission: 'read' },
   { name: 'notify_reader', labelKey: 'assistant.tool.notify_reader', permission: 'write' },
 ]
+
+/** One model's share of a window, with what it cost when the reader has priced it. */
+export interface AssistantModelUsage {
+  label: string
+  requests: number
+  inputTokens: number
+  outputTokens: number
+  toolCalls: number
+  errors: number
+  /** Empty when the model is unpriced, which `cost: null` then says out loud. */
+  currency: string
+  cost: number | null
+}
+
+export interface AssistantConversationUsage {
+  id: string
+  title: string
+  requests: number
+  inputTokens: number
+  outputTokens: number
+  updatedAt: number
+}
+
+/**
+ * What the usage screen is drawn from.
+ *
+ * One window, its days, its models and its most expensive conversations, so the three panels on that
+ * screen cannot disagree about which range they are describing: they are all read from one answer.
+ */
+export interface AssistantStats {
+  range: '7' | '30' | 'all'
+  from: string
+  to: string
+  total: AssistantUsage
+  days: Array<{ day: string } & AssistantUsage>
+  models: AssistantModelUsage[]
+  conversations: AssistantConversationUsage[]
+  /** One entry per currency the reader's prices are in, never summed across them. */
+  spend: Array<{ currency: string, amount: number }>
+  /** How many of the models used in this window have no price, so a total can say what it left out. */
+  unpricedModels: number
+  generatedAt: number
+  limits: AssistantLimits
+}
 
 export const ASSISTANT_TOOL_BY_NAME: ReadonlyMap<string, AssistantToolSpec> = new Map(
   ASSISTANT_TOOL_SPECS.map((spec) => [spec.name, spec]),
