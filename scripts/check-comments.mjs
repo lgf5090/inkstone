@@ -15384,6 +15384,13 @@ const allowed = new Map([
     "/**\n * Which model answers.\n *\n * The reader picks one row of `chat_models`; the provider it belongs to supplies the address,\n * the protocol and the key. A model whose provider has gone away, or a stale id left behind by an\n * import, reads as \"nothing configured\" rather than throwing — the settings screen has to be able to\n * show a half-configured assistant so the reader can fix it.\n */",
     "/**\n * Which door this model is called through, and what thinking shape that door speaks.\n *\n * A gateway can answer on more than one wire with the same key, so the model names the protocol and the\n * provider supplies the address for it. A protocol with no address of its own falls back to the provider's\n * base URL, which is what every provider written before this column had.\n *\n * The dialect rides along because it is read from the same two facts — the address, and the model's own\n * name — and because a pin that no longer fits the wire has to be dropped here rather than sent as a\n * field the far end does not know.\n */",
   ]],
+  ["src/worker/assistant/note-mentions.ts", [
+    "/**\n * `[[note]]` mentions resolved into the note's own words.\n *\n * The composer's `@` inserts a wikilink and nothing else — the title is what the reader sees and what\n * the transcript keeps. On its own the model could only call `read_note` and hope the title it guessed\n * is unique, so a mention is resolved here against the notes the reader actually allowed, and the words\n * ride with the turn the way an attachment's do. The scope is enforced by the same helper every note\n * tool passes through, so a mention can never reach past it.\n */",
+    "/** How much of a mentioned note joins the turn, and how many mentions are read at all. */",
+    "/** The titles inside `[[…]]`, in order, deduplicated, with any `|alias` dropped. */",
+    "/**\n * The block a turn carries for the notes it mentioned, or an empty string when it mentioned none.\n *\n * A title that matches nothing readable is named as unresolved rather than dropped, so the model says\n * so instead of inventing the note's contents.\n */",
+    "// The same gate the note tools use: a title the reader may not read is named, not quoted.",
+  ]],
   ["src/worker/assistant/note-scope.ts", [
     "/**\n * Which notes the assistant may see.\n *\n * A reader can point the assistant at a few folders instead of the whole vault. That is a permission,\n * so it is enforced at the one place every note tool passes through rather than in the prompt: a model\n * that ignores an instruction in its system prompt is a normal Tuesday, and the note it then reads is\n * the one the reader had excluded.\n */",
     "// Folders the reader no longer owns (deleted, or named by another account's backup) leave the set",
@@ -15530,6 +15537,9 @@ const allowed = new Map([
     "// too, so the same counters can be read back per key.",
     "// The request is charged with the model and key that will answer it, so a per-key or per-model view",
     "// counts calls as well as tokens rather than losing them to an unlabelled row.",
+    "// The mentions in the turn being asked are resolved here, once, so the model is handed the note's",
+    "// words rather than a title it would have to guess a lookup for. Only the last user turn: an older",
+    "// one's mentions were answered when it was asked, and re-reading them would spend the budget twice.",
   ]],
   ["src/worker/assistant/scheduler.ts", [
     "/**\n * The minute sweep that runs what is due.\n *\n * Wired into the worker's cron handler alongside the existing queue drains, and deliberately kept out\n * of the hourly branch: a reminder is cheap and late delivery is visible, while the heavy work that\n * runs on the hour (backups, attachment cleanup) must not be able to take the reminders down with it.\n *\n * A routine that calls a model can outlive the sweep that started it, so each automation is claimed\n * before it runs and the claim is only released when it is re-armed — which is what stops a slow AI\n * digest from being started twice by two overlapping ticks.\n */",

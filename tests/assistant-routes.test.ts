@@ -2900,6 +2900,41 @@ describe('usage attribution', () => {
   })
 })
 
+describe('note mentions', () => {
+  it('resolves a [[wikilink]] into the note it names', async () => {
+    await useExampleModel()
+    insert('notes', {
+      id: oid('na1'), folder_id: null, title: '购物清单', title_key: '购物清单', content: '咖啡豆和燕麦奶',
+      excerpt: '', rev: 1, word_count: 5, char_count: 6, is_pinned: 0, is_starred: 0, is_archived: 0,
+      position: 0, content_hash: 'h', created_at: 1, updated_at: 1, deleted_at: null,
+    })
+    const bodies: string[] = []
+    vi.stubGlobal('fetch', vi.fn(async (_url: unknown, init?: RequestInit) => {
+      bodies.push(String(init?.body ?? ''))
+      return new Response(sse(FINAL_FRAMES), { headers: { 'content-type': 'text/event-stream' } })
+    }))
+    await chatEvents({ message: '看看 [[购物清单]] 里写了什么' })
+    await settleTurns()
+    vi.unstubAllGlobals()
+    const body = bodies.join('\n')
+    expect(body).toContain('咖啡豆和燕麦奶')
+    expect(body).toContain('[mentioned notes]')
+  })
+
+  it('names a mention that matches no readable note instead of inventing it', async () => {
+    await useExampleModel()
+    const bodies: string[] = []
+    vi.stubGlobal('fetch', vi.fn(async (_url: unknown, init?: RequestInit) => {
+      bodies.push(String(init?.body ?? ''))
+      return new Response(sse(FINAL_FRAMES), { headers: { 'content-type': 'text/event-stream' } })
+    }))
+    await chatEvents({ message: '看看 [[不存在的笔记]]' })
+    await settleTurns()
+    vi.unstubAllGlobals()
+    expect(bodies.join('\n')).toContain('no note with that title')
+  })
+})
+
 describe('backup round trip', () => {
   it('carries the reasoning along with the message it belongs to', async () => {
     const { AssistantStore } = await import('../src/worker/assistant/store')

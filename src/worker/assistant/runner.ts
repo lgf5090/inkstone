@@ -17,6 +17,7 @@ import type { AssistantMessage, AssistantModelModality, AssistantProtocol, Assis
 import { contextBudgetFor, customParamBody, MAX_CHAT_ATTACHMENTS, MAX_TURN_SCOPES, MAX_TURN_TOOLS, estimateTokens, titleFromMessage, type AssistantTurnScope } from '@shared/assistant'
 import { hasHistoricalIntent, memoryTokenBudget } from '@shared/assistant-memory'
 import { expandChatAttachments, type AttachmentPayload } from './attachments'
+import { resolveNoteMentions } from './note-mentions'
 import { loadExternalTools, type ExternalToolsResult } from './mcp-tools'
 import { buildSystemPrompt, offlineAnswer, promptCatalog, summarizerPrompt } from '@shared/assistant-prompt'
 import { describeLocalTime, localDayBounds } from '@shared/assistant-time'
@@ -625,7 +626,7 @@ export class AssistantRunner {
       if (entry.role !== 'user' || !ids.length || payloads.has(entry.id)) continue
       payloads.set(entry.id, await expandChatAttachments(this.store, this.deps.env, ids, vision, modalities))
     }
-    return messages
+    const entries: HistoryEntry[] = messages
       .filter((entry) => entry.role === 'user' || entry.status === 'complete')
       .map((entry) => ({
         role: entry.role,
@@ -646,6 +647,18 @@ export class AssistantRunner {
             }
           : {}),
       }))
+    // The mentions in the turn being asked are resolved here, once, so the model is handed the note's
+    // words rather than a title it would have to guess a lookup for. Only the last user turn: an older
+    // one's mentions were answered when it was asked, and re-reading them would spend the budget twice.
+    let lastUser: HistoryEntry | undefined
+    for (let index = entries.length - 1; index >= 0; index--) {
+      if (entries[index]!.role === 'user') { lastUser = entries[index]; break }
+    }
+    if (lastUser) {
+      const block = await resolveNoteMentions(this.deps.env.DB, this.store.userId, lastUser.content, await this.noteScope())
+      if (block) lastUser.content = `${lastUser.content}\n\n${block}`
+    }
+    return entries
   }
 
   private async recallMemories(query: string): Promise<Awaited<ReturnType<AssistantStore['searchMemories']>>> {
