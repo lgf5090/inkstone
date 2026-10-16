@@ -1183,6 +1183,7 @@ const allowed = new Map([
     "/**\n * The box a reader asks in.\n *\n * Exported because the notebook's docked panel asks the same way the chat tab does: one composer, so a\n * model chip, a `/` pin or an attachment behaves identically wherever the reader happens to be typing.\n * The two things that cannot be shared are the surfaces the \"manage\" entries open — the dock has no\n * assistant tabs of its own, so it is handed a way out instead.\n */",
     "// Where a \"manage\" entry goes: the assistant's own tab when the composer is drawn inside it, and",
     "// whatever the host offers when it is not.",
+    "/**\n   * A note or folder dropped on the box becomes a chip, not a file.\n   *\n   * The notebook's own rails already drag notes and folders around, so the gesture arrives here for free —\n   * and what a reader means by dropping a note on the composer is \"answer from this\", which is a scope\n   * chip rather than a copy of its bytes. A title the vault no longer holds is skipped: a chip naming a\n   * note that cannot be read is a promise the turn would break.\n   */",
   ]],
   ["src/client/features/chat/ComposerControls.tsx", [
     "/** The token count, spelled the way the reference's slider spells it: 32K, 128K, 262K. */",
@@ -1205,6 +1206,8 @@ const allowed = new Map([
     "// on these five looked like a different application's.",
     "/** The levels this model's own service has, in the order it publishes them. */",
     "/**\n * One row of the composer's skill submenu.\n *\n * `text` is what goes into the box — a saved skill shows its title and inserts its words, while the\n * app's own openers have nothing behind them but the label. `skill` is the saved row itself, and a row\n * that has one brings its tools, its knowledge and its model along with the words.\n */",
+    "/** Add a note to the turn as a chip rather than citing it in the words. */",
+    "/** What the picker is for: citing a note in the words, or adding one to the turn's context. */",
   ]],
   ["src/client/features/chat/ComposerTriggers.tsx", [
     "/**\n * The composer's inline triggers: `@` cites a note, `/` picks a tool, `#` narrows the knowledge base.\n *\n * A trigger is a sigil that opens a token — at the caret's start or after whitespace — followed by the\n * words typed since. It ends at the next whitespace, so `[[a]] @no` reads `no` as the query and leaves\n * the rest of the message alone. Detection is a pure function of the text and the caret because both the\n * panel and the keyboard handler need the same answer, and a drift between them shows up as a panel that\n * filters one string while replacing another.\n */",
@@ -1647,6 +1650,8 @@ const allowed = new Map([
     "// The rungs a model's own service offers; DeepSeek's four plus the two values every service shares.",
     "// Picking a saved skill inserts what it says, not what it is called — and hands over the whole row,",
     "// because a skill that carries a tool set or a folder is more than its words.",
+    "// Two ways to bring a note in, and they are not the same one: citing it writes a wikilink into the",
+    "// words, pinning it adds a chip the turn carries as context.",
   ]],
   ["src/client/features/chat/context-note.test.ts", [
     "/**\n * The open note's way from a chip to the request.\n *\n * The notebook's pointer rides along with every turn so \"summarise this\" works without naming the note,\n * and a chip the reader can take off is the only thing that keeps that from being an invisible decision.\n * What is pinned here is the half-wire: taking the chip off really does leave the id out of the request.\n */",
@@ -14771,6 +14776,10 @@ const allowed = new Map([
     "// What the reader had on screen. It sits after the scope lines on purpose: the scope is what the",
     "// turn is *allowed* to reach, and this is what it was *asked* about, so the permission reads first.",
     "/** The project this conversation belongs to, whose brief and knowledge it inherits. */",
+    "/** Notes the reader pinned to this one turn as context chips, resolved to their titles. */",
+    "// What the reader added by hand, beside the note they had open. A pinned note is readable for this",
+    "// turn, which is the one thing a chip promises that the folder scope cannot — so it is named here",
+    "// rather than left for the model to discover with a search that the scope would have filtered out.",
   ]],
   ["src/shared/assistant-schedule.ts", [
     "/**\n * Wall-clock schedules for the assistant's automations.\n *\n * Every rule is stored as a wall-clock time plus the owner's IANA timezone, because \"remind me at\n * 09:00\" means nine o'clock *where the reader is*, not nine o'clock in UTC. The conversions below\n * are the only place that answer that question, so a reminder, a task due date and the cron tick all\n * agree about what \"today\" is.\n *\n * Daylight saving:\n *  - a wall time inside the spring-forward gap runs at the first valid instant after the gap;\n *  - a wall time that occurs twice in the fall-back overlap runs once, at the earlier occurrence.\n */",
@@ -15019,6 +15028,7 @@ const allowed = new Map([
     "/**\n * How long a temporary conversation is kept before the sweep deletes it.\n *\n * Counted from its last change rather than its creation, so a thread the reader came back to is not\n * deleted mid-use. The number is in the interface — \"kept 30 days\" is a promise a reader can hold this\n * app to, and one they can check against the row's own timestamp.\n */",
     "/**\n   * A conversation the reader asked not to keep.\n   *\n   * It is stored all the same — a thread that vanished on a reload would lose the thought the reader was\n   * in the middle of — but it is kept out of every listing, out of search and out of a backup, and the\n   * hourly sweep deletes it once it has gone untouched for {@link EPHEMERAL_CONVERSATION_RETENTION_DAYS}.\n   * That is the promise the UI makes, so it is the one the queries keep.\n   */",
     "/**\n   * The project this fact belongs to, or null for one that belongs to the account.\n   *\n   * A project is a context — a client, an engagement, a piece of work — and what is true inside one is\n   * not automatically true in the next. So a fact is filed where it was learned, and a turn answering\n   * inside a project recalls that project's facts plus the account's own, never another project's.\n   */",
+    "/**\n   * What was pinned: a tag, a folder, or a note the reader added to the turn by hand.\n   *\n   * A note is not a permission like the other two — it is the reader pointing at one page, the same act\n   * as having it open in the notebook, done several at a time from the composer.\n   */",
   ]],
   ["src/shared/backup-format.ts", [
     "/** The account's own template library, absent from a backup taken before it was worth keeping. */",
@@ -15854,6 +15864,7 @@ const allowed = new Map([
     "/**\n * The folders in scope, with their descendants.\n *\n * A folder scope that did not include its subtree would read as a bug the first time a reader picked\n * a parent: the folder tree is how they think about their vault, and \"Notes\" means what is inside it.\n *\n * `extra` is the per-turn addition: the conversation keeps a standing scope in settings, and the reader\n * can pin more folders and tags for one message. Both are merged, because a turn may only narrow what the\n * assistant sees, never widen it past what the settings allowed — with `noteIds` as the single named\n * exception, documented on the field.\n */",
     "// The named notes are allowed by identity, so they are answered here rather than sent through the",
     "// folder query — which is also what keeps this one query instead of two predicates to union.",
+    "/**\n * The notes one turn may reach past its folder scope, in one list.\n *\n * Two things put a note there: the page the reader had open, and the chips they added by hand. Both are\n * the same act — pointing at a page and asking about it — so they arrive as one set rather than as two\n * exceptions the scope code would have to know about separately. Ids are shape-checked here because this\n * list is bound into SQL by the caller.\n */",
   ]],
   ["src/worker/assistant/runner.ts", [
     "/** Summarising costs a model call, so it only runs once enough history has piled up to be worth it. */",
@@ -15969,7 +15980,6 @@ const allowed = new Map([
     "// scope promise is what enforces that.",
     "// The note the reader had open. This is the one narrowing a turn may widen: \"summarise this\"",
     "// is a question about the page in front of them, and refusing it because the folder they",
-    "// excluded happens to hold it would answer a question nobody asked.",
     "/**\n   * The note and folder the reader had on screen, named for the prompt.\n   *\n   * Both are read rather than taken from the request: the note has to be one they own and have not\n   * deleted, and the folder's name is this vault's — a caller that named its own folder would be\n   * writing a line of the system prompt.\n   */",
     "// The label travels with the counters so the day's models can be told apart: a reader with two",
     "/** The pages this turn searched, by url, in the order the vendor named them. */",
@@ -16015,6 +16025,9 @@ const allowed = new Map([
     "// context carries it, so every tool the executor runs is handed the same one.",
     "/**\n   * Start the conversation this turn needs as a temporary one.\n   *\n   * Only read when the turn creates its own conversation: a temporary thread is one the reader started\n   * that way, and a later turn cannot turn a kept conversation into one — or the reverse — because the\n   * promise is about the whole thread.\n   */",
     "/**\n   * Which memories this turn may see: the account's own, plus the project the thread belongs to.\n   *\n   * Read from the conversation rather than the request, because it is a property of where the thread\n   * lives. A thread outside every project sees the account's memories and nothing else — narrower than\n   * \"no filter\", which is why this is a scope and not an optional argument.\n   */",
+    "// excluded happens to hold it would answer a question nobody asked. The notes they pinned as",
+    "// chips are the same act, done by hand and several at a time.",
+    "/**\n   * The notes pinned to this turn, read back from the vault rather than from the request.\n   *\n   * The client sends ids, and the titles are this vault's — a caller that supplied its own title would\n   * be writing a line of the system prompt, which is the same reason folders are resolved here. A note\n   * that has been deleted since the chip was added is dropped instead of named: the prompt must not\n   * point at something the reader can no longer read.\n   */",
   ]],
   ["src/worker/assistant/scheduler.ts", [
     "/**\n * The minute sweep that runs what is due.\n *\n * Wired into the worker's cron handler alongside the existing queue drains, and deliberately kept out\n * of the hourly branch: a reminder is cheap and late delivery is visible, while the heavy work that\n * runs on the hour (backups, attachment cleanup) must not be able to take the reminders down with it.\n *\n * A routine that calls a model can outlive the sweep that started it, so each automation is claimed\n * before it runs and the claim is only released when it is re-armed — which is what stops a slow AI\n * digest from being started twice by two overlapping ticks.\n */",
@@ -18263,6 +18276,9 @@ const allowed = new Map([
     "// A routine exists to tell the reader something, so a policy must not leave it running and silent.",
     "// A read or a write has no target to redo itself from later, so the arguments that were shown on the",
     "// card are what is kept: approving replays that call and no other.",
+  ]],
+  ["tests/assistant-turn-context.test.ts", [
+    "/**\n * What a turn carries beyond the reader's standing scope.\n *\n * Two shapes are pinned here. The first is the list of notes a turn may reach past its folder scope, which\n * is the one promise a context chip makes: adding a note to the turn is the reader pointing at a page, so\n * it must not be silently dropped because the page sits in a folder the assistant was not given. The\n * second is the line the model is told about those chips — a chip the prompt never mentions is a chip that\n * costs a request and changes no answer.\n *\n * Neither half needs a database, which is why this file runs everywhere: the SQL that reads the notes back\n * is the note tools' own gate, exercised in `assistant-note-scope.test.ts`.\n */",
   ]],
   ["tests/assistant-upstream.test.ts", [
     "/**\n * The provider wire, tested against recorded frames rather than a live service.\n *\n * The three protocols all stream JSON in pieces, and the piece that matters — a tool call's arguments\n * arriving three characters at a time — is exactly what a hand-written parser gets wrong in a way no\n * other test can see. The failure looks like a tool that was called with `{}`.\n */",

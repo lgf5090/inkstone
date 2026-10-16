@@ -6493,6 +6493,7 @@ console.log(\`Hello, \${name}!\`)
     "assistant.attach.add_folder": "添加文件夹",
     "assistant.attach.add_url": "从网址添加",
     "assistant.attach.reference_note": "引用笔记",
+    "assistant.attach.pin_note": "把笔记加入上下文",
     "assistant.attach.quick_skills": "常用技能",
     "assistant.attach.menu": "添加上下文",
     "assistant.attach.failed": "上传失败",

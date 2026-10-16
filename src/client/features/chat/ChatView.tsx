@@ -9,7 +9,7 @@
  * `styles/chat.css` keeps the typography and drops the page furniture.
  */
 import { Z_INDEX } from '../../lib/z-index'
-import { type ClipboardEvent as ReactClipboardEvent, type KeyboardEvent, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { type ClipboardEvent as ReactClipboardEvent, type DragEvent as ReactDragEvent, type KeyboardEvent, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { ArrowUp, ArrowUpRight, Check, Copy, FileText, FolderOpen, Ghost, History, MoreHorizontal, PanelRight, Paperclip, Pencil, Plus, Search, Square, Star, Trash2, X } from 'lucide-react'
 import type { AssistantConversation, AssistantMessage, ChatAttachment } from '@shared/assistant'
 import { EPHEMERAL_CONVERSATION_RETENTION_DAYS, mcpToolModeFor } from '@shared/assistant'
@@ -60,6 +60,7 @@ import { CHAT_NOTE_LINKS } from './note-links'
 import { SelectionBar, SelectionTick, selectedMessages, type MessageSelection } from './SelectionBar'
 import { downloadTranscript } from './transcript'
 import { writeConversationDrag } from './conversation-drag'
+import { FOLDER_DRAG_TYPE, isNoteDrag, readDraggedNoteIds } from '../../lib/note-drag'
 import { ConversationSharePanel } from '../share/ConversationSharePanel'
 import { ThreadFinder } from './ThreadFinder'
 import { ChatOutline } from './ChatOutline'
@@ -1138,6 +1139,7 @@ ${current}` : seed))
   // whatever the host offers when it is not.
   const manage = onManage ?? setView
   const [pickingNote, setPickingNote] = useState(false)
+  const [pinningNote, setPinningNote] = useState(false)
   const [trigger, setTrigger] = useState<ActiveTrigger | null>(null)
   const [triggerRows, setTriggerRows] = useState<TriggerRow[]>([])
   const [triggerIndex, setTriggerIndex] = useState(0)
@@ -1333,6 +1335,36 @@ ${current}` : seed))
     if (picked.length) void attachFiles(picked)
   }
 
+  /**
+   * A note or folder dropped on the box becomes a chip, not a file.
+   *
+   * The notebook's own rails already drag notes and folders around, so the gesture arrives here for free —
+   * and what a reader means by dropping a note on the composer is "answer from this", which is a scope
+   * chip rather than a copy of its bytes. A title the vault no longer holds is skipped: a chip naming a
+   * note that cannot be read is a promise the turn would break.
+   */
+  const pinDragged = (event: ReactDragEvent<HTMLDivElement>) => {
+    if (event.dataTransfer.types.includes('Files')) return false
+    const notes = readDraggedNoteIds(event)
+    if (notes.length) {
+      event.preventDefault()
+      const known = useNotes.getState().notes
+      for (const id of notes) {
+        const note = known[id]
+        if (note && !note.deletedAt) addTurnScope({ kind: 'note', id, name: note.title || t('assistant.trigger.untitled') })
+      }
+      return true
+    }
+    const folderId = event.dataTransfer.getData(FOLDER_DRAG_TYPE)
+    if (folderId) {
+      event.preventDefault()
+      const folder = useNotes.getState().folders.find((entry) => entry.id === folderId)
+      if (folder) addTurnScope({ kind: 'folder', id: folderId, name: folder.name })
+      return true
+    }
+    return false
+  }
+
   return (
     <div className="shrink-0 border-t border-[var(--border-subtle)] bg-[var(--bg-base)] px-3 pb-3 pt-2.5 md:px-6">
       <div className="mx-auto w-full max-w-[720px]">
@@ -1349,9 +1381,12 @@ ${current}` : seed))
         <div
           ref={boxRef}
           onDragOver={(event) => {
-            if (event.dataTransfer.types.includes('Files')) event.preventDefault()
+            if (event.dataTransfer.types.includes('Files') || isNoteDrag(event) || event.dataTransfer.types.includes(FOLDER_DRAG_TYPE)) {
+              event.preventDefault()
+            }
           }}
           onDrop={(event) => {
+            if (pinDragged(event)) return
             const dropped = [...event.dataTransfer.files]
             if (!dropped.length) return
             event.preventDefault()
@@ -1395,6 +1430,7 @@ ${current}` : seed))
                 })
               }}
               onNote={() => setPickingNote(true)}
+              onPinNote={() => setPinningNote(true)}
               onSkill={(row) => {
                 const text = row.text ?? row.label
                 setValue((current) => (current.trim() ? `${current.trim()}\n${text}` : text))
@@ -1469,7 +1505,17 @@ ${current}` : seed))
         <NotePicker
           open={pickingNote}
           onClose={() => setPickingNote(false)}
-          onPick={(title) => setValue((current) => `${current}${current && !current.endsWith(' ') ? ' ' : ''}[[${title}]]`)}
+          onPick={(row) => setValue((current) => `${current}${current && !current.endsWith(' ') ? ' ' : ''}[[${row.title}]]`)}
+          search={async (query) => {
+            const response = await api.search(query || t('assistant.attach.note_prompt'), 12)
+            return response.results.map((hit) => ({ id: hit.note.id, title: hit.note.title }))
+          }}
+        />
+        <NotePicker
+          open={pinningNote}
+          onClose={() => setPinningNote(false)}
+          title={t('assistant.attach.pin_note')}
+          onPick={(row) => addTurnScope({ kind: 'note', id: row.id, name: row.title })}
           search={async (query) => {
             const response = await api.search(query || t('assistant.attach.note_prompt'), 12)
             return response.results.map((hit) => ({ id: hit.note.id, title: hit.note.title }))

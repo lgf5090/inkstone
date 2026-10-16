@@ -31,6 +31,25 @@ export interface NoteScope {
 }
 
 /**
+ * The notes one turn may reach past its folder scope, in one list.
+ *
+ * Two things put a note there: the page the reader had open, and the chips they added by hand. Both are
+ * the same act — pointing at a page and asking about it — so they arrive as one set rather than as two
+ * exceptions the scope code would have to know about separately. Ids are shape-checked here because this
+ * list is bound into SQL by the caller.
+ */
+export function turnNoteIds(
+  contextNoteId: string | null | undefined,
+  scopes: readonly { kind: string, id: string }[],
+): string[] {
+  const ids = [
+    ...(contextNoteId ? [contextNoteId] : []),
+    ...scopes.filter((entry) => entry.kind === 'note').map((entry) => entry.id),
+  ]
+  return [...new Set(ids.filter((id) => /^[0-9a-hjkmnp-tv-z]{26}$/.test(id)))]
+}
+
+/**
  * The folders in scope, with their descendants.
  *
  * A folder scope that did not include its subtree would read as a bug the first time a reader picked

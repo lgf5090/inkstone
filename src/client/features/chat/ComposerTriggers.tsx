@@ -167,7 +167,13 @@ export function TurnPinRow({
   return (
     <div className="flex flex-wrap gap-1 px-1.5 pb-1">
       {tools.map((name) => chip(`tool-${name}`, Wrench, name, () => onDropTool(name), t('assistant.trigger.drop_tool', { name })))}
-      {scopes.map((entry) => chip(`scope-${entry.id}`, entry.kind === 'folder' ? Folder : Hash, entry.name, () => onDropScope(entry.id), t('assistant.trigger.drop_scope', { name: entry.name })))}
+      {scopes.map((entry) => chip(
+        `scope-${entry.id}`,
+        entry.kind === 'folder' ? Folder : entry.kind === 'note' ? FileText : Hash,
+        entry.name,
+        () => onDropScope(entry.id),
+        t('assistant.trigger.drop_scope', { name: entry.name }),
+      ))}
     </div>
   )
 }

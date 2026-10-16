@@ -28,7 +28,7 @@ import type { McpWriteContext } from '../mcp/writes'
 import type { AssistantStore, MemoryScope, ProviderRow } from './store'
 import { MemoryHistoryService, type ConflictJudge } from './memory-service'
 import { AutomationService } from './automations'
-import { resolveNoteScope, type NoteScope } from './note-scope'
+import { resolveNoteScope, turnNoteIds, type NoteScope } from './note-scope'
 import { matchVaultFolders, noteTitleIfLive } from './vault'
 import { parametersSchema, ToolError, ToolExecutor, type ToolContext } from './tools'
 import { AbortError, streamUpstream, UpstreamError, type ModelTurn, type ToolCallRecord, type ToolSchema, type UpstreamRequest, type UpstreamRetry, type UpstreamSource } from './upstream'
@@ -385,6 +385,7 @@ export class AssistantRunner {
         noteScope: this.settings.noteScope,
         noteScopeLabels: await this.scopeLabels(),
         noteTagLabels: this.scopeTagLabels(),
+        pinnedNotes: await this.pinnedNotes(),
         turnTools: this.turnTools,
         openNote: context.openNote,
         browsingFolder: context.browsingFolder,
@@ -901,8 +902,9 @@ export class AssistantRunner {
         tagIds: this.turnScopes.filter((entry) => entry.kind === 'tag').map((entry) => entry.id),
         // The note the reader had open. This is the one narrowing a turn may widen: "summarise this"
         // is a question about the page in front of them, and refusing it because the folder they
-        // excluded happens to hold it would answer a question nobody asked.
-        noteIds: this.contextNoteId ? [this.contextNoteId] : [],
+        // excluded happens to hold it would answer a question nobody asked. The notes they pinned as
+        // chips are the same act, done by hand and several at a time.
+        noteIds: turnNoteIds(this.contextNoteId, this.turnScopes),
       })
     }
     return this.scopePromise
@@ -962,6 +964,31 @@ export class AssistantRunner {
   /** The tags this turn was narrowed to, spelled the way the reader named them. */
   private scopeTagLabels(): string[] {
     return this.turnScopes.filter((entry) => entry.kind === 'tag').map((entry) => entry.name).slice(0, 8)
+  }
+
+  /**
+   * The notes pinned to this turn, read back from the vault rather than from the request.
+   *
+   * The client sends ids, and the titles are this vault's — a caller that supplied its own title would
+   * be writing a line of the system prompt, which is the same reason folders are resolved here. A note
+   * that has been deleted since the chip was added is dropped instead of named: the prompt must not
+   * point at something the reader can no longer read.
+   */
+  private pinnedNotesPromise: Promise<Array<{ id: string, title: string }>> | null = null
+
+  private pinnedNotes(): Promise<Array<{ id: string, title: string }>> {
+    if (!this.pinnedNotesPromise) {
+      this.pinnedNotesPromise = (async () => {
+        const ids = this.turnScopes.filter((entry) => entry.kind === 'note').map((entry) => entry.id)
+        if (!ids.length) return []
+        const placeholders = ids.map((_, index) => `?${index + 2}`).join(', ')
+        const { results } = await this.deps.env.DB.prepare(
+          `SELECT id, title FROM notes WHERE user_id = ?1 AND deleted_at IS NULL AND id IN (${placeholders})`,
+        ).bind(this.store.userId, ...ids).all<{ id: string, title: string }>()
+        return (results ?? []).map((row) => ({ id: row.id, title: row.title.slice(0, 120) || 'Untitled' }))
+      })()
+    }
+    return this.pinnedNotesPromise
   }
 
   private async scopeLabels(): Promise<string[]> {

@@ -719,7 +719,13 @@ export interface ChatAttachment {
 
 /** A note tag or folder the reader pinned to one turn with `#`. */
 export interface AssistantTurnScope {
-  kind: 'tag' | 'folder'
+  /**
+   * What was pinned: a tag, a folder, or a note the reader added to the turn by hand.
+   *
+   * A note is not a permission like the other two — it is the reader pointing at one page, the same act
+   * as having it open in the notebook, done several at a time from the composer.
+   */
+  kind: 'tag' | 'folder' | 'note'
   id: string
   name: string
 }

@@ -17,6 +17,7 @@ import {
   Cpu,
   Eye,
   FilePlus2,
+  FileText,
   FolderPlus,
   Gauge,
   Globe,
@@ -294,6 +295,7 @@ export function PlusMenu({
   onFolder,
   onUrl,
   onNote,
+  onPinNote,
   onSkill,
   skills,
   onManageSkills,
@@ -302,6 +304,8 @@ export function PlusMenu({
   onFolder: () => void
   onUrl: () => void
   onNote: () => void
+  /** Add a note to the turn as a chip rather than citing it in the words. */
+  onPinNote: () => void
   onSkill: (row: QuickSkillRow) => void
   skills: QuickSkillRow[]
   onManageSkills: () => void
@@ -312,6 +316,7 @@ export function PlusMenu({
   const skillRows: QuickSkillRow[] = [...skills, { id: '__manage', label: t('assistant.skills.manage') }]
   const items: MenuItem[] = [
     { id: 'note', label: t('assistant.attach.reference_note'), icon: <MessageSquareQuote size={13} />, onSelect: onNote },
+    { id: 'pin-note', label: t('assistant.attach.pin_note'), icon: <FileText size={13} />, onSelect: onPinNote },
     { id: 'file', label: t('assistant.attach.add_file'), icon: <FilePlus2 size={13} />, onSelect: onFiles },
     { id: 'folder', label: t('assistant.attach.add_folder'), icon: <FolderPlus size={13} />, onSelect: onFolder },
     { id: 'url', label: t('assistant.attach.add_url'), icon: <Link2 size={13} />, onSelect: onUrl },
@@ -346,11 +351,14 @@ export function NotePicker({
   onClose,
   onPick,
   search,
+  title,
 }: {
   open: boolean
   onClose: () => void
-  onPick: (title: string) => void
+  onPick: (row: { id: string, title: string }) => void
   search: (query: string) => Promise<{ id: string, title: string }[]>
+  /** What the picker is for: citing a note in the words, or adding one to the turn's context. */
+  title?: string
 }) {
   const [query, setQuery] = useState('')
   const [rows, setRows] = useState<{ id: string, title: string }[]>([])
@@ -366,7 +374,7 @@ export function NotePicker({
   }
 
   return (
-    <Modal open={open} onClose={onClose} title={t('assistant.attach.reference_note')} width={460} bodyClassName="p-3">
+    <Modal open={open} onClose={onClose} title={title ?? t('assistant.attach.reference_note')} width={460} bodyClassName="p-3">
       <Input
         value={query}
         onChange={(event) => {
@@ -384,7 +392,7 @@ export function NotePicker({
             key={row.id}
             type="button"
             onClick={() => {
-              onPick(row.title)
+              onPick(row)
               onClose()
             }}
             className="block w-full truncate rounded-[var(--r-sm)] px-2 py-1.5 text-left text-[length:var(--text-12-5)] text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]"

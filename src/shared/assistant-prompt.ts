@@ -45,6 +45,8 @@ export interface SystemPromptContext {
   noteScopeLabels?: string[]
   /** Note tags the reader pinned to this one turn with `#`. */
   noteTagLabels?: string[]
+  /** Notes the reader pinned to this one turn as context chips, resolved to their titles. */
+  pinnedNotes?: Array<{ id: string, title: string }>
   /** Tool names the reader pinned to this one turn with `/`. */
   turnTools?: string[]
   /** The note the reader had open when they asked, so "this note" has a referent. */
@@ -74,6 +76,14 @@ export function buildSystemPrompt(context: SystemPromptContext): string {
       : '',
     context.turnTools?.length
       ? fill(catalog.turn_tools, { tools: context.turnTools.join(', ') })
+      : '',
+    // What the reader added by hand, beside the note they had open. A pinned note is readable for this
+    // turn, which is the one thing a chip promises that the folder scope cannot — so it is named here
+    // rather than left for the model to discover with a search that the scope would have filtered out.
+    context.pinnedNotes?.length
+      ? fill(catalog.note_pinned, {
+        notes: context.pinnedNotes.map((note) => `"${note.title}" (id ${note.id})`).join(', '),
+      })
       : '',
     // What the reader had on screen. It sits after the scope lines on purpose: the scope is what the
     // turn is *allowed* to reach, and this is what it was *asked* about, so the permission reads first.

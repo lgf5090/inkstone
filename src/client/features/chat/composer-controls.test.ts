@@ -174,7 +174,7 @@ describe('approval chip', () => {
 
 describe('plus menu', () => {
   it('wires each entry to its own handler', async () => {
-    const handlers = { onFiles: vi.fn(), onFolder: vi.fn(), onUrl: vi.fn(), onNote: vi.fn(), onSkill: vi.fn() }
+    const handlers = { onFiles: vi.fn(), onFolder: vi.fn(), onUrl: vi.fn(), onNote: vi.fn(), onPinNote: vi.fn(), onSkill: vi.fn() }
     await act(async () => {
       root.render(createElement(PlusMenu, { ...handlers, onManageSkills: vi.fn(), skills: [{ id: 'q1', label: '总结一下' }] }))
     })
@@ -184,6 +184,12 @@ describe('plus menu', () => {
     await click(byAria(t('assistant.attach.menu')))
     await click(byText(t('assistant.attach.reference_note')))
     expect(handlers.onNote).toHaveBeenCalledTimes(1)
+    // Two ways to bring a note in, and they are not the same one: citing it writes a wikilink into the
+    // words, pinning it adds a chip the turn carries as context.
+    await click(byAria(t('assistant.attach.menu')))
+    await click(byText(t('assistant.attach.pin_note')))
+    expect(handlers.onPinNote).toHaveBeenCalledTimes(1)
+    expect(handlers.onNote).toHaveBeenCalledTimes(1)
   })
 
   it('offers saved skills by their words', async () => {
@@ -191,7 +197,7 @@ describe('plus menu', () => {
     const onManageSkills = vi.fn()
     await act(async () => {
       root.render(createElement(PlusMenu, {
-        onFiles: vi.fn(), onFolder: vi.fn(), onUrl: vi.fn(), onNote: vi.fn(), onSkill, onManageSkills,
+        onFiles: vi.fn(), onFolder: vi.fn(), onUrl: vi.fn(), onNote: vi.fn(), onPinNote: vi.fn(), onSkill, onManageSkills,
         skills: [{ id: 'p1', label: '周报', text: '把这周做的事写成周报' }],
       }))
     })
@@ -215,7 +221,7 @@ describe('plus menu', () => {
     }
     await act(async () => {
       root.render(createElement(PlusMenu, {
-        onFiles: vi.fn(), onFolder: vi.fn(), onUrl: vi.fn(), onNote: vi.fn(), onSkill, onManageSkills: vi.fn(),
+        onFiles: vi.fn(), onFolder: vi.fn(), onUrl: vi.fn(), onNote: vi.fn(), onPinNote: vi.fn(), onSkill, onManageSkills: vi.fn(),
         skills: [{ id: skill.id, label: skill.title, text: skill.content, skill }],
       }))
     })
@@ -230,7 +236,7 @@ describe('plus menu', () => {
     const onManageSkills = vi.fn()
     await act(async () => {
       root.render(createElement(PlusMenu, {
-        onFiles: vi.fn(), onFolder: vi.fn(), onUrl: vi.fn(), onNote: vi.fn(), onSkill, onManageSkills,
+        onFiles: vi.fn(), onFolder: vi.fn(), onUrl: vi.fn(), onNote: vi.fn(), onPinNote: vi.fn(), onSkill, onManageSkills,
         skills: [{ id: 'p1', label: '周报', text: '把这周做的事写成周报' }],
       }))
     })
@@ -282,7 +288,7 @@ describe('anchored menus', () => {
   it('every composer control hands its element to the menu it opens', async () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
     const cases: [string, () => ReactElement][] = [
-      ['plus', () => createElement(PlusMenu, { onFiles: vi.fn(), onFolder: vi.fn(), onUrl: vi.fn(), onNote: vi.fn(), onSkill: vi.fn(), skills: [], onManageSkills: vi.fn() })],
+      ['plus', () => createElement(PlusMenu, { onFiles: vi.fn(), onFolder: vi.fn(), onUrl: vi.fn(), onNote: vi.fn(), onPinNote: vi.fn(), onSkill: vi.fn(), skills: [], onManageSkills: vi.fn() })],
       ['model', () => createElement(ModelMenu, { models: [model()], activeId: 'm1', onPick: vi.fn(), onManage: vi.fn(), onVision: vi.fn() })],
       ['thinking', () => createElement(ReasoningMenu, { value: 'auto', rungs: ['auto', 'off', 'low', 'medium', 'high'], disabled: false, onChange: vi.fn() })],
       ['context', () => createElement(ContextMenu, { value: null, onPick: vi.fn() })],
