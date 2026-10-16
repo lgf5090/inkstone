@@ -1507,6 +1507,46 @@ describe('projects', () => {
   })
 })
 
+describe('archiving', () => {
+  it('hides a put-away conversation from the everyday list and leaves the thread whole', async () => {
+    const kept = await call<{ conversation: AssistantConversation }>('POST', '/api/assistant/conversations', { title: 'Kept' })
+    const put = await call<{ conversation: AssistantConversation }>('POST', '/api/assistant/conversations', { title: 'Put away' })
+    expect(put.conversation.archived, 'a new conversation starts in the list').toBe(false)
+    await call('PATCH', `/api/assistant/conversations/${put.conversation.id}`, { archived: true })
+
+    // `archived=0` is the everyday list; an unqualified read still returns everything, which is what the
+    // backup and the assistant's own search rely on — put away is not gone.
+    const everyday = await call<{ conversations: AssistantConversation[] }>('GET', '/api/assistant/conversations?archived=0')
+    expect(everyday.conversations.map((entry) => entry.id)).toEqual([kept.conversation.id])
+    const all = await call<{ conversations: AssistantConversation[] }>('GET', '/api/assistant/conversations')
+    expect(all.conversations.map((entry) => entry.id).sort()).toEqual([kept.conversation.id, put.conversation.id].sort())
+    const archived = await call<{ conversations: AssistantConversation[] }>('GET', '/api/assistant/conversations?archived=1')
+    expect(archived.conversations.map((entry) => entry.id)).toEqual([put.conversation.id])
+
+    // The thread still opens and still carries its flag: archiving is not deleting.
+    const thread = await call<{ conversation: AssistantConversation }>('GET', `/api/assistant/conversations/${put.conversation.id}`)
+    expect(thread.conversation.archived).toBe(true)
+
+    await call('PATCH', `/api/assistant/conversations/${put.conversation.id}`, { archived: false })
+    const back = await call<{ conversations: AssistantConversation[] }>('GET', '/api/assistant/conversations?archived=0')
+    expect(back.conversations.map((entry) => entry.id).sort()).toEqual([kept.conversation.id, put.conversation.id].sort())
+  })
+
+  it('survives a backup round-trip', async () => {
+    const created = await call<{ conversation: AssistantConversation }>('POST', '/api/assistant/conversations', { title: 'Put away and backed up' })
+    const id = created.conversation.id
+    await call('PATCH', `/api/assistant/conversations/${id}`, { archived: true })
+    const payload = await call('GET', '/api/assistant/export') as Record<string, unknown>
+    await call('DELETE', `/api/assistant/conversations/${id}`)
+    await call('POST', '/api/assistant/import', payload)
+    // A column the import does not name comes back as the column default, so the flag has to be in the
+    // export's own list or an archived conversation would silently reappear in the everyday list.
+    const restored = (await call<{ conversations: AssistantConversation[] }>('GET', '/api/assistant/conversations?archived=1'))
+      .conversations.find((entry) => entry.id === id)
+    expect(restored?.archived).toBe(true)
+  })
+})
+
 describe('starring and pinning', () => {
   it('keeps the two flags apart on both read paths', async () => {
     const one = await call<{ conversation: AssistantConversation }>('POST', '/api/assistant/conversations', { title: 'Starred only' })

@@ -52,7 +52,7 @@ beforeEach(async () => {
     folderNodes: [],
     tagNodes: [],
     unfiledCount: 0,
-    flagged: { starred: [], pinned: [] },
+    flagged: { starred: [], pinned: [], archived: [] },
     loadTaxonomy: vi.fn(async () => undefined),
     loadFlagged: vi.fn(async () => undefined),
     // The real setter writes the settled text back into the store, which is what keeps the box's own

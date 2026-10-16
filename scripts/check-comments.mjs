@@ -1020,7 +1020,6 @@ const allowed = new Map([
     "/** Every folder id that contains this one, roots first — used to keep an open branch visible. */",
     "/**\n * Filing conversations: the notebook's own folders and tags.\n *\n * A conversation lives in a real `folders` row and carries real `tags` rows, so one folder can hold\n * notes and chats at once and a single tag colours both. Nothing here invents a second taxonomy —\n * these two components read the counts the assistant API computes over those shared tables.\n */",
     "/**\n * The four pickers in one strip, the same shape the notebook's sidebar uses: icon buttons in a\n * `role=\"tablist\"`, arrow keys moving the selection, and one panel below that answers to it.\n */",
-    "/** The shortlists the two flag tabs jump to; opening a row goes straight to that conversation. */",
     "/** The panel the strip drives: one picker at a time, never two stacked lists. */",
     "/** One folder, its children, and where it sits among its siblings — what a tree row and a picker both read. */",
     "/** 1-based position among the siblings that share its parent. */",
@@ -1043,6 +1042,8 @@ const allowed = new Map([
     "// Only a conversation is accepted here: a note drag passing over the chat's tree is on its way",
     "// somewhere else, and claiming it would move a row the reader did not point at this panel.",
     "/**\n * The project picks.\n *\n * A project is not a folder: it says what a conversation is *about*, and one thread answers under one\n * brief at a time. So the list is flat — every project beside the count of threads that inherit it —\n * with a row for the ones that answer under nothing.\n */",
+    "/** The shortlists the flag tabs jump to; opening a row goes straight to that conversation. */",
+    "/* An archived conversation is in no other list, so this tab is the only place it can be taken\n              back out from: without a restore press here, archiving would be one-way. */",
   ]],
   ["src/client/features/chat/ChatTaxonomyMenus.tsx", [
     "/**\n * Managing the shared taxonomy from the chat's sidebar.\n *\n * A conversation's folders and tags are the notebook's own rows, so creating, renaming, recolouring and\n * deleting one here is the same act as doing it in the notes rail — and it goes through the same writes:\n * the store's folder mutations and the tags feature's own entry points carry the optimistic update, the\n * sync and the rollback, and this file only decides which rows a menu offers.\n *\n * The folder menu is the notebook rail's set minus everything that is about a *note* — creating a note\n * in this folder, exporting it, making it the inbox. That is the honest reading of where the reader is:\n * a panel for filing chats is not a place to file a note, and offering it would be furniture from\n * another screen.\n */",
@@ -1148,6 +1149,8 @@ const allowed = new Map([
     "/**\n * One row of the list, with the menu anchor of its own.\n *\n * The anchor has to live here: a single ref shared by every row ends up pointing at whichever row\n * rendered last, so the menu of the first conversation opens beside the last one.\n */",
     "/**\n * The context the notebook's own pointer is adding to the next turn.\n *\n * The open note and folder ride along with every turn so \"summarise this\" works without naming anything,\n * but a pointer the reader cannot see is one they cannot correct — so each is drawn here and can be\n * taken off. Taking one off lasts for this thread only; the next thread starts from the pointer again.\n */",
     "/* The row is icons only: five settings, the two ways in for an attachment, dictation and send all\n              share a phone's width, so nothing here carries a word. */",
+    "// Not a delete and not a star: the thread stays whole and searchable, and the archive tab is",
+    "// where it can be read — or taken back out — again.",
   ]],
   ["src/client/features/chat/ComposerControls.tsx", [
     "/** The token count, spelled the way the reference's slider spells it: 32K, 128K, 262K. */",
@@ -1492,6 +1495,11 @@ const allowed = new Map([
     "/** Withdraw the client registration itself, at the issuer when it can be; false means only cleared here. */",
     "// The difference between the two outcomes is not a failure: a client the reader registered by hand has",
     "// nothing at the far end to delete, and saying \"withdrawn here only\" is the honest answer.",
+    "/** Put a conversation away without deleting it, or bring it back into the everyday list. */",
+    "// The everyday list leaves archived conversations out; the archive tab is where they are read.",
+    "// Always sent, so no view of this list ever shows a conversation the reader has put away.",
+    "// The tab the reader is looking at has to lose the row too, or it goes on offering something that",
+    "// has just been filed away — and the other shortlists may have gained one.",
   ]],
   ["src/client/features/chat/chat-outline.test.ts", [
     "/**\n * The rail and the panel that stand beside a thread.\n *\n * Both of them are read off the thread's own DOM — which turn has passed the reading line, and how far\n * down to land when one is chosen — so these cases lay out the boxes a browser would and then scroll:\n * a test that only counted buttons would pass over an outline that marks the wrong turn.\n */",
@@ -1524,6 +1532,7 @@ const allowed = new Map([
     "// Roots sort by name, and the orphan joins them rather than vanishing with its missing parent.",
     "/**\n * The conversation list's pickers live in one tab container, the same shape the notebook's sidebar\n * uses. What is pinned here is the coupling between the strip and the panel: exactly one tab is\n * selected, the panel answers to that tab, and the two shortlists reach the store's flag endpoints\n * rather than re-reading the whole conversation list.\n */",
     "// Picking a project asks the server for the list; the row's own state is what is under test here.",
+    "/**\n   * The archive tab is the only surface an archived conversation appears on, so it is also the only place\n   * it can be taken back out from — without a restore press here, archiving would be a one-way door.\n   */",
   ]],
   ["src/client/features/chat/composer-controls.test.ts", [
     "/**\n * The composer's control row: seven chips that each own a menu, plus the attachment chips.\n *\n * What is pinned is the drive, not the markup — a click on each row has to reach the store or the\n * callback the composer wired, because every one of these controls is a setting the reader can only\n * change from here.\n */",
@@ -7584,6 +7593,7 @@ const allowed = new Map([
     "/** The extra keys a provider rotates through. The plaintext is never in the answer. */",
     "/** The account's own totals, which no range narrows — see the type for why. */",
     "/**\n     * Withdraw the client registration itself, at the issuer when it can be and here always.\n     *\n     * A different press from the one above: that one logs the reader out, this one uninstalls the app. The\n     * answer carries whether the issuer was actually told, because a client registered by hand has nothing\n     * at the far end to delete.\n     */",
+    "/** Put a conversation away or take it back out. Not a delete: the thread stays whole and searchable. */",
   ]],
   ["src/client/lib/app-history.ts", [
     "/**\n * The address bar as the one source of truth for which app tab is up.\n *\n * The tab is a path rather than a store field so that a rail button is an ordinary link: the\n * address a reader copies is the screen they are looking at, the back button walks the tabs they\n * visited, and a cold load of `/calendar` needs nothing but the document the server already sends.\n * `history.pushState` fires no event of its own, so the writers here announce their own changes and\n * `popstate` covers everything the browser does by itself.\n */",
@@ -14809,6 +14819,7 @@ const allowed = new Map([
     "/**\n * What one address field says, before anybody tries to reach it.\n *\n * The form and the route share this so the reader is told \"that is not an address\" beside the box they\n * typed it in, instead of through a 400 that names nothing. Reachability is deliberately not judged here:\n * a private host has the right shape and the route is what refuses it, so splitting the two rules keeps\n * each one in the place that can enforce it.\n */",
     "/**\n   * The client id this app holds at that issuer.\n   *\n   * Public by the spec's own terms: it rides in the address bar on every redirect. It is shown so the\n   * reader can see which of their registered apps this is — and so \"withdraw the registration\" has\n   * something to name.\n   */",
     "/**\n   * True when the id came from the issuer's own registration endpoint rather than from the reader's hands.\n   *\n   * Only a dynamic registration can be withdrawn at the issuer (RFC 7592), because that is the only one\n   * this app was ever handed the means to delete. A hand-typed id can only be forgotten here.\n   */",
+    "/**\n   * Put away without being deleted: still searchable, still backed up, but out of the everyday list.\n   *\n   * Distinct from the two flags above because it is the one that hides a row rather than marking it.\n   */",
   ]],
   ["src/shared/backup-format.ts", [
     "/** The account's own template library, absent from a backup taken before it was worth keeping. */",
@@ -15393,6 +15404,8 @@ const allowed = new Map([
     "// conversation whose pager had counted three answers but listed none would lie in its own interface.",
     "// Named for the same reason, and bounded by the same cap the live turn writes under: a file is not",
     "// allowed to put more in a row than a model is.",
+    "// Named explicitly even though the column has a default: `importRow` binds every column in its own",
+    "// list, and a name it is not given becomes NULL — which a NOT NULL column turns into a dropped row.",
   ]],
   ["src/worker/assistant/chat-files.ts", [
     "/**\n * Chat attachments: the reader's own files, under the chat's own prefix.\n *\n * The notebook has an attachment table and a storage backend of its own, and a chat attachment is\n * deliberately *not* one of those: a picture pasted into a question is not a file the reader keeps, it\n * is fuel for one turn. The prefix is therefore `chat/images/<user>/<id>.<ext>` and\n * `chat/files/<user>/<id>.<ext>`, which is what makes a chat upload findable — and deletable — without\n * touching anything the notebook can see.\n *\n * Two ceilings do the rest of the work. An image is capped at what a vision model can be sent in one\n * request body, a document at what fits the reader's context budget; anything above either is refused\n * with its own number in the message rather than truncated in silence.\n */",
@@ -15983,6 +15996,11 @@ const allowed = new Map([
     "// withdraw it.",
     "/**\n   * Take the token away, and leave the client registration where it is.\n   *\n   * This is the reader logging out. The registration at the issuer is a separate thing they did — and a\n   * separate thing they may still want to undo — so it stays until they say otherwise. The row keeps its\n   * client id and endpoints, which is what lets the next Authorize press reuse the same client instead of\n   * registering another.\n   */",
     "/** Take the whole authorization away, client registration included: what the reader means by \"uninstall\". */",
+    "// Absent means \"either\", which is what the backup and the assistant's own search want: an archived",
+    "// conversation is put away, not gone, and a reader who asks for everything gets everything.",
+    "// Joined rather than counted off the join table alone, so a tag's number describes the conversations",
+    "// the reader would actually find under it — an archived one is out of the list the number labels.",
+    "/**\n   * Put a conversation away, or take it back out.\n   *\n   * Archiving is not deleting and not starring: the thread stays whole, stays searchable and stays in the\n   * backup, and only the everyday list stops showing it. That is why it is a column of its own rather than\n   * a second meaning for one of the two flags already here.\n   */",
   ]],
   ["src/worker/assistant/tools.ts", [
     "/**\n * The tools the assistant can reach, and the executor that runs them.\n *\n * Three things are enforced here rather than asked of the model, because a model that is confident and\n * wrong is the failure mode this app has to survive:\n *  - **budgets** — a per-turn call cap, a per-tool cap and a duplicate-call refusal, so a reasoning\n *    loop cannot spend the reader's AI quota or write a hundred tasks;\n *  - **validation** — arguments are checked against the same declaration that generates the JSON\n *    Schema the provider is given, so the two can never disagree;\n *  - **approval** — a destructive tool never runs during the turn. `prepare` resolves the exact target\n *    and writes a pending action; `commit` runs only when the reader presses Approve, once, on that\n *    target. The model can propose; it cannot delete.\n *\n * Scheduled runs get read-only tools plus `notify_reader`, so a routine that has drifted cannot edit\n * the vault while nobody is watching.\n */",
@@ -16437,6 +16455,9 @@ const allowed = new Map([
     "// write\" and \"this one function may write\" are different questions, and only the second one is the",
     "// reader's real answer. A tool that was switched off is exactly a tool set to 'off', so the old list",
     "// is converted rather than carried alongside — two fields for one setting is how two answers drift.",
+    "// A conversation the reader has put away without deleting: still searchable, still backed up, but out",
+    "// of the everyday list. A flag rather than a second table, because it is one bit of the same row and",
+    "// every listing already reads that row.",
   ]],
   ["src/worker/db/writes.ts", [
     "/** Keeps tags, backlinks, full-text indexes, and change records consistent with note writes. */",
@@ -16980,6 +17001,8 @@ const allowed = new Map([
     "// does not offer simply stops matching anything.",
     "/**\n * Log the reader out: take the token away and leave the registration alone.\n *\n * Not the same press as the one below. A reader clearing a token means \"stop using my account for now\";\n * the client this app registered at the issuer is still theirs, and re-authorizing reuses it.\n */",
     "/**\n * Withdraw the client registration itself, at the issuer and here.\n *\n * A different act from the one above, and deliberately a different route: this tells the third party to\n * forget that this app ever registered, using the address and token its registration endpoint handed back.\n * A client the reader registered by hand cannot be withdrawn remotely — nothing was ever given that could\n * — so the answer says plainly whether the issuer was told, rather than reporting a success it did not have.\n */",
+    "// Only `1` and `0` narrow this: an absent parameter is every conversation, archived ones included, which",
+    "// is what a caller with no opinion about filing should get.",
   ]],
   ["src/worker/routes/auth.ts", [
     "// Account-wide cap so a distributed botnet cannot retry one account",
@@ -17700,6 +17723,11 @@ const allowed = new Map([
     "/**\n   * The same third party, speaking the older transport: a stream that names where to post and answers on it.\n   *\n   * Every call is recorded with the address it went to, because that is the whole difference between the two\n   * types: one posts to the url the reader saved, the other opens it and posts where it is told.\n   */",
     "/**\n   * The catalogue the settings screen reads: one entry per server, its tools, and which are switched off.\n   *\n   * Separate from the turn's own tool list, which is what the model is offered — a server switched off at\n   * its own level is still listed here, because that is where its per-tool switches live.\n   */",
     "/**\n * The model a turn is handed to when the chosen one cannot answer at all.\n *\n * A spare is the reader's answer to a vendor retiring a model, a service going down, or an account running\n * out of quota — the three failures that are facts about one model's door rather than about the question.\n * What it must not become is a second chance for a request the provider refused on its own terms, which the\n * spare would refuse just as flatly after the reader had waited for it.\n */",
+    "// `archived=0` is the everyday list; an unqualified read still returns everything, which is what the",
+    "// backup and the assistant's own search rely on — put away is not gone.",
+    "// The thread still opens and still carries its flag: archiving is not deleting.",
+    "// A column the import does not name comes back as the column default, so the flag has to be in the",
+    "// export's own list or an archived conversation would silently reappear in the everyday list.",
   ]],
   ["tests/assistant-rules.test.ts", [
     "/**\n * The rules the assistant is built on, tested where they are written.\n *\n * These are the parts a browser session cannot prove: what a Chinese sentence means to the conflict\n * rules, how a wall-clock schedule survives a daylight-saving change, how many tokens a Han vault\n * really costs. Each fixture is chosen so a plausible-but-wrong implementation would fail it — the\n * pair that differs only in a change word, a date the reader never stated, a schedule that crosses a\n * clock change — rather than so the function merely runs.\n */",

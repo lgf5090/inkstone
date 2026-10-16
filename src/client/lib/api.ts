@@ -794,7 +794,7 @@ export const api = {
    * these routes, and nothing in the notebook calls them.
    */
   assistant: {
-    conversations: (params: { q?: string, folder?: string, project?: string, tag?: string, starred?: string, pinned?: string } = {}) =>
+    conversations: (params: { q?: string, folder?: string, project?: string, tag?: string, starred?: string, pinned?: string, archived?: string } = {}) =>
       request<{ conversations: AssistantConversation[] }>(`/api/assistant/conversations${toQuery(params)}`),
     createConversation: (title?: string, folderId?: string | null) =>
       request<{ conversation: AssistantConversation }>('/api/assistant/conversations', {
@@ -806,6 +806,9 @@ export const api = {
       request<{ conversation: AssistantConversation }>(`/api/assistant/conversations/${id}`, { method: 'PATCH', body: { projectId } }),
     moveConversation: (id: string, folderId: string | null) =>
       request<{ conversation: AssistantConversation }>(`/api/assistant/conversations/${id}`, { method: 'PATCH', body: { folderId } }),
+    /** Put a conversation away or take it back out. Not a delete: the thread stays whole and searchable. */
+    setConversationArchived: (id: string, archived: boolean) =>
+      request<{ conversation: AssistantConversation }>(`/api/assistant/conversations/${id}`, { method: 'PATCH', body: { archived } }),
     conversationShare: (id: string, signal?: AbortSignal) =>
       request<{ share: ConversationShareInfo | null }>(`/api/assistant/conversations/${id}/share`, { signal }),
     createConversationShare: (id: string, body: { password?: string | null, expiresIn?: number | null, rotate?: boolean }) =>

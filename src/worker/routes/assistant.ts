@@ -186,7 +186,7 @@ assistantRoutes.get('/conversations', async (c) => {
   const folder = c.req.query('folder')
   const project = c.req.query('project')
   const tag = c.req.query('tag')?.trim().slice(0, 26)
-  const filter: { folderId?: string | null, projectId?: string | null, tagId?: string, starred?: boolean, pinned?: boolean } = {}
+  const filter: { folderId?: string | null, projectId?: string | null, tagId?: string, starred?: boolean, pinned?: boolean, archived?: boolean } = {}
   // `folder=none` is the unfiled view; an absent parameter is the whole list.
   if (folder !== undefined) filter.folderId = folder === 'none' ? null : (isValidId(folder) ? folder : 'none')
   // `project=none` reads the conversations that answer under no brief, the same convention as the folder filter.
@@ -194,6 +194,10 @@ assistantRoutes.get('/conversations', async (c) => {
   if (tag) filter.tagId = tag
   if (c.req.query('starred') === '1') filter.starred = true
   if (c.req.query('pinned') === '1') filter.pinned = true
+  // Only `1` and `0` narrow this: an absent parameter is every conversation, archived ones included, which
+  // is what a caller with no opinion about filing should get.
+  if (c.req.query('archived') === '1') filter.archived = true
+  else if (c.req.query('archived') === '0') filter.archived = false
   return c.json({ conversations: await store(c).listConversations(query || undefined, filter) })
 })
 
@@ -825,10 +829,11 @@ assistantRoutes.patch('/conversations/:id', async (c) => {
   const s = store(c)
   const id = requiredId(c.req.param('id'))
   if (!(await s.getConversation(id))) throw ApiError.notFound('Conversation not found')
-  const body = await readJson<{ title?: unknown, pinned?: unknown, starred?: unknown, folderId?: unknown, projectId?: unknown }>(c, JSON_BODY_LIMITS.small)
+  const body = await readJson<{ title?: unknown, pinned?: unknown, starred?: unknown, archived?: unknown, folderId?: unknown, projectId?: unknown }>(c, JSON_BODY_LIMITS.small)
   if (typeof body.title === 'string') await s.renameConversation(id, text(body.title, MAX_CONVERSATION_TITLE_CHARS))
   if (typeof body.pinned === 'boolean') await s.setConversationPinned(id, body.pinned)
   if (typeof body.starred === 'boolean') await s.setConversationStarred(id, body.starred)
+  if (typeof body.archived === 'boolean') await s.setConversationArchived(id, body.archived)
   if (body.folderId === null) await s.setConversationFolder(id, null)
   else if (typeof body.folderId === 'string') {
     if (!isValidId(body.folderId) || !(await s.knownFolder(body.folderId))) throw ApiError.badRequest('Unknown folder.')

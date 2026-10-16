@@ -841,6 +841,12 @@ export interface AssistantConversation {
   pinned: boolean
   /** The reader's own shortlist, separate from the pinned order the list opens in. */
   starred: boolean
+  /**
+   * Put away without being deleted: still searchable, still backed up, but out of the everyday list.
+   *
+   * Distinct from the two flags above because it is the one that hides a row rather than marking it.
+   */
+  archived: boolean
   /** A folder from the notebook's own tree; null means the conversation is unfiled. */
   folderId: string | null
   /** The project this conversation belongs to, whose instructions and knowledge it inherits. */

@@ -55,9 +55,9 @@ export type AssistantView = 'chat' | 'memory' | 'tasks' | 'automations' | 'skill
 export const ASSISTANT_VIEWS: readonly AssistantView[] = ['chat', 'memory', 'tasks', 'automations', 'skills', 'projects', 'settings']
 
 /** The five pickers the conversation list's tab strip offers, in the order it draws them. */
-export type ConversationListTab = 'folders' | 'projects' | 'tags' | 'starred' | 'pinned'
+export type ConversationListTab = 'folders' | 'projects' | 'tags' | 'starred' | 'pinned' | 'archived'
 
-export const CONVERSATION_LIST_TABS: readonly ConversationListTab[] = ['folders', 'projects', 'tags', 'starred', 'pinned']
+export const CONVERSATION_LIST_TABS: readonly ConversationListTab[] = ['folders', 'projects', 'tags', 'starred', 'pinned', 'archived']
 
 /**
  * A paste at least this long is turned into a text file instead of being pasted into the box.
@@ -124,7 +124,7 @@ interface AssistantState {
   /** Which of the four pickers the list column's tab panel currently shows. */
   listTab: ConversationListTab
   /** The shortlists two of the tabs jump to; kept apart from the filtered main list. */
-  flagged: { starred: AssistantConversation[], pinned: AssistantConversation[] }
+  flagged: { starred: AssistantConversation[], pinned: AssistantConversation[], archived: AssistantConversation[] }
   /** The composer's live-web-search switch, kept between turns like the other per-composer settings. */
   webSearch: boolean
   setWebSearch: (value: boolean) => void
@@ -322,6 +322,8 @@ interface AssistantState {
   stop: () => void
   renameConversation: (id: string, title: string) => Promise<void>
   pinConversation: (id: string, pinned: boolean) => Promise<void>
+  /** Put a conversation away without deleting it, or bring it back into the everyday list. */
+  archiveConversation: (id: string, archived: boolean) => Promise<void>
   deleteConversation: (id: string) => Promise<void>
   decideAction: (actionId: string, approve: boolean) => Promise<void>
 
@@ -577,7 +579,7 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
   turnTools: [],
   turnScopes: [],
   fileIndex: {},
-  flagged: { starred: [], pinned: [] },
+  flagged: { starred: [], pinned: [], archived: [] },
   activeId: null,
   messages: [],
   messagesReady: false,
@@ -623,7 +625,8 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
     try {
       const [settings, conversations] = await Promise.all([
         api.assistant.settings(),
-        api.assistant.conversations(),
+        // The everyday list leaves archived conversations out; the archive tab is where they are read.
+        api.assistant.conversations({ archived: '0' }),
       ])
       set({
         settings: settings.settings,
@@ -661,11 +664,13 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
     try {
       const state = get()
       const query = state.conversationQuery.trim()
-      const params: { q?: string, folder?: string, project?: string, tag?: string } = {}
+      const params: { q?: string, folder?: string, project?: string, tag?: string, archived?: string } = {}
       if (query) params.q = query
       if (state.folderFilter !== 'all') params.folder = state.folderFilter
       if (state.projectFilter !== 'all') params.project = state.projectFilter
       if (state.tagFilter) params.tag = state.tagFilter
+      // Always sent, so no view of this list ever shows a conversation the reader has put away.
+      params.archived = '0'
       const result = await api.assistant.conversations(params)
       if (token !== conversationRequest) return
       set({ conversations: result.conversations })
@@ -980,16 +985,29 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
 
   setListTab: async (tab) => {
     set({ listTab: tab })
-    if (tab === 'starred' || tab === 'pinned') await get().loadFlagged()
+    if (tab === 'starred' || tab === 'pinned' || tab === 'archived') await get().loadFlagged()
   },
 
   loadFlagged: async () => {
     try {
-      const [starred, pinned] = await Promise.all([
-        api.assistant.conversations({ starred: '1' }),
-        api.assistant.conversations({ pinned: '1' }),
+      const [starred, pinned, archived] = await Promise.all([
+        api.assistant.conversations({ starred: '1', archived: '0' }),
+        api.assistant.conversations({ pinned: '1', archived: '0' }),
+        api.assistant.conversations({ archived: '1' }),
       ])
-      set({ flagged: { starred: starred.conversations, pinned: pinned.conversations } })
+      set({ flagged: { starred: starred.conversations, pinned: pinned.conversations, archived: archived.conversations } })
+    } catch (error) {
+      toast(error)
+    }
+  },
+
+  archiveConversation: async (id, archived) => {
+    try {
+      await api.assistant.setConversationArchived(id, archived)
+      await get().loadConversations()
+      // The tab the reader is looking at has to lose the row too, or it goes on offering something that
+      // has just been filed away — and the other shortlists may have gained one.
+      await get().loadFlagged()
     } catch (error) {
       toast(error)
     }

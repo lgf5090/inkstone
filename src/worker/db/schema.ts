@@ -1319,6 +1319,16 @@ export const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
       `ALTER TABLE chat_mcp_servers DROP COLUMN disabled_tools`,
     ],
   },
+  {
+    // A conversation the reader has put away without deleting: still searchable, still backed up, but out
+    // of the everyday list. A flag rather than a second table, because it is one bit of the same row and
+    // every listing already reads that row.
+    version: 83,
+    skipIfColumnExists: { table: 'chat_conversations', column: 'archived' },
+    statements: [
+      `ALTER TABLE chat_conversations ADD COLUMN archived INTEGER NOT NULL DEFAULT 0`,
+    ],
+  },
 ]
 
 const FTS_STATEMENT = `CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(

@@ -1236,7 +1236,7 @@ export class AssistantStore {
    */
   async listConversations(
     query?: string,
-    filter: { folderId?: string | null, projectId?: string | null, tagId?: string, starred?: boolean, pinned?: boolean, limit?: number } = {},
+    filter: { folderId?: string | null, projectId?: string | null, tagId?: string, starred?: boolean, pinned?: boolean, archived?: boolean, limit?: number } = {},
   ): Promise<AssistantConversation[]> {
     const limit = filter.limit ?? 100
     const q = new Query(this.userId)
@@ -1253,6 +1253,10 @@ export class AssistantStore {
     }
     if (filter.starred) q.raw('starred = 1')
     if (filter.pinned) q.raw('pinned = 1')
+    // Absent means "either", which is what the backup and the assistant's own search want: an archived
+    // conversation is put away, not gone, and a reader who asks for everything gets everything.
+    if (filter.archived === true) q.raw('archived = 1')
+    else if (filter.archived === false) q.raw('archived = 0')
     if (filter.tagId) {
       const scope = await this.tagName(filter.tagId)
       // An id the reader does not own scopes nothing, and the answer is an empty list rather than an
@@ -1274,7 +1278,7 @@ export class AssistantStore {
     }
     const limitBind = q.add(limit)
     const list = await this.rows<ConversationRow>(
-      `SELECT c.id, c.title, c.summary, c.summary_upto, c.pinned, c.starred, c.folder_id, c.project_id, c.created_at, c.updated_at,
+      `SELECT c.id, c.title, c.summary, c.summary_upto, c.pinned, c.starred, c.archived, c.folder_id, c.project_id, c.created_at, c.updated_at,
               (SELECT count(*) FROM chat_messages m WHERE m.conversation_id = c.id) AS message_count
          FROM chat_conversations c WHERE ${q.where}
          ORDER BY c.updated_at DESC LIMIT ${limitBind}`,
@@ -1292,14 +1296,14 @@ export class AssistantStore {
   async conversationFolderSummary(): Promise<{ folders: ChatFolderNode[], unfiled: number }> {
     const rows = await this.rows<{ id: string, name: string, parent_id: string | null, icon: string | null, color: string | null, n: number }>(
       `SELECT f.id, f.name, f.parent_id, f.icon, f.color,
-              (SELECT count(*) FROM chat_conversations c WHERE c.user_id = ?1 AND c.folder_id = f.id) AS n
+              (SELECT count(*) FROM chat_conversations c WHERE c.user_id = ?1 AND c.folder_id = f.id AND c.archived = 0) AS n
          FROM folders f
         WHERE f.user_id = ?1 AND f.deleted_at IS NULL
         ORDER BY f.name`,
       this.userId,
     )
     const unfiled = await this.one<{ n: number }>(
-      `SELECT count(*) AS n FROM chat_conversations WHERE user_id = ?1 AND folder_id IS NULL`,
+      `SELECT count(*) AS n FROM chat_conversations WHERE user_id = ?1 AND folder_id IS NULL AND archived = 0`,
       this.userId,
     )
     return {
@@ -1315,14 +1319,14 @@ export class AssistantStore {
   async conversationProjectSummary(): Promise<{ projects: ChatProjectNode[], unfiled: number }> {
     const rows = await this.rows<{ id: string, name: string, n: number }>(
       `SELECT p.id, p.name,
-              (SELECT count(*) FROM chat_conversations c WHERE c.user_id = ?1 AND c.project_id = p.id) AS n
+              (SELECT count(*) FROM chat_conversations c WHERE c.user_id = ?1 AND c.project_id = p.id AND c.archived = 0) AS n
          FROM chat_projects p
         WHERE p.user_id = ?1
         ORDER BY p.name`,
       this.userId,
     )
     const unfiled = await this.one<{ n: number }>(
-      `SELECT count(*) AS n FROM chat_conversations WHERE user_id = ?1 AND project_id IS NULL`,
+      `SELECT count(*) AS n FROM chat_conversations WHERE user_id = ?1 AND project_id IS NULL AND archived = 0`,
       this.userId,
     )
     return {
@@ -1463,8 +1467,13 @@ export class AssistantStore {
 
   /** How many conversations carry each tag, for the filter row. */
   async conversationTagCounts(): Promise<Map<string, number>> {
+    // Joined rather than counted off the join table alone, so a tag's number describes the conversations
+    // the reader would actually find under it — an archived one is out of the list the number labels.
     const rows = await this.rows<{ tag_id: string, n: number }>(
-      `SELECT tag_id, count(*) AS n FROM chat_conversation_tags WHERE user_id = ?1 GROUP BY tag_id`,
+      `SELECT ct.tag_id, count(*) AS n
+         FROM chat_conversation_tags ct
+         JOIN chat_conversations c ON c.user_id = ct.user_id AND c.id = ct.conversation_id AND c.archived = 0
+        WHERE ct.user_id = ?1 GROUP BY ct.tag_id`,
       this.userId,
     )
     return new Map(rows.map((row) => [row.tag_id, row.n]))
@@ -1472,7 +1481,7 @@ export class AssistantStore {
 
   async getConversation(id: string): Promise<AssistantConversation | null> {
     const r = await this.one<ConversationRow>(
-      `SELECT c.id, c.title, c.summary, c.summary_upto, c.pinned, c.starred, c.folder_id, c.project_id, c.created_at, c.updated_at,
+      `SELECT c.id, c.title, c.summary, c.summary_upto, c.pinned, c.starred, c.archived, c.folder_id, c.project_id, c.created_at, c.updated_at,
               (SELECT count(*) FROM chat_messages m WHERE m.conversation_id = c.id) AS message_count
          FROM chat_conversations c WHERE c.user_id = ?1 AND c.id = ?2`,
       this.userId, id,
@@ -1487,7 +1496,7 @@ export class AssistantStore {
       `INSERT INTO chat_conversations (id, user_id, title, folder_id, created_at, updated_at) VALUES (?2, ?1, ?3, ?4, ?5, ?6)`,
       id, title, folderId, at, at,
     )
-    return { id, title, pinned: false, starred: false, folderId, createdAt: at, updatedAt: at, messageCount: 0, tags: [], summary: null, summaryUpto: null }
+    return { id, title, pinned: false, starred: false, archived: false, folderId, createdAt: at, updatedAt: at, messageCount: 0, tags: [], summary: null, summaryUpto: null }
   }
 
   /**
@@ -1549,6 +1558,20 @@ export class AssistantStore {
     await this.write(
       `UPDATE chat_conversations SET pinned = ?2 WHERE user_id = ?1 AND id = ?3`,
       pinned ? 1 : 0, id,
+    )
+  }
+
+  /**
+   * Put a conversation away, or take it back out.
+   *
+   * Archiving is not deleting and not starring: the thread stays whole, stays searchable and stays in the
+   * backup, and only the everyday list stops showing it. That is why it is a column of its own rather than
+   * a second meaning for one of the two flags already here.
+   */
+  async setConversationArchived(id: string, archived: boolean): Promise<void> {
+    await this.write(
+      `UPDATE chat_conversations SET archived = ?2 WHERE user_id = ?1 AND id = ?3`,
+      archived ? 1 : 0, id,
     )
   }
 
@@ -3446,7 +3469,7 @@ export class AssistantStore {
  * that is not here is refused before any SQL is assembled.
  */
 const EXPORT_COLUMNS: Readonly<Record<string, readonly string[]>> = {
-  chat_conversations: ['id', 'title', 'summary', 'summary_upto', 'pinned', 'starred', 'folder_id', 'created_at', 'updated_at'],
+  chat_conversations: ['id', 'title', 'summary', 'summary_upto', 'pinned', 'starred', 'archived', 'folder_id', 'created_at', 'updated_at'],
   chat_conversation_tags: ['conversation_id', 'tag_id', 'created_at'],
   chat_messages: ['id', 'conversation_id', 'role', 'content', 'reasoning', 'tools', 'attachments', 'status', 'error', 'source', 'input_tokens', 'output_tokens', 'duration_ms', 'model_label', 'created_at'],
   chat_answer_versions: ['id', 'message_id', 'conversation_id', 'content', 'reasoning', 'tools', 'model_label', 'input_tokens', 'output_tokens', 'duration_ms', 'created_at'],
@@ -3790,6 +3813,7 @@ interface ConversationRow {
   summary_upto: number | null
   pinned: number
   starred: number
+  archived: number
   folder_id: string | null
   project_id: string | null
   created_at: number
@@ -3803,6 +3827,7 @@ function toConversation(r: ConversationRow): AssistantConversation {
     title: r.title,
     pinned: bool(r.pinned),
     starred: bool(r.starred),
+    archived: bool(r.archived),
     folderId: r.folder_id ?? null,
     ...(r.project_id ? { projectId: r.project_id } : {}),
     createdAt: r.created_at,

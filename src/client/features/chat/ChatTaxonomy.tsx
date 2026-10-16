@@ -6,9 +6,10 @@
  * these two components read the counts the assistant API computes over those shared tables.
  */
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { ChevronRight, FolderClosed, FolderKanban, Inbox, Layers, Pin, Star, Tags } from 'lucide-react'
+import { Archive, ArchiveRestore, ChevronRight, FolderClosed, FolderKanban, Inbox, Layers, Pin, Star, Tags } from 'lucide-react'
 import type { AssistantConversation, ChatFolderNode, ConversationTag } from '@shared/assistant'
 import { cn } from '../../lib/cn'
+import { IconButton } from '../../components/primitives'
 import { t, type MessageKey } from '../../lib/i18n'
 import { relativeTime } from '../../lib/time'
 import { treeIndent, treeItemProps, useTreeKeyboard, type MoveMenuFolder } from '../../lib/tree'
@@ -419,6 +420,7 @@ const TAB_ICONS: Record<ConversationListTab, React.ReactNode> = {
   tags: <Tags size={14} />,
   starred: <Star size={14} />,
   pinned: <Pin size={14} />,
+  archived: <Archive size={14} />,
 }
 
 const TAB_LABELS: Record<ConversationListTab, MessageKey> = {
@@ -427,6 +429,7 @@ const TAB_LABELS: Record<ConversationListTab, MessageKey> = {
   tags: 'assistant.chat.tab.tags',
   starred: 'assistant.chat.tab.starred',
   pinned: 'assistant.chat.tab.pinned',
+  archived: 'assistant.chat.tab.archived',
 }
 
 export const CHAT_TAXONOMY_PANEL_ID = 'chat-taxonomy-panel'
@@ -508,22 +511,22 @@ export function ConversationTabStrip() {
   )
 }
 
-/** The shortlists the two flag tabs jump to; opening a row goes straight to that conversation. */
-function FlaggedList({ kind, onOpen }: { kind: 'starred' | 'pinned', onOpen?: () => void }) {
+/** The shortlists the flag tabs jump to; opening a row goes straight to that conversation. */
+function FlaggedList({ kind, onOpen }: { kind: 'starred' | 'pinned' | 'archived', onOpen?: () => void }) {
   const items = useAssistant((state) => state.flagged[kind])
   const activeId = useAssistant((state) => state.activeId)
   const open = useAssistant((state) => state.openConversation)
+  const archiveConversation = useAssistant((state) => state.archiveConversation)
+  const empty = EMPTY_FLAGGED[kind]
   if (!items.length) {
     return (
-      <p className="px-2 py-3 text-[length:var(--text-12)] text-[var(--text-quaternary)]">
-        {t(kind === 'starred' ? 'assistant.chat.empty_starred' : 'assistant.chat.empty_pinned')}
-      </p>
+      <p className="px-2 py-3 text-[length:var(--text-12)] text-[var(--text-quaternary)]">{t(empty)}</p>
     )
   }
   return (
     <ul className="flex flex-col gap-px">
       {items.map((conversation: AssistantConversation) => (
-        <li key={conversation.id}>
+        <li key={conversation.id} className="flex items-center gap-px">
           <button
             type="button"
             aria-current={conversation.id === activeId ? 'page' : undefined}
@@ -532,7 +535,7 @@ function FlaggedList({ kind, onOpen }: { kind: 'starred' | 'pinned', onOpen?: ()
               onOpen?.()
             }}
             className={cn(
-              'flex w-full min-w-0 items-center gap-1.5 rounded-[var(--r-sm)] px-2 py-1 text-left text-[length:var(--text-12)]',
+              'flex min-w-0 flex-1 items-center gap-1.5 rounded-[var(--r-sm)] px-2 py-1 text-left text-[length:var(--text-12)]',
               'transition-colors duration-[var(--dur-fast)]',
               conversation.id === activeId
                 ? 'bg-[var(--bg-active)] font-medium text-[var(--text-primary)]'
@@ -542,10 +545,27 @@ function FlaggedList({ kind, onOpen }: { kind: 'starred' | 'pinned', onOpen?: ()
             <span className="min-w-0 flex-1 truncate">{conversation.title || t('assistant.chat.untitled')}</span>
             <span className="shrink-0 text-[length:var(--text-10-5)] text-[var(--text-quaternary)]">{relativeTime(conversation.updatedAt)}</span>
           </button>
+          {/* An archived conversation is in no other list, so this tab is the only place it can be taken
+              back out from: without a restore press here, archiving would be one-way. */}
+          {kind === 'archived' && (
+            <IconButton
+              label={t('assistant.chat.unarchive')}
+              size="xs"
+              onClick={() => void archiveConversation(conversation.id, false)}
+            >
+              <ArchiveRestore size={12} />
+            </IconButton>
+          )}
         </li>
       ))}
     </ul>
   )
+}
+
+const EMPTY_FLAGGED: Record<'starred' | 'pinned' | 'archived', MessageKey> = {
+  starred: 'assistant.chat.empty_starred',
+  pinned: 'assistant.chat.empty_pinned',
+  archived: 'assistant.chat.empty_archived',
 }
 
 /** The panel the strip drives: one picker at a time, never two stacked lists. */
@@ -564,6 +584,7 @@ export function ConversationTaxonomyPanel({ onOpen }: { onOpen?: () => void }) {
       {tab === 'tags' && <ConversationTags />}
       {tab === 'starred' && <FlaggedList kind="starred" onOpen={onOpen} />}
       {tab === 'pinned' && <FlaggedList kind="pinned" onOpen={onOpen} />}
+      {tab === 'archived' && <FlaggedList kind="archived" onOpen={onOpen} />}
     </div>
   )
 }

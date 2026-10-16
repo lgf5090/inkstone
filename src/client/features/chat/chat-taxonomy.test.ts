@@ -19,7 +19,7 @@ const original = useAssistant.getState()
 
 function conversation(id: string, title: string, over: Partial<AssistantConversation> = {}): AssistantConversation {
   return {
-    id, title, pinned: false, starred: false, folderId: null,
+    id, title, pinned: false, starred: false, archived: false, folderId: null,
     createdAt: 1, updatedAt: 2, messageCount: 1, ...over,
   }
 }
@@ -42,7 +42,7 @@ beforeEach(async () => {
     folderNodes: FOLDERS,
     unfiledCount: 1,
     tagNodes: TAGS,
-    flagged: { starred: [conversation('s1', 'Starred one')], pinned: [conversation('p1', 'Pinned one')] },
+    flagged: { starred: [conversation('s1', 'Starred one')], pinned: [conversation('p1', 'Pinned one')], archived: [] },
     loadFlagged: vi.fn().mockResolvedValue(undefined),
     openConversation: vi.fn().mockResolvedValue(undefined),
   })
@@ -80,7 +80,7 @@ describe('conversation tab strip', () => {
     }
     expect(tabs().map((entry) => entry.title)).toEqual([
       t('assistant.chat.tab.folders'), t('assistant.chat.tab.projects'), t('assistant.chat.tab.tags'),
-      t('assistant.chat.tab.starred'), t('assistant.chat.tab.pinned'),
+      t('assistant.chat.tab.starred'), t('assistant.chat.tab.pinned'), t('assistant.chat.tab.archived'),
     ])
   })
 
@@ -89,9 +89,9 @@ describe('conversation tab strip', () => {
       tab('folders').focus()
       tab('folders').dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowLeft', bubbles: true, cancelable: true }))
     })
-    expect(useAssistant.getState().listTab).toBe('pinned')
+    expect(useAssistant.getState().listTab).toBe('archived')
     await act(async () => {
-      tab('pinned').dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true, cancelable: true }))
+      tab('archived').dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true, cancelable: true }))
     })
     expect(useAssistant.getState().listTab).toBe('folders')
   })
@@ -143,13 +143,36 @@ describe('conversation taxonomy panel', () => {
   })
 
   it('says so when a shortlist is empty', async () => {
-    useAssistant.setState({ flagged: { starred: [], pinned: [] } })
+    useAssistant.setState({ flagged: { starred: [], pinned: [], archived: [] } })
     await render(createElement('div', null,
       createElement(ConversationTabStrip), createElement(ConversationTaxonomyPanel)))
     await act(async () => { tab('starred').click() })
     expect(panel()?.textContent).toContain(t('assistant.chat.empty_starred'))
     await act(async () => { tab('pinned').click() })
     expect(panel()?.textContent).toContain(t('assistant.chat.empty_pinned'))
+    await act(async () => { tab('archived').click() })
+    expect(panel()?.textContent).toContain(t('assistant.chat.empty_archived'))
+  })
+
+  /**
+   * The archive tab is the only surface an archived conversation appears on, so it is also the only place
+   * it can be taken back out from — without a restore press here, archiving would be a one-way door.
+   */
+  it('lists what was put away and offers the one press that brings it back', async () => {
+    const archiveConversation = vi.fn().mockResolvedValue(undefined)
+    useAssistant.setState({
+      flagged: { starred: [], pinned: [], archived: [conversation('a1', 'Archived one', { archived: true })] },
+      archiveConversation,
+    })
+    await render(createElement('div', null,
+      createElement(ConversationTabStrip), createElement(ConversationTaxonomyPanel)))
+    await act(async () => { tab('archived').click() })
+    expect(panel()?.textContent).toContain('Archived one')
+    const restore = [...(panel()?.querySelectorAll('button') ?? [])]
+      .find((entry) => entry.getAttribute('aria-label') === t('assistant.chat.unarchive'))
+    expect(restore, 'the restore press is not rendered').toBeTruthy()
+    await act(async () => { restore!.click() })
+    expect(archiveConversation).toHaveBeenCalledWith('a1', false)
   })
 
   /**

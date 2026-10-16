@@ -709,6 +709,7 @@ function ConversationRow({
   const moveConversation = useAssistant((state) => state.moveConversation)
   const toggleConversationTag = useAssistant((state) => state.toggleConversationTag)
   const starConversation = useAssistant((state) => state.starConversation)
+  const archiveConversation = useAssistant((state) => state.archiveConversation)
   const attachNewTag = useAssistant((state) => state.attachNewTag)
   const projects = useAssistant((state) => state.projects)
   const setConversationProject = useAssistant((state) => state.setConversationProject)
@@ -824,6 +825,13 @@ function ConversationRow({
             onSelect: () => void starConversation(conversation.id, !conversation.starred),
           },
           { id: 'rename', label: t('assistant.chat.rename'), onSelect: onRename },
+          {
+            id: 'archive',
+            label: conversation.archived ? t('assistant.chat.unarchive') : t('assistant.chat.archive'),
+            // Not a delete and not a star: the thread stays whole and searchable, and the archive tab is
+            // where it can be read — or taken back out — again.
+            onSelect: () => void archiveConversation(conversation.id, !conversation.archived),
+          },
           {
             id: 'folder',
             label: t('assistant.chat.move_to'),

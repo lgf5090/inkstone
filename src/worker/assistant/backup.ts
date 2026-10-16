@@ -121,6 +121,9 @@ export async function importAssistant(store: AssistantStore, raw: Record<string,
       summary_upto: null,
       pinned: numberValue(conversation.pinned),
       starred: numberValue(conversation.starred),
+      // Named explicitly even though the column has a default: `importRow` binds every column in its own
+      // list, and a name it is not given becomes NULL — which a NOT NULL column turns into a dropped row.
+      archived: numberValue(conversation.archived),
       // A folder belongs to the notebook, not to the backup: an id the reader does not have any more
       // is dropped rather than left dangling, so the restored row shows up as unfiled.
       folder_id: typeof conversation.folder_id === 'string' && await store.knownFolder(conversation.folder_id)
