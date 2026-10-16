@@ -413,6 +413,7 @@ export const SCHEMA_STATEMENTS: readonly string[] = [
     user_id TEXT PRIMARY KEY,
     write_enabled INTEGER NOT NULL DEFAULT 1 CHECK (write_enabled IN (0, 1)),
     trash_enabled INTEGER NOT NULL DEFAULT 0 CHECK (trash_enabled IN (0, 1)),
+    disabled_tools TEXT NOT NULL DEFAULT '[]',
     updated_at INTEGER NOT NULL
   )`,
 
@@ -523,6 +524,7 @@ export const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
          user_id TEXT PRIMARY KEY,
          write_enabled INTEGER NOT NULL DEFAULT 1 CHECK (write_enabled IN (0, 1)),
          trash_enabled INTEGER NOT NULL DEFAULT 0 CHECK (trash_enabled IN (0, 1)),
+         disabled_tools TEXT NOT NULL DEFAULT '[]',
          updated_at INTEGER NOT NULL
        )`,
       `CREATE TABLE IF NOT EXISTS mcp_operations (
@@ -1329,6 +1331,16 @@ export const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
       `ALTER TABLE chat_conversations ADD COLUMN archived INTEGER NOT NULL DEFAULT 0`,
     ],
   },
+  {
+    // The MCP server's own tools the reader has switched off, by the name the server registers them under.
+    // The switched-off set rather than the enabled one, so a tool a later build adds arrives usable: a
+    // reader who switched two tools off has not thereby switched off the fortieth.
+    version: 84,
+    skipIfColumnExists: { table: 'mcp_preferences', column: 'disabled_tools' },
+    statements: [
+      `ALTER TABLE mcp_preferences ADD COLUMN disabled_tools TEXT NOT NULL DEFAULT '[]'`,
+    ],
+  },
 ]
 
 const FTS_STATEMENT = `CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(
@@ -1372,7 +1384,7 @@ export const REQUIRED_COLUMNS: Readonly<Record<string, readonly string[]>> = {
   totp_credentials: ['user_id', 'secret_ciphertext', 'enabled_at', 'pending_token_hash', 'pending_session_id', 'pending_expires_at', 'recovery_generation', 'last_used_step', 'last_used_by', 'created_at', 'updated_at'],
   totp_recovery_codes: ['user_id', 'code_hash', 'generation', 'created_at', 'used_at', 'used_by'],
   totp_login_challenges: ['id', 'user_id', 'expires_at', 'claimed_by', 'created_at'],
-  mcp_preferences: ['user_id', 'write_enabled', 'trash_enabled', 'updated_at'],
+  mcp_preferences: ['user_id', 'write_enabled', 'trash_enabled', 'disabled_tools', 'updated_at'],
   mcp_operations: ['user_id', 'operation_id', 'tool', 'request_hash', 'response_json', 'created_at'],
   mcp_api_keys: ['id', 'user_id', 'name', 'key_hash', 'scopes', 'created_at', 'last_used_at', 'revoked_at'],
   ai_note_embeddings: ['user_id', 'note_id', 'model', 'vector', 'indexed_at', 'norm'],

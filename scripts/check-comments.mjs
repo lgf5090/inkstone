@@ -500,6 +500,8 @@ const allowed = new Map([
     "// same notes for an accented or Greek title.",
     "// The demo has no Worker behind it, so nothing here can reach another website: the library is",
     "// kept for the length of the visit, and a feed read says so plainly rather than pretending.",
+    "// A short list rather than the server's real forty: the demo is a picture of the screen, and the",
+    "// switches it draws are the same ones the real catalog drives.",
   ]],
   ["src/client/editor/CodeEditor.tsx", [
     "// Preserve undo history across mode changes once editing has started.",
@@ -6970,6 +6972,10 @@ const allowed = new Map([
     "/** A rule's own before/after pair, shown as the two documents rather than as prose. */",
     "/** A list of typed entries — words, YAML keys, folder names — with the rule's own validator. */",
   ]],
+  ["src/client/features/settings/McpSettings.tsx", [
+    "/**\n   * One switch, sent as the whole list.\n   *\n   * The route validates every name against the tools the server actually registers, so a name that no\n   * longer exists is refused rather than stored as a rule that governs nothing — which means the list has\n   * to be sent in full rather than as a delta.\n   */",
+    "/* The registration name is what a switch has to match and what an MCP client asks for, so\n                    it is shown even though the title is the readable one. */",
+  ]],
   ["src/client/features/settings/QuickAddSettings.tsx", [
     "/**\n * Settings → Automation: the whole QuickAdd feature in one page.\n *\n * The formats an author writes are the reason this page lives in the app's own settings sheet: a\n * capture that inserts a note into the middle of a heading list should look like any other preference,\n * not like a plugin window dropped on top. Everything here edits the account's choice library, which\n * the store pushes to the server on a debounce — so the page writes through the store, never to the\n * endpoint directly, and a reload of the section shows the same data another tab just saved.\n */",
     "// A variable with no name is dropped by the library normalizer, so the new one is drafted here",
@@ -7014,6 +7020,12 @@ const allowed = new Map([
     "// server's pending row cannot be confirmed by anyone: it is bound to this session and this token, and",
     "// `pending_expires_at` has passed for it by the time the confirm route would read it, which answers",
     "// `two_factor_setup_expired`. Nothing the reader can still do depends on this delete.",
+  ]],
+  ["src/client/features/settings/mcp-tools.test.ts", [
+    "/**\n * The tool switches on the MCP settings screen.\n *\n * A switch here is not a local preference: it decides what the MCP server registers, so what is pinned is\n * that the press sends the whole switched-off list — the route refuses a name it does not recognise, which\n * it can only do against a complete list — and that a switch already off is drawn off when the screen opens.\n */",
+    "// Every tool arrives offered: nothing is switched off until somebody says so.",
+    "// Both names, not just the new one: the route checks every name against the tools it registers, so a",
+    "// delta would read as \"switch everything else back on\".",
   ]],
   ["src/client/features/settings/quick-add-settings.test.ts", [
     "/**\n * The app labels every control, so a test can look one up by the name a screen reader would read:\n * an `aria-label`, the `<label>` a `Field` wires with `aria-labelledby`, or a button's own text.\n */",
@@ -7608,6 +7620,7 @@ const allowed = new Map([
     "/** The account's own totals, which no range narrows — see the type for why. */",
     "/**\n     * Withdraw the client registration itself, at the issuer when it can be and here always.\n     *\n     * A different press from the one above: that one logs the reader out, this one uninstalls the app. The\n     * answer carries whether the issuer was actually told, because a client registered by hand has nothing\n     * at the far end to delete.\n     */",
     "/** Put a conversation away or take it back out. Not a delete: the thread stays whole and searchable. */",
+    "/** The server's own tools to switch off, by the name it registers them under. */",
   ]],
   ["src/client/lib/app-history.ts", [
     "/**\n * The address bar as the one source of truth for which app tab is up.\n *\n * The tab is a path rather than a store field so that a rail button is an ordinary link: the\n * address a reader copies is the screen they are looking at, the back button walks the tabs they\n * visited, and a cold load of `/calendar` needs nothing but the document the server already sends.\n * `history.pushState` fires no event of its own, so the writers here announce their own changes and\n * `popstate` covers everything the browser does by itself.\n */",
@@ -15372,6 +15385,9 @@ const allowed = new Map([
     "/** Scrolling past a row marks it read, which is how a reader finishes a channel. */",
     "/** The folder a saved article is written to, by name. Empty asks the notebook's current one. */",
     "/** The title of the note an article link is appended to, as a date pattern. Empty turns it off. */",
+    "/**\n   * The server's own tools the reader has switched off, by the name the server registers them under.\n   *\n   * Kept as the switched-off set rather than the enabled one so that a tool a later build adds arrives\n   * usable: a reader who has switched two tools off has not thereby switched off the fortieth.\n   */",
+    "/**\n * One tool the Inkstone MCP server can publish.\n *\n * The settings screen lists these so a reader can switch one off by name; the names are the server's own,\n * because that is what an MCP client asks for and what a switch has to match.\n */",
+    "/** Every tool this server can publish, so the screen can offer a switch for each. */",
   ]],
   ["src/worker/app.ts", [
     "// A 1xx handshake response carries the socket, and Hono rebuilds the Response to",
@@ -16472,6 +16488,9 @@ const allowed = new Map([
     "// A conversation the reader has put away without deleting: still searchable, still backed up, but out",
     "// of the everyday list. A flag rather than a second table, because it is one bit of the same row and",
     "// every listing already reads that row.",
+    "// The MCP server's own tools the reader has switched off, by the name the server registers them under.",
+    "// The switched-off set rather than the enabled one, so a tool a later build adds arrives usable: a",
+    "// reader who switched two tools off has not thereby switched off the fortieth.",
   ]],
   ["src/worker/db/writes.ts", [
     "/** Keeps tags, backlinks, full-text indexes, and change records consistent with note writes. */",
@@ -16684,6 +16703,8 @@ const allowed = new Map([
     "// `code` / `description` / `status`, returned rather than thrown, in the shape a compliant",
     "// dynamic-client-registration client parses — not this app's `{ error: { code, message } }`",
     "// envelope. Funnelling it through the shared helper would change the wire format.",
+    "// Read per request rather than captured once: the handler is built fresh for every call, which is",
+    "// what lets a tool the reader has just switched off be absent from the next `tools/list`.",
   ]],
   ["src/worker/mcp/operations.ts", [
     "// The mutation itself failed before committing; remove the pending row",
@@ -16696,8 +16717,18 @@ const allowed = new Map([
   ["src/worker/mcp/retrieval.ts", [
     "// AI unavailable, rate-limited, or malformed response: degrade to lexical.",
   ]],
+  ["src/worker/mcp/server.ts", [
+    "/**\n   * The tools the reader has switched off, by registration name.\n   *\n   * They are never registered, so they are absent from `tools/list` as well as from `tools/call`: a tool\n   * the model can see but never use is one it keeps choosing.\n   */",
+    "/** Filled in as tools register, when the caller wants to know what this server can publish. */",
+    "/**\n * The server, with the reader's switched-off tools never registered.\n *\n * Not registering is the stronger of the two ways to hide a tool: `disable()` also keeps it out of\n * `tools/list`, but a tool that was never registered has no handler to reach through any other path either.\n * The proxy exists so that the forty registrations below read exactly as the SDK's own examples do, and so\n * that the catalog the settings screen shows is recorded from those same calls rather than kept in a second\n * list of names that would drift from the first.\n */",
+    "/**\n * Every tool this server can publish, in registration order.\n *\n * Read by building a throwaway server: construction does no I/O and no handler runs, so neither the account\n * in the placeholder grant nor the execution context is ever consulted. The context is stubbed here rather\n * than taken as an argument because a settings route's own context is a different type, and widening one to\n * the other at each call site would say the two are interchangeable when only this no-op is.\n */",
+  ]],
   ["src/worker/mcp/settings.ts", [
     "/**\n * Every MCP HTTP request needs the switch, and the endpoint is hit once per tool call, so the\n * single-key read is memoized per isolate. Flipping the switch in this isolate drops the entry\n * immediately; another isolate converges within the window.\n */",
+    "/**\n   * The server's own tools the reader has switched off, by the name the server registers them under.\n   *\n   * Kept as the switched-off set rather than the enabled one so that a tool a later build adds arrives\n   * usable: a reader who has switched two tools off has not thereby switched off the fortieth.\n   */",
+    "/** A ceiling on the exception list, so a row cannot grow past what one settings screen can draw. */",
+    "/**\n * The switched-off list as it is stored, decoded rather than trusted.\n *\n * The column is written by this app and read by this app, but a restore from a backup and a boot onto a\n * database another branch spent are both in this program's future, so an unusable value reads as \"nothing\n * switched off\" rather than as a settings screen that cannot open.\n */",
+    "/**\n * The same read, memoized per isolate for a few seconds.\n *\n * Every MCP request needs these — to decide which tools to publish, and again to gate each write — and the\n * endpoint is hit once per tool call. Flipping a switch in this isolate drops nothing immediately, so the\n * window is short; another isolate converges within it too.\n */",
   ]],
   ["src/worker/mcp/writes.ts", [
     "// The quota read rides along with hashing instead of adding a serial round trip.",
@@ -17077,6 +17108,9 @@ const allowed = new Map([
   ]],
   ["src/worker/routes/mcp-settings.ts", [
     "// Kick off the first batch immediately; the rest is drained by the cron.",
+    "// A list of names and titles: whether the keyword index is on cannot change it, and the catalog is",
+    "// read without a request context because nothing in it runs.",
+    "/**\n * The switched-off list, checked against the tools this server actually registers.\n *\n * A name that matches nothing is refused rather than stored: it would be a switch the reader cannot see the\n * effect of, and it would survive a rename in the code as a rule that quietly governs nothing. The catalog\n * is read here rather than trusted from the body for the same reason.\n */",
   ]],
   ["src/worker/routes/notes.ts", [
     "/** Ids per dependent-table delete when emptying the trash. */",
@@ -18472,6 +18506,15 @@ const allowed = new Map([
     "// CJK range boundaries: 2E80/9FFF and F900/FAFF are counted, neighbours are not.",
     "// A multi-line comment body carries no marker on its own lines, so those lines must",
     "// still be blanked by the inComment branch rather than passed through.",
+  ]],
+  ["tests/mcp-tool-scopes.test.ts", [
+    "/**\n * The tools the Inkstone MCP server publishes, and the ones the reader has switched off.\n *\n * A switched-off tool has to be absent from `tools/list`, not merely refused when it is called: a tool the\n * model can see but never use is one it keeps choosing, and the refusal then reads as a broken server rather\n * than as a decision somebody made. That is why the switch is applied at registration, and why this file\n * speaks the real protocol over a linked transport instead of reading the registration table.\n */",
+    "/** Construction does no I/O and `tools/list` touches no row, so the bindings are never reached. */",
+    "/** The tool names a fresh server offers, over a handshake the SDK would accept from any client. */",
+    "// The listing is what an MCP client builds its whole toolset from, so it has to be the full set.",
+    "// One switch is one tool: the rest of the library is untouched.",
+    "// The catalog is read before any switch is applied, which is what lets a switched-off tool still have a",
+    "// switch drawn for it — the one thing the reader needs in order to switch it back on.",
   ]],
   ["tests/mcp-write-readback.test.ts", [
     "// Counts the statements that pull the note body: the whole point of the read-back merge.",

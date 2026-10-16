@@ -665,6 +665,8 @@ export const api = {
       enabled?: boolean
       writeEnabled?: boolean
       trashEnabled?: boolean
+      /** The server's own tools to switch off, by the name it registers them under. */
+      disabledTools?: string[]
     }) => request<{
       enabled: boolean
       preferences: McpSettingsInfo['preferences']

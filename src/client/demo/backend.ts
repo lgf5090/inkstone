@@ -1362,8 +1362,16 @@ function demoMcpSettings(now = Date.now()): McpSettingsInfo {
     preferences: {
       writeEnabled: true,
       trashEnabled: false,
+      disabledTools: [],
       updatedAt: now - 24 * 60 * 60 * 1000,
     },
+    // A short list rather than the server's real forty: the demo is a picture of the screen, and the
+    // switches it draws are the same ones the real catalog drives.
+    tools: [
+      { name: 'search', title: 'Search Inkstone', description: 'Search private notes by keyword and meaning.' },
+      { name: 'fetch', title: 'Fetch Inkstone note', description: 'Fetch one private note by id.' },
+      { name: 'create_note', title: 'Create note', description: 'Create a note from Markdown.' },
+    ],
     apiKeys: [{
       id: 'demo-api-key',
       name: 'Automation key',

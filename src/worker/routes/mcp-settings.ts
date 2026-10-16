@@ -1,4 +1,4 @@
-import { Hono } from 'hono'
+import { Hono, type Context } from 'hono'
 import type { AppBindings } from '../env'
 import { ApiError } from '../lib/errors'
 import { JSON_BODY_LIMITS, readJson } from '../lib/request'
@@ -18,6 +18,7 @@ import {
   revokeMcpApiKey,
 } from '../mcp/api-keys'
 import { collectGrantIds } from '../mcp/credentials'
+import { mcpServerToolCatalog } from '../mcp/server'
 import {
   getMcpPreferences,
   isMcpEnabled,
@@ -46,6 +47,9 @@ mcpSettingsRoutes.get('/', async (c) => {
     endpoint: `${origin}/mcp`,
     oauth: true,
     preferences,
+    // A list of names and titles: whether the keyword index is on cannot change it, and the catalog is
+    // read without a request context because nothing in it runs.
+    tools: mcpServerToolCatalog({ env: c.env, origin, ftsEnabled: false }),
     apiKeys,
     aiSearch,
     grants,
@@ -63,6 +67,7 @@ mcpSettingsRoutes.put('/', async (c) => {
     enabled?: boolean
     writeEnabled?: boolean
     trashEnabled?: boolean
+    disabledTools?: unknown
   }>(c, JSON_BODY_LIMITS.settings)
 
   for (const key of ['enabled', 'writeEnabled', 'trashEnabled'] as const) {
@@ -78,6 +83,7 @@ mcpSettingsRoutes.put('/', async (c) => {
   const preferences = await updateMcpPreferences(c.env.DB, user.id, {
     ...(body.writeEnabled !== undefined ? { writeEnabled: body.writeEnabled } : {}),
     ...(body.trashEnabled !== undefined ? { trashEnabled: body.trashEnabled } : {}),
+    ...(body.disabledTools !== undefined ? { disabledTools: disabledToolsFrom(c, body.disabledTools) } : {}),
   })
   return c.json({
     enabled: await isMcpEnabled(c.env.DB),
@@ -85,6 +91,28 @@ mcpSettingsRoutes.put('/', async (c) => {
     reconnectRequired: body.writeEnabled !== undefined || body.trashEnabled !== undefined,
   })
 })
+
+/**
+ * The switched-off list, checked against the tools this server actually registers.
+ *
+ * A name that matches nothing is refused rather than stored: it would be a switch the reader cannot see the
+ * effect of, and it would survive a rename in the code as a rule that quietly governs nothing. The catalog
+ * is read here rather than trusted from the body for the same reason.
+ */
+function disabledToolsFrom(c: Context<AppBindings>, value: unknown): string[] {
+  if (!Array.isArray(value) || value.some((name) => typeof name !== 'string')) {
+    throw ApiError.badRequest('disabledTools must be an array of tool names')
+  }
+  const known = new Set(mcpServerToolCatalog({
+    env: c.env,
+    origin: configuredOrigin(c.req.raw, c.env.PUBLIC_URL),
+    ftsEnabled: false,
+  }).map((tool) => tool.name))
+  const names = value as string[]
+  const unknown = names.find((name) => !known.has(name))
+  if (unknown !== undefined) throw ApiError.badRequest(`No such MCP tool: ${unknown}`)
+  return names
+}
 
 mcpSettingsRoutes.post('/keys', async (c) => {
   const user = c.get('user')

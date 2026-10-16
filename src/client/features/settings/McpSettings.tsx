@@ -29,6 +29,7 @@ type BusyAction =
   | 'global'
   | 'write'
   | 'trash'
+  | 'tools'
   | 'revoke'
   | 'keyCreate'
   | 'keyRevoke'
@@ -308,6 +309,21 @@ export function McpSettings() {
 
   const preferences = info.preferences
   const aiSearch = info.aiSearch
+  const disabledTools = new Set(preferences.disabledTools)
+
+  /**
+   * One switch, sent as the whole list.
+   *
+   * The route validates every name against the tools the server actually registers, so a name that no
+   * longer exists is refused rather than stored as a rule that governs nothing — which means the list has
+   * to be sent in full rather than as a delta.
+   */
+  const toggleTool = (name: string, enabled: boolean) => {
+    const next = new Set(preferences.disabledTools)
+    if (enabled) next.delete(name)
+    else next.add(name)
+    void savePreference('tools', { disabledTools: [...next] })
+  }
 
   return (
     <div className="space-y-6">
@@ -387,6 +403,35 @@ export function McpSettings() {
             onChange={(trashEnabled) => void savePreference('trash', { trashEnabled })}
           />
         </SettingRow>
+      </section>
+
+      <section>
+        <h3 data-setting-title={t('settings.mcp_tools')} className="mb-1 px-1 text-[length:var(--text-11)] font-semibold tracking-[0.06em] text-[var(--text-quaternary)]">
+          {t('settings.mcp_tools')}
+        </h3>
+        <p className="mb-2 px-1 text-[length:var(--text-11-5)] leading-relaxed text-[var(--text-tertiary)]">
+          {t('settings.mcp_tools_desc', { count: info.tools.length })}
+        </p>
+        <ul className="flex flex-col">
+          {info.tools.map((tool) => (
+            <li key={tool.name} className="flex items-center gap-2 border-b border-[var(--border-subtle)] px-1 py-2 last:border-b-0">
+              <span className="min-w-0 flex-1">
+                <span className="block truncate text-[length:var(--text-12-5)] text-[var(--text-primary)]">{tool.title}</span>
+                {/* The registration name is what a switch has to match and what an MCP client asks for, so
+                    it is shown even though the title is the readable one. */}
+                <span className="block truncate font-mono text-[length:var(--text-11)] text-[var(--text-quaternary)]" title={tool.description}>
+                  {tool.name}
+                </span>
+              </span>
+              <Switch
+                checked={!disabledTools.has(tool.name)}
+                disabled={displayOnly || !info.enabled || Boolean(busy)}
+                label={t('settings.mcp_tool_enabled', { name: tool.title })}
+                onChange={(enabled) => void toggleTool(tool.name, enabled)}
+              />
+            </li>
+          ))}
+        </ul>
       </section>
 
       <section>

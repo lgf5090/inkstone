@@ -8,7 +8,7 @@ import { requestClientIp } from '../lib/request'
 import { consumeAttemptBudget, ThrottleError } from '../lib/throttle'
 import { verifyMcpApiKey } from './api-keys'
 import { createInkstoneMcpServer, type McpAuthProps } from './server'
-import { isMcpEnabledOnce, MCP_SUPPORTED_SCOPES } from './settings'
+import { isMcpEnabledOnce, getMcpPreferencesCached, MCP_SUPPORTED_SCOPES } from './settings'
 
 const app = createApp()
 
@@ -49,13 +49,19 @@ export class InkstoneMcpApi extends WorkerEntrypoint<Env, McpAuthProps> {
     const origin = canonicalOrigin(request, this.env.PUBLIC_URL)
     const canonicalHost = new URL(origin).hostname
     const handler = createMcpHandler(
-      () => createInkstoneMcpServer({
-        env: this.env,
-        auth: { ...auth, role: user.role === 'owner' ? 'owner' : 'member' },
-        origin,
-        ftsEnabled: database.ftsEnabled,
-        executionCtx: this.ctx,
-      }),
+      // Read per request rather than captured once: the handler is built fresh for every call, which is
+      // what lets a tool the reader has just switched off be absent from the next `tools/list`.
+      async () => {
+        const preferences = await getMcpPreferencesCached(this.env.DB, auth.userId)
+        return createInkstoneMcpServer({
+          env: this.env,
+          auth: { ...auth, role: user.role === 'owner' ? 'owner' : 'member' },
+          origin,
+          ftsEnabled: database.ftsEnabled,
+          executionCtx: this.ctx,
+          disabledTools: new Set(preferences.disabledTools),
+        })
+      },
       {
         route: '/mcp',
         legacy: 'stateless',

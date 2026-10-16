@@ -1096,7 +1096,26 @@ export interface ImportResult {
 export interface McpPreferences {
   writeEnabled: boolean
   trashEnabled: boolean
+  /**
+   * The server's own tools the reader has switched off, by the name the server registers them under.
+   *
+   * Kept as the switched-off set rather than the enabled one so that a tool a later build adds arrives
+   * usable: a reader who has switched two tools off has not thereby switched off the fortieth.
+   */
+  disabledTools: string[]
   updatedAt: number
+}
+
+/**
+ * One tool the Inkstone MCP server can publish.
+ *
+ * The settings screen lists these so a reader can switch one off by name; the names are the server's own,
+ * because that is what an MCP client asks for and what a switch has to match.
+ */
+export interface McpServerToolInfo {
+  name: string
+  title: string
+  description: string
 }
 
 export interface McpGrant {
@@ -1132,6 +1151,8 @@ export interface McpSettingsInfo {
   endpoint: string
   oauth: true
   preferences: McpPreferences
+  /** Every tool this server can publish, so the screen can offer a switch for each. */
+  tools: McpServerToolInfo[]
   apiKeys: McpApiKey[]
   aiSearch: McpAiSearchStatus
   grants: McpGrant[]
