@@ -1055,6 +1055,9 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
       if (event.type === 'title') void get().loadConversations()
     }
 
+    // What the reader had on screen when they asked. The notebook's own pointer is the only thing that
+    // makes "summarise this" work without naming the note, and it costs two ids on the wire.
+    const ui = useUi.getState()
     try {
       await streamAssistantTurn(
         {
@@ -1063,6 +1066,7 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
           attachments: attached,
           tools: state.turnTools,
           scopes: state.turnScopes,
+          ...(retry ? {} : { contextNoteId: ui.activeNoteId ?? undefined, contextFolderId: ui.folderId ?? undefined }),
           webSearch: state.webSearch,
           retry,
         },

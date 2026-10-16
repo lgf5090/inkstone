@@ -47,6 +47,10 @@ export interface SystemPromptContext {
   noteTagLabels?: string[]
   /** Tool names the reader pinned to this one turn with `/`. */
   turnTools?: string[]
+  /** The note the reader had open when they asked, so "this note" has a referent. */
+  openNote?: { id: string, title: string } | null
+  /** The folder the notebook was filtered to, named as a path. */
+  browsingFolder?: string | null
   scheduled?: boolean
 }
 
@@ -68,6 +72,14 @@ export function buildSystemPrompt(context: SystemPromptContext): string {
       : '',
     context.turnTools?.length
       ? fill(catalog.turn_tools, { tools: context.turnTools.join(', ') })
+      : '',
+    // What the reader had on screen. It sits after the scope lines on purpose: the scope is what the
+    // turn is *allowed* to reach, and this is what it was *asked* about, so the permission reads first.
+    context.openNote
+      ? fill(catalog.open_note, { title: context.openNote.title, id: context.openNote.id })
+      : '',
+    context.browsingFolder
+      ? fill(catalog.browsing_folder, { folder: context.browsingFolder })
       : '',
   ].filter(Boolean)
 

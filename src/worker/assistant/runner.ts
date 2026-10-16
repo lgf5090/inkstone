@@ -22,12 +22,13 @@ import { buildSystemPrompt, offlineAnswer, promptCatalog, summarizerPrompt } fro
 import { describeLocalTime, localDayBounds } from '@shared/assistant-time'
 import type { Env } from '../env'
 import { ApiError } from '../lib/errors'
-import { newId } from '../lib/id'
+import { newId, isValidId } from '../lib/id'
 import type { McpWriteContext } from '../mcp/writes'
 import type { AssistantStore } from './store'
 import { MemoryHistoryService, type ConflictJudge } from './memory-service'
 import { AutomationService } from './automations'
 import { resolveNoteScope, type NoteScope } from './note-scope'
+import { matchVaultFolders, noteTitleIfLive } from './vault'
 import { parametersSchema, ToolError, ToolExecutor, type ToolContext } from './tools'
 import { AbortError, streamUpstream, type ModelTurn, type ToolCallRecord, type ToolSchema, type UpstreamError, type UpstreamRequest } from './upstream'
 import { loadModelAndProvider, modelEndpoint } from './model-config'
@@ -91,6 +92,17 @@ export interface TurnInput {
   tools?: string[]
   /** Note tags and folders the reader pinned to this turn with `#`. */
   scopes?: AssistantTurnScope[]
+  /**
+   * What the reader had on screen when they asked: the note they were reading and the folder the
+   * notebook was filtered to.
+   *
+   * The note is the stronger of the two — "summarise this" has to work without the reader naming the
+   * note — so it is made readable for this turn, which is the one place a turn may reach past the
+   * reader's standing folder scope. The folder is only a hint: it says which list they were looking at,
+   * and every listing tool still filters by the scope.
+   */
+  contextNoteId?: string
+  contextFolderId?: string
   /** The composer's web-search switch: ask this model for a live web search. */
   webSearch?: boolean
   retry?: boolean
@@ -115,6 +127,10 @@ export class AssistantRunner {
   private webSearchRequested = false
   private webSearchNative = false
   private turnScopes: AssistantTurnScope[] = []
+  /** What the reader had on screen, held for the turn so the prompt and the scope agree. */
+  private contextNoteId: string | null = null
+  private contextFolderId: string | null = null
+  private contextPromise: Promise<{ openNote: { id: string, title: string } | null, browsingFolder: string | null }> | null = null
   /** Set when a step's model call was cut off at the output cap instead of stopping by itself. */
   private turnTruncated = false
 
@@ -145,6 +161,10 @@ export class AssistantRunner {
     this.webSearchRequested = input.webSearch === true
     this.webSearchNative = false
     this.turnScopes = (input.scopes ?? []).slice(0, MAX_TURN_SCOPES)
+    // Also read before the scope is resolved: the note on screen is readable for this turn, and the
+    // scope promise is what enforces that.
+    this.contextNoteId = isValidId(input.contextNoteId ?? '') ? input.contextNoteId! : null
+    this.contextFolderId = isValidId(input.contextFolderId ?? '') ? input.contextFolderId! : null
     let conversation = input.conversationId ? await this.store.getConversation(input.conversationId) : null
     if (input.conversationId && !conversation) throw ApiError.notFound('Conversation not found')
 
@@ -286,6 +306,7 @@ export class AssistantRunner {
       const selected = await this.recallMemories(userMessage?.content ?? message)
       const memories = this.memoryHistory.promptMemories(selected, memoryTokenBudget(contextTokens))
       const history = await this.contextHistory(conversationId, model.vision, model.modalities)
+      const context = await this.contextLabels()
       const system = buildSystemPrompt({
         agentName: this.settings.agentName,
         language: this.settings.language,
@@ -298,6 +319,8 @@ export class AssistantRunner {
         noteScopeLabels: await this.scopeLabels(),
         noteTagLabels: this.scopeTagLabels(),
         turnTools: this.turnTools,
+        openNote: context.openNote,
+        browsingFolder: context.browsingFolder,
       })
       const historyBudget = Math.max(500, contextTokens - estimateTokens(system) - 600)
       let window = buildContextWindow(history, historyBudget, conversation.summaryUpto ?? null)
@@ -644,9 +667,38 @@ export class AssistantRunner {
       this.scopePromise = resolveNoteScope(this.deps.env.DB, this.store.userId, this.settings.noteScope, {
         folderIds: this.turnScopes.filter((entry) => entry.kind === 'folder').map((entry) => entry.id),
         tagIds: this.turnScopes.filter((entry) => entry.kind === 'tag').map((entry) => entry.id),
+        // The note the reader had open. This is the one narrowing a turn may widen: "summarise this"
+        // is a question about the page in front of them, and refusing it because the folder they
+        // excluded happens to hold it would answer a question nobody asked.
+        noteIds: this.contextNoteId ? [this.contextNoteId] : [],
       })
     }
     return this.scopePromise
+  }
+
+  /**
+   * The note and folder the reader had on screen, named for the prompt.
+   *
+   * Both are read rather than taken from the request: the note has to be one they own and have not
+   * deleted, and the folder's name is this vault's — a caller that named its own folder would be
+   * writing a line of the system prompt.
+   */
+  private contextLabels() {
+    if (!this.contextPromise) {
+      this.contextPromise = (async () => {
+        const openNote = this.contextNoteId
+          ? await noteTitleIfLive(this.deps.env.DB, this.store.userId, this.contextNoteId)
+          : null
+        const folderMatch = this.contextFolderId
+          ? (await matchVaultFolders(this.deps.env.DB, this.store.userId, this.contextFolderId))[0]
+          : undefined
+        return {
+          openNote: openNote ? { id: this.contextNoteId!, title: openNote } : null,
+          browsingFolder: folderMatch?.label ?? null,
+        }
+      })()
+    }
+    return this.contextPromise
   }
 
   /** The tags this turn was narrowed to, spelled the way the reader named them. */

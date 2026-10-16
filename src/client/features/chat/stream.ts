@@ -21,6 +21,10 @@ export interface StreamTurnInput {
   tools?: string[]
   /** Note tags and folders the reader pinned with `#`. */
   scopes?: AssistantTurnScope[]
+  /** The note the reader had open, so "this note" has a referent. */
+  contextNoteId?: string
+  /** The folder the notebook was filtered to, as a hint about what they were looking at. */
+  contextFolderId?: string
   retry?: boolean
   /** The web-search switch: ask this model for a live search this turn. */
   webSearch?: boolean
@@ -46,6 +50,8 @@ export async function streamAssistantTurn(
       ...(input.attachments?.length ? { attachments: input.attachments } : {}),
       ...(input.tools?.length ? { tools: input.tools } : {}),
       ...(input.scopes?.length ? { scopes: input.scopes } : {}),
+      ...(input.contextNoteId ? { contextNoteId: input.contextNoteId } : {}),
+      ...(input.contextFolderId ? { contextFolderId: input.contextFolderId } : {}),
       ...(input.webSearch ? { webSearch: true } : {}),
       ...(input.retry ? { retry: true } : {}),
     }),

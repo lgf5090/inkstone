@@ -497,6 +497,31 @@ describe('prompt catalog', () => {
     expect(plain).not.toContain(catalog.turn_tools.slice(0, 11))
   })
 
+  it('says what the reader had on screen, and only when they had something', () => {
+    const promptWith = (over: Partial<SystemPromptContext>) => buildSystemPrompt({
+      agentName: 'Friday',
+      language: 'zh-CN',
+      timezone: 'Asia/Shanghai',
+      localTime: '2026-10-12 09:00',
+      autoMemory: false,
+      memories: [],
+      noteScope: [],
+      ...over,
+    })
+    const catalog = promptCatalog('zh-CN')
+    const looking = promptWith({
+      openNote: { id: 'note-1', title: '季度计划' },
+      browsingFolder: '工作 / 会议',
+    })
+    // The id travels with the title because the model has to name the note to a tool, and "this note"
+    // without an id is a search that can land on a different note with the same words.
+    expect(looking).toContain(catalog.open_note.replace('{title}', '季度计划').replace('{id}', 'note-1'))
+    expect(looking).toContain(catalog.browsing_folder.replace('{folder}', '工作 / 会议'))
+    const plain = promptWith({})
+    expect(plain).not.toContain(catalog.open_note.slice(0, 11))
+    expect(plain).not.toContain(catalog.browsing_folder.slice(0, 11))
+  })
+
   it('builds a prompt that states the clock, the scope and the memories', () => {
     const prompt = buildSystemPrompt({
       agentName: 'Friday',

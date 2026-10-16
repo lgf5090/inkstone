@@ -1276,6 +1276,8 @@ const allowed = new Map([
     "/** Take one turn back: the reader's message and the answer that was drawn from it. */",
     "// The rows the server kept come back with the answer, so the thread is re-read from what is",
     "// actually stored rather than from a guess about which rows the pair covered.",
+    "// What the reader had on screen when they asked. The notebook's own pointer is the only thing that",
+    "// makes \"summarise this\" work without naming the note, and it costs two ids on the wire.",
   ]],
   ["src/client/features/chat/chat-outline.test.ts", [
     "/**\n * The rail and the panel that stand beside a thread.\n *\n * Both of them are read off the thread's own DOM — which turn has passed the reading line, and how far\n * down to land when one is chosen — so these cases lay out the boxes a browser would and then scroll:\n * a test that only counted buttons would pass over an outline that marks the wrong turn.\n */",
@@ -1435,6 +1437,8 @@ const allowed = new Map([
     "/** Tools the reader asked for with `/`, by name. */",
     "/** Note tags and folders the reader pinned with `#`. */",
     "/** The web-search switch: ask this model for a live search this turn. */",
+    "/** The note the reader had open, so \"this note\" has a referent. */",
+    "/** The folder the notebook was filtered to, as a hint about what they were looking at. */",
   ]],
   ["src/client/features/chat/tag-attach.test.ts", [
     "/**\n * A new tag has to reach the conversation it was made for, or say why it did not.\n *\n * `createTag` is optimistic — it validates the name, answers a duplicate with the tag that already\n * exists, seeds the local cache and posts the row without waiting — so its id is in hand before the\n * server has a row to point at, and the attach route refuses an unknown tag. The old path caught that\n * refusal and threw the answer away: the reader typed a name, nothing appeared, and no one said so.\n * What is pinned here is the two honest outcomes: the conversation is filed once the row is back, or a\n * danger toast says it was not.\n */",
@@ -14193,6 +14197,10 @@ const allowed = new Map([
     "// The tag filter is a second narrowing on top of the folder scope, so it only says anything when the",
     "// reader pinned tags; the note tools enforce the same thing in SQL, and this line is what stops the",
     "// model from searching for something it was told to ignore.",
+    "/** The note the reader had open when they asked, so \"this note\" has a referent. */",
+    "/** The folder the notebook was filtered to, named as a path. */",
+    "// What the reader had on screen. It sits after the scope lines on purpose: the scope is what the",
+    "// turn is *allowed* to reach, and this is what it was *asked* about, so the permission reads first.",
   ]],
   ["src/shared/assistant-schedule.ts", [
     "/**\n * Wall-clock schedules for the assistant's automations.\n *\n * Every rule is stored as a wall-clock time plus the owner's IANA timezone, because \"remind me at\n * 09:00\" means nine o'clock *where the reader is*, not nine o'clock in UTC. The conversions below\n * are the only place that answer that question, so a reminder, a task due date and the cron tick all\n * agree about what \"today\" is.\n *\n * Daylight saving:\n *  - a wall time inside the spring-forward gap runs at the first valid instant after the gap;\n *  - a wall time that occurs twice in the fall-back overlap runs once, at the earlier occurrence.\n */",
@@ -15032,7 +15040,10 @@ const allowed = new Map([
     "/** The note's own title, for an approval card or an activity line. */",
     "/** True when the reader named folders or tags, so the note tools must filter. */",
     "/**\n   * Tags pinned to one turn with `#`. A note has to carry at least one of them, which is how a reader\n   * says \"answer from my meeting notes\" without moving files.\n   */",
-    "/**\n * The folders in scope, with their descendants.\n *\n * A folder scope that did not include its subtree would read as a bug the first time a reader picked\n * a parent: the folder tree is how they think about their vault, and \"Notes\" means what is inside it.\n *\n * `extra` is the per-turn addition: the conversation keeps a standing scope in settings, and the reader\n * can pin more folders and tags for one message. Both are merged, because a turn may only narrow what the\n * assistant sees, never widen it past what the settings allowed.\n */",
+    "/**\n   * Notes this turn may read whatever the folder and tag scope say.\n   *\n   * This is the note the reader had open when they asked. It is the one place a turn reaches past the\n   * standing scope, and it is deliberate: the reader pointing at a page and asking about it is a\n   * narrower act than the scope they set once, and answering \"that folder is out of scope\" to a\n   * question about the page in front of them would be correct and useless. It reaches a single named\n   * note, never a folder, and it is spent with the turn.\n   */",
+    "/**\n * The folders in scope, with their descendants.\n *\n * A folder scope that did not include its subtree would read as a bug the first time a reader picked\n * a parent: the folder tree is how they think about their vault, and \"Notes\" means what is inside it.\n *\n * `extra` is the per-turn addition: the conversation keeps a standing scope in settings, and the reader\n * can pin more folders and tags for one message. Both are merged, because a turn may only narrow what the\n * assistant sees, never widen it past what the settings allowed — with `noteIds` as the single named\n * exception, documented on the field.\n */",
+    "// The named notes are allowed by identity, so they are answered here rather than sent through the",
+    "// folder query — which is also what keeps this one query instead of two predicates to union.",
   ]],
   ["src/worker/assistant/runner.ts", [
     "/** Summarising costs a model call, so it only runs once enough history has piled up to be worth it. */",
@@ -15142,6 +15153,14 @@ const allowed = new Map([
     "/**\n   * Offline mode: an answer that costs nothing.\n   *\n   * It exists so the whole surface — conversations, tools, the settings screen — can be exercised\n   * before a key is configured, and it says plainly that no model was called rather than pretending.\n   */",
     "/**\n * Fits the newest turns into `maxTokens`.\n *\n * The newest turn is always kept even when it does not fit: dropping the question the reader just\n * asked would produce an answer to nothing, which is worse than one oversized prompt.\n */",
     "/**\n * A stand-in for the request's execution context when a turn runs outside one.\n *\n * The note tools hand background work to the platform; with no request to attach it to, running it\n * immediately is the only honest option, and it keeps a scheduled routine from dropping an index\n * update because nobody passed the context through.\n */",
+    "/**\n   * What the reader had on screen when they asked: the note they were reading and the folder the\n   * notebook was filtered to.\n   *\n   * The note is the stronger of the two — \"summarise this\" has to work without the reader naming the\n   * note — so it is made readable for this turn, which is the one place a turn may reach past the\n   * reader's standing folder scope. The folder is only a hint: it says which list they were looking at,\n   * and every listing tool still filters by the scope.\n   */",
+    "/** What the reader had on screen, held for the turn so the prompt and the scope agree. */",
+    "// Also read before the scope is resolved: the note on screen is readable for this turn, and the",
+    "// scope promise is what enforces that.",
+    "// The note the reader had open. This is the one narrowing a turn may widen: \"summarise this\"",
+    "// is a question about the page in front of them, and refusing it because the folder they",
+    "// excluded happens to hold it would answer a question nobody asked.",
+    "/**\n   * The note and folder the reader had on screen, named for the prompt.\n   *\n   * Both are read rather than taken from the request: the note has to be one they own and have not\n   * deleted, and the folder's name is this vault's — a caller that named its own folder would be\n   * writing a line of the system prompt.\n   */",
   ]],
   ["src/worker/assistant/scheduler.ts", [
     "/**\n * The minute sweep that runs what is due.\n *\n * Wired into the worker's cron handler alongside the existing queue drains, and deliberately kept out\n * of the hourly branch: a reminder is cheap and late delivery is visible, while the heavy work that\n * runs on the hour (backups, attachment cleanup) must not be able to take the reminders down with it.\n *\n * A routine that calls a model can outlive the sweep that started it, so each automation is claimed\n * before it runs and the claim is only released when it is re-armed — which is what stops a slow AI\n * digest from being started twice by two overlapping ticks.\n */",
@@ -16171,6 +16190,8 @@ const allowed = new Map([
     "/**\n * Rewrite what the reader asked, or take the turn back.\n *\n * Both are the reader's own row: an edit is a retype of their words, so the answer it drew — which was\n * written from the text that is now gone — is removed with it and the client asks again. A delete takes\n * the pair. Either way the conversation's rollup is dropped, because the paragraph described rows that\n * no longer stand as they were.\n *\n * A turn still being written is refused rather than raced: the runner is appending to the same table.\n */",
     "// A turn is a pair, and half of one is a question with no answer under it: the reply that followed the",
     "// reader's own row goes too. Anything after that pair is a turn the reader has not touched.",
+    "// What the reader had on screen. Only ids survive, and the runner re-reads both against this",
+    "// account before either reaches the prompt — a caller cannot name someone else's note.",
   ]],
   ["src/worker/routes/auth.ts", [
     "// Account-wide cap so a distributed botnet cannot retry one account",
@@ -16636,6 +16657,13 @@ const allowed = new Map([
     "// An effort shape in a Gemini body would be a field nothing there reads, so the pin is not carried once",
     "// the model is switched to a protocol it does not belong to — the dialect is read off the address again.",
   ]],
+  ["tests/assistant-note-scope.test.ts", [
+    "/**\n * What one turn of the assistant is allowed to read.\n *\n * The reader can point the assistant at a couple of folders, and that is a permission: a model that\n * ignores the line in its prompt describing the scope must still be refused by the SQL underneath. The\n * note they had open when they asked is the one deliberate exception, and this is where it is pinned —\n * a widening that reached a folder instead of one named note would be the bug this file exists for.\n */",
+    "/** ULID-shaped, because every id in the scope path is validated by shape before it reaches SQL. */",
+    "/** The scope a reader gets when they allowed the assistant nothing in particular. */",
+    "// The direction that matters: an empty scope is \"nothing\", never \"no scope at all\".",
+    "// TAGGED sits in the same excluded folder as the pinned note and is still refused.",
+  ]],
   ["tests/assistant-note-tools.test.ts", [
     "/**\n * The listing tools, run the way the model runs them.\n *\n * The reader's complaint was that asking \"how many notes do I have\" got an answer built out of whatever\n * `search_notes` happened to match, or no answer at all. `assistant-vault.test.ts` pins the SQL; this\n * pins the wire the model actually touches — the tool name, its argument validation, and the shape of\n * what comes back — because a tool that is registered but answers with an empty object is the same\n * failure from the reader's side.\n */",
     "// An empty answer would read to the model as \"you have no such notes\", which is a different claim",
@@ -16810,6 +16838,8 @@ const allowed = new Map([
     "// The three token ceilings share one scale, so a value one of them can hold is not refused by another.",
     "// The model's own numbers win, and the account's answer only where the model has not spoken — for the",
     "// input ceiling as much as for the window it clamps.",
+    "// The id travels with the title because the model has to name the note to a tool, and \"this note\"",
+    "// without an id is a search that can land on a different note with the same words.",
   ]],
   ["tests/assistant-upstream.test.ts", [
     "/**\n * The provider wire, tested against recorded frames rather than a live service.\n *\n * The three protocols all stream JSON in pieces, and the piece that matters — a tool call's arguments\n * arriving three characters at a time — is exactly what a hand-written parser gets wrong in a way no\n * other test can see. The failure looks like a tool that was called with `{}`.\n */",

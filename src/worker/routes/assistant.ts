@@ -598,7 +598,7 @@ assistantRoutes.delete('/conversations', async (c) => {
  * closed tab does not keep spending the account's AI budget on an answer nobody is reading.
  */
 assistantRoutes.post('/chat', async (c) => {
-  const body = await readJson<{ conversationId?: unknown, message?: string, retry?: boolean, attachments?: unknown, tools?: unknown, scopes?: unknown, webSearch?: unknown }>(c, 64 * 1024)
+  const body = await readJson<{ conversationId?: unknown, message?: string, retry?: boolean, attachments?: unknown, tools?: unknown, scopes?: unknown, webSearch?: unknown, contextNoteId?: unknown, contextFolderId?: unknown }>(c, 64 * 1024)
   const s = store(c)
   const settings = await s.getSettings()
   const conversationId = body.conversationId === undefined || body.conversationId === null
@@ -685,6 +685,10 @@ assistantRoutes.post('/chat', async (c) => {
         attachments,
         tools,
         scopes,
+        // What the reader had on screen. Only ids survive, and the runner re-reads both against this
+        // account before either reaches the prompt — a caller cannot name someone else's note.
+        ...(typeof body.contextNoteId === 'string' && isValidId(body.contextNoteId) ? { contextNoteId: body.contextNoteId } : {}),
+        ...(typeof body.contextFolderId === 'string' && isValidId(body.contextFolderId) ? { contextFolderId: body.contextFolderId } : {}),
         webSearch: body.webSearch === true,
         retry: body.retry === true,
         signal: controller.signal,

@@ -18,6 +18,16 @@ export interface NoteScope {
    * says "answer from my meeting notes" without moving files.
    */
   tagIds: Set<string>
+  /**
+   * Notes this turn may read whatever the folder and tag scope say.
+   *
+   * This is the note the reader had open when they asked. It is the one place a turn reaches past the
+   * standing scope, and it is deliberate: the reader pointing at a page and asking about it is a
+   * narrower act than the scope they set once, and answering "that folder is out of scope" to a
+   * question about the page in front of them would be correct and useless. It reaches a single named
+   * note, never a folder, and it is spent with the turn.
+   */
+  noteIds: Set<string>
 }
 
 /**
@@ -28,17 +38,19 @@ export interface NoteScope {
  *
  * `extra` is the per-turn addition: the conversation keeps a standing scope in settings, and the reader
  * can pin more folders and tags for one message. Both are merged, because a turn may only narrow what the
- * assistant sees, never widen it past what the settings allowed.
+ * assistant sees, never widen it past what the settings allowed — with `noteIds` as the single named
+ * exception, documented on the field.
  */
 export async function resolveNoteScope(
   db: D1Database,
   userId: string,
   scopeFolderIds: readonly string[],
-  extra: { folderIds?: readonly string[], tagIds?: readonly string[] } = {},
+  extra: { folderIds?: readonly string[], tagIds?: readonly string[], noteIds?: readonly string[] } = {},
 ): Promise<NoteScope> {
   const wanted = [...new Set([...scopeFolderIds, ...(extra.folderIds ?? [])].filter((id) => /^[0-9a-hjkmnp-tv-z]{26}$/.test(id)))]
   const tagIds = new Set([...(extra.tagIds ?? [])].filter((id) => /^[0-9a-hjkmnp-tv-z]{26}$/.test(id)))
-  if (!wanted.length) return { restricted: tagIds.size > 0, folderIds: new Set(), tagIds }
+  const noteIds = new Set([...(extra.noteIds ?? [])].filter((id) => /^[0-9a-hjkmnp-tv-z]{26}$/.test(id)))
+  if (!wanted.length) return { restricted: tagIds.size > 0 || noteIds.size > 0, folderIds: new Set(), tagIds, noteIds }
   const owned = new Set<string>()
   for (const id of wanted) {
     const row = await db.prepare(`SELECT id FROM folders WHERE user_id = ?1 AND id = ?2 AND deleted_at IS NULL`)
@@ -47,7 +59,7 @@ export async function resolveNoteScope(
   }
   // Folders the reader no longer owns (deleted, or named by another account's backup) leave the set
   // empty, which reads as "nothing is in scope" — not as "no scope was set", which would open the vault.
-  if (!owned.size) return { restricted: true, folderIds: owned, tagIds }
+  if (!owned.size) return { restricted: true, folderIds: owned, tagIds, noteIds }
   const frontier = [...owned]
   for (let depth = 0; depth < 12 && frontier.length; depth++) {
     const placeholders = frontier.map((_, index) => `?${index + 2}`).join(', ')
@@ -61,7 +73,7 @@ export async function resolveNoteScope(
       frontier.push(row.id)
     }
   }
-  return { restricted: true, folderIds: owned, tagIds }
+  return { restricted: true, folderIds: owned, tagIds, noteIds }
 }
 
 /** The subset of these note ids the scope allows, in one query. */
@@ -74,14 +86,19 @@ export async function readableNoteIds(
   const ids = [...new Set(noteIds)].filter((id) => /^[0-9a-hjkmnp-tv-z]{26}$/.test(id))
   if (!ids.length) return new Set()
   if (!scope.restricted) return new Set(ids)
+  // The named notes are allowed by identity, so they are answered here rather than sent through the
+  // folder query — which is also what keeps this one query instead of two predicates to union.
+  const named = ids.filter((id) => scope.noteIds.has(id))
+  const asked = ids.filter((id) => !scope.noteIds.has(id))
+  if (!asked.length) return new Set(named)
   const binds: unknown[] = [userId]
-  const idPlaceholders = ids.map((id) => {
+  const idPlaceholders = asked.map((id) => {
     binds.push(id)
     return `?${binds.length}`
   }).join(', ')
   const folders = [...scope.folderIds]
   const tags = [...scope.tagIds]
-  if (!folders.length && !tags.length) return new Set()
+  if (!folders.length && !tags.length) return new Set(named)
   let where = `user_id = ?1 AND deleted_at IS NULL AND id IN (${idPlaceholders})`
   if (folders.length) {
     const folderPlaceholders = folders.map((folder) => {
@@ -100,7 +117,7 @@ export async function readableNoteIds(
   const { results } = await db.prepare(
     `SELECT id FROM notes WHERE ${where}`,
   ).bind(...binds).all<{ id: string }>()
-  return new Set((results ?? []).map((row) => row.id))
+  return new Set([...named, ...(results ?? []).map((row) => row.id)])
 }
 
 export async function assertNoteReadable(
