@@ -10,7 +10,7 @@
 import { sha256Hex, toBase64Url } from '../lib/encoding'
 import { ApiError } from '../lib/errors'
 import { newId } from '../lib/id'
-import { getMcpPreferences, grantedMcpScopes, MCP_SUPPORTED_SCOPES } from './settings'
+import { getMcpPreferences, grantedMcpScopes, narrowMcpScopes, MCP_SUPPORTED_SCOPES } from './settings'
 
 const KEY_PREFIX = 'ink_'
 const ACTIVE_KEYS_MAX = 50
@@ -52,17 +52,27 @@ export function parseApiKey(token: string): string | null {
   return token
 }
 
+/**
+ * Mint a key.
+ *
+ * `requestedScopes` is the reader's own answer about what this key is for; omitted, the key carries
+ * everything the account currently allows. Either way it is narrowed against those allowances, so a key can
+ * never carry more than the account has switched on — and reads survive every narrowing, since a key that
+ * may read nothing has no use at this endpoint.
+ */
 export async function createMcpApiKey(
   db: D1Database,
   userId: string,
   name: string,
+  requestedScopes?: readonly string[],
 ): Promise<{ record: McpApiKeyRecord; token: string }> {
   const token = generateApiKey()
   const keyHash = await sha256Hex(token)
   const id = newId()
   const now = Date.now()
   const preferences = await getMcpPreferences(db, userId)
-  const scopes = grantedMcpScopes(MCP_SUPPORTED_SCOPES, preferences)
+  const allowed = grantedMcpScopes(MCP_SUPPORTED_SCOPES, preferences)
+  const scopes = narrowMcpScopes(allowed, requestedScopes)
   const inserted = await db.prepare(
     `INSERT INTO mcp_api_keys (id, user_id, name, key_hash, scopes, created_at)
      SELECT ?1, ?2, ?3, ?4, ?5, ?6

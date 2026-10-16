@@ -2149,6 +2149,8 @@ export const ZH_CN_MESSAGES = {
     "settings.mcp_api_key_create": "创建密钥",
     "settings.mcp_api_key_created": "API 密钥已创建",
     "settings.mcp_api_key_name": "API 密钥名称",
+    "settings.mcp_api_key_scopes": "下一个密钥的权限",
+    "settings.mcp_api_key_scope_toggle": "让下一个密钥获得「{scope}」",
     "settings.mcp_api_key_name_placeholder": "例如：我的脚本、家庭电脑",
     "settings.mcp_api_key_name_required": "请为 API 密钥填写名称",
     "settings.mcp_api_key_revoke": "撤销密钥",

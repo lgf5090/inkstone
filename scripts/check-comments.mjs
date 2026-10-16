@@ -6975,6 +6975,12 @@ const allowed = new Map([
   ["src/client/features/settings/McpSettings.tsx", [
     "/**\n   * One switch, sent as the whole list.\n   *\n   * The route validates every name against the tools the server actually registers, so a name that no\n   * longer exists is refused rather than stored as a rule that governs nothing — which means the list has\n   * to be sent in full rather than as a delta.\n   */",
     "/* The registration name is what a switch has to match and what an MCP client asks for, so\n                    it is shown even though the title is the readable one. */",
+    "// Null means the reader never touched the scope switches, which is the answer \"everything this",
+    "// account allows\" — the same thing every key minted before the switches existed carries.",
+    "// Reads are always allowed and are the floor every key stands on, so only the two permissions that can be",
+    "// withheld are offered — and only the ones this account has actually switched on.",
+    "/* Only the permissions this account has switched on: a greyed-out switch reads as broken, and\n                the permissions section above is where the reader turns one on in the first place. */",
+    "/** The permissions a key may be denied. Reads are the floor every key stands on, so they are not a choice. */",
   ]],
   ["src/client/features/settings/QuickAddSettings.tsx", [
     "/**\n * Settings → Automation: the whole QuickAdd feature in one page.\n *\n * The formats an author writes are the reason this page lives in the app's own settings sheet: a\n * capture that inserts a note into the middle of a heading list should look like any other preference,\n * not like a plugin window dropped on top. Everything here edits the account's choice library, which\n * the store pushes to the server on a debounce — so the page writes through the store, never to the\n * endpoint directly, and a reload of the section shows the same data another tab just saved.\n */",
@@ -7026,6 +7032,13 @@ const allowed = new Map([
     "// Every tool arrives offered: nothing is switched off until somebody says so.",
     "// Both names, not just the new one: the route checks every name against the tools it registers, so a",
     "// delta would read as \"switch everything else back on\".",
+    "/** The switches that decide what the next API key may do, by the permission they name. */",
+    "// Trash is not offered at all: the account has not allowed it, so a key could not carry it anyway, and a",
+    "// greyed-out switch would read as a broken control rather than as an answer.",
+    "// The withheld list, not a permission list: the server adds reads back, since a key that may read",
+    "// nothing has no use at this endpoint.",
+    "// Undefined, not a list: \"the reader never touched these\" has to stay distinguishable from \"the reader",
+    "// switched everything off\", or a default would quietly become a decision.",
   ]],
   ["src/client/features/settings/quick-add-settings.test.ts", [
     "/**\n * The app labels every control, so a test can look one up by the name a screen reader would read:\n * an `aria-label`, the `<label>` a `Field` wires with `aria-labelledby`, or a button's own text.\n */",
@@ -7621,6 +7634,7 @@ const allowed = new Map([
     "/**\n     * Withdraw the client registration itself, at the issuer when it can be and here always.\n     *\n     * A different press from the one above: that one logs the reader out, this one uninstalls the app. The\n     * answer carries whether the issuer was actually told, because a client registered by hand has nothing\n     * at the far end to delete.\n     */",
     "/** Put a conversation away or take it back out. Not a delete: the thread stays whole and searchable. */",
     "/** The server's own tools to switch off, by the name it registers them under. */",
+    "/**\n     * Mint a key, optionally narrowed to a subset of the scopes the account allows.\n     *\n     * An absent list means \"everything the account allows\"; the server narrows whatever is sent against the\n     * account's own switches, so this can only ever ask for less.\n     */",
   ]],
   ["src/client/lib/app-history.ts", [
     "/**\n * The address bar as the one source of truth for which app tab is up.\n *\n * The tab is a path rather than a store field so that a rail button is an ordinary link: the\n * address a reader copies is the screen they are looking at, the back button walks the tabs they\n * visited, and a cold load of `/calendar` needs nothing but the document the server already sends.\n * `history.pushState` fires no event of its own, so the writers here announce their own changes and\n * `popstate` covers everything the browser does by itself.\n */",
@@ -16681,6 +16695,7 @@ const allowed = new Map([
     "/**\n * Static API keys for MCP access.\n *\n * Small or generic MCP clients (scripts, SDKs, unnamed agents) cannot run the\n * OAuth 2.1 dance, so they authenticate with a plain `Authorization: Bearer\n * <key>` header — the universal HTTP standard. The OAuth provider resolves\n * these tokens through its official `resolveExternalToken` hook; the key is\n * never stored or returned again, only its SHA-256 hash.\n */",
     "// 32 random bytes encoded as unpadded base64url is exactly 43 characters.",
     "/**\n * Resolves a bearer token to an account. Returns null for unknown, revoked,\n * or malformed keys so the OAuth provider can answer with 401 invalid_token.\n */",
+    "/**\n * Mint a key.\n *\n * `requestedScopes` is the reader's own answer about what this key is for; omitted, the key carries\n * everything the account currently allows. Either way it is narrowed against those allowances, so a key can\n * never carry more than the account has switched on — and reads survive every narrowing, since a key that\n * may read nothing has no use at this endpoint.\n */",
   ]],
   ["src/worker/mcp/library.ts", [
     "/** Matches parseFrontMatter's own 64 KiB safety limit, so scanning never truncates. */",
@@ -16729,6 +16744,7 @@ const allowed = new Map([
     "/** A ceiling on the exception list, so a row cannot grow past what one settings screen can draw. */",
     "/**\n * The switched-off list as it is stored, decoded rather than trusted.\n *\n * The column is written by this app and read by this app, but a restore from a backup and a boot onto a\n * database another branch spent are both in this program's future, so an unusable value reads as \"nothing\n * switched off\" rather than as a settings screen that cannot open.\n */",
     "/**\n * The same read, memoized per isolate for a few seconds.\n *\n * Every MCP request needs these — to decide which tools to publish, and again to gate each write — and the\n * endpoint is hit once per tool call. Flipping a switch in this isolate drops nothing immediately, so the\n * window is short; another isolate converges within it too.\n */",
+    "/**\n * The scopes one API key carries: what the account allows, narrowed to what the reader asked for.\n *\n * Narrowing only ever removes. A key cannot carry a permission the account has switched off whatever the\n * request says, which is what makes this safe to compute here rather than at each call site. An absent\n * request means \"everything the account allows\" rather than \"nothing\", because that is what every key\n * minted before this choice existed already carried.\n *\n * `notes:read` is the floor and survives either way: a key that may read nothing is a key that fails at the\n * far end in a way nobody can read, and the account's own switch for reads does not exist — reads are what\n * the endpoint is for.\n */",
   ]],
   ["src/worker/mcp/writes.ts", [
     "// The quota read rides along with hashing instead of adding a serial round trip.",
@@ -17111,6 +17127,7 @@ const allowed = new Map([
     "// A list of names and titles: whether the keyword index is on cannot change it, and the catalog is",
     "// read without a request context because nothing in it runs.",
     "/**\n * The switched-off list, checked against the tools this server actually registers.\n *\n * A name that matches nothing is refused rather than stored: it would be a switch the reader cannot see the\n * effect of, and it would survive a rename in the code as a rule that quietly governs nothing. The catalog\n * is read here rather than trusted from the body for the same reason.\n */",
+    "/** What a new key should carry, checked against the scopes this server understands. */",
   ]],
   ["src/worker/routes/notes.ts", [
     "/** Ids per dependent-table delete when emptying the trash. */",
@@ -18515,6 +18532,11 @@ const allowed = new Map([
     "// One switch is one tool: the rest of the library is untouched.",
     "// The catalog is read before any switch is applied, which is what lets a switched-off tool still have a",
     "// switch drawn for it — the one thing the reader needs in order to switch it back on.",
+    "// An absent request is what every key minted before the choice existed means, so it must not narrow.",
+    "// Reads ride along whatever is asked for, so the trash-only request still yields a usable key.",
+    "// Narrowing runs against the allowed list, so asking for more than the account has is not a way to get",
+    "// it. Reads survive either way, which is why the second case keeps the one scope it may have.",
+    "// A key with no scopes is a key that fails at the far end; reads are what the endpoint is for.",
   ]],
   ["tests/mcp-write-readback.test.ts", [
     "// Counts the statements that pull the note body: the whole point of the read-back merge.",

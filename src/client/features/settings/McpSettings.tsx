@@ -47,6 +47,7 @@ export function McpSettings() {
   const [busy, setBusy] = useState<BusyAction>(null)
   const [copied, setCopied] = useState<string | null>(null)
   const [keyName, setKeyName] = useState('')
+  const [keyScopes, setKeyScopes] = useState<string[] | null>(null)
   const [newToken, setNewToken] = useState<string | null>(null)
   const mountedRef = useRef(true)
   const busyRef = useRef<BusyAction>(null)
@@ -174,13 +175,16 @@ export function McpSettings() {
     }
     if (!begin('keyCreate')) return
     try {
-      const result = await api.mcp.createKey(name)
+      // Null means the reader never touched the scope switches, which is the answer "everything this
+      // account allows" — the same thing every key minted before the switches existed carries.
+      const result = await api.mcp.createKey(name, keyScopes ?? undefined)
       if (mountedRef.current) {
         setInfo((current) => current && ({
           ...current,
           apiKeys: [result.key, ...current.apiKeys],
         }))
         setKeyName('')
+        setKeyScopes(null)
         setNewToken(result.token)
       }
       toast({ title: t('settings.mcp_api_key_created'), tone: 'success' })
@@ -310,6 +314,17 @@ export function McpSettings() {
   const preferences = info.preferences
   const aiSearch = info.aiSearch
   const disabledTools = new Set(preferences.disabledTools)
+  // Reads are always allowed and are the floor every key stands on, so only the two permissions that can be
+  // withheld are offered — and only the ones this account has actually switched on.
+  const allowedKeyScopes = KEY_SCOPE_CHOICES.filter((scope) => scopeAllowed(scope, preferences))
+  const nextKeyScopes = keyScopes ?? allowedKeyScopes
+
+  const toggleKeyScope = (scope: string, enabled: boolean) => {
+    const next = new Set(nextKeyScopes)
+    if (enabled) next.add(scope)
+    else next.delete(scope)
+    setKeyScopes(allowedKeyScopes.filter((entry) => next.has(entry)))
+  }
 
   /**
    * One switch, sent as the whole list.
@@ -459,6 +474,27 @@ export function McpSettings() {
               <Button size="sm" variant="ghost" onClick={() => setNewToken(null)}>{t('common.close')}</Button>
             </div>
             <p className="mt-1.5 text-[length:var(--text-10-5)] text-[var(--text-quaternary)]">{t('settings.mcp_api_key_show_once')}</p>
+          </div>
+        )}
+
+        {allowedKeyScopes.length > 0 && (
+          <div className="mb-2 flex flex-wrap items-center gap-x-3 gap-y-1 px-1">
+            <span className="text-[length:var(--text-11)] text-[var(--text-quaternary)]">
+              {t('settings.mcp_api_key_scopes')}
+            </span>
+            {/* Only the permissions this account has switched on: a greyed-out switch reads as broken, and
+                the permissions section above is where the reader turns one on in the first place. */}
+            {allowedKeyScopes.map((scope) => (
+              <span key={scope} className="flex items-center gap-1.5 text-[length:var(--text-11-5)] text-[var(--text-tertiary)]">
+                <Switch
+                  checked={nextKeyScopes.includes(scope)}
+                  disabled={displayOnly || !info.enabled || Boolean(busy)}
+                  label={t('settings.mcp_api_key_scope_toggle', { scope: scopeSummary([scope]) })}
+                  onChange={(enabled) => toggleKeyScope(scope, enabled)}
+                />
+                {scopeSummary([scope])}
+              </span>
+            ))}
           </div>
         )}
 
@@ -700,6 +736,15 @@ function clientSnippets(info: McpSettingsInfo): Array<{ id: string; name: string
       value: t('settings.mcp_generic_client_snippet', { endpoint, bearerJson }),
     },
   ]
+}
+
+/** The permissions a key may be denied. Reads are the floor every key stands on, so they are not a choice. */
+const KEY_SCOPE_CHOICES = ['notes:write', 'notes:trash'] as const
+
+function scopeAllowed(scope: string, preferences: McpSettingsInfo['preferences']): boolean {
+  if (scope === 'notes:write') return preferences.writeEnabled
+  if (scope === 'notes:trash') return preferences.trashEnabled
+  return true
 }
 
 function scopeSummary(scopes: string[]): string {

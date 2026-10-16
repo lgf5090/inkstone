@@ -10,7 +10,7 @@ import { InMemoryTransport } from '@modelcontextprotocol/server'
 import { describe, expect, it } from 'vitest'
 import type { Env } from '../src/worker/env'
 import { createInkstoneMcpServer, mcpServerToolCatalog } from '../src/worker/mcp/server'
-import { parseDisabledMcpTools } from '../src/worker/mcp/settings'
+import { parseDisabledMcpTools, narrowMcpScopes, MCP_SCOPES } from '../src/worker/mcp/settings'
 
 /** Construction does no I/O and `tools/list` touches no row, so the bindings are never reached. */
 const env = {} as Env
@@ -98,5 +98,35 @@ describe('the stored switched-off list', () => {
   it('keeps names, drops anything that is not one, and de-duplicates', () => {
     expect(parseDisabledMcpTools('["create_note","create_note",7,"",null," edit_note "]'))
       .toEqual(['create_note', 'edit_note'])
+  })
+})
+
+describe('the scopes one API key carries', () => {
+  const allowed = [MCP_SCOPES.read, MCP_SCOPES.write, MCP_SCOPES.trash]
+
+  it('carries everything the account allows when nothing was asked for', () => {
+    // An absent request is what every key minted before the choice existed means, so it must not narrow.
+    expect(narrowMcpScopes(allowed)).toEqual(allowed)
+    expect(narrowMcpScopes(allowed, undefined)).toEqual(allowed)
+  })
+
+  it('keeps only what was asked for, in the account’s own order', () => {
+    // Reads ride along whatever is asked for, so the trash-only request still yields a usable key.
+    expect(narrowMcpScopes(allowed, [MCP_SCOPES.trash])).toEqual([MCP_SCOPES.read, MCP_SCOPES.trash])
+    expect(narrowMcpScopes(allowed, [MCP_SCOPES.trash, MCP_SCOPES.read]))
+      .toEqual([MCP_SCOPES.read, MCP_SCOPES.trash])
+    expect(narrowMcpScopes(allowed, [MCP_SCOPES.write])).toEqual([MCP_SCOPES.read, MCP_SCOPES.write])
+  })
+
+  it('only ever removes: an allowance the account switched off cannot be asked for', () => {
+    // Narrowing runs against the allowed list, so asking for more than the account has is not a way to get
+    // it. Reads survive either way, which is why the second case keeps the one scope it may have.
+    expect(narrowMcpScopes([MCP_SCOPES.read], [MCP_SCOPES.read, MCP_SCOPES.write])).toEqual([MCP_SCOPES.read])
+    expect(narrowMcpScopes([MCP_SCOPES.read], [MCP_SCOPES.write])).toEqual([MCP_SCOPES.read])
+  })
+
+  it('keeps the read floor even when nothing at all was asked for', () => {
+    // A key with no scopes is a key that fails at the far end; reads are what the endpoint is for.
+    expect(narrowMcpScopes(allowed, [])).toEqual([MCP_SCOPES.read])
   })
 })

@@ -18,6 +18,7 @@ import { mcpResource } from './resources'
 const mocks = vi.hoisted(() => ({
   get: vi.fn(),
   save: vi.fn(),
+  createKey: vi.fn(),
 }))
 
 vi.mock('../../lib/api', () => ({
@@ -28,7 +29,7 @@ vi.mock('../../lib/api', () => ({
       save: mocks.save,
       revokeGrant: vi.fn(),
       revokeAllGrants: vi.fn(),
-      createKey: vi.fn(),
+      createKey: mocks.createKey,
       revokeKey: vi.fn(),
       aiSearch: { save: vi.fn(), reindex: vi.fn(), clear: vi.fn() },
     },
@@ -120,5 +121,61 @@ describe('the MCP tool switches', () => {
     await act(async () => { toolSwitch('Search Inkstone')?.click() })
     await act(async () => { await Promise.resolve() })
     expect(mocks.save).toHaveBeenCalledWith({ disabledTools: ['create_note'] })
+  })
+})
+
+/** The switches that decide what the next API key may do, by the permission they name. */
+const keyScopeSwitch = (scopeKey: 'settings.mcp_scope_write' | 'settings.mcp_scope_trash') =>
+  document.body.querySelector<HTMLButtonElement>(
+    `[role="switch"][aria-label="${t('settings.mcp_api_key_scope_toggle', { scope: t(scopeKey) })}"]`,
+  )
+
+const byText = (text: string) => [...document.body.querySelectorAll<HTMLButtonElement>('button')]
+  .find((node) => node.textContent?.trim() === text)
+
+describe('the scope switches for a new API key', () => {
+  it('offers only the permissions the account has switched on', async () => {
+    await open()
+    expect(keyScopeSwitch('settings.mcp_scope_write')?.getAttribute('aria-checked')).toBe('true')
+    // Trash is not offered at all: the account has not allowed it, so a key could not carry it anyway, and a
+    // greyed-out switch would read as a broken control rather than as an answer.
+    expect(keyScopeSwitch('settings.mcp_scope_trash')).toBeNull()
+  })
+
+  it('sends the narrowed list, with reads riding along', async () => {
+    await open()
+    mocks.createKey.mockResolvedValue({
+      key: { id: 'k1', name: 'Automation', scopes: ['notes:read'], createdAt: 1, lastUsedAt: null },
+      token: 'ink_test',
+    })
+    await act(async () => { keyScopeSwitch('settings.mcp_scope_write')?.click() })
+    const name = document.body.querySelector<HTMLInputElement>(`input[aria-label="${t('settings.mcp_api_key_name')}"]`)
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value')?.set?.call(name, 'Automation')
+      name!.dispatchEvent(new Event('input', { bubbles: true }))
+    })
+    await act(async () => { byText(t('settings.mcp_api_key_create'))?.click() })
+    await act(async () => { await Promise.resolve() })
+    // The withheld list, not a permission list: the server adds reads back, since a key that may read
+    // nothing has no use at this endpoint.
+    expect(mocks.createKey).toHaveBeenCalledWith('Automation', [])
+  })
+
+  it('asks for everything the account allows when nothing was touched', async () => {
+    await open()
+    mocks.createKey.mockResolvedValue({
+      key: { id: 'k1', name: 'Automation', scopes: ['notes:read', 'notes:write'], createdAt: 1, lastUsedAt: null },
+      token: 'ink_test',
+    })
+    const name = document.body.querySelector<HTMLInputElement>(`input[aria-label="${t('settings.mcp_api_key_name')}"]`)
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value')?.set?.call(name, 'Automation')
+      name!.dispatchEvent(new Event('input', { bubbles: true }))
+    })
+    await act(async () => { byText(t('settings.mcp_api_key_create'))?.click() })
+    await act(async () => { await Promise.resolve() })
+    // Undefined, not a list: "the reader never touched these" has to stay distinguishable from "the reader
+    // switched everything off", or a default would quietly become a decision.
+    expect(mocks.createKey).toHaveBeenCalledWith('Automation', undefined)
   })
 })

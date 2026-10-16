@@ -172,8 +172,25 @@ export function grantedMcpScopes(
   return granted.filter((scope) => requestedSet.has(scope) || scope === MCP_SCOPES.read)
 }
 
-function defaultMcpPreferences(): McpPreferences {
-  return {
+/**
+ * The scopes one API key carries: what the account allows, narrowed to what the reader asked for.
+ *
+ * Narrowing only ever removes. A key cannot carry a permission the account has switched off whatever the
+ * request says, which is what makes this safe to compute here rather than at each call site. An absent
+ * request means "everything the account allows" rather than "nothing", because that is what every key
+ * minted before this choice existed already carried.
+ *
+ * `notes:read` is the floor and survives either way: a key that may read nothing is a key that fails at the
+ * far end in a way nobody can read, and the account's own switch for reads does not exist — reads are what
+ * the endpoint is for.
+ */
+export function narrowMcpScopes(allowed: readonly string[], requested?: readonly string[]): string[] {
+  if (requested === undefined) return [...allowed]
+  const wanted = new Set(requested)
+  return allowed.filter((scope) => scope === MCP_SCOPES.read || wanted.has(scope))
+}
+
+function defaultMcpPreferences(): McpPreferences {  return {
     writeEnabled: false,
     trashEnabled: false,
     disabledTools: [],

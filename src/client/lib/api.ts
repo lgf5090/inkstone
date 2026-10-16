@@ -674,8 +674,14 @@ export const api = {
     }>('/api/mcp', { method: 'PUT', body }),
     revokeGrant: (id: string) => request<{ ok: true }>(`/api/mcp/grants/${encodeURIComponent(id)}`, { method: 'DELETE' }),
     revokeAllGrants: () => request<{ ok: true; revoked: number }>('/api/mcp/grants/revoke-all', { method: 'POST' }),
-    createKey: (name: string) =>
-      request<{ key: McpApiKey; token: string }>('/api/mcp/keys', { method: 'POST', body: { name } }),
+    /**
+     * Mint a key, optionally narrowed to a subset of the scopes the account allows.
+     *
+     * An absent list means "everything the account allows"; the server narrows whatever is sent against the
+     * account's own switches, so this can only ever ask for less.
+     */
+    createKey: (name: string, scopes?: string[]) =>
+      request<{ key: McpApiKey; token: string }>('/api/mcp/keys', { method: 'POST', body: scopes ? { name, scopes } : { name } }),
     revokeKey: (id: string) =>
       request<{ ok: true }>(`/api/mcp/keys/${encodeURIComponent(id)}`, { method: 'DELETE' }),
     aiSearch: {

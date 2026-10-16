@@ -22,6 +22,7 @@ import { mcpServerToolCatalog } from '../mcp/server'
 import {
   getMcpPreferences,
   isMcpEnabled,
+  MCP_SUPPORTED_SCOPES,
   setMcpEnabled,
   updateMcpPreferences,
 } from '../mcp/settings'
@@ -117,12 +118,24 @@ function disabledToolsFrom(c: Context<AppBindings>, value: unknown): string[] {
 mcpSettingsRoutes.post('/keys', async (c) => {
   const user = c.get('user')
   if (!await isMcpEnabled(c.env.DB)) throw ApiError.conflict('MCP is disabled')
-  const body = await readJson<{ name?: unknown }>(c, JSON_BODY_LIMITS.small)
+  const body = await readJson<{ name?: unknown, scopes?: unknown }>(c, JSON_BODY_LIMITS.small)
   const name = typeof body.name === 'string' ? body.name.trim() : ''
   if (!name || name.length > 80) throw ApiError.badRequest('name must be 1-80 characters')
-  const created = await createMcpApiKey(c.env.DB, user.id, name)
+  const created = await createMcpApiKey(c.env.DB, user.id, name, scopesFrom(body.scopes))
   return c.json({ key: created.record, token: created.token }, 201)
 })
+
+/** What a new key should carry, checked against the scopes this server understands. */
+function scopesFrom(value: unknown): string[] | undefined {
+  if (value === undefined) return undefined
+  if (!Array.isArray(value) || value.some((scope) => typeof scope !== 'string')) {
+    throw ApiError.badRequest('scopes must be an array of scope names')
+  }
+  const names = value as string[]
+  const unknown = names.find((scope) => !(MCP_SUPPORTED_SCOPES as readonly string[]).includes(scope))
+  if (unknown !== undefined) throw ApiError.badRequest(`Unknown MCP scope: ${unknown}`)
+  return names
+}
 
 mcpSettingsRoutes.delete('/keys/:id', async (c) => {
   const revoked = await revokeMcpApiKey(c.env.DB, c.get('userId'), c.req.param('id'))
