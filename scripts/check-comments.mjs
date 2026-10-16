@@ -1288,6 +1288,7 @@ const allowed = new Map([
     "// named by an id nobody can resolve.",
     "/* The files this answer made — a picture it drew — shown with it, the same way the reader's own\n            attachments are shown on their message. The body above may say anything about them; the\n            picture itself is what the reader came for. */",
     "/** Publishes this one answer behind a link. Absent on a turn still arriving, which has no row yet. */",
+    "/**\n * One note the answer was built from.\n *\n * A card rather than a link: the target is a note in this vault, so a new tab would be a second copy of\n * the notebook — and the note is already loaded, so the press is a switch of screens rather than a fetch.\n * The excerpt the search matched stays in the tooltip, which is what lets a reader check the citation\n * without leaving the answer they are reading.\n */",
   ]],
   ["src/client/features/chat/ModelEditorDialog.tsx", [
     "/**\n * The model's own editor: what it is for, what it can do, and the numbers it is given.\n *\n * The composer's chips cover the two settings a reader changes often. This covers the rest, which are\n * per-model facts rather than per-conversation choices: whether the endpoint answers in pictures, how\n * much it claims to take in, and the vendor-specific fields our request builder does not know about.\n * Everything here is read by the request path — a switch that changed nothing would be worse than no\n * switch, because it would be believed.\n */",
@@ -1789,6 +1790,9 @@ const allowed = new Map([
     "// the settings screen has to be able to draw a half-configured assistant, and a guess with a safe",
     "// default is better than a screen that throws.",
     "/**\n * The options a level picker draws: the model's own rungs, plus the stored level when it is not one of\n * them.\n *\n * A level can stop being offered — a model that could be switched off is replaced by one that cannot —\n * and a picker whose value is not in its own list would show the reader something other than what is\n * saved, or nothing at all. Keeping the odd value in the list is what makes the row honest; the note\n * beside it says what that level means on this model.\n */",
+  ]],
+  ["src/client/features/chat/note-citations.test.ts", [
+    "/**\n * Where a citation leads.\n *\n * An answer can be built on two different things: pages a web search found, and notes the note tools read.\n * They are drawn side by side, so the only thing that keeps them apart is what the card does when it is\n * pressed — and that difference is the whole point. A note citation is a button that opens the note in\n * this vault; a web citation is a link that leaves. Getting them the wrong way round sends a reader to a\n * new tab for a note they already have, or worse, nowhere at all.\n */",
   ]],
   ["src/client/features/chat/note-links.ts", [
     "/**\n * The notebook, reached from the assistant's container.\n *\n * A `[[note]]` in a reply is a door the reader can walk through, and the notebook is a different\n * container: following one is an address change plus the store's own open — the same pair the reading\n * app's saved-note links use, which is what keeps the note's pane, revision and scroll handled in one\n * place. A title the vault does not have yet is offered as a new note rather than a dead word, which is\n * what the preview pane does when the reader clicks one there.\n */",
@@ -15029,6 +15033,9 @@ const allowed = new Map([
     "/**\n   * A conversation the reader asked not to keep.\n   *\n   * It is stored all the same — a thread that vanished on a reload would lose the thought the reader was\n   * in the middle of — but it is kept out of every listing, out of search and out of a backup, and the\n   * hourly sweep deletes it once it has gone untouched for {@link EPHEMERAL_CONVERSATION_RETENTION_DAYS}.\n   * That is the promise the UI makes, so it is the one the queries keep.\n   */",
     "/**\n   * The project this fact belongs to, or null for one that belongs to the account.\n   *\n   * A project is a context — a client, an engagement, a piece of work — and what is true inside one is\n   * not automatically true in the next. So a fact is filed where it was learned, and a turn answering\n   * inside a project recalls that project's facts plus the account's own, never another project's.\n   */",
     "/**\n   * What was pinned: a tag, a folder, or a note the reader added to the turn by hand.\n   *\n   * A note is not a permission like the other two — it is the reader pointing at one page, the same act\n   * as having it open in the notebook, done several at a time from the composer.\n   */",
+    "/**\n   * Where the card leads: a page on the web, or a note in this vault.\n   *\n   * Absent on every citation stored before notes could be cited, which is why it is optional and why the\n   * reader of this field treats a missing value as `web`.\n   */",
+    "/** The note the card opens, when `kind` is `note`. A url is not enough: the app opens by id. */",
+    "/**\n * Whether a citation names a note in this vault.\n *\n * Checked by id rather than by url: the url a note citation stores is the app's own relative path, which\n * is not a page a browser can be sent to, and the id is what the client opens with. A stored citation\n * whose id is not a note id is read as a web page and must then have a real url, which is what keeps a\n * backup from turning into a card that leads nowhere.\n */",
   ]],
   ["src/shared/backup-format.ts", [
     "/** The account's own template library, absent from a backup taken before it was worth keeping. */",
@@ -15845,6 +15852,11 @@ const allowed = new Map([
     "/**\n * Which model answers.\n *\n * The reader picks one row of `chat_models`; the provider it belongs to supplies the address,\n * the protocol and the key. A model whose provider has gone away, or a stale id left behind by an\n * import, reads as \"nothing configured\" rather than throwing — the settings screen has to be able to\n * show a half-configured assistant so the reader can fix it.\n */",
     "/**\n * Which door this model is called through, and what thinking shape that door speaks.\n *\n * A gateway can answer on more than one wire with the same key, so the model names the protocol and the\n * provider supplies the address for it. A protocol with no address of its own falls back to the provider's\n * base URL, which is what every provider written before this column had.\n *\n * The dialect rides along because it is read from the same two facts — the address, and the model's own\n * name — and because a pin that no longer fits the wire has to be dropped here rather than sent as a\n * field the far end does not know.\n */",
   ]],
+  ["src/worker/assistant/note-citations.ts", [
+    "/**\n * The notes a reply was built from, as citations.\n *\n * A search the assistant ran is not visible in its answer: the model says \"your notes mention X\" and the\n * reader is left to find out which ones. The tool that answered already names them, so the reply carries\n * them — the same way a web search's pages ride along with the answer — and each card opens the note it\n * names.\n *\n * Only the two tools that read a note's words count. `list_notes` is a table of contents rather than a\n * source, and a citation from it would credit the answer to a note it never opened.\n *\n * The url is the app's own note path rather than the absolute one a tool result carries: a transcript is\n * exported and shared, and a citation that pointed at the origin it was written on would lead a reader of\n * the export back to somebody else's server. The id is what the client actually opens with.\n */",
+    "/** How many hits of one search become cards. The rest stay in the tool's own result. */",
+    "/**\n * The citations one tool call earned, in the order the tool named them.\n *\n * `read_note` says which section it was asked for, so the card can say \"that section\" instead of naming\n * the whole note — which is the closest thing to a block-level pointer the vault has, since a note's body\n * carries no stable anchors of its own.\n */",
+  ]],
   ["src/worker/assistant/note-mentions.ts", [
     "/**\n * `[[note]]` mentions resolved into the note's own words.\n *\n * The composer's `@` inserts a wikilink and nothing else — the title is what the reader sees and what\n * the transcript keeps. On its own the model could only call `read_note` and hope the title it guessed\n * is unique, so a mention is resolved here against the notes the reader actually allowed, and the words\n * ride with the turn the way an attachment's do. The scope is enforced by the same helper every note\n * tool passes through, so a mention can never reach past it.\n */",
     "/** How much of a mentioned note joins the turn, and how many mentions are read at all. */",
@@ -15982,7 +15994,6 @@ const allowed = new Map([
     "// is a question about the page in front of them, and refusing it because the folder they",
     "/**\n   * The note and folder the reader had on screen, named for the prompt.\n   *\n   * Both are read rather than taken from the request: the note has to be one they own and have not\n   * deleted, and the folder's name is this vault's — a caller that named its own folder would be\n   * writing a line of the system prompt.\n   */",
     "// The label travels with the counters so the day's models can be told apart: a reader with two",
-    "/** The pages this turn searched, by url, in the order the vendor named them. */",
     "// A turn's search results belong to that turn: a retry that searched again must not inherit the",
     "// pages the answer it replaced was built on.",
     "// What a search found. Collected as it arrives rather than at the end because the vendor reports",
@@ -16028,6 +16039,10 @@ const allowed = new Map([
     "// excluded happens to hold it would answer a question nobody asked. The notes they pinned as",
     "// chips are the same act, done by hand and several at a time.",
     "/**\n   * The notes pinned to this turn, read back from the vault rather than from the request.\n   *\n   * The client sends ids, and the titles are this vault's — a caller that supplied its own title would\n   * be writing a line of the system prompt, which is the same reason folders are resolved here. A note\n   * that has been deleted since the chip was added is dropped instead of named: the prompt must not\n   * point at something the reader can no longer read.\n   */",
+    "/**\n   * What this turn's answer was built on, by url, in the order it was found.\n   *\n   * Two kinds share the map: pages a web search named, and notes the note tools read. They are one list\n   * because they are one thing to the reader — where the answer came from — and because a failover that\n   * rolls back an attempt has to roll both back with it.\n   */",
+    "// The notes this call read are cited beside the answer. Collected here rather than inside the",
+    "// tool so there is one owner of the list: a failover that discards this attempt's calls takes",
+    "// its citations with it, because they live in the same map.",
   ]],
   ["src/worker/assistant/scheduler.ts", [
     "/**\n * The minute sweep that runs what is due.\n *\n * Wired into the worker's cron handler alongside the existing queue drains, and deliberately kept out\n * of the hourly branch: a reminder is cheap and late delivery is visible, while the heavy work that\n * runs on the hour (backups, attachment cleanup) must not be able to take the reminders down with it.\n *\n * A routine that calls a model can outlive the sweep that started it, so each automation is claimed\n * before it runs and the claim is only released when it is re-armed — which is what stops a slow AI\n * digest from being started twice by two overlapping ticks.\n */",
@@ -16347,6 +16362,9 @@ const allowed = new Map([
     "// missing, so a delete would be a second copy of that rule.",
     "// The activity feed quoted each fact when it was learned; the fact is gone, so the quote goes too —",
     "// the same promise `deleteMemory` keeps, for the same reason.",
+    "// A note is recognized by its id, and its url is rewritten rather than trusted: the stored path is",
+    "// the app's own, and rebuilding it here is what makes an exported transcript open the right note",
+    "// wherever it is read.",
   ]],
   ["src/worker/assistant/tools.ts", [
     "/**\n * The tools the assistant can reach, and the executor that runs them.\n *\n * Three things are enforced here rather than asked of the model, because a model that is confident and\n * wrong is the failure mode this app has to survive:\n *  - **budgets** — a per-turn call cap, a per-tool cap and a duplicate-call refusal, so a reasoning\n *    loop cannot spend the reader's AI quota or write a hundred tasks;\n *  - **validation** — arguments are checked against the same declaration that generates the JSON\n *    Schema the provider is given, so the two can never disagree;\n *  - **approval** — a destructive tool never runs during the turn. `prepare` resolves the exact target\n *    and writes a pending action; `commit` runs only when the reader presses Approve, once, on that\n *    target. The model can propose; it cannot delete.\n *\n * Scheduled runs get read-only tools plus `notify_reader`, so a routine that has drifted cannot edit\n * the vault while nobody is watching.\n */",
@@ -17966,6 +17984,9 @@ const allowed = new Map([
     "// the endpoint rather than being looked up again at the far end of the request path.",
     "// An effort shape in a Gemini body would be a field nothing there reads, so the pin is not carried once",
     "// the model is switched to a protocol it does not belong to — the dialect is read off the address again.",
+  ]],
+  ["tests/assistant-note-citations.test.ts", [
+    "/**\n * The notes a reply cites.\n *\n * A search the assistant ran leaves no trace in its answer unless the reply carries what it read, so the\n * tool results are read back into citations here. The two things worth pinning are which tools count — a\n * listing is a table of contents, not a source — and that the url a citation stores is the app's own note\n * path, because a transcript is exported and shared and must not carry the origin it was written on.\n */",
   ]],
   ["tests/assistant-note-scope.test.ts", [
     "/**\n * What one turn of the assistant is allowed to read.\n *\n * The reader can point the assistant at a couple of folders, and that is a permission: a model that\n * ignores the line in its prompt describing the scope must still be refused by the SQL underneath. The\n * note they had open when they asked is the one deliberate exception, and this is where it is pinned —\n * a widening that reached a folder instead of one named note would be the bug this file exists for.\n */",

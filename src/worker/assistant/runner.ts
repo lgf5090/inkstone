@@ -13,7 +13,7 @@
  */
 
 import { MAX_MESSAGE_CHARS, toolPayloadText } from '@shared/assistant'
-import type { AssistantMessage, AssistantModel, AssistantModelModality, AssistantProtocol, AssistantSettings, ChatStreamEvent, ToolActivity } from '@shared/assistant'
+import type { AssistantMessage, AssistantModel, AssistantModelModality, AssistantProtocol, AssistantSettings, AssistantSource, ChatStreamEvent, ToolActivity } from '@shared/assistant'
 import { contextBudgetFor, customParamBody, MAX_CHAT_ATTACHMENTS, MAX_TURN_SCOPES, MAX_TURN_TOOLS, estimateTokens, titleFromMessage, type AssistantTurnScope } from '@shared/assistant'
 import { hasHistoricalIntent, memoryTokenBudget } from '@shared/assistant-memory'
 import { expandChatAttachments, type AttachmentPayload } from './attachments'
@@ -29,9 +29,10 @@ import type { AssistantStore, MemoryScope, ProviderRow } from './store'
 import { MemoryHistoryService, type ConflictJudge } from './memory-service'
 import { AutomationService } from './automations'
 import { resolveNoteScope, turnNoteIds, type NoteScope } from './note-scope'
+import { noteCitationsFromTool } from './note-citations'
 import { matchVaultFolders, noteTitleIfLive } from './vault'
 import { parametersSchema, ToolError, ToolExecutor, type ToolContext } from './tools'
-import { AbortError, streamUpstream, UpstreamError, type ModelTurn, type ToolCallRecord, type ToolSchema, type UpstreamRequest, type UpstreamRetry, type UpstreamSource } from './upstream'
+import { AbortError, streamUpstream, UpstreamError, type ModelTurn, type ToolCallRecord, type ToolSchema, type UpstreamRequest, type UpstreamRetry } from './upstream'
 import { loadModelAndProvider, modelEndpoint, type ModelEndpoint } from './model-config'
 import { fuseMemoryRecall, rankMemoriesByVector, semanticModel } from './semantic'
 
@@ -167,8 +168,14 @@ export class AssistantRunner {
   private webSearchRequested = false
   private webSearchNative = false
   private turnScopes: AssistantTurnScope[] = []
-  /** The pages this turn searched, by url, in the order the vendor named them. */
-  private readonly turnSources = new Map<string, UpstreamSource>()
+  /**
+   * What this turn's answer was built on, by url, in the order it was found.
+   *
+   * Two kinds share the map: pages a web search named, and notes the note tools read. They are one list
+   * because they are one thing to the reader — where the answer came from — and because a failover that
+   * rolls back an attempt has to roll both back with it.
+   */
+  private readonly turnSources = new Map<string, AssistantSource>()
   /** What the reader had on screen, held for the turn so the prompt and the scope agree. */
   private contextNoteId: string | null = null
   private contextFolderId: string | null = null
@@ -491,6 +498,12 @@ export class AssistantRunner {
             const result = await executor.execute(call.name, call.args, call.id)
             call.result = JSON.stringify(result ?? null)
             call.error = false
+            // The notes this call read are cited beside the answer. Collected here rather than inside the
+            // tool so there is one owner of the list: a failover that discards this attempt's calls takes
+            // its citations with it, because they live in the same map.
+            for (const source of noteCitationsFromTool(call.name, result)) {
+              if (!this.turnSources.has(source.url)) this.turnSources.set(source.url, source)
+            }
             // What came back, kept beside the arguments above. The `result` sent to the model stays the
             // compact JSON the wire wants; what the reader is shown is the tool's own text where the tool
             // returned text, because a quoted JSON string is not what the search returned.

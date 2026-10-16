@@ -9,7 +9,7 @@
  *    written by an older build, restored from a backup file, or edited by hand — stored text is input.
  */
 
-import { ASSISTANT_MODEL_KINDS, ASSISTANT_MODEL_PURPOSES, clipToolPayload, parseCustomParams, isSourceUrl } from '@shared/assistant'
+import { ASSISTANT_MODEL_KINDS, ASSISTANT_MODEL_PURPOSES, clipToolPayload, parseCustomParams, isNoteSourceId, isSourceUrl } from '@shared/assistant'
 import type {
   AssistantArtifact,
   AssistantConversation,
@@ -301,11 +301,20 @@ export function decodeSources(value: unknown): AssistantSource[] {
   for (const entry of parsed) {
     if (!entry || typeof entry !== 'object') continue
     const raw = entry as Record<string, unknown>
+    const cited = typeof raw.cited === 'string' && raw.cited ? { cited: raw.cited.slice(0, 400) } : {}
+    const title = typeof raw.title === 'string' && raw.title ? raw.title.slice(0, 300) : ''
+    // A note is recognized by its id, and its url is rewritten rather than trusted: the stored path is
+    // the app's own, and rebuilding it here is what makes an exported transcript open the right note
+    // wherever it is read.
+    if (raw.kind === 'note' && isNoteSourceId(raw.id)) {
+      out.push({ url: `/n/${raw.id}`, title: title || raw.id, kind: 'note', id: raw.id, ...cited })
+      continue
+    }
     if (!isSourceUrl(raw.url)) continue
     out.push({
       url: raw.url.slice(0, 2000),
-      title: typeof raw.title === 'string' && raw.title ? raw.title.slice(0, 300) : raw.url.slice(0, 300),
-      ...(typeof raw.cited === 'string' && raw.cited ? { cited: raw.cited.slice(0, 400) } : {}),
+      title: title || raw.url.slice(0, 300),
+      ...cited,
     })
   }
   return out.slice(0, 20)

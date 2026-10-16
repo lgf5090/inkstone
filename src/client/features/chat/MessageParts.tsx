@@ -38,6 +38,8 @@ import { ASSISTANT_TOOL_BY_NAME, mcpToolOrigin } from '@shared/assistant'
 import { cn } from '../../lib/cn'
 import { COPY_RESET_MS } from '../../lib/motion'
 import { t } from '../../lib/i18n'
+import { navigateToPath } from '../../lib/app-history'
+import { useNotes } from '../../store/notes'
 import { useLocale } from '../../lib/i18n'
 import { Button } from '../../components/primitives'
 import { MarkdownBody } from '../preview/MarkdownBody'
@@ -585,18 +587,22 @@ export function AssistantBubble({
             className="flex max-w-[72ch] flex-wrap gap-1 pt-0.5"
           >
             {sources.map((source, index) => (
-              <li key={source.url}>
-                <a
-                  href={source.url}
-                  target="_blank"
-                  rel="noreferrer noopener"
-                  title={source.cited ?? source.url}
-                  className="inline-flex max-w-[280px] items-center gap-1 rounded-[var(--r-sm)] border border-[var(--border-subtle)] bg-[var(--bg-surface)] px-1.5 py-0.5 text-[length:var(--text-11)] text-[var(--text-tertiary)] transition-colors duration-[var(--dur-fast)] hover:border-[var(--accent)] hover:text-[var(--accent)]"
-                >
-                  <span className="shrink-0 tabular text-[var(--text-quaternary)]">{index + 1}</span>
-                  <span className="min-w-0 truncate">{source.title}</span>
-                  <ExternalLink size={10} className="shrink-0 opacity-70" />
-                </a>
+              <li key={source.id ?? source.url}>
+                {source.kind === 'note' && source.id
+                  ? <NoteCitation index={index} source={source} noteId={source.id} />
+                  : (
+                      <a
+                        href={source.url}
+                        target="_blank"
+                        rel="noreferrer noopener"
+                        title={source.cited ?? source.url}
+                        className="inline-flex max-w-[280px] items-center gap-1 rounded-[var(--r-sm)] border border-[var(--border-subtle)] bg-[var(--bg-surface)] px-1.5 py-0.5 text-[length:var(--text-11)] text-[var(--text-tertiary)] transition-colors duration-[var(--dur-fast)] hover:border-[var(--accent)] hover:text-[var(--accent)]"
+                      >
+                        <span className="shrink-0 tabular text-[var(--text-quaternary)]">{index + 1}</span>
+                        <span className="min-w-0 truncate">{source.title}</span>
+                        <ExternalLink size={10} className="shrink-0 opacity-70" />
+                      </a>
+                    )}
               </li>
             ))}
           </ul>
@@ -747,5 +753,31 @@ export function AssistantBubble({
         }}
       />
     </div>
+  )
+}
+
+/**
+ * One note the answer was built from.
+ *
+ * A card rather than a link: the target is a note in this vault, so a new tab would be a second copy of
+ * the notebook — and the note is already loaded, so the press is a switch of screens rather than a fetch.
+ * The excerpt the search matched stays in the tooltip, which is what lets a reader check the citation
+ * without leaving the answer they are reading.
+ */
+function NoteCitation({ index, source, noteId }: { index: number, source: AssistantSource, noteId: string }) {
+  return (
+    <button
+      type="button"
+      title={source.cited ?? source.title}
+      onClick={() => {
+        navigateToPath('/notes')
+        void useNotes.getState().openNote(noteId)
+      }}
+      className="inline-flex max-w-[280px] items-center gap-1 rounded-[var(--r-sm)] border border-[var(--border-subtle)] bg-[var(--bg-surface)] px-1.5 py-0.5 text-[length:var(--text-11)] text-[var(--text-tertiary)] transition-colors duration-[var(--dur-fast)] hover:border-[var(--accent)] hover:text-[var(--accent)]"
+    >
+      <span className="shrink-0 tabular text-[var(--text-quaternary)]">{index + 1}</span>
+      <FileText size={10} className="shrink-0 opacity-70" />
+      <span className="min-w-0 truncate">{source.title}</span>
+    </button>
   )
 }

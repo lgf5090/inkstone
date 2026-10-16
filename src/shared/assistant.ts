@@ -1398,6 +1398,15 @@ export interface AssistantSource {
   title: string
   /** The passage the model leaned on, when the vendor said which one. */
   cited?: string
+  /**
+   * Where the card leads: a page on the web, or a note in this vault.
+   *
+   * Absent on every citation stored before notes could be cited, which is why it is optional and why the
+   * reader of this field treats a missing value as `web`.
+   */
+  kind?: 'web' | 'note'
+  /** The note the card opens, when `kind` is `note`. A url is not enough: the app opens by id. */
+  id?: string
 }
 
 /**
@@ -1408,6 +1417,18 @@ export interface AssistantSource {
  */
 export function isSourceUrl(value: unknown): value is string {
   return typeof value === 'string' && /^https?:\/\/[^\s]+$/i.test(value)
+}
+
+/**
+ * Whether a citation names a note in this vault.
+ *
+ * Checked by id rather than by url: the url a note citation stores is the app's own relative path, which
+ * is not a page a browser can be sent to, and the id is what the client opens with. A stored citation
+ * whose id is not a note id is read as a web page and must then have a real url, which is what keeps a
+ * backup from turning into a card that leads nowhere.
+ */
+export function isNoteSourceId(value: unknown): value is string {
+  return typeof value === 'string' && /^[0-9a-hjkmnp-tv-z]{26}$/.test(value)
 }
 
 /** One model's share of a window, with what it cost when the reader has priced it. */
