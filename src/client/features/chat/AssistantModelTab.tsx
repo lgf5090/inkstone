@@ -12,6 +12,7 @@ import { ASSISTANT_PROTOCOLS, PROVIDER_PRESETS, endpointFieldState } from '@shar
 import { dialectsForProtocol } from '@shared/reasoning'
 import { ModelEditorDialog } from './ModelEditorDialog'
 import { ModelPickerDialog } from './ModelPickerDialog'
+import { ProviderKeys } from './ProviderKeys'
 import { cn } from '../../lib/cn'
 import { matchesQuery } from '../../lib/fuzzy'
 import { t, type MessageKey } from '../../lib/i18n'
@@ -148,6 +149,7 @@ export function ModelTab({ settings }: { settings: AssistantSettings }) {
                 </IconButton>
               </div>
             </div>
+            <ProviderKeys provider={provider} />
             {list.length === 0 ? (
               <p className="pl-9 text-[length:var(--text-11)] text-[var(--text-quaternary)]">{t('assistant.settings.no_models')}</p>
             ) : (

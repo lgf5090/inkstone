@@ -1285,6 +1285,13 @@ const allowed = new Map([
     "// be a name nothing can resolve later, so the picker offers only what the assistant always has.",
     "// The model bound to a prompt is named by id, so the list has to be there before the editor can offer it.",
   ]],
+  ["src/client/features/chat/ProviderKeys.tsx", [
+    "/**\n * The keys one provider rotates through.\n *\n * The provider's own key is the first of the ring and is edited with the provider; this is where the second\n * and third arrive, which is what turns a rate limit from a failed turn into a moment. A key is written\n * once and never read back — the row carries the last four characters the worker kept, which tells two\n * apart and is useless to anyone reading over a shoulder.\n *\n * The list is read when the section is opened rather than with the tab: most providers never carry a second\n * key, and a request per provider for a fact nobody is looking at is a request too many.\n */",
+    "/** When a key last answered, in the reader's own words rather than as a timestamp. */",
+    "// One writer at a time: every action here rewrites the same list, and two in flight would leave the",
+    "// screen showing whichever answered last rather than what is stored.",
+    "/* The provider's own key heads the ring, and is listed here so the count above means something:\n              a reader who adds one key should see two, not wonder which one the ring is using. */",
+  ]],
   ["src/client/features/chat/SelectionBar.tsx", [
     "/**\n * The bar that appears once a reader has picked out turns.\n *\n * Selection is a mode rather than a modifier because the alternative is a checkbox on every message all\n * of the time, which is furniture nobody asked for in a conversation. The bar is what makes the mode\n * legible: it says how many rows are picked, and every action it offers acts on exactly those.\n */",
     "/** The turns the reader ticked, in the order they appear in the thread. */",
@@ -1617,6 +1624,14 @@ const allowed = new Map([
     "/** The protocol select has no label of its own; its options are what identify it. */",
     "// An effort shape means nothing in a Gemini body, so the list is the reader's protocol's own set rather",
     "// than every dialect the app knows about.",
+  ]],
+  ["src/client/features/chat/provider-keys.test.ts", [
+    "/**\n * The key ring's own screen.\n *\n * Three claims, none of them about markup: the ring is read only when the section is opened, a key is\n * never shown back once written, and the actions send what they say they send. The plaintext claim is the\n * one worth a test of its own — a screen that echoed a key would put it in a screenshot, a screen share\n * and the browser's own form history.\n */",
+    "/** The section's own trigger, which is the only button that both names the ring and owns a panel. */",
+    "// The panel is closed, so the request has not been made and the row is not on screen.",
+    "// The last four characters are the whole of what is kept: enough to tell two keys apart, useless to",
+    "// anyone reading over a shoulder, and the only form the secret ever takes on screen.",
+    "// The form closes on success, which is also what keeps the typed secret out of the DOM afterwards.",
   ]],
   ["src/client/features/chat/save-to-note.ts", [
     "/**\n * Keeping a reply.\n *\n * An answer worth having is often the start of a note — a procedure, a summary, a plan — and the\n * alternative is selecting text in a chat bubble and retyping the title in the notebook. The note is\n * created through the notes store rather than the raw API so it lands the way a note made anywhere else\n * does: in the list, queued for sync, openable from the toast that announces it.\n */",

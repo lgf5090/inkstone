@@ -70,6 +70,7 @@ import type {
   AssistantModel,
   AssistantNotification,
   AssistantProvider,
+  AssistantProviderKey,
   AssistantSettings,
   AssistantUsage,
   AssistantStats,
@@ -1000,6 +1001,14 @@ export const api = {
     updateProvider: (id: string, body: Record<string, unknown>) =>
       request<{ provider: AssistantProvider }>(`/api/assistant/providers/${id}`, { method: 'PATCH', body }),
     deleteProvider: (id: string) => request<{ deleted: true }>(`/api/assistant/providers/${id}`, { method: 'DELETE' }),
+    /** The extra keys a provider rotates through. The plaintext is never in the answer. */
+    providerKeys: (id: string) => request<{ keys: AssistantProviderKey[] }>(`/api/assistant/providers/${id}/keys`),
+    createProviderKey: (id: string, body: { label?: string, apiKey: string }) =>
+      request<{ key: AssistantProviderKey }>(`/api/assistant/providers/${id}/keys`, { method: 'POST', body }),
+    updateProviderKey: (id: string, keyId: string, body: { label?: string, enabled?: boolean, apiKey?: string | null }) =>
+      request<{ key: AssistantProviderKey }>(`/api/assistant/providers/${id}/keys/${keyId}`, { method: 'PATCH', body }),
+    deleteProviderKey: (id: string, keyId: string) =>
+      request<{ deleted: true }>(`/api/assistant/providers/${id}/keys/${keyId}`, { method: 'DELETE' }),
     models: () => request<{ models: AssistantModel[] }>('/api/assistant/models'),
     /** The vendor's own list, asked through the worker so the key never reaches the browser. */
     vendorModels: (id: string) =>
