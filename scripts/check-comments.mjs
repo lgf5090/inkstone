@@ -1125,6 +1125,7 @@ const allowed = new Map([
     "// the live trace would show the reader the wrong model's reasoning.",
     "// The reply is read by the same renderer a note's preview is, so a formula is drawn, a diagram is",
     "// drawn, and a `[[note]]` is a door into the notebook rather than a word that looks like a link.",
+    "/* Only a settled answer is offered: a half-written reply saved twice is two notes, and the\n                one worth keeping is the one the model finished. */",
   ]],
   ["src/client/features/chat/ModelEditorDialog.tsx", [
     "/**\n * The model's own editor: what it is for, what it can do, and the numbers it is given.\n *\n * The composer's chips cover the two settings a reader changes often. This covers the rest, which are\n * per-model facts rather than per-conversation choices: whether the endpoint answers in pictures, how\n * much it claims to take in, and the vendor-specific fields our request builder does not know about.\n * Everything here is read by the request path — a switch that changed nothing would be worse than no\n * switch, because it would be believed.\n */",
@@ -1403,6 +1404,18 @@ const allowed = new Map([
   ["src/client/features/chat/note-links.ts", [
     "/**\n * The notebook, reached from the assistant's container.\n *\n * A `[[note]]` in a reply is a door the reader can walk through, and the notebook is a different\n * container: following one is an address change plus the store's own open — the same pair the reading\n * app's saved-note links use, which is what keeps the note's pane, revision and scroll handled in one\n * place. A title the vault does not have yet is offered as a new note rather than a dead word, which is\n * what the preview pane does when the reader clicks one there.\n */",
     "/** One object for every reply on screen: a fresh literal per message would be a new identity per render. */",
+    "/** Follows a note into the notebook. Exported for the surfaces that have an id and no link, like a saved reply. */",
+  ]],
+  ["src/client/features/chat/note-refs.test.ts", [
+    "/**\n * The two things a reply can be turned into: a door to a note it named, and a note of its own.\n *\n * Both are chips and buttons that promise something, so what is pinned here is the promise: a note tool's\n * payload yields the notes it mentions and nothing else, a task listing yields nothing (its id would open\n * an unrelated note, or none), and a title taken from a reply does not arrive wearing the `##` that made\n * it a heading.\n */",
+    "// A task has an id and a title too. A chip that opened it in the notebook would be a link to",
+    "// whatever note happened to share that id — which is nothing, or a stranger's note.",
+  ]],
+  ["src/client/features/chat/note-refs.ts", [
+    "/**\n * The notes a tool call named, pulled out of its answer.\n *\n * A search or a listing comes back as JSON, and the one row that looks like `{\"id\": \"...\", \"title\":\n * \"...\"}` is a note the reader can open. Printing that as text makes them copy an id into a search box;\n * the ids are already in hand, so the row offers the door instead of the address.\n *\n * Only the note tools are read this way. A task and a project carry an id and a title too, and a chip\n * that opened one of those in the notebook would be a link to nothing.\n */",
+    "/** The tools whose payload describes notes, by name. */",
+    "/** The shape every note id in this app has: a 26-character Crockford-ish ULID. */",
+    "/**\n * The notes a call mentioned, in the order the payload named them.\n *\n * A result that is not the JSON this app wrote — a third-party server's own text, or an error string —\n * yields nothing rather than a guess: a chip is a promise that pressing it opens something.\n */",
   ]],
   ["src/client/features/chat/provider-form.test.ts", [
     "/**\n * The provider form's own guard rail.\n *\n * A browser can autocomplete a saved username into the text box sitting above a password field, and the\n * address boxes are optional. The reader must see which box says what, before any request is sent — and\n * the save they did mean must still go through.\n */",
@@ -1418,6 +1431,11 @@ const allowed = new Map([
     "/** The protocol select has no label of its own; its options are what identify it. */",
     "// An effort shape means nothing in a Gemini body, so the list is the reader's protocol's own set rather",
     "// than every dialect the app knows about.",
+  ]],
+  ["src/client/features/chat/save-to-note.ts", [
+    "/**\n * Keeping a reply.\n *\n * An answer worth having is often the start of a note — a procedure, a summary, a plan — and the\n * alternative is selecting text in a chat bubble and retyping the title in the notebook. The note is\n * created through the notes store rather than the raw API so it lands the way a note made anywhere else\n * does: in the list, queued for sync, openable from the toast that announces it.\n */",
+    "/**\n * The first line of prose in a reply, without the marks that made it a heading or a list item.\n *\n * A reply usually opens with a heading, so the title is the heading's own words rather than a run of\n * `#` in front of them — the marks are structure for the body and noise in a name.\n */",
+    "/** Writes a reply into a new note, and offers the reader the way in. */",
   ]],
   ["src/client/features/chat/send-search.test.ts", [
     "/**\n * The web-search switch's way from a click to the request.\n *\n * Two half-wires have to be pinned together: the toggle writing the store, and the store reaching the\n * stream input. A chip that looked switched on while the turn went out without the flag is the worst\n * kind of control, because it is believed.\n */",

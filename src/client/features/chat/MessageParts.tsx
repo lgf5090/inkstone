@@ -19,7 +19,9 @@ import {
   ChevronLeft,
   ChevronRight,
   Copy,
+  FileText,
   Loader2,
+  NotebookPen,
   Play,
   RotateCcw,
   ShieldAlert,
@@ -37,6 +39,8 @@ import { Button } from '../../components/primitives'
 import { MarkdownBody } from '../preview/MarkdownBody'
 import { useAssistant } from './assistant-store'
 import { CHAT_NOTE_LINKS } from './note-links'
+import { noteRefsFromToolResult } from './note-refs'
+import { saveReplyAsNote } from './save-to-note'
 
 const STAGE_KEYS = {
   waiting: 'assistant.chat.stage_waiting',
@@ -145,6 +149,7 @@ function ToolCallRow({ tool, messageId, open, onToggle }: {
   const [copied, setCopied] = useState(false)
   const [busy, setBusy] = useState(false)
   const [again, setAgain] = useState<{ ok: boolean, error: string, result: string } | null>(null)
+  const refs = useMemo(() => noteRefsFromToolResult(tool.name, tool.result), [tool.name, tool.result])
   const body = [
     tool.args ? { key: 'assistant.chat.tool_args' as const, text: tool.args } : null,
     tool.result ? { key: 'assistant.chat.tool_result' as const, text: tool.result } : null,
@@ -204,6 +209,21 @@ function ToolCallRow({ tool, messageId, open, onToggle }: {
               >{entry.text}</pre>
             </div>
           ))}
+          {refs.length > 0 && (
+            <div className="flex flex-wrap items-center gap-1" role="group" aria-label={t('assistant.chat.notes_in_result')}>
+              {refs.map((ref) => (
+                <button
+                  key={ref.id}
+                  type="button"
+                  onClick={() => CHAT_NOTE_LINKS.openNote(ref.id)}
+                  className="inline-flex max-w-[220px] items-center gap-1 rounded-[var(--r-sm)] border border-[var(--border-subtle)] bg-[var(--bg-surface)] px-1.5 py-0.5 text-[length:var(--text-11)] text-[var(--text-secondary)] transition-colors duration-[var(--dur-fast)] hover:border-[var(--accent)] hover:text-[var(--accent)]"
+                >
+                  <FileText size={11} className="shrink-0 text-[var(--text-quaternary)]" />
+                  <span className="min-w-0 truncate">{ref.title}</span>
+                </button>
+              ))}
+            </div>
+          )}
           <div className="flex flex-wrap items-center gap-1">
             {tool.result && (
               <button
@@ -543,6 +563,19 @@ export function AssistantBubble({
               >
                 <RotateCcw size={11} />
                 {t(retryLabel)}
+              </button>
+            )}
+            {/* Only a settled answer is offered: a half-written reply saved twice is two notes, and the
+                one worth keeping is the one the model finished. */}
+            {!error && body && !streaming && !viewing && (
+              <button
+                type="button"
+                onClick={() => saveReplyAsNote(body)}
+                aria-label={t('assistant.chat.save_to_note')}
+                className="inline-flex shrink-0 items-center gap-1 rounded-[var(--r-sm)] px-1 py-0.5 text-[length:var(--text-11)] text-[var(--text-quaternary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-secondary)]"
+              >
+                <NotebookPen size={11} />
+                {t('assistant.chat.save_to_note')}
               </button>
             )}
             {pages > 1 && (

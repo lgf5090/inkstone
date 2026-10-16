@@ -14,7 +14,8 @@ import { findNoteByTitle, useNotes } from '../../store/notes'
 import { useUi } from '../../store/ui'
 import type { MarkdownLinks } from '../preview/MarkdownBody'
 
-function openNote(noteId: string): void {
+/** Follows a note into the notebook. Exported for the surfaces that have an id and no link, like a saved reply. */
+export function openNote(noteId: string): void {
   const summary = useNotes.getState().notes[noteId]
   if (!summary || summary.deletedAt) {
     useUi.getState().toast({ title: t('assistant.chat.note_gone'), tone: 'warning' })
