@@ -10,14 +10,14 @@
  * so it gets the room and the list does not.
  */
 
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { FolderOpen, ListChecks, Pencil, Plus, Trash2 } from 'lucide-react'
 import type { Project } from '@shared/assistant'
 import { NoteScopePicker } from './NoteScopePicker'
 import { api } from '../../lib/api'
 import { Button } from '../../components/primitives'
 import { Field, Input, Textarea } from '../../components/form'
-import { Modal, confirm } from '../../components/overlay'
+import { Menu, Modal, confirm, type MenuItem } from '../../components/overlay'
 import { Empty } from '../../components/feedback'
 import { useUi } from '../../store/ui'
 import { t } from '../../lib/i18n'
@@ -179,25 +179,22 @@ export function ProjectsView({ onOpen }: { onOpen?: () => void }) {
         {unfiled.length > 0 && (
           <div className="rounded-[var(--r-lg)] border border-[var(--border-subtle)] p-3">
             <p className="mb-1 text-[length:var(--text-11)] text-[var(--text-quaternary)]">{t('assistant.projects.unfiled')}</p>
-            <ul className="space-y-0.5">
-              {unfiled.map((conversation) => (
-                <li key={conversation.id} className="flex items-center gap-2 text-[length:var(--text-12)]">
-                  <span className="min-w-0 flex-1 truncate text-[var(--text-secondary)]">{conversation.title || t('assistant.chat.untitled')}</span>
-                  <select
-                    aria-label={t('assistant.projects.move_into')}
-                    value=""
-                    disabled={busy || !projects.length}
-                    onChange={(event) => { if (event.target.value) void move(conversation.id, event.target.value) }}
-                    className="shrink-0 rounded-[var(--r-sm)] border border-[var(--border-default)] bg-[var(--bg-surface)] px-1.5 py-0.5 text-[length:var(--text-11-5)] text-[var(--text-secondary)]"
-                  >
-                    <option value="">{t('assistant.projects.move_into')}</option>
-                    {projects.map((project) => (
-                      <option key={project.id} value={project.id}>{project.name}</option>
-                    ))}
-                  </select>
-                </li>
-              ))}
-            </ul>
+            {projects.length ? (
+              <ul className="space-y-0.5">
+                {unfiled.map((conversation) => (
+                  <li key={conversation.id} className="flex items-center gap-2 text-[length:var(--text-12)]">
+                    <span className="min-w-0 flex-1 truncate text-[var(--text-secondary)]">{conversation.title || t('assistant.chat.untitled')}</span>
+                    <MoveIntoProjectMenu
+                      projects={projects}
+                      disabled={busy}
+                      onMove={(projectId) => void move(conversation.id, projectId)}
+                    />
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="text-[length:var(--text-12)] text-[var(--text-tertiary)]">{t('assistant.projects.move_needs_project')}</p>
+            )}
           </div>
         )}
       </div>
@@ -206,6 +203,51 @@ export function ProjectsView({ onOpen }: { onOpen?: () => void }) {
         <ProjectEditor draft={draft} busy={busy} onChange={setDraft} onSave={() => void save()} onClose={() => setDraft(null)} />
       )}
     </div>
+  )
+}
+
+/**
+ * The row-level way into a project.
+ *
+ * A menu rather than a `<select>`: a form field that is greyed out whenever there is nothing to pick
+ * reads as broken, and a menu states the action and explains itself when it cannot run.
+ */
+function MoveIntoProjectMenu({ projects, disabled, onMove }: {
+  projects: Project[]
+  disabled: boolean
+  onMove: (projectId: string) => void
+}) {
+  const ref = useRef<HTMLButtonElement>(null)
+  const [open, setOpen] = useState(false)
+  const items: MenuItem[] = projects.map((project) => ({
+    id: project.id,
+    label: project.name,
+    icon: <ListChecks size={13} />,
+    onSelect: () => onMove(project.id),
+  }))
+  return (
+    <>
+      <Button
+        ref={ref}
+        size="sm"
+        variant="ghost"
+        disabled={disabled}
+        icon={<FolderOpen size={13} />}
+        onClick={() => setOpen((value) => !value)}
+      >
+        {t('assistant.projects.move_into')}
+      </Button>
+      <Menu
+        anchor={ref}
+        open={open}
+        onClose={() => setOpen(false)}
+        items={items}
+        align="end"
+        width={200}
+        searchable={projects.length > 8}
+        label={t('assistant.projects.move_into')}
+      />
+    </>
   )
 }
 

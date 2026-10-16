@@ -6250,6 +6250,7 @@ console.log(\`Hello, \${name}!\`)
     "assistant.projects.remove_conversation": "移出",
     "assistant.projects.unfiled": "未归入项目的对话",
     "assistant.projects.move_into": "移入项目…",
+    "assistant.projects.move_needs_project": "先新建一个项目，才能把对话移入。",
     "assistant.projects.empty": "还没有项目。新建一个，把固定说明和知识文件夹放进来。",
     "assistant.projects.delete_title": "删除项目「{name}」？",
     "assistant.projects.delete_hint": "项目内 {count} 个对话会回到未归入状态；对话本身和它们的固定说明都会保留。",

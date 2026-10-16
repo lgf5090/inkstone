@@ -1261,6 +1261,7 @@ const allowed = new Map([
     "// A write changes both the project rows and which conversation sits in which, so both are re-read;",
     "// `bootstrap` alone would leave the list showing the project the reader just made.",
     "/* Filing is done here rather than by dragging, because what a drag means here is\n                      \"answer under this brief\", which is worth seeing spelled out. */",
+    "/**\n * The row-level way into a project.\n *\n * A menu rather than a `<select>`: a form field that is greyed out whenever there is nothing to pick\n * reads as broken, and a menu states the action and explains itself when it cannot run.\n */",
   ]],
   ["src/client/features/chat/PromptsView.tsx", [
     "/* The wrapper carries the row's growth: the field hands its own `className` to the `<input>`, which\n            cannot size the box around it. */",
@@ -17292,6 +17293,8 @@ const allowed = new Map([
     "// they name a reach the turn does not have, so both are dropped rather than saved to be trusted later.",
     "// Another account's model is refused at the save, not remembered as a preference to fail on later.",
     "// A patch that names only the title leaves the three bindings where they were.",
+    "// Both read paths spell the columns out by hand, so the list has to carry them too.",
+    "// The read path omits the field rather than spelling null, so absence is the \"left the project\" answer.",
   ]],
   ["tests/assistant-rules.test.ts", [
     "/**\n * The rules the assistant is built on, tested where they are written.\n *\n * These are the parts a browser session cannot prove: what a Chinese sentence means to the conflict\n * rules, how a wall-clock schedule survives a daylight-saving change, how many tokens a Han vault\n * really costs. Each fixture is chosen so a plausible-but-wrong implementation would fail it — the\n * pair that differs only in a change word, a date the reader never stated, a schedule that crosses a\n * clock change — rather than so the function merely runs.\n */",
