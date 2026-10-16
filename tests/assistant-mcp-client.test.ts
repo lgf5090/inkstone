@@ -6,7 +6,7 @@
  * pointed at the network it runs inside, and the fact that a stored token never comes back out.
  */
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { mcpToolName, mcpToolOrigin } from '../src/shared/assistant'
+import { DEFAULT_ASSISTANT_SETTINGS, mcpToolName, mcpToolOrigin } from '../src/shared/assistant'
 import {
   flattenMcpContent,
   mcpCallTool,
@@ -205,12 +205,13 @@ describe('who may be offered an external tool', () => {
       commit: async () => 'done',
     }
     const budget = { maxToolCalls: 4 }
-    const chat = { mode: 'chat' } as never
-    const automation = { mode: 'automation' } as never
-    expect(new ToolExecutor(chat, budget, [definition]).available().map((entry) => entry.name))
+    // The reader's policy is part of the context the executor reads, so the context here carries the
+    // defaults rather than the two fields this case happens to be about.
+    const context = (mode: string) => ({ mode, settings: DEFAULT_ASSISTANT_SETTINGS }) as never
+    expect(new ToolExecutor(context('chat'), budget, [definition]).available().map((entry) => entry.name))
       .toContain(definition.name)
     // An automation has no reader to press Approve, so an approval-gated remote tool must not be offered.
-    expect(new ToolExecutor(automation, budget, [definition]).available().map((entry) => entry.name))
+    expect(new ToolExecutor(context('automation'), budget, [definition]).available().map((entry) => entry.name))
       .not.toContain(definition.name)
   })
 })
