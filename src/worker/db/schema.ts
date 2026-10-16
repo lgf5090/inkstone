@@ -1276,6 +1276,15 @@ export const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
       `ALTER TABLE chat_attachments ADD COLUMN extracted_text TEXT`,
     ],
   },
+  {
+    // When the provider's own key last signed a call, so rotation can prefer the least recently used one
+    // instead of always starting from the same key. Extra keys carry their own column on their own row.
+    version: 79,
+    skipIfColumnExists: { table: 'chat_providers', column: 'key_last_used_at' },
+    statements: [
+      `ALTER TABLE chat_providers ADD COLUMN key_last_used_at INTEGER`,
+    ],
+  },
 ]
 
 const FTS_STATEMENT = `CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(

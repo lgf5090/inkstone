@@ -27,6 +27,7 @@ import type {
   AssistantCustomParam,
   AssistantNotification,
   AssistantProvider,
+  AssistantProviderKey,
   AssistantReasoning,
   AssistantSettings,
   Automation,
@@ -112,6 +113,9 @@ const MEMORY_COLUMNS
  * so no provider listing can carry a key out even if a route is added carelessly later.
  */
 const PROVIDER_COLUMNS = `id, label, protocol, base_url, endpoints, reasoning_dialect, length(key_ciphertext) > 0 AS has_key, created_at, updated_at`
+
+/** A provider key row, ciphertext included: read only by the rotation, never by a listing. */
+const PROVIDER_KEY_COLUMNS = `id, provider_id, label, key_ciphertext, key_hint, enabled, last_used_at, error_count, last_error, created_at, updated_at`
 
 function bool(value: unknown): boolean {
   return value === 1 || value === true
@@ -632,7 +636,7 @@ export class AssistantStore {
   /** Includes the ciphertext: only the worker may hold it, and only to sign one upstream request. */
   async providerRecord(id: string): Promise<ProviderRow | null> {
     const stored = await this.one<Omit<ProviderRow, 'protocol'> & { protocol: string }>(
-      `SELECT id, label, protocol, base_url, endpoints, reasoning_dialect, key_ciphertext, created_at, updated_at
+      `SELECT id, label, protocol, base_url, endpoints, reasoning_dialect, key_ciphertext, key_last_used_at, created_at, updated_at
          FROM chat_providers WHERE user_id = ?1 AND id = ?2`,
       this.userId, id,
     )
@@ -728,14 +732,128 @@ export class AssistantStore {
 
   async deleteProvider(id: string): Promise<void> {
     await this.write(`DELETE FROM chat_models WHERE user_id = ?1 AND provider_id = ?2`, id)
+    // The extra keys go with the provider: a key with no address to reach is not something to keep.
+    await this.write(`DELETE FROM chat_provider_keys WHERE user_id = ?1 AND provider_id = ?2`, id)
     await this.write(`DELETE FROM chat_providers WHERE user_id = ?1 AND id = ?2`, id)
   }
 
-  /** The plaintext key for one upstream call. No route returns this value. */
-  async providerKey(record: ProviderRow): Promise<string> {
-    const ciphertext = record.key_ciphertext ?? ''
-    if (!ciphertext) return ''
-    return (await decryptAssistantKey(this.env, this.userId, ciphertext)) ?? ''
+  /** The extra keys on a provider, oldest first, without their ciphertext. */
+  async listProviderKeys(providerId: string): Promise<AssistantProviderKey[]> {
+    const rows = await this.rows<ProviderKeyRow>(
+      `SELECT ${PROVIDER_KEY_COLUMNS} FROM chat_provider_keys
+        WHERE user_id = ?1 AND provider_id = ?2 ORDER BY created_at`,
+      this.userId, providerId,
+    )
+    return rows.map(toProviderKey)
+  }
+
+  async createProviderKey(providerId: string, input: { label: string, apiKey: string }): Promise<AssistantProviderKey> {
+    const id = newId()
+    const at = Date.now()
+    const label = input.label.trim().slice(0, 60)
+    const key = input.apiKey.trim()
+    const ciphertext = await encryptAssistantKey(this.env, this.userId, key)
+    await this.write(
+      `INSERT INTO chat_provider_keys
+         (id, user_id, provider_id, label, key_ciphertext, key_hint, enabled, created_at, updated_at)
+       VALUES (?2, ?1, ?3, ?4, ?5, ?6, 1, ?7, ?8)`,
+      id, providerId, label, ciphertext, key.slice(-4), at, at,
+    )
+    return {
+      id, providerId, label, hasKey: true, keyHint: key.slice(-4), enabled: true,
+      lastUsedAt: null, errorCount: 0, lastError: null, createdAt: at, updatedAt: at,
+    }
+  }
+
+  async updateProviderKey(
+    id: string,
+    patch: { label?: string, enabled?: boolean, apiKey?: string | null },
+  ): Promise<AssistantProviderKey | null> {
+    const existing = await this.one<ProviderKeyRow>(
+      `SELECT ${PROVIDER_KEY_COLUMNS} FROM chat_provider_keys WHERE user_id = ?1 AND id = ?2`,
+      this.userId, id,
+    )
+    if (!existing) return null
+    const label = patch.label !== undefined ? patch.label.trim().slice(0, 60) : existing.label
+    const enabled = patch.enabled !== undefined ? (patch.enabled ? 1 : 0) : existing.enabled
+    let ciphertext = existing.key_ciphertext ?? ''
+    let hint = existing.key_hint ?? ''
+    if (patch.apiKey === null) {
+      ciphertext = ''
+      hint = ''
+    } else if (typeof patch.apiKey === 'string' && patch.apiKey.trim()) {
+      const key = patch.apiKey.trim()
+      ciphertext = await encryptAssistantKey(this.env, this.userId, key)
+      hint = key.slice(-4)
+    }
+    const at = Date.now()
+    await this.write(
+      `UPDATE chat_provider_keys SET label = ?2, enabled = ?3, key_ciphertext = ?4, key_hint = ?5, updated_at = ?6
+         WHERE user_id = ?1 AND id = ?7`,
+      label, enabled, ciphertext, hint, at, id,
+    )
+    return { ...toProviderKey(existing), label, enabled: Boolean(enabled), hasKey: Boolean(ciphertext), keyHint: hint, updatedAt: at }
+  }
+
+  async deleteProviderKey(id: string): Promise<void> {
+    await this.write(`DELETE FROM chat_provider_keys WHERE user_id = ?1 AND id = ?2`, id)
+  }
+
+  /**
+   * The key this call should sign with, chosen from everything the provider has.
+   *
+   * The provider's own key is one of the ring rather than a separate path: a reader who added two more
+   * expects all three to be used. The least recently used one goes first, which spreads turns without a
+   * cursor to keep — a key never used sorts ahead of one used a minute ago, and `created_at` breaks the
+   * tie so the order is stable rather than whichever row the database happened to return.
+   */
+  async pickProviderKey(record: ProviderRow): Promise<{ keyId: string, key: string, label: string } | null> {
+    const ring: Array<{ keyId: string, ciphertext: string, lastUsedAt: number, order: number, label: string }> = []
+    if (record.key_ciphertext) {
+      ring.push({
+        keyId: '',
+        ciphertext: record.key_ciphertext,
+        lastUsedAt: record.key_last_used_at ?? 0,
+        order: -1,
+        label: record.label,
+      })
+    }
+    const extras = await this.rows<ProviderKeyRow>(
+      `SELECT ${PROVIDER_KEY_COLUMNS} FROM chat_provider_keys
+        WHERE user_id = ?1 AND provider_id = ?2 AND enabled = 1 ORDER BY created_at`,
+      this.userId, record.id,
+    )
+    for (const row of extras) {
+      if (!row.key_ciphertext) continue
+      ring.push({ keyId: row.id, ciphertext: row.key_ciphertext, lastUsedAt: row.last_used_at ?? 0, order: row.created_at, label: row.label })
+    }
+    if (!ring.length) return null
+    ring.sort((left, right) => (left.lastUsedAt - right.lastUsedAt) || (left.order - right.order))
+    for (const candidate of ring) {
+      const key = (await decryptAssistantKey(this.env, this.userId, candidate.ciphertext)) ?? ''
+      if (key) return { keyId: candidate.keyId, key, label: candidate.label }
+    }
+    return null
+  }
+
+  /** Records that a key just answered, so the next turn starts from a different one. */
+  async markProviderKeyUsed(providerId: string, keyId: string): Promise<void> {
+    const at = Date.now()
+    if (keyId) {
+      await this.write(`UPDATE chat_provider_keys SET last_used_at = ?2 WHERE user_id = ?1 AND id = ?3`, at, keyId)
+      return
+    }
+    await this.write(`UPDATE chat_providers SET key_last_used_at = ?2 WHERE user_id = ?1 AND id = ?3`, at, providerId)
+  }
+
+  /** What a key last said when it failed, for the row that has to show which one is broken. */
+  async recordProviderKeyError(keyId: string, message: string): Promise<void> {
+    if (!keyId) return
+    await this.write(
+      `UPDATE chat_provider_keys SET error_count = error_count + 1, last_error = ?2, updated_at = ?3
+         WHERE user_id = ?1 AND id = ?4`,
+      message.slice(0, 300), Date.now(), keyId,
+    )
   }
 
   /**
@@ -747,15 +865,18 @@ export class AssistantStore {
    */
   async vendorAccess(id: string): Promise<{ protocol: AssistantProtocol, baseUrl: string, apiKey: string } | null> {
     const row = await this.one<ProviderRow>(
-      `SELECT id, label, protocol, base_url, endpoints, reasoning_dialect, key_ciphertext, created_at, updated_at
+      `SELECT id, label, protocol, base_url, endpoints, reasoning_dialect, key_ciphertext, key_last_used_at, created_at, updated_at
          FROM chat_providers WHERE user_id = ?1 AND id = ?2`,
       this.userId, id,
     )
     if (!row) return null
+    // The listing goes through the same ring a turn does, so a provider whose first key is spent can
+    // still be listed with the one that works.
+    const picked = await this.pickProviderKey(row)
     return {
       protocol: pickEnum(row.protocol, ASSISTANT_PROTOCOLS, 'openai'),
       baseUrl: row.base_url,
-      apiKey: await this.providerKey(row),
+      apiKey: picked?.key ?? '',
     }
   }
 
@@ -3268,6 +3389,8 @@ export interface ProviderRow {
   endpoints?: string | null
   reasoning_dialect?: string | null
   key_ciphertext?: string | null
+  /** When the provider's own key last signed a call; null until it has been used once. */
+  key_last_used_at?: number | null
   has_key?: number | null
   created_at: number
   updated_at: number
@@ -3296,6 +3419,36 @@ function toProvider(r: ProviderRow): AssistantProvider {
     hasKey: bool(r.has_key ?? Boolean(r.key_ciphertext)),
     // The ciphertext is never decrypted to build a view, so no listing can carry a key out.
     keyHint: '',
+    createdAt: r.created_at,
+    updatedAt: r.updated_at,
+  }
+}
+
+interface ProviderKeyRow {
+  id: string
+  provider_id: string
+  label: string
+  key_ciphertext?: string | null
+  key_hint?: string | null
+  enabled: number
+  last_used_at?: number | null
+  error_count: number
+  last_error?: string | null
+  created_at: number
+  updated_at: number
+}
+
+function toProviderKey(r: ProviderKeyRow): AssistantProviderKey {
+  return {
+    id: r.id,
+    providerId: r.provider_id,
+    label: r.label,
+    hasKey: Boolean(r.key_ciphertext),
+    keyHint: r.key_hint ?? '',
+    enabled: bool(r.enabled),
+    lastUsedAt: r.last_used_at ?? null,
+    errorCount: r.error_count ?? 0,
+    lastError: r.last_error ?? null,
     createdAt: r.created_at,
     updatedAt: r.updated_at,
   }

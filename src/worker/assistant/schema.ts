@@ -28,12 +28,34 @@ export const ASSISTANT_SCHEMA_STATEMENTS: readonly string[] = [
     endpoints TEXT NOT NULL DEFAULT '{}',
     reasoning_dialect TEXT,
     key_ciphertext TEXT NOT NULL DEFAULT '',
+    key_last_used_at INTEGER,
     created_at INTEGER NOT NULL,
     updated_at INTEGER NOT NULL,
     PRIMARY KEY (user_id, id)
   )`,
   `CREATE INDEX IF NOT EXISTS idx_chat_providers_user
      ON chat_providers(user_id, created_at)`,
+
+  // The extra keys a provider may rotate through, beside the one on the provider's own row. A reader
+  // with two accounts at one vendor gets both rate limits, and a key that starts failing can be switched
+  // off without losing it. The ciphertext is the same vault material the provider's own key is.
+  `CREATE TABLE IF NOT EXISTS chat_provider_keys (
+    user_id TEXT NOT NULL,
+    id TEXT NOT NULL,
+    provider_id TEXT NOT NULL,
+    label TEXT NOT NULL DEFAULT '',
+    key_ciphertext TEXT NOT NULL DEFAULT '',
+    key_hint TEXT NOT NULL DEFAULT '',
+    enabled INTEGER NOT NULL DEFAULT 1,
+    last_used_at INTEGER,
+    error_count INTEGER NOT NULL DEFAULT 0,
+    last_error TEXT,
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL,
+    PRIMARY KEY (user_id, id)
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_chat_provider_keys_provider
+     ON chat_provider_keys(user_id, provider_id, created_at)`,
 
   /**
    * The reader's own saved prompts, the library behind the composer's `/` and ➕ entries.
@@ -494,6 +516,7 @@ export const ASSISTANT_REQUIRED_TABLES: readonly string[] = [
   'chat_usage_daily',
   'chat_usage_daily_model',
   'chat_usage_daily_key',
+  'chat_provider_keys',
   'chat_share_links',
   'chat_activity',
   'chat_active_runs',
@@ -527,6 +550,7 @@ export const ASSISTANT_REQUIRED_INDEXES: readonly string[] = [
   'idx_chat_actions_pending',
   'idx_chat_usage_model_user',
   'idx_chat_usage_key_user',
+  'idx_chat_provider_keys_provider',
   'idx_chat_share_links_conversation',
   'idx_chat_activity_user',
   'idx_chat_active_runs_user',
@@ -541,7 +565,8 @@ export const ASSISTANT_REQUIRED_COLUMNS: Readonly<Record<string, readonly string
   chat_usage_daily_model: ['user_id', 'day', 'model_label', 'requests', 'input_tokens', 'output_tokens', 'tool_calls', 'errors'],
   chat_usage_daily_key: ['user_id', 'day', 'model_label', 'provider_id', 'provider_label', 'key_id', 'key_label', 'requests', 'input_tokens', 'output_tokens', 'tool_calls', 'errors'],
   chat_share_links: ['slug', 'conversation_id', 'user_id', 'password_hash', 'expires_at', 'views', 'created_at'],
-  chat_providers: ['user_id', 'id', 'label', 'protocol', 'base_url', 'endpoints', 'reasoning_dialect', 'key_ciphertext', 'created_at', 'updated_at'],
+  chat_providers: ['user_id', 'id', 'label', 'protocol', 'base_url', 'endpoints', 'reasoning_dialect', 'key_ciphertext', 'key_last_used_at', 'created_at', 'updated_at'],
+  chat_provider_keys: ['user_id', 'id', 'provider_id', 'label', 'key_ciphertext', 'key_hint', 'enabled', 'last_used_at', 'error_count', 'last_error', 'created_at', 'updated_at'],
   chat_models: ['user_id', 'id', 'provider_id', 'model', 'label', 'temperature', 'max_output_tokens', 'reasoning', 'context_tokens', 'vision',
     'purpose', 'kind', 'supports_tools', 'max_input_tokens', 'modalities', 'top_p', 'custom_params', 'protocol',
     'input_price', 'output_price', 'price_currency', 'enabled', 'position'],

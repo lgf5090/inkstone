@@ -105,6 +105,27 @@ export interface AssistantProvider {
   updatedAt: number
 }
 
+/**
+ * One extra key a provider rotates through, as the settings screen reads it back.
+ *
+ * The plaintext never leaves the worker: this carries the same last-four hint the provider's own key
+ * does, plus what the rotation has learned about it — when it last answered and what it last said when
+ * it did not.
+ */
+export interface AssistantProviderKey {
+  id: string
+  providerId: string
+  label: string
+  hasKey: boolean
+  keyHint: string
+  enabled: boolean
+  lastUsedAt: number | null
+  errorCount: number
+  lastError: string | null
+  createdAt: number
+  updatedAt: number
+}
+
 /** Tolerant by design: a backup written by an older build must not lose the rest of the provider. */
 export function parseProviderEndpoints(value: unknown): Partial<Record<AssistantProtocol, string>> {
   let record: unknown = value

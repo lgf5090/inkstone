@@ -2935,6 +2935,61 @@ describe('note mentions', () => {
   })
 })
 
+describe('provider key rotation', () => {
+  it('adds a key, never echoes its plaintext, and rotates between the two', async () => {
+    await useExampleModel()
+    const providers = await call<{ providers: AssistantProvider[] }>('GET', '/api/assistant/providers')
+    const providerId = providers.providers[0]!.id
+
+    const added = await call<{ key: { id: string, hasKey: boolean, keyHint: string, enabled: boolean } }>(
+      'POST', `/api/assistant/providers/${providerId}/keys`, { label: 'second', apiKey: 'sk-second-key-4321' },
+    )
+    expect(added.key.hasKey).toBe(true)
+    expect(added.key.keyHint).toBe('4321')
+    expect(JSON.stringify(added)).not.toContain('sk-second-key-4321')
+
+    const listed = await call<{ keys: { id: string }[] }>('GET', `/api/assistant/providers/${providerId}/keys`)
+    expect(listed.keys).toHaveLength(1)
+    expect(JSON.stringify(listed)).not.toContain('sk-second-key-4321')
+
+    const auths: string[] = []
+    vi.stubGlobal('fetch', vi.fn(async (_url: unknown, init?: RequestInit) => {
+      auths.push(new Headers(init?.headers as HeadersInit).get('authorization') ?? '')
+      return new Response(sse(FINAL_FRAMES), { headers: { 'content-type': 'text/event-stream' } })
+    }))
+    await chatEvents({ message: 'one' })
+    await settleTurns()
+    await chatEvents({ message: 'two' })
+    await settleTurns()
+    vi.unstubAllGlobals()
+    // The provider's own key answers first; marking it used pushes the extra one ahead of it next turn.
+    expect(auths.some((value) => value.includes('sk-test-value-9876'))).toBe(true)
+    expect(auths.some((value) => value.includes('sk-second-key-4321'))).toBe(true)
+  })
+
+  it('switches a key off without losing it, and deletes it on request', async () => {
+    await useExampleModel()
+    const providers = await call<{ providers: AssistantProvider[] }>('GET', '/api/assistant/providers')
+    const providerId = providers.providers[0]!.id
+    const added = await call<{ key: { id: string } }>(
+      'POST', `/api/assistant/providers/${providerId}/keys`, { label: 'parked', apiKey: 'sk-parked-9999' },
+    )
+
+    const off = await call<{ key: { enabled: boolean, hasKey: boolean } }>(
+      'PATCH', `/api/assistant/providers/${providerId}/keys/${added.key.id}`, { enabled: false },
+    )
+    expect(off.key.enabled).toBe(false)
+    expect(off.key.hasKey).toBe(true)
+
+    // A key id from another provider reads as not found rather than being edited through this path.
+    expect(await status('PATCH', `/api/assistant/providers/${providers.providers[0]!.id}/keys/${oid('zz1')}`, { enabled: true })).toBe(404)
+
+    await call('DELETE', `/api/assistant/providers/${providerId}/keys/${added.key.id}`)
+    const listed = await call<{ keys: unknown[] }>('GET', `/api/assistant/providers/${providerId}/keys`)
+    expect(listed.keys).toHaveLength(0)
+  })
+})
+
 describe('backup round trip', () => {
   it('carries the reasoning along with the message it belongs to', async () => {
     const { AssistantStore } = await import('../src/worker/assistant/store')

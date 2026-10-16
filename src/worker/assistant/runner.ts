@@ -25,7 +25,7 @@ import type { Env } from '../env'
 import { ApiError } from '../lib/errors'
 import { newId, isValidId } from '../lib/id'
 import type { McpWriteContext } from '../mcp/writes'
-import type { AssistantStore } from './store'
+import type { AssistantStore, ProviderRow } from './store'
 import { MemoryHistoryService, type ConflictJudge } from './memory-service'
 import { AutomationService } from './automations'
 import { resolveNoteScope, type NoteScope } from './note-scope'
@@ -292,7 +292,7 @@ export class AssistantRunner {
       const { model, provider } = resolved
       const call = modelEndpoint(model, provider)
       modelLabel = model.label
-      const apiKey = await this.store.providerKey(provider)
+      const apiKey = await this.signKey(provider)
       const limits = this.settings.limits
       // A 1M model and a 4K model do not get fed the same amount: the reader sets this per model on the
       // composer's context control, and the assistant-wide ceiling is what a model without one falls back
@@ -555,6 +555,19 @@ export class AssistantRunner {
     }
   }
 
+  /**
+   * The key this call signs with, taken from the provider's ring and marked as just used.
+   *
+   * Marking it is what makes the rotation rotate: the next call sorts the least recently used key first,
+   * so a turn that takes several steps spreads across the ring instead of pinning the first one.
+   */
+  private async signKey(provider: ProviderRow): Promise<string> {
+    const picked = await this.store.pickProviderKey(provider)
+    if (!picked) return ''
+    await this.store.markProviderKeyUsed(provider.id, picked.keyId)
+    return picked.key
+  }
+
   /** Charges one or more model calls against the reader's daily ceiling, refusing when it is spent. */
   private async reserve(
     count: number,
@@ -588,7 +601,7 @@ export class AssistantRunner {
       if (!(await this.reserve(1, this.settings.limits.maxRequestsPerDay))) return null
       for await (const event of streamUpstream(call.protocol, {
         baseUrl: call.baseUrl,
-        apiKey: await this.store.providerKey(resolved.provider),
+        apiKey: await this.signKey(resolved.provider),
         model: resolved.model.model,
         system: promptCatalog(this.settings.language).summarizer_system,
         turns: [{ role: 'user', content: summarizerPrompt(this.settings.language, previous, transcript) }],
@@ -834,7 +847,7 @@ export class AssistantRunner {
     try {
       for await (const event of streamUpstream(call.protocol, {
         baseUrl: call.baseUrl,
-        apiKey: await this.store.providerKey(resolved.provider),
+        apiKey: await this.signKey(resolved.provider),
         model: resolved.model.model,
         system: catalog.conflict_system,
         turns: [{
@@ -903,7 +916,7 @@ export class AssistantRunner {
       const calls: ToolCallRecord[] = []
       for await (const event of this.step(call.protocol, {
         baseUrl: call.baseUrl,
-        apiKey: await this.store.providerKey(resolved.provider),
+        apiKey: await this.signKey(resolved.provider),
         model: resolved.model.model,
         system,
         turns,

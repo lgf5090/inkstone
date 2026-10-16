@@ -1722,6 +1722,52 @@ assistantRoutes.patch('/providers/:id', async (c) => {
 })
 
 /**
+ * The extra keys a provider rotates through, beside the one on the provider's own row.
+ *
+ * The plaintext never comes back out: a key is written once and only its last four characters are ever
+ * readable again, which is the same bargain the provider's own key already makes.
+ */
+assistantRoutes.get('/providers/:id/keys', async (c) => {
+  const s = store(c)
+  const id = requiredId(c.req.param('id'))
+  if (!(await s.getProvider(id))) throw ApiError.notFound('Provider not found')
+  return c.json({ keys: await s.listProviderKeys(id) })
+})
+
+assistantRoutes.post('/providers/:id/keys', async (c) => {
+  const s = store(c)
+  const id = requiredId(c.req.param('id'))
+  if (!(await s.getProvider(id))) throw ApiError.notFound('Provider not found')
+  const body = await readJson<{ label?: unknown, apiKey?: unknown }>(c, JSON_BODY_LIMITS.small)
+  const apiKey = text(body.apiKey, 4096)
+  return c.json({ key: await s.createProviderKey(id, { label: optionalText(body.label, 60) ?? '', apiKey }) }, 201)
+})
+
+assistantRoutes.patch('/providers/:id/keys/:keyId', async (c) => {
+  const s = store(c)
+  const id = requiredId(c.req.param('id'))
+  const keyId = requiredId(c.req.param('keyId'))
+  const body = await readJson<Record<string, unknown>>(c, JSON_BODY_LIMITS.small)
+  const updated = await s.updateProviderKey(keyId, {
+    ...(body.label !== undefined ? { label: optionalText(body.label, 60) ?? '' } : {}),
+    ...(body.enabled !== undefined ? { enabled: body.enabled === true } : {}),
+    ...(body.apiKey === null ? { apiKey: null } : typeof body.apiKey === 'string' ? { apiKey: text(body.apiKey, 4096) } : {}),
+  })
+  // The provider in the path is checked too, so a key id from another provider reads as not found.
+  if (!updated || updated.providerId !== id) throw ApiError.notFound('Key not found')
+  return c.json({ key: updated })
+})
+
+assistantRoutes.delete('/providers/:id/keys/:keyId', async (c) => {
+  const s = store(c)
+  const id = requiredId(c.req.param('id'))
+  const keyId = requiredId(c.req.param('keyId'))
+  if (!(await s.listProviderKeys(id)).some((key) => key.id === keyId)) throw ApiError.notFound('Key not found')
+  await s.deleteProviderKey(keyId)
+  return c.json({ deleted: true })
+})
+
+/**
  * What the reader's key can actually call, straight from the vendor.
  *
  * The picker offers these ids rather than a bundled list, so a model that is not on this account never

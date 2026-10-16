@@ -14663,6 +14663,7 @@ const allowed = new Map([
     "/** A model label, as the transcript spells it. */",
     "/** A provider id, optionally narrowed to one of its keys by `keyId`. */",
     "/** Every model label seen in the window, unfiltered, so the model picker keeps all its choices. */",
+    "/**\n * One extra key a provider rotates through, as the settings screen reads it back.\n *\n * The plaintext never leaves the worker: this carries the same last-four hint the provider's own key\n * does, plus what the rotation has learned about it — when it last answered and what it last said when\n * it did not.\n */",
   ]],
   ["src/shared/backup-format.ts", [
     "/** The account's own template library, absent from a backup taken before it was worth keeping. */",
@@ -15540,6 +15541,7 @@ const allowed = new Map([
     "// The mentions in the turn being asked are resolved here, once, so the model is handed the note's",
     "// words rather than a title it would have to guess a lookup for. Only the last user turn: an older",
     "// one's mentions were answered when it was asked, and re-reading them would spend the budget twice.",
+    "/**\n   * The key this call signs with, taken from the provider's ring and marked as just used.\n   *\n   * Marking it is what makes the rotation rotate: the next call sorts the least recently used key first,\n   * so a turn that takes several steps spreads across the ring instead of pinning the first one.\n   */",
   ]],
   ["src/worker/assistant/scheduler.ts", [
     "/**\n * The minute sweep that runs what is due.\n *\n * Wired into the worker's cron handler alongside the existing queue drains, and deliberately kept out\n * of the hourly branch: a reminder is cheap and late delivery is visible, while the heavy work that\n * runs on the hour (backups, attachment cleanup) must not be able to take the reminders down with it.\n *\n * A routine that calls a model can outlive the sweep that started it, so each automation is claimed\n * before it runs and the claim is only released when it is re-armed — which is what stops a slow AI\n * digest from being started twice by two overlapping ticks.\n */",
@@ -15573,6 +15575,9 @@ const allowed = new Map([
     "// label rides along so a key-scoped view can still show which models that key paid for. Labels are",
     "// stored beside ids because a label is what the transcript shows and what survives a row being renamed",
     "// or deleted; `key_id` stays empty until a provider carries more than one key.",
+    "// The extra keys a provider may rotate through, beside the one on the provider's own row. A reader",
+    "// with two accounts at one vendor gets both rate limits, and a key that starts failing can be switched",
+    "// off without losing it. The ciphertext is the same vault material the provider's own key is.",
   ]],
   ["src/worker/assistant/semantic.ts", [
     "/**\n * Semantic recall for memories, on the deployment's own Workers AI stack.\n *\n * The reference project shipped its own embedding pipeline; this app already has one for notes\n * (`src/worker/mcp/ai-search.ts`), so the model name, the blob layout, the cosine helper and the\n * rank-fusion are imported from there rather than reimplemented — two encoders would silently stop\n * matching each other's vectors, and every recall would come back empty with no error to read.\n *\n * A memory is embedded when it is written, which is rare and small: the whole set is a few dozen\n * rows, so ranking is a scan rather than an index. The daily cap is the reader's, counted in the same\n * table as the request cap.\n */",
@@ -15618,7 +15623,6 @@ const allowed = new Map([
     "// ---------------------------------------------------------------- settings",
     "// --------------------------------------------------------------- providers",
     "/** Includes the ciphertext: only the worker may hold it, and only to sign one upstream request. */",
-    "/** The plaintext key for one upstream call. No route returns this value. */",
     "// ------------------------------------------------------------------ models",
     "// ----------------------------------------------------------- conversations",
     "// ---------------------------------------------------------------- memories",
@@ -15770,6 +15774,15 @@ const allowed = new Map([
     "/** The per-model rows for one slice of the key dimension, most used first. */",
     "/** The words the bytes carry but the worker cannot read — a PDF's text layer, read in the browser. */",
     "/**\n   * The text a document's own bytes could not be decoded into, by attachment id.\n   *\n   * Kept out of {@link chatAttachments} because it is model-facing prompt fuel, not a field the client\n   * renders, and a whole PDF's text has no business riding in a list response.\n   */",
+    "/** A provider key row, ciphertext included: read only by the rotation, never by a listing. */",
+    "// The extra keys go with the provider: a key with no address to reach is not something to keep.",
+    "/** The extra keys on a provider, oldest first, without their ciphertext. */",
+    "/**\n   * The key this call should sign with, chosen from everything the provider has.\n   *\n   * The provider's own key is one of the ring rather than a separate path: a reader who added two more\n   * expects all three to be used. The least recently used one goes first, which spreads turns without a\n   * cursor to keep — a key never used sorts ahead of one used a minute ago, and `created_at` breaks the\n   * tie so the order is stable rather than whichever row the database happened to return.\n   */",
+    "/** Records that a key just answered, so the next turn starts from a different one. */",
+    "/** What a key last said when it failed, for the row that has to show which one is broken. */",
+    "// The listing goes through the same ring a turn does, so a provider whose first key is spent can",
+    "// still be listed with the one that works.",
+    "/** When the provider's own key last signed a call; null until it has been used once. */",
   ]],
   ["src/worker/assistant/tools.ts", [
     "/**\n * The tools the assistant can reach, and the executor that runs them.\n *\n * Three things are enforced here rather than asked of the model, because a model that is confident and\n * wrong is the failure mode this app has to survive:\n *  - **budgets** — a per-turn call cap, a per-tool cap and a duplicate-call refusal, so a reasoning\n *    loop cannot spend the reader's AI quota or write a hundred tasks;\n *  - **validation** — arguments are checked against the same declaration that generates the JSON\n *    Schema the provider is given, so the two can never disagree;\n *  - **approval** — a destructive tool never runs during the turn. `prepare` resolves the exact target\n *    and writes a pending action; `commit` runs only when the reader presses Approve, once, on that\n *    target. The model can propose; it cannot delete.\n *\n * Scheduled runs get read-only tools plus `notify_reader`, so a routine that has drifted cannot edit\n * the vault while nobody is watching.\n */",
@@ -16188,6 +16201,8 @@ const allowed = new Map([
     "// The words a document's own bytes carry but the worker cannot pull out — a PDF's text layer, read",
     "// in the browser where the parser already runs. Stored beside the file so the model is shown the",
     "// contents on every turn, not only the one that carried the upload.",
+    "// When the provider's own key last signed a call, so rotation can prefer the least recently used one",
+    "// instead of always starting from the same key. Extra keys carry their own column on their own row.",
   ]],
   ["src/worker/db/writes.ts", [
     "/** Keeps tags, backlinks, full-text indexes, and change records consistent with note writes. */",
@@ -16712,6 +16727,8 @@ const allowed = new Map([
     "// other picker.",
     "// The browser's own reading of the document, when it could make one. Absent is fine: the file is",
     "// still stored and named, and the model is told the contents were not read.",
+    "/**\n * The extra keys a provider rotates through, beside the one on the provider's own row.\n *\n * The plaintext never comes back out: a key is written once and only its last four characters are ever\n * readable again, which is the same bargain the provider's own key already makes.\n */",
+    "// The provider in the path is checked too, so a key id from another provider reads as not found.",
   ]],
   ["src/worker/routes/auth.ts", [
     "// Account-wide cap so a distributed botnet cannot retry one account",
@@ -17386,6 +17403,8 @@ const allowed = new Map([
     "// Both read paths spell the columns out by hand, so the list has to carry them too.",
     "// The read path omits the field rather than spelling null, so absence is the \"left the project\" answer.",
     "// The one the browser could not read is named rather than silently presented as empty.",
+    "// The provider's own key answers first; marking it used pushes the extra one ahead of it next turn.",
+    "// A key id from another provider reads as not found rather than being edited through this path.",
   ]],
   ["tests/assistant-rules.test.ts", [
     "/**\n * The rules the assistant is built on, tested where they are written.\n *\n * These are the parts a browser session cannot prove: what a Chinese sentence means to the conflict\n * rules, how a wall-clock schedule survives a daylight-saving change, how many tokens a Han vault\n * really costs. Each fixture is chosen so a plausible-but-wrong implementation would fail it — the\n * pair that differs only in a change word, a date the reader never stated, a schedule that crosses a\n * clock change — rather than so the function merely runs.\n */",
