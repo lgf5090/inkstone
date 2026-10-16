@@ -23,10 +23,10 @@ import { omnisearchIndexer } from '../omnisearch/indexer';
 import { useQuickAddBridge } from '../quickadd/bridge';
 import { useQuickAdd } from '../../store/quickadd';
 import { Sidebar } from '../sidebar/Sidebar';
+import { AssistantDock } from '../chat/AssistantDock';
 import { NoteList } from '../list/NoteList';
 import { SearchButton } from './SearchButton';
-import { MobileAccount } from './MobileAccount';
-import { Resizer, SplitResizer } from './Resizer';
+import { MobileAccount } from './MobileAccount';import { Resizer, SplitResizer } from './Resizer';
 import { t } from "../../lib/i18n";
 import { SettingsPanel } from '../settings/SettingsPanel';
 import { PinnedWindowsLayer } from '../preview/pinned-windows-layer';
@@ -148,6 +148,7 @@ export function AppShell() {
     const listCollapsed = useUi((s) => s.listCollapsed);
     const navDrawerOpen = useUi((s) => s.navDrawerOpen);
     const workspaceSecondaryNoteId = useUi((s) => s.workspaceSecondaryNoteId);
+    const assistantDockOpen = useUi((s) => s.assistantDockOpen);
     const workspaceSplitRatio = useUi((s) => s.workspaceSplitRatio);
     const toggleNav = useUi((s) => s.toggleNav);
     const toggleNavDrawer = useUi((s) => s.toggleNavDrawer);
@@ -198,6 +199,11 @@ export function AppShell() {
               </div>)}
           </Suspense>
         </main>
+
+        {/* The assistant's column belongs to the notebook's frame rather than to one pane, so it keeps
+            its thread while the reader moves between notes — and it is not drawn on a phone, where the
+            assistant has a tab of its own and a third column would be a slice of the page. */}
+        {assistantDockOpen && !isMobile && <AssistantDock />}
       </div>
 
       <Drawer open={navAsDrawer} onClose={() => toggleNavDrawer(false)} side="left" width={272} title={t("common.navigation")}>

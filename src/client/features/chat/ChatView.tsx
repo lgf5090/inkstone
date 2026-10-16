@@ -52,7 +52,7 @@ import {
 import { useUi } from '../../store/ui'
 import { useNotes } from '../../store/notes'
 import { MarkdownBody } from '../preview/MarkdownBody'
-import { PASTE_FILE_MIN_CHARS, useAssistant } from './assistant-store'
+import { PASTE_FILE_MIN_CHARS, useAssistant, type AssistantView } from './assistant-store'
 import { MessageMenu, useMessageMenu } from './MessageMenu'
 import { AssistantBubble } from './MessageParts'
 import { CanvasPanel } from './CanvasPanel'
@@ -344,7 +344,7 @@ export function ChatView() {
             onExit={() => setSelected(null)}
           />
         )}
-        <Composer
+        <ChatComposer
           streaming={streaming}
           sendOnEnter={useAssistant((state) => state.settings?.sendOnEnter ?? true)}
           onSend={(text) => void send(text)}
@@ -1082,18 +1082,28 @@ function ContextStrip() {
   )
 }
 
-function Composer({
+/**
+ * The box a reader asks in.
+ *
+ * Exported because the notebook's docked panel asks the same way the chat tab does: one composer, so a
+ * model chip, a `/` pin or an attachment behaves identically wherever the reader happens to be typing.
+ * The two things that cannot be shared are the surfaces the "manage" entries open — the dock has no
+ * assistant tabs of its own, so it is handed a way out instead.
+ */
+export function ChatComposer({
   streaming,
   sendOnEnter,
   onSend,
   onStop,
   disabled,
+  onManage,
 }: {
   streaming: boolean
   sendOnEnter: boolean
   onSend: (text: string) => void
   onStop: () => void
   disabled?: boolean
+  onManage?: (view: AssistantView) => void
 }) {
   const [value, setValue] = useState('')
   const seed = useAssistant((state) => state.composerSeed)
@@ -1124,6 +1134,9 @@ ${current}` : seed))
   const updateModel = useAssistant((state) => state.updateModel)
   const saveSettings = useAssistant((state) => state.saveSettings)
   const setView = useAssistant((state) => state.setView)
+  // Where a "manage" entry goes: the assistant's own tab when the composer is drawn inside it, and
+  // whatever the host offers when it is not.
+  const manage = onManage ?? setView
   const [pickingNote, setPickingNote] = useState(false)
   const [trigger, setTrigger] = useState<ActiveTrigger | null>(null)
   const [triggerRows, setTriggerRows] = useState<TriggerRow[]>([])
@@ -1389,7 +1402,7 @@ ${current}` : seed))
                 // written for: the chips below the box change, which is what says the change happened.
                 if (row.skill) applySkill(row.skill)
               }}
-              onManageSkills={() => setView('skills')}
+              onManageSkills={() => manage('skills')}
             />
             <IconButton label={t('assistant.attach.add_file')} size="sm" onClick={() => fileRef.current?.click()} className="size-7 rounded-[var(--r-md)]">
               <Paperclip size={14} />
@@ -1420,7 +1433,7 @@ ${current}` : seed))
                 models={enabled}
                 activeId={settings?.activeModelId ?? null}
                 onPick={(id) => void activateModel(id)}
-                onManage={() => setView('settings')}
+                onManage={() => manage('settings')}
                 onVision={(next) => void updateModel(active?.id ?? '', { vision: next })}
               />
               <Divider vertical className="mx-0.5" />

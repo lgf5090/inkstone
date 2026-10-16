@@ -1,7 +1,7 @@
 import { APP_SHORTCUTS } from '../../lib/shortcuts';
 import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { EditorView } from '@codemirror/view';
-import { ArrowLeft, Columns2, Download, Eye, FileCode, FileDown, FileText, FolderClosed, Hash, History, Link as LinkIcon, ListTree, MoreHorizontal, PanelRightClose, Pencil, Plus, Presentation, Share2, Star, Waypoints, X, } from 'lucide-react';
+import { ArrowLeft, Columns2, Download, Eye, FileCode, FileDown, FileText, FolderClosed, Hash, History, Link as LinkIcon, ListTree, MoreHorizontal, PanelRightClose, Pencil, Plus, Presentation, Share2, Sparkles, Star, Waypoints, X, } from 'lucide-react';
 import { cn } from '../../lib/cn';
 import { insertRenderedTemplate } from '../../editor/commands';
 import { api } from '../../lib/api';
@@ -77,6 +77,8 @@ export function Workspace({ onMobileBack, pane = 'active', grouped = false, }: {
     const toggleBacklinks = useUi((s) => s.toggleBacklinks);
     const localGraphOpen = useUi((s) => s.localGraphOpen);
     const toggleLocalGraph = useUi((s) => s.toggleLocalGraph);
+    const assistantDockOpen = useUi((s) => s.assistantDockOpen);
+    const toggleAssistantDock = useUi((s) => s.toggleAssistantDock);
     const splitRatio = useUi((s) => s.splitRatio);
     const setLayout = useUi((s) => s.setLayout);
     const activeWorkspacePane = useUi((s) => s.activeWorkspacePane);
@@ -643,6 +645,11 @@ export function Workspace({ onMobileBack, pane = 'active', grouped = false, }: {
               <Waypoints size={14}/>
             </IconButton>
           </Tooltip>
+          {paneActive && (<Tooltip label={t("assistant.dock.toggle")}>
+            <IconButton label={t("assistant.dock.toggle")} size="sm" active={assistantDockOpen} onClick={toggleAssistantDock}>
+              <Sparkles size={14}/>
+            </IconButton>
+          </Tooltip>)}
           </>}
           {!isMobile && (<Tooltip label={t("common.version_history")}>
               <IconButton label={t("common.version_history")} size="sm" onClick={() => openPanel('versions')}>

@@ -96,6 +96,14 @@ interface UiState {
   outlineCommand: { action: OutlineCommand; seq: number } | null
   backlinksOpen: boolean
   localGraphOpen: boolean
+  /**
+   * Whether the assistant's panel is docked beside the notebook.
+   *
+   * The notebook is where the reader writes, so asking about what they are writing should not cost them
+   * the page: the panel is a column of the notebook's own frame rather than a trip to the chat tab, and
+   * the note they have open rides along as context exactly as it does there.
+   */
+  assistantDockOpen: boolean
   toasts: ToastItem[]
   lightbox: { src: string; alt: string } | null
 
@@ -142,6 +150,8 @@ interface UiState {
   toggleBacklinks: () => void
   clearRecentNotes: () => void
   toggleLocalGraph: () => void
+  toggleAssistantDock: () => void
+  setAssistantDock: (open: boolean) => void
   showBacklinks: () => void
   setLightbox: (value: UiState['lightbox']) => void
   /**
@@ -223,6 +233,7 @@ const PERSISTED_KEYS = [
   'accent',
   'background',
   'fontScale',
+  'assistantDockOpen',
 ] as const
 
 function loadPersisted(): Partial<UiState> {
@@ -293,6 +304,7 @@ function loadPersisted(): Partial<UiState> {
       out.background = value.background as BackgroundName
     }
     if (isFiniteNumber(value.fontScale)) out.fontScale = clamp(Math.round(value.fontScale), 13, 22)
+    if (typeof value.assistantDockOpen === 'boolean') out.assistantDockOpen = value.assistantDockOpen
     if (!out.workspaceSecondaryNoteId) {
       out.workspacePrimaryNoteId = null
       out.activeWorkspacePane = 'primary'
@@ -412,6 +424,7 @@ export const useUi = create<UiState>((set, get) => ({
   outlineCommand: null as { action: OutlineCommand; seq: number } | null,
   backlinksOpen: false,
   localGraphOpen: false,
+  assistantDockOpen: false,
   toasts: [],
   lightbox: null,
   templateInsert: null as TemplateInsert | null,
@@ -623,6 +636,8 @@ export const useUi = create<UiState>((set, get) => ({
    */
   clearRecentNotes: () => set({ recentNoteIds: [] }),
   toggleLocalGraph: () => set((s) => ({ localGraphOpen: !s.localGraphOpen })),
+  toggleAssistantDock: () => set((s) => ({ assistantDockOpen: !s.assistantDockOpen })),
+  setAssistantDock: (open) => set({ assistantDockOpen: open }),
   showBacklinks: () => set({ backlinksOpen: true }),
   setLightbox: (lightbox) => set({ lightbox }),
 

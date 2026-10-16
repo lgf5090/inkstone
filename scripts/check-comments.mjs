@@ -896,6 +896,10 @@ const allowed = new Map([
     "/**\n   * The summary is read back from the server rather than counted here, so the toast cannot claim a\n   * merge that did not happen; the skipped notes are what an imported file was not allowed to change.\n   */",
     "/* The numbers come first: a reader who opens this tab is usually asking what the assistant has\n          been costing, and the export and delete rows below are what they do about it. */",
   ]],
+  ["src/client/features/chat/AssistantDock.tsx", [
+    "/**\n * The assistant, docked beside the note.\n *\n * Asking about what you are writing used to mean leaving the page: the chat tab replaces the notebook,\n * so \"is this paragraph clear?\" cost a reader the paragraph. The dock is the same conversation in a\n * column of the notebook's own frame — same store, same composer, same replies — so the thread that\n * answers a question about this note is the thread they can come back to later.\n *\n * It is deliberately not a second assistant. There is one active conversation, and the chat tab and this\n * panel are two windows onto it: switching between them keeps the answer that is streaming, because the\n * turn lives in the store rather than in either surface.\n *\n * The note on screen is the context by default. That is the whole point of the panel, so it is switched\n * on when the panel opens rather than inherited from whatever the chat tab was last set to — and it is\n * drawn as a chip the reader can take off, because a context they cannot see is one they cannot correct.\n */",
+    "// The panel exists to ask about this page, so opening it points the next turn at the page.",
+  ]],
   ["src/client/features/chat/AssistantHeader.tsx", [
     "/**\n * The title block every assistant page opens with.\n *\n * The surfaces behind the rail are one page with different contents, and each of them had written this\n * pair out for itself: a serif title at one size, and a line under it saying what the page is for. Three\n * copies drifted — one of them put its action beside the title and the others did not — so the shape\n * lives here. The action rides the title line, which is where a page's primary button belongs on a page\n * that also has a list under it.\n */",
     "/** Drawn on the title line, right-aligned; the page's primary action when it has one. */",
@@ -1173,6 +1177,9 @@ const allowed = new Map([
     "// The turns the share panel is open for: `null` while it is closed. One entry is \"share this message\"",
     "// from a turn's own menu, several is the picking bar's — the panel and the link are the same either",
     "// way, and only the scope differs.",
+    "/**\n * The box a reader asks in.\n *\n * Exported because the notebook's docked panel asks the same way the chat tab does: one composer, so a\n * model chip, a `/` pin or an attachment behaves identically wherever the reader happens to be typing.\n * The two things that cannot be shared are the surfaces the \"manage\" entries open — the dock has no\n * assistant tabs of its own, so it is handed a way out instead.\n */",
+    "// Where a \"manage\" entry goes: the assistant's own tab when the composer is drawn inside it, and",
+    "// whatever the host offers when it is not.",
   ]],
   ["src/client/features/chat/ComposerControls.tsx", [
     "/** The token count, spelled the way the reference's slider spells it: 32K, 128K, 262K. */",
@@ -1417,6 +1424,9 @@ const allowed = new Map([
     "/** A message row read from the server has to carry the fields the pager branches on. */",
     "// A paged-back answer brings its own trace along: reading it under the live one would credit the",
     "// older answer to the thinking the newer model just did.",
+  ]],
+  ["src/client/features/chat/assistant-dock.test.ts", [
+    "/**\n * The docked assistant.\n *\n * What is pinned here is the three things the panel promises and nothing about how a reply is drawn: it\n * shows the same thread the chat tab does, it points the next turn at the note on screen even when the\n * chat tab was last told otherwise, and it can be closed from inside itself.\n *\n * The composer's own wiring is covered where it lives; a stub stands in for it here so a mount does not\n * pull in the model picker, the trigger panel and their fetches.\n */",
   ]],
   ["src/client/features/chat/assistant-settings-shared.tsx", [
     "/**\n * What the assistant settings tabs share.\n *\n * The frame they hang in is AssistantSettingsView.tsx; this file is the parts more than one tab draws:\n * the section wrapper a tab groups its rows with, the three protocol names, and the preset row both token\n * editors are built from. They live here rather than in the shell because the shell no longer knows what\n * is inside a tab.\n */",
@@ -7228,6 +7238,7 @@ const allowed = new Map([
     "// Seeded once per account rather than once per mount: the app tabs can bring this shell back,",
     "// and a reader who closed the outline before visiting another notebook does not want it",
     "// reopened by coming back.",
+    "/* The assistant's column belongs to the notebook's frame rather than to one pane, so it keeps\n            its thread while the reader moves between notes — and it is not drawn on a phone, where the\n            assistant has a tab of its own and a third column would be a slice of the page. */",
   ]],
   ["src/client/features/shell/AppTabHost.tsx", [
     "/**\n * The frame the app tabs live in: the rail on the left, one container on the right.\n *\n * The sync engine belongs here rather than to the notebook, because it keeps the account rather\n * than a screen. Mounted one level above the tab switch it stays up while the reader moves between\n * containers, so a vault does not go quiet every time someone looks at another app.\n */",
@@ -14372,6 +14383,7 @@ const allowed = new Map([
     "// The reveal is decoration over a change already made: `apply()` ran inside the transition callback, so",
     "// the theme is on screen. `ready` rejects when the browser skips or supersedes the transition, and the",
     "// only thing a reader loses then is the circle growing from the button they pressed.",
+    "/**\n   * Whether the assistant's panel is docked beside the notebook.\n   *\n   * The notebook is where the reader writes, so asking about what they are writing should not cost them\n   * the page: the panel is a column of the notebook's own frame rather than a trip to the chat tab, and\n   * the note they have open rides along as context exactly as it does there.\n   */",
   ]],
   ["src/client/store/update.ts", [
     "// Recording a dismissal the reader already got, and the read above answers a refused storage with null,",
