@@ -1190,6 +1190,8 @@ const allowed = new Map([
     "/** Absent on a live turn: a verdict needs a row to be stored on. */",
     "/** Present while the reader is picking turns out of the thread. */",
     "/** Turns the thread into a picker, starting from this answer. */",
+    "/** The pages a web search consulted on this turn. Empty for an answer that did not search. */",
+    "/* Sources are the answer's own, so they are only shown beside it: an earlier answer paged back\n            to was built on pages this turn never saw, and listing them would credit it with a search it\n            did not do. */",
   ]],
   ["src/client/features/chat/ModelEditorDialog.tsx", [
     "/**\n * The model's own editor: what it is for, what it can do, and the numbers it is given.\n *\n * The composer's chips cover the two settings a reader changes often. This covers the rest, which are\n * per-model facts rather than per-conversation choices: whether the endpoint answers in pictures, how\n * much it claims to take in, and the vendor-specific fields our request builder does not know about.\n * Everything here is read by the request path — a switch that changed nothing would be worse than no\n * switch, because it would be believed.\n */",
@@ -14535,6 +14537,10 @@ const allowed = new Map([
     "/**\n * What the usage screen is drawn from.\n *\n * One window, its days, its models and its most expensive conversations, so the three panels on that\n * screen cannot disagree about which range they are describing: they are all read from one answer.\n */",
     "/** One entry per currency the reader's prices are in, never summed across them. */",
     "/** How many of the models used in this window have no price, so a total can say what it left out. */",
+    "/** A page the model actually consulted, as the vendor reported it. */",
+    "/** The passage the model leaned on, when the vendor said which one. */",
+    "/**\n * Whether a reported source is a link a reader can follow.\n *\n * The one check every reader of a vendor's citations makes in common: a chip that leads nowhere reads as\n * a broken app, and a vendor's payload is not a place to trust a string because it arrived in a url field.\n */",
+    "/**\n   * The pages a web search consulted, quoted from the vendor's own report.\n   *\n   * Kept with the answer because a claim that came from somewhere outside the vault has to say where:\n   * the reader is deciding whether to believe a sentence, and \"I searched the web\" is not a source.\n   * Empty for every turn that did not search.\n   */",
   ]],
   ["src/shared/backup-format.ts", [
     "/** The account's own template library, absent from a backup taken before it was worth keeping. */",
@@ -15333,6 +15339,12 @@ const allowed = new Map([
     "/**\n   * The note and folder the reader had on screen, named for the prompt.\n   *\n   * Both are read rather than taken from the request: the note has to be one they own and have not\n   * deleted, and the folder's name is this vault's — a caller that named its own folder would be\n   * writing a line of the system prompt.\n   */",
     "// The label travels with the counters so the day's models can be told apart: a reader with two",
     "// providers has two prices, and one total cannot be split after the fact.",
+    "/** The pages this turn searched, by url, in the order the vendor named them. */",
+    "// A turn's search results belong to that turn: a retry that searched again must not inherit the",
+    "// pages the answer it replaced was built on.",
+    "// What a search found. Collected as it arrives rather than at the end because the vendor reports",
+    "// it beside the text it feeds; Gemini repeats its whole list on every frame, so the same page",
+    "// would otherwise be listed a dozen times.",
   ]],
   ["src/worker/assistant/scheduler.ts", [
     "/**\n * The minute sweep that runs what is due.\n *\n * Wired into the worker's cron handler alongside the existing queue drains, and deliberately kept out\n * of the hourly branch: a reminder is cheap and late delivery is visible, while the heavy work that\n * runs on the hour (backups, attachment cleanup) must not be able to take the reminders down with it.\n *\n * A routine that calls a model can outlive the sweep that started it, so each automation is claimed\n * before it runs and the claim is only released when it is re-armed — which is what stops a slow AI\n * digest from being started twice by two overlapping ticks.\n */",
@@ -15515,6 +15527,7 @@ const allowed = new Map([
     "/** Every day in the range that has a number on it, for the trend and the heat map. */",
     "/** Midnight UTC of a `YYYY-MM-DD` day, which is the frame the daily counters are written in. */",
     "/** The day `count` days before `day`, so a window of 7 includes today. */",
+    "/**\n * The pages a stored answer searched.\n *\n * Read the same forgiving way tools are: a row written by an older build, or a backup from one, simply\n * has no sources, and a malformed entry is dropped rather than failing the whole transcript read.\n */",
   ]],
   ["src/worker/assistant/tools.ts", [
     "/**\n * The tools the assistant can reach, and the executor that runs them.\n *\n * Three things are enforced here rather than asked of the model, because a model that is confident and\n * wrong is the failure mode this app has to survive:\n *  - **budgets** — a per-turn call cap, a per-tool cap and a duplicate-call refusal, so a reasoning\n *    loop cannot spend the reader's AI quota or write a hundred tasks;\n *  - **validation** — arguments are checked against the same declaration that generates the JSON\n *    Schema the provider is given, so the two can never disagree;\n *  - **approval** — a destructive tool never runs during the turn. `prepare` resolves the exact target\n *    and writes a pending action; `commit` runs only when the reader presses Approve, once, on that\n *    target. The model can propose; it cannot delete.\n *\n * Scheduled runs get read-only tools plus `notify_reader`, so a routine that has drifted cannot edit\n * the vault while nobody is watching.\n */",
@@ -15599,6 +15612,13 @@ const allowed = new Map([
     "// request's: see `anthropicReasoning` for which models refuse them and why.",
     "/**\n   * The vendor's thinking shape when the reader pinned it on the provider.\n   *\n   * Null leaves the decision to `reasoningDialect`, which reads the address and the model's own name —\n   * right for every service that announces itself and no help at all for a gateway that does not.\n   */",
     "/** The thinking shape this request has to satisfy: the reader's pin, or what the address and model say. */",
+    "/** Pages the vendor reported as consulted, named the way the vendor names them. */",
+    "/**\n * The pages named inside one vendor's payload, whichever shape it uses.\n *\n * Three services report a search differently — OpenAI annotates the message, Anthropic sends a result\n * block beside the text that leans on it, Gemini hangs grounding metadata off the candidate — and none\n * of the three is guessable from the others. One reader per shape, called from the parser that already\n * holds the frame, because a second pass over the finished stream would be a second parser to keep in\n * step with the first.\n */",
+    "// A searched answer arrives with its citations as annotations on the text, one frame per delta.",
+    "// A search is a block of its own, and it arrives whole: the results are in it before the text",
+    "// that leans on them is streamed.",
+    "// Gemini hangs the pages it grounded on off the candidate rather than the text, and repeats the",
+    "// whole list as the answer streams, so the runner de-duplicates by url rather than here.",
   ]],
   ["src/worker/assistant/vault.ts", [
     "/**\n * The vault as lists and counts, for the tools that answer \"what do I have\".\n *\n * `search_notes` answers a topic out of the notes; nothing answered the questions a reader asks about\n * the notebook itself — how many notes there are, which folders they sit in, which tags label them —\n * so the assistant had to guess or say it could not tell. The rows are already there, and the scope\n * every note tool obeys applies to a listing exactly as it applies to a search.\n *\n * The SQL lives here rather than in `mcp/retrieval.ts` because the shape is different: a listing pages\n * by recency rather than by relevance, and the scope is the assistant's own permission model, which the\n * MCP server does not have. What the two share is the notes schema, and that is shared through\n * `db/rows.ts`.\n */",
@@ -15910,6 +15930,8 @@ const allowed = new Map([
     "// reason the entries above give.",
     "// The currency the two prices are in. Free text because the bill is in whatever the provider bills",
     "// in, and a closed list would be a list this app has to keep up to date for no gain.",
+    "// The pages a web search consulted. A JSON array on the row because it is read with the answer and",
+    "// written once: a table of sources would be joined for every message to show a list of links.",
   ]],
   ["src/worker/db/writes.ts", [
     "/** Keeps tags, backlinks, full-text indexes, and change records consistent with note writes. */",
@@ -17030,6 +17052,8 @@ const allowed = new Map([
     "// the reader pointed at two rows and the two rows are what goes.",
     "// The rollup described rows that are gone.",
     "// 1M input at 1 + 0.5M output at 2, per million: the arithmetic the reader would otherwise do by hand.",
+    "// A source is a link, so a row with no url is not one — and a stored answer that lost its links",
+    "// would read as an answer that never searched.",
   ]],
   ["tests/assistant-rules.test.ts", [
     "/**\n * The rules the assistant is built on, tested where they are written.\n *\n * These are the parts a browser session cannot prove: what a Chinese sentence means to the conflict\n * rules, how a wall-clock schedule survives a daylight-saving change, how many tokens a Han vault\n * really costs. Each fixture is chosen so a plausible-but-wrong implementation would fail it — the\n * pair that differs only in a change word, a date the reader never stated, a schedule that crosses a\n * clock change — rather than so the function merely runs.\n */",
@@ -17087,6 +17111,8 @@ const allowed = new Map([
     "// taken — the request path drops it too, rather than building a body the far end cannot read.",
     "// Qwen's switch has no depth between off and on, so nothing is offered between those two rungs.",
     "// A dialect whose service cannot be stopped starts at its cheapest rung instead of offering off.",
+    "/**\n * The pages a search consulted.\n *\n * Each service reports them in its own shape, and the shape is the whole of the work: a reader who asked\n * a question that needed the web is owed the links, and getting the shape wrong means an answer with no\n * sources at all — which looks exactly like an answer that did not search.\n */",
+    "// A text block is not a search, and a block that claims to be one with no usable rows yields nothing.",
   ]],
   ["tests/assistant-vault.test.ts", [
     "/**\n * What the assistant can say about the notebook itself.\n *\n * The reader's question was \"how many notes do I have\", and the answer used to be \"I cannot tell\":\n * `search_notes` matches a topic, so the count it reported was however many notes happened to contain\n * the words. These are the listings that answer the question directly, and the scope every note tool\n * obeys has to hold here too — a count that leaked a folder the reader excluded would be a permission\n * bug wearing the costume of a nice feature.\n */",

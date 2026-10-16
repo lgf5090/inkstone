@@ -19,6 +19,7 @@ import {
   ChevronLeft,
   ChevronRight,
   Copy,
+  ExternalLink,
   FileText,
   Loader2,
   MoreHorizontal,
@@ -32,7 +33,7 @@ import {
   Wrench,
   XCircle
 } from 'lucide-react'
-import type { AssistantAnswerVersion, MessageFeedback, ToolActivity } from '@shared/assistant'
+import type { AssistantAnswerVersion, AssistantSource, MessageFeedback, ToolActivity } from '@shared/assistant'
 import { ASSISTANT_TOOL_BY_NAME, mcpToolOrigin } from '@shared/assistant'
 import { cn } from '../../lib/cn'
 import { COPY_RESET_MS } from '../../lib/motion'
@@ -429,6 +430,7 @@ export function AssistantBubble({
   durationMs = 0,
   modelLabel = '',
   versionCount = 0,
+  sources = [],
   feedback,
   onRate,
   selection,
@@ -452,6 +454,8 @@ export function AssistantBubble({
   modelLabel?: string
   /** How many earlier answers this turn still holds. The pager appears at two or more pages. */
   versionCount?: number
+  /** The pages a web search consulted on this turn. Empty for an answer that did not search. */
+  sources?: AssistantSource[]
   /** The verdict already left on this answer, so the thumb that is down stays down. */
   feedback?: MessageFeedback
   /** Absent on a live turn: a verdict needs a row to be stored on. */
@@ -553,6 +557,31 @@ export function AssistantBubble({
               </button>
             )}
           </div>
+        )}
+        {/* Sources are the answer's own, so they are only shown beside it: an earlier answer paged back
+            to was built on pages this turn never saw, and listing them would credit it with a search it
+            did not do. */}
+        {!streaming && !viewing && sources.length > 0 && (
+          <ul
+            aria-label={t('assistant.chat.sources')}
+            className="flex max-w-[72ch] flex-wrap gap-1 pt-0.5"
+          >
+            {sources.map((source, index) => (
+              <li key={source.url}>
+                <a
+                  href={source.url}
+                  target="_blank"
+                  rel="noreferrer noopener"
+                  title={source.cited ?? source.url}
+                  className="inline-flex max-w-[280px] items-center gap-1 rounded-[var(--r-sm)] border border-[var(--border-subtle)] bg-[var(--bg-surface)] px-1.5 py-0.5 text-[length:var(--text-11)] text-[var(--text-tertiary)] transition-colors duration-[var(--dur-fast)] hover:border-[var(--accent)] hover:text-[var(--accent)]"
+                >
+                  <span className="shrink-0 tabular text-[var(--text-quaternary)]">{index + 1}</span>
+                  <span className="min-w-0 truncate">{source.title}</span>
+                  <ExternalLink size={10} className="shrink-0 opacity-70" />
+                </a>
+              </li>
+            ))}
+          </ul>
         )}
         {!streaming && (body || pages > 1) && (
           <div className={cn(

@@ -1059,6 +1059,24 @@ export const ASSISTANT_TOOL_SPECS: readonly AssistantToolSpec[] = [
   { name: 'notify_reader', labelKey: 'assistant.tool.notify_reader', permission: 'write' },
 ]
 
+/** A page the model actually consulted, as the vendor reported it. */
+export interface AssistantSource {
+  url: string
+  title: string
+  /** The passage the model leaned on, when the vendor said which one. */
+  cited?: string
+}
+
+/**
+ * Whether a reported source is a link a reader can follow.
+ *
+ * The one check every reader of a vendor's citations makes in common: a chip that leads nowhere reads as
+ * a broken app, and a vendor's payload is not a place to trust a string because it arrived in a url field.
+ */
+export function isSourceUrl(value: unknown): value is string {
+  return typeof value === 'string' && /^https?:\/\/[^\s]+$/i.test(value)
+}
+
 /** One model's share of a window, with what it cost when the reader has priced it. */
 export interface AssistantModelUsage {
   label: string
@@ -1125,6 +1143,14 @@ export interface AssistantMessage {
    */
   reasoning?: string
   tools: ToolActivity[]
+  /**
+   * The pages a web search consulted, quoted from the vendor's own report.
+   *
+   * Kept with the answer because a claim that came from somewhere outside the vault has to say where:
+   * the reader is deciding whether to believe a sentence, and "I searched the web" is not a source.
+   * Empty for every turn that did not search.
+   */
+  sources?: AssistantSource[]
   /**
    * Attachment ids this message carries, in the order the reader added them. The bytes live under the
    * chat's own object prefix; the ids are what both the transcript and the model call need.

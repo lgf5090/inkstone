@@ -1174,6 +1174,15 @@ export const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
     ],
   },
   {
+    // The pages a web search consulted. A JSON array on the row because it is read with the answer and
+    // written once: a table of sources would be joined for every message to show a list of links.
+    version: 68,
+    skipIfColumnExists: { table: 'chat_messages', column: 'sources' },
+    statements: [
+      `ALTER TABLE chat_messages ADD COLUMN sources TEXT NOT NULL DEFAULT '[]'`,
+    ],
+  },
+  {
     // The reader's verdict on one answer: 'up', 'down' or ''. Kept on the message rather than in a table
     // of its own because a turn has at most one verdict and the transcript is what reads it — but it is
     // stored at all so the judgement outlives the scroll, which a chip held in a component would not.

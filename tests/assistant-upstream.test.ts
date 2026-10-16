@@ -9,7 +9,17 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { AssistantProtocol } from '../src/shared/assistant'
 import { reasoningDialect, reasoningRungs } from '../src/shared/reasoning'
-import { UpstreamError, readSse, streamUpstream, type UpstreamEvent, type UpstreamRequest } from '../src/worker/assistant/upstream'
+import {
+  UpstreamError,
+  readSse,
+  sourcesFromAnthropicBlock,
+  sourcesFromAnthropicCitations,
+  sourcesFromGemini,
+  sourcesFromOpenAi,
+  streamUpstream,
+  type UpstreamEvent,
+  type UpstreamRequest,
+} from '../src/worker/assistant/upstream'
 
 const BASE = { baseUrl: 'https://api.example.com', apiKey: 'sk-test', model: 'm', signal: new AbortController().signal }
 
@@ -518,5 +528,48 @@ describe('the provider’s own output cap', () => {
       data({ choices: [], usage: { prompt_tokens: 4, completion_tokens: 3 } }),
     ]))
     expect(events.map((event) => event.type)).toEqual(['text', 'usage'])
+  })
+})
+
+/**
+ * The pages a search consulted.
+ *
+ * Each service reports them in its own shape, and the shape is the whole of the work: a reader who asked
+ * a question that needed the web is owed the links, and getting the shape wrong means an answer with no
+ * sources at all — which looks exactly like an answer that did not search.
+ */
+describe('the sources a vendor reports', () => {
+  it('reads OpenAI citations off the annotations, ignoring anything that is not a url', () => {
+    expect(sourcesFromOpenAi([
+      { type: 'url_citation', url_citation: { url: 'https://a.example/x', title: 'A page' } },
+      { type: 'file_citation', file_citation: { file_id: 'f1' } },
+    ])).toEqual([{ url: 'https://a.example/x', title: 'A page' }])
+    expect(sourcesFromOpenAi(undefined)).toEqual([])
+  })
+
+  it('keeps the passage Anthropic says the model leaned on', () => {
+    expect(sourcesFromAnthropicCitations([
+      { type: 'web_search_result_location', url: 'https://b.example/y', title: 'B', cited_text: 'the exact words' },
+    ])).toEqual([{ url: 'https://b.example/y', title: 'B', cited: 'the exact words' }])
+    expect(sourcesFromAnthropicCitations('nonsense')).toEqual([])
+  })
+
+  it('reads a whole search result block, which arrives before the text that uses it', () => {
+    expect(sourcesFromAnthropicBlock({
+      type: 'web_search_tool_result',
+      content: [
+        { type: 'web_search_result', url: 'https://c.example/z', title: 'C' },
+        { type: 'web_search_result', url: '', title: 'no url' },
+      ],
+    })).toEqual([{ url: 'https://c.example/z', title: 'C' }])
+    // A text block is not a search, and a block that claims to be one with no usable rows yields nothing.
+    expect(sourcesFromAnthropicBlock({ type: 'text', text: 'hello' })).toEqual([])
+  })
+
+  it('reads Gemini grounding chunks, whose urls live one level down', () => {
+    expect(sourcesFromGemini({
+      groundingChunks: [{ web: { uri: 'https://d.example/w', title: 'D' } }, { retrievedContext: {} }],
+    })).toEqual([{ url: 'https://d.example/w', title: 'D' }])
+    expect(sourcesFromGemini({})).toEqual([])
   })
 })

@@ -30,7 +30,7 @@ import { AutomationService } from './automations'
 import { resolveNoteScope, type NoteScope } from './note-scope'
 import { matchVaultFolders, noteTitleIfLive } from './vault'
 import { parametersSchema, ToolError, ToolExecutor, type ToolContext } from './tools'
-import { AbortError, streamUpstream, type ModelTurn, type ToolCallRecord, type ToolSchema, type UpstreamError, type UpstreamRequest } from './upstream'
+import { AbortError, streamUpstream, type ModelTurn, type ToolCallRecord, type ToolSchema, type UpstreamError, type UpstreamRequest, type UpstreamSource } from './upstream'
 import { loadModelAndProvider, modelEndpoint } from './model-config'
 import { fuseMemoryRecall, rankMemoriesByVector, semanticModel } from './semantic'
 
@@ -127,6 +127,8 @@ export class AssistantRunner {
   private webSearchRequested = false
   private webSearchNative = false
   private turnScopes: AssistantTurnScope[] = []
+  /** The pages this turn searched, by url, in the order the vendor named them. */
+  private readonly turnSources = new Map<string, UpstreamSource>()
   /** What the reader had on screen, held for the turn so the prompt and the scope agree. */
   private contextNoteId: string | null = null
   private contextFolderId: string | null = null
@@ -163,6 +165,9 @@ export class AssistantRunner {
     this.turnScopes = (input.scopes ?? []).slice(0, MAX_TURN_SCOPES)
     // Also read before the scope is resolved: the note on screen is readable for this turn, and the
     // scope promise is what enforces that.
+    // A turn's search results belong to that turn: a retry that searched again must not inherit the
+    // pages the answer it replaced was built on.
+    this.turnSources.clear()
     this.contextNoteId = isValidId(input.contextNoteId ?? '') ? input.contextNoteId! : null
     this.contextFolderId = isValidId(input.contextFolderId ?? '') ? input.contextFolderId! : null
     let conversation = input.conversationId ? await this.store.getConversation(input.conversationId) : null
@@ -270,6 +275,7 @@ export class AssistantRunner {
       durationMs: Math.max(0, Date.now() - startedAt),
       modelLabel,
       usage,
+      sources: [...this.turnSources.values()],
     })
 
     try {
@@ -525,6 +531,15 @@ export class AssistantRunner {
       // reader needs to know arrives as the notice on the stored turn.
       if (event.type === 'truncated') {
         this.turnTruncated = true
+        continue
+      }
+      // What a search found. Collected as it arrives rather than at the end because the vendor reports
+      // it beside the text it feeds; Gemini repeats its whole list on every frame, so the same page
+      // would otherwise be listed a dozen times.
+      if (event.type === 'sources') {
+        for (const source of event.sources) {
+          if (!this.turnSources.has(source.url)) this.turnSources.set(source.url, source)
+        }
         continue
       }
       calls.push({ id: event.id, name: event.name, args: event.args, result: '', error: false })

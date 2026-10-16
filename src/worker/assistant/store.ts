@@ -9,7 +9,7 @@
  *    written by an older build, restored from a backup file, or edited by hand — stored text is input.
  */
 
-import { ASSISTANT_MODEL_KINDS, ASSISTANT_MODEL_PURPOSES, clipToolPayload, parseCustomParams } from '@shared/assistant'
+import { ASSISTANT_MODEL_KINDS, ASSISTANT_MODEL_PURPOSES, clipToolPayload, parseCustomParams, isSourceUrl } from '@shared/assistant'
 import type {
   AssistantConversation,
   AssistantMemory,
@@ -18,6 +18,7 @@ import type {
   AssistantMemoryStatus,
   AssistantMessage,
   AssistantModel,
+  AssistantSource,
   ChatPrompt,
   MessageFeedback,
   AssistantModelKind,
@@ -253,6 +254,29 @@ export function decodeStringList(value: unknown): string[] {
   return Array.isArray(parsed) ? parsed.filter((entry): entry is string => typeof entry === 'string') : []
 }
 
+/**
+ * The pages a stored answer searched.
+ *
+ * Read the same forgiving way tools are: a row written by an older build, or a backup from one, simply
+ * has no sources, and a malformed entry is dropped rather than failing the whole transcript read.
+ */
+export function decodeSources(value: unknown): AssistantSource[] {
+  const parsed = parseJson(value)
+  if (!Array.isArray(parsed)) return []
+  const out: AssistantSource[] = []
+  for (const entry of parsed) {
+    if (!entry || typeof entry !== 'object') continue
+    const raw = entry as Record<string, unknown>
+    if (!isSourceUrl(raw.url)) continue
+    out.push({
+      url: raw.url.slice(0, 2000),
+      title: typeof raw.title === 'string' && raw.title ? raw.title.slice(0, 300) : raw.url.slice(0, 300),
+      ...(typeof raw.cited === 'string' && raw.cited ? { cited: raw.cited.slice(0, 400) } : {}),
+    })
+  }
+  return out.slice(0, 20)
+}
+
 export function decodeTools(value: unknown): ToolActivity[] {
   const parsed = parseJson(value)
   if (!Array.isArray(parsed)) return []
@@ -292,12 +316,13 @@ interface MessageRow {
   model_label: string | null
   reasoning: string | null
   feedback: string | null
+  sources: string | null
   created_at: number
   version_count?: number | null
 }
 
 const MESSAGE_COLUMNS
-  = `id, conversation_id, role, content, reasoning, tools, attachments, status, error, source, input_tokens, output_tokens, duration_ms, model_label, feedback, created_at`
+  = `id, conversation_id, role, content, reasoning, tools, attachments, status, error, source, input_tokens, output_tokens, duration_ms, model_label, feedback, sources, created_at`
 /** How many answers this turn has already displaced; only the transcript list pays for it. */
 const MESSAGE_VERSION_COUNT
   = `(SELECT COUNT(*) FROM chat_answer_versions v WHERE v.user_id = chat_messages.user_id AND v.message_id = chat_messages.id) AS version_count`
@@ -326,6 +351,7 @@ function toMessage(r: MessageRow): AssistantMessage {
     durationMs: r.duration_ms ?? 0,
     modelLabel: r.model_label ?? '',
     ...(r.feedback === 'up' || r.feedback === 'down' ? { feedback: r.feedback } : {}),
+    ...(r.sources ? { sources: decodeSources(r.sources) } : {}),
     versionCount: r.version_count ?? undefined,
   }
 }
@@ -1269,6 +1295,7 @@ export class AssistantStore {
     durationMs?: number
     modelLabel?: string
     source?: 'chat' | 'import'
+    sources?: AssistantSource[]
     createdAt?: number
   }): Promise<AssistantMessage> {
     const id = input.id ?? newId()
@@ -1285,10 +1312,11 @@ export class AssistantStore {
     const reasoning = clipReasoning(input.reasoning ?? '')
     await this.write(
       `INSERT INTO chat_messages
-         (id, user_id, conversation_id, role, content, reasoning, tools, attachments, status, error, source, input_tokens, output_tokens, duration_ms, model_label, feedback, created_at)
-       VALUES (?2, ?1, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, '', ?16)`,
+         (id, user_id, conversation_id, role, content, reasoning, tools, attachments, status, error, source, input_tokens, output_tokens, duration_ms, model_label, feedback, sources, created_at)
+       VALUES (?2, ?1, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, '', ?17, ?16)`,
       id, input.conversationId, input.role, input.content, reasoning, JSON.stringify(tools), JSON.stringify(attachments),
       status, error, source, usage?.inputTokens ?? 0, usage?.outputTokens ?? 0, durationMs, input.modelLabel ?? '', at,
+      JSON.stringify(input.sources ?? []),
     )
     await this.write(
       `UPDATE chat_conversations SET updated_at = ?2 WHERE user_id = ?1 AND id = ?3`,

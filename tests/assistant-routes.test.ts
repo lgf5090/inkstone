@@ -285,6 +285,26 @@ describe('re-taking a turn', () => {
     expect(await status('POST', `/api/assistant/conversations/${other.conversation.id}/messages/delete`, { ids: [first.id] })).toBe(200)
   })
 
+  it('keeps the pages a searched answer consulted, and drops a row that is not one', async () => {
+    const { AssistantStore } = await import('../src/worker/assistant/store')
+    const store = new AssistantStore(env.DB as D1Database, USER, env)
+    const conversation = await store.createConversation('Searched')
+    const written = await store.addMessage({
+      conversationId: conversation.id,
+      role: 'assistant',
+      content: 'It is 12 degrees.',
+      sources: [
+        { url: 'https://weather.example/today', title: 'Today', cited: '12 degrees' },
+        { url: 'not a url', title: 'junk' } as never,
+      ],
+    })
+    const read = await store.getMessage(written.id)
+    // A source is a link, so a row with no url is not one — and a stored answer that lost its links
+    // would read as an answer that never searched.
+    expect(read?.sources).toEqual([{ url: 'https://weather.example/today', title: 'Today', cited: '12 degrees' }])
+    expect((await store.getMessage(written.id))?.sources).toHaveLength(1)
+  })
+
   it('reports what was spent, split by model and kept per currency', async () => {
     await useExampleModel()
     const models = await call<{ models: AssistantModel[] }>('GET', '/api/assistant/models')

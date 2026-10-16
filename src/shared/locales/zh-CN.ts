@@ -5952,6 +5952,7 @@ console.log(\`Hello, \${name}!\`)
     "assistant.chat.forked": "已从这条分叉出新对话「{title}」",
     "assistant.chat.rate_up": "这个回答不错",
     "assistant.chat.rate_down": "这个回答有问题",
+    "assistant.chat.sources": "参考来源",
     "assistant.chat.save_to_note": "保存到笔记",
     "assistant.chat.saved_to_note": "已存成笔记「{title}」",
     "assistant.chat.saved_note_open": "打开笔记",

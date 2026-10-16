@@ -13,7 +13,7 @@
  */
 
 import { assertRelayableEndpoint, pickRelayHeaders } from '@shared/ai-proxy-guard'
-import type { AssistantProtocol, AssistantReasoning, ReasoningDialect } from '@shared/assistant'
+import { isSourceUrl, type AssistantProtocol, type AssistantReasoning, type ReasoningDialect } from '@shared/assistant'
 import { anthropicReasoning, geminiThinkingConfig, openAiReasoningFields, reasoningDialect } from '@shared/reasoning'
 import { NO_REDIRECT, isRedirectResponse } from '../lib/no-redirect'
 
@@ -48,9 +48,81 @@ export type UpstreamEvent
   = | { type: 'text', delta: string }
     | { type: 'reasoning', delta: string }
     | { type: 'tool-call', id: string, name: string, args: unknown }
+    /** Pages the vendor reported as consulted, named the way the vendor names them. */
+    | { type: 'sources', sources: UpstreamSource[] }
     | { type: 'usage', inputTokens: number, outputTokens: number }
     /** The model was cut off at the output cap rather than stopping by itself. */
     | { type: 'truncated' }
+
+export interface UpstreamSource {
+  url: string
+  title: string
+  cited?: string
+}
+
+/**
+ * The pages named inside one vendor's payload, whichever shape it uses.
+ *
+ * Three services report a search differently — OpenAI annotates the message, Anthropic sends a result
+ * block beside the text that leans on it, Gemini hangs grounding metadata off the candidate — and none
+ * of the three is guessable from the others. One reader per shape, called from the parser that already
+ * holds the frame, because a second pass over the finished stream would be a second parser to keep in
+ * step with the first.
+ */
+export function sourcesFromOpenAi(annotations: unknown): UpstreamSource[] {
+  if (!Array.isArray(annotations)) return []
+  const out: UpstreamSource[] = []
+  for (const entry of annotations) {
+    const citation = (entry as Record<string, unknown>)?.url_citation as Record<string, unknown> | undefined
+    const url = citation?.url
+    if (!isSourceUrl(url)) continue
+    out.push({ url, title: typeof citation?.title === 'string' && citation.title.trim() ? citation.title.trim() : url })
+  }
+  return out
+}
+
+export function sourcesFromAnthropicBlock(block: Record<string, unknown>): UpstreamSource[] {
+  if (block.type !== 'web_search_tool_result') return []
+  if (!Array.isArray(block.content)) return []
+  const out: UpstreamSource[] = []
+  for (const entry of block.content) {
+    const result = entry as Record<string, unknown>
+    if (result.type !== 'web_search_result') continue
+    const url = result.url
+    if (!isSourceUrl(url)) continue
+    out.push({ url, title: typeof result.title === 'string' && result.title.trim() ? result.title.trim() : url })
+  }
+  return out
+}
+
+export function sourcesFromAnthropicCitations(citations: unknown): UpstreamSource[] {
+  if (!Array.isArray(citations)) return []
+  const out: UpstreamSource[] = []
+  for (const entry of citations) {
+    const citation = entry as Record<string, unknown>
+    const url = citation.url
+    if (!isSourceUrl(url)) continue
+    out.push({
+      url,
+      title: typeof citation.title === 'string' && citation.title.trim() ? citation.title.trim() : url,
+      ...(typeof citation.cited_text === 'string' && citation.cited_text.trim() ? { cited: citation.cited_text.trim().slice(0, 400) } : {}),
+    })
+  }
+  return out
+}
+
+export function sourcesFromGemini(metadata: unknown): UpstreamSource[] {
+  const chunks = (metadata as Record<string, unknown> | undefined)?.groundingChunks
+  if (!Array.isArray(chunks)) return []
+  const out: UpstreamSource[] = []
+  for (const entry of chunks) {
+    const web = (entry as Record<string, unknown>)?.web as Record<string, unknown> | undefined
+    const url = web?.uri
+    if (!isSourceUrl(url)) continue
+    out.push({ url, title: typeof web?.title === 'string' && web.title.trim() ? web.title.trim() : url })
+  }
+  return out
+}
 
 export interface UpstreamRequest {
   baseUrl: string
@@ -362,6 +434,9 @@ async function* streamOpenAi(request: UpstreamRequest): AsyncGenerator<UpstreamE
     if (typeof delta.reasoning_content === 'string' && delta.reasoning_content) {
       yield { type: 'reasoning', delta: delta.reasoning_content as string }
     }
+    // A searched answer arrives with its citations as annotations on the text, one frame per delta.
+    const annotations = sourcesFromOpenAi(delta.annotations)
+    if (annotations.length) yield { type: 'sources', sources: annotations }
     const calls = Array.isArray(delta.tool_calls) ? (delta.tool_calls as Record<string, unknown>[]) : []
     for (const call of calls) {
       const slot = numberOr(call.index) ?? 0
@@ -502,6 +577,10 @@ async function* streamAnthropic(request: UpstreamRequest): AsyncGenerator<Upstre
     } else if (type === 'content_block_start') {
       const index = numberOr((parsed.index as number | undefined)) ?? 0
       const block = (parsed.content_block ?? {}) as Record<string, unknown>
+      // A search is a block of its own, and it arrives whole: the results are in it before the text
+      // that leans on them is streamed.
+      const searched = sourcesFromAnthropicBlock(block)
+      if (searched.length) yield { type: 'sources', sources: searched }
       open.set(index, {
         kind: String(block.type ?? ''),
         id: String(block.id ?? ''),
@@ -515,6 +594,9 @@ async function* streamAnthropic(request: UpstreamRequest): AsyncGenerator<Upstre
         yield { type: 'text', delta: delta.text }
       } else if (delta.type === 'thinking_delta' && typeof delta.thinking === 'string' && delta.thinking) {
         yield { type: 'reasoning', delta: delta.thinking }
+      } else if (delta.type === 'citations_delta') {
+        const cited = sourcesFromAnthropicCitations([delta.citation])
+        if (cited.length) yield { type: 'sources', sources: cited }
       } else if (delta.type === 'input_json_delta' && typeof delta.partial_json === 'string') {
         const block = open.get(index)
         if (block) block.json += delta.partial_json
@@ -643,6 +725,10 @@ async function* streamGemini(request: UpstreamRequest): AsyncGenerator<UpstreamE
         }
       }
     }
+    // Gemini hangs the pages it grounded on off the candidate rather than the text, and repeats the
+    // whole list as the answer streams, so the runner de-duplicates by url rather than here.
+    const grounded = sourcesFromGemini(candidate?.groundingMetadata)
+    if (grounded.length) yield { type: 'sources', sources: grounded }
     // Gemini names the reason on the last candidate, which often carries no parts at all.
     if (candidate?.finishReason === 'MAX_TOKENS') yield { type: 'truncated' }
   }
