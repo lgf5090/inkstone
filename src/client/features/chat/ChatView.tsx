@@ -10,9 +10,9 @@
  */
 import { Z_INDEX } from '../../lib/z-index'
 import { type ClipboardEvent as ReactClipboardEvent, type KeyboardEvent, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import { ArrowUp, ArrowUpRight, Check, Copy, FileText, FolderOpen, History, MoreHorizontal, PanelRight, Paperclip, Pencil, Plus, Search, Square, Star, Trash2, X } from 'lucide-react'
+import { ArrowUp, ArrowUpRight, Check, Copy, FileText, FolderOpen, Ghost, History, MoreHorizontal, PanelRight, Paperclip, Pencil, Plus, Search, Square, Star, Trash2, X } from 'lucide-react'
 import type { AssistantConversation, AssistantMessage, ChatAttachment } from '@shared/assistant'
-import { mcpToolModeFor } from '@shared/assistant'
+import { EPHEMERAL_CONVERSATION_RETENTION_DAYS, mcpToolModeFor } from '@shared/assistant'
 import { DEBOUNCE } from '@shared/constants'
 import { cn } from '../../lib/cn'
 import { t } from '../../lib/i18n'
@@ -174,6 +174,11 @@ export function ChatView() {
   const canvasOpen = useAssistant((state) => state.canvasOpen)
   const setCanvasOpen = useAssistant((state) => state.setCanvasOpen)
 
+  // A temporary thread has to say so where the reader is looking, or the one promise the feature makes is
+  // the one thing about it they cannot see.
+  const ephemeral = useAssistant((state) => state.ephemeral)
+  const startTemporaryConversation = useAssistant((state) => state.startTemporaryConversation)
+
   // Retry re-answers the reader's last message and drops the reply that followed it, so it belongs to
   // the newest answer only — offered on an older one it would silently rewrite a different turn.
   const lastAnswer = useMemo(() => {
@@ -225,7 +230,23 @@ export function ChatView() {
               {activeProject.name}
             </span>
           )}
+          {ephemeral && (
+            <span
+              className="shrink-0 rounded-[var(--r-sm)] bg-[var(--bg-inset)] px-1.5 py-0.5 text-[length:var(--text-10)] text-[var(--text-quaternary)]"
+              title={t('assistant.chat.temporary_hint', { days: EPHEMERAL_CONVERSATION_RETENTION_DAYS })}
+            >
+              {t('assistant.chat.temporary')}
+            </span>
+          )}
           <div className="ml-auto flex shrink-0 items-center gap-1">
+            <IconButton
+              label={t('assistant.chat.temporary_start')}
+              size="sm"
+              disabled={streaming}
+              onClick={startTemporaryConversation}
+            >
+              <Ghost size={15} />
+            </IconButton>
             <IconButton
               label={t('assistant.canvas.title')}
               size="sm"

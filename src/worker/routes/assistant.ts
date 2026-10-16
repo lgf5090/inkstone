@@ -992,7 +992,7 @@ function pinnedScopes(value: unknown): AssistantTurnScope[] {
  * closed tab does not keep spending the account's AI budget on an answer nobody is reading.
  */
 assistantRoutes.post('/chat', async (c) => {
-  const body = await readJson<{ conversationId?: unknown, message?: string, retry?: boolean, attachments?: unknown, tools?: unknown, scopes?: unknown, webSearch?: unknown, contextNoteId?: unknown, contextFolderId?: unknown }>(c, 64 * 1024)
+  const body = await readJson<{ conversationId?: unknown, message?: string, retry?: boolean, attachments?: unknown, tools?: unknown, scopes?: unknown, webSearch?: unknown, contextNoteId?: unknown, contextFolderId?: unknown, ephemeral?: unknown }>(c, 64 * 1024)
   const s = store(c)
   const settings = await s.getSettings()
   const conversationId = body.conversationId === undefined || body.conversationId === null
@@ -1069,6 +1069,9 @@ assistantRoutes.post('/chat', async (c) => {
         ...(typeof body.contextNoteId === 'string' && isValidId(body.contextNoteId) ? { contextNoteId: body.contextNoteId } : {}),
         ...(typeof body.contextFolderId === 'string' && isValidId(body.contextFolderId) ? { contextFolderId: body.contextFolderId } : {}),
         webSearch: body.webSearch === true,
+        // Only read when the turn makes its own conversation; the runner says why a later turn cannot
+        // change the kind of thread it is already in.
+        ephemeral: body.ephemeral === true,
         retry: body.retry === true,
         signal: controller.signal,
         readerGone: () => readerGone,

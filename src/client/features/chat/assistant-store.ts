@@ -181,6 +181,16 @@ interface AssistantState {
   /** The draft the panel is editing; null means it is showing the list of them. */
   activeArtifactId: string | null
 
+  /**
+   * Whether the thread on screen is a temporary one.
+   *
+   * Not read off the conversation list, which by design never carries a temporary conversation — this is
+   * the store's own memory of what the reader asked for, kept until they leave the thread.
+   */
+  ephemeral: boolean
+  /** Start a conversation the reader asked not to keep. */
+  startTemporaryConversation: () => void
+
   memories: AssistantMemory[]
   memoryCounts: { active: number, historical: number, review: number }
   memoryTotal: number
@@ -631,6 +641,7 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
   artifactsReady: false,
   canvasOpen: false,
   activeArtifactId: null,
+  ephemeral: false,
 
   memories: [],
   memoryCounts: { active: 0, historical: 0, review: 0 },
@@ -1109,7 +1120,7 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
     if (turn && !turn.done && turn.conversationId !== id) set({ turn: null })
     // A muted chip is this thread's correction, not a setting: the next thread starts from the pointer.
     // The panel starts closed on every thread and shows no draft until that thread's own read lands.
-    set({ activeId: id, messages: [], messagesReady: false, remoteStreaming: false, noteContextOn: true, folderContextOn: true, artifacts: [], artifactsReady: false, canvasOpen: false, activeArtifactId: null })
+    set({ activeId: id, messages: [], messagesReady: false, remoteStreaming: false, noteContextOn: true, folderContextOn: true, artifacts: [], artifactsReady: false, canvasOpen: false, activeArtifactId: null, ephemeral: false })
     if (!id) {
       set({ messagesReady: true, artifactsReady: true })
       return
@@ -1123,6 +1134,8 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
         fileIndex: Object.fromEntries((detail.attachments ?? []).map((entry) => [entry.id, entry])),
         messagesReady: true,
         remoteStreaming: detail.streaming && !(get().turn && !get().turn?.done),
+        // Read from the row rather than from the list, which never carries a temporary conversation.
+        ephemeral: detail.conversation.ephemeral === true,
       })
     } catch (error) {
       if (get().activeId !== id) return
@@ -1134,7 +1147,19 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
   newConversation: () => {
     const live = get().turn
     if (live && !live.done) return
-    set({ activeId: null, messages: [], messagesReady: true, remoteStreaming: false, turn: null, noteContextOn: true, folderContextOn: true, artifacts: [], artifactsReady: true, canvasOpen: false, activeArtifactId: null })
+    set({ activeId: null, messages: [], messagesReady: true, remoteStreaming: false, turn: null, noteContextOn: true, folderContextOn: true, artifacts: [], artifactsReady: true, canvasOpen: false, activeArtifactId: null, ephemeral: false })
+  },
+
+  /**
+   * Start a thread the reader asked not to keep.
+   *
+   * The conversation is made by the first turn rather than here, so it is created with the flag and with a
+   * title taken from what was asked — the same path every other new conversation takes.
+   */
+  startTemporaryConversation: () => {
+    const live = get().turn
+    if (live && !live.done) return
+    set({ activeId: null, messages: [], messagesReady: true, remoteStreaming: false, turn: null, noteContextOn: true, folderContextOn: true, artifacts: [], artifactsReady: true, canvasOpen: false, activeArtifactId: null, ephemeral: true })
   },
 
   attachFiles: async (files) => {
@@ -1415,6 +1440,9 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
             ...(state.folderContextOn && ui.folderId ? { contextFolderId: ui.folderId } : {}),
           }),
           webSearch: state.webSearch,
+          // Only when this turn is the one that makes the conversation: the flag is read at creation and
+          // never again, because the promise is about the whole thread.
+          ...(state.ephemeral && !conversationId ? { ephemeral: true } : {}),
           retry,
         },
         apply,
@@ -1490,7 +1518,7 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
   deleteConversation: async (id) => {
     try {
       await api.assistant.deleteConversation(id)
-      if (get().activeId === id) set({ activeId: null, messages: [], turn: null, artifacts: [], artifactsReady: true, canvasOpen: false, activeArtifactId: null })
+      if (get().activeId === id) set({ activeId: null, messages: [], turn: null, artifacts: [], artifactsReady: true, canvasOpen: false, activeArtifactId: null, ephemeral: false })
       await get().loadConversations()
     } catch (error) {
       toast(error)

@@ -75,6 +75,15 @@ export const MAX_AUTOMATION_MESSAGE_CHARS = 4_000
 export const MAX_CONVERSATION_TITLE_CHARS = 200
 
 /**
+ * How long a temporary conversation is kept before the sweep deletes it.
+ *
+ * Counted from its last change rather than its creation, so a thread the reader came back to is not
+ * deleted mid-use. The number is in the interface — "kept 30 days" is a promise a reader can hold this
+ * app to, and one they can check against the row's own timestamp.
+ */
+export const EPHEMERAL_CONVERSATION_RETENTION_DAYS = 30
+
+/**
  * What the assistant's provider records look like. `apiKey` never appears: the ciphertext lives in the
  * `chat_providers` row and the plaintext only ever exists inside the worker call that signs the
  * upstream request, so no route can echo a key back to a browser.
@@ -847,6 +856,15 @@ export interface AssistantConversation {
    * Distinct from the two flags above because it is the one that hides a row rather than marking it.
    */
   archived: boolean
+  /**
+   * A conversation the reader asked not to keep.
+   *
+   * It is stored all the same — a thread that vanished on a reload would lose the thought the reader was
+   * in the middle of — but it is kept out of every listing, out of search and out of a backup, and the
+   * hourly sweep deletes it once it has gone untouched for {@link EPHEMERAL_CONVERSATION_RETENTION_DAYS}.
+   * That is the promise the UI makes, so it is the one the queries keep.
+   */
+  ephemeral: boolean
   /** A folder from the notebook's own tree; null means the conversation is unfiled. */
   folderId: string | null
   /** The project this conversation belongs to, whose instructions and knowledge it inherits. */

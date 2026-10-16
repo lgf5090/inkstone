@@ -124,6 +124,14 @@ export interface TurnInput {
   contextFolderId?: string
   /** The composer's web-search switch: ask this model for a live web search. */
   webSearch?: boolean
+  /**
+   * Start the conversation this turn needs as a temporary one.
+   *
+   * Only read when the turn creates its own conversation: a temporary thread is one the reader started
+   * that way, and a later turn cannot turn a kept conversation into one — or the reverse — because the
+   * promise is about the whole thread.
+   */
+  ephemeral?: boolean
   retry?: boolean
   signal: AbortSignal
   /** True once a write to the reader has failed, which is the only disconnect some platforms surface. */
@@ -250,7 +258,7 @@ export class AssistantRunner {
       if (!message) throw ApiError.badRequest('Write something first.')
       if (message.length > MAX_MESSAGE_CHARS) throw ApiError.badRequest('That message is too long for one turn.')
       if (!conversation) {
-        conversation = await this.store.createConversation(titleFromMessage(message))
+        conversation = await this.store.createConversation(titleFromMessage(message), null, input.ephemeral === true)
         // The route had no id to claim yet, so the lease is taken here: without it a second tab could
         // open a parallel turn on the conversation this one has just made.
         if (!(await this.store.claimRun(conversation.id))) {

@@ -28,6 +28,8 @@ export interface StreamTurnInput {
   retry?: boolean
   /** The web-search switch: ask this model for a live search this turn. */
   webSearch?: boolean
+  /** Start the conversation as a temporary one, when this turn is the one that makes it. */
+  ephemeral?: boolean
 }
 
 export async function streamAssistantTurn(
@@ -53,6 +55,7 @@ export async function streamAssistantTurn(
       ...(input.contextNoteId ? { contextNoteId: input.contextNoteId } : {}),
       ...(input.contextFolderId ? { contextFolderId: input.contextFolderId } : {}),
       ...(input.webSearch ? { webSearch: true } : {}),
+      ...(input.ephemeral ? { ephemeral: true } : {}),
       ...(input.retry ? { retry: true } : {}),
     }),
     credentials: 'same-origin',

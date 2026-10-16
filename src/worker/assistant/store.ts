@@ -50,7 +50,7 @@ import type {
 } from '@shared/assistant'
 import { dialectsForProtocol } from '@shared/reasoning'
 import type { McpOAuthSecrets, McpOAuthStatus } from './mcp-oauth'
-import { ASSISTANT_MCP_TOOL_MODES, ASSISTANT_MCP_TRANSPORTS, DEFAULT_MCP_TIMEOUT_SECONDS, MAX_MCP_DESCRIPTION_CHARS, MAX_MCP_TOOL_OVERRIDES, MAX_MCP_HEADER_VALUE_CHARS, MAX_MCP_LABEL_CHARS, MAX_MCP_TOOL_NAME_CHARS, MAX_MCP_TIMEOUT_SECONDS, MIN_MCP_TIMEOUT_SECONDS, MAX_ARTIFACT_CONTENT_CHARS, MAX_ARTIFACT_TITLE_CHARS, MAX_ANSWER_VERSIONS, MAX_CHAT_ATTACHMENTS, clipReasoning, isMcpHeaderName, parseModelModalities, parseProviderEndpoints, reasoningDialectValue, reasoningValue, type AssistantAnswerVersion, type AssistantMcpServer, type AssistantMcpToolMode, type AssistantMcpTransport, type AssistantModelModality, type ChatAttachment } from '@shared/assistant'
+import { ASSISTANT_MCP_TOOL_MODES, ASSISTANT_MCP_TRANSPORTS, DEFAULT_MCP_TIMEOUT_SECONDS, EPHEMERAL_CONVERSATION_RETENTION_DAYS, MAX_MCP_DESCRIPTION_CHARS, MAX_MCP_TOOL_OVERRIDES, MAX_MCP_HEADER_VALUE_CHARS, MAX_MCP_LABEL_CHARS, MAX_MCP_TOOL_NAME_CHARS, MAX_MCP_TIMEOUT_SECONDS, MIN_MCP_TIMEOUT_SECONDS, MAX_ARTIFACT_CONTENT_CHARS, MAX_ARTIFACT_TITLE_CHARS, MAX_ANSWER_VERSIONS, MAX_CHAT_ATTACHMENTS, clipReasoning, isMcpHeaderName, parseModelModalities, parseProviderEndpoints, reasoningDialectValue, reasoningValue, type AssistantAnswerVersion, type AssistantMcpServer, type AssistantMcpToolMode, type AssistantMcpTransport, type AssistantModelModality, type ChatAttachment } from '@shared/assistant'
 import {
   ASSISTANT_MEMORY_CATEGORIES,
   ASSISTANT_PROTOCOLS,
@@ -1278,8 +1278,12 @@ export class AssistantStore {
           AND m.user_id = ?1 AND m.content LIKE ${inBody} ESCAPE '\\'))`)
     }
     const limitBind = q.add(limit)
+    // A temporary conversation is never listed. Its reader reaches it by id, which is the only way anyone
+    // has it: the list, the starred and pinned shortlists and the assistant's own search all come through
+    // here, so this one clause is what keeps the promise the UI makes.
+    q.raw('c.ephemeral = 0')
     const list = await this.rows<ConversationRow>(
-      `SELECT c.id, c.title, c.summary, c.summary_upto, c.pinned, c.starred, c.archived, c.folder_id, c.project_id, c.created_at, c.updated_at,
+      `SELECT ${CONVERSATION_COLUMNS},
               (SELECT count(*) FROM chat_messages m WHERE m.conversation_id = c.id) AS message_count
          FROM chat_conversations c WHERE ${q.where}
          ORDER BY c.updated_at DESC LIMIT ${limitBind}`,
@@ -1297,14 +1301,14 @@ export class AssistantStore {
   async conversationFolderSummary(): Promise<{ folders: ChatFolderNode[], unfiled: number }> {
     const rows = await this.rows<{ id: string, name: string, parent_id: string | null, icon: string | null, color: string | null, n: number }>(
       `SELECT f.id, f.name, f.parent_id, f.icon, f.color,
-              (SELECT count(*) FROM chat_conversations c WHERE c.user_id = ?1 AND c.folder_id = f.id AND c.archived = 0) AS n
+              (SELECT count(*) FROM chat_conversations c WHERE c.user_id = ?1 AND c.folder_id = f.id AND c.archived = 0 AND c.ephemeral = 0) AS n
          FROM folders f
         WHERE f.user_id = ?1 AND f.deleted_at IS NULL
         ORDER BY f.name`,
       this.userId,
     )
     const unfiled = await this.one<{ n: number }>(
-      `SELECT count(*) AS n FROM chat_conversations WHERE user_id = ?1 AND folder_id IS NULL AND archived = 0`,
+      `SELECT count(*) AS n FROM chat_conversations WHERE user_id = ?1 AND folder_id IS NULL AND archived = 0 AND ephemeral = 0`,
       this.userId,
     )
     return {
@@ -1320,14 +1324,14 @@ export class AssistantStore {
   async conversationProjectSummary(): Promise<{ projects: ChatProjectNode[], unfiled: number }> {
     const rows = await this.rows<{ id: string, name: string, n: number }>(
       `SELECT p.id, p.name,
-              (SELECT count(*) FROM chat_conversations c WHERE c.user_id = ?1 AND c.project_id = p.id AND c.archived = 0) AS n
+              (SELECT count(*) FROM chat_conversations c WHERE c.user_id = ?1 AND c.project_id = p.id AND c.archived = 0 AND c.ephemeral = 0) AS n
          FROM chat_projects p
         WHERE p.user_id = ?1
         ORDER BY p.name`,
       this.userId,
     )
     const unfiled = await this.one<{ n: number }>(
-      `SELECT count(*) AS n FROM chat_conversations WHERE user_id = ?1 AND project_id IS NULL AND archived = 0`,
+      `SELECT count(*) AS n FROM chat_conversations WHERE user_id = ?1 AND project_id IS NULL AND archived = 0 AND ephemeral = 0`,
       this.userId,
     )
     return {
@@ -1473,7 +1477,7 @@ export class AssistantStore {
     const rows = await this.rows<{ tag_id: string, n: number }>(
       `SELECT ct.tag_id, count(*) AS n
          FROM chat_conversation_tags ct
-         JOIN chat_conversations c ON c.user_id = ct.user_id AND c.id = ct.conversation_id AND c.archived = 0
+         JOIN chat_conversations c ON c.user_id = ct.user_id AND c.id = ct.conversation_id AND c.archived = 0 AND c.ephemeral = 0
         WHERE ct.user_id = ?1 GROUP BY ct.tag_id`,
       this.userId,
     )
@@ -1482,7 +1486,7 @@ export class AssistantStore {
 
   async getConversation(id: string): Promise<AssistantConversation | null> {
     const r = await this.one<ConversationRow>(
-      `SELECT c.id, c.title, c.summary, c.summary_upto, c.pinned, c.starred, c.archived, c.folder_id, c.project_id, c.created_at, c.updated_at,
+      `SELECT ${CONVERSATION_COLUMNS},
               (SELECT count(*) FROM chat_messages m WHERE m.conversation_id = c.id) AS message_count
          FROM chat_conversations c WHERE c.user_id = ?1 AND c.id = ?2`,
       this.userId, id,
@@ -1490,14 +1494,14 @@ export class AssistantStore {
     return r ? toConversation(r) : null
   }
 
-  async createConversation(title: string, folderId: string | null = null): Promise<AssistantConversation> {
+  async createConversation(title: string, folderId: string | null = null, ephemeral = false): Promise<AssistantConversation> {
     const id = newId()
     const at = Date.now()
     await this.write(
-      `INSERT INTO chat_conversations (id, user_id, title, folder_id, created_at, updated_at) VALUES (?2, ?1, ?3, ?4, ?5, ?6)`,
-      id, title, folderId, at, at,
+      `INSERT INTO chat_conversations (id, user_id, title, folder_id, ephemeral, created_at, updated_at) VALUES (?2, ?1, ?3, ?4, ?5, ?6, ?7)`,
+      id, title, folderId, ephemeral ? 1 : 0, at, at,
     )
-    return { id, title, pinned: false, starred: false, archived: false, folderId, createdAt: at, updatedAt: at, messageCount: 0, tags: [], summary: null, summaryUpto: null }
+    return { id, title, pinned: false, starred: false, archived: false, ephemeral, folderId, createdAt: at, updatedAt: at, messageCount: 0, tags: [], summary: null, summaryUpto: null }
   }
 
   /**
@@ -1624,8 +1628,25 @@ export class AssistantStore {
     return before?.n ?? 0
   }
 
-  // -------------------------------------------------------------------- drafts
+  /**
+   * Delete the temporary conversations whose retention has run out.
+   *
+   * Measured from `updated_at` rather than `created_at`, so a thread the reader came back to is not
+   * deleted under them. The cascade is the reader's own delete, because a message or a draft left behind
+   * by a sweep is exactly the trace this feature exists to leave behind.
+   */
+  async purgeEphemeral(before: number, limit = 50): Promise<number> {
+    const rows = await this.rows<{ id: string }>(
+      `SELECT id FROM chat_conversations
+        WHERE user_id = ?1 AND ephemeral = 1 AND updated_at < ?2
+        ORDER BY updated_at LIMIT ?3`,
+      this.userId, before, limit,
+    )
+    for (const row of rows) await this.deleteConversation(row.id)
+    return rows.length
+  }
 
+  // -------------------------------------------------------------------- drafts
   /**
    * The drafts one conversation keeps, newest change first.
    *
@@ -3559,15 +3580,24 @@ export class AssistantStore {
     return Boolean(r)
   }
 
+  /**
+   * Everything a backup carries.
+   *
+   * A temporary conversation is left out, and so is everything hanging off it. The reader asked for a
+   * thread that would not be kept, and a file they hand to somebody else is the last place it should
+   * reappear. The dependent tables are filtered through the conversation rather than by a column of their
+   * own, because none of them carries the flag.
+   */
   async exportTables(): Promise<Record<string, Record<string, unknown>[]>> {
-    const select = (table: string) => this.db.prepare(`SELECT * FROM ${table} WHERE user_id = ?1 ORDER BY created_at`)
+    const onlyKept = 'conversation_id IN (SELECT id FROM chat_conversations WHERE user_id = ?1 AND ephemeral = 0)'
+    const select = (table: string, extra = '') => this.db.prepare(`SELECT * FROM ${table} WHERE user_id = ?1 ${extra} ORDER BY created_at`)
       .bind(this.userId).all<Record<string, unknown>>().then((r) => r.results ?? [])
     return {
-      conversations: await select('chat_conversations'),
-      artifacts: await select('chat_artifacts'),
-      conversation_tags: await select('chat_conversation_tags'),
-      messages: await select('chat_messages'),
-      answer_versions: await select('chat_answer_versions'),
+      conversations: await select('chat_conversations', 'AND ephemeral = 0'),
+      artifacts: await select('chat_artifacts', `AND ${onlyKept}`),
+      conversation_tags: await select('chat_conversation_tags', `AND ${onlyKept}`),
+      messages: await select('chat_messages', `AND ${onlyKept}`),
+      answer_versions: await select('chat_answer_versions', `AND ${onlyKept}`),
       memories: await select('chat_memories'),
       tasks: await select('chat_tasks'),
       projects: await select('chat_projects'),
@@ -3636,6 +3666,33 @@ export async function dueAutomations(
     if (automation) out.push({ userId: r.user_id, automation })
   }
   return out
+}
+
+/**
+ * Sweep away the temporary conversations that have outlived their retention.
+ *
+ * The hourly cron is the only caller and it spans every account, so this is the second query in the module
+ * that is not scoped to a user — hence the returned ids and the per-account store opened for each, the
+ * same shape `dueAutomations` uses. The work is bounded per fire: a backlog is drained over several ticks
+ * rather than in one invocation nobody is watching.
+ */
+export async function purgeExpiredEphemeralConversations(
+  db: D1Database,
+  env: Env,
+  now = Date.now(),
+  limit = 20,
+): Promise<number> {
+  const before = now - EPHEMERAL_CONVERSATION_RETENTION_DAYS * 24 * 60 * 60 * 1000
+  const { results } = await db.prepare(
+    `SELECT user_id FROM chat_conversations
+      WHERE ephemeral = 1 AND updated_at < ?1
+      GROUP BY user_id ORDER BY min(updated_at) LIMIT ?2`,
+  ).bind(before, limit).all<{ user_id: string }>()
+  let removed = 0
+  for (const row of results ?? []) {
+    removed += await new AssistantStore(db, row.user_id, env).purgeEphemeral(before)
+  }
+  return removed
 }
 
 /** Terms worth searching a memory with: the words a reader would actually type. */
@@ -3925,6 +3982,15 @@ function toChatAttachment(r: ChatAttachmentRow): ChatAttachment {
 
 const ARTIFACT_COLUMNS = `id, conversation_id, title, content, note_id, created_at, updated_at`
 
+/**
+ * The conversation row, as every reader of it spells it.
+ *
+ * One list because there were two: the thread and the list each spelled the columns out, so a column
+ * added to one and not the other read back as a default in exactly one of the two surfaces — which is how
+ * a flag comes to be set and still look unset.
+ */
+const CONVERSATION_COLUMNS = `c.id, c.title, c.summary, c.summary_upto, c.pinned, c.starred, c.archived, c.ephemeral, c.folder_id, c.project_id, c.created_at, c.updated_at`
+
 interface ArtifactRow {
   id: string
   conversation_id: string
@@ -3955,6 +4021,7 @@ interface ConversationRow {
   pinned: number
   starred: number
   archived: number
+  ephemeral: number
   folder_id: string | null
   project_id: string | null
   created_at: number
@@ -3969,6 +4036,7 @@ function toConversation(r: ConversationRow): AssistantConversation {
     pinned: bool(r.pinned),
     starred: bool(r.starred),
     archived: bool(r.archived),
+    ephemeral: bool(r.ephemeral),
     folderId: r.folder_id ?? null,
     ...(r.project_id ? { projectId: r.project_id } : {}),
     createdAt: r.created_at,

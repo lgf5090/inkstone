@@ -51,9 +51,16 @@ export class ChatShareStore {
       .first<ChatShareRow>()
   }
 
+  /**
+   * Whether this account has a conversation the reader could share.
+   *
+   * A temporary conversation is not one: the reader asked for a thread that would not be kept, and a
+   * public link is the most kept a conversation can be. Refused here rather than at the route so the
+   * public reader and the share button cannot disagree about which threads exist.
+   */
   async liveConversationExists(conversationId: string): Promise<boolean> {
     const row = await this.db
-      .prepare(`SELECT 1 AS present FROM chat_conversations WHERE user_id = ?1 AND id = ?2`)
+      .prepare(`SELECT 1 AS present FROM chat_conversations WHERE user_id = ?1 AND id = ?2 AND ephemeral = 0`)
       .bind(this.userId, conversationId)
       .first<{ present: number }>()
     return Boolean(row)

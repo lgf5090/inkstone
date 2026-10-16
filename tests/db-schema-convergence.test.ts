@@ -120,6 +120,23 @@ describe('a boot onto a database whose ledger lies', () => {
     expect(sqlite.prepare(`SELECT tool_modes FROM chat_mcp_servers WHERE id = 's1'`).get()).toEqual({ tool_modes: '{"drop_everything":"off"}' })
   })
 
+  it('brings a conversation that predates the flag back as a kept one', async () => {
+    const sqlite = await installed()
+    sqlite.exec(`INSERT INTO chat_conversations (user_id, id, title, ephemeral, created_at, updated_at)
+      VALUES ('u1', 'c1', 'Keeper', 0, 1, 1)`)
+    // The shape a database built before version 85 has. The default is the whole point: read the other way,
+    // every conversation that already exists would come back as a temporary one and vanish from the list —
+    // which is the failure this column could most easily have been.
+    sqlite.exec('ALTER TABLE chat_conversations DROP COLUMN ephemeral')
+    sqlite.exec('DELETE FROM schema_migrations WHERE version = 85')
+    expect(columnsOf(sqlite, 'chat_conversations')).not.toContain('ephemeral')
+
+    await reboot(sqlite)
+    expect(columnsOf(sqlite, 'chat_conversations')).toContain('ephemeral')
+    expect(sqlite.prepare(`SELECT title, ephemeral FROM chat_conversations WHERE id = 'c1'`).get())
+      .toEqual({ title: 'Keeper', ephemeral: 0 })
+  })
+
   it('keeps the data of the rows it does not touch', async () => {
     const sqlite = await installed()
     sqlite.exec(`INSERT INTO users (id, username, password_hash, login, name, role, settings, created_at, last_seen_at)

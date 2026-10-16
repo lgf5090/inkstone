@@ -19,7 +19,7 @@ const original = useAssistant.getState()
 
 function conversation(id: string, title: string, over: Partial<AssistantConversation> = {}): AssistantConversation {
   return {
-    id, title, pinned: false, starred: false, archived: false, folderId: null,
+    id, title, pinned: false, starred: false, archived: false, ephemeral: false, folderId: null,
     createdAt: 1, updatedAt: 2, messageCount: 1, ...over,
   }
 }

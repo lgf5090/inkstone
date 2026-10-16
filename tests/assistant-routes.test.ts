@@ -29,6 +29,7 @@ import type {
 import { DEFAULT_SEMANTIC_MODEL, MAX_ANSWER_VERSIONS, MAX_ARTIFACTS_PER_CONVERSATION, MAX_MCP_TIMEOUT_SECONDS, MAX_SKILL_CONTENT_CHARS, MAX_SKILL_ICON_CHARS, MAX_SKILL_TITLE_CHARS, MAX_REASONING_CHARS, MAX_TOKEN_CEILING, MAX_TURN_SCOPES, MAX_TURN_TOOLS, ASSISTANT_TOOL_BY_NAME } from '../src/shared/assistant'
 import { makeD1 } from './doubles/d1-sqlite'
 import { toBase64 } from '../src/worker/lib/encoding'
+import { purgeExpiredEphemeralConversations } from '../src/worker/assistant/store'
 import { testBindings, testDurableObjectNamespace, testR2Bucket } from './doubles/bindings'
 import { AI_EMBEDDING_MODEL } from '../src/worker/mcp/ai-search'
 
@@ -1157,6 +1158,78 @@ describe('drawing a picture', () => {
 
     const failed = events.find((event) => event.type === 'tool' && event.tool?.status === 'error') as { tool: { error: string } } | undefined
     expect(failed?.tool.error).toContain('No image model is configured')
+  })
+})
+
+/**
+ * The thread the reader asked not to keep.
+ *
+ * The promise is a list of exclusions, so that is what is asserted: not in the everyday list, not in a
+ * shortlist, not in the sidebar's counts, not in a backup, not shareable — and gone once its retention has
+ * run out, with nothing it carried left behind. Each of those is a query somewhere, and the interesting
+ * failure is the one clause that was forgotten rather than the feature that does not work at all.
+ */
+describe('temporary conversations', () => {
+  /** One plain turn, which is what makes the conversation. */
+  async function turn(ephemeral: boolean): Promise<string> {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(sse(FINAL_FRAMES), { headers: { 'content-type': 'text/event-stream' } })))
+    const events = await chatEvents({ message: 'something private', ...(ephemeral ? { ephemeral: true } : {}) })
+    await settleTurns()
+    vi.unstubAllGlobals()
+    return events.find((event) => event.type === 'start')!.conversationId!
+  }
+
+  it('is reachable by id and by nothing else', async () => {
+    await useExampleModel()
+    const id = await turn(true)
+
+    // The reader is in it, so it opens — the row is stored, which is what keeps a reload from losing the
+    // thought they were in the middle of.
+    const detail = await call<{ conversation: AssistantConversation }>('GET', `/api/assistant/conversations/${id}`)
+    expect(detail.conversation.ephemeral).toBe(true)
+
+    const listed = await call<{ conversations: AssistantConversation[] }>('GET', '/api/assistant/conversations')
+    expect(listed.conversations.map((entry) => entry.id)).not.toContain(id)
+    // A shortlist is a listing too: starring it must not smuggle it back into view.
+    await call('PATCH', `/api/assistant/conversations/${id}`, { starred: true })
+    const starred = await call<{ conversations: AssistantConversation[] }>('GET', '/api/assistant/conversations?starred=1')
+    expect(starred.conversations.map((entry) => entry.id)).not.toContain(id)
+    // The numbers the sidebar draws come from the same rows, so they exclude it as well.
+    expect((await call<{ unfiled: number }>('GET', '/api/assistant/folders')).unfiled).toBe(0)
+
+    // A public link is the most kept a conversation can be.
+    expect(await status('POST', `/api/assistant/conversations/${id}/share`, {})).toBe(404)
+  })
+
+  it('stays out of a backup, and so does everything it carried', async () => {
+    await useExampleModel()
+    const id = await turn(true)
+    const payload = await call<{
+      data: { conversations: { id: string }[], messages: { conversation_id: string }[] }
+    }>('GET', '/api/assistant/export')
+    expect(payload.data.conversations.map((entry) => entry.id)).not.toContain(id)
+    expect(payload.data.messages.some((entry) => entry.conversation_id === id)).toBe(false)
+  })
+
+  it('is swept away once its retention has run out', async () => {
+    await useExampleModel()
+    const id = await turn(true)
+    // Aged past the window, then the sweep the cron runs.
+    sqlite.prepare('UPDATE chat_conversations SET updated_at = ? WHERE id = ?').run(1, id)
+    expect(await purgeExpiredEphemeralConversations(env.DB, env, Date.now())).toBe(1)
+    expect(await status('GET', `/api/assistant/conversations/${id}`)).toBe(404)
+    // Nothing it carried is left behind: a message or a draft outliving the thread is the exact trace the
+    // feature exists not to leave.
+    const messages = sqlite.prepare('SELECT count(*) AS n FROM chat_messages WHERE conversation_id = ?').get(id) as { n: number }
+    expect(messages.n).toBe(0)
+  })
+
+  it('leaves a kept conversation alone, however old', async () => {
+    await useExampleModel()
+    const id = await turn(false)
+    sqlite.prepare('UPDATE chat_conversations SET updated_at = ? WHERE id = ?').run(1, id)
+    expect(await purgeExpiredEphemeralConversations(env.DB, env, Date.now())).toBe(0)
+    expect(await status('GET', `/api/assistant/conversations/${id}`)).toBe(200)
   })
 })
 

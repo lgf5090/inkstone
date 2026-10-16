@@ -1341,6 +1341,16 @@ export const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
       `ALTER TABLE mcp_preferences ADD COLUMN disabled_tools TEXT NOT NULL DEFAULT '[]'`,
     ],
   },
+  {
+    // A conversation the reader asked not to keep. Stored all the same — a thread that vanished on a
+    // reload would lose the thought being had — but kept out of every listing, out of search and out of a
+    // backup, and swept away once it has gone untouched for the retention window.
+    version: 85,
+    skipIfColumnExists: { table: 'chat_conversations', column: 'ephemeral' },
+    statements: [
+      `ALTER TABLE chat_conversations ADD COLUMN ephemeral INTEGER NOT NULL DEFAULT 0`,
+    ],
+  },
 ]
 
 const FTS_STATEMENT = `CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(
