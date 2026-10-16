@@ -48,8 +48,10 @@ import {
   VoiceButton,
 } from './ComposerControls'
 import { useUi } from '../../store/ui'
+import { MarkdownBody } from '../preview/MarkdownBody'
 import { PASTE_FILE_MIN_CHARS, useAssistant } from './assistant-store'
 import { AssistantBubble } from './MessageParts'
+import { CHAT_NOTE_LINKS } from './note-links'
 import { ChatOutline } from './ChatOutline'
 import { modelReasoning, reasoningOptions } from './model-reasoning'
 
@@ -292,8 +294,19 @@ export function UserBubble({
       <div className="group flex max-w-[85%] flex-col items-end gap-1">
         {attachments.length > 0 && <MessageAttachments ids={attachments} index={fileIndex} />}
         {text && (
-          <div className="whitespace-pre-wrap break-words rounded-[var(--r-lg)] rounded-br-[var(--r-xs)] bg-[var(--accent-soft)] px-3 py-2 text-[length:var(--text-13-5)] leading-relaxed text-[var(--text-primary)]">
-            {text}
+          <div className="break-words rounded-[var(--r-lg)] rounded-br-[var(--r-xs)] bg-[var(--accent-soft)] px-3 py-2 text-[length:var(--text-13-5)] leading-relaxed text-[var(--text-primary)]">
+            {/* The reader's own words are Markdown too: a `[[note]]` the composer inserted, a fenced
+                block pasted in, a list typed out — all of them mean what they say. Formulas, diagrams
+                and charts are declined because a chat bubble is a sentence, not a document, and the
+                three of them are the only channels that would pull a library in to draw one. */}
+            <MarkdownBody
+              source={text}
+              className="ink-chat-prose ink-chat-authored"
+              math={false}
+              mermaid={false}
+              chart={false}
+              links={CHAT_NOTE_LINKS}
+            />
           </div>
         )}
         {text && (

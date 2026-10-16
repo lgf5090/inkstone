@@ -46,3 +46,11 @@
   max-width: 100%;
   height: auto;
 }
+
+/* The reader's own message is Markdown, but it was typed in a box with no syntax hinting: a line
+   break there means a line break, not a wrapped sentence. The renderer keeps a soft break as a
+   newline inside the paragraph rather than turning it into `<br>`, because a note's paragraphs are
+   prose; preserving the newlines here is what makes the bubble show what was typed. */
+.ink-chat-authored p {
+  white-space: pre-wrap;
+}

@@ -1064,6 +1064,7 @@ const allowed = new Map([
     "// turn below — which the server has not named yet — is not.",
     "// The chip lists the levels the answering model's own service has rather than a fixed five, so a model",
     "// that can only be switched on and off is not offered three depths nothing will read.",
+    "/* The reader's own words are Markdown too: a `[[note]]` the composer inserted, a fenced\n                block pasted in, a list typed out — all of them mean what they say. Formulas, diagrams\n                and charts are declined because a chat bubble is a sentence, not a document, and the\n                three of them are the only channels that would pull a library in to draw one. */",
   ]],
   ["src/client/features/chat/ComposerControls.tsx", [
     "/** The token count, spelled the way the reference's slider spells it: 32K, 128K, 262K. */",
@@ -1105,8 +1106,6 @@ const allowed = new Map([
   ]],
   ["src/client/features/chat/MessageParts.tsx", [
     "/**\n * The pieces of one assistant reply.\n *\n * Three things the reference project got wrong in ways only a reader notices:\n *  - it reused the note prose class, so a one-line answer filled a screen;\n *  - it stored the tool chip's words in English inside the message row, so a Chinese interface showed\n *    English pills that no translation could reach;\n *  - it kept the Approve button live after the reply was saved, because it read the approval out of the\n *    message rather than out of the pending-action table.\n *\n * So the chip's words come from the locale catalog by tool name, the prose is its own class, and the\n * approval card is driven by the action's current status.\n */",
-    "// The object identity is what matters: a fresh literal on every render makes React rewrite",
-    "// innerHTML each time anything else in the thread changes, which repaints the answer mid-stream.",
     "/**\n * The answers one turn has already displaced, walked with two arrows.\n *\n * The live answer is the last page; anything before it is a read-only look, and the reader has to press\n * \"use this one\" before it becomes the turn's answer again. That is the notes app's version history in\n * miniature, and for the same reason: looking must never overwrite.\n */",
     "/** The cost of the answer and the speed it arrived at: total tokens, then output tokens per second. */",
     "/** How many earlier answers this turn still holds. The pager appears at two or more pages. */",
@@ -1124,6 +1123,8 @@ const allowed = new Map([
     "/* The trace is named by what it is rather than by what pressing does: the header is the one\n                line of a turn that says the model thought before answering, and a reader skimming a long\n                thread reads it instead of the reasoning itself. */",
     "// Looking at an earlier answer means looking at the thinking that answer was written by; falling back to",
     "// the live trace would show the reader the wrong model's reasoning.",
+    "// The reply is read by the same renderer a note's preview is, so a formula is drawn, a diagram is",
+    "// drawn, and a `[[note]]` is a door into the notebook rather than a word that looks like a link.",
   ]],
   ["src/client/features/chat/ModelEditorDialog.tsx", [
     "/**\n * The model's own editor: what it is for, what it can do, and the numbers it is given.\n *\n * The composer's chips cover the two settings a reader changes often. This covers the rest, which are\n * per-model facts rather than per-conversation choices: whether the endpoint answers in pictures, how\n * much it claims to take in, and the vendor-specific fields our request builder does not know about.\n * Everything here is read by the request path — a switch that changed nothing would be worse than no\n * switch, because it would be believed.\n */",
@@ -1396,6 +1397,10 @@ const allowed = new Map([
     "// the settings screen has to be able to draw a half-configured assistant, and a guess with a safe",
     "// default is better than a screen that throws.",
     "/**\n * The options a level picker draws: the model's own rungs, plus the stored level when it is not one of\n * them.\n *\n * A level can stop being offered — a model that could be switched off is replaced by one that cannot —\n * and a picker whose value is not in its own list would show the reader something other than what is\n * saved, or nothing at all. Keeping the odd value in the list is what makes the row honest; the note\n * beside it says what that level means on this model.\n */",
+  ]],
+  ["src/client/features/chat/note-links.ts", [
+    "/**\n * The notebook, reached from the assistant's container.\n *\n * A `[[note]]` in a reply is a door the reader can walk through, and the notebook is a different\n * container: following one is an address change plus the store's own open — the same pair the reading\n * app's saved-note links use, which is what keeps the note's pane, revision and scroll handled in one\n * place. A title the vault does not have yet is offered as a new note rather than a dead word, which is\n * what the preview pane does when the reader clicks one there.\n */",
+    "/** One object for every reply on screen: a fresh literal per message would be a new identity per render. */",
   ]],
   ["src/client/features/chat/provider-form.test.ts", [
     "/**\n * The provider form's own guard rail.\n *\n * A browser can autocomplete a saved username into the text box sitting above a password field, and the\n * address boxes are optional. The reader must see which box says what, before any request is sent — and\n * the save they did mean must still go through.\n */",
@@ -13860,6 +13865,7 @@ const allowed = new Map([
     "/*\n * The chat assistant's own surfaces.\n *\n * `.ink-prose` is written for a note being *read*: a 72ch measure centred in the column and a 42vh\n * tail so the last line can sit at eye level. Reusing it for a reply gave a one-line answer a body\n * taller than the window (measured before this existed: 443px of bubble for 12 characters of text).\n * These rules keep the typography — headings, lists, code, tables all come from prose.css — and drop\n * only the page furniture, so an assistant answer and a note read the same and stack differently.\n */",
     "/* A chat column is narrow, so a wide table scrolls inside its bubble rather than pushing the thread\n   sideways. prose.css gives `.table-wrap` its own page-level overflow, which does not exist here. */",
     "/* Code a reader may want to copy is the commonest thing an assistant returns, so the block gets the\n   surface treatment the note editor gives one: a readable inset, no page-level padding. */",
+    "/* The reader's own message is Markdown, but it was typed in a box with no syntax hinting: a line\n   break there means a line break, not a wrapped sentence. The renderer keeps a soft break as a\n   newline inside the paragraph rather than turning it into `<br>`, because a note's paragraphs are\n   prose; preserving the newlines here is what makes the bubble show what was typed. */",
   ]],
   ["src/client/styles/dataview.css", [
     "/* Query blocks, inline fields and inline answers. The block shell follows the board and mind-map\n   heads so a note with several rich blocks reads as one family; the table, list and checkbox shapes\n   come from prose.css rather than being drawn again here. */",

@@ -32,10 +32,11 @@ import { ASSISTANT_TOOL_BY_NAME, mcpToolOrigin } from '@shared/assistant'
 import { cn } from '../../lib/cn'
 import { COPY_RESET_MS } from '../../lib/motion'
 import { t } from '../../lib/i18n'
-import { renderMarkdown } from '../../lib/markdown/renderer'
 import { useLocale } from '../../lib/i18n'
 import { Button } from '../../components/primitives'
+import { MarkdownBody } from '../preview/MarkdownBody'
 import { useAssistant } from './assistant-store'
+import { CHAT_NOTE_LINKS } from './note-links'
 
 const STAGE_KEYS = {
   waiting: 'assistant.chat.stage_waiting',
@@ -45,11 +46,9 @@ const STAGE_KEYS = {
 } as const
 
 export function MarkdownReply({ source }: { source: string }) {
-  const locale = useLocale()
-  // The object identity is what matters: a fresh literal on every render makes React rewrite
-  // innerHTML each time anything else in the thread changes, which repaints the answer mid-stream.
-  const html = useMemo(() => ({ __html: renderMarkdown(source).html }), [source, locale])
-  return <div className="ink-prose ink-chat-prose min-w-0" dangerouslySetInnerHTML={html} />
+  // The reply is read by the same renderer a note's preview is, so a formula is drawn, a diagram is
+  // drawn, and a `[[note]]` is a door into the notebook rather than a word that looks like a link.
+  return <MarkdownBody source={source} className="ink-chat-prose min-w-0" links={CHAT_NOTE_LINKS} />
 }
 
 /**

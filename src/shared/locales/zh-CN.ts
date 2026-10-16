@@ -5921,6 +5921,8 @@ console.log(\`Hello, \${name}!\`)
     "assistant.chat.delete_message_hint": "由它生成的那条回答会一起删除；之后的对话保留。",
     "assistant.chat.outline": "对话大纲",
     "assistant.chat.outline_attachments": "一条带附件的消息",
+    "assistant.chat.note_gone": "这篇笔记已经不在了",
+    "assistant.chat.note_created": "已新建笔记「{title}」",
     "assistant.chat.disclaimer": "由你自己的 AI 账号驱动。助手可能出错，重要内容请自行核对。",
     "assistant.chat.prompt": "想做点什么？",
     "assistant.chat.recent": "最近的对话",
