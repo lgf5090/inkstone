@@ -10,7 +10,7 @@
  */
 import { Z_INDEX } from '../../lib/z-index'
 import { type ClipboardEvent as ReactClipboardEvent, type KeyboardEvent, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import { ArrowUp, ArrowUpRight, Check, Copy, History, MoreHorizontal, Paperclip, Pencil, Plus, Search, Square, Star, Trash2 } from 'lucide-react'
+import { ArrowUp, ArrowUpRight, Check, Copy, FileText, FolderOpen, History, MoreHorizontal, Paperclip, Pencil, Plus, Search, Square, Star, Trash2, X } from 'lucide-react'
 import type { AssistantConversation, AssistantMessage, ChatAttachment } from '@shared/assistant'
 import { DEBOUNCE } from '@shared/constants'
 import { cn } from '../../lib/cn'
@@ -49,6 +49,7 @@ import {
   VoiceButton,
 } from './ComposerControls'
 import { useUi } from '../../store/ui'
+import { useNotes } from '../../store/notes'
 import { MarkdownBody } from '../preview/MarkdownBody'
 import { PASTE_FILE_MIN_CHARS, useAssistant } from './assistant-store'
 import { MessageMenu, useMessageMenu } from './MessageMenu'
@@ -950,6 +951,53 @@ function EmptyChat({ onPick }: { onPick: (text: string) => void }) {
   )
 }
 
+/**
+ * The context the notebook's own pointer is adding to the next turn.
+ *
+ * The open note and folder ride along with every turn so "summarise this" works without naming anything,
+ * but a pointer the reader cannot see is one they cannot correct — so each is drawn here and can be
+ * taken off. Taking one off lasts for this thread only; the next thread starts from the pointer again.
+ */
+function ContextStrip() {
+  const activeNoteId = useUi((state) => state.activeNoteId)
+  const folderId = useUi((state) => state.folderId)
+  const noteTitle = useNotes((state) => (activeNoteId ? state.notes[activeNoteId]?.title : undefined))
+  const folderName = useNotes((state) => (folderId ? state.folders.find((folder) => folder.id === folderId)?.name : undefined))
+  const noteOn = useAssistant((state) => state.noteContextOn)
+  const folderOn = useAssistant((state) => state.folderContextOn)
+  const setNoteContext = useAssistant((state) => state.setNoteContext)
+  const setFolderContext = useAssistant((state) => state.setFolderContext)
+  const chips: Array<{ id: string, icon: React.ReactNode, label: string, onRemove: () => void }> = []
+  if (activeNoteId && noteOn) {
+    chips.push({ id: 'note', icon: <FileText size={12} />, label: noteTitle || t('assistant.context.note'), onRemove: () => setNoteContext(false) })
+  }
+  if (folderId && folderOn) {
+    chips.push({ id: 'folder', icon: <FolderOpen size={12} />, label: folderName || t('assistant.context.folder'), onRemove: () => setFolderContext(false) })
+  }
+  if (!chips.length) return null
+  return (
+    <div role="group" aria-label={t('assistant.context.title')} className="flex flex-wrap items-center gap-1 px-1 pt-0.5">
+      {chips.map((chip) => (
+        <span
+          key={chip.id}
+          className="inline-flex min-w-0 items-center gap-1 rounded-[var(--r-sm)] bg-[var(--bg-inset)] px-1.5 py-0.5 text-[length:var(--text-11)] text-[var(--text-tertiary)]"
+        >
+          <span aria-hidden className="shrink-0 text-[var(--text-quaternary)]">{chip.icon}</span>
+          <span className="max-w-[180px] truncate">{chip.label}</span>
+          <button
+            type="button"
+            aria-label={t('assistant.context.remove', { name: chip.label })}
+            onClick={chip.onRemove}
+            className="shrink-0 text-[var(--text-quaternary)] transition-colors hover:text-[var(--text-secondary)]"
+          >
+            <X size={11} />
+          </button>
+        </span>
+      ))}
+    </div>
+  )
+}
+
 function Composer({
   streaming,
   sendOnEnter,
@@ -1220,6 +1268,7 @@ ${current}` : seed))
         >
           <AttachmentStrip items={pending} onRemove={(localId) => void dropAttachment(localId)} />
           <TurnPinRow tools={turnTools} scopes={turnScopes} onDropTool={dropTurnTool} onDropScope={dropTurnScope} />
+          <ContextStrip />
           <textarea
             ref={ref}
             rows={1}

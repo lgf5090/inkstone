@@ -1126,6 +1126,7 @@ const allowed = new Map([
     "// written for: the chips below the box change, which is what says the change happened.",
     "// A conversation answers under one project's brief at a time, so the picker is a flat list with the",
     "// current one ticked and a way back out. An empty list says why rather than opening onto nothing.",
+    "/**\n * The context the notebook's own pointer is adding to the next turn.\n *\n * The open note and folder ride along with every turn so \"summarise this\" works without naming anything,\n * but a pointer the reader cannot see is one they cannot correct — so each is drawn here and can be\n * taken off. Taking one off lasts for this thread only; the next thread starts from the pointer again.\n */",
   ]],
   ["src/client/features/chat/ComposerControls.tsx", [
     "/** The token count, spelled the way the reference's slider spells it: 32K, 128K, 262K. */",
@@ -1422,6 +1423,8 @@ const allowed = new Map([
     "/** Whether a file's own words can be read here: only a PDF has a parser in the browser today. */",
     "// A PDF's words are read here, in the browser, because the worker has no parser: the text rides",
     "// along with the bytes so the model is shown the contents on every later turn too.",
+    "/**\n   * Whether the note the reader has open rides along as context with the next turn.\n   *\n   * The notebook's own pointer is what makes \"summarise this\" work without naming the note, but a\n   * pointer the reader cannot see is a pointer they cannot correct — so it is drawn as a chip the reader\n   * can take off, and these two flags are what the chip and the send path both read.\n   */",
+    "// A muted chip is this thread's correction, not a setting: the next thread starts from the pointer.",
   ]],
   ["src/client/features/chat/chat-outline.test.ts", [
     "/**\n * The rail and the panel that stand beside a thread.\n *\n * Both of them are read off the thread's own DOM — which turn has passed the reading line, and how far\n * down to land when one is chosen — so these cases lay out the boxes a browser would and then scroll:\n * a test that only counted buttons would pass over an outline that marks the wrong turn.\n */",
@@ -1476,6 +1479,10 @@ const allowed = new Map([
     "// The rungs a model's own service offers; DeepSeek's four plus the two values every service shares.",
     "// Picking a saved prompt inserts what it says, not what it is called — and hands over the whole row,",
     "// because a prompt that carries a tool set or a folder is more than its words.",
+  ]],
+  ["src/client/features/chat/context-note.test.ts", [
+    "/**\n * The open note's way from a chip to the request.\n *\n * The notebook's pointer rides along with every turn so \"summarise this\" works without naming the note,\n * and a chip the reader can take off is the only thing that keeps that from being an invisible decision.\n * What is pinned here is the half-wire: taking the chip off really does leave the id out of the request.\n */",
+    "// The after-turn refreshes are not this chip; they would reach for api methods the mock has none of.",
   ]],
   ["src/client/features/chat/conversation-drag.ts", [
     "/**\n * Dragging a conversation onto a folder.\n *\n * A conversation is moved by the same gesture a note is, and by a payload of its own: a note drag carries\n * a note id, and a drop target that read one as the other would file the wrong row — or file a\n * conversation because some note id happened to name it. So the type is distinct, and only the folder\n * row that knows about conversations accepts it.\n */",

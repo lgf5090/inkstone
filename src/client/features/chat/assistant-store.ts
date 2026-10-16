@@ -128,6 +128,17 @@ interface AssistantState {
   webSearch: boolean
   setWebSearch: (value: boolean) => void
   /**
+   * Whether the note the reader has open rides along as context with the next turn.
+   *
+   * The notebook's own pointer is what makes "summarise this" work without naming the note, but a
+   * pointer the reader cannot see is a pointer they cannot correct — so it is drawn as a chip the reader
+   * can take off, and these two flags are what the chip and the send path both read.
+   */
+  noteContextOn: boolean
+  folderContextOn: boolean
+  setNoteContext: (on: boolean) => void
+  setFolderContext: (on: boolean) => void
+  /**
    * Text the composer has been asked to start from — a quote of a turn.
    *
    * The draft lives in the composer's own state, so a menu elsewhere on screen cannot reach it. This is
@@ -540,6 +551,8 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
   unfiledProjectCount: 0,
   tagNodes: [],
   webSearch: false,
+  noteContextOn: true,
+  folderContextOn: true,
   composerSeed: null,
   pending: [],
   prompts: [],
@@ -993,7 +1006,8 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
     const turn = state.turn
     // A reply still arriving belongs to its own conversation; navigating away must not cancel it.
     if (turn && !turn.done && turn.conversationId !== id) set({ turn: null })
-    set({ activeId: id, messages: [], messagesReady: false, remoteStreaming: false })
+    // A muted chip is this thread's correction, not a setting: the next thread starts from the pointer.
+    set({ activeId: id, messages: [], messagesReady: false, remoteStreaming: false, noteContextOn: true, folderContextOn: true })
     if (!id) {
       set({ messagesReady: true })
       return
@@ -1017,7 +1031,7 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
   newConversation: () => {
     const live = get().turn
     if (live && !live.done) return
-    set({ activeId: null, messages: [], messagesReady: true, remoteStreaming: false, turn: null })
+    set({ activeId: null, messages: [], messagesReady: true, remoteStreaming: false, turn: null, noteContextOn: true, folderContextOn: true })
   },
 
   attachFiles: async (files) => {
@@ -1178,6 +1192,10 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
 
   setWebSearch: (value) => set({ webSearch: value }),
 
+  setNoteContext: (on) => set({ noteContextOn: on }),
+
+  setFolderContext: (on) => set({ folderContextOn: on }),
+
   seedComposer: (text) => set({ composerSeed: text }),
 
   clearComposerSeed: () => set({ composerSeed: null }),
@@ -1271,7 +1289,10 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
           attachments: attached,
           tools: state.turnTools,
           scopes: state.turnScopes,
-          ...(retry ? {} : { contextNoteId: ui.activeNoteId ?? undefined, contextFolderId: ui.folderId ?? undefined }),
+          ...(retry ? {} : {
+            ...(state.noteContextOn && ui.activeNoteId ? { contextNoteId: ui.activeNoteId } : {}),
+            ...(state.folderContextOn && ui.folderId ? { contextFolderId: ui.folderId } : {}),
+          }),
           webSearch: state.webSearch,
           retry,
         },
