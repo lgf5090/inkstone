@@ -3038,6 +3038,7 @@ export const EN_US_MESSAGES = {
     "workspace.mention_link_failed": "Could not create the link",
     "workspace.mention_linked": "Mention turned into a link",
     "workspace.mentions_here": "Mentions of this file name",
+    "workspace.from_conversations": "Written in a conversation",
     "workspace.no_notes_link_here_yet_write": "No notes link here yet. Write ",
     "workspace.no_version_history_yet": "No version history yet",
     "workspace.note_embed": "Note embed",

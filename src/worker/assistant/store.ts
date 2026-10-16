@@ -1635,6 +1635,36 @@ export class AssistantStore {
     )
   }
 
+  /**
+   * Note that a conversation wrote a note.
+   *
+   * Written after the note's own write succeeded, so a thread that tried and failed does not claim a
+   * note it never touched. One row per (note, conversation): a thread that appends three times is one
+   * origin, and the panel lists threads rather than edits. The timestamp is refreshed on every later
+   * write, because the question the panel answers is "which exchange produced this", and the most
+   * recent one is the useful answer.
+   */
+  async recordNoteWrite(noteId: string, conversationId: string): Promise<void> {
+    await this.write(
+      `INSERT INTO chat_note_writes (user_id, note_id, conversation_id, created_at) VALUES (?1, ?2, ?3, ?4)
+       ON CONFLICT (user_id, note_id, conversation_id) DO UPDATE SET created_at = excluded.created_at`,
+      noteId, conversationId, Date.now(),
+    )
+  }
+
+  /** The conversations that wrote this note, newest first: the note's "from a conversation" backlinks. */
+  async noteWriteOrigins(noteId: string, limit = 5): Promise<Array<{ id: string, title: string, updatedAt: number }>> {
+    const rows = await this.rows<{ id: string, title: string, updated_at: number }>(
+      `SELECT c.id AS id, c.title AS title, c.updated_at AS updated_at
+         FROM chat_note_writes w
+         JOIN chat_conversations c ON c.user_id = w.user_id AND c.id = w.conversation_id
+        WHERE w.user_id = ?1 AND w.note_id = ?2
+        ORDER BY w.created_at DESC LIMIT ?3`,
+      this.userId, noteId, Math.max(1, Math.min(20, limit)),
+    )
+    return rows.map((row) => ({ id: row.id, title: row.title, updatedAt: row.updated_at }))
+  }
+
   async deleteConversation(id: string): Promise<void> {
     await this.write(`DELETE FROM chat_messages WHERE user_id = ?1 AND conversation_id = ?2`, id)
     await this.write(`DELETE FROM chat_answer_versions WHERE user_id = ?1 AND conversation_id = ?2`, id)
@@ -1644,6 +1674,9 @@ export class AssistantStore {
     // A draft belongs to its thread: a conversation the reader deleted must not leave one behind to be
     // found by nothing.
     await this.write(`DELETE FROM chat_artifacts WHERE user_id = ?1 AND conversation_id = ?2`, id)
+    // The origin of a note the thread wrote goes with it: a backlink panel must not offer to open a
+    // conversation that no longer exists.
+    await this.write(`DELETE FROM chat_note_writes WHERE user_id = ?1 AND conversation_id = ?2`, id)
     await this.write(`DELETE FROM chat_conversations WHERE user_id = ?1 AND id = ?2`, id)
   }
 
@@ -1658,6 +1691,7 @@ export class AssistantStore {
     await this.write(`DELETE FROM chat_active_runs WHERE user_id = ?1`)
     await this.write(`DELETE FROM chat_conversation_tags WHERE user_id = ?1`)
     await this.write(`DELETE FROM chat_artifacts WHERE user_id = ?1`)
+    await this.write(`DELETE FROM chat_note_writes WHERE user_id = ?1`)
     await this.write(`DELETE FROM chat_conversations WHERE user_id = ?1`)
     return before?.n ?? 0
   }

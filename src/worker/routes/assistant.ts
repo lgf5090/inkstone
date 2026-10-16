@@ -184,6 +184,19 @@ function readerDayEnd(timezone: string): number {
 
 // -------------------------------------------------------------- conversations
 
+/**
+ * The conversations that wrote one note.
+ *
+ * The notebook's backlink panel asks this beside the note's own `[[links]]`, because a note the assistant
+ * wrote has none: what points at it is a conversation, and a conversation is not a note. The note id is
+ * validated by shape and the store's own `user_id` filter bounds what a foreign id could reach, so this
+ * route cannot be used to read another account's threads.
+ */
+assistantRoutes.get('/note-writes', async (c) => {
+  const noteId = requiredId(c.req.query('noteId'))
+  return c.json({ conversations: await store(c).noteWriteOrigins(noteId) })
+})
+
 assistantRoutes.get('/conversations', async (c) => {
   const query = c.req.query('q')?.trim().slice(0, 200)
   const folder = c.req.query('folder')

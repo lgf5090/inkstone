@@ -7560,6 +7560,11 @@ const allowed = new Map([
     "// (cursor) no longer refetches, and stale links stay visible until the",
     "// fresh payload arrives.",
     "/** In the sidebar tab the panel owns the column, so it grows instead of taking a slice of the editor. */",
+    "/** The conversations that wrote this note, which is the half `[[links]]` cannot answer. */",
+    "// A second question, asked beside the first: which conversations wrote this note. It is a",
+    "// separate request because the assistant is a separate module — the notes route has no",
+    "// business reading the chat's tables. A failure here leaves the section empty rather than",
+    "// failing the panel: the note's own backlinks are the part the reader came for.",
   ]],
   ["src/client/features/workspace/EditorColorMenu.tsx", [
     "/** What the button already stands for, so reopening the panel points at it rather than at nothing. */",
@@ -7598,6 +7603,11 @@ const allowed = new Map([
     "// than closing over it, which is what lets the callbacks be stable.",
     "/** How long scrolling in a note must settle before its reading position is written. */",
     "/** How many most-recently-edited notes are offered as link targets under the editor. */",
+  ]],
+  ["src/client/features/workspace/backlinks-origins.test.ts", [
+    "/**\n * The note's other half of its backlinks.\n *\n * A note the assistant wrote has no `[[links]]` pointing at it — what points at it is a conversation, and\n * the notes table has no way to say so. The panel therefore asks two questions, and this is the second\n * one: the threads that wrote this note, drawn under the note-to-note backlinks, each opening the\n * exchange it came from.\n *\n * The section is silent when the answer is empty, which is the honest state for the overwhelming majority\n * of notes: an empty \"from a conversation\" heading would be furniture.\n */",
+    "// The panel debounces its reads so a note being typed in does not refetch per keystroke.",
+    "// The section the reader came for is still drawn, and the failed one is simply absent.",
   ]],
   ["src/client/features/workspace/context-menu/EditorContextMenu.tsx", [
     "/**\n * The note's context menu.\n *\n * One component for every block kind: the rows come from `useContextMenuState`, which asks the kind's\n * own builder and then the note-wide ones. The header strip and the filter box are the parts that\n * belong to no kind, which is why they are attached here rather than repeated in each builder.\n */",
@@ -7783,6 +7793,7 @@ const allowed = new Map([
     "/**\n     * Mint a key, optionally narrowed to a subset of the scopes the account allows.\n     *\n     * An absent list means \"everything the account allows\"; the server narrows whatever is sent against the\n     * account's own switches, so this can only ever ask for less.\n     */",
     "/**\n     * The drafts a conversation keeps in its side panel.\n     *\n     * Fetched with the thread rather than stored on it: a draft is a document, and a listing that carried\n     * every one of them would make opening a conversation pay for work the reader may not do.\n     */",
     "/**\n * Which turns a share link covers, as the query the worker reads it back from.\n *\n * Nothing at all for the whole thread, so the everyday link's request is the one it has always been and a\n * reader who never narrows anything sees no difference in the wire.\n */",
+    "/** The conversations that wrote one note: the note's own \"from a conversation\" backlinks. */",
   ]],
   ["src/client/lib/app-history.ts", [
     "/**\n * The address bar as the one source of truth for which app tab is up.\n *\n * The tab is a path rather than a store field so that a rail button is an ordinary link: the\n * address a reader copies is the screen they are looking at, the back button walks the tabs they\n * visited, and a cold load of `/calendar` needs nothing but the document the server already sends.\n * `history.pushState` fires no event of its own, so the writers here announce their own changes and\n * `popstate` covers everything the browser does by itself.\n */",
@@ -16090,6 +16101,13 @@ const allowed = new Map([
     "// part of the thread it points at, and a reader who narrows a link should not be handed a second set of",
     "// rules for it. It is part of the key so that one thread can have a link for the whole of it and links",
     "// for particular exchanges at the same time, without either one overwriting the other.",
+    "// Which conversations have written which notes.",
+    "// The notebook's own backlink panel is built from `[[links]]` in note text, so a note the assistant",
+    "// wrote has no backlinks at all — nothing points at it, because a conversation is not a note. This is",
+    "// the other half of that panel: the notes a thread wrote, so the note can say where it came from and",
+    "// the reader can go back to the exchange that produced it.",
+    "// One row per (note, conversation) rather than per write: a thread that appends to a note three times",
+    "// is still one origin, and the panel is a list of threads, not of edits.",
   ]],
   ["src/worker/assistant/semantic.ts", [
     "/**\n * Semantic recall for memories, on the deployment's own Workers AI stack.\n *\n * The reference project shipped its own embedding pipeline; this app already has one for notes\n * (`src/worker/mcp/ai-search.ts`), so the model name, the blob layout, the cosine helper and the\n * rank-fusion are imported from there rather than reimplemented — two encoders would silently stop\n * matching each other's vectors, and every recall would come back empty with no error to read.\n *\n * A memory is embedded when it is written, which is rare and small: the whole set is a few dozen\n * rows, so ranking is a scan rather than an index. The daily cap is the reader's, counted in the same\n * table as the request cap.\n */",
@@ -16365,6 +16383,10 @@ const allowed = new Map([
     "// A note is recognized by its id, and its url is rewritten rather than trusted: the stored path is",
     "// the app's own, and rebuilding it here is what makes an exported transcript open the right note",
     "// wherever it is read.",
+    "/**\n   * Note that a conversation wrote a note.\n   *\n   * Written after the note's own write succeeded, so a thread that tried and failed does not claim a\n   * note it never touched. One row per (note, conversation): a thread that appends three times is one\n   * origin, and the panel lists threads rather than edits. The timestamp is refreshed on every later\n   * write, because the question the panel answers is \"which exchange produced this\", and the most\n   * recent one is the useful answer.\n   */",
+    "/** The conversations that wrote this note, newest first: the note's \"from a conversation\" backlinks. */",
+    "// The origin of a note the thread wrote goes with it: a backlink panel must not offer to open a",
+    "// conversation that no longer exists.",
   ]],
   ["src/worker/assistant/tools.ts", [
     "/**\n * The tools the assistant can reach, and the executor that runs them.\n *\n * Three things are enforced here rather than asked of the model, because a model that is confident and\n * wrong is the failure mode this app has to survive:\n *  - **budgets** — a per-turn call cap, a per-tool cap and a duplicate-call refusal, so a reasoning\n *    loop cannot spend the reader's AI quota or write a hundred tasks;\n *  - **validation** — arguments are checked against the same declaration that generates the JSON\n *    Schema the provider is given, so the two can never disagree;\n *  - **approval** — a destructive tool never runs during the turn. `prepare` resolves the exact target\n *    and writes a pending action; `commit` runs only when the reader presses Approve, once, on that\n *    target. The model can propose; it cannot delete.\n *\n * Scheduled runs get read-only tools plus `notify_reader`, so a routine that has drifted cannot edit\n * the vault while nobody is watching.\n */",
@@ -16426,6 +16448,7 @@ const allowed = new Map([
     "// it, and a conversation outside every project files into the account's own.",
     "// Scoped like every other read of a memory: this tool answers inside a turn, and a turn does not",
     "// see another project's facts just because it asked a broader question.",
+    "/**\n * Leave a mark on the note that says which conversation wrote it.\n *\n * The notebook's backlink panel is built from `[[links]]` inside note text, so a note the assistant\n * wrote has no backlinks at all — nothing points at it, because a conversation is not a note. This is\n * what lets the note say where it came from.\n *\n * Best-effort on purpose: the note is already written and stored by the time this runs, and a failure\n * here would report the whole call as failed for something the reader can neither see nor act on. The\n * loss is one backlink, and it is logged rather than swallowed.\n */",
   ]],
   ["src/worker/assistant/upstream.ts", [
     "/** A JSON Schema object, built by `toolSchemaFor` from the tool's own declared parameters. */",
@@ -17437,6 +17460,7 @@ const allowed = new Map([
     "// turn that is not in this conversation is a mistake worth refusing rather than a link worth writing.",
     "// The thread's project, re-read rather than remembered: an approved memory write must land in the",
     "// same scope the proposal was made in, and a thread moved between projects since then has moved.",
+    "/**\n * The conversations that wrote one note.\n *\n * The notebook's backlink panel asks this beside the note's own `[[links]]`, because a note the assistant\n * wrote has none: what points at it is a conversation, and a conversation is not a note. The note id is\n * validated by shape and the store's own `user_id` filter bounds what a foreign id could reach, so this\n * route cannot be used to read another account's threads.\n */",
   ]],
   ["src/worker/routes/auth.ts", [
     "// Account-wide cap so a distributed botnet cannot retry one account",

@@ -164,6 +164,25 @@ export const ASSISTANT_SCHEMA_STATEMENTS: readonly string[] = [
   `CREATE INDEX IF NOT EXISTS idx_chat_artifacts_conversation
      ON chat_artifacts(user_id, conversation_id, updated_at DESC)`,
 
+  // Which conversations have written which notes.
+  //
+  // The notebook's own backlink panel is built from `[[links]]` in note text, so a note the assistant
+  // wrote has no backlinks at all — nothing points at it, because a conversation is not a note. This is
+  // the other half of that panel: the notes a thread wrote, so the note can say where it came from and
+  // the reader can go back to the exchange that produced it.
+  //
+  // One row per (note, conversation) rather than per write: a thread that appends to a note three times
+  // is still one origin, and the panel is a list of threads, not of edits.
+  `CREATE TABLE IF NOT EXISTS chat_note_writes (
+    user_id TEXT NOT NULL,
+    note_id TEXT NOT NULL,
+    conversation_id TEXT NOT NULL,
+    created_at INTEGER NOT NULL,
+    PRIMARY KEY (user_id, note_id, conversation_id)
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_chat_note_writes_note
+     ON chat_note_writes(user_id, note_id, created_at DESC)`,
+
   // The chat's own uploads: a pasted picture or a dropped document that feeds one turn. The key column
   // is the R2 object path, so deleting the row and deleting the object are the same operation.
   `CREATE TABLE IF NOT EXISTS chat_attachments (
@@ -541,6 +560,7 @@ export const ASSISTANT_REQUIRED_TABLES: readonly string[] = [
   'chat_models',
   'chat_conversations',
   'chat_artifacts',
+  'chat_note_writes',
   'chat_attachments',
   'chat_conversation_tags',
   'chat_messages',
@@ -569,6 +589,7 @@ export const ASSISTANT_REQUIRED_INDEXES: readonly string[] = [
   'idx_chat_conversations_folder',
   'idx_chat_conversations_project',
   'idx_chat_artifacts_conversation',
+  'idx_chat_note_writes_note',
   'idx_chat_attachments_user',
   'idx_chat_conversation_tags_tag',
   'idx_chat_messages_conversation',
@@ -613,6 +634,7 @@ export const ASSISTANT_REQUIRED_COLUMNS: Readonly<Record<string, readonly string
     'input_price', 'output_price', 'price_currency', 'enabled', 'position'],
   chat_conversations: ['user_id', 'id', 'title', 'summary', 'summary_upto', 'pinned', 'starred', 'archived', 'ephemeral', 'folder_id', 'project_id', 'created_at', 'updated_at'],
   chat_artifacts: ['user_id', 'id', 'conversation_id', 'title', 'content', 'note_id', 'created_at', 'updated_at'],
+  chat_note_writes: ['user_id', 'note_id', 'conversation_id', 'created_at'],
   chat_attachments: ['user_id', 'id', 'kind', 'filename', 'mime', 'size', 'key', 'extracted_text', 'created_at'],
   chat_conversation_tags: ['user_id', 'conversation_id', 'tag_id', 'created_at'],
   chat_messages: ['user_id', 'id', 'conversation_id', 'role', 'content', 'reasoning', 'tools', 'attachments', 'status', 'error', 'source', 'input_tokens', 'output_tokens', 'duration_ms', 'model_label', 'feedback', 'sources', 'created_at'],

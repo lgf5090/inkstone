@@ -803,6 +803,11 @@ export const api = {
    * these routes, and nothing in the notebook calls them.
    */
   assistant: {
+    /** The conversations that wrote one note: the note's own "from a conversation" backlinks. */
+    noteWrites: (noteId: string, signal?: AbortSignal) =>
+      request<{ conversations: { id: string, title: string, updatedAt: number }[] }>(
+        `/api/assistant/note-writes${toQuery({ noteId })}`, { signal },
+      ),
     conversations: (params: { q?: string, folder?: string, project?: string, tag?: string, starred?: string, pinned?: string, archived?: string } = {}) =>
       request<{ conversations: AssistantConversation[] }>(`/api/assistant/conversations${toQuery(params)}`),
     createConversation: (title?: string, folderId?: string | null) =>

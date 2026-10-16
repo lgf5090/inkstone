@@ -3038,6 +3038,7 @@ export const ZH_CN_MESSAGES = {
     "workspace.mention_link_failed": "无法创建链接",
     "workspace.mention_linked": "提及已变成链接",
     "workspace.mentions_here": "提到当前文件名",
+    "workspace.from_conversations": "来自对话",
     "workspace.no_notes_link_here_yet_write": "还没有笔记链接到这里。在别的笔记里写",
     "workspace.no_version_history_yet": "还没有历史版本",
     "workspace.note_embed": "笔记嵌入",

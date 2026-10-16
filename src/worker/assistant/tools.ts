@@ -581,6 +581,7 @@ export const NOTE_TOOLS: ToolDefinition[] = [
         content: String(args.content ?? ''),
       })
       await ctx.store.recordActivity('note.created', note.title)
+      await noteWritten(ctx, note.id)
       return { created: { id: note.id, title: note.title } }
     },
   }),
@@ -607,6 +608,7 @@ export const NOTE_TOOLS: ToolDefinition[] = [
           operation: 'append',
           text: `\n\n${args.append}`,
         })
+        await noteWritten(ctx, note.id)
         return { updated: { id: note.id, title: note.title } }
       }
       const note = await editMcpNote(writeContext, {
@@ -617,6 +619,7 @@ export const NOTE_TOOLS: ToolDefinition[] = [
         text: String(args.content ?? ''),
         ...(typeof args.title === 'string' ? { title: args.title } : {}),
       })
+      await noteWritten(ctx, note.id)
       return { updated: { id: note.id, title: note.title } }
     },
   }),
@@ -1228,6 +1231,26 @@ export async function cancelApprovedAction(store: AssistantStore, actionId: stri
 }
 
 // ------------------------------------------------------------- note plumbing
+
+/**
+ * Leave a mark on the note that says which conversation wrote it.
+ *
+ * The notebook's backlink panel is built from `[[links]]` inside note text, so a note the assistant
+ * wrote has no backlinks at all — nothing points at it, because a conversation is not a note. This is
+ * what lets the note say where it came from.
+ *
+ * Best-effort on purpose: the note is already written and stored by the time this runs, and a failure
+ * here would report the whole call as failed for something the reader can neither see nor act on. The
+ * loss is one backlink, and it is logged rather than swallowed.
+ */
+async function noteWritten(ctx: ToolContext, noteId: string): Promise<void> {
+  if (!ctx.conversationId) return
+  try {
+    await ctx.store.recordNoteWrite(noteId, ctx.conversationId)
+  } catch (error) {
+    console.warn('[inkstone] note origin not recorded:', error instanceof Error ? error.message : error)
+  }
+}
 
 function requireWriteContext(ctx: ToolContext): McpWriteContext {
   if (!ctx.writeContext) throw new ToolError('Note writing is not available in this run.')

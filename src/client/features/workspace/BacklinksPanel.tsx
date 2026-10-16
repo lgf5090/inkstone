@@ -1,10 +1,13 @@
 import { useEffect, useState } from 'react';
-import { ArrowUpRight, Link2, Link as LinkIcon, MessageSquareText } from 'lucide-react';
+import { ArrowUpRight, Link2, Link as LinkIcon, MessageSquareText, Sparkles } from 'lucide-react';
 import type { Backlink } from '@shared/types';
 import { api } from '../../lib/api';
 import { Button } from '../../components/primitives';
 import { useNotes } from '../../store/notes';
 import { t } from "../../lib/i18n";
+import { relativeTime } from '../../lib/time';
+import { navigateToPath } from '../../lib/app-history';
+import { useAssistant } from '../chat/assistant-store';
 
 export function BacklinksPanel({ noteId, fill = false }: {
     noteId: string;
@@ -13,6 +16,8 @@ export function BacklinksPanel({ noteId, fill = false }: {
 }) {
     const [links, setLinks] = useState<Backlink[] | null>(null);
     const [mentions, setMentions] = useState<Backlink[]>([]);
+    /** The conversations that wrote this note, which is the half `[[links]]` cannot answer. */
+    const [origins, setOrigins] = useState<{ id: string; title: string; updatedAt: number }[]>([]);
     const [loadError, setLoadError] = useState<string | null>(null);
     const [reload, setReload] = useState(0);
     const [linking, setLinking] = useState<string | null>(null);
@@ -41,6 +46,20 @@ export function BacklinksPanel({ noteId, fill = false }: {
                 .catch((error) => {
                 if (!cancelled)
                     setLoadError(error instanceof Error ? error.message : String(error));
+            });
+            // A second question, asked beside the first: which conversations wrote this note. It is a
+            // separate request because the assistant is a separate module — the notes route has no
+            // business reading the chat's tables. A failure here leaves the section empty rather than
+            // failing the panel: the note's own backlinks are the part the reader came for.
+            api.assistant
+                .noteWrites(noteId, controller.signal)
+                .then((res) => {
+                if (!cancelled)
+                    setOrigins(res.conversations);
+            })
+                .catch(() => {
+                if (!cancelled)
+                    setOrigins([]);
             });
         }, 500);
         return () => {
@@ -105,6 +124,27 @@ export function BacklinksPanel({ noteId, fill = false }: {
             <MessageSquareText size={11} aria-hidden="true"/>{t("workspace.mentions_here")}<span className="tabular">· {mentions.length}</span>
           </div>
           {rows(mentions, linkOne)}
+        </>)}
+
+      {origins.length > 0 && (<>
+          <div className="sticky top-0 z-10 flex items-center gap-1.5 border-t border-[var(--border-subtle)] bg-[var(--bg-base)] px-3 py-2 text-[length:var(--text-10-5)] font-semibold tracking-[0.06em] text-[var(--text-quaternary)]">
+            <Sparkles size={11} aria-hidden="true"/>{t("workspace.from_conversations")}<span className="tabular">· {origins.length}</span>
+          </div>
+          <ul className="p-2">
+            {origins.map((origin) => (<li key={origin.id}>
+                <button
+                  type="button"
+                  onClick={() => {
+                      navigateToPath('/chat');
+                      void useAssistant.getState().openConversation(origin.id);
+                  }}
+                  className="flex w-full min-w-0 items-baseline justify-between gap-2 rounded-[var(--r-md)] px-2 py-2 text-left transition-colors hover:bg-[var(--bg-hover)]"
+                >
+                  <span className="min-w-0 truncate text-[length:var(--text-12-5)] text-[var(--text-primary)]">{origin.title || t("assistant.chat.untitled")}</span>
+                  <span className="shrink-0 text-[length:var(--text-10-5)] text-[var(--text-quaternary)]">{relativeTime(origin.updatedAt)}</span>
+                </button>
+              </li>))}
+          </ul>
         </>)}
     </section>);
 }
