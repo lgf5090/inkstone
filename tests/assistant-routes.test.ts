@@ -21,6 +21,7 @@ import type {
   ChatPrompt,
   Automation,
   ChatStreamEvent,
+  Project,
   Task,
 } from '../src/shared/assistant'
 import { DEFAULT_SEMANTIC_MODEL, MAX_ANSWER_VERSIONS, MAX_MCP_TIMEOUT_SECONDS, MAX_PROMPT_CONTENT_CHARS, MAX_PROMPT_TITLE_CHARS, MAX_REASONING_CHARS, MAX_TOKEN_CEILING, MAX_TURN_SCOPES, MAX_TURN_TOOLS, ASSISTANT_TOOL_BY_NAME } from '../src/shared/assistant'
@@ -1445,6 +1446,46 @@ describe('filing conversations', () => {
     asUser(OTHER)
     expect(await status('POST', `/api/assistant/conversations/${created.conversation.id}/tags`, { tagId: TAG_BLUE })).toBe(404)
     asUser(USER)
+  })
+})
+
+describe('projects', () => {
+  it('keeps the brief and knowledge a project is created with', async () => {
+    addFolder(FOLDER_A, '项目')
+    const created = await call<{ project: Project }>('POST', '/api/assistant/projects', {
+      name: '调研',
+      description: '关于 X 的调研',
+      instructions: 'Always answer in Chinese.',
+      noteScope: [FOLDER_A],
+    })
+    expect(created.project.instructions).toBe('Always answer in Chinese.')
+    expect(created.project.noteScope).toEqual([FOLDER_A])
+    expect(created.project.description).toBe('关于 X 的调研')
+
+    // Both read paths spell the columns out by hand, so the list has to carry them too.
+    const list = await call<{ projects: Project[] }>('GET', '/api/assistant/projects')
+    const row = list.projects.find((entry) => entry.id === created.project.id)
+    expect(row?.instructions).toBe('Always answer in Chinese.')
+    expect(row?.noteScope).toEqual([FOLDER_A])
+  })
+
+  it('drops a knowledge entry that is not a folder id', async () => {
+    const created = await call<{ project: Project }>('POST', '/api/assistant/projects', {
+      name: 'No knowledge',
+      noteScope: ['not-an-id', 42],
+    })
+    expect(created.project.noteScope).toEqual([])
+  })
+
+  it('moves a conversation into a project and back out', async () => {
+    const project = await call<{ project: Project }>('POST', '/api/assistant/projects', { name: 'Filing' })
+    const created = await call<{ conversation: AssistantConversation }>('POST', '/api/assistant/conversations', { title: 'Member' })
+    const moved = await call<{ conversation: AssistantConversation }>('PATCH', `/api/assistant/conversations/${created.conversation.id}`, { projectId: project.project.id })
+    expect(moved.conversation.projectId).toBe(project.project.id)
+    await call('PATCH', `/api/assistant/conversations/${created.conversation.id}`, { projectId: null })
+    const after = await call<{ conversation: AssistantConversation }>('GET', `/api/assistant/conversations/${created.conversation.id}`)
+    // The read path omits the field rather than spelling null, so absence is the "left the project" answer.
+    expect(after.conversation.projectId ?? null).toBeNull()
   })
 })
 

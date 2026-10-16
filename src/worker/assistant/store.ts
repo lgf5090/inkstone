@@ -2332,16 +2332,23 @@ export class AssistantStore {
     return r ? toProject(r) : null
   }
 
-  async createProject(input: { name: string, description?: string }): Promise<Project> {
+  async createProject(input: {
+    name: string, description?: string, instructions?: string, noteScope?: string[], modelId?: string | null,
+  }): Promise<Project> {
     const id = newId()
     const at = Date.now()
     const name = input.name.trim()
     const description = input.description ?? ''
+    const instructions = input.instructions ?? ''
+    const noteScope = input.noteScope ?? []
+    const modelId = input.modelId ?? null
     await this.write(
-      `INSERT INTO chat_projects (id, user_id, name, description, created_at, updated_at) VALUES (?2, ?1, ?3, ?4, ?5, ?6)`,
-      id, name, description, at, at,
+      `INSERT INTO chat_projects
+         (id, user_id, name, description, instructions, note_scope, model_id, created_at, updated_at)
+       VALUES (?2, ?1, ?3, ?4, ?5, ?6, ?7, ?8, ?9)`,
+      id, name, description, instructions, JSON.stringify(noteScope), modelId, at, at,
     )
-    return { id, name, description, instructions: '', noteScope: [], modelId: null, createdAt: at, updatedAt: at }
+    return { id, name, description, instructions, noteScope, modelId, createdAt: at, updatedAt: at }
   }
 
   async updateProject(id: string, patch: {

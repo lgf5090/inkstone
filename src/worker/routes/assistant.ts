@@ -1302,11 +1302,27 @@ assistantRoutes.get('/projects', async (c) => c.json({ projects: await store(c).
 
 assistantRoutes.post('/projects', async (c) => {
   const s = store(c)
-  const body = await readJson<{ name?: unknown, description?: unknown }>(c, JSON_BODY_LIMITS.small)
+  const body = await readJson<{
+    name?: unknown, description?: unknown, instructions?: unknown, noteScope?: unknown, modelId?: unknown,
+  }>(c, JSON_BODY_LIMITS.small)
   const name = text(body.name, 200)
   const existing = await s.findProjectByName(name)
   if (existing) return c.json({ project: existing })
-  return c.json({ project: await s.createProject({ name, description: optionalText(body.description, 2000) ?? '' }) }, 201)
+  const project = await s.createProject({
+    name,
+    description: optionalText(body.description, 2000) ?? '',
+    // A standing brief is read every turn in the project, so it gets the same ceiling as a message.
+    instructions: optionalText(body.instructions, MAX_MESSAGE_CHARS) ?? '',
+    noteScope: Array.isArray(body.noteScope)
+      ? body.noteScope.filter((id): id is string => typeof id === 'string' && isValidId(id)).slice(0, 12)
+      : [],
+    modelId: body.modelId === null
+      ? null
+      : typeof body.modelId === 'string' && isValidId(body.modelId)
+        ? body.modelId
+        : null,
+  })
+  return c.json({ project }, 201)
 })
 
 assistantRoutes.patch('/projects/:id', async (c) => {
