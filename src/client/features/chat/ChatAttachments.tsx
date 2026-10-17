@@ -23,6 +23,48 @@ export function attachmentUrl(id: string): string {
   return api.assistant.chatFileUrl(id)
 }
 
+/**
+ * What a picker may hand back, as one list the composer's file and folder inputs both point at.
+ *
+ * A turn can only use a file it can read: a picture it sees, text the worker decodes into the prompt, and a
+ * PDF whose words the browser extracts before uploading. Anything else arrives as bytes the model is merely
+ * told the name of, so an unfiltered picker offers a choice the turn cannot keep — and a folder picked
+ * without a filter uploads every thumbnail and lock file beside the document. The list is the worker's own
+ * textual set plus images and PDFs, kept here rather than at each call site so the two pickers cannot
+ * drift apart from each other or from what the server actually reads.
+ */
+export const CHAT_ATTACHMENT_ACCEPT = [
+  'image/*',
+  'text/*',
+  'application/pdf',
+  'application/json',
+  'application/xml',
+  'application/yaml',
+  'application/x-yaml',
+  'application/x-csv',
+  'application/csv',
+  'application/javascript',
+  'application/typescript',
+  'application/x-sh',
+  'application/markdown',
+  'application/toml',
+  '.md', '.markdown', '.txt', '.json', '.jsonl', '.csv', '.tsv', '.yaml', '.yml', '.toml',
+  '.ts', '.tsx', '.js', '.jsx', '.py', '.rb', '.go', '.rs', '.java', '.c', '.h', '.cpp', '.hpp',
+  '.sh', '.sql', '.css', '.html', '.htm', '.xml', '.ini', '.conf', '.log', '.srt', '.vtt', '.pdf',
+].join(',')
+
+/**
+ * The folder picker's directory attributes, typed once instead of cast at the call site.
+ *
+ * React's own JSX types stop at the standard attributes, so `webkitdirectory` has nowhere to go — spread
+ * from a typed object rather than through `as Record<string, string>`, which tells the compiler to stop
+ * checking the element entirely.
+ */
+export const CHAT_FOLDER_PICKER_ATTRS: { webkitdirectory: string, directory: string } = {
+  webkitdirectory: '',
+  directory: '',
+}
+
 function formatSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`
   if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`
@@ -75,6 +117,9 @@ export function AttachmentStrip({
 }) {
   const setLightbox = useUi((state) => state.setLightbox)
   const [viewing, setViewing] = useState<ChatAttachment | null>(null)
+  // A thumbnail that will not load is said with the picture glyph rather than left as a browser's broken
+  // image: the file is still there and still removable, and a torn icon claims nothing about either.
+  const [brokenThumb, setBrokenThumb] = useState<Record<string, boolean>>({})
   if (!items.length) return null
   return (
     <div className="flex flex-wrap gap-1.5 px-1.5 pb-1.5 pt-1">
@@ -93,8 +138,13 @@ export function AttachmentStrip({
                 else setViewing({ id: entry.id, kind: entry.kind, filename: entry.filename, mime: entry.mime, size: entry.size, key: '', createdAt: 0 })
               }}
             >
-              {entry.kind === 'image' && ready ? (
-                <img src={attachmentUrl(entry.id)} alt="" className="size-full object-cover" />
+              {entry.kind === 'image' && ready && !brokenThumb[entry.localId] ? (
+                <img
+                  src={attachmentUrl(entry.id)}
+                  alt=""
+                  className="size-full object-cover"
+                  onError={() => setBrokenThumb((current) => ({ ...current, [entry.localId]: true }))}
+                />
               ) : entry.kind === 'image' ? (
                 <ImageIcon size={18} className="text-[var(--text-quaternary)]" />
               ) : (
@@ -113,7 +163,7 @@ export function AttachmentStrip({
                 type="button"
                 onClick={() => onRetry(entry.localId)}
                 aria-label={t('assistant.attach.retry', { name: entry.filename })}
-                className="absolute -left-1 -top-1 flex size-4 items-center justify-center rounded-full border border-[var(--border-default)] bg-[var(--bg-overlay)] text-[var(--text-tertiary)] hover:text-[var(--accent)]"
+                className="ink-tap-pad absolute -left-1 -top-1 flex size-4 items-center justify-center rounded-full border border-[var(--border-default)] bg-[var(--bg-overlay)] text-[var(--text-tertiary)] hover:text-[var(--accent)]"
               >
                 <RotateCcw size={9} />
               </button>
@@ -122,7 +172,7 @@ export function AttachmentStrip({
               type="button"
               onClick={() => onRemove(entry.localId)}
               aria-label={t('assistant.attach.remove', { name: entry.filename })}
-              className="absolute -right-1 -top-1 flex size-4 items-center justify-center rounded-full border border-[var(--border-default)] bg-[var(--bg-overlay)] text-[var(--text-tertiary)] hover:text-[var(--danger)]"
+              className="ink-tap-pad absolute -right-1 -top-1 flex size-4 items-center justify-center rounded-full border border-[var(--border-default)] bg-[var(--bg-overlay)] text-[var(--text-tertiary)] hover:text-[var(--danger)]"
             >
               <X size={9} />
             </button>
@@ -199,29 +249,64 @@ export function AttachmentViewer({ attachment, onClose }: { attachment: ChatAtta
 export function MessageAttachments({ ids, index }: { ids: string[], index: Record<string, ChatAttachment> }) {
   const setLightbox = useUi((state) => state.setLightbox)
   const [viewing, setViewing] = useState<ChatAttachment | null>(null)
-  const rows = ids.map((id) => index[id]).filter((row): row is ChatAttachment => Boolean(row))
-  if (!rows.length) return null
+  // An attachment the row says it carried but this app cannot show stays on screen and says so. Dropping
+  // the id was the old reading, and it dropped the row with it: a turn that once carried a picture then
+  // rendered as though nothing had ever been attached, which leaves the reader no way to tell a deleted
+  // file from a thread that never had one.
+  const [brokenBytes, setBrokenBytes] = useState<Record<string, boolean>>({})
+  if (!ids.length) return null
   return (
     <span className="mt-1 flex flex-wrap gap-1">
-      {rows.map((row) => (
-        <button
-          key={row.id}
-          type="button"
-          onClick={() => {
-            if (row.kind === 'image') setLightbox({ src: attachmentUrl(row.id), alt: row.filename })
-            else setViewing(row)
-          }}
-          aria-label={t('assistant.attach.view', { name: row.filename })}
-          title={t('assistant.attach.view', { name: row.filename })}
-          className="inline-flex max-w-[220px] items-center gap-1 rounded-[var(--r-sm)] border border-[var(--border-default)] bg-[var(--bg-surface)] px-1.5 py-[2px] text-[length:var(--text-11)] text-[var(--text-secondary)] hover:border-[var(--border-strong)]"
-        >
-          {row.kind === 'image'
-            ? <img src={attachmentUrl(row.id)} alt="" className="size-4 shrink-0 rounded-[2px] object-cover" />
-            : <FileText size={12} className="shrink-0" />}
-          <span className="min-w-0 truncate">{row.filename}</span>
-        </button>
-      ))}
+      {ids.map((id) => {
+        const row = index[id]
+        if (!row || brokenBytes[id]) return <AttachmentGap key={id} name={row?.filename} />
+        return (
+          <button
+            key={row.id}
+            type="button"
+            onClick={() => {
+              if (row.kind === 'image') setLightbox({ src: attachmentUrl(row.id), alt: row.filename })
+              else setViewing(row)
+            }}
+            aria-label={t('assistant.attach.view', { name: row.filename })}
+            title={t('assistant.attach.view', { name: row.filename })}
+            className="inline-flex max-w-[220px] items-center gap-1 rounded-[var(--r-sm)] border border-[var(--border-default)] bg-[var(--bg-surface)] px-1.5 py-[2px] text-[length:var(--text-11)] text-[var(--text-secondary)] hover:border-[var(--border-strong)]"
+          >
+            {row.kind === 'image'
+              ? (
+                <img
+                  src={attachmentUrl(row.id)}
+                  alt=""
+                  className="size-4 shrink-0 rounded-[2px] object-cover"
+                  onError={() => setBrokenBytes((current) => ({ ...current, [id]: true }))}
+                />
+              )
+              : <FileText size={12} className="shrink-0" />}
+            <span className="min-w-0 truncate">{row.filename}</span>
+          </button>
+        )
+      })}
       {viewing && <AttachmentViewer attachment={viewing} onClose={() => setViewing(null)} />}
+    </span>
+  )
+}
+
+/**
+ * The trace a carried attachment leaves when its bytes are gone.
+ *
+ * Not a button: there is nothing to open, and a control that answers a press with nothing is the failure
+ * this row exists to avoid repeating. The name is kept where it is known, because a reader with three
+ * chips needs to know which one is missing.
+ */
+function AttachmentGap({ name }: { name?: string }) {
+  return (
+    <span
+      data-attachment-unavailable="true"
+      className="inline-flex max-w-[240px] items-center gap-1 rounded-[var(--r-sm)] border border-[var(--border-subtle)] bg-[var(--bg-inset)] px-1.5 py-[2px] text-[length:var(--text-11)] text-[var(--text-tertiary)]"
+    >
+      <FileText size={12} className="shrink-0 text-[var(--text-quaternary)]" />
+      {name && <span className="min-w-0 truncate">{name}</span>}
+      <span className="min-w-0 truncate">{t('assistant.attach.unavailable')}</span>
     </span>
   )
 }

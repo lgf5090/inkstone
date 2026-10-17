@@ -37,8 +37,9 @@ import type { AssistantAnswerVersion, AssistantSource, MessageFeedback, ToolActi
 import { ASSISTANT_TOOL_BY_NAME, mcpToolOrigin } from '@shared/assistant'
 import { cn } from '../../lib/cn'
 import { COPY_RESET_MS } from '../../lib/motion'
-import { t } from '../../lib/i18n'
+import { t, type MessageKey } from '../../lib/i18n'
 import { formatInZone } from './time-format'
+import { full as fullTokenCount } from './usage-format'
 import { copyText } from '../../lib/clipboard'
 import { navigateToPath } from '../../lib/app-history'
 import { useNotes } from '../../store/notes'
@@ -123,11 +124,29 @@ export function ToolCallList({ tools, messageId }: { tools: ToolActivity[], mess
   )
 }
 
-const TOOL_STATUS_KEYS = {
+const TOOL_STATUS_KEYS: Partial<Record<string, MessageKey>> = {
   running: 'assistant.chat.tool_running',
   success: 'assistant.chat.tool_done',
   error: 'assistant.chat.tool_failed',
-} as const
+}
+
+/**
+ * What a call whose status this app does not recognise says.
+ *
+ * Borrowing "Completed" was the old reading, and it lied: a stored row can carry a status the client has
+ * never seen — a call the worker skipped, a row written by an older build — and a chip that calls that a
+ * success is the one answer a reader cannot check any other way.
+ */
+const TOOL_STATUS_UNKNOWN_KEY: MessageKey = 'assistant.chat.tool_unknown'
+
+function toolStatusKey(status: string): MessageKey {
+  return TOOL_STATUS_KEYS[status] ?? TOOL_STATUS_UNKNOWN_KEY
+}
+
+/** Whether the row has a status this app can account for, which is what the neutral mark is drawn for. */
+function isKnownToolStatus(status: string): boolean {
+  return status === 'running' || status === 'success' || status === 'error'
+}
 
 /**
  * The name a stored call wears on its row.
@@ -191,7 +210,6 @@ function ToolCallRow({ tool, messageId, open, onToggle }: {
       <button
         type="button"
         data-tool-chip={tool.name}
-        title={tool.error ?? undefined}
         aria-expanded={open}
         onClick={onToggle}
         className="flex w-full items-center gap-2 px-2 py-1.5 text-left transition-colors duration-[var(--dur-fast)] ease-[var(--ease-out)] hover:bg-[var(--bg-hover)]"
@@ -200,7 +218,9 @@ function ToolCallRow({ tool, messageId, open, onToggle }: {
           ? <Loader2 size={12} className="shrink-0 animate-spin text-[var(--text-quaternary)]" />
           : tool.status === 'error'
             ? <XCircle size={12} className="shrink-0 text-[var(--danger)]" />
-            : <Check size={12} className="shrink-0 text-[var(--success)]" />}
+            : isKnownToolStatus(tool.status)
+              ? <Check size={12} className="shrink-0 text-[var(--success)]" />
+              : <AlertTriangle size={12} className="shrink-0 text-[var(--warning)]" />}
         <span className="min-w-0 flex-1 truncate text-[length:var(--text-11-5)] text-[var(--text-secondary)]">
           {label}
           {tool.detail ? <span className="text-[var(--text-quaternary)]"> · {tool.detail}</span> : null}
@@ -208,19 +228,30 @@ function ToolCallRow({ tool, messageId, open, onToggle }: {
         <span
           className={cn(
             'shrink-0 text-[length:var(--text-10-5)]',
-            tool.status === 'error' ? 'text-[var(--danger)]' : 'text-[var(--text-quaternary)]',
+            tool.status === 'error' ? 'text-[var(--danger)]'
+              : isKnownToolStatus(tool.status) ? 'text-[var(--text-quaternary)]'
+                : 'text-[var(--warning)]',
           )}
         >
-          {t(TOOL_STATUS_KEYS[tool.status] ?? TOOL_STATUS_KEYS.success)}
+          {t(toolStatusKey(tool.status))}
         </span>
         <ChevronDown size={11} className={cn('shrink-0 text-[var(--text-quaternary)] transition-transform duration-[var(--dur-fast)]', open && 'rotate-180')} />
       </button>
+      {/* Why a call failed, written on the row instead of parked in a `title`: a tooltip is only ever read
+          with a hovering pointer, so the one fact a reader needs about a failed call was invisible to a
+          keyboard and to a thumb. It stays out of the fold, because closing the fold does not take the
+          failure back. */}
+      {tool.error && (
+        <p
+          data-tool-error={tool.name}
+          className="min-w-0 break-words border-t border-[var(--border-subtle)] px-2 py-1.5 text-[length:var(--text-11)] text-[var(--danger)]"
+        >
+          {tool.error}
+        </p>
+      )}
       {open && (
         <div className="flex max-w-full min-w-0 flex-col gap-1.5 border-t border-[var(--border-subtle)] px-2 py-1.5">
-          {tool.error && (
-            <p className="min-w-0 break-words text-[length:var(--text-11)] text-[var(--danger)]">{tool.error}</p>
-          )}
-          {body.length === 0 && !tool.error && (
+          {body.length === 0 && (
             <p className="text-[length:var(--text-11)] text-[var(--text-quaternary)]">{t('assistant.chat.tool_no_data')}</p>
           )}
           {body.map((entry) => (
@@ -426,7 +457,7 @@ function AnswerVersionPager({ total, page, onStep, onRestore, busy }: {
         onClick={() => onStep(-1)}
         disabled={busy || page <= 0}
         aria-label={t('assistant.chat.previous')}
-        className="inline-flex size-5 items-center justify-center rounded-[var(--r-sm)] text-[var(--text-quaternary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-secondary)] disabled:pointer-events-none disabled:opacity-40"
+        className="ink-tap-pad relative inline-flex size-5 items-center justify-center rounded-[var(--r-sm)] text-[var(--text-quaternary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-secondary)] disabled:pointer-events-none disabled:opacity-40"
       >
         <ChevronLeft size={12} />
       </button>
@@ -438,7 +469,7 @@ function AnswerVersionPager({ total, page, onStep, onRestore, busy }: {
         onClick={() => onStep(1)}
         disabled={busy || page >= total - 1}
         aria-label={t('assistant.chat.next')}
-        className="inline-flex size-5 items-center justify-center rounded-[var(--r-sm)] text-[var(--text-quaternary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-secondary)] disabled:pointer-events-none disabled:opacity-40"
+        className="ink-tap-pad relative inline-flex size-5 items-center justify-center rounded-[var(--r-sm)] text-[var(--text-quaternary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-secondary)] disabled:pointer-events-none disabled:opacity-40"
       >
         <ChevronRight size={12} />
       </button>
@@ -461,8 +492,8 @@ export function answerStats(usage: { inputTokens: number, outputTokens: number }
   if (!usage || (!usage.inputTokens && !usage.outputTokens)) return null
   const total = usage.inputTokens + usage.outputTokens
   const seconds = durationMs / 1000
-  if (!usage.outputTokens || seconds <= 0) return `${total.toLocaleString('en-US')} ${t('assistant.chat.tokens')}`
-  return `${total.toLocaleString('en-US')} ${t('assistant.chat.tokens')} · ${(usage.outputTokens / seconds).toFixed(1)} ${t('assistant.chat.tokens_per_second')}`
+  if (!usage.outputTokens || seconds <= 0) return `${fullTokenCount(total)} ${t('assistant.chat.tokens')}`
+  return `${fullTokenCount(total)} ${t('assistant.chat.tokens')} · ${(usage.outputTokens / seconds).toFixed(1)} ${t('assistant.chat.tokens_per_second')}`
 }
 
 /**
@@ -833,6 +864,10 @@ export function AssistantBubble({
                   type="button"
                   onClick={menu.openFromButton}
                   aria-label={t('assistant.chat.message_actions')}
+                  // The panel is a disclosure, so the button says so and says whether it is down; without
+                  // these a screen reader announces a control that changes nothing it can hear.
+                  aria-haspopup="menu"
+                  aria-expanded={menu.open}
                   className="inline-flex items-center rounded-[var(--r-sm)] px-1 py-0.5 text-[var(--text-quaternary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-secondary)]"
                 >
                   <MoreHorizontal size={11} />
@@ -869,7 +904,9 @@ export function AssistantBubble({
               <span className="text-[length:var(--text-11)] text-[var(--text-quaternary)]">
                 {t('assistant.chat.viewing_history')}
                 {viewing.modelLabel && ` · ${viewing.modelLabel}`}
-                {` · ${new Date(viewing.createdAt).toLocaleString()}`}
+                {/* The same clock as the live row's: an older answer read in the browser's zone while the
+                    thread is set to another would date the version the reader is comparing at. */}
+                {` · ${formatInZone(viewing.createdAt, timezone)}`}
               </span>
             ) : (
               <AnswerFootline usage={usage} durationMs={durationMs} modelLabel={modelLabel} />

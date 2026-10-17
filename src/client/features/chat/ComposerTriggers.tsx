@@ -159,7 +159,7 @@ export function TurnPinRow({
     <span key={key} className="flex max-w-full items-center gap-1 rounded-[var(--r-sm)] border border-[var(--border-default)] bg-[var(--bg-sunken)] py-[1px] pl-1.5 pr-0.5 text-[length:var(--text-11)] text-[var(--text-secondary)]">
       <Icon size={11} className="shrink-0" />
       <span className="min-w-0 truncate">{label}</span>
-      <button type="button" onClick={onDrop} aria-label={dropLabel} className="flex size-4 shrink-0 items-center justify-center rounded-full hover:text-[var(--danger)]">
+      <button type="button" onClick={onDrop} aria-label={dropLabel} className="ink-tap-pad relative flex size-4 shrink-0 items-center justify-center rounded-full hover:text-[var(--danger)]">
         <X size={9} />
       </button>
     </span>

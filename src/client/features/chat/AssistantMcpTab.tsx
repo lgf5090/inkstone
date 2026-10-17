@@ -39,7 +39,7 @@ import { usePinyinVersion } from '../../lib/pinyin'
 import { useUi } from '../../store/ui'
 import { Button, IconButton, Spinner } from '../../components/primitives'
 import { Field, Input, Select, Segmented, Switch, Textarea } from '../../components/form'
-import { Menu, Modal, type MenuItem } from '../../components/overlay'
+import { Menu, Modal, confirm, type MenuItem } from '../../components/overlay'
 import { useAssistant, type WriteFailure } from './assistant-store'
 import { refusalFor, Group, SaveFailure } from './assistant-settings-shared'
 
@@ -130,7 +130,18 @@ export function McpTab() {
           onToggleExpanded={() => setOpen((current) => ({ ...current, [server.id]: !current[server.id] }))}
           onOpen={() => setOpen((current) => ({ ...current, [server.id]: true }))}
           onEdit={() => setEditing(server)}
-          onRemove={() => void removeMcpServer(server.id)}
+          onRemove={() => {
+            // The card's own remove button is the only way out and the server's stored headers go with
+            // it, so this asks — the same as deleting a provider or a model does.
+            void confirm({
+              title: t('assistant.mcp.remove'),
+              description: t('assistant.mcp.remove_hint', { name: server.label }),
+              confirmLabel: t('assistant.mcp.remove'),
+              tone: 'danger',
+            }).then((yes) => {
+              if (yes) void removeMcpServer(server.id)
+            })
+          }}
         />
       ))}
 

@@ -9,6 +9,7 @@
 import { Copy, Download, Share2, Trash2, X } from 'lucide-react'
 import type { AssistantMessage } from '@shared/assistant'
 import { t } from '../../lib/i18n'
+import { copyText } from '../../lib/clipboard'
 import { Button, IconButton } from '../../components/primitives'
 import { useUi } from '../../store/ui'
 import { downloadTranscript } from './transcript'
@@ -49,7 +50,16 @@ export function SelectionBar({ picked, title, onShare, onDelete, onExit }: {
         variant="ghost"
         disabled={!count}
         onClick={() => {
-          void navigator.clipboard?.writeText(picked.map((message) => message.content).join('\n\n'))
+          // Reported whichever way it goes, like every other copy in this app: a press that quietly did
+          // nothing is indistinguishable from one that worked, and the optional chain used to make a
+          // non-secure context one of those. `copyText` has a legacy path for exactly that case.
+          void copyText(picked.map((message) => message.content).join('\n\n')).then((ok) => {
+            if (!ok) {
+              toast({ title: t('preview.could_not_copy'), tone: 'danger' })
+              return
+            }
+            toast({ title: t('assistant.chat.select_copied', { count }), tone: 'success' })
+          })
         }}
       >
         <Copy size={13} />
@@ -85,7 +95,10 @@ export function SelectionBar({ picked, title, onShare, onDelete, onExit }: {
 /** The tick a message shows while the mode is on. */
 export function SelectionTick({ label, checked, onToggle }: { label: string, checked: boolean, onToggle: () => void }) {
   return (
-    <label className="flex shrink-0 cursor-pointer items-start pt-1" title={label}>
+    // The box stays 14px because that is what the row can spare; the label is what a reader aims at, so it
+    // carries the 24px floor as an overlay. A press on a label's own box reaches its control, which is why
+    // the tick needs no wrapper button to be tappable.
+    <label className="ink-tap-pad relative flex shrink-0 cursor-pointer items-start pt-1" title={label}>
       <input
         type="checkbox"
         checked={checked}

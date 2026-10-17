@@ -49,6 +49,11 @@
      `@media (pointer: coarse)` so desktop density is never paid for it. */
   --tap-target: 44px;
 
+  /* WCAG 2.5.8's floor for *any* pointer: 24 by 24 CSS pixels. A control painted smaller than this
+     keeps its drawn size and gains the missing area from an invisible overlay (`.ink-tap-pad`), so a
+     dense row stays dense and is still tappable. */
+  --tap-min: 24px;
+
   /* Every size the interface sets, in one ordered scale: a class names a step, never a pixel.
      The half steps exist because dense chrome is retuned in half-pixel increments, where a whole
      pixel reads as a different weight rather than a different size. */

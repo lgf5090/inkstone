@@ -11,7 +11,7 @@
  * rows each role offers, and which of them are only there when they can actually do something.
  */
 
-import { useCallback, useRef, useState, type MouseEvent, type RefObject } from 'react'
+import { useCallback, useEffect, useRef, useState, type MouseEvent, type RefObject } from 'react'
 import { Copy, CornerUpLeft, Download, GitBranch, ListChecks, MessageSquareQuote, NotebookPen, NotebookText, PanelRight, Pencil, Play, RotateCcw, Share2, TextCursorInput, ThumbsDown, ThumbsUp, Trash2, Volume2, type LucideIcon } from 'lucide-react'
 import { toPlainText } from '@shared/markdown-utils'
 import type { MessageFeedback } from '@shared/assistant'
@@ -281,6 +281,29 @@ export function useMessageMenu(): MessageMenuState {
     setButtonOpen(false)
     context.close()
   }, [context])
+  // The panel is a disclosure, so the overflow button has to say whether it is down — and give the focus
+  // back when it goes up. `Menu` restores whatever was focused when it mounted, but pressing a button is
+  // not the same as focusing one: Safari and Firefox leave the caret where it was, so on those the answer
+  // is `<body>` and the keyboard reader starts the thread over from the top. The trigger is therefore
+  // named here, from the ref the button was opened through, rather than guessed from focus history.
+  const hadOpenedFromButton = useRef(false)
+  useEffect(() => {
+    if (!buttonOpen) {
+      if (!hadOpenedFromButton.current) return
+      hadOpenedFromButton.current = false
+      // Only where the focus has nowhere to go. A row that opened a dialog has already moved it, and
+      // pulling it back would trap the reader outside the panel they just asked for.
+      if (document.activeElement !== document.body && document.activeElement !== null) return
+      const trigger = buttonRef.current?.querySelector<HTMLElement>(
+        'button:not([disabled]), a[href], [tabindex]:not([tabindex="-1"])',
+      )
+      // `preventScroll`: the row sits anywhere in a long thread, and dragging the viewport to it while the
+      // reader is still looking at the answer is not how a menu is meant to close.
+      ;(trigger ?? buttonRef.current)?.focus({ preventScroll: true })
+      return
+    }
+    hadOpenedFromButton.current = true
+  }, [buttonOpen])
   return {
     anchor: buttonOpen ? buttonRef : context.point,
     open: buttonOpen || context.point !== null,

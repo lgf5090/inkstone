@@ -172,7 +172,22 @@ function ModelList({ models, activeModelId, labelId, onEdit }: {
               <IconButton label={t('assistant.model.edit')} size="xs" onClick={() => onEdit(model)}>
                 <Settings2 size={12} />
               </IconButton>
-              <IconButton label={t('assistant.settings.delete_model')} size="xs" onClick={() => void removeModel(model.id)}>
+              <IconButton
+                label={t('assistant.settings.delete_model')}
+                size="xs"
+                onClick={() => {
+                // Deleting a model is one click from a row of them and there is no way back: its turns
+                // keep the label but the fallback chain that named it stops one model short.
+                void confirm({
+                  title: t('assistant.settings.delete_model'),
+                  description: t('assistant.settings.delete_model_hint', { label: model.label }),
+                  confirmLabel: t('assistant.settings.delete_model'),
+                  tone: 'danger',
+                }).then((yes) => {
+                  if (yes) void removeModel(model.id)
+                })
+              }}
+                >
                 <Trash2 size={12} />
               </IconButton>
             </div>
