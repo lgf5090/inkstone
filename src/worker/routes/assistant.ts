@@ -66,7 +66,9 @@ import {
   normalizeAssistantSettings,
   titleFromMessage,
   type AssistantMemoryCategory,
+  type AssistantMessage,
   type AssistantProtocol,
+  type AssistantSettings,
   type AssistantTurnScope,
   type MemoryReviewAction,
   type TaskPriority,
@@ -1253,6 +1255,75 @@ function pinnedScopes(value: unknown): AssistantTurnScope[] {
     .slice(0, MAX_TURN_SCOPES)
 }
 
+/** How long a turn may go without saying anything before the stream has to say something for it. */
+const KEEPALIVE_AFTER_MS = 15_000
+
+/**
+ * A turn this request can already see will not start, or null when nothing stops it.
+ *
+ * Every condition is a read of state settled before the first byte goes out: the day's budget as it
+ * stands, and the shape of the transcript a retry or a continuation points at. The runner keeps its own
+ * checks — it is still the trust boundary, and a race between the two just falls back to the `error`
+ * frame. Answering them here is what lets a status code carry the failure, instead of only the one
+ * client that knows how to read this stream.
+ *
+ * A turn with no model is deliberately left out. That one is not a request going nowhere: by the time the
+ * runner finds no model it has filed the reader's question, and it files an answer row carrying the
+ * reason — the thread is where this app tells a reader anything went wrong. Refusing before the stream
+ * would take that record away to move one sentence into a status code.
+ */
+async function unstartableTurn(
+  s: AssistantStore,
+  settings: AssistantSettings,
+  turn: {
+    conversationId?: string
+    retry: boolean
+    continueTurn: boolean
+    retryMessageId?: string
+  },
+): Promise<ApiError | null> {
+  // The offline answer names no provider and spends no request budget, so the ceiling does not apply.
+  if (!settings.offlineMode) {
+    const day = await s.currentUsageDay()
+    // Read, not charged: the runner's own reservation is what spends the day, and it still runs.
+    if (((await s.usageDays(day, day))[0]?.requests ?? 0) >= settings.limits.maxRequestsPerDay) {
+      return ApiError.conflict(`The daily limit of ${settings.limits.maxRequestsPerDay} assistant requests is reached. It is adjustable in Assistant settings.`)
+    }
+  }
+  if (!turn.conversationId) {
+    if (turn.retry) return ApiError.badRequest('There is nothing to retry without a conversation.')
+    if (turn.continueTurn) return ApiError.badRequest('There is nothing to continue without a conversation.')
+    return null
+  }
+  if (turn.retry) {
+    const rows = await s.messages(turn.conversationId)
+    // The question the retry answers again: the turn under the answer it replaces.
+    let previous: AssistantMessage | undefined
+    if (turn.retryMessageId) {
+      const target = await s.getMessage(turn.retryMessageId)
+      if (!target || target.conversationId !== turn.conversationId) return ApiError.notFound('Message not found')
+      if (target.role !== 'assistant') return ApiError.badRequest('Only an answer can be asked again.')
+      const index = rows.findIndex((row) => row.id === target.id)
+      if (index < 0) return ApiError.notFound('Message not found')
+      previous = rows[index - 1]
+    } else {
+      const last = rows[rows.length - 1]
+      previous = last?.role === 'assistant' ? rows[rows.length - 2] : last
+    }
+    if (!previous || previous.role !== 'user') return ApiError.conflict('Nothing to retry.')
+    if (previous.source === 'import') {
+      return ApiError.conflict('A message restored from a backup cannot be retried. Send a new one instead.')
+    }
+  }
+  if (turn.continueTurn) {
+    const last = await s.lastMessage(turn.conversationId)
+    if (!last || last.role !== 'assistant') return ApiError.conflict('There is no answer to continue.')
+    if (!last.content.trim()) return ApiError.conflict('That answer has nothing to continue from; ask it again instead.')
+    if (last.source === 'import') return ApiError.conflict('A message restored from a backup cannot be continued.')
+  }
+  return null
+}
+
 /**
  * One turn, streamed as server-sent events.
  *
@@ -1277,18 +1348,38 @@ assistantRoutes.post('/chat', async (c) => {
   const tools = pinnedTools(body.tools)
   const scopes = pinnedScopes(body.scopes)
 
+  // Which kind of turn this is, decided once: the preconditions below and the runner's own input have to
+  // read it the same way, or a refusal answered here and a refusal answered as a frame would diverge.
+  const retryTurn = body.retry === true
+  const continueTurn = body.continue === true && !retryTurn
+  const retryMessageId = retryTurn && typeof body.messageId === 'string' && isValidId(body.messageId) ? body.messageId : undefined
+  const webSearch = body.webSearch === true
+  const turn = {
+    conversationId,
+    retry: retryTurn,
+    continueTurn,
+    retryMessageId,
+  }
+
+  if (conversationId) {
+    if (!(await s.getConversation(conversationId))) throw ApiError.notFound('Conversation not found')
+  } else if (!message.trim() && !attachments.length) {
+    throw ApiError.badRequest('Write something first.')
+  }
+  // Refused before the claim: a turn that never opens a stream has no `finally` to release the thread it
+  // claimed, and every other tab would wait out the lease for an answer that was never going to come.
+  const blocker = await unstartableTurn(s, settings, turn)
+  if (blocker) throw blocker
+
   // The claim's token travels to the release below, so a turn that outlives its lease cannot delete the
   // claim another tab has taken since. A turn that creates its own conversation learns its token from
   // the `start` event, because only the runner claimed that one.
   let claimedToken: number | null = null
   if (conversationId) {
-    if (!(await s.getConversation(conversationId))) throw ApiError.notFound('Conversation not found')
     claimedToken = await s.claimRun(conversationId)
     if (claimedToken === null) {
       throw ApiError.conflict('A reply is already being generated in this conversation.')
     }
-  } else if (!message.trim() && !attachments.length) {
-    throw ApiError.badRequest('Write something first.')
   }
 
   const runner = new AssistantRunner({
@@ -1317,8 +1408,24 @@ assistantRoutes.post('/chat', async (c) => {
   // Writes are queued rather than awaited: a reader that has gone can leave a write unsettled, and a
   // turn that waits on one never reaches the lease check that ends it. The frames stay in order (the
   // stream's own write queue is sequential) and one turn is a few tens of kilobytes at most.
+  let lastFrameAt = Date.now()
+  // A long tool call, or a model slow to its first token, gives an intermediary nothing to look at, and
+  // one that sees a silent connection for long enough calls it dead and cuts it — the reader then loses
+  // an answer that was still being produced. A comment frame is what SSE has for this: it carries no
+  // payload, and `features/chat/stream.ts` only ever parses a frame that has a `data:` line.
+  const keepalive = setInterval(() => {
+    if (readerGone || Date.now() - lastFrameAt < KEEPALIVE_AFTER_MS) return
+    lastFrameAt = Date.now()
+    writer.write(encoder.encode(': keepalive\n\n')).catch(() => {
+      // As with a real frame: the write failing is how a gone reader shows up here.
+      readerGone = true
+      controller.abort()
+    })
+  }, KEEPALIVE_AFTER_MS)
   const send = (payload: unknown) => {
     if (readerGone) return false
+    // A stream with anything to say does not need to say it is alive as well.
+    lastFrameAt = Date.now()
     writer.write(encoder.encode(`data: ${JSON.stringify(payload)}\n\n`)).catch(() => {
       // The reader is gone: stop generating rather than finish an answer no one will read.
       readerGone = true
@@ -1351,16 +1458,16 @@ assistantRoutes.post('/chat', async (c) => {
         ...(typeof body.contextFolderId === 'string' && isValidId(body.contextFolderId) ? { contextFolderId: body.contextFolderId } : {}),
         // The note the thread began beside, recorded on the conversation rather than on the turn.
         ...(typeof body.noteId === 'string' && isValidId(body.noteId) && await s.knownNote(body.noteId) ? { originNoteId: body.noteId } : {}),
-        webSearch: body.webSearch === true,
+        webSearch,
         // Only read when the turn makes its own conversation; the runner says why a later turn cannot
         // change the kind of thread it is already in.
         ephemeral: body.ephemeral === true,
-        retry: body.retry === true,
+        retry: retryTurn,
         // Only a retry reads this: which answer to ask again, when it is not the newest one.
-        ...(body.retry === true && typeof body.messageId === 'string' && isValidId(body.messageId) ? { retryFromMessageId: body.messageId } : {}),
+        ...(retryMessageId ? { retryFromMessageId: retryMessageId } : {}),
         // Resume the last answer instead of asking anything new. Never with a retry: one replaces the
         // turn, the other extends it.
-        ...(body.continue === true && body.retry !== true ? { continueTurn: true } : {}),
+        ...(continueTurn ? { continueTurn: true } : {}),
         signal: controller.signal,
         readerGone: () => readerGone,
       })) {
@@ -1374,6 +1481,9 @@ assistantRoutes.post('/chat', async (c) => {
       const reason = error instanceof ApiError ? error.message : 'The assistant could not answer.'
       await send({ type: 'error', code: error instanceof ApiError ? error.code : 'internal', message: reason })
     } finally {
+      // Cleared before anything else closes: an interval outliving the turn would keep writing to a
+      // stream nobody is reading, and hold the isolate open on a request that is already over.
+      clearInterval(keepalive)
       requestSignal.removeEventListener('abort', onDisconnect)
       if (claimed) await s.releaseRun(claimed, claimedToken ?? undefined)
       try {
