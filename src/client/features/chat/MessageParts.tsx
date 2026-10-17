@@ -54,6 +54,8 @@ import { MessageMenu, useMessageMenu } from './MessageMenu'
 import { SelectionTick, type MessageSelection } from './SelectionBar'
 import { noteMentionLinks, noteRefsFromToolResult } from './note-refs'
 import { LoadFailure } from './assistant-settings-shared'
+import { AnswerSelectionBar } from './answer-selection'
+import { FeedbackReasonPanel } from './feedback-reason'
 import { embedConversationInNote, insertReplyIntoNote, saveConversationAsNote, saveReplyAsNote } from './save-to-note'
 
 /**
@@ -594,6 +596,14 @@ export function AssistantBubble({
   const [showReasoning, setShowReasoning] = useState(false)
   const [versions, setVersions] = useState<AssistantAnswerVersion[] | null>(null)
   const menu = useMessageMenu()
+  // The prose is the only part of the bubble a reader reads *at*, so it is the only part a highlighted
+  // selection is acted on inside: the action row, the sources and the citations are outside it, and a
+  // selection that reaches past this container reaches into another message — which the bar declines.
+  const answerBodyRef = useRef<HTMLDivElement>(null)
+  const rateDownRef = useRef<HTMLButtonElement>(null)
+  // Three states rather than a boolean: a card that unmounts when dismissed takes the reader's half-typed
+  // grounds with it, so once it has been opened it stays mounted and only stops drawing.
+  const [reasonPanel, setReasonPanel] = useState<'none' | 'open' | 'dismissed'>('none')
   // The rows behind the ids this answer carries, so a picture it drew can be drawn here rather than
   // named by an id nobody can resolve.
   const fileIndex = useAssistant((state) => state.fileIndex)
@@ -691,7 +701,7 @@ export function AssistantBubble({
             // competing regions, and — because this row is created only when the streaming turn is saved,
             // after the content has already changed — it announced the finished answer never. Completion
             // is announced once, from a single region at the conversation list level (see ChatView).
-            <div className="max-w-[72ch]">
+            <div className="max-w-[72ch]" ref={answerBodyRef} data-answer-body="" tabIndex={-1}>
               <MarkdownReply source={body} />
             </div>
           )
@@ -832,7 +842,12 @@ export function AssistantBubble({
               <>
                 <button
                   type="button"
-                  onClick={() => onRate('up')}
+                  onClick={() => {
+                    onRate('up')
+                    // An upvote takes the grounds card away — the reader has changed their mind about this
+                    // answer — but a card never opened is not mounted to be closed.
+                    setReasonPanel((current) => (current === 'none' ? 'none' : 'dismissed'))
+                  }}
                   aria-pressed={feedback === 'up'}
                   aria-label={t('assistant.chat.rate_up')}
                   title={t('assistant.chat.rate_up')}
@@ -845,7 +860,13 @@ export function AssistantBubble({
                 </button>
                 <button
                   type="button"
-                  onClick={() => onRate('down')}
+                  ref={rateDownRef}
+                  onClick={() => {
+                    onRate('down')
+                    // The store toggles, so a second press on a down thumb is the reader taking the verdict
+                    // back — and the card closes on that press rather than opening again.
+                    setReasonPanel(feedback === 'down' ? 'dismissed' : 'open')
+                  }}
                   aria-pressed={feedback === 'down'}
                   aria-label={t('assistant.chat.rate_down')}
                   title={t('assistant.chat.rate_down')}
@@ -913,7 +934,21 @@ export function AssistantBubble({
             )}
           </div>
         )}
+        {/* Why the down thumb is down, asked in the row it belongs to rather than in a dialog: the grounds
+            are about this answer, and a modal would move the reader off it. */}
+        {onRate && messageId && reasonPanel !== 'none' && (
+          <FeedbackReasonPanel
+            messageId={messageId}
+            open={reasonPanel === 'open'}
+            triggerRef={rateDownRef}
+            onClose={() => setReasonPanel('dismissed')}
+          />
+        )}
       </div>
+      {/* A half of the reply the reader stopped on: the bar over a selection inside the answer's own prose.
+          It draws nothing until the selection is there, and it is a portal, so the thread's scroll never
+          clips it. */}
+      {!streaming && <AnswerSelectionBar root={answerBodyRef} />}
       {/* `body` is what the reader can see — an earlier answer paged back to included — so the menu
           acts on that text rather than on whichever version happens to be newest. */}
       <MessageMenu

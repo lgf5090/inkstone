@@ -295,7 +295,7 @@ export function runEditorAi(input: EditorAiInput): boolean {
 }
 
 /** A passage as a Markdown block quote, which is how a question about it stays a question about it. */
-function quotePassage(text: string): string {
+export function quotePassage(text: string): string {
   const body = text.length > QUOTE_CAP ? `${text.slice(0, QUOTE_CAP)}…` : text
   const quoted = body.split('\n').map((line) => `> ${line}`).join('\n')
   return `${quoted}\n\n`

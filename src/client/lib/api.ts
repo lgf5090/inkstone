@@ -967,11 +967,11 @@ export const api = {
         `/api/assistant/conversations/${conversationId}/fork`,
         { method: 'POST', body: { messageId, title } },
       ),
-    /** The reader's verdict on one answer, or null to take it back. */
-    rateAnswer: (conversationId: string, messageId: string, feedback: MessageFeedback | null) =>
+    /** The reader's verdict on one answer, or null to take it back. Grounds travel with a downvote only. */
+    rateAnswer: (conversationId: string, messageId: string, feedback: MessageFeedback | null, reason?: string) =>
       request<{ message: AssistantMessage }>(
         `/api/assistant/conversations/${conversationId}/messages/${messageId}/feedback`,
-        { method: 'PATCH', body: { feedback } },
+        { method: 'PATCH', body: { feedback, ...(reason === undefined || reason === '' ? {} : { reason }) } },
       ),
     /** Take a turn back: the message and, under a reader's own row, the answer it drew. */
     removeMessage: (conversationId: string, messageId: string) =>
