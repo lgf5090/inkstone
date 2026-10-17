@@ -27,6 +27,11 @@ describe('what a reply offers', () => {
     expect(ids({ role: 'assistant', text: 'answer', onRetry: () => {} })).toContain('retry')
   })
 
+  it('offers to embed the conversation only where a note is open to embed it in', () => {
+    expect(ids({ role: 'assistant', text: 'answer' })).not.toContain('embed-in-note')
+    expect(ids({ role: 'assistant', text: 'answer', onEmbedInNote: () => {} })).toContain('embed-in-note')
+  })
+
   it('never offers to edit or delete the assistant', () => {
     const rows = ids({ role: 'assistant', text: 'answer', onRetry: () => {} })
     expect(rows).not.toContain('edit')

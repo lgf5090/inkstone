@@ -44,12 +44,13 @@ import { useLocale } from '../../lib/i18n'
 import { Button } from '../../components/primitives'
 import { MarkdownBody } from '../preview/MarkdownBody'
 import { useAssistant } from './assistant-store'
+import { useUi } from '../../store/ui'
 import { MessageAttachments } from './ChatAttachments'
 import { CHAT_NOTE_LINKS } from './note-links'
 import { MessageMenu, useMessageMenu } from './MessageMenu'
 import { SelectionTick, type MessageSelection } from './SelectionBar'
 import { noteRefsFromToolResult } from './note-refs'
-import { saveReplyAsNote } from './save-to-note'
+import { embedConversationInNote, saveReplyAsNote } from './save-to-note'
 
 const STAGE_KEYS = {
   waiting: 'assistant.chat.stage_waiting',
@@ -748,6 +749,9 @@ export function AssistantBubble({
           ...(onRate && !streaming && !viewing ? { onRate } : {}),
           ...(messageId && !streaming ? { onFork: () => void useAssistant.getState().forkFrom(messageId) } : {}),
           ...(messageId && !streaming ? { onOpenCanvas: () => void useAssistant.getState().createArtifactFromReply(body) } : {}),
+          // Only while a note is open: the row writes into that note, and one that cannot is a row the
+          // reader has to try to find out about.
+          ...(messageId && !streaming && useUi.getState().activeNoteId ? { onEmbedInNote: () => embedConversationInNote() } : {}),
           ...(messageId && onStartPicking ? { onSelect: () => onStartPicking(messageId) } : {}),
           ...(messageId && onShare && !streaming ? { onShare: () => onShare(messageId) } : {}),
         }}

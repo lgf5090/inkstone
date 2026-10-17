@@ -1813,6 +1813,26 @@
 .ink-prose .note-embed-body > :last-child { margin-bottom: 0.65em; }
 .ink-prose .note-embed.loading .note-embed-body,
 .ink-prose .note-embed.error .note-embed-body { color: var(--text-tertiary); font-size: 0.9em; }
+/* An embedded conversation: a transcript, not a document. Roles are told apart by a left edge and a
+   label, because the note's own prose is what should stay the loudest thing on the page. */
+.ink-prose .chat-embed { display: block; margin: 0; padding: 0; list-style: none; }
+.ink-prose .chat-embed-message {
+  margin: 0 0 0.55em;
+  padding-left: 0.6em;
+  border-left: 2px solid var(--border-subtle);
+}
+.ink-prose .chat-embed-message[data-role='assistant'] { border-left-color: var(--accent); }
+.ink-prose .chat-embed-author {
+  display: block;
+  color: var(--text-quaternary);
+  font-size: 0.78em;
+  font-weight: 650;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+.ink-prose .chat-embed-message p { margin: 0.1em 0 0; white-space: pre-wrap; }
+.ink-prose .chat-embed-more { color: var(--text-tertiary); font-size: 0.88em; }
+.ink-prose .note-embed-head[role='link'] { cursor: pointer; }
 .ink-prose [data-block-id] { scroll-margin-top: 24px; }
 .ink-prose [data-block-id]:target {
   border-radius: 4px;

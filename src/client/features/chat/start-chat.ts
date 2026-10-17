@@ -45,3 +45,17 @@ export function startChatAboutFolder(folderId: string): void {
   if (!folder) return
   beginWithScope({ kind: 'folder', id: folderId, name: folder.name })
 }
+
+/**
+ * Open a stored conversation from wherever the reader is.
+ *
+ * A note can point at a thread (`![[chat:…]]`), and following that pointer is not a scope change — it
+ * is "show me what we said". So the thread is opened as it is, and the tab switch is the same one every
+ * other entry point uses.
+ */
+export function openConversationInChat(conversationId: string): void {
+  navigateToPath('/chat')
+  const assistant = useAssistant.getState()
+  assistant.setView('chat')
+  void assistant.openConversation(conversationId)
+}

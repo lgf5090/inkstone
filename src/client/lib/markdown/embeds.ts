@@ -6,6 +6,7 @@ import { decodeDataValue } from './data-attr'
 import type { Attachment } from '@shared/types'
 import type { WikiTarget } from './renderer'
 import { attachmentFileName, isAttachmentTarget, parseEmbedSize, renderAttachmentEmbed } from './attachments'
+import { chatEmbedId, renderChatEmbed } from './chat-embed'
 import { parseWikiTarget, renderMarkdown } from './renderer'
 import { registerFenceBodies } from './fence-bodies'
 import { isMindmapDocumentBody, isMindmapDocumentTitle, mindmapDocumentAsFence } from './mindmap/document'
@@ -134,6 +135,17 @@ async function resolveWithin(
 
     const raw = decodeDataValue(embed.dataset.embedTarget)
     const target = parseWikiTarget(raw)
+    // A conversation is not a note: it has no body to embed, and the box is filled from the API.
+    const conversationId = chatEmbedId(target.noteTitle)
+    if (conversationId) {
+      try {
+        if (await renderChatEmbed(embed, conversationId, target.alias) === 'missing')
+          showError(embed, t('markdown.chat_embed_missing'))
+      } catch {
+        showError(embed, t('markdown.could_not_load_embedded_content'))
+      }
+      continue
+    }
     if (isAttachmentTarget(target.noteTitle)) {
       await resolveAttachmentEmbed(embed, target)
       continue

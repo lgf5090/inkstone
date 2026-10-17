@@ -1002,6 +1002,11 @@ const allowed = new Map([
     "// The editor completes `[[links]]` and `#tags` from the vault, the same two sources the notebook's own",
     "// editor is given. The upload handler drops a pasted file into the reader's library; a draft has no note",
     "// to attach it to, so the attachment is stored unfiled and linked by URL like any other.",
+    "// A linked draft opens on the note, not on the copy it was last saved as: the notebook is where the",
+    "// document has been living, and the panel showing a stale copy would invite a write over the top of it.",
+    "// The note takes the same body: one document, two surfaces. A conflict is reported and the panel",
+    "// keeps the reader's text — losing a paragraph to a silent overwrite is the one outcome to avoid.",
+    "/** File the draft, then remember which note it became — the two are one document from then on. */",
   ]],
   ["src/client/features/chat/ChatApp.tsx", [
     "/**\n * The chat app: the assistant's own container behind the rail's Chat tab.\n *\n * It borrows the notebook's chrome vocabulary rather than the reference project's — the same 48px\n * icon rail, the same 44px header, the same tokens — so the reader moves between containers without\n * finding a second visual language. What the reference called its sidebar becomes a second rail one\n * step in from the app rail, because the app rail already owns the outermost column.\n *\n * The five surfaces share one store on purpose: a turn in the chat can write a memory, a task and a\n * schedule in the same breath, and the tab that shows them has to be current the moment it is opened.\n */",
@@ -1253,6 +1258,7 @@ const allowed = new Map([
     "/** Publishes this turn behind a link. Present for a stored turn, which is the only kind with an id. */",
     "// Beside the picking row below it rather than among the copies above: both of them are about what",
     "// leaves this app, and a reader looking for one will find the other.",
+    "/**\n   * Present for a stored reply while a note is open: puts `![[chat:<id>]]` into that note.\n   *\n   * The row is about the thread, not the message, but this is the menu the reader has open while\n   * reading one — and the alternative is asking them to find the conversation's id.\n   */",
   ]],
   ["src/client/features/chat/MessageParts.tsx", [
     "/**\n * The pieces of one assistant reply.\n *\n * Three things the reference project got wrong in ways only a reader notices:\n *  - it reused the note prose class, so a one-line answer filled a screen;\n *  - it stored the tool chip's words in English inside the message row, so a Chinese interface showed\n *    English pills that no translation could reach;\n *  - it kept the Approve button live after the reply was saved, because it read the approval out of the\n *    message rather than out of the pending-action table.\n *\n * So the chip's words come from the locale catalog by tool name, the prose is its own class, and the\n * approval card is driven by the action's current status.\n */",
@@ -1291,6 +1297,8 @@ const allowed = new Map([
     "/* The files this answer made — a picture it drew — shown with it, the same way the reader's own\n            attachments are shown on their message. The body above may say anything about them; the\n            picture itself is what the reader came for. */",
     "/** Publishes this one answer behind a link. Absent on a turn still arriving, which has no row yet. */",
     "/**\n * One note the answer was built from.\n *\n * A card rather than a link: the target is a note in this vault, so a new tab would be a second copy of\n * the notebook — and the note is already loaded, so the press is a switch of screens rather than a fetch.\n * The excerpt the search matched stays in the tooltip, which is what lets a reader check the citation\n * without leaving the answer they are reading.\n */",
+    "// Only while a note is open: the row writes into that note, and one that cannot is a row the",
+    "// reader has to try to find out about.",
   ]],
   ["src/client/features/chat/ModelEditorDialog.tsx", [
     "/**\n * The model's own editor: what it is for, what it can do, and the numbers it is given.\n *\n * The composer's chips cover the two settings a reader changes often. This covers the rest, which are\n * per-model facts rather than per-conversation choices: whether the endpoint answers in pictures, how\n * much it claims to take in, and the vendor-specific fields our request builder does not know about.\n * Everything here is read by the request path — a switch that changed nothing would be worse than no\n * switch, because it would be believed.\n */",
@@ -1608,6 +1616,22 @@ const allowed = new Map([
     "// The settled value commits, and the store's own write lands as a re-render of the panel.",
     "// A live turn has no row, and a draft hangs off a row; the reader's own message is not an answer.",
   ]],
+  ["src/client/features/chat/canvas-sync.test.ts", [
+    "/**\n * A draft that is also a note.\n *\n * The interesting case is the closed note: the panel is the only surface holding that document, so the\n * write has to be checked against what the panel last saw. A note that changed in the notebook meanwhile\n * is a conflict, and the test insists that the reader's text is kept and the note is left alone — the\n * one outcome this module exists to prevent is a silent overwrite in either direction.\n */",
+    "// One id per test: what the panel last saw is remembered per draft, and a shared id would carry a",
+    "// baseline from one case into the next.",
+  ]],
+  ["src/client/features/chat/canvas-sync.ts", [
+    "/**\n * A draft that is also a note.\n *\n * A draft in the side panel and a note in the notebook were the same document the moment \"save as note\"\n * was pressed, and from then on they were two copies drifting apart. The link closes that: once a draft\n * knows its note, the panel edits *that note*, and the notebook's editor edits the same one — there is no\n * merge, because there is only ever one document.\n *\n * The note is the source of truth. Opening a linked draft reads the note (the notebook may have moved on\n * since), and writing goes through the notes store, which is where the notebook's own editor writes. When\n * the note is open in the notebook the two surfaces share the store and nothing can be lost; when it is\n * closed, the write is guarded by the body the panel last saw, so a note changed elsewhere is reported\n * rather than overwritten.\n */",
+    "/** What the panel last read or wrote per draft, which is what a closed note's write is checked against. */",
+    "/** The baseline for this draft, or null when it has none yet — a draft opened for the first time. */",
+    "/** The note's current body: the open editor's copy when there is one, the server's otherwise. */",
+    "/**\n * Read the linked note, which is also what makes it the baseline.\n *\n * A draft that has never been opened is not a conflict waiting to happen: whatever the note says now is\n * what the panel is showing, so the next write compares against that.\n */",
+    "/**\n * Write the panel's body into the note.\n *\n * An open note takes the write through the store, the same door the notebook's editor uses — the two\n * surfaces are looking at one document, and a store write is what re-renders both. A closed note is\n * written against the body the panel last saw: a note that changed in the meantime is a conflict, and the\n * reader keeps their text instead of losing the note's.\n */",
+    "// No baseline means nothing has been read yet, and a write with nothing to compare against would be a",
+    "// blind overwrite — so it is refused, and the caller reads the note first.",
+    "/** Read the note back into the panel, which is the other direction of the same link. */",
+  ]],
   ["src/client/features/chat/chat-outline.test.ts", [
     "/**\n * The rail and the panel that stand beside a thread.\n *\n * Both of them are read off the thread's own DOM — which turn has passed the reading line, and how far\n * down to land when one is chosen — so these cases lay out the boxes a browser would and then scroll:\n * a test that only counted buttons would pass over an outline that marks the wrong turn.\n */",
     "/** jsdom measures every box as nothing, so the layout the outline reads is stated here. */",
@@ -1902,7 +1926,8 @@ const allowed = new Map([
   ["src/client/features/chat/save-to-note.ts", [
     "/**\n * Keeping a reply.\n *\n * An answer worth having is often the start of a note — a procedure, a summary, a plan — and the\n * alternative is selecting text in a chat bubble and retyping the title in the notebook. The note is\n * created through the notes store rather than the raw API so it lands the way a note made anywhere else\n * does: in the list, queued for sync, openable from the toast that announces it.\n */",
     "/**\n * The first line of prose in a reply, without the marks that made it a heading or a list item.\n *\n * A reply usually opens with a heading, so the title is the heading's own words rather than a run of\n * `#` in front of them — the marks are structure for the body and noise in a name.\n */",
-    "/** Writes a reply into a new note, and offers the reader the way in. */",
+    "/**\n * Put a pointer to the conversation into the note that is open.\n *\n * The note gets `![[chat:<id>]]` and nothing else: the thread is not copied, so it stays one thread.\n * Appending rather than inserting at the caret, because this row is reached from the chat surface —\n * the reader is not looking at the note, and a write in the middle of a paragraph they cannot see\n * would be a change they did not watch happen.\n */",
+    "/**\n * Writes a reply into a new note, and offers the reader the way in.\n *\n * The id comes back because a caller may have more to do with the note than announce it: the side panel\n * links the draft it was working on to the note it just made, so the two are one document from then on.\n */",
   ]],
   ["src/client/features/chat/selection-bar.test.ts", [
     "/**\n * A selection written out as a document.\n *\n * The text is the part worth pinning: a transcript that loses a speaker, or the fence around an answer's\n * code, is not the thing the reader asked to keep.\n */",
@@ -1937,6 +1962,7 @@ const allowed = new Map([
   ["src/client/features/chat/start-chat.ts", [
     "/**\n * Starting a conversation that is about one note, or one folder.\n *\n * The composer can be pointed at a note by hand, but \"what did I decide about this?\" is asked from the\n * thing itself — the row in the list, the folder in the tree — and a reader who has to open the assistant,\n * start a thread and then find the note has already lost the thought. So the command starts the thread and\n * pins the scope before the reader types: a new conversation, one chip, the composer waiting.\n *\n * A new conversation rather than the open one: the pin would otherwise follow them into a thread about\n * something else, and the chips of a thread are the record of what it was asked about. What is *not* done\n * here is sending anything — the question is the reader's, and a menu entry that asked it for them would be\n * guessing at it.\n */",
     "/** Put the assistant in front of the reader: the notebook's dock where it exists, the chat tab otherwise. */",
+    "/**\n * Open a stored conversation from wherever the reader is.\n *\n * A note can point at a thread (`![[chat:…]]`), and following that pointer is not a scope change — it\n * is \"show me what we said\". So the thread is opened as it is, and the tab switch is the same one every\n * other entry point uses.\n */",
   ]],
   ["src/client/features/chat/stored-reasoning.test.ts", [
     "/**\n * What a reopened thread shows of the thinking behind an answer.\n *\n * The fold used to exist only while a turn was streaming, because the trace was never filed with the\n * answer. Now it is a column on the row, and this pins the join between the two: a message read from the\n * server hands its own reasoning to the bubble, and one that never had any draws no fold at all.\n */",
@@ -10183,6 +10209,19 @@ const allowed = new Map([
     "/**\n * The table text for a model. Unpadded: a body a toggle wrote should read like one a person typed, and\n * trailing spaces inside every cell would show up in the note as whitespace the editor keeps.\n */",
     "/** The number a cell means: thousands separators allowed, anything unreadable is zero. */",
   ]],
+  ["src/client/lib/markdown/chat-embed.test.ts", [
+    "/**\n * A conversation embedded in a note.\n *\n * Two things are pinned. The id shape, because a note whose title merely begins with `chat:` must not\n * become a request for a conversation. And the excerpt: messages are rendered as text (never as HTML\n * from the model), the head names the thread, and a conversation longer than the cap says how much it\n * is not showing rather than silently stopping.\n */",
+    "// The head opens the thread, but it is not a wikilink: that attribute means \"a note by this title\".",
+  ]],
+  ["src/client/lib/markdown/chat-embed.ts", [
+    "/**\n * `![[chat:<id>]]` — a conversation, read-only, inside a note.\n *\n * The other half of \"a reply can be saved into a note\" (P1-12's canvas, and the message menu): a note\n * that argues with a conversation should be able to show the conversation, not paraphrase it. The embed\n * is a *view*: the thread is not copied into the note, so it stays one thread — editing the note does not\n * fork it, and deleting the note does not delete it.\n *\n * What is shown is an excerpt, not the whole transcript. A note is read, not scrolled: the opening\n * messages are what the note is referring to, and a conversation of two hundred turns would bury the\n * reader's own paragraph. The head names the conversation and opens it.\n */",
+    "/** The scheme is lowercase and fixed, so a note that merely starts with \"Chat:\" is still a note. */",
+    "/** How much of a conversation a note shows, and how much of each message. */",
+    "/**\n * The conversation id an embed target names, or null when it is not a conversation embed.\n *\n * Ids reach the DOM and then a URL, so the shape is checked here rather than trusted: anything that is\n * not the id alphabet is a note whose title happens to start with `chat:`, and is left to the note\n * resolver.\n */",
+    "/**\n * Fill one embed box with the conversation it names.\n *\n * `missing` rather than an exception when the thread is gone: a deleted conversation is a thing the\n * reader can be told about, and a note that pointed at it is not broken — it is out of date.\n */",
+    "// Not `data-wikilink`: that attribute means \"open a note by this title\", and the title here is a",
+    "// conversation id. The click is handled here instead.",
+  ]],
   ["src/client/lib/markdown/code-formatter.ts", [
     "/** Why a press wrote nothing, in the words the author can act on. */",
   ]],
@@ -10263,6 +10302,7 @@ const allowed = new Map([
     "// keyed by that render's numbering. Registering the set on the body means the walk up from a",
     "// block in here finds this set before the one the host carrying the embed registered.",
     "/**\n * A `.elixir` note holds a mind map body, not Markdown: embedded as it is, the reader\n * gets a wall of JSON. Wrapped in a ```mindmap fence it goes through the same drawer a\n * block does — and, like every other embed, comes out a still picture rather than a\n * writable map, because writing back would point at lines of a note that is not there.\n */",
+    "// A conversation is not a note: it has no body to embed, and the box is filled from the API.",
   ]],
   ["src/client/lib/markdown/emoji-shortcodes.test.ts", [
     "// A `:::` run that opens nothing is still a `:::` run, and its colons are not a code's colons.",
@@ -14655,6 +14695,7 @@ const allowed = new Map([
     "/* The accent border is permanent here, so it reads as \"editable\", not \"this is the\n   one holding the keyboard\". The ring lands outside the border box and only exists\n   on keyboard focus. */",
     "/* The wash above is also what a pointer gets, so keyboard focus adds the ring: with\n   `outline: none` in play it is the only thing that says where the caret is. */",
     "/* The item path is a real editable field, and this rule suppressed the global\n   `:focus-visible` outline without replacing it. Border tint plus the 3px field\n   ring restores the keyboard signal. */",
+    "/* An embedded conversation: a transcript, not a document. Roles are told apart by a left edge and a\n   label, because the note's own prose is what should stay the loudest thing on the page. */",
   ]],
   ["src/client/styles/reading.css", [
     "/**\n * The reading surface.\n *\n * Two things here are not decoration and are worth the comments, because both look like a bug in the\n * other direction when they are changed: the column geometry that turns flowing text into pages, and\n * the HUD's habit of floating over the page instead of reserving a row.\n */",
@@ -15757,6 +15798,9 @@ const allowed = new Map([
     "// it is the seam a later build fills, and null is what a draft that is only a draft carries.",
     "// Same rule as a task's project: a fact filed under a project that did not come with the backup",
     "// would be a fact no turn can ever recall — worse than an unfiled one, which every turn recalls.",
+    "// The link to the note this draft became. Carrying the draft without it would restore a second copy",
+    "// of a document the reader already has, so it travels — and a link to a note the backup did not",
+    "// carry is left as it is rather than silently re-pointed at nothing.",
   ]],
   ["src/worker/assistant/chat-files.ts", [
     "/**\n * Chat attachments: the reader's own files, under the chat's own prefix.\n *\n * The notebook has an attachment table and a storage backend of its own, and a chat attachment is\n * deliberately *not* one of those: a picture pasted into a question is not a file the reader keeps, it\n * is fuel for one turn. The prefix is therefore `chat/images/<user>/<id>.<ext>` and\n * `chat/files/<user>/<id>.<ext>`, which is what makes a chat upload findable — and deletable — without\n * touching anything the notebook can see.\n *\n * Two ceilings do the rest of the work. An image is capped at what a vision model can be sent in one\n * request body, a document at what fits the reader's context budget; anything above either is refused\n * with its own number in the message rather than truncated in silence.\n */",
@@ -16477,8 +16521,6 @@ const allowed = new Map([
     "// -------------------------------------------------------------------- drafts",
     "/**\n   * The drafts one conversation keeps, newest change first.\n   *\n   * Ordered by when they were last touched rather than when they were made: a reader working across three\n   * of them wants the one they were just in at the top, and the created-at order would bury it.\n   */",
     "/** How many a conversation already carries, so the route can refuse one past the cap before inserting it. */",
-    "/**\n   * Make a draft.\n   *\n   * `note_id` is written as null and is the seam a later build fills to sync a draft back into the\n   * notebook; there is deliberately no way to set it yet, so the column is a reservation rather than a\n   * second, half-wired link. Adding one later is an additive change to this signature.\n   */",
-    "/**\n   * Rewrite a draft's name or its body.\n   *\n   * A field that is not named keeps what it had, so a title typed after a body edit does not blank the\n   * body. `note_id` is carried across rather than written, for the same reason: an edit here is not a\n   * statement about the link, and the surface that sets one does not exist yet.\n   */",
     "/**\n   * Add files to an answer that has already been filed.\n   *\n   * The approval path is the only caller: a tool that drew a picture ran a minute after the turn it\n   * belongs to was written, so there is no `addMessage` left to carry the id. Merged rather than replaced,\n   * because an answer may already carry files, and deduped because approving twice must not list the same\n   * one twice.\n   */",
     "// A temporary conversation is never listed. Its reader reaches it by id, which is the only way anyone",
     "// has it: the list, the starred and pinned shortlists and the assistant's own search all come through",
@@ -16511,6 +16553,8 @@ const allowed = new Map([
     "// The origin of a note the thread wrote goes with it: a backlink panel must not offer to open a",
     "// conversation that no longer exists.",
     "/**\n   * Point a memory at the note it was written out as.\n   *\n   * The note is created by the client — it has to choose the folder and the title, and the notes module\n   * owns creating a note — so this stores the link rather than making one. A null clears it, which is\n   * what a reader who deleted the note gets: the fact stays, the pointer goes.\n   */",
+    "/**\n   * Make a draft, optionally already linked to the note it became.\n   *\n   * `note_id` is the link the panel syncs through. It is set at creation only when a caller is making a\n   * draft out of an existing note; the ordinary draft starts unlinked and gains the link when the reader\n   * files it.\n   */",
+    "/**\n   * Rewrite a draft's name, its body, or the note it is linked to.\n   *\n   * A field that is not named keeps what it had, so a title typed after a body edit does not blank the\n   * body. `noteId: null` is a real answer — it unlinks the draft — which is why it is tested against\n   * `undefined` rather than for truthiness.\n   */",
   ]],
   ["src/worker/assistant/tools.ts", [
     "/**\n * The tools the assistant can reach, and the executor that runs them.\n *\n * Three things are enforced here rather than asked of the model, because a model that is confident and\n * wrong is the failure mode this app has to survive:\n *  - **budgets** — a per-turn call cap, a per-tool cap and a duplicate-call refusal, so a reasoning\n *    loop cannot spend the reader's AI quota or write a hundred tasks;\n *  - **validation** — arguments are checked against the same declaration that generates the JSON\n *    Schema the provider is given, so the two can never disagree;\n *  - **approval** — a destructive tool never runs during the turn. `prepare` resolves the exact target\n *    and writes a pending action; `commit` runs only when the reader presses Approve, once, on that\n *    target. The model can propose; it cannot delete.\n *\n * Scheduled runs get read-only tools plus `notify_reader`, so a routine that has drifted cannot edit\n * the vault while nobody is watching.\n */",
@@ -17596,6 +17640,7 @@ const allowed = new Map([
     "// The note is created by the client, which owns choosing the folder and the title; this records the",
     "// link. The field is required and `null` is a value of its own — it is what a reader gets after",
     "// deleting the note — so a missing field is a bad request rather than a quiet unlink.",
+    "// `null` unlinks the draft, which is a state the panel offers; a missing key leaves the link alone.",
   ]],
   ["src/worker/routes/auth.ts", [
     "// Account-wide cap so a distributed botnet cannot retry one account",
@@ -18418,6 +18463,10 @@ const allowed = new Map([
     "// that is not there: a fact under a missing project is a fact no turn can ever recall.",
     "/**\n * The program a turn runs.\n *\n * The path this pins is the one no unit test can see: the tool has to reach the model through the runner,\n * run for real inside the request, and come back as a chip the reader can open. A `code_execute` that is\n * wired up but never reaches the model looks exactly like a tool the model chose not to use, which is why\n * the schema the provider was sent is asserted as well as the result.\n *\n * The program is the real one the model wrote — `return 6 * 7` — and the interpreter is the real engine,\n * so what the chip shows is a number this deployment computed rather than a stub's answer.\n */",
     "// On the table for this turn: the tool reached the executor through the route.",
+    "// A write that does not name the link is not a statement about it.",
+    "// Null is the unlink, and it has to survive a title-only write afterwards.",
+    "// The link is part of the draft, so it travels with it — a restored draft that forgot its note would",
+    "// silently become a second copy of a document the reader already has.",
   ]],
   ["tests/assistant-rules.test.ts", [
     "/**\n * The rules the assistant is built on, tested where they are written.\n *\n * These are the parts a browser session cannot prove: what a Chinese sentence means to the conflict\n * rules, how a wall-clock schedule survives a daylight-saving change, how many tokens a Han vault\n * really costs. Each fixture is chosen so a plausible-but-wrong implementation would fail it — the\n * pair that differs only in a change word, a date the reader never stated, a schedule that crosses a\n * clock change — rather than so the function merely runs.\n */",
