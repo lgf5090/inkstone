@@ -67,6 +67,7 @@ import { localDate } from '@shared/assistant-time'
 import { likePattern } from '@shared/markdown-utils'
 import type { Env } from '../env'
 import { tagScopePredicate } from '../db/rows'
+import { MAX_BATCH_STATEMENTS } from '../db/writes'
 import { newId } from '../lib/id'
 import { parseStoredJson } from '../lib/json'
 import { decryptAssistantKey, decryptMcpOAuth, encryptAssistantKey, encryptMcpOAuth } from '../lib/crypto'
@@ -200,6 +201,14 @@ export interface ConversationCursor {
 
 /** How many ids one delete statement may carry, well under SQLite's parameter ceiling. */
 const ATTACHMENT_DELETE_BATCH = 200
+
+/**
+ * Ids one read statement may carry.
+ *
+ * The ceiling that binds here is D1's bound-variable limit, which is well below SQLite's: the other
+ * stores chunk an id list at ninety for exactly that reason (`tags/store.ts`, `sync/store.ts`).
+ */
+const ID_READ_BATCH = 90
 
 /** How much of a matched message the search row shows, on each side of the hit. */
 const SEARCH_SNIPPET_RADIUS = 40
@@ -1211,12 +1220,18 @@ export class AssistantStore {
    */
   async attachmentsFor(ids: readonly string[]): Promise<{ id: string, user_id: string, filename: string, mime: string, size: number, storage: string }[]> {
     if (!ids.length) return []
-    const q = new Query(this.userId)
-    q.inList('id', ids.slice(0, 20))
-    const rows = await this.rows<{ id: string, user_id: string, filename: string, mime: string, size: number, storage: string }>(
-      `SELECT id, user_id, filename, mime, size, storage FROM attachments WHERE ${q.where}`,
-      ...q.binds,
-    )
+    type AttachmentFileRow = { id: string, user_id: string, filename: string, mime: string, size: number, storage: string }
+    const rows: AttachmentFileRow[] = []
+    // Chunked rather than cut off at some count: the list is as long as the caller's request, and a
+    // reader who asked for twenty files gets twenty rows or none of them is silently missing.
+    for (const chunk of idReadChunks(ids)) {
+      const q = new Query(this.userId)
+      q.inList('id', chunk)
+      rows.push(...await this.rows<AttachmentFileRow>(
+        `SELECT id, user_id, filename, mime, size, storage FROM attachments WHERE ${q.where}`,
+        ...q.binds,
+      ))
+    }
     const order = new Map(ids.map((id, index) => [id, index]))
     return rows.sort((left, right) => (order.get(left.id) ?? 0) - (order.get(right.id) ?? 0))
   }
@@ -1260,15 +1275,25 @@ export class AssistantStore {
     return new Map(rows.filter((row) => row.extracted_text).map((row) => [row.id, row.extracted_text as string]))
   }
 
-  /** The reader's own attachment rows, in the order they were named. */
+  /**
+   * The reader's own attachment rows, in the order they were named.
+   *
+   * The list is a batch read, not one turn: the conversation route hands over the ids of every chip on
+   * the page it is answering with, so the per-message ceiling (`MAX_CHAT_ATTACHMENTS`, enforced where a
+   * turn is written) does not belong here — it would drop files the reader can see in the row and cut
+   * the transcript down without a word. Chunking by {@link ID_READ_BATCH} is the bound that does apply.
+   */
   async chatAttachments(ids: readonly string[]): Promise<ChatAttachment[]> {
     if (!ids.length) return []
-    const q = new Query(this.userId)
-    q.inList('id', ids.slice(0, MAX_CHAT_ATTACHMENTS))
-    const rows = await this.rows<ChatAttachmentRow>(
-      `SELECT id, kind, filename, mime, size, key, created_at FROM chat_attachments WHERE ${q.where}`,
-      ...q.binds,
-    )
+    const rows: ChatAttachmentRow[] = []
+    for (const chunk of idReadChunks(ids)) {
+      const q = new Query(this.userId)
+      q.inList('id', chunk)
+      rows.push(...await this.rows<ChatAttachmentRow>(
+        `SELECT id, kind, filename, mime, size, key, created_at FROM chat_attachments WHERE ${q.where}`,
+        ...q.binds,
+      ))
+    }
     const order = new Map(ids.map((id, index) => [id, index]))
     return rows
       .map(toChatAttachment)
@@ -4329,19 +4354,28 @@ export class AssistantStore {
 
   // ------------------------------------------------------------------ import
 
-  async importRow(table: string, row: Record<string, unknown>): Promise<void> {
+  /** The columns an imported row may set, read off the allowlist before any SQL is assembled. */
+  private importColumns(table: string): readonly string[] {
     const columns = EXPORT_COLUMNS[table]
     if (!columns) throw new Error(`unknown assistant export table ${table}`)
+    return columns
+  }
+
+  private importInsert(table: string, columns: readonly string[], row: Record<string, unknown>): D1PreparedStatement {
     const names = ['user_id', ...columns]
     const placeholders = names.map((_, index) => `?${index + 1}`).join(', ')
     const values = [this.userId, ...columns.map((column) => normaliseBind(row[column]))]
-    await this.db.prepare(`INSERT OR IGNORE INTO ${table} (${names.join(', ')}) VALUES (${placeholders})`)
-      .bind(...values).run()
+    return this.db.prepare(`INSERT OR IGNORE INTO ${table} (${names.join(', ')}) VALUES (${placeholders})`)
+      .bind(...values)
   }
 
-  async importUpdate(table: string, id: string, row: Record<string, unknown>): Promise<void> {
-    const columns = EXPORT_COLUMNS[table]
-    if (!columns) throw new Error(`unknown assistant export table ${table}`)
+  /**
+   * A partial `UPDATE` for one imported row, or null when it names no column this table holds.
+   *
+   * Only the columns the caller named are written: a restore that rewrote a column the file never
+   * carried would blank local data the backup had nothing to say about.
+   */
+  private importPatch(table: string, columns: readonly string[], id: string, row: Record<string, unknown>): D1PreparedStatement | null {
     const sets: string[] = []
     const binds: unknown[] = [this.userId]
     for (const column of columns) {
@@ -4350,31 +4384,85 @@ export class AssistantStore {
       binds.push(normaliseBind(row[column]))
       sets.push(`${column} = ?${binds.length}`)
     }
-    if (!sets.length) return
+    if (!sets.length) return null
     binds.push(id)
-    await this.db.prepare(`UPDATE ${table} SET ${sets.join(', ')} WHERE user_id = ?1 AND id = ?${binds.length}`)
-      .bind(...binds).run()
+    return this.db.prepare(`UPDATE ${table} SET ${sets.join(', ')} WHERE user_id = ?1 AND id = ?${binds.length}`)
+      .bind(...binds)
   }
 
-  async hasRow(table: string, id: string): Promise<boolean> {
-    if (!EXPORT_COLUMNS[table]) throw new Error(`unknown assistant export table ${table}`)
-    const r = await this.db.prepare(`SELECT 1 AS x FROM ${table} WHERE user_id = ?1 AND id = ?2`)
-      .bind(this.userId, id).first<{ x: number }>()
-    return Boolean(r)
+  async importRow(table: string, row: Record<string, unknown>): Promise<void> {
+    await this.importInsert(table, this.importColumns(table), row).run()
   }
+
+  async importUpdate(table: string, id: string, row: Record<string, unknown>): Promise<void> {
+    await this.importPatch(table, this.importColumns(table), id, row)?.run()
+  }
+
   /**
-   * When this account's own copy of a row was last edited, or null when it has none.
+   * A page of imported rows, written as few times as D1 allows.
+   *
+   * Each chunk is one batch and a batch is one transaction, so a chunk is all-or-nothing; that is the
+   * whole of the atomicity a restore can have here, because no D1 transaction spans two of them. Which is
+   * why the rows are counted as each chunk lands rather than once at the end: a restore that stops between
+   * two batches has to report the rows that are really in the account, and the caller is the only thing
+   * that can hear them.
+   */
+  async importRows(table: string, rows: readonly Record<string, unknown>[], onLanded?: (landed: number) => void): Promise<void> {
+    if (!rows.length) return
+    const columns = this.importColumns(table)
+    await this.runImportBatch(rows.map((row) => this.importInsert(table, columns, row)), onLanded)
+  }
+
+  /** The same, for the rows this account already holds and the file is allowed to rewrite. */
+  async importUpdates(table: string, patches: readonly { id: string, row: Record<string, unknown> }[], onLanded?: (landed: number) => void): Promise<void> {
+    if (!patches.length) return
+    const columns = this.importColumns(table)
+    const statements = patches
+      .map((patch) => this.importPatch(table, columns, patch.id, patch.row))
+      .filter((statement): statement is D1PreparedStatement => statement !== null)
+    await this.runImportBatch(statements, onLanded)
+  }
+
+  private async runImportBatch(statements: readonly D1PreparedStatement[], onLanded?: (landed: number) => void): Promise<void> {
+    for (let start = 0; start < statements.length; start += MAX_BATCH_STATEMENTS) {
+      const results = await this.db.batch(statements.slice(start, start + MAX_BATCH_STATEMENTS))
+      onLanded?.(results.reduce((total, result) => total + (result.meta?.changes ?? 0), 0))
+    }
+  }
+
+  /** Which of these ids this account already holds — one chunked read, not one round trip per row. */
+  async hasRows(table: string, ids: readonly string[]): Promise<Set<string>> {
+    if (!this.importColumns(table).includes('id')) throw new Error(`assistant export table ${table} has no id column`)
+    const found = new Set<string>()
+    for (const chunk of idReadChunks(ids)) {
+      const q = new Query(this.userId)
+      q.inList('id', chunk)
+      const list = await this.rows<{ id: string }>(`SELECT id FROM ${table} WHERE ${q.where}`, ...q.binds)
+      for (const row of list) found.add(row.id)
+    }
+    return found
+  }
+
+  /**
+   * When this account's own copy of each named row was last edited, for the ids it has one for.
    *
    * An import merges by id, and the one rule it must never break is not to replace a newer local edit
    * with an older copy out of the file. That needs the stored timestamp before deciding, so it is read
-   * through the same column map `importRow` already trusts rather than a table name out of the file.
+   * through the same column map `importRow` already trusts rather than a table name out of the file —
+   * and read for the whole page at once, because a restore of a big library is a lot of rows.
    */
-  async storedUpdatedAt(table: string, id: string): Promise<number | null> {
-    const columns = EXPORT_COLUMNS[table]
-    if (!columns?.includes('updated_at')) throw new Error(`unknown assistant export table ${table}`)
-    const r = await this.db.prepare(`SELECT updated_at FROM ${table} WHERE user_id = ?1 AND id = ?2`)
-      .bind(this.userId, id).first<{ updated_at: number }>()
-    return r ? Number(r.updated_at) : null
+  async storedUpdatedAts(table: string, ids: readonly string[]): Promise<Map<string, number>> {
+    if (!this.importColumns(table).includes('updated_at')) throw new Error(`unknown assistant export table ${table}`)
+    const stored = new Map<string, number>()
+    for (const chunk of idReadChunks(ids)) {
+      const q = new Query(this.userId)
+      q.inList('id', chunk)
+      const list = await this.rows<{ id: string, updated_at: number }>(
+        `SELECT id, updated_at FROM ${table} WHERE ${q.where}`, ...q.binds,
+      )
+      for (const row of list) stored.set(row.id, Number(row.updated_at))
+    }
+    return stored
   }
 
   /**
@@ -4446,6 +4534,19 @@ const EXPORT_COLUMNS: Readonly<Record<string, readonly string[]>> = {
   chat_projects: ['id', 'name', 'description', 'instructions', 'note_scope', 'created_at', 'updated_at'],
   chat_automations: ['id', 'name', 'kind', 'message', 'schedule', 'enabled', 'status', 'next_run', 'last_run', 'last_result', 'last_error', 'run_count', 'created_at', 'updated_at'],
   chat_notifications: ['id', 'title', 'body', 'automation_id', 'read_at', 'created_at'],
+}
+
+/**
+ * The ids of one read, deduplicated and cut into chunks that keep every statement under the
+ * bind-variable ceiling D1 imposes — the same reason the delete loops above page themselves.
+ */
+function idReadChunks(ids: readonly string[]): string[][] {
+  const wanted = [...new Set(ids)]
+  const chunks: string[][] = []
+  for (let start = 0; start < wanted.length; start += ID_READ_BATCH) {
+    chunks.push(wanted.slice(start, start + ID_READ_BATCH))
+  }
+  return chunks
 }
 
 function normaliseBind(value: unknown): string | number | null {

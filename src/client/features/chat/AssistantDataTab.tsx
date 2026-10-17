@@ -6,7 +6,7 @@ import { Download, Upload } from 'lucide-react'
 import { MAX_BACKUP_BYTES } from '@shared/assistant'
 import { formatBytes } from '@shared/byte-format'
 import { t } from '../../lib/i18n'
-import { api } from '../../lib/api'
+import { api, ApiError } from '../../lib/api'
 import { downloadTextFile } from '../../lib/export-note'
 import { Button } from '../../components/primitives'
 import { SettingRow } from '../../components/form'
@@ -86,9 +86,15 @@ export function DataTab() {
       })
       await useAssistant.getState().bootstrap(true)
     } catch (error) {
+      // The route names what stopped it — the byte ceiling a restore can read, or how many rows had
+      // already landed when a chunk failed. Swallowing that into a generic "failed" would leave the
+      // reader with a half-restored account and no idea where it stopped.
+      const detail = error instanceof ApiError ? error.serverMessage : undefined
       useUi.getState().toast({
         title: error instanceof SyntaxError ? t('assistant.settings.import_bad_json') : t('assistant.toast.failed'),
+        description: detail,
         tone: 'danger',
+        duration: detail ? 12000 : undefined,
       })
     } finally {
       setImporting(false)

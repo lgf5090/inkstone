@@ -2935,23 +2935,51 @@ assistantRoutes.get('/activity', async (c) => c.json({ activity: await store(c).
 
 // -------------------------------------------------------------- export/import
 
+/**
+ * The backup file, together with the size a restore can read.
+ *
+ * Export is unbounded and import is not: `MAX_BACKUP_BYTES` is what the import route accepts, so a big
+ * account can write a file it cannot read back. The file is the reader's own data, so this still hands it
+ * over — refusing would turn "too large to restore" into "no copy at all" — but it says the truth in every
+ * channel a response has, because the worst time to meet that ceiling is the day the file is needed.
+ * Nothing here truncates: the number reported is the number of bytes sent.
+ */
 assistantRoutes.get('/export', async (c) => {
   const s = store(c)
   const payload = await exportAssistant(s)
-  await s.recordActivity('data.exported', 'assistant backup downloaded')
-  return new Response(JSON.stringify(payload, null, 2), {
-    headers: {
-      'content-type': 'application/json; charset=utf-8',
-      'content-disposition': 'attachment; filename="inkstone-assistant-backup.json"',
-    },
+  const text = JSON.stringify(payload, null, 2)
+  const bytes = new TextEncoder().encode(text).byteLength
+  const importable = bytes <= MAX_BACKUP_BYTES
+  const headers = new Headers({
+    'content-type': 'application/json; charset=utf-8',
+    'content-disposition': 'attachment; filename="inkstone-assistant-backup.json"',
+    'x-backup-bytes': String(bytes),
+    'x-backup-importable': String(importable),
   })
+  if (!importable) {
+    headers.set('warning', `299 inkstone "This backup is ${formatBytes(bytes)}, over the ${formatBytes(MAX_BACKUP_BYTES)} a restore can read. Delete older conversations or answers and export again."`)
+  }
+  await s.recordActivity('data.exported', importable
+    ? 'assistant backup downloaded'
+    : `assistant backup downloaded: ${formatBytes(bytes)}, over the ${formatBytes(MAX_BACKUP_BYTES)} a restore can read`)
+  return new Response(text, { headers })
 })
 
 assistantRoutes.post('/import', async (c) => {
   const s = store(c)
   // A backup is a file the reader picked, so it is read under the same byte ceiling as the other
   // whole-store imports rather than handed to `req.json()` uncapped.
-  const raw = await readJson<Record<string, unknown>>(c, MAX_BACKUP_BYTES)
+  let raw: Record<string, unknown>
+  try {
+    raw = await readJson<Record<string, unknown>>(c, MAX_BACKUP_BYTES)
+  } catch (error) {
+    // The body reader answers "too large" with no number and no way down. This file came from an export
+    // that is deliberately unbounded, so the one thing the reader can still do is named here.
+    if (error instanceof ApiError && error.status === 413) {
+      throw ApiError.tooLarge(`That backup is over the ${formatBytes(MAX_BACKUP_BYTES)} a restore can read. Delete older conversations or answers, export again, and import the new file.`)
+    }
+    throw error
+  }
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) throw ApiError.badRequest('The backup is not a JSON object.')
   const summary = await importAssistant(s, raw as Record<string, unknown>)
   await s.recordActivity('data.imported', `backup imported (${summary.conversations} conversation(s))`)

@@ -86,6 +86,43 @@ export async function importAssistant(store: AssistantStore, raw: Record<string,
     notifications: 0,
     skipped,
   }
+  try {
+    await mergeBackup(store, data, summary)
+  } catch (error) {
+    // What D1 can promise is one transaction per batch, and a restore bigger than a batch is more than
+    // one batch: a file that stops here has therefore gone in part way, and there is no rollback that can
+    // un-write it. So the answer names the rows that landed and says the way on is the same file again —
+    // nothing here deletes, every row is matched by id, and a newer local copy is never replaced, so a
+    // second pass over the same backup continues instead of doubling anything.
+    if (error instanceof ApiError) throw error
+    throw new ApiError(500, 'internal', `The backup stopped part way: ${landed(summary)}. Importing the same file again continues from there.`)
+  }
+  return summary
+}
+
+/** The summary's counts, said the way a reader needs them after a restore that stopped. */
+const LANDED_LABELS: readonly [key: keyof Omit<ImportSummary, 'skipped'>, label: string][] = [
+  ['projects', 'project'], ['conversations', 'conversation'], ['messages', 'message'],
+  ['answerVersions', 'answer'], ['artifacts', 'draft'], ['memories', 'memory'],
+  ['tasks', 'task'], ['automations', 'schedule'], ['notifications', 'notification'],
+]
+
+function landed(summary: ImportSummary): string {
+  const parts = LANDED_LABELS
+    .map(([key, label]) => [summary[key], label] as const)
+    .filter(([count]) => count > 0)
+    .map(([count, label]) => `${count} ${label}${count === 1 ? '' : 's'}`)
+  return parts.length ? `${parts.join(' and ')} had already landed` : 'nothing had landed yet'
+}
+
+/**
+ * One pass per table, each row decided against the account's own copy and written in batches.
+ *
+ * The order is the dependency order, and it is load-bearing: a thread has to be here before its drafts,
+ * messages and tag links can be, and a fork's parent before the parent column can point at it.
+ */
+async function mergeBackup(store: AssistantStore, data: Record<string, unknown>, summary: ImportSummary): Promise<void> {
+  const { skipped } = summary
 
   for (const project of rows(data.projects)) {
     const id = idValue(project.id)
@@ -140,7 +177,17 @@ export async function importAssistant(store: AssistantStore, raw: Record<string,
   // Threads whose local copy was newer than the file: their own row is left alone, and so is the fork
   // parent, because both are edits the reader made after this backup was written.
   const keptNewer = new Set<string>()
-  for (const conversation of rows(data.conversations)) {
+  const conversationEntries = rows(data.conversations)
+  // Which of these threads are already here and when the local copy was last edited, asked once for the
+  // whole file instead of once per row: the per-row round trips are what makes a big restore run out of
+  // CPU half way through, and half a restored account is the state the caller above has to report.
+  const localThreads = await store.storedUpdatedAts(
+    'chat_conversations',
+    conversationEntries.map((entry) => idValue(entry.id)).filter((id): id is string => id !== null),
+  )
+  const threadInserts: Record<string, unknown>[] = []
+  const threadUpdates: { id: string, row: Record<string, unknown> }[] = []
+  for (const conversation of conversationEntries) {
     const id = idValue(conversation.id)
     if (!id) continue
     const updatedAt = numberValue(conversation.updated_at, Date.now())
@@ -171,31 +218,37 @@ export async function importAssistant(store: AssistantStore, raw: Record<string,
       created_at: numberValue(conversation.created_at, Date.now()),
       updated_at: updatedAt,
     }
-    const localAt = await store.storedUpdatedAt('chat_conversations', id)
+    const localAt = localThreads.get(id) ?? null
     if (localAt !== null && localAt >= updatedAt) {
       skipped.push(`conversation ${id} was newer here`)
       keptNewer.add(id)
       continue
     }
-    if (localAt !== null) await store.importUpdate('chat_conversations', id, row)
-    else await store.importRow('chat_conversations', row)
-    summary.conversations++
+    if (localAt !== null) threadUpdates.push({ id, row })
+    else threadInserts.push(row)
   }
+  // Counted from what the batches wrote, so a restore that stopped between two of them reports the rows
+  // that are really in the account rather than the rows the file asked for.
+  await store.importRows('chat_conversations', threadInserts, (landed) => { summary.conversations += landed })
+  await store.importUpdates('chat_conversations', threadUpdates, (landed) => { summary.conversations += landed })
 
   // Every conversation that exists here, read as ids rather than through a list page: a library larger
   // than one page would otherwise restore its newest threads whole and drop the rest silently.
   const conversations = new Set(await store.conversationIds())
   // The parent of a fork is only kept when both ends are here. Applied after the loop because a file
   // may list a fork before the thread it was forked from.
-  for (const conversation of rows(data.conversations)) {
+  const forkParents: { id: string, row: Record<string, unknown> }[] = []
+  for (const conversation of conversationEntries) {
     const id = idValue(conversation.id)
     const parentId = idValue(conversation.parent_id)
     if (!id || !parentId || keptNewer.has(id) || !conversations.has(id) || !conversations.has(parentId)) continue
-    await store.importUpdate('chat_conversations', id, { parent_id: parentId })
+    forkParents.push({ id, row: { parent_id: parentId } })
   }
+  await store.importUpdates('chat_conversations', forkParents)
 
   // The drafts those threads were keeping. Restored after the conversations, so a draft whose thread did
   // not come back is dropped rather than left orphaned — the panel reads them by conversation id.
+  const draftRows: Record<string, unknown>[] = []
   for (const artifact of rows(data.artifacts)) {
     const id = idValue(artifact.id)
     const conversationId = idValue(artifact.conversation_id)
@@ -203,7 +256,7 @@ export async function importAssistant(store: AssistantStore, raw: Record<string,
     // Every column is named because they are all NOT NULL, and `importRow` binds a column it is not given
     // as NULL — which `INSERT OR IGNORE` turns into a silently dropped row. `note_id` is the one exception:
     // it is the seam a later build fills, and null is what a draft that is only a draft carries.
-    await store.importRow('chat_artifacts', {
+    draftRows.push({
       id,
       conversation_id: conversationId,
       title: textValue(artifact.title, MAX_ARTIFACT_TITLE_CHARS),
@@ -215,21 +268,35 @@ export async function importAssistant(store: AssistantStore, raw: Record<string,
       created_at: numberValue(artifact.created_at, Date.now()),
       updated_at: numberValue(artifact.updated_at, Date.now()),
     })
-    summary.artifacts++
   }
+  await store.importRows('chat_artifacts', draftRows, (landed) => { summary.artifacts += landed })
+  // Tags are the notebook's objects, so the file's own list of them is checked against this account once
+  // rather than once per link.
+  const tagLinks = rows(data.conversation_tags)
+    .map((link) => ({ conversationId: idValue(link.conversation_id), tagId: idValue(link.tag_id) }))
+    .filter((link): link is { conversationId: string, tagId: string } =>
+      Boolean(link.conversationId) && Boolean(link.tagId))
+  // The account's own tags, read once: whether a link can be restored at all never depends on the link.
+  const knownTagIds = new Set((await store.conversationTags()).map((tag) => tag.id))
+  const linkRows: Record<string, unknown>[] = []
+  for (const link of tagLinks) {
+    if (!conversations.has(link.conversationId)) continue
+    // A link to a tag the reader deleted is not restored.
+    if (!knownTagIds.has(link.tagId)) continue
+    linkRows.push({ conversation_id: link.conversationId, tag_id: link.tagId, created_at: Date.now() })
+  }
+  await store.importRows('chat_conversation_tags', linkRows)
 
-  for (const link of rows(data.conversation_tags)) {
-    const conversationId = idValue(link.conversation_id)
-    const tagId = idValue(link.tag_id)
-    if (!conversationId || !tagId || !conversations.has(conversationId)) continue
-    // Tags are the notebook's objects; a link to one the reader deleted is not restored.
-    if (!(await store.knownTag(tagId))) continue
-    await store.addConversationTag(conversationId, tagId)
-  }
-  for (const message of rows(data.messages)) {
+  // Turns whose thread is here, read against the rows already in the account in one pass rather than one
+  // query per message: this is the largest table in a backup by a wide margin.
+  const messageEntries = rows(data.messages)
+  const heldMessages = await store.hasRows('chat_messages', messageEntries.map((entry) => idValue(entry.id)).filter((id): id is string => id !== null))
+  const messageRows: Record<string, unknown>[] = []
+  for (const message of messageEntries) {
     const id = idValue(message.id)
     const conversationId = idValue(message.conversation_id)
     if (!id || !conversationId || !conversations.has(conversationId)) continue
+    if (heldMessages.has(id)) continue
     const role = message.role === 'assistant' ? 'assistant' : 'user'
     const row = {
       id,
@@ -260,18 +327,20 @@ export async function importAssistant(store: AssistantStore, raw: Record<string,
       scopes: typeof message.scopes === 'string' ? message.scopes.slice(0, 8 * 1024) : '[]',
       created_at: numberValue(message.created_at, Date.now()),
     }
-    if (await store.hasRow('chat_messages', id)) continue
-    await store.importRow('chat_messages', row)
-    summary.messages++
+    messageRows.push(row)
   }
-
+  await store.importRows('chat_messages', messageRows, (landed) => { summary.messages += landed })
   // The answers a reader paged away from. They ride with the thread they belong to: a restored
   // conversation whose pager had counted three answers but listed none would lie in its own interface.
-  for (const version of rows(data.answer_versions)) {
+  const versionEntries = rows(data.answer_versions)
+  const heldVersions = await store.hasRows('chat_answer_versions', versionEntries.map((entry) => idValue(entry.id)).filter((id): id is string => id !== null))
+  const versionRows: Record<string, unknown>[] = []
+  for (const version of versionEntries) {
     const id = idValue(version.id)
     const messageId = idValue(version.message_id)
     const conversationId = idValue(version.conversation_id)
     if (!id || !messageId || !conversationId || !conversations.has(conversationId)) continue
+    if (heldVersions.has(id)) continue
     const row = {
       id,
       message_id: messageId,
@@ -285,19 +354,24 @@ export async function importAssistant(store: AssistantStore, raw: Record<string,
       duration_ms: numberValue(version.duration_ms),
       created_at: numberValue(version.created_at, Date.now()),
     }
-    if (await store.hasRow('chat_answer_versions', id)) continue
-    await store.importRow('chat_answer_versions', row)
-    summary.answerVersions++
+    versionRows.push(row)
   }
-
-  for (const memory of rows(data.memories)) {
+  await store.importRows('chat_answer_versions', versionRows, (landed) => { summary.answerVersions += landed })
+  const memoryEntries = rows(data.memories)
+  const localMemoryAt = await store.storedUpdatedAts(
+    'chat_memories',
+    memoryEntries.map((entry) => idValue(entry.id)).filter((id): id is string => id !== null),
+  )
+  const memoryInserts: Record<string, unknown>[] = []
+  const memoryUpdates: { id: string, row: Record<string, unknown> }[] = []
+  for (const memory of memoryEntries) {
     const id = idValue(memory.id)
     if (!id) continue
     const updatedAt = numberValue(memory.updated_at, Date.now())
     const projectId = idValue(memory.project_id)
-    const existing = await store.getMemory(id)
+    const existingAt = localMemoryAt.get(id) ?? null
     // Never overwrite a newer local edit with an older backup copy.
-    if (existing && existing.updatedAt >= updatedAt) {
+    if (existingAt !== null && existingAt >= updatedAt) {
       skipped.push(`memory ${id} was newer here`)
       continue
     }
@@ -320,11 +394,19 @@ export async function importAssistant(store: AssistantStore, raw: Record<string,
       created_at: numberValue(memory.created_at, updatedAt),
       updated_at: updatedAt,
     }
-    if (existing) await store.importUpdate('chat_memories', id, row)
-    else await store.importRow('chat_memories', row)
-    summary.memories++
+    if (existingAt !== null) memoryUpdates.push({ id, row })
+    else memoryInserts.push(row)
   }
-  for (const task of rows(data.tasks)) {
+  await store.importRows('chat_memories', memoryInserts, (landed) => { summary.memories += landed })
+  await store.importUpdates('chat_memories', memoryUpdates, (landed) => { summary.memories += landed })
+  const taskEntries = rows(data.tasks)
+  const localTaskAt = await store.storedUpdatedAts(
+    'chat_tasks',
+    taskEntries.map((entry) => idValue(entry.id)).filter((id): id is string => id !== null),
+  )
+  const taskInserts: Record<string, unknown>[] = []
+  const taskUpdates: { id: string, row: Record<string, unknown> }[] = []
+  for (const task of taskEntries) {
     const id = idValue(task.id)
     if (!id) continue
     const projectId = idValue(task.project_id)
@@ -341,21 +423,27 @@ export async function importAssistant(store: AssistantStore, raw: Record<string,
       completed_at: numberOrNull(task.completed_at),
     }
     // A task the reader has checked off or edited here since the file was written stays theirs.
-    const localAt = await store.storedUpdatedAt('chat_tasks', id)
+    const localAt = localTaskAt.get(id) ?? null
     if (localAt !== null && localAt >= row.updated_at) {
       skipped.push(`task ${id} was newer here`)
       continue
     }
-    if (localAt !== null) await store.importUpdate('chat_tasks', id, row)
-    else await store.importRow('chat_tasks', row)
-    summary.tasks++
+    if (localAt !== null) taskUpdates.push({ id, row })
+    else taskInserts.push(row)
   }
-
-  for (const notification of rows(data.notifications)) {
+  await store.importRows('chat_tasks', taskInserts, (landed) => { summary.tasks += landed })
+  await store.importUpdates('chat_tasks', taskUpdates, (landed) => { summary.tasks += landed })
+  const notificationEntries = rows(data.notifications)
+  const heldNotifications = await store.hasRows(
+    'chat_notifications',
+    notificationEntries.map((entry) => idValue(entry.id)).filter((id): id is string => id !== null),
+  )
+  const notificationRows: Record<string, unknown>[] = []
+  for (const notification of notificationEntries) {
     const id = idValue(notification.id)
     if (!id) continue
-    if (await store.hasRow('chat_notifications', id)) continue
-    await store.importRow('chat_notifications', {
+    if (heldNotifications.has(id)) continue
+    notificationRows.push({
       id,
       title: textValue(notification.title, 200) || 'Reminder',
       body: textValue(notification.body, 8000),
@@ -363,10 +451,10 @@ export async function importAssistant(store: AssistantStore, raw: Record<string,
       read_at: numberOrNull(notification.read_at),
       created_at: numberValue(notification.created_at, Date.now()),
     })
-    summary.notifications++
   }
-
+  await store.importRows('chat_notifications', notificationRows, (landed) => { summary.notifications += landed })
   let paused = 0
+  const automationRows: Record<string, unknown>[] = []
   for (const automation of rows(data.automations)) {
     const id = idValue(automation.id)
     // A stored schedule is JSON text; a hand-written backup may carry the object.
@@ -391,7 +479,7 @@ export async function importAssistant(store: AssistantStore, raw: Record<string,
       }
       continue
     }
-    await store.importRow('chat_automations', {
+    const automationRow = {
       id,
       name: textValue(automation.name, 200) || 'Imported schedule',
       kind: oneOf(automation.kind, AUTOMATION_KINDS, 'reminder'),
@@ -406,9 +494,10 @@ export async function importAssistant(store: AssistantStore, raw: Record<string,
       run_count: numberValue(automation.run_count),
       created_at: numberValue(automation.created_at, Date.now()),
       updated_at: Date.now(),
-    })
-    summary.automations++
+    }
+    automationRows.push(automationRow)
   }
+  await store.importRows('chat_automations', automationRows, (landed) => { summary.automations += landed })
   if (summary.automations) skipped.push(`${summary.automations} imported paused`)
   if (paused) skipped.push(`${paused} existing paused by the backup`)
 
@@ -423,10 +512,11 @@ export async function importAssistant(store: AssistantStore, raw: Record<string,
     }
     allowed[key] = value
   }
+  // Last, so a file that stopped on its rows never leaves the reader on a language or a switch they did
+  // not agree to take.
   if (Object.keys(allowed).length) {
     await store.saveSettings(mergeImportedSettings(await store.getSettings(), allowed))
   }
-  return summary
 }
 
 /**
