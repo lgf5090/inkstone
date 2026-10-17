@@ -21,9 +21,23 @@ const BUILTIN_AI_CONNECT_HOSTS: readonly string[] = [
   'api.x.ai',
 ]
 
+/**
+ * The two hosts Cloudflare's Web Analytics beacon needs.
+ *
+ * A zone that has the beacon switched on gets the `<script>` appended to every HTML response by
+ * Cloudflare's own edge, so this deployment never chose to load it. Refusing it is not a neutral act
+ * either: the element fires a load error on every document — the exact shape `public/boot.js` has to
+ * stay clear of, because a script failure is what a replaced build looks like — and no page view is
+ * ever recorded. The script comes from `static.cloudflareinsights.com`; it reports to the same-origin
+ * `/cdn-cgi/rum` the edge answers, or to `cloudflareinsights.com` when the injected config carries no
+ * version of its own, so both are named.
+ */
+const CLOUDFLARE_INSIGHTS_SCRIPT_SOURCE = 'https://static.cloudflareinsights.com'
+const CLOUDFLARE_INSIGHTS_REPORT_SOURCE = 'https://cloudflareinsights.com'
+
 export interface SecurityHeaderOptions {
   // Vite's dev server injects the React Fast Refresh bootstrap as an inline script,
-  // which our own `script-src 'self'` refuses — and without that bootstrap the SPA
+  // which our own `script-src` refuses — and without that bootstrap the SPA
   // never mounts, so nobody can use `npm run dev`. Only a dev build serving an HTML
   // document may set this; the contract test pins the gate.
   allowDevInlineScripts?: boolean
@@ -34,7 +48,7 @@ export interface SecurityHeaderOptions {
 export function securityHeaders(url: string, options: SecurityHeaderOptions = {}): Record<string, string> {
   const isHttps = new URL(url).protocol === 'https:'
   const imageSchemes = isHttps ? 'https:' : 'https: http:'
-  const scriptSrc = options.allowDevInlineScripts ? "script-src 'self' 'unsafe-inline'; " : "script-src 'self'; "
+  const scriptSrc = `script-src 'self' ${CLOUDFLARE_INSIGHTS_SCRIPT_SOURCE}${options.allowDevInlineScripts ? " 'unsafe-inline'" : ''}; `
   const aiConnectSources = resolveAiConnectHosts(options.aiConnectHosts)
     .map((host) => `https://${host}`)
     .join(' ')
@@ -45,7 +59,7 @@ export function securityHeaders(url: string, options: SecurityHeaderOptions = {}
     'Permissions-Policy': 'camera=(), microphone=(), geolocation=()',
     'Content-Security-Policy': [
       `default-src 'self'; base-uri 'self'; ${scriptSrc}style-src 'self' 'unsafe-inline'; `,
-      `img-src 'self' data: blob: ${imageSchemes}; font-src 'self' data: https://esm.sh; connect-src 'self' data: blob: ${aiConnectSources}; worker-src 'self' blob:; `,
+      `img-src 'self' data: blob: ${imageSchemes}; font-src 'self' data: https://esm.sh; connect-src 'self' data: blob: ${CLOUDFLARE_INSIGHTS_REPORT_SOURCE} ${aiConnectSources}; worker-src 'self' blob:; `,
       "manifest-src 'self'; media-src 'self' blob:; form-action 'self'; frame-src 'none'; ",
       "frame-ancestors 'none'; object-src 'none'",
     ].join(''),

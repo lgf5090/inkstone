@@ -17722,7 +17722,6 @@ const allowed = new Map([
     "// The OAuth provider and the MCP handler answer their own responses, so the app",
     "// middleware never sees them and the headers have to be applied at the edge.",
     "// Vite's dev server injects the React Fast Refresh bootstrap as an inline script,",
-    "// which our own `script-src 'self'` refuses — and without that bootstrap the SPA",
     "// never mounts, so nobody can use `npm run dev`. Only a dev build serving an HTML",
     "// document may set this; the contract test pins the gate.",
     "// A 101 handshake response carries the socket, and `new Response()` only accepts 200-599,",
@@ -17732,6 +17731,8 @@ const allowed = new Map([
     "// about `Env`. Malformed entries are dropped; a blank value keeps the built-in presets.",
     "/**\n * A bare host — no scheme, no path, no separator that could end the directive and start another.\n *\n * The URL parser is the validator: building `https://` + the entry and requiring the parser to hand\n * the same host back is what rules out the fragments a hand-written pattern forgets.\n */",
     "/**\n * The presets plus whatever the deployment names, never the deployment list alone.\n *\n * Replacing rather than extending would let one optional variable silently block the readers who\n * picked a built-in provider — the same failure this list exists to prevent — and an entry that\n * parses as something other than a bare host is a mistyped variable, not a directive: it is dropped\n * and reported instead of being pasted into the policy.\n */",
+    "/**\n * The two hosts Cloudflare's Web Analytics beacon needs.\n *\n * A zone that has the beacon switched on gets the `<script>` appended to every HTML response by\n * Cloudflare's own edge, so this deployment never chose to load it. Refusing it is not a neutral act\n * either: the element fires a load error on every document — the exact shape `public/boot.js` has to\n * stay clear of, because a script failure is what a replaced build looks like — and no page view is\n * ever recorded. The script comes from `static.cloudflareinsights.com`; it reports to the same-origin\n * `/cdn-cgi/rum` the edge answers, or to `cloudflareinsights.com` when the injected config carries no\n * version of its own, so both are named.\n */",
+    "// which our own `script-src` refuses — and without that bootstrap the SPA",
   ]],
   ["src/worker/lib/throttle.ts", [
     "/**\n * Runs a throttled step — spending an attempt budget, checking a lock, or both — and answers the\n * `429` the API promises once the throttle rejects it.\n *\n * Every throttled route funnels through here so the status, error code, `Retry-After` hint and\n * response shape cannot drift apart. `message` is the human prefix a route shows; the retry count is\n * appended here. The step is a thunk so a route that checks a lock before spending work keeps its\n * exact ordering.\n */",
@@ -18665,6 +18666,7 @@ const allowed = new Map([
   ]],
   ["tests/app-csp.test.ts", [
     "/**\n * Every base URL a built-in provider preset hands the reader has to be reachable from the browser,\n * because the key stays in the reader's own browser and the request goes straight to the provider.\n * A preset added to the settings table without a matching `connect-src` host is a feature that\n * silently never works for whoever picks it, so the guard reads the table rather than a copy of it.\n */",
+    "/** The beacon Cloudflare's edge appends to every HTML response either loads or errors on every visit. */",
   ]],
   ["tests/app-tab-routes.test.ts", [
     "// An address missing from this list is still served — by the asset layer's SPA fallback,",

@@ -115,12 +115,13 @@ it('the only client IP rule set is the one that checks for cf', () => {
 it('relaxes script-src for nothing but a dev HTML document', () => {
   const strict = securityHeaders('https://note.test/')['Content-Security-Policy']
   const dev = securityHeaders('https://note.test/', { allowDevInlineScripts: true })['Content-Security-Policy']
+  const scriptSrc = "script-src 'self' https://static.cloudflareinsights.com"
 
-  expect(strict).toContain("script-src 'self';")
-  expect(strict).not.toContain("script-src 'self' 'unsafe-inline'")
+  expect(strict).toContain(`${scriptSrc};`)
+  expect(/script-src([^;]*)/.exec(strict)?.[1] ?? '').not.toContain("'unsafe-inline'")
   // the relaxation touches that one source expression and no other directive
-  expect(dev).toContain("script-src 'self' 'unsafe-inline';")
-  expect(dev.replace("script-src 'self' 'unsafe-inline'; ", "script-src 'self'; ")).toBe(strict)
+  expect(dev).toContain(`${scriptSrc} 'unsafe-inline';`)
+  expect(dev.replace(`${scriptSrc} 'unsafe-inline'; `, `${scriptSrc}; `)).toBe(strict)
 
   // opting in requires a Vite dev build *and* an HTML response, so /api/* stays strict
   const app = read('../src/worker/app.ts')
