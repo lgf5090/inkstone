@@ -10,7 +10,7 @@
  * All four are per-conversation settings the assistant already stores — the chips are the same switches
  * the settings page has, moved to where the decision is actually made.
  */
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useId, useRef, useState } from 'react'
 import {
   Brain,
   Check,
@@ -22,9 +22,11 @@ import {
   Gauge,
   Globe,
   Link2,
+  Loader2,
   MessageSquareQuote,
   Mic,
   Plus,
+  RefreshCw,
   Settings2,
   ShieldQuestion,
   Sparkles,
@@ -67,27 +69,36 @@ export function ControlChip({
   // browser's `title`: the native one waits a second and paints in the operating system's chrome, which
   // on these five looked like a different application's.
   const name = value ? `${label}: ${value}` : label
+  // A hint — and for a disabled control the reason it cannot be pressed — must not live only in a hover
+  // tooltip: a thumb and a keyboard never fire `:hover`, and a dead control with no spoken reason reads
+  // as a bug. The same words ride in the accessible description, held by a visually-hidden node the
+  // control points at, so `hint` is a floor and the tooltip stays the pointer's convenience.
+  const hintId = useId()
   return (
     <Tooltip label={hint ?? name}>
-      <button
-        ref={refObject}
-        type="button"
-        aria-label={name}
-        {...(pressed === undefined ? {} : { 'aria-pressed': pressed })}
-        disabled={disabled}
-        onClick={onClick}
-        className={cn(
-          'inline-flex size-7 shrink-0 items-center justify-center rounded-[var(--r-md)] border border-transparent',
-          'text-[var(--text-tertiary)] transition-[background-color,border-color,color,transform] duration-[var(--dur-fast)] ease-[var(--ease-out)]',
-          'hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)] active:scale-[0.94]',
-          active
-            ? 'border-[var(--accent)] bg-[var(--accent-soft)] text-[var(--accent-on-soft)]'
-            : undefined,
-          disabled && 'cursor-not-allowed opacity-40 hover:bg-transparent hover:text-[var(--text-tertiary)] active:scale-100',
-        )}
-      >
-        {icon}
-      </button>
+      <>
+        <button
+          ref={refObject}
+          type="button"
+          aria-label={name}
+          {...(hint ? { 'aria-describedby': hintId } : {})}
+          {...(pressed === undefined ? {} : { 'aria-pressed': pressed })}
+          disabled={disabled}
+          onClick={onClick}
+          className={cn(
+            'inline-flex size-7 shrink-0 items-center justify-center rounded-[var(--r-md)] border border-transparent',
+            'text-[var(--text-tertiary)] transition-[background-color,border-color,color,transform] duration-[var(--dur-fast)] ease-[var(--ease-out)]',
+            'hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)] active:scale-[0.94]',
+            active
+              ? 'border-[var(--accent)] bg-[var(--accent-soft)] text-[var(--accent-on-soft)]'
+              : undefined,
+            disabled && 'cursor-not-allowed opacity-40 hover:bg-transparent hover:text-[var(--text-tertiary)] active:scale-100',
+          )}
+        >
+          {icon}
+        </button>
+        {hint && <span id={hintId} className="sr-only">{hint}</span>}
+      </>
     </Tooltip>
   )
 }
@@ -381,13 +392,63 @@ export function NotePicker({
   const [query, setQuery] = useState('')
   const [rows, setRows] = useState<{ id: string, title: string }[]>([])
   const [busy, setBusy] = useState(false)
+  // A refused search is a different fact from "nothing matches", and hiding it behind the empty line was
+  // the bug: the reader could not tell a dead request from a vault with no such note. `error` says which.
+  const [error, setError] = useState<string | null>(null)
+  // Which row the keyboard is on. The box keeps focus (a listbox the caret is not inside is not a
+  // combobox), so the active row rides on `aria-activedescendant` rather than on its own tabindex.
+  const [active, setActive] = useState(0)
+  // A response that lost the race writes nothing — not its rows, not the end of a flag a newer request
+  // still holds. One keystroke after another would otherwise let the slowest search land last.
+  const request = useRef(0)
+  const listId = useId()
+  const optionId = (index: number) => `${listId}-row-${index}`
 
-  const run = async (value: string) => {
+  const run = (value: string) => {
+    const id = ++request.current
     setBusy(true)
-    try {
-      setRows(await search(value))
-    } finally {
-      setBusy(false)
+    setError(null)
+    setActive(0)
+    search(value).then(
+      (found) => {
+        if (request.current === id) setRows(found)
+      },
+      (reason: unknown) => {
+        if (request.current !== id) return
+        setRows([])
+        setError(reason instanceof Error ? reason.message : String(reason))
+      },
+    ).finally(() => {
+      if (request.current === id) setBusy(false)
+    })
+  }
+
+  const choose = (row: { id: string, title: string }) => {
+    onPick(row)
+    onClose()
+  }
+
+  const onKeyDown = (event: React.KeyboardEvent<HTMLInputElement>) => {
+    if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+      // Nothing to walk, the key belongs to the box: stepping against an empty list would set a NaN
+      // index that `aria-activedescendant` then points at no row.
+      if (!rows.length) return
+      event.preventDefault()
+      const step = event.key === 'ArrowDown' ? 1 : -1
+      setActive((current) => (current + step + rows.length) % rows.length)
+      return
+    }
+    if (event.key === 'Escape') {
+      event.preventDefault()
+      onClose()
+      return
+    }
+    if (event.key === 'Enter') {
+      // An IME commit is not a pick: the keystroke belongs to the input method, not to the list.
+      if (event.nativeEvent.isComposing) return
+      event.preventDefault()
+      const row = rows[active]
+      if (row) choose(row)
     }
   }
 
@@ -397,23 +458,65 @@ export function NotePicker({
         value={query}
         onChange={(event) => {
           setQuery(event.target.value)
-          void run(event.target.value)
+          run(event.target.value)
         }}
+        onKeyDown={onKeyDown}
         placeholder={t('assistant.attach.note_prompt')}
         aria-label={t('assistant.attach.note_prompt')}
+        role="combobox"
+        aria-expanded={rows.length > 0}
+        aria-controls={listId}
+        aria-autocomplete="list"
+        aria-activedescendant={rows.length ? optionId(active) : undefined}
         autoFocus
       />
-      <div className="mt-2 max-h-[320px] overflow-y-auto">
-        {!rows.length && !busy && <p className="px-1 py-3 text-[length:var(--text-12)] text-[var(--text-quaternary)]">{t('assistant.attach.note_none')}</p>}
-        {rows.map((row) => (
+      <div
+        id={listId}
+        role="listbox"
+        aria-label={t('assistant.attach.note_prompt')}
+        aria-busy={busy}
+        className="mt-2 max-h-[320px] overflow-y-auto"
+      >
+        {busy && (
+          <p role="status" className="flex items-center gap-1.5 px-1 py-3 text-[length:var(--text-12)] text-[var(--text-quaternary)]">
+            <Loader2 size={12} className="ink-chat-spin shrink-0" />
+            {t('common.loading')}
+          </p>
+        )}
+        {!busy && error && (
+          // The one fact a failed search turns on is whether it can be asked again, so retry sits with the
+          // reason rather than being left for the reader to rediscover by typing.
+          <p role="alert" className="flex flex-wrap items-center gap-2 px-1 py-3 text-[length:var(--text-12)] text-[var(--danger)]">
+            <span className="min-w-0 flex-1">{t('assistant.toast.failed')}</span>
+            <button
+              type="button"
+              onClick={() => run(query)}
+              className="inline-flex shrink-0 items-center gap-1 rounded-[var(--r-sm)] px-1.5 py-0.5 font-medium text-[var(--accent-on-soft)] hover:bg-[var(--accent-soft)]"
+            >
+              <RefreshCw size={11} />
+              {t('common.retry')}
+            </button>
+          </p>
+        )}
+        {!busy && !error && !rows.length && (
+          <p className="px-1 py-3 text-[length:var(--text-12)] text-[var(--text-quaternary)]">{t('assistant.attach.note_none')}</p>
+        )}
+        {rows.map((row, index) => (
           <button
             key={row.id}
+            id={optionId(index)}
             type="button"
-            onClick={() => {
-              onPick(row)
-              onClose()
-            }}
-            className="block w-full truncate rounded-[var(--r-sm)] px-2 py-1.5 text-left text-[length:var(--text-12-5)] text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]"
+            role="option"
+            aria-selected={index === active}
+            data-row={index}
+            onMouseEnter={() => setActive(index)}
+            onClick={() => choose(row)}
+            className={cn(
+              'block w-full truncate rounded-[var(--r-sm)] px-2 py-1.5 text-left text-[length:var(--text-12-5)]',
+              index === active
+                ? 'bg-[var(--accent-soft)] text-[var(--accent-on-soft)]'
+                : 'text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]',
+            )}
           >
             {row.title}
           </button>

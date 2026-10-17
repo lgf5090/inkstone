@@ -215,7 +215,7 @@ function ToolCallRow({ tool, messageId, open, onToggle }: {
         className="flex w-full items-center gap-2 px-2 py-1.5 text-left transition-colors duration-[var(--dur-fast)] ease-[var(--ease-out)] hover:bg-[var(--bg-hover)]"
       >
         {tool.status === 'running'
-          ? <Loader2 size={12} className="shrink-0 animate-spin text-[var(--text-quaternary)]" />
+          ? <Loader2 size={12} className="ink-chat-spin shrink-0 text-[var(--text-quaternary)]" />
           : tool.status === 'error'
             ? <XCircle size={12} className="shrink-0 text-[var(--danger)]" />
             : isKnownToolStatus(tool.status)
@@ -325,7 +325,7 @@ function ToolCallRow({ tool, messageId, open, onToggle }: {
                 }}
                 className="inline-flex items-center gap-1 rounded-[var(--r-sm)] px-1 py-0.5 text-[length:var(--text-11)] font-medium text-[var(--accent-on-soft)] hover:bg-[var(--accent-soft)] disabled:opacity-50"
               >
-                {busy ? <Loader2 size={11} className="animate-spin" /> : <Play size={11} />}
+                {busy ? <Loader2 size={11} className="ink-chat-spin" /> : <Play size={11} />}
                 {busy ? t('assistant.chat.replaying') : t('assistant.chat.replay')}
               </button>
             )}
@@ -686,12 +686,12 @@ export function AssistantBubble({
         )}
         {body
           ? (
-            <div
-              className="max-w-[72ch]"
-              // A settled answer is announced once, as a log entry. A streaming one deliberately is not:
-              // every token would be read out loud, which is worse than silence until it finishes.
-              {...(streaming ? {} : { role: 'log' as const, 'aria-live': 'polite' as const, 'aria-atomic': false })}
-            >
+            // The answer itself is not a live region. A settled one used to carry its own `role="log"`
+            // + `aria-live="polite"`, which did two wrong things at once: a long thread became dozens of
+            // competing regions, and — because this row is created only when the streaming turn is saved,
+            // after the content has already changed — it announced the finished answer never. Completion
+            // is announced once, from a single region at the conversation list level (see ChatView).
+            <div className="max-w-[72ch]">
               <MarkdownReply source={body} />
             </div>
           )
@@ -699,9 +699,9 @@ export function AssistantBubble({
             ? (
                 <div role="status" aria-label={t('assistant.chat.thinking')} className="flex h-6 items-center gap-1.5">
                   <span className="flex items-center gap-1">
-                    <i className="size-1 animate-pulse rounded-full bg-[var(--text-quaternary)]" />
-                    <i className="size-1 animate-pulse rounded-full bg-[var(--text-quaternary)] [animation-delay:150ms]" />
-                    <i className="size-1 animate-pulse rounded-full bg-[var(--text-quaternary)] [animation-delay:300ms]" />
+                    <i className="ink-chat-thinking size-1 rounded-full bg-[var(--text-quaternary)]" />
+                    <i className="ink-chat-thinking size-1 rounded-full bg-[var(--text-quaternary)]" />
+                    <i className="ink-chat-thinking size-1 rounded-full bg-[var(--text-quaternary)]" />
                   </span>
                   {stage && <span className="text-[length:var(--text-11)] text-[var(--text-quaternary)]">{t(STAGE_KEYS[stage])}</span>}
                 </div>
