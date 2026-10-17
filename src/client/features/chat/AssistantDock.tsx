@@ -14,14 +14,15 @@
  * on when the panel opens rather than inherited from whatever the chat tab was last set to — and it is
  * drawn as a chip the reader can take off, because a context they cannot see is one they cannot correct.
  */
-import { useEffect, useLayoutEffect, useMemo, useRef } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { ArrowUpRight, Plus, Sparkles, X } from 'lucide-react'
 import { cn } from '../../lib/cn'
 import { t } from '../../lib/i18n'
 import { navigateToPath } from '../../lib/app-history'
 import { IconButton, Button, Spinner } from '../../components/primitives'
-import { Tooltip } from '../../components/overlay'
+import { Modal, Tooltip } from '../../components/overlay'
 import { useUi } from '../../store/ui'
+import { useNotes } from '../../store/notes'
 import { useAssistant } from './assistant-store'
 import { AssistantBubble } from './MessageParts'
 import { ChatComposer, MessageRow, UserBubble } from './ChatView'
@@ -29,9 +30,12 @@ import {
   applyEditorAiResult,
   EDITOR_AI_LABELS,
   lastAnswerText,
+  previewEditorAiWrite,
   useEditorAi,
   type EditorAiRequest,
+  type EditorAiWriteMode,
 } from './editor-ai'
+import { buildWriteDiff, WriteDiffSummary, WriteDiffView } from './editor-ai-diff'
 import { saveReplyAsNote } from './save-to-note'
 
 export function AssistantDock() {
@@ -213,11 +217,26 @@ export function AssistantDock() {
  * It appears only once the turn has finished — a half-written paragraph is not something to paste — and
  * it stays until it is used or dismissed, because the reader may well have scrolled away while it was
  * being written.
+ *
+ * What it cannot do is write blind. Replace and insert name the change rather than perform it: they open
+ * the preview of the words that would leave the note and the words that would arrive, and only the press
+ * inside that dialog edits. A note the reader changed while the model was thinking is said out loud here,
+ * in the same words the refusal uses, rather than discovered after the fact.
  */
 function AiResultRow({ request, answer }: { request: EditorAiRequest, answer: string }) {
   const clear = useEditorAi((state) => state.clear)
   const toast = useUi((state) => state.toast)
-  const apply = (mode: 'replace' | 'insert') => {
+  const content = useNotes((state) => state.contents[request.noteId])
+  const [pending, setPending] = useState<EditorAiWriteMode | null>(null)
+  // Measured against a replace, because that is the affordance with something to lose: an insert only
+  // adds, and its preview is the same dialog read one way.
+  const preview = content === undefined ? null : previewEditorAiWrite(content, request, answer, 'replace')
+  const before = preview?.status === 'ok' ? preview.before : null
+  const after = preview?.status === 'ok' ? preview.after : null
+  const diff = useWriteDiff(before, after)
+  const writable = content !== undefined && !!diff
+  const commit = (mode: EditorAiWriteMode) => {
+    setPending(null)
     if (!applyEditorAiResult(answer, mode)) return
     toast({ title: t(mode === 'replace' ? 'assistant.edit.replaced' : 'assistant.edit.inserted'), tone: 'success' })
     clear()
@@ -226,20 +245,29 @@ function AiResultRow({ request, answer }: { request: EditorAiRequest, answer: st
     <div
       role="group"
       aria-label={t('assistant.edit.result')}
-      className="flex shrink-0 flex-wrap items-center gap-1 border-t border-[var(--border-subtle)] bg-[var(--bg-sunken)] px-2 py-1.5"
+      className="flex shrink-0 flex-wrap items-center gap-x-2 gap-y-1 border-t border-[var(--border-subtle)] bg-[var(--bg-sunken)] px-2 py-1.5"
     >
-      <span className="min-w-0 truncate text-[length:var(--text-11)] text-[var(--text-quaternary)]">
+      <span className="min-w-0 shrink-0 text-[length:var(--text-11)] text-[var(--text-quaternary)]">
         {t(EDITOR_AI_LABELS[request.action])}
       </span>
+      {content === undefined ? (
+        <span className="min-w-0 flex-1 text-[length:var(--text-11)] text-[var(--warning)]">{t('assistant.edit.note_gone')}</span>
+      ) : preview?.status === 'stale' ? (
+        <span className="min-w-0 flex-1 text-[length:var(--text-11)] text-[var(--warning)]">{t('assistant.edit.stale')}</span>
+      ) : diff ? (
+        <WriteDiffSummary diff={diff} />
+      ) : null}
       <div className="ml-auto flex shrink-0 items-center gap-1">
-        {request.from < request.to && (
-          <Button size="sm" variant="secondary" onClick={() => apply('replace')}>
+        {writable && request.from < request.to && (
+          <Button size="sm" variant="secondary" onClick={() => setPending('replace')}>
             {t('assistant.edit.replace')}
           </Button>
         )}
-        <Button size="sm" variant="secondary" onClick={() => apply('insert')}>
-          {t('assistant.edit.insert')}
-        </Button>
+        {writable && (
+          <Button size="sm" variant="secondary" onClick={() => setPending('insert')}>
+            {t('assistant.edit.insert')}
+          </Button>
+        )}
         <Button size="sm" variant="ghost" onClick={() => void saveReplyAsNote(answer)}>
           {t('assistant.edit.save_note')}
         </Button>
@@ -247,6 +275,76 @@ function AiResultRow({ request, answer }: { request: EditorAiRequest, answer: st
           <X size={13} />
         </IconButton>
       </div>
+      {pending && (
+        <WritePreviewDialog
+          request={request}
+          answer={answer}
+          mode={pending}
+          onCommit={commit}
+          onCancel={() => setPending(null)}
+        />
+      )}
     </div>
+  )
+}
+
+/**
+ * The diff of one proposed write, computed once per pair of documents.
+ *
+ * Keyed on the two texts rather than on the request or the answer, because the note store can hand a new
+ * object for the same words and a forty-thousand-character note is not something to compare again on
+ * every keystroke elsewhere in the panel.
+ */
+function useWriteDiff(before: string | null, after: string | null) {
+  return useMemo(() => (before === null || after === null ? null : buildWriteDiff(before, after)), [before, after])
+}
+
+/**
+ * The change, shown before it is made.
+ *
+ * A dialog rather than a strip inside the dock: the note is the thing at stake and the panel is 380 pixels
+ * wide, so the reader gets the room to actually read what the model wrote. `Modal` is the app's one focus
+ * discipline — the tab order stays inside the diff, Escape and the backdrop both mean the same thing the
+ * Cancel button says, and the focus goes back where it came from — and the change is only made by the
+ * press that follows the reading of it.
+ *
+ * The preview is live: the note is subscribed from the store, so an edit that lands while the dialog is
+ * open moves the diff and the Apply button with it, rather than leaving the reader confirming a change
+ * that is no longer the change.
+ */
+function WritePreviewDialog({ request, answer, mode, onCommit, onCancel }: {
+  request: EditorAiRequest
+  answer: string
+  mode: EditorAiWriteMode
+  onCommit: (mode: EditorAiWriteMode) => void
+  onCancel: () => void
+}) {
+  const content = useNotes((state) => state.contents[request.noteId])
+  const preview = content === undefined ? null : previewEditorAiWrite(content, request, answer, mode)
+  const before = preview?.status === 'ok' ? preview.before : null
+  const after = preview?.status === 'ok' ? preview.after : null
+  const diff = useWriteDiff(before, after)
+  const reason = content === undefined ? 'assistant.edit.note_gone' : 'assistant.edit.stale'
+  return (
+    <Modal
+      open
+      onClose={onCancel}
+      title={t('assistant.edit.diff')}
+      description={diff ? <WriteDiffSummary diff={diff} /> : undefined}
+      width={620}
+      footer={<>
+        <Button variant="ghost" data-autofocus onClick={onCancel}>{t('common.cancel')}</Button>
+        <Button variant="primary" disabled={!diff || !diff.changed} onClick={() => onCommit(mode)}>
+          {t('assistant.edit.apply')}
+        </Button>
+      </>}
+    >
+      <div className="space-y-3">
+        <p className="text-[length:var(--text-12)] text-[var(--text-tertiary)]">
+          {t(mode === 'replace' ? 'assistant.edit.preview_replace' : 'assistant.edit.preview_insert')}
+        </p>
+        {diff ? <WriteDiffView diff={diff} /> : <p className="text-[length:var(--text-12)] text-[var(--warning)]">{t(reason)}</p>}
+      </div>
+    </Modal>
   )
 }

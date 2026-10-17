@@ -19,7 +19,7 @@ import { useUi } from '../../store/ui'
 import { useNotes } from '../../store/notes'
 import { AssistantDock } from './AssistantDock'
 import { useAssistant } from './assistant-store'
-import { useEditorAi } from './editor-ai'
+import { editorAiAnchor, useEditorAi } from './editor-ai'
 
 vi.mock('../../lib/api', () => ({
   ApiError: class ApiError extends Error {},
@@ -120,11 +120,21 @@ describe('the docked assistant', () => {
   })
 
   it('offers to write a selection request back into the note', async () => {
+    const whole = 'before the old words after'
     useNotes.setState({
-      contents: { n1: 'before the old words after' },
+      contents: { n1: whole },
       notes: { n1: { id: 'n1', title: 'A note' } as never },
     })
-    useEditorAi.setState({ request: { noteId: 'n1', action: 'rewrite', from: 7, to: 20, source: 'the old words' } })
+    useEditorAi.setState({
+      request: {
+        noteId: 'n1',
+        action: 'rewrite',
+        from: 7,
+        to: 20,
+        source: 'the old words',
+        anchor: editorAiAnchor(whole, 7, 20),
+      },
+    })
     await show({
       loaded: true,
       activeId: 'c1',
@@ -143,10 +153,15 @@ describe('the docked assistant', () => {
         done: true,
       },
     })
-    const replace = [...document.body.querySelectorAll('button')]
-      .find((node) => node.textContent === t('assistant.edit.replace'))
-    expect(replace, 'the replace action is missing').toBeTruthy()
-    act(() => { replace!.click() })
+    const press = (label: string) => {
+      const button = [...document.body.querySelectorAll('button')].find((node) => node.textContent?.trim() === label)
+      expect(button, `${label} is missing`).toBeTruthy()
+      act(() => { button!.click() })
+    }
+    // The change is shown first, and the note is only written by the press that follows the reading.
+    press(t('assistant.edit.replace'))
+    expect(useNotes.getState().contents.n1).toBe(whole)
+    press(t('assistant.edit.apply'))
     expect(useNotes.getState().contents.n1).toBe('before NEW after')
     // The row goes with the answer it was about: leaving it would offer to paste it again.
     expect(useEditorAi.getState().request).toBeNull()

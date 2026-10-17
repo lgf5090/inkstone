@@ -12,9 +12,11 @@ import { initI18n, t } from '../../lib/i18n'
 import { useUi } from '../../store/ui'
 import { useNotes } from '../../store/notes'
 import { useAssistant } from './assistant-store'
+import type { EditorAiAction } from './editor-ai'
 import {
   applyEditorAiResult,
   EDITOR_AI_SOURCE_CAP,
+  editorAiAnchor,
   editorAiPrompt,
   editorAiSource,
   runEditorAi,
@@ -41,6 +43,13 @@ function putNote(content: string): void {
       ...useNotes.getState().notes,
       [NOTE_ID]: { id: NOTE_ID, title: 'A note' } as never,
     },
+  })
+}
+
+/** A request as the editor files it: the range, the words it held, and the words around them. */
+function begin(whole: string, action: EditorAiAction, from: number, to: number, source: string): void {
+  useEditorAi.setState({
+    request: { noteId: NOTE_ID, action, from, to, source, anchor: editorAiAnchor(whole, from, to) },
   })
 }
 
@@ -82,28 +91,28 @@ describe('the question', () => {
 describe('writing the answer back', () => {
   it('replaces exactly the range that was selected', () => {
     putNote('before the old words after')
-    useEditorAi.setState({ request: { noteId: NOTE_ID, action: 'rewrite', from: 7, to: 20, source: 'the old words' } })
+    begin('before the old words after', 'rewrite', 7, 20, 'the old words')
     expect(applyEditorAiResult('NEW', 'replace')).toBe(true)
     expect(useNotes.getState().contents[NOTE_ID]).toBe('before NEW after')
   })
 
   it('refuses when the note moved underneath the answer', () => {
     putNote('the PASSAGE is gone')
-    useEditorAi.setState({ request: { noteId: NOTE_ID, action: 'rewrite', from: 0, to: 11, source: 'the passage' } })
+    begin('the passage is gone', 'rewrite', 0, 11, 'the passage')
     expect(applyEditorAiResult('NEW', 'replace')).toBe(false)
     expect(useNotes.getState().contents[NOTE_ID]).toBe('the PASSAGE is gone')
   })
 
   it('inserts below the caret with one blank line between paragraphs', () => {
     putNote('a paragraph')
-    useEditorAi.setState({ request: { noteId: NOTE_ID, action: 'continue', from: 11, to: 11, source: '' } })
+    begin('a paragraph', 'continue', 11, 11, '')
     expect(applyEditorAiResult('another', 'insert')).toBe(true)
     expect(useNotes.getState().contents[NOTE_ID]).toBe('a paragraph\n\nanother')
   })
 
   it('does not add a second blank line where one is already there', () => {
     putNote('a paragraph\n\n')
-    useEditorAi.setState({ request: { noteId: NOTE_ID, action: 'continue', from: 13, to: 13, source: '' } })
+    begin('a paragraph\n\n', 'continue', 13, 13, '')
     expect(applyEditorAiResult('another', 'insert')).toBe(true)
     expect(useNotes.getState().contents[NOTE_ID]).toBe('a paragraph\n\nanother')
   })

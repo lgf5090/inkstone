@@ -6,11 +6,12 @@
  * round trip through the conversation — which takes seconds and leaves the editor entirely — so the
  * range is kept here rather than in a closure that would die with the menu.
  *
- * The range is stored as offsets, and offsets are only true of the document they were taken from. Rather
- * than trust them, the request carries the text they held: applying the answer refuses when the passage
- * no longer says what it said, because a silently shifted replace writes the model's paragraph over the
- * reader's. What comes back is a note that changed while they were waiting — a real thing they can see —
- * instead of a corrupted one they cannot.
+ * A range is a pair of offsets, and offsets are only true of the document they were taken from. So the
+ * request carries what surrounded the passage as well: the answer is applied where those words say the
+ * passage still is, which lets an unrelated edit elsewhere in the note happen while the model is
+ * thinking. What it cannot do is guess. When the passage itself moved, changed or now sits in two
+ * equally-matching places, the write refuses and says the note changed — because a replace that lands a
+ * paragraph off by one word overwrites something the reader wrote, and nothing on screen would say so.
  */
 import { create } from 'zustand'
 import type { MessageKey } from '@shared/locales/en-US'
@@ -21,6 +22,12 @@ import { useAssistant } from './assistant-store'
 
 export type EditorAiAction = 'ask' | 'rewrite' | 'summarize' | 'continue' | 'translate' | 'outline' | 'todo'
 
+/** The words either side of a selection, kept so the range can be found again after the note moved. */
+export interface EditorAiAnchor {
+  lead: string
+  trail: string
+}
+
 export interface EditorAiRequest {
   noteId: string
   action: EditorAiAction
@@ -29,6 +36,7 @@ export interface EditorAiRequest {
   to: number
   /** What that range said when the request was made. */
   source: string
+  anchor: EditorAiAnchor
 }
 
 interface EditorAiState {
@@ -110,6 +118,112 @@ export function insertBlockAt(content: string, at: number, body: string): string
 }
 
 /**
+ * How much of the note either side of a selection rides in the request.
+ *
+ * Long enough to place the passage again in a note the reader kept typing in, short enough that a
+ * request stays a request rather than a second copy of the note.
+ */
+export const EDITOR_AI_ANCHOR_CONTEXT = 200
+
+/** The ceiling on places one anchor text turns up, so a repeated fragment cannot be walked over and over. */
+const ANCHOR_CANDIDATES = 64
+
+/** What surrounded the range when it was read, in the words needed to find it again later. */
+export function editorAiAnchor(whole: string, from: number, to: number): EditorAiAnchor {
+  return {
+    lead: whole.slice(Math.max(0, from - EDITOR_AI_ANCHOR_CONTEXT), from),
+    trail: whole.slice(to, to + EDITOR_AI_ANCHOR_CONTEXT),
+  }
+}
+
+/** Where an answer goes in the note as it stands now, or `stale` when the range cannot be found. */
+export type EditorAiTarget = { status: 'ok'; from: number; to: number } | { status: 'stale' }
+
+/**
+ * The offset a passage starts at, found by what sits around it.
+ *
+ * The readings are tried in order of how much they say. The passage together with the words on either
+ * side of it is the strongest claim, and one match is enough. Weaker but still decisive: the passage on
+ * its own, found in exactly one place — the note around it may have been edited, but those words are
+ * still only said once. Anything else is refused, because a second place that fits as well as the first
+ * is a guess, and a guessed replace writes the model's paragraph over a reader's.
+ *
+ * A caret is a passage of no length at all, so its anchor is the seam: first the words either side of it
+ * together, then the words it was sitting after, then the words it was sitting before. A caret read at the
+ * start of an empty note has none of those, and that one belongs only in an empty document.
+ */
+export function locateAnchor(content: string, lead: string, body: string, trail: string): number | null {
+  const withContext = occurrences(content, `${lead}${body}${trail}`).map((at) => at + lead.length)
+  if (withContext.length === 1) return withContext[0]!
+  if (body) {
+    const only = occurrences(content, body)
+    return only.length === 1 ? only[0]! : null
+  }
+  const afterLead = occurrences(content, lead)
+  if (afterLead.length === 1) return afterLead[0]! + lead.length
+  const beforeTrail = occurrences(content, trail)
+  return beforeTrail.length === 1 ? beforeTrail[0]! : null
+}
+
+/** Every offset a text starts at, capped so a passage repeated through a long note is refused rather than walked. */
+function occurrences(content: string, needle: string): number[] {
+  const found: number[] = []
+  for (let at = content.indexOf(needle); at !== -1; at = content.indexOf(needle, at + 1)) {
+    found.push(at)
+    if (found.length >= ANCHOR_CANDIDATES) break
+  }
+  return found
+}
+
+/**
+ * Where this request's answer belongs in the note as it is now.
+ *
+ * Two readings. First the offsets themselves: if the passage is still where it was put down and the words
+ * on either side of it are still those words, nothing that mattered has moved and the range is used as
+ * given. Otherwise the anchor goes looking, which is what lets an edit made in another part of the note
+ * land without losing the answer waiting for it. Both readings end the same way when they fail: `stale`.
+ */
+export function resolveWriteTarget(content: string, request: EditorAiRequest): EditorAiTarget {
+  const { lead, trail } = request.anchor
+  const exact = content.slice(request.from, request.to) === request.source
+    && content.slice(request.from - lead.length, request.from) === lead
+    && content.startsWith(trail, request.to)
+  if (exact) return { status: 'ok', from: request.from, to: request.to }
+  const at = locateAnchor(content, lead, request.source, trail)
+  return at === null ? { status: 'stale' } : { status: 'ok', from: at, to: at + request.source.length }
+}
+
+/** What one write-back would do to the note: the text as it stands, and as it would come out. */
+export type EditorAiPreview =
+  | { status: 'stale' }
+  | { status: 'ok'; before: string; after: string }
+
+export type EditorAiWriteMode = 'replace' | 'insert'
+
+/** How the note would read with this answer written into it at this place, one way or the other. */
+export function writeEditorAiContent(content: string, target: { from: number; to: number }, mode: EditorAiWriteMode, body: string): string {
+  return mode === 'replace'
+    ? `${content.slice(0, target.from)}${body}${content.slice(target.to)}`
+    : insertBlockAt(content, target.to, body)
+}
+
+/**
+ * The change the reader is being asked to confirm.
+ *
+ * Read from the note store rather than from the editor's view because the note on screen may not be the
+ * note the request was made in, and because the answer has to be shown against the document it would
+ * actually land in. Nothing here writes: it is the same {@link resolveWriteTarget} the commit uses, run
+ * one keystroke earlier.
+ */
+export function previewEditorAiWrite(content: string, request: EditorAiRequest, answer: string, mode: EditorAiWriteMode): EditorAiPreview {
+  const target = resolveWriteTarget(content, request)
+  if (target.status === 'stale') return { status: 'stale' }
+  const body = answer.trim()
+  if (!body) return { status: 'ok', before: content, after: content }
+  return { status: 'ok', before: content, after: writeEditorAiContent(content, target, mode, body) }
+}
+
+/**
  * Write an answer back into the note the request came from.
  *
  * The write goes through the note store rather than through the editor's view: the reader may have moved
@@ -117,9 +231,12 @@ export function insertBlockAt(content: string, at: number, body: string): string
  * it. The store is what the editor re-renders from, so the change lands in the document — and as one
  * transaction, which is what makes it one press of undo.
  *
+ * The range is resolved again here rather than trusted from the preview: the note can move between the
+ * two, and a change made while the dialog was open is exactly the change this refuses.
+ *
  * Returns whether the note took the text, so the caller can keep the request open when it did not.
  */
-export function applyEditorAiResult(text: string, mode: 'replace' | 'insert'): boolean {
+export function applyEditorAiResult(text: string, mode: EditorAiWriteMode): boolean {
   const request = useEditorAi.getState().request
   if (!request) return false
   const state = useNotes.getState()
@@ -129,17 +246,14 @@ export function applyEditorAiResult(text: string, mode: 'replace' | 'insert'): b
     toast({ title: t('assistant.edit.note_gone'), tone: 'danger' })
     return false
   }
-  if (content.slice(request.from, request.to) !== request.source) {
+  const target = resolveWriteTarget(content, request)
+  if (target.status === 'stale') {
     toast({ title: t('assistant.edit.stale'), tone: 'warning' })
     return false
   }
   const body = text.trim()
   if (!body) return false
-  if (mode === 'replace') {
-    state.editContent(request.noteId, `${content.slice(0, request.from)}${body}${content.slice(request.to)}`)
-    return true
-  }
-  state.editContent(request.noteId, insertBlockAt(content, request.to, body))
+  state.editContent(request.noteId, writeEditorAiContent(content, target, mode, body))
   return true
 }
 
@@ -289,7 +403,14 @@ export function runEditorAi(input: EditorAiInput): boolean {
     toast({ title: t('assistant.edit.busy'), tone: 'warning' })
     return false
   }
-  useEditorAi.getState().begin({ noteId, action, from, to, source: selection })
+  useEditorAi.getState().begin({
+    noteId,
+    action,
+    from,
+    to,
+    source: selection,
+    anchor: editorAiAnchor(whole, from, to),
+  })
   void useAssistant.getState().send(editorAiPrompt(action, source, noteTitle))
   return true
 }
