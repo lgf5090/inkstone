@@ -346,7 +346,12 @@ export class AssistantRunner {
       if (!conversation) throw ApiError.badRequest('There is nothing to continue without a conversation.')
       const last = await this.store.lastMessage(conversation.id)
       if (!last || last.role !== 'assistant') throw ApiError.conflict('There is no answer to continue.')
-      if (last.status === 'error') throw ApiError.conflict('That answer failed; ask it again instead.')
+      // The status is not the question a continuation has to answer. A cut-off reply is filed as an error
+      // because the model ran out of output room, and the unfinished sentence above that notice is exactly
+      // what the reader wants finished; only a row with no words of its own has nothing to go on from. The
+      // reason a turn failed lives in `error` and never in the content, so an empty row is a failure
+      // rather than a fragment, and asking again is the only thing it can be turned into.
+      if (!last.content.trim()) throw ApiError.conflict('That answer has nothing to continue from; ask it again instead.')
       if (last.source === 'import') throw ApiError.conflict('A message restored from a backup cannot be continued.')
       this.continueFrom = last
       reuseId = last.id
@@ -975,7 +980,14 @@ export class AssistantRunner {
     const messages = await this.store.messages(conversationId, CONTEXT_HISTORY_MESSAGES)
     const actions = await this.store.actionStatesForConversation(conversationId)
     const entries: HistoryEntry[] = messages
-      .filter((entry) => entry.role === 'user' || entry.status === 'complete')
+      // A cut-off answer is the model's own unfinished words, and the follow-up that asks about them —
+      // "put the above into a table" — is a question about a text the reader can still see. Leaving the
+      // row out made that follow-up answer a question about nothing. A failed turn that wrote nothing
+      // stays out: what such a turn says about itself is one sentence in `error`, and a model handed its
+      // own failure as its last answer reads it as an answer it had already finished.
+      .filter((entry) => entry.role === 'user'
+        || entry.status === 'complete'
+        || (entry.status === 'error' && entry.content.trim().length > 0))
       .map((entry) => {
         const ids = entry.role === 'user' ? entry.attachments ?? [] : []
         return {

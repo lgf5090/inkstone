@@ -678,8 +678,11 @@ export function AssistantBubble({
               </button>
             )}
             {/* The way back from a cut-off answer: a stopped or truncated reply is finished here rather
-                than asked for again, which would spend the same tokens twice and lose what was written. */}
-            {!error && body && !streaming && !viewing && canContinue && (
+                than asked for again, which would spend the same tokens twice and lose what was written.
+                `canContinue` already admits a truncated row — whose notice lives in `error`, not in
+                `body` — so this one affordance is deliberately not gated on `!error` the way the
+                copy/save actions below are: there is something to carry on from. */}
+            {body && !streaming && !viewing && canContinue && (
               <button
                 type="button"
                 onClick={() => void useAssistant.getState().send('', { continue: true })}

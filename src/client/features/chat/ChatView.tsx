@@ -470,7 +470,7 @@ export function ChatView() {
                   onRetry={message.role === 'assistant' && !streaming
                     ? (message.id === lastAnswer?.id ? retryLast : () => void regenerate(message.id))
                     : undefined}
-                  canContinue={message.role === 'assistant' && !streaming && message.status !== 'error' && message.id === lastAnswer?.id}
+                  canContinue={canContinueAnswer(message, streaming, lastAnswer?.id ?? null)}
                   onStartPicking={startPicking}
                   onShare={shareMessage}
                   selection={selected ? { active: true, checked: selected.has(message.id), onToggle: () => togglePicked(message.id) } : undefined}
@@ -572,6 +572,22 @@ export function ChatView() {
       </Modal>
     </div>
   )
+}
+
+/**
+ * Whether the reader can pick this answer up where it stopped.
+ *
+ * The status alone was the rule, and it hid the control on exactly the answer that needs it: a reply cut
+ * off at the output cap is filed as an error, but the half-sentence above that notice is the thing worth
+ * finishing. So the question is asked of the row's own words instead — an answer with nothing written in
+ * it has nothing to carry on from, whichever flag it carries. The worker applies the same test, and a
+ * reader who somehow asks for the other kind is told so rather than left watching an empty turn.
+ */
+export function canContinueAnswer(message: AssistantMessage, streaming: boolean, lastAnswerId: string | null): boolean {
+  return message.role === 'assistant'
+    && !streaming
+    && message.id === lastAnswerId
+    && (message.status !== 'error' || message.content.trim().length > 0)
 }
 
 /**
