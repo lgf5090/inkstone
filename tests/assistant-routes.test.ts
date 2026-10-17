@@ -1032,7 +1032,9 @@ describe('the vendor’s own model list', () => {
     vi.unstubAllGlobals()
     expect(response.status, 'a dead vendor must not close the picker').toBe(200)
     expect(body.ok).toBe(false)
-    expect(body.error).toContain('Invalid API key')
+    expect(body.error).toContain('401')
+    // The vendor's own words are never relayed: an upstream body can carry the key it was refused for.
+    expect(body.error).not.toContain('Invalid API key')
     expect(body.models).toEqual([])
   })
 

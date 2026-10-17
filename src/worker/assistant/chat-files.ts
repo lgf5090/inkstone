@@ -51,12 +51,6 @@ export function isTextualAttachment(mime: string, filename: string): boolean {
   return TEXTUAL_MIME.test(mime) || TEXTUAL_NAME.test(filename)
 }
 
-/** A fenced block's language tag, taken from the extension the reader used. */
-export function fenceForAttachment(filename: string): string {
-  const extension = filename.includes('.') ? filename.slice(filename.lastIndexOf('.') + 1).toLowerCase() : ''
-  return /^[a-z0-9]{1,8}$/.test(extension) ? extension : ''
-}
-
 /** Base64 without building one enormous string: workerd's `btoa` still needs a binary string per chunk. */
 export function base64FromBytes(bytes: Uint8Array): string {
   const chunk = 8192

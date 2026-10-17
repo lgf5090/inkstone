@@ -27,12 +27,12 @@ export interface VendorListing {
 
 const LIST_TIMEOUT_MS = 20_000
 
-export function vendorModelsEndpoint(protocol: AssistantProtocol, baseUrl: string, apiKey: string): string {
+export function vendorModelsEndpoint(protocol: AssistantProtocol, baseUrl: string): string {
   if (protocol === 'anthropic') return anthropicEndpoint(baseUrl).replace(/\/messages$/, '/models')
   if (protocol === 'gemini') {
     // The same two suffixes `geminiEndpoint` strips, so a base copied from either address works here.
     const base = baseUrl.trim().replace(/\/+$/, '').replace(/\/v1beta$/, '').replace(/\/models$/, '')
-    return `${base}/v1beta/models?key=${encodeURIComponent(apiKey)}`
+    return `${base}/v1beta/models`
   }
   return openAiEndpoint(baseUrl).replace(/\/chat\/completions$/, '/models')
 }
@@ -40,14 +40,16 @@ export function vendorModelsEndpoint(protocol: AssistantProtocol, baseUrl: strin
 export async function listVendorModels(protocol: AssistantProtocol, baseUrl: string, apiKey: string): Promise<VendorListing> {
   let url: URL
   try {
-    url = assertRelayableEndpoint(vendorModelsEndpoint(protocol, baseUrl, apiKey))
+    url = assertRelayableEndpoint(vendorModelsEndpoint(protocol, baseUrl))
   } catch (error) {
     return { ok: false, error: error instanceof Error ? error.message : 'Invalid provider address', models: [] }
   }
+  // The key goes in a header and never in the query: a request line is what an access log, a proxy trace
+  // and a browser history keep word for word, and this is the account's own provider key.
   const headers = protocol === 'anthropic'
     ? pickRelayHeaders({ 'x-api-key': apiKey, 'anthropic-version': '2023-06-01', accept: 'application/json' })
     : protocol === 'gemini'
-      ? {}
+      ? pickRelayHeaders({ 'x-goog-api-key': apiKey, accept: 'application/json' })
       : pickRelayHeaders({ authorization: apiKey ? `Bearer ${apiKey}` : '', accept: 'application/json' })
   let text = ''
   let status = 0
@@ -63,7 +65,9 @@ export async function listVendorModels(protocol: AssistantProtocol, baseUrl: str
       return { ok: false, error: `The provider redirected (HTTP ${response.status}) instead of answering; redirects are refused.`, models: [] }
     }
     text = await response.text()
-    if (!response.ok) return { ok: false, error: `HTTP ${status}: ${shortMessage(text) || response.statusText}`, models: [] }
+    // Only the status is told back: a vendor's error body is its own text, and it has carried keys and
+    // internal addresses before, so it is never handed on to a browser as though it were an explanation.
+    if (!response.ok) return { ok: false, error: `The provider answered HTTP ${status}.`, models: [] }
   } catch (error) {
     return { ok: false, error: error instanceof Error ? error.message : 'The provider could not be reached.', models: [] }
   }
@@ -102,15 +106,4 @@ function vendorModel(protocol: AssistantProtocol, entry: unknown): VendorModel |
 
 function text(value: unknown, max: number): string {
   return typeof value === 'string' ? value.trim().slice(0, max) : ''
-}
-
-/** A vendor's error body is the reader's own diagnostic, so the message is kept and the rest dropped. */
-function shortMessage(body: string): string {
-  try {
-    const parsed = JSON.parse(body) as { error?: { message?: unknown }, message?: unknown }
-    const message = parsed.error?.message ?? parsed.message
-    return typeof message === 'string' ? message.slice(0, 200) : ''
-  } catch {
-    return body.slice(0, 200)
-  }
 }

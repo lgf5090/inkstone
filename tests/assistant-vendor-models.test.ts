@@ -7,6 +7,7 @@
  * request leaves. Recorded frames, not a live service.
  */
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import type { AssistantProtocol } from '../src/shared/assistant'
 import { listVendorModels } from '../src/worker/assistant/vendor-models'
 
 function json(payload: unknown, init: ResponseInit = {}): Response {
@@ -52,12 +53,36 @@ describe('the three vendor listings', () => {
     stub(json({ models: [{ name: 'models/gemini-2.5-flash', displayName: 'Gemini 2.5 Flash' }] }))
     const result = await listVendorModels('gemini', 'https://generativelanguage.googleapis.com', 'g-key')
     expect(result.models[0]).toMatchObject({ id: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash' })
-    expect(captured[0]?.url).toContain('/v1beta/models')
-    expect(captured[0]?.url).toContain('key=g-key')
+    expect(captured[0]?.url).toBe('https://generativelanguage.googleapis.com/v1beta/models')
+    expect(captured[0]?.headers['x-goog-api-key']).toBe('g-key')
   })
 })
 
 describe('what a listing must never do', () => {
+  it('carries the key in a header and never in the address, on all three protocols', async () => {
+    const cases: [AssistantProtocol, string, string][] = [
+      ['gemini', 'https://generativelanguage.googleapis.com', 'x-goog-api-key'],
+      ['openai', 'https://api.example.com', 'authorization'],
+      ['anthropic', 'https://api.anthropic.test', 'x-api-key'],
+    ]
+    for (const [protocol, baseUrl, header] of cases) {
+      stub(json({ data: [] }))
+      await listVendorModels(protocol, baseUrl, 'a-secret-key')
+      // A request line is what an access log or a proxy trace keeps, so the secret has to be in the one
+      // place of a request that is not part of the address.
+      expect(captured[0]?.url).not.toContain('a-secret-key')
+      expect(captured[0]?.headers[header]).toContain('a-secret-key')
+    }
+  })
+
+  it('answers a failure with the status and nothing the vendor wrote', async () => {
+    stub(json({ error: { message: 'Credential sk-upstream-leak is invalid for host db-3.internal' } }, { status: 429 }))
+    const result = await listVendorModels('openai', 'https://api.example.com', 'sk-1')
+    expect(result.ok).toBe(false)
+    expect(result.error).toContain('429')
+    expect(result.error).not.toMatch(/leak|db-3|invalid/i)
+  })
+
   it('refuses an address inside the network before anything is fetched', async () => {
     stub(json({ data: [] }))
     const result = await listVendorModels('openai', 'http://169.254.169.254/latest/meta-data', 'sk-1')

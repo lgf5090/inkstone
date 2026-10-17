@@ -16,7 +16,6 @@ import {
   CHAT_TEXT_INLINE_BYTES,
   CHAT_TOTAL_CHAR_CAP,
   base64FromBytes,
-  fenceForAttachment,
   isTextualAttachment,
   readChatObject,
 } from './chat-files'
@@ -33,6 +32,47 @@ export const ATTACHMENT_MARKER = '[attachment'
 
 /** A picture is sent inline up to this size; past it the base64 body costs more than it answers. */
 export const IMAGE_SEND_MAX_BYTES = 4 * 1024 * 1024
+
+/** The shortest fence an attachment's text is wrapped in; a body with a longer run pushes it up. */
+const FENCE_MIN_TICKS = 3
+
+/**
+ * The two fence lines around one attachment's text.
+ *
+ * The tag is drawn here rather than read off the filename: a marker the reader can spell into a name is a
+ * marker they can put a closing line with, and attachment text that has escaped its block is attachment
+ * text standing where the instructions stand. The run of backticks is then one longer than the longest run
+ * the wrapped body carries, so no line of that body ends the block either, and a body that happened to
+ * contain this draw gets another.
+ */
+function attachmentFence(body: string): { open: string, close: string } {
+  let tag = crypto.randomUUID()
+  while (body.includes(tag)) tag = crypto.randomUUID()
+  const ticks = '`'.repeat(Math.max(FENCE_MIN_TICKS, longestRun(body, '`') + 1))
+  return { open: `${ticks}${tag}`, close: ticks }
+}
+
+/** The longest unbroken run of `char` in `text`, which is the length a fence has to exceed. */
+function longestRun(text: string, char: string): number {
+  let longest = 0
+  let run = 0
+  for (const symbol of text) {
+    run = symbol === char ? run + 1 : 0
+    if (run > longest) longest = run
+  }
+  return longest
+}
+
+/**
+ * Reader-supplied text as it may be written in front of the model: one line, and carrying no fence of its
+ * own.
+ *
+ * A file's name and its type are the reader's text, while this line is model-facing prose, so a newline and
+ * three backticks in either would otherwise open or close a block this function did not write.
+ */
+function modelFacingLabel(text: string): string {
+  return text.replace(/[`\r\n\u2028\u2029]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 160)
+}
 
 export interface AttachmentPayload {
   /** The block appended to the reader's own text for the model. */
@@ -76,7 +116,7 @@ export async function expandChatAttachments(
   let used = 0
   // One place spends the per-turn budget, so a text file and a document the browser read are held to the
   // same ceiling and the same "first N characters" honesty.
-  const pushText = (header: string, text: string, fence: string, source: string): void => {
+  const pushText = (header: string, text: string, source: string): void => {
     const room = Math.max(0, Math.min(CHAT_FILE_CHAR_CAP, CHAT_TOTAL_CHAR_CAP - used))
     if (!room) {
       lines.push(`${header} (this turn's attachment budget is full; contents not read)`)
@@ -85,7 +125,8 @@ export async function expandChatAttachments(
     const taken = text.slice(0, room)
     used += taken.length
     const note = text.length > taken.length ? ` (first ${room} characters)` : ''
-    lines.push(`${header}${note}${source}\n\`\`\`${fence}\n${taken}\n\`\`\``)
+    const fence = attachmentFence(taken)
+    lines.push(`${header}${note}${source}\n${fence.open}\n${taken}\n${fence.close}`)
   }
   for (const id of ids) {
     const row = found.get(id)
@@ -93,7 +134,7 @@ export async function expandChatAttachments(
       lines.push(`${ATTACHMENT_MARKER}: a file that is no longer here]`)
       continue
     }
-    const header = `${ATTACHMENT_MARKER}: ${row.filename}, ${row.mime || 'unknown type'}, ${Math.round(row.size / 1024)} KB]`
+    const header = `${ATTACHMENT_MARKER}: ${modelFacingLabel(row.filename)}, ${modelFacingLabel(row.mime || 'unknown type')}, ${Math.round(row.size / 1024)} KB]`
     if (row.kind === 'image') {
       if (!vision) {
         lines.push(`${header} (the reader can see this picture; this model is not marked as able to)`)
@@ -130,7 +171,7 @@ export async function expandChatAttachments(
       // A PDF's words were read by the browser's own parser at upload time, because the worker cannot
       // pull them out of the bytes; a file that had none is named and nothing more is claimed.
       const text = extracted.get(row.id)
-      if (text) pushText(header, text, '', ' (text read from the file)')
+      if (text) pushText(header, text, ' (text read from the file)')
       else lines.push(`${header} (not text; contents not read)`)
       continue
     }
@@ -143,7 +184,7 @@ export async function expandChatAttachments(
       lines.push(`${header} (larger than ${Math.round(CHAT_TEXT_INLINE_BYTES / 1024)} KB; contents not read)`)
       continue
     }
-    pushText(header, new TextDecoder().decode(bytes), fenceForAttachment(row.filename), '')
+    pushText(header, new TextDecoder().decode(bytes), '')
   }
   return { block: lines.join('\n\n'), images }
 }

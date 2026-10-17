@@ -894,8 +894,9 @@ async function* streamGemini(request: UpstreamRequest): AsyncGenerator<UpstreamE
 }
 
 /**
- * Gemini puts the model in the path and the key in the query, so the address is assembled rather than
- * configured. `alt=sse` is what makes the response a stream of frames instead of one JSON array.
+ * Gemini puts the model in the path and takes the key from a header rather than the query, so the address
+ * is assembled rather than configured. `alt=sse` is what makes the response a stream of frames instead of
+ * one JSON array.
  */
 export function geminiEndpoint(baseUrl: string, model: string): string {
   const base = baseUrl.trim().replace(/\/+$/, '')
