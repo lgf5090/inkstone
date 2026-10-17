@@ -137,6 +137,17 @@ const UPSTREAM_RETRY_ATTEMPTS = 2
  */
 const MAX_FALLBACK_MODELS = 3
 
+/**
+ * How many of one step's tool calls run at the same time.
+ *
+ * The calls a model asks for in one step are usually independent lookups, and running them back-to-back
+ * made the reader pay the sum of their waits for work that never depended on each other. Unbounded is the
+ * other wrong answer: a turn that invented twelve calls would open twelve database reads or remote tool
+ * calls at once, against one shared D1 connection and the reader's own rate limits. Four is where a step
+ * that genuinely fans out is already covered and a runaway list still cannot outrun the queue.
+ */
+const TOOL_CONCURRENCY = 4
+
 const MAX_RELEVANT_MEMORIES = 8
 const ALWAYS_INCLUDE_PREFERENCES = 4
 const VERDICT_RELATIONSHIPS = ['supersedes', 'refines', 'contradicts', 'complements', 'unrelated']
@@ -734,37 +745,7 @@ export class AssistantRunner {
         answer += text
         stepWordsFiled = true
         if (!calls.length) break
-        for (const call of calls) {
-          // What the model asked for travels with the chip, so a thread opened tomorrow can still answer
-          // "what did it search for". It is the same text the model produced, clipped by the shared cap.
-          const activity: ToolActivity = { id: call.id, name: call.name, status: 'running', args: toolPayloadText(call.args) }
-          tools.push(activity)
-          yield { type: 'tool', tool: { ...activity } }
-          try {
-            const result = await executor.execute(call.name, call.args, call.id)
-            call.result = JSON.stringify(result ?? null)
-            call.error = false
-            // The notes this call read are cited beside the answer. Collected here rather than inside the
-            // tool so there is one owner of the list: a failover that discards this attempt's calls takes
-            // its citations with it, because they live in the same map.
-            for (const source of noteCitationsFromTool(call.name, result)) this.collectSource(source)
-            // What came back, kept beside the arguments above. The `result` sent to the model stays the
-            // compact JSON the wire wants; what the reader is shown is the tool's own text where the tool
-            // returned text, because a quoted JSON string is not what the search returned.
-            activity.result = toolPayloadText(result)
-            const approval = executor.approvalFor(call.id)
-            if (approval) activity.approval = (await this.store.getPendingAction(approval.id)) ?? undefined
-          } catch (error) {
-            const reason = error instanceof Error ? error.message : 'The tool failed.'
-            call.result = JSON.stringify({ error: reason })
-            call.error = true
-            call.args = call.args ?? {}
-            activity.error = reason.slice(0, 300)
-          }
-          activity.status = call.error ? 'error' : 'success'
-          activity.detail = detailFor(call.args)
-          yield { type: 'tool', tool: { ...activity } }
-        }
+        yield* this.runCalls(executor, calls, tools, stopped)
         turns.push({ role: 'assistant', content: text, calls })
         text = ''
         stepWordsFiled = false
@@ -985,6 +966,101 @@ export class AssistantRunner {
       }
     }
     throw failure ?? new Error('No model in the fallback chain could answer.')
+  }
+
+  /**
+   * Run one step's calls with a bounded overlap, reporting each as it finishes.
+   *
+   * The transcript is written in the order the model asked for, and that is the order that matters: a
+   * result list that arrived shuffled would be read back on the next step as a different set of calls than
+   * the one the model made. It holds because the slots were made in that order and each task fills its own
+   * — nothing a late tool does can move an earlier one. What lands in completion order is only the chips the
+   * reader watches, which is the order that means something to them: which of the three lookups answered.
+   *
+   * Two things the overlap must not break. A call that fails is that call's own error and takes nothing
+   * else down with it, and every task here resolves whatever happens inside it, because a promise nobody is
+   * left waiting on becomes an unhandled rejection the reader cannot attribute. And a stop in the middle of
+   * a step ends the step: calls not yet started are never started, and ones in the air are not written into
+   * a turn that is being filed as cancelled.
+   *
+   * The budgets and the duplicate-call refusal survive the batching for one specific reason, worth keeping
+   * true if this is ever edited: `ToolExecutor.execute` checks and records a call synchronously, before its
+   * first `await`, and the calls are handed out in order. So a repeated signature or a spent call budget is
+   * refused on exactly the call it was refused on when the step ran one at a time.
+   */
+  private async *runCalls(
+    executor: ToolExecutor,
+    calls: ToolCallRecord[],
+    tools: ToolActivity[],
+    stopped: () => boolean,
+  ): AsyncGenerator<ChatStreamEvent> {
+    const activities = calls.map((call): ToolActivity => ({
+      // What the model asked for travels with the chip, so a thread opened tomorrow can still answer
+      // "what did it search for". It is the same text the model produced, clipped by the shared cap.
+      id: call.id,
+      name: call.name,
+      status: 'running',
+      args: toolPayloadText(call.args),
+    }))
+    tools.push(...activities)
+    for (const activity of activities) yield { type: 'tool', tool: { ...activity } }
+
+    let next = 0
+    let abandoned = false
+    const running = new Map<number, Promise<number>>()
+
+    const runOne = async (index: number): Promise<void> => {
+      const call = calls[index]!
+      const activity = activities[index]!
+      try {
+        const result = await executor.execute(call.name, call.args, call.id)
+        // The reader went away while this was in the air. The tool's effect may already be real — nothing
+        // here can cancel a call mid-flight — but its answer does not go into a turn that is closing.
+        if (abandoned) return
+        call.result = JSON.stringify(result ?? null)
+        call.error = false
+        // The notes this call read are cited beside the answer. Collected here rather than inside the
+        // tool so there is one owner of the list: a failover that discards this attempt's calls takes
+        // its citations with it, because they live in the same map.
+        for (const source of noteCitationsFromTool(call.name, result)) this.collectSource(source)
+        // What came back, kept beside the arguments above. The `result` sent to the model stays the
+        // compact JSON the wire wants; what the reader is shown is the tool's own text where the tool
+        // returned text, because a quoted JSON string is not what the search returned.
+        activity.result = toolPayloadText(result)
+        const approval = executor.approvalFor(call.id)
+        if (approval) activity.approval = (await this.store.getPendingAction(approval.id)) ?? undefined
+      } catch (error) {
+        if (abandoned) return
+        const reason = error instanceof Error ? error.message : 'The tool failed.'
+        call.result = JSON.stringify({ error: reason })
+        call.error = true
+        call.args = call.args ?? {}
+        activity.error = reason.slice(0, 300)
+      }
+      activity.status = call.error ? 'error' : 'success'
+      activity.detail = detailFor(call.args)
+    }
+
+    // A task runs straight from taking its slot to its first `await`, so handing the pool the calls in the
+    // model's own order is what keeps the executor's own checks in that order too.
+    const dispatch = () => {
+      while (!abandoned && running.size < TOOL_CONCURRENCY && next < calls.length) {
+        const index = next++
+        running.set(index, runOne(index).then(() => index))
+      }
+    }
+    dispatch()
+    while (running.size > 0) {
+      const finished = await Promise.race(running.values())
+      running.delete(finished)
+      dispatch()
+      if (stopped()) abandoned = true
+      if (abandoned) continue
+      yield { type: 'tool', tool: { ...activities[finished]! } }
+    }
+    // The loop above only empties once everything that was started has settled, so nothing is left running
+    // behind this; what was never started is dropped rather than run into a conversation nobody reads.
+    if (abandoned) throw new AbortError()
   }
 
   /**
@@ -1497,6 +1573,12 @@ export class AssistantRunner {
         tools: [],
         maxOutputTokens: 600,
         temperature: 0,
+        // The judgement is read as an object, so the wire is asked for one. It is an ask and not a
+        // guarantee — plenty of relays drop the field, and Anthropic has none — which is why `parseVerdict`
+        // below still takes the object out of prose rather than trusting the answer to be bare JSON.
+        // The prompt is also the half that makes the ask safe: a server that honours `json_object` refuses
+        // one whose messages never mention JSON, and both language catalogs say "Reply with JSON only".
+        structured: true,
         reasoning: 'off',
         reasoningDialect: call.reasoningDialect,
         retry: this.retryFor(resolved.provider),
@@ -1755,7 +1837,16 @@ function fitToBudget(entries: HistoryEntry[], maxTokens: number): { kept: Histor
   return { kept, dropped: entries.slice(0, Math.max(0, entries.length - kept.length)) }
 }
 
-function parseVerdict(text: string): { relationship: string, confidence: number, reason: string } | null {
+/**
+ * The judgement object, taken out of whatever the model answered with.
+ *
+ * The request asks the wire for JSON (see `structured`), and a provider that honours it answers with a bare
+ * object the brace below finds on its first character. A relay that ignored the field answers with prose
+ * around it, which is what the same brace is for: the channel moves the odds and does not carry a promise,
+ * since nothing sent from here can make a vendor obey it. So the read stays exactly as wide as it was
+ * before the field existed, and a turn is no different when the field is ignored.
+ */
+export function parseVerdict(text: string): { relationship: string, confidence: number, reason: string } | null {
   const match = text.match(/\{[\s\S]*\}/)
   if (!match) return null
   try {

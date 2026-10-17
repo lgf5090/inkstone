@@ -7,8 +7,9 @@
  * other test can see. The failure looks like a tool that was called with `{}`.
  */
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import type { AssistantProtocol } from '../src/shared/assistant'
+import { estimateTokens, type AssistantProtocol } from '../src/shared/assistant'
 import { reasoningDialect, reasoningRungs } from '../src/shared/reasoning'
+import { parseVerdict } from '../src/worker/assistant/runner'
 import {
   UpstreamError,
   readSse,
@@ -631,6 +632,137 @@ describe('the web-search switch on the wire', () => {
     const sent = await sentBody('openai', { webSearch: true, tools: [searchNotes] })
     expect(JSON.stringify(sent)).not.toContain('web_search')
     expect((sent.tools as { function?: { name: string } }[]).map((entry) => entry.function?.name)).toEqual(['search_notes'])
+  })
+})
+
+/**
+ * The head an Anthropic request is asked to keep.
+ *
+ * Every step of a turn sends the same instructions and the same tool schemas, and on a multi-step turn
+ * that head is most of what is paid for twice. Marking it is two breakpoints — the system block and the
+ * last tool — because in the vendor's own render order those two end one prefix. The conversation is
+ * never marked: it changes with every turn, and a breakpoint no later request reaches buys the write cost
+ * and nothing else. Which is also why a head shorter than the vendor's floor is left unmarked.
+ */
+describe('the cached head of an Anthropic request', () => {
+  /** The floor the vendor publishes for Sonnet and Opus; a prefix under it is never kept. */
+  const VENDOR_MIN_TOKENS = 1_024
+
+  /**
+   * A system prompt of at least `tokens`, grown with the same estimator the request is measured by.
+   *
+   * Counted rather than written out, because a fixture that only looks long is a test that goes quiet the
+   * day the counting changes.
+   */
+  const systemOf = (tokens: number): string => {
+    let text = 'Prefer the shorter answer. '
+    while (estimateTokens(text) < tokens) text += 'Prefer the shorter answer. '
+    return text
+  }
+  const schemas = [
+    { name: 'create_task', description: 'd', parameters: { type: 'object', properties: {} } },
+    { name: 'list_tasks', description: 'd', parameters: { type: 'object', properties: {} } },
+  ]
+
+  it('marks the system block and only the last tool once the head is long enough', async () => {
+    const long = systemOf(VENDOR_MIN_TOKENS + 500)
+    const sent = await sentBody('anthropic', { system: long, tools: schemas })
+    const blocks = sent.system as { type: string, text: string, cache_control?: { type: string } }[]
+    // A bare string has nowhere to put a breakpoint, so the marked form is a block list — with the whole
+    // prompt still in it, not a summary of it.
+    expect(Array.isArray(sent.system)).toBe(true)
+    expect(blocks).toHaveLength(1)
+    expect(blocks[0]!.text).toBe(long)
+    expect(blocks[0]!.cache_control).toEqual({ type: 'ephemeral' })
+    const tools = sent.tools as Record<string, unknown>[]
+    expect(tools).toHaveLength(2)
+    expect(tools[1]!.cache_control).toEqual({ type: 'ephemeral' })
+    expect(tools[0]!.cache_control).toBeUndefined()
+    // The transcript carries no breakpoint, and the request still asks for exactly one cache write.
+    expect(JSON.stringify(sent.messages)).not.toContain('cache_control')
+    expect(JSON.stringify(sent).match(/cache_control/g)).toHaveLength(2)
+  })
+
+  it('sends the plain string system and no breakpoint under the vendor’s floor', async () => {
+    const short = systemOf(300)
+    expect(estimateTokens(short)).toBeLessThan(VENDOR_MIN_TOKENS)
+    const sent = await sentBody('anthropic', { system: short, tools: schemas })
+    expect(sent.system).toBe(short)
+    expect(JSON.stringify(sent)).not.toContain('cache_control')
+    // The tools still travel: what the gate refuses is the breakpoint, not the schemas it would mark.
+    expect((sent.tools as { name: string }[]).map((tool) => tool.name)).toEqual(['create_task', 'list_tasks'])
+  })
+
+  it('marks the search tool when it is the last entry, and a lone system when there are no tools', async () => {
+    const long = systemOf(VENDOR_MIN_TOKENS + 500)
+    const searched = await sentBody('anthropic', { system: long, tools: [schemas[0]!], webSearch: true })
+    const tools = searched.tools as Record<string, unknown>[]
+    expect(tools.at(-1)!.type).toBe('web_search_20250305')
+    expect(tools.at(-1)!.cache_control).toEqual({ type: 'ephemeral' })
+    const noTools = await sentBody('anthropic', { system: long, tools: [] })
+    expect(noTools.tools).toBeUndefined()
+    expect((noTools.system as { cache_control?: unknown }[])[0]!.cache_control).toEqual({ type: 'ephemeral' })
+  })
+
+  it('leaves an empty system as a string, which the vendor refuses as a block', async () => {
+    const sent = await sentBody('anthropic', { system: '', tools: [{ ...schemas[0]!, description: systemOf(VENDOR_MIN_TOKENS) }] })
+    expect(sent.system).toBe('')
+    expect((sent.tools as Record<string, unknown>[])[0]!.cache_control).toEqual({ type: 'ephemeral' })
+  })
+})
+
+/**
+ * Asking for JSON instead of prose.
+ *
+ * Two of the three wires have a field that means it and one does not, and a relay is free to ignore the
+ * field it has — so this is an ask that improves the odds, never a guarantee the answer is readable. The
+ * reader of the answer therefore still has to cope with prose, and the last case here is the one that
+ * keeps that true.
+ */
+describe('the structured-output channel', () => {
+  it('asks the OpenAI-compatible wire for a JSON object', async () => {
+    const sent = await sentBody('openai', { structured: true })
+    expect(sent.response_format).toEqual({ type: 'json_object' })
+  })
+
+  it('asks Gemini for a JSON response type without dropping the thinking config', async () => {
+    const sent = await sentBody('gemini', { structured: true, reasoning: 'low', model: 'gemini-2.5-flash' })
+    const config = sent.generationConfig as Record<string, unknown>
+    expect(config.responseMimeType).toBe('application/json')
+    expect(config.maxOutputTokens).toBe(512)
+    expect(config.thinkingConfig).toEqual({ thinkingBudget: 1024, includeThoughts: true })
+  })
+
+  it('sends nothing to Anthropic, whose wire has no field for it', async () => {
+    // The documented route to a constrained shape on this protocol is a tool definition, not a response
+    // format — so an invented key here would be a refusal waiting for a reader whose relay is strict.
+    const sent = await sentBody('anthropic', { structured: true })
+    expect(sent.response_format).toBeUndefined()
+    expect(sent.responseMimeType).toBeUndefined()
+    expect(Object.keys(sent).sort()).toEqual(
+      ['max_tokens', 'messages', 'model', 'stream', 'system', 'temperature', 'tools'].sort(),
+    )
+  })
+
+  it('sends no field on a request that did not ask', async () => {
+    expect((await sentBody('openai')).response_format).toBeUndefined()
+    expect((await sentBody('gemini')).response_format).toBeUndefined()
+    const gemini = await sentBody('gemini')
+    expect((gemini.generationConfig as Record<string, unknown>).responseMimeType).toBeUndefined()
+  })
+
+  it('reads the verdict whether or not the provider obeyed', () => {
+    // Obeyed: a bare object, which is what a server that honours `response_format` answers with.
+    expect(parseVerdict('{"relationship":"supersedes","confidence":0.9,"reason":"newer wins"}'))
+      .toEqual({ relationship: 'supersedes', confidence: 0.9, reason: 'newer wins' })
+    // Ignored: the same object inside a sentence, which is what every provider answered with before the
+    // field existed, and what a relay that drops unknown fields still answers with. Nothing about the
+    // reader's turn changes between the two.
+    expect(parseVerdict('My read:\n```json\n{"relationship":"unrelated","confidence":0.4,"reason":"two topics"}\n```\nLet me know if you want more.'))
+      .toEqual({ relationship: 'unrelated', confidence: 0.4, reason: 'two topics' })
+    // And an answer that is neither is still no opinion rather than a invented one.
+    expect(parseVerdict('I could not tell from these two.')).toBeNull()
+    expect(parseVerdict('{"relationship":"nonsense","confidence":1,"reason":""}')).toBeNull()
   })
 })
 

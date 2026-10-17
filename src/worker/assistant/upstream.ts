@@ -15,10 +15,16 @@
  * caller says a second attempt is worth making, and `rotateKey` is what makes one worth anything on an
  * account that holds several: the retry is attempted only while nothing has been streamed yet, because
  * words the reader has already watched arrive cannot be unsaid by sending the request again.
+ *
+ * What is *sent* is decided here too, because it is a fact about the wire and not about the turn. Two of
+ * those decisions are about money: the head of an Anthropic request — instructions and tool schemas — is
+ * the one part of a multi-step turn that never changes, so it is marked as cacheable when it is long
+ * enough for the vendor to keep it; and `structured` asks for JSON where a protocol has a field for the
+ * request, which is only a request, so a caller reading an answer back still has to cope with prose.
  */
 
 import { assertRelayableEndpoint, pickRelayHeaders } from '@shared/ai-proxy-guard'
-import { isSourceUrl, type AssistantProtocol, type AssistantReasoning, type ReasoningDialect } from '@shared/assistant'
+import { estimateTokens, isSourceUrl, type AssistantProtocol, type AssistantReasoning, type ReasoningDialect } from '@shared/assistant'
 import { anthropicReasoning, geminiThinkingConfig, openAiReasoningFields, reasoningDialect } from '@shared/reasoning'
 import { NO_REDIRECT, isRedirectResponse } from '../lib/no-redirect'
 
@@ -193,6 +199,14 @@ export interface UpstreamRequest {
    * the runner does something else rather than sending a field that would be ignored.
    */
   webSearch?: boolean
+  /**
+   * Ask for the answer as one JSON object rather than as prose.
+   *
+   * This is a request, not a guarantee: two of the three wires have a field for it, and a relay is free to
+   * ignore the one it has. So the caller still has to read JSON out of text — this only makes the answer
+   * likely to *be* JSON, which is what turns a parser that guesses into a parser that rarely has to.
+   */
+  structured?: boolean
   /** Absent means one attempt: the caller is the one that knows whether repeating a failure is useful. */
   retry?: UpstreamRetry
   signal: AbortSignal
@@ -602,6 +616,9 @@ function openAiBody(request: UpstreamRequest): Record<string, unknown> {
     ...(request.temperature === null ? {} : { temperature: request.temperature }),
     ...(request.topP == null ? {} : { top_p: request.topP }),
     max_tokens: request.maxOutputTokens,
+    // The JSON mode every OpenAI-compatible server is expected to read, rather than the schema-carrying
+    // form only the newest ones do: a field a relay refuses is worse than one it ignores.
+    ...(request.structured ? { response_format: { type: 'json_object' } } : {}),
     ...openAiReasoningFields(dialectOf('openai', request), request.reasoning),
     ...request.extraBody,
     ...(request.tools.length
@@ -713,6 +730,37 @@ function parseArgs(raw: string): unknown {
 
 // ---------------------------------------------------------------- Anthropic
 
+/**
+ * The shortest prefix Anthropic keeps at all.
+ *
+ * A breakpoint is bought, not free: the vendor charges a write premium on the prefix it marks and only
+ * answers cheaply on the turns that find it. Below its own floor nothing is ever found, so the honest
+ * request is the one that asks for nothing. This is the floor published for the Sonnet and Opus models;
+ * Haiku's is higher, and a prefix between the two is written and then not kept — one wasted premium on
+ * the shortest requests, which is why the gate is not tuned per model.
+ */
+const ANTHROPIC_MIN_CACHE_PREFIX_TOKENS = 1_024
+
+/** The ephemeral breakpoint Anthropic's docs name, with no ttl: the default lifetime is the one wanted. */
+type AnthropicCacheControl = { type: 'ephemeral' }
+
+/**
+ * Where an Anthropic request is worth putting a breakpoint, or null when it is not.
+ *
+ * Measured on the system prompt and the tool schemas together, because in the vendor's own render order
+ * that pair *is* the head of the prompt — and it is the head that repeats: every step of a turn sends the
+ * same instructions and the same schemas, and a turn that calls three tools sends them four times over.
+ * The conversation is deliberately not marked: it changes with every turn, and a breakpoint that no later
+ * request reaches is only the write cost.
+ */
+function anthropicCacheBreakpoint(
+  system: string,
+  tools: readonly Record<string, unknown>[],
+): AnthropicCacheControl | null {
+  const prefix = estimateTokens(system) + estimateTokens(JSON.stringify(tools))
+  return prefix >= ANTHROPIC_MIN_CACHE_PREFIX_TOKENS ? { type: 'ephemeral' } : null
+}
+
 async function* streamAnthropic(request: UpstreamRequest): AsyncGenerator<UpstreamEvent> {
   const url = vettedUrl(anthropicEndpoint(request.baseUrl))
   const blocks: Record<string, unknown>[] = []
@@ -749,6 +797,25 @@ async function* streamAnthropic(request: UpstreamRequest): AsyncGenerator<Upstre
     if (results.length) blocks.push({ role: 'user', content: results })
   }
   const thinking = anthropicReasoning(dialectOf('anthropic', request), request.reasoning, request.maxOutputTokens)
+  const tools: Record<string, unknown>[] = [
+    ...request.tools.map((tool) => ({
+      name: tool.name,
+      description: tool.description,
+      input_schema: tool.parameters,
+    })),
+    // The vendor's own search tool. Asking for it by its dated type is what makes the
+    // composer's switch real on this protocol instead of a field that gets ignored.
+    ...(request.webSearch ? [{ type: 'web_search_20250305', name: 'web_search', max_uses: 5 }] : []),
+  ]
+  // Two breakpoints on the one part of the request that never changes: the last schema entry ends the
+  // tools block, and the system blocks follow it, so between them they cover the whole cached head.
+  const cache = anthropicCacheBreakpoint(request.system, tools)
+  if (cache && tools.length) tools[tools.length - 1] = { ...tools[tools.length - 1]!, cache_control: cache }
+  // A breakpoint only exists on a block, so a cacheable request sends its instructions as a block list;
+  // one empty text block is refused by the vendor, so an empty system stays the string it already is.
+  const system = cache && request.system.trim()
+    ? [{ type: 'text', text: request.system, cache_control: cache }]
+    : request.system
   const response = await postStream({
     url: url.toString(),
     init: {
@@ -756,7 +823,7 @@ async function* streamAnthropic(request: UpstreamRequest): AsyncGenerator<Upstre
       headers: anthropicHeaders(request.apiKey),
       body: JSON.stringify({
         model: request.model,
-        system: request.system,
+        system,
         messages: blocks,
         max_tokens: request.maxOutputTokens,
         // Whether the reader's sampling settings may travel at all is the model's own rule, not this
@@ -765,21 +832,11 @@ async function* streamAnthropic(request: UpstreamRequest): AsyncGenerator<Upstre
         ...(thinking.sampling && request.topP != null ? { top_p: request.topP } : {}),
         ...thinking.fields,
         stream: true,
+        // `request.structured` sends nothing here, and that is the answer rather than a guess: this wire
+        // has no JSON-mode field to set — the vendor's documented route to a constrained shape is a tool
+        // definition, and inventing a `response_format` key here would be a 400 waiting for a reader.
         ...request.extraBody,
-        ...(request.tools.length || request.webSearch
-          ? {
-              tools: [
-                ...request.tools.map((tool) => ({
-                  name: tool.name,
-                  description: tool.description,
-                  input_schema: tool.parameters,
-                })),
-                // The vendor's own search tool. Asking for it by its dated type is what makes the
-                // composer's switch real on this protocol instead of a field that gets ignored.
-                ...(request.webSearch ? [{ type: 'web_search_20250305', name: 'web_search', max_uses: 5 }] : []),
-              ],
-            }
-          : {}),
+        ...(tools.length ? { tools } : {}),
       }),
       redirect: NO_REDIRECT,
     },
@@ -898,6 +955,7 @@ async function* streamGemini(request: UpstreamRequest): AsyncGenerator<UpstreamE
           ...(request.temperature === null ? {} : { temperature: request.temperature }),
           ...(request.topP == null ? {} : { topP: request.topP }),
           maxOutputTokens: request.maxOutputTokens,
+          ...(request.structured ? { responseMimeType: 'application/json' } : {}),
           ...geminiThinkingConfig(dialectOf('gemini', request), request.reasoning, request.model),
         },
         // One `tools` array: Google's grounding entry is a sibling of the function declarations, and a
