@@ -41,15 +41,13 @@ import { t, type MessageKey } from '../../lib/i18n'
 import { formatInZone } from './time-format'
 import { full as fullTokenCount } from './usage-format'
 import { copyText } from '../../lib/clipboard'
-import { navigateToPath } from '../../lib/app-history'
-import { useNotes } from '../../store/notes'
 import { useLocale } from '../../lib/i18n'
 import { Button } from '../../components/primitives'
 import { MarkdownBody } from '../preview/MarkdownBody'
 import { useAssistant } from './assistant-store'
 import { useUi } from '../../store/ui'
 import { MessageAttachments } from './ChatAttachments'
-import { CHAT_NOTE_LINKS } from './note-links'
+import { CHAT_NOTE_LINKS, openCitedNote } from './note-links'
 import { MessageMenu, useMessageMenu } from './MessageMenu'
 import { SelectionTick, type MessageSelection } from './SelectionBar'
 import { noteMentionLinks, noteRefsFromToolResult } from './note-refs'
@@ -990,10 +988,7 @@ function NoteCitation({ index, source, noteId }: { index: number, source: Assist
     <button
       type="button"
       title={source.cited ?? source.title}
-      onClick={() => {
-        navigateToPath('/notes')
-        void useNotes.getState().openNote(noteId)
-      }}
+      onClick={() => openCitedNote(noteId)}
       className="inline-flex max-w-[280px] items-center gap-1 rounded-[var(--r-sm)] border border-[var(--border-subtle)] bg-[var(--bg-surface)] px-1.5 py-0.5 text-[length:var(--text-11)] text-[var(--text-tertiary)] transition-colors duration-[var(--dur-fast)] hover:border-[var(--accent)] hover:text-[var(--accent)]"
     >
       <span className="shrink-0 tabular text-[var(--text-quaternary)]">{index + 1}</span>

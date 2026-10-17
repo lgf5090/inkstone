@@ -81,10 +81,13 @@ describe('the citations beside an answer', () => {
 
   it('opens the note when the card is pressed', () => {
     const openNote = vi.fn(async () => undefined)
-    useNotes.setState({ openNote })
+    // The citation is followed only for a note the vault still has, so the fixture has to carry the row
+    // the guard reads — a bare `openNote` mock would answer "that note is gone" and never reach it.
+    useNotes.setState({ openNote, notes: { [NOTE.id!]: { id: NOTE.id, title: NOTE.title, deletedAt: null } as never } })
     const view = render([NOTE])
     act(() => { (view.querySelector('button[title="the part about hiring"]') as HTMLButtonElement).click() })
-    expect(openNote).toHaveBeenCalledWith(NOTE.id)
+    // A single-pane layout has nowhere else to put it, so the note takes the reader there.
+    expect(openNote).toHaveBeenCalledWith(NOTE.id, { pane: 'primary', activate: true })
   })
 
   it('leaves a web page a link in a new tab', () => {

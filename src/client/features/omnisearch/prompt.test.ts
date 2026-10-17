@@ -27,6 +27,13 @@ vi.mock('./reveal', () => ({
   insertAtActiveCursor: vi.fn(() => true),
 }))
 
+// These cases are about the note index. The thread half of the answer is its own module, its own request
+// and its own rows, and it is proved in `conversation-results.test.ts`.
+vi.mock('./conversation-results', () => ({
+  CONVERSATION_RESULT_LIMIT: 8,
+  useConversationSearch: () => ({ items: [], loading: false, error: null, retry: () => undefined }),
+}))
+
 vi.mock('../../store/notes', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../store/notes')>()),
   createContextualNote: vi.fn(async () => 'new-note'),

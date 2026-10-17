@@ -4,6 +4,7 @@ import { hotkeyText, listHotkeys, prettyCombo } from '../../lib/hotkeys';
 import { NOTE_LIST_SHORTCUTS } from '../../lib/shortcuts';
 import { t } from "../../lib/i18n";
 import { EDITOR_SHORTCUTS } from "../../editor/shortcuts";
+import { CHAT_SHORTCUT_PANEL } from "../chat/chat-shortcuts";
 
 const INPUT_HINTS: {
     keys: string[];
@@ -45,6 +46,9 @@ export function ShortcutsPanel({ onClose }: {
             { combo: 'enter', description: t('command.confirm_choice') },
             { combo: 'escape', description: t('command.close_overlay') },
         ]);
+        // The chat's keys, printed from the one table its handlers match against. Copied by hand it would
+        // be a list of what someone once believed the app answers to.
+        map.set(t('assistant.view.chat'), CHAT_SHORTCUT_PANEL.map((entry) => ({ combo: entry.combo, description: entry.description() })));
         return [...map.entries()];
     })();
     return (<Modal open onClose={onClose} title={t("command.keyboard_shortcuts_021cf9")} description={t("command.shortcut_scope_hint", { shortcut: prettyCombo(NOTE_LIST_SHORTCUTS.delete).join(' + ') })} width={720}>

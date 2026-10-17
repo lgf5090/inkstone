@@ -376,6 +376,7 @@ interface AssistantState {
   starConversation: (id: string, starred: boolean) => Promise<void>
   moveConversation: (id: string, folderId: string | null) => Promise<void>
   setConversationProject: (id: string, projectId: string | null) => Promise<void>
+  setConversationNote: (id: string, noteId: string | null) => Promise<void>
   toggleConversationTag: (id: string, tagId: string, on: boolean) => Promise<void>
   /**
    * File a conversation under a tag `createTag` has only just asked the server for.
@@ -1521,6 +1522,15 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
   setConversationProject: async (id, projectId) => {
     try {
       await api.assistant.setConversationProject(id, projectId)
+      await get().loadConversations()
+    } catch (error) {
+      toast(error)
+    }
+  },
+
+  setConversationNote: async (id, noteId) => {
+    try {
+      await api.assistant.setConversationNote(id, noteId)
       await get().loadConversations()
     } catch (error) {
       toast(error)

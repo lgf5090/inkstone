@@ -4465,17 +4465,32 @@ describe('paged lists and threads', () => {
       `INSERT INTO notes (id, user_id, title, title_key, content, excerpt, created_at, updated_at)
        VALUES (?, ?, 'Origins', 'origins', '', '', 1, 1)`,
     ).run(noteId(2), USER)
+    // A second real page, so "name another note" is refused for being write-once rather than for
+    // pointing at something that never existed — the two failures the reader would not distinguish.
+    sqlite.prepare(
+      `INSERT INTO notes (id, user_id, title, title_key, content, excerpt, created_at, updated_at)
+       VALUES (?, ?, 'Relabel', 'relabel', '', '', 1, 1)`,
+    ).run(noteId(1), USER)
     const created = await call<{ conversation: AssistantConversation }>('POST', '/api/assistant/conversations', { title: 'From a note' })
     const patched = await call<{ conversation: AssistantConversation }>(
       'PATCH', `/api/assistant/conversations/${created.conversation.id}`, { noteId: noteId(2) },
     )
     expect(patched.conversation.noteId).toBe(noteId(2))
-    // The first answer stands: a later turn read beside another note does not relabel the thread.
+    // The first answer stands: naming a different note later does not relabel the thread. This is the
+    // write-once rule, and it lives in the store's `AND note_id IS NULL`, not in this route.
+    await call('PATCH', `/api/assistant/conversations/${created.conversation.id}`, { noteId: noteId(1) })
+    const still = await call<{ conversation: AssistantConversation }>('GET', `/api/assistant/conversations/${created.conversation.id}`)
+    expect(still.conversation.noteId).toBe(noteId(2))
+    // Clearing is a different act from relabelling, and the reader can ask for it: the chip beside the
+    // thread's title offers exactly that. A named note that no longer answers must not leave the thread
+    // claiming a label nobody can point at.
     await call('PATCH', `/api/assistant/conversations/${created.conversation.id}`, { noteId: null })
     const reread = await call<{ conversation: AssistantConversation }>('GET', `/api/assistant/conversations/${created.conversation.id}`)
-    expect(reread.conversation.noteId).toBe(noteId(2))
-    // A note this account does not own cannot be named.
+    expect(reread.conversation.noteId).toBeNull()
+    // A note this account does not own cannot be named, and a malformed id is refused rather than
+    // silently answering "done" having changed nothing.
     expect(await status('PATCH', `/api/assistant/conversations/${created.conversation.id}`, { noteId: noteId(3) })).toBe(400)
+    expect(await status('PATCH', `/api/assistant/conversations/${created.conversation.id}`, { noteId: 'not-an-id' })).toBe(400)
   })
 
   it('keeps the scope a turn was asked under, so a thread read later still says what it could see', async () => {

@@ -822,8 +822,8 @@ export const api = {
     /** A note the browser wrote from a reply: the worker cannot see that save, so the client reports it. */
     recordNoteWrite: (noteId: string, conversationId: string) =>
       request<{ ok: true }>('/api/assistant/note-writes', { method: 'POST', body: { noteId, conversationId } }),
-    conversations: (params: { q?: string, folder?: string, project?: string, tag?: string, starred?: string, pinned?: string, archived?: string, limit?: string, cursor?: string } = {}) =>
-      request<{ conversations: AssistantConversation[], nextCursor: string | null }>(`/api/assistant/conversations${toQuery(params)}`),
+    conversations: (params: { q?: string, folder?: string, project?: string, tag?: string, noteId?: string, starred?: string, pinned?: string, archived?: string, limit?: string, cursor?: string } = {}, signal?: AbortSignal) =>
+      request<{ conversations: AssistantConversation[], nextCursor: string | null }>(`/api/assistant/conversations${toQuery(params)}`, { signal }),
     createConversation: (title?: string, folderId?: string | null) =>
       request<{ conversation: AssistantConversation }>('/api/assistant/conversations', {
         method: 'POST',
@@ -832,6 +832,15 @@ export const api = {
     /** A folder from the notebook's tree; null files the conversation back to unfiled. */
     setConversationProject: (id: string, projectId: string | null) =>
       request<{ conversation: AssistantConversation }>(`/api/assistant/conversations/${id}`, { method: 'PATCH', body: { projectId } }),
+    /**
+     * Which note this thread was started from.
+     *
+     * An id is the label the chat's origin chip carries, and the worker keeps the first answer, so naming a
+     * second note cannot move it under the reader. Null is the reader taking the label off — the one write
+     * that is allowed to overwrite it, because a thread mislabelled at creation is otherwise stuck there.
+     */
+    setConversationNote: (id: string, noteId: string | null) =>
+      request<{ conversation: AssistantConversation }>(`/api/assistant/conversations/${id}`, { method: 'PATCH', body: { noteId } }),
     moveConversation: (id: string, folderId: string | null) =>
       request<{ conversation: AssistantConversation }>(`/api/assistant/conversations/${id}`, { method: 'PATCH', body: { folderId } }),
     /** Put a conversation away or take it back out. Not a delete: the thread stays whole and searchable. */

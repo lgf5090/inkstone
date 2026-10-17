@@ -8,7 +8,7 @@
  */
 import type { ComponentType } from 'react'
 import {
-  Archive, Clipboard, Columns2, Download, Eye, EyeOff, FolderPlus, ImagePlus, IndentDecrease, IndentIncrease, Keyboard, LayoutTemplate, Link2, ListTree, MoveDown, MoveUp, Palette, Pencil, Pin, Plus, Presentation, ScanSearch, Settings, Share2, Smile, SquarePen, Sparkles, Star, Sun, Moon, Tags, Telescope, Trash2, WandSparkles, Waypoints, ChevronsDownUp, ChevronsUpDown, Search, Zap, Activity, Compass, ListChecks, Rss, BookMarked, Brain, FolderKanban, MessageSquare,
+  Archive, Clipboard, Columns2, Download, Eye, EyeOff, FolderPlus, Globe, ImagePlus, IndentDecrease, IndentIncrease, Keyboard, LayoutTemplate, Link2, ListTree, MoveDown, MoveUp, Palette, Pencil, Pin, Plus, Presentation, ScanSearch, Settings, Share2, Smile, Square, SquarePen, Sparkles, Star, Sun, Moon, Tags, Telescope, Trash2, WandSparkles, Waypoints, ChevronsDownUp, ChevronsUpDown, Search, Zap, Activity, Compass, ListChecks, Rss, BookMarked, Brain, FolderKanban, MessageSquare,
 } from 'lucide-react'
 import type { MessageKey } from '@shared/locales/en-US'
 import { api } from '../../lib/api'
@@ -34,6 +34,8 @@ import { useQuickAdd } from '../../store/quickadd'
 import { navigateToPath } from '../../lib/app-history'
 import { appTab } from '../shell/app-tabs'
 import { useAssistant, type AssistantView } from '../chat/assistant-store'
+import { CHAT_SHORTCUTS } from '../chat/chat-shortcuts'
+import { requestChatIntent } from '../chat/chat-intents'
 import { startChatAboutFolder, startChatAboutNote } from '../chat/start-chat'
 import { summarizeFolder } from '../chat/folder-summary'
 import { suggestNoteMeta } from '../chat/note-suggestions'
@@ -628,6 +630,7 @@ export function appCommands(): AppCommand[] {
             })
         : []),
         ...assistantCommands(),
+        ...chatCommands(),
     ]
 }
 
@@ -776,6 +779,107 @@ function assistantCommands(): AppCommand[] {
         // Read once the container is up: the panel shows what the server last said, and a reader who
         // opened the palette to change a model should not be looking at a stale list.
         void useAssistant.getState().loadSettings()
+      },
+    },
+  ]
+}
+
+/**
+ * The chat's own actions, in the one registry everything else uses.
+ *
+ * The thread header and the composer row already do all of this by pressing, and the chords that answer
+ * them live in `chat-shortcuts`; what was missing was a name for the action, so a reader who never learned
+ * the key had no way to find out the app can do it. Nothing here is a second implementation — the switch
+ * writes the same stored flag the chip writes, and the three things that belong to a mounted view are left
+ * as an ask for it to take (`chat-intents`). A new conversation and the assistant's settings are already
+ * registered above as `assistant-new` and `assistant-settings`, and are not written twice.
+ */
+function chatCommands(): AppCommand[] {
+  const warn = (title: string) => useUi.getState().toast({ title, tone: 'warning' })
+  const openChat = () => {
+    navigateToPath(appTab('chat').path)
+    useAssistant.getState().setView('chat')
+  }
+  return [
+    {
+      id: 'chat-find-in-thread',
+      kind: 'command',
+      label: t('assistant.chat.find'),
+      icon: Search,
+      combo: CHAT_SHORTCUTS.find,
+      group: t('command.group_assistant'),
+      run: () => {
+        // Searching a thread that is not open would raise a find panel over nothing.
+        if (!useAssistant.getState().activeId) {
+          warn(t('command.chat_no_thread'))
+          return
+        }
+        openChat()
+        requestChatIntent('find')
+      },
+    },
+    {
+      id: 'chat-find-conversation',
+      kind: 'command',
+      label: t('assistant.chat.search'),
+      icon: MessageSquare,
+      group: t('command.group_assistant'),
+      run: () => {
+        openChat()
+        requestChatIntent('conversation-search')
+      },
+    },
+    {
+      id: 'chat-stop-answer',
+      kind: 'command',
+      label: t('assistant.chat.stop'),
+      icon: Square,
+      combo: CHAT_SHORTCUTS.stop,
+      group: t('command.group_assistant'),
+      run: () => {
+        const assistant = useAssistant.getState()
+        // A reply another device is writing is shown here but is not this device's to interrupt, so the
+        // answer to "stop" with nothing running is the reason it did nothing, rather than silence.
+        if (!assistant.turn || assistant.turn.done) {
+          warn(t('command.chat_nothing_to_stop'))
+          return
+        }
+        assistant.stop()
+      },
+    },
+    {
+      id: 'chat-toggle-web-search',
+      kind: 'command',
+      label: t('command.chat_toggle_web_search'),
+      icon: Globe,
+      group: t('command.group_assistant'),
+      // The same switch the composer's chip draws, read back off the store on every press.
+      run: () => {
+        const assistant = useAssistant.getState()
+        assistant.setWebSearch(!assistant.webSearch)
+      },
+    },
+    {
+      id: 'chat-open-model',
+      kind: 'command',
+      label: t('command.chat_pick_model'),
+      icon: Sparkles,
+      group: t('command.group_assistant'),
+      run: () => {
+        const assistant = useAssistant.getState()
+        const active = assistant.models.find((model) => model.enabled
+          && model.purpose === 'chat'
+          && model.id === assistant.settings?.activeModelId)
+        // With nothing answering there is no picker to show, and that is the same way out the composer
+        // takes: the settings screen, where the model is chosen.
+        if (!active) {
+          navigateToPath(appTab('chat').path)
+          assistant.setView('settings')
+          void assistant.loadSettings()
+          return
+        }
+        openChat()
+        requestChatIntent('model')
       },
     },
   ]

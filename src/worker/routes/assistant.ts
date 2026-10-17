@@ -1085,8 +1085,13 @@ assistantRoutes.patch('/conversations/:id', async (c) => {
   }
   // Where the thread came from. Only a note this account owns can be named, and the store keeps the
   // first answer, so a later turn cannot re-label a conversation under the reader.
-  if (typeof body.noteId === 'string' && isValidId(body.noteId)) {
-    if (!(await s.knownNote(body.noteId))) throw ApiError.badRequest('Unknown note.')
+  // Null is the reader taking the label off — the one write that is allowed to overwrite the first answer,
+  // because overwriting is what was asked. An id of the wrong shape is refused rather than dropped: a body
+  // that names a note and names nothing must not answer "done" while having changed nothing, which is how a
+  // mislabelled thread would stay mislabelled forever.
+  if (body.noteId === null) await s.clearConversationNote(id)
+  else if (typeof body.noteId === 'string') {
+    if (!isValidId(body.noteId) || !(await s.knownNote(body.noteId))) throw ApiError.badRequest('Unknown note.')
     await s.setConversationNote(id, body.noteId)
   }
   // Null is a real answer — the conversation leaves the project — and an unknown id is refused rather

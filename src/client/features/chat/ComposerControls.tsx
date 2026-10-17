@@ -106,7 +106,7 @@ export function ControlChip({
 function useMenuAnchor() {
   const ref = useRef<HTMLButtonElement>(null)
   const [open, setOpen] = useState(false)
-  return { ref, open, toggle: () => setOpen((value) => !value), close: () => setOpen(false) }
+  return { ref, open, toggle: () => setOpen((value) => !value), openMenu: () => setOpen(true), close: () => setOpen(false) }
 }
 
 export function ModelMenu({
@@ -115,14 +115,27 @@ export function ModelMenu({
   onPick,
   onManage,
   onVision,
+  openRequest = 0,
 }: {
   models: AssistantModel[]
   activeId: string | null
   onPick: (id: string) => void
   onManage: () => void
   onVision: (next: boolean) => void
+  /**
+   * How many times something outside this row has asked for the menu — the command palette, mostly.
+   *
+   * Counted rather than boolean because the second ask has to be able to raise a menu the reader closed in
+   * between, and zero means nothing was asked, so a fresh mount never opens one by itself.
+   */
+  openRequest?: number
 }) {
   const anchor = useMenuAnchor()
+  useEffect(() => {
+    if (openRequest) anchor.openMenu()
+    // Only the ask itself moves the menu: an anchor rebuilt every render would reopen it on any keystroke.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [openRequest])
   const active = models.find((model) => model.id === activeId)
   const items: MenuItem[] = [
     ...models.map((model) => ({

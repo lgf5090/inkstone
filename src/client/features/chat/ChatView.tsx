@@ -10,7 +10,7 @@
  */
 import { Z_INDEX } from '../../lib/z-index'
 import { type ClipboardEvent as ReactClipboardEvent, type DragEvent as ReactDragEvent, type KeyboardEvent, Fragment, memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import { Archive, ArrowUp, ArrowUpRight, Check, Copy, FileText, FolderOpen, Ghost, History, ListChecks, MoreHorizontal, NotebookPen, PanelRight, Paperclip, Pencil, Plus, Search, Settings2, Square, Sparkles, Star, Trash2, X } from 'lucide-react'
+import { Archive, ArrowUp, ArrowUpRight, Check, Copy, FileText, FolderOpen, Ghost, History, Link2Off, ListChecks, MoreHorizontal, NotebookPen, PanelRight, Paperclip, Pencil, Plus, Search, Settings2, Square, Sparkles, Star, Trash2, X } from 'lucide-react'
 import type { AssistantConversation, AssistantMessage, AssistantTurnScope, ChatAttachment } from '@shared/assistant'
 import { EPHEMERAL_CONVERSATION_RETENTION_DAYS, SEARCH_NATIVE_PROTOCOLS, looksLikeSearchTool, mcpToolModeFor } from '@shared/assistant'
 import { DEBOUNCE } from '@shared/constants'
@@ -75,6 +75,8 @@ import { BranchBar } from './BranchBar'
 import { fetchWholeConversation } from './thread-fetch'
 import { ChatOutline } from './ChatOutline'
 import { modelReasoning, reasoningOptions } from './model-reasoning'
+import { CHAT_SHORTCUTS, isChatShortcut } from './chat-shortcuts'
+import { useChatIntent } from './chat-intents'
 
 /** The composer's "common requests" list: the same openers the empty thread offers, by key. */
 /**
@@ -173,6 +175,7 @@ export function ChatView() {
   const newConversation = useAssistant((state) => state.newConversation)
   const openConversation = useAssistant((state) => state.openConversation)
   const stop = useAssistant((state) => state.stop)
+  const setConversationNote = useAssistant((state) => state.setConversationNote)
   const scrollRef = useRef<HTMLDivElement>(null)
   const stickToBottom = useRef(true)
   const [listOpen, setListOpen] = useState(false)
@@ -180,6 +183,10 @@ export function ChatView() {
   // left to CSS because the list may only be mounted once; see the render below.
   const railWide = useMediaQuery(CHAT_RAIL_QUERY)
   const [finding, setFinding] = useState(false)
+  // What the command palette asked the view for, counted rather than flagged: asking twice for the same
+  // panel has to be able to raise one the reader closed in between, and a flag would already read true.
+  const [modelPickerRequest, setModelPickerRequest] = useState(0)
+  const [searchFocusRequest, setSearchFocusRequest] = useState(0)
   // Selection is a mode, not a modifier: a checkbox on every message all the time is furniture nobody
   // asked for in a conversation, so the ticks exist only while the reader is picking. `null` is "not
   // picking"; an empty set is "picking with nothing chosen yet", which the bar has words for.
@@ -258,6 +265,23 @@ export function ChatView() {
   useEffect(() => {
     void loadMcpServers()
   }, [loadMcpServers])
+
+  // The ask the palette left for this view, taken once the view is standing. Where the ask came from — the
+  // notebook, a note's menu, the chat itself — cannot matter, so the handover is the whole contract.
+  const chatIntent = useChatIntent((state) => state.intent)
+  const clearChatIntent = useChatIntent((state) => state.clear)
+  useEffect(() => {
+    if (!chatIntent) return
+    if (chatIntent === 'find') setFinding(true)
+    if (chatIntent === 'conversation-search') {
+      // On a wide screen the rail is already drawn, so only the phone needs its drawer; the box is the
+      // one thing both presentations have to be asked of.
+      setListOpen(true)
+      setSearchFocusRequest((current) => current + 1)
+    }
+    if (chatIntent === 'model') setModelPickerRequest((current) => current + 1)
+    clearChatIntent()
+  }, [chatIntent, clearChatIntent])
 
   // The reader is following the thread, so every part of a turn that is still arriving keeps it pinned to
   // the bottom — the reasoning trace included. Left out of the deps, a long think grew off-screen and the
@@ -378,12 +402,12 @@ export function ChatView() {
           place in the flex row and the drawer keeps the modal's focus, Escape and backdrop behaviour. */}
       {railWide ? (
         <aside className="flex w-64 shrink-0 border-r border-[var(--border-subtle)] bg-[var(--bg-sunken)]">
-          <ConversationList activeId={activeId} onPick={() => setListOpen(false)} />
+          <ConversationList activeId={activeId} onPick={() => setListOpen(false)} focusSearch={searchFocusRequest} />
         </aside>
       ) : (
         <Modal open={listOpen} onClose={() => setListOpen(false)} title={t('assistant.chat.history')} width={360} bodyClassName="p-0">
           <div className="h-[60vh]">
-            <ConversationList activeId={activeId} onPick={() => setListOpen(false)} />
+            <ConversationList activeId={activeId} onPick={() => setListOpen(false)} focusSearch={searchFocusRequest} />
           </div>
         </Modal>
       )}
@@ -396,11 +420,13 @@ export function ChatView() {
           // This box wraps the composer, so every keystroke in a half-written Chinese sentence bubbles
           // through here — and Escape is the key the input method is holding to drop that candidate.
           if (isImeComposing(event)) return
-          if (event.key.toLowerCase() === 'f' && (event.metaKey || event.ctrlKey)) {
+          // Both chords are read from `CHAT_SHORTCUTS`, which is the same table the overview prints, so a
+          // rebinding has one place to go through rather than two that can disagree.
+          if (isChatShortcut(event.nativeEvent, 'find')) {
             event.preventDefault()
             setFinding(true)
           }
-          if (event.key === 'Escape' && finding) setFinding(false)
+          if (isChatShortcut(event.nativeEvent, 'closePanel') && finding) setFinding(false)
         }}
       >
         <div className="flex h-9 shrink-0 items-center gap-1 border-b border-[var(--border-subtle)] px-2">
@@ -419,15 +445,28 @@ export function ChatView() {
             </span>
           )}
           {originNoteId && (
-            <button
-              type="button"
-              onClick={() => openNote(originNoteId)}
-              title={t('assistant.chat.from_note')}
-              className="inline-flex shrink-0 items-center gap-1 rounded-[var(--r-sm)] bg-[var(--bg-inset)] px-1.5 py-0.5 text-[length:var(--text-10)] text-[var(--text-quaternary)] hover:text-[var(--text-secondary)]"
-            >
-              <NotebookPen size={10} className="shrink-0" />
-              <span className="max-w-[140px] truncate">{originNoteTitle || t('assistant.chat.from_note')}</span>
-            </button>
+            <span className="group/origin inline-flex shrink-0 items-center overflow-hidden rounded-[var(--r-sm)] bg-[var(--bg-inset)]">
+              <button
+                type="button"
+                onClick={() => openNote(originNoteId)}
+                title={t('assistant.chat.from_note')}
+                className="inline-flex items-center gap-1 px-1.5 py-0.5 text-[length:var(--text-10)] text-[var(--text-quaternary)] hover:text-[var(--text-secondary)]"
+              >
+                <NotebookPen size={10} className="shrink-0" />
+                <span className="max-w-[140px] truncate">{originNoteTitle || t('assistant.chat.from_note')}</span>
+              </button>
+              {/* The origin is written once and was never undoable, so a thread mislabelled at creation
+                  stayed in that note's "conversations about it" forever. Keyboard-reachable rather than
+                  hover-only, and always shown on a coarse pointer where there is no hover to wait for. */}
+              <button
+                type="button"
+                onClick={() => { if (activeId) void setConversationNote(activeId, null) }}
+                aria-label={`${t('assistant.chat.unlink_from_note')}: ${originNoteTitle || t('assistant.chat.from_note')}`}
+                className="pointer-coarse:opacity-100 flex items-center border-l border-[var(--border-subtle)] px-1 py-0.5 text-[var(--text-quaternary)] opacity-0 transition-opacity duration-[var(--dur-fast)] focus-visible:opacity-100 hover:text-[var(--text-primary)] group-hover/origin:opacity-100"
+              >
+                <Link2Off size={10} aria-hidden="true" />
+              </button>
+            </span>
           )}
           {ephemeral && (
             <span
@@ -616,6 +655,7 @@ export function ChatView() {
           onSend={send}
           onStop={stop}
           disabled={blocked}
+          modelPickerRequest={modelPickerRequest}
         />
         <ChatOutline anchors={anchors} scrollerRef={scrollRef} />
         {finding && (
@@ -1009,7 +1049,17 @@ function EditMessageDialog({ text, canBranch = false, onClose, onSave }: {
  * time — the rail on a wide screen, the drawer on a narrow one — because two copies each kept their own row
  * menu and rename dialog out of the other's sight.
  */
-export function ConversationList({ activeId, onPick }: { activeId: string | null, onPick: () => void }) {
+export function ConversationList({ activeId, onPick, focusSearch = 0 }: {
+  activeId: string | null
+  onPick: () => void
+  /**
+   * How many times the palette has asked for this box, counted rather than flagged.
+   *
+   * A flag would already be true the second time, and an ask that arrives while the reader is nowhere near
+   * the chat app has to be spent when the list is finally drawn rather than lost.
+   */
+  focusSearch?: number
+}) {
   const conversations = useAssistant((state) => state.conversations)
   const query = useAssistant((state) => state.conversationQuery)
   const setQuery = useAssistant((state) => state.setConversationQuery)
@@ -1037,6 +1087,13 @@ export function ConversationList({ activeId, onPick }: { activeId: string | null
   // The shared box's own grammar check. Matching is the server's, so what the box can answer here is
   // whether what was typed is a pattern at all — see the note on `FilterInput` below.
   const searchQuery = useMemo(() => compileQuery(searchDraft), [searchDraft])
+  const searchRef = useRef<HTMLInputElement>(null)
+  // The palette's ask, taken by the copy of this list the reader can actually see: the rail on a wide
+  // screen, the drawer on a narrow one. Zero is "nothing was asked", so a fresh mount never steals focus.
+  useEffect(() => {
+    if (!focusSearch) return
+    searchRef.current?.focus()
+  }, [focusSearch])
 
   // Counts move whenever a conversation is filed or a turn adds one, so the tree rides along with it.
   useEffect(() => {
@@ -1083,16 +1140,19 @@ export function ConversationList({ activeId, onPick }: { activeId: string | null
         {/* The same box the notebook's rails draw: search icon, clear control, Escape that takes the text
             back out, and the shared refusal when what was typed is not a pattern. The chrome is shared,
             the matching is not — this list is answered by the server's `LIKE` over the title and the
-            message bodies (`src/worker/assistant/store.ts`), and conversations are not in the omnisearch
-            index, which covers `notes` only. So the settled text is handed on verbatim, exactly as the
-            bare `Input` did: `/expression/` is a promise the conversation endpoint has yet to keep, and
-            the grammar check is the part a box with a server behind it can honestly offer. */}
+            message bodies (`src/worker/assistant/store.ts`). The vault's Omnisearch asks the very same
+            endpoint (`features/omnisearch/conversation-results.ts`) rather than indexing a thread
+            anywhere new, and this box stays because it filters the list the reader is already looking at.
+            The settled text is handed on verbatim, exactly as the bare `Input` did: `/expression/` is a
+            promise the conversation endpoint has yet to keep, and the grammar check is the part a box
+            with a server behind it can honestly offer. */}
         <FilterInput
           size="sidebar"
           className="mt-0"
           value={searchDraft}
           onChange={setSearchDraft}
           query={searchQuery}
+          inputRef={searchRef}
           label={t('assistant.chat.search')}
           placeholder={t('assistant.chat.search')}
         />
@@ -1602,6 +1662,7 @@ export function ChatComposer({
   onStop,
   disabled,
   onManage,
+  modelPickerRequest = 0,
 }: {
   streaming: boolean
   sendOnEnter: boolean
@@ -1610,6 +1671,8 @@ export function ChatComposer({
   onStop: () => void
   disabled?: boolean
   onManage?: (view: AssistantView) => void
+  /** How many times the palette has asked for the model picker; the picker spends it. */
+  modelPickerRequest?: number
 }) {
   const [value, setValue] = useState('')
   const seed = useAssistant((state) => state.composerSeed)
@@ -1855,7 +1918,7 @@ ${current}` : seed))
     // Escape is the reader's way out of a reply that is taking too long, and the composer is where they
     // are looking when they press it. With no reply running it keeps its other meaning, so the section's
     // own Escape handling (closing the find panel) still receives it.
-    if (event.key === 'Escape') {
+    if (isChatShortcut(event.nativeEvent, 'stop')) {
       if (!streaming) return
       event.preventDefault()
       event.stopPropagation()
@@ -1863,7 +1926,10 @@ ${current}` : seed))
       return
     }
     if (event.key !== 'Enter') return
-    if (sendOnEnter !== event.shiftKey) {
+    // Which of the two chords asks the question follows the reader's own setting, and both spellings come
+    // out of the table the overview prints — so the panel cannot say a key the box no longer answers to.
+    const sendChord = sendOnEnter ? CHAT_SHORTCUTS.send : CHAT_SHORTCUTS.newLine
+    if (event.shiftKey === sendChord.includes('shift')) {
       event.preventDefault()
       submit()
     }
@@ -2042,6 +2108,7 @@ ${current}` : seed))
                   activeId={settings?.activeModelId ?? null}
                   onPick={(id) => void activateModel(id)}
                   onManage={() => manage('settings')}
+                  openRequest={modelPickerRequest}
                   // The switch changes what this model is able to be shown, so it is only drawn for the
                   // model that is answering: an empty id would PATCH `/models/` and change nothing.
                   onVision={(next) => void updateModel(active.id, { vision: next })}

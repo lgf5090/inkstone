@@ -1,12 +1,13 @@
 import { memo, useCallback, useEffect, useId, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { createPortal } from 'react-dom';
-import { CornerDownRight, FileText, FolderOpen, ImageIcon, ScanSearch, X } from 'lucide-react';
+import { CornerDownRight, FileText, FolderOpen, ImageIcon, MessageSquare, ScanSearch, X } from 'lucide-react';
 import type { ParsedOmnisearchQuery } from '@shared/omnisearch-query';
+import type { AssistantConversation } from '@shared/assistant';
 import { DEBOUNCE } from '@shared/constants';
 import { cn } from '../../lib/cn';
 import { t } from '../../lib/i18n';
 import { useBreakpoint, useDebounced } from '../../lib/hooks';
-import { IconButton, Kbd } from '../../components/primitives';
+import { Button, IconButton, Kbd } from '../../components/primitives';
 import { useFilterInput } from '../../components/FilterInput';
 import { Tooltip, useDialogFocus, useEscape, useLockScroll } from '../../components/overlay';
 import { createContextualNote, useNotes } from '../../store/notes';
@@ -15,6 +16,7 @@ import { useSession } from '../../store/session';
 import { useLongPress } from '../workspace/context-menu/use-long-press';
 import { omnisearchIndexer, type IndexerStatus } from './indexer';
 import { closeOmnisearch, type OmnisearchMode } from './store';
+import { useConversationSearch } from './conversation-results';
 import { docIdForNote, fileIdOfDoc, noteIdOfDoc } from './engine';
 import { buildExcerpt, findMatches, groupOffsets } from './excerpt';
 import { insertAtActiveCursor, revealInNote } from './reveal';
@@ -22,6 +24,8 @@ import { initialQueryOf, loadHistory, pushHistory } from './history';
 import type { Excerpt, OmnisearchResult } from './types';
 const ROW_CLASS = 'flex w-full items-start gap-2.5 rounded-[var(--r-md)] px-2.5 py-2 text-left';
 const ROW_ACTIVE_CLASS = `${ROW_CLASS} bg-[var(--accent-soft)]`;
+// The same heading the in-file scope already draws over its rows, so a category reads as a category.
+const SECTION_CLASS = 'px-2.5 py-1 text-[length:var(--text-10-5)] font-semibold tracking-[0.06em] text-[var(--text-quaternary)]';
 const IMAGE_EXT = /^(png|jpe?g|gif|webp|avif|svg)$/;
 function useIndexerStatus(): IndexerStatus {
     return useSyncExternalStore(omnisearchIndexer.subscribe, omnisearchIndexer.getStatus, omnisearchIndexer.getStatus);
@@ -122,6 +126,55 @@ interface FileRow {
     length: number;
     excerpt: Excerpt;
 }
+/**
+ * One row of the vault search. The index's notes come first and the server's conversations after them,
+ * and the cursor counts the two together — so an arrow key walks into a thread the same way it walks
+ * into a note, and `Enter` only has to ask which of the two it landed on.
+ */
+type VaultRow = {
+    kind: 'note';
+    result: OmnisearchResult;
+} | {
+    kind: 'conversation';
+    conversation: AssistantConversation;
+};
+/**
+ * A conversation the reader already had, as a row.
+ *
+ * It carries the category on itself as well as under its heading, because landing in a different app is
+ * the surprise worth spending eight characters on; a row with no title is the state the chat's own list
+ * calls a new conversation, and it says so rather than drawing an empty line.
+ */
+const ConversationRow = memo(function ConversationRow({ conversation, active, index, listId, terms, ignoreDiacritics, onHover, onInvoke, }: {
+    conversation: AssistantConversation;
+    active: boolean;
+    index: number;
+    listId: string;
+    terms: readonly string[];
+    ignoreDiacritics: boolean;
+    onHover: (index: number) => void;
+    onInvoke: () => void;
+}) {
+    const snippet = conversation.match?.snippet ?? '';
+    return (<button id={`${listId}-option-${index}`} type="button" role="option" aria-selected={active} tabIndex={-1} data-index={index} onMouseEnter={() => onHover(index)} onClick={onInvoke} className={active ? ROW_ACTIVE_CLASS : ROW_CLASS}>
+        <span className={cn('mt-0.5 shrink-0', active ? 'text-[var(--accent)]' : 'text-[var(--text-quaternary)]')}>
+          <MessageSquare size={14}/>
+        </span>
+        <span className="min-w-0 flex-1">
+          <span className="flex min-w-0 items-center gap-1.5">
+            <span className="min-w-0 truncate text-[length:var(--text-13)] text-[var(--text-primary)]">
+              <Highlighted text={conversation.title || t('assistant.chat.untitled')} terms={terms} ignoreDiacritics={ignoreDiacritics}/>
+            </span>
+            <span className="shrink-0 rounded-[var(--r-sm)] border border-[var(--border-subtle)] bg-[var(--bg-inset)] px-1.5 text-[length:var(--text-10)] text-[var(--text-tertiary)]">
+              {t('assistant.view.chat')}
+            </span>
+          </span>
+          {snippet && (<span className="mt-0.5 block truncate text-[length:var(--text-11-5)] text-[var(--text-quaternary)]">
+              <Highlighted text={snippet} terms={terms} ignoreDiacritics={ignoreDiacritics}/>
+            </span>)}
+        </span>
+      </button>);
+});
 export function OmnisearchPrompt({ mode, seed, noteId }: {
     mode: OmnisearchMode;
     seed: string;
@@ -159,6 +212,9 @@ export function OmnisearchPrompt({ mode, seed, noteId }: {
     // This index is local, so it could go faster than the network boxes, but 120 ms sat below the
     // ~170 ms between two keystrokes and so answered continuous typing once per character.
     const debounced = useDebounced(query, DEBOUNCE.search, scope);
+    // The threads the note index cannot see, asked of the one endpoint the chat's own list already uses.
+    // An in-file search is about one note, so that is the only scope with nothing for it to add.
+    const conversations = useConversationSearch(debounced, scope === 'vault');
     useEscape(true, () => closeOmnisearch());
     useLockScroll(true);
     useDialogFocus(true, panelRef, inputRef);
@@ -207,7 +263,19 @@ export function OmnisearchPrompt({ mode, seed, noteId }: {
         })();
     }, [debounced, fileNoteId, scope]);
     const terms = useMemo(() => parsed ? [...parsed.terms, ...parsed.exact, ...parsed.boostedTags] : [], [parsed]);
-    const rows = scope === 'file' ? fileRows.length : results.length;
+    // Notes first, then the threads: the two answers arrive on their own clocks and are held apart, so a
+    // slow one landing after a fast one adds its rows instead of replacing them.
+    const vaultRows = useMemo<VaultRow[]>(() => [
+        ...results.map<VaultRow>((result) => ({
+            kind: 'note',
+            result,
+        })),
+        ...conversations.items.map<VaultRow>((conversation) => ({
+            kind: 'conversation',
+            conversation,
+        })),
+    ], [conversations.items, results]);
+    const rows = scope === 'file' ? fileRows.length : vaultRows.length;
     const move = useCallback((offset: number) => {
         if (!rows) return;
         setCursor((current) => {
@@ -264,6 +332,28 @@ export function OmnisearchPrompt({ mode, seed, noteId }: {
         } : {});
         void revealInNote(fileNoteId, row.offset, row.offset + row.length, !pane);
     }, [fileNoteId, openNote, query]);
+    /**
+     * Hand the row to the chat app, at the turn the search found.
+     *
+     * The module is loaded only when a thread is actually taken: the notebook's search does not carry the
+     * assistant's surface around with it for the one in a hundred results that are a conversation.
+     */
+    const openConversation = useCallback((conversation: AssistantConversation) => {
+        void pushHistory(query);
+        closeOmnisearch();
+        void import('../chat/start-chat').then((module) => module.openConversationInChat(conversation.id, conversation.match?.messageId));
+    }, [query]);
+    const invokeRow = useCallback((row: VaultRow | undefined, options: {
+        pane?: boolean;
+        background?: boolean;
+    } = {}) => {
+        if (!row) return;
+        if (row.kind === 'conversation') {
+            openConversation(row.conversation);
+            return;
+        }
+        openResult(row.result, options);
+    }, [openConversation, openResult]);
     const create = useCallback(() => {
         const title = query.trim();
         if (!title) return;
@@ -274,8 +364,18 @@ export function OmnisearchPrompt({ mode, seed, noteId }: {
         });
     }, [query]);
     const insertLink = useCallback(() => {
-        const result = results[cursor.index];
-        if (!result) return;
+        const row = vaultRows[cursor.index];
+        if (!row) return;
+        // A thread is not a document a note can point into by title; saying that beats writing a link
+        // that goes nowhere.
+        if (row.kind === 'conversation') {
+            toast({
+                title: t('omnisearch.conversation_no_link'),
+                tone: 'warning',
+            });
+            return;
+        }
+        const result = row.result;
         if (!insertAtActiveCursor(`[[${result.doc.displayTitle || result.doc.title}]]`)) {
             toast({
                 title: t('command.no_editor_to_edit'),
@@ -285,17 +385,20 @@ export function OmnisearchPrompt({ mode, seed, noteId }: {
         }
         void pushHistory(query);
         closeOmnisearch();
-    }, [cursor.index, query, results, toast]);
+    }, [cursor.index, query, toast, vaultRows]);
     const switchScope = useCallback(() => {
         if (scope === 'file') {
             setScope('vault');
             return;
         }
-        const result = results[cursor.index];
+        const row = vaultRows[cursor.index];
+        // In-file means inside a note, and a conversation row is neither of those things.
+        const result = row?.kind === 'note' ? row.result : null;
         const target = result ? noteIdOfDoc(result.id) : '';
         if (result && !target) return;
+        if (!result && row) return;
         setScope('file');
-    }, [cursor.index, results, scope]);
+    }, [cursor.index, scope, vaultRows]);
     const cycleHistory = useCallback((offset: number) => {
         const items = history.filter(Boolean);
         if (!items.length) return;
@@ -345,11 +448,13 @@ export function OmnisearchPrompt({ mode, seed, noteId }: {
             event.preventDefault();
             if (scope === 'file') openAtOffset(fileRows[cursor.index] ?? fileRows[0], true);
             else {
-                const result = results[cursor.index];
-                if (result) openResult(result, {
+                const row = vaultRows[cursor.index];
+                // A thread has no second pane to be pushed into: `mod+o` opens it behind as it would a
+                // note, and the chat app owns where it lands.
+                if (row) invokeRow(row, row.kind === 'note' ? {
                     pane: true,
                     background: true,
-                });
+                } : {});
             }
             return;
         }
@@ -369,8 +474,7 @@ export function OmnisearchPrompt({ mode, seed, noteId }: {
             openAtOffset(fileRows[cursor.index], mod);
             return;
         }
-        const result = results[cursor.index];
-        if (result) openResult(result, {
+        invokeRow(vaultRows[cursor.index], {
             pane: mod,
         });
     };
@@ -405,7 +509,9 @@ export function OmnisearchPrompt({ mode, seed, noteId }: {
         if (status.cacheFailed) return t('omnisearch.cache_failed');
         return '';
     }, [search.enabled, status]);
-    const empty = !searching && rows === 0;
+    const empty = !searching && !conversations.loading && rows === 0 && !conversations.error;
+    // The thread half of a vault search is only asked for once there is something to ask it with.
+    const conversationAsked = scope === 'vault' && Boolean(debounced.trim());
     const placeholder = scope === 'file' ? t('omnisearch.placeholder_file') : t('omnisearch.placeholder_vault');
     const activeRowId = rows ? `${listId}-option-${Math.min(cursor.index, rows - 1)}` : undefined;
     return createPortal(<div className="app-viewport-fixed fixed z-[var(--z-prompt)] flex items-end justify-center md:items-start md:px-4 md:pt-[11vh]">
@@ -429,9 +535,10 @@ export function OmnisearchPrompt({ mode, seed, noteId }: {
             </p>)}
 
           <div ref={listRef} id={listId} role="listbox" aria-label={placeholder} className="min-h-0 flex-1 overflow-y-auto p-1.5">
-            {scope === 'file' && fileNoteId && (<div className="px-2.5 py-1 text-[length:var(--text-10-5)] font-semibold tracking-[0.06em] text-[var(--text-quaternary)]">
+            {scope === 'file' && fileNoteId && (<div className={SECTION_CLASS}>
                 {notes[fileNoteId]?.title || t('common.untitled_note')}
               </div>)}
+            {scope === 'vault' && (<div className={SECTION_CLASS}>{t('omnisearch.category_notes')}</div>)}
             {scope === 'file' ? fileRows.map((row, index) => (<FileRowView key={`${row.offset}-${index}`} row={row} index={index} active={index === cursor.index} listId={listId} terms={terms} ignoreDiacritics={search.ignoreDiacritics} onHover={(next) => setCursor({
                         index: next,
                         fromPointer: true,
@@ -443,12 +550,29 @@ export function OmnisearchPrompt({ mode, seed, noteId }: {
                     })} onHold={(item) => openResult(item, {
                         pane: true,
                     })}/>))}
+            {conversationAsked && (<div className={SECTION_CLASS}>{t('omnisearch.category_conversations')}</div>)}
+            {conversationAsked && conversations.items.map((conversation, offset) => (<ConversationRow key={`c-${conversation.id}-${offset}`} conversation={conversation} index={results.length + offset} active={results.length + offset === cursor.index} listId={listId} terms={terms} ignoreDiacritics={search.ignoreDiacritics} onHover={(next) => setCursor((current) => current.index === next && current.fromPointer ? current : {
+                        index: next,
+                        fromPointer: true,
+                    })} onInvoke={() => openConversation(conversation)}/>))}
+            {conversationAsked && conversations.loading && (<p role="status" className="px-2.5 py-1 text-[length:var(--text-11)] text-[var(--text-quaternary)]">
+                {t('omnisearch.conversations_searching')}
+              </p>)}
+            {conversationAsked && !conversations.loading && !conversations.error && !conversations.items.length && rows > 0 && (<p className="px-2.5 py-1 text-[length:var(--text-11)] text-[var(--text-quaternary)]">
+                {t('omnisearch.conversations_none')}
+              </p>)}
             {empty && (<div className="px-3 py-10 text-center text-[length:var(--text-12-5)] text-[var(--text-quaternary)]">
                 {query.trim() ? t('omnisearch.no_results') : t('omnisearch.type_to_search')}
                 {parsed?.trash && (<p className="mt-1 text-[length:var(--text-11-5)]">{t('omnisearch.trash_hint')}</p>)}
               </div>)}
             {searching && rows > 0 && (<div className="px-3 py-2 text-center text-[length:var(--text-11-5)] text-[var(--text-quaternary)]">{t('navigation.searching')}</div>)}
           </div>
+
+          {conversationAsked && conversations.error && (<div role="alert" className="flex items-center gap-2 border-t border-[var(--border-subtle)] bg-[var(--bg-inset)] px-4 py-1.5 text-[length:var(--text-11-5)] text-[var(--text-tertiary)]">
+              <span className="min-w-0 truncate">{t('omnisearch.conversations_failed')}</span>
+              <span className="min-w-0 flex-1 truncate text-[var(--text-quaternary)]">{conversations.error}</span>
+              <Button size="sm" variant="secondary" onClick={conversations.retry}>{t('common.retry')}</Button>
+            </div>)}
 
           <div className="flex items-center gap-2 border-t border-[var(--border-subtle)] px-3 py-2 text-[length:var(--text-10-5)] text-[var(--text-quaternary)]">
             {breakpoint === 'mobile' ? (<div className="flex min-w-0 flex-1 flex-wrap items-center gap-1.5">

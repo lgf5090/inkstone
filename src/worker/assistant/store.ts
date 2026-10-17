@@ -1857,6 +1857,21 @@ export class AssistantStore {
   }
 
   /**
+   * Lets the thread go of the note it was started from.
+   *
+   * The write-once rule above is what keeps a later turn from re-labelling a thread under the reader; it is
+   * not a reason a wrong label has to stay. A thread mislabelled at creation would otherwise go on showing
+   * up in that note's backlink panel forever, with nothing the reader can do about it. This one is not
+   * guarded by `note_id IS NULL` — that is the row it is asked to clear.
+   */
+  async clearConversationNote(id: string): Promise<void> {
+    await this.write(
+      `UPDATE chat_conversations SET note_id = NULL WHERE user_id = ?1 AND id = ?2`,
+      id,
+    )
+  }
+
+  /**
    * The branch a conversation sits on: the thread it was forked from, and the threads forked off the same
    * point.
    *

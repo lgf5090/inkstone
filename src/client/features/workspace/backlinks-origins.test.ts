@@ -19,9 +19,12 @@ import { useNotes } from '../../store/notes'
 import { BacklinksPanel } from './BacklinksPanel'
 import { useAssistant } from '../chat/assistant-store'
 
-const { backlinks, noteWrites } = vi.hoisted(() => ({
+const { backlinks, noteWrites, conversations } = vi.hoisted(() => ({
   backlinks: vi.fn(async () => ({ backlinks: [], unlinked: [] })),
   noteWrites: vi.fn(async () => ({ conversations: [] as { id: string, title: string, updatedAt: number }[] })),
+  // The threads started *from* the note are a different section's read; this file is about the ones that
+  // wrote it, so the answer here is always "none" — and it has to exist, or the panel's request throws.
+  conversations: vi.fn(async () => ({ conversations: [] as never[], nextCursor: null })),
 }))
 
 vi.mock('../../lib/api', () => ({
@@ -29,7 +32,7 @@ vi.mock('../../lib/api', () => ({
   CLIENT_ID: 'test-client',
   api: {
     notes: { backlinks },
-    assistant: { noteWrites },
+    assistant: { noteWrites, conversations },
   },
 }))
 
@@ -62,6 +65,8 @@ afterEach(() => {
   document.body.innerHTML = ''
   useNotes.setState(notesOriginal, true)
   useAssistant.setState(assistantOriginal, true)
+  // A row that was pressed leaves the address on /chat; the next case has to start from its own tab.
+  window.history.replaceState(null, '', '/')
   vi.clearAllMocks()
 })
 
@@ -76,7 +81,10 @@ describe('a note a conversation wrote', () => {
       .find((node) => node.textContent?.includes('Planning the quarter'))
     expect(row, 'the conversation is not listed').toBeTruthy()
     act(() => { row!.click() })
-    expect(openConversation).toHaveBeenCalledWith('c1')
+    // The chat app's own entry point takes the thread, so the row lands where a `![[chat:id]]` embed lands:
+    // the conversation view, with no message named to focus on.
+    expect(openConversation).toHaveBeenCalledWith('c1', undefined)
+    expect(window.location.pathname).toBe('/chat')
   })
 
   it('says nothing at all when no conversation wrote it', async () => {
