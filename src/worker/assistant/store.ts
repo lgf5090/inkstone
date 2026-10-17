@@ -1434,9 +1434,13 @@ export class AssistantStore {
       q.raw(`(c.pinned < ${pinned} OR (c.pinned = ${pinned} AND (c.updated_at < ${updatedAt}
         OR (c.updated_at = ${updatedAt} AND c.id < ${id}))))`)
     }
+    // The tenant predicate here is not only scoping: `idx_chat_messages_conversation` leads with `user_id`,
+    // so a correlated count that names just the conversation cannot use the index and reads every message
+    // row once per conversation on the page.
     const list = await this.rows<ConversationRow>(
       `SELECT ${CONVERSATION_COLUMNS},
-              (SELECT count(*) FROM chat_messages m WHERE m.conversation_id = c.id) AS message_count
+              (SELECT count(*) FROM chat_messages m
+                 WHERE m.user_id = c.user_id AND m.conversation_id = c.id) AS message_count
          FROM chat_conversations c WHERE ${q.where}
          ORDER BY c.pinned DESC, c.updated_at DESC, c.id DESC LIMIT ${limitBind}`,
       ...q.binds,
