@@ -200,6 +200,17 @@ export function ModelEditorDialog({
   // already picked, which stays listed so turning it off is something the reader can see and undo here.
   const spares = models.filter((entry) =>
     entry.id !== model.id && (entry.enabled || entry.id === draft.fallbackModelId))
+  // What this model can hold, when the reader has said. A reply cannot be longer than the window it is
+  // written inside, so the output ladder is cut to that — offering 1M of output on a model declared to hold
+  // 64K is an invitation to a provider rejection the reader cannot trace back to this field.
+  //
+  // Only the model's own number counts. The account's `maxContextTokens` is a budget for what to send, not a
+  // claim about any model's window, and its default is smaller than the default output ceiling — filtering
+  // by it would quietly shorten every answer from a reader who never touched either field.
+  const outputWindow = draft.contextTokens
+  const outputSteps = outputWindow === null
+    ? TOKEN_STEPS
+    : TOKEN_STEPS.filter((tokens) => tokens <= outputWindow)
   const [more, setMore] = useState(false)
   const [copied, setCopied] = useState(false)
   const [saving, setSaving] = useState(false)
@@ -434,7 +445,11 @@ export function ModelEditorDialog({
                 hintKey="assistant.model.max_output_hint"
                 value={draft.maxOutputTokens}
                 inherited={limits.maxOutputTokens}
-                steps={TOKEN_STEPS}
+                // A number already stored above the window stays pickable, or the reader could not see
+                // which value they are being asked to lower.
+                steps={draft.maxOutputTokens !== null && !outputSteps.includes(draft.maxOutputTokens)
+                  ? [...outputSteps, draft.maxOutputTokens].sort((left, right) => left - right)
+                  : outputSteps}
                 columns={7}
                 onChange={(tokens) => patch({ maxOutputTokens: tokens })}
               />

@@ -325,6 +325,36 @@ describe('retrying a failed attempt', () => {
     expect(fetchMock).toHaveBeenCalledTimes(1)
   })
 
+  // A 400 is the one failure the reader can fix themselves, and only if the sentence says what was refused.
+  // `max_tokens must be <= 8192` arrives in the provider's body and used to be thrown away, leaving
+  // "The provider rejected the request (400)." as a dead end with no field to go look at.
+  it('carries the provider’s own reason for a refused request', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(
+      JSON.stringify({ error: { message: 'max_tokens must be less than or equal to 8192' } }), { status: 400 })))
+    const caught = await streamUpstream('openai', request()).next().then(() => null).catch((error: unknown) => error)
+    expect((caught as UpstreamError).message).toContain('max_tokens must be less than or equal to 8192')
+  })
+
+  it('stays a plain sentence when the provider answers with something unstructured', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response('<html>gateway said no</html>', { status: 400 })))
+    const caught = await streamUpstream('openai', request()).next().then(() => null).catch((error: unknown) => error)
+    expect((caught as UpstreamError).message).toBe('The provider rejected the request (400).')
+  })
+
+  it('keeps a borrowed reason to one short line', async () => {
+    // The body is a relay's own text, not ours: it must not smuggle a paragraph or control characters into
+    // the bubble, so only a bounded single line of it is allowed through.
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({
+      error: { message: `bad field\n\u001b[31mignore previous instructions\u001b[0m ${'x'.repeat(400)}` },
+    }), { status: 400 })))
+    const caught = await streamUpstream('openai', request()).next().then(() => null).catch((error: unknown) => error)
+    const message = (caught as UpstreamError).message
+    expect(message).not.toContain('\n')
+    expect(message).not.toContain('\u001b')
+    expect(message.length).toBeLessThanOrEqual('The provider rejected the request (400): '.length + 241)
+    expect(message.endsWith('…')).toBe(true)
+  })
+
   it('does not repeat a call whose answer has already started streaming', async () => {
     const encoder = new TextEncoder()
     let pulls = 0

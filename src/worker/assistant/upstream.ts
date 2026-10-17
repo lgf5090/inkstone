@@ -411,6 +411,32 @@ export class AbortError extends Error {
   }
 }
 
+/**
+ * The provider's own reason, taken out of its body and made safe to show.
+ *
+ * A 400 almost always names the field it objected to — `max_tokens must be ≤ 8192` is the difference
+ * between a reader fixing a setting and a reader guessing for an hour — and dropping it left a dead-end
+ * sentence with nothing to act on. Only the structured error field is read, never the raw body: a relay
+ * can put anything in there, so this is a short single line of plain text, not a quotation.
+ */
+function providerReason(body: string): string | null {
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(body)
+  } catch {
+    return null
+  }
+  if (!parsed || typeof parsed !== 'object') return null
+  const record = parsed as Record<string, unknown>
+  const nested = record.error && typeof record.error === 'object'
+    ? (record.error as Record<string, unknown>).message
+    : undefined
+  const said = nested ?? record.message ?? record.detail
+  if (typeof said !== 'string' || !said.trim()) return null
+  const oneLine = said.replace(/[\u0000-\u001f\u2028\u2029]+/g, ' ').trim()
+  return oneLine.length > 240 ? `${oneLine.slice(0, 240)}…` : oneLine
+}
+
 async function describeFailure(response: Response): Promise<UpstreamError> {
   const text = (await response.text().catch(() => '')).slice(0, 600)
   const lower = text.toLowerCase()
@@ -430,7 +456,10 @@ async function describeFailure(response: Response): Promise<UpstreamError> {
   if (response.status >= 500) {
     return new UpstreamError('unreachable', `The provider is unavailable (${response.status}).`, response.status, after)
   }
-  return new UpstreamError('bad-request', `The provider rejected the request (${response.status}).`, response.status)
+  const reason = providerReason(text)
+  return new UpstreamError('bad-request', reason
+    ? `The provider rejected the request (${response.status}): ${reason}`
+    : `The provider rejected the request (${response.status}).`, response.status)
 }
 
 /**

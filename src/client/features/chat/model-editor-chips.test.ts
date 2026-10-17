@@ -171,6 +171,37 @@ describe('the quick picks', () => {
         expect(draft.maxOutputTokens).toBe(16_384)
     })
 
+    // A reply cannot be longer than the window it is written inside. Offering 1M of output on a model the
+    // reader has just declared as holding 64K invites a provider rejection that used to come back as a
+    // sentence with nothing in it to act on.
+    it('stops offering output presets above the window the model declares', () => {
+        open({ contextTokens: 65_536 })
+        const row = [...document.body.querySelectorAll<HTMLElement>('[role="group"]')]
+            .find((node) => node.getAttribute('aria-label') === t('assistant.model.max_output'))
+        const labels = [...row!.querySelectorAll('button[aria-pressed]')].map((node) => node.textContent?.trim())
+        expect(labels).toContain('64K')
+        expect(labels).not.toContain('128K')
+        expect(labels).not.toContain('1M')
+    })
+
+    it('keeps a stored output ceiling pickable even when it is past the window', () => {
+        // The reader has to be able to see the number they are being asked to lower, and a row that hid it
+        // would show nothing as selected and leave them hunting for it.
+        open({ contextTokens: 65_536, maxOutputTokens: 262_144 })
+        expect(chip('256K', t('assistant.model.max_output'))?.getAttribute('aria-pressed')).toBe('true')
+    })
+
+    it('leaves the whole ladder on the table for a model whose window nobody declared', () => {
+        // The account's context budget is a limit on what to send, not a claim about any model's window,
+        // and its default is smaller than the default output ceiling. Filtering by it would silently
+        // shorten every answer from a reader who never opened either field.
+        open({ contextTokens: null })
+        const row = [...document.body.querySelectorAll<HTMLElement>('[role="group"]')]
+            .find((node) => node.getAttribute('aria-label') === t('assistant.model.max_output'))
+        expect([...row!.querySelectorAll('button[aria-pressed]')].map((node) => node.textContent?.trim()))
+            .toEqual(TOKEN_STEPS.map((tokens) => formatTokenStep(tokens)))
+    })
+
     it('lays the shared ladder out as even rows of seven rather than a ragged three', () => {
         open()
         const row = [...document.body.querySelectorAll<HTMLElement>('[role="group"]')]
