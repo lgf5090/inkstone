@@ -91,6 +91,21 @@ export function editorAiPrompt(
 }
 
 /**
+ * Put a block of text into a document at an offset, keeping the note's own spacing.
+ *
+ * One blank line between paragraphs, and none where the text already sits against a blank line or
+ * the edge of the document. Shared with everything else that writes an answer into a note, because
+ * two spacing rules would be two ways for the same paragraph to land.
+ */
+export function insertBlockAt(content: string, at: number, body: string): string {
+  const before = content.slice(0, at)
+  const after = content.slice(at)
+  const lead = before === '' || before.endsWith('\n\n') ? '' : before.endsWith('\n') ? '\n' : '\n\n'
+  const trail = after === '' || after.startsWith('\n') ? '' : '\n\n'
+  return `${before}${lead}${body}${trail}${after}`
+}
+
+/**
  * Write an answer back into the note the request came from.
  *
  * The write goes through the note store rather than through the editor's view: the reader may have moved
@@ -120,13 +135,7 @@ export function applyEditorAiResult(text: string, mode: 'replace' | 'insert'): b
     state.editContent(request.noteId, `${content.slice(0, request.from)}${body}${content.slice(request.to)}`)
     return true
   }
-  // An insertion keeps the note's own spacing: one blank line between paragraphs, and none where the
-  // caret already sits against a blank line or the end of the document.
-  const before = content.slice(0, request.to)
-  const after = content.slice(request.to)
-  const lead = before === '' || before.endsWith('\n\n') ? '' : before.endsWith('\n') ? '\n' : '\n\n'
-  const trail = after === '' || after.startsWith('\n') ? '' : '\n\n'
-  state.editContent(request.noteId, `${before}${lead}${body}${trail}${after}`)
+  state.editContent(request.noteId, insertBlockAt(content, request.to, body))
   return true
 }
 

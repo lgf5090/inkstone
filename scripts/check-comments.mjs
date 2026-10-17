@@ -1695,8 +1695,6 @@ const allowed = new Map([
     "/**\n * The passage a request carries: the selection, or the note itself when nothing was selected.\n *\n * A continuation reads the end of the passage and everything else reads the beginning, because that is\n * the half each of them needs: \"continue from where this stops\" is a question about the last paragraph,\n * and a summary of an eight-thousand-character note is a summary of its opening.\n */",
     "/** The question the assistant is asked about the passage. `ask` has no question — the reader writes it. */",
     "/**\n * Write an answer back into the note the request came from.\n *\n * The write goes through the note store rather than through the editor's view: the reader may have moved\n * to another note while the answer was being written, and the paragraph still belongs where they selected\n * it. The store is what the editor re-renders from, so the change lands in the document — and as one\n * transaction, which is what makes it one press of undo.\n *\n * Returns whether the note took the text, so the caller can keep the request open when it did not.\n */",
-    "// An insertion keeps the note's own spacing: one blank line between paragraphs, and none where the",
-    "// caret already sits against a blank line or the end of the document.",
     "/**\n * The answer the assistant last finished, which is what the result row offers to keep.\n *\n * A turn that has finished but has not been adopted into the thread yet is still the newest answer, so\n * it is read first; the stored rows answer the case where the reader has since opened another\n * conversation and the live turn is gone.\n */",
     "/** How much of a selection rides in the composer as a quote, which the reader then asks about. */",
     "/** The selected text, empty when the caret is a caret. */",
@@ -1705,6 +1703,7 @@ const allowed = new Map([
     "// The store refuses a second turn while one is streaming, and a refusal the reader cannot see would",
     "// look like the menu having done nothing at all.",
     "/** A passage as a Markdown block quote, which is how a question about it stays a question about it. */",
+    "/**\n * Put a block of text into a document at an offset, keeping the note's own spacing.\n *\n * One blank line between paragraphs, and none where the text already sits against a blank line or\n * the edge of the document. Shared with everything else that writes an answer into a note, because\n * two spacing rules would be two ways for the same paragraph to land.\n */",
   ]],
   ["src/client/features/chat/filter-persist.test.ts", [
     "/**\n * The store built from scratch, with the same generation's API mock.\n *\n * The persisted entry is read while the module is being built, so a test that wants to know what a\n * reload does has to reload — and the mock the new store reached for is a new instance too.\n */",
@@ -1824,6 +1823,10 @@ const allowed = new Map([
     "// default is better than a screen that throws.",
     "/**\n * The options a level picker draws: the model's own rungs, plus the stored level when it is not one of\n * them.\n *\n * A level can stop being offered — a model that could be switched off is replaced by one that cannot —\n * and a picker whose value is not in its own list would show the reader something other than what is\n * saved, or nothing at all. Keeping the odd value in the list is what makes the row honest; the note\n * beside it says what that level means on this model.\n */",
   ]],
+  ["src/client/features/chat/note-ai.ts", [
+    "/**\n * One question about one note, answered and handed back as text.\n *\n * Several actions are \"ask the assistant about this note and then do something with the answer\": a\n * template's AI slot, a suggestion of tags and properties. They share the transport — put the note in\n * front of the assistant, open the dock so the reader can watch, wait for the whole turn — and differ\n * only in what they do with the answer. So the transport lives here once.\n *\n * The note is opened rather than merely named because that is what the turn carries: the request's\n * context is the note on screen, not an id the caller happens to hold. Opening it is also what the\n * reader expects from an action they aimed at a row.\n */",
+    "/**\n * Ask about a note and wait for the answer, or `null` when there will not be one.\n *\n * `null` is not a failure of its own: a turn already in flight is refused before it starts (the store\n * would silently drop the request, and a dropped request that returns the *previous* answer would be\n * worse than none), and an answer that came back empty is nothing to act on either. Both say why.\n */",
+  ]],
   ["src/client/features/chat/note-citations.test.ts", [
     "/**\n * Where a citation leads.\n *\n * An answer can be built on two different things: pages a web search found, and notes the note tools read.\n * They are drawn side by side, so the only thing that keeps them apart is what the card does when it is\n * pressed — and that difference is the whole point. A note citation is a button that opens the note in\n * this vault; a web citation is a link that leaves. Getting them the wrong way round sends a reader to a\n * new tab for a note they already have, or worse, nowhere at all.\n */",
   ]],
@@ -1842,6 +1845,22 @@ const allowed = new Map([
     "/** The tools whose payload describes notes, by name. */",
     "/** The shape every note id in this app has: a 26-character Crockford-ish ULID. */",
     "/**\n * The notes a call mentioned, in the order the payload named them.\n *\n * A result that is not the JSON this app wrote — a third-party server's own text, or an error string —\n * yields nothing rather than a guess: a chip is a promise that pressing it opens something.\n */",
+  ]],
+  ["src/client/features/chat/note-suggestions.test.ts", [
+    "/**\n * Tags and properties, from the assistant's answer to the note's front matter.\n *\n * Two halves are worth pinning. The parse is the trust boundary: the model answers with prose around\n * a JSON object, and what comes out has to be a shape this module can write — flat scalars, usable\n * tag names, no second writer for `tags`. The write is the other half: the note's own tags are merged\n * rather than replaced, and nothing is written when the reader says no.\n */",
+    "// The note's own tag is still there, and the duplicate the model suggested was not added twice.",
+  ]],
+  ["src/client/features/chat/note-suggestions.ts", [
+    "/**\n * Tags and properties, suggested by the assistant and written into the front matter.\n *\n * A note's front matter is the half of it that a reader forgets to maintain: the body gets written and\n * the tags stay empty. Asking the model for a list of tags is cheap, and the answer is checkable — a\n * tag is a word, a property is a key and a scalar — so the model's answer is parsed into a shape this\n * module controls and shown to the reader before anything is written.\n *\n * Nothing is applied silently. A suggestion is a proposal about a note the reader owns, and front\n * matter is where their own conventions live; the confirmation names every change it is about to make.\n */",
+    "/** How much of a suggestion is worth reading. Past this it is a rewrite of the note, not metadata. */",
+    "/** The JSON object inside an answer that was probably wrapped in prose, or in a fence. */",
+    "/**\n * Properties are flat scalars only.\n *\n * A nested object or a list would be a structure the reader did not ask for, and one this module\n * cannot describe in the confirmation sentence — so it is dropped rather than guessed at.\n */",
+    "// `tags` is written by the tag pass, with its own list handling; a second writer would fight it.",
+    "/** Read a suggestion out of whatever the model actually answered. */",
+    "/** The existing tags of a note, without the leading `#` that a tag-shaped alias may carry. */",
+    "/**\n * Write a suggestion into the note's front matter.\n *\n * Tags are merged rather than replaced — the note's own tags are not the model's to remove — and the\n * result goes through the same `setFrontMatterValue` the properties panel uses, so a note without\n * front matter gains one instead of quietly ignoring the write.\n */",
+    "/** How a proposal reads in the confirmation: every tag and every key it is about to write. */",
+    "/**\n * Ask for suggestions, show them, and write them if the reader agrees.\n *\n * Returns what was applied, so a caller that opened a menu can say whether anything happened.\n */",
   ]],
   ["src/client/features/chat/pdf-text.ts", [
     "/**\n * A PDF's words, read in the browser.\n *\n * The worker cannot pull text out of a PDF — it has no parser and no DOM — so the browser reads it at\n * upload time, where PDF.js already runs for the reading app, and sends the words along with the bytes.\n * The library is imported lazily so an attachment that is not a PDF never pays for it, and the\n * extraction is bounded so a nine-hundred-page manual does not arrive as one enormous prompt.\n */",
@@ -1940,6 +1959,16 @@ const allowed = new Map([
   ["src/client/features/chat/tag-attach.test.ts", [
     "/**\n * A new tag has to reach the conversation it was made for, or say why it did not.\n *\n * `createTag` is optimistic — it validates the name, answers a duplicate with the tag that already\n * exists, seeds the local cache and posts the row without waiting — so its id is in hand before the\n * server has a row to point at, and the attach route refuses an unknown tag. The old path caught that\n * refusal and threw the answer away: the reader typed a name, nothing appeared, and no one said so.\n * What is pinned here is the two honest outcomes: the conversation is filed once the row is back, or a\n * danger toast says it was not.\n */",
     "// The row lands on the second read, which is what a POST still on the wire looks like from here.",
+  ]],
+  ["src/client/features/chat/template-fill.test.ts", [
+    "/**\n * Filling a template's AI slots.\n *\n * The order is the whole point: each answer grows the note, so the slots are filled from the end of\n * the document backwards and the offsets recorded at render time stay true. If they were filled in\n * document order the second answer would land inside the first one's paragraph — which is a bug that\n * only shows up with two slots, so that is what the test uses.\n */",
+    "// The two slots, with the content they were rendered from.",
+  ]],
+  ["src/client/features/chat/template-fill.ts", [
+    "/**\n * Filling the places a template asked the assistant to write.\n *\n * `{{ai: …}}` is a template's own request, so it is answered when the note is made rather than offered\n * as a button: a template with a slot in it is a template that is not finished until the slot is\n * filled. Each slot is one turn, and the answers are written back from the end of the document\n * backwards — an answer grows the note, and the offsets behind it are the ones that would move.\n *\n * A slot that cannot be filled stops the run instead of skipping ahead: the turns are one thread about\n * one note, and the reason the first one produced nothing is the reason the next one will too.\n */",
+    "/**\n * Fill every slot, newest offset first. Returns how many were written, which is what the caller can\n * say out loud when the answer is \"none of them\".\n */",
+    "// The note may have been edited while the answer was being written; the offset is clamped rather",
+    "// than trusted, because a slot past the end would put the paragraph nowhere.",
   ]],
   ["src/client/features/chat/temporary-chat.test.ts", [
     "/**\n * The temporary thread's way from a click to the request.\n *\n * The promise is made once, at creation, so the two halves that have to meet are the reader's intent and\n * the turn that carries it: a button that lit up while the conversation went out unflagged would produce a\n * thread that looks temporary and is not, which is worse than not offering the button. The other direction\n * matters just as much — a flag sent on a later turn of an ordinary conversation would mean nothing,\n * because the server reads it only where it makes the conversation.\n */",
@@ -7628,6 +7657,8 @@ const allowed = new Map([
     "/**\n * The palette is a menu header, and a header is placed before it is measured. These are what the\n * panel actually is, so the maths that flips a menu away from the viewport edge can see it.\n */",
     "// The mode is a finger's shortcut for a handle, so it is only offered where a handle is hard to hit.",
     "/**\n     * One of the AI entries, run against whatever the caret is holding.\n     *\n     * The command reads the document itself rather than a copy captured when the menu opened: the\n     * selection is where the reader left it, and a note they kept typing in while the menu was up is a\n     * note whose offsets have moved. The whole document is the subject when nothing is selected, which is\n     * what makes \"summarise this note\" reachable from the same menu.\n     */",
+    "// The one AI entry that is about the note rather than the selection: it reads the whole body",
+    "// and writes to the front matter, so it sits apart from the five that rewrite a passage.",
   ]],
   ["src/client/features/workspace/VersionsPanel.tsx", [
     "// The middle is only materialized when the LCS actually needs it; the unchanged head and",
@@ -14139,6 +14170,8 @@ const allowed = new Map([
   ]],
   ["src/client/lib/template-notes.ts", [
     "/**\n * Create a note from a gallery template and open it, returning the new id.\n *\n * The template's `{{cursor}}` is handed to the editor through `createNote`, so\n * the marker is stripped from the body and the caret lands where the author\n * pointed it rather than at the end of the front matter. Placement follows the\n * same rules as the `+` button — the open folder, else the inbox — because a\n * template note is still just a new note.\n */",
+    "// A template that asked the assistant to write something is not finished until it has. The chat",
+    "// module is loaded on demand: a template without slots never pays for it.",
   ]],
   ["src/client/lib/test-render.ts", [
     "/** Idempotent jsdom shims needed to render React components in unit tests. */",
@@ -15235,6 +15268,9 @@ const allowed = new Map([
     "/**\n * The text a reader sees where the markup is: a wiki link by its alias or target, a\n * markdown link by its label, an embed by its file name.\n *\n * Excerpts are cut around a hit, so they used to carry the `[[…]]` the note happens to\n * contain, which reads as noise in a panel whose whole job is to point at that sentence.\n */",
     "/**\n * What a property can hold. The list case is deliberately not `string[]`: a note that says\n * `nums: [1, 2]` has numbers in it, and a run that adds a third item must not rewrite the first two\n * as text. The reader sees the difference in the properties panel, which colors and sorts by type.\n */",
   ]],
+  ["src/shared/note-template-render.test.ts", [
+    "// The offset is the place the answer goes, in the content that was actually saved.",
+  ]],
   ["src/shared/note-template-render.ts", [
     "/**\n * Renders a new-note template into note content.\n *\n * Placeholders are filled in a single left-to-right pass, so a value that\n * itself looks like a placeholder (`{{tags}}` inside a note title) is written\n * out literally instead of being expanded a second time.\n */",
     "/** Placeholders the renderer knows. Anything else is copied through untouched. */",
@@ -15250,6 +15286,18 @@ const allowed = new Map([
     "/**\n * Quote the value of one front matter line, in place, as far as `at` reaches it.\n *\n * This is the repair for a placeholder that shared its line with other text: the\n * line is a whole scalar now, so the block rule applies to all of it. Returns the\n * new text and how much the line grew, which is what the caret has to be shifted by.\n */",
     "/**\n * Fill the template's placeholders for one note.\n *\n * Values inside front matter are written so YAML reads them back unchanged: a\n * whole-value placeholder is quoted when it would otherwise be misread, and a\n * flow list item is quoted only when the flow parser itself would misread it, so\n * `tags: [{{tags}}]` still expands into several tags. `folder` and `tags` arrive\n * comma separated from the caller, which is why both are flattened to one line.\n */",
     "/**\n * Render a new-note template into final content and merge the tags a note was\n * created under into its front matter.\n *\n * Interpolation runs before the merge on purpose: the YAML round trip the merge\n * performs would parse a raw `{{tags}}` as a flow mapping and leave it behind in\n * the note. The caret offset is then shifted by however many characters the\n * merge added ahead of it.\n */",
+    "/**\n * A place the assistant writes, and what it was asked to write there.\n *\n * `{{ai: …}}` is the one placeholder that cannot be filled from the clock: it is a request, and the\n * request is answered after the note exists. So the marker is taken out of the body and handed to the\n * caller as an offset, which is where the answer goes once it arrives.\n */",
+    "/** Offset in the rendered content where the answer belongs. */",
+    "/** `{{ai: …}}` is one line long: an instruction that wraps would be a prompt with a blank line in it. */",
+    "/**\n * Take the AI slots out of the body and remember where each one was.\n *\n * A slot alone on its line takes the line with it, because a paragraph the reader cannot see would\n * otherwise be left as a blank line in the finished note. The removal is what makes the offsets the\n * answer needs true of the content that is actually saved, so the caret is pulled back with them.\n */",
+    "// An empty instruction is a template mistake, and one that stays visible beats one that silently",
+    "// eats the marker and leaves nothing behind.",
+    "// A slot alone on its line takes the line with it, and one of the blank lines that separated it",
+    "// from its neighbours — otherwise the note is left with the empty paragraph the marker stood for.",
+    "// The caret sits after every slot in practice, so it moves back by everything that was removed",
+    "// ahead of it — and onto the slot's own offset when it happened to be inside one.",
+    "// The slots are taken out last, on the final body: a merge that grew the front matter would",
+    "// otherwise leave every offset the answers are inserted at pointing at the wrong character.",
   ]],
   ["src/shared/note-templates.ts", [
     "/**\n * Built-in template library catalog.\n *\n * The gallery is seeded per user from this catalog on first run. Names,\n * descriptions and Markdown bodies live in the locale resources (one entry per\n * language), so the catalog only references message keys. Bump\n * `TEMPLATE_SEED_VERSION` when adding or changing built-in entries: hydration\n * merges the missing/updated entries into existing user libraries without\n * touching user-created templates or user edits.\n */",

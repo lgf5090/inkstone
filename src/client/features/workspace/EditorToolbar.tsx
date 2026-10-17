@@ -18,6 +18,7 @@ import { editorCombo } from '../../editor/shortcuts';
 import { APP_SHORTCUTS } from '../../lib/shortcuts';
 import { closeEmojiPicker, isEmojiPickerOpen, openEmojiPicker, useEmojiPicker } from '../../store/emoji-picker';
 import { EDITOR_AI_LABELS, runEditorAi, type EditorAiAction } from '../chat/editor-ai';
+import { suggestNoteMeta } from '../chat/note-suggestions';
 
 type ToolbarMenu = 'heading' | 'reference' | 'image' | 'note' | 'code' | 'math' | 'block' | 'carry' | 'format' | 'text-color' | 'highlight-color' | 'ai';
 
@@ -106,11 +107,26 @@ export function EditorToolbar({ runCommand, view, onPickImage, mobile = false, s
             });
         });
     };
-    const aiItems = (['ask', 'rewrite', 'summarize', 'continue', 'translate'] as const).map((action) => ({
-        id: action,
-        label: t(EDITOR_AI_LABELS[action]),
-        onSelect: () => runAi(action),
-    }));
+    const aiItems = [
+        ...(['ask', 'rewrite', 'summarize', 'continue', 'translate'] as const).map((action) => ({
+            id: action,
+            label: t(EDITOR_AI_LABELS[action]),
+            onSelect: () => runAi(action),
+        })),
+        // The one AI entry that is about the note rather than the selection: it reads the whole body
+        // and writes to the front matter, so it sits apart from the five that rewrite a passage.
+        {
+            id: 'suggest-meta',
+            label: t('assistant.suggest.command'),
+            separatorBefore: true,
+            onSelect: () => {
+                setToolbarMenu(null);
+                const noteId = useUi.getState().activeNoteId;
+                if (noteId)
+                    void suggestNoteMeta(noteId);
+            },
+        },
+    ];
     const menus = [
         { id: 'heading', anchor: headingRef, label: t('workspace.title_level'), items: headingMenuItems(run), width: 224 },
         { id: 'reference', anchor: referenceRef, label: t('workspace.links_and_references'), items: referenceMenuItems(run), width: 200 },

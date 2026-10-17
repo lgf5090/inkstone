@@ -214,6 +214,46 @@ describe('front matter survives any folder a note can live in', () => {
   })
 })
 
+describe('template AI slots', () => {
+  it('takes a slot on its own line out of the body and reports where it was', () => {
+    const { content, aiSlots } = renderNewNoteTemplate('# Week\n\n{{ai: write three bullets}}\n\n## Notes\n', context())
+    expect(content).toBe('# Week\n\n## Notes\n')
+    expect(aiSlots).toEqual([{ at: '# Week\n\n'.length, instruction: 'write three bullets' }])
+    // The offset is the place the answer goes, in the content that was actually saved.
+    expect(content.slice(0, aiSlots[0]!.at)).toBe('# Week\n\n')
+  })
+
+  it('keeps the text around a slot that shares its line', () => {
+    const { content, aiSlots } = renderNewNoteTemplate('Summary: {{ai: one sentence}} (draft)', context())
+    expect(content).toBe('Summary:  (draft)')
+    expect(aiSlots[0]).toEqual({ at: 'Summary: '.length, instruction: 'one sentence' })
+  })
+
+  it('reports every slot against the stripped content, in document order', () => {
+    const { content, aiSlots } = renderNewNoteTemplate('{{ai: first}}\n\nmiddle\n\n{{ai: second}}\n', context())
+    expect(content).toBe('middle\n\n')
+    expect(aiSlots.map((slot) => slot.instruction)).toEqual(['first', 'second'])
+    expect(aiSlots.map((slot) => slot.at)).toEqual([0, 'middle\n\n'.length])
+  })
+
+  it('leaves a slot with no instruction alone, so the mistake stays visible', () => {
+    const { content, aiSlots } = renderNewNoteTemplate('{{ai:   }}\n', context())
+    expect(content).toBe('{{ai:   }}\n')
+    expect(aiSlots).toEqual([])
+  })
+
+  it('pulls the caret back by what the slots took out ahead of it', () => {
+    const { content, cursor } = renderNewNoteTemplate('{{ai: first}}\n\nbody {{cursor}}', context())
+    expect(content).toBe('body ')
+    expect(content.slice(cursor!)).toBe('')
+  })
+
+  it('does not treat the marker as a placeholder to interpolate', () => {
+    const { content } = interpolateNewNoteTemplate('{{ai: mention {{title}}}}', context())
+    expect(content).toBe('{{ai: mention Reading list}}')
+  })
+})
+
 describe('yamlFlowItem', () => {
   it('quotes only what a flow parser would not read back', () => {
     for (const value of ['x]y', '[x', '{y}', 'a: b', '工作: 项目', '#c', '"q"', 'true', '1e3', '', '- x', 'a,b'])

@@ -8,7 +8,7 @@
  */
 import type { ComponentType } from 'react'
 import {
-  Archive, Clipboard, Columns2, Download, Eye, EyeOff, FolderPlus, ImagePlus, IndentDecrease, IndentIncrease, Keyboard, LayoutTemplate, Link2, ListTree, MoveDown, MoveUp, Palette, Pencil, Pin, Plus, Presentation, ScanSearch, Settings, Share2, Smile, SquarePen, Sparkles, Star, Sun, Moon, Trash2, WandSparkles, Waypoints, ChevronsDownUp, ChevronsUpDown, Search, Zap, Activity, Compass, ListChecks, Rss, BookMarked, Brain, FolderKanban, MessageSquare,
+  Archive, Clipboard, Columns2, Download, Eye, EyeOff, FolderPlus, ImagePlus, IndentDecrease, IndentIncrease, Keyboard, LayoutTemplate, Link2, ListTree, MoveDown, MoveUp, Palette, Pencil, Pin, Plus, Presentation, ScanSearch, Settings, Share2, Smile, SquarePen, Sparkles, Star, Sun, Moon, Tags, Trash2, WandSparkles, Waypoints, ChevronsDownUp, ChevronsUpDown, Search, Zap, Activity, Compass, ListChecks, Rss, BookMarked, Brain, FolderKanban, MessageSquare,
 } from 'lucide-react'
 import type { MessageKey } from '@shared/locales/en-US'
 import { api } from '../../lib/api'
@@ -36,6 +36,7 @@ import { appTab } from '../shell/app-tabs'
 import { useAssistant, type AssistantView } from '../chat/assistant-store'
 import { startChatAboutFolder, startChatAboutNote } from '../chat/start-chat'
 import { summarizeFolder } from '../chat/folder-summary'
+import { suggestNoteMeta } from '../chat/note-suggestions'
 import { useSession } from '../../store/session'
 import { useUi } from '../../store/ui'
 
@@ -672,6 +673,14 @@ function assistantCommands(): AppCommand[] {
           group: t('command.group_assistant'),
           icon: Sparkles,
           run: () => startChatAboutNote(useUi.getState().activeNoteId!),
+        },
+        {
+          id: 'assistant-suggest-meta',
+          kind: 'command' as const,
+          label: t('assistant.suggest.command'),
+          group: t('command.group_assistant'),
+          icon: Tags,
+          run: () => void suggestNoteMeta(useUi.getState().activeNoteId!),
         }]
       : []),
     ...(useUi.getState().folderId
