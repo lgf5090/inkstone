@@ -17,7 +17,7 @@ import { cn } from '../../lib/cn'
 import { matchesQuery } from '../../lib/fuzzy'
 import { t, type MessageKey } from '../../lib/i18n'
 import { Button, Divider, IconButton } from '../../components/primitives'
-import { Field, Input, Select, SettingRow, Switch } from '../../components/form'
+import { Field, Input, Select, SettingRow, Switch, useRovingRadio } from '../../components/form'
 import { Modal, Tooltip, confirm, useClickOutside, useEscape } from '../../components/overlay'
 import { useUi } from '../../store/ui'
 import { useAssistant, type ReportFailure, type WriteFailure } from './assistant-store'
@@ -72,14 +72,123 @@ function specialMark(model: AssistantModel): { key: MessageKey, icon: React.Reac
   return purpose[model.purpose] ?? kind[model.kind] ?? null
 }
 
+/**
+ * The id a provider's own name wears.
+ *
+ * Derived from the provider id rather than from `useId`, because the name and the list of models it labels
+ * are rendered by two components and a screen reader needs one address for both.
+ */
+const providerLabelId = (providerId: string): string => `assistant-provider-${providerId}`
+
+/**
+ * One provider's models, as the choice between them that it is.
+ *
+ * Activating a model picks exactly one of the row, and every row already says so with `role="radio"`. What
+ * was missing is the group those radios belong to: its name, one stop in the tab order instead of one per
+ * model, and the arrows that move the choice. `useRovingRadio` is the helper the segmented control already
+ * uses, so the keys mean the same thing here as they do everywhere else in the app.
+ */
+function ModelList({ models, activeModelId, labelId, onEdit }: {
+  models: readonly AssistantModel[]
+  activeModelId: string | null
+  /** The id of the provider's own name, which is what labels this group. */
+  labelId: string
+  onEdit: (model: AssistantModel) => void
+}) {
+  const activateModel = useAssistant((state) => state.activateModel)
+  const updateModel = useAssistant((state) => state.updateModel)
+  const removeModel = useAssistant((state) => state.removeModel)
+  const roving = useRovingRadio(models.map((model) => model.id), activeModelId ?? '', (id) => void activateModel(id))
+  return (
+    <div role="radiogroup" aria-labelledby={labelId} className="flex flex-col gap-1 pl-9">
+      {models.map((model, index) => {
+        const mark = specialMark(model)
+        const active = activeModelId === model.id
+        return (
+          <div
+            key={model.id}
+            className={cn(
+              'flex items-center rounded-[var(--r-md)] border px-2 py-1.5',
+              'transition-[background-color,border-color] duration-[var(--dur-fast)] ease-[var(--ease-out)]',
+              active
+                ? 'border-[var(--accent)] bg-[var(--accent-softer)]'
+                : 'border-[var(--border-subtle)] hover:border-[var(--border-default)] hover:bg-[var(--bg-hover)]',
+            )}
+          >
+            {/* One line of controls, no words: a phone-width card had two selects and two
+                switches stacked under every model, which pushed the list itself off the screen.
+                What a model can do is now the icons themselves — they are the switches — and the
+                level behind each one (how much thinking, whose context window) is a fact the
+                editor dialog holds. */}
+            <div className="flex min-w-0 flex-1 items-center gap-0.5">
+              <button
+                ref={roving.setItemRef(index)}
+                type="button"
+                role="radio"
+                aria-checked={active}
+                tabIndex={roving.tabIndexFor(index)}
+                onKeyDown={roving.keyHandlerFor(index)}
+                onClick={() => void activateModel(model.id)}
+                className={cn(
+                  'flex min-w-0 flex-1 items-center gap-1.5 py-0.5 text-left text-[length:var(--text-12-5)]',
+                  active
+                    ? 'text-[var(--accent-on-soft)]'
+                    : 'text-[var(--text-secondary)]',
+                )}
+              >
+                <span aria-hidden className={cn('size-2 shrink-0 rounded-full border', active ? 'border-[var(--accent)] bg-[var(--accent)]' : 'border-[var(--border-strong)]')} />
+                {mark && (
+                  <Tooltip label={t(mark.key)}>
+                    <span aria-hidden className="shrink-0 text-[var(--text-quaternary)]">{mark.icon}</span>
+                  </Tooltip>
+                )}
+                <span className="min-w-0 flex-1 truncate">{model.label}</span>
+                <span className="hidden shrink-0 font-mono text-[length:var(--text-10-5)] text-[var(--text-quaternary)] md:block">{model.model}</span>
+              </button>
+              <CapabilityToggle
+                on={model.reasoning !== 'off'}
+                label={t('assistant.model.reasoning_short')}
+                icon={<Brain size={12} />}
+                onToggle={() => void updateModel(model.id, { reasoning: model.reasoning === 'off' ? 'auto' : 'off' })}
+              />
+              <CapabilityToggle
+                on={model.supportsTools}
+                label={t('assistant.model.tools_short')}
+                icon={<Wrench size={12} />}
+                onToggle={() => void updateModel(model.id, { supportsTools: !model.supportsTools })}
+              />
+              <CapabilityToggle
+                on={model.vision}
+                label={t('assistant.model.vision_short')}
+                icon={<Eye size={12} />}
+                onToggle={() => void updateModel(model.id, { vision: !model.vision })}
+              />
+              <CapabilityToggle
+                on={model.enabled}
+                label={t('assistant.model.shown')}
+                icon={<Power size={12} />}
+                onToggle={() => void updateModel(model.id, { enabled: !model.enabled })}
+              />
+              <IconButton label={t('assistant.model.edit')} size="xs" onClick={() => onEdit(model)}>
+                <Settings2 size={12} />
+              </IconButton>
+              <IconButton label={t('assistant.settings.delete_model')} size="xs" onClick={() => void removeModel(model.id)}>
+                <Trash2 size={12} />
+              </IconButton>
+            </div>
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
 export function ModelTab({ settings }: { settings: AssistantSettings }) {
   const providers = useAssistant((state) => state.providers)
   const models = useAssistant((state) => state.models)
   const saveSettings = useAssistant((state) => state.saveSettings)
   const removeProvider = useAssistant((state) => state.removeProvider)
-  const removeModel = useAssistant((state) => state.removeModel)
   const addModel = useAssistant((state) => state.addModel)
-  const activateModel = useAssistant((state) => state.activateModel)
   const updateModel = useAssistant((state) => state.updateModel)
   const toast = useUi((state) => state.toast)
   const [addingProvider, setAddingProvider] = useState(false)
@@ -116,7 +225,7 @@ export function ModelTab({ settings }: { settings: AssistantSettings }) {
                 <KeyRound size={13} />
               </span>
               <div className="min-w-0 flex-1">
-                <p className="truncate text-[length:var(--text-13)] font-medium text-[var(--text-primary)]">{provider.label}</p>
+                <p id={providerLabelId(provider.id)} className="truncate text-[length:var(--text-13)] font-medium text-[var(--text-primary)]">{provider.label}</p>
                 <p className="truncate text-[length:var(--text-11)] text-[var(--text-quaternary)]">
                   {PROTOCOL_LABELS[provider.protocol]?.()} · {provider.baseUrl} · {storedKeyLabel(provider)}
                 </p>
@@ -153,82 +262,12 @@ export function ModelTab({ settings }: { settings: AssistantSettings }) {
             {list.length === 0 ? (
               <p className="pl-9 text-[length:var(--text-11)] text-[var(--text-quaternary)]">{t('assistant.settings.no_models')}</p>
             ) : (
-              <ul className="flex flex-col gap-1 pl-9">
-                {list.map((model) => {
-                  const mark = specialMark(model)
-                  return (
-                  <li
-                    key={model.id}
-                    className={cn(
-                      'flex items-center rounded-[var(--r-md)] border px-2 py-1.5',
-                      'transition-[background-color,border-color] duration-[var(--dur-fast)] ease-[var(--ease-out)]',
-                      settings.activeModelId === model.id
-                        ? 'border-[var(--accent)] bg-[var(--accent-softer)]'
-                        : 'border-[var(--border-subtle)] hover:border-[var(--border-default)] hover:bg-[var(--bg-hover)]',
-                    )}
-                  >
-                    {/* One line of controls, no words: a phone-width card had two selects and two
-                        switches stacked under every model, which pushed the list itself off the screen.
-                        What a model can do is now the icons themselves — they are the switches — and the
-                        level behind each one (how much thinking, whose context window) is a fact the
-                        editor dialog holds. */}
-                    <div className="flex min-w-0 flex-1 items-center gap-0.5">
-                      <button
-                        type="button"
-                        role="radio"
-                        aria-checked={settings.activeModelId === model.id}
-                        onClick={() => void activateModel(model.id)}
-                        className={cn(
-                          'flex min-w-0 flex-1 items-center gap-1.5 py-0.5 text-left text-[length:var(--text-12-5)]',
-                          settings.activeModelId === model.id
-                            ? 'text-[var(--accent-on-soft)]'
-                            : 'text-[var(--text-secondary)]',
-                        )}
-                      >
-                        <span aria-hidden className={cn('size-2 shrink-0 rounded-full border', settings.activeModelId === model.id ? 'border-[var(--accent)] bg-[var(--accent)]' : 'border-[var(--border-strong)]')} />
-                        {mark && (
-                          <Tooltip label={t(mark.key)}>
-                            <span aria-hidden className="shrink-0 text-[var(--text-quaternary)]">{mark.icon}</span>
-                          </Tooltip>
-                        )}
-                        <span className="min-w-0 flex-1 truncate">{model.label}</span>
-                        <span className="hidden shrink-0 font-mono text-[length:var(--text-10-5)] text-[var(--text-quaternary)] md:block">{model.model}</span>
-                      </button>
-                      <CapabilityToggle
-                        on={model.reasoning !== 'off'}
-                        label={t('assistant.model.reasoning_short')}
-                        icon={<Brain size={12} />}
-                        onToggle={() => void updateModel(model.id, { reasoning: model.reasoning === 'off' ? 'auto' : 'off' })}
-                      />
-                      <CapabilityToggle
-                        on={model.supportsTools}
-                        label={t('assistant.model.tools_short')}
-                        icon={<Wrench size={12} />}
-                        onToggle={() => void updateModel(model.id, { supportsTools: !model.supportsTools })}
-                      />
-                      <CapabilityToggle
-                        on={model.vision}
-                        label={t('assistant.model.vision_short')}
-                        icon={<Eye size={12} />}
-                        onToggle={() => void updateModel(model.id, { vision: !model.vision })}
-                      />
-                      <CapabilityToggle
-                        on={model.enabled}
-                        label={t('assistant.model.shown')}
-                        icon={<Power size={12} />}
-                        onToggle={() => void updateModel(model.id, { enabled: !model.enabled })}
-                      />
-                      <IconButton label={t('assistant.model.edit')} size="xs" onClick={() => setEditing(model)}>
-                        <Settings2 size={12} />
-                      </IconButton>
-                      <IconButton label={t('assistant.settings.delete_model')} size="xs" onClick={() => void removeModel(model.id)}>
-                        <Trash2 size={12} />
-                      </IconButton>
-                    </div>
-                  </li>
-                  )
-                })}
-              </ul>
+              <ModelList
+                models={list}
+                activeModelId={settings.activeModelId}
+                labelId={providerLabelId(provider.id)}
+                onEdit={setEditing}
+              />
             )}
           </div>
         ))}

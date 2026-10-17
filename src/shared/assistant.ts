@@ -218,18 +218,35 @@ export function parseModelModalities(value: unknown): AssistantModelModality[] {
 /**
  * Quick picks, so the reader is not typing 1048576 into a number field to get 1M.
  *
+ * One ladder for every field that holds a token count — an output ceiling, an input ceiling, the context
+ * window a model publishes, and the context one turn is fed. They are the same setting as far as the reader
+ * is concerned and are read off the same scale, so two screens offering two sets of picks that barely
+ * overlap made one number look like two different choices: 32K was pickable in the composer and unreachable
+ * in the model editor, while 400K was the other way round.
+ *
  * Every step counts in the unit a token is counted in: 1K is 1024, and the label under the button is the
  * same division, so the number the button saves is the number it says. A round thousand would print
- * 32_768 as 33K and read like a different setting than the one it is. The two ceilings — what a model
- * may be sent and what it may write back — share one ladder because they are read off the same scale.
+ * 32_768 as 33K and read like a different setting than the one it is. The rungs above 128K are the windows
+ * vendors actually publish — 192K, the 200K class, 400K, 512K and 1M — written the same way.
  */
-export const TOKEN_STEPS: readonly number[] = [1024, 4096, 8192, 16_384, 32_768, 65_536, 131_072, 262_144, 524_288, 1_048_576]
-/** The context window's own picks: the sizes vendors publish, on that same binary scale. */
-export const CONTEXT_WINDOW_STEPS: readonly number[] = [131_072, 204_800, 262_144, 409_600, 524_288, 1_048_576]
+export const TOKEN_STEPS: readonly number[] = [
+  1024, 4096, 8192, 16_384, 32_768, 65_536, 131_072, 196_608, 204_800, 262_144, 409_600, 524_288, 1_048_576,
+]
 
+/**
+ * One token count as the reader reads it: `256K` for a number on the ladder, `~6K` for one that is not.
+ *
+ * A value off the ladder is either a default the reader never chose — `DEFAULT_LIMITS.maxContextTokens` is
+ * 6000 — or a number they typed, and the screen still has to say something about it. Printing the raw digits
+ * of a four-million ceiling is a wall of text with no unit, so an off-ladder count gets the rounded label
+ * with a `~` that admits it is approximate. Exact ladder values keep the bare label they always had.
+ */
 export function formatTokenStep(tokens: number): string {
   if (tokens >= 1_048_576 && tokens % 1_048_576 === 0) return `${tokens / 1_048_576}M`
   if (tokens >= 1024 && tokens % 1024 === 0) return `${tokens / 1024}K`
+  // Under a K the number is already the shortest honest answer: 512 reads better as 512 than as ~1K.
+  if (tokens >= 1_048_576) return `~${Math.round(tokens / 1_048_576)}M`
+  if (tokens >= 1024) return `~${Math.round(tokens / 1024)}K`
   return `${tokens}`
 }
 
@@ -379,15 +396,12 @@ export const REASONING_BUDGET_TOKENS: Record<Exclude<AssistantReasoning, 'auto' 
   max: 65_536,
 }
 
-/** The context budgets the composer's slider snaps to, in tokens. */
 /**
  * The largest number any of the three token fields will store — the context window, the input ceiling and
  * the output ceiling alike. A ceiling on the number, not a menu: it is past every window a vendor
  * publishes, so it is what "no smaller ceiling than that" is written as.
  */
 export const MAX_TOKEN_CEILING = 4_000_000
-
-export const CONTEXT_TOKEN_STEPS: readonly number[] = [4096, 8192, 16_384, 32_768, 65_536, 131_072, 262_144]
 
 /**
  * The history budget one turn is fed.

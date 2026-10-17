@@ -85,24 +85,25 @@ export function Group({ title, children }: { title: string, children: ReactNode 
   )
 }
 
-const CHIP_COLUMNS = { 3: 'grid-cols-3', 5: 'grid-cols-5', 6: 'grid-cols-6' } as const
+const CHIP_COLUMNS = { 3: 'grid-cols-3', 5: 'grid-cols-5', 6: 'grid-cols-6', 7: 'grid-cols-7' } as const
 
 /**
  * One row of preset buttons under a token field: the reader picks 256K rather than typing 262144.
  *
- * Both token editors draw this, because both hold the same ladder — the ceiling a model was given, and the
- * one behind the models that were given none. Pressing the preset that is already taken hands back `null`,
- * which means "take it back": a model's own ceiling can be empty, while the account's number cannot, and
- * that caller simply does not act on it.
+ * Every token field in the app draws its picks from `TOKEN_STEPS` — the ceiling a model was given, the one
+ * behind the models that were given none, and the context a turn is fed — because they are one setting read
+ * off one scale, and a reader who learns the picks in one screen should find them in the next. Pressing the
+ * preset that is already taken hands back `null`, which means "take it back": a model's own ceiling can be
+ * empty, while the account's number cannot, and that caller simply does not act on it.
  */
 export function ChipRow({ label, steps, value, onPick, columns = 5 }: {
   label: string
   steps: readonly number[]
   value: number | null
   onPick: (tokens: number | null) => void
-  /** How many picks sit on one line; a fixed count keeps the rows aligned instead of ragged. Six is
-   *  the context window's own ladder, which reads as a single row rather than a wider three-plus-three. */
-  columns?: 3 | 5 | 6
+  /** How many picks sit on one line; a fixed count keeps the rows aligned instead of ragged. Seven is the
+   *  shared ladder's own width, which then reads as two rows with the vendor windows on the second. */
+  columns?: 3 | 5 | 6 | 7
 }) {
   return (
     <div role='group' aria-label={label} className={cn('mt-1.5 grid gap-1', CHIP_COLUMNS[columns])}>

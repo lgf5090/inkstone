@@ -8,9 +8,10 @@ import { act, createElement } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from 'vitest'
 import type { AssistantModel, AssistantProvider } from '@shared/assistant'
-import { CONTEXT_WINDOW_STEPS, DEFAULT_LIMITS, TOKEN_STEPS, formatTokenStep } from '@shared/assistant'
+import { DEFAULT_LIMITS, MAX_TOKEN_CEILING, TOKEN_STEPS, formatTokenStep } from '@shared/assistant'
 import { initI18n, t } from '../../lib/i18n'
 import { installTestGlobals } from '../../lib/test-render'
+import { ContextMenu, formatContext } from './ComposerControls'
 import { ModelEditorDialog, draftFromModel, type ModelDraft } from './ModelEditorDialog'
 import type { ReportFailure } from './assistant-store'
 
@@ -117,26 +118,35 @@ const save = async () => {
 
 describe('the quick picks', () => {
     it('labels each step with the number the reader reads off the button', () => {
-        expect(CONTEXT_WINDOW_STEPS.map(formatTokenStep)).toEqual(['128K', '200K', '256K', '400K', '512K', '1M'])
         // A token is counted in binary: 1K is 1024, so the label and the stored number are the same fact.
-        expect(TOKEN_STEPS.map(formatTokenStep)).toEqual(['1K', '4K', '8K', '16K', '32K', '64K', '128K', '256K', '512K', '1M'])
+        expect(TOKEN_STEPS.map(formatTokenStep)).toEqual(['1K', '4K', '8K', '16K', '32K', '64K', '128K', '192K', '200K', '256K', '400K', '512K', '1M'])
         expect(formatTokenStep(1024)).toBe('1K')
         expect(formatTokenStep(1_048_576)).toBe('1M')
-        // A number the ladder does not hold is printed as itself rather than rounded into a step it is not.
+        // A count that is not on the ladder — a default nobody picked, or a number somebody typed — still has
+        // to read as a size. Four million shown as 4000000 is a wall of digits with no unit in it.
+        expect(formatTokenStep(MAX_TOKEN_CEILING)).toBe('~4M')
+        expect(formatTokenStep(DEFAULT_LIMITS.maxContextTokens)).toBe('~6K')
+        // Under a K the number is already the shortest honest answer, so it stays the number.
         expect(formatTokenStep(1000)).toBe('1000')
         expect(formatTokenStep(512)).toBe('512')
     })
 
-    it('gives the input ceiling and the output ceiling the same picks', () => {
+    it('gives every token field the same ladder, the small windows included', () => {
         open()
         const row = (name: string) => [...document.body.querySelectorAll<HTMLElement>('[role="group"]')]
             .find((node) => node.getAttribute('aria-label') === name)
         const labels = (name: string) => [...row(name)!.querySelectorAll('button[aria-pressed]')].map((node) => node.textContent?.trim())
+        const context = labels(t('assistant.model.context'))
+        // One setting, one set of picks: the model editor used to stop at 128K and start there, so 32K of
+        // context — the default the budget tab answers with — could not be picked at all.
+        expect(context).toEqual(labels(t('assistant.model.max_input')))
         expect(labels(t('assistant.model.max_input'))).toEqual(labels(t('assistant.model.max_output')))
-        expect(labels(t('assistant.model.max_output'))).toEqual(['1K', '4K', '8K', '16K', '32K', '64K', '128K', '256K', '512K', '1M'])
+        expect(context).toEqual(['1K', '4K', '8K', '16K', '32K', '64K', '128K', '192K', '200K', '256K', '400K', '512K', '1M'])
+        expect(context).toContain('32K')
+        expect(context).toContain('64K')
     })
     it('marks the stored value, and only that one, as taken', () => {
-        open({ contextTokens: CONTEXT_WINDOW_STEPS[2] })
+        open({ contextTokens: 262_144 })
         const context = t('assistant.model.context')
         expect(chip('256K', context)?.getAttribute('aria-pressed')).toBe('true')
         expect(chip('400K', context)?.getAttribute('aria-pressed')).toBe('false')
@@ -161,14 +171,15 @@ describe('the quick picks', () => {
         expect(draft.maxOutputTokens).toBe(16_384)
     })
 
-    it('lays the six-context-window ladder out as one even row rather than three over three', () => {
+    it('lays the shared ladder out as even rows of seven rather than a ragged three', () => {
         open()
         const row = [...document.body.querySelectorAll<HTMLElement>('[role="group"]')]
             .find((node) => node.getAttribute('aria-label') === t('assistant.model.context'))
         expect(row, 'the context row is not rendered').toBeTruthy()
-        // The dialog is the tallest surface in settings; one row of six is what keeps this section short.
-        expect(row!.className).toContain('grid-cols-6')
-        expect(row!.querySelectorAll('button')).toHaveLength(CONTEXT_WINDOW_STEPS.length)
+        // The dialog is the tallest surface in settings; seven to a line keeps the three token fields to two
+        // rows each, with the vendor windows on the second one.
+        expect(row!.className).toContain('grid-cols-7')
+        expect(row!.querySelectorAll('button')).toHaveLength(TOKEN_STEPS.length)
     })
 
     it('lets the inherited note wrap under the field instead of running past the dialog edge', () => {
@@ -359,5 +370,29 @@ describe('the wire protocol a model is called on', () => {
     it('reads back a model that already names one', () => {
         open({ protocol: 'gemini' })
         expect(protocolSelect()?.value).toBe('gemini')
+    })
+})
+
+/**
+ * The third screen that holds a context number: the composer's own chip.
+ *
+ * It used to carry a ladder of its own, ending where the editor's began, so the reader met two sets of
+ * budgets for one setting. All three now come from `TOKEN_STEPS`.
+ */
+describe('the context budget the composer offers', () => {
+    it('snaps to the ladder the model editor and the budget tab use', async () => {
+        const host = document.createElement('div')
+        document.body.appendChild(host)
+        const menuRoot = createRoot(host)
+        await act(async () => { menuRoot.render(createElement(ContextMenu, { value: null, onPick: vi.fn() })) })
+        await act(async () => {
+            document.body.querySelector<HTMLButtonElement>('button')!
+                .dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }))
+        })
+        const picks = [...document.body.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')]
+            .map((node) => node.textContent?.trim())
+        expect(picks).toEqual([t('assistant.context.follow_global'), ...TOKEN_STEPS.map(formatContext)])
+        await act(async () => { menuRoot.unmount() })
+        host.remove()
     })
 })

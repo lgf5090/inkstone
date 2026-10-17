@@ -1,7 +1,7 @@
 /**
  * The behaviour tab: what the assistant calls itself, and how it answers.
  */
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useId, useMemo, useState } from 'react'
 import { type AssistantSettings } from '@shared/assistant'
 import { ASSISTANT_TOOL_MODES, ASSISTANT_TOOL_PERMISSIONS, MAX_CUSTOM_INSTRUCTIONS_CHARS } from '@shared/assistant'
 import { isValidTimeZone } from '@shared/assistant-schedule'
@@ -22,11 +22,16 @@ export function BehaviourTab({ settings }: { settings: AssistantSettings }) {
     const list = typeof Intl.supportedValuesOf === 'function' ? Intl.supportedValuesOf('timeZone') : [browserZone]
     return list.includes(settings.timezone) ? list : [settings.timezone, ...list]
   }, [browserZone, settings.timezone])
+  // The three controls whose only words are the row's title: each id is what turns that title into the
+  // control's accessible name rather than a line of text beside it.
+  const agentNameId = useId()
+  const timezoneId = useId()
+  const startViewId = useId()
 
   return (
     <>
       <Group title={t('assistant.settings.identity')}>
-        <SettingRow title={t('assistant.settings.agent_name')} description={t('assistant.settings.agent_name_hint')}>
+        <SettingRow title={t('assistant.settings.agent_name')} description={t('assistant.settings.agent_name_hint')} controlId={agentNameId}>
           <form
             className="flex gap-1.5"
             onSubmit={(event) => {
@@ -34,7 +39,7 @@ export function BehaviourTab({ settings }: { settings: AssistantSettings }) {
               if (name.trim() && name !== settings.agentName) void saveSettings({ agentName: name.trim() })
             }}
           >
-            <Input value={name} maxLength={60} onChange={(event) => setName(event.target.value)} className="h-8 w-44 text-[length:var(--text-12-5)]" />
+            <Input id={agentNameId} value={name} maxLength={60} onChange={(event) => setName(event.target.value)} className="h-8 w-44 text-[length:var(--text-12-5)]" />
             <Button type="submit" size="sm" variant="secondary" disabled={!name.trim() || name === settings.agentName}>
               {t('common.save')}
             </Button>
@@ -57,6 +62,7 @@ export function BehaviourTab({ settings }: { settings: AssistantSettings }) {
           description={settings.timezone !== browserZone
             ? t('assistant.settings.timezone_use_device', { zone: browserZone })
             : t('assistant.settings.timezone_hint')}
+          controlId={timezoneId}
         >
           <div className="flex items-center gap-2">
             {settings.timezone !== browserZone && isValidTimeZone(browserZone) && (
@@ -64,7 +70,7 @@ export function BehaviourTab({ settings }: { settings: AssistantSettings }) {
                 {t('assistant.settings.timezone_detect')}
               </Button>
             )}
-            <Select value={settings.timezone} onChange={(event) => void saveSettings({ timezone: event.target.value })} className="max-w-[220px]">
+            <Select id={timezoneId} value={settings.timezone} onChange={(event) => void saveSettings({ timezone: event.target.value })} className="max-w-[220px]">
               {zones.map((zone) => <option key={zone} value={zone}>{zone}</option>)}
             </Select>
           </div>
@@ -78,8 +84,8 @@ export function BehaviourTab({ settings }: { settings: AssistantSettings }) {
         <SettingRow title={t('assistant.settings.auto_route')} description={t('assistant.settings.auto_route_hint')}>
           <Switch checked={settings.autoRoute} onChange={(value) => void saveSettings({ autoRoute: value })} label={t('assistant.settings.auto_route')} />
         </SettingRow>
-        <SettingRow title={t('assistant.settings.start_view')} description={t('assistant.settings.start_view_hint')}>
-          <Select value={settings.startView} onChange={(event) => void saveSettings({ startView: event.target.value })}>
+        <SettingRow title={t('assistant.settings.start_view')} description={t('assistant.settings.start_view_hint')} controlId={startViewId}>
+          <Select id={startViewId} value={settings.startView} onChange={(event) => void saveSettings({ startView: event.target.value })}>
             <option value="chat">{t('assistant.view.chat')}</option>
             <option value="memory">{t('assistant.view.memory')}</option>
             <option value="tasks">{t('assistant.view.tasks')}</option>

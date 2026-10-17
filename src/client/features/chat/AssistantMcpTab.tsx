@@ -358,6 +358,9 @@ function ServerDialog({ open, server, onClose }: {
               <div className="flex items-center gap-2">
                 <Input
                   type="number"
+                  // The row's box holds the seconds and the test button beside the number, so the label names
+                  // the group rather than the field; the box has to carry its own name.
+                  aria-label={t('assistant.mcp.timeout')}
                   min={MIN_MCP_TIMEOUT_SECONDS}
                   max={MAX_MCP_TIMEOUT_SECONDS}
                   value={String(draft.timeoutSeconds)}

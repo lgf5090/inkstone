@@ -31,7 +31,7 @@ import {
   Wand2,
 } from 'lucide-react'
 import type { AssistantModel, AssistantReasoning, AssistantSkill, AssistantToolMode } from '@shared/assistant'
-import { ASSISTANT_TOOL_MODES, CONTEXT_TOKEN_STEPS } from '@shared/assistant'
+import { ASSISTANT_TOOL_MODES, TOKEN_STEPS } from '@shared/assistant'
 import { cn } from '../../lib/cn'
 import { t, type MessageKey } from '../../lib/i18n'
 import { Menu, Modal, Tooltip, prompt, submenuFor, type MenuItem } from '../../components/overlay'
@@ -211,7 +211,7 @@ export function ContextMenu({
       icon: value === null ? <Check size={13} /> : <Gauge size={13} />,
       onSelect: () => onPick(null),
     },
-    ...CONTEXT_TOKEN_STEPS.map((tokens) => ({
+    ...TOKEN_STEPS.map((tokens) => ({
       id: String(tokens),
       label: formatContext(tokens),
       icon: value === tokens ? <Check size={13} /> : undefined,

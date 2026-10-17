@@ -19,7 +19,7 @@ import type {
   AssistantProvider,
   AssistantReasoning,
 } from '@shared/assistant'
-import { ASSISTANT_MODEL_KINDS, ASSISTANT_MODEL_MODALITIES, ASSISTANT_MODEL_PURPOSES, ASSISTANT_PROTOCOLS, CONTEXT_WINDOW_STEPS, TOKEN_STEPS, formatTokenStep } from '@shared/assistant'
+import { ASSISTANT_MODEL_KINDS, ASSISTANT_MODEL_MODALITIES, ASSISTANT_MODEL_PURPOSES, ASSISTANT_PROTOCOLS, TOKEN_STEPS, formatTokenStep } from '@shared/assistant'
 import type { AssistantModelModality, AssistantProtocol } from '@shared/assistant'
 import { REASONING_LABELS } from './ComposerControls'
 import { modelReasoning, reasoningOptions } from './model-reasoning'
@@ -123,8 +123,11 @@ const MODALITY_KEYS: Record<AssistantModelModality, Parameters<typeof t>[0]> = {
 /**
  * One of the three token numbers: the field, its quick picks, and what a blank one means.
  *
- * Drawn as a full-width row rather than a third of one, because the picks are ten buttons wide: in a
+ * Drawn as a full-width row rather than a third of one, because the picks are a row of seven buttons wide: in a
  * column each set wrapped onto three ragged lines and the three settings read as one crowded block.
+ *
+ * The box around the number and the note it inherits is a wrapper, not the control, so `Field` names the group
+ * and this field's input carries its own `aria-label` — the label the row's title would otherwise have to lend.
  */
 function TokenField({ labelKey, hintKey, value, inherited, steps, columns = 5, onChange }: {
   labelKey: Parameters<typeof t>[0]
@@ -133,7 +136,7 @@ function TokenField({ labelKey, hintKey, value, inherited, steps, columns = 5, o
   /** The account ceiling that answers while this field is empty, named beside it so the reader can see it. */
   inherited: number
   steps: readonly number[]
-  columns?: 3 | 5 | 6
+  columns?: 3 | 5 | 6 | 7
   onChange: (tokens: number | null) => void
 }) {
   const label = t(labelKey)
@@ -413,8 +416,8 @@ export function ModelEditorDialog({
                 hintKey="assistant.model.context_hint"
                 value={draft.contextTokens}
                 inherited={limits.maxContextTokens}
-                steps={CONTEXT_WINDOW_STEPS}
-                columns={6}
+                steps={TOKEN_STEPS}
+                columns={7}
                 onChange={(tokens) => patch({ contextTokens: tokens })}
               />
               <TokenField
@@ -423,6 +426,7 @@ export function ModelEditorDialog({
                 value={draft.maxInputTokens}
                 inherited={limits.maxInputTokens}
                 steps={TOKEN_STEPS}
+                columns={7}
                 onChange={(tokens) => patch({ maxInputTokens: tokens })}
               />
               <TokenField
@@ -431,6 +435,7 @@ export function ModelEditorDialog({
                 value={draft.maxOutputTokens}
                 inherited={limits.maxOutputTokens}
                 steps={TOKEN_STEPS}
+                columns={7}
                 onChange={(tokens) => patch({ maxOutputTokens: tokens })}
               />
             </div>

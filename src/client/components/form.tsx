@@ -416,6 +416,26 @@ export function Slider({
 }
 
 
+/**
+ * The elements that hold a control rather than being one.
+ *
+ * A `Field` around one of these has nothing to point its `for` at: only the control inside can be
+ * labelled, and a `for` that names a box is a dangling reference that gives the reader nothing.
+ */
+const FIELD_WRAPPER_ELEMENTS: ReadonlySet<string> = new Set([
+  'div', 'span', 'p', 'section', 'fieldset', 'form', 'ul', 'ol', 'li',
+])
+
+/** The association attributes a `Field` writes onto the element that carries its label. */
+interface FieldChildProps {
+  id?: string
+  role?: string
+  'aria-label'?: string
+  'aria-labelledby'?: string
+  'aria-describedby'?: string
+  'aria-required'?: boolean
+}
+
 export function Field({
   label,
   hint,
@@ -432,30 +452,47 @@ export function Field({
   const id = useId()
   const labelId = `${id}-label`
   const hintId = hint ? `${id}-hint` : undefined
+  const child = isValidElement<FieldChildProps>(children) ? children : null
+  const wrapper = child !== null && typeof child.type === 'string' && FIELD_WRAPPER_ELEMENTS.has(child.type)
+  // The case a label can reach directly: one child that is, or renders, the control. It takes the id, the
+  // label reference and the hint, which is how every plain `<Field><Input /></Field>` site already works.
+  const direct = child !== null && !wrapper
+  const multiple = child === null
   let controlId = `${id}-control`
-  let control = children
-  if (isValidElement<{
-    id?: string
-    'aria-labelledby'?: string
-    'aria-describedby'?: string
-    'aria-required'?: boolean
-  }>(children)) {
-    controlId = children.props.id ?? controlId
-    const existingDescription = children.props['aria-describedby']
-    control = cloneElement(children, {
+  let control: ReactNode = children
+  if (child && direct) {
+    controlId = child.props.id ?? controlId
+    control = cloneElement(child, {
       id: controlId,
-      'aria-labelledby': children.props['aria-labelledby'] ?? labelId,
-      'aria-describedby': [existingDescription, hintId].filter(Boolean).join(' ') || undefined,
-      'aria-required': children.props['aria-required'] ?? (required || undefined),
+      'aria-labelledby': child.props['aria-labelledby'] ?? labelId,
+      'aria-describedby': [child.props['aria-describedby'], hintId].filter(Boolean).join(' ') || undefined,
+      'aria-required': child.props['aria-required'] ?? (required || undefined),
+    })
+  } else if (child && wrapper) {
+    // A box cannot be labelled, so it is named as the group its label describes and the control inside is
+    // reached with that context. A box that already names itself keeps its own name — `aria-labelledby`
+    // replaces a name rather than adding to it.
+    control = cloneElement(child, {
+      role: child.props.role ?? 'group',
+      'aria-labelledby': child.props['aria-label'] || child.props['aria-labelledby']
+        ? child.props['aria-labelledby']
+        : labelId,
+      'aria-describedby': [child.props['aria-describedby'], hintId].filter(Boolean).join(' ') || undefined,
     })
   }
   return (
     <div className={cn('space-y-1.5', className)}>
-      <label id={labelId} htmlFor={controlId} className="block text-[length:var(--text-12)] font-medium text-[var(--text-secondary)]">
+      <label id={labelId} htmlFor={direct ? controlId : undefined} className="block text-[length:var(--text-12)] font-medium text-[var(--text-secondary)]">
         {label}
         {required && <span aria-hidden="true" className="ml-0.5 text-[var(--danger)]">*</span>}
       </label>
-      <div>{control}</div>
+      {/* Several children — a control beside its unit, or a field above its own row of presets — make the
+          block itself the group, so the label still says what the controls are for. */}
+      <div
+        role={multiple ? 'group' : undefined}
+        aria-labelledby={multiple ? labelId : undefined}
+        aria-describedby={multiple ? hintId : undefined}
+      >{control}</div>
       {hint && <p id={hintId} className="text-[length:var(--text-11-5)] leading-relaxed text-[var(--text-quaternary)]">{hint}</p>}
     </div>
   )
@@ -466,12 +503,24 @@ export function SettingRow({
   description,
   children,
   className,
+  controlId,
 }: {
   title: string
   description?: ReactNode
   children: ReactNode
   className?: string
+  /**
+   * The `id` of the control this row's title names.
+   *
+   * A row's title is usually the only words belonging to the control beside it — the select, the number
+   * box — so without this association that control has no accessible name at all, and a screen reader
+   * announces only "combo box". Pass the control's own `id` here and the title becomes a real `<label for>`.
+   * A control that cannot take one — a group of them, or one already named by its own `aria-label` — leaves
+   * this unset.
+   */
+  controlId?: string
 }) {
+  const titleClass = 'block text-[length:var(--text-13)] font-medium text-[var(--text-primary)]'
   return (
     <div
       data-setting-title={title}
@@ -482,7 +531,11 @@ export function SettingRow({
       )}
     >
       <div className="min-w-0 flex-1">
-        <div className="text-[length:var(--text-13)] font-medium text-[var(--text-primary)]">{title}</div>
+        {controlId ? (
+          <label htmlFor={controlId} className={titleClass}>{title}</label>
+        ) : (
+          <div className={titleClass}>{title}</div>
+        )}
         {description && (
           <div data-setting-description={title} className="mt-0.5 text-[length:var(--text-11-5)] leading-relaxed text-[var(--text-tertiary)]">
             {description}

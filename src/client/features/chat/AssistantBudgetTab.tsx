@@ -3,7 +3,7 @@
  */
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { type AssistantLimits, type AssistantModel, type AssistantSettings } from '@shared/assistant'
-import { CONTEXT_WINDOW_STEPS, LIMIT_RANGES, TOKEN_STEPS } from '@shared/assistant'
+import { LIMIT_RANGES, TOKEN_STEPS } from '@shared/assistant'
 import { t, type MessageKey } from '../../lib/i18n'
 import { api } from '../../lib/api'
 import { Button, Spinner } from '../../components/primitives'
@@ -31,10 +31,10 @@ const LIMIT_FIELDS: { key: keyof AssistantLimits, label: MessageKey, hint: Messa
  * way the model editor draws them — the same ladder of tokens — and each row says how many models are
  * actually reading it right now.
  */
-const INHERITED_CEILINGS: Partial<Record<keyof AssistantLimits, { steps: readonly number[], columns: 3 | 5 | 6, own: (model: AssistantModel) => number | null }>> = {
-  maxContextTokens: { steps: CONTEXT_WINDOW_STEPS, columns: 6, own: (model) => model.contextTokens },
-  maxInputTokens: { steps: TOKEN_STEPS, columns: 5, own: (model) => model.maxInputTokens },
-  maxOutputTokens: { steps: TOKEN_STEPS, columns: 5, own: (model) => model.maxOutputTokens },
+const INHERITED_CEILINGS: Partial<Record<keyof AssistantLimits, { steps: readonly number[], columns: 3 | 5 | 6 | 7, own: (model: AssistantModel) => number | null }>> = {
+  maxContextTokens: { steps: TOKEN_STEPS, columns: 7, own: (model) => model.contextTokens },
+  maxInputTokens: { steps: TOKEN_STEPS, columns: 7, own: (model) => model.maxInputTokens },
+  maxOutputTokens: { steps: TOKEN_STEPS, columns: 7, own: (model) => model.maxOutputTokens },
 }
 
 export function BudgetTab({ settings }: { settings: AssistantSettings }) {
@@ -116,17 +116,23 @@ export function BudgetTab({ settings }: { settings: AssistantSettings }) {
           const inheritors = inherited
             ? models.filter((model) => model.enabled && inherited.own(model) === null).length
             : 0
+          // The field is keyed off the limit it edits, which is unique by construction: seven rows, one name
+          // each. The row's title is the only words belonging to the number box, so this id is what makes it
+          // the box's accessible name.
+          const controlId = `assistant-limit-${entry.key}`
           return (
             <SettingRow
               key={entry.key}
               title={t(entry.label)}
               description={t(entry.hint)}
               // A row with picks under it needs the whole width: the number beside its name and the ladder
-              // under it, rather than a column on the right that would fold ten buttons into three lines.
+              // under it, rather than a column on the right that would fold thirteen picks into ragged lines.
               className={inherited ? 'md:flex-col md:items-stretch' : undefined}
+              controlId={controlId}
             >
               <div className="flex flex-wrap items-center gap-2">
                 <Input
+                  id={controlId}
                   type="number"
                   min={min}
                   max={max}
