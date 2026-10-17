@@ -721,6 +721,60 @@ type UsageSeriesRow = {
 
 const TASK_PRIORITY_ORDER = `CASE priority WHEN 'urgent' THEN 0 WHEN 'high' THEN 1 WHEN 'medium' THEN 2 ELSE 3 END`
 
+/** How many rows one page of a backwards read carries, and the size of the newest page `messages` hands back. */
+const MESSAGE_READ_PAGE = 500
+
+/** Every field a model PATCH may name; anything absent leaves its column exactly as the row has it. */
+type ModelPatch = {
+  label?: string, model?: string, temperature?: number | null, maxOutputTokens?: number | null,
+  reasoning?: AssistantReasoning, contextTokens?: number | null, vision?: boolean, enabled?: boolean,
+  purpose?: AssistantModelPurpose, kind?: AssistantModelKind, supportsTools?: boolean,
+  maxInputTokens?: number | null, topP?: number | null, customParams?: AssistantCustomParam[],
+  modalities?: readonly AssistantModelModality[]
+  protocol?: AssistantProtocol | null
+  /** Null is "no spare"; a value names the model to try when this one cannot answer. */
+  fallbackModelId?: string | null
+  inputPrice?: number | null
+  outputPrice?: number | null
+  priceCurrency?: string
+}
+
+/**
+ * The patch fields paired with the column each one writes.
+ *
+ * A partial `UPDATE` has to name columns, so those names come from this fixed list and never from
+ * anything the request carried: a caller can only ask for a field the patch type already allows.
+ */
+const MODEL_UPDATES: readonly {
+  readonly key: keyof ModelPatch
+  readonly column: string
+  readonly bind: (patch: ModelPatch) => unknown
+}[] = [
+  { key: 'label', column: 'label', bind: (patch) => patch.label },
+  { key: 'model', column: 'model', bind: (patch) => patch.model },
+  // Null is a value in each field below rather than an absent patch: it is the reader emptying the box,
+  // which for temperature and `maxOutputTokens` hands the model back to the account's own setting.
+  { key: 'temperature', column: 'temperature', bind: (patch) => patch.temperature },
+  { key: 'maxOutputTokens', column: 'max_output_tokens', bind: (patch) => patch.maxOutputTokens },
+  { key: 'reasoning', column: 'reasoning', bind: (patch) => patch.reasoning },
+  { key: 'contextTokens', column: 'context_tokens', bind: (patch) => patch.contextTokens },
+  { key: 'vision', column: 'vision', bind: (patch) => (patch.vision ? 1 : 0) },
+  { key: 'enabled', column: 'enabled', bind: (patch) => (patch.enabled ? 1 : 0) },
+  { key: 'purpose', column: 'purpose', bind: (patch) => patch.purpose },
+  { key: 'kind', column: 'kind', bind: (patch) => patch.kind },
+  { key: 'supportsTools', column: 'supports_tools', bind: (patch) => (patch.supportsTools ? 1 : 0) },
+  { key: 'maxInputTokens', column: 'max_input_tokens', bind: (patch) => patch.maxInputTokens },
+  { key: 'topP', column: 'top_p', bind: (patch) => patch.topP },
+  { key: 'customParams', column: 'custom_params', bind: (patch) => JSON.stringify(parseCustomParams(patch.customParams ?? [])) },
+  { key: 'modalities', column: 'modalities', bind: (patch) => JSON.stringify(parseModelModalities(patch.modalities ?? [])) },
+  // Null is the reader putting the model back on the provider's own protocol.
+  { key: 'protocol', column: 'protocol', bind: (patch) => patch.protocol },
+  { key: 'fallbackModelId', column: 'fallback_model_id', bind: (patch) => patch.fallbackModelId },
+  { key: 'inputPrice', column: 'input_price', bind: (patch) => patch.inputPrice },
+  { key: 'outputPrice', column: 'output_price', bind: (patch) => patch.outputPrice },
+  { key: 'priceCurrency', column: 'price_currency', bind: (patch) => patch.priceCurrency },
+]
+
 export class AssistantStore {
   constructor(
     private readonly db: D1Database,
@@ -755,6 +809,28 @@ export class AssistantStore {
     assertScoped(sql)
     const result = await this.db.prepare(sql).bind(...binds).run()
     return result.meta?.changes ?? 0
+  }
+
+  /**
+   * A partial `UPDATE`: the columns the caller named, and nothing else.
+   *
+   * Writing the whole row back from a snapshot read before the write is what loses an update two requests
+   * make at once — the later one restamps columns it never mentioned with whatever it read at the start.
+   * Placeholders are numbered here so a value cannot drift away from its own slot; the table names are
+   * literals from this module, and the caller-supplied part is only ever a value.
+   */
+  private async partialUpdate(
+    table: 'chat_models' | 'chat_providers' | 'chat_projects',
+    id: string,
+    fields: readonly (readonly [column: string, value: unknown])[],
+  ): Promise<number> {
+    if (!fields.length) return 0
+    const sets = fields.map(([column], index) => `${column} = ?${index + 2}`)
+    // The id binds last so its placeholder number follows whatever length the caller ended with.
+    return await this.write(
+      `UPDATE ${table} SET ${sets.join(', ')} WHERE user_id = ?1 AND id = ?${fields.length + 2}`,
+      ...fields.map(([, value]) => value), id,
+    )
   }
 
   // ---------------------------------------------------------------- settings
@@ -850,46 +926,38 @@ export class AssistantStore {
   ): Promise<AssistantProvider | null> {
     const existing = await this.providerRecord(id)
     if (!existing) return null
-    const label = patch.label?.trim().slice(0, 60) || existing.label
+    const fields: (readonly [string, unknown])[] = []
+    const set = (column: string, value: unknown): void => { fields.push([column, value]) }
+    // An edit that names one field must not restamp the rest of the row from a snapshot taken before it:
+    // a blank label is "say nothing", which is what the whole-row write used to mean by falling back to
+    // the stored one.
+    const label = patch.label?.trim().slice(0, 60)
+    if (label) set('label', label)
     const protocol = patch.protocol ?? pickEnum(existing.protocol, ASSISTANT_PROTOCOLS, 'openai')
-    const baseUrl = patch.baseUrl?.trim() || existing.base_url
-    const endpoints = patch.endpoints ?? parseProviderEndpoints(existing.endpoints)
+    if (patch.protocol !== undefined) set('protocol', patch.protocol)
+    const baseUrl = patch.baseUrl?.trim()
+    if (baseUrl) set('base_url', baseUrl)
+    if (patch.endpoints !== undefined) set('endpoints', JSON.stringify(patch.endpoints))
     // A pin survives an edit that does not mention it, and is re-checked against a newly chosen protocol:
     // a Claude effort dialect left on a provider switched to the OpenAI wire would build a body nothing
-    // there reads.
+    // there reads. So the column is written when either half of that decision moved.
     const dialect = compatibleDialect(
       protocol,
       patch.reasoningDialect !== undefined ? patch.reasoningDialect : reasoningDialectValue(existing.reasoning_dialect),
     )
-    let ciphertext = existing.key_ciphertext ?? ''
-    // A patch that says nothing about the key keeps the stored hint too: the row still holds that key,
-    // and clearing the hint here would make a saved key look missing on the next listing.
-    let hint = existing.key_hint ?? ''
+    if (patch.reasoningDialect !== undefined || patch.protocol !== undefined) set('reasoning_dialect', dialect)
+    // A patch that says nothing about the key keeps the stored ciphertext and its hint: the row still
+    // holds that key, and clearing the hint would make a saved key look missing on the next listing.
     if (patch.apiKey === null) {
-      ciphertext = ''
-      hint = ''
+      set('key_ciphertext', '')
+      set('key_hint', '')
     } else if (typeof patch.apiKey === 'string' && patch.apiKey.trim()) {
-      ciphertext = await encryptAssistantKey(this.env, this.userId, patch.apiKey)
-      hint = patch.apiKey.trim().slice(-4)
+      set('key_ciphertext', await encryptAssistantKey(this.env, this.userId, patch.apiKey))
+      set('key_hint', patch.apiKey.trim().slice(-4))
     }
-    const at = Date.now()
-    await this.write(
-      `UPDATE chat_providers SET label = ?2, protocol = ?3, base_url = ?4, key_ciphertext = ?5, updated_at = ?6, endpoints = ?8, reasoning_dialect = ?9, key_hint = ?10
-         WHERE user_id = ?1 AND id = ?7`,
-      label, protocol, baseUrl, ciphertext, at, id, JSON.stringify(endpoints), dialect, hint,
-    )
-    return {
-      id,
-      label,
-      protocol,
-      baseUrl,
-      endpoints,
-      reasoningDialect: dialect,
-      hasKey: Boolean(ciphertext),
-      keyHint: hint,
-      createdAt: existing.created_at,
-      updatedAt: at,
-    }
+    set('updated_at', Date.now())
+    await this.partialUpdate('chat_providers', id, fields)
+    return await this.getProvider(id)
   }
 
   async deleteProvider(id: string): Promise<void> {
@@ -1105,62 +1173,21 @@ export class AssistantStore {
 
   async updateModel(
     id: string,
-    patch: {
-      label?: string, model?: string, temperature?: number | null, maxOutputTokens?: number | null,
-      reasoning?: AssistantReasoning, contextTokens?: number | null, vision?: boolean, enabled?: boolean,
-      purpose?: AssistantModelPurpose, kind?: AssistantModelKind, supportsTools?: boolean,
-      maxInputTokens?: number | null, topP?: number | null, customParams?: AssistantCustomParam[],
-      modalities?: readonly AssistantModelModality[]
-      protocol?: AssistantProtocol | null
-      /** Null is "no spare"; a value names the model to try when this one cannot answer. */
-      fallbackModelId?: string | null
-      inputPrice?: number | null
-      outputPrice?: number | null
-      priceCurrency?: string
-    },
+    patch: ModelPatch,
   ): Promise<AssistantModel | null> {
-    const existing = await this.getModel(id)
-    if (!existing) return null
-    const next: AssistantModel = {
-      ...existing,
-      ...(patch.label !== undefined ? { label: patch.label } : {}),
-      ...(patch.model !== undefined ? { model: patch.model } : {}),
-      // Null is a value here, not an absent patch: it is the switch being turned off.
-      ...(patch.temperature !== undefined ? { temperature: patch.temperature } : {}),
-      // Null is a value here: it is the reader emptying the field, which hands the model back to the
-      // account's own ceiling.
-      ...(patch.maxOutputTokens !== undefined ? { maxOutputTokens: patch.maxOutputTokens } : {}),
-      ...(patch.reasoning !== undefined ? { reasoning: patch.reasoning } : {}),
-      ...(patch.contextTokens !== undefined ? { contextTokens: patch.contextTokens } : {}),
-      ...(patch.vision !== undefined ? { vision: patch.vision } : {}),
-      ...(patch.enabled !== undefined ? { enabled: patch.enabled } : {}),
-      ...(patch.purpose !== undefined ? { purpose: patch.purpose } : {}),
-      ...(patch.kind !== undefined ? { kind: patch.kind } : {}),
-      ...(patch.supportsTools !== undefined ? { supportsTools: patch.supportsTools } : {}),
-      ...(patch.maxInputTokens !== undefined ? { maxInputTokens: patch.maxInputTokens } : {}),
-      ...(patch.modalities !== undefined ? { modalities: parseModelModalities(patch.modalities) } : {}),
-      ...(patch.topP !== undefined ? { topP: patch.topP } : {}),
-      ...(patch.customParams !== undefined ? { customParams: parseCustomParams(patch.customParams) } : {}),
-      ...(patch.protocol !== undefined ? { protocol: patch.protocol } : {}),
-      ...(patch.fallbackModelId !== undefined ? { fallbackModelId: patch.fallbackModelId } : {}),
-      ...(patch.inputPrice !== undefined ? { inputPrice: patch.inputPrice } : {}),
-      ...(patch.outputPrice !== undefined ? { outputPrice: patch.outputPrice } : {}),
-      ...(patch.priceCurrency !== undefined ? { priceCurrency: patch.priceCurrency } : {}),
+    const fields: (readonly [string, unknown])[] = []
+    for (const entry of MODEL_UPDATES) {
+      // Absent means untouched. Null is a value the caller wrote, and the bind above is what stores it.
+      if (patch[entry.key] === undefined) continue
+      fields.push([entry.column, entry.bind(patch)])
     }
-    await this.write(
-      `UPDATE chat_models SET label = ?2, model = ?3, temperature = ?4, max_output_tokens = ?5,
-         reasoning = ?6, context_tokens = ?7, vision = ?8, enabled = ?9,
-         purpose = ?11, kind = ?12, supports_tools = ?13, max_input_tokens = ?14,
-         modalities = ?17, top_p = ?15, custom_params = ?16, protocol = ?18,
-         input_price = ?19, output_price = ?20, price_currency = ?21, fallback_model_id = ?22
-         WHERE user_id = ?1 AND id = ?10`,
-      next.label, next.model, next.temperature, next.maxOutputTokens,
-      next.reasoning, next.contextTokens, next.vision ? 1 : 0, next.enabled ? 1 : 0, id,
-      next.purpose, next.kind, next.supportsTools ? 1 : 0, next.maxInputTokens,
-      next.topP, JSON.stringify(next.customParams), JSON.stringify(next.modalities), next.protocol,
-      next.inputPrice, next.outputPrice, next.priceCurrency, next.fallbackModelId,
-    )
-    return next
+    // Nothing named is nothing to write, so the row is handed back as it stands — and a model that is not
+    // this account's is still the caller's 404.
+    if (!fields.length) return await this.getModel(id)
+    const changes = await this.partialUpdate('chat_models', id, fields)
+    // Read back instead of assembled from a merge made before the write: a toggle that landed in between
+    // belongs to the row now, and the reply has to say what the reader's screen will show next.
+    return changes ? await this.getModel(id) : null
   }
 
   /**
@@ -1777,7 +1804,9 @@ export class AssistantStore {
   async forkConversation(from: string, uptoMessageId: string, title: string): Promise<AssistantConversation | null> {
     const source = await this.getConversation(from)
     if (!source) return null
-    const rows = await this.messages(from)
+    // Every turn of the source, because the cut can be anywhere in it: a fork made from one page would
+    // copy the end of a conversation and leave its beginning behind, and the reader would never be told.
+    const rows = await this.allMessages(from)
     const cut = rows.findIndex((row) => row.id === uptoMessageId)
     if (cut < 0) return null
     const fork = await this.createConversation(title, source.folderId, false, from)
@@ -2089,9 +2118,17 @@ export class AssistantStore {
     return (await this.write(`DELETE FROM chat_artifacts WHERE user_id = ?1 AND id = ?2`, id)) > 0
   }
 
+  /**
+   * One page of a thread, newest last — not the whole thread.
+   *
+   * Bounded on purpose: opening a conversation costs the newest page, and the context window the model is
+   * sent asks the same way. Anything that has to see every turn (an export, a fork, a delete by position)
+   * goes through {@link allMessages}, which walks this cursor back to the first row instead of making one
+   * page bigger and moving the cliff.
+   */
   async messages(
     conversationId: string,
-    limit = 500,
+    limit = MESSAGE_READ_PAGE,
     page: {
       /**
        * The oldest message already on screen. Absent reads the newest page; present reads the page just
@@ -2134,6 +2171,59 @@ export class AssistantStore {
         this.userId, conversationId, limit,
       )
     return list.map(toMessage)
+  }
+
+  /**
+   * The whole thread, oldest first.
+   *
+   * Walks {@link messages} backwards from its newest page until the rows run out, because one page is not
+   * the conversation: an export that took only it silently dropped the beginning and handed back a file
+   * that looked complete, and a fork or an edit that looked for a turn above that page found nothing to
+   * act on. Raising the page size instead would only move the cliff to wherever the next number lands.
+   */
+  async allMessages(conversationId: string, page = MESSAGE_READ_PAGE): Promise<AssistantMessage[]> {
+    const pages: AssistantMessage[][] = []
+    let before: { createdAt: number, id: string } | null = null
+    for (;;) {
+      const rows = await this.messages(conversationId, page, { before })
+      if (!rows.length) break
+      pages.unshift(rows)
+      if (rows.length < page) break
+      // The cursor names the oldest row read so far, so the next page cannot repeat it even when a whole
+      // turn was written in the same millisecond.
+      before = { createdAt: rows[0]!.createdAt, id: rows[0]!.id }
+    }
+    return pages.flat()
+  }
+
+  /**
+   * The turns that follow one message, oldest first, up to `limit` of them.
+   *
+   * Positioned from the message itself rather than from the newest page, so a turn hundreds of rows up is
+   * still found: editing a question has to remove the answer under it, and deleting one has to know what
+   * pairs with it. Absent `limit` is the rest of the thread, which is what an edit takes with it.
+   */
+  async messagesAfter(conversationId: string, messageId: string, limit?: number): Promise<AssistantMessage[]> {
+    const anchor = await this.getMessage(messageId)
+    if (!anchor || anchor.conversationId !== conversationId) return []
+    const q = new Query(this.userId)
+    q.eq('conversation_id', conversationId)
+    const createdAt = q.add(anchor.createdAt)
+    const anchorId = q.add(anchor.id)
+    // The rowid breaks a tie the way every other read of a thread does: two turns written in one
+    // millisecond still have an order, and `id` is a ULID that says nothing about it.
+    q.raw(`(created_at > ${createdAt} OR (created_at = ${createdAt} AND rowid > (
+       SELECT rowid FROM chat_messages WHERE user_id = ?1 AND conversation_id = ?2 AND id = ${anchorId})))`)
+    const cap = limit === undefined ? '' : `LIMIT ${q.add(limit)}`
+    const rows = await this.rows<MessageRow>(
+      `SELECT ${MESSAGE_COLUMNS}, version_count FROM (
+         SELECT rowid AS seq, ${MESSAGE_COLUMNS}, ${MESSAGE_VERSION_COUNT} FROM chat_messages
+          WHERE ${q.where}
+          ORDER BY created_at ASC, seq ASC ${cap}
+       ) ORDER BY ${MESSAGE_ORDER}`,
+      ...q.binds,
+    )
+    return rows.map(toMessage)
   }
 
   async addMessage(input: {
@@ -2216,13 +2306,28 @@ export class AssistantStore {
    * rather than refused, so a stale screen cannot delete a stranger's row.
    */
   async deleteMessages(conversationId: string, ids: readonly string[]): Promise<string[]> {
-    const wanted = new Set(ids.filter((id) => /^[0-9a-hjkmnp-tv-z]{6,64}$/.test(id)))
-    if (!wanted.size) return []
-    const rows = await this.messages(conversationId)
-    const removed = rows.filter((row) => wanted.has(row.id)).map((row) => row.id)
-    for (const id of removed) await this.deleteMessage(id)
-    if (removed.length) await this.clearSummary(conversationId)
-    return removed
+    const wanted = [...new Set(ids.filter((id) => /^[0-9a-hjkmnp-tv-z]{6,64}$/.test(id)))]
+    if (!wanted.length) return []
+    // Named by id and read straight out of the table. Looking them up in one page of the thread would
+    // ignore a turn the reader selected in a long conversation, and the selection would come back short
+    // with no word about why. Batched because a list of ids becomes a list of bind parameters.
+    const removed: { id: string, createdAt: number, seq: number }[] = []
+    for (let start = 0; start < wanted.length; start += ATTACHMENT_DELETE_BATCH) {
+      const q = new Query(this.userId)
+      q.eq('conversation_id', conversationId)
+      q.inList('id', wanted.slice(start, start + ATTACHMENT_DELETE_BATCH))
+      const rows = await this.rows<{ id: string, created_at: number, seq: number }>(
+        `SELECT id, rowid AS seq, created_at FROM chat_messages WHERE ${q.where} ORDER BY created_at ASC, seq ASC`,
+        ...q.binds,
+      )
+      removed.push(...rows.map((row) => ({ id: row.id, createdAt: row.created_at, seq: row.seq })))
+    }
+    const chosen = removed
+      .sort((left, right) => left.createdAt - right.createdAt || left.seq - right.seq)
+      .map((row) => row.id)
+    for (const id of chosen) await this.deleteMessage(id)
+    if (chosen.length) await this.clearSummary(conversationId)
+    return chosen
   }
 
   /**
@@ -3159,24 +3264,19 @@ export class AssistantStore {
     name?: string, description?: string, instructions?: string,
     noteScope?: string[], modelId?: string | null,
   }): Promise<Project | null> {
-    const existing = await this.getProject(id)
-    if (!existing) return null
-    const next: Project = {
-      ...existing,
-      ...(patch.name !== undefined ? { name: patch.name.trim() } : {}),
-      ...(patch.description !== undefined ? { description: patch.description } : {}),
-      ...(patch.instructions !== undefined ? { instructions: patch.instructions } : {}),
-      ...(patch.noteScope !== undefined ? { noteScope: patch.noteScope } : {}),
-      ...(patch.modelId !== undefined ? { modelId: patch.modelId } : {}),
-      updatedAt: Date.now(),
-    }
-    await this.write(
-      `UPDATE chat_projects SET name = ?2, description = ?3, instructions = ?4, note_scope = ?5,
-         model_id = ?6, updated_at = ?7 WHERE user_id = ?1 AND id = ?8`,
-      next.name, next.description, next.instructions, JSON.stringify(next.noteScope),
-      next.modelId, next.updatedAt, id,
-    )
-    return next
+    const fields: (readonly [string, unknown])[] = []
+    const set = (column: string, value: unknown): void => { fields.push([column, value]) }
+    // Only the fields the patch names: a project's instructions saved from one panel must not stamp the
+    // model or the note scope another panel wrote in between. `modelId: null` is a value — the project
+    // stops filing its facts anywhere.
+    if (patch.name !== undefined) set('name', patch.name.trim())
+    if (patch.description !== undefined) set('description', patch.description)
+    if (patch.instructions !== undefined) set('instructions', patch.instructions)
+    if (patch.noteScope !== undefined) set('note_scope', JSON.stringify(patch.noteScope))
+    if (patch.modelId !== undefined) set('model_id', patch.modelId)
+    set('updated_at', Date.now())
+    const changes = await this.partialUpdate('chat_projects', id, fields)
+    return changes ? await this.getProject(id) : null
   }
 
   async deleteProject(id: string): Promise<void> {

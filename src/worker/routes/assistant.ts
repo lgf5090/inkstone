@@ -760,7 +760,9 @@ assistantRoutes.get('/conversations/:id/export', async (c) => {
   const id = requiredId(c.req.param('id'))
   const conversation = await s.getConversation(id)
   if (!conversation) throw ApiError.notFound('Conversation not found')
-  const messages = await s.messages(id)
+  // Every turn, not the newest page: an export is a document the reader keeps, and one that quietly
+  // starts 500 messages in looks exactly like a complete one.
+  const messages = await s.allMessages(id)
   // Only the turns that actually displaced something: one query per answer that has pages, not per turn.
   const versions: AssistantAnswerVersion[] = []
   for (const message of messages) {
@@ -834,23 +836,23 @@ assistantRoutes.patch('/conversations/:id/messages/:messageId', async (c) => {
   if (message.role !== 'user') throw ApiError.badRequest('Only your own message can be edited.')
   if (message.source === 'import') throw ApiError.conflict('A message restored from a backup cannot be edited.')
   if (await s.isRunning(conversationId)) throw ApiError.conflict('Stop the running reply first.')
-  const messages = await s.messages(conversationId)
-  const index = messages.findIndex((entry) => entry.id === messageId)
-  if (index < 0) throw ApiError.notFound('Message not found')
+  // What the edit takes with it is read from the turn's own place in the thread. Scanning the newest page
+  // for it 404'd on any question older than that page, so a long conversation could not be edited at all.
+  const later = await s.messagesAfter(conversationId, messageId)
   // An edit removes every turn after it, and those turns were drawn from words that are about to change.
   // A reader who wants them back gets the whole thread copied into a branch first: the copy is made
   // before a row is deleted, so the recovery path is a real one rather than a version nobody can reach.
   let branch: AssistantConversation | null = null
-  if (body.keepBranch === true && messages.length > index + 1) {
+  if (body.keepBranch === true && later.length) {
     const asked = typeof body.branchTitle === 'string' ? body.branchTitle.trim() : ''
     const source = await s.getConversation(conversationId)
     const title = (asked || source?.title || 'Untitled').slice(0, MAX_CONVERSATION_TITLE_CHARS)
-    branch = await s.forkConversation(conversationId, messages[messages.length - 1]!.id, title)
+    branch = await s.forkConversation(conversationId, later[later.length - 1]!.id, title)
   }
   await s.updateMessageContent(messageId, content)
-  for (const later of messages.slice(index + 1)) await s.deleteMessage(later.id)
+  for (const entry of later) await s.deleteMessage(entry.id)
   await s.clearSummary(conversationId)
-  return c.json({ message: await s.getMessage(messageId), removed: messages.length - index - 1, branch })
+  return c.json({ message: await s.getMessage(messageId), removed: later.length, branch })
 })
 
 assistantRoutes.delete('/conversations/:id/messages/:messageId', async (c) => {
@@ -861,15 +863,14 @@ assistantRoutes.delete('/conversations/:id/messages/:messageId', async (c) => {
   const message = await s.getMessage(messageId)
   if (!message || message.conversationId !== conversationId) throw ApiError.notFound('Message not found')
   if (await s.isRunning(conversationId)) throw ApiError.conflict('Stop the running reply first.')
-  const messages = await s.messages(conversationId)
-  const index = messages.findIndex((entry) => entry.id === messageId)
-  if (index < 0) throw ApiError.notFound('Message not found')
   // A turn is a pair, and half of one is a question with no answer under it: the reply that followed the
-  // reader's own row goes too. Anything after that pair is a turn the reader has not touched.
-  const answer = messages[index + 1]
+  // reader's own row goes too. Anything after that pair is a turn the reader has not touched. The pair is
+  // read by position under the named row, so a turn above the newest page of a long thread is deletable.
+  const [answer] = await s.messagesAfter(conversationId, messageId, 1)
   const removed = message.role === 'user' && answer?.role === 'assistant' ? [message, answer] : [message]
   for (const entry of removed) await s.deleteMessage(entry.id)
   await s.clearSummary(conversationId)
+  // The page the screen redraws from, which is deliberately still a page.
   return c.json({ removed: removed.map((entry) => entry.id), messages: await s.messages(conversationId) })
 })
 
@@ -1296,19 +1297,24 @@ async function unstartableTurn(
     return null
   }
   if (turn.retry) {
-    const rows = await s.messages(turn.conversationId)
-    // The question the retry answers again: the turn under the answer it replaces.
-    let previous: AssistantMessage | undefined
+    // The answer being replaced: by id when the reader named one, otherwise the newest row in the thread.
+    const named = turn.retryMessageId ? await s.getMessage(turn.retryMessageId) : null
     if (turn.retryMessageId) {
-      const target = await s.getMessage(turn.retryMessageId)
-      if (!target || target.conversationId !== turn.conversationId) return ApiError.notFound('Message not found')
-      if (target.role !== 'assistant') return ApiError.badRequest('Only an answer can be asked again.')
-      const index = rows.findIndex((row) => row.id === target.id)
-      if (index < 0) return ApiError.notFound('Message not found')
-      previous = rows[index - 1]
+      if (!named || named.conversationId !== turn.conversationId) return ApiError.notFound('Message not found')
+      if (named.role !== 'assistant') return ApiError.badRequest('Only an answer can be asked again.')
+    }
+    // A question that never got an answer is what "retry the last turn" means; anything else retries the
+    // newest answer.
+    const target = named ?? await s.lastMessage(turn.conversationId)
+    if (!target) return ApiError.conflict('Nothing to retry.')
+    // Its question sits directly above the answer, so it is read by position: a two-row window ending at
+    // the turn itself reaches a question hundreds of rows up, which no page of the thread would show.
+    let previous: AssistantMessage | undefined
+    if (target.role === 'user') {
+      previous = target
     } else {
-      const last = rows[rows.length - 1]
-      previous = last?.role === 'assistant' ? rows[rows.length - 2] : last
+      const window = await s.messages(turn.conversationId, 2, { upto: { createdAt: target.createdAt, id: target.id } })
+      previous = window.length === 2 ? window[0] : undefined
     }
     if (!previous || previous.role !== 'user') return ApiError.conflict('Nothing to retry.')
     if (previous.source === 'import') {
