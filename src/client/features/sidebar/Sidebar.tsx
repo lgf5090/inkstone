@@ -1,6 +1,6 @@
 import { APP_SHORTCUTS } from '../../lib/shortcuts';
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react';
-import { Archive, ArrowDown, ArrowUp, ArrowUpDown, Brush, CheckSquare, ChevronRight, ChevronsDownUp, ChevronsUpDown, CornerUpLeft, Download, FilePlus2, FileText, FolderInput, FolderPlus, Inbox, LayoutTemplate, LogOut, Moon, MoreHorizontal, Network, Palette, PanelLeft, PanelLeftClose, Pencil, Pin, ScanSearch, Settings, Settings2, Smile, SortAsc, Sparkles, SquareChevronRight, Star, Sun, Trash2, Waypoints, Zap, } from 'lucide-react';import { LIMITS } from '@shared/constants';
+import { Archive, ArrowDown, ArrowUp, ArrowUpDown, Brush, CheckSquare, ChevronRight, ChevronsDownUp, ChevronsUpDown, CornerUpLeft, Download, FilePlus2, FileText, FolderInput, FolderPlus, Inbox, LayoutTemplate, LogOut, Moon, MoreHorizontal, Network, Palette, PanelLeft, PanelLeftClose, Pencil, Pin, ScanSearch, Settings, Settings2, Smile, SortAsc, Sparkles, SquareChevronRight, Star, Sun, Trash2, WandSparkles, Waypoints, Zap, } from 'lucide-react';import { LIMITS } from '@shared/constants';
 import type { NoteSummary, ViewKind } from '@shared/types';
 import { cn } from '../../lib/cn';
 import { numericCollator } from '../../lib/collator';
@@ -47,6 +47,7 @@ import { TODO_TREE } from '../../lib/calendar-tree';
 import { SidebarCalendar } from './sidebar-calendar';
 import { useBreakpoint } from '../../lib/hooks';
 import { startChatAboutFolder } from '../chat/start-chat';
+import { summarizeFolder } from '../chat/folder-summary';
 // The graph canvas and its scene maths are only needed once a reader opens that tab, and the
 // sidebar rides in the first bundle.
 const LocalGraphPanel = lazy(() => import('../graph/LocalGraphPanel').then((m) => ({ default: m.LocalGraphPanel })));
@@ -856,6 +857,12 @@ function FolderRow({ node, notesByFolder, mobile, canOpenToSide, siblings, index
             icon: <Sparkles size={13}/>,
             separatorBefore: true,
             onSelect: () => startChatAboutFolder(node.id),
+        },
+        {
+            id: 'summarize',
+            label: t("assistant.folder_summary.command"),
+            icon: <WandSparkles size={13}/>,
+            onSelect: () => void summarizeFolder(node.id),
         },
         { id: 'delete', label: t("sidebar.delete_folder"), icon: <Trash2 size={13}/>, tone: 'danger', separatorBefore: true, onSelect: () => void remove() },
     ];

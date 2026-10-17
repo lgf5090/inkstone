@@ -35,6 +35,7 @@ import { navigateToPath } from '../../lib/app-history'
 import { appTab } from '../shell/app-tabs'
 import { useAssistant, type AssistantView } from '../chat/assistant-store'
 import { startChatAboutFolder, startChatAboutNote } from '../chat/start-chat'
+import { summarizeFolder } from '../chat/folder-summary'
 import { useSession } from '../../store/session'
 import { useUi } from '../../store/ui'
 
@@ -674,14 +675,24 @@ function assistantCommands(): AppCommand[] {
         }]
       : []),
     ...(useUi.getState().folderId
-      ? [{
-          id: 'assistant-about-folder',
-          kind: 'command' as const,
-          label: t('assistant.scope.about_folder'),
-          group: t('command.group_assistant'),
-          icon: FolderKanban,
-          run: () => startChatAboutFolder(useUi.getState().folderId!),
-        }]
+      ? [
+          {
+            id: 'assistant-about-folder',
+            kind: 'command' as const,
+            label: t('assistant.scope.about_folder'),
+            group: t('command.group_assistant'),
+            icon: FolderKanban,
+            run: () => startChatAboutFolder(useUi.getState().folderId!),
+          },
+          {
+            id: 'assistant-summarize-folder',
+            kind: 'command' as const,
+            label: t('assistant.folder_summary.command'),
+            group: t('command.group_assistant'),
+            icon: WandSparkles,
+            run: () => void summarizeFolder(useUi.getState().folderId!),
+          },
+        ]
       : []),
     {
       id: 'assistant-memory',

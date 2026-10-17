@@ -1710,6 +1710,20 @@ const allowed = new Map([
     "/**\n * The store built from scratch, with the same generation's API mock.\n *\n * The persisted entry is read while the module is being built, so a test that wants to know what a\n * reload does has to reload — and the mock the new store reached for is a new instance too.\n */",
     "/**\n * The conversation list's filters outlive the page they were set on.\n *\n * `listTab`, `folderFilter`, `projectFilter` and `tagFilter` are this device's view of rows the server\n * owns, so they are kept the way `store/ui.ts` keeps `expandedFolders`: read once when the store is\n * built, validated per key, and written back by one debounced write. What is pinned here is the three\n * parts of that contract a reader can feel — the write happens once and after the debounce, a stored\n * entry comes back on the next build of the store, and an entry naming a folder, project or tag that no\n * longer exists is taken back off rather than left to answer \"no conversations\" forever.\n */",
   ]],
+  ["src/client/features/chat/folder-summary.test.ts", [
+    "/**\n * One folder, summarised into a note.\n *\n * The contract is the three things the reader gets out of one menu press: a thread about the folder, the\n * assistant's answer, and that answer filed as a note *inside* the folder it describes. The third is the\n * part worth pinning — `create_note` has no folder argument, so a model-written summary would land unfiled,\n * which is why the note is made here from the answer.\n *\n * The empty answer is the other half: a thread with nothing in it must leave the vault alone and say why,\n * rather than filing an empty note under a name that looks like a summary.\n */",
+    "// What the turn was asked with. The store drops the chips once the turn ends, so the request on the",
+    "// wire is the only record of the scope it ran under.",
+    "// The turn is read back from the server once it ends, so the answer the note is made from is the",
+    "// stored row — the same path the chat surface uses.",
+    "// The stream is the transport, not the subject: this stands in for a turn that answers and ends.",
+    "// The thread it ran in is about this folder, which is what lets the note tools read it.",
+  ]],
+  ["src/client/features/chat/folder-summary.ts", [
+    "/**\n * One folder, summarised into a note.\n *\n * A vault grows into folders that nobody can hold in their head any more: what is in \"Work\" by now, which\n * threads run through it, what is still open. That is a question about the shape of a set of notes, so it\n * is asked as a conversation — the assistant reads with its own note tools, under the folder's own scope —\n * and the answer is filed back into the folder it describes.\n *\n * The note is made here rather than by the model. `create_note` has no folder argument, so a model-written\n * summary would land unfiled, away from the notes it is about; and the reader asked for a summary of *this*\n * folder, which means the note belongs in it. The prompt therefore asks for prose only, and the write is\n * ours.\n */",
+    "/**\n * Read the folder, write the summary, file it.\n *\n * The turn is awaited rather than watched: the reader pressed a menu entry, so the one thing this owes them\n * is a note at the end of it — or a reason why there is none. A thread with nothing in it, or an answer that\n * failed, leaves the vault untouched and says so.\n */",
+    "// The reader is about to want to read it, and it is in the folder they were looking at.",
+  ]],
   ["src/client/features/chat/mcp-authorize-card.test.ts", [
     "/**\n * The settings screen's answer to a server that wants a login.\n *\n * A third party that refuses a call is not broken, and the fix is not a field on this screen — it is the\n * reader pressing a button and logging in at the other end. What is pinned here is that the screen says so\n * in the one case where it is true, keeps quiet in the ordinary case where a server answers with the key it\n * was given, and that the press reaches the flow.\n */",
     "// The refusal is still shown: the button is the way out, not a reason to hide what happened.",
