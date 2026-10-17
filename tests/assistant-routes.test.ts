@@ -536,6 +536,9 @@ describe('re-taking a turn', () => {
     )
     expect(result.conversation.title).toBe('Planning (branch)')
     expect(result.conversation.id).not.toBe(conversation.id)
+    // The branch remembers where it came from, which is what the tree is drawn from.
+    expect(result.conversation.parentId).toBe(conversation.id)
+    expect((await call<{ conversation: AssistantConversation }>('GET', `/api/assistant/conversations/${conversation.id}`)).conversation.parentId).toBeNull()
     // The copied thread is what led to that message, in order, with its own ids — a branch that shared
     // rows would be two conversations editing each other.
     expect(result.messages.map((entry) => entry.content)).toEqual([first.content, firstAnswer.content])
@@ -545,6 +548,22 @@ describe('re-taking a turn', () => {
     // The original keeps its own name and its turn count; a branch is not a rename of anything.
     expect((await call<{ conversation: AssistantConversation }>('GET', `/api/assistant/conversations/${conversation.id}`)).conversation.title).toBe('Planning')
     expect(await status('POST', `/api/assistant/conversations/${conversation.id}/fork`, { messageId: 'not-a-message', title: 'x' })).toBe(404)
+
+    // A second branch off the same thread is a sibling, and the tree says so from either side.
+    const otherBranch = await call<{ conversation: AssistantConversation }>(
+      'POST', `/api/assistant/conversations/${conversation.id}/fork`, { messageId: first.id, title: 'Planning (branch 2)' },
+    )
+    const branches = await call<{ parent: { id: string, title: string } | null, siblings: Array<{ id: string, title: string }> }>(
+      'GET', `/api/assistant/conversations/${result.conversation.id}/branches`,
+    )
+    expect(branches.parent?.id).toBe(conversation.id)
+    expect(branches.siblings.map((entry) => entry.id).sort()).toEqual([result.conversation.id, otherBranch.conversation.id].sort())
+    // The root itself has no parent and no siblings: the threads forked off it are its children.
+    const rootBranches = await call<{ parent: unknown, siblings: unknown[] }>(
+      'GET', `/api/assistant/conversations/${conversation.id}/branches`,
+    )
+    expect(rootBranches.parent).toBeNull()
+    expect(rootBranches.siblings).toEqual([])
   })
 })
 

@@ -854,6 +854,12 @@ export const api = {
      */
     conversationArtifacts: (id: string) =>
       request<{ artifacts: AssistantArtifact[] }>(`/api/assistant/conversations/${id}/artifacts`),
+    /** The branch a conversation sits on: the thread it came from, and the threads forked off the same point. */
+    conversationBranches: (id: string) =>
+      request<{
+        parent: { id: string, title: string } | null,
+        siblings: Array<{ id: string, title: string, updatedAt: number }>,
+      }>(`/api/assistant/conversations/${id}/branches`),
     createConversationArtifact: (id: string, body: { title?: string, content: string }) =>
       request<{ artifact: AssistantArtifact }>(`/api/assistant/conversations/${id}/artifacts`, { method: 'POST', body }),
     updateConversationArtifact: (id: string, artifactId: string, body: { title?: string, content?: string, noteId?: string | null }) =>

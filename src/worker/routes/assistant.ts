@@ -935,6 +935,14 @@ assistantRoutes.delete('/conversations/:id/tags/:tagId', async (c) => {
  * The conversation is in every path so the store's own `user_id` filter and the conversation check
  * together bound what a foreign id could reach, the same pairing the answer-version routes use.
  */
+assistantRoutes.get('/conversations/:id/branches', async (c) => {
+  const s = store(c)
+  const id = requiredId(c.req.param('id'))
+  const branches = await s.conversationBranches(id)
+  if (!branches) throw ApiError.notFound('Conversation not found')
+  return c.json(branches)
+})
+
 assistantRoutes.get('/conversations/:id/artifacts', async (c) => {
   const s = store(c)
   const id = requiredId(c.req.param('id'))

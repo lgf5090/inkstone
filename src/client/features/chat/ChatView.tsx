@@ -63,6 +63,7 @@ import { writeConversationDrag } from './conversation-drag'
 import { FOLDER_DRAG_TYPE, isNoteDrag, readDraggedNoteIds } from '../../lib/note-drag'
 import { ConversationSharePanel } from '../share/ConversationSharePanel'
 import { ThreadFinder } from './ThreadFinder'
+import { BranchBar } from './BranchBar'
 import { ChatOutline } from './ChatOutline'
 import { modelReasoning, reasoningOptions } from './model-reasoning'
 
@@ -269,6 +270,8 @@ export function ChatView() {
             </Button>
           </div>
         </div>
+
+        <BranchBar conversationId={activeId} />
 
         <div
           ref={scrollRef}

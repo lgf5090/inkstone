@@ -5897,6 +5897,8 @@ console.log(\`Hello, \${name}!\`)
     "assistant.approval.cancel_automation": "取消定时「{title}」",
     "assistant.chat.new_title": "新对话",
     "assistant.chat.new": "新对话",
+    "assistant.branch.label": "分支",
+    "assistant.branch.from": "来自《{title}》",
     "assistant.chat.temporary": "临时对话",
     "assistant.chat.temporary_start": "开始临时对话",
     "assistant.chat.temporary_hint": "不会出现在历史与备份里，{days} 天后自动删除；不能分享。",

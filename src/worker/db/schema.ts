@@ -1392,6 +1392,17 @@ export const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
       `ALTER TABLE chat_memories ADD COLUMN note_id TEXT`,
     ],
   },
+  {
+    // The conversation a branch was forked from; null for one that started the thread of its own. Nullable
+    // rather than defaulted, because "not a branch" is not an empty parent — every conversation that
+    // existed before this column did was its own root, and that is exactly what null says. The parent is
+    // only a label on the tree: deleting either side leaves the other whole, since a fork copies its turns.
+    version: 89,
+    skipIfColumnExists: { table: 'chat_conversations', column: 'parent_id' },
+    statements: [
+      `ALTER TABLE chat_conversations ADD COLUMN parent_id TEXT`,
+    ],
+  },
 ]
 
 const FTS_STATEMENT = `CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(

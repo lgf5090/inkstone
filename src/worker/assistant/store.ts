@@ -1528,14 +1528,52 @@ export class AssistantStore {
     return r ? toConversation(r) : null
   }
 
-  async createConversation(title: string, folderId: string | null = null, ephemeral = false): Promise<AssistantConversation> {
+  async createConversation(
+    title: string,
+    folderId: string | null = null,
+    ephemeral = false,
+    parentId: string | null = null,
+  ): Promise<AssistantConversation> {
     const id = newId()
     const at = Date.now()
     await this.write(
-      `INSERT INTO chat_conversations (id, user_id, title, folder_id, ephemeral, created_at, updated_at) VALUES (?2, ?1, ?3, ?4, ?5, ?6, ?7)`,
-      id, title, folderId, ephemeral ? 1 : 0, at, at,
+      `INSERT INTO chat_conversations (id, user_id, title, folder_id, ephemeral, parent_id, created_at, updated_at) VALUES (?2, ?1, ?3, ?4, ?5, ?6, ?7, ?8)`,
+      id, title, folderId, ephemeral ? 1 : 0, parentId, at, at,
     )
-    return { id, title, pinned: false, starred: false, archived: false, ephemeral, folderId, createdAt: at, updatedAt: at, messageCount: 0, tags: [], summary: null, summaryUpto: null }
+    return { id, title, pinned: false, starred: false, archived: false, ephemeral, parentId, folderId, createdAt: at, updatedAt: at, messageCount: 0, tags: [], summary: null, summaryUpto: null }
+  }
+
+  /**
+   * The branch a conversation sits on: the thread it was forked from, and the threads forked off the same
+   * point.
+   *
+   * Siblings are found by parent, not by a copied ancestor id, because a fork's parent is the only thing
+   * that records where it came from. A root conversation has no parent and therefore no siblings — the
+   * threads forked off it are its children, which is a different question and is answered by their own
+   * `parentId`.
+   */
+  async conversationBranches(id: string): Promise<{
+    parent: { id: string, title: string } | null,
+    siblings: Array<{ id: string, title: string, updatedAt: number }>,
+  } | null> {
+    const conversation = await this.getConversation(id)
+    if (!conversation) return null
+    const parentId = conversation.parentId
+    if (!parentId) return { parent: null, siblings: [] }
+    const parent = await this.one<{ id: string, title: string }>(
+      `SELECT id, title FROM chat_conversations WHERE user_id = ?1 AND id = ?2`,
+      this.userId, parentId,
+    )
+    const siblings = await this.rows<{ id: string, title: string, updated_at: number }>(
+      `SELECT id, title, updated_at FROM chat_conversations
+        WHERE user_id = ?1 AND parent_id = ?2
+        ORDER BY created_at, id`,
+      this.userId, parentId,
+    )
+    return {
+      parent: parent ? { id: parent.id, title: parent.title } : null,
+      siblings: siblings.map((row) => ({ id: row.id, title: row.title, updatedAt: row.updated_at })),
+    }
   }
 
   /**
@@ -1555,7 +1593,7 @@ export class AssistantStore {
     const rows = await this.messages(from)
     const cut = rows.findIndex((row) => row.id === uptoMessageId)
     if (cut < 0) return null
-    const fork = await this.createConversation(title, source.folderId)
+    const fork = await this.createConversation(title, source.folderId, false, from)
     const base = Date.now()
     for (const [index, row] of rows.slice(0, cut + 1).entries()) {
       await this.addMessage({
@@ -4112,7 +4150,7 @@ const ARTIFACT_COLUMNS = `id, conversation_id, title, content, note_id, created_
  * added to one and not the other read back as a default in exactly one of the two surfaces — which is how
  * a flag comes to be set and still look unset.
  */
-const CONVERSATION_COLUMNS = `c.id, c.title, c.summary, c.summary_upto, c.pinned, c.starred, c.archived, c.ephemeral, c.folder_id, c.project_id, c.created_at, c.updated_at`
+const CONVERSATION_COLUMNS = `c.id, c.title, c.summary, c.summary_upto, c.pinned, c.starred, c.archived, c.ephemeral, c.parent_id, c.folder_id, c.project_id, c.created_at, c.updated_at`
 
 interface ArtifactRow {
   id: string
@@ -4145,6 +4183,7 @@ interface ConversationRow {
   starred: number
   archived: number
   ephemeral: number
+  parent_id: string | null
   folder_id: string | null
   project_id: string | null
   created_at: number
@@ -4160,6 +4199,7 @@ function toConversation(r: ConversationRow): AssistantConversation {
     starred: bool(r.starred),
     archived: bool(r.archived),
     ephemeral: bool(r.ephemeral),
+    parentId: r.parent_id ?? null,
     folderId: r.folder_id ?? null,
     ...(r.project_id ? { projectId: r.project_id } : {}),
     createdAt: r.created_at,

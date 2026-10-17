@@ -871,6 +871,13 @@ export interface AssistantConversation {
    * That is the promise the UI makes, so it is the one the queries keep.
    */
   ephemeral: boolean
+  /**
+   * The conversation this one was forked from; null for one that started its own thread.
+   *
+   * A label on the tree and nothing more: a fork copies its turns, so deleting either side leaves the
+   * other whole and the id is allowed to point at a conversation that no longer exists.
+   */
+  parentId?: string | null
   /** A folder from the notebook's own tree; null means the conversation is unfiled. */
   folderId: string | null
   /** The project this conversation belongs to, whose instructions and knowledge it inherits. */

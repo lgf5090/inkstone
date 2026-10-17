@@ -994,6 +994,13 @@ const allowed = new Map([
     "// The picker can be cleared, so a one-off may have no time on it yet; only a filled one-off can be",
     "// in the past, which a repeating rule never is because it always has a next occurrence.",
   ]],
+  ["src/client/features/chat/BranchBar.tsx", [
+    "/**\n * The bar that says which branch of a thread you are reading.\n *\n * A fork copies its turns, so the branch and its parent are two conversations that happen to share a\n * beginning — and after the fork nothing on screen said so. This is the map: the thread it came from, and\n * the other threads forked off the same point, each one a press away. It draws nothing at all for a\n * conversation that is its own root with no forks, because a bar that says \"no branches\" is a bar the\n * reader has to read to learn there is nothing there.\n */",
+    "// Read once per conversation. The tree only changes when the reader forks, and that opens the new",
+    "// thread — which is a different id, so the next read is the one that shows the new sibling.",
+    "// A branch bar is a convenience, not a state the thread depends on: a failed read leaves it out",
+    "// rather than putting an error above the conversation.",
+  ]],
   ["src/client/features/chat/CanvasPanel.tsx", [
     "/**\n * The side panel: the drafts a conversation keeps.\n *\n * A reply is where a document usually starts, and the thread is the wrong place to work on one — a message\n * is a record of what was said, so editing it in place would leave the transcript disagreeing with itself.\n * The panel is where the copy that *is* meant to change lives. It edits with the notebook's own editor\n * rather than a text box, so a `[[link]]` completes and a fence highlights the way they do everywhere else,\n * and the body is drawn back through the same Markdown renderer a note's preview uses.\n *\n * The draft is the panel's own state on the way in and the server's on the way out: keystrokes settle\n * locally and are committed on a debounce, and the title is committed the same way, so a reader typing a\n * paragraph makes one write rather than one per character. It is not synced back into the thread — the\n * reply stays what it was, which is the whole reason the draft is a copy.\n */",
     "/**\n * How many notes and tags the editor's completions may offer.\n *\n * The same ceiling the notebook's own editor uses: the completion list is filtered as the reader types, so\n * handing it the whole vault would only make the first keystroke slower to answer.\n */",
@@ -1608,6 +1615,11 @@ const allowed = new Map([
     "// The pins go with the thread they were added to. They are \"this turn's\" by definition — the row the",
     "// composer draws is the record of what this question was asked about — so a new conversation that",
     "// inherited them would answer a question nobody asked, in a folder nobody named.",
+  ]],
+  ["src/client/features/chat/branch-bar.test.ts", [
+    "/**\n * The branch bar.\n *\n * A fork copies its turns, so nothing else on screen connects the two threads. What is pinned is that the\n * bar appears exactly when there is something to say — a thread with a parent, or one of several threads\n * forked off the same point — and that each chip is a way into the other thread rather than a label.\n */",
+    "// The bar reads the tree after it mounts.",
+    "// The one being read is marked and cannot be opened again.",
   ]],
   ["src/client/features/chat/canvas-panel.test.ts", [
     "/**\n * The side panel: the drafts a conversation keeps.\n *\n * What is pinned here is the shape of the contract rather than the editor inside it. The panel is the\n * drive — an empty conversation says so, a draft can be picked out of the list, and a rename is committed\n * once the typing settles rather than once per keystroke — and the menu is the door: a reply offers the\n * canvas only where there is a row to hang a draft on, which is why the live turn and the reader's own\n * messages do not.\n *\n * The real editor is CodeMirror and is not what this file is about; a textarea stands in for it so the\n * panel's own wiring is what is exercised.\n */",
@@ -7932,6 +7944,7 @@ const allowed = new Map([
     "/**\n * Which turns a share link covers, as the query the worker reads it back from.\n *\n * Nothing at all for the whole thread, so the everyday link's request is the one it has always been and a\n * reader who never narrows anything sees no difference in the wire.\n */",
     "/** The conversations that wrote one note: the note's own \"from a conversation\" backlinks. */",
     "/** Link a memory to the note it was written out as, or unlink it after the note is gone. */",
+    "/** The branch a conversation sits on: the thread it came from, and the threads forked off the same point. */",
   ]],
   ["src/client/lib/app-history.ts", [
     "/**\n * The address bar as the one source of truth for which app tab is up.\n *\n * The tab is a path rather than a store field so that a rail button is an ordinary link: the\n * address a reader copies is the screen they are looking at, the back button walks the tabs they\n * visited, and a cold load of `/calendar` needs nothing but the document the server already sends.\n * `history.pushState` fires no event of its own, so the writers here announce their own changes and\n * `popstate` covers everything the browser does by itself.\n */",
@@ -15203,6 +15216,7 @@ const allowed = new Map([
     "/** The note the card opens, when `kind` is `note`. A url is not enough: the app opens by id. */",
     "/**\n * Whether a citation names a note in this vault.\n *\n * Checked by id rather than by url: the url a note citation stores is the app's own relative path, which\n * is not a page a browser can be sent to, and the id is what the client opens with. A stored citation\n * whose id is not a note id is read as a web page and must then have a real url, which is what keeps a\n * backup from turning into a card that leads nowhere.\n */",
     "/**\n   * The note this fact was written out as, when the reader asked for one.\n   *\n   * A pointer rather than a copy: the memory stays the fact, and the note is where it can be edited as\n   * prose. Null means it has not been written out — not that it was written out and lost — so the list\n   * offers \"save as a note\" only while it is null.\n   */",
+    "/**\n   * The conversation this one was forked from; null for one that started its own thread.\n   *\n   * A label on the tree and nothing more: a fork copies its turns, so deleting either side leaves the\n   * other whole and the id is allowed to point at a conversation that no longer exists.\n   */",
   ]],
   ["src/shared/backup-format.ts", [
     "/** The account's own template library, absent from a backup taken before it was worth keeping. */",
@@ -16571,6 +16585,7 @@ const allowed = new Map([
     "/**\n   * Point a memory at the note it was written out as.\n   *\n   * The note is created by the client — it has to choose the folder and the title, and the notes module\n   * owns creating a note — so this stores the link rather than making one. A null clears it, which is\n   * what a reader who deleted the note gets: the fact stays, the pointer goes.\n   */",
     "/**\n   * Make a draft, optionally already linked to the note it became.\n   *\n   * `note_id` is the link the panel syncs through. It is set at creation only when a caller is making a\n   * draft out of an existing note; the ordinary draft starts unlinked and gains the link when the reader\n   * files it.\n   */",
     "/**\n   * Rewrite a draft's name, its body, or the note it is linked to.\n   *\n   * A field that is not named keeps what it had, so a title typed after a body edit does not blank the\n   * body. `noteId: null` is a real answer — it unlinks the draft — which is why it is tested against\n   * `undefined` rather than for truthiness.\n   */",
+    "/**\n   * The branch a conversation sits on: the thread it was forked from, and the threads forked off the same\n   * point.\n   *\n   * Siblings are found by parent, not by a copied ancestor id, because a fork's parent is the only thing\n   * that records where it came from. A root conversation has no parent and therefore no siblings — the\n   * threads forked off it are its children, which is a different question and is answered by their own\n   * `parentId`.\n   */",
   ]],
   ["src/worker/assistant/tools.ts", [
     "/**\n * The tools the assistant can reach, and the executor that runs them.\n *\n * Three things are enforced here rather than asked of the model, because a model that is confident and\n * wrong is the failure mode this app has to survive:\n *  - **budgets** — a per-turn call cap, a per-tool cap and a duplicate-call refusal, so a reasoning\n *    loop cannot spend the reader's AI quota or write a hundred tasks;\n *  - **validation** — arguments are checked against the same declaration that generates the JSON\n *    Schema the provider is given, so the two can never disagree;\n *  - **approval** — a destructive tool never runs during the turn. `prepare` resolves the exact target\n *    and writes a pending action; `commit` runs only when the reader presses Approve, once, on that\n *    target. The model can propose; it cannot delete.\n *\n * Scheduled runs get read-only tools plus `notify_reader`, so a routine that has drifted cannot edit\n * the vault while nobody is watching.\n */",
@@ -17075,6 +17090,10 @@ const allowed = new Map([
     "// differently in the list. It is a pointer into the vault rather than a copy of the text, so a note",
     "// the reader deletes leaves the memory whole and its link pointing at nothing — which the screen",
     "// says out loud instead of offering a note that is not there.",
+    "// The conversation a branch was forked from; null for one that started the thread of its own. Nullable",
+    "// rather than defaulted, because \"not a branch\" is not an empty parent — every conversation that",
+    "// existed before this column did was its own root, and that is exactly what null says. The parent is",
+    "// only a label on the tree: deleting either side leaves the other whole, since a fork copies its turns.",
   ]],
   ["src/worker/db/writes.ts", [
     "/** Keeps tags, backlinks, full-text indexes, and change records consistent with note writes. */",
@@ -18483,6 +18502,9 @@ const allowed = new Map([
     "// Null is the unlink, and it has to survive a title-only write afterwards.",
     "// The link is part of the draft, so it travels with it — a restored draft that forgot its note would",
     "// silently become a second copy of a document the reader already has.",
+    "// The branch remembers where it came from, which is what the tree is drawn from.",
+    "// A second branch off the same thread is a sibling, and the tree says so from either side.",
+    "// The root itself has no parent and no siblings: the threads forked off it are its children.",
   ]],
   ["tests/assistant-rules.test.ts", [
     "/**\n * The rules the assistant is built on, tested where they are written.\n *\n * These are the parts a browser session cannot prove: what a Chinese sentence means to the conflict\n * rules, how a wall-clock schedule survives a daylight-saving change, how many tokens a Han vault\n * really costs. Each fixture is chosen so a plausible-but-wrong implementation would fail it — the\n * pair that differs only in a change word, a date the reader never stated, a schedule that crosses a\n * clock change — rather than so the function merely runs.\n */",
