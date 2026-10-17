@@ -16,6 +16,7 @@ import { useUi } from '../../store/ui'
 import { useNotes } from '../../store/notes'
 import { useAssistant } from './assistant-store'
 import { lastAnswerText } from './editor-ai'
+import { rememberNoteOrigin, withConversationSource } from './save-to-note'
 
 /** How many sub-questions a run will investigate. Past four it is a book, not a research note. */
 const MAX_QUESTIONS = 4
@@ -110,11 +111,20 @@ export async function startDeepResearch(topic: string): Promise<string | null> {
     toast({ title: t('assistant.research.failed', { step: questions.length + 2 }), tone: 'warning' })
     return null
   }
-  const id = await useNotes.getState().createNote({ title: trimmed.slice(0, MAX_TITLE), content: report, open: true })
+  // The note is the deliverable, but the thread is the evidence: the embed is what lets a reader go from
+  // a claim in the note to the turns it was assembled from, and it costs the note one line.
+  const conversationId = useAssistant.getState().activeId
+  const id = await useNotes.getState().createNote({
+    title: trimmed.slice(0, MAX_TITLE),
+    content: withConversationSource(report, conversationId),
+    open: true,
+  })
   if (!id) {
     toast({ title: t('assistant.research.failed', { step: questions.length + 2 }), tone: 'danger' })
     return null
   }
+  // Best-effort, like every note saved from the chat: the backlink is what puts the note in the thread.
+  void rememberNoteOrigin(id, conversationId)
   toast({ title: t('assistant.research.saved', { title: trimmed.slice(0, MAX_TITLE) }), tone: 'success' })
   return id
 }

@@ -56,4 +56,21 @@ describe('the transcript', () => {
     const text = transcriptMarkdown([message({ role: 'assistant', content: '', status: 'error', error: 'upstream refused' })], 'x')
     expect(text).toContain('upstream refused')
   })
+
+  it('keeps what the answer was built on, as links a note can follow', () => {
+    const text = transcriptMarkdown([message({
+      role: 'assistant',
+      content: 'It is in the plan.',
+      sources: [
+        { url: 'https://example.com/a', title: 'A page', cited: 'the hiring paragraph' },
+        { url: '/n/note1', title: 'Quarterly plan', kind: 'note', id: 'note1' },
+      ],
+    })], 'x')
+    expect(text).toContain(t('assistant.chat.sources'))
+    expect(text).toContain('[A page](https://example.com/a)')
+    expect(text).toContain('the hiring paragraph')
+    // A note citation is a wikilink: the vault resolves it, and a plain URL would send the reader out of
+    // the app for something already in it.
+    expect(text).toContain('[[Quarterly plan]]')
+  })
 })

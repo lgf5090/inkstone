@@ -82,6 +82,16 @@ describe('running the research', () => {
     }))
   })
 
+  it('leaves the note pointing back at the thread the research ran in', async () => {
+    useAssistant.setState({ activeId: 'c-research' } as never)
+    replies = ['1. What shipped?', '- shipped A', '# Report\n\nConclusion']
+    expect(await startDeepResearch('Q3 delivery')).toBe('note-1')
+    // The thread is the evidence for the note, so the note names it rather than standing alone.
+    expect(createNote).toHaveBeenCalledWith(expect.objectContaining({
+      content: expect.stringContaining('![[chat:c-research]]'),
+    }))
+  })
+
   it('stops at the first step that comes back empty and files nothing', async () => {
     replies = ['1. What shipped?', '']
     const toast = vi.spyOn(useUi.getState(), 'toast')

@@ -1831,6 +1831,11 @@
   text-transform: uppercase;
 }
 .ink-prose .chat-embed-message p { margin: 0.1em 0 0; white-space: pre-wrap; }
+/* The label of a quoted turn opens that turn: a note arguing with one exchange should not land the
+   reader at the top of a long thread and leave them to find it. */
+.ink-prose .chat-embed-author[role='link'] { cursor: pointer; }
+.ink-prose .chat-embed-author[role='link']:hover,
+.ink-prose .chat-embed-author[role='link']:focus-visible { color: var(--accent); }
 .ink-prose .chat-embed-more { color: var(--text-tertiary); font-size: 0.88em; }
 .ink-prose .note-embed-head[role='link'] { cursor: pointer; }
 .ink-prose [data-block-id] { scroll-margin-top: 24px; }

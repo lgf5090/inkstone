@@ -93,13 +93,32 @@ export async function renderChatEmbed(embed: HTMLElement, id: string, alias: str
   }
   const list = document.createElement('ol')
   list.className = 'chat-embed'
-  for (const message of messages.slice(0, MAX_MESSAGES)) {
+  const openAt = (messageId: string) => {
+    void import('../../features/chat/start-chat').then((module) => module.openConversationInChat(id, messageId))
+  }
+  for (const [index, message] of messages.slice(0, MAX_MESSAGES).entries()) {
     const item = document.createElement('li')
     item.className = 'chat-embed-message'
     item.dataset.role = message.role
     const author = document.createElement('span')
     author.className = 'chat-embed-author'
-    author.textContent = message.role === 'user' ? t('markdown.chat_embed_you') : t('markdown.chat_embed_assistant')
+    // The head opens the thread; the label opens the turn. A note quoting one exchange is usually
+    // arguing with that exchange, and landing at the top of a two-hundred-turn thread makes the reader
+    // hunt for the sentence the note was about.
+    author.setAttribute('role', 'link')
+    author.setAttribute('tabindex', '0')
+    author.setAttribute('aria-label', t('markdown.chat_embed_open_at', { index: index + 1 }))
+    author.textContent = `${message.role === 'user' ? t('markdown.chat_embed_you') : t('markdown.chat_embed_assistant')} ↗`
+    author.addEventListener('click', (event) => {
+      event.stopPropagation()
+      openAt(message.id)
+    })
+    author.addEventListener('keydown', (event) => {
+      if (event.key !== 'Enter' && event.key !== ' ') return
+      event.preventDefault()
+      event.stopPropagation()
+      openAt(message.id)
+    })
     const text = document.createElement('p')
     text.textContent = clip(message.content)
     item.append(author, text)

@@ -904,6 +904,7 @@ export const EN_US_MESSAGES = {
     "markdown.embedded_note_not_found": "Embedded note not found",
     "markdown.chat_embed_label": "Conversation",
     "markdown.chat_embed_open": "Open the conversation: {title}",
+    "markdown.chat_embed_open_at": "Open message {index} in the conversation",
     "markdown.chat_embed_you": "You",
     "markdown.chat_embed_assistant": "Assistant",
     "markdown.chat_embed_more": "{count} more messages not shown",

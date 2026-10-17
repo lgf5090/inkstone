@@ -18,8 +18,31 @@ function turn(label: string, message: AssistantMessage): string {
   return `**${label}** · ${when}\n\n${body}`
 }
 
+/**
+ * What an answer was built on, written out under it.
+ *
+ * A transcript without them is a document that makes claims and drops the evidence: the reader who
+ * saves a conversation as a note gets the words but not the pages or notes they came from. A note
+ * citation becomes a wikilink, because the vault resolves titles and a note in the same vault is one
+ * click away; a web citation stays a link, because it leaves the app.
+ */
+function sources(message: AssistantMessage): string {
+  const list = message.sources ?? []
+  if (!list.length) return ''
+  const lines = list.map((source, index) => {
+    const label = source.title.trim() || source.url
+    const target = source.kind === 'note' ? `[[${label}]]` : `[${label}](${source.url})`
+    return `${index + 1}. ${target}${source.cited ? ` — ${source.cited}` : ''}`
+  })
+  return `${t('assistant.chat.sources')}:\n${lines.join('\n')}`
+}
+
 export function transcriptMarkdown(messages: readonly AssistantMessage[], title: string): string {
-  const parts = messages.map((message) => turn(t(message.role === 'user' ? 'assistant.chat.you' : 'assistant.chat.assistant'), message))
+  const parts = messages.map((message) => {
+    const text = turn(t(message.role === 'user' ? 'assistant.chat.you' : 'assistant.chat.assistant'), message)
+    const cited = message.role === 'assistant' ? sources(message) : ''
+    return cited ? `${text}\n\n${cited}` : text
+  })
   return [`# ${title}`, '', ...parts.flatMap((part) => [part, ''])].join('\n').trimEnd() + '\n'
 }
 

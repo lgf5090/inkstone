@@ -51,11 +51,12 @@ export function startChatAboutFolder(folderId: string): void {
  *
  * A note can point at a thread (`![[chat:…]]`), and following that pointer is not a scope change — it
  * is "show me what we said". So the thread is opened as it is, and the tab switch is the same one every
- * other entry point uses.
+ * other entry point uses. A turn named here is the one the reader was looking at when they left the note,
+ * so the thread opens around it instead of at its newest page.
  */
-export function openConversationInChat(conversationId: string): void {
+export function openConversationInChat(conversationId: string, messageId?: string): void {
   navigateToPath('/chat')
   const assistant = useAssistant.getState()
   assistant.setView('chat')
-  void assistant.openConversation(conversationId)
+  void assistant.openConversation(conversationId, messageId ? { focusMessageId: messageId } : undefined)
 }

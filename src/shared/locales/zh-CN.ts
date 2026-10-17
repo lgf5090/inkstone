@@ -904,6 +904,7 @@ export const ZH_CN_MESSAGES = {
     "markdown.embedded_note_not_found": "嵌入的笔记不存在",
     "markdown.chat_embed_label": "对话",
     "markdown.chat_embed_open": "打开对话：{title}",
+    "markdown.chat_embed_open_at": "在对话里打开第 {index} 条",
     "markdown.chat_embed_you": "你",
     "markdown.chat_embed_assistant": "助手",
     "markdown.chat_embed_more": "还有 {count} 条没有显示",
