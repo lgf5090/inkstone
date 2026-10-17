@@ -1745,7 +1745,7 @@ export class AssistantStore {
   async getConversation(id: string): Promise<AssistantConversation | null> {
     const r = await this.one<ConversationRow>(
       `SELECT ${CONVERSATION_COLUMNS},
-              (SELECT count(*) FROM chat_messages m WHERE m.conversation_id = c.id) AS message_count
+              (SELECT count(*) FROM chat_messages m WHERE m.user_id = c.user_id AND m.conversation_id = c.id) AS message_count
          FROM chat_conversations c WHERE c.user_id = ?1 AND c.id = ?2`,
       this.userId, id,
     )

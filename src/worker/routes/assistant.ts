@@ -334,7 +334,9 @@ assistantRoutes.get('/tags', async (c) => {
 
 assistantRoutes.post('/conversations', async (c) => {
   const body = await readJson<{ title?: unknown, folderId?: unknown }>(c, JSON_BODY_LIMITS.small)
-  const title = body.title === undefined ? '' : text(body.title, MAX_CONVERSATION_TITLE_CHARS)
+  // An untitled thread is a real state the reader returns to, not a missing value: '' is what the row
+  // stores for it, so an explicitly empty title must not 400 the whole create.
+  const title = optionalTextAllowEmpty(body.title, MAX_CONVERSATION_TITLE_CHARS)
   const s = store(c)
   let folderId: string | null = null
   if (typeof body.folderId === 'string') {

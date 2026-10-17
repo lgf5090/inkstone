@@ -488,7 +488,7 @@ interface AssistantState {
   removeProject: (id: string) => Promise<void>
 
   loadAutomations: () => Promise<void>
-  addAutomation: (body: Record<string, unknown>) => Promise<void>
+  addAutomation: (body: Record<string, unknown>) => Promise<boolean>
   toggleAutomation: (automation: AssistantAutomation) => Promise<void>
   updateAutomation: (id: string, body: Record<string, unknown>) => Promise<void>
   removeAutomation: (id: string) => Promise<void>
@@ -2396,8 +2396,10 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
     try {
       await api.assistant.createAutomation(body)
       await get().loadAutomations()
+      return true
     } catch (error) {
       toast(error)
+      return false
     }
   },
 

@@ -271,18 +271,20 @@ function AutomationForm({ open, onClose, timezone }: { open: boolean, onClose: (
   const missingAt = type === 'once' && at === ''
   const inThePast = type === 'once' && !missingAt && computeNextRun(schedule, timezone ?? 'UTC', new Date()) === null
 
-  const create = () => {
-    void addAutomation({
+  const create = async () => {
+    // The store reports the outcome rather than swallowing it: a refused create must leave the dialog
+    // and its words exactly where they are, not close over an automation that was never made.
+    const made = await addAutomation({
       name: name.trim() || message.trim().slice(0, 80) || t(KIND_META[kind].label),
       kind,
       message,
       schedule,
       enabled: true,
-    }).then(() => {
-      setName('')
-      setMessage('')
-      onClose()
     })
+    if (!made) return
+    setName('')
+    setMessage('')
+    onClose()
   }
 
   return (
@@ -294,7 +296,7 @@ function AutomationForm({ open, onClose, timezone }: { open: boolean, onClose: (
       footer={(
         <>
           <Button variant="ghost" onClick={onClose}>{t('common.cancel')}</Button>
-          <Button onClick={create} disabled={(needsMessage && !message.trim()) || inThePast || missingAt}>
+          <Button onClick={() => { void create() }} disabled={(needsMessage && !message.trim()) || inThePast || missingAt}>
             {t('assistant.automations.create')}
           </Button>
         </>
