@@ -10,7 +10,7 @@
  */
 import { Z_INDEX } from '../../lib/z-index'
 import { type ClipboardEvent as ReactClipboardEvent, type DragEvent as ReactDragEvent, type KeyboardEvent, Fragment, memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import { Archive, ArrowUp, ArrowUpRight, Check, Copy, FileText, FolderOpen, Ghost, History, ListChecks, MoreHorizontal, NotebookPen, PanelRight, Paperclip, Pencil, Plus, Search, Square, Star, Trash2, X } from 'lucide-react'
+import { Archive, ArrowUp, ArrowUpRight, Check, Copy, FileText, FolderOpen, Ghost, History, ListChecks, MoreHorizontal, NotebookPen, PanelRight, Paperclip, Pencil, Plus, Search, Settings2, Square, Sparkles, Star, Trash2, X } from 'lucide-react'
 import type { AssistantConversation, AssistantMessage, AssistantTurnScope, ChatAttachment } from '@shared/assistant'
 import { EPHEMERAL_CONVERSATION_RETENTION_DAYS, SEARCH_NATIVE_PROTOCOLS, looksLikeSearchTool, mcpToolModeFor } from '@shared/assistant'
 import { DEBOUNCE } from '@shared/constants'
@@ -21,7 +21,7 @@ import { dayKey, formatDay, formatInZone } from './time-format'
 import { LoadFailure } from './assistant-settings-shared'
 import { isImeComposing } from '../../lib/ime'
 import { relativeTime } from '../../lib/time'
-import { useDebouncedDraft } from '../../lib/hooks'
+import { useDebouncedDraft, useMediaQuery } from '../../lib/hooks'
 import { compileQuery } from '../../lib/query-match'
 import type { MoveMenuFolder } from '../../lib/tree'
 import { Button, Divider, IconButton, Spinner } from '../../components/primitives'
@@ -31,7 +31,7 @@ import { Menu, Modal, confirm, prompt, submenuFor, type MenuItem } from '../../c
 import { api } from '../../lib/api'
 import { FolderMoveMenu } from '../folders/FolderMoveMenu'
 import { ConversationTabStrip, ConversationTaxonomyPanel, moveMenuTree } from './ChatTaxonomy'
-import { AttachmentStrip, MessageAttachments } from './ChatAttachments'
+import { AttachmentStrip, CHAT_ATTACHMENT_ACCEPT, CHAT_FOLDER_PICKER_ATTRS, MessageAttachments } from './ChatAttachments'
 import {
   detectTrigger,
   filterRows,
@@ -43,6 +43,7 @@ import {
 } from './ComposerTriggers'
 import {
   ApprovalMenu,
+  ControlChip,
   ContextMenu,
   ModelMenu,
   NotePicker,
@@ -153,6 +154,9 @@ const SUGGESTION_KEYS = [
  */
 const NOTHING_EXCLUDED: ReadonlySet<string> = new Set<string>()
 
+/** The `lg` breakpoint asked as a question, so one surface can decide where the conversation list lives. */
+const CHAT_RAIL_QUERY = '(min-width: 1024px)'
+
 export function ChatView() {
   const conversations = useAssistant((state) => state.conversations)
   const activeId = useAssistant((state) => state.activeId)
@@ -171,6 +175,9 @@ export function ChatView() {
   const scrollRef = useRef<HTMLDivElement>(null)
   const stickToBottom = useRef(true)
   const [listOpen, setListOpen] = useState(false)
+  // Which presentation the conversation list gets — the rail, or the phone drawer. Asked here rather than
+  // left to CSS because the list may only be mounted once; see the render below.
+  const railWide = useMediaQuery(CHAT_RAIL_QUERY)
   const [finding, setFinding] = useState(false)
   // Selection is a mode, not a modifier: a checkbox on every message all the time is furniture nobody
   // asked for in a conversation, so the ticks exist only while the reader is picking. `null` is "not
@@ -352,9 +359,22 @@ export function ChatView() {
 
   return (
     <div className="flex h-full min-h-0">
-      <aside className="hidden w-64 shrink-0 border-r border-[var(--border-subtle)] bg-[var(--bg-sunken)] lg:flex">
-        <ConversationList activeId={activeId} onPick={() => undefined} />
-      </aside>
+      {/* One list, one mount. The rail used to draw a copy and the phone drawer another, with CSS deciding
+          which was visible — but a hidden copy still runs its own effects and keeps its own row menu and
+          rename dialog, so what was opened in one was invisible in the other and the taxonomy was fetched
+          twice. The container is chosen from the same width the `lg` token means, so the rail keeps its
+          place in the flex row and the drawer keeps the modal's focus, Escape and backdrop behaviour. */}
+      {railWide ? (
+        <aside className="flex w-64 shrink-0 border-r border-[var(--border-subtle)] bg-[var(--bg-sunken)]">
+          <ConversationList activeId={activeId} onPick={() => setListOpen(false)} />
+        </aside>
+      ) : (
+        <Modal open={listOpen} onClose={() => setListOpen(false)} title={t('assistant.chat.history')} width={360} bodyClassName="p-0">
+          <div className="h-[60vh]">
+            <ConversationList activeId={activeId} onPick={() => setListOpen(false)} />
+          </div>
+        </Modal>
+      )}
 
       {/* Ctrl/Cmd+F is the reader's own reflex for this box, so it opens the thread's own find instead of
           the browser's bar over a page that is one conversation. */}
@@ -364,7 +384,7 @@ export function ChatView() {
           // This box wraps the composer, so every keystroke in a half-written Chinese sentence bubbles
           // through here — and Escape is the key the input method is holding to drop that candidate.
           if (isImeComposing(event)) return
-          if (event.key === 'f' && (event.metaKey || event.ctrlKey)) {
+          if (event.key.toLowerCase() === 'f' && (event.metaKey || event.ctrlKey)) {
             event.preventDefault()
             setFinding(true)
           }
@@ -410,7 +430,18 @@ export function ChatView() {
               label={t('assistant.chat.temporary_start')}
               size="sm"
               disabled={streaming}
-              onClick={startTemporaryConversation}
+              // The thread on screen is emptied by this press, so it is asked for first — the same
+              // courtesy the row's own delete control pays. A native dialog is not an option.
+              onClick={() => {
+                void confirm({
+                  title: t('assistant.chat.temporary_confirm_title'),
+                  description: t('assistant.chat.temporary_confirm_hint', { days: EPHEMERAL_CONVERSATION_RETENTION_DAYS }),
+                  confirmLabel: t('assistant.chat.temporary_start'),
+                  tone: 'danger',
+                }).then((agreed) => {
+                  if (agreed) startTemporaryConversation()
+                })
+              }}
             >
               <Ghost size={15} />
             </IconButton>
@@ -423,7 +454,7 @@ export function ChatView() {
             >
               <PanelRight size={15} />
             </IconButton>
-            <IconButton label={t('assistant.chat.find')} size="sm" onClick={() => setFinding((open) => !open)}>
+            <IconButton active={finding} label={t('assistant.chat.find')} size="sm" onClick={() => setFinding((open) => !open)}>
               <Search size={15} />
             </IconButton>
             <Button size="sm" variant="ghost" icon={<Plus size={14} />} onClick={newConversation} disabled={streaming}>
@@ -482,12 +513,18 @@ export function ChatView() {
                 return (
                 <Fragment key={message.id}>
                 {startsDay && (
-                  <div role="separator" className="flex items-center gap-2 py-1">
-                    <span className="h-px flex-1 bg-[var(--border-subtle)]" />
-                    <span className="shrink-0 text-[length:var(--text-10-5)] uppercase tracking-wide text-[var(--text-quaternary)]">
+                  <div className="flex items-center gap-2 py-1">
+                    <span aria-hidden className="h-px flex-1 bg-[var(--border-subtle)]" />
+                    <time
+                      // A separator's content is dropped by assistive tech, and this date is the only
+                      // thing the reader learns from the row — so it is a real time element, not a
+                      // separator carrying text.
+                      dateTime={new Date(message.createdAt).toISOString()}
+                      className="shrink-0 text-[length:var(--text-10-5)] uppercase tracking-wide text-[var(--text-quaternary)]"
+                    >
                       {formatDay(message.createdAt, timezone)}
-                    </span>
-                    <span className="h-px flex-1 bg-[var(--border-subtle)]" />
+                    </time>
+                    <span aria-hidden className="h-px flex-1 bg-[var(--border-subtle)]" />
                   </div>
                 )}
                 <MessageRow
@@ -572,7 +609,7 @@ export function ChatView() {
             // The stored rows plus a finished answer that is not adopted into them yet. A stream still
             // arriving is deliberately not counted: the marks are DOM edits inside the subtree React is
             // writing into, so they are remade when the text settles rather than on every token.
-            revision={messages.length + (turnHere?.done ? turnHere.text.length : 0)}
+            revision={transcriptRevision(messages, turnHere)}
             onClose={() => setFinding(false)}
           />
         )}
@@ -588,15 +625,6 @@ export function ChatView() {
           onClose={() => setShareScope(null)}
         />
       )}
-
-      <Modal open={listOpen} onClose={() => setListOpen(false)} title={t('assistant.chat.history')} width={360} bodyClassName="p-0">
-        <div className="h-[60vh]">
-          <ConversationList
-            activeId={activeId}
-            onPick={() => setListOpen(false)}
-          />
-        </div>
-      </Modal>
     </div>
   )
 }
@@ -615,6 +643,32 @@ export function canContinueAnswer(message: AssistantMessage, streaming: boolean,
     && !streaming
     && message.id === lastAnswerId
     && (message.status !== 'error' || message.content.trim().length > 0)
+}
+
+/**
+ * Which transcript the find panel's marks are sitting on, told as the one number it takes.
+ *
+ * Summed magnitudes could not answer that: one new message and one typed character move
+ * `messages.length + text.length` by the same amount, and a late attachment moves it by nothing, so the
+ * marks went stale under a reader who had no way to ask for them back. Identity answers instead — how many
+ * rows, which row is last and what is on it, and whether a turn is still being written — folded into a
+ * number because the panel wants one and this runs beside a streaming answer.
+ */
+export function transcriptRevision(messages: readonly AssistantMessage[], turn: { done: boolean, text: string } | null): number {
+  const last = messages.at(-1)
+  const key = [
+    messages.length,
+    last?.id ?? '',
+    last?.content.length ?? 0,
+    last?.attachments?.length ?? 0,
+    last?.tools.length ?? 0,
+    // A reply still arriving is deliberately not counted: the marks are DOM edits inside the subtree
+    // React is writing into, so they are remade when it settles rather than on every token.
+    turn ? (turn.done ? `settled:${turn.text.length}` : 'streaming') : 'idle',
+  ].join('|')
+  let hash = 0
+  for (const character of key) hash = (hash * 31 + character.charCodeAt(0)) | 0
+  return hash
 }
 
 /**
@@ -935,7 +989,11 @@ function EditMessageDialog({ text, canBranch = false, onClose, onSave }: {
   )
 }
 
-/** Exported so a test can pin the conversation box to the shared filter box; `ChatView` draws it twice. */
+/**
+ * Exported so a test can pin the conversation box to the shared filter box. `ChatView` mounts one copy at a
+ * time — the rail on a wide screen, the drawer on a narrow one — because two copies each kept their own row
+ * menu and rename dialog out of the other's sight.
+ */
 export function ConversationList({ activeId, onPick }: { activeId: string | null, onPick: () => void }) {
   const conversations = useAssistant((state) => state.conversations)
   const query = useAssistant((state) => state.conversationQuery)
@@ -1270,7 +1328,7 @@ function ConversationRow({
               {picked && <Check size={9} />}
             </span>
           )}
-          {conversation.pinned && <span aria-hidden className="text-[length:var(--text-9)] text-[var(--accent)]">●</span>}
+          {conversation.pinned && <span role="img" aria-label={t('assistant.chat.pin')} className="text-[length:var(--text-9)] text-[var(--accent)]">●</span>}
           {conversation.starred && (
             <span aria-label={t('assistant.chat.tab.starred')} role="img" className="shrink-0 text-[var(--warning)]">
               <Star size={10} className="fill-current" />
@@ -1542,6 +1600,8 @@ export function ChatComposer({
   const seed = useAssistant((state) => state.composerSeed)
   const ref = useRef<HTMLTextAreaElement>(null)
   const boxRef = useRef<HTMLDivElement>(null)
+  // Only the disabled "no model" chip needs an anchor of its own: the menu variant brings its own.
+  const modelChipRef = useRef<HTMLButtonElement>(null)
   const fileRef = useRef<HTMLInputElement>(null)
   const folderRef = useRef<HTMLInputElement>(null)
   // A quote from a message menu lands at the top of whatever the reader was already writing, and the
@@ -1623,11 +1683,15 @@ ${current}` : seed))
     const text = value.trim()
     if ((!text && !pending.length) || streaming || disabled || uploading) return
     setValue('')
-    // A request the worker never took hands the words back: the composer is the only owner of the
-    // draft, and the store has already given its attachments and chips back by the time this resolves.
+    // A turn the worker never took hands the whole draft back: the store returns the attachments and the
+    // chips, and this box owns the words. Refused and stopped-before-the-first-frame are the same thing
+    // from here — `send` answers false for both — so one criterion covers them.
+    //
+    // The merge, not a replace: a reader who went on typing while waiting keeps those words too, and the
+    // refused question goes back above them rather than being thrown away.
     void Promise.resolve(onSend(text)).then((accepted) => {
       if (accepted !== false) return
-      setValue((current) => (current.trim() ? current : text))
+      setValue((current) => (current.trim() ? `${text}\n\n${current}` : text))
     })
   }
 
@@ -1942,13 +2006,35 @@ ${current}` : seed))
                   <WebSearchMenu value={webSearch} onChange={setWebSearch} available={webSearchAvailable} />
                 </>
               )}
-              <ModelMenu
-                models={enabled}
-                activeId={settings?.activeModelId ?? null}
-                onPick={(id) => void activateModel(id)}
-                onManage={() => manage('settings')}
-                onVision={(next) => void updateModel(active?.id ?? '', { vision: next })}
-              />
+              {active ? (
+                <ModelMenu
+                  models={enabled}
+                  activeId={settings?.activeModelId ?? null}
+                  onPick={(id) => void activateModel(id)}
+                  onManage={() => manage('settings')}
+                  // The switch changes what this model is able to be shown, so it is only drawn for the
+                  // model that is answering: an empty id would PATCH `/models/` and change nothing.
+                  onVision={(next) => void updateModel(active.id, { vision: next })}
+                />
+              ) : (
+                // Nothing to toggle and nothing to pick: a switch that reads off and cannot be turned on
+                // would be taken for a broken control, so the row says it is waiting for a model instead,
+                // and leaves the door to settings where the model is chosen.
+                <>
+                  <ControlChip
+                    refObject={modelChipRef}
+                    label={t('assistant.composer.model')}
+                    value={t('assistant.composer.model_none')}
+                    icon={<Sparkles size={12} />}
+                    disabled
+                    hint={t('assistant.composer.model_none_hint')}
+                    onClick={() => undefined}
+                  />
+                  <IconButton label={t('assistant.composer.manage_models')} size="sm" onClick={() => manage('settings')}>
+                    <Settings2 size={14} />
+                  </IconButton>
+                </>
+              )}
               <Divider vertical className="mx-0.5" />
               <VoiceButton onText={(chunk) => setValue((current) => `${current}${current && !current.endsWith(' ') ? ' ' : ''}${chunk}`)} />
               {streaming ? (
@@ -1970,13 +2056,13 @@ ${current}` : seed))
             </div>
           </div>
         </div>
-        <input ref={fileRef} type="file" multiple hidden onChange={() => takeFiles(fileRef.current)} />
+        <input ref={fileRef} type="file" multiple hidden accept={CHAT_ATTACHMENT_ACCEPT} onChange={() => takeFiles(fileRef.current)} />
         <input
           ref={folderRef}
           type="file"
           multiple
           hidden
-          {...({ webkitdirectory: '', directory: '' } as Record<string, string>)}
+          {...CHAT_FOLDER_PICKER_ATTRS}
           onChange={() => takeFiles(folderRef.current)}
         />
         <NotePicker
@@ -1998,6 +2084,13 @@ ${current}` : seed))
             return response.results.map((hit) => ({ id: hit.note.id, title: hit.note.title }))
           }}
         />
+        {!active && (
+          // Drawn rather than left to the chip's hover hint: the chip cannot be pressed, and a reason that
+          // only a pointer can find would be unreachable on the touch screen that lacks a model most often.
+          <p role="note" className="mt-1.5 text-center text-[length:var(--text-10-5)] text-[var(--text-quaternary)]">
+            {t('assistant.composer.model_none_hint')}
+          </p>
+        )}
         <p className="mt-1.5 hidden text-center text-[length:var(--text-10-5)] text-[var(--text-quaternary)] md:block">
           {t('assistant.chat.disclaimer')}
         </p>

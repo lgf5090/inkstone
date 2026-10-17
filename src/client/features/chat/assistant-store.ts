@@ -2014,9 +2014,11 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
         // updated now, and only if the reader happens to be looking at it.
         await adoptThread(filedConversationId, null)
       }
-      if (!accepted && !retry && !controller.signal.aborted) {
-        // The words never left this device: give the draft back, unless the reader has already asked
-        // something else — a newer turn owns the composer and the old draft must not overwrite it.
+      if (!accepted && !(retry || continuing)) {
+        // The turn was not accepted — the request was refused, or Stop was pressed before the worker's
+        // first frame, which is the same outcome for the reader: the draft is still theirs. The words are
+        // the composer's half of the same promise, and a newer turn owns the screen, which is what the
+        // token says.
         set((current) => (current.turn?.token === token
           ? { pending: draft.pending, turnTools: draft.turnTools, turnScopes: draft.turnScopes }
           : current))
