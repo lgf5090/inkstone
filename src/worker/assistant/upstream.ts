@@ -58,6 +58,40 @@ export type UpstreamEvent
     | { type: 'usage', inputTokens: number, outputTokens: number }
     /** The model was cut off at the output cap rather than stopping by itself. */
     | { type: 'truncated' }
+    /** The provider stopped the answer under one of its own rules. */
+    | { type: 'stop-reason', reason: UpstreamStopReason }
+
+/**
+ * A finish that is not the model having simply run out of things to say.
+ *
+ * All three mean "what you are reading was cut short by a rule", and a stream that ends on one otherwise
+ * looks exactly like a reply that arrived whole. `stop`, `stop_sequence` and `tool_calls` are deliberately
+ * absent: a model that ended on its own marker answered as much as it meant to.
+ */
+export type UpstreamStopReason = 'refusal' | 'content_filter' | 'safety'
+
+/**
+ * The names the vendors give a rule-driven stop, as they spell them.
+ *
+ * One table rather than a branch per wire, because the vendors borrow each other's vocabulary: a relay
+ * that imitates OpenAI may answer `refusal` where OpenAI would answer `content_filter`.
+ */
+const STOP_REASONS: Record<string, UpstreamStopReason> = {
+  refusal: 'refusal',
+  content_filter: 'content_filter',
+  // Gemini names the same block several ways, and upper-cases everything.
+  SAFETY: 'safety',
+  IMAGE_SAFETY: 'safety',
+  RECITATION: 'safety',
+  PROHIBITED_CONTENT: 'content_filter',
+  BLOCKLIST: 'content_filter',
+  SPII: 'content_filter',
+}
+
+/** The rule a vendor's finish name stands for, or null when the model stopped for no rule at all. */
+function stopReasonFor(value: unknown): UpstreamStopReason | null {
+  return typeof value === 'string' ? STOP_REASONS[value] ?? null : null
+}
 
 export interface UpstreamSource {
   url: string
@@ -611,6 +645,8 @@ async function* streamOpenAi(request: UpstreamRequest): AsyncGenerator<UpstreamE
       // `length` is the cap: the answer stops mid-sentence, and a turn filed as finished would leave
       // the reader guessing whether the model was done or simply out of room.
       if (choice.finish_reason === 'length') yield { type: 'truncated' }
+      const blocked = stopReasonFor(choice.finish_reason)
+      if (blocked) yield { type: 'stop-reason', reason: blocked }
     }
   }
   for (const entry of flush(pending)) yield entry
@@ -769,7 +805,10 @@ async function* streamAnthropic(request: UpstreamRequest): AsyncGenerator<Upstre
       }
     } else if (type === 'message_delta') {
       // Anthropic says why it stopped in the same event that carries the answer's size.
-      if ((parsed.delta as Record<string, unknown> | undefined)?.stop_reason === 'max_tokens') yield { type: 'truncated' }
+      const stopReason = (parsed.delta as Record<string, unknown> | undefined)?.stop_reason
+      if (stopReason === 'max_tokens') yield { type: 'truncated' }
+      const blocked = stopReasonFor(stopReason)
+      if (blocked) yield { type: 'stop-reason', reason: blocked }
       const usage = (parsed.usage ?? {}) as Record<string, unknown>
       const input = numberOr(usage.input_tokens) ?? inputTokens
       const output = numberOr(usage.output_tokens)
@@ -890,6 +929,8 @@ async function* streamGemini(request: UpstreamRequest): AsyncGenerator<UpstreamE
     if (grounded.length) yield { type: 'sources', sources: grounded }
     // Gemini names the reason on the last candidate, which often carries no parts at all.
     if (candidate?.finishReason === 'MAX_TOKENS') yield { type: 'truncated' }
+    const blocked = stopReasonFor(candidate?.finishReason)
+    if (blocked) yield { type: 'stop-reason', reason: blocked }
   }
 }
 

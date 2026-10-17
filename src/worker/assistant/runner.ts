@@ -32,7 +32,7 @@ import { resolveNoteScope, turnNoteIds, type NoteScope } from './note-scope'
 import { noteCitationsFromTool } from './note-citations'
 import { matchVaultFolders, noteTitleIfLive } from './vault'
 import { parametersSchema, ToolError, ToolExecutor, type ToolContext } from './tools'
-import { AbortError, streamUpstream, UpstreamError, type ModelTurn, type ToolCallRecord, type ToolSchema, type UpstreamRequest, type UpstreamRetry } from './upstream'
+import { AbortError, streamUpstream, UpstreamError, type ModelTurn, type ToolCallRecord, type ToolSchema, type UpstreamRequest, type UpstreamRetry, type UpstreamStopReason } from './upstream'
 import { loadModelAndProvider, modelEndpoint, type ModelEndpoint } from './model-config'
 import { pickModelForTurn } from '@shared/assistant-routing'
 import { fuseMemoryRecall, rankMemoriesByVector, semanticModel } from './semantic'
@@ -57,6 +57,16 @@ const RAISE_OUTPUT_CAP = 'Raise “Max output tokens” for this model and ask a
  * the reader to the other field is how a setting that was never involved gets edited.
  */
 const RAISE_ACCOUNT_OUTPUT_CAP = 'Raise the assistant’s own “Max output tokens” limit and ask again.'
+
+/**
+ * What a turn says when a provider rule, not the model, stopped the answer.
+ *
+ * A refusal is the model's own decision and a filter is the service's, so they are named apart: the reader
+ * needs to know whether the model would not answer or was not allowed to. Neither is a cap that can be
+ * raised, so both are answered by rephrasing or by another model.
+ */
+const TURN_REFUSED = 'The model declined to answer, so the reply above stops where it does. Try rephrasing it, or ask a different model.'
+const TURN_FILTERED = 'The provider cut this reply short under its own content rules, so the answer above stops where it does. Try rephrasing it, or ask a different model.'
 
 /**
  * The deadlines on the two model calls that run beside a turn rather than as it.
@@ -196,6 +206,24 @@ interface ResolvedCall {
   call: ModelEndpoint
 }
 
+/**
+ * What a turn cost, worked out from the prompt it was built on instead of from what the wire said.
+ *
+ * The provider's own numbers are preferred wherever they exist: this is what stands in when a stream ends
+ * before it reports any, which is what a stopped or failed turn almost always looks like. Tool results are
+ * counted because they are most of what a tool-heavy turn sends back, and they sit on the calls rather
+ * than in any turn's text — leaving them out under-charged exactly the turns that cost the reader most.
+ */
+function estimateTurnUsage(system: string, turns: ModelTurn[], answer: string): { inputTokens: number, outputTokens: number } {
+  const inputTokens = turns.reduce(
+    (total, turn) => total
+      + estimateTokens(turn.content)
+      + (turn.calls ?? []).reduce((sum, call) => sum + estimateTokens(call.result), 0),
+    estimateTokens(system),
+  )
+  return { inputTokens, outputTokens: estimateTokens(answer) }
+}
+
 export class AssistantRunner {
   private readonly memoryHistory: MemoryHistoryService
   private readonly automations: AutomationService
@@ -220,6 +248,8 @@ export class AssistantRunner {
   private conversationProjectId: string | null = null
   /** Set when a step's model call was cut off at the output cap instead of stopping by itself. */
   private turnTruncated = false
+  /** Set when a step's model call was stopped by a provider rule rather than by the model finishing. */
+  private turnBlocked: UpstreamStopReason | null = null
   /** Files already read for this turn, keyed by the ids and whether pictures travelled. */
   private attachmentPayloads = new Map<string, AttachmentPayload>()
   /** Which row each key on the wire came from, so a refusal can be written onto the key that caused it. */
@@ -426,6 +456,27 @@ export class AssistantRunner {
     // produced them rather than only off the call that drew them. This turn owns the array; the tool
     // context carries it, so every tool the executor runs is handed the same one.
     const generatedAttachments: string[] = []
+    // Counted out here rather than in the `try`, because a turn that ends in `catch` still has to be
+    // metered: the tokens a stopped or a failed turn produced were bought from the provider all the same.
+    const usage = { inputTokens: 0, outputTokens: 0 }
+    let system = ''
+    let turns: ModelTurn[] = []
+    // Which key the day's counters are filed against, and whether they have been written yet.
+    let keyRef: { providerId: string, providerLabel: string } | undefined
+    let usageCharged = false
+    /**
+     * Write this turn's counters onto the day's, once.
+     *
+     * The turn ends from two places — the loop it falls out of, and the `catch` that takes what it throws —
+     * and a failure that lands after a good write (the row itself going wrong) must not spend the same
+     * tokens twice. The request quota is not in here: it is spent by `reserve`, once per turn, and this
+     * cannot become a second way to charge it.
+     */
+    const chargeUsage = async (counters: { inputTokens: number, outputTokens: number, toolCalls?: number, errors?: number }) => {
+      if (usageCharged) return
+      usageCharged = true
+      await this.store.incrementUsage(counters, undefined, modelLabel, keyRef)
+    }
     const finish = async (
       status: AssistantMessage['status'],
       error: string | null,
@@ -465,6 +516,7 @@ export class AssistantRunner {
       const served = { current: primary }
       let { model, provider, call } = primary
       modelLabel = model.label
+      keyRef = { providerId: provider.id, providerLabel: provider.label }
       const limits = this.settings.limits
       // A 1M model and a 4K model do not get fed the same amount: the reader sets this per model on the
       // composer's context control, and the assistant-wide ceiling is what a model without one falls back
@@ -504,7 +556,7 @@ export class AssistantRunner {
       }
       const context = await this.contextLabels()
       const project = await this.project()
-      const system = buildSystemPrompt({
+      system = buildSystemPrompt({
         agentName: this.settings.agentName,
         language: this.settings.language,
         timezone: this.settings.timezone,
@@ -549,13 +601,12 @@ export class AssistantRunner {
       for (const problem of external.problems) {
         yield { type: 'mcp_problem', server: problem.label, error: problem.error }
       }
-      const turns: ModelTurn[] = window.messages.map((entry) => ({
+      turns = window.messages.map((entry) => ({
         role: entry.role,
         content: entry.content,
         calls: entry.calls,
         images: entry.images,
       }))
-      const usage = { inputTokens: 0, outputTokens: 0 }
       // What one step may spend, thinking included. The model's own ceiling is the whole answer here and
       // the account's number answers only for a model the reader has not set: taking the lower of the two
       // let the account default (1024) silently outrank a model the reader had set to 64000. Kept in a
@@ -575,6 +626,7 @@ export class AssistantRunner {
         // Judged per step and only the last step's verdict is kept: a step cut off mid-tool-call is
         // repaired by the step after it, while a cut-off *answer* is what must not be filed as whole.
         this.turnTruncated = false
+        this.turnBlocked = null
         // The first step is where a model may be swapped for one further down the chain; every step after
         // it is answered by whichever model got through, so a reply never changes voice halfway.
         const candidates = steps === 1 ? chain : [served.current]
@@ -662,17 +714,14 @@ export class AssistantRunner {
       }
 
       if (!usage.inputTokens && !usage.outputTokens) {
-        usage.inputTokens = estimateTokens(system) + turns.reduce((total, turn) => total + estimateTokens(turn.content), 0)
-        usage.outputTokens = estimateTokens(answer)
+        const estimate = estimateTurnUsage(system, turns, answer)
+        usage.inputTokens = estimate.inputTokens
+        usage.outputTokens = estimate.outputTokens
       }
       // The label travels with the counters so the day's models can be told apart: a reader with two
       // providers has two prices, and one total cannot be split after the fact. The provider rides along
       // too, so the same counters can be read back per key.
-      await this.store.incrementUsage({
-        inputTokens: usage.inputTokens,
-        outputTokens: usage.outputTokens,
-        toolCalls: executor.callCount,
-      }, undefined, modelLabel, { providerId: provider.id, providerLabel: provider.label })
+      await chargeUsage({ inputTokens: usage.inputTokens, outputTokens: usage.outputTokens, toolCalls: executor.callCount })
       if (stopped()) {
         yield { type: 'done', finalMessage: await finish('cancelled', null, usage) }
         return
@@ -684,7 +733,13 @@ export class AssistantRunner {
       let failure: string | null = null
       // Which of the two ceilings answered for this turn, so the notice sends the reader to that field.
       const capAdvice = model.maxOutputTokens === null ? RAISE_ACCOUNT_OUTPUT_CAP : RAISE_OUTPUT_CAP
-      if (this.turnTruncated) {
+      if (this.turnBlocked) {
+        outcome = 'error'
+        // A stop the provider chose under its own rules is not a finished answer, and filing it as one is
+        // how a refusal gets read back as the model's reply. Filed the way a cut-off answer is: the words
+        // that did arrive stay, the notice says why they stop, and the reader can ask for the rest.
+        failure = this.turnBlocked === 'refusal' ? TURN_REFUSED : TURN_FILTERED
+      } else if (this.turnTruncated) {
         outcome = 'error'
         // The cap is a number the reader set somewhere, so it is named; a turn that stops mid-sentence and
         // says nothing leaves them guessing whether the model was finished or merely out of room.
@@ -708,18 +763,27 @@ export class AssistantRunner {
       // a reader who stopped the turn in the meantime must not have their half answer filed as whole.
       yield { type: 'done', finalMessage: await finish(stopped() ? 'cancelled' : outcome, failure, usage) }
     } catch (error) {
-      if (error instanceof AbortError || stopped()) {
-        // A stop stops the turn, not the record of it: the words the reader already watched arrive are
-        // the half answer they chose to keep, so they are merged before the row is filed. Without this
-        // a cancelled row was stored empty while the transcript on screen still showed the text.
-        if (!stepWordsFiled) answer += text
-        yield { type: 'done', finalMessage: await finish('cancelled', null, null) }
+      // A stop stops the turn, not the record of it: the words the reader already watched arrive are
+      // the half answer they chose to keep, so they are merged before the row is filed. Without this
+      // a cancelled row was stored empty while the transcript on screen still showed the text.
+      const cancelled = error instanceof AbortError || stopped()
+      if (cancelled && !stepWordsFiled) answer += text
+      // What this turn spent, however it ended. A stream that died before it priced itself is estimated —
+      // an estimate is nearer the truth than the nothing that used to be filed here — but only when there
+      // are words to estimate from: a turn the provider refused at the door (a spent key, a downed host)
+      // was never served at all, and pricing its prompt would charge the reader for tokens no vendor sold.
+      const spent = (usage.inputTokens || usage.outputTokens || !answer.trim())
+        ? usage
+        : estimateTurnUsage(system, turns, answer)
+      if (cancelled) {
+        await chargeUsage(spent)
+        yield { type: 'done', finalMessage: await finish('cancelled', null, spent) }
         return
       }
-      await this.store.incrementUsage({ errors: 1 })
+      await chargeUsage({ ...spent, errors: 1 })
       const reason = describeUpstreamFailure(error)
       yield { type: 'error', code: errorCode(error), message: reason }
-      yield { type: 'done', finalMessage: await finish('error', reason, null) }
+      yield { type: 'done', finalMessage: await finish('error', reason, spent) }
     }
   }
 
@@ -746,14 +810,23 @@ export class AssistantRunner {
         continue
       }
       if (event.type === 'usage') {
-        usage.inputTokens += event.inputTokens
-        usage.outputTokens += event.outputTokens
+        // A provider reports the running total for the message it is talking about, and plenty of relays
+        // repeat that total on every chunk: added up, one step would be charged once per frame. The pair
+        // this step last claimed is what it spent, and the turn's total stays a sum — every step sends its
+        // own prompt again, and each of those is real spend.
+        usage.inputTokens = Math.max(usage.inputTokens, event.inputTokens)
+        usage.outputTokens = Math.max(usage.outputTokens, event.outputTokens)
         continue
       }
       // The cap signal is the runner's own business: the client has no event for it, and what the
       // reader needs to know arrives as the notice on the stored turn.
       if (event.type === 'truncated') {
         this.turnTruncated = true
+        continue
+      }
+      // The same for a stop the provider chose: the wire names it, the stored row says why.
+      if (event.type === 'stop-reason') {
+        this.turnBlocked = event.reason
         continue
       }
       // What a search found. Collected as it arrives rather than at the end because the vendor reports
@@ -778,9 +851,9 @@ export class AssistantRunner {
    * streamed, which cannot be taken back, and a failure that is about the request itself, which the next
    * model would refuse just as flatly.
    *
-   * What a failed attempt produced is rolled back with it. A trace, a set of search results or a truncation
-   * flag left behind by an attempt that never answered would be attributed to the model that did, and the
-   * turn would report a cap it was never cut off at.
+   * What a failed attempt produced is rolled back with it. A trace, a set of search results, a truncation
+   * flag or a stop reason left behind by an attempt that never answered would be attributed to the model
+   * that did, and the turn would report a cap it was never cut off at.
    */
   private async *stepWithFailover(
     candidates: readonly ResolvedCall[],
@@ -795,6 +868,7 @@ export class AssistantRunner {
       const attemptUsage = { inputTokens: 0, outputTokens: 0 }
       const sourcesBefore = new Set(this.turnSources.keys())
       const truncatedBefore = this.turnTruncated
+      const blockedBefore = this.turnBlocked
       let spoke = false
       try {
         const apiKey = await this.signKey(entry.provider)
@@ -813,6 +887,7 @@ export class AssistantRunner {
         if (spoke || !worthAnotherModel(error)) throw error
         for (const url of this.turnSources.keys()) if (!sourcesBefore.has(url)) this.turnSources.delete(url)
         this.turnTruncated = truncatedBefore
+        this.turnBlocked = blockedBefore
       }
     }
     throw failure ?? new Error('No model in the fallback chain could answer.')
