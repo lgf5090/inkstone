@@ -1,19 +1,21 @@
 /**
  * The data tab: importing and exporting the assistant's own records.
  */
-import { useRef, useState } from 'react'
-import { Download, Upload } from 'lucide-react'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { Download, FileText, Image, Trash2, Upload } from 'lucide-react'
+import type { ChatAttachment } from '@shared/assistant'
 import { MAX_BACKUP_BYTES } from '@shared/assistant'
 import { formatBytes } from '@shared/byte-format'
 import { t } from '../../lib/i18n'
 import { api, ApiError } from '../../lib/api'
 import { downloadTextFile } from '../../lib/export-note'
-import { Button } from '../../components/primitives'
+import { Button, IconButton, Spinner } from '../../components/primitives'
 import { SettingRow } from '../../components/form'
 import { confirm } from '../../components/overlay'
 import { useUi } from '../../store/ui'
 import { useAssistant } from './assistant-store'
-import { Group } from './assistant-settings-shared'
+import { Group, LoadFailure } from './assistant-settings-shared'
+import { formatInZone } from './time-format'
 import { UsagePanel } from './AssistantUsagePanel'
 
 const IMPORT_KEYS: Record<string, 'assistant.settings.import_conversations' | 'assistant.settings.import_messages' | 'assistant.settings.import_memories' | 'assistant.settings.import_tasks' | 'assistant.settings.import_projects' | 'assistant.settings.import_automations' | 'assistant.settings.import_notifications'> = {
@@ -24,6 +26,149 @@ const IMPORT_KEYS: Record<string, 'assistant.settings.import_conversations' | 'a
   projects: 'assistant.settings.import_projects',
   automations: 'assistant.settings.import_automations',
   notifications: 'assistant.settings.import_notifications',
+}
+
+/**
+ * How many files the list hands back.
+ *
+ * `GET /api/assistant/files` calls `store.listChatAttachments()` with its own default limit, so a reader
+ * who has uploaded more than this is shown the newest files and nothing else — and the answer carries no
+ * total to say how many were left out. The screen therefore states its own ceiling rather than letting a
+ * list that stops read as a list that is empty.
+ */
+const FILE_LIST_LIMIT = 60
+
+/**
+ * The files a reader has uploaded into their chats.
+ *
+ * Every one of them is a stored object the reader pays for, and until now nothing in the interface could
+ * name them: the uploads were only ever reachable from the turn that sent them, so a thread that was
+ * deleted left its files behind with no trace. This is the list and the way out, on the tab the reader
+ * already comes to for storage.
+ *
+ * A row carries no word about which conversation used it, so nothing here claims a file is unused — the
+ * delete is stated as what it does to the stored bytes, which is all this screen can know.
+ */
+export function ChatFileSpace() {
+  const timezone = useAssistant((state) => state.settings?.timezone)
+  const toast = useUi((state) => state.toast)
+  const [files, setFiles] = useState<ChatAttachment[] | null>(null)
+  // Kept apart from the list rather than derived from it: a refused read and an account with nothing in it
+  // are two different facts, and the route's own reason travels with the first one only when it has one.
+  const [failure, setFailure] = useState<{ detail: string | null } | null>(null)
+  const [removing, setRemoving] = useState<string | null>(null)
+
+  const load = useCallback(async () => {
+    setFailure(null)
+    try {
+      setFiles((await api.assistant.chatFiles()).files)
+    } catch (error) {
+      // A refused list is not an empty one — the files are still stored, and saying so is the whole point.
+      setFiles(null)
+      setFailure({ detail: error instanceof ApiError ? error.serverMessage ?? null : null })
+    }
+  }, [])
+
+  useEffect(() => {
+    void load()
+  }, [load])
+
+  const remove = async (file: ChatAttachment) => {
+    const label = t('assistant.settings.files_delete', { name: file.filename })
+    if (!(await confirm({
+      title: label,
+      description: t('assistant.settings.files_delete_hint'),
+      confirmLabel: t('common.delete'),
+      tone: 'danger',
+    }))) return
+    setRemoving(file.id)
+    try {
+      await api.assistant.deleteChatFile(file.id)
+      setFiles((current) => (current ?? []).filter((entry) => entry.id !== file.id))
+      toast({ title: t('assistant.settings.files_deleted', { name: file.filename }), tone: 'success' })
+    } catch (error) {
+      toast({
+        title: t('assistant.toast.failed'),
+        description: error instanceof ApiError ? error.serverMessage : undefined,
+        tone: 'danger',
+      })
+    } finally {
+      setRemoving(null)
+    }
+  }
+
+  const total = (files ?? []).reduce((sum, file) => sum + file.size, 0)
+
+  return (
+    <Group title={t('assistant.settings.files')}>
+      <div className="flex flex-col gap-1.5 py-2.5">
+        <p className="text-[length:var(--text-11)] leading-snug text-[var(--text-quaternary)]">
+          {t('assistant.settings.files_hint')}
+        </p>
+
+        {files === null && !failure && (
+          <div role="status" aria-label={t('common.loading')} className="flex justify-center py-2">
+            <Spinner />
+          </div>
+        )}
+
+        {failure !== null && (
+          <LoadFailure messageKey="assistant.settings.files_failed" detail={failure.detail} onRetry={() => void load()} />
+        )}
+
+        {files?.length === 0 && (
+          <p className="py-1 text-[length:var(--text-11-5)] text-[var(--text-quaternary)]">
+            {t('assistant.settings.files_empty')}
+          </p>
+        )}
+
+        {files !== null && files.length > 0 && (
+          <>
+            <p className="text-[length:var(--text-11-5)] tabular-nums text-[var(--text-tertiary)]">
+              {t('assistant.settings.files_summary', { count: files.length, size: formatBytes(total) })}
+            </p>
+            <ul aria-label={t('assistant.settings.files')} className="flex flex-col gap-1">
+              {files.map((file) => {
+                const label = t('assistant.settings.files_delete', { name: file.filename })
+                return (
+                  <li
+                    key={file.id}
+                    className="flex items-center gap-2 rounded-[var(--r-md)] border border-[var(--border-subtle)] px-2 py-1.5"
+                  >
+                    {file.kind === 'image'
+                      ? <Image size={13} className="shrink-0 text-[var(--text-quaternary)]" aria-hidden="true" />
+                      : <FileText size={13} className="shrink-0 text-[var(--text-quaternary)]" aria-hidden="true" />}
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-[length:var(--text-11-5)] text-[var(--text-secondary)]">{file.filename}</p>
+                      <p className="truncate text-[length:var(--text-10-5)] tabular-nums text-[var(--text-quaternary)]">
+                        {formatBytes(file.size)}
+                        {' · '}
+                        {formatInZone(file.createdAt, timezone)}
+                      </p>
+                    </div>
+                    <IconButton
+                      label={label}
+                      size="xs"
+                      aria-busy={removing === file.id}
+                      disabled={removing !== null}
+                      onClick={() => void remove(file)}
+                    >
+                      <Trash2 size={12} />
+                    </IconButton>
+                  </li>
+                )
+              })}
+            </ul>
+            {files.length >= FILE_LIST_LIMIT && (
+              <p className="text-[length:var(--text-10-5)] text-[var(--text-quaternary)]">
+                {t('assistant.settings.files_capped', { limit: FILE_LIST_LIMIT })}
+              </p>
+            )}
+          </>
+        )}
+      </div>
+    </Group>
+  )
 }
 
 export function DataTab() {
@@ -139,6 +284,8 @@ export function DataTab() {
           </div>
         </SettingRow>
       </Group>
+
+      <ChatFileSpace />
 
       <Group title={t('assistant.settings.danger')}>
         <SettingRow title={t('assistant.settings.clear_chats')} description={t('assistant.settings.clear_chats_hint')}>

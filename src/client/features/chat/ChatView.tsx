@@ -52,6 +52,7 @@ import {
   WebSearchMenu,
   VoiceButton,
 } from './ComposerControls'
+import { ContextUsageMeter } from './ContextUsageMeter'
 import { useUi } from '../../store/ui'
 import { copyText } from '../../lib/clipboard'
 import { useNotes } from '../../store/notes'
@@ -1685,6 +1686,10 @@ ${current}` : seed))
     [active, providers],
   )
   const uploading = pending.some((entry) => entry.status === 'uploading')
+  // The thread this box is about to add to: the turns the conversation has loaded, and whether older ones
+  // are still behind a page that was never asked for.
+  const threadMessages = useAssistant((state) => state.messages)
+  const threadHasMore = useAssistant((state) => state.messagesHasMore)
 
   useLayoutEffect(() => {
     const el = ref.current
@@ -1969,6 +1974,17 @@ ${current}` : seed))
               'text-[var(--text-primary)] placeholder:text-[var(--text-quaternary)] focus:outline-none',
             )}
           />
+          {/* How full the thread is, said in words the reader can read without pressing anything: the chip
+              above sets the window, and this says what the conversation has already used of it. */}
+          {active && settings && (
+            <ContextUsageMeter
+              messages={threadMessages}
+              hasMore={threadHasMore}
+              draft={value}
+              model={active}
+              limits={settings.limits}
+            />
+          )}
           {/* The row is icons only: five settings, the two ways in for an attachment, dictation and send all
               share a phone's width, so nothing here carries a word. */}
           <div className="flex min-w-0 flex-wrap items-center gap-0.5 px-0.5 pt-0.5">
