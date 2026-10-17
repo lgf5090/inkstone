@@ -929,7 +929,8 @@ export interface AssistantConversation {
    * The note this thread was started from.
    *
    * A label, like the parent id: it is what lets the thread say where it came from when the reader comes
-   * back to it, and what makes a search for a note's words find the conversations about it.
+   * back to it. It is not a search key — the list endpoint filters by text, folder, project and tag, and
+   * nothing reads this one.
    */
   noteId?: string | null
   createdAt: number
@@ -992,7 +993,7 @@ export interface AssistantArtifact {
   conversationId: string
   title: string
   content: string
-  /** The note this draft was saved to, once a build links the two; null while it is only a draft. */
+  /** The note this draft was filed as and pushes back to; null while it is only a draft. */
   noteId: string | null
   createdAt: number
   updatedAt: number

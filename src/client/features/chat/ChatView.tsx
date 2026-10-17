@@ -227,6 +227,17 @@ export function ChatView() {
   // fresh thread — while a reply another device is writing is shown but not stoppable from here.
   const streaming = (!!turnHere && !turnHere.done) || remoteStreaming
   const showEmpty = !activeId && !turnHere
+  // One polite region for the whole thread, flipped once when a reply lands. Every stored answer used to
+  // carry its own `role="log"`, which gave a long transcript dozens of live regions — and because the
+  // streaming turn is a different component that is replaced once the row is saved, the region only
+  // existed after the text had already changed, so the finished answer was the one thing never announced.
+  const [answerAnnouncement, setAnswerAnnouncement] = useState('')
+  const wasStreaming = useRef(false)
+
+  useEffect(() => {
+    if (wasStreaming.current && !streaming) setAnswerAnnouncement(t('assistant.chat.answer_ready'))
+    wasStreaming.current = streaming
+  }, [streaming])
   // Days are named in the assistant's own zone, the same one the bubbles print their times in.
   const timezone = useAssistant((state) => state.settings?.timezone)
 
@@ -491,6 +502,9 @@ export function ChatView() {
             </div>
           ) : (
             <div className="mx-auto flex w-full max-w-[720px] flex-col gap-5 px-4 py-5 md:px-6">
+              {/* A short status, not the answer: re-reading a whole reply on arrival is noise for the
+                  reader who is watching it stream and useless to the one who is not. */}
+              <div aria-live="polite" role="status" className="sr-only">{answerAnnouncement}</div>
               {messagesHasMore && (
                 <div className="flex justify-center">
                   <Button size="sm" variant="ghost" disabled={messagesLoadingMore} onClick={() => void loadEarlier()}>
@@ -2091,7 +2105,7 @@ ${current}` : seed))
             {t('assistant.composer.model_none_hint')}
           </p>
         )}
-        <p className="mt-1.5 hidden text-center text-[length:var(--text-10-5)] text-[var(--text-quaternary)] md:block">
+        <p className="mt-1.5 text-center text-[length:var(--text-10-5)] text-[var(--text-quaternary)]">
           {t('assistant.chat.disclaimer')}
         </p>
       </div>

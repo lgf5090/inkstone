@@ -152,9 +152,10 @@ export const ASSISTANT_SCHEMA_STATEMENTS: readonly string[] = [
      ON chat_conversations(user_id, project_id, updated_at DESC)`,
 
   // The drafts a conversation keeps beside it: a reply the reader pulled into a panel to work on, rather
-  // than one they would have had to edit in place and so rewrite the transcript. `note_id` is where a
-  // later build records the note a draft was saved to, so the two can be synced; it is null for a draft
-  // that is still only a draft, which is every row written until that build exists.
+  // than one they would have had to edit in place and so rewrite the transcript. `note_id` is the note a
+  // draft was saved to, written by the panel when the reader files it and cleared when they unlink it;
+  // while it is set the two surfaces edit one document, so it is null only for a draft that is still
+  // nothing but a draft.
   `CREATE TABLE IF NOT EXISTS chat_artifacts (
     user_id TEXT NOT NULL,
     id TEXT NOT NULL,

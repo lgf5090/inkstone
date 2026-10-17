@@ -17,11 +17,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { DEBOUNCE } from '@shared/constants'
 import { initI18n, t } from '../../lib/i18n'
 import { installTestGlobals, stubBreakpoint } from '../../lib/test-render'
+import { useNotes } from '../../store/notes'
 import { CanvasPanel } from './CanvasPanel'
 import { messageMenuItems } from './MessageMenu'
 import { useAssistant } from './assistant-store'
 
-const { DRAFT, updateConversationArtifact, removeConversationArtifact } = vi.hoisted(() => {
+const { DRAFT, LINKED, updateConversationArtifact, removeConversationArtifact, getNote, gate } = vi.hoisted(() => {
+  const noteId = '01hzzzzzzzzzzzzzzzzzzzzz20'
   const draft = {
     id: 'a1',
     conversationId: 'c1',
@@ -31,9 +33,23 @@ const { DRAFT, updateConversationArtifact, removeConversationArtifact } = vi.hoi
     createdAt: 1,
     updatedAt: 2,
   }
+  // What the browser remembers is not what the note says now, so a linked draft opens on the note.
+  const gate: { resolve: ((value: { content: string }) => void) | null } = { resolve: null }
   return {
     DRAFT: draft,
-    updateConversationArtifact: vi.fn(async (_id: string, _artifactId: string, patch: Record<string, unknown>) => ({ artifact: { ...draft, ...patch } })),
+    LINKED: { ...draft, id: 'a2', noteId },
+    getNote: vi.fn(() => new Promise<{ content: string }>((resolve) => { gate.resolve = resolve })),
+    gate,
+    updateConversationArtifact: vi.fn(async (_id: string, artifactId: string, patch: Record<string, unknown>) => ({
+      // The row the server answers with is the same draft it was asked about: a reply that came back
+      // looking like another, unlinked draft would move the panel off the document it is editing.
+      artifact: {
+        ...draft,
+        ...patch,
+        id: artifactId,
+        noteId: patch.noteId === undefined ? (artifactId === 'a2' ? noteId : null) : patch.noteId,
+      },
+    })),
     removeConversationArtifact: vi.fn(async () => ({ ok: true })),
   }
 })
@@ -45,6 +61,7 @@ vi.mock('../../lib/api', () => ({
       updateConversationArtifact,
       removeConversationArtifact,
     },
+    notes: { get: getNote },
     files: { upload: vi.fn(async () => ({ url: '', filename: '', mime: '' })) },
   },
 }))
@@ -158,6 +175,57 @@ describe('the canvas panel', () => {
     expect(useAssistant.getState().artifacts).toEqual([])
     expect(useAssistant.getState().activeArtifactId).toBeNull()
     expect(document.body.textContent).toContain(t('assistant.canvas.empty'))
+  })
+})
+
+/**
+ * A draft that is also a note.
+ *
+ * Two surfaces, one document, and a read that takes a request: the note is fetched on mount while the
+ * reader is already typing. Committing whatever settled before that read landed either reported a note
+ * nobody had touched as a conflict, or wrote the draft's stale copy over the notebook's body — and a read
+ * that lands after they typed would have replaced their paragraph with what the note said before.
+ */
+describe('a draft linked to a note', () => {
+  /** Types into the textarea the editor stands in for, the way a browser does. */
+  function typeArea(value: string): void {
+    const area = document.querySelector('textarea')!
+    const setter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value')!.set!
+    act(() => {
+      setter.call(area, value)
+      area.dispatchEvent(new window.Event('input', { bubbles: true }))
+    })
+  }
+
+  it('writes nothing until the note has been read, and keeps what the reader typed meanwhile', async () => {
+    vi.useFakeTimers()
+    const notesOriginal = useNotes.getState()
+    const editRemoteContent = vi.fn(async (_id: string, transform: (server: string) => string | null) =>
+      (transform('the note body') === null ? 'conflict' : 'written'))
+    useNotes.setState({ notes: {}, contents: {}, editRemoteContent })
+    try {
+      await show({ activeId: 'c1', artifacts: [LINKED], artifactsReady: true, activeArtifactId: LINKED.id })
+      typeArea('my own paragraph')
+      await act(async () => { vi.advanceTimersByTime(DEBOUNCE.persist * 2) })
+      expect(updateConversationArtifact).not.toHaveBeenCalled()
+      expect(editRemoteContent).not.toHaveBeenCalled()
+
+      await act(async () => {
+        gate.resolve?.({ content: 'the note body' })
+        await vi.advanceTimersByTimeAsync(DEBOUNCE.persist * 2)
+      })
+
+      expect(updateConversationArtifact).toHaveBeenCalledWith(
+        'c1', LINKED.id, expect.objectContaining({ content: expect.stringContaining('my own paragraph') }),
+      )
+      // The note is written against the body that was just read, with the reader's words on top of it.
+      const transform = editRemoteContent.mock.calls.at(-1)![1] as (server: string) => string | null
+      expect(transform('the note body')).toContain('my own paragraph')
+      expect(transform('edited in the notebook')).toBeNull()
+      expect(document.querySelector('textarea')?.value).toContain('my own paragraph')
+    } finally {
+      useNotes.setState(notesOriginal, true)
+    }
   })
 })
 

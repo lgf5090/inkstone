@@ -170,26 +170,39 @@ interface TurnAnswer {
 }
 
 /**
- * Send one prompt, and hand back the answer *that send* wrote — or nothing at all.
+ * What one send produced, named as the state that actually happened.
+ *
+ * `null` for everything that is not an answer is what made callers guess: a turn already in flight, a run
+ * the worker never took, and a reply with no words in it are three different things to say to the reader,
+ * and a message about "nothing coming back" while the assistant is still writing is a lie about the state
+ * they are in. `failed` carries what the turn reported when it reported anything.
+ */
+export type AnswerResult =
+  | { status: 'ok', text: string }
+  | { status: 'busy' }
+  | { status: 'failed', error: string | null }
+  | { status: 'empty' }
+
+/**
+ * Send one prompt, and hand back the answer *that send* wrote — or the reason it did not.
  *
  * `lastAnswerText` reads the newest answer on the screen, which is the wrong thing for a command that
  * files an answer under a title of its own. When the store refuses the send because a turn is already
  * streaming, when the worker never takes the request, or when the reader stops it, the newest answer is
  * the one from whatever thread was already open — and that is what lands in a note named "summary of
  * something else". So this holds on to the turn the send started, which is the one whose object is not
- * the one already on screen, and reads only that: nothing started, an error, a turn the worker filed as
- * stopped, or a turn with no words in it all answer `null`.
+ * the one already on screen, and reads only that.
  *
  * The watch is a subscription rather than a read at the end, because `send` adopts the thread in its own
  * `finally` and drops the live turn before it resolves: by then the only copy of what this turn said is
  * the snapshot taken while it was on screen.
  *
- * Returns `null` without sending when a turn is already running, so a caller can say it is busy rather
- * than queue a second question behind the reader's back.
+ * Says `busy` without sending when a turn is already running, so a caller can tell the reader to wait
+ * rather than queue a second question behind their back.
  */
-export async function sendForAnswer(prompt: string): Promise<string | null> {
+export async function sendForAnswerDetailed(prompt: string): Promise<AnswerResult> {
   const assistant = useAssistant.getState()
-  if (assistant.turn && !assistant.turn.done) return null
+  if (assistant.turn && !assistant.turn.done) return { status: 'busy' }
   const previous = assistant.turn
   // A box rather than a variable: the write happens inside the subscription below, and the reader of it
   // is a different stretch of code than the writer.
@@ -204,14 +217,29 @@ export async function sendForAnswer(prompt: string): Promise<string | null> {
   const accepted = await useAssistant.getState().send(prompt)
   watch()
   const turn = started.turn
-  if (!accepted || !turn || !turn.done || turn.error || !turn.text.trim()) return null
+  if (!accepted) return { status: 'failed', error: null }
+  if (!turn) return { status: 'failed', error: null }
+  if (!turn.done) return { status: 'failed', error: turn.error }
+  if (turn.error) return { status: 'failed', error: turn.error }
   // The stored row is the only place a stopped answer says so: the live turn simply ends, with its
   // words still on the way.
   const row = turn.assistantId
     ? useAssistant.getState().messages.find((message) => message.id === turn.assistantId)
     : undefined
-  if (row && row.status !== 'complete') return null
-  return turn.text
+  if (row && row.status !== 'complete') return { status: 'failed', error: row.error }
+  if (!turn.text.trim()) return { status: 'empty' }
+  return { status: 'ok', text: turn.text }
+}
+
+/**
+ * The same send, answered with the text or nothing.
+ *
+ * For a caller that has one use for every non-answer — a surface that writes a file or stops. Anything
+ * that has to *say* what happened takes {@link sendForAnswerDetailed}.
+ */
+export async function sendForAnswer(prompt: string): Promise<string | null> {
+  const result = await sendForAnswerDetailed(prompt)
+  return result.status === 'ok' ? result.text : null
 }
 
 /** How much of a selection rides in the composer as a quote, which the reader then asks about. */

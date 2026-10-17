@@ -10,14 +10,20 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { initI18n, t } from '../../lib/i18n'
 import { dateKey } from '../../lib/time'
+import type { AnswerResult } from '../chat/editor-ai'
 import { useNotes } from '../../store/notes'
 import { useUi } from '../../store/ui'
 import { summarizeToday, upsertSection } from './diary-ai'
 
-const { ask, answer } = vi.hoisted(() => ({
-  // The real channel answers with trimmed text or nothing, which is what the caller checks.
-  ask: vi.fn(async (_noteId: string, _prompt: string) => answer.current.trim() || null),
+const { ask, answer, stuck } = vi.hoisted(() => ({
+  // The channel answers with one of four states; what the entry says has to differ between them.
+  ask: vi.fn(async (_noteId: string, _prompt: string): Promise<AnswerResult> => {
+    if (stuck.current === 'busy') return { status: 'busy' }
+    if (stuck.current === 'failed') return { status: 'failed', error: 'upstream refused' }
+    return answer.current.trim() ? { status: 'ok', text: answer.current } : { status: 'empty' }
+  }),
   answer: { current: '' },
+  stuck: { current: '' as '' | 'busy' | 'failed' },
 }))
 
 vi.mock('../chat/note-ai', () => ({ askAboutNote: (noteId: string, prompt: string) => ask(noteId, prompt) }))
@@ -32,12 +38,15 @@ beforeEach(async () => {
   editContent.mockReset()
   ask.mockClear()
   answer.current = '- shipped the plan'
+  stuck.current = ''
   useNotes.setState({ notes: {}, contents: {}, editContent, openNote })
 })
 
 afterEach(() => {
   useNotes.setState(notesOriginal, true)
   useUi.setState(uiOriginal, true)
+  // The toast spy sits on the state object the restore below hands back, so it has to come off first.
+  vi.restoreAllMocks()
 })
 
 describe('upsertSection', () => {
@@ -83,6 +92,48 @@ describe('summarizing today', () => {
     const toast = vi.spyOn(useUi.getState(), 'toast')
     expect(await summarizeToday()).toBe(false)
     expect(editContent).not.toHaveBeenCalled()
-    expect(toast).toHaveBeenCalled()
+    expect(toast).toHaveBeenCalledWith(expect.objectContaining({ title: t('sidebar.diary_ai.empty') }))
+  })
+})
+
+/**
+ * The two states that are not "nothing came back".
+ *
+ * One channel answering `string | null` folded busy, failure and emptiness into the same return value, and
+ * this entry said the same sentence for all three — including for a turn that was still writing, where the
+ * right thing to say is to wait.
+ */
+describe('the states that are not an empty answer', () => {
+  function diary() {
+    const key = dateKey(new Date())
+    const diaryId = '01hzzzzzzzzzzzzzzzzzzzzz05'
+    useNotes.setState({
+      notes: { [diaryId]: { id: diaryId, title: t('sidebar.diary_title_value0', { value0: key }), updatedAt: Date.now() } as never },
+      contents: { [diaryId]: '' },
+    })
+    return diaryId
+  }
+
+  it('asks the reader to wait when an answer is still being written', async () => {
+    const diaryId = diary()
+    stuck.current = 'busy'
+    const toast = vi.spyOn(useUi.getState(), 'toast')
+    expect(await summarizeToday()).toBe(false)
+    expect(editContent).not.toHaveBeenCalled()
+    expect(toast).toHaveBeenCalledWith(expect.objectContaining({ title: t('assistant.edit.busy') }))
+    expect(toast).not.toHaveBeenCalledWith(expect.objectContaining({ title: t('sidebar.diary_ai.empty') }))
+    expect(useNotes.getState().contents[diaryId]).toBe('')
+  })
+
+  it('says the run failed, with what it reported, when the worker did not answer', async () => {
+    diary()
+    stuck.current = 'failed'
+    const toast = vi.spyOn(useUi.getState(), 'toast')
+    expect(await summarizeToday()).toBe(false)
+    expect(toast).toHaveBeenCalledWith(expect.objectContaining({
+      title: t('assistant.note.answer_failed'),
+      description: 'upstream refused',
+      tone: 'danger',
+    }))
   })
 })

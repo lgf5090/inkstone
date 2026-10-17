@@ -144,8 +144,21 @@ function describe(suggestion: NoteSuggestion): string {
 export async function suggestNoteMeta(noteId: string): Promise<NoteSuggestion | null> {
   const toast = useUi.getState().toast
   const answer = await askAboutNote(noteId, t('assistant.suggest.prompt'))
-  if (!answer) return null
-  const suggestion = parseNoteSuggestion(answer)
+  // Which of these it was matters to the reader: waiting for an answer that is still being written, an
+  // answer that failed, and an answer with nothing in it are three different next moves.
+  if (answer.status === 'busy') {
+    toast({ title: t('assistant.edit.busy'), tone: 'warning' })
+    return null
+  }
+  if (answer.status === 'failed') {
+    toast({ title: t('assistant.note.answer_failed'), description: answer.error ?? undefined, tone: 'danger' })
+    return null
+  }
+  if (answer.status === 'empty') {
+    toast({ title: t('assistant.note.answer_empty'), tone: 'warning' })
+    return null
+  }
+  const suggestion = parseNoteSuggestion(answer.text)
   if (!suggestion) {
     toast({ title: t('assistant.suggest.unreadable'), tone: 'warning' })
     return null

@@ -16,15 +16,73 @@ import { api } from '../../lib/api'
 import { useNotes } from '../../store/notes'
 
 /** What the panel last read or wrote per draft, which is what a closed note's write is checked against. */
-const seen = new Map<string, { noteId: string, content: string }>()
+interface Baseline { noteId: string, content: string, at: number }
+
+/**
+ * The same record, kept in `localStorage` as well as in memory.
+ *
+ * Held only in memory, the baseline died with a refresh: the note that had not been opened again had
+ * nothing to compare its first write against, and a body that had not moved anywhere was reported as a
+ * conflict. The draft row cannot carry it instead — `chat_artifacts` holds the draft's own title, body and
+ * linked note, and none of those is what the *note* last said, since opening a linked draft reads the note
+ * without committing its body to the draft. A field of its own would be a column, so the browser keeps its
+ * own record of what it saw.
+ */
+const STORAGE_KEY = 'inkstone:canvas-note-baseline:v1'
+
+/** How many drafts' baselines outlive the panel: the ones being worked on, not the whole vault. */
+const MAX_BASELINES = 20
+
+const seen = new Map<string, Baseline>()
+
+function storage(): Storage | null {
+  return typeof localStorage === 'undefined' ? null : localStorage
+}
+
+/**
+ * The stored baselines, or none at all when the record is not the shape it was written in.
+ *
+ * A browser's storage is shared and hand-editable, so a malformed entry is dropped rather than trusted:
+ * the cost of dropping is one conflict message, the cost of trusting one is a write checked against bytes
+ * that were never on screen.
+ */
+function readStored(): Record<string, Baseline> {
+  const source = storage()
+  if (!source) return {}
+  try {
+    const parsed: unknown = JSON.parse(source.getItem(STORAGE_KEY) ?? 'null')
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {}
+    const entries: Record<string, Baseline> = {}
+    for (const [artifactId, value] of Object.entries(parsed as Record<string, unknown>)) {
+      if (!value || typeof value !== 'object') continue
+      const row = value as Record<string, unknown>
+      if (typeof row.noteId !== 'string' || typeof row.content !== 'string' || typeof row.at !== 'number') continue
+      entries[artifactId] = { noteId: row.noteId, content: row.content, at: row.at }
+    }
+    return entries
+  } catch (error) {
+    console.warn('[inkstone] could not read the draft-to-note sync baseline', error)
+    return {}
+  }
+}
 
 function remember(artifactId: string, noteId: string, content: string): void {
-  seen.set(artifactId, { noteId, content })
+  seen.set(artifactId, { noteId, content, at: Date.now() })
+  const source = storage()
+  if (!source) return
+  const kept = Object.fromEntries([...seen.entries()].sort((left, right) => right[1].at - left[1].at).slice(0, MAX_BASELINES))
+  try {
+    // Best-effort: a record this browser could not keep costs the reader a conflict message on the next
+    // write, which is the pre-existing behaviour — not a paragraph of theirs.
+    source.setItem(STORAGE_KEY, JSON.stringify(kept))
+  } catch (error) {
+    console.warn('[inkstone] could not store the draft-to-note sync baseline', error)
+  }
 }
 
 /** The baseline for this draft, or null when it has none yet — a draft opened for the first time. */
 function baselineFor(artifactId: string, noteId: string): string | null {
-  const entry = seen.get(artifactId)
+  const entry = seen.get(artifactId) ?? readStored()[artifactId]
   return entry && entry.noteId === noteId ? entry.content : null
 }
 

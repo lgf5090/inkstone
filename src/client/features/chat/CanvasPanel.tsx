@@ -165,22 +165,39 @@ function ArtifactEditor({ artifact, onSave, onRemove }: {
   // What the server already has. A settled value equal to it is the echo of our own write coming back
   // through the store, and committing it again would be a second request for the same bytes.
   const committed = useRef({ title: artifact.title, content: artifact.content })
+  // Whether the reader has typed here. The note read below is in flight from the first paint, and its
+  // answer is what the note said *before* they started — so it may say where the body came from, but it
+  // must not become the body under their cursor.
+  const edited = useRef(false)
+  // The order the two writers of one document have to keep: nothing is committed until the linked note
+  // has been read. A write that jumped the queue had no baseline to be checked against, so it either
+  // reported a note that had not moved as a conflict or, when the note was open in the notebook,
+  // overwrote it with the copy this draft was saved as.
+  const [noteRead, setNoteRead] = useState(!linkedNoteId)
   const pending = useMemo(() => ({ title, content }), [title, content])
   const settled = useDebounced(pending, DEBOUNCE.persist)
 
   // A linked draft opens on the note, not on the copy it was last saved as: the notebook is where the
   // document has been living, and the panel showing a stale copy would invite a write over the top of it.
   useEffect(() => {
-    if (!linkedNoteId) return
+    if (!linkedNoteId) {
+      setNoteRead(true)
+      return
+    }
     let alive = true
+    setNoteRead(false)
     void loadLinkedNote(artifact.id, linkedNoteId).then((note) => {
       if (!alive) return
       if (note === null) {
         useUi.getState().toast({ title: t('assistant.canvas.note_missing'), tone: 'warning' })
+        setNoteRead(true)
         return
       }
-      setContent(note)
-      committed.current = { title: committed.current.title, content: note }
+      if (!edited.current) {
+        setContent(note)
+        committed.current = { title: committed.current.title, content: note }
+      }
+      setNoteRead(true)
     })
     return () => {
       alive = false
@@ -188,20 +205,25 @@ function ArtifactEditor({ artifact, onSave, onRemove }: {
   }, [artifact.id, linkedNoteId])
 
   useEffect(() => {
+    if (!noteRead) return
     if (settled.title === committed.current.title && settled.content === committed.current.content) return
     committed.current = settled
-    void onSave(artifact.id, settled)
-    if (!linkedNoteId) return
-    // The note takes the same body: one document, two surfaces. A conflict is reported and the panel
-    // keeps the reader's text — losing a paragraph to a silent overwrite is the one outcome to avoid.
-    void pushToNote(artifact.id, linkedNoteId, settled.content).then((result) => {
+    void (async () => {
+      // One writer after the other, draft first: the row is where the body survives a refresh, so a note
+      // write that lands before it would leave a conflict in the notebook and the reader's paragraph
+      // nowhere but on screen.
+      await onSave(artifact.id, settled)
+      if (!linkedNoteId) return
+      // The note takes the same body: one document, two surfaces. A conflict is reported and the panel
+      // keeps the reader's text — losing a paragraph to a silent overwrite is the one outcome to avoid.
+      const result = await pushToNote(artifact.id, linkedNoteId, settled.content)
       if (result === 'ok') return
       useUi.getState().toast({
         title: t(result === 'conflict' ? 'assistant.canvas.sync_conflict' : 'assistant.canvas.note_missing'),
         tone: 'warning',
       })
-    })
-  }, [settled, artifact.id, onSave, linkedNoteId])
+    })()
+  }, [settled, artifact.id, onSave, linkedNoteId, noteRead])
 
   // The editor completes `[[links]]` and `#tags` from the vault, the same two sources the notebook's own
   // editor is given. The upload handler drops a pasted file into the reader's library; a draft has no note
@@ -308,7 +330,10 @@ function ArtifactEditor({ artifact, onSave, onRemove }: {
           <DeferredCodeEditor
             visible
             value={content}
-            onChange={setContent}
+            onChange={(next) => {
+              edited.current = true
+              setContent(next)
+            }}
             settings={settings}
             sources={sources}
             handlers={handlers}

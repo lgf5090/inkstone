@@ -22,6 +22,7 @@ const ARTIFACT_ID = '01hzzzzzzzzzzzzzzzzzzzzz10'
 const OTHER_ARTIFACT_ID = '01hzzzzzzzzzzzzzzzzzzzzz11'
 const THIRD_ARTIFACT_ID = '01hzzzzzzzzzzzzzzzzzzzzz12'
 const FOURTH_ARTIFACT_ID = '01hzzzzzzzzzzzzzzzzzzzzz13'
+const RELOADED_ARTIFACT_ID = '01hzzzzzzzzzzzzzzzzzzzzz14'
 const notesOriginal = useNotes.getState()
 const editContent = vi.fn()
 const editRemoteContent = vi.fn()
@@ -31,6 +32,8 @@ beforeEach(() => {
   editRemoteContent.mockReset()
   getNote.mockReset()
   getNote.mockImplementation(async () => ({ content: 'from the server' }))
+  // What this browser remembers of a note outlives the panel that read it, so each case starts clean.
+  localStorage.clear()
   useNotes.setState({ notes: {}, contents: {}, editContent, editRemoteContent })
 })
 
@@ -73,5 +76,44 @@ describe('a note that is closed', () => {
     getNote.mockRejectedValue(new Error('404'))
     expect(await loadLinkedNote(ARTIFACT_ID, NOTE_ID)).toBeNull()
     expect(await pullFromNote(ARTIFACT_ID, NOTE_ID)).toBeNull()
+  })
+})
+
+/**
+ * The baseline across a reload.
+ *
+ * Held only in the module, it died with the page: the first write after a refresh had nothing to be
+ * checked against, so a note nobody had touched since was reported as a conflict — and the draft row
+ * cannot stand in for it, because its body is the draft's own and a linked note routinely says something
+ * newer than that.
+ */
+describe('the panel after a reload', () => {
+  it('keeps what it last saw, so the first push is a write and not a conflict', async () => {
+    editRemoteContent.mockResolvedValue('written')
+    await loadLinkedNote(RELOADED_ARTIFACT_ID, NOTE_ID)
+    expect(await pushToNote(RELOADED_ARTIFACT_ID, NOTE_ID, 'panel text')).toBe('ok')
+
+    // A fresh module instance is the whole of what a refresh leaves behind: no map, only the browser.
+    vi.resetModules()
+    const [sync, notes] = await Promise.all([import('./canvas-sync'), import('../../store/notes')])
+    const remote = vi.fn(async (_id: string, transform: (server: string) => string | null) =>
+      (transform('panel text') === null ? 'conflict' : 'written'))
+    notes.useNotes.setState({ notes: {}, contents: {}, editRemoteContent: remote })
+    expect(await sync.pushToNote(RELOADED_ARTIFACT_ID, NOTE_ID, 'newer panel text')).toBe('ok')
+
+    // And the remembered body is still a real guard: a note that moved elsewhere in the meantime is a
+    // conflict, not a write that happens to have found a record.
+    const moved = vi.fn(async (_id: string, transform: (server: string) => string | null) =>
+      (transform('edited in the notebook') === null ? 'conflict' : 'written'))
+    notes.useNotes.setState({ editRemoteContent: moved })
+    expect(await sync.pushToNote(RELOADED_ARTIFACT_ID, NOTE_ID, 'too late')).toBe('conflict')
+  })
+
+  it('still refuses a draft that was never read, after a reload as well as before one', async () => {
+    expect(await pushToNote('01hzzzzzzzzzzzzzzzzzzzzz15', NOTE_ID, 'panel text')).toBe('conflict')
+    vi.resetModules()
+    const [sync, notes] = await Promise.all([import('./canvas-sync'), import('../../store/notes')])
+    notes.useNotes.setState({ notes: {}, contents: {}, editRemoteContent: vi.fn() })
+    expect(await sync.pushToNote('01hzzzzzzzzzzzzzzzzzzzzz15', NOTE_ID, 'panel text')).toBe('conflict')
   })
 })

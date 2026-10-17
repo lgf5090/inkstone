@@ -93,7 +93,18 @@ async function writeDiarySection(key: string, heading: string, prompt: string): 
     return false
   }
   const answer = await askAboutNote(id, prompt)
-  if (!answer) {
+  // Three states, three sentences: an answer still being written is worth waiting for, a run that failed
+  // is worth reading the reason of, and a turn that answered with nothing is what this entry's own
+  // message is for. Saying "nothing came back" for all three is how a busy assistant became a mystery.
+  if (answer.status === 'busy') {
+    toast({ title: t('assistant.edit.busy'), tone: 'warning' })
+    return false
+  }
+  if (answer.status === 'failed') {
+    toast({ title: t('assistant.note.answer_failed'), description: answer.error ?? undefined, tone: 'danger' })
+    return false
+  }
+  if (answer.status === 'empty') {
     toast({ title: t('sidebar.diary_ai.empty'), tone: 'warning' })
     return false
   }
@@ -102,7 +113,7 @@ async function writeDiarySection(key: string, heading: string, prompt: string): 
     toast({ title: t('sidebar.diary_ai.no_diary'), tone: 'danger' })
     return false
   }
-  useNotes.getState().editContent(id, upsertSection(content, heading, answer))
+  useNotes.getState().editContent(id, upsertSection(content, heading, answer.text))
   toast({ title: t('sidebar.diary_ai.saved'), tone: 'success' })
   return true
 }

@@ -8,14 +8,15 @@
  * rather than replaced, and nothing is written when the reader says no.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { initI18n } from '../../lib/i18n'
+import { initI18n, t } from '../../lib/i18n'
 import { useNotes } from '../../store/notes'
 import { useUi } from '../../store/ui'
 import { parseNoteSuggestion, applyNoteSuggestion, suggestNoteMeta } from './note-suggestions'
 
-const { asked, answer } = vi.hoisted(() => ({
+const { asked, answer, stuck } = vi.hoisted(() => ({
   asked: vi.fn(async (_options: { title?: string }) => true),
   answer: { current: '' },
+  stuck: { current: '' as '' | 'busy' | 'failed' | 'empty' },
 }))
 
 vi.mock('../../components/overlay', async (importOriginal) => {
@@ -23,7 +24,15 @@ vi.mock('../../components/overlay', async (importOriginal) => {
   return { ...actual, confirm: (options: { title?: string }) => asked(options) }
 })
 
-vi.mock('./note-ai', () => ({ askAboutNote: async () => answer.current }))
+vi.mock('./note-ai', () => ({
+  askAboutNote: async () => {
+    if (stuck.current === 'busy') return { status: 'busy' as const }
+    if (stuck.current === 'failed') return { status: 'failed' as const, error: 'upstream refused' }
+    if (stuck.current === 'empty') return { status: 'empty' as const }
+    if (!answer.current.trim()) return { status: 'empty' as const }
+    return { status: 'ok' as const, text: answer.current }
+  },
+}))
 
 const NOTE_ID = '01hzzzzzzzzzzzzzzzzzzzzz01'
 const notesOriginal = useNotes.getState()
@@ -35,6 +44,7 @@ beforeEach(async () => {
   editContent.mockReset()
   asked.mockClear()
   answer.current = ''
+  stuck.current = ''
   useNotes.setState({
     notes: { [NOTE_ID]: { id: NOTE_ID, title: 'Q3 review' } as never },
     contents: { [NOTE_ID]: '---\ntags: [work]\n---\n\nThe review went well.\n' },
@@ -45,6 +55,9 @@ beforeEach(async () => {
 afterEach(() => {
   useNotes.setState(notesOriginal, true)
   useUi.setState(uiOriginal, true)
+  // The toast spies are installed on the store's own state object, and restoring it puts the previous
+  // test's spy back where it was recording: every case has to hand its spies back.
+  vi.restoreAllMocks()
 })
 
 describe('reading a suggestion', () => {
@@ -115,6 +128,23 @@ describe('asking for suggestions', () => {
     const toast = vi.spyOn(useUi.getState(), 'toast')
     expect(await suggestNoteMeta(NOTE_ID)).toBeNull()
     expect(toast).toHaveBeenCalled()
+    expect(editContent).not.toHaveBeenCalled()
+  })
+
+  // Busy, failed and empty are three different things a reader can do about, and the one channel used to
+  // answer them all with `null` — which left this menu saying "could not be read" about a turn that had
+  // not finished yet.
+  it.each([
+    ['busy', 'assistant.edit.busy'],
+    ['failed', 'assistant.note.answer_failed'],
+    ['empty', 'assistant.note.answer_empty'],
+  ] as const)('names a %s answer as itself', async (state, key) => {
+    stuck.current = state
+    const toast = vi.spyOn(useUi.getState(), 'toast')
+    expect(await suggestNoteMeta(NOTE_ID)).toBeNull()
+    expect(toast).toHaveBeenCalledWith(expect.objectContaining({ title: t(key) }))
+    expect(toast).not.toHaveBeenCalledWith(expect.objectContaining({ title: t('assistant.suggest.unreadable') }))
+    expect(asked).not.toHaveBeenCalled()
     expect(editContent).not.toHaveBeenCalled()
   })
 })

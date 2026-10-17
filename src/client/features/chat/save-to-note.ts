@@ -8,11 +8,13 @@
  *
  * A saved note names the thread it came from, because the note is a copy and the thread is the record:
  * `![[chat:<id>]]` is the embed the notebook already renders, so the way back is the same door the
- * conversation menu draws by hand. The whole conversation can be kept the same way, and a reply can be
- * inserted into the note the reader has open instead of becoming a second note.
+ * conversation menu draws by hand. The evidence travels with it — the sources an answer cited and the
+ * files a turn carried — because a claim copied out of a thread without them is not the document the
+ * reader just read. The whole conversation can be kept the same way, and a reply can be inserted into the
+ * note the reader has open instead of becoming a second note.
  */
 
-import { titleFromMessage, type AssistantMessage } from '@shared/assistant'
+import { titleFromMessage, type AssistantMessage, type ChatAttachment } from '@shared/assistant'
 import { api } from '../../lib/api'
 import { t } from '../../lib/i18n'
 import { isChatEmbedId } from '../../lib/markdown/chat-embed'
@@ -22,7 +24,7 @@ import { useUi } from '../../store/ui'
 import { openNote } from './note-links'
 import { insertBlockAt } from './editor-ai'
 import { useAssistant } from './assistant-store'
-import { transcriptMarkdown } from './transcript'
+import { sourcesMarkdown, transcriptMarkdown } from './transcript'
 import { fetchWholeConversation } from './thread-fetch'
 
 /**
@@ -111,6 +113,25 @@ export function noteBodyFromTranscript(transcript: string): string {
 }
 
 /**
+ * The citations of the answer being saved, read from the thread it was said in.
+ *
+ * A save is aimed at a body of text — the row's menu and a bubble's own action both hand over the words,
+ * and a draft in the side panel may not be a stored row at all — so the row is matched on what it says and
+ * its citation list comes along with it. No match, no block: an answer the reader edited by hand is worth
+ * exactly the words it now has, and inventing a source list for them would be worse than none.
+ */
+function sourcesForBody(body: string): string {
+  const text = body.trim()
+  if (!text) return ''
+  const rows = useAssistant.getState().messages
+  for (let index = rows.length - 1; index >= 0; index -= 1) {
+    const row = rows[index]!
+    if (row.role === 'assistant' && row.content.trim() === text) return sourcesMarkdown(row)
+  }
+  return ''
+}
+
+/**
  * Writes a reply into a new note, with a pointer back to the conversation it came from, and offers the
  * reader the way in.
  *
@@ -120,7 +141,8 @@ export function noteBodyFromTranscript(transcript: string): string {
 export async function saveReplyAsNote(body: string): Promise<string | null> {
   const title = titleFromMessage(leadingProse(body)) || t('assistant.chat.saved_note_untitled')
   const conversationId = useAssistant.getState().activeId
-  const content = withConversationSource(body, conversationId)
+  const cited = sourcesForBody(body)
+  const content = withConversationSource(cited ? `${body.trimEnd()}\n\n${cited}` : body, conversationId)
   const id = await useNotes.getState().createNote({ title, content, open: false })
   if (!id) {
     useUi.getState().toast({ title: t('assistant.toast.failed'), tone: 'danger' })
@@ -164,14 +186,18 @@ export async function saveConversationAsNote(conversationId?: string | null): Pr
     return null
   }
   const messages = detail.messages
-  // A turn can carry an attachment and no words; the transcript keeps it, and only a thread with
-  // nothing at all in it is refused.
+  // A turn can carry an attachment and no words. That is kept rather than refused — and it is only a real
+  // answer because the transcript writes the files out as links, so a thread of pictures becomes a note
+  // naming them instead of an empty one. Only a thread with nothing at all in it is refused.
   if (!messages.some((message) => message.content.trim() !== '' || (message.attachments?.length ?? 0) > 0)) {
     toast({ title: t('assistant.note.conversation_empty'), tone: 'warning' })
     return null
   }
   const title = conversationNoteTitle(detail.conversation.title, messages)
-  const content = withConversationSource(noteBodyFromTranscript(transcriptMarkdown(messages, title)), id)
+  const files: Record<string, ChatAttachment> = {}
+  for (const attachment of detail.attachments) files[attachment.id] = attachment
+  const transcript = transcriptMarkdown(messages, title, files)
+  const content = withConversationSource(noteBodyFromTranscript(transcript), id)
   const state = useNotes.getState()
   const folderId = detail.conversation.folderId
   const noteId = await state.createNote({
