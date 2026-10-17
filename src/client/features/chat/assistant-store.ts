@@ -107,6 +107,15 @@ interface LiveTurn {
    * bubble, and the older stream ending the newer turn.
    */
   token?: number
+  /**
+   * The run lease this turn holds on the worker, distinct from `token` above.
+   *
+   * `token` identifies the send inside this tab; this is the server's claim on the conversation, which is
+   * what a stop has to name. Releasing the claim without naming it unlocks whatever turn is running now —
+   * so a stop pressed a second before a new send claimed released the *new* answer's claim, and that answer
+   * was then filed as stopped although nobody had asked it to stop.
+   */
+  runToken?: number
   conversationId: string | null
   userText: string
   /** The files the reader hung on this turn, so the bubble can show them before the row exists. */
@@ -263,7 +272,7 @@ interface AssistantState {
   /** True while the listing is in flight: a switch flipped against a stale list would be a lie. */
   mcpCatalogLoading: boolean
   loadMcp: () => Promise<void>
-  addMcpServer: (body: Record<string, unknown>) => Promise<boolean>
+  addMcpServer: (body: Record<string, unknown>, report?: ReportFailure) => Promise<boolean>
   /** One server as its editor opens it: the row plus the header names it stores, never the values. */
   /**
    * Just the server rows.
@@ -283,7 +292,13 @@ interface AssistantState {
   replayMcpTool: (conversationId: string, messageId: string, toolId: string) => Promise<{ ok: boolean, error: string, result: string }>
 
   loadMcpServer: (id: string) => Promise<AssistantMcpServerDetail | null>
-  patchMcpServer: (id: string, body: Record<string, unknown>) => Promise<void>
+  /**
+   * A server the reader changed, as the form that changed it says whether it worked.
+   *
+   * The route reads every field it was given, and true is said only once the row has been read back, so a
+   * form that keeps its own "saved" note can trust it rather than the absence of a failure.
+   */
+  patchMcpServer: (id: string, body: Record<string, unknown>, report?: ReportFailure) => Promise<boolean>
   /**
    * One press on a tool's switch, or on the card's all-of-them pair.
    *
@@ -481,12 +496,12 @@ interface AssistantState {
    * vendor listing needs an id, and asking for the settings again to find it would be a second race.
    * `null` when the route refused it.
    */
-  addProvider: (body: Record<string, unknown>) => Promise<AssistantProvider | null>
-  updateProvider: (id: string, body: Record<string, unknown>) => Promise<void>
+  addProvider: (body: Record<string, unknown>, report?: ReportFailure) => Promise<AssistantProvider | null>
+  updateProvider: (id: string, body: Record<string, unknown>, report?: ReportFailure) => Promise<boolean>
   removeProvider: (id: string) => Promise<void>
-  addModel: (body: Record<string, unknown>) => Promise<void>
+  addModel: (body: Record<string, unknown>, report?: ReportFailure) => Promise<boolean>
   /** Any subset of the model's own fields; the route validates each one it recognises. */
-  updateModel: (id: string, body: Partial<AssistantModel>) => Promise<void>
+  updateModel: (id: string, body: Partial<AssistantModel>, report?: ReportFailure) => Promise<boolean>
   removeModel: (id: string) => Promise<void>
   activateModel: (id: string) => Promise<void>
   /** The vendor's own list for one provider, asked when the picker opens. */
@@ -521,11 +536,43 @@ const inflight = new Map<number, AbortController>()
 let turnSeq = 0
 let conversationRequest = 0
 
+/**
+ * Why a write was refused, in the two lines a form can print.
+ *
+ * The headline is what this app's code means, in the reader's language; the detail is what the route said
+ * about the field it refused, which the headline cannot carry because one line covers every bad request.
+ */
+export interface WriteFailure {
+  headline: string
+  detail: string | null
+}
+
+/**
+ * Where a form takes the refusal instead of getting a toast for it.
+ *
+ * Every write action used to report the failure itself and resolve with nothing, which left the caller
+ * unable to tell a saved model from a refused one — the dialog closed, the toast appeared, and the draft
+ * a reader had just typed was gone. The action now answers `true` or `false`, and a caller that prints the
+ * reason above its own buttons hands this in so the failure is told once rather than twice.
+ */
+export type ReportFailure = (failure: WriteFailure) => void
+
+function describeFailure(error: unknown): WriteFailure {
+  const headline = error instanceof ApiError || error instanceof Error ? error.message : t('assistant.toast.failed')
+  // The route's sentence repeats the headline whenever the code has no mapping of its own, and a line the
+  // reader has just read above it is not a second fact about the same mistake.
+  const said = error instanceof ApiError ? error.serverMessage : undefined
+  return { headline, detail: said && said !== headline ? said : null }
+}
+
 function toast(error: unknown): void {
-  useUi.getState().toast({
-    title: error instanceof ApiError || error instanceof Error ? error.message : t('assistant.toast.failed'),
-    tone: 'danger',
-  })
+  useUi.getState().toast({ title: describeFailure(error).headline, tone: 'danger' })
+}
+
+/** One failure, one surface: the form that was handed the refusal is the one that says it. */
+function reportFailure(error: unknown, report?: ReportFailure): void {
+  if (report) report(describeFailure(error))
+  else toast(error)
 }
 
 /** How often a popup is asked whether the reader has finished logging in, and how long to keep asking. */
@@ -1112,22 +1159,25 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
     }
   },
 
-  addMcpServer: async (body) => {    try {
+  addMcpServer: async (body, report) => {
+    try {
       await api.assistant.createMcpServer(body)
       await get().loadMcp()
       return true
     } catch (error) {
-      toast(error)
+      reportFailure(error, report)
       return false
     }
   },
 
-  patchMcpServer: async (id, body) => {
+  patchMcpServer: async (id, body, report) => {
     try {
       await api.assistant.patchMcpServer(id, body)
       await get().loadMcp()
+      return true
     } catch (error) {
-      toast(error)
+      reportFailure(error, report)
+      return false
     }
   },
 
@@ -1837,6 +1887,7 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
                 ...turn,
                 conversationId: event.conversationId ?? turn.conversationId,
                 assistantId: event.assistantMessageId ?? null,
+                runToken: event.runToken ?? turn.runToken,
               },
               activeId: current.activeId ?? event.conversationId ?? null,
             }
@@ -1897,6 +1948,7 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
     // What the reader had on screen when they asked. The notebook's own pointer is the only thing that
     // makes "summarise this" work without naming the note, and it costs two ids on the wire.
     const ui = useUi.getState()
+    const originNoteId = state.turnScopes.find((scope) => scope.kind === 'note')?.id ?? ui.activeNoteId
     try {
       await streamAssistantTurn(
         {
@@ -1910,7 +1962,12 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
             ...(state.folderContextOn && ui.folderId ? { contextFolderId: ui.folderId } : {}),
             // Where this thread began. The worker records it once and never re-labels the thread, so a
             // later turn asked beside another note leaves the origin alone.
-            ...(ui.activeNoteId ? { noteId: ui.activeNoteId } : {}),
+            //
+            // The note the reader aimed "chat about this" at is the answer; the page that happens to be
+            // open afterwards is not. `startChatAboutNote` pins exactly one note scope on a fresh thread,
+            // so that chip is the record of the request, and the open page stays the fallback for a thread
+            // begun beside a note without the command.
+            ...(originNoteId ? { noteId: originNoteId } : {}),
           }),
           webSearch: state.webSearch,
           // Only when this turn is the one that makes the conversation: the flag is read at creation and
@@ -1979,7 +2036,7 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
     // turn is marked done — so what a failed cancel leaves behind is an upstream still writing into a
     // thread the reader has already closed the stream on, which is discarded either way. A toast would
     // tell the reader the stop failed when the answer did stop appearing.
-    if (conversationId) void api.assistant.cancel(conversationId).catch(() => {})
+    if (conversationId) void api.assistant.cancel(conversationId, turn?.runToken).catch(() => {})
   },
 
   renameConversation: async (id, title) => {
@@ -2406,23 +2463,25 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
     }
   },
 
-  addProvider: async (body) => {
+  addProvider: async (body, report) => {
     try {
       const created = await api.assistant.createProvider(body)
       await get().loadSettings()
       return created.provider
     } catch (error) {
-      toast(error)
+      reportFailure(error, report)
       return null
     }
   },
 
-  updateProvider: async (id, body) => {
+  updateProvider: async (id, body, report) => {
     try {
       await api.assistant.updateProvider(id, body)
       await get().loadSettings()
+      return true
     } catch (error) {
-      toast(error)
+      reportFailure(error, report)
+      return false
     }
   },
 
@@ -2435,12 +2494,14 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
     }
   },
 
-  addModel: async (body) => {
+  addModel: async (body, report) => {
     try {
       await api.assistant.createModel(body)
       await get().loadSettings()
+      return true
     } catch (error) {
-      toast(error)
+      reportFailure(error, report)
+      return false
     }
   },
 
@@ -2513,12 +2574,14 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
     return { added, removed }
   },
 
-  updateModel: async (id, body) => {
+  updateModel: async (id, body, report) => {
     try {
       await api.assistant.updateModel(id, body)
       await get().loadSettings()
+      return true
     } catch (error) {
-      toast(error)
+      reportFailure(error, report)
+      return false
     }
   },
 

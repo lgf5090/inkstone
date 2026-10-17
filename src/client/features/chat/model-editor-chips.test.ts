@@ -6,12 +6,13 @@
  */
 import { act, createElement } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from 'vitest'
 import type { AssistantModel, AssistantProvider } from '@shared/assistant'
 import { CONTEXT_WINDOW_STEPS, DEFAULT_LIMITS, TOKEN_STEPS, formatTokenStep } from '@shared/assistant'
 import { initI18n, t } from '../../lib/i18n'
 import { installTestGlobals } from '../../lib/test-render'
-import { ModelEditorDialog, draftFromModel } from './ModelEditorDialog'
+import { ModelEditorDialog, draftFromModel, type ModelDraft } from './ModelEditorDialog'
+import type { ReportFailure } from './assistant-store'
 
 
 function model(over: Partial<AssistantModel> = {}): AssistantModel {
@@ -90,7 +91,9 @@ function open(over: Partial<AssistantModel> = {}, limits = DEFAULT_LIMITS, provi
     const host = document.createElement('div')
     document.body.appendChild(host)
     root = createRoot(host)
-    const saved = vi.fn()
+    // Saving waits for the write's answer now, so the stub has to give one: true, which is the case in
+    // which the dialog is allowed to close and nothing is printed above its buttons.
+    const saved: Mock<(draft: ModelDraft, report: ReportFailure) => Promise<boolean>> = vi.fn(async () => true)
     act(() => {
         root.render(createElement(ModelEditorDialog, {
             model: model(over),
@@ -106,7 +109,11 @@ function open(over: Partial<AssistantModel> = {}, limits = DEFAULT_LIMITS, provi
     return { saved }
 }
 
-const save = () => press(buttons().find((node) => node.textContent?.includes(t('assistant.model.save'))), 'the save button')
+const save = async () => {
+    await act(async () => {
+        press(buttons().find((node) => node.textContent?.includes(t('assistant.model.save'))), 'the save button')
+    })
+}
 
 describe('the quick picks', () => {
     it('labels each step with the number the reader reads off the button', () => {
@@ -138,17 +145,17 @@ describe('the quick picks', () => {
             .find((node) => node.getAttribute('aria-label') === t('assistant.model.context'))
         expect([...row!.querySelectorAll('button[aria-pressed="true"]')].map((node) => node.textContent?.trim())).toEqual(['400K'])
     })
-    it('sends the picked step into the draft', () => {
+    it('sends the picked step into the draft', async () => {
         const { saved } = open()
         press(chip('400K', t('assistant.model.context')), 'the 400K preset')
-        save()
+        await save()
         expect(saved.mock.calls[0]?.[0].contextTokens).toBe(409_600)
     })
-    it('offers a preset for the input ceiling and the output ceiling too', () => {
+    it('offers a preset for the input ceiling and the output ceiling too', async () => {
         const { saved } = open()
         press(chip('128K', t('assistant.model.max_input')), 'the 128K input preset')
         press(chip('16K', t('assistant.model.max_output')), 'the 16K output preset')
-        save()
+        await save()
         const draft = saved.mock.calls[0]?.[0]
         expect(draft.maxInputTokens).toBe(131_072)
         expect(draft.maxOutputTokens).toBe(16_384)
@@ -183,20 +190,20 @@ describe('leaving a token number unset', () => {
         node.dispatchEvent(new Event('input', { bubbles: true }))
     }
 
-    it('reads a model with no output number back as unset', () => {
+    it('reads a model with no output number back as unset', async () => {
         const { saved } = open({ maxOutputTokens: null })
         expect(box(t('assistant.model.max_output'))?.value).toBe('')
-        save()
+        await save()
         expect(saved.mock.calls[0]?.[0].maxOutputTokens).toBe(null)
     })
 
-    it('takes the number out when the field is emptied', () => {
+    it('takes the number out when the field is emptied', async () => {
         const { saved } = open({ maxOutputTokens: 8192 })
         const field = box(t('assistant.model.max_output'))!
         expect(field.value).toBe('8192')
         act(() => type(field, ''))
         expect(field.value).toBe('')
-        save()
+        await save()
         expect(saved.mock.calls[0]?.[0].maxOutputTokens).toBe(null)
         expect(saved.mock.calls[0]?.[0].contextTokens).toBe(null)
         expect(saved.mock.calls[0]?.[0].maxInputTokens).toBe(null)
@@ -210,26 +217,26 @@ describe('leaving a token number unset', () => {
         expect(document.body.textContent).toContain(t('assistant.model.value_own'))
     })
 
-    it('clears a number by pressing the preset that is already taken', () => {
+    it('clears a number by pressing the preset that is already taken', async () => {
         const { saved } = open({ maxOutputTokens: 16_384 })
         const row = t('assistant.model.max_output')
         expect(chip('16K', row)?.getAttribute('aria-pressed')).toBe('true')
         press(chip('16K', row), 'the 16K preset')
         expect(chip('16K', row)?.getAttribute('aria-pressed')).toBe('false')
         expect(box(row)?.value).toBe('')
-        save()
+        await save()
         expect(saved.mock.calls[0]?.[0].maxOutputTokens).toBe(null)
     })
 })
 
 describe('the input modality chips', () => {
-    it('adds and removes one modality without disturbing the other', () => {
+    it('adds and removes one modality without disturbing the other', async () => {
         const { saved } = open({ modalities: ['audio'] })
         expect(chip(t('assistant.model.modality.audio'))?.getAttribute('aria-pressed')).toBe('true')
         expect(chip(t('assistant.model.modality.video'))?.getAttribute('aria-pressed')).toBe('false')
         press(chip(t('assistant.model.modality.video')), 'the video chip')
         press(chip(t('assistant.model.modality.audio')), 'the audio chip')
-        save()
+        await save()
         expect(saved.mock.calls[0]?.[0].modalities).toEqual(['video'])
     })
     it('carries the saved set into the draft as a copy', () => {
@@ -246,7 +253,7 @@ const visionSwitch = () => document.body.querySelector<HTMLButtonElement>(`butto
 const reasoningSelect = () => document.body.querySelector<HTMLSelectElement>(`select[aria-label="${t('assistant.composer.thinking')}"]`)
 
 describe('the capabilities the model row no longer carries', () => {
-    it('read back what a model has, and send what the reader sets', () => {
+    it('read back what a model has, and send what the reader sets', async () => {
         const { saved } = open({ reasoning: 'high', vision: true })
         expect(reasoningSelect()?.value).toBe('high')
         expect(visionSwitch()?.getAttribute('aria-checked')).toBe('true')
@@ -257,7 +264,7 @@ describe('the capabilities the model row no longer carries', () => {
             node.value = 'off'
             node.dispatchEvent(new Event('change', { bubbles: true }))
         })
-        save()
+        await save()
         expect(saved.mock.calls[0]?.[0].vision).toBe(false)
         expect(saved.mock.calls[0]?.[0].reasoning).toBe('off')
     })
@@ -336,7 +343,7 @@ describe('the wire protocol a model is called on', () => {
         `select[aria-label="${t('assistant.model.protocol')}"]`,
     )
 
-    it('starts on the provider and sends what the reader picks', () => {
+    it('starts on the provider and sends what the reader picks', async () => {
         const { saved } = open()
         expect(protocolSelect()?.value).toBe('')
         expect(protocolSelect()?.querySelector('option')?.textContent).toBe(t('assistant.model.protocol.follow'))
@@ -345,7 +352,7 @@ describe('the wire protocol a model is called on', () => {
             node.value = 'anthropic'
             node.dispatchEvent(new Event('change', { bubbles: true }))
         })
-        save()
+        await save()
         expect(saved.mock.calls[0]?.[0].protocol).toBe('anthropic')
     })
 

@@ -7,9 +7,42 @@
  * is inside a tab.
  */
 import { type ReactNode } from 'react'
+import { TriangleAlert } from 'lucide-react'
 import { formatTokenStep, REASONING_DIALECTS, type AssistantProvider, type ReasoningDialect } from '@shared/assistant'
 import { cn } from '../../lib/cn'
 import { t, type MessageKey } from '../../lib/i18n'
+import type { WriteFailure } from './assistant-store'
+
+/**
+ * The refusal a form prints above its own buttons, in place of the toast it used to get.
+ *
+ * Two lines because they are two facts: the first is what this app's code means, in the reader's language,
+ * and the second is what the route said about the field it refused — the server's own English, which is
+ * never the headline because no catalog key translates it. A form whose write came back refused without
+ * saying anything still shows the first line: no reason is not a pass.
+ */
+export function SaveFailure({ failure }: { failure: WriteFailure }) {
+  return (
+    <div role="alert" className="flex items-start gap-2 rounded-[var(--r-md)] border border-[color-mix(in_oklab,var(--danger)_35%,transparent)] bg-[color-mix(in_oklab,var(--danger)_9%,transparent)] px-3 py-2.5">
+      <TriangleAlert size={14} className="mt-[1px] shrink-0 text-[var(--danger)]" />
+      <div className="min-w-0">
+        <p className="text-[length:var(--text-12)] leading-relaxed text-[var(--text-secondary)]">{failure.headline}</p>
+        {failure.detail && (
+          <p className="mt-0.5 text-[length:var(--text-11-5)] leading-relaxed text-[var(--text-tertiary)]">{failure.detail}</p>
+        )}
+      </div>
+    </div>
+  )
+}
+
+/**
+ * What a form keeps when a write was refused: the reason it was handed, or the plain claim that the draft
+ * is still not saved. Usable straight as a state updater, so the reported reason wins over the fallback
+ * whichever order the two arrive in.
+ */
+export function refusalFor(current: WriteFailure | null): WriteFailure {
+  return current ?? { headline: t('assistant.toast.failed'), detail: null }
+}
 
 export function Group({ title, children }: { title: string, children: ReactNode }) {
   return (

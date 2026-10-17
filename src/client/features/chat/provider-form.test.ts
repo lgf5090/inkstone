@@ -54,7 +54,7 @@ beforeEach(async () => {
   container = document.createElement('div')
   document.body.append(container)
   root = createRoot(container)
-  useAssistant.setState({ ...original, addProvider: vi.fn(async () => null), updateProvider: vi.fn(async () => undefined) })
+  useAssistant.setState({ ...original, addProvider: vi.fn(async () => null), updateProvider: vi.fn(async () => true) })
   await act(async () => { root.render(createElement(ProviderForm, { open: true, onClose: () => undefined })) })
 })
 
@@ -292,5 +292,92 @@ describe('the key box of a provider that already has one', () => {
     await openEditor({ ...saved, hasKey: false, keyHint: '' } as AssistantProvider)
     expect(keyBox()!.placeholder).toBe(t('assistant.settings.api_key_placeholder'))
     expect(describedBy(keyBox()!)).toContain(t('assistant.settings.api_key_hint'))
+  })
+})
+
+/**
+ * The answer to the save, and what the form does with it.
+ *
+ * The form used to close on every press because the store's write resolved the same whether the route
+ * took it or refused it — so the reader watched a dialog disappear over a model that was never saved. A
+ * refusal now stays on the screen, with the reason above the buttons and the draft still in the boxes.
+ */
+describe('a save the route refuses', () => {
+  const tick = () => new Promise((resolve) => { setTimeout(resolve, 0) })
+  const editButton = () => buttons().find((node) => node.textContent?.trim() === t('assistant.settings.edit_provider'))
+  const press = async (node: HTMLButtonElement | undefined, name: string) => {
+    expect(node, `${name} is not rendered`).toBeTruthy()
+    await act(async () => {
+      node!.click()
+      await tick()
+    })
+  }
+  const refusal = () => ({
+    headline: t('api.error.bad_request'),
+    detail: 'The reasoning dialect is not one this protocol speaks.',
+  })
+
+  it('keeps the new provider open, with the reason above its buttons', async () => {
+    const failure = refusal()
+    vi.mocked(useAssistant.getState().addProvider).mockImplementation(async (_body, report) => {
+      report?.(failure)
+      return null
+    })
+    await act(async () => { root.render(createElement(ProviderForm, { open: true, onClose: onCloseSpy })) })
+    await press(submit(), 'the add button')
+
+    expect(onCloseSpy, 'a refused save closed the form').not.toHaveBeenCalled()
+    const alert = document.querySelector('[role="alert"]')
+    expect(alert, 'the refusal was said nowhere').toBeTruthy()
+    expect(alert?.textContent).toContain(failure.headline)
+    // The route's own sentence is the second line: the headline alone names the kind of mistake, not the field.
+    expect(alert?.textContent).toContain(failure.detail!)
+  })
+
+  it('keeps an edit open when the route refuses it', async () => {
+    const failure = refusal()
+    vi.mocked(useAssistant.getState().updateProvider).mockImplementation(async (_id, _body, report) => {
+      report?.(failure)
+      return false
+    })
+    const provider = {
+      id: 'p1', label: 'Gateway', protocol: 'openai', baseUrl: 'https://gw.internal.example/v1',
+      endpoints: {}, hasKey: true, keyHint: '1234', reasoningDialect: null, createdAt: 1, updatedAt: 1,
+    } as unknown as AssistantProvider
+    await act(async () => { root.render(createElement(ProviderForm, { open: true, provider, onClose: onCloseSpy })) })
+    await press(editButton(), 'the save button')
+
+    expect(onCloseSpy).not.toHaveBeenCalled()
+    expect(document.querySelector('[role="alert"]')?.textContent).toContain(failure.detail!)
+  })
+
+  it('holds the button shut while the write is out, and takes no second press', async () => {
+    const add = vi.mocked(useAssistant.getState().addProvider)
+    let release!: () => void
+    add.mockImplementation(() => new Promise<AssistantProvider | null>((resolve) => { release = () => resolve(null) }))
+    await act(async () => { root.render(createElement(ProviderForm, { open: true, onClose: onCloseSpy })) })
+    await press(submit(), 'the add button')
+    expect(add).toHaveBeenCalledTimes(1)
+    expect(submit()?.disabled, 'a save in flight can be pressed again').toBe(true)
+    expect(submit()?.getAttribute('aria-busy')).toBe('true')
+    await press(submit(), 'the add button, again')
+    expect(add).toHaveBeenCalledTimes(1)
+    await act(async () => {
+      release()
+      await tick()
+    })
+    // The write came back with nothing, which is a refusal: the form is still here.
+    expect(onCloseSpy).not.toHaveBeenCalled()
+  })
+
+  it('closes a save that answers, and only then', async () => {
+    const created = {
+      id: 'p9', label: 'DeepSeek', protocol: 'openai', baseUrl: 'https://api.deepseek.com', hasKey: true, endpoints: {},
+    } as unknown as AssistantProvider
+    vi.mocked(useAssistant.getState().addProvider).mockResolvedValue(created)
+    await act(async () => { root.render(createElement(ProviderForm, { open: true, onClose: onCloseSpy })) })
+    await press(submit(), 'the add button')
+    expect(onCloseSpy).toHaveBeenCalled()
+    expect(document.querySelector('[role="alert"]')).toBeNull()
   })
 })

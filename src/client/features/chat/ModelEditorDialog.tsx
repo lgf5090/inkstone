@@ -23,7 +23,8 @@ import { ASSISTANT_MODEL_KINDS, ASSISTANT_MODEL_MODALITIES, ASSISTANT_MODEL_PURP
 import type { AssistantModelModality, AssistantProtocol } from '@shared/assistant'
 import { REASONING_LABELS } from './ComposerControls'
 import { modelReasoning, reasoningOptions } from './model-reasoning'
-import { ChipRow } from './assistant-settings-shared'
+import { ChipRow, SaveFailure, refusalFor } from './assistant-settings-shared'
+import type { ReportFailure, WriteFailure } from './assistant-store'
 import { cn } from '../../lib/cn'
 import { COPY_RESET_MS } from '../../lib/motion'
 import { t } from '../../lib/i18n'
@@ -182,7 +183,11 @@ export function ModelEditorDialog({
   /** The account's ceilings, which are what an emptied field inherits — named beside each field. */
   limits: AssistantLimits
   onClose: () => void
-  onSave: (draft: ModelDraft) => Promise<void> | void
+  /**
+   * The write behind Save, awaited. It answers whether the model was saved, and takes the reason a
+   * refusal is to be printed with so this dialog can print it instead of a toast arriving over it.
+   */
+  onSave: (draft: ModelDraft, report: ReportFailure) => Promise<boolean>
 }) {
   const [draft, setDraft] = useState<ModelDraft>(() => draftFromModel(model))
   // The rungs this model's own service publishes, and whether it can be stopped at all. Read from the same
@@ -194,8 +199,31 @@ export function ModelEditorDialog({
     entry.id !== model.id && (entry.enabled || entry.id === draft.fallbackModelId))
   const [more, setMore] = useState(false)
   const [copied, setCopied] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const [failure, setFailure] = useState<WriteFailure | null>(null)
   const toast = useUi((state) => state.toast)
-  const patch = (part: Partial<ModelDraft>) => setDraft((current) => ({ ...current, ...part }))
+  // A name is the one thing the route will not accept empty, and the form can see it without asking: a
+  // reader who has typed none gets the line at the box rather than a round trip that ends in a refusal.
+  const nameMissing = draft.label.trim().length === 0
+  // Going back into the draft retires the refusal: it was about what was sent a moment ago, and a reader
+  // who has edited the field has to see that it stopped being true.
+  const patch = (part: Partial<ModelDraft>) => {
+    setFailure(null)
+    setDraft((current) => ({ ...current, ...part }))
+  }
+
+  const submit = async () => {
+    if (saving || nameMissing) return
+    setSaving(true)
+    // The store hands the refusal here instead of toasting it, so one failure is told in one place.
+    const ok = await onSave(draft, setFailure)
+    setSaving(false)
+    if (ok) {
+      onClose()
+      return
+    }
+    setFailure(refusalFor)
+  }
 
   // The inline "copied" mark is a claim about the clipboard, so it is drawn only when the write
   // answered: a browser can refuse the permission, or have no clipboard at all in an insecure context,
@@ -220,13 +248,24 @@ export function ModelEditorDialog({
     <Modal
       open
       onClose={onClose}
+      // A save in flight is the one moment closing this dialog costs the reader their draft, so the
+      // backdrop, Escape and the cross are all put away until the write has answered.
+      dismissible={!saving}
       title={t('assistant.model.edit')}
       description={provider ? `${provider.label} · ${model.model}` : model.model}
       width={560}
       footer={(
         <>
-          <Button variant="secondary" onClick={onClose}>{t('common.cancel')}</Button>
-          <Button variant="primary" icon={<Save size={14} />} onClick={() => { onSave(draft); onClose() }}>{t('assistant.model.save')}</Button>
+          <Button variant="secondary" onClick={onClose} disabled={saving}>{t('common.cancel')}</Button>
+          <Button
+            variant="primary"
+            icon={<Save size={14} />}
+            loading={saving}
+            disabled={nameMissing}
+            onClick={() => void submit()}
+          >
+            {t('assistant.model.save')}
+          </Button>
         </>
       )}
     >
@@ -253,8 +292,13 @@ export function ModelEditorDialog({
           </div>
         </Field>
 
-        <Field label={t('assistant.model.name')}>
-          <Input value={draft.label} aria-label={t('assistant.model.name')} onChange={(event) => patch({ label: event.target.value })} />
+        <Field label={t('assistant.model.name')} required hint={nameMissing ? t('assistant.model.name_required') : undefined}>
+          <Input
+            value={draft.label}
+            aria-label={t('assistant.model.name')}
+            invalid={nameMissing}
+            onChange={(event) => patch({ label: event.target.value })}
+          />
         </Field>
 
         <Field label={t('assistant.model.purpose')}>
@@ -496,6 +540,8 @@ export function ModelEditorDialog({
             </div>
           </div>
         )}
+
+        {failure && <SaveFailure failure={failure} />}
 
         <p className="text-[length:var(--text-11)] leading-snug text-[var(--text-quaternary)]">{t('assistant.model.picker_hint')}</p>
       </div>

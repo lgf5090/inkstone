@@ -99,6 +99,16 @@ export class ApiError extends Error {
     readonly code: string,
     message: string,
     readonly details?: unknown,
+    /**
+     * What the route actually said, kept next to the localised line rather than in place of it.
+     *
+     * A code the client has a mapping for answers with one sentence for every kind of mistake it covers —
+     * "the request is invalid" covers an unset name and an over-long one alike — while the route usually
+     * names the field it refused. Mapping the code used to throw that sentence away, so a form could only
+     * repeat the generic refusal for a mistake it was able to point at. It is a detail line for a surface
+     * that has one, never a toast headline: it is the server's own English, and no catalog key translates it.
+     */
+    readonly serverMessage?: string,
   ) {
     super(message)
     this.name = 'ApiError'
@@ -213,6 +223,7 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
         code,
         translateApiError(code, fallback),
         error?.details,
+        error?.message,
       )
     }
 
@@ -995,8 +1006,8 @@ export const api = {
       request<{ deleted: true }>(`/api/assistant/conversations/${id}`, { method: 'DELETE' }),
     deleteConversations: () =>
       request<{ deleted: number }>('/api/assistant/conversations', { method: 'DELETE', body: { confirm: 'DELETE' } }),
-    cancel: (conversationId: string) =>
-      request<{ cancelled: true }>('/api/assistant/chat/cancel', { method: 'POST', body: { conversationId } }),
+    cancel: (conversationId: string, runToken?: number) =>
+      request<{ cancelled: true }>('/api/assistant/chat/cancel', { method: 'POST', body: { conversationId, ...(runToken === undefined ? {} : { runToken }) } }),
     approveAction: (id: string) =>
       request<{ action: PendingAction, result?: string }>(`/api/assistant/actions/${id}/approve`, { method: 'POST', body: {} }),
     declineAction: (id: string) =>

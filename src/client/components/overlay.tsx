@@ -154,7 +154,7 @@ function isAvailableFocusTarget(element: HTMLElement): boolean {
     return !element.matches(':disabled') && !element.closest('[hidden], [aria-hidden="true"]');
 }
 
-export function Modal({ open, onClose, title, description, children, footer, width = 560, className, bodyClassName, variant = 'dialog', ariaLabel, }: {
+export function Modal({ open, onClose, title, description, children, footer, width = 560, className, bodyClassName, variant = 'dialog', ariaLabel, dismissible = true, }: {
     open: boolean;
     onClose: () => void;
     title?: ReactNode;
@@ -168,12 +168,24 @@ export function Modal({ open, onClose, title, description, children, footer, wid
     variant?: 'dialog' | 'fullscreen';
     /** Accessible name for a surface that renders its own heading instead of using `title`. */
     ariaLabel?: string;
+    /**
+     * False for a dialog holding work a dismissal would lose — a save still in flight, where closing the
+     * panel is exactly how a reader loses the draft they were refused. Escape, the backdrop and the close
+     * button all stand down while it is false.
+     */
+    dismissible?: boolean;
 }) {
     const fullscreen = variant === 'fullscreen';
     const panelRef = useRef<HTMLDivElement>(null);
     const titleId = useId();
     const descriptionId = useId();
-    useEscape(open, onClose);
+    // Asked for but not allowed, the gesture is still taken: leaving Escape unanswered would hand it to
+    // whatever overlay sits behind this one, which would close a panel the reader never touched.
+    const requestClose = () => {
+        if (dismissible)
+            onClose();
+    };
+    useEscape(open, requestClose);
     useLockScroll(open);
     useDialogFocus(open, panelRef);
     if (!open)
@@ -182,7 +194,7 @@ export function Modal({ open, onClose, title, description, children, footer, wid
 
 
     <div className={cn('app-viewport-fixed fixed z-[var(--z-modal)] flex items-end justify-center overflow-hidden md:items-start md:overflow-y-auto md:p-8', fullscreen && 'md:overflow-hidden md:p-0')}>
-      <div className="anim-fade absolute inset-0 bg-[var(--scrim)]" onClick={onClose} aria-hidden="true"/>
+      <div className="anim-fade absolute inset-0 bg-[var(--scrim)]" onClick={requestClose} aria-hidden="true"/>
       <div ref={panelRef} role="dialog" aria-modal="true" aria-labelledby={title ? titleId : undefined} aria-describedby={description ? descriptionId : undefined} aria-label={title ? undefined : (ariaLabel ?? t("overlay.dialog"))} tabIndex={-1} className={cn('anim-pop relative flex w-full flex-col outline-none', fullscreen
         ? 'h-[100dvh] max-h-none border-0 md:h-[100dvh] md:my-0 md:rounded-none'
         : 'max-h-[calc(var(--app-viewport-height,100dvh)-env(safe-area-inset-top))] rounded-t-[var(--r-2xl)] border border-b-0 border-[var(--border-default)] bg-[var(--bg-overlay)] shadow-[var(--shadow-modal)] md:my-auto md:max-h-[calc(var(--app-viewport-height,100dvh)-4rem)] md:rounded-[var(--r-2xl)] md:border-b', className)} style={fullscreen ? undefined : { maxWidth: width }}>
@@ -195,8 +207,8 @@ export function Modal({ open, onClose, title, description, children, footer, wid
                   {description}
                 </p>)}
             </div>
-            <Tooltip label={t("common.close")} combo="escape" side="left">
-              <IconButton label={t("common.close")} size="sm" onClick={onClose} className="-mr-1 -mt-0.5">
+            <Tooltip label={t("common.close")} combo={dismissible ? 'escape' : undefined} side="left">
+              <IconButton label={t("common.close")} size="sm" onClick={requestClose} className="-mr-1 -mt-0.5">
                 <X size={15}/>
               </IconButton>
             </Tooltip>

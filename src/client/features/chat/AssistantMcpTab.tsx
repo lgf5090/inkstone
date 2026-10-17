@@ -40,8 +40,8 @@ import { useUi } from '../../store/ui'
 import { Button, IconButton, Spinner } from '../../components/primitives'
 import { Field, Input, Select, Segmented, Switch, Textarea } from '../../components/form'
 import { Menu, Modal, type MenuItem } from '../../components/overlay'
-import { useAssistant } from './assistant-store'
-import { Group } from './assistant-settings-shared'
+import { useAssistant, type WriteFailure } from './assistant-store'
+import { refusalFor, Group, SaveFailure } from './assistant-settings-shared'
 
 const MCP_MODE_KEYS: Record<string, 'assistant.mcp.mode.off' | 'assistant.mcp.mode.ask' | 'assistant.mcp.mode.auto'> = {
   off: 'assistant.mcp.mode.off',
@@ -177,6 +177,7 @@ function ServerDialog({ open, server, onClose }: {
   const [draft, setDraft] = useState<ServerDraft>(emptyDraft)
   const [advanced, setAdvanced] = useState(false)
   const [busy, setBusy] = useState(false)
+  const [failure, setFailure] = useState<WriteFailure | null>(null)
   const [checked, setChecked] = useState('')
   const [storedNames, setStoredNames] = useState<string[]>([])
   const fieldId = useId()
@@ -186,6 +187,7 @@ function ServerDialog({ open, server, onClose }: {
     setChecked('')
     setAdvanced(false)
     setStoredNames([])
+    setFailure(null)
     if (!server) {
       setDraft(emptyDraft())
       return
@@ -219,8 +221,9 @@ function ServerDialog({ open, server, onClose }: {
   const ready = draft.label.trim().length > 0 && draft.url.trim().length > 0
 
   const submit = async () => {
-    if (!ready) return
+    if (!ready || busy) return
     setBusy(true)
+    setFailure(null)
     // A name with an empty value is the placeholder the form wrote for a stored header, so it is dropped:
     // sending it back would overwrite a token with nothing.
     const headers = Object.fromEntries(
@@ -236,11 +239,17 @@ function ServerDialog({ open, server, onClose }: {
         ? (Object.keys(headers).length ? { headers } : draft.clearHeaders ? { headers: null } : {})
         : { headers }),
     }
+    // The refusal comes to this form rather than to a toast, because the form is the place where the field
+    // it named can be corrected. Without an answer there is nothing to print, so the plain line is.
     const ok = server
-      ? await patchMcpServer(server.id, body).then(() => true).catch(() => false)
-      : await addMcpServer(body)
+      ? await patchMcpServer(server.id, body, setFailure)
+      : await addMcpServer(body, setFailure)
     setBusy(false)
-    if (ok) saved(draft.label.trim())
+    if (!ok) {
+      setFailure(refusalFor)
+      return
+    }
+    saved(draft.label.trim())
     onClose()
   }
 
@@ -257,12 +266,14 @@ function ServerDialog({ open, server, onClose }: {
     <Modal
       open={open}
       onClose={onClose}
+      // A save half on the wire is the one moment a dismissal costs the reader the server they typed.
+      dismissible={!busy}
       title={server ? t('assistant.mcp.edit') : t('assistant.mcp.add.quick')}
       description={t('assistant.mcp.form_hint')}
       width={520}
       footer={(
         <div className="flex justify-end gap-2">
-          <Button size="sm" variant="ghost" onClick={onClose}>{t('common.cancel')}</Button>
+          <Button size="sm" variant="ghost" onClick={onClose} disabled={busy}>{t('common.cancel')}</Button>
           <Button size="sm" variant="primary" loading={busy} disabled={!ready} onClick={() => void submit()}>
             {server ? t('common.save') : t('assistant.mcp.add')}
           </Button>
@@ -365,6 +376,7 @@ function ServerDialog({ open, server, onClose }: {
           </div>
         )}
       </div>
+      {failure && <div className="mt-3"><SaveFailure failure={failure} /></div>}
     </Modal>
   )
 }

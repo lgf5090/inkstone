@@ -16,7 +16,7 @@ import type { AssistantMcpServer, AssistantMcpServerDetail } from '@shared/assis
 import { initI18n, t } from '../../lib/i18n'
 import { installTestGlobals } from '../../lib/test-render'
 import { McpTab } from './AssistantMcpTab'
-import { useAssistant } from './assistant-store'
+import { useAssistant, type ReportFailure } from './assistant-store'
 
 vi.mock('../../lib/api', () => ({
   // The store's failure path names the class, so the mock has to carry it.
@@ -48,8 +48,8 @@ const STORED: AssistantMcpServerDetail = { server: SERVER, headerNames: ['Author
 const original = useAssistant.getState()
 let root: Root
 let host: HTMLElement
-let add: Mock<(body: Record<string, unknown>) => Promise<boolean>>
-let patch: Mock<(id: string, body: Record<string, unknown>) => Promise<void>>
+let add: Mock<(body: Record<string, unknown>, report?: ReportFailure) => Promise<boolean>>
+let patch: Mock<(id: string, body: Record<string, unknown>, report?: ReportFailure) => Promise<boolean>>
 let detail: Mock<(id: string) => Promise<AssistantMcpServerDetail | null>>
 
 /** The row of a button, found by the word on it; the tab and the dialog share some of those words. */
@@ -72,6 +72,12 @@ async function press(node: HTMLElement | undefined, name: string) {
   })
 }
 const dialog = () => claim(document.body.querySelector<HTMLElement>('[role="dialog"]'), 'the dialog')
+/**
+ * The third argument a write now takes: where the form wants the refusal sent, in place of the toast it
+ * used to get. Asserted as a function rather than an id, because which box it lands in is the form's
+ * business; that it is offered at all is what keeps one failure from being told twice.
+ */
+const sink = () => expect.any(Function)
 
 /** One keystroke's worth of edit: React reads the value off the native setter it installs. */
 async function type(node: HTMLInputElement | HTMLTextAreaElement | null, value: string) {
@@ -90,7 +96,7 @@ beforeEach(async () => {
   document.body.append(host)
   root = createRoot(host)
   add = vi.fn(async () => true)
-  patch = vi.fn(async () => undefined)
+  patch = vi.fn(async () => true)
   detail = vi.fn(async () => STORED)
   useAssistant.setState({
     ...original,
@@ -138,7 +144,7 @@ describe('the server form', () => {
       transport: 'streamableHttp',
       timeoutSeconds: 30,
       headers: { Authorization: 'Bearer ctx7sk-x', 'X-Client': 'inkstone' },
-    })
+    }, sink())
   })
 
   it('sends the type the reader picked, and says what that type needs of the address', async () => {
@@ -165,7 +171,7 @@ describe('the server form', () => {
       transport: 'sse',
       timeoutSeconds: 30,
       headers: {},
-    })
+    }, sink())
   })
 
   it('refuses to save a server with no name or no address', async () => {
@@ -201,7 +207,7 @@ describe('the headers a stored server already has', () => {
       description: 'Library docs',
       transport: 'streamableHttp',
       timeoutSeconds: 30,
-    })
+    }, sink())
   })
 
   it('drops them when the whole box was emptied', async () => {
@@ -209,6 +215,88 @@ describe('the headers a stored server already has', () => {
     click(buttonByText(dialog(), t('assistant.mcp.advanced')), 'the advanced section')
     await type(dialog().querySelector('textarea'), '')
     await press(buttonByText(dialog(), t('common.save')), 'the save button')
-    expect(patch).toHaveBeenCalledWith('s1', expect.objectContaining({ headers: null }))
+    expect(patch).toHaveBeenCalledWith('s1', expect.objectContaining({ headers: null }), sink())
+  })
+})
+
+/**
+ * What the form does with the answer to its own save.
+ *
+ * The write used to resolve the same whether the route took it or refused it, so the form closed on every
+ * press and the reader had a toast and no server. A refusal now stays on the screen with the draft in the
+ * boxes, because the one thing a reader cannot do with a closed dialog is fix the field that was refused.
+ */
+describe('the answer to a save', () => {
+  /** What the route says when it refused one named field, which the code's own sentence never carries. */
+  const refusal = () => ({ headline: t('api.error.bad_request'), detail: 'The label is already taken.' })
+  const labelBox = () => claim(
+    dialog().querySelector<HTMLInputElement>(`input[placeholder="${t('assistant.mcp.label_placeholder')}"]`),
+    'the name box',
+  )
+  const urlBox = () => claim(dialog().querySelector<HTMLInputElement>('input[placeholder="https://…/mcp"]'), 'the address box')
+  const saveButton = () => claim(buttonByText(dialog(), t('assistant.mcp.add')), 'the save button')
+  /** Both required boxes, so the save is pressable and the draft is recognisable afterwards. */
+  async function fill() {
+    await type(labelBox(), 'Docs')
+    await type(urlBox(), 'https://mcp.example.test/mcp')
+  }
+
+  it('keeps the draft and prints the refusal when the write is refused', async () => {
+    add.mockImplementation(async (_body, report) => {
+      report?.(refusal())
+      return false
+    })
+    openForm()
+    await fill()
+    await press(saveButton(), 'the save button')
+
+    expect(dialog(), 'a refused save closed the form').toBeTruthy()
+    expect(labelBox().value).toBe('Docs')
+    const note = claim(document.body.querySelector('[role="alert"]'), 'the inline refusal')
+    expect(note.textContent).toContain(refusal().headline)
+    expect(note.textContent).toContain('The label is already taken.')
+  })
+
+  it('keeps an edit open when the route refuses it', async () => {
+    patch.mockImplementation(async (_id, _body, report) => {
+      report?.(refusal())
+      return false
+    })
+    act(() => useAssistant.setState({ mcpServers: [SERVER] }))
+    await press(
+      document.body.querySelector<HTMLButtonElement>(`button[aria-label="${t('assistant.mcp.edit')}"]`) ?? undefined,
+      'the card edit button',
+    )
+    await press(buttonByText(dialog(), t('common.save')), 'the save button')
+
+    expect(dialog(), 'a refused edit closed the form').toBeTruthy()
+    expect(document.body.querySelector('[role="alert"]')?.textContent).toContain('The label is already taken.')
+  })
+
+  it('closes only once the write lands', async () => {
+    openForm()
+    await fill()
+    await press(saveButton(), 'the save button')
+    expect(document.body.querySelector('[role="dialog"]'), 'a saved server left its form open').toBeNull()
+    expect(document.body.querySelector('[role="alert"]')).toBeNull()
+  })
+
+  it('holds the button shut while the write is out, and takes no second press', async () => {
+    let release!: () => void
+    add.mockImplementation(() => new Promise<boolean>((resolve) => { release = () => resolve(true) }))
+    openForm()
+    await fill()
+    await act(async () => { saveButton().click() })
+
+    expect(saveButton().disabled, 'a save in flight can be pressed again').toBe(true)
+    expect(saveButton().getAttribute('aria-busy')).toBe('true')
+    await act(async () => { saveButton().click() })
+    expect(add).toHaveBeenCalledTimes(1)
+
+    await act(async () => {
+      release()
+      await new Promise((resolve) => { setTimeout(resolve, 0) })
+    })
+    expect(document.body.querySelector('[role="dialog"]')).toBeNull()
   })
 })

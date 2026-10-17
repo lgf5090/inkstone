@@ -6676,6 +6676,7 @@ console.log(\`Hello, \${name}!\`)
     "assistant.model.copy": "复制模型 ID",
     "assistant.model.copied": "已复制",
     "assistant.model.name": "模型名称",
+    "assistant.model.name_required": "请填写模型名称。",
     "assistant.model.purpose": "模型用途",
     "assistant.model.purpose.chat": "对话",
     "assistant.model.purpose.image_generate": "图像生成",

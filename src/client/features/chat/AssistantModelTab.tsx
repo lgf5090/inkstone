@@ -20,8 +20,8 @@ import { Button, Divider, IconButton } from '../../components/primitives'
 import { Field, Input, Select, SettingRow, Switch } from '../../components/form'
 import { Modal, Tooltip, confirm, useClickOutside, useEscape } from '../../components/overlay'
 import { useUi } from '../../store/ui'
-import { useAssistant } from './assistant-store'
-import { DIALECT_LABELS, Group, PROTOCOL_LABELS, storedKeyLabel } from './assistant-settings-shared'
+import { useAssistant, type ReportFailure, type WriteFailure } from './assistant-store'
+import { DIALECT_LABELS, Group, PROTOCOL_LABELS, SaveFailure, refusalFor, storedKeyLabel } from './assistant-settings-shared'
 
 /**
  * One capability, drawn as the switch that sets it.
@@ -239,7 +239,7 @@ export function ModelTab({ settings }: { settings: AssistantSettings }) {
                   models={models}
                   limits={settings.limits}
                   onClose={() => setEditing(null)}
-                  onSave={(draft) => void updateModel(editing.id, draft)}
+                  onSave={(draft, report) => updateModel(editing.id, draft, report)}
                 />
               )}
         <div className="flex justify-end py-2.5">
@@ -399,6 +399,8 @@ export function ProviderForm({ open, provider, onClose, onCreated }: {
   // body the far end ignores.
   const [dialect, setDialect] = useState<ReasoningDialect | ''>('')
   const [listing, setListing] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const [failure, setFailure] = useState<WriteFailure | null>(null)
   const chosen = PROVIDER_PRESETS.find((entry) => entry.id === preset) ?? PROVIDER_PRESETS[0]!
   const dialectChoices = dialectsForProtocol(protocol)
   const pinned = dialect && dialectChoices.includes(dialect) ? dialect : ''
@@ -423,6 +425,7 @@ export function ProviderForm({ open, provider, onClose, onCreated }: {
   useEffect(() => {
     if (!open) return
     setListing(false)
+    setFailure(null)
     if (editing) {
       // An edit starts from what is stored, not from a preset that would overwrite the reader's address.
       setLabel(editing.label)
@@ -458,47 +461,66 @@ export function ProviderForm({ open, provider, onClose, onCreated }: {
       : t('assistant.settings.api_key_edit_hint_nohint'))
     : t('assistant.settings.api_key_hint')
 
+  // The save and its answer, in one place: the dialog stays open with the draft intact unless the write
+  // says it landed, and the reason it refused is printed here rather than arriving as a toast over a
+  // closed panel.
+  const submit = async () => {
+    if (saving) return
+    setSaving(true)
+    setFailure(null)
+    if (editing) {
+      const ok = await updateProvider(editing.id, {
+        label: label.trim(),
+        protocol,
+        baseUrl: baseUrl.trim(),
+        endpoints: sendable,
+        reasoningDialect: pinned || null,
+        // A blank box means "keep the stored key", not "forget it": an untouched field is not
+        // sent at all, and the worker keeps the ciphertext for a patch that carries no key.
+        ...(apiKey.trim() ? { apiKey: apiKey.trim() } : {}),
+      }, setFailure)
+      setSaving(false)
+      if (ok) onClose()
+      else setFailure(refusalFor)
+      return
+    }
+    // Saving is also the moment the vendor can be asked what it offers, so the form hands the
+    // created row back and the caller opens the listing on it.
+    const created = await addProvider({
+      label: label.trim(),
+      protocol,
+      baseUrl: baseUrl.trim(),
+      apiKey: apiKey.trim(),
+      endpoints: sendable,
+      reasoningDialect: pinned || null,
+      models: models.split(',').map((entry) => entry.trim()).filter(Boolean),
+    }, setFailure)
+    setSaving(false)
+    if (!created) {
+      setFailure(refusalFor)
+      return
+    }
+    onClose()
+    onCreated?.(created)
+  }
+
   return (
     <Modal
       open={open}
       onClose={onClose}
+      // Closing a form whose save is still on the wire is how a draft gets lost, so the gestures that
+      // would do it are put away until the write answers.
+      dismissible={!saving}
       title={editing ? t('assistant.settings.edit_provider') : t('assistant.settings.add_provider')}
       width={520}
       footer={(
         <>
-          <Button variant="ghost" onClick={onClose}>{t('common.cancel')}</Button>
+          <Button variant="ghost" onClick={onClose} disabled={saving}>{t('common.cancel')}</Button>
           <Button
             icon={editing ? <Check size={14} /> : <Plus size={14} />}
+            loading={saving}
             disabled={!label.trim() || Object.keys(problems).length > 0}
-            onClick={() => {
-              if (editing) {
-                void updateProvider(editing.id, {
-                  label: label.trim(),
-                  protocol,
-                  baseUrl: baseUrl.trim(),
-                  endpoints: sendable,
-                  reasoningDialect: pinned || null,
-                  // A blank box means "keep the stored key", not "forget it": an untouched field is not
-                  // sent at all, and the worker keeps the ciphertext for a patch that carries no key.
-                  ...(apiKey.trim() ? { apiKey: apiKey.trim() } : {}),
-                }).then(onClose)
-                return
-              }
-              // Saving is also the moment the vendor can be asked what it offers, so the form hands the
-              // created row back and the caller opens the listing on it.
-              void addProvider({
-                label: label.trim(),
-                protocol,
-                baseUrl: baseUrl.trim(),
-                apiKey: apiKey.trim(),
-                endpoints: sendable,
-                reasoningDialect: pinned || null,
-                models: models.split(',').map((entry) => entry.trim()).filter(Boolean),
-              }).then((created) => {
-                onClose()
-                if (created) onCreated?.(created)
-              })
-            }}
+            onClick={() => void submit()}
           >
             {editing ? t('assistant.settings.edit_provider') : t('assistant.settings.add_provider')}
           </Button>
@@ -596,6 +618,8 @@ export function ProviderForm({ open, provider, onClose, onCreated }: {
         )}
       </div>
 
+      {failure && <SaveFailure failure={failure} />}
+
       {listing && (
         <ModelPickerDialog
           draft={{ protocol, baseUrl: baseUrl.trim(), apiKey: apiKey.trim(), label: label.trim() || chosen.label }}
@@ -608,27 +632,48 @@ export function ProviderForm({ open, provider, onClose, onCreated }: {
   )
 }
 
-function ModelForm({ provider, onClose, onAdd }: { provider: AssistantProvider | null, onClose: () => void, onAdd: (body: Record<string, unknown>) => Promise<void> }) {
+function ModelForm({ provider, onClose, onAdd }: {
+  provider: AssistantProvider | null
+  onClose: () => void
+  /** The write itself, awaited: the id stays in the box and the reason stays on the screen until it says yes. */
+  onAdd: (body: Record<string, unknown>, report: ReportFailure) => Promise<boolean>
+}) {
   const [model, setModel] = useState('')
+  const [saving, setSaving] = useState(false)
+  const [failure, setFailure] = useState<WriteFailure | null>(null)
   useEffect(() => {
     setModel('')
+    setFailure(null)
   }, [provider])
+
+  const submit = async () => {
+    if (!provider || saving) return
+    setSaving(true)
+    setFailure(null)
+    const ok = await onAdd({ providerId: provider.id, model: model.trim() }, setFailure)
+    setSaving(false)
+    if (!ok) {
+      setFailure(refusalFor)
+      return
+    }
+    onClose()
+  }
+
   return (
     <Modal
       open={!!provider}
       onClose={onClose}
+      dismissible={!saving}
       title={t('assistant.settings.add_model')}
       width={420}
       footer={(
         <>
-          <Button variant="ghost" onClick={onClose}>{t('common.cancel')}</Button>
+          <Button variant="ghost" onClick={onClose} disabled={saving}>{t('common.cancel')}</Button>
           <Button
             icon={<Plus size={14} />}
+            loading={saving}
             disabled={!model.trim()}
-            onClick={() => {
-              if (!provider) return
-              void onAdd({ providerId: provider.id, model: model.trim() }).then(onClose)
-            }}
+            onClick={() => void submit()}
           >
             {t('assistant.settings.add_model')}
           </Button>
@@ -646,6 +691,7 @@ function ModelForm({ provider, onClose, onAdd }: { provider: AssistantProvider |
       <Field label={t('assistant.settings.model_id')} hint={provider?.baseUrl}>
         <Input value={model} maxLength={120} autoFocus onChange={(event) => setModel(event.target.value)} className="font-mono text-[length:var(--text-12)]" />
       </Field>
+      {failure && <div className="mt-3"><SaveFailure failure={failure} /></div>}
     </Modal>
   )
 }
