@@ -25,7 +25,13 @@ export interface StreamTurnInput {
   contextNoteId?: string
   /** The folder the notebook was filtered to, as a hint about what they were looking at. */
   contextFolderId?: string
+  /** The note this thread is being started from, recorded on the conversation the first time. */
+  noteId?: string
   retry?: boolean
+  /** Which answer to ask again. Absent means the newest turn, which is what the bubble's own button means. */
+  messageId?: string
+  /** Resume the last answer where it stopped instead of asking anything new. */
+  continueTurn?: boolean
   /** The web-search switch: ask this model for a live search this turn. */
   webSearch?: boolean
   /** Start the conversation as a temporary one, when this turn is the one that makes it. */
@@ -54,9 +60,12 @@ export async function streamAssistantTurn(
       ...(input.scopes?.length ? { scopes: input.scopes } : {}),
       ...(input.contextNoteId ? { contextNoteId: input.contextNoteId } : {}),
       ...(input.contextFolderId ? { contextFolderId: input.contextFolderId } : {}),
+      ...(input.noteId ? { noteId: input.noteId } : {}),
       ...(input.webSearch ? { webSearch: true } : {}),
       ...(input.ephemeral ? { ephemeral: true } : {}),
       ...(input.retry ? { retry: true } : {}),
+      ...(input.retry && input.messageId ? { messageId: input.messageId } : {}),
+      ...(input.continueTurn ? { continue: true } : {}),
     }),
     credentials: 'same-origin',
     signal,

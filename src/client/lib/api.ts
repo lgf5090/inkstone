@@ -811,8 +811,8 @@ export const api = {
     /** A note the browser wrote from a reply: the worker cannot see that save, so the client reports it. */
     recordNoteWrite: (noteId: string, conversationId: string) =>
       request<{ ok: true }>('/api/assistant/note-writes', { method: 'POST', body: { noteId, conversationId } }),
-    conversations: (params: { q?: string, folder?: string, project?: string, tag?: string, starred?: string, pinned?: string, archived?: string } = {}) =>
-      request<{ conversations: AssistantConversation[] }>(`/api/assistant/conversations${toQuery(params)}`),
+    conversations: (params: { q?: string, folder?: string, project?: string, tag?: string, starred?: string, pinned?: string, archived?: string, limit?: string, cursor?: string } = {}) =>
+      request<{ conversations: AssistantConversation[], nextCursor: string | null }>(`/api/assistant/conversations${toQuery(params)}`),
     createConversation: (title?: string, folderId?: string | null) =>
       request<{ conversation: AssistantConversation }>('/api/assistant/conversations', {
         method: 'POST',
@@ -842,13 +842,21 @@ export const api = {
       request<{ ok: true }>(`/api/assistant/conversations/${id}/tags`, { method: 'POST', body: { tagId } }),
     removeConversationTag: (id: string, tagId: string) =>
       request<{ ok: true }>(`/api/assistant/conversations/${id}/tags/${tagId}`, { method: 'DELETE' }),
-    conversation: (id: string) =>
+    conversation: (id: string, params: { limit?: string, before?: string, upto?: string } = {}) =>
       request<{
         conversation: AssistantConversation,
         messages: AssistantMessage[],
         attachments: ChatAttachment[],
-        streaming: boolean
-      }>(`/api/assistant/conversations/${id}`),
+        streaming: boolean,
+        /** Whether earlier turns exist above this page, and the cursor that asks for them. */
+        hasMore: boolean,
+        nextBefore: string | null,
+        /** Whether the window opened at a search hit has newer turns below it. */
+        hasNewer: boolean
+      }>(`/api/assistant/conversations/${id}${toQuery(params)}`),
+    /** One conversation as a file: the row, every turn, and the answers a turn displaced. */
+    conversationExport: (id: string) =>
+      request<Record<string, unknown>>(`/api/assistant/conversations/${id}/export`),
     /**
      * The drafts a conversation keeps in its side panel.
      *
@@ -926,13 +934,15 @@ export const api = {
         { method: 'POST' },
       ),
     /**
-     * Retype one of your own messages. The answer under it was written from the old words, so the server
-     * removes that turn and the caller asks again.
+     * Retype a turn, and optionally keep the thread it truncates as a branch.
+     *
+     * `branchTitle` is only read when `keepBranch` is set: the name is interface copy, so the browser
+     * names it and the worker clamps it like every other stored title.
      */
-    editMessage: (conversationId: string, messageId: string, content: string) =>
-      request<{ message: AssistantMessage, removed: number }>(
+    editMessage: (conversationId: string, messageId: string, content: string, branchTitle?: string) =>
+      request<{ message: AssistantMessage, removed: number, branch: AssistantConversation | null }>(
         `/api/assistant/conversations/${conversationId}/messages/${messageId}`,
-        { method: 'PATCH', body: { content } },
+        { method: 'PATCH', body: branchTitle === undefined ? { content } : { content, keepBranch: true, branchTitle } },
       ),
     /** Deletes the turns a reader selected, without the pairing a single delete applies. */
     deleteMessages: (conversationId: string, ids: readonly string[]) =>

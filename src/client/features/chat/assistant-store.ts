@@ -42,7 +42,7 @@ import type {
 } from '@shared/assistant'
 import type { AssistantSkill } from '@shared/assistant'
 import { DEBOUNCE } from '@shared/constants'
-import { MAX_ARTIFACT_CONTENT_CHARS, MAX_ARTIFACT_TITLE_CHARS, MAX_CHAT_ATTACHMENTS, MAX_TURN_SCOPES, MAX_TURN_TOOLS, type AssistantTurnScope, type ChatAttachment, type AssistantSkillInput, type SkillImportResult, type AssistantMcpToolMode } from '@shared/assistant'
+import { MAX_ARTIFACT_CONTENT_CHARS, MAX_ARTIFACT_TITLE_CHARS, MAX_CHAT_ATTACHMENTS, MAX_TURN_SCOPES, MAX_TURN_TOOLS, CONVERSATION_PAGE_SIZE, MESSAGE_PAGE_SIZE, type AssistantTurnScope, type ChatAttachment, type AssistantSkillInput, type SkillImportResult, type AssistantMcpToolMode } from '@shared/assistant'
 import { api, ApiError } from '../../lib/api'
 import { t } from '../../lib/i18n'
 import { IS_DEMO_MODE } from '../../lib/runtime'
@@ -87,6 +87,13 @@ export interface PendingAttachment {
   progress: number
   status: 'uploading' | 'ready' | 'error'
   error?: string
+  /**
+   * The file as the browser handed it over, kept only so a failed upload can be tried again.
+   *
+   * Memory only: the bytes are already the browser's, and a retry that asked the reader to pick the
+   * file again would lose the context the failure happened in.
+   */
+  sourceFile?: File
 }
 
 /** What a reader has typed but the assistant has not answered yet. */
@@ -120,6 +127,18 @@ interface AssistantState {
   error: string | null
 
   conversations: AssistantConversation[]
+  /** Where the next page of the list starts; null means this page is all of it. */
+  conversationsCursor: string | null
+  conversationsHasMore: boolean
+  conversationsLoadingMore: boolean
+  /**
+   * The conversations the reader is picking out of the list, or null when not picking.
+   *
+   * An empty set is "picking with nothing chosen yet", which is a different state from "not picking" —
+   * the same pair the message selection uses, and for the same reason: a mode has to exist before its
+   * first choice does.
+   */
+  conversationPicks: ReadonlySet<string> | null
   conversationQuery: string
   /** 'all', 'none' (unfiled), or a folder id from the notebook's tree. */
   folderFilter: string
@@ -168,6 +187,19 @@ interface AssistantState {
   activeId: string | null
   messages: AssistantMessage[]
   messagesReady: boolean
+  /**
+   * The page boundary above the oldest message on screen, and whether there is more above it.
+   *
+   * A thread is read from its end. The turns above the first page are fetched when the reader scrolls
+   * up, so opening a conversation with a thousand messages costs one page rather than all of them.
+   */
+  messagesBefore: string | null
+  messagesHasMore: boolean
+  messagesLoadingMore: boolean
+  /** Whether the window was opened at an older hit, with newer turns still below it. */
+  messagesHasNewer: boolean
+  /** The turn a search asked the thread to land on, cleared once it has been scrolled to. */
+  focusMessageId: string | null
   /**
    * The displaced answers of a turn, by message id; absent until the reader opens that turn's pager.
    * A transcript of forty turns does not need forty histories fetched up front.
@@ -279,6 +311,18 @@ interface AssistantState {
   /** A turn can have written memories, tasks and schedules, so the other surfaces re-read once. */
   refreshAfterTurn: () => Promise<void>
   loadConversations: () => Promise<void>
+  /** Enters the list's picking mode, optionally with one row already ticked. */
+  startPickingConversations: (id?: string) => void
+  toggleConversationPick: (id: string) => void
+  cancelConversationPicks: () => void
+  /** Files every picked conversation away at once. */
+  archivePickedConversations: () => Promise<void>
+  /** Deletes every picked conversation, after the caller has asked. */
+  deletePickedConversations: () => Promise<void>
+  /** The next page of the sidebar list, appended to what is already there. */
+  loadMoreConversations: () => Promise<void>
+  /** The page of turns above the oldest one on screen, prepended to the transcript. */
+  loadEarlierMessages: () => Promise<void>
   /** The answers one turn displaced, fetched once per message and kept for the session. */
   loadAnswerVersions: (messageId: string) => Promise<AssistantAnswerVersion[]>
   /** Make one of those answers the turn's live one again. */
@@ -289,7 +333,7 @@ interface AssistantState {
    * The turn the server removed is the one this replaces, so the words land first, the thread is
    * re-read, and the same turn is asked for once more — the reader edited a question, not a transcript.
    */
-  editMessage: (messageId: string, content: string) => Promise<void>
+  editMessage: (messageId: string, content: string, options?: { keepBranch?: boolean }) => Promise<void>
   /** Take one turn back: the reader's message and the answer that was drawn from it. */
   removeMessage: (messageId: string) => Promise<void>
   /** Records or takes back the reader's verdict on one answer. */
@@ -319,7 +363,15 @@ interface AssistantState {
    * either the label appearing or a word about why it did not.
    */
   attachNewTag: (id: string, tagId: string) => Promise<void>
-  openConversation: (id: string | null) => Promise<void>
+  /**
+   * Opens a thread, at its newest page unless a message is named.
+   *
+   * `focusMessageId` comes from a search hit: the page is read around that turn rather than at the end,
+   * and the thread scrolls to it once the rows are on screen.
+   */
+  openConversation: (id: string | null, options?: { focusMessageId?: string }) => Promise<void>
+  /** Takes the "land here" mark off once the thread has scrolled to it. */
+  clearFocusMessage: () => void
   newConversation: () => void
   /**
    * Asks the assistant, and answers whether the worker took the turn.
@@ -328,8 +380,10 @@ interface AssistantState {
    * formed — so the composer can hand the reader their words back instead of swallowing them. True
    * covers a turn that ran and a turn the reader stopped: either way the question itself was sent.
    */
-  send: (text: string, opts?: { retry?: boolean }) => Promise<boolean>
+  send: (text: string, opts?: { retry?: boolean, messageId?: string, continue?: boolean }) => Promise<boolean>
   attachFiles: (files: File[]) => Promise<void>
+  /** Uploads one failed attachment again, from the file the browser still holds. */
+  retryAttachment: (localId: string) => Promise<void>
   attachUrl: (url: string) => Promise<void>
   attachPastedText: (text: string) => Promise<boolean>
   /** Tools the reader pinned to this turn with `/`, and note scopes pinned with `#`. */
@@ -543,6 +597,21 @@ function releaseTurn(token?: number): void {
 }
 
 /**
+ * The stored page, without throwing away the older turns the reader had already scrolled back to.
+ *
+ * A background read always asks for the newest page. Replacing the transcript with it would make every
+ * "load earlier" the reader had done vanish the moment a reply was filed, and the thread would jump. So
+ * anything on screen that is older than the page's own first row is kept, and rows the page carries are
+ * the ones that win — they are the server's current copy of those turns.
+ */
+function mergeThreadPage(current: AssistantMessage[], page: AssistantMessage[]): AssistantMessage[] {
+  if (!page.length) return current
+  const oldest = page[0]!
+  const keep = current.filter((message) => message.createdAt < oldest.createdAt && !page.some((entry) => entry.id === message.id))
+  return [...keep, ...page]
+}
+
+/**
  * Brings the saved thread on screen.
  *
  * A stopped turn is filed by the worker a moment after the reader aborts the stream, so the first read
@@ -563,7 +632,7 @@ async function adoptThread(conversationId: string, turn: LiveTurn | null): Promi
     // and the next open of this one reads it again for itself.
     if (useAssistant.getState().activeId !== conversationId) return
     useAssistant.setState({
-      messages: fillStoppedAnswer(detail.messages, turn),
+      messages: fillStoppedAnswer(mergeThreadPage(useAssistant.getState().messages, detail.messages), turn),
       messagesReady: true,
       // Merged rather than replaced: the rows this turn already had are still the reader's, and a
       // picture the assistant drew is a row the thread has never seen before this read.
@@ -653,7 +722,7 @@ async function pollRemoteStream(watch: RemoteWatch): Promise<void> {
   if (!detail.streaming) {
     stopRemoteStreamWatch()
     useAssistant.setState((current) => ({
-      messages: detail.messages,
+      messages: mergeThreadPage(current.messages, detail.messages),
       messagesReady: true,
       remoteStreaming: false,
       fileIndex: { ...current.fileIndex, ...Object.fromEntries((detail.attachments ?? []).map((entry) => [entry.id, entry])) },
@@ -770,6 +839,44 @@ function schedulePersist(): void {
   }, DEBOUNCE.persist)
 }
 
+type AttachmentSetter = (updater: (state: AssistantState) => Partial<AssistantState>) => void
+
+/**
+ * Send one pending file, and record where it got to.
+ *
+ * Shared by the first attempt and by the retry: a second code path for "upload again" is how the two
+ * drift, and the failure branch here is the one that already knows how to say what went wrong.
+ */
+async function uploadAttachment(localId: string, file: File, set: AttachmentSetter): Promise<void> {
+  try {
+    // A PDF's words are read here, in the browser, because the worker has no parser: the text rides
+    // along with the bytes so the model is shown the contents on every later turn too.
+    const extractedText = isPdfFile(file) ? await extractPdfText(file) : ''
+    const stored = await api.assistant.uploadChatFile(file, (sent, total) => {
+      const progress = total > 0 ? sent / total : 0
+      set((current) => ({
+        pending: current.pending.map((entry) => (entry.localId === localId ? { ...entry, progress } : entry)),
+      }))
+    }, extractedText || undefined)
+    set((current) => ({
+      pending: current.pending.map((entry) => (
+        entry.localId === localId
+          ? { ...entry, id: stored.id, progress: 1, status: 'ready' as const, filename: stored.filename, mime: stored.mime, kind: stored.kind, error: undefined }
+          : entry
+      )),
+      fileIndex: { ...current.fileIndex, [stored.id]: stored },
+    }))
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : String(error)
+    set((current) => ({
+      pending: current.pending.map((entry) => (
+        entry.localId === localId ? { ...entry, status: 'error' as const, error: reason } : entry
+      )),
+    }))
+    useUi.getState().toast({ title: t('assistant.attach.failed'), description: reason, tone: 'danger' })
+  }
+}
+
 export const useAssistant = create<AssistantState>()((set, get) => ({
   view: 'chat',
   loaded: false,
@@ -777,6 +884,10 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
   error: null,
 
   conversations: [],
+  conversationPicks: null,
+  conversationsCursor: null,
+  conversationsHasMore: false,
+  conversationsLoadingMore: false,
   conversationQuery: '',
   ...PERSISTED_DEFAULTS,
   ...loadPersisted(),
@@ -798,6 +909,11 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
   activeId: null,
   messages: [],
   messagesReady: false,
+  messagesBefore: null,
+  messagesHasMore: false,
+  messagesLoadingMore: false,
+  messagesHasNewer: false,
+  focusMessageId: null,
   answerVersions: {},
   remoteStreaming: false,
   turn: null,
@@ -884,17 +1000,102 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
     try {
       const state = get()
       const query = state.conversationQuery.trim()
-      const params: { q?: string, folder?: string, project?: string, tag?: string, archived?: string } = {}
+      const params: { q?: string, folder?: string, project?: string, tag?: string, archived?: string, limit?: string } = {}
       if (query) params.q = query
       if (state.folderFilter !== 'all') params.folder = state.folderFilter
       if (state.projectFilter !== 'all') params.project = state.projectFilter
       if (state.tagFilter) params.tag = state.tagFilter
       // Always sent, so no view of this list ever shows a conversation the reader has put away.
       params.archived = '0'
+      params.limit = String(CONVERSATION_PAGE_SIZE)
       const result = await api.assistant.conversations(params)
       if (token !== conversationRequest) return
-      set({ conversations: result.conversations })
+      set({
+        conversations: result.conversations,
+        conversationsCursor: result.nextCursor,
+        conversationsHasMore: result.nextCursor !== null,
+        conversationsLoadingMore: false,
+      })
     } catch (error) {
+      if (token !== conversationRequest) return
+      set({ conversationsLoadingMore: false })
+      toast(error)
+    }
+  },
+
+  startPickingConversations: (id) => set({ conversationPicks: new Set(id ? [id] : []) }),
+
+  toggleConversationPick: (id) => set((state) => {
+    if (!state.conversationPicks) return state
+    const next = new Set(state.conversationPicks)
+    if (next.has(id)) next.delete(id)
+    else next.add(id)
+    return { conversationPicks: next }
+  }),
+
+  cancelConversationPicks: () => set({ conversationPicks: null }),
+
+  archivePickedConversations: async () => {
+    const picks = get().conversationPicks
+    if (!picks?.size) return
+    try {
+      // One request per row, because the route files one conversation at a time; a reader picking a
+      // handful is the case this exists for, and a batch endpoint would be a second way to do the same.
+      for (const id of picks) await api.assistant.setConversationArchived(id, true)
+      set({ conversationPicks: null })
+      await get().loadConversations()
+      await get().loadFlagged()
+    } catch (error) {
+      toast(error)
+    }
+  },
+
+  deletePickedConversations: async () => {
+    const picks = get().conversationPicks
+    if (!picks?.size) return
+    try {
+      for (const id of picks) await api.assistant.deleteConversation(id)
+      const active = get().activeId
+      set({ conversationPicks: null })
+      if (active && picks.has(active)) get().newConversation()
+      await get().loadConversations()
+      await get().loadFlagged()
+    } catch (error) {
+      toast(error)
+    }
+  },
+
+  loadMoreConversations: async () => {
+    const state = get()
+    // One page at a time: the scroll handler fires on every frame near the bottom, and a second request
+    // would append the same page twice.
+    if (!state.conversationsHasMore || state.conversationsLoadingMore || !state.conversationsCursor) return
+    const token = conversationRequest
+    set({ conversationsLoadingMore: true })
+    try {
+      const params: { q?: string, folder?: string, project?: string, tag?: string, archived?: string, limit?: string, cursor?: string } = {
+        archived: '0',
+        limit: String(CONVERSATION_PAGE_SIZE),
+        cursor: state.conversationsCursor,
+      }
+      const query = state.conversationQuery.trim()
+      if (query) params.q = query
+      if (state.folderFilter !== 'all') params.folder = state.folderFilter
+      if (state.projectFilter !== 'all') params.project = state.projectFilter
+      if (state.tagFilter) params.tag = state.tagFilter
+      const result = await api.assistant.conversations(params)
+      // A filter change or a fresh load happened while this page was in flight; its rows belong to the
+      // list the reader has already left.
+      if (token !== conversationRequest) return
+      const seen = new Set(get().conversations.map((entry) => entry.id))
+      set({
+        conversations: [...get().conversations, ...result.conversations.filter((entry) => !seen.has(entry.id))],
+        conversationsCursor: result.nextCursor,
+        conversationsHasMore: result.nextCursor !== null,
+        conversationsLoadingMore: false,
+      })
+    } catch (error) {
+      set({ conversationsLoadingMore: false })
       toast(error)
     }
   },
@@ -1073,12 +1274,25 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
     }
   },
 
-  editMessage: async (messageId, content) => {
+  editMessage: async (messageId, content, options) => {
     const conversationId = get().activeId
     if (!conversationId) return
     try {
-      await api.assistant.editMessage(conversationId, messageId, content)
+      const title = get().conversations.find((entry) => entry.id === conversationId)?.title || t('assistant.chat.untitled')
+      // The suffix is named here for the same reason the fork action names it here: a title is interface
+      // copy, and the worker carries no catalog.
+      const result = await api.assistant.editMessage(conversationId, messageId, content, options?.keepBranch
+        ? `${title}${t('assistant.chat.fork_suffix')}`.slice(0, 200)
+        : undefined)
       await get().openConversation(conversationId)
+      await get().loadConversations()
+      if (result.branch) {
+        useUi.getState().toast({ title: t('assistant.chat.branch_kept', { title: result.branch.title }), tone: 'success' })
+      } else if (result.removed > 0) {
+        // The dialog says the turns below go; this says how many actually did, which is the difference
+        // between a warning and a receipt.
+        useUi.getState().toast({ title: t('assistant.chat.edit_removed', { count: result.removed }) })
+      }
       await get().send('', { retry: true })
     } catch (error) {
       toast(error)
@@ -1137,7 +1351,7 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
       const { conversation } = await api.assistant.forkConversation(conversationId, messageId, title.slice(0, 200))
       await get().loadConversations()
       await get().openConversation(conversation.id)
-      toast({ title: t('assistant.chat.forked', { title: conversation.title }), tone: 'success' })
+      useUi.getState().toast({ title: t('assistant.chat.forked', { title: conversation.title }), tone: 'success' })
     } catch (error) {
       toast(error)
     }
@@ -1277,7 +1491,7 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
     useUi.getState().toast({ title: t('assistant.toast.failed'), tone: 'danger' })
   },
 
-  openConversation: async (id) => {
+  openConversation: async (id, options) => {
     const state = get()
     const turn = state.turn
     // A reply still arriving belongs to its own conversation: navigating away keeps the request going
@@ -1287,16 +1501,19 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
     // A remote marker belongs to the conversation it was read from; asking again below is what starts a
     // new watch when this thread has one too.
     stopRemoteStreamWatch()
+    const focus = options?.focusMessageId ?? null
     // A muted chip is this thread's correction, not a setting: the next thread starts from the pointer.
     // The panel starts closed on every thread and shows no draft until that thread's own read lands.
-    set({ activeId: id, messages: [], messagesReady: false, remoteStreaming: false, noteContextOn: true, folderContextOn: true, artifacts: [], artifactsReady: false, canvasOpen: false, activeArtifactId: null, ephemeral: false })
+    set({ activeId: id, messages: [], messagesReady: false, remoteStreaming: false, noteContextOn: true, folderContextOn: true, artifacts: [], artifactsReady: false, canvasOpen: false, activeArtifactId: null, ephemeral: false, messagesBefore: null, messagesHasMore: false, messagesLoadingMore: false, messagesHasNewer: false, focusMessageId: focus })
     if (!id) {
       set({ messagesReady: true, artifactsReady: true })
       return
     }
     void get().loadArtifacts()
     try {
-      const detail = await api.assistant.conversation(id)
+      const detail = await api.assistant.conversation(id, focus
+        ? { limit: String(MESSAGE_PAGE_SIZE), upto: focus }
+        : { limit: String(MESSAGE_PAGE_SIZE) })
       if (get().activeId !== id) return
       // The server says whether a turn is being written somewhere else. A local turn for this very
       // conversation is not "remote" — it is the one on screen — but anything else is a reply this tab
@@ -1307,6 +1524,9 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
         messages: detail.messages,
         fileIndex: Object.fromEntries((detail.attachments ?? []).map((entry) => [entry.id, entry])),
         messagesReady: true,
+        messagesBefore: detail.nextBefore,
+        messagesHasMore: detail.hasMore === true,
+        messagesHasNewer: detail.hasNewer === true,
         remoteStreaming: remote,
         // Read from the row rather than from the list, which never carries a temporary conversation.
         ephemeral: detail.conversation.ephemeral === true,
@@ -1315,6 +1535,38 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
     } catch (error) {
       if (get().activeId !== id) return
       set({ messagesReady: true })
+      toast(error)
+    }
+  },
+
+  clearFocusMessage: () => set({ focusMessageId: null }),
+
+  loadEarlierMessages: async () => {
+    const state = get()
+    const conversationId = state.activeId
+    if (!conversationId || !state.messagesHasMore || state.messagesLoadingMore || !state.messagesBefore) return
+    set({ messagesLoadingMore: true })
+    try {
+      const detail = await api.assistant.conversation(conversationId, {
+        limit: String(MESSAGE_PAGE_SIZE),
+        before: state.messagesBefore,
+      })
+      // The reader may have moved to another thread while this page was in flight.
+      if (get().activeId !== conversationId) {
+        set({ messagesLoadingMore: false })
+        return
+      }
+      const current = get().messages
+      const seen = new Set(current.map((message) => message.id))
+      set({
+        messages: [...detail.messages.filter((message) => !seen.has(message.id)), ...current],
+        fileIndex: { ...get().fileIndex, ...Object.fromEntries((detail.attachments ?? []).map((entry) => [entry.id, entry])) },
+        messagesBefore: detail.nextBefore,
+        messagesHasMore: detail.hasMore === true,
+        messagesLoadingMore: false,
+      })
+    } catch (error) {
+      set({ messagesLoadingMore: false })
       toast(error)
     }
   },
@@ -1345,57 +1597,48 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
   attachFiles: async (files) => {
     const room = MAX_CHAT_ATTACHMENTS - get().pending.length
     if (room <= 0) {
-      toast({ title: t('assistant.attach.too_many', { count: MAX_CHAT_ATTACHMENTS }), tone: 'danger' })
+      useUi.getState().toast({ title: t('assistant.attach.too_many', { count: MAX_CHAT_ATTACHMENTS }), tone: 'danger' })
       return
     }
     // Files that do not fit are named rather than silently dropped: a folder picked as a whole can hold
     // more than the box does, and "only some of them appeared" is otherwise indistinguishable from a bug.
     if (files.length > room) {
-      toast({ title: t('assistant.attach.dropped', { count: files.length - room, max: MAX_CHAT_ATTACHMENTS }), tone: 'warning' })
+      useUi.getState().toast({ title: t('assistant.attach.dropped', { count: files.length - room, max: MAX_CHAT_ATTACHMENTS }), tone: 'warning' })
     }
     for (const file of files.slice(0, room)) {
       const localId = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`
       const kind = file.type.startsWith('image/') ? 'image' : 'file'
       set((current) => ({
         pending: [...current.pending, {
-          localId, id: '', filename: file.name || 'file', mime: file.type, size: file.size, kind, progress: 0, status: 'uploading',
+          localId, id: '', filename: file.name || 'file', mime: file.type, size: file.size, kind, progress: 0, status: 'uploading', sourceFile: file,
         }],
       }))
-      try {
-        // A PDF's words are read here, in the browser, because the worker has no parser: the text rides
-        // along with the bytes so the model is shown the contents on every later turn too.
-        const extractedText = isPdfFile(file) ? await extractPdfText(file) : ''
-        const stored = await api.assistant.uploadChatFile(file, (sent, total) => {
-          const progress = total > 0 ? sent / total : 0
-          set((current) => ({
-            pending: current.pending.map((entry) => (entry.localId === localId ? { ...entry, progress } : entry)),
-          }))
-        }, extractedText || undefined)
-        set((current) => ({
-          pending: current.pending.map((entry) => (
-            entry.localId === localId
-              ? { ...entry, id: stored.id, progress: 1, status: 'ready' as const, filename: stored.filename, mime: stored.mime, kind: stored.kind }
-              : entry
-          )),
-          fileIndex: { ...current.fileIndex, [stored.id]: stored },
-        }))
-      } catch (error) {
-        const reason = error instanceof Error ? error.message : String(error)
-        set((current) => ({
-          pending: current.pending.map((entry) => (
-            entry.localId === localId ? { ...entry, status: 'error' as const, error: reason } : entry
-          )),
-        }))
-        toast({ title: t('assistant.attach.failed'), description: reason, tone: 'danger' })
-      }
+      await uploadAttachment(localId, file, set)
     }
+  },
+
+  /**
+   * Try a failed upload again, with the file the browser still has.
+   *
+   * The row keeps its place and its name, so a flaky connection costs one press rather than re-picking
+   * the file and losing which one failed.
+   */
+  retryAttachment: async (localId) => {
+    const entry = get().pending.find((item) => item.localId === localId)
+    if (!entry?.sourceFile || entry.status === 'uploading') return
+    set((current) => ({
+      pending: current.pending.map((item) => (
+        item.localId === localId ? { ...item, status: 'uploading' as const, progress: 0, error: undefined } : item
+      )),
+    }))
+    await uploadAttachment(localId, entry.sourceFile, set)
   },
 
   attachUrl: async (url) => {
     const trimmed = url.trim()
     if (!trimmed) return
     if (get().pending.length >= MAX_CHAT_ATTACHMENTS) {
-      toast({ title: t('assistant.attach.too_many', { count: MAX_CHAT_ATTACHMENTS }), tone: 'danger' })
+      useUi.getState().toast({ title: t('assistant.attach.too_many', { count: MAX_CHAT_ATTACHMENTS }), tone: 'danger' })
       return
     }
     try {
@@ -1414,7 +1657,7 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
         fileIndex: { ...current.fileIndex, [stored.attachment.id]: stored.attachment },
       }))
     } catch (error) {
-      toast({ title: t('assistant.attach.failed'), description: error instanceof Error ? error.message : String(error), tone: 'danger' })
+      useUi.getState().toast({ title: t('assistant.attach.failed'), description: error instanceof Error ? error.message : String(error), tone: 'danger' })
     }
   },
 
@@ -1536,10 +1779,13 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
     if (state.turn && !state.turn.done) return false
     const conversationId = state.activeId
     const retry = opts.retry === true
-    const attached = retry ? [] : state.pending.filter((entry) => entry.status === 'ready' && entry.id).map((entry) => entry.id)
-    if (!retry && !text.trim() && !attached.length) return false
-    if (!retry && state.pending.some((entry) => entry.status === 'uploading')) {
-      toast({ title: t('assistant.attach.waiting'), tone: 'danger' })
+    // A continued answer has nothing to send: the question is already in the thread and the reader is
+    // asking the model to finish what it started.
+    const continuing = opts.continue === true && !retry
+    const attached = retry || continuing ? [] : state.pending.filter((entry) => entry.status === 'ready' && entry.id).map((entry) => entry.id)
+    if (!retry && !continuing && !text.trim() && !attached.length) return false
+    if (!retry && !continuing && state.pending.some((entry) => entry.status === 'uploading')) {
+      useUi.getState().toast({ title: t('assistant.attach.waiting'), tone: 'danger' })
       return false
     }
     const token = ++turnSeq
@@ -1555,8 +1801,8 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
       turn: {
         token,
         conversationId,
-        userText: retry ? '' : text.trim(),
-        attachments: retry ? [] : attached,
+        userText: retry || continuing ? '' : text.trim(),
+        attachments: retry || continuing ? [] : attached,
         assistantId: null,
         text: '',
         reasoning: '',
@@ -1566,7 +1812,7 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
         done: false,
       },
       remoteStreaming: false,
-      ...(retry ? {} : { pending: [], turnTools: [], turnScopes: [] }),
+      ...(retry || continuing ? {} : { pending: [], turnTools: [], turnScopes: [] }),
     })
 
     // Where the worker filed this turn: known from the first frame when this send is the one that made
@@ -1613,10 +1859,17 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
               },
             }
           }
+          case 'notice':
+            // Something the reader asked for that this turn could not do — said out loud rather than
+            // left to look like it worked.
+            if (event.notice === 'web_search_unavailable') {
+              useUi.getState().toast({ title: t('assistant.search.unavailable'), tone: 'warning' })
+            }
+            return current
           case 'mcp_problem':
             // A server the reader added did not answer. The turn still proceeds without its
             // tools, so this is said out loud rather than swallowed.
-            toast({ title: t('assistant.mcp.problem', { server: event.server ?? '', error: event.error ?? '' }), tone: 'warning' })
+            useUi.getState().toast({ title: t('assistant.mcp.problem', { server: event.server ?? '', error: event.error ?? '' }), tone: 'warning' })
             return current
           case 'error':
             return { turn: { ...turn, error: event.message ?? null } }
@@ -1652,15 +1905,21 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
           attachments: attached,
           tools: state.turnTools,
           scopes: state.turnScopes,
-          ...(retry ? {} : {
+          ...(retry || continuing ? {} : {
             ...(state.noteContextOn && ui.activeNoteId ? { contextNoteId: ui.activeNoteId } : {}),
             ...(state.folderContextOn && ui.folderId ? { contextFolderId: ui.folderId } : {}),
+            // Where this thread began. The worker records it once and never re-labels the thread, so a
+            // later turn asked beside another note leaves the origin alone.
+            ...(ui.activeNoteId ? { noteId: ui.activeNoteId } : {}),
           }),
           webSearch: state.webSearch,
           // Only when this turn is the one that makes the conversation: the flag is read at creation and
           // never again, because the promise is about the whole thread.
           ...(state.ephemeral && !conversationId ? { ephemeral: true } : {}),
           retry,
+          // Only a retry reads this: the answer to ask again, when it is not the newest one.
+          ...(retry && opts.messageId ? { messageId: opts.messageId } : {}),
+          ...(continuing ? { continueTurn: true } : {}),
         },
         apply,
         controller.signal,

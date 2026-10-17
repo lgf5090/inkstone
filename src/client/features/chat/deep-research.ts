@@ -86,6 +86,13 @@ export async function startDeepResearch(topic: string): Promise<string | null> {
   toast({ title: t('assistant.research.started', { topic: trimmed, count: questions.length + 2 }), tone: 'success' })
 
   for (const [index, question] of questions.entries()) {
+    // Each step is a paid call and a wait of its own, so the reader is told which one is running rather
+    // than watching a thread that looks idle between turns.
+    toast({
+      title: t('assistant.research.step', { index: index + 2, total: questions.length + 2 }),
+      description: question,
+      tone: 'default',
+    })
     const found = await ask(t('assistant.research.gather_prompt', {
       topic: trimmed,
       index: index + 1,

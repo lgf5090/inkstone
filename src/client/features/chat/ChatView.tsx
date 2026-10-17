@@ -9,15 +9,17 @@
  * `styles/chat.css` keeps the typography and drops the page furniture.
  */
 import { Z_INDEX } from '../../lib/z-index'
-import { type ClipboardEvent as ReactClipboardEvent, type DragEvent as ReactDragEvent, type KeyboardEvent, memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import { ArrowUp, ArrowUpRight, Check, Copy, FileText, FolderOpen, Ghost, History, MoreHorizontal, PanelRight, Paperclip, Pencil, Plus, Search, Square, Star, Trash2, X } from 'lucide-react'
+import { type ClipboardEvent as ReactClipboardEvent, type DragEvent as ReactDragEvent, type KeyboardEvent, Fragment, memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { Archive, ArrowUp, ArrowUpRight, Check, Copy, FileText, FolderOpen, Ghost, History, ListChecks, MoreHorizontal, NotebookPen, PanelRight, Paperclip, Pencil, Plus, Search, Square, Star, Trash2, X } from 'lucide-react'
 import type { AssistantConversation, AssistantMessage, ChatAttachment } from '@shared/assistant'
-import { EPHEMERAL_CONVERSATION_RETENTION_DAYS, mcpToolModeFor } from '@shared/assistant'
+import { EPHEMERAL_CONVERSATION_RETENTION_DAYS, SEARCH_NATIVE_PROTOCOLS, looksLikeSearchTool, mcpToolModeFor } from '@shared/assistant'
 import { DEBOUNCE } from '@shared/constants'
 import { cn } from '../../lib/cn'
 import { t } from '../../lib/i18n'
 import { COPY_RESET_MS } from '../../lib/motion'
+import { dayKey, formatDay, formatInZone } from './time-format'
 import { isImeComposing } from '../../lib/ime'
+import { navigateToPath } from '../../lib/app-history'
 import { relativeTime } from '../../lib/time'
 import { useDebouncedDraft } from '../../lib/hooks'
 import { compileQuery } from '../../lib/query-match'
@@ -50,6 +52,7 @@ import {
   VoiceButton,
 } from './ComposerControls'
 import { useUi } from '../../store/ui'
+import { copyText } from '../../lib/clipboard'
 import { useNotes } from '../../store/notes'
 import { MarkdownBody } from '../preview/MarkdownBody'
 import { PASTE_FILE_MIN_CHARS, useAssistant, type AssistantView } from './assistant-store'
@@ -59,12 +62,14 @@ import { CanvasPanel } from './CanvasPanel'
 import { CHAT_NOTE_LINKS } from './note-links'
 import { SelectionBar, SelectionTick, selectedMessages, type MessageSelection } from './SelectionBar'
 import { downloadTranscript } from './transcript'
+import { downloadTextFile, safeFileName } from '../../lib/export-note'
 import { saveConversationAsNote } from './save-to-note'
 import { writeConversationDrag } from './conversation-drag'
 import { FOLDER_DRAG_TYPE, isNoteDrag, readDraggedNoteIds } from '../../lib/note-drag'
 import { ConversationSharePanel } from '../share/ConversationSharePanel'
 import { ThreadFinder } from './ThreadFinder'
 import { BranchBar } from './BranchBar'
+import { fetchWholeConversation } from './thread-fetch'
 import { ChatOutline } from './ChatOutline'
 import { modelReasoning, reasoningOptions } from './model-reasoning'
 
@@ -78,12 +83,56 @@ import { modelReasoning, reasoningOptions } from './model-reasoning'
 async function exportConversation(conversationId: string, title: string): Promise<void> {
   const toast = useUi.getState().toast
   try {
-    const detail = await api.assistant.conversation(conversationId)
+    // The whole thread, walked page by page: the export is a document, and a document that stops at
+    // the first page of a long conversation is a file the reader cannot tell is incomplete.
+    const detail = await fetchWholeConversation(conversationId)
     downloadTranscript(detail.messages, title)
     toast({ title: t('assistant.chat.exported', { title }), tone: 'success' })
   } catch (error) {
     toast({ title: error instanceof Error ? error.message : t('assistant.toast.failed'), tone: 'danger' })
   }
+}
+
+/**
+ * The same conversation as JSON: the record rather than the document.
+ *
+ * Everything stored is in it, including the answers the thread can page back to, which the Markdown
+ * export leaves out — it is the file a reader keeps when they want the conversation, not a readable
+ * copy of it.
+ */
+async function exportConversationJson(conversationId: string, title: string): Promise<void> {
+  const toast = useUi.getState().toast
+  try {
+    const payload = await api.assistant.conversationExport(conversationId)
+    downloadTextFile(`${safeFileName(title || t('assistant.chat.untitled'))}.json`, JSON.stringify(payload, null, 2), 'application/json')
+    toast({ title: t('assistant.chat.exported', { title }), tone: 'success' })
+  } catch (error) {
+    toast({ title: error instanceof Error ? error.message : t('assistant.toast.failed'), tone: 'danger' })
+  }
+}
+
+/**
+ * Fills the `{{name}}` slots a saved skill leaves for the turn it is used in.
+ *
+ * A skill is a standing arrangement — "summarise {{topic}} in five bullets" — so the slots are the part
+ * that changes each time. Asking here rather than sending the braces to the model keeps the template
+ * readable as a template and the question readable as a question. A cancelled dialog returns null, and
+ * the skill is not inserted at all: a half-filled template is worse than none.
+ */
+async function fillSkillVariables(text: string): Promise<string | null> {
+  const names = [...new Set([...text.matchAll(/\{\{\s*([\p{L}\p{N}_-]{1,40})\s*\}\}/gu)].map((match) => match[1]!))]
+  if (!names.length) return text
+  let filled = text
+  for (const name of names) {
+    const value = await prompt({
+      title: t('assistant.skills.fill_variable', { name }),
+      placeholder: name,
+    })
+    if (value === null) return null
+    const pattern = new RegExp(`\\{\\{\\s*${name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*\\}\\}`, 'g')
+    filled = filled.replace(pattern, value.trim())
+  }
+  return filled
 }
 
 const QUICK_SKILL_KEYS = ['assistant.chat.ask_1', 'assistant.chat.ask_2', 'assistant.chat.ask_3', 'assistant.chat.ask_4'] as const
@@ -115,6 +164,7 @@ export function ChatView() {
   const send = useAssistant((state) => state.send)
   const loadMcpServers = useAssistant((state) => state.loadMcpServers)
   const newConversation = useAssistant((state) => state.newConversation)
+  const openConversation = useAssistant((state) => state.openConversation)
   const stop = useAssistant((state) => state.stop)
   const scrollRef = useRef<HTMLDivElement>(null)
   const stickToBottom = useRef(true)
@@ -147,6 +197,11 @@ export function ChatView() {
   const title = activeId
     ? conversations.find((conversation) => conversation.id === activeId)?.title || t('assistant.chat.untitled')
     : t('assistant.chat.new_title')
+  // The note this thread came from, so coming back to it still says why it exists. The title is read from
+  // the notebook's own cache; a note that is gone leaves the chip with the generic label rather than a
+  // blank one.
+  const originNoteId = useAssistant((state) => state.conversations.find((entry) => entry.id === state.activeId)?.noteId ?? null)
+  const originNoteTitle = useNotes((state) => (originNoteId ? state.notes[originNoteId]?.title : undefined))
 
   // Which brief this thread is answered under, read from the same row the title came from. A reader who
   // cannot see the project cannot tell why an answer sounds the way it does.
@@ -163,6 +218,8 @@ export function ChatView() {
   // fresh thread — while a reply another device is writing is shown but not stoppable from here.
   const streaming = (!!turnHere && !turnHere.done) || remoteStreaming
   const showEmpty = !activeId && !turnHere
+  // Days are named in the assistant's own zone, the same one the bubbles print their times in.
+  const timezone = useAssistant((state) => state.settings?.timezone)
 
   useEffect(() => {
     stickToBottom.current = true
@@ -179,6 +236,40 @@ export function ChatView() {
     const el = scrollRef.current
     if (el && stickToBottom.current) el.scrollTop = el.scrollHeight
   }, [messages.length, turnHere?.text, turnHere?.tools.length, turnHere?.error])
+
+  // Older turns are a page away rather than part of the transcript, so the control that fetches them
+  // belongs at the top of the list and the scroll position is kept where the reader left it: the new
+  // page is inserted above them, and without the correction the thread jumps to its own beginning.
+  const messagesHasMore = useAssistant((state) => state.messagesHasMore)
+  const messagesLoadingMore = useAssistant((state) => state.messagesLoadingMore)
+  const messagesHasNewer = useAssistant((state) => state.messagesHasNewer)
+  const loadEarlierMessages = useAssistant((state) => state.loadEarlierMessages)
+  const focusMessageId = useAssistant((state) => state.focusMessageId)
+  const clearFocusMessage = useAssistant((state) => state.clearFocusMessage)
+  const loadEarlier = useCallback(async () => {
+    const el = scrollRef.current
+    const height = el?.scrollHeight ?? 0
+    const top = el?.scrollTop ?? 0
+    stickToBottom.current = false
+    await loadEarlierMessages()
+    if (!el) return
+    requestAnimationFrame(() => {
+      el.scrollTop = el.scrollHeight - height + top
+    })
+  }, [loadEarlierMessages])
+
+  // A search hit opens the thread around its own turn; this is what puts that turn in the middle of the
+  // screen instead of leaving the reader at the end of a page they did not ask for.
+  useEffect(() => {
+    if (!messagesReady || !focusMessageId) return
+    const nodes = scrollRef.current?.querySelectorAll<HTMLElement>('[data-chat-anchor]')
+    const target = nodes ? Array.from(nodes).find((node) => node.dataset.chatAnchor === focusMessageId) : undefined
+    if (target) {
+      stickToBottom.current = false
+      target.scrollIntoView({ block: 'center' })
+    }
+    clearFocusMessage()
+  }, [messagesReady, focusMessageId, clearFocusMessage])
 
   // A reader with no model configured cannot ask anything real; the settings tab is the way out.
   const blocked = useAssistant((state) => !state.settings?.activeModelId && !state.settings?.offlineMode)
@@ -203,6 +294,27 @@ export function ChatView() {
   const retryLast = useCallback(() => {
     void send('', { retry: true })
   }, [send])
+  /**
+   * Ask any answer again, not only the newest one.
+   *
+   * A turn in the middle of a thread takes everything after it with it — those turns were written on
+   * top of the answer being replaced — so it asks first. The newest answer is the one the bubble's own
+   * button already means, and it goes straight through.
+   */
+  const regenerate = useCallback(async (messageId: string) => {
+    const state = useAssistant.getState()
+    if (state.messages.at(-1)?.id === messageId) {
+      void state.send('', { retry: true })
+      return
+    }
+    const agreed = await confirm({
+      title: t('assistant.chat.regenerate_middle_title'),
+      description: t('assistant.chat.regenerate_middle_hint'),
+      confirmLabel: t('assistant.chat.regenerate'),
+      tone: 'danger',
+    })
+    if (agreed) void state.send('', { retry: true, messageId })
+  }, [])
 
   // The outline's stops are the turns the reader wrote — the only fixed points in a thread whose answers
   // vary in length. A new array on every store write would re-register the outline's scroll listener on
@@ -247,6 +359,20 @@ export function ChatView() {
             >
               {activeProject.name}
             </span>
+          )}
+          {originNoteId && (
+            <button
+              type="button"
+              onClick={() => {
+                useUi.getState().setActiveNote(originNoteId)
+                navigateToPath('/notes')
+              }}
+              title={t('assistant.chat.from_note')}
+              className="inline-flex shrink-0 items-center gap-1 rounded-[var(--r-sm)] bg-[var(--bg-inset)] px-1.5 py-0.5 text-[length:var(--text-10)] text-[var(--text-quaternary)] hover:text-[var(--text-secondary)]"
+            >
+              <NotebookPen size={10} className="shrink-0" />
+              <span className="max-w-[140px] truncate">{originNoteTitle || t('assistant.chat.from_note')}</span>
+            </button>
           )}
           {ephemeral && (
             <span
@@ -305,17 +431,53 @@ export function ChatView() {
             </div>
           ) : (
             <div className="mx-auto flex w-full max-w-[720px] flex-col gap-5 px-4 py-5 md:px-6">
-              {messages.map((message) => (
+              {messagesHasMore && (
+                <div className="flex justify-center">
+                  <Button size="sm" variant="ghost" disabled={messagesLoadingMore} onClick={() => void loadEarlier()}>
+                    {messagesLoadingMore ? <Spinner /> : t('assistant.chat.load_earlier')}
+                  </Button>
+                </div>
+              )}
+              {messagesHasNewer && activeId && (
+                <div className="flex justify-center">
+                  <Button size="sm" variant="secondary" onClick={() => void openConversation(activeId)}>
+                    {t('assistant.chat.jump_latest')}
+                  </Button>
+                </div>
+              )}
+              {messages.map((message, index) => {
+                // A long thread crosses days, and a run of bubbles with no date is a transcript the
+                // reader has to guess the shape of. The separator belongs to the turn that starts the day.
+                const previous = messages[index - 1]
+                const startsDay = !previous || dayKey(previous.createdAt, timezone) !== dayKey(message.createdAt, timezone)
+                return (
+                <Fragment key={message.id}>
+                {startsDay && (
+                  <div role="separator" className="flex items-center gap-2 py-1">
+                    <span className="h-px flex-1 bg-[var(--border-subtle)]" />
+                    <span className="shrink-0 text-[length:var(--text-10-5)] uppercase tracking-wide text-[var(--text-quaternary)]">
+                      {formatDay(message.createdAt, timezone)}
+                    </span>
+                    <span className="h-px flex-1 bg-[var(--border-subtle)]" />
+                  </div>
+                )}
                 <MessageRow
                   key={message.id}
                   message={message}
                   busy={streaming}
-                  onRetry={message.id === lastAnswer?.id && !streaming ? retryLast : undefined}
+                  // Every stored answer can be asked again; the newest one is the plain retry, an older
+                  // one confirms that the turns below it will be removed with it.
+                  onRetry={message.role === 'assistant' && !streaming
+                    ? (message.id === lastAnswer?.id ? retryLast : () => void regenerate(message.id))
+                    : undefined}
+                  canContinue={message.role === 'assistant' && !streaming && message.status !== 'error' && message.id === lastAnswer?.id}
                   onStartPicking={startPicking}
                   onShare={shareMessage}
                   selection={selected ? { active: true, checked: selected.has(message.id), onToggle: () => togglePicked(message.id) } : undefined}
                 />
-              ))}
+                </Fragment>
+                )
+              })}
               {turnHere && (
                 <>
                   {turnHere.userText && (
@@ -420,9 +582,11 @@ export function ChatView() {
  * out again for each one. The props that can actually change a row are the row itself and the few
  * states that show on it — a callback identity is not one of them, and is not compared.
  */
-export const MessageRow = memo(function MessageRow({ message, onRetry, busy = false, selection, onStartPicking, onShare }: {
+export const MessageRow = memo(function MessageRow({ message, onRetry, canContinue = false, busy = false, selection, onStartPicking, onShare }: {
   message: AssistantMessage
   onRetry?: () => void
+  /** Only the newest settled answer: continuing anything else would append to a turn already read past. */
+  canContinue?: boolean
   busy?: boolean
   selection?: MessageSelection
   onStartPicking?: (messageId: string) => void
@@ -441,6 +605,7 @@ export const MessageRow = memo(function MessageRow({ message, onRetry, busy = fa
         fileIndex={fileIndex}
         messageId={message.id}
         busy={busy}
+        createdAt={message.createdAt}
         anchorId={message.id}
         selection={selection}
         onStartPicking={onStartPicking}
@@ -460,7 +625,9 @@ export const MessageRow = memo(function MessageRow({ message, onRetry, busy = fa
       streaming={false}
       stage={undefined}
       messageId={message.id}
+      createdAt={message.createdAt}
       onRetry={onRetry}
+      canContinue={canContinue}
       retryLabel={retryLabel}
       usage={message.usage}
       sources={message.sources}
@@ -479,6 +646,7 @@ export const MessageRow = memo(function MessageRow({ message, onRetry, busy = fa
   )
 }, (previous, next) => previous.message === next.message
   && previous.busy === next.busy
+  && previous.canContinue === next.canContinue
   && previous.onRetry === next.onRetry
   && previous.onStartPicking === next.onStartPicking
   && previous.onShare === next.onShare
@@ -501,6 +669,7 @@ export function UserBubble({
   fileIndex = {},
   messageId,
   busy = false,
+  createdAt,
   anchorId,
   selection,
   onStartPicking,
@@ -511,6 +680,8 @@ export function UserBubble({
   fileIndex?: Record<string, ChatAttachment>
   messageId?: string
   busy?: boolean
+  /** When the reader wrote it; absent on the live turn, which has no row yet. */
+  createdAt?: number
   anchorId?: string
   selection?: MessageSelection
   onStartPicking?: (messageId: string) => void
@@ -518,6 +689,7 @@ export function UserBubble({
 }) {
   const [copied, setCopied] = useState(false)
   const [draft, setDraft] = useState<string | null>(null)
+  const timezone = useAssistant((state) => state.settings?.timezone)
   const toast = useUi((state) => state.toast)
   const menu = useMessageMenu()
   const removable = !!messageId && !!text
@@ -567,14 +739,26 @@ export function UserBubble({
         )}
         {text && (
           <div className="flex items-center gap-0.5 transition-opacity duration-[var(--dur-fast)] md:opacity-0 md:group-hover:opacity-100 md:group-focus-within:opacity-100">
+            {createdAt && (
+              <time
+                dateTime={new Date(createdAt).toISOString()}
+                className="mr-1 shrink-0 text-[length:var(--text-11)] text-[var(--text-quaternary)]"
+              >
+                {formatInZone(createdAt, timezone)}
+              </time>
+            )}
             <IconButton
               size="sm"
               label={copied ? t('assistant.chat.copied') : t('assistant.chat.copy')}
               onClick={() => {
-                void navigator.clipboard.writeText(text).then(() => {
+                void copyText(text).then((ok) => {
+                  if (!ok) {
+                    toast({ title: t('preview.could_not_copy'), tone: 'danger' })
+                    return
+                  }
                   setCopied(true)
                   window.setTimeout(() => setCopied(false), COPY_RESET_MS)
-                }).catch(() => toast({ title: t('preview.could_not_copy'), tone: 'danger' }))
+                })
               }}
             >
               {copied ? <Check size={14} /> : <Copy size={14} />}
@@ -611,12 +795,18 @@ export function UserBubble({
       {draft !== null && messageId && (
         <EditMessageDialog
           text={draft}
+          // A branch is only worth offering when there is something below this turn to keep; the store
+          // is read at the moment the dialog opens rather than subscribed to, because a user bubble that
+          // re-rendered on every token of the answer below it would undo the memo above.
+          canBranch={useAssistant.getState().messages.at(-1)?.id !== messageId}
           onClose={() => setDraft(null)}
-          onSave={(content) => {
+          onSave={(content, keepBranch) => {
             setDraft(null)
             // The turn re-answers itself: the dialog has nothing left to hold, and the replaced answer
             // arrives in the thread like any other.
-            void useAssistant.getState().editMessage(messageId, content)
+            const edit = useAssistant.getState().editMessage
+            if (keepBranch) void edit(messageId, content, { keepBranch: true })
+            else void edit(messageId, content)
           }}
         />
       )}
@@ -631,9 +821,16 @@ export function UserBubble({
  * below them was written from the old text and the thread is asked again from here, which the note under
  * the box says out loud: saving is not a silent rewrite of a transcript.
  */
-function EditMessageDialog({ text, onClose, onSave }: { text: string, onClose: () => void, onSave: (content: string) => void }) {
+function EditMessageDialog({ text, canBranch = false, onClose, onSave }: {
+  text: string
+  /** Whether the turns below this one can be kept as a branch. False for the newest turn. */
+  canBranch?: boolean
+  onClose: () => void
+  onSave: (content: string, keepBranch: boolean) => void
+}) {
   const [value, setValue] = useState(text)
   const trimmed = value.trim()
+  const unchanged = !trimmed || trimmed === text.trim()
   return (
     <Modal
       open
@@ -644,7 +841,12 @@ function EditMessageDialog({ text, onClose, onSave }: { text: string, onClose: (
       footer={(
         <>
           <Button variant="secondary" onClick={onClose}>{t('common.cancel')}</Button>
-          <Button variant="primary" disabled={!trimmed || trimmed === text.trim()} onClick={() => onSave(trimmed)}>
+          {canBranch && (
+            <Button variant="ghost" disabled={unchanged} onClick={() => onSave(trimmed, true)}>
+              {t('assistant.chat.edit_keep_branch')}
+            </Button>
+          )}
+          <Button variant="primary" disabled={unchanged} onClick={() => onSave(trimmed, false)}>
             {t('assistant.chat.edit_message_save')}
           </Button>
         </>
@@ -670,6 +872,15 @@ export function ConversationList({ activeId, onPick }: { activeId: string | null
   const newConversation = useAssistant((state) => state.newConversation)
   const renameConversation = useAssistant((state) => state.renameConversation)
   const loadTaxonomy = useAssistant((state) => state.loadTaxonomy)
+  const hasMore = useAssistant((state) => state.conversationsHasMore)
+  const loadingMore = useAssistant((state) => state.conversationsLoadingMore)
+  const loadMore = useAssistant((state) => state.loadMoreConversations)
+  const picks = useAssistant((state) => state.conversationPicks)
+  const startPicking = useAssistant((state) => state.startPickingConversations)
+  const togglePick = useAssistant((state) => state.toggleConversationPick)
+  const cancelPicking = useAssistant((state) => state.cancelConversationPicks)
+  const archivePicked = useAssistant((state) => state.archivePickedConversations)
+  const deletePicked = useAssistant((state) => state.deletePickedConversations)
   const [menuFor, setMenuFor] = useState<string | null>(null)
   const [renaming, setRenaming] = useState<AssistantConversation | null>(null)
   const [draft, setDraft] = useState('')
@@ -708,9 +919,22 @@ export function ConversationList({ activeId, onPick }: { activeId: string | null
       {/* The reference project puts a start-a-chat button at the head of the list as well as in the
           thread header, and a reader scanning the list looks for it there. */}
       <div className="flex flex-col gap-2 p-2 pt-1">
-        <Button size="sm" variant="secondary" block icon={<Plus size={14} />} onClick={() => { newConversation(); onPick() }}>
-          {t('assistant.chat.new')}
-        </Button>
+        <div className="flex gap-1.5">
+          <Button size="sm" variant="secondary" block icon={<Plus size={14} />} onClick={() => { newConversation(); onPick() }}>
+            {t('assistant.chat.new')}
+          </Button>
+          {/* Picking is a mode the reader enters on purpose: a tick on every row all the time is
+              furniture, and the one action it enables is not one anybody reaches for daily. */}
+          <IconButton
+            label={picks ? t('assistant.chat.pick_cancel') : t('assistant.chat.pick_start')}
+            size="sm"
+            variant={picks ? 'secondary' : 'ghost'}
+            active={!!picks}
+            onClick={() => (picks ? cancelPicking() : startPicking())}
+          >
+            <ListChecks size={14} />
+          </IconButton>
+        </div>
         {/* The same box the notebook's rails draw: search icon, clear control, Escape that takes the text
             back out, and the shared refusal when what was typed is not a pattern. The chrome is shared,
             the matching is not — this list is answered by the server's `LIKE` over the title and the
@@ -730,7 +954,16 @@ export function ConversationList({ activeId, onPick }: { activeId: string | null
       </div>
       <ConversationTabStrip />
       <ConversationTaxonomyPanel onOpen={onPick} />
-      <nav aria-label={t('assistant.chat.list')} className="no-scrollbar min-h-0 w-full min-w-0 flex-1 overflow-x-hidden overflow-y-auto px-1.5 pb-2">
+      <nav
+        aria-label={t('assistant.chat.list')}
+        // The list is paged, so reaching the bottom is what asks for the next page. The margin is a
+        // screenful short of the end, which is when a reader is close enough to need it.
+        onScroll={(event) => {
+          const el = event.currentTarget
+          if (hasMore && !loadingMore && el.scrollHeight - el.scrollTop - el.clientHeight < 240) void loadMore()
+        }}
+        className="no-scrollbar min-h-0 w-full min-w-0 flex-1 overflow-x-hidden overflow-y-auto px-1.5 pb-2"
+      >
         {!ordered.length ? (
           <p className="px-2 py-6 text-center text-[length:var(--text-12)] text-[var(--text-quaternary)]">
             {query.trim() ? t('assistant.chat.no_matches') : t('assistant.chat.empty')}
@@ -745,8 +978,12 @@ export function ConversationList({ activeId, onPick }: { activeId: string | null
                 menuOpen={menuFor === conversation.id}
                 onToggleMenu={() => setMenuFor(menuFor === conversation.id ? null : conversation.id)}
                 onCloseMenu={() => setMenuFor(null)}
+                picking={!!picks}
+                picked={!!picks?.has(conversation.id)}
+                onTogglePick={() => togglePick(conversation.id)}
                 onOpen={() => {
-                  void openConversation(conversation.id)
+                  // A search row carries the turn its words were found in; opening the thread lands there.
+                  void openConversation(conversation.id, conversation.match ? { focusMessageId: conversation.match.messageId } : undefined)
                   onPick()
                 }}
                 onRename={() => {
@@ -757,7 +994,44 @@ export function ConversationList({ activeId, onPick }: { activeId: string | null
             ))}
           </ul>
         )}
+        {loadingMore && (
+          <div className="flex justify-center py-3">
+            <Spinner />
+          </div>
+        )}
       </nav>
+      {picks && (
+        <div className="flex shrink-0 items-center gap-1 border-t border-[var(--border-subtle)] px-2 py-1.5">
+          <span className="min-w-0 flex-1 truncate text-[length:var(--text-11)] text-[var(--text-tertiary)]">
+            {t('assistant.chat.picked', { count: picks.size })}
+          </span>
+          <IconButton
+            label={t('assistant.chat.archive')}
+            size="sm"
+            disabled={!picks.size}
+            onClick={() => void archivePicked()}
+          >
+            <Archive size={13} />
+          </IconButton>
+          <IconButton
+            label={t('assistant.chat.delete')}
+            size="sm"
+            disabled={!picks.size}
+            onClick={() => {
+              void confirm({
+                title: t('assistant.chat.pick_delete_title'),
+                description: t('assistant.chat.pick_delete_hint', { count: picks.size }),
+                confirmLabel: t('common.delete'),
+                tone: 'danger',
+              }).then((agreed) => {
+                if (agreed) void deletePicked()
+              })
+            }}
+          >
+            <Trash2 size={13} />
+          </IconButton>
+        </div>
+      )}
 
       <Modal
         open={!!renaming}
@@ -811,6 +1085,9 @@ function ConversationRow({
   onCloseMenu,
   onOpen,
   onRename,
+  picking = false,
+  picked = false,
+  onTogglePick,
 }: {
   conversation: AssistantConversation
   active: boolean
@@ -819,6 +1096,10 @@ function ConversationRow({
   onCloseMenu: () => void
   onOpen: () => void
   onRename: () => void
+  /** The list is in picking mode: a press ticks the row instead of opening it. */
+  picking?: boolean
+  picked?: boolean
+  onTogglePick?: () => void
 }) {
   const pinConversation = useAssistant((state) => state.pinConversation)
   const deleteConversation = useAssistant((state) => state.deleteConversation)
@@ -894,16 +1175,29 @@ function ConversationRow({
     >
       <button
         type="button"
-        onClick={onOpen}
+        onClick={picking ? onTogglePick : onOpen}
+        aria-pressed={picking ? picked : undefined}
         className={cn(
           'flex w-full flex-col items-start gap-0.5 rounded-[var(--r-sm)] px-2 py-1.5 pr-7 text-left',
           'transition-colors duration-[var(--dur-fast)]',
           active
             ? 'bg-[var(--bg-active)] text-[var(--text-primary)]'
             : 'text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]',
+          picking && picked && 'bg-[var(--accent-soft)] text-[var(--text-primary)]',
         )}
       >
         <span className="flex w-full min-w-0 items-center gap-1">
+          {picking && (
+            <span
+              aria-hidden
+              className={cn(
+                'flex size-3.5 shrink-0 items-center justify-center rounded-[var(--r-xs)] border',
+                picked ? 'border-[var(--accent)] bg-[var(--accent)] text-[var(--accent-contrast)]' : 'border-[var(--border-strong)]',
+              )}
+            >
+              {picked && <Check size={9} />}
+            </span>
+          )}
           {conversation.pinned && <span aria-hidden className="text-[length:var(--text-9)] text-[var(--accent)]">●</span>}
           {conversation.starred && (
             <span aria-label={t('assistant.chat.tab.starred')} role="img" className="shrink-0 text-[var(--warning)]">
@@ -912,6 +1206,13 @@ function ConversationRow({
           )}
           <span className="min-w-0 flex-1 truncate text-[length:var(--text-12-5)]">{title}</span>
         </span>
+        {conversation.match && (
+          // The excerpt is why a row was a hit: a thread titled "untitled" that contains the word two
+          // hundred turns in is otherwise indistinguishable from every other row in the list.
+          <span className="line-clamp-2 w-full text-[length:var(--text-10-5)] leading-snug text-[var(--text-tertiary)]">
+            {conversation.match.snippet}
+          </span>
+        )}
         <span className="text-[length:var(--text-10-5)] text-[var(--text-quaternary)]">{relativeTime(conversation.updatedAt)}</span>
       </button>
       <span ref={anchor} className="absolute right-1 top-1.5">
@@ -998,6 +1299,13 @@ function ConversationRow({
             separatorBefore: true,
             onSelect: () => {
               void exportConversation(conversation.id, title)
+            },
+          },
+          {
+            id: 'export-json',
+            label: t('assistant.chat.export_json'),
+            onSelect: () => {
+              void exportConversationJson(conversation.id, title)
             },
           },
           {
@@ -1180,6 +1488,7 @@ ${current}` : seed))
   const attachUrl = useAssistant((state) => state.attachUrl)
   const attachPastedText = useAssistant((state) => state.attachPastedText)
   const dropAttachment = useAssistant((state) => state.dropAttachment)
+  const retryAttachment = useAssistant((state) => state.retryAttachment)
   const models = useAssistant((state) => state.models)
   const providers = useAssistant((state) => state.providers)
   const settings = useAssistant((state) => state.settings)
@@ -1281,6 +1590,14 @@ ${current}` : seed))
   const mcpCatalog = useAssistant((state) => state.mcpCatalog)
   const mcpServers = useAssistant((state) => state.mcpServers)
   const loadMcp = useAssistant((state) => state.loadMcp)
+  // Whether the web-search switch can do anything under this model: a vendor-side search, or a
+  // search-capable tool among the reader's own MCP servers. Read here rather than inside the chip so the
+  // chip itself stays a switch and not a policy.
+  const webSearchAvailable = useMemo(() => {
+    const protocol = providers.find((entry) => entry.id === active?.providerId)?.protocol
+    if (protocol && SEARCH_NATIVE_PROTOCOLS.has(protocol)) return true
+    return mcpCatalog.some((entry) => entry.tools.some((tool) => looksLikeSearchTool(tool.name)))
+  }, [providers, mcpCatalog, active])
 
   /** Rows for the trigger the caret is inside. `@` asks the server; the other two filter locally. */
   const loadTriggerRows = async (next: ActiveTrigger) => {
@@ -1468,7 +1785,7 @@ ${current}` : seed))
             'focus-within:border-[var(--accent)] focus-within:shadow-[var(--shadow-ring)]',
           )}
         >
-          <AttachmentStrip items={pending} onRemove={(localId) => void dropAttachment(localId)} />
+          <AttachmentStrip items={pending} onRemove={(localId) => void dropAttachment(localId)} onRetry={(localId) => void retryAttachment(localId)} />
           <TurnPinRow tools={turnTools} scopes={turnScopes} onDropTool={dropTurnTool} onDropScope={dropTurnScope} />
           <ContextStrip />
           <textarea
@@ -1501,11 +1818,14 @@ ${current}` : seed))
               onNote={() => setPickingNote(true)}
               onPinNote={() => setPinningNote(true)}
               onSkill={(row) => {
-                const text = row.text ?? row.label
-                setValue((current) => (current.trim() ? `${current.trim()}\n${text}` : text))
-                // A saved skill is a standing arrangement, so its words arrive with the turn it was
-                // written for: the chips below the box change, which is what says the change happened.
-                if (row.skill) applySkill(row.skill)
+                void (async () => {
+                  const text = await fillSkillVariables(row.text ?? row.label)
+                  if (text === null) return
+                  setValue((current) => (current.trim() ? `${current.trim()}\n${text}` : text))
+                  // A saved skill is a standing arrangement, so its words arrive with the turn it was
+                  // written for: the chips below the box change, which is what says the change happened.
+                  if (row.skill) applySkill(row.skill)
+                })()
               }}
               onManageSkills={() => manage('skills')}
             />
@@ -1531,7 +1851,7 @@ ${current}` : seed))
                     value={active.contextTokens}
                     onPick={(tokens) => void updateModel(active.id, { contextTokens: tokens })}
                   />
-                  <WebSearchMenu value={webSearch} onChange={setWebSearch} />
+                  <WebSearchMenu value={webSearch} onChange={setWebSearch} available={webSearchAvailable} />
                 </>
               )}
               <ModelMenu

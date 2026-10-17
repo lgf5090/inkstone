@@ -12,13 +12,15 @@
  */
 
 import { useCallback, useRef, useState, type MouseEvent, type RefObject } from 'react'
-import { Copy, CornerUpLeft, Download, GitBranch, ListChecks, MessageSquareQuote, NotebookPen, NotebookText, PanelRight, Pencil, RotateCcw, Share2, TextCursorInput, ThumbsDown, ThumbsUp, Trash2, Volume2, type LucideIcon } from 'lucide-react'
+import { Copy, CornerUpLeft, Download, GitBranch, ListChecks, MessageSquareQuote, NotebookPen, NotebookText, PanelRight, Pencil, Play, RotateCcw, Share2, TextCursorInput, ThumbsDown, ThumbsUp, Trash2, Volume2, type LucideIcon } from 'lucide-react'
 import { toPlainText } from '@shared/markdown-utils'
 import type { MessageFeedback } from '@shared/assistant'
 import { Z_INDEX } from '../../lib/z-index'
 import { getLocale, t } from '../../lib/i18n'
 import { Menu, useContextMenu, type MenuItem } from '../../components/overlay'
 import { downloadTextFile, safeFileName } from '../../lib/export-note'
+import { copyText } from '../../lib/clipboard'
+import { useUi } from '../../store/ui'
 import { useAssistant } from './assistant-store'
 import { saveReplyAsNote } from './save-to-note'
 import { canSpeak, speak, stopSpeaking } from './speech'
@@ -36,6 +38,8 @@ export interface MessageMenuTarget {
   /** Offered only where asking again means something — the newest answer of the thread. */
   onRetry?: () => void
   onRetryLabel?: 'assistant.chat.retry' | 'assistant.chat.regenerate'
+  /** Offered on the newest answer only: finish a reply that stopped early instead of asking again. */
+  onContinue?: () => void
   onEdit?: () => void
   onDelete?: () => void
   /** The verdict already left on this answer, so the menu can show which thumb is down. */
@@ -89,8 +93,16 @@ interface ItemSpec {
   checked?: boolean
 }
 
+/**
+ * Copy one menu row's text.
+ *
+ * The failure is said out loud: a copy that quietly did nothing is indistinguishable from one that
+ * worked, and the reader only finds out when they paste somewhere and nothing arrives.
+ */
 function copy(text: string): void {
-  void navigator.clipboard?.writeText(text)
+  void copyText(text).then((ok) => {
+    if (!ok) useUi.getState().toast({ title: t('preview.could_not_copy'), tone: 'danger' })
+  })
 }
 
 function readAloud(text: string): void {
@@ -207,6 +219,9 @@ export function messageMenuItems(target: MessageMenuTarget): MenuItem[] {
       run: target.onRetry,
       separatorBefore: true,
     })
+  }
+  if (target.onContinue) {
+    specs.push({ id: 'continue', icon: Play, label: t('assistant.chat.continue'), run: target.onContinue, separatorBefore: true })
   }
   if (target.onSelect) {
     specs.push({ id: 'select', icon: ListChecks, label: t('assistant.chat.select_messages'), run: target.onSelect, separatorBefore: true })

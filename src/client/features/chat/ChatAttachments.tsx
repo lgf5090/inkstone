@@ -10,7 +10,7 @@
  * reader took back out of the box should not stay in their storage.
  */
 import { useEffect, useState } from 'react'
-import { FileText, Image as ImageIcon, Loader, X } from 'lucide-react'
+import { FileText, Image as ImageIcon, Loader, RotateCcw, X } from 'lucide-react'
 import type { ChatAttachment } from '@shared/assistant'
 import type { PendingAttachment } from './assistant-store'
 import { cn } from '../../lib/cn'
@@ -66,9 +66,12 @@ function ProgressBar({ value, failed }: { value: number, failed?: boolean }) {
 export function AttachmentStrip({
   items,
   onRemove,
+  onRetry,
 }: {
   items: PendingAttachment[]
   onRemove: (localId: string) => void
+  /** Tries a failed upload again with the file the browser still holds; absent where there is none. */
+  onRetry?: (localId: string) => void
 }) {
   const setLightbox = useUi((state) => state.setLightbox)
   const [viewing, setViewing] = useState<ChatAttachment | null>(null)
@@ -105,6 +108,16 @@ export function AttachmentStrip({
                 <Loader size={12} className="absolute right-1 top-1 animate-spin text-[var(--text-tertiary)]" />
               )}
             </ChipFrame>
+            {entry.status === 'error' && onRetry && (
+              <button
+                type="button"
+                onClick={() => onRetry(entry.localId)}
+                aria-label={t('assistant.attach.retry', { name: entry.filename })}
+                className="absolute -left-1 -top-1 flex size-4 items-center justify-center rounded-full border border-[var(--border-default)] bg-[var(--bg-overlay)] text-[var(--text-tertiary)] hover:text-[var(--accent)]"
+              >
+                <RotateCcw size={9} />
+              </button>
+            )}
             <button
               type="button"
               onClick={() => onRemove(entry.localId)}

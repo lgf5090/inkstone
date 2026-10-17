@@ -47,6 +47,7 @@ export function ControlChip({
   active,
   pressed,
   hint,
+  disabled,
 }: {
   label: string
   value?: string
@@ -54,6 +55,8 @@ export function ControlChip({
   onClick: () => void
   refObject: React.RefObject<HTMLButtonElement | null>
   active?: boolean
+  /** A control that cannot do anything right now, and says why in its hint rather than in a toast. */
+  disabled?: boolean
   /** A chip that is a switch: the accent colour says which way it is set, and colour is not readable. */
   pressed?: boolean
   /** What the control does, for the pointer that has to hover it to find out. */
@@ -71,6 +74,7 @@ export function ControlChip({
         type="button"
         aria-label={name}
         {...(pressed === undefined ? {} : { 'aria-pressed': pressed })}
+        disabled={disabled}
         onClick={onClick}
         className={cn(
           'inline-flex size-7 shrink-0 items-center justify-center rounded-[var(--r-md)] border border-transparent',
@@ -79,6 +83,7 @@ export function ControlChip({
           active
             ? 'border-[var(--accent)] bg-[var(--accent-soft)] text-[var(--accent-on-soft)]'
             : undefined,
+          disabled && 'cursor-not-allowed opacity-40 hover:bg-transparent hover:text-[var(--text-tertiary)] active:scale-100',
         )}
       >
         {icon}
@@ -238,15 +243,28 @@ export function ContextMenu({
  */
 const SEARCH_REF: React.RefObject<HTMLButtonElement | null> = { current: null }
 
-export function WebSearchMenu({ value, onChange }: { value: boolean, onChange: (next: boolean) => void }) {
+export function WebSearchMenu({ value, onChange, available = true }: {
+  value: boolean
+  onChange: (next: boolean) => void
+  /**
+   * Whether this model can search at all.
+   *
+   * A protocol with a vendor-side search can; anywhere else the assistant needs a search-capable tool
+   * from the reader's own MCP servers. When neither holds, the switch is drawn disabled with the reason,
+   * because a switch that turns on and does nothing is worse than one that cannot be pressed.
+   */
+  available?: boolean
+}) {
+  const on = value && available
   return (
     <ControlChip
       label={t('assistant.composer.search')}
-      value={value ? t('assistant.search.on') : t('assistant.search.off')}
+      value={on ? t('assistant.search.on') : t('assistant.search.off')}
       icon={<Globe size={12} />}
-      active={value}
-      pressed={value}
-      hint={t('assistant.search.hint')}
+      active={on}
+      pressed={on}
+      disabled={!available}
+      hint={available ? t('assistant.search.hint') : t('assistant.search.unavailable')}
       onClick={() => onChange(!value)}
       refObject={SEARCH_REF}
     />

@@ -63,7 +63,9 @@ export async function renderChatEmbed(embed: HTMLElement, id: string, alias: str
   if (!body) return 'missing'
   let payload: Awaited<ReturnType<typeof api.assistant.conversation>>
   try {
-    payload = await api.assistant.conversation(id)
+    // The embed draws the conversation, so it reads the whole of it rather than the newest page: a
+    // box that silently stopped at sixty turns would misrepresent the thread it claims to show.
+    payload = await api.assistant.conversation(id, { limit: '200' })
   } catch {
     return 'missing'
   }

@@ -23,6 +23,7 @@ import { openNote } from './note-links'
 import { insertBlockAt } from './editor-ai'
 import { useAssistant } from './assistant-store'
 import { transcriptMarkdown } from './transcript'
+import { fetchWholeConversation } from './thread-fetch'
 
 /**
  * The first line of prose in a reply, without the marks that made it a heading or a list item.
@@ -146,9 +147,11 @@ export async function saveConversationAsNote(conversationId?: string | null): Pr
     toast({ title: t('assistant.embed.no_conversation'), tone: 'warning' })
     return null
   }
-  let detail: Awaited<ReturnType<typeof api.assistant.conversation>>
+  let detail: Awaited<ReturnType<typeof fetchWholeConversation>>
   try {
-    detail = await api.assistant.conversation(id)
+    // Every turn, not the newest page: the note is meant to be the conversation, and one that ends
+    // where the thread view happened to stop is a note the reader would have to check.
+    detail = await fetchWholeConversation(id)
   } catch (error) {
     toast({
       title: t('assistant.note.conversation_failed'),

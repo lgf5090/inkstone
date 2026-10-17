@@ -86,8 +86,17 @@ export function AssistantDock() {
     <aside
       aria-label={t('assistant.dock.title')}
       data-assistant-dock="1"
-      className="flex h-full w-[min(380px,36vw)] shrink-0 flex-col border-l border-[var(--border-subtle)] bg-[var(--bg-base)]"
+      // A column beside the note on a wide screen, and a bottom sheet on a phone: the same panel, but a
+      // 380px column on a 390px screen is the whole page rather than a companion to it.
+      className={cn(
+        'flex flex-col bg-[var(--bg-base)]',
+        'fixed inset-x-0 bottom-0 z-[var(--z-panel)] h-[min(70vh,560px)] rounded-t-[var(--r-xl)] border-t border-[var(--border-default)] shadow-[var(--shadow-modal)]',
+        'md:static md:h-full md:w-[min(380px,36vw)] md:shrink-0 md:rounded-none md:border-l md:border-t-0 md:shadow-none',
+      )}
     >
+      {/* The grab handle is the only thing that says "this can be dismissed by the reader", and it is
+          not drawn where the panel is a column: a desktop has a close button and no thumb. */}
+      <div aria-hidden className="mx-auto mt-1.5 h-1 w-9 shrink-0 rounded-full bg-[var(--border-strong)] md:hidden" />
       <div className="flex h-9 shrink-0 items-center gap-1 border-b border-[var(--border-subtle)] px-2">
         <Sparkles size={13} className="ml-1 shrink-0 text-[var(--accent)]" />
         <span className="min-w-0 truncate text-[length:var(--text-12)] text-[var(--text-tertiary)]">

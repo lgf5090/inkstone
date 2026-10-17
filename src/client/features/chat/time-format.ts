@@ -42,3 +42,33 @@ export function formatDue(ms: number | null | undefined, timeZone?: string): str
   if (ms === null || ms === undefined) return ''
   return formatInZone(ms, timeZone, { dateOnly: isEndOfDay(ms, timeZone) })
 }
+
+/**
+ * The calendar day an instant falls on, in the assistant's zone.
+ *
+ * `en-CA` because its short date is already `YYYY-MM-DD`: the key is compared, never shown, and a
+ * lexical comparison of that form is the same as the calendar comparison.
+ */
+export function dayKey(ms: number, timeZone?: string): string {
+  try {
+    return new Intl.DateTimeFormat('en-CA', { timeZone, year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date(ms))
+  } catch {
+    return new Date(ms).toISOString().slice(0, 10)
+  }
+}
+
+/** A separator between turns: the day they were written, named rather than numbered. */
+export function formatDay(ms: number, timeZone?: string): string {
+  const date = new Date(ms)
+  try {
+    return new Intl.DateTimeFormat(getLocale(), {
+      ...(timeZone ? { timeZone } : {}),
+      weekday: 'short',
+      month: 'short',
+      day: 'numeric',
+      ...(date.getFullYear() !== new Date().getFullYear() ? { year: 'numeric' } : {}),
+    }).format(date)
+  } catch {
+    return date.toISOString().slice(0, 10)
+  }
+}

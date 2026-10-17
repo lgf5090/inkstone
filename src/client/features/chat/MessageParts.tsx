@@ -38,6 +38,8 @@ import { ASSISTANT_TOOL_BY_NAME, mcpToolOrigin } from '@shared/assistant'
 import { cn } from '../../lib/cn'
 import { COPY_RESET_MS } from '../../lib/motion'
 import { t } from '../../lib/i18n'
+import { formatInZone } from './time-format'
+import { copyText } from '../../lib/clipboard'
 import { navigateToPath } from '../../lib/app-history'
 import { useNotes } from '../../store/notes'
 import { useLocale } from '../../lib/i18n'
@@ -239,7 +241,11 @@ function ToolCallRow({ tool, messageId, open, onToggle }: {
               <button
                 type="button"
                 onClick={() => {
-                  void navigator.clipboard.writeText(tool.result ?? '').then(() => {
+                  void copyText(tool.result ?? '').then((ok) => {
+                    if (!ok) {
+                      useUi.getState().toast({ title: t('preview.could_not_copy'), tone: 'danger' })
+                      return
+                    }
                     setCopied(true)
                     window.setTimeout(() => setCopied(false), COPY_RESET_MS)
                   })
@@ -442,6 +448,8 @@ export function AssistantBubble({
   attachments = [],
   feedback,
   onRate,
+  canContinue,
+  createdAt,
   selection,
   onStartPicking,
   onShare,
@@ -472,6 +480,15 @@ export function AssistantBubble({
   feedback?: MessageFeedback
   /** Absent on a live turn: a verdict needs a row to be stored on. */
   onRate?: (feedback: MessageFeedback) => void
+  /**
+   * Whether this answer can be picked up where it stopped.
+   *
+   * Only the newest answer, and only once it has settled: continuing a turn in the middle of a thread
+   * would append words to an answer the reader has already read past.
+   */
+  canContinue?: boolean
+  /** When the answer was written; absent on a live turn, which has no row yet. */
+  createdAt?: number
   /** Present while the reader is picking turns out of the thread. */
   selection?: MessageSelection
   /** Turns the thread into a picker, starting from this answer. */
@@ -488,6 +505,9 @@ export function AssistantBubble({
   // The rows behind the ids this answer carries, so a picture it drew can be drawn here rather than
   // named by an id nobody can resolve.
   const fileIndex = useAssistant((state) => state.fileIndex)
+  // The assistant's own zone, not the browser's: a thread written in one place and read in another
+  // should still say when it was written where the assistant lives.
+  const timezone = useAssistant((state) => state.settings?.timezone)
   const [page, setPage] = useState<number | null>(null)
   const [swapping, setSwapping] = useState(false)
   const pages = (versions?.length ?? versionCount) + 1
@@ -514,7 +534,7 @@ export function AssistantBubble({
     })
   }
   return (
-    <div className="group flex items-start gap-2.5" onContextMenu={body ? menu.onContextMenu : undefined}>
+    <div className="group flex items-start gap-2.5" onContextMenu={body ? menu.onContextMenu : undefined} data-chat-anchor={messageId}>
       {selection?.active && messageId && (
         <SelectionTick
           label={t('assistant.chat.select_messages')}
@@ -550,7 +570,16 @@ export function AssistantBubble({
           </div>
         )}
         {body
-          ? <div className="max-w-[72ch]"><MarkdownReply source={body} /></div>
+          ? (
+            <div
+              className="max-w-[72ch]"
+              // A settled answer is announced once, as a log entry. A streaming one deliberately is not:
+              // every token would be read out loud, which is worse than silence until it finishes.
+              {...(streaming ? {} : { role: 'log' as const, 'aria-live': 'polite' as const, 'aria-atomic': false })}
+            >
+              <MarkdownReply source={body} />
+            </div>
+          )
           : streaming && tools.every((tool) => tool.status !== 'running')
             ? (
                 <div role="status" aria-label={t('assistant.chat.thinking')} className="flex h-6 items-center gap-1.5">
@@ -619,7 +648,11 @@ export function AssistantBubble({
               <button
                 type="button"
                 onClick={() => {
-                  void navigator.clipboard.writeText(body).then(() => {
+                  void copyText(body).then((ok) => {
+                    if (!ok) {
+                      useUi.getState().toast({ title: t('preview.could_not_copy'), tone: 'danger' })
+                      return
+                    }
                     setCopied(true)
                     window.setTimeout(() => setCopied(false), COPY_RESET_MS)
                   })
@@ -642,6 +675,19 @@ export function AssistantBubble({
               >
                 <RotateCcw size={11} />
                 {t(retryLabel)}
+              </button>
+            )}
+            {/* The way back from a cut-off answer: a stopped or truncated reply is finished here rather
+                than asked for again, which would spend the same tokens twice and lose what was written. */}
+            {!error && body && !streaming && !viewing && canContinue && (
+              <button
+                type="button"
+                onClick={() => void useAssistant.getState().send('', { continue: true })}
+                aria-label={t('assistant.chat.continue')}
+                className="inline-flex shrink-0 items-center gap-1 rounded-[var(--r-sm)] px-1 py-0.5 text-[length:var(--text-11)] text-[var(--text-quaternary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-secondary)]"
+              >
+                <Play size={11} />
+                {t('assistant.chat.continue')}
               </button>
             )}
             {/* Only a settled answer is offered: a half-written reply saved twice is two notes, and the
@@ -717,6 +763,14 @@ export function AssistantBubble({
                 }}
               />
             )}
+            {createdAt && !viewing && (
+              <time
+                dateTime={new Date(createdAt).toISOString()}
+                className="shrink-0 text-[length:var(--text-11)] text-[var(--text-quaternary)]"
+              >
+                {formatInZone(createdAt, timezone)}
+              </time>
+            )}
             {viewing ? (
               <span className="text-[length:var(--text-11)] text-[var(--text-quaternary)]">
                 {t('assistant.chat.viewing_history')}
@@ -745,6 +799,7 @@ export function AssistantBubble({
           role: 'assistant',
           text: body,
           ...(onRetry && !viewing ? { onRetry, onRetryLabel: retryLabel } : {}),
+          ...(canContinue && !streaming && !viewing ? { onContinue: () => void useAssistant.getState().send('', { continue: true }) } : {}),
           ...(feedback ? { feedback } : {}),
           ...(onRate && !streaming && !viewing ? { onRate } : {}),
           ...(messageId && !streaming ? { onFork: () => void useAssistant.getState().forkFrom(messageId) } : {}),
