@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
-import { CalendarDays, ChevronDown } from 'lucide-react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { CalendarDays, CalendarPlus, ChevronDown, Sparkles } from 'lucide-react';
 import type { DateRangeFilter } from '@shared/types';
 import { cn } from '../../lib/cn';
 import { localizedParams, t, useLocale, useLocaleResources } from '../../lib/i18n';
@@ -12,6 +12,8 @@ import { resolveDisplay, resolveWeekStart, useCalendarDisplayPrefs } from '../..
 import { useYearGridColumns } from '../../lib/year-grid-prefs';
 import { CalendarView, loadCalendarPersist, saveCalendarPersist } from './calendar-persist';
 import { createDiaryNote } from './diary-note';
+import { planTomorrow, summarizeToday } from './diary-ai';
+import { Menu, type MenuItem } from '../../components/overlay';
 
 function useCalendarPersist() {
     const calendarJump = useUi((s) => s.calendarJump);
@@ -41,6 +43,14 @@ function SidebarCalendarHeader({ headerTitle, showTodayChip, collapsed, onToggle
     collapsed: boolean;
     onToggle: () => void;
 }) {
+    // The diary's two AI entries live on the calendar rather than in the note, because the note they
+    // are about is the one a reader is least sure what to write in.
+    const anchorRef = useRef<HTMLButtonElement>(null);
+    const [aiOpen, setAiOpen] = useState(false);
+    const aiItems: MenuItem[] = [
+        { id: 'summarize-today', label: t('sidebar.diary_ai.summarize'), icon: <Sparkles size={13}/>, onSelect: () => void summarizeToday() },
+        { id: 'plan-tomorrow', label: t('sidebar.diary_ai.plan'), icon: <CalendarPlus size={13}/>, onSelect: () => void planTomorrow() },
+    ];
     return (<div className="flex items-center gap-[var(--sp-1)] px-[var(--sp-0-5)]">
         <button type="button" aria-expanded={!collapsed} onClick={onToggle} className="flex min-w-0 items-center gap-[var(--sp-1)] rounded-[var(--r-sm)] px-[var(--sp-1)] py-[var(--sp-0-5)] text-left transition-colors hover:bg-[var(--bg-hover)]">
             <CalendarDays size={12} className="shrink-0 text-[var(--text-quaternary)]"/>
@@ -48,6 +58,10 @@ function SidebarCalendarHeader({ headerTitle, showTodayChip, collapsed, onToggle
             {showTodayChip && (<span className="shrink-0 rounded-full bg-[var(--accent-soft)] px-[var(--sp-1-5)] py-px text-[length:var(--text-9)] font-medium text-[var(--accent-on-soft)]">{t('sidebar.calendar_today')}</span>)}
             <ChevronDown size={11} className={cn('shrink-0 text-[var(--text-quaternary)] transition-transform duration-[var(--dur-fast)]', collapsed && '-rotate-90')}/>
         </button>
+        <button ref={anchorRef} type="button" aria-haspopup="menu" aria-expanded={aiOpen} aria-label={t('sidebar.diary_ai.menu')} onClick={() => setAiOpen((value) => !value)} className="shrink-0 rounded-[var(--r-sm)] p-[var(--sp-0-5)] text-[var(--text-quaternary)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-secondary)]">
+            <Sparkles size={11}/>
+        </button>
+        <Menu anchor={anchorRef} open={aiOpen} onClose={() => setAiOpen(false)} items={aiItems} width={200} align="end" label={t('sidebar.diary_ai.menu')}/>
     </div>);
 }
 
@@ -74,7 +88,6 @@ function SidebarCalendarBody({ locale, now, view, setView, cursor, setCursor }: 
     const displayPrefs = useCalendarDisplayPrefs();
     const weekStart = resolveWeekStart(displayPrefs.weekStart, locale);
     const display = useMemo(() => resolveDisplay(displayPrefs, locale), [displayPrefs, locale]);
-    const diaryTitle = useCallback((key: string) => t('sidebar.diary_title_value0', { value0: key }), []);
     const { counts, noteIdByTitle, notesByDay, latestEditKey } = useMemo(() => buildActivityProjectionCached(notes), [notes]);
     const getDiaryId = useCallback((key: string) => {
         // A diary keeps the title it was written under, so the lookup has to answer in
@@ -98,8 +111,8 @@ function SidebarCalendarBody({ locale, now, view, setView, cursor, setCursor }: 
             toast({ title: t('sidebar.calendar_diary_opened_value0', { value0: key }), tone: 'success' });
             return;
         }
-        await createDiaryNote(key, diaryTitle);
-    }, [applyDateFilter, diaryTitle, openNote, toast]);
+        await createDiaryNote(key);
+    }, [applyDateFilter, openNote, toast]);
     const onDayClick = useCallback((key: string, diaryId: string | null) => {
         void handleDayClick(key, diaryId);
     }, [handleDayClick]);

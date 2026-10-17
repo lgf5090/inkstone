@@ -7436,11 +7436,30 @@ const allowed = new Map([
   ["src/client/features/sidebar/calendar-persist.ts", [
     "// Quota or private-mode writes can throw; the calendar view stays authoritative in memory.",
   ]],
+  ["src/client/features/sidebar/diary-ai.test.ts", [
+    "/**\n * The diary's two AI entries.\n *\n * What is worth pinning is where the answer lands: in today's diary, under a heading of its own, and\n * replacing the previous entry under that heading rather than stacking a second one. The reader's own\n * words in the same note have to survive both the write and the replacement, which is why the section\n * ends at the next heading of the same level and not at the next `#`.\n */",
+    "// The real channel answers with trimmed text or nothing, which is what the caller checks.",
+  ]],
+  ["src/client/features/sidebar/diary-ai.ts", [
+    "/**\n * The diary's two AI entries: what happened today, and what tomorrow looks like.\n *\n * The diary is the one note a reader keeps opening without knowing what to write in it, which makes it\n * the place a summary belongs. Both entries run one turn and write the answer into today's diary under\n * a heading of its own — the reader's own words stay where they are, and pressing again replaces that\n * section rather than stacking a second copy of it.\n *\n * The day's notes are named in the prompt instead of being handed over whole: the assistant has note\n * tools, and a summary of forty notes is not a summary that fits in a prompt. What the reader gets is\n * the assistant's own reading of what they wrote.\n */",
+    "/** How many of the day's notes are worth naming. Past this it is a reading list, not a prompt. */",
+    "/** The note a day's diary lives in, by the titles it may have been written under. */",
+    "/** Today's diary, created and opened when there is none yet. */",
+    "/** The titles of what the reader wrote or touched that day, newest first, without the diary itself. */",
+    "/**\n * Put a section into a note, replacing the one that is already there.\n *\n * A summary of the same day replaces the previous summary of it: two of them side by side would leave\n * the reader deciding which one is true. The section runs from its heading to the next heading of the\n * same or a higher level, which is what keeps a reader's own `###` inside the section intact.\n */",
+    "// The note's own trailing newline is not the section's to remove.",
+    "/**\n * One turn, written into today's diary.\n *\n * `key` is the day the entry is about, which is also the diary it is written into — the calendar's\n * \"today\" is a date, not a timestamp, so the two cannot drift apart.\n */",
+    "/** What today looked like: the assistant reads the day's notes and writes a handful of bullets. */",
+    "/** Tomorrow, planned from today's diary and the notes it points at. */",
+  ]],
   ["src/client/features/sidebar/diary-note.ts", [
     "// JSON's string form is a legal YAML double-quoted scalar, so a title or tag holding a",
     "// quote, a colon or a newline stays one scalar instead of rewriting the document.",
     "// The day the diary is *about*, not the minute it happened to be filed: a random time of day",
     "// claimed a moment that never existed and contradicted the row's real created_at.",
+    "/** The title a day's diary is written under, in the interface's current language. */",
+    "/**\n * Make the diary for one day and open it.\n *\n * The id comes back because a caller may have more to do with the note than look at it — the diary's\n * AI entries write into the one they just made. A day already has a diary in another language? Then\n * this is a new one: the caller that cares about that is the calendar, which looks the day up first.\n */",
+    "/** The diary titles a day may already have been written under, current language first. */",
   ]],
   ["src/client/features/sidebar/navigation.test.ts", [
     "// No layout in jsdom, but the class is the whole story here: the strip already",
@@ -7470,6 +7489,8 @@ const allowed = new Map([
     "// sidebar re-render cannot re-run the header's formatting.",
     "// A diary keeps the title it was written under, so the lookup has to answer in",
     "// every shipped language: one per locale, current first.",
+    "// The diary's two AI entries live on the calendar rather than in the note, because the note they",
+    "// are about is the one a reader is least sure what to write in.",
   ]],
   ["src/client/features/sidebar/sidebar-tabs.test.ts", [
     "/** The dialog only answers when a host is mounted, and `confirm()` resolves false without one. */",
