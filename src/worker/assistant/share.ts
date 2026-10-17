@@ -14,7 +14,7 @@
 
 import { LIMITS } from '@shared/constants'
 import { sharePasscodeProblem } from '@shared/share-passcode'
-import type { AssistantSource, PublicConversation } from '@shared/assistant'
+import { isSourceUrl, type AssistantSource, type PublicConversation } from '@shared/assistant'
 import { isValidId, isValidSlug, newSlug } from '../lib/id'
 import { ApiError } from '../lib/errors'
 import { hashPassword, verifyPassword } from '../lib/password'
@@ -278,13 +278,27 @@ export async function loadSharedConversation(
   }
 }
 
+/**
+ * The sources a stranger may be shown.
+ *
+ * A note citation is not a citation of the public web: its url is the app's own relative path carrying the
+ * note's id, and its title is the private note's title. Neither belongs on a page an anonymous visitor
+ * reads, and a link to it is dead inside the share anyway, so the whole card goes rather than being
+ * rendered inert — dropping it is the only version that leaks nothing.
+ *
+ * `kind` is the intent, and the url shape is the belt for a row written before notes could be cited:
+ * anything that is not an absolute http(s) url is a path into this vault rather than a page on the web.
+ */
 function parseSharedSources(value: string): AssistantSource[] {
   try {
     const parsed = JSON.parse(value) as unknown
     if (!Array.isArray(parsed)) return []
     return parsed
-      .filter((entry): entry is { url: string, title?: string, cited?: string } =>
-        Boolean(entry) && typeof entry === 'object' && typeof (entry as { url?: unknown }).url === 'string')
+      .filter((entry): entry is { url: string, title?: string, cited?: string, kind?: string, id?: string } =>
+        Boolean(entry) && typeof entry === 'object'
+        && typeof (entry as { url?: unknown }).url === 'string'
+        && (entry as { kind?: unknown }).kind !== 'note'
+        && isSourceUrl((entry as { url: unknown }).url))
       .map((entry) => ({
         url: entry.url,
         title: typeof entry.title === 'string' && entry.title ? entry.title : entry.url,

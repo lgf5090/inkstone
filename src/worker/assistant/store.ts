@@ -1796,7 +1796,8 @@ export class AssistantStore {
    * The point of branching is to try a different answer without losing the thread that led there, so the
    * rows are copied rather than referenced: the two conversations then diverge freely, and deleting
    * either leaves the other whole. The copied turns keep their words, their thinking, their tools and
-   * their verdicts; only the ids and the timestamps are new, because the rowid is what orders a thread.
+   * their verdicts, and the fork keeps the note the thread started from; only the ids and the timestamps
+   * are new, because the rowid is what orders a thread.
    *
    * The summary is deliberately not copied. It describes a conversation that ended somewhere else, and
    * carrying it would have the fork summarised by a rollup of turns it does not have.
@@ -1809,7 +1810,7 @@ export class AssistantStore {
     const rows = await this.allMessages(from)
     const cut = rows.findIndex((row) => row.id === uptoMessageId)
     if (cut < 0) return null
-    const fork = await this.createConversation(title, source.folderId, false, from)
+    const fork = await this.createConversation(title, source.folderId, false, from, source.noteId)
     const base = Date.now()
     for (const [index, row] of rows.slice(0, cut + 1).entries()) {
       await this.addMessage({
@@ -1825,6 +1826,11 @@ export class AssistantStore {
         usage: row.usage ?? null,
         durationMs: row.durationMs,
         modelLabel: row.modelLabel,
+        // What an answer cited and what the turn was allowed to read are part of the turn, not of the
+        // thread: dropped here, a fork would show the same words with the provenance gone, and the reader
+        // could no longer tell an answer that was grounded from one that was guessed.
+        ...(row.sources ? { sources: row.sources } : {}),
+        ...(row.scopes ? { scopes: row.scopes } : {}),
         // One millisecond apart so the copied thread keeps the order it was read in: `addMessage` stamps
         // `created_at` itself and a loop over the same tick would give every row the same one.
         createdAt: base + index,

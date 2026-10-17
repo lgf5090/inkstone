@@ -1036,6 +1036,37 @@ export class NotesStore {
       ).bind(id, this.userId, id, this.userId, current.rev),
       guarded(`DELETE FROM shares WHERE note_id = ?1`),
       guarded(`UPDATE attachments SET note_id = NULL WHERE note_id = ?1`),
+      // The chat's side of the same cascade. These four columns are written by the assistant, so the
+      // notes store names their tables directly — the dependency already runs the other way (the
+      // assistant reads `notes`), both apps share this one database, and nothing but this batch can make
+      // the cleanup land with the delete. `tests/worker-layering.test.ts` forbids SQL in a route and a
+      // store importing a route; it does not forbid this, and every statement keeps `user_id`.
+      //
+      // Which columns are nulled and which are deleted is per column, not per table:
+      //  - an artifact and a conversation keep their own text, so only the pointer to the gone note is
+      //    dropped; deleting the row would destroy writing the reader never asked to lose;
+      //  - `chat_note_writes` exists only to say "this note came from that thread", so with the note gone
+      //    the row has no remaining meaning and is deleted rather than left pointing at nothing;
+      //  - a memory is a fact the reader kept; the note it was once written out as is a detail, so the
+      //    pointer goes and the memory stays.
+      // `updated_at` is deliberately untouched on the two lists that sort by it: a note being purged is
+      // not the reader editing their memory or reopening a thread, and it should not reorder either list.
+      this.db.prepare(
+        `UPDATE chat_artifacts SET note_id = NULL
+          WHERE user_id = ?1 AND note_id = ?2 AND ${shiftSqlPlaceholders(guard, 2)}`,
+      ).bind(this.userId, id, id, this.userId, current.rev),
+      this.db.prepare(
+        `UPDATE chat_conversations SET note_id = NULL
+          WHERE user_id = ?1 AND note_id = ?2 AND ${shiftSqlPlaceholders(guard, 2)}`,
+      ).bind(this.userId, id, id, this.userId, current.rev),
+      this.db.prepare(
+        `DELETE FROM chat_note_writes
+          WHERE user_id = ?1 AND note_id = ?2 AND ${shiftSqlPlaceholders(guard, 2)}`,
+      ).bind(this.userId, id, id, this.userId, current.rev),
+      this.db.prepare(
+        `UPDATE chat_memories SET note_id = NULL
+          WHERE user_id = ?1 AND note_id = ?2 AND ${shiftSqlPlaceholders(guard, 2)}`,
+      ).bind(this.userId, id, id, this.userId, current.rev),
       this.db.prepare(
         `DELETE FROM import_mappings
           WHERE user_id = ?1 AND entity = 'note' AND target_id = ?2
@@ -1124,6 +1155,12 @@ export function trashPurgeStatements(
     ).bind(userId, idsJson),
     db.prepare(`DELETE FROM shares WHERE user_id = ?1 AND note_id ${inTrash}`).bind(userId, idsJson),
     db.prepare(`UPDATE attachments SET note_id = NULL WHERE user_id = ?1 AND note_id ${inTrash}`).bind(userId, idsJson),
+    // The same chat-side cascade `purge` runs for one note; see the comment there for why each column is
+    // nulled and why `chat_note_writes` is deleted instead.
+    db.prepare(`UPDATE chat_artifacts SET note_id = NULL WHERE user_id = ?1 AND note_id ${inTrash}`).bind(userId, idsJson),
+    db.prepare(`UPDATE chat_conversations SET note_id = NULL WHERE user_id = ?1 AND note_id ${inTrash}`).bind(userId, idsJson),
+    db.prepare(`DELETE FROM chat_note_writes WHERE user_id = ?1 AND note_id ${inTrash}`).bind(userId, idsJson),
+    db.prepare(`UPDATE chat_memories SET note_id = NULL WHERE user_id = ?1 AND note_id ${inTrash}`).bind(userId, idsJson),
     db.prepare(
       `DELETE FROM import_mappings WHERE user_id = ?1 AND entity = 'note' AND target_id ${inTrash}`,
     ).bind(userId, idsJson),
