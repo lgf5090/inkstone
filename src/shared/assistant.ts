@@ -77,6 +77,15 @@ export const MAX_CONVERSATION_TITLE_CHARS = 200
 export const MAX_CUSTOM_INSTRUCTIONS_CHARS = 2_000
 
 /**
+ * The largest backup the import route will read, and the size the export warns about.
+ *
+ * One number for both halves: a backup that can be written but not read back is not a backup, so the
+ * reader is told when the file they just downloaded is past the ceiling instead of finding out on the
+ * day they need it.
+ */
+export const MAX_BACKUP_BYTES = 4 * 1024 * 1024
+
+/**
  * How long a temporary conversation is kept before the sweep deletes it.
  *
  * Counted from its last change rather than its creation, so a thread the reader came back to is not

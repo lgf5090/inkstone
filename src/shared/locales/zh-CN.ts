@@ -6513,6 +6513,8 @@ console.log(\`Hello, \${name}!\`)
     "assistant.settings.data": "你的数据",
     "assistant.settings.export": "下载备份",
     "assistant.settings.export_hint": "导出对话、记忆、任务、项目、定时与通知为 JSON。服务商密钥永不导出。",
+    "assistant.settings.exported": "备份已下载。",
+    "assistant.settings.export_too_large": "备份有 {size}，超过 {limit} 的导入上限；这份文件以后导不回来。",
     "assistant.settings.import": "导入备份",
     "assistant.settings.import_hint": "按 id 合并：不删除任何内容，不会用旧数据覆盖本地更新，导入的定时默认暂停。模型、上限、离线模式与笔记范围保持不变。",
     "assistant.settings.import_nothing": "没有需要导入的新内容。",

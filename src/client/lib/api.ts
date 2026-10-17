@@ -1101,7 +1101,13 @@ export const api = {
       request<{ overview: AssistantUsageOverview }>('/api/assistant/stats/overview'),
     activity: () =>
       request<{ activity: { id: string, type: string, summary: string, created_at: number }[] }>('/api/assistant/activity'),
-    exportUrl: '/api/assistant/export',
+    /**
+     * The backup as data rather than as a download.
+     *
+     * The settings screen has to know how big the file is before it tells the reader it is safe: the
+     * import reads a bounded file, and a backup past that bound is one that cannot come back.
+     */
+    exportBackup: () => request<Record<string, unknown>>('/api/assistant/export'),
     importBackup: (payload: unknown) =>
       request<{ imported: AssistantImportSummary }>('/api/assistant/import', { method: 'POST', body: payload }),
   },

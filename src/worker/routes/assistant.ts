@@ -44,6 +44,7 @@ import {
   MAX_AUTOMATION_MESSAGE_CHARS,
   MAX_CONVERSATION_TITLE_CHARS,
   MAX_MESSAGE_CHARS,
+  MAX_BACKUP_BYTES,
   CONVERSATION_PAGE_SIZE,
   MESSAGE_PAGE_SIZE,
   MAX_ARTIFACT_CONTENT_CHARS,
@@ -2748,7 +2749,7 @@ assistantRoutes.post('/import', async (c) => {
   const s = store(c)
   // A backup is a file the reader picked, so it is read under the same byte ceiling as the other
   // whole-store imports rather than handed to `req.json()` uncapped.
-  const raw = await readJson<Record<string, unknown>>(c, 4 * 1024 * 1024)
+  const raw = await readJson<Record<string, unknown>>(c, MAX_BACKUP_BYTES)
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) throw ApiError.badRequest('The backup is not a JSON object.')
   const summary = await importAssistant(s, raw as Record<string, unknown>)
   await s.recordActivity('data.imported', `backup imported (${summary.conversations} conversation(s))`)

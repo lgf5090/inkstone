@@ -3,8 +3,11 @@
  */
 import { useRef, useState } from 'react'
 import { Download, Upload } from 'lucide-react'
+import { MAX_BACKUP_BYTES } from '@shared/assistant'
+import { formatBytes } from '@shared/byte-format'
 import { t } from '../../lib/i18n'
 import { api } from '../../lib/api'
+import { downloadTextFile } from '../../lib/export-note'
 import { Button } from '../../components/primitives'
 import { SettingRow } from '../../components/form'
 import { confirm } from '../../components/overlay'
@@ -26,7 +29,40 @@ const IMPORT_KEYS: Record<string, 'assistant.settings.import_conversations' | 'a
 export function DataTab() {
   const fileRef = useRef<HTMLInputElement>(null)
   const [importing, setImporting] = useState(false)
+  const [exporting, setExporting] = useState(false)
   const [file, setFile] = useState<File | null>(null)
+
+  /**
+   * The backup, downloaded by the page rather than followed as a link.
+   *
+   * A link cannot tell the reader how big the file it just handed them is, and size is the one thing that
+   * decides whether the file can come back: the import reads a bounded request, so a backup past that
+   * bound is a copy they would only find out about on the day they need it. The warning is a warning, not
+   * a refusal — the data is theirs, and taking it is not something this screen gets to block.
+   */
+  const runExport = async () => {
+    setExporting(true)
+    try {
+      const payload = await api.assistant.exportBackup()
+      const text = JSON.stringify(payload, null, 2)
+      const bytes = new TextEncoder().encode(text).byteLength
+      downloadTextFile('inkstone-assistant-backup.json', text, 'application/json')
+      useUi.getState().toast({
+        title: t('assistant.settings.exported'),
+        ...(bytes > MAX_BACKUP_BYTES
+          ? {
+              description: t('assistant.settings.export_too_large', { size: formatBytes(bytes), limit: formatBytes(MAX_BACKUP_BYTES) }),
+              tone: 'warning' as const,
+              duration: 12_000,
+            }
+          : {}),
+      })
+    } catch {
+      useUi.getState().toast({ title: t('assistant.toast.failed'), tone: 'danger' })
+    } finally {
+      setExporting(false)
+    }
+  }
 
   /**
    * The summary is read back from the server rather than counted here, so the toast cannot claim a
@@ -68,14 +104,9 @@ export function DataTab() {
 
       <Group title={t('assistant.settings.data')}>
         <SettingRow title={t('assistant.settings.export')} description={t('assistant.settings.export_hint')}>
-          <a
-            href={api.assistant.exportUrl}
-            download="inkstone-assistant-backup.json"
-            className="inline-flex h-8 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-[var(--r-sm)] border border-[var(--border-default)] px-2.5 text-[length:var(--text-12)] text-[var(--text-primary)] hover:bg-[var(--bg-hover)]"
-          >
-            <Download size={14} className="shrink-0" />
+          <Button size="sm" variant="secondary" loading={exporting} icon={<Download size={14} />} onClick={() => void runExport()}>
             {t('assistant.settings.export')}
-          </a>
+          </Button>
         </SettingRow>
         <SettingRow
           title={t('assistant.settings.import')}
