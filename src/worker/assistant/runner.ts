@@ -12,11 +12,11 @@
  *    who closes the tab still finds the half-answer and the reason.
  */
 
-import { MAX_MESSAGE_CHARS, toolPayloadText } from '@shared/assistant'
+import { MAX_MESSAGE_CHARS, SEARCH_NATIVE_PROTOCOLS, looksLikeSearchTool, toolPayloadText } from '@shared/assistant'
 import type { AssistantMessage, AssistantModel, AssistantModelModality, AssistantProtocol, AssistantSettings, AssistantSource, ChatStreamEvent, ToolActivity } from '@shared/assistant'
 import { contextBudgetFor, customParamBody, MAX_CHAT_ATTACHMENTS, MAX_TURN_SCOPES, MAX_TURN_TOOLS, estimateTokens, titleFromMessage, type AssistantTurnScope } from '@shared/assistant'
 import { hasHistoricalIntent, memoryTokenBudget } from '@shared/assistant-memory'
-import { expandChatAttachments, type AttachmentPayload } from './attachments'
+import { ATTACHMENT_MARKER, expandChatAttachments, type AttachmentPayload } from './attachments'
 import { resolveNoteMentions } from './note-mentions'
 import { loadExternalTools, type ExternalToolsResult } from './mcp-tools'
 import { buildSystemPrompt, offlineAnswer, promptCatalog, summarizerPrompt } from '@shared/assistant-prompt'
@@ -34,10 +34,8 @@ import { matchVaultFolders, noteTitleIfLive } from './vault'
 import { parametersSchema, ToolError, ToolExecutor, type ToolContext } from './tools'
 import { AbortError, streamUpstream, UpstreamError, type ModelTurn, type ToolCallRecord, type ToolSchema, type UpstreamRequest, type UpstreamRetry } from './upstream'
 import { loadModelAndProvider, modelEndpoint, type ModelEndpoint } from './model-config'
+import { pickModelForTurn } from '@shared/assistant-routing'
 import { fuseMemoryRecall, rankMemoriesByVector, semanticModel } from './semantic'
-
-/** The two protocols with a vendor-side web search that can simply be asked for. */
-const SEARCH_NATIVE_PROTOCOLS = new Set(['anthropic', 'gemini'])
 
 /** Summarising costs a model call, so it only runs once enough history has piled up to be worth it. */
 export const SUMMARIZE_THRESHOLD = 8
@@ -94,6 +92,18 @@ const MAX_RELEVANT_MEMORIES = 8
 const ALWAYS_INCLUDE_PREFERENCES = 4
 const VERDICT_RELATIONSHIPS = ['supersedes', 'refines', 'contradicts', 'complements', 'unrelated']
 
+/**
+ * How many stored turns a turn reads before the budget does the cutting.
+ *
+ * The window is what bounds the prompt, not this number: a 1M-token model can hold more than 200 turns,
+ * and reading a generous page costs one indexed query. The old 200 was both the read and the effective
+ * ceiling, so early turns fell out of reach of a model that could have read them.
+ */
+const CONTEXT_HISTORY_MESSAGES = 400
+
+/** How many of the most recent turns may carry picture bytes; older ones are named, not re-sent. */
+const IMAGE_RECENT_TURNS = 2
+
 export interface RunnerDeps {
   store: AssistantStore
   env: Env
@@ -125,6 +135,13 @@ export interface TurnInput {
    */
   contextNoteId?: string
   contextFolderId?: string
+  /**
+   * The note this thread began beside.
+   *
+   * Separate from `contextNoteId`, which is per-turn: this one is written onto the conversation the first
+   * time it is known, so coming back to the thread still says where it came from.
+   */
+  originNoteId?: string
   /** The composer's web-search switch: ask this model for a live web search. */
   webSearch?: boolean
   /**
@@ -136,6 +153,21 @@ export interface TurnInput {
    */
   ephemeral?: boolean
   retry?: boolean
+  /**
+   * Pick up the last answer where it stopped.
+   *
+   * Not a retry: nothing is thrown away and nothing is asked again. The model is handed the answer it
+   * had written and told to go on, and the row is rewritten with the whole of it.
+   */
+  continueTurn?: boolean
+  /**
+   * The answer to ask again, when it is not the newest one.
+   *
+   * A turn in the middle of a thread is re-answered by removing it and everything after it — the later
+   * turns were drawn from the answer being replaced — and the answer itself is filed as a version first,
+   * so the words are recoverable even though the row is not.
+   */
+  retryFromMessageId?: string
   signal: AbortSignal
   /** True once a write to the reader has failed, which is the only disconnect some platforms surface. */
   readerGone?: () => boolean
@@ -147,6 +179,8 @@ interface HistoryEntry {
   createdAt: number
   calls?: ToolCallRecord[]
   images?: { mime: string, dataUrl: string }[]
+  /** The files this turn carried, named here so the bytes are read only if the window keeps the turn. */
+  attachmentIds?: string[]
 }
 
 /**
@@ -186,6 +220,12 @@ export class AssistantRunner {
   private conversationProjectId: string | null = null
   /** Set when a step's model call was cut off at the output cap instead of stopping by itself. */
   private turnTruncated = false
+  /** Files already read for this turn, keyed by the ids and whether pictures travelled. */
+  private attachmentPayloads = new Map<string, AttachmentPayload>()
+  /** The answer this turn resumes, when the reader pressed "continue" on a cut-off reply. */
+  private continueFrom: AssistantMessage | null = null
+  /** The note the reader had open when the thread began, recorded on the conversation it makes. */
+  private originNoteId: string | null = null
   /** The lease this turn is running under: the caller's, or one this turn took for a new conversation. */
   private runToken: number | null = null
 
@@ -221,7 +261,11 @@ export class AssistantRunner {
     // A turn's search results belong to that turn: a retry that searched again must not inherit the
     // pages the answer it replaced was built on.
     this.turnSources.clear()
+    // Files are read once per turn; a summarising second pass over the window reuses what it read.
+    this.attachmentPayloads.clear()
+    this.continueFrom = null
     this.contextNoteId = isValidId(input.contextNoteId ?? '') ? input.contextNoteId! : null
+    this.originNoteId = isValidId(input.originNoteId ?? '') ? input.originNoteId! : null
     this.contextFolderId = isValidId(input.contextFolderId ?? '') ? input.contextFolderId! : null
     let conversation = input.conversationId ? await this.store.getConversation(input.conversationId) : null
     // The project comes from the row that was just read, so a conversation moved between projects is
@@ -239,39 +283,80 @@ export class AssistantRunner {
     this.runToken = this.deps.runToken ?? null
     if (input.retry) {
       if (!conversation) throw ApiError.badRequest('There is nothing to retry without a conversation.')
-      // Drop the failed reply, then answer the reader's own last message again.
-      const last = await this.store.lastMessage(conversation.id)
-      if (last && last.role === 'assistant' && last.status === 'complete') {
-        reuseId = last.id
-        // Only the row goes: the answers this turn already displaced have to outlive this one.
-        await this.store.deleteMessageRow(last.id)
+      if (input.retryFromMessageId) {
+        // A turn picked out of the middle of the thread. Everything after it was written on top of the
+        // answer being replaced, so it goes with that answer — but the answer itself is filed first, so
+        // the words survive even though the row does not.
+        const target = await this.store.getMessage(input.retryFromMessageId)
+        if (!target || target.conversationId !== conversation.id) throw ApiError.notFound('Message not found')
+        if (target.role !== 'assistant') throw ApiError.badRequest('Only an answer can be asked again.')
+        const rows = await this.store.messages(conversation.id)
+        const index = rows.findIndex((row) => row.id === target.id)
+        if (index < 0) throw ApiError.notFound('Message not found')
+        reuseId = target.id
+        await this.store.deleteMessageRow(target.id)
         await this.store.archiveAnswerVersion({
-          messageId: last.id,
+          messageId: target.id,
           conversationId: conversation.id,
-          content: last.content,
-          reasoning: last.reasoning,
-          tools: last.tools,
-          modelLabel: last.modelLabel ?? '',
-          usage: last.usage,
-          durationMs: last.durationMs,
-          createdAt: last.createdAt,
+          content: target.content,
+          reasoning: target.reasoning,
+          tools: target.tools,
+          modelLabel: target.modelLabel ?? '',
+          usage: target.usage,
+          durationMs: target.durationMs,
+          createdAt: target.createdAt,
         })
-      } else if (last && last.role === 'assistant') {
-        reuseId = last.id
-        // The failed or stopped attempt loses its row, but the answers already behind it stay: they
-        // belong to this turn, not to the attempt that went wrong.
-        await this.store.deleteMessageRow(last.id)
+        for (const later of rows.slice(index + 1)) await this.store.deleteMessage(later.id)
+        // The rollup described rows that no longer stand as they were.
+        await this.store.clearSummary(conversation.id)
+      } else {
+        // Drop the failed reply, then answer the reader's own last message again.
+        const last = await this.store.lastMessage(conversation.id)
+        if (last && last.role === 'assistant' && last.status === 'complete') {
+          reuseId = last.id
+          // Only the row goes: the answers this turn already displaced have to outlive this one.
+          await this.store.deleteMessageRow(last.id)
+          await this.store.archiveAnswerVersion({
+            messageId: last.id,
+            conversationId: conversation.id,
+            content: last.content,
+            reasoning: last.reasoning,
+            tools: last.tools,
+            modelLabel: last.modelLabel ?? '',
+            usage: last.usage,
+            durationMs: last.durationMs,
+            createdAt: last.createdAt,
+          })
+        } else if (last && last.role === 'assistant') {
+          reuseId = last.id
+          // The failed or stopped attempt loses its row, but the answers already behind it stay: they
+          // belong to this turn, not to the attempt that went wrong.
+          await this.store.deleteMessageRow(last.id)
+        }
       }
       const previous = await this.store.lastMessage(conversation.id)
       if (!previous || previous.role !== 'user') throw ApiError.conflict('Nothing to retry.')
       if (previous.source === 'import') {
         throw ApiError.conflict('A message restored from a backup cannot be retried. Send a new one instead.')
       }
+    } else if (input.continueTurn) {
+      if (!conversation) throw ApiError.badRequest('There is nothing to continue without a conversation.')
+      const last = await this.store.lastMessage(conversation.id)
+      if (!last || last.role !== 'assistant') throw ApiError.conflict('There is no answer to continue.')
+      if (last.status === 'error') throw ApiError.conflict('That answer failed; ask it again instead.')
+      if (last.source === 'import') throw ApiError.conflict('A message restored from a backup cannot be continued.')
+      this.continueFrom = last
+      reuseId = last.id
+      // The row is removed here and written back whole at the end, so the id and the place in the
+      // transcript stay the same while the answer grows.
+      await this.store.deleteMessageRow(last.id)
     } else {
       if (!message) throw ApiError.badRequest('Write something first.')
       if (message.length > MAX_MESSAGE_CHARS) throw ApiError.badRequest('That message is too long for one turn.')
+      // A thread started beside a note remembers which one; a later turn does not re-label it.
+      if (conversation && !conversation.noteId && this.originNoteId) await this.store.setConversationNote(conversation.id, this.originNoteId)
       if (!conversation) {
-        conversation = await this.store.createConversation(titleFromMessage(message), null, input.ephemeral === true)
+        conversation = await this.store.createConversation(titleFromMessage(message), null, input.ephemeral === true, null, this.originNoteId)
         // The route had no id to claim yet, so the lease is taken here: without it a second tab could
         // open a parallel turn on the conversation this one has just made.
         this.runToken = await this.store.claimRun(conversation.id)
@@ -311,10 +396,12 @@ export class AssistantRunner {
     }
 
     let text = ''
+    // A continued answer starts from what the reader could already see: the model writes the rest, and
+    // the row is filed with both halves.
+    let answer = this.continueFrom?.content ?? ''
     // Everything the turn has said so far, across its steps. The step's own text is what the model is
     // handed back after a tool call; this is what the reader watched arrive, and a turn filed from its
     // last step alone would drop the words that came before the call.
-    let answer = ''
     // Whether the current step's `text` has already been merged into `answer`. A stop can arrive inside
     // the step (the stream is cut off, the lease was released), and the words that reached the reader
     // have to be filed with it rather than dropped on the floor of an exception.
@@ -349,7 +436,7 @@ export class AssistantRunner {
     })
 
     try {
-      const resolved = await loadModelAndProvider(this.store, this.settings)
+      const resolved = await this.resolveModel(input)
       if (!resolved.model || !resolved.provider) {
         throw ApiError.badRequest('No model is configured yet. Pick one under Assistant settings, or turn on offline mode.')
       }
@@ -386,12 +473,24 @@ export class AssistantRunner {
       if (this.webSearchRequested && !this.webSearchNative) {
         // No vendor-side search on this protocol: the next best thing that is actually true is a remote
         // tool that can search, named for the model in the same line the reader's own pins use.
-        const searcher = external.definitions.find((definition) => /search|query|web|browse/i.test(definition.name))
+        const searcher = external.definitions.find((definition) => looksLikeSearchTool(definition.name))
         if (searcher && !this.turnTools.includes(searcher.name)) this.turnTools = [...this.turnTools, searcher.name].slice(0, MAX_TURN_TOOLS)
+        // The switch was on and nothing can carry it out. Saying so is the difference between a search
+        // that did not happen and one the reader believes happened.
+        if (!searcher) yield { type: 'notice', notice: 'web_search_unavailable' }
       }
       const selected = await this.recallMemories(userMessage?.content ?? message)
       const memories = this.memoryHistory.promptMemories(selected, memoryTokenBudget(contextTokens))
-      const history = await this.contextHistory(conversationId, model.vision, model.modalities)
+      const history = await this.contextHistory(conversationId)
+      // The row being resumed was taken out of the table so it can be written back whole; its words are
+      // still what the model needs to go on from, so they are put back as the newest turn.
+      if (this.continueFrom) {
+        history.push({
+          role: 'assistant',
+          content: this.continueFrom.content,
+          createdAt: this.continueFrom.createdAt,
+        })
+      }
       const context = await this.contextLabels()
       const project = await this.project()
       const system = buildSystemPrompt({
@@ -410,13 +509,20 @@ export class AssistantRunner {
         openNote: context.openNote,
         browsingFolder: context.browsingFolder,
         project: project?.instructions ? { name: project.name, instructions: project.instructions } : null,
+        continuing: this.continueFrom !== null,
+        customInstructions: this.settings.customInstructions,
       })
       const historyBudget = Math.max(500, contextTokens - estimateTokens(system) - 600)
       let window = buildContextWindow(history, historyBudget, conversation.summaryUpto ?? null)
+      // Only now are the files read: the turns the budget dropped were never expanded at all.
+      window = await this.hydrateWindow(window, model.vision, model.modalities, historyBudget)
 
       if (window.overflow.length >= SUMMARIZE_THRESHOLD) {
         const rolled = await this.summarize(conversationId, conversation.summary ?? null, window.overflow)
-        if (rolled) window = buildContextWindow(history, historyBudget, rolled.upto)
+        if (rolled) {
+          window = buildContextWindow(history, historyBudget, rolled.upto)
+          window = await this.hydrateWindow(window, model.vision, model.modalities, historyBudget)
+        }
       }
 
       yield { type: 'stage', stage: 'generating' }
@@ -812,37 +918,60 @@ export class AssistantRunner {
     return { upto }
   }
 
-  /** Recent turns, oldest first, with the tool outcomes and approval results the model must see. */
-  private async contextHistory(conversationId: string, vision: boolean, modalities: readonly AssistantModelModality[]): Promise<HistoryEntry[]> {
-    const messages = await this.store.messages(conversationId, 200)
+  /**
+   * Which model answers this turn.
+   *
+   * The reader's own model unless they asked the assistant to choose. A turn carrying files is never
+   * routed: which model can read a picture is a property of the model, and the attachment rows would
+   * have to be read before the model is known to decide — so the reader's choice stays the safe answer.
+   */
+  private async resolveModel(input: TurnInput) {
+    if (!this.settings.autoRoute) return loadModelAndProvider(this.store, this.settings)
+    if ((input.attachments?.length ?? 0) > 0) return loadModelAndProvider(this.store, this.settings)
+    const models = await this.store.listModels()
+    const picked = pickModelForTurn(models, {
+      estimatedTokens: estimateTokens(input.message),
+      needsTools: (input.tools?.length ?? 0) > 0 || input.webSearch === true,
+    })
+    return loadModelAndProvider(this.store, this.settings, picked?.id ?? null)
+  }
+
+  /**
+   * The turns the model is shown, with their files named but not yet read.
+   *
+   * Two phases on purpose. The window is decided from cheap text first, and only the turns that survive
+   * it have their attachments expanded — a thread with twenty pictures used to read and base64-encode
+   * every one of them before the budget threw most of them away, on every single turn.
+   */
+  private async contextHistory(conversationId: string): Promise<HistoryEntry[]> {
+    const messages = await this.store.messages(conversationId, CONTEXT_HISTORY_MESSAGES)
     const actions = await this.store.actionStatesForConversation(conversationId)
-    const payloads = new Map<string, AttachmentPayload>()
-    for (const entry of messages) {
-      const ids = entry.attachments ?? []
-      if (entry.role !== 'user' || !ids.length || payloads.has(entry.id)) continue
-      payloads.set(entry.id, await expandChatAttachments(this.store, this.deps.env, ids, vision, modalities))
-    }
     const entries: HistoryEntry[] = messages
       .filter((entry) => entry.role === 'user' || entry.status === 'complete')
-      .map((entry) => ({
-        role: entry.role,
-        content: withEntryAttachments(withApprovalOutcomes(entry, actions), entry.role, payloads.get(entry.id)),
-        ...(entry.role === 'user' && payloads.get(entry.id)?.images.length
-          ? { images: payloads.get(entry.id)!.images }
-          : {}),
-        createdAt: entry.createdAt,
-        ...(entry.role === 'assistant'
-          ? {
-              calls: entry.tools.filter((tool) => tool.status !== 'running').map((tool) => ({
-                id: tool.id,
-                name: tool.name,
-                args: {},
-                result: tool.error ? JSON.stringify({ error: tool.error }) : '{"ok":true}',
-                error: tool.status === 'error',
-              })),
-            }
-          : {}),
-      }))
+      .map((entry) => {
+        const ids = entry.role === 'user' ? entry.attachments ?? [] : []
+        return {
+          role: entry.role,
+          // A placeholder per file, so the window's estimate knows the turn carries attachments without
+          // the worker having read a byte of them. Hydration replaces this with the real block below.
+          content: withEntryAttachments(withApprovalOutcomes(entry, actions), entry.role, ids.length
+            ? { block: ids.map(() => `${ATTACHMENT_MARKER}]`).join('\n'), images: [] }
+            : undefined),
+          ...(ids.length ? { attachmentIds: ids } : {}),
+          createdAt: entry.createdAt,
+          ...(entry.role === 'assistant'
+            ? {
+                calls: entry.tools.filter((tool) => tool.status !== 'running').map((tool) => ({
+                  id: tool.id,
+                  name: tool.name,
+                  args: {},
+                  result: tool.error ? JSON.stringify({ error: tool.error }) : '{"ok":true}',
+                  error: tool.status === 'error',
+                })),
+              }
+            : {}),
+        }
+      })
     // The mentions in the turn being asked are resolved here, once, so the model is handed the note's
     // words rather than a title it would have to guess a lookup for. Only the last user turn: an older
     // one's mentions were answered when it was asked, and re-reading them would spend the budget twice.
@@ -855,6 +984,55 @@ export class AssistantRunner {
       if (block) lastUser.content = `${lastUser.content}\n\n${block}`
     }
     return entries
+  }
+
+  /**
+   * Reads the files of the turns that survived the window, and fits the result back into the budget.
+   *
+   * Pictures ride only on the most recent turns: a screenshot from forty messages ago is context, not a
+   * question, and re-uploading it on every turn is the cost the reader pays for nothing. Anything the
+   * hydration pushed past the budget is handed back as overflow, so it is summarised rather than lost.
+   */
+  private async hydrateWindow(
+    window: ContextWindow,
+    vision: boolean,
+    modalities: readonly AssistantModelModality[],
+    budget: number,
+  ): Promise<ContextWindow> {
+    if (!window.messages.some((entry) => entry.attachmentIds?.length)) return window
+    let turnsFromEnd = 0
+    const recent = new Set<number>()
+    for (let index = window.messages.length - 1; index >= 0; index--) {
+      const entry = window.messages[index]!
+      if (entry.role !== 'user') continue
+      turnsFromEnd++
+      if (turnsFromEnd <= IMAGE_RECENT_TURNS) recent.add(entry.createdAt)
+    }
+    // Two turns that name the same files — a reader asking about the same picture twice — share one read,
+    // and the summary pass below reuses the ones the first window already read.
+    const memo = this.attachmentPayloads
+    const hydrated: HistoryEntry[] = []
+    for (const entry of window.messages) {
+      const ids = entry.attachmentIds ?? []
+      if (!ids.length) {
+        hydrated.push(entry)
+        continue
+      }
+      const withImages = recent.has(entry.createdAt)
+      const key = `${withImages ? 'recent' : 'older'}:${ids.join(',')}`
+      let payload = memo.get(key)
+      if (!payload) {
+        payload = await expandChatAttachments(this.store, this.deps.env, ids, vision, modalities, withImages)
+        memo.set(key, payload)
+      }
+      hydrated.push({
+        ...entry,
+        content: withEntryAttachments(entry.content, 'user', payload),
+        ...(payload.images.length ? { images: payload.images } : {}),
+      })
+    }
+    const { kept, dropped } = fitToBudget(hydrated, budget)
+    return { messages: kept, overflow: [...window.overflow, ...dropped] }
   }
 
   /**
@@ -1264,6 +1442,27 @@ export function buildContextWindow(history: HistoryEntry[], maxTokens: number, s
 function withEntryAttachments(content: string, role: 'user' | 'assistant', payload: AttachmentPayload | undefined): string {
   if (role !== 'user' || !payload?.block) return content
   return `${content}\n\n${payload.block}`
+}
+
+/**
+ * The same budget check, on content that is already final.
+ *
+ * `buildContextWindow` decides the window from placeholder text; once the surviving turns have had
+ * their files read, the real cost is larger than the estimate. This trims the front until what is about
+ * to be sent fits, and returns what it dropped so the summariser can account for it.
+ */
+function fitToBudget(entries: HistoryEntry[], maxTokens: number): { kept: HistoryEntry[], dropped: HistoryEntry[] } {
+  const kept: HistoryEntry[] = []
+  let used = 0
+  for (let index = entries.length - 1; index >= 0; index--) {
+    const entry = entries[index]!
+    const cost = estimateTokens(entry.content) + 4
+    if (kept.length > 0 && used + cost > maxTokens) break
+    kept.unshift(entry)
+    used += cost
+  }
+  while (kept.length > 1 && kept[0]!.role !== 'user') kept.shift()
+  return { kept, dropped: entries.slice(0, Math.max(0, entries.length - kept.length)) }
 }
 
 function parseVerdict(text: string): { relationship: string, confidence: number, reason: string } | null {

@@ -4190,3 +4190,238 @@ describe('note origins', () => {
     expect(foreign.conversations).toHaveLength(0)
   })
 })
+
+/**
+ * Long threads and long lists, read a page at a time.
+ *
+ * The rows are seeded straight into the database because the subject is the paging itself: a hundred
+ * chat turns through the route would spend a minute proving what five hundred rows prove in a second.
+ */
+describe('paged lists and threads', () => {
+  // Ids are the app's own shape — 26 base32 characters — because the routes validate them: a six-character
+  // fixture would be refused before the paging it is meant to exercise was ever reached.
+  const conversationId = (n: number) => `c${String(n).padStart(25, '0')}`
+  const messageId = (n: number) => `m${String(n).padStart(25, '0')}`
+  const noteId = (n: number) => `n${String(n).padStart(25, '0')}`
+
+  function seedConversation(n: number, at: number, extra: { pinned?: number, noteId?: string | null } = {}): string {
+    const id = conversationId(n)
+    sqlite.prepare(
+      `INSERT INTO chat_conversations (user_id, id, title, pinned, starred, archived, ephemeral, note_id, created_at, updated_at)
+       VALUES (?, ?, ?, ?, 0, 0, 0, ?, ?, ?)`,
+    ).run(USER, id, `Thread ${n}`, extra.pinned ?? 0, extra.noteId ?? null, at, at)
+    return id
+  }
+
+  function seedMessage(n: number, conversation: string, role: 'user' | 'assistant', content: string, at: number): string {
+    const id = messageId(n)
+    sqlite.prepare(
+      `INSERT INTO chat_messages (id, user_id, conversation_id, role, content, reasoning, tools, attachments, status, error, source,
+        input_tokens, output_tokens, duration_ms, model_label, feedback, sources, created_at)
+       VALUES (?, ?, ?, ?, ?, '', '[]', '[]', 'complete', NULL, 'chat', 0, 0, 0, '', '', '[]', ?)`,
+    ).run(id, USER, conversation, role, content, at)
+    return id
+  }
+
+  it('walks the whole list by cursor without repeating or skipping a row', async () => {
+    // One pinned row among unpinned ones: the boundary between the two groups is where a keyset cursor
+    // written against `updated_at` alone goes wrong.
+    seedConversation(1, 1_000)
+    seedConversation(2, 2_000, { pinned: 1 })
+    seedConversation(3, 3_000)
+    seedConversation(4, 4_000)
+    seedConversation(5, 5_000)
+
+    const seen: string[] = []
+    let cursor: string | null = null
+    for (let page = 0; page < 5; page++) {
+      const query: string = `/api/assistant/conversations?limit=2${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ''}`
+      const listed: { conversations: AssistantConversation[], nextCursor: string | null } = await call('GET', query)
+      expect(listed.conversations.length).toBeLessThanOrEqual(2)
+      seen.push(...listed.conversations.map((entry) => entry.id))
+      cursor = listed.nextCursor
+      if (!cursor) break
+    }
+    // Newest first, the pinned row ahead of it, and every row exactly once.
+    expect(seen).toEqual([conversationId(2), conversationId(5), conversationId(4), conversationId(3), conversationId(1)])
+    expect(new Set(seen).size).toBe(5)
+    // A cursor the client made up is refused rather than silently read as the first page.
+    expect(await status('GET', '/api/assistant/conversations?cursor=not-a-cursor')).toBe(400)
+  })
+
+  it('reads a long thread backwards, and opens it at a search hit', async () => {
+    const conversation = seedConversation(9, 9_000)
+    for (let n = 1; n <= 120; n++) {
+      seedMessage(n, conversation, n % 2 === 1 ? 'user' : 'assistant', `turn ${n}`, 10_000 + n)
+    }
+
+    const newest = await call<{ messages: AssistantMessage[], hasMore: boolean, nextBefore: string | null }>(
+      'GET', `/api/assistant/conversations/${conversation}?limit=50`,
+    )
+    expect(newest.messages).toHaveLength(50)
+    expect(newest.messages[0]!.content).toBe('turn 71')
+    expect(newest.messages.at(-1)!.content).toBe('turn 120')
+    expect(newest.hasMore).toBe(true)
+
+    const older = await call<{ messages: AssistantMessage[], hasMore: boolean, nextBefore: string | null }>(
+      'GET', `/api/assistant/conversations/${conversation}?limit=50&before=${encodeURIComponent(newest.nextBefore!)}`,
+    )
+    expect(older.messages[0]!.content).toBe('turn 21')
+    expect(older.messages.at(-1)!.content).toBe('turn 70')
+
+    const first = await call<{ messages: AssistantMessage[], hasMore: boolean }>(
+      'GET', `/api/assistant/conversations/${conversation}?limit=50&before=${encodeURIComponent(older.nextBefore!)}`,
+    )
+    expect(first.messages).toHaveLength(20)
+    expect(first.messages[0]!.content).toBe('turn 1')
+    expect(first.hasMore).toBe(false)
+
+    // Opening at a hit: the window ends at that turn, and the reader is told there is more below.
+    const atHit = await call<{ messages: AssistantMessage[], hasMore: boolean, hasNewer: boolean }>(
+      'GET', `/api/assistant/conversations/${conversation}?limit=10&upto=${messageId(60)}`,
+    )
+    expect(atHit.messages.at(-1)!.content).toBe('turn 60')
+    expect(atHit.hasMore).toBe(true)
+    expect(atHit.hasNewer).toBe(true)
+    // A message from another thread cannot be used to open this one somewhere it has no row.
+    expect(await status('GET', `/api/assistant/conversations/${conversation}?upto=${messageId(999)}`)).toBe(404)
+  })
+
+  it('finds a word in a thread and says which turn and which words', async () => {
+    const conversation = seedConversation(11, 11_000)
+    seedMessage(1, conversation, 'user', 'a question about nothing in particular', 11_001)
+    seedMessage(2, conversation, 'assistant', 'The lighthouse keeper kept a ledger of every ship.', 11_002)
+    seedConversation(12, 12_000)
+
+    const found = await call<{ conversations: AssistantConversation[] }>('GET', '/api/assistant/conversations?q=lighthouse')
+    expect(found.conversations).toHaveLength(1)
+    expect(found.conversations[0]!.id).toBe(conversation)
+    expect(found.conversations[0]!.match?.messageId).toBe(messageId(2))
+    expect(found.conversations[0]!.match?.snippet).toContain('lighthouse')
+    // A thread that only matched on its title carries no turn to jump to.
+    expect(found.conversations[0]!.match?.snippet).not.toContain('question')
+  })
+
+  it('finds a thread by the words of the note it came from', async () => {
+    sqlite.prepare(
+      `INSERT INTO notes (id, user_id, title, title_key, content, excerpt, created_at, updated_at)
+       VALUES (?, ?, 'Harbour notes', 'harbour notes', 'The tide table is pinned above the door.', '', 1, 1)`,
+    ).run(noteId(1), USER)
+    const conversation = seedConversation(13, 13_000, { noteId: noteId(1) })
+    seedMessage(1, conversation, 'user', 'what did I write about the door?', 13_001)
+    seedConversation(14, 14_000)
+
+    const found = await call<{ conversations: AssistantConversation[] }>('GET', '/api/assistant/conversations?q=tide table')
+    expect(found.conversations.map((entry) => entry.id)).toEqual([conversation])
+    // The hit is in the note, not in a turn, so there is no message to jump to.
+    expect(found.conversations[0]!.match ?? null).toBeNull()
+  })
+
+  it('remembers the note a thread was started from, once', async () => {
+    sqlite.prepare(
+      `INSERT INTO notes (id, user_id, title, title_key, content, excerpt, created_at, updated_at)
+       VALUES (?, ?, 'Origins', 'origins', '', '', 1, 1)`,
+    ).run(noteId(2), USER)
+    const created = await call<{ conversation: AssistantConversation }>('POST', '/api/assistant/conversations', { title: 'From a note' })
+    const patched = await call<{ conversation: AssistantConversation }>(
+      'PATCH', `/api/assistant/conversations/${created.conversation.id}`, { noteId: noteId(2) },
+    )
+    expect(patched.conversation.noteId).toBe(noteId(2))
+    // The first answer stands: a later turn read beside another note does not relabel the thread.
+    await call('PATCH', `/api/assistant/conversations/${created.conversation.id}`, { noteId: null })
+    const reread = await call<{ conversation: AssistantConversation }>('GET', `/api/assistant/conversations/${created.conversation.id}`)
+    expect(reread.conversation.noteId).toBe(noteId(2))
+    // A note this account does not own cannot be named.
+    expect(await status('PATCH', `/api/assistant/conversations/${created.conversation.id}`, { noteId: noteId(3) })).toBe(400)
+  })
+
+  it('takes the files of a deleted conversation with it', async () => {
+    const uploaded = await uploadFile('gone.txt', 'to be deleted', 'text/plain')
+    const created = await call<{ conversation: AssistantConversation }>('POST', '/api/assistant/conversations', { title: 'Files' })
+    seedMessage(1, created.conversation.id, 'user', 'look at this', 20_001)
+    sqlite.prepare(`UPDATE chat_messages SET attachments = ? WHERE user_id = ? AND id = ?`)
+      .run(JSON.stringify([uploaded.attachment.id]), USER, messageId(1))
+
+    await call('DELETE', `/api/assistant/conversations/${created.conversation.id}`)
+    const left = sqlite.prepare(`SELECT count(*) AS n FROM chat_attachments WHERE user_id = ? AND id = ?`)
+      .get(USER, uploaded.attachment.id) as { n: number }
+    expect(left.n).toBe(0)
+  })
+  it('continues an answer from where it stopped, without asking again', async () => {
+    await useExampleModel()
+    const created = await call<{ conversation: AssistantConversation }>('POST', '/api/assistant/conversations', { title: 'Half done' })
+    seedMessage(1, created.conversation.id, 'user', 'Tell me about the harbour.', 30_001)
+    seedMessage(2, created.conversation.id, 'assistant', 'The harbour was built in', 30_002)
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(sse(FINAL_FRAMES), { headers: { 'content-type': 'text/event-stream' } })))
+    await chatEvents({ conversationId: created.conversation.id, continue: true })
+    await settleTurns()
+    vi.unstubAllGlobals()
+
+    const detail = await call<{ messages: AssistantMessage[] }>('GET', `/api/assistant/conversations/${created.conversation.id}`)
+    // One assistant row, carrying both halves: the words the reader already saw and the words that
+    // finished them. A continue that added a second row would read as two answers to one question.
+    expect(detail.messages).toHaveLength(2)
+    expect(detail.messages[1]!.id).toBe(messageId(2))
+    expect(detail.messages[1]!.content).toBe('The harbour was built inNothing is on the list.')
+  })
+
+  it('asks an answer in the middle of a thread again, and files the one it replaced', async () => {
+    await useExampleModel()
+    const created = await call<{ conversation: AssistantConversation }>('POST', '/api/assistant/conversations', { title: 'Middle' })
+    const conversation = created.conversation.id
+    seedMessage(1, conversation, 'user', 'First question.', 31_001)
+    seedMessage(2, conversation, 'assistant', 'First answer.', 31_002)
+    seedMessage(3, conversation, 'user', 'Second question.', 31_003)
+    seedMessage(4, conversation, 'assistant', 'Second answer.', 31_004)
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(sse(FINAL_FRAMES), { headers: { 'content-type': 'text/event-stream' } })))
+    await chatEvents({ conversationId: conversation, retry: true, messageId: messageId(2) })
+    await settleTurns()
+    vi.unstubAllGlobals()
+
+    const detail = await call<{ messages: AssistantMessage[] }>('GET', `/api/assistant/conversations/${conversation}`)
+    // The first turn survives, re-answered; everything written on top of it is gone.
+    expect(detail.messages.map((entry) => entry.content)).toEqual(['First question.', 'Nothing is on the list.'])
+    expect(detail.messages[1]!.id).toBe(messageId(2))
+    const versions = await call<{ versions: AssistantAnswerVersion[] }>(
+      'GET', `/api/assistant/conversations/${conversation}/messages/${messageId(2)}/versions`,
+    )
+    expect(versions.versions.map((entry) => entry.content)).toEqual(['First answer.'])
+  })
+
+  it('keeps the turns an edit truncates as a branch, when asked', async () => {
+    const created = await call<{ conversation: AssistantConversation }>('POST', '/api/assistant/conversations', { title: 'Edited' })
+    const conversation = created.conversation.id
+    seedMessage(1, conversation, 'user', 'Original question.', 32_001)
+    seedMessage(2, conversation, 'assistant', 'Original answer.', 32_002)
+    seedMessage(3, conversation, 'user', 'Follow-up.', 32_003)
+    seedMessage(4, conversation, 'assistant', 'Follow-up answer.', 32_004)
+
+    const edited = await call<{ removed: number, branch: AssistantConversation | null }>(
+      'PATCH', `/api/assistant/conversations/${conversation}/messages/${messageId(1)}`,
+      { content: 'Retyped question.', keepBranch: true, branchTitle: 'Kept aside' },
+    )
+    expect(edited.removed).toBe(3)
+    expect(edited.branch?.title).toBe('Kept aside')
+
+    const original = await call<{ messages: AssistantMessage[] }>('GET', `/api/assistant/conversations/${conversation}`)
+    expect(original.messages.map((entry) => entry.content)).toEqual(['Retyped question.'])
+    // The branch is the whole thread as it stood: nothing the edit removed is only in the trash.
+    const branch = await call<{ messages: AssistantMessage[] }>('GET', `/api/assistant/conversations/${edited.branch!.id}`)
+    expect(branch.messages.map((entry) => entry.content)).toEqual([
+      'Original question.', 'Original answer.', 'Follow-up.', 'Follow-up answer.',
+    ])
+  })
+
+  it('carries the note a thread came from through a backup', async () => {
+    const conversation = seedConversation(21, 40_000, { noteId: noteId(5) })
+    seedMessage(1, conversation, 'user', 'about that note', 40_001)
+    const payload = await call('GET', '/api/assistant/export')
+    await call('DELETE', `/api/assistant/conversations/${conversation}`)
+    await call('POST', '/api/assistant/import', payload)
+    const restored = await call<{ conversation: AssistantConversation }>('GET', `/api/assistant/conversations/${conversation}`)
+    // A column the import row does not name is written as null, so a restored thread would come back
+    // with no origin and the chip that says where it came from would have nothing to say.
+    expect(restored.conversation.noteId).toBe(noteId(5))
+  })
+
+})

@@ -178,6 +178,42 @@ function containsPattern(term: string): string {
 }
 
 /**
+ * Where the previous page of a list stopped.
+ *
+ * Three fields because the list is ordered by all three: pinned rows first, then by recency, then by id
+ * to break ties between turns written in the same millisecond. A cursor that carried only the timestamp
+ * would either repeat or skip the rows that share it.
+ */
+export interface ConversationCursor {
+  pinned: number
+  updatedAt: number
+  id: string
+}
+
+/** How many ids one delete statement may carry, well under SQLite's parameter ceiling. */
+const ATTACHMENT_DELETE_BATCH = 200
+
+/** How much of a matched message the search row shows, on each side of the hit. */
+const SEARCH_SNIPPET_RADIUS = 40
+
+/**
+ * A short excerpt around the first hit, so a search row can be judged without opening the thread.
+ *
+ * Whitespace is collapsed first: a match inside a code block or a list would otherwise arrive as a strip
+ * of newlines, and the reader would see the snippet machinery instead of their own words.
+ */
+function searchSnippet(content: string, query: string): string {
+  const text = content.replace(/\s+/g, ' ').trim()
+  const needle = query.slice(0, LIKE_TERM_CEILING).trim().toLowerCase()
+  if (!needle) return text.slice(0, SEARCH_SNIPPET_RADIUS * 2)
+  const at = text.toLowerCase().indexOf(needle)
+  if (at < 0) return text.slice(0, SEARCH_SNIPPET_RADIUS * 2)
+  const start = Math.max(0, at - SEARCH_SNIPPET_RADIUS)
+  const end = Math.min(text.length, at + needle.length + SEARCH_SNIPPET_RADIUS)
+  return `${start > 0 ? '…' : ''}${text.slice(start, end)}${end < text.length ? '…' : ''}`
+}
+
+/**
  * A JSON column that may not be there at all.
  *
  * The parse itself belongs to `parseStoredJson`; what this adds is the row that predates the column,
@@ -674,6 +710,19 @@ export class AssistantStore {
   private async write(sql: string, ...binds: unknown[]): Promise<number> {
     assertScoped(sql)
     const result = await this.db.prepare(sql).bind(this.userId, ...binds).run()
+    return result.meta?.changes ?? 0
+  }
+
+  /**
+   * A write whose binds already carry the account, because a `Query` built them.
+   *
+   * `write` prepends the user id, which is what every hand-written statement expects; a statement whose
+   * WHERE clause came out of `Query` already has it as `?1`, and prepending it again would bind one
+   * value more than there are placeholders.
+   */
+  private async runScoped(sql: string, ...binds: unknown[]): Promise<number> {
+    assertScoped(sql)
+    const result = await this.db.prepare(sql).bind(...binds).run()
     return result.meta?.changes ?? 0
   }
 
@@ -1288,9 +1337,23 @@ export class AssistantStore {
    */
   async listConversations(
     query?: string,
-    filter: { folderId?: string | null, projectId?: string | null, tagId?: string, starred?: boolean, pinned?: boolean, archived?: boolean, limit?: number } = {},
+    filter: {
+      folderId?: string | null
+      projectId?: string | null
+      tagId?: string
+      starred?: boolean
+      pinned?: boolean
+      archived?: boolean
+      limit?: number
+      /**
+       * Where the previous page stopped. Absent means the first page; the caller passes the cursor it
+       * was handed rather than an offset, because a row written between two requests would shift every
+       * offset by one and the reader would see a conversation twice or not at all.
+       */
+      cursor?: ConversationCursor | null
+    } = {},
   ): Promise<AssistantConversation[]> {
-    const limit = filter.limit ?? 100
+    const limit = Math.min(Math.max(1, filter.limit ?? 100), 200)
     const q = new Query(this.userId)
     if (filter.folderId !== undefined) {
       const ids = filter.folderId === null ? null : await this.folderSubtree(filter.folderId)
@@ -1324,20 +1387,35 @@ export class AssistantStore {
     if (query) {
       const pattern = q.add(containsPattern(query))
       const inBody = q.add(containsPattern(query))
+      // A thread started from a note is also a conversation *about* that note, so its words count as a
+      // hit: "which conversation did I have about this?" is the question this list is asked most.
+      const inNote = q.add(containsPattern(query))
       q.raw(`(title LIKE ${pattern} ESCAPE '\\' OR EXISTS (
         SELECT 1 FROM chat_messages m WHERE m.conversation_id = c.id
-          AND m.user_id = ?1 AND m.content LIKE ${inBody} ESCAPE '\\'))`)
+          AND m.user_id = ?1 AND m.content LIKE ${inBody} ESCAPE '\\')
+        OR EXISTS (
+        SELECT 1 FROM notes n WHERE n.user_id = ?1 AND n.id = c.note_id AND n.deleted_at IS NULL
+          AND n.content LIKE ${inNote} ESCAPE '\\'))`)
     }
     const limitBind = q.add(limit)
     // A temporary conversation is never listed. Its reader reaches it by id, which is the only way anyone
     // has it: the list, the starred and pinned shortlists and the assistant's own search all come through
     // here, so this one clause is what keeps the promise the UI makes.
     q.raw('c.ephemeral = 0')
+    if (filter.cursor) {
+      // Keyset, not OFFSET: the three columns the ORDER BY uses, compared as one tuple. Pinned rows are
+      // ahead of everything else, so a page boundary never mixes the two groups.
+      const pinned = q.add(filter.cursor.pinned)
+      const updatedAt = q.add(filter.cursor.updatedAt)
+      const id = q.add(filter.cursor.id)
+      q.raw(`(c.pinned < ${pinned} OR (c.pinned = ${pinned} AND (c.updated_at < ${updatedAt}
+        OR (c.updated_at = ${updatedAt} AND c.id < ${id}))))`)
+    }
     const list = await this.rows<ConversationRow>(
       `SELECT ${CONVERSATION_COLUMNS},
               (SELECT count(*) FROM chat_messages m WHERE m.conversation_id = c.id) AS message_count
          FROM chat_conversations c WHERE ${q.where}
-         ORDER BY c.updated_at DESC LIMIT ${limitBind}`,
+         ORDER BY c.pinned DESC, c.updated_at DESC, c.id DESC LIMIT ${limitBind}`,
       ...q.binds,
     )
     const conversations = list.map(toConversation)
@@ -1345,7 +1423,41 @@ export class AssistantStore {
       const tags = await this.tagsForConversations(conversations.map((entry) => entry.id))
       for (const conversation of conversations) conversation.tags = tags.get(conversation.id) ?? []
     }
+    // One extra query, and only when the reader searched: the row shows where the word was found so the
+    // click is not a guess about which thread to open.
+    if (query && conversations.length) {
+      const matches = await this.firstMatchingMessages(conversations.map((entry) => entry.id), query)
+      for (const conversation of conversations) conversation.match = matches.get(conversation.id) ?? null
+    }
     return conversations
+  }
+
+  /**
+   * The earliest message in each conversation that contains the search term.
+   *
+   * `ROW_NUMBER` rather than a per-conversation query: the list is a page of at most a hundred rows, and
+   * one statement over the ids is one round trip instead of a hundred. The earliest hit is the one a
+   * reader looking for "where did we talk about this" means, and it is also the one a transcript opens at.
+   */
+  private async firstMatchingMessages(
+    conversationIds: readonly string[],
+    query: string,
+  ): Promise<Map<string, { messageId: string, snippet: string }>> {
+    const q = new Query(this.userId)
+    q.inList('conversation_id', conversationIds)
+    const pattern = q.add(containsPattern(query))
+    const rows = await this.rows<{ conversation_id: string, id: string, content: string }>(
+      `SELECT conversation_id, id, content FROM (
+         SELECT conversation_id, id, content,
+                ROW_NUMBER() OVER (PARTITION BY conversation_id ORDER BY created_at ASC, rowid ASC) AS rn
+           FROM chat_messages
+          WHERE ${q.where} AND content LIKE ${pattern} ESCAPE '\\'
+       ) WHERE rn = 1`,
+      ...q.binds,
+    )
+    const found = new Map<string, { messageId: string, snippet: string }>()
+    for (const row of rows) found.set(row.conversation_id, { messageId: row.id, snippet: searchSnippet(row.content, query) })
+    return found
   }
 
   /** The note folder tree with conversation counts, plus how many conversations hold no folder. */
@@ -1502,6 +1614,14 @@ export class AssistantStore {
     ))
   }
 
+  /** Whether this account owns a live note, so a conversation cannot be labelled with a stranger's. */
+  async knownNote(noteId: string): Promise<boolean> {
+    return !!(await this.one<{ id: string }>(
+      `SELECT id FROM notes WHERE user_id = ?1 AND id = ?2 AND deleted_at IS NULL`,
+      this.userId, noteId,
+    ))
+  }
+
   async knownTag(tagId: string): Promise<boolean> {
     return !!(await this.one<{ id: string }>(`SELECT id FROM tags WHERE user_id = ?1 AND id = ?2`, this.userId, tagId))
   }
@@ -1550,14 +1670,29 @@ export class AssistantStore {
     folderId: string | null = null,
     ephemeral = false,
     parentId: string | null = null,
+    /** The note this thread was started from, when it was started from one. */
+    noteId: string | null = null,
   ): Promise<AssistantConversation> {
     const id = newId()
     const at = Date.now()
     await this.write(
-      `INSERT INTO chat_conversations (id, user_id, title, folder_id, ephemeral, parent_id, created_at, updated_at) VALUES (?2, ?1, ?3, ?4, ?5, ?6, ?7, ?8)`,
-      id, title, folderId, ephemeral ? 1 : 0, parentId, at, at,
+      `INSERT INTO chat_conversations (id, user_id, title, folder_id, ephemeral, parent_id, note_id, created_at, updated_at) VALUES (?2, ?1, ?3, ?4, ?5, ?6, ?7, ?8, ?9)`,
+      id, title, folderId, ephemeral ? 1 : 0, parentId, noteId, at, at,
     )
-    return { id, title, pinned: false, starred: false, archived: false, ephemeral, parentId, folderId, createdAt: at, updatedAt: at, messageCount: 0, tags: [], summary: null, summaryUpto: null }
+    return { id, title, pinned: false, starred: false, archived: false, ephemeral, parentId, folderId, noteId, createdAt: at, updatedAt: at, messageCount: 0, tags: [], summary: null, summaryUpto: null }
+  }
+
+  /**
+   * Records where a thread came from, once.
+   *
+   * The first note wins: a conversation that has already said which note it belongs to is not re-labelled
+   * by a later turn read beside another one, or the chip would change meaning under the reader.
+   */
+  async setConversationNote(id: string, noteId: string): Promise<void> {
+    await this.write(
+      `UPDATE chat_conversations SET note_id = ?2 WHERE user_id = ?1 AND id = ?3 AND note_id IS NULL`,
+      noteId, id,
+    )
   }
 
   /**
@@ -1720,6 +1855,64 @@ export class AssistantStore {
     return rows.map((row) => ({ id: row.id, title: row.title, updatedAt: row.updated_at }))
   }
 
+  /**
+   * Every file the conversation's turns carried.
+   *
+   * Read before the rows go, because the ids live inside each message's JSON: once the turns are
+   * deleted there is nothing left to say which objects belonged to them, and the bytes would sit in
+   * storage for a conversation that no longer exists.
+   */
+  async conversationAttachmentIds(id: string): Promise<string[]> {
+    const rows = await this.rows<{ attachments: string | null }>(
+      `SELECT attachments FROM chat_messages WHERE user_id = ?1 AND conversation_id = ?2`,
+      this.userId, id,
+    )
+    const ids = new Set<string>()
+    for (const row of rows) {
+      const parsed = parseJson(row.attachments)
+      if (!Array.isArray(parsed)) continue
+      for (const value of parsed) if (typeof value === 'string' && /^[0-9a-hjkmnp-tv-z]{6,64}$/.test(value)) ids.add(value)
+    }
+    return [...ids]
+  }
+
+  /** Every attachment row this account owns, so "delete everything" can take the bytes too. */
+  async allChatAttachments(): Promise<Array<{ id: string, key: string }>> {
+    return await this.rows<{ id: string, key: string }>(
+      `SELECT id, key FROM chat_attachments WHERE user_id = ?1`,
+      this.userId,
+    )
+  }
+
+  /**
+   * The rows behind any number of ids, in batches.
+   *
+   * `chatAttachments` caps at one turn's worth because that is what a turn carries; deleting a whole
+   * thread asks about every file it ever used, which can be far more than one statement's parameter
+   * budget allows.
+   */
+  async chatAttachmentRows(ids: readonly string[]): Promise<Array<{ id: string, key: string }>> {
+    const out: Array<{ id: string, key: string }> = []
+    for (let index = 0; index < ids.length; index += ATTACHMENT_DELETE_BATCH) {
+      const q = new Query(this.userId)
+      q.inList('id', ids.slice(index, index + ATTACHMENT_DELETE_BATCH))
+      out.push(...await this.rows<{ id: string, key: string }>(
+        `SELECT id, key FROM chat_attachments WHERE ${q.where}`,
+        ...q.binds,
+      ))
+    }
+    return out
+  }
+
+  /** Removes the rows of files whose objects are about to go (or already have). */
+  async deleteChatAttachments(ids: readonly string[]): Promise<void> {
+    for (let index = 0; index < ids.length; index += ATTACHMENT_DELETE_BATCH) {
+      const q = new Query(this.userId)
+      q.inList('id', ids.slice(index, index + ATTACHMENT_DELETE_BATCH))
+      await this.runScoped(`DELETE FROM chat_attachments WHERE ${q.where}`, ...q.binds)
+    }
+  }
+
   async deleteConversation(id: string): Promise<void> {
     await this.write(`DELETE FROM chat_messages WHERE user_id = ?1 AND conversation_id = ?2`, id)
     await this.write(`DELETE FROM chat_answer_versions WHERE user_id = ?1 AND conversation_id = ?2`, id)
@@ -1861,15 +2054,50 @@ export class AssistantStore {
     return (await this.write(`DELETE FROM chat_artifacts WHERE user_id = ?1 AND id = ?2`, id)) > 0
   }
 
-  async messages(conversationId: string, limit = 500): Promise<AssistantMessage[]> {
-    const list = await this.rows<MessageRow>(
-      `SELECT ${MESSAGE_COLUMNS}, version_count FROM (
-         SELECT rowid AS seq, ${MESSAGE_COLUMNS}, ${MESSAGE_VERSION_COUNT} FROM chat_messages
-          WHERE user_id = ?1 AND conversation_id = ?2
-          ORDER BY created_at DESC, seq DESC LIMIT ?3
-       ) ORDER BY ${MESSAGE_ORDER}`,
-      this.userId, conversationId, limit,
-    )
+  async messages(
+    conversationId: string,
+    limit = 500,
+    page: {
+      /**
+       * The oldest message already on screen. Absent reads the newest page; present reads the page just
+       * before it, so "load earlier" walks backwards without an offset that a new turn would shift.
+       */
+      before?: { createdAt: number, id: string } | null
+      /**
+       * Read the page that *ends* at this message instead of the newest one.
+       *
+       * A search hit can be hundreds of turns up. Opening the thread at the newest page and walking back
+       * would take as many round trips as the hit is old, so the window is asked for around the hit.
+       */
+      upto?: { createdAt: number, id: string } | null
+    } = {},
+  ): Promise<AssistantMessage[]> {
+    const before = page.before ?? null
+    const upto = page.upto ?? null
+    const boundary = before
+      ? `AND (created_at < ?4 OR (created_at = ?4 AND rowid < (
+           SELECT rowid FROM chat_messages WHERE user_id = ?1 AND conversation_id = ?2 AND id = ?5)))`
+      : upto
+        ? `AND (created_at < ?4 OR (created_at = ?4 AND rowid <= (
+             SELECT rowid FROM chat_messages WHERE user_id = ?1 AND conversation_id = ?2 AND id = ?5)))`
+        : ''
+    const list = boundary
+      ? await this.rows<MessageRow>(
+        `SELECT ${MESSAGE_COLUMNS}, version_count FROM (
+           SELECT rowid AS seq, ${MESSAGE_COLUMNS}, ${MESSAGE_VERSION_COUNT} FROM chat_messages
+            WHERE user_id = ?1 AND conversation_id = ?2 ${boundary}
+            ORDER BY created_at DESC, seq DESC LIMIT ?3
+         ) ORDER BY ${MESSAGE_ORDER}`,
+        this.userId, conversationId, limit, (before ?? upto)!.createdAt, (before ?? upto)!.id,
+      )
+      : await this.rows<MessageRow>(
+        `SELECT ${MESSAGE_COLUMNS}, version_count FROM (
+           SELECT rowid AS seq, ${MESSAGE_COLUMNS}, ${MESSAGE_VERSION_COUNT} FROM chat_messages
+            WHERE user_id = ?1 AND conversation_id = ?2
+            ORDER BY created_at DESC, seq DESC LIMIT ?3
+         ) ORDER BY ${MESSAGE_ORDER}`,
+        this.userId, conversationId, limit,
+      )
     return list.map(toMessage)
   }
 
@@ -3961,7 +4189,9 @@ const EXPORT_COLUMNS: Readonly<Record<string, readonly string[]>> = {
   // `project_id` and `parent_id` are part of a stored thread even though the backup did not always
   // carry them: a restore that lost them put every thread back at the account's root, and a fork
   // forgot what it was forked from.
-  chat_conversations: ['id', 'title', 'summary', 'summary_upto', 'pinned', 'starred', 'archived', 'folder_id', 'project_id', 'parent_id', 'created_at', 'updated_at'],
+  // `note_id` rides along for the same reason: a thread restored without it forgets which note it came
+  // from, and the chip that says so has nothing left to say.
+  chat_conversations: ['id', 'title', 'summary', 'summary_upto', 'pinned', 'starred', 'archived', 'folder_id', 'project_id', 'parent_id', 'note_id', 'created_at', 'updated_at'],
   chat_artifacts: ['id', 'conversation_id', 'title', 'content', 'note_id', 'created_at', 'updated_at'],
   chat_conversation_tags: ['conversation_id', 'tag_id', 'created_at'],
   // `sources` is where a searched answer says what it read, and `feedback` is the reader's own verdict:
@@ -4344,7 +4574,7 @@ const ARTIFACT_COLUMNS = `id, conversation_id, title, content, note_id, created_
  * added to one and not the other read back as a default in exactly one of the two surfaces — which is how
  * a flag comes to be set and still look unset.
  */
-const CONVERSATION_COLUMNS = `c.id, c.title, c.summary, c.summary_upto, c.pinned, c.starred, c.archived, c.ephemeral, c.parent_id, c.folder_id, c.project_id, c.created_at, c.updated_at`
+const CONVERSATION_COLUMNS = `c.id, c.title, c.summary, c.summary_upto, c.pinned, c.starred, c.archived, c.ephemeral, c.parent_id, c.folder_id, c.project_id, c.note_id, c.created_at, c.updated_at`
 
 interface ArtifactRow {
   id: string
@@ -4380,6 +4610,7 @@ interface ConversationRow {
   parent_id: string | null
   folder_id: string | null
   project_id: string | null
+  note_id: string | null
   created_at: number
   updated_at: number
   message_count: number
@@ -4396,6 +4627,7 @@ function toConversation(r: ConversationRow): AssistantConversation {
     parentId: r.parent_id ?? null,
     folderId: r.folder_id ?? null,
     ...(r.project_id ? { projectId: r.project_id } : {}),
+    noteId: r.note_id ?? null,
     createdAt: r.created_at,
     updatedAt: r.updated_at,
     messageCount: r.message_count ?? 0,

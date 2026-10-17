@@ -44,6 +44,8 @@ import {
   MAX_AUTOMATION_MESSAGE_CHARS,
   MAX_CONVERSATION_TITLE_CHARS,
   MAX_MESSAGE_CHARS,
+  CONVERSATION_PAGE_SIZE,
+  MESSAGE_PAGE_SIZE,
   MAX_ARTIFACT_CONTENT_CHARS,
   MAX_ARTIFACT_TITLE_CHARS,
   MAX_ARTIFACTS_PER_CONVERSATION,
@@ -70,6 +72,8 @@ import {
   type TaskStatus,
   type AssistantKeyUsage,
   type AssistantModel,
+  type AssistantConversation,
+  type AssistantAnswerVersion,
   type AssistantUsageDay,
   type AssistantUsageSlice,
   type UsageFilter,
@@ -85,7 +89,7 @@ import { isExternalToolName, listMcpCatalog, loadExternalTools } from '../assist
 import { deleteMcpOAuthClient, finishMcpAuthorization, startMcpAuthorization, withMcpOAuthHeaders } from '../assistant/mcp-oauth'
 import { isValidId } from '../lib/id'
 import { isInlineSafe } from '../lib/image'
-import { AssistantStore, dayBefore, usageDay } from '../assistant/store'
+import { AssistantStore, dayBefore, usageDay, type ConversationCursor } from '../assistant/store'
 import { MemoryHistoryService } from '../assistant/memory-service'
 import { AutomationService } from '../assistant/automations'
 import { AssistantRunner } from '../assistant/runner'
@@ -182,6 +186,49 @@ function readerDayEnd(timezone: string): number {
   return localDayBounds(timezone).end
 }
 
+/**
+ * A page boundary, encoded so the browser treats it as opaque.
+ *
+ * The client hands the string back verbatim. It is not a capability — every query below is scoped to the
+ * reader — but it is the list's own position, and letting a caller compose one would only invite a
+ * malformed tuple that the SQL would have to defend against.
+ */
+function encodeListCursor(value: { pinned: boolean, updatedAt: number, id: string }): string {
+  return btoa(`${value.pinned ? 1 : 0}:${value.updatedAt}:${value.id}`)
+}
+
+function decodeListCursor(raw: string): ConversationCursor | null {
+  try {
+    const [pinned, updatedAt, id] = atob(raw).split(':')
+    if ((pinned !== '0' && pinned !== '1') || !/^\d{1,16}$/.test(updatedAt ?? '') || !isValidId(id ?? '')) return null
+    return { pinned: Number(pinned), updatedAt: Number(updatedAt), id: id! }
+  } catch {
+    return null
+  }
+}
+
+/** The same for a thread: the oldest message already on screen, and the page before it. */
+function encodeMessageCursor(message: { createdAt: number, id: string }): string {
+  return btoa(`${message.createdAt}:${message.id}`)
+}
+
+function decodeMessageCursor(raw: string): { createdAt: number, id: string } | null {
+  try {
+    const [createdAt, id] = atob(raw).split(':')
+    if (!/^\d{1,16}$/.test(createdAt ?? '') || !isValidId(id ?? '')) return null
+    return { createdAt: Number(createdAt), id: id! }
+  } catch {
+    return null
+  }
+}
+
+/** A page size the caller asked for, kept between one row and the ceiling the query can afford. */
+function pageSize(raw: string | undefined, fallback: number, ceiling: number): number {
+  const parsed = Number(raw ?? '')
+  if (!Number.isFinite(parsed) || parsed < 1) return fallback
+  return Math.min(Math.floor(parsed), ceiling)
+}
+
 // -------------------------------------------------------------- conversations
 
 /**
@@ -233,7 +280,16 @@ assistantRoutes.get('/conversations', async (c) => {
   // is what a caller with no opinion about filing should get.
   if (c.req.query('archived') === '1') filter.archived = true
   else if (c.req.query('archived') === '0') filter.archived = false
-  return c.json({ conversations: await store(c).listConversations(query || undefined, filter) })
+  const cursorParam = c.req.query('cursor')
+  const cursor = cursorParam ? decodeListCursor(cursorParam) : null
+  if (cursorParam && !cursor) throw ApiError.badRequest('Unknown cursor.')
+  const limit = pageSize(c.req.query('limit'), CONVERSATION_PAGE_SIZE, 100)
+  // One row past the page says whether there is another without a second count over the same filter.
+  const page = await store(c).listConversations(query || undefined, { ...filter, limit: limit + 1, cursor })
+  const hasMore = page.length > limit
+  const conversations = hasMore ? page.slice(0, limit) : page
+  const last = conversations[conversations.length - 1]
+  return c.json({ conversations, nextCursor: hasMore && last ? encodeListCursor(last) : null })
 })
 
 /** The note folder tree, with how many conversations each folder holds. */
@@ -615,12 +671,36 @@ assistantRoutes.get('/conversations/:id', async (c) => {
   const conversation = await s.getConversation(id)
   if (!conversation) throw ApiError.notFound('Conversation not found')
   const actions = await s.actionStatesForConversation(id)
-  const messages = (await s.messages(id)).map((message) => ({
+  // A thread is read from its end: the newest page is what opening it costs, and the turns above it
+  // arrive when the reader scrolls up and asks. `before` is the oldest row already on screen.
+  const limit = pageSize(c.req.query('limit'), MESSAGE_PAGE_SIZE, 500)
+  const beforeParam = c.req.query('before')
+  const before = beforeParam ? decodeMessageCursor(beforeParam) : null
+  if (beforeParam && !before) throw ApiError.badRequest('Unknown cursor.')
+  // A search hit opens the thread at the hit rather than at the newest page, so the reader lands on the
+  // words they were looking for instead of scrolling back through everything written since. The id is
+  // the hit's own message, and it has to be this thread's: a foreign id would otherwise ask a page to
+  // end somewhere it has no row.
+  const uptoParam = c.req.query('upto')
+  let upto: { createdAt: number, id: string } | null = null
+  if (uptoParam) {
+    if (!isValidId(uptoParam)) throw ApiError.badRequest('Unknown cursor.')
+    const hit = await s.getMessage(uptoParam)
+    if (!hit || hit.conversationId !== id) throw ApiError.notFound('Message not found')
+    upto = { createdAt: hit.createdAt, id: hit.id }
+  }
+  const page = await s.messages(id, limit + 1, { before, upto })
+  const hasMore = page.length > limit
+  const messages = (hasMore ? page.slice(1) : page).map((message) => ({
     ...message,
     tools: message.tools.map((tool) => (tool.approval
       ? { ...tool, approval: actions.get(tool.approval.id) ?? tool.approval }
       : tool)),
   }))
+  // A window that ends at a search hit may have newer turns below it; the reader can go on reading from
+  // there, and the button that takes them back to the live end says so.
+  const newest = upto ? await s.lastMessage(id) : null
+  const hasNewer = Boolean(upto && newest && messages.at(-1)?.id !== newest.id)
   const withTags = await s.tagsForConversations([id])
   if (conversation) conversation.tags = withTags.get(id) ?? []
   // The chips name the files; the bytes only ever travel on the model's turn, so the transcript needs
@@ -631,6 +711,39 @@ assistantRoutes.get('/conversations/:id', async (c) => {
     messages,
     attachments: await s.chatAttachments(wanted),
     streaming: await s.isRunning(id),
+    hasMore,
+    nextBefore: hasMore && messages[0] ? encodeMessageCursor(messages[0]) : null,
+    hasNewer,
+  })
+})
+
+/**
+ * One conversation as a file.
+ *
+ * The Markdown export is a document to read; this one is the record — every stored field, plus the
+ * answers the thread could page back to — so a conversation can leave the app without losing the parts
+ * the transcript does not print. It is not the backup format: this is one thread, and it is not meant
+ * to be imported.
+ */
+assistantRoutes.get('/conversations/:id/export', async (c) => {
+  const s = store(c)
+  const id = requiredId(c.req.param('id'))
+  const conversation = await s.getConversation(id)
+  if (!conversation) throw ApiError.notFound('Conversation not found')
+  const messages = await s.messages(id)
+  // Only the turns that actually displaced something: one query per answer that has pages, not per turn.
+  const versions: AssistantAnswerVersion[] = []
+  for (const message of messages) {
+    if (message.role !== 'assistant' || !message.versionCount) continue
+    versions.push(...await s.listAnswerVersions(message.id))
+  }
+  return c.json({
+    format: 'inkstone-conversation',
+    version: 1,
+    exportedAt: Date.now(),
+    conversation,
+    messages,
+    versions,
   })
 })
 
@@ -683,7 +796,7 @@ assistantRoutes.patch('/conversations/:id/messages/:messageId', async (c) => {
   const s = store(c)
   const conversationId = requiredId(c.req.param('id'))
   const messageId = requiredId(c.req.param('messageId'))
-  const body = await readJson<{ content?: unknown }>(c, JSON_BODY_LIMITS.small)
+  const body = await readJson<{ content?: unknown, keepBranch?: unknown, branchTitle?: unknown }>(c, JSON_BODY_LIMITS.small)
   const content = text(body.content, MAX_MESSAGE_CHARS)
   if (!(await s.getConversation(conversationId))) throw ApiError.notFound('Conversation not found')
   const message = await s.getMessage(messageId)
@@ -694,10 +807,20 @@ assistantRoutes.patch('/conversations/:id/messages/:messageId', async (c) => {
   const messages = await s.messages(conversationId)
   const index = messages.findIndex((entry) => entry.id === messageId)
   if (index < 0) throw ApiError.notFound('Message not found')
+  // An edit removes every turn after it, and those turns were drawn from words that are about to change.
+  // A reader who wants them back gets the whole thread copied into a branch first: the copy is made
+  // before a row is deleted, so the recovery path is a real one rather than a version nobody can reach.
+  let branch: AssistantConversation | null = null
+  if (body.keepBranch === true && messages.length > index + 1) {
+    const asked = typeof body.branchTitle === 'string' ? body.branchTitle.trim() : ''
+    const source = await s.getConversation(conversationId)
+    const title = (asked || source?.title || 'Untitled').slice(0, MAX_CONVERSATION_TITLE_CHARS)
+    branch = await s.forkConversation(conversationId, messages[messages.length - 1]!.id, title)
+  }
   await s.updateMessageContent(messageId, content)
   for (const later of messages.slice(index + 1)) await s.deleteMessage(later.id)
   await s.clearSummary(conversationId)
-  return c.json({ message: await s.getMessage(messageId), removed: messages.length - index - 1 })
+  return c.json({ message: await s.getMessage(messageId), removed: messages.length - index - 1, branch })
 })
 
 assistantRoutes.delete('/conversations/:id/messages/:messageId', async (c) => {
@@ -902,7 +1025,7 @@ assistantRoutes.patch('/conversations/:id', async (c) => {
   const s = store(c)
   const id = requiredId(c.req.param('id'))
   if (!(await s.getConversation(id))) throw ApiError.notFound('Conversation not found')
-  const body = await readJson<{ title?: unknown, pinned?: unknown, starred?: unknown, archived?: unknown, folderId?: unknown, projectId?: unknown }>(c, JSON_BODY_LIMITS.small)
+  const body = await readJson<{ title?: unknown, pinned?: unknown, starred?: unknown, archived?: unknown, folderId?: unknown, projectId?: unknown, noteId?: unknown }>(c, JSON_BODY_LIMITS.small)
   if (typeof body.title === 'string') await s.renameConversation(id, text(body.title, MAX_CONVERSATION_TITLE_CHARS))
   if (typeof body.pinned === 'boolean') await s.setConversationPinned(id, body.pinned)
   if (typeof body.starred === 'boolean') await s.setConversationStarred(id, body.starred)
@@ -911,6 +1034,12 @@ assistantRoutes.patch('/conversations/:id', async (c) => {
   else if (typeof body.folderId === 'string') {
     if (!isValidId(body.folderId) || !(await s.knownFolder(body.folderId))) throw ApiError.badRequest('Unknown folder.')
     await s.setConversationFolder(id, body.folderId)
+  }
+  // Where the thread came from. Only a note this account owns can be named, and the store keeps the
+  // first answer, so a later turn cannot re-label a conversation under the reader.
+  if (typeof body.noteId === 'string' && isValidId(body.noteId)) {
+    if (!(await s.knownNote(body.noteId))) throw ApiError.badRequest('Unknown note.')
+    await s.setConversationNote(id, body.noteId)
   }
   // Null is a real answer — the conversation leaves the project — and an unknown id is refused rather
   // than kept, so a conversation cannot go on inheriting instructions nobody can edit.
@@ -1023,15 +1152,39 @@ assistantRoutes.delete('/conversations/:id', async (c) => {
   const s = store(c)
   const id = requiredId(c.req.param('id'))
   if (!(await s.getConversation(id))) throw ApiError.notFound('Conversation not found')
+  // The files are read out before the turns that name them are deleted: afterwards there is nothing
+  // left to say which objects belonged to this thread, and the bytes would be storage nobody can reach.
+  const attachmentIds = await s.conversationAttachmentIds(id)
+  const files = await s.chatAttachmentRows(attachmentIds)
   await s.releaseRun(id)
   await s.deleteConversation(id)
+  await s.deleteChatAttachments(attachmentIds)
+  for (const file of files) {
+    try {
+      await deleteChatObject(c.env, file.key)
+    } catch {
+      // Best-effort: the row is already gone, so a failed object delete leaves bytes that no surface can
+      // reach rather than a thread that half-disappeared. The hourly sweep is the second chance.
+    }
+  }
   return c.json({ deleted: true })
 })
 
 assistantRoutes.delete('/conversations', async (c) => {
   const body = await readJson<{ confirm?: string }>(c, JSON_BODY_LIMITS.small)
   if (body.confirm !== 'DELETE') throw ApiError.badRequest('Type DELETE to confirm.')
-  return c.json({ deleted: await store(c).deleteAllConversations() })
+  const s = store(c)
+  const files = await s.allChatAttachments()
+  const deleted = await s.deleteAllConversations()
+  await s.deleteChatAttachments(files.map((file) => file.id))
+  for (const file of files) {
+    try {
+      await deleteChatObject(c.env, file.key)
+    } catch {
+      // Best-effort, for the same reason as the single-conversation delete above.
+    }
+  }
+  return c.json({ deleted })
 })
 
 // ----------------------------------------------------------------------- chat
@@ -1073,7 +1226,7 @@ function pinnedScopes(value: unknown): AssistantTurnScope[] {
  * closed tab does not keep spending the account's AI budget on an answer nobody is reading.
  */
 assistantRoutes.post('/chat', async (c) => {
-  const body = await readJson<{ conversationId?: unknown, message?: string, retry?: boolean, attachments?: unknown, tools?: unknown, scopes?: unknown, webSearch?: unknown, contextNoteId?: unknown, contextFolderId?: unknown, ephemeral?: unknown }>(c, 64 * 1024)
+  const body = await readJson<{ conversationId?: unknown, message?: string, retry?: boolean, messageId?: unknown, continue?: unknown, attachments?: unknown, tools?: unknown, scopes?: unknown, webSearch?: unknown, contextNoteId?: unknown, contextFolderId?: unknown, noteId?: unknown, ephemeral?: unknown }>(c, 64 * 1024)
   const s = store(c)
   const settings = await s.getSettings()
   const conversationId = body.conversationId === undefined || body.conversationId === null
@@ -1156,11 +1309,18 @@ assistantRoutes.post('/chat', async (c) => {
         // account before either reaches the skill — a caller cannot name someone else's note.
         ...(typeof body.contextNoteId === 'string' && isValidId(body.contextNoteId) ? { contextNoteId: body.contextNoteId } : {}),
         ...(typeof body.contextFolderId === 'string' && isValidId(body.contextFolderId) ? { contextFolderId: body.contextFolderId } : {}),
+        // The note the thread began beside, recorded on the conversation rather than on the turn.
+        ...(typeof body.noteId === 'string' && isValidId(body.noteId) && await s.knownNote(body.noteId) ? { originNoteId: body.noteId } : {}),
         webSearch: body.webSearch === true,
         // Only read when the turn makes its own conversation; the runner says why a later turn cannot
         // change the kind of thread it is already in.
         ephemeral: body.ephemeral === true,
         retry: body.retry === true,
+        // Only a retry reads this: which answer to ask again, when it is not the newest one.
+        ...(body.retry === true && typeof body.messageId === 'string' && isValidId(body.messageId) ? { retryFromMessageId: body.messageId } : {}),
+        // Resume the last answer instead of asking anything new. Never with a retry: one replaces the
+        // turn, the other extends it.
+        ...(body.continue === true && body.retry !== true ? { continueTurn: true } : {}),
         signal: controller.signal,
         readerGone: () => readerGone,
       })) {

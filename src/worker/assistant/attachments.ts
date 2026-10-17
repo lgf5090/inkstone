@@ -58,6 +58,14 @@ export async function expandChatAttachments(
   ids: readonly string[],
   vision: boolean,
   modalities: readonly AssistantModelModality[] = [],
+  /**
+   * Whether a picture's bytes travel with this call.
+   *
+   * False for a turn far enough back that re-sending its images would cost more than the answer: the
+   * file is still named, so the model knows the reader attached one, and the transcript never claims a
+   * picture was shown that was not.
+   */
+  includeImages = true,
 ): Promise<AttachmentPayload> {
   if (!ids.length) return { block: '', images: [] }
   const rows = await store.chatAttachments(ids)
@@ -89,6 +97,12 @@ export async function expandChatAttachments(
     if (row.kind === 'image') {
       if (!vision) {
         lines.push(`${header} (the reader can see this picture; this model is not marked as able to)`)
+        continue
+      }
+      if (!includeImages) {
+        // Older than the image window. Saying so is the honest line: the file was attached, and the
+        // model is told it is there without being handed megabytes of base64 for a turn already read.
+        lines.push(`${header} (an earlier picture; not re-sent with this turn)`)
         continue
       }
       const bytes = await readChatObject(env, row.key)

@@ -164,6 +164,10 @@ export async function importAssistant(store: AssistantStore, raw: Record<string,
         : null,
       // The project the thread answers under, when the file carried the project itself.
       project_id: projectId && knownProjects.has(projectId) ? projectId : null,
+      // The note the thread was started from. Kept as it is rather than checked against the vault: the
+      // note is the reader's own and the backup does not carry notes, so a missing one is a chip with
+      // nothing to open — not a reason to make every restored thread forget its origin.
+      note_id: typeof conversation.note_id === 'string' && conversation.note_id !== '' ? conversation.note_id : null,
       created_at: numberValue(conversation.created_at, Date.now()),
       updated_at: updatedAt,
     }

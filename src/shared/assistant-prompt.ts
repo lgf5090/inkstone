@@ -56,6 +56,10 @@ export interface SystemPromptContext {
   /** The folder the notebook was filtered to, named as a path. */
   browsingFolder?: string | null
   scheduled?: boolean
+  /** This turn resumes an answer that was cut off, so the model is told to pick it up mid-sentence. */
+  continuing?: boolean
+  /** The reader's own standing instructions, appended after the built-in rules. */
+  customInstructions?: string | null
 }
 
 export function buildSystemPrompt(context: SystemPromptContext): string {
@@ -64,6 +68,11 @@ export function buildSystemPrompt(context: SystemPromptContext): string {
     fill(catalog.identity, { name: context.agentName }),
     catalog.personality,
     `${catalog.rules}\n${context.autoMemory ? catalog.rule_auto_memory : catalog.rule_explicit_memory}`,
+    // The reader's own rules come after the built-in ones and before anything about this turn: they are
+    // the house style, not a way to grant the assistant powers the rules above withheld.
+    context.customInstructions?.trim()
+      ? fill(catalog.custom_instructions, { instructions: context.customInstructions.trim() })
+      : '',
     fill(catalog.clock, { when: context.localTime, timezone: context.timezone }),
     context.noteScope.length
       ? fill(catalog.note_scope_folders, { folders: (context.noteScopeLabels?.length ? context.noteScopeLabels : context.noteScope).join(', ') })
@@ -115,6 +124,7 @@ export function buildSystemPrompt(context: SystemPromptContext): string {
     sections.push(fill(catalog.summary, { summary: context.conversationSummary }))
   }
   if (context.scheduled) sections.push(catalog.scheduled_run)
+  if (context.continuing) sections.push(catalog.continuing)
   return sections.join('\n\n')
 }
 

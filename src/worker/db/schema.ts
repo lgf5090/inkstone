@@ -1403,6 +1403,15 @@ export const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
       `ALTER TABLE chat_conversations ADD COLUMN parent_id TEXT`,
     ],
   },
+  {
+    // The note a conversation was started from. Null for one that was not started from a note, and for
+    // every thread written before this column existed — a guessed origin is worse than none.
+    version: 90,
+    skipIfColumnExists: { table: 'chat_conversations', column: 'note_id' },
+    statements: [
+      `ALTER TABLE chat_conversations ADD COLUMN note_id TEXT`,
+    ],
+  },
 ]
 
 const FTS_STATEMENT = `CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(

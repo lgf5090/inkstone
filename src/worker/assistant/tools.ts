@@ -46,6 +46,8 @@ import { saveChatUpload } from './chat-files'
 import { generateImage, IMAGE_SIZES } from './image-generation'
 import { runSandboxedCode } from './code-sandbox'
 import { modelEndpoint } from './model-config'
+import { assertRelayableEndpoint } from '@shared/ai-proxy-guard'
+import { NO_REDIRECT, isRedirectResponse } from '../lib/no-redirect'
 
 export type FieldKind = 'string' | 'number' | 'integer' | 'boolean' | 'object'
 
@@ -948,6 +950,103 @@ export const CODE_TOOLS: ToolDefinition[] = [
   }),
 ]
 
+/** How much of a page is kept: enough for an article, small enough to sit in one turn's budget. */
+const FETCH_URL_MAX_BYTES = 512 * 1024
+const FETCH_URL_MAX_CHARS = 24_000
+
+/** The handful of entities a page actually uses, plus the numeric form for the rest. */
+function decodeEntities(text: string): string {
+  return text
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/&amp;/gi, '&')
+    .replace(/&lt;/gi, '<')
+    .replace(/&gt;/gi, '>')
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;|&apos;/gi, "'")
+    .replace(/&#(\d{1,6});/g, (_, code: string) => String.fromCodePoint(Number(code)))
+}
+
+/**
+ * The words of a page, without its markup.
+ *
+ * Deliberately not a parser: what the model needs is the text and where it came from, and a dependency
+ * for that would be a dependency for every turn. Scripts, styles and comments are dropped whole — their
+ * contents are not prose and would otherwise arrive as the bulk of the answer — and block ends become
+ * newlines so paragraphs survive.
+ */
+function readableText(html: string): { title: string, text: string } {
+  const title = decodeEntities(/<title[^>]*>([\s\S]*?)<\/title>/i.exec(html)?.[1]?.trim() ?? '')
+  const body = html
+    .replace(/<script[\s\S]*?<\/script>/gi, ' ')
+    .replace(/<style[\s\S]*?<\/style>/gi, ' ')
+    .replace(/<noscript[\s\S]*?<\/noscript>/gi, ' ')
+    .replace(/<!--[\s\S]*?-->/g, ' ')
+    .replace(/<\/(?:p|div|section|article|li|h[1-6]|tr|blockquote|pre)>/gi, '\n')
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<[^>]+>/g, ' ')
+  return {
+    title: title.slice(0, 200),
+    text: decodeEntities(body).replace(/[ \t]+/g, ' ').replace(/\n{3,}/g, '\n\n').trim(),
+  }
+}
+
+export const WEB_TOOLS: ToolDefinition[] = [
+  tool({
+    name: 'fetch_url',
+    permission: 'read',
+    // Three is enough to read a page and the two it points at; past that a model is wandering.
+    maxCallsPerTurn: 3,
+    description: 'Read one public web page and return its text. Use it when the reader gives a link, or when an answer needs what a page actually says rather than what you remember about it. It cannot log in, follow a redirect, or reach a private address.',
+    fields: {
+      url: {
+        type: 'string',
+        minLength: 8,
+        maxLength: 2048,
+        description: 'An absolute https URL of a public page.',
+      },
+    },
+    async run(args) {
+      let target: URL
+      try {
+        target = assertRelayableEndpoint(String(args.url))
+      } catch {
+        throw new ToolError('Only a public http(s) URL can be read.')
+      }
+      // https only: a plain-http page can be rewritten in transit, and the model has no way to tell.
+      if (target.protocol !== 'https:') throw new ToolError('Only an https URL can be read.')
+      let response: Response
+      try {
+        response = await fetch(target.toString(), {
+          redirect: NO_REDIRECT,
+          headers: { 'user-agent': 'Inkstone-Chat/1.0', accept: 'text/html,text/plain,application/json' },
+        })
+      } catch {
+        throw new ToolError('That URL could not be reached.')
+      }
+      // A redirect is how a public address becomes a private one; the fetch refuses to follow, and the
+      // model is told so rather than handed the redirect target as if it had read it.
+      if (isRedirectResponse(response)) throw new ToolError('That URL redirects, which this tool does not follow.')
+      if (!response.ok) throw new ToolError(`That URL returned ${response.status}.`)
+      const mime = (response.headers.get('content-type') ?? '').split(';')[0]!.trim().toLowerCase()
+      if (!/^(?:text\/|application\/(?:json|xml|xhtml\+xml))/.test(mime)) {
+        throw new ToolError(`That URL is ${mime || 'an unknown type'}, which is not a page this tool can read.`)
+      }
+      const declared = Number(response.headers.get('content-length') ?? 0)
+      if (declared > FETCH_URL_MAX_BYTES) throw new ToolError('That page is too large to read in one turn.')
+      const bytes = new Uint8Array(await response.arrayBuffer())
+      if (bytes.byteLength > FETCH_URL_MAX_BYTES) throw new ToolError('That page is too large to read in one turn.')
+      const raw = new TextDecoder().decode(bytes)
+      const page = /html|xml/.test(mime) ? readableText(raw) : { title: '', text: raw.trim() }
+      return {
+        url: target.toString(),
+        title: page.title,
+        text: page.text.slice(0, FETCH_URL_MAX_CHARS),
+        ...(page.text.length > FETCH_URL_MAX_CHARS ? { truncated: true } : {}),
+      }
+    },
+  }),
+]
+
 export const ALL_TOOLS: ToolDefinition[] = [
   ...TASK_TOOLS,
   ...MEMORY_TOOLS,
@@ -957,6 +1056,7 @@ export const ALL_TOOLS: ToolDefinition[] = [
   ...SEARCH_TOOLS,
   ...IMAGE_TOOLS,
   ...CODE_TOOLS,
+  ...WEB_TOOLS,
 ]
 
 const TOOL_BY_NAME = new Map(ALL_TOOLS.map((definition) => [definition.name, definition]))

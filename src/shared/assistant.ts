@@ -73,6 +73,8 @@ export const MAX_TASK_TITLE_CHARS = 300
 export const MAX_TASK_NOTES_CHARS = 10_000
 export const MAX_AUTOMATION_MESSAGE_CHARS = 4_000
 export const MAX_CONVERSATION_TITLE_CHARS = 200
+/** How much standing instruction the prompt will carry: enough for a page, short enough to stay a rule. */
+export const MAX_CUSTOM_INSTRUCTIONS_CHARS = 2_000
 
 /**
  * How long a temporary conversation is kept before the sweep deletes it.
@@ -509,6 +511,20 @@ export interface AssistantSettings {
   /** Folders the assistant may read notes from; empty means the whole vault. */
   noteScope: string[]
   sendOnEnter: boolean
+  /**
+   * Standing instructions the reader wants every answer to follow.
+   *
+   * Sent as its own section of the system prompt, after the built-in rules and before anything about the
+   * turn — so it is the reader's voice, not a way to overwrite what the assistant is allowed to do.
+   */
+  customInstructions: string
+  /**
+   * Let the assistant choose which of the reader's models answers each turn.
+   *
+   * Off by default: a reader who picked a model expects that model, and a switch that silently changed
+   * the voice would be the kind of setting nobody reads until it surprises them.
+   */
+  autoRoute: boolean
 }
 
 export const ASSISTANT_START_VIEWS = ['chat', 'memory', 'tasks', 'automations', 'settings'] as const
@@ -530,6 +546,8 @@ export const DEFAULT_ASSISTANT_SETTINGS: AssistantSettings = {
   startView: 'chat',
   noteScope: [],
   sendOnEnter: true,
+  customInstructions: '',
+  autoRoute: false,
 }
 
 function record(value: unknown): Record<string, unknown> {
@@ -637,6 +655,8 @@ export function normalizeAssistantSettings(value: unknown): AssistantSettings {
     startView,
     noteScope: stringList(raw.noteScope, 12, 26),
     sendOnEnter: booleanValue(raw.sendOnEnter, DEFAULT_ASSISTANT_SETTINGS.sendOnEnter),
+    customInstructions: stringValue(raw.customInstructions, DEFAULT_ASSISTANT_SETTINGS.customInstructions, MAX_CUSTOM_INSTRUCTIONS_CHARS),
+    autoRoute: booleanValue(raw.autoRoute, DEFAULT_ASSISTANT_SETTINGS.autoRoute),
   }
 }
 
@@ -882,6 +902,13 @@ export interface AssistantConversation {
   folderId: string | null
   /** The project this conversation belongs to, whose instructions and knowledge it inherits. */
   projectId?: string | null
+  /**
+   * The note this thread was started from.
+   *
+   * A label, like the parent id: it is what lets the thread say where it came from when the reader comes
+   * back to it, and what makes a search for a note's words find the conversations about it.
+   */
+  noteId?: string | null
   createdAt: number
   updatedAt: number
   messageCount: number
@@ -890,7 +917,43 @@ export interface AssistantConversation {
   /** Rolling summary of the messages that no longer fit the context window. */
   summary?: string | null
   summaryUpto?: number | null
+  /**
+   * The first message that matched a list search, with a short excerpt around the hit.
+   *
+   * Only a search fills this in. It is what turns "this thread contains the word" into a row the reader
+   * can judge without opening it, and what the click scrolls to once the thread is open.
+   */
+  match?: { messageId: string, snippet: string } | null
 }
+
+/**
+ * The protocols with a vendor-side web search that can simply be asked for.
+ *
+ * Everywhere else the switch can only work by pinning a search-capable tool from the reader's own MCP
+ * servers, which is why the composer asks before it offers the switch at all.
+ */
+export const SEARCH_NATIVE_PROTOCOLS: ReadonlySet<string> = new Set(['anthropic', 'gemini'])
+
+/** Whether a tool name looks like something that can search the web, the same test the runner applies. */
+export function looksLikeSearchTool(name: string): boolean {
+  return /search|query|web|browse/i.test(name)
+}
+
+/**
+ * How many conversations one page of the sidebar carries.
+ *
+ * A page rather than everything: the list is walked from the top, and a reader with a thousand threads
+ * should not pay for all of them to see the ten they came back to. The next page is asked for by cursor.
+ */
+export const CONVERSATION_PAGE_SIZE = 30
+
+/**
+ * How many messages one page of a thread carries.
+ *
+ * The newest page is what opening a conversation costs; older turns arrive when the reader scrolls to
+ * the top and asks for them.
+ */
+export const MESSAGE_PAGE_SIZE = 60
 
 /**
  * A working draft kept beside a conversation.
@@ -1397,6 +1460,7 @@ export const ASSISTANT_TOOL_SPECS: readonly AssistantToolSpec[] = [
   { name: 'notify_reader', labelKey: 'assistant.tool.notify_reader', permission: 'write' },
   { name: 'image_generate', labelKey: 'assistant.tool.image_generate', permission: 'write' },
   { name: 'code_execute', labelKey: 'assistant.tool.code_execute', permission: 'write' },
+  { name: 'fetch_url', labelKey: 'assistant.tool.fetch_url', permission: 'read' },
 ]
 
 /** A page the model actually consulted, as the vendor reported it. */
@@ -1914,7 +1978,7 @@ export function normalizeModelId(value: unknown): string {
 }
 
 export interface ChatStreamEvent {
-  type: 'start' | 'text' | 'reasoning' | 'tool' | 'title' | 'stage' | 'usage' | 'error' | 'done' | 'mcp_problem'
+  type: 'start' | 'text' | 'reasoning' | 'tool' | 'title' | 'stage' | 'usage' | 'error' | 'done' | 'mcp_problem' | 'notice'
   conversationId?: string
   userMessageId?: string
   assistantMessageId?: string
@@ -1925,6 +1989,12 @@ export interface ChatStreamEvent {
   usage?: { inputTokens: number, outputTokens: number }
   /** For `mcp_problem`: which external server failed to list, and why. */
   server?: string
+  /**
+   * For `notice`: something the reader asked for that this turn cannot do.
+   *
+   * A code rather than a sentence, because the sentence is interface copy and lives in the catalog.
+   */
+  notice?: 'web_search_unavailable'
   /**
    * For `start`: the token of the run lease this turn took, so the route can release only its own claim.
    *

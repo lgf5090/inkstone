@@ -55,8 +55,13 @@ export interface ResolvedModel {
   reason: 'ok' | 'no_model' | 'no_provider'
 }
 
-export async function loadModelAndProvider(store: AssistantStore, settings: AssistantSettings): Promise<ResolvedModel> {
-  const activeId = settings.activeModelId
+export async function loadModelAndProvider(
+  store: AssistantStore,
+  settings: AssistantSettings,
+  /** A model chosen for this turn, when automatic routing picked one instead of the reader's own. */
+  overrideModelId?: string | null,
+): Promise<ResolvedModel> {
+  const activeId = overrideModelId ?? settings.activeModelId
   if (!activeId) return { model: null, provider: null, reason: 'no_model' }
   const model = await store.getModel(activeId)
   if (!model || !model.enabled) return { model: null, provider: null, reason: 'no_model' }
