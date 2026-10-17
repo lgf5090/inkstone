@@ -24,9 +24,10 @@ const startBootScript = (): BootRecovery => {
   return (window as unknown as { __inkstoneBoot: BootRecovery }).__inkstoneBoot
 }
 
-const failScriptLoad = (): void => {
+const failScriptLoad = (src?: string): void => {
   const script = document.createElement('script')
   script.type = 'module'
+  if (src) script.src = src
   document.head.appendChild(script)
   script.dispatchEvent(new Event('error'))
 }
@@ -139,6 +140,47 @@ it('answers a module script that never loads before the app is up', () => {
 
   failScriptLoad()
   expect(reload).toHaveBeenCalled()
+})
+
+it('answers a chunk of this deployment that is named but gone', () => {
+  document.body.innerHTML = '<div id="boot"></div>'
+  const reload = vi.fn()
+  vi.stubGlobal('location', { reload })
+  startBootScript()
+
+  failScriptLoad('/assets/index-DEADBEEF.js')
+  expect(reload).toHaveBeenCalledTimes(1)
+})
+
+it('keeps a script the deployment did not emit out of the start-up decision', () => {
+  document.body.innerHTML = '<div id="boot"></div>'
+  const reload = vi.fn()
+  vi.stubGlobal('location', { reload })
+  startBootScript()
+
+  // The shape Cloudflare's analytics beacon takes: appended at the edge, refused by this page's CSP.
+  failScriptLoad('https://static.cloudflareinsights.com/beacon.min.js/vce701823e78c4301a35b7e')
+  expect(reload).not.toHaveBeenCalled()
+  expect(document.querySelector('#boot .boot-failure')).toBeNull()
+  expect(sessionStorage.getItem('inkstone.boot-recovery')).toBeNull()
+})
+
+it('spends a fresh guard on the reload the visitor asked for', () => {
+  document.body.innerHTML = '<div id="boot" aria-hidden="true"></div>'
+  const reload = vi.fn()
+  vi.stubGlobal('location', { reload })
+  const recovery = startBootScript()
+
+  recovery.fail()
+  recovery.fail()
+  expect(reload).toHaveBeenCalledTimes(1)
+  const action = document.querySelector<HTMLButtonElement>('.boot-failure-action')!
+  action.dispatchEvent(new Event('click'))
+
+  expect(sessionStorage.getItem('inkstone.boot-recovery')).toBeNull()
+  expect(reload).toHaveBeenCalledTimes(2)
+  recovery.fail()
+  expect(reload).toHaveBeenCalledTimes(3)
 })
 
 it('leaves a script that fails after the app booted to the feature that loaded it', () => {

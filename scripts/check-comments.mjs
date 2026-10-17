@@ -19255,6 +19255,7 @@ const allowed = new Map([
   ]],
   ["tests/boot-scripts.test.ts", [
     "// Declared with the two arguments `fetch` is called with, so reading the call's `init` is checked.",
+    "// The shape Cloudflare's analytics beacon takes: appended at the edge, refused by this page's CSP.",
   ]],
   ["tests/chat-native-controls.test.ts", [
     "/**\n * The chat surfaces are the newest in the app, and the cheapest way to build a form there is to reach\n * for the browser's own control — a `datetime-local` box or a file button that no other screen in this\n * product uses, drawn in the operating system's style. Every date, clock and file field in the chat is\n * instead the app's own picker, so these rules are what keeps an OS widget from creeping back in one\n * convenient commit at a time.\n */",

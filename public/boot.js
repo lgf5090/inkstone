@@ -62,6 +62,32 @@
   }
   var booted = false
   var installed = Boolean(window.__inkstoneBoot)
+  // The origin this document's own files come from, resolved once for the handler below to compare
+  // a failing script against.
+  var appOrigin = (function () {
+    try {
+      return new URL(document.baseURI).origin
+    } catch (e) {
+      return null
+    }
+  })()
+
+  // A script this deployment did not emit cannot be fetched back by reloading this document, so its
+  // failure is not a start-up failure. The class is anything from another origin: the analytics
+  // beacon Cloudflare's edge appends to the HTML, a browser extension's file, something a proxy
+  // injected. Each fires a script `error` on its own element exactly the way a chunk the server no
+  // longer has does, and read as a missing chunk it spent the reload guard before the app had a
+  // chance to boot — the load after it was answered with "this page came from an older version", a
+  // message no reload, soft or hard, could satisfy, because nothing was stale.
+  function isAppScript(src) {
+    // A script element with no `src` never fetches, so it can only be one the app itself wrote.
+    if (!src) return true
+    try {
+      return new URL(src, document.baseURI).origin === appOrigin
+    } catch (e) {
+      return false
+    }
+  }
 
   // A browser that refuses session storage cannot prove it has not already reloaded, so it is
   // answered with the message rather than a loop it cannot remember having started.
@@ -113,6 +139,10 @@
     action.className = 'boot-failure-action'
     action.textContent = copy.action
     action.addEventListener('click', function () {
+      // The guard exists to stop this page from reloading itself in a loop. A click is the visitor
+      // asking for a real second try, so it has to be answered with one: left spent, the reload
+      // landed straight back on this panel and the button could never do the thing it promises.
+      setRecoveryAttempted(false)
       location.reload()
     })
     panel.appendChild(title)
@@ -154,6 +184,7 @@
     window.addEventListener('error', function (event) {
       var target = event.target
       if (!target || target.tagName !== 'SCRIPT') return
+      if (!isAppScript(target.src)) return
       var recovery = window.__inkstoneBoot
       if (!recovery || recovery.booted()) return
       recovery.fail()
