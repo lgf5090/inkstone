@@ -399,6 +399,8 @@ describe('folder row menu', () => {
             t('folders.group_archive'),
             t('linter.command.lint_this_folder'),
             t('linter.command.ignore_folder'),
+            t('assistant.scope.about_folder'),
+            t('assistant.folder_summary.command'),
             t('sidebar.delete_folder'),
         ]);
     });
@@ -421,6 +423,8 @@ describe('folder row menu', () => {
                 t('folders.move_to'),
                 t('folders.group_arrange'),
                 t('folders.group_archive'),
+                t('assistant.scope.about_folder'),
+                t('assistant.folder_summary.command'),
                 t('sidebar.delete_folder'),
             ]);
         }
