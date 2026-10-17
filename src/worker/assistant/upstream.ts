@@ -180,6 +180,14 @@ export interface UpstreamRetry {
   baseMs?: number
   /** The key for the next attempt. Absent leaves the same key on the wire. */
   rotateKey?: () => Promise<string>
+  /**
+   * Told about each attempt that failed, before anything is decided about retrying.
+   *
+   * The caller is the only one that knows which of the reader's keys was on the wire — the request carries
+   * a key, not a row id — and "which key is broken" is a thing the settings screen has to be able to say.
+   * Awaited, so a key that failed twice in one turn is counted twice rather than once.
+   */
+  onAttemptFailed?: (error: UpstreamError, apiKey: string) => void | Promise<void>
 }
 
 export class UpstreamError extends Error {
@@ -233,6 +241,9 @@ export async function* streamUpstream(
       }
       return
     } catch (error) {
+      // Every failed attempt is reported, including one that will not be retried: a key that is refused
+      // once is still the key that was refused, and the retry path is where that is still known.
+      if (error instanceof UpstreamError) await request.retry?.onAttemptFailed?.(error, apiKey)
       if (produced || attempt >= attempts || !retryable(error)) throw error
       const next = await nextAttemptKey(error, request.retry, apiKey)
       // Null is "no other key to try", which is what a rejection naming the key itself comes to when the

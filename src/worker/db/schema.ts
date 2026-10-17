@@ -1412,6 +1412,17 @@ export const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
       `ALTER TABLE chat_conversations ADD COLUMN note_id TEXT`,
     ],
   },
+  {
+    // What a turn was allowed to read. The scope is chosen per turn and used to be gone the moment the
+    // answer landed, so a reader coming back could not tell why an answer only knew one note — the
+    // transcript now says it. Defaulted rather than nullable: an unscoped turn is an empty list, which is
+    // also what every row written before this column means.
+    version: 91,
+    skipIfColumnExists: { table: 'chat_messages', column: 'scopes' },
+    statements: [
+      `ALTER TABLE chat_messages ADD COLUMN scopes TEXT NOT NULL DEFAULT '[]'`,
+    ],
+  },
 ]
 
 const FTS_STATEMENT = `CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(

@@ -5917,6 +5917,7 @@ console.log(\`Hello, \${name}!\`)
     "assistant.chat.pick_delete_hint": "将永久删除 {count} 个对话及其消息，无法恢复。",
     "assistant.chat.untitled": "新对话",
     "assistant.chat.from_note": "来自笔记",
+    "assistant.chat.scoped_to": "限定在",
     "assistant.chat.options": "「{title}」的选项",
     "assistant.chat.pin": "置顶",
     "assistant.chat.unpin": "取消置顶",

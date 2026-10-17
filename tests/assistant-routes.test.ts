@@ -959,6 +959,34 @@ describe('providers', () => {
     const after = await call<{ settings: AssistantSettings }>('GET', '/api/assistant/settings')
     expect(after.settings.activeModelId).toBeNull()
   })
+
+  it('records which of several keys was refused, so the screen can point at the broken one', async () => {
+    const created = await call<{ provider: AssistantProvider }>('POST', '/api/assistant/providers', {
+      label: 'Ring',
+      protocol: 'openai',
+      baseUrl: 'https://api.example.com',
+      models: ['example-model'],
+    })
+    const added = await call<{ key: { id: string } }>(
+      'POST', `/api/assistant/providers/${created.provider.id}/keys`, { apiKey: 'sk-ring-key-1111', label: 'main' },
+    )
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(
+      JSON.stringify({ error: { message: 'bad key' } }),
+      { status: 401, headers: { 'content-type': 'application/json' } },
+    )))
+    const events = await chatEvents({ message: 'hello' })
+    await settleTurns()
+    vi.unstubAllGlobals()
+    expect(events.some((event) => event.type === 'error')).toBe(true)
+    // The refusal is written onto the key that was on the wire, not onto the provider: with a ring of
+    // several, "which one is broken" is the question the settings screen has to answer.
+    const keys = await call<{ keys: { id: string, errorCount: number, lastError: string | null }[] }>(
+      'GET', `/api/assistant/providers/${created.provider.id}/keys`,
+    )
+    const refused = keys.keys.find((entry) => entry.id === added.key.id)
+    expect(refused?.errorCount).toBe(1)
+    expect(refused?.lastError).toContain('auth')
+  })
 })
 
 describe('the vendor’s own model list', () => {
@@ -2838,18 +2866,26 @@ describe('skill library', () => {
       scopes: [
         { kind: 'folder', id: FOLDER_A, name: '工作' },
         { kind: 'tag', id: 'no such id', name: 'x' },
-        { kind: 'note', id: FOLDER_B, name: 'y' },
+        { kind: 'note', id: FOLDER_B, name: '周记' },
       ],
       modelId: models.models[0]!.id,
     })
     // A tool the assistant cannot call and a scope with no real id are not things the reader asked for:
     // they name a reach the turn does not have, so both are dropped rather than saved to be trusted later.
     expect(created.skill.tools).toEqual(['search_notes', 'list_tasks'])
-    expect(created.skill.scopes).toEqual([{ kind: 'folder', id: FOLDER_A, name: '工作' }])
+    // A note is a pin like the composer's own chips: the reader pointing at one page, which the runner
+    // re-reads against this account before any tool sees it.
+    expect(created.skill.scopes).toEqual([
+      { kind: 'folder', id: FOLDER_A, name: '工作' },
+      { kind: 'note', id: FOLDER_B, name: '周记' },
+    ])
     expect(created.skill.modelId).toBe(models.models[0]!.id)
     expect((await call<{ skills: AssistantSkill[] }>('GET', '/api/assistant/skills')).skills[0]).toMatchObject({
       tools: ['search_notes', 'list_tasks'],
-      scopes: [{ kind: 'folder', id: FOLDER_A, name: '工作' }],
+      scopes: [
+        { kind: 'folder', id: FOLDER_A, name: '工作' },
+        { kind: 'note', id: FOLDER_B, name: '周记' },
+      ],
       modelId: models.models[0]!.id,
     })
     // Another account's model is refused at the save, not remembered as a preference to fail on later.
@@ -4333,6 +4369,20 @@ describe('paged lists and threads', () => {
     expect(reread.conversation.noteId).toBe(noteId(2))
     // A note this account does not own cannot be named.
     expect(await status('PATCH', `/api/assistant/conversations/${created.conversation.id}`, { noteId: noteId(3) })).toBe(400)
+  })
+
+  it('keeps the scope a turn was asked under, so a thread read later still says what it could see', async () => {
+    await call('PATCH', '/api/assistant/settings', { offlineMode: true })
+    const events = await chatEvents({
+      message: 'what is in this note?',
+      scopes: [{ kind: 'note', id: noteId(4), name: 'A scoped note' }],
+    })
+    const conversationId = events.find((event) => event.type === 'start')!.conversationId!
+    const detail = await call<{ messages: { role: string, scopes?: unknown }[] }>(
+      'GET', `/api/assistant/conversations/${conversationId}`,
+    )
+    const asked = detail.messages.find((message) => message.role === 'user')
+    expect(asked?.scopes).toEqual([{ kind: 'note', id: noteId(4), name: 'A scoped note' }])
   })
 
   it('takes the files of a deleted conversation with it', async () => {

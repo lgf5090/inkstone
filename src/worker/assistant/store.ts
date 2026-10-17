@@ -9,7 +9,7 @@
  *    written by an older build, restored from a backup file, or edited by hand — stored text is input.
  */
 
-import { ASSISTANT_MODEL_KINDS, ASSISTANT_MODEL_PURPOSES, clipToolPayload, parseCustomParams, isNoteSourceId, isSourceUrl } from '@shared/assistant'
+import { ASSISTANT_MODEL_KINDS, ASSISTANT_MODEL_PURPOSES, MAX_TURN_SCOPES, clipToolPayload, parseCustomParams, isNoteSourceId, isSourceUrl } from '@shared/assistant'
 import type {
   AssistantArtifact,
   AssistantConversation,
@@ -356,6 +356,27 @@ export function decodeSources(value: unknown): AssistantSource[] {
   return out.slice(0, 20)
 }
 
+/**
+ * What a turn was allowed to read, as it was stored with the reader's own words.
+ *
+ * Forgiving in the same way as the rest of a transcript row: an older row has no scopes, and a name this
+ * build cannot recognise is dropped rather than failing the thread. The name is capped because it is a
+ * label in a chip, not a copy of the note.
+ */
+export function decodeScopes(value: unknown): AssistantTurnScope[] {
+  const parsed = parseJson(value)
+  if (!Array.isArray(parsed)) return []
+  const out: AssistantTurnScope[] = []
+  for (const entry of parsed) {
+    if (!entry || typeof entry !== 'object') continue
+    const raw = entry as Record<string, unknown>
+    if (raw.kind !== 'tag' && raw.kind !== 'folder' && raw.kind !== 'note') continue
+    if (typeof raw.id !== 'string' || !raw.id || typeof raw.name !== 'string') continue
+    out.push({ kind: raw.kind, id: raw.id.slice(0, 64), name: raw.name.slice(0, 200) })
+  }
+  return out.slice(0, MAX_TURN_SCOPES)
+}
+
 export function decodeTools(value: unknown): ToolActivity[] {
   const parsed = parseJson(value)
   if (!Array.isArray(parsed)) return []
@@ -396,12 +417,13 @@ interface MessageRow {
   reasoning: string | null
   feedback: string | null
   sources: string | null
+  scopes: string | null
   created_at: number
   version_count?: number | null
 }
 
 const MESSAGE_COLUMNS
-  = `id, conversation_id, role, content, reasoning, tools, attachments, status, error, source, input_tokens, output_tokens, duration_ms, model_label, feedback, sources, created_at`
+  = `id, conversation_id, role, content, reasoning, tools, attachments, status, error, source, input_tokens, output_tokens, duration_ms, model_label, feedback, sources, scopes, created_at`
 /** How many answers this turn has already displaced; only the transcript list pays for it. */
 const MESSAGE_VERSION_COUNT
   = `(SELECT COUNT(*) FROM chat_answer_versions v WHERE v.user_id = chat_messages.user_id AND v.message_id = chat_messages.id) AS version_count`
@@ -431,6 +453,7 @@ function toMessage(r: MessageRow): AssistantMessage {
     modelLabel: r.model_label ?? '',
     ...(r.feedback === 'up' || r.feedback === 'down' ? { feedback: r.feedback } : {}),
     ...(r.sources ? { sources: decodeSources(r.sources) } : {}),
+    ...(r.scopes ? { scopes: decodeScopes(r.scopes) } : {}),
     versionCount: r.version_count ?? undefined,
   }
 }
@@ -2116,6 +2139,8 @@ export class AssistantStore {
     modelLabel?: string
     source?: 'chat' | 'import'
     sources?: AssistantSource[]
+    /** What this turn was allowed to read, kept so the transcript can say why an answer knew so little. */
+    scopes?: AssistantTurnScope[]
     createdAt?: number
   }): Promise<AssistantMessage> {
     const id = input.id ?? newId()
@@ -2132,11 +2157,12 @@ export class AssistantStore {
     const reasoning = clipReasoning(input.reasoning ?? '')
     await this.write(
       `INSERT INTO chat_messages
-         (id, user_id, conversation_id, role, content, reasoning, tools, attachments, status, error, source, input_tokens, output_tokens, duration_ms, model_label, feedback, sources, created_at)
-       VALUES (?2, ?1, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, '', ?17, ?16)`,
+         (id, user_id, conversation_id, role, content, reasoning, tools, attachments, status, error, source, input_tokens, output_tokens, duration_ms, model_label, feedback, sources, scopes, created_at)
+       VALUES (?2, ?1, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, '', ?17, ?18, ?16)`,
       id, input.conversationId, input.role, input.content, reasoning, JSON.stringify(tools), JSON.stringify(attachments),
       status, error, source, usage?.inputTokens ?? 0, usage?.outputTokens ?? 0, durationMs, input.modelLabel ?? '', at,
       JSON.stringify(input.sources ?? []),
+      JSON.stringify((input.scopes ?? []).slice(0, MAX_TURN_SCOPES)),
     )
     await this.write(
       `UPDATE chat_conversations SET updated_at = ?2 WHERE user_id = ?1 AND id = ?3`,
@@ -4196,7 +4222,7 @@ const EXPORT_COLUMNS: Readonly<Record<string, readonly string[]>> = {
   chat_conversation_tags: ['conversation_id', 'tag_id', 'created_at'],
   // `sources` is where a searched answer says what it read, and `feedback` is the reader's own verdict:
   // both are shown by the transcript, so a restored row without them is a different row.
-  chat_messages: ['id', 'conversation_id', 'role', 'content', 'reasoning', 'tools', 'attachments', 'status', 'error', 'source', 'input_tokens', 'output_tokens', 'duration_ms', 'model_label', 'sources', 'feedback', 'created_at'],
+  chat_messages: ['id', 'conversation_id', 'role', 'content', 'reasoning', 'tools', 'attachments', 'status', 'error', 'source', 'input_tokens', 'output_tokens', 'duration_ms', 'model_label', 'sources', 'feedback', 'scopes', 'created_at'],
   chat_answer_versions: ['id', 'message_id', 'conversation_id', 'content', 'reasoning', 'tools', 'model_label', 'input_tokens', 'output_tokens', 'duration_ms', 'created_at'],
   // `note_id` is the note a fact was written out as: a pointer the management screen shows, so it
   // travels with the fact it belongs to.
@@ -4457,7 +4483,7 @@ function toSkill(r: SkillRow): AssistantSkill {
     group: r.group_name ?? '',
     icon: r.icon ?? '',
     tools: decodeStringList(r.tools),
-    scopes: decodeTurnScopes(r.scopes),
+    scopes: decodeScopes(r.scopes),
     modelId: r.model_id ?? null,
     createdAt: Number(r.created_at),
     updatedAt: Number(r.updated_at),
@@ -4470,17 +4496,6 @@ function toSkill(r: SkillRow): AssistantSkill {
  * A row written before these columns existed holds nothing, and one half-written holds a shape that is
  * not a scope; both read as "no extra folders" rather than failing the list.
  */
-function decodeTurnScopes(value: unknown): AssistantTurnScope[] {
-  const parsed = parseJson(value)
-  if (!Array.isArray(parsed)) return []
-  return parsed
-    .filter((entry): entry is AssistantTurnScope =>
-      Boolean(entry) && typeof entry === 'object'
-        && typeof (entry as { id?: unknown }).id === 'string'
-        && ((entry as { kind?: unknown }).kind === 'tag' || (entry as { kind?: unknown }).kind === 'folder'))
-    .map((entry) => ({ kind: entry.kind, id: entry.id, name: typeof entry.name === 'string' ? entry.name : '' }))
-}
-
 interface ModelRow {
   id: string
   provider_id: string

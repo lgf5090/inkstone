@@ -222,6 +222,8 @@ export class AssistantRunner {
   private turnTruncated = false
   /** Files already read for this turn, keyed by the ids and whether pictures travelled. */
   private attachmentPayloads = new Map<string, AttachmentPayload>()
+  /** Which row each key on the wire came from, so a refusal can be written onto the key that caused it. */
+  private signedKeyIds = new Map<string, string>()
   /** The answer this turn resumes, when the reader pressed "continue" on a cut-off reply. */
   private continueFrom: AssistantMessage | null = null
   /** The note the reader had open when the thread began, recorded on the conversation it makes. */
@@ -263,6 +265,7 @@ export class AssistantRunner {
     this.turnSources.clear()
     // Files are read once per turn; a summarising second pass over the window reuses what it read.
     this.attachmentPayloads.clear()
+    this.signedKeyIds.clear()
     this.continueFrom = null
     this.contextNoteId = isValidId(input.contextNoteId ?? '') ? input.contextNoteId! : null
     this.originNoteId = isValidId(input.originNoteId ?? '') ? input.originNoteId! : null
@@ -374,6 +377,9 @@ export class AssistantRunner {
         role: 'user',
         content: message,
         attachments: attached,
+        // The pins are part of the question, not a setting: stored with it so the transcript can say
+        // what this turn was allowed to read after the chips are long gone.
+        ...(this.turnScopes.length ? { scopes: this.turnScopes } : {}),
       })
     }
     const conversationId = conversation.id
@@ -842,6 +848,9 @@ export class AssistantRunner {
     const picked = await this.store.pickProviderKey(provider)
     if (!picked) return ''
     await this.store.markProviderKeyUsed(provider.id, picked.keyId)
+    // Kept for the length of this turn only: the request carries the key, not the row it came from, and
+    // this is what lets a refusal be charged to the key that earned it.
+    if (picked.keyId) this.signedKeyIds.set(picked.key, picked.keyId)
     return picked.key
   }
 
@@ -851,9 +860,28 @@ export class AssistantRunner {
    * A second attempt is signed with a fresh key, which is the whole point of the reader's ring: a 429 or a
    * 401 on one key is answered by the next one, and the ring hands out the least recently used so a retry
    * does not land on the key that just failed.
+   *
+   * A refusal is also written onto that key's row, which is the only way the settings screen can say which
+   * one of several keys is broken. Only the failures a key can be blamed for are recorded: an unreachable
+   * host or a malformed request says nothing about the key, and counting it would send the reader to the
+   * wrong row.
    */
   private retryFor(provider: ProviderRow): UpstreamRetry {
-    return { attempts: UPSTREAM_RETRY_ATTEMPTS, rotateKey: async () => await this.signKey(provider) }
+    return {
+      attempts: UPSTREAM_RETRY_ATTEMPTS,
+      rotateKey: async () => await this.signKey(provider),
+      onAttemptFailed: async (error, apiKey) => {
+        if (error.kind !== 'auth' && error.kind !== 'quota' && error.kind !== 'rate') return
+        const keyId = this.signedKeyIds.get(apiKey)
+        if (!keyId) return
+        try {
+          await this.store.recordProviderKeyError(keyId, `${error.kind}: ${error.message}`)
+        } catch {
+          // A diagnostic must not replace the failure it was describing: the turn still reports the
+          // provider's own error, and the next failure will try to record itself again.
+        }
+      },
+    }
   }
 
   /** Charges one or more model calls against the reader's daily ceiling, refusing when it is spent. */
@@ -1369,8 +1397,13 @@ export class AssistantRunner {
    * It exists so the whole surface — conversations, tools, the settings screen — can be exercised
    * before a key is configured, and it says plainly that no model was called rather than pretending.
    */
-  async offlineTurn(conversationId: string, content: string): Promise<AssistantMessage> {
-    await this.store.addMessage({ conversationId, role: 'user', content })
+  async offlineTurn(conversationId: string, content: string, scopes: AssistantTurnScope[] = []): Promise<AssistantMessage> {
+    await this.store.addMessage({
+      conversationId,
+      role: 'user',
+      content,
+      ...(scopes.length ? { scopes: scopes.slice(0, MAX_TURN_SCOPES) } : {}),
+    })
     return await this.store.addMessage({
       conversationId,
       role: 'assistant',

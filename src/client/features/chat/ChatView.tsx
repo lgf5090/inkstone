@@ -11,7 +11,7 @@
 import { Z_INDEX } from '../../lib/z-index'
 import { type ClipboardEvent as ReactClipboardEvent, type DragEvent as ReactDragEvent, type KeyboardEvent, Fragment, memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { Archive, ArrowUp, ArrowUpRight, Check, Copy, FileText, FolderOpen, Ghost, History, ListChecks, MoreHorizontal, NotebookPen, PanelRight, Paperclip, Pencil, Plus, Search, Square, Star, Trash2, X } from 'lucide-react'
-import type { AssistantConversation, AssistantMessage, ChatAttachment } from '@shared/assistant'
+import type { AssistantConversation, AssistantMessage, AssistantTurnScope, ChatAttachment } from '@shared/assistant'
 import { EPHEMERAL_CONVERSATION_RETENTION_DAYS, SEARCH_NATIVE_PROTOCOLS, looksLikeSearchTool, mcpToolModeFor } from '@shared/assistant'
 import { DEBOUNCE } from '@shared/constants'
 import { cn } from '../../lib/cn'
@@ -607,6 +607,7 @@ export const MessageRow = memo(function MessageRow({ message, onRetry, canContin
         busy={busy}
         createdAt={message.createdAt}
         anchorId={message.id}
+        scopes={message.scopes ?? []}
         selection={selection}
         onStartPicking={onStartPicking}
         onShare={onShare}
@@ -671,6 +672,7 @@ export function UserBubble({
   busy = false,
   createdAt,
   anchorId,
+  scopes = [],
   selection,
   onStartPicking,
   onShare,
@@ -683,6 +685,8 @@ export function UserBubble({
   /** When the reader wrote it; absent on the live turn, which has no row yet. */
   createdAt?: number
   anchorId?: string
+  /** What this turn was allowed to read, as it was stored with the question. */
+  scopes?: AssistantTurnScope[]
   selection?: MessageSelection
   onStartPicking?: (messageId: string) => void
   onShare?: (messageId: string) => void
@@ -720,6 +724,24 @@ export function UserBubble({
         />
       )}
       <div className="group flex max-w-[85%] flex-col items-end gap-1">
+        {/* The pins were a choice about this one question, and they outlive the composer chips that made
+            them: a reader coming back to an answer that only knew one note should be able to see why. */}
+        {scopes.length > 0 && (
+          <div className="flex flex-wrap items-center justify-end gap-1" aria-label={t('assistant.chat.scoped_to')}>
+            <span className="text-[length:var(--text-10)] text-[var(--text-quaternary)]">
+              {t('assistant.chat.scoped_to')}
+            </span>
+            {scopes.map((scope) => (
+              <span
+                key={`${scope.kind}:${scope.id}`}
+                className="max-w-[180px] truncate rounded-[var(--r-sm)] bg-[var(--bg-inset)] px-1.5 py-0.5 text-[length:var(--text-10)] text-[var(--text-quaternary)]"
+                title={scope.name}
+              >
+                {scope.name}
+              </span>
+            ))}
+          </div>
+        )}
         {attachments.length > 0 && <MessageAttachments ids={attachments} index={fileIndex} />}
         {text && (
           <div className="break-words rounded-[var(--r-lg)] rounded-br-[var(--r-xs)] bg-[var(--accent-soft)] px-3 py-2 text-[length:var(--text-13-5)] leading-relaxed text-[var(--text-primary)]">

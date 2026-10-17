@@ -1700,6 +1700,15 @@ export interface AssistantMessage {
    * Empty for every turn that did not search.
    */
   sources?: AssistantSource[]
+  /**
+   * What the turn was allowed to read, when the reader pinned it to a note, a folder or a tag.
+   *
+   * Stored with the reader's own words rather than derived later: the scope is a decision made at the
+   * moment of asking, and an answer that only knew one note should still say so when the thread is read
+   * back a week later. Absent on every turn that pinned nothing, and on every row written before the
+   * column existed.
+   */
+  scopes?: AssistantTurnScope[]
   /** The project this turn was answered under, so the thread can say where its brief came from. */
   projectId?: string | null
   /**

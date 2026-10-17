@@ -255,6 +255,9 @@ export async function importAssistant(store: AssistantStore, raw: Record<string,
       // transcript, so a restored row without them is a different row from the one that was saved.
       sources: typeof message.sources === 'string' ? message.sources.slice(0, 64 * 1024) : '[]',
       feedback: message.feedback === 'up' || message.feedback === 'down' ? message.feedback : '',
+      // The scope a turn was asked under, kept for the same reason: a restored transcript that lost it
+      // would show an answer with no explanation for why it only knew one note.
+      scopes: typeof message.scopes === 'string' ? message.scopes.slice(0, 8 * 1024) : '[]',
       created_at: numberValue(message.created_at, Date.now()),
     }
     if (await store.hasRow('chat_messages', id)) continue

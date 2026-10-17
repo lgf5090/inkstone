@@ -1205,13 +1205,19 @@ function pinnedTools(value: unknown): string[] {
     : []
 }
 
-/** A pinned folder or tag: the id has to be one, and the label is only ever shown, never trusted. */
+/**
+ * A pinned tag, folder or note: the id has to be one, and the label is only ever shown, never trusted.
+ *
+ * A note is included because the composer's own chips are notes as well as folders — the reader pointing
+ * at one page. The runner re-reads every note id against this account before it reaches a tool, so a
+ * shape-checked id here is not a promise that the note exists.
+ */
 function pinnedScopes(value: unknown): AssistantTurnScope[] {
   return (Array.isArray(value) ? value : [])
     .map((entry): AssistantTurnScope | null => {
       if (typeof entry !== 'object' || entry === null) return null
       const record = entry as Record<string, unknown>
-      if (record.kind !== 'tag' && record.kind !== 'folder') return null
+      if (record.kind !== 'tag' && record.kind !== 'folder' && record.kind !== 'note') return null
       if (typeof record.id !== 'string' || !isValidId(record.id)) return null
       return { kind: record.kind, id: record.id, name: typeof record.name === 'string' ? record.name.slice(0, 60) : '' }
     })
@@ -1296,7 +1302,7 @@ assistantRoutes.post('/chat', async (c) => {
     try {
       if (settings.offlineMode) {
         // The id comes back so the claim taken below is the one released at the end of the turn.
-        claimed = (await offlineTurn(s, runner, claimed || null, message, send)) ?? claimed
+        claimed = (await offlineTurn(s, runner, claimed || null, message, send, scopes)) ?? claimed
         return
       }
       for await (const event of runner.chat({
@@ -1366,6 +1372,8 @@ async function offlineTurn(
   conversationId: string | null,
   message: string,
   send: (payload: unknown) => boolean,
+  /** The pins the turn was asked under: an offline turn is still a turn, and the transcript says so. */
+  scopes: AssistantTurnScope[] = [],
 ): Promise<string | null> {
   const content = message.trim().slice(0, MAX_MESSAGE_CHARS)
   if (!content) {
@@ -1380,7 +1388,7 @@ async function offlineTurn(
     return null
   }
   if (!conversationId) await s.claimRun(conversation.id)
-  const reply = await runner.offlineTurn(conversation.id, content)
+  const reply = await runner.offlineTurn(conversation.id, content, scopes)
   await send({ type: 'start', conversationId: conversation.id, assistantMessageId: reply.id })
   await send({ type: 'text', delta: reply.content })
   await send({ type: 'done', finalMessage: reply })
