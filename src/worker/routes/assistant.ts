@@ -61,6 +61,7 @@ import {
   MAX_TASK_TITLE_CHARS,
   MEMORY_REVIEW_ACTIONS,
   MESSAGE_FEEDBACK,
+  MAX_FEEDBACK_REASON_CHARS,
   type MessageFeedback,
   ASSISTANT_SETTING_KEYS,
   normalizeAssistantSettings,
@@ -298,11 +299,15 @@ assistantRoutes.get('/conversations', async (c) => {
   const folder = c.req.query('folder')
   const project = c.req.query('project')
   const tag = c.req.query('tag')?.trim().slice(0, 26)
-  const filter: { folderId?: string | null, projectId?: string | null, tagId?: string, starred?: boolean, pinned?: boolean, archived?: boolean } = {}
+  const note = c.req.query('noteId')
+  const filter: { folderId?: string | null, projectId?: string | null, noteId?: string, tagId?: string, starred?: boolean, pinned?: boolean, archived?: boolean } = {}
   // `folder=none` is the unfiled view; an absent parameter is the whole list.
   if (folder !== undefined) filter.folderId = folder === 'none' ? null : (isValidId(folder) ? folder : 'none')
   // `project=none` reads the conversations that answer under no brief, the same convention as the folder filter.
   if (project !== undefined) filter.projectId = project === 'none' ? null : (isValidId(project) ? project : 'none')
+  // A named note narrows to the threads started from it. An id of the wrong shape can only match nothing —
+  // never the whole list, which would answer the reader's question with everything they asked to filter out.
+  if (note !== undefined) filter.noteId = isValidId(note) ? note : ''
   if (tag) filter.tagId = tag
   if (c.req.query('starred') === '1') filter.starred = true
   if (c.req.query('pinned') === '1') filter.pinned = true
@@ -880,7 +885,7 @@ assistantRoutes.patch('/conversations/:id/messages/:messageId/feedback', async (
   const s = store(c)
   const conversationId = requiredId(c.req.param('id'))
   const messageId = requiredId(c.req.param('messageId'))
-  const body = await readJson<{ feedback?: unknown }>(c, JSON_BODY_LIMITS.small)
+  const body = await readJson<{ feedback?: unknown, reason?: unknown }>(c, JSON_BODY_LIMITS.small)
   // `null` is a real answer here — the reader pressing the same thumb twice takes it back — and an
   // unknown word is refused rather than stored, so a client that invents a third verdict finds out.
   const asked = body.feedback
@@ -890,11 +895,21 @@ assistantRoutes.patch('/conversations/:id/messages/:messageId/feedback', async (
       ? asked as MessageFeedback
       : undefined
   if (feedback === undefined) throw ApiError.badRequest('A verdict is "up", "down" or null.')
+  // A downvote may say what was wrong; an upvote may not, and clearing the verdict clears the reason with it.
+  let reason: string | undefined
+  if (body.reason !== undefined && body.reason !== null) {
+    if (feedback !== 'down') throw ApiError.badRequest('Only a downvote can carry a reason.')
+    if (typeof body.reason !== 'string') throw ApiError.badRequest('A reason must be text.')
+    // Control characters are stripped so the value cannot smuggle a terminal escape or a line break into a
+    // log or a screen; the whole thing is then bounded to the one field's length.
+    const cleaned = body.reason.replace(/[\u0000-\u001f\u007f-\u009f]/g, '').trim().slice(0, MAX_FEEDBACK_REASON_CHARS)
+    if (cleaned) reason = cleaned
+  }
   if (!(await s.getConversation(conversationId))) throw ApiError.notFound('Conversation not found')
   const message = await s.getMessage(messageId)
   if (!message || message.conversationId !== conversationId) throw ApiError.notFound('Message not found')
   if (message.role !== 'assistant') throw ApiError.badRequest('Only an answer can be rated.')
-  await s.setMessageFeedback(messageId, feedback)
+  await s.setMessageFeedback(messageId, feedback, reason)
   return c.json({ message: await s.getMessage(messageId) })
 })
 
@@ -2725,7 +2740,7 @@ assistantRoutes.get('/stats', async (c) => {
       toolCalls: row.toolCalls,
       errors: row.errors,
     }
-    const price = priceUsage(models, row.modelLabel, row.inputTokens, row.outputTokens)
+    const price = priceUsage(models, row.modelLabel, row.inputTokens, row.outputTokens, row.modelId)
     if (!price) {
       unpriced++
       return { ...base, currency: '', cost: null }
@@ -2760,18 +2775,26 @@ assistantRoutes.get('/stats', async (c) => {
  * What one model's tokens cost, or null when the reader has not priced it.
  *
  * Null is a claim of its own: an unpriced model is not a free one, and a chart that counted it as zero would
- * understate the bill for exactly the models the reader has not got round to entering.
+ * understate the bill for exactly the models the reader has not got round to entering. A model that carries a
+ * price but no currency is null for the same reason — there is no unit to state the number in, and inventing
+ * dollars would total up money in a currency nobody chose.
+ *
+ * Resolved by id first when the usage row carries one: a model that has been renamed keeps its id, so its
+ * history stays priced at its own rate even though the label on those rows is the word it used to answer to.
  */
 function priceUsage(
   models: AssistantModel[],
   label: string,
   inputTokens: number,
   outputTokens: number,
+  modelId?: string,
 ): { currency: string, amount: number } | null {
-  const model = models.find((entry) => entry.label === label || entry.model === label)
+  const model = (modelId ? models.find((entry) => entry.id === modelId) : undefined)
+    ?? models.find((entry) => entry.label === label || entry.model === label)
   if (!model || (model.inputPrice === null && model.outputPrice === null)) return null
+  if (!model.priceCurrency) return null
   return {
-    currency: model.priceCurrency || 'USD',
+    currency: model.priceCurrency,
     amount: ((model.inputPrice ?? 0) * inputTokens + (model.outputPrice ?? 0) * outputTokens) / 1_000_000,
   }
 }
@@ -2814,7 +2837,7 @@ function buildUsageSeries(
     tally.requests += row.requests
     tally.inputTokens += row.inputTokens
     tally.outputTokens += row.outputTokens
-    const price = priceUsage(models, row.modelLabel, row.inputTokens, row.outputTokens)
+    const price = priceUsage(models, row.modelLabel, row.inputTokens, row.outputTokens, row.modelId)
     // The day is split by model and by key over the same rows, so one unpriced row marks both of its slices.
     foldSlice('m', weight, tally.models, row.modelLabel || '', row.modelLabel, row, price)
     // A rebuilt history row carries no provider or key, so it belongs to the model split and not to a
@@ -2923,7 +2946,14 @@ function foldKeyUsage(
       if (row.modelLabel) entry.unpriced = true
       continue
     }
-    const currency = model.priceCurrency || 'USD'
+    const currency = model.priceCurrency
+    // A price with no currency has no unit to be summed in: the same rule the model rows follow, so a key
+    // is reported unpriced rather than given a dollar total nobody chose. (The key dimension still matches
+    // by label — only `chat_usage_daily_model` carries an id — so this is the rename limit of that view.)
+    if (!currency) {
+      if (row.modelLabel) entry.unpriced = true
+      continue
+    }
     const cost = ((model.inputPrice ?? 0) * row.inputTokens + (model.outputPrice ?? 0) * row.outputTokens) / 1_000_000
     const perCurrency = spend.get(id) ?? new Map<string, number>()
     perCurrency.set(currency, (perCurrency.get(currency) ?? 0) + cost)

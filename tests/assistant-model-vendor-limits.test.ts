@@ -52,9 +52,13 @@ function columnList(table: string): string[] {
 describe('the columns a boot has to add', () => {
   it('numbers each one on its own version, past every number already spent', () => {
     expect(VENDOR_VERSIONS).toEqual([92, 93])
-    // One column per version, and no other entry in the ledger claiming either number.
-    expect(SCHEMA_MIGRATIONS.filter((migration) => migration.version >= 92).map((migration) => migration.version))
-      .toEqual([92, 93])
+    // One column per version. Scoped to this feature's own numbers rather than "everything from 92 up",
+    // because a later feature adds its columns the same way and must not have to edit this test.
+    const mine = SCHEMA_MIGRATIONS.filter((migration) => VENDOR_VERSIONS.includes(migration.version))
+    expect(mine.map((migration) => migration.version)).toEqual([92, 93])
+    for (const migration of mine) {
+      expect(migration.statements, `version ${migration.version} adds more than one column`).toHaveLength(1)
+    }
   })
 
   it('adds both to the table the boot already had', () => {

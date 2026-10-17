@@ -14,7 +14,7 @@ import { clipReasoning, normalizeAssistantSettings } from '@shared/assistant'
 import { parseScheduleSpec } from '@shared/assistant-schedule'
 import { ASSISTANT_MEMORY_CATEGORIES, AUTOMATION_KINDS, MAX_ARTIFACT_CONTENT_CHARS, MAX_ARTIFACT_TITLE_CHARS, MAX_MESSAGE_CHARS } from '@shared/assistant'
 import { ApiError } from '../lib/errors'
-import { AssistantStore } from './store'
+import { AssistantStore, decodeFeedback, encodeFeedback } from './store'
 
 export const ASSISTANT_BACKUP_FORMAT = 'inkstone-assistant-backup'
 export const ASSISTANT_BACKUP_VERSION = 1
@@ -298,6 +298,10 @@ async function mergeBackup(store: AssistantStore, data: Record<string, unknown>,
     if (!id || !conversationId || !conversations.has(conversationId)) continue
     if (heldMessages.has(id)) continue
     const role = message.role === 'assistant' ? 'assistant' : 'user'
+    // The verdict and its reason share the `feedback` column, so a restored row keeps both: decode re-reads
+    // either encoding, and re-encode writes the canonical form, which is also what bounds a hostile file's
+    // reason and drops a value that names no verdict at all.
+    const storedFeedback = decodeFeedback(message.feedback)
     const row = {
       id,
       conversation_id: conversationId,
@@ -321,7 +325,7 @@ async function mergeBackup(store: AssistantStore, data: Record<string, unknown>,
       // The pages a searched answer read and the verdict the reader left on it are both shown by the
       // transcript, so a restored row without them is a different row from the one that was saved.
       sources: typeof message.sources === 'string' ? message.sources.slice(0, 64 * 1024) : '[]',
-      feedback: message.feedback === 'up' || message.feedback === 'down' ? message.feedback : '',
+      feedback: encodeFeedback(storedFeedback?.verdict ?? null, storedFeedback?.reason),
       // The scope a turn was asked under, kept for the same reason: a restored transcript that lost it
       // would show an answer with no explanation for why it only knew one note.
       scopes: typeof message.scopes === 'string' ? message.scopes.slice(0, 8 * 1024) : '[]',

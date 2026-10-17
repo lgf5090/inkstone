@@ -478,12 +478,15 @@ export const ASSISTANT_SCHEMA_STATEMENTS: readonly string[] = [
 
   // The same counters as `chat_usage_daily`, split by the model that answered. A day's total answers
   // "how much did I use"; this answers "which model, and what did it cost", which is the question a
-  // reader with two providers and two prices actually has. Label rather than id because the label is
-  // what the transcript shows and what survives a model row being deleted or renamed.
+  // reader with two providers and two prices actually has. Label is what the transcript shows and what
+  // survives a model row being deleted; `model_id` rides beside it so a rename does not detach the cost
+  // history, because a price resolved by id outlives the word the model was filed under. It is null for a
+  // row whose label no longer names exactly one model — a guessed id would bill one model for another's.
   `CREATE TABLE IF NOT EXISTS chat_usage_daily_model (
     user_id TEXT NOT NULL,
     day TEXT NOT NULL,
     model_label TEXT NOT NULL,
+    model_id TEXT,
     requests INTEGER NOT NULL DEFAULT 0,
     input_tokens INTEGER NOT NULL DEFAULT 0,
     output_tokens INTEGER NOT NULL DEFAULT 0,
@@ -634,7 +637,7 @@ export const ASSISTANT_REQUIRED_INDEXES: readonly string[] = [
 export const ASSISTANT_REQUIRED_COLUMNS: Readonly<Record<string, readonly string[]>> = {
   chat_settings: ['user_id', 'config', 'updated_at'],
   chat_projects: ['user_id', 'id', 'name', 'description', 'instructions', 'note_scope', 'model_id', 'created_at', 'updated_at'],
-  chat_usage_daily_model: ['user_id', 'day', 'model_label', 'requests', 'input_tokens', 'output_tokens', 'tool_calls', 'errors'],
+  chat_usage_daily_model: ['user_id', 'day', 'model_label', 'model_id', 'requests', 'input_tokens', 'output_tokens', 'tool_calls', 'errors'],
   chat_usage_daily_key: ['user_id', 'day', 'model_label', 'provider_id', 'provider_label', 'key_id', 'key_label', 'requests', 'input_tokens', 'output_tokens', 'tool_calls', 'errors'],
   chat_share_links: ['slug', 'conversation_id', 'user_id', 'scope', 'password_hash', 'expires_at', 'views', 'created_at'],
   chat_providers: ['user_id', 'id', 'label', 'protocol', 'base_url', 'endpoints', 'reasoning_dialect', 'key_ciphertext', 'key_hint', 'key_last_used_at', 'created_at', 'updated_at'],

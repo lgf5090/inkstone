@@ -1753,6 +1753,9 @@ export const ASSISTANT_TOOL_BY_NAME: ReadonlyMap<string, AssistantToolSpec> = ne
 export const MESSAGE_FEEDBACK = ['up', 'down'] as const
 export type MessageFeedback = (typeof MESSAGE_FEEDBACK)[number]
 
+/** How much a reader may say about a downvote. */
+export const MAX_FEEDBACK_REASON_CHARS = 500
+
 export interface AssistantMessage {
   id: string
   conversationId: string
@@ -1804,6 +1807,14 @@ export interface AssistantMessage {
    * agree about what a downvote was.
    */
   feedback?: MessageFeedback
+  /**
+   * What the reader said was wrong with a downvote, when they said anything.
+   *
+   * Only a `down` verdict carries one, and it is kept separate from the verdict so the transcript's existing
+   * read of `feedback` still names the thumb it shows. Absent for an upvote, a bare downvote, and every row
+   * written before a reason could be given.
+   */
+  feedbackReason?: string
   usage?: { inputTokens: number, outputTokens: number } | null
   /** How long the model took, in milliseconds — the denominator of the tokens-per-second figure. */
   durationMs?: number

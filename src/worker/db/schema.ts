@@ -1444,6 +1444,33 @@ export const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
       `ALTER TABLE chat_models ADD COLUMN vendor_max_output_tokens INTEGER`,
     ],
   },
+  {
+    // Which model a day's per-model usage was billed to, held as its id next to the label.
+    //
+    // The label alone cannot carry a cost across a rename: renaming a model detaches every row filed under
+    // the old word, so a reader who tidies a name silently loses that model's whole spending history. The id
+    // survives the rename, and the read path resolves a price by it first. Nullable because a usage row may
+    // name a model the reader has since deleted.
+    //
+    // The backfill sets the id only where the label names exactly one of this account's models. Where two
+    // models share a label, or none carries it any more, the row is left NULL: a guessed attribution would
+    // bill one model for another's tokens, which is worse than none — the same rule `note_id` was written
+    // under at version 90. A NULL row still reads by its label, so nothing that can be resolved is lost.
+    version: 94,
+    skipIfColumnExists: { table: 'chat_usage_daily_model', column: 'model_id' },
+    statements: [
+      `ALTER TABLE chat_usage_daily_model ADD COLUMN model_id TEXT`,
+      `UPDATE chat_usage_daily_model SET model_id = (
+         SELECT m.id FROM chat_models m
+          WHERE m.user_id = chat_usage_daily_model.user_id
+            AND m.label = chat_usage_daily_model.model_label
+       ) WHERE model_id IS NULL AND (
+         SELECT COUNT(*) FROM chat_models m
+          WHERE m.user_id = chat_usage_daily_model.user_id
+            AND m.label = chat_usage_daily_model.model_label
+       ) = 1`,
+    ],
+  },
 ]
 
 const FTS_STATEMENT = `CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(

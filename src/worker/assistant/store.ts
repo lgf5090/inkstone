@@ -50,7 +50,7 @@ import type {
 } from '@shared/assistant'
 import { dialectsForProtocol } from '@shared/reasoning'
 import type { McpOAuthSecrets, McpOAuthStatus } from './mcp-oauth'
-import { ASSISTANT_MCP_TOOL_MODES, ASSISTANT_MCP_TRANSPORTS, DEFAULT_MCP_TIMEOUT_SECONDS, EPHEMERAL_CONVERSATION_RETENTION_DAYS, MAX_MCP_DESCRIPTION_CHARS, MAX_MCP_TOOL_OVERRIDES, MAX_MCP_HEADER_VALUE_CHARS, MAX_MCP_LABEL_CHARS, MAX_MCP_TOOL_NAME_CHARS, MAX_MCP_TIMEOUT_SECONDS, MIN_MCP_TIMEOUT_SECONDS, MAX_ARTIFACT_CONTENT_CHARS, MAX_ARTIFACT_TITLE_CHARS, MAX_ANSWER_VERSIONS, MAX_CHAT_ATTACHMENTS, clipReasoning, isMcpHeaderName, parseModelModalities, parseProviderEndpoints, reasoningDialectValue, reasoningValue, type AssistantAnswerVersion, type AssistantMcpServer, type AssistantMcpToolMode, type AssistantMcpTransport, type AssistantModelModality, type ChatAttachment } from '@shared/assistant'
+import { ASSISTANT_MCP_TOOL_MODES, ASSISTANT_MCP_TRANSPORTS, DEFAULT_MCP_TIMEOUT_SECONDS, EPHEMERAL_CONVERSATION_RETENTION_DAYS, MAX_MCP_DESCRIPTION_CHARS, MAX_MCP_TOOL_OVERRIDES, MAX_MCP_HEADER_VALUE_CHARS, MAX_MCP_LABEL_CHARS, MAX_MCP_TOOL_NAME_CHARS, MAX_MCP_TIMEOUT_SECONDS, MIN_MCP_TIMEOUT_SECONDS, MAX_ARTIFACT_CONTENT_CHARS, MAX_ARTIFACT_TITLE_CHARS, MAX_ANSWER_VERSIONS, MAX_CHAT_ATTACHMENTS, MAX_FEEDBACK_REASON_CHARS, clipReasoning, isMcpHeaderName, parseModelModalities, parseProviderEndpoints, reasoningDialectValue, reasoningValue, type AssistantAnswerVersion, type AssistantMcpServer, type AssistantMcpToolMode, type AssistantMcpTransport, type AssistantModelModality, type ChatAttachment } from '@shared/assistant'
 import {
   ASSISTANT_MEMORY_CATEGORIES,
   ASSISTANT_PROTOCOLS,
@@ -453,7 +453,51 @@ const MESSAGE_VERSION_COUNT
  */
 const MESSAGE_ORDER = `created_at ASC, seq ASC`
 
+/** The reader's verdict on one answer, read back from what the column stores. */
+interface FeedbackVerdict {
+  verdict: MessageFeedback
+  reason: string
+}
+
+/**
+ * The `feedback` column as it is stored: `''` for nothing, `up`/`down` for a bare verdict, or a small JSON
+ * object carrying a downvote's reason. Written back as a plain `down` when there is no reason, so the value
+ * stays what every row before this was — the JSON form only appears once a reader says what was wrong.
+ *
+ * The read is lenient by design: the same string is what a backup file can hand back, and an unparseable or
+ * unexpected value resolves to "no verdict" rather than throwing — an answer's rating is never worth failing
+ * a whole transcript read over.
+ */
+export function decodeFeedback(raw: unknown): FeedbackVerdict | null {
+  if (typeof raw !== 'string' || raw === '') return null
+  if (raw === 'up') return { verdict: 'up', reason: '' }
+  if (raw === 'down') return { verdict: 'down', reason: '' }
+  if (raw[0] !== '{') return null
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(raw)
+  } catch {
+    return null
+  }
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return null
+  const verdict = (parsed as { v?: unknown }).v
+  if (verdict !== 'up' && verdict !== 'down') return null
+  // An upvote has no reason by contract, so one that somehow carries it reads back as a plain upvote.
+  if (verdict === 'up') return { verdict: 'up', reason: '' }
+  const reason = (parsed as { r?: unknown }).r
+  return { verdict: 'down', reason: typeof reason === 'string' ? reason.slice(0, MAX_FEEDBACK_REASON_CHARS) : '' }
+}
+
+/** The value the `feedback` column stores for one verdict, with a downvote's reason folded in. */
+export function encodeFeedback(verdict: MessageFeedback | null, reason?: string): string {
+  if (!verdict) return ''
+  if (verdict === 'up') return 'up'
+  const text = (reason ?? '').slice(0, MAX_FEEDBACK_REASON_CHARS)
+  return text ? JSON.stringify({ v: 'down', r: text }) : 'down'
+}
+
 function toMessage(r: MessageRow): AssistantMessage {
+  const verdict = decodeFeedback(r.feedback)
   return {
     id: r.id,
     conversationId: r.conversation_id,
@@ -469,7 +513,8 @@ function toMessage(r: MessageRow): AssistantMessage {
     usage: { inputTokens: r.input_tokens ?? 0, outputTokens: r.output_tokens ?? 0 },
     durationMs: r.duration_ms ?? 0,
     modelLabel: r.model_label ?? '',
-    ...(r.feedback === 'up' || r.feedback === 'down' ? { feedback: r.feedback } : {}),
+    ...(verdict ? { feedback: verdict.verdict } : {}),
+    ...(verdict?.reason ? { feedbackReason: verdict.reason } : {}),
     ...(r.sources ? { sources: decodeSources(r.sources) } : {}),
     ...(r.scopes ? { scopes: decodeScopes(r.scopes) } : {}),
     versionCount: r.version_count ?? undefined,
@@ -723,6 +768,8 @@ export interface TaskQuery {
 type UsageSeriesRow = {
   day: string
   modelLabel: string
+  /** The model this slice was billed to, empty when the row was filed before the id was kept. */
+  modelId: string
   providerId: string
   providerLabel: string
   keyId: string
@@ -1444,6 +1491,8 @@ export class AssistantStore {
     filter: {
       folderId?: string | null
       projectId?: string | null
+      /** Narrows to the threads started from one note; an exact id match, bounded by the account. */
+      noteId?: string
       tagId?: string
       starred?: boolean
       pinned?: boolean
@@ -1470,6 +1519,10 @@ export class AssistantStore {
       if (filter.projectId === null) q.raw('project_id IS NULL')
       else q.eq('project_id', filter.projectId)
     }
+    // A note has no thread-tree the way a folder does: the caller names one note, and the answer is the
+    // threads started from it. The id is matched exactly, and `user_id = ?1` is already in `q.where`, so a
+    // foreign note id can only ever reach this account's own rows.
+    if (filter.noteId !== undefined) q.eq('note_id', filter.noteId)
     if (filter.starred) q.raw('starred = 1')
     if (filter.pinned) q.raw('pinned = 1')
     // Absent means "either", which is what the backup and the assistant's own search want: an archived
@@ -2388,11 +2441,15 @@ export class AssistantStore {
    * One row is touched and nothing else: the verdict is about this answer, and rewriting the turn would
    * change its place in the transcript and its version count. A message that is not this account's is
    * not found rather than updated, which is what the caller's 404 is built on.
+   *
+   * `reason` is kept with the verdict rather than in its own column: `feedback` already exists, and
+   * widening that value keeps a downvote's reason travelling through the backup the way the verdict already
+   * does, instead of adding a column the import row handling would have to name. `null` clears both.
    */
-  async setMessageFeedback(id: string, feedback: MessageFeedback | null): Promise<boolean> {
+  async setMessageFeedback(id: string, feedback: MessageFeedback | null, reason?: string): Promise<boolean> {
     const result = await this.write(
       `UPDATE chat_messages SET feedback = ?3 WHERE user_id = ?1 AND id = ?2`,
-      id, feedback ?? '',
+      id, encodeFeedback(feedback, feedback === 'down' ? reason : undefined),
     )
     return result > 0
   }
@@ -3700,9 +3757,20 @@ export class AssistantStore {
     // The model row is opened before the counters are applied so the two are written the same way, and
     // only when a label was given: a scheduled embedding or a failed call belongs to the day's totals
     // without belonging to any model's.
+    //
+    // `model_id` is resolved from the label here rather than passed in, because the caller that holds the
+    // model (the runner) files only the label. Resolving at write time captures the id while the label is
+    // still the model's current one, so a later rename cannot detach this row; it is set only when exactly
+    // one of the account's models carries that label, so a reused or already-renamed-away label leaves it
+    // NULL and the read path falls back to matching by label rather than guessing an attribution.
     if (modelLabel) {
       await this.write(
-        `INSERT INTO chat_usage_daily_model (user_id, day, model_label) VALUES (?1, ?2, ?3)
+        `INSERT INTO chat_usage_daily_model (user_id, day, model_label, model_id)
+         VALUES (?1, ?2, ?3, CASE WHEN (
+             SELECT COUNT(*) FROM chat_models m WHERE m.user_id = ?1 AND m.label = ?3
+           ) = 1 THEN (
+             SELECT m.id FROM chat_models m WHERE m.user_id = ?1 AND m.label = ?3
+           ) ELSE NULL END)
          ON CONFLICT(user_id, day, model_label) DO NOTHING`,
         today, modelLabel.slice(0, 120),
       )
@@ -3860,9 +3928,9 @@ export class AssistantStore {
   }
 
   /** The per-model rows between two days, most used first. */
-  async modelUsageRange(from: string, to: string): Promise<Array<{ modelLabel: string } & UsageCounters>> {
+  async modelUsageRange(from: string, to: string): Promise<Array<{ modelLabel: string, modelId: string } & UsageCounters>> {
     const { results } = await this.db.prepare(
-      `SELECT model_label, SUM(requests) AS requests, SUM(input_tokens) AS input_tokens,
+      `SELECT model_label, MAX(model_id) AS model_id, SUM(requests) AS requests, SUM(input_tokens) AS input_tokens,
               SUM(output_tokens) AS output_tokens, SUM(tool_calls) AS tool_calls, SUM(errors) AS errors
          FROM chat_usage_daily_model
         WHERE user_id = ?1 AND day >= ?2 AND day <= ?3
@@ -3871,6 +3939,7 @@ export class AssistantStore {
     ).bind(this.userId, from, to).all<Record<string, number | string>>()
     return (results ?? []).map((row) => ({
       modelLabel: String(row.model_label ?? ''),
+      modelId: String(row.model_id ?? ''),
       requests: Number(row.requests ?? 0),
       inputTokens: Number(row.input_tokens ?? 0),
       outputTokens: Number(row.output_tokens ?? 0),
@@ -3924,8 +3993,8 @@ export class AssistantStore {
   }
 
   /** Per-model rows from either dimension table, most-used labels kept by the caller's own ordering. */
-  private dimensionModels(rows: Array<Record<string, number | string>> | null | undefined): Array<{ modelLabel: string } & UsageCounters> {
-    return (rows ?? []).map((row) => ({ modelLabel: String(row.model_label ?? ''), ...this.dimensionCounters(row) }))
+  private dimensionModels(rows: Array<Record<string, number | string>> | null | undefined): Array<{ modelLabel: string, modelId: string } & UsageCounters> {
+    return (rows ?? []).map((row) => ({ modelLabel: String(row.model_label ?? ''), modelId: String(row.model_id ?? ''), ...this.dimensionCounters(row) }))
   }
 
   /** One day-and-model slice of the usage series, whichever dimension table answered it. */
@@ -3933,6 +4002,7 @@ export class AssistantStore {
     return (rows ?? []).map((row) => ({
       day: String(row.day ?? ''),
       modelLabel: String(row.model_label ?? ''),
+      modelId: String(row.model_id ?? ''),
       providerId: keyed ? String(row.provider_id ?? '') : '',
       providerLabel: keyed ? String(row.provider_label ?? '') : '',
       keyId: keyed ? String(row.key_id ?? '') : '',
@@ -4000,13 +4070,13 @@ export class AssistantStore {
   }
 
   /** The per-model rows for one slice of either dimension, most used first. */
-  async modelUsageRangeIn(from: string, to: string, filter: UsageFilter): Promise<Array<{ modelLabel: string } & UsageCounters>> {
+  async modelUsageRangeIn(from: string, to: string, filter: UsageFilter): Promise<Array<{ modelLabel: string, modelId: string } & UsageCounters>> {
     if (this.modelDimensionOnly(filter)) {
       const binds: unknown[] = [this.userId, from, to]
       const where = filter.model ? ' AND model_label = ?4' : ''
       if (filter.model) binds.push(filter.model)
       const { results } = await this.db.prepare(
-        `SELECT model_label, SUM(requests) AS requests, SUM(input_tokens) AS input_tokens,
+        `SELECT model_label, MAX(model_id) AS model_id, SUM(requests) AS requests, SUM(input_tokens) AS input_tokens,
                 SUM(output_tokens) AS output_tokens, SUM(tool_calls) AS tool_calls, SUM(errors) AS errors
            FROM chat_usage_daily_model WHERE user_id = ?1 AND day >= ?2 AND day <= ?3${where}
           GROUP BY model_label
@@ -4086,7 +4156,7 @@ export class AssistantStore {
          )`
       : ''
     const { results } = await this.db.prepare(
-      `SELECT day, model_label, SUM(requests) AS requests, SUM(input_tokens) AS input_tokens,
+      `SELECT day, model_label, MAX(model_id) AS model_id, SUM(requests) AS requests, SUM(input_tokens) AS input_tokens,
               SUM(output_tokens) AS output_tokens, SUM(tool_calls) AS tool_calls, SUM(errors) AS errors
          FROM chat_usage_daily_model WHERE user_id = ?1 AND day >= ?2 AND day <= ?3${where}${unkeyed}
         GROUP BY day, model_label ORDER BY day ASC`,
