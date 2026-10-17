@@ -57,9 +57,10 @@ import { useNotes } from '../../store/notes'
 import { MarkdownBody } from '../preview/MarkdownBody'
 import { PASTE_FILE_MIN_CHARS, useAssistant, type AssistantView } from './assistant-store'
 import { MessageMenu, useMessageMenu } from './MessageMenu'
-import { AssistantBubble } from './MessageParts'
+import { AssistantBubble, CHAT_MENTION_LINKS } from './MessageParts'
 import { CanvasPanel } from './CanvasPanel'
-import { CHAT_NOTE_LINKS, openNote } from './note-links'
+import { openNote } from './note-links'
+import { formatNoteMention } from './note-refs'
 import { SelectionBar, SelectionTick, selectedMessages, type MessageSelection } from './SelectionBar'
 import { downloadTranscript } from './transcript'
 import { downloadTextFile, safeFileName } from '../../lib/export-note'
@@ -738,6 +739,12 @@ export function UserBubble({
   const [copied, setCopied] = useState(false)
   const [draft, setDraft] = useState<string | null>(null)
   const timezone = useAssistant((state) => state.settings?.timezone)
+  // Whether this is the newest stored turn, subscribed rather than read out of the store during render:
+  // the dialog offers a branch as soon as something exists below the message to keep, and a `getState()`
+  // here would be a snapshot that only an unrelated re-render of the row ever refreshed. Selected as one
+  // boolean per row, so the row that stops being the newest is the only one that redraws and the memo
+  // above keeps its win.
+  const isLatestMessage = useAssistant((state) => state.messages.at(-1)?.id === messageId)
   const toast = useUi((state) => state.toast)
   const menu = useMessageMenu()
   const removable = !!messageId && !!text
@@ -799,7 +806,7 @@ export function UserBubble({
               math={false}
               mermaid={false}
               chart={false}
-              links={CHAT_NOTE_LINKS}
+              links={CHAT_MENTION_LINKS}
             />
           </div>
         )}
@@ -861,10 +868,9 @@ export function UserBubble({
       {draft !== null && messageId && (
         <EditMessageDialog
           text={draft}
-          // A branch is only worth offering when there is something below this turn to keep; the store
-          // is read at the moment the dialog opens rather than subscribed to, because a user bubble that
-          // re-rendered on every token of the answer below it would undo the memo above.
-          canBranch={useAssistant.getState().messages.at(-1)?.id !== messageId}
+          // A branch is only worth offering when there is something below this turn to keep, which the
+          // subscribed row above answers without waiting for an unrelated render.
+          canBranch={!isLatestMessage}
           onClose={() => setDraft(null)}
           onSave={(content, keepBranch) => {
             setDraft(null)
@@ -1742,7 +1748,10 @@ ${current}` : seed))
     const tail = value.slice(caret)
     const gap = tail === '' || tail.startsWith(' ') ? '' : ' '
     if (trigger.sigil === '@') {
-      setValue(`${head}[[${row.label}]]${gap}${tail}`)
+      // The id rides inside the link, not the title alone: two notes of one title, or a note renamed
+      // after this turn was written, would otherwise point the model at a document the reader never
+      // picked. See `formatNoteMention`.
+      setValue(`${head}${formatNoteMention(row.id, row.label)}${gap}${tail}`)
       setTrigger(null)
       setTriggerRows([])
       return
@@ -1973,7 +1982,7 @@ ${current}` : seed))
         <NotePicker
           open={pickingNote}
           onClose={() => setPickingNote(false)}
-          onPick={(row) => setValue((current) => `${current}${current && !current.endsWith(' ') ? ' ' : ''}[[${row.title}]]`)}
+          onPick={(row) => setValue((current) => `${current}${current && !current.endsWith(' ') ? ' ' : ''}${formatNoteMention(row.id, row.title)}`)}
           search={async (query) => {
             const response = await api.search(query || t('assistant.attach.note_prompt'), 12)
             return response.results.map((hit) => ({ id: hit.note.id, title: hit.note.title }))

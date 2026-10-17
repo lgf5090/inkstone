@@ -11,7 +11,7 @@
  * So the chip's words come from the locale catalog by tool name, the prose is its own class, and the
  * approval card is driven by the action's current status.
  */
-import { useMemo, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import {
   AlertTriangle,
   Check,
@@ -51,8 +51,18 @@ import { MessageAttachments } from './ChatAttachments'
 import { CHAT_NOTE_LINKS } from './note-links'
 import { MessageMenu, useMessageMenu } from './MessageMenu'
 import { SelectionTick, type MessageSelection } from './SelectionBar'
-import { noteRefsFromToolResult } from './note-refs'
+import { noteMentionLinks, noteRefsFromToolResult } from './note-refs'
+import { LoadFailure } from './assistant-settings-shared'
 import { embedConversationInNote, insertReplyIntoNote, saveConversationAsNote, saveReplyAsNote } from './save-to-note'
+
+/**
+ * The link handlers every reply and question in the container is drawn with.
+ *
+ * One object, built once at module scope, because a fresh literal per message would be a new identity on
+ * every render of the row. It is `CHAT_NOTE_LINKS` with one addition: a mention the composer wrote as
+ * `[[<id>|Title]]` is followed by its id, not by a request to make a note named after it.
+ */
+export const CHAT_MENTION_LINKS = noteMentionLinks(CHAT_NOTE_LINKS)
 
 const STAGE_KEYS = {
   waiting: 'assistant.chat.stage_waiting',
@@ -64,7 +74,7 @@ const STAGE_KEYS = {
 export function MarkdownReply({ source }: { source: string }) {
   // The reply is read by the same renderer a note's preview is, so a formula is drawn, a diagram is
   // drawn, and a `[[note]]` is a door into the notebook rather than a word that looks like a link.
-  return <MarkdownBody source={source} className="ink-chat-prose min-w-0" links={CHAT_NOTE_LINKS} />
+  return <MarkdownBody source={source} className="ink-chat-prose min-w-0" links={CHAT_MENTION_LINKS} />
 }
 
 /**
@@ -161,6 +171,9 @@ function ToolCallRow({ tool, messageId, open, onToggle }: {
   const [copied, setCopied] = useState(false)
   const [busy, setBusy] = useState(false)
   const [again, setAgain] = useState<{ ok: boolean, error: string, result: string } | null>(null)
+  // Why a run was not started at all — nothing to run it in, or a request that never answered. Said here
+  // rather than as a toast, because the reason belongs to the row the reader is looking at.
+  const [refused, setRefused] = useState<string | null>(null)
   const refs = useMemo(() => noteRefsFromToolResult(tool.name, tool.result), [tool.name, tool.result])
   const body = [
     tool.args ? { key: 'assistant.chat.tool_args' as const, text: tool.args } : null,
@@ -262,9 +275,21 @@ function ToolCallRow({ tool, messageId, open, onToggle }: {
                 disabled={busy}
                 title={t('assistant.chat.replay_hint')}
                 onClick={() => {
+                  // Read on the press, not at render: the id belongs to this action, and a turn with no
+                  // conversation to run in is refused here rather than sent as an empty one, which the
+                  // route would answer with an error about a conversation the reader never had.
+                  const conversationId = useAssistant.getState().activeId
+                  if (!conversationId) {
+                    setRefused(t('assistant.toast.failed'))
+                    return
+                  }
                   setBusy(true)
-                  void replay(useAssistant.getState().activeId ?? '', messageId, tool.id)
+                  setRefused(null)
+                  void replay(conversationId, messageId, tool.id)
                     .then(setAgain)
+                    // The store's own replay answers a refusal with a reason instead of throwing, so this
+                    // is only the half it cannot report: a promise that never settled into an answer.
+                    .catch((error: unknown) => setRefused(error instanceof Error ? error.message : String(error)))
                     .finally(() => setBusy(false))
                 }}
                 className="inline-flex items-center gap-1 rounded-[var(--r-sm)] px-1 py-0.5 text-[length:var(--text-11)] font-medium text-[var(--accent-on-soft)] hover:bg-[var(--accent-soft)] disabled:opacity-50"
@@ -274,6 +299,9 @@ function ToolCallRow({ tool, messageId, open, onToggle }: {
               </button>
             )}
           </div>
+          {refused && (
+            <p role="alert" className="min-w-0 break-words text-[length:var(--text-11)] text-[var(--danger)]">{refused}</p>
+          )}
           {again && (
             <div className="min-w-0 rounded-[var(--r-sm)] border border-[var(--border-subtle)] bg-[var(--bg-surface)] px-2 py-1.5">
               <p className="text-[length:var(--text-10-5)] uppercase tracking-[var(--tracking-label)] text-[var(--text-quaternary)]">{t('assistant.chat.replay_result')}</p>
@@ -298,7 +326,18 @@ const OUTCOME_KEYS = {
 export function ApprovalCard({ action }: { action: ToolActivity['approval'] }) {
   const decide = useAssistant((state) => state.decideAction)
   const [busy, setBusy] = useState<'approve' | 'cancel' | null>(null)
+  // A press that never landed. The store's own `decideAction` reports a refusal it can see — it toasts and
+  // leaves the card pending — so this is not a second notice of the same fact: it is the half a toast
+  // cannot leave behind, the words saying this card is still waiting because the request failed.
+  const [failed, setFailed] = useState<string | null>(null)
   if (!action) return null
+  const settle = (approve: boolean) => {
+    setBusy(approve ? 'approve' : 'cancel')
+    setFailed(null)
+    void decide(action.id, approve)
+      .catch((error: unknown) => setFailed(error instanceof Error ? error.message : String(error)))
+      .finally(() => setBusy(null))
+  }
   const spec = action.tool ? ASSISTANT_TOOL_BY_NAME.get(action.tool) : undefined
   // A deletion has a sentence of its own, because what it would remove is the thing worth reading.
   // Everything else is held for approval as the call itself, so the tool's own name is the question.
@@ -339,15 +378,15 @@ export function ApprovalCard({ action }: { action: ToolActivity['approval'] }) {
           <p className="mt-0.5 text-[length:var(--text-11)] text-[var(--text-tertiary)]">{t('assistant.approval.hint')}</p>
         </div>
       </div>
+      {failed && (
+        <p role="alert" className="mt-1.5 break-words text-[length:var(--text-11)] text-[var(--danger)]">{failed}</p>
+      )}
       <div className="mt-2 flex justify-end gap-1.5">
         <Button
           size="sm"
           variant="ghost"
           disabled={busy !== null}
-          onClick={() => {
-            setBusy('cancel')
-            void decide(action.id, false).finally(() => setBusy(null))
-          }}
+          onClick={() => settle(false)}
         >
           {t('assistant.approval.decline')}
         </Button>
@@ -356,10 +395,7 @@ export function ApprovalCard({ action }: { action: ToolActivity['approval'] }) {
           variant="danger"
           loading={busy === 'approve'}
           disabled={busy !== null}
-          onClick={() => {
-            setBusy('approve')
-            void decide(action.id, true).finally(() => setBusy(null))
-          }}
+          onClick={() => settle(true)}
         >
           {t('assistant.approval.approve')}
         </Button>
@@ -427,6 +463,31 @@ export function answerStats(usage: { inputTokens: number, outputTokens: number }
   const seconds = durationMs / 1000
   if (!usage.outputTokens || seconds <= 0) return `${total.toLocaleString('en-US')} ${t('assistant.chat.tokens')}`
   return `${total.toLocaleString('en-US')} ${t('assistant.chat.tokens')} · ${(usage.outputTokens / seconds).toFixed(1)} ${t('assistant.chat.tokens_per_second')}`
+}
+
+/**
+ * What wrote the answer, and what it cost.
+ *
+ * The model's name is the one fact about an answer that is always known, so it is drawn on its own: a
+ * provider that reports no tokens makes `answerStats` answer nothing, and a line built out of the stats
+ * alone took the name down with them, leaving the reader unable to say which model answered.
+ */
+function AnswerFootline({ usage, durationMs, modelLabel }: {
+  usage?: { inputTokens: number, outputTokens: number } | null
+  durationMs: number
+  modelLabel: string
+}) {
+  const stats = answerStats(usage, durationMs)
+  if (!stats && !modelLabel) return null
+  return (
+    <span
+      className="shrink-0 text-[length:var(--text-11)] text-[var(--text-quaternary)]"
+      {...(stats && usage ? { title: t('assistant.chat.usage', { input: usage.inputTokens, output: usage.outputTokens }) } : {})}
+    >
+      {stats}
+      {modelLabel && (stats ? ` · ${modelLabel}` : modelLabel)}
+    </span>
+  )
 }
 
 export function AssistantBubble({
@@ -508,8 +569,19 @@ export function AssistantBubble({
   // The assistant's own zone, not the browser's: a thread written in one place and read in another
   // should still say when it was written where the assistant lives.
   const timezone = useAssistant((state) => state.settings?.timezone)
+  // Whether the reader has a note open to write into. Subscribed, not read with `getState()` during
+  // render: the two rows below appear the moment a note is opened beside the thread, and a snapshot taken
+  // on the row's last render would keep them away until something unrelated redrew the row. Only the
+  // yes/no is watched, so moving from one open note to another redraws nothing.
+  const noteIsOpen = useUi((state) => state.activeNoteId !== null)
   const [page, setPage] = useState<number | null>(null)
   const [swapping, setSwapping] = useState(false)
+  // The history is fetched once, on the first step back. The guard is a ref rather than state because two
+  // presses inside one tick would both read the `false` of the render they came from and send the same
+  // request twice; the flag the arrows are disabled by is the state beside it.
+  const fetchingHistory = useRef(false)
+  const [awaitingHistory, setAwaitingHistory] = useState(false)
+  const [historyError, setHistoryError] = useState<string | null>(null)
   const pages = (versions?.length ?? versionCount) + 1
   // The last page is the live answer; anything before it is one of the displaced ones, whose body has to
   // have arrived — and it has, because the list is fetched on the first arrow press.
@@ -528,9 +600,21 @@ export function AssistantBubble({
       advance(versions)
       return
     }
-    void loadVersions?.().then((list) => {
+    // One fetch at a time, and a press after a failure asks again: an arrow that remembered it had
+    // failed would leave the reader pressing a control that does nothing.
+    if (!loadVersions || fetchingHistory.current) return
+    fetchingHistory.current = true
+    setAwaitingHistory(true)
+    setHistoryError(null)
+    void loadVersions().then((list) => {
       setVersions(list)
       advance(list)
+    }).catch((error: unknown) => {
+      // The route's own words, which are the only thing that says what was refused.
+      setHistoryError(error instanceof Error ? error.message : String(error))
+    }).finally(() => {
+      fetchingHistory.current = false
+      setAwaitingHistory(false)
     })
   }
   return (
@@ -606,6 +690,13 @@ export function AssistantBubble({
                 {t(retryLabel)}
               </button>
             )}
+          </div>
+        )}
+        {/* The history the pager could not read, said outside the hover row: a failure the reader has to
+            hover into view is a failure they will only find by accident, and retry is the point. */}
+        {historyError && !versions && (
+          <div className="max-w-[72ch]">
+            <LoadFailure messageKey="assistant.memory.history_failed" detail={historyError} onRetry={() => step(-1)} />
           </div>
         )}
         {/* Sources are the answer's own, so they are only shown beside it: an earlier answer paged back
@@ -752,7 +843,7 @@ export function AssistantBubble({
               <AnswerVersionPager
                 total={pages}
                 page={index}
-                busy={swapping}
+                busy={swapping || awaitingHistory}
                 onStep={step}
                 onRestore={() => {
                   if (!viewing || !onActivate) return
@@ -781,15 +872,7 @@ export function AssistantBubble({
                 {` · ${new Date(viewing.createdAt).toLocaleString()}`}
               </span>
             ) : (
-              usage && answerStats(usage, durationMs) && (
-                <span
-                  className="shrink-0 text-[length:var(--text-11)] text-[var(--text-quaternary)]"
-                  title={t('assistant.chat.usage', { input: usage.inputTokens, output: usage.outputTokens })}
-                >
-                  {answerStats(usage, durationMs)}
-                  {modelLabel && ` · ${modelLabel}`}
-                </span>
-              )
+              <AnswerFootline usage={usage} durationMs={durationMs} modelLabel={modelLabel} />
             )}
           </div>
         )}
@@ -812,8 +895,8 @@ export function AssistantBubble({
           ...(messageId && !streaming ? { onSaveConversation: () => void saveConversationAsNote() } : {}),
           // Only while a note is open: the rows write into that note, and one that cannot is a row the
           // reader has to try to find out about.
-          ...(messageId && !streaming && useUi.getState().activeNoteId ? { onInsertIntoNote: () => insertReplyIntoNote(body) } : {}),
-          ...(messageId && !streaming && useUi.getState().activeNoteId ? { onEmbedInNote: () => embedConversationInNote() } : {}),
+          ...(messageId && !streaming && noteIsOpen ? { onInsertIntoNote: () => insertReplyIntoNote(body) } : {}),
+          ...(messageId && !streaming && noteIsOpen ? { onEmbedInNote: () => embedConversationInNote() } : {}),
           ...(messageId && onStartPicking ? { onSelect: () => onStartPicking(messageId) } : {}),
           ...(messageId && onShare && !streaming ? { onShare: () => onShare(messageId) } : {}),
         }}

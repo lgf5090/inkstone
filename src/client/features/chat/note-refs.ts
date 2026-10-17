@@ -1,13 +1,19 @@
 /**
- * The notes a tool call named, pulled out of its answer.
+ * The notes a turn named, pulled out of the things that carry them.
  *
- * A search or a listing comes back as JSON, and the one row that looks like `{"id": "...", "title":
- * "..."}` is a note the reader can open. Printing that as text makes them copy an id into a search box;
- * the ids are already in hand, so the row offers the door instead of the address.
+ * Two shapes come out of this module. A search or a listing arrives as JSON, and the one row that looks
+ * like `{"id": "...", "title": "..."}` is a note the reader can open. Printing that as text makes them
+ * copy an id into a search box; the ids are already in hand, so the row offers the door instead of the
+ * address.
  *
- * Only the note tools are read this way. A task and a project carry an id and a title too, and a chip
+ * A mention the reader picked with `@` goes the other way: words that have to name one particular note
+ * both on screen and in the worker, which cannot tell two notes of the same title apart by reading.
+ *
+ * Only the note tools are read as JSON. A task and a project carry an id and a title too, and a chip
  * that opened one of those in the notebook would be a link to nothing.
  */
+
+import type { MarkdownLinks } from '../preview/MarkdownBody'
 
 /** The tools whose payload describes notes, by name. */
 const NOTE_TOOLS = new Set(['search_notes', 'list_notes', 'count_notes', 'read_note', 'create_note', 'update_note', 'delete_note'])
@@ -16,6 +22,60 @@ const NOTE_TOOLS = new Set(['search_notes', 'list_notes', 'count_notes', 'read_n
 const NOTE_ID = /^[0-9a-hjkmnp-tv-z]{26}$/
 
 const MAX_REFS = 8
+
+/**
+ * Whether a value is a note id rather than a title, a folder id or a word.
+ *
+ * The worker only trusts an id shaped like this, so the composer must not write one that the resolver
+ * would then read back as a note title.
+ */
+function isNoteId(value: string): boolean {
+  return NOTE_ID.test(value)
+}
+
+/**
+ * The longest words a mention may show for its note.
+ *
+ * The renderer's own wiki-link pattern caps everything between the brackets at 200 characters, so the
+ * alias gets what the id and its separator leave, with room to spare for what a title loses when its
+ * whitespace is folded.
+ */
+const MENTION_ALIAS_MAX = 160
+
+/** A wiki link holds no bracket, no alias separator and no newline in either half, so those become spaces. */
+function mentionAlias(title: string): string {
+  return title.replace(/[[\]|\n\r]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, MENTION_ALIAS_MAX)
+}
+
+/**
+ * The text the composer writes when the reader picks a note: `[[<id>|<title>]]`.
+ *
+ * A title alone is not an address. After a rename — or between two notes that were given the same one —
+ * it names a different document and nothing says so, which is why the id travels inside the link the
+ * worker resolves on while the title stays as the alias, so the transcript the reader can read and edit
+ * still reads as a link to a note. A row whose id is not a note id keeps the old title-only shape, which
+ * the worker answers by title; a title that cannot be represented in the link is cut to what can be, and
+ * never left to break the syntax.
+ */
+export function formatNoteMention(id: string, title: string): string {
+  const alias = mentionAlias(title)
+  if (!isNoteId(id)) return `[[${alias || mentionAlias(id)}]]`
+  return alias ? `[[${id}|${alias}]]` : `[[${id}]]`
+}
+
+/**
+ * The chat's link handlers, with the mention's id taken back out of a link the title lookup missed.
+ *
+ * The renderer resolves a `[[…]]` by its title, so a mention written as `[[<id>|Title]]` is a note the
+ * vault appears not to have, and the follow handler offered for that makes a new note named by the id —
+ * a junk document out of a click. The id is the target, so it goes back through `openNote`, whose own
+ * answer for an id the vault has truly lost is "that note is gone".
+ */
+export function noteMentionLinks(links: MarkdownLinks): MarkdownLinks {
+  if (!links.createNote) return links
+  const create = links.createNote
+  return { ...links, createNote: (title) => (isNoteId(title) ? links.openNote(title) : create(title)) }
+}
 
 export interface NoteRef {
   id: string
