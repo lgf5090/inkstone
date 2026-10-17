@@ -58,7 +58,14 @@ export function resolveHoverCandidate(
   const parsed = parseWikiTarget(decodeDataValue(link.dataset.wikilink))
   const notes = useNotes.getState().notes
   if (parsed.noteTitle) {
-    const note = findNoteByTitle(parsed.noteTitle)
+    // A mention the assistant's composer wrote carries the note's own id (`[[<id>|Title]]`), because two
+    // notes of one title cannot be told apart by reading. The store is keyed by id, so that target is
+    // looked up where it is actually an address; anything that is not a note the vault holds falls back
+    // to the title, which is how a legacy `[[Title]]` and every ordinary wiki link are still answered.
+    const byId = notes[parsed.noteTitle]
+    // The row's own id is checked back: this map is the store's plain object, and a target spelled like a
+    // shared key would otherwise answer with something that is not a note at all.
+    const note = byId && byId.id === parsed.noteTitle && !byId.deletedAt ? byId : findNoteByTitle(parsed.noteTitle)
     if (note)
       return { anchor: link, title: parsed.alias ?? note.title, noteId: note.id, missing: false, headline: parsed.heading ?? note.title }
     return { anchor: link, title: parsed.alias ?? parsed.noteTitle, noteId: null, missing: true, headline: parsed.heading ?? parsed.noteTitle }

@@ -32,6 +32,7 @@ import { useSession } from '../../store/session'
 import { useUi } from '../../store/ui'
 import { MarkdownBody } from '../preview/MarkdownBody'
 import { useAssistant } from './assistant-store'
+import { LoadFailure } from './assistant-settings-shared'
 import { CHAT_NOTE_LINKS } from './note-links'
 import { saveReplyAsNote } from './save-to-note'
 import { loadLinkedNote, pullFromNote, pushToNote } from './canvas-sync'
@@ -174,6 +175,11 @@ function ArtifactEditor({ artifact, onSave, onRemove }: {
   // reported a note that had not moved as a conflict or, when the note was open in the notebook,
   // overwrote it with the copy this draft was saved as.
   const [noteRead, setNoteRead] = useState(!linkedNoteId)
+  // A read that did not answer, with what the request said. Distinct from a note that is gone: this one is
+  // worth asking again, and the panel that says nothing has simply lost the reader's document.
+  const [noteReadFailed, setNoteReadFailed] = useState<string | null>(null)
+  // Bumped by the retry: the read below is the effect's own work, so asking again is asking the effect.
+  const [readAttempt, setReadAttempt] = useState(0)
   const pending = useMemo(() => ({ title, content }), [title, content])
   const settled = useDebounced(pending, DEBOUNCE.persist)
 
@@ -186,23 +192,27 @@ function ArtifactEditor({ artifact, onSave, onRemove }: {
     }
     let alive = true
     setNoteRead(false)
-    void loadLinkedNote(artifact.id, linkedNoteId).then((note) => {
+    void loadLinkedNote(artifact.id, linkedNoteId).then((read) => {
       if (!alive) return
-      if (note === null) {
+      if (read.status === 'ok') {
+        setNoteReadFailed(null)
+        if (!edited.current) {
+          setContent(read.content)
+          committed.current = { title: committed.current.title, content: read.content }
+        }
+      }
+      else if (read.status === 'missing') {
         useUi.getState().toast({ title: t('assistant.canvas.note_missing'), tone: 'warning' })
-        setNoteRead(true)
-        return
       }
-      if (!edited.current) {
-        setContent(note)
-        committed.current = { title: committed.current.title, content: note }
-      }
+      // No toast here: the panel keeps the reader's text on screen, and the failure has to stay where they
+      // can act on it rather than vanish behind a toast they did not ask for.
+      else setNoteReadFailed(read.reason)
       setNoteRead(true)
     })
     return () => {
       alive = false
     }
-  }, [artifact.id, linkedNoteId])
+  }, [artifact.id, linkedNoteId, readAttempt])
 
   useEffect(() => {
     if (!noteRead) return
@@ -266,13 +276,20 @@ function ArtifactEditor({ artifact, onSave, onRemove }: {
 
   const pull = async () => {
     if (!linkedNoteId) return
-    const note = await pullFromNote(artifact.id, linkedNoteId)
-    if (note === null) {
+    const read = await pullFromNote(artifact.id, linkedNoteId)
+    if (read.status === 'missing') {
       useUi.getState().toast({ title: t('assistant.canvas.note_missing'), tone: 'warning' })
       return
     }
-    setContent(note)
-    committed.current = { title: committed.current.title, content: note }
+    // The same sentence and the same retry as the read on open: a Load that did not answer is a request
+    // worth pressing again, not a note the reader has lost.
+    if (read.status === 'failed') {
+      setNoteReadFailed(read.reason)
+      return
+    }
+    setNoteReadFailed(null)
+    setContent(read.content)
+    committed.current = { title: committed.current.title, content: read.content }
     useUi.getState().toast({ title: t('assistant.canvas.pulled'), tone: 'success' })
   }
 
@@ -325,6 +342,15 @@ function ArtifactEditor({ artifact, onSave, onRemove }: {
           <ModeTab id="preview" current={mode} onSelect={setMode} label={t('assistant.canvas.preview')} />
         </div>
       </div>
+      {noteReadFailed && (
+        <div className="shrink-0 px-2 py-2">
+          <LoadFailure
+            messageKey="assistant.canvas.note_read_failed"
+            detail={noteReadFailed}
+            onRetry={() => setReadAttempt((attempt) => attempt + 1)}
+          />
+        </div>
+      )}
       <div className="min-h-0 flex-1 overflow-hidden">
         {mode === 'write' ? (
           <DeferredCodeEditor

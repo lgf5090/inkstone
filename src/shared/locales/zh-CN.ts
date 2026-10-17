@@ -6074,6 +6074,7 @@ console.log(\`Hello, \${name}!\`)
     "assistant.canvas.sync_conflict": "笔记在别处改过，这次没有覆盖。先「取回」看看，再决定改哪一边。",
     "assistant.canvas.pulled": "已取回笔记的最新内容。",
     "assistant.canvas.note_missing": "关联的笔记已经不在了。",
+    "assistant.canvas.note_read_failed": "暂时读不到关联的笔记，这次没有覆盖任何内容，可以再试一次。",
     "assistant.canvas.need_conversation": "先发一条消息——草稿随会话保存。",
     "assistant.folder_summary.command": "生成文件夹摘要笔记",
     "assistant.folder_summary.prompt": "帮我总结一下我的文件夹「{name}」：它讲了什么、里面有哪些线索、还有什么没结束。用笔记工具读里面的内容，引用到的笔记写成 [[标题]]。只回复一段 Markdown 摘要——不要开场白，也不要自己建笔记，我会把回答归档。",

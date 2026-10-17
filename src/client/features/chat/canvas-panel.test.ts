@@ -18,6 +18,7 @@ import { DEBOUNCE } from '@shared/constants'
 import { initI18n, t } from '../../lib/i18n'
 import { installTestGlobals, stubBreakpoint } from '../../lib/test-render'
 import { useNotes } from '../../store/notes'
+import { useUi } from '../../store/ui'
 import { CanvasPanel } from './CanvasPanel'
 import { messageMenuItems } from './MessageMenu'
 import { useAssistant } from './assistant-store'
@@ -225,6 +226,40 @@ describe('a draft linked to a note', () => {
       expect(document.querySelector('textarea')?.value).toContain('my own paragraph')
     } finally {
       useNotes.setState(notesOriginal, true)
+    }
+  })
+
+  /**
+   * The read that did not answer.
+   *
+   * Nothing arrived, which is not the same fact as “the note is no longer in the notebook”. The panel that
+   * says the second one tells a reader their document was deleted, and leaves them with no way back except
+   * reopening the draft — so this branch has to be a stated failure with a retry on it.
+   */
+  it('says the note could not be read, rather than that it is gone, and asks again', async () => {
+    const notesOriginal = useNotes.getState()
+    const editRemoteContent = vi.fn(async (_id: string, transform: (server: string) => string | null) =>
+      (transform('the note body') === null ? 'conflict' : 'written'))
+    useNotes.setState({ notes: {}, contents: {}, editRemoteContent })
+    const toast = vi.spyOn(useUi.getState(), 'toast')
+    try {
+      getNote.mockRejectedValueOnce(new Error('Failed to fetch'))
+      await show({ activeId: 'c1', artifacts: [LINKED], artifactsReady: true, activeArtifactId: LINKED.id })
+      await act(async () => { await Promise.resolve() })
+      expect(toast).not.toHaveBeenCalledWith(expect.objectContaining({ title: t('assistant.canvas.note_missing') }))
+      const alert = document.querySelector('[role="alert"]')
+      expect(alert?.textContent, 'the failed read went unreported').toContain(t('assistant.canvas.note_read_failed'))
+      const retry = [...alert!.querySelectorAll('button')].find((node) => node.textContent?.includes(t('common.retry')))
+      expect(retry, 'a failed read offers no way to ask again').toBeTruthy()
+
+      // The retry is the same read, and the note is still where it was.
+      await act(async () => { retry!.click() })
+      await act(async () => { gate.resolve?.({ content: 'the note body' }) })
+      expect(document.querySelector('textarea')?.value).toBe('the note body')
+      expect(document.querySelector('[role="alert"]')).toBeNull()
+    } finally {
+      useNotes.setState(notesOriginal, true)
+      toast.mockRestore()
     }
   })
 })

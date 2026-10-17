@@ -12,7 +12,7 @@
  * closed, the write is guarded by the body the panel last saw, so a note changed elsewhere is reported
  * rather than overwritten.
  */
-import { api } from '../../lib/api'
+import { api, ApiError } from '../../lib/api'
 import { useNotes } from '../../store/notes'
 
 /** What the panel last read or wrote per draft, which is what a closed note's write is checked against. */
@@ -86,14 +86,30 @@ function baselineFor(artifactId: string, noteId: string): string | null {
   return entry && entry.noteId === noteId ? entry.content : null
 }
 
+/**
+ * What reading a linked note came back as.
+ *
+ * Two of these three leave the panel without a body, and they are not one fact: a note the notebook no
+ * longer has is gone, while a request that never answered says nothing about the note at all. Collapsing
+ * the second into the first tells a reader their document was deleted because the network blipped.
+ */
+export type NoteRead =
+  | { status: 'ok', content: string }
+  | { status: 'missing' }
+  | { status: 'failed', reason: string }
+
 /** The note's current body: the open editor's copy when there is one, the server's otherwise. */
-async function noteContent(noteId: string): Promise<string | null> {
+async function noteContent(noteId: string): Promise<NoteRead> {
   const cached = useNotes.getState().contents[noteId]
-  if (cached !== undefined) return cached
+  if (cached !== undefined) return { status: 'ok', content: cached }
   try {
-    return (await api.notes.get(noteId)).content ?? ''
-  } catch {
-    return null
+    return { status: 'ok', content: (await api.notes.get(noteId)).content ?? '' }
+  } catch (error) {
+    // Only the route's own "there is no such note" ends the link. Anything else — a request that did not
+    // reach the worker, a 5xx, an expired session — is this read's failure and not the note's, so it is
+    // reported with what it said, which is also what a retry has to show.
+    if (error instanceof ApiError && error.status === 404) return { status: 'missing' }
+    return { status: 'failed', reason: error instanceof Error ? error.message : String(error) }
   }
 }
 
@@ -101,12 +117,13 @@ async function noteContent(noteId: string): Promise<string | null> {
  * Read the linked note, which is also what makes it the baseline.
  *
  * A draft that has never been opened is not a conflict waiting to happen: whatever the note says now is
- * what the panel is showing, so the next write compares against that.
+ * what the panel is showing, so the next write compares against that. A read that did not answer makes no
+ * baseline — the panel has seen nothing, and its next write is rightly refused.
  */
-export async function loadLinkedNote(artifactId: string, noteId: string): Promise<string | null> {
-  const content = await noteContent(noteId)
-  if (content !== null) remember(artifactId, noteId, content)
-  return content
+export async function loadLinkedNote(artifactId: string, noteId: string): Promise<NoteRead> {
+  const read = await noteContent(noteId)
+  if (read.status === 'ok') remember(artifactId, noteId, read.content)
+  return read
 }
 
 export type NoteWrite = 'ok' | 'conflict' | 'missing'
@@ -139,6 +156,6 @@ export async function pushToNote(artifactId: string, noteId: string, content: st
 }
 
 /** Read the note back into the panel, which is the other direction of the same link. */
-export async function pullFromNote(artifactId: string, noteId: string): Promise<string | null> {
+export async function pullFromNote(artifactId: string, noteId: string): Promise<NoteRead> {
   return await loadLinkedNote(artifactId, noteId)
 }

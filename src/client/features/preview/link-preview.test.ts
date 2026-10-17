@@ -204,3 +204,62 @@ describe('resolveHoverCandidate with links', () => {
     expect(card?.headline).toBe('Heading');
   });
 });
+
+/**
+ * The mentions the composer writes with an id: `[[<id>|<Title>]]`.
+ *
+ * A click on one of those already opens by id, because the renderer's title lookup misses and the chat's
+ * own link handler reads the id back out of the target. The hover card is the notebook's shared resolver
+ * and has no such handler, so an id it did not recognise was reported as a note the vault does not have —
+ * a preview that contradicted the link under the pointer.
+ */
+describe('resolveHoverCandidate for an id-bearing mention', () => {
+  const MENTIONED = '01hzzzzzzzzzzzzzzzzzzzzz30';
+
+  function wikiAnchor(target: string): HTMLElement {
+    const el = document.createElement('a');
+    el.textContent = 'the mention';
+    el.dataset.wikilink = encodeDataValue(target);
+    document.body.appendChild(el);
+    return el;
+  }
+
+  it('previews the note the id names', () => {
+    useNotes.setState({
+      notes: { [MENTIONED]: { id: MENTIONED, title: 'Quarterly plan', deletedAt: null, updatedAt: 5 } as never },
+    });
+    const card = resolveHoverCandidate(wikiAnchor(`${MENTIONED}|Quarterly plan`), null, false);
+    expect(card?.missing).toBe(false);
+    expect(card?.noteId).toBe(MENTIONED);
+    expect(card?.title).toBe('Quarterly plan');
+  });
+
+  it('previews a note whose title was changed after the mention was written', () => {
+    // The alias is what the reader typed; the note it names has since been renamed. The card shows the
+    // alias, because that is the word on screen, and previews the document behind it.
+    useNotes.setState({
+      notes: { [MENTIONED]: { id: MENTIONED, title: 'Renamed plan', deletedAt: null, updatedAt: 9 } as never },
+    });
+    const card = resolveHoverCandidate(wikiAnchor(`${MENTIONED}|Quarterly plan`), null, false);
+    expect(card?.noteId).toBe(MENTIONED);
+    expect(card?.title).toBe('Quarterly plan');
+  });
+
+  it('still previews a legacy title-only mention', () => {
+    useNotes.setState({
+      notes: { [MENTIONED]: { id: MENTIONED, title: 'Quarterly plan', deletedAt: null, updatedAt: 5 } as never },
+    });
+    const card = resolveHoverCandidate(wikiAnchor('Quarterly plan'), null, false);
+    expect(card?.missing).toBe(false);
+    expect(card?.noteId).toBe(MENTIONED);
+  });
+
+  it('reports a mention of a note that is really gone as missing', () => {
+    useNotes.setState({
+      notes: { [MENTIONED]: { id: MENTIONED, title: 'Quarterly plan', deletedAt: 7, updatedAt: 5 } as never },
+    });
+    const card = resolveHoverCandidate(wikiAnchor(`${MENTIONED}|Quarterly plan`), null, false);
+    expect(card?.missing).toBe(true);
+    expect(card?.noteId).toBeNull();
+  });
+});

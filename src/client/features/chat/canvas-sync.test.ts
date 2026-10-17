@@ -11,9 +11,19 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { useNotes } from '../../store/notes'
 import { loadLinkedNote, pullFromNote, pushToNote } from './canvas-sync'
 
-const { getNote } = vi.hoisted(() => ({ getNote: vi.fn(async (_id: string) => ({ content: 'from the server' })) }))
+const { getNote, ApiError } = vi.hoisted(() => ({
+  // The status is what separates the two answers below, so the double carries it the way the real
+  // client error does.
+  ApiError: class ApiError extends Error {
+    constructor(readonly status: number, readonly code: string, message: string) {
+      super(message)
+      this.name = 'ApiError'
+    }
+  },
+  getNote: vi.fn(async (_id: string) => ({ content: 'from the server' })),
+}))
 
-vi.mock('../../lib/api', () => ({ api: { notes: { get: getNote } }, CLIENT_ERROR_CODES: {} }))
+vi.mock('../../lib/api', () => ({ api: { notes: { get: getNote } }, ApiError, CLIENT_ERROR_CODES: {} }))
 
 const NOTE_ID = '01hzzzzzzzzzzzzzzzzzzzzz09'
 // One id per test: what the panel last saw is remembered per draft, and a shared id would carry a
@@ -44,7 +54,7 @@ afterEach(() => {
 describe('a note that is open in the notebook', () => {
   it('writes through the store, which is what re-renders both surfaces', async () => {
     useNotes.setState({ contents: { [NOTE_ID]: 'old' } })
-    expect(await loadLinkedNote(ARTIFACT_ID, NOTE_ID)).toBe('old')
+    expect(await loadLinkedNote(ARTIFACT_ID, NOTE_ID)).toEqual({ status: 'ok', content: 'old' })
     expect(await pushToNote(ARTIFACT_ID, NOTE_ID, 'new')).toBe('ok')
     expect(editContent).toHaveBeenCalledWith(NOTE_ID, 'new')
     expect(editRemoteContent).not.toHaveBeenCalled()
@@ -54,7 +64,7 @@ describe('a note that is open in the notebook', () => {
 describe('a note that is closed', () => {
   it('reads the note and writes it back when nothing else touched it', async () => {
     editRemoteContent.mockResolvedValueOnce('written')
-    expect(await loadLinkedNote(OTHER_ARTIFACT_ID, NOTE_ID)).toBe('from the server')
+    expect(await loadLinkedNote(OTHER_ARTIFACT_ID, NOTE_ID)).toEqual({ status: 'ok', content: 'from the server' })
     expect(await pushToNote(OTHER_ARTIFACT_ID, NOTE_ID, 'panel text')).toBe('ok')
     const transform = editRemoteContent.mock.calls[0]![1] as (content: string) => string | null
     expect(transform('from the server')).toBe('panel text')
@@ -72,10 +82,28 @@ describe('a note that is closed', () => {
     expect(await pushToNote(FOURTH_ARTIFACT_ID, NOTE_ID, 'panel text')).toBe('conflict')
   })
 
-  it('reports a note that is gone', async () => {
-    getNote.mockRejectedValue(new Error('404'))
-    expect(await loadLinkedNote(ARTIFACT_ID, NOTE_ID)).toBeNull()
-    expect(await pullFromNote(ARTIFACT_ID, NOTE_ID)).toBeNull()
+  /**
+   * The two ways a read comes back empty, kept apart.
+   *
+   * Both leave the panel with no body, and they are two different sentences to the reader: one says the
+   * document they linked is no longer in the notebook, the other says this request did not answer and
+   * asking again is the fix. Reporting the second as the first tells a reader their note was deleted.
+   */
+  it('names a note the server says it does not have as gone', async () => {
+    getNote.mockRejectedValue(new ApiError(404, 'not_found', 'Note not found'))
+    expect(await loadLinkedNote(ARTIFACT_ID, NOTE_ID)).toEqual({ status: 'missing' })
+    expect(await pullFromNote(ARTIFACT_ID, NOTE_ID)).toEqual({ status: 'missing' })
+  })
+
+  it('names a read that could not be made as a failure, not as a deleted note', async () => {
+    getNote.mockRejectedValue(new ApiError(0, 'offline', 'The request did not reach the server'))
+    expect(await loadLinkedNote(OTHER_ARTIFACT_ID, NOTE_ID)).toEqual({
+      status: 'failed',
+      reason: 'The request did not reach the server',
+    })
+    // A plain thrown error is the same answer: nothing here claims the note itself is missing.
+    getNote.mockRejectedValue(new Error('Failed to fetch'))
+    expect(await pullFromNote(THIRD_ARTIFACT_ID, NOTE_ID)).toEqual({ status: 'failed', reason: 'Failed to fetch' })
   })
 })
 

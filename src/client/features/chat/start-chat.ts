@@ -13,6 +13,7 @@
  */
 import { tabIdForPath } from '../shell/app-tabs'
 import { currentPathname, navigateToPath } from '../../lib/app-history'
+import { t } from '../../lib/i18n'
 import { useUi } from '../../store/ui'
 import { useNotes } from '../../store/notes'
 import { useAssistant } from './assistant-store'
@@ -26,8 +27,23 @@ function surfaceAssistant(): void {
   navigateToPath('/chat')
 }
 
+/**
+ * Start the thread this command owns, then pin its scope.
+ *
+ * The order is the contract: the chip belongs to the conversation made here and nowhere else. While an
+ * answer is on its way the store refuses a new conversation, so without the check below the pin would land
+ * on the live thread — the reader would watch a menu entry quietly re-scope the conversation they were
+ * reading an answer from, and the command itself would look as if it had done nothing. Refusing is the
+ * honest half-answer, and it is what `summarizeFolder` already says for the one entry point that goes
+ * through it; the list and the tree call these two directly.
+ */
 function beginWithScope(scope: { kind: 'note' | 'folder', id: string, name: string }): void {
   const assistant = useAssistant.getState()
+  const running = assistant.turn
+  if (running && !running.done) {
+    useUi.getState().toast({ title: t('assistant.edit.busy'), tone: 'warning' })
+    return
+  }
   assistant.setView('chat')
   assistant.newConversation()
   assistant.addTurnScope(scope)
