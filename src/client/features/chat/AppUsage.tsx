@@ -246,8 +246,7 @@ export function AppUsage() {
           options={RANGES.map((entry) => ({ value: entry, label: t(`assistant.stats.range_${entry}`) }))}
         />
         <span className="flex-1" />
-        <Button size="sm" variant="ghost" onClick={() => setReload((value) => value + 1)}>
-          <RefreshCw size={13} />
+        <Button size="sm" variant="ghost" icon={<RefreshCw size={13} />} onClick={() => setReload((value) => value + 1)}>
           {t('common.refresh')}
         </Button>
       </div>

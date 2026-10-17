@@ -148,7 +148,6 @@ export function ModelPickerDialog({ provider, draft, existing, onSynced, onPicke
       title={draft ? t('assistant.picker.draft_title', { label: draft.label }) : t('assistant.picker.title', { label: provider?.label ?? '' })}
       description={draft ? draft.baseUrl : provider?.baseUrl}
       width={620}
-      bodyClassName="p-4"
     >
       <div className="flex flex-col gap-2.5">
         <div className="flex items-center gap-1.5">

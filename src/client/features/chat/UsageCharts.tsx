@@ -136,7 +136,14 @@ export function CostBars({ series, group, currency }: {
  * Two charts rather than one with two axes, because requests and tokens are different quantities — a model
  * asked twice with a huge prompt and one asked twice with a small one look the same on a shared axis.
  */
-export function ModelTrend({ series, label }: { series: AssistantUsageDay[], label: string }) {
+export function ModelTrend({ series, label, totals }: {
+  series: AssistantUsageDay[]
+  label: string
+  /** The model's own window totals, which are the authority on what it spent. The daily series may cover
+   *  less history than the totals do (requests recorded before the key dimension existed have no day
+   *  rows), and a heading read off the series alone would then say zero. */
+  totals?: { requests: number, tokens: number }
+}) {
   const requests = useMemo(() => (colors: ChartColors): ChartConfiguration => {
     const totals = series.map((day) => modelOn(day, label)?.requests ?? 0)
     return {
@@ -188,28 +195,38 @@ export function ModelTrend({ series, label }: { series: AssistantUsageDay[], lab
     },
   }), [series, label])
 
-  const totals = series.reduce(
+  const plotted = series.reduce(
     (sum, day) => {
       const slice = modelOn(day, label)
       return { requests: sum.requests + (slice?.requests ?? 0), tokens: sum.tokens + (slice?.inputTokens ?? 0) + (slice?.outputTokens ?? 0) }
     },
     { requests: 0, tokens: 0 },
   )
+  const shown = totals ?? plotted
+  // Totals with nothing under them mean the window predates the daily dimension, not a model that did
+  // no work: the cards lend their number to the totals and say why the curves are empty.
+  const withoutSeries = Boolean(totals) && (totals!.requests > 0 || totals!.tokens > 0)
+    && plotted.requests === 0 && plotted.tokens === 0
 
   return (
-    <div className="grid gap-2 md:grid-cols-2">
-      <div className="rounded-[var(--r-md)] border border-[var(--border-subtle)] p-2">
-        <p className="mb-1 text-[length:var(--text-11)] text-[var(--text-tertiary)]">
-          {t('assistant.stats.requests')} <span className="tabular text-[var(--text-secondary)]">{totals.requests.toLocaleString()}</span>
-        </p>
-        <ChartCanvas height="h-32" label={t('assistant.stats.requests_chart', { model: label })} build={requests} />
+    <div className="flex flex-col gap-1.5">
+      <div className="grid gap-2 md:grid-cols-2">
+        <div className="rounded-[var(--r-md)] border border-[var(--border-subtle)] p-2">
+          <p className="mb-1 text-[length:var(--text-11)] text-[var(--text-tertiary)]">
+            {t('assistant.stats.requests')} <span className="tabular text-[var(--text-secondary)]">{shown.requests.toLocaleString()}</span>
+          </p>
+          <ChartCanvas height="h-32" label={t('assistant.stats.requests_chart', { model: label })} build={requests} />
+        </div>
+        <div className="rounded-[var(--r-md)] border border-[var(--border-subtle)] p-2">
+          <p className="mb-1 text-[length:var(--text-11)] text-[var(--text-tertiary)]">
+            {t('assistant.stats.tokens')} <span className="tabular text-[var(--text-secondary)]">{compact(shown.tokens)}</span>
+          </p>
+          <ChartCanvas height="h-32" label={t('assistant.stats.tokens_chart', { model: label })} build={tokens} />
+        </div>
       </div>
-      <div className="rounded-[var(--r-md)] border border-[var(--border-subtle)] p-2">
-        <p className="mb-1 text-[length:var(--text-11)] text-[var(--text-tertiary)]">
-          {t('assistant.stats.tokens')} <span className="tabular text-[var(--text-secondary)]">{compact(totals.tokens)}</span>
-        </p>
-        <ChartCanvas height="h-32" label={t('assistant.stats.tokens_chart', { model: label })} build={tokens} />
-      </div>
+      {withoutSeries && (
+        <p className="text-[length:var(--text-11)] leading-relaxed text-[var(--text-quaternary)]">{t('assistant.stats.series_unavailable')}</p>
+      )}
     </div>
   )
 }

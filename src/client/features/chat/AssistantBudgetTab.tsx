@@ -31,8 +31,8 @@ const LIMIT_FIELDS: { key: keyof AssistantLimits, label: MessageKey, hint: Messa
  * way the model editor draws them — the same ladder of tokens — and each row says how many models are
  * actually reading it right now.
  */
-const INHERITED_CEILINGS: Partial<Record<keyof AssistantLimits, { steps: readonly number[], columns: 3 | 5, own: (model: AssistantModel) => number | null }>> = {
-  maxContextTokens: { steps: CONTEXT_WINDOW_STEPS, columns: 3, own: (model) => model.contextTokens },
+const INHERITED_CEILINGS: Partial<Record<keyof AssistantLimits, { steps: readonly number[], columns: 3 | 5 | 6, own: (model: AssistantModel) => number | null }>> = {
+  maxContextTokens: { steps: CONTEXT_WINDOW_STEPS, columns: 6, own: (model) => model.contextTokens },
   maxInputTokens: { steps: TOKEN_STEPS, columns: 5, own: (model) => model.maxInputTokens },
   maxOutputTokens: { steps: TOKEN_STEPS, columns: 5, own: (model) => model.maxOutputTokens },
 }

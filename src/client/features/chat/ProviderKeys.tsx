@@ -19,6 +19,7 @@ import { Input, Switch } from '../../components/form'
 import { confirm } from '../../components/overlay'
 import { cn } from '../../lib/cn'
 import { useUi } from '../../store/ui'
+import { storedKeyLabel } from './assistant-settings-shared'
 
 /** When a key last answered, in the reader's own words rather than as a timestamp. */
 function lastUsed(at: number | null): string {
@@ -101,8 +102,10 @@ export function ProviderKeys({ provider }: { provider: AssistantProvider }) {
               a reader who adds one key should see two, not wonder which one the ring is using. */}
           <div className="flex items-center gap-2 rounded-[var(--r-md)] border border-[var(--border-subtle)] px-2 py-1.5 text-[length:var(--text-11-5)]">
             <span className="min-w-0 flex-1 truncate text-[var(--text-secondary)]">{t('assistant.keys.primary')}</span>
+            {/* The same words the provider row and the edit form use, so one stored key reads the same
+                way everywhere: its last four characters, never the plaintext. */}
             <span className="shrink-0 font-mono text-[length:var(--text-10-5)] text-[var(--text-quaternary)]">
-              {provider.hasKey ? provider.keyHint : t('assistant.settings.key_missing')}
+              {storedKeyLabel(provider)}
             </span>
           </div>
 

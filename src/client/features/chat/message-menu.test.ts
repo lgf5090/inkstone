@@ -32,6 +32,15 @@ describe('what a reply offers', () => {
     expect(ids({ role: 'assistant', text: 'answer', onEmbedInNote: () => {} })).toContain('embed-in-note')
   })
 
+  it('offers to keep the whole thread, and to write this answer into the open note, where those can act', () => {
+    expect(ids({ role: 'assistant', text: 'answer' })).not.toContain('save-conversation')
+    expect(ids({ role: 'assistant', text: 'answer', onSaveConversation: () => {} })).toContain('save-conversation')
+    expect(ids({ role: 'assistant', text: 'answer' })).not.toContain('insert-into-note')
+    expect(ids({ role: 'assistant', text: 'answer', onInsertIntoNote: () => {} })).toContain('insert-into-note')
+    // Both rows are about a reply, so the reader's own message offers neither.
+    expect(ids({ role: 'user', text: 'question', onSaveConversation: () => {}, onInsertIntoNote: () => {} })).toEqual(['copy-md', 'copy-text', 'quote'])
+  })
+
   it('never offers to edit or delete the assistant', () => {
     const rows = ids({ role: 'assistant', text: 'answer', onRetry: () => {} })
     expect(rows).not.toContain('edit')

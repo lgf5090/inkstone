@@ -153,6 +153,25 @@ describe('the quick picks', () => {
         expect(draft.maxInputTokens).toBe(131_072)
         expect(draft.maxOutputTokens).toBe(16_384)
     })
+
+    it('lays the six-context-window ladder out as one even row rather than three over three', () => {
+        open()
+        const row = [...document.body.querySelectorAll<HTMLElement>('[role="group"]')]
+            .find((node) => node.getAttribute('aria-label') === t('assistant.model.context'))
+        expect(row, 'the context row is not rendered').toBeTruthy()
+        // The dialog is the tallest surface in settings; one row of six is what keeps this section short.
+        expect(row!.className).toContain('grid-cols-6')
+        expect(row!.querySelectorAll('button')).toHaveLength(CONTEXT_WINDOW_STEPS.length)
+    })
+
+    it('lets the inherited note wrap under the field instead of running past the dialog edge', () => {
+        open({ maxInputTokens: null })
+        const note = [...document.body.querySelectorAll('span')]
+            .find((node) => node.textContent?.trim() === t('assistant.model.value_inherited', { tokens: formatTokenStep(DEFAULT_LIMITS.maxInputTokens) }))
+        expect(note, 'the inherited note is not rendered').toBeTruthy()
+        expect(note!.parentElement!.className).toContain('flex-wrap')
+        expect(note!.className).toContain('shrink-0')
+    })
 })
 
 /** The three token numbers are optional, so emptying one has to be a real state rather than a default typed in. */

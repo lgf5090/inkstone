@@ -149,8 +149,7 @@ function UsageDetail() {
         <FilterMenu label={t('assistant.stats.filter_model')} value={model} options={modelOptions} onChange={setModel} />
         <FilterMenu label={t('assistant.stats.filter_key')} value={key} options={keyOptions} onChange={setKey} />
         <span className="flex-1" />
-        <Button size="sm" variant="ghost" onClick={() => setReload((value) => value + 1)}>
-          <RefreshCw size={13} />
+        <Button size="sm" variant="ghost" icon={<RefreshCw size={13} />} onClick={() => setReload((value) => value + 1)}>
           {t('common.refresh')}
         </Button>
       </div>
@@ -190,6 +189,14 @@ function UsageDetail() {
             ))}
           </div>
 
+          {/* "No price" is not an amount: the reader cannot act on a card that only says the number is
+              missing, so the way to fill it in is named right under the totals. */}
+          {!mainSpend && stats.unpricedModels > 0 && (
+            <p className="text-[length:var(--text-11-5)] leading-relaxed text-[var(--text-quaternary)]">
+              {t('assistant.stats.cost_none_hint')}
+            </p>
+          )}
+
           {stats.series.length > 0 && (
             <div>
               <div className="mb-1 flex flex-wrap items-center justify-between gap-2">
@@ -225,7 +232,14 @@ function UsageDetail() {
               <p className="mb-1 text-[length:var(--text-12)] font-medium text-[var(--text-secondary)]">
                 {entry.label || t('assistant.stats.unknown_model')}
               </p>
-              <ModelTrend series={stats.series} label={entry.label} />
+              {/* The model's own row is the authority on its window totals. The daily series comes from
+                  the key dimension, which older requests predate, so summing it here could print zero
+                  above charts that were merely missing history. */}
+              <ModelTrend
+                series={stats.series}
+                label={entry.label}
+                totals={{ requests: entry.requests, tokens: entry.inputTokens + entry.outputTokens }}
+              />
             </div>
           ))}
 

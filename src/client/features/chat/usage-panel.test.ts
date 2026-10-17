@@ -225,3 +225,41 @@ describe('the usage screen', () => {
     expect(text()).toContain(t('assistant.stats.cost_chart'))
   })
 })
+
+/** The same window with no per-day model rows, which is what requests recorded before the key
+ *  dimension existed look like: the totals and the model table know them, the daily series does not. */
+function withoutDailyModelRows(stats: AssistantStats): AssistantStats {
+  return { ...stats, series: stats.series.map((day) => ({ ...day, models: [], keys: [] })) }
+}
+
+/** The model card's own heading, which is the only place that number is written. */
+function modelHeading(label: string): string {
+  return [...rendered!.container.querySelectorAll('p')]
+    .map((node) => node.textContent?.replace(/\s+/g, ' ').trim() ?? '')
+    .find((text) => text.startsWith(`${label} `)) ?? ''
+}
+
+describe('a window whose daily series covers less than its totals', () => {
+  it("prints a model's own totals rather than the zero its missing day rows would give", async () => {
+    vi.mocked(api.assistant.stats).mockResolvedValueOnce(withoutDailyModelRows(STATS))
+    rendered = renderElement(createElement(UsagePanel))
+    await act(async () => { await Promise.resolve() })
+    await vi.waitFor(() => expect(text()).toContain('deepseek-chat'), { timeout: 5000, interval: 10 })
+    // deepseek-chat spent 10 requests in the fixture; the series has no slice for it.
+    expect(modelHeading(t('assistant.stats.requests')), 'the model card read the empty series').toContain('10')
+    expect(text()).toContain(t('assistant.stats.series_unavailable'))
+  })
+
+  it('says where a price is entered instead of leaving the cost card bare', async () => {
+    vi.mocked(api.assistant.stats).mockResolvedValueOnce({
+      ...STATS,
+      spend: [],
+      unpricedModels: 2,
+      models: STATS.models.map((model) => ({ ...model, currency: '', cost: null })),
+    })
+    rendered = renderElement(createElement(UsagePanel))
+    await act(async () => { await Promise.resolve() })
+    await vi.waitFor(() => expect(text()).toContain(t('assistant.stats.cost_none')), { timeout: 5000, interval: 10 })
+    expect(text()).toContain(t('assistant.stats.cost_none_hint'))
+  })
+})

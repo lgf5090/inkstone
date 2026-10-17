@@ -17,6 +17,7 @@ import { useUi } from '../../store/ui'
 import { useNotes } from '../../store/notes'
 import { useAssistant } from './assistant-store'
 import { lastAnswerText } from './editor-ai'
+import { rememberNoteOrigin, withConversationSource } from './save-to-note'
 import { startChatAboutFolder } from './start-chat'
 
 /**
@@ -40,9 +41,14 @@ export async function summarizeFolder(folderId: string): Promise<string | null> 
   try {
     const note = await api.notes.create({
       title: t('assistant.folder_summary.title', { name: folder.name }),
-      content: answer,
+      // The summary is a copy of the thread's answer, so it names the thread it came from the same way
+      // a saved reply does: the note can be read later without the conversation, but not against it.
+      content: withConversationSource(answer, useAssistant.getState().activeId),
       folderId,
     })
+    // The summary is written here rather than by the model's own note tool, so its backlink has to be
+    // reported the same way a saved reply's is: the note and its thread are one subject.
+    void rememberNoteOrigin(note.id, useAssistant.getState().activeId)
     toast({ title: t('assistant.folder_summary.done', { title: note.title }), tone: 'success' })
     // The reader is about to want to read it, and it is in the folder they were looking at.
     void useNotes.getState().openNote(note.id)

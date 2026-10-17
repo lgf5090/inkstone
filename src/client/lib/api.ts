@@ -808,6 +808,9 @@ export const api = {
       request<{ conversations: { id: string, title: string, updatedAt: number }[] }>(
         `/api/assistant/note-writes${toQuery({ noteId })}`, { signal },
       ),
+    /** A note the browser wrote from a reply: the worker cannot see that save, so the client reports it. */
+    recordNoteWrite: (noteId: string, conversationId: string) =>
+      request<{ ok: true }>('/api/assistant/note-writes', { method: 'POST', body: { noteId, conversationId } }),
     conversations: (params: { q?: string, folder?: string, project?: string, tag?: string, starred?: string, pinned?: string, archived?: string } = {}) =>
       request<{ conversations: AssistantConversation[] }>(`/api/assistant/conversations${toQuery(params)}`),
     createConversation: (title?: string, folderId?: string | null) =>

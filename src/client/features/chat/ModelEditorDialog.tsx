@@ -120,13 +120,6 @@ const MODALITY_KEYS: Record<AssistantModelModality, Parameters<typeof t>[0]> = {
 }
 
 /**
- * One row of preset buttons under a number field. The reader picks 256K rather than typing 262144,
- * and the field still takes any number the presets do not offer.
- *
- * Pressing the preset that is already taken takes it back, which is how a number is cleared without
- * deleting digits by hand: the field is optional, and a row with no way to empty it reads as required.
- */
-/**
  * One of the three token numbers: the field, its quick picks, and what a blank one means.
  *
  * Drawn as a full-width row rather than a third of one, because the picks are ten buttons wide: in a
@@ -139,13 +132,15 @@ function TokenField({ labelKey, hintKey, value, inherited, steps, columns = 5, o
   /** The account ceiling that answers while this field is empty, named beside it so the reader can see it. */
   inherited: number
   steps: readonly number[]
-  columns?: 3 | 5
+  columns?: 3 | 5 | 6
   onChange: (tokens: number | null) => void
 }) {
   const label = t(labelKey)
   return (
     <Field label={label} hint={t(hintKey)}>
-      <div className="flex items-center justify-between gap-2">
+      {/* The note on the right is what a narrow dialog used to clip: it has a line of its own to fall back
+          to, and a fixed input and unshrunk note otherwise never squeeze past the panel's edge. */}
+      <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1">
         <Input
           type="number"
           inputMode="numeric"
@@ -153,9 +148,9 @@ function TokenField({ labelKey, hintKey, value, inherited, steps, columns = 5, o
           value={value ?? ''}
           placeholder={t('assistant.model.unset')}
           onChange={(event) => onChange(numberOrNull(event.target.value))}
-          className="w-36"
+          className="w-36 shrink-0"
         />
-        <span className="text-[length:var(--text-10-5)] tabular-nums text-[var(--text-quaternary)]">
+        <span className="shrink-0 text-right text-[length:var(--text-10-5)] tabular-nums text-[var(--text-quaternary)]">
           {value === null ? t('assistant.model.value_inherited', { tokens: formatTokenStep(inherited) }) : t('assistant.model.value_own')}
         </span>
       </div>
@@ -228,7 +223,6 @@ export function ModelEditorDialog({
       title={t('assistant.model.edit')}
       description={provider ? `${provider.label} · ${model.model}` : model.model}
       width={560}
-      bodyClassName="p-4"
       footer={(
         <>
           <Button variant="secondary" onClick={onClose}>{t('common.cancel')}</Button>
@@ -236,7 +230,7 @@ export function ModelEditorDialog({
         </>
       )}
     >
-      <div className="flex flex-col gap-3.5">
+      <div className="flex flex-col gap-3">
         <Field label={t('assistant.model.id')}>
           <div className="flex items-center gap-1.5">
             <Input value={model.model} readOnly aria-label={t('assistant.model.id')} className="min-w-0 flex-1 font-mono text-[length:var(--text-12)]" />
@@ -287,7 +281,7 @@ export function ModelEditorDialog({
         </button>
 
         {more && (
-          <div className="flex flex-col gap-3.5 rounded-[var(--r-lg)] border border-[var(--border-subtle)] bg-[var(--bg-inset)] p-3">
+          <div className="flex flex-col gap-3 rounded-[var(--r-lg)] border border-[var(--border-subtle)] bg-[var(--bg-inset)] p-3">
             <Field label={t('assistant.model.kind')}>
               <Segmented
                 value={draft.kind}
@@ -369,14 +363,14 @@ export function ModelEditorDialog({
               </div>
               <p className="mt-1 text-[length:var(--text-11)] leading-snug text-[var(--text-quaternary)]">{t('assistant.model.modalities_hint')}</p>
             </Field>
-            <div className="flex flex-col gap-3.5">
+            <div className="flex flex-col gap-3">
               <TokenField
                 labelKey="assistant.model.context"
                 hintKey="assistant.model.context_hint"
                 value={draft.contextTokens}
                 inherited={limits.maxContextTokens}
                 steps={CONTEXT_WINDOW_STEPS}
-                columns={3}
+                columns={6}
                 onChange={(tokens) => patch({ contextTokens: tokens })}
               />
               <TokenField

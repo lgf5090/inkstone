@@ -234,3 +234,63 @@ describe('an address box that got something else typed into it', () => {
     expect((useAssistant.getState().addProvider as ReturnType<typeof vi.fn>).mock.calls[0]?.[0].endpoints).toEqual({})
   })
 })
+
+/**
+ * The edit form opens with an empty password box, because the plaintext is not ours to show again.
+ * What the reader must not read into that is "my key is gone": the box names the stored key by its
+ * last four characters and says a blank save keeps it, and a blank save has to actually keep it.
+ */
+describe('the key box of a provider that already has one', () => {
+  const saved = {
+    id: 'p1', label: 'Gateway', protocol: 'openai', baseUrl: 'https://gw.internal.example/v1',
+    endpoints: {}, hasKey: true, keyHint: '1234', reasoningDialect: null, createdAt: 1, updatedAt: 1,
+  } as unknown as AssistantProvider
+  const editButton = () => buttons().find((node) => node.textContent?.trim() === t('assistant.settings.edit_provider'))
+  /** The note a field declares it is described by, reached through the association alone. */
+  const describedBy = (field: HTMLInputElement) => (field.getAttribute('aria-describedby') ?? '')
+    .split(' ').filter(Boolean).map((id) => document.getElementById(id)?.textContent ?? '').join(' ')
+  const openEditor = async (provider: AssistantProvider = saved) => {
+    await act(async () => {
+      root.render(createElement(ProviderForm, { open: true, provider, onClose: () => undefined }))
+    })
+  }
+  const sentBody = async () => {
+    await act(async () => { editButton()!.click() })
+    return vi.mocked(useAssistant.getState().updateProvider).mock.calls[0]?.[1] as Record<string, unknown>
+  }
+
+  it('names the stored key by its last four and says a blank box keeps it', async () => {
+    await openEditor()
+    const field = keyBox()
+    expect(field, 'the key field is not rendered').toBeTruthy()
+    // The box is empty — that is the point — but it is not silent about why.
+    expect(field!.value).toBe('')
+    expect(field!.placeholder).toBe(t('assistant.settings.api_key_saved_placeholder', { hint: '1234' }))
+    expect(describedBy(field!)).toContain(t('assistant.settings.api_key_edit_hint', { hint: '1234' }))
+  })
+
+  it('sends no key at all when the box was left alone, so the stored one survives', async () => {
+    await openEditor()
+    const body = await sentBody()
+    // Not an empty string: an omitted field is what tells the worker to keep the ciphertext.
+    expect('apiKey' in body).toBe(false)
+  })
+
+  it('sends a replacement when the reader types one', async () => {
+    await openEditor()
+    act(() => { type(keyBox()!, 'sk-new-9999') })
+    expect((await sentBody()).apiKey).toBe('sk-new-9999')
+  })
+
+  it('falls back to a mask-free claim when the store kept no last-four hint', async () => {
+    await openEditor({ ...saved, keyHint: '' } as AssistantProvider)
+    expect(keyBox()!.placeholder).toBe(t('assistant.settings.api_key_saved_placeholder_nohint'))
+    expect(describedBy(keyBox()!)).toContain(t('assistant.settings.api_key_edit_hint_nohint'))
+  })
+
+  it('offers a paste prompt when the provider has no key yet', async () => {
+    await openEditor({ ...saved, hasKey: false, keyHint: '' } as AssistantProvider)
+    expect(keyBox()!.placeholder).toBe(t('assistant.settings.api_key_placeholder'))
+    expect(describedBy(keyBox()!)).toContain(t('assistant.settings.api_key_hint'))
+  })
+})

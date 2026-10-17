@@ -32,7 +32,18 @@ export function chatEmbedId(target: string): string | null {
   const value = target.trim()
   if (!value.toLowerCase().startsWith(PREFIX)) return null
   const id = value.slice(PREFIX.length).trim()
-  return /^[A-Za-z0-9_-]{1,64}$/.test(id) ? id : null
+  return isChatEmbedId(id) ? id : null
+}
+
+/**
+ * Whether a value is shaped like a conversation id.
+ *
+ * The embed resolves ids out of note text, and the chat's own actions build `![[chat:<id>]]` from the
+ * id they hold; one alphabet for both is what keeps a stored note from pointing at an embed the
+ * renderer would draw as broken.
+ */
+export function isChatEmbedId(value: string): boolean {
+  return /^[A-Za-z0-9_-]{1,64}$/.test(value)
 }
 
 function clip(text: string): string {

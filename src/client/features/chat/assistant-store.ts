@@ -91,6 +91,15 @@ export interface PendingAttachment {
 
 /** What a reader has typed but the assistant has not answered yet. */
 interface LiveTurn {
+  /**
+   * The identity of this turn in this tab.
+   *
+   * Every stream event carries the token of the send that asked for it, and only the turn with that
+   * token may be written by it. Without it a reply still arriving from a conversation the reader has
+   * left would append its words to whichever turn is on screen now — two threads' sentences in one
+   * bubble, and the older stream ending the newer turn.
+   */
+  token?: number
   conversationId: string | null
   userText: string
   /** The files the reader hung on this turn, so the bubble can show them before the row exists. */
@@ -312,7 +321,14 @@ interface AssistantState {
   attachNewTag: (id: string, tagId: string) => Promise<void>
   openConversation: (id: string | null) => Promise<void>
   newConversation: () => void
-  send: (text: string, opts?: { retry?: boolean }) => Promise<void>
+  /**
+   * Asks the assistant, and answers whether the worker took the turn.
+   *
+   * False means the request never reached the worker — a refused route or a connection that never
+   * formed — so the composer can hand the reader their words back instead of swallowing them. True
+   * covers a turn that ran and a turn the reader stopped: either way the question itself was sent.
+   */
+  send: (text: string, opts?: { retry?: boolean }) => Promise<boolean>
   attachFiles: (files: File[]) => Promise<void>
   attachUrl: (url: string) => Promise<void>
   attachPastedText: (text: string) => Promise<boolean>
@@ -439,7 +455,16 @@ interface AssistantState {
   syncVendorModels: (providerId: string, ids: string[]) => Promise<{ added: number, removed: number }>
 }
 
-let inflight: AbortController | null = null
+/**
+ * The abort handle of every turn this tab is running, keyed by the turn's token.
+ *
+ * A map rather than one field because leaving a conversation does not stop its reply: the reader can
+ * walk to another thread and ask something there while the first answer is still arriving, and each
+ * request has to be stoppable on its own. The token is what finally deletes the right entry, so a
+ * stream that ends after a newer one began cannot take the newer handle away.
+ */
+const inflight = new Map<number, AbortController>()
+let turnSeq = 0
 let conversationRequest = 0
 
 function toast(error: unknown): void {
@@ -474,14 +499,7 @@ function followedPopup(tab: Window): Promise<void> {
 }
 
 /**
- * Brings the saved thread on screen.
- *
- * A stopped turn is filed by the worker a moment after the reader aborts the stream, so the first read
- * can still show the answer as running; the bubble is dropped only once the stored copy is visible, or
- * the reply blinks out and reappears on the next open.
- */
-/**
- * The budget for the chase `adoptThread` describes above: how often it reads, and how many reads it is
+ * The budget for the chase `adoptThread` describes below: how often it reads, and how many reads it is
  * allowed before the answer is left as it is. The interval is what one read costs the network, so the
  * pair is chosen together — patient enough to span the worker filing the turn, cheap enough to sit
  * unnoticed behind a reader who has already moved on.
@@ -497,7 +515,43 @@ const ADOPT_POLL_MS = 400
 const TAG_ROW_ATTEMPTS = 6
 const TAG_ROW_POLL_MS = 200
 
-async function adoptThread(conversationId: string): Promise<void> {
+/**
+ * The words the reader watched arrive, put back into a stopped turn's stored row.
+ *
+ * The stored row is what a reopened thread reads, and the worker files it a moment after the reader
+ * aborts the stream. A worker that files the cancelled answer from its last completed step writes an
+ * empty row while the screen still shows a fragment, and adopting that row verbatim would erase words
+ * the reader chose to keep. The fragment is filled into the row this device was watching — matched by
+ * the turn's own message id — and only where the row arrived blank, so a worker that already saved the
+ * half answer is still the one the thread trusts.
+ */
+function fillStoppedAnswer(messages: AssistantMessage[], turn: LiveTurn | null): AssistantMessage[] {
+  const text = turn?.text
+  const assistantId = turn?.assistantId
+  if (!text || !assistantId) return messages
+  const index = messages.findIndex((message) => message.id === assistantId)
+  if (index < 0) return messages
+  const row = messages[index]
+  if (!row || row.role !== 'assistant' || row.content) return messages
+  return messages.map((message, position) => (position === index ? { ...message, content: text } : message))
+}
+
+/** Drops a finished turn, and only the one the caller finished: a later send owns the screen now. */
+function releaseTurn(token?: number): void {
+  if (token === undefined) return
+  useAssistant.setState((current) => (current.turn?.done && current.turn.token === token ? { turn: null } : current))
+}
+
+/**
+ * Brings the saved thread on screen.
+ *
+ * A stopped turn is filed by the worker a moment after the reader aborts the stream, so the first read
+ * can still show the answer as running; the bubble is dropped only once the stored copy is visible, or
+ * the reply blinks out and reappears on the next open. `turn` is the live turn the caller is adopting,
+ * and is the only turn this read is allowed to settle — every write below is either about that turn or
+ * about the thread, never about whatever turn happens to be on screen now.
+ */
+async function adoptThread(conversationId: string, turn: LiveTurn | null): Promise<void> {
   for (let attempt = 0; attempt < ADOPT_ATTEMPTS; attempt++) {
     let detail
     try {
@@ -505,22 +559,129 @@ async function adoptThread(conversationId: string): Promise<void> {
     } catch {
       return
     }
-    if (useAssistant.getState().activeId === conversationId) {
-      useAssistant.setState({
-        messages: detail.messages,
-        messagesReady: true,
-        // Merged rather than replaced: the rows this turn already had are still the reader's, and a
-        // picture the assistant drew is a row the thread has never seen before this read.
-        fileIndex: { ...useAssistant.getState().fileIndex, ...Object.fromEntries((detail.attachments ?? []).map((entry) => [entry.id, entry])) },
-      })
-      if (!detail.streaming) {
-        if (useAssistant.getState().turn?.done) useAssistant.setState({ turn: null })
-        return
-      }
+    // Another thread is on screen. This read is only worth anything to the thread the reader can see,
+    // and the next open of this one reads it again for itself.
+    if (useAssistant.getState().activeId !== conversationId) return
+    useAssistant.setState({
+      messages: fillStoppedAnswer(detail.messages, turn),
+      messagesReady: true,
+      // Merged rather than replaced: the rows this turn already had are still the reader's, and a
+      // picture the assistant drew is a row the thread has never seen before this read.
+      fileIndex: { ...useAssistant.getState().fileIndex, ...Object.fromEntries((detail.attachments ?? []).map((entry) => [entry.id, entry])) },
+    })
+    if (!detail.streaming) {
+      useAssistant.setState({ remoteStreaming: false })
+      releaseTurn(turn?.token)
+      return
     }
     await new Promise((resolve) => setTimeout(resolve, ADOPT_POLL_MS))
   }
-  if (useAssistant.getState().turn?.done) useAssistant.setState({ turn: null })
+  releaseTurn(turn?.token)
+}
+
+/**
+ * How often the open conversation asks whether another device is still writing into it.
+ *
+ * The server tells the client that a run is live, but not when it ends — there is no SSE reconnect or
+ * subscription — so the one honest way to notice the other tab finishing is to ask again. The interval
+ * is a read of a thread the reader is already looking at, which is cheap; a reader who is not looking
+ * at it has no poll running at all.
+ */
+export const REMOTE_WATCH_POLL_MS = 2500
+
+/**
+ * How long that question is asked before the marker is treated as stale.
+ *
+ * `streaming` comes from the worker's run lease, which outlives a crashed tab by one lease and is
+ * renewed only while a turn is really going. A marker still set after this long is either a very long
+ * answer or a lease nobody is renewing; either way the reader has waited long enough that losing the
+ * composer is the worse outcome, so the placeholder is cleared and the server's own claim is left to
+ * refuse a second turn if one is genuinely running.
+ */
+export const REMOTE_WATCH_MAX_MS = 3 * 60 * 1000
+
+interface RemoteWatch {
+  conversationId: string
+  startedAt: number
+  timer: number
+}
+
+let remoteWatch: RemoteWatch | null = null
+
+/** Exported so a test can take the timer down with it, the way the persistence key is. */
+export function stopRemoteStreamWatch(): void {
+  if (!remoteWatch) return
+  window.clearTimeout(remoteWatch.timer)
+  remoteWatch = null
+}
+
+function scheduleRemotePoll(watch: RemoteWatch): void {
+  watch.timer = window.setTimeout(() => void pollRemoteStream(watch), REMOTE_WATCH_POLL_MS)
+}
+
+/**
+ * Reads a conversation until the turn another device started is over.
+ *
+ * The answer itself is never assembled here: the worker writes it, and this only swaps in the stored
+ * rows once `streaming` turns false, which is the same read that opening the conversation would do.
+ * When the read fails it is retried inside the same budget, because a poll that gives up on one bad
+ * round trip would leave the placeholder exactly as stuck as it was before the poll existed.
+ */
+async function pollRemoteStream(watch: RemoteWatch): Promise<void> {
+  if (remoteWatch !== watch) return
+  if (useAssistant.getState().activeId !== watch.conversationId) {
+    stopRemoteStreamWatch()
+    return
+  }
+  let detail
+  try {
+    detail = await api.assistant.conversation(watch.conversationId)
+  } catch {
+    if (remoteWatch !== watch) return
+    if (Date.now() - watch.startedAt >= REMOTE_WATCH_MAX_MS) {
+      giveUpRemoteStream(watch)
+      return
+    }
+    scheduleRemotePoll(watch)
+    return
+  }
+  if (remoteWatch !== watch) return
+  if (useAssistant.getState().activeId !== watch.conversationId) {
+    stopRemoteStreamWatch()
+    return
+  }
+  if (!detail.streaming) {
+    stopRemoteStreamWatch()
+    useAssistant.setState((current) => ({
+      messages: detail.messages,
+      messagesReady: true,
+      remoteStreaming: false,
+      fileIndex: { ...current.fileIndex, ...Object.fromEntries((detail.attachments ?? []).map((entry) => [entry.id, entry])) },
+    }))
+    void useAssistant.getState().loadConversations()
+    return
+  }
+  if (Date.now() - watch.startedAt >= REMOTE_WATCH_MAX_MS) {
+    giveUpRemoteStream(watch)
+    return
+  }
+  scheduleRemotePoll(watch)
+}
+
+function giveUpRemoteStream(watch: RemoteWatch): void {
+  if (remoteWatch !== watch) return
+  stopRemoteStreamWatch()
+  // The composer comes back rather than staying disabled on a marker nobody can confirm. Sending is
+  // still safe: the worker refuses a second turn on a conversation it is really running.
+  useAssistant.setState({ remoteStreaming: false })
+  useUi.getState().toast({ title: t('assistant.chat.remote_streaming_lost'), tone: 'warning' })
+}
+
+function watchRemoteStream(conversationId: string): void {
+  stopRemoteStreamWatch()
+  const watch: RemoteWatch = { conversationId, startedAt: Date.now(), timer: 0 }
+  remoteWatch = watch
+  scheduleRemotePoll(watch)
 }
 
 /**
@@ -1119,8 +1280,13 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
   openConversation: async (id) => {
     const state = get()
     const turn = state.turn
-    // A reply still arriving belongs to its own conversation; navigating away must not cancel it.
+    // A reply still arriving belongs to its own conversation: navigating away keeps the request going
+    // and drops only the view of it. What keeps the stream honest is the token on its turn — its events
+    // find no turn to write to here, so they cannot land in the thread the reader moved to.
     if (turn && !turn.done && turn.conversationId !== id) set({ turn: null })
+    // A remote marker belongs to the conversation it was read from; asking again below is what starts a
+    // new watch when this thread has one too.
+    stopRemoteStreamWatch()
     // A muted chip is this thread's correction, not a setting: the next thread starts from the pointer.
     // The panel starts closed on every thread and shows no draft until that thread's own read lands.
     set({ activeId: id, messages: [], messagesReady: false, remoteStreaming: false, noteContextOn: true, folderContextOn: true, artifacts: [], artifactsReady: false, canvasOpen: false, activeArtifactId: null, ephemeral: false })
@@ -1132,14 +1298,20 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
     try {
       const detail = await api.assistant.conversation(id)
       if (get().activeId !== id) return
+      // The server says whether a turn is being written somewhere else. A local turn for this very
+      // conversation is not "remote" — it is the one on screen — but anything else is a reply this tab
+      // can only watch, so it gets the placeholder and the poll that clears it when the writer finishes.
+      const local = get().turn
+      const remote = detail.streaming && !(local && !local.done && local.conversationId === id)
       set({
         messages: detail.messages,
         fileIndex: Object.fromEntries((detail.attachments ?? []).map((entry) => [entry.id, entry])),
         messagesReady: true,
-        remoteStreaming: detail.streaming && !(get().turn && !get().turn?.done),
+        remoteStreaming: remote,
         // Read from the row rather than from the list, which never carries a temporary conversation.
         ephemeral: detail.conversation.ephemeral === true,
       })
+      if (remote) watchRemoteStream(id)
     } catch (error) {
       if (get().activeId !== id) return
       set({ messagesReady: true })
@@ -1150,6 +1322,7 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
   newConversation: () => {
     const live = get().turn
     if (live && !live.done) return
+    stopRemoteStreamWatch()
     // The pins go with the thread they were added to. They are "this turn's" by definition — the row the
     // composer draws is the record of what this question was asked about — so a new conversation that
     // inherited them would answer a question nobody asked, in a folder nobody named.
@@ -1165,6 +1338,7 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
   startTemporaryConversation: () => {
     const live = get().turn
     if (live && !live.done) return
+    stopRemoteStreamWatch()
     set({ activeId: null, messages: [], messagesReady: true, remoteStreaming: false, turn: null, noteContextOn: true, folderContextOn: true, artifacts: [], artifactsReady: true, canvasOpen: false, activeArtifactId: null, ephemeral: true })
   },
 
@@ -1173,6 +1347,11 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
     if (room <= 0) {
       toast({ title: t('assistant.attach.too_many', { count: MAX_CHAT_ATTACHMENTS }), tone: 'danger' })
       return
+    }
+    // Files that do not fit are named rather than silently dropped: a folder picked as a whole can hold
+    // more than the box does, and "only some of them appeared" is otherwise indistinguishable from a bug.
+    if (files.length > room) {
+      toast({ title: t('assistant.attach.dropped', { count: files.length - room, max: MAX_CHAT_ATTACHMENTS }), tone: 'warning' })
     }
     for (const file of files.slice(0, room)) {
       const localId = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`
@@ -1354,19 +1533,27 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
 
   send: async (text, opts = {}) => {
     const state = get()
-    if (state.turn && !state.turn.done) return
+    if (state.turn && !state.turn.done) return false
     const conversationId = state.activeId
     const retry = opts.retry === true
     const attached = retry ? [] : state.pending.filter((entry) => entry.status === 'ready' && entry.id).map((entry) => entry.id)
-    if (!retry && !text.trim() && !attached.length) return
+    if (!retry && !text.trim() && !attached.length) return false
     if (!retry && state.pending.some((entry) => entry.status === 'uploading')) {
       toast({ title: t('assistant.attach.waiting'), tone: 'danger' })
-      return
+      return false
     }
+    const token = ++turnSeq
     const controller = new AbortController()
-    inflight = controller
+    inflight.set(token, controller)
+    // This turn is now the one the screen owns; a reply another device was writing is no longer the
+    // thing the reader is waiting for, and the poller would keep replacing the messages under it.
+    stopRemoteStreamWatch()
+    // The draft becomes the turn's, and is handed back by the finally below if the request never
+    // reached the worker — the reader should not have to upload again because the network refused.
+    const draft = { pending: state.pending, turnTools: state.turnTools, turnScopes: state.turnScopes }
     set({
       turn: {
+        token,
         conversationId,
         userText: retry ? '' : text.trim(),
         attachments: retry ? [] : attached,
@@ -1379,12 +1566,24 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
         done: false,
       },
       remoteStreaming: false,
+      ...(retry ? {} : { pending: [], turnTools: [], turnScopes: [] }),
     })
 
+    // Where the worker filed this turn: known from the first frame when this send is the one that made
+    // the conversation, and from the reader's own thread id when it already existed.
+    let filedConversationId = conversationId
+    // False until a frame arrives. A stream that threw before its first frame is a request the worker
+    // never took, which is the one case where the draft is still the reader's.
+    let accepted = false
     const apply = (event: ChatStreamEvent) => {
+      if (event.type !== 'title') accepted = true
+      if (event.type === 'start' && event.conversationId) filedConversationId = event.conversationId
       set((current) => {
         const turn = current.turn
-        if (!turn) return current
+        // An event belongs to the turn that asked for it. After the reader leaves the conversation and
+        // starts another turn, this stream's token is no longer the one on screen, and writing into it
+        // is exactly how one thread's words used to appear in another.
+        if (!turn || turn.token !== token) return current
         switch (event.type) {
           case 'start':
             return {
@@ -1422,7 +1621,19 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
           case 'error':
             return { turn: { ...turn, error: event.message ?? null } }
           case 'done':
-            return { turn: { ...turn, done: true } }
+            return {
+              turn: {
+                ...turn,
+                done: true,
+                // The final row is the worker's own record of where the answer really ended. A stopped
+                // turn's last step never completed, and a worker that merges the fragment before filing
+                // it says here what it kept — which is at least what arrived. When it says nothing, the
+                // fragment on screen stays: it is what the reader chose not to throw away.
+                text: event.finalMessage?.role === 'assistant' && event.finalMessage.content
+                  ? event.finalMessage.content
+                  : turn.text,
+              },
+            }
           default:
             return current
         }
@@ -1456,19 +1667,36 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
       )
     } catch (error) {
       if (!controller.signal.aborted) {
-        set((current) => (current.turn
+        set((current) => (current.turn?.token === token
           ? { turn: { ...current.turn, error: error instanceof Error ? error.message : t('assistant.toast.failed'), done: true } }
           : current))
       }
     } finally {
-      inflight = null
-      if (!retry) set({ pending: [], turnTools: [], turnScopes: [] })
-      const finishedId = get().turn?.conversationId ?? conversationId
-      set((current) => (current.turn ? { turn: { ...current.turn, done: true } } : current))
-      if (finishedId) await adoptThread(finishedId)
+      inflight.delete(token)
+      // Only the turn this request started may be settled here. A later send owns the screen after a
+      // stop or a change of conversation, and its token is what tells the two apart.
+      const mine = get().turn?.token === token ? get().turn : null
+      if (mine) {
+        const finished: LiveTurn = { ...mine, done: true }
+        set({ turn: finished })
+        // A turn that never reached the worker has no stored row to adopt; the draft comes back instead.
+        if (accepted && filedConversationId) await adoptThread(filedConversationId, finished)
+      } else if (accepted && filedConversationId) {
+        // A stream whose turn left the screen while it was running: the thread is all that can be
+        // updated now, and only if the reader happens to be looking at it.
+        await adoptThread(filedConversationId, null)
+      }
+      if (!accepted && !retry && !controller.signal.aborted) {
+        // The words never left this device: give the draft back, unless the reader has already asked
+        // something else — a newer turn owns the composer and the old draft must not overwrite it.
+        set((current) => (current.turn?.token === token
+          ? { pending: draft.pending, turnTools: draft.turnTools, turnScopes: draft.turnScopes }
+          : current))
+      }
       void get().loadConversations()
       void get().refreshAfterTurn()
     }
+    return accepted
   },
 
   refreshAfterTurn: async () => {
@@ -1481,9 +1709,12 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
 
   stop: () => {
     const turn = get().turn
-    inflight?.abort()
-    inflight = null
-    set((current) => (current.turn ? { turn: { ...current.turn, done: true } } : current))
+    const token = turn?.token
+    // Only the turn on screen is stopped. A reply still running for a conversation the reader left is
+    // not what this press is about, and aborting it from here would end an answer they are still owed.
+    if (token !== undefined) inflight.get(token)?.abort()
+    set((current) => (current.turn && current.turn.token === token ? { turn: { ...current.turn, done: true } } : current))
+    // A remote marker has no local handle; the cancel below is what ends the turn another device owns.
     const conversationId = turn?.conversationId ?? get().activeId
     // Best-effort notice to the worker. Stop is carried out here first — the request is aborted and the
     // turn is marked done — so what a failed cancel leaves behind is an upstream still writing into a
@@ -1524,7 +1755,10 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
   deleteConversation: async (id) => {
     try {
       await api.assistant.deleteConversation(id)
-      if (get().activeId === id) set({ activeId: null, messages: [], turn: null, artifacts: [], artifactsReady: true, canvasOpen: false, activeArtifactId: null, ephemeral: false })
+      if (get().activeId === id) {
+        stopRemoteStreamWatch()
+        set({ activeId: null, messages: [], turn: null, artifacts: [], artifactsReady: true, canvasOpen: false, activeArtifactId: null, ephemeral: false })
+      }
       await get().loadConversations()
     } catch (error) {
       toast(error)

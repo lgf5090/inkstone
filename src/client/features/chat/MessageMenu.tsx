@@ -12,7 +12,7 @@
  */
 
 import { useCallback, useRef, useState, type MouseEvent, type RefObject } from 'react'
-import { Copy, CornerUpLeft, Download, GitBranch, ListChecks, MessageSquareQuote, NotebookPen, PanelRight, Pencil, RotateCcw, Share2, ThumbsDown, ThumbsUp, Trash2, Volume2, type LucideIcon } from 'lucide-react'
+import { Copy, CornerUpLeft, Download, GitBranch, ListChecks, MessageSquareQuote, NotebookPen, NotebookText, PanelRight, Pencil, RotateCcw, Share2, TextCursorInput, ThumbsDown, ThumbsUp, Trash2, Volume2, type LucideIcon } from 'lucide-react'
 import { toPlainText } from '@shared/markdown-utils'
 import type { MessageFeedback } from '@shared/assistant'
 import { Z_INDEX } from '../../lib/z-index'
@@ -56,12 +56,28 @@ export interface MessageMenuTarget {
    */
   onOpenCanvas?: () => void
   /**
+   * Present for a stored reply: keeps the whole thread as a note, with a pointer back to it.
+   *
+   * The row is about the thread, not the message, but this is the menu the reader has open while
+   * reading one — and the alternative is the conversation list's export, which writes a file and
+   * never reaches the notebook.
+   */
+  onSaveConversation?: () => void
+  /**
    * Present for a stored reply while a note is open: puts `![[chat:<id>]]` into that note.
    *
    * The row is about the thread, not the message, but this is the menu the reader has open while
    * reading one — and the alternative is asking them to find the conversation's id.
    */
   onEmbedInNote?: () => void
+  /**
+   * Present for a stored reply while a note is open: writes this answer into that note.
+   *
+   * A reply that has to be read in the chat container before it can be written means retyping it, which
+   * is the whole reason this row exists; where the write lands (the caret, or the end of the note) is
+   * the module's own decision rather than the caller's.
+   */
+  onInsertIntoNote?: () => void
 }
 
 interface ItemSpec {
@@ -123,10 +139,26 @@ export function messageMenuItems(target: MessageMenuTarget): MenuItem[] {
     specs.push(
       { id: 'save', icon: NotebookPen, label: t('assistant.chat.save_to_note'), run: () => saveReplyAsNote(target.text) },
     )
+    if (target.onSaveConversation) {
+      specs.push({
+        id: 'save-conversation',
+        icon: NotebookText,
+        label: t('assistant.note.save_conversation'),
+        run: target.onSaveConversation,
+      })
+    }
     // Between keeping it as a note and taking it away: a note is where a reply goes when it is finished,
     // and the panel is where one goes while it is still being worked on.
     if (target.onOpenCanvas) {
       specs.push({ id: 'canvas', icon: PanelRight, label: t('assistant.canvas.open'), run: target.onOpenCanvas })
+    }
+    if (target.onInsertIntoNote) {
+      specs.push({
+        id: 'insert-into-note',
+        icon: TextCursorInput,
+        label: t('assistant.note.insert_into_note'),
+        run: target.onInsertIntoNote,
+      })
     }
     if (target.onEmbedInNote) {
       specs.push({ id: 'embed-in-note', icon: MessageSquareQuote, label: t('assistant.embed.menu'), run: target.onEmbedInNote })

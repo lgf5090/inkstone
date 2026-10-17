@@ -10,7 +10,7 @@
  * All four are per-conversation settings the assistant already stores — the chips are the same switches
  * the settings page has, moved to where the decision is actually made.
  */
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import {
   Brain,
   Check,
@@ -405,59 +405,137 @@ export function NotePicker({
   )
 }
 
+/** One phrase the browser recognised. Final results are the only ones that may become text. */
+interface SpeechResult {
+  isFinal: boolean
+  0: { transcript: string }
+}
+
+/** The event shape `SpeechRecognition.onresult` sends; `resultIndex` is where this event starts. */
+interface SpeechResultEvent {
+  /** The first result this event changed. Everything before it was reported by an earlier event. */
+  resultIndex: number
+  results: { length: number, [index: number]: SpeechResult }
+}
+
+interface SpeechEngine {
+  lang: string
+  continuous: boolean
+  interimResults: boolean
+  onresult: ((event: SpeechResultEvent) => void) | null
+  onend: (() => void) | null
+  onerror: (() => void) | null
+  start: () => void
+  stop: () => void
+}
+
+function speechRecognitionCtor(): (new () => SpeechEngine) | null {
+  if (typeof window === 'undefined') return null
+  const scope = window as unknown as Record<string, unknown>
+  return (scope.SpeechRecognition ?? scope.webkitSpeechRecognition ?? null) as (new () => SpeechEngine) | null
+}
+
 /**
  * Dictation, when the browser offers it.
  *
  * The button is drawn disabled rather than hidden on a browser without speech recognition: a control
  * that is missing is a feature the reader never learns exists, while a dead one with a reason is
  * legible.
+ *
+ * The engine is owned by this component for exactly as long as it is mounted. A microphone still open
+ * after the reader closed the panel is not a dangling timer: it is an open microphone, so unmount and a
+ * hidden tab both stop it rather than leaving it to the next press of a button that may never come.
  */
 export function VoiceButton({ onText }: { onText: (chunk: string) => void }) {
   const [listening, setListening] = useState(false)
-  const engineRef = useRef<{ stop: () => void } | null>(null)
-  const supported = typeof window !== 'undefined'
-    && Boolean((window as unknown as Record<string, unknown>).SpeechRecognition
-      ?? (window as unknown as Record<string, unknown>).webkitSpeechRecognition)
+  const engineRef = useRef<SpeechEngine | null>(null)
+  /**
+   * The last result index already handed to the composer.
+   *
+   * `results` is the whole session's list, not this event's slice, and a browser may re-report a
+   * finished phrase when a later one arrives. Walking from `resultIndex` (rather than from the end)
+   * keeps the words in the order they were spoken, and this mark is what stops a final phrase being
+   * appended twice.
+   */
+  const lastFinalRef = useRef(-1)
+
+  const stopListening = () => {
+    const engine = engineRef.current
+    engineRef.current = null
+    engine?.stop()
+    setListening(false)
+  }
+
+  // Unmount is the panel closing, the route changing, the dock shutting: all of them end the turn's
+  // dictation, and none of them has a reader left to press the button again.
+  useEffect(() => () => {
+    const engine = engineRef.current
+    engineRef.current = null
+    engine?.stop()
+  }, [])
+
+  // A tab the reader has moved away from should not keep listening; the engine would keep transcribing
+  // into a box nobody is looking at, and the browser's recording indicator would stay lit.
+  useEffect(() => {
+    const onVisibility = () => {
+      if (document.visibilityState === 'hidden') stopListening()
+    }
+    document.addEventListener('visibilitychange', onVisibility)
+    return () => document.removeEventListener('visibilitychange', onVisibility)
+  })
 
   const toggle = () => {
-    if (!supported) {
+    if (listening) {
+      stopListening()
+      return
+    }
+    const Ctor = speechRecognitionCtor()
+    if (!Ctor) {
       // Redundant rather than silent: `prompt()` in `components/overlay` only ever resolves — it answers
       // null with no host mounted and null on dismiss — so there is no rejection for this catch to
       // swallow. Recorded here and baselined; deleting it is a call for the gate's owner, not this slice.
       void prompt({ title: t('assistant.composer.voice_unsupported') }).catch(() => undefined)
       return
     }
-    if (listening) {
-      engineRef.current?.stop()
-      setListening(false)
-      return
-    }
-    interface SpeechEngine {
-      lang: string
-      continuous: boolean
-      interimResults: boolean
-      onresult: ((event: { results: { length: number, [index: number]: { 0: { transcript: string } } } }) => void) | null
-      onend: (() => void) | null
-      onerror: (() => void) | null
-      start: () => void
-      stop: () => void
-    }
-    const Ctor = ((window as unknown as Record<string, unknown>).SpeechRecognition
-      ?? (window as unknown as Record<string, unknown>).webkitSpeechRecognition) as new () => SpeechEngine
     const engine = new Ctor()
     engine.lang = document.documentElement.lang || 'zh-CN'
     engine.continuous = true
     engine.interimResults = false
+    lastFinalRef.current = -1
     engine.onresult = (event) => {
       const results = event.results
-      for (let index = results.length - 1; index >= 0; index--) {
-        const chunk = results[index]?.[0]?.transcript
+      // Only this event's slice, and only from the first final phrase not already handed over: the list
+      // is cumulative, so a walk over all of it would repeat every earlier sentence on each result.
+      for (let index = Math.max(event.resultIndex ?? 0, lastFinalRef.current + 1); index < results.length; index++) {
+        const result = results[index]
+        if (!result?.isFinal) continue
+        lastFinalRef.current = index
+        const chunk = result[0]?.transcript
         if (chunk) onText(chunk)
       }
     }
-    engine.onend = () => setListening(false)
-    engine.onerror = () => setListening(false)
-    engine.start()
+    const settle = () => {
+      // An engine that ended on its own must not be mistaken for one this component still owns: the
+      // cleanup of a newer engine, or an unmount, may already have replaced it.
+      if (engineRef.current !== engine) return
+      engineRef.current = null
+      setListening(false)
+    }
+    engine.onend = settle
+    engine.onerror = settle
+    try {
+      engine.start()
+    } catch {
+      // Starting can be refused (no microphone, permission revoked, or a start already in flight). Best
+      // effort: the button returns to its off state and says why, rather than staying lit over a dead
+      // engine.
+      engineRef.current = null
+      setListening(false)
+      // The failure is already state and a prompt; the prompt only ever resolves (see the
+      // no-microphone branch above), so there is no rejection left for a catch to ignore.
+      void prompt({ title: t('assistant.composer.voice_failed') })
+      return
+    }
     engineRef.current = engine
     setListening(true)
   }

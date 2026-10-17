@@ -91,7 +91,10 @@ export function Button({
       )}
     >
       {loading ? <Spinner size={size === 'lg' ? 15 : 13} /> : icon}
-      {children != null && <span className="truncate">{children}</span>}
+      {/* The label is its own inline row. Tailwind's preflight turns every `svg` into a block box, so an
+          icon passed as a child (rather than through `icon`) used to push the words onto a second line.
+          `truncate` is kept for the text-only label, where it is what keeps a long one from widening a row. */}
+      {children != null && <span className="inline-flex min-w-0 items-center gap-1.5 truncate [&_svg]:shrink-0">{children}</span>}
       {trailing}
     </button>
   )

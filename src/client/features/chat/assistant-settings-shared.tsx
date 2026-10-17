@@ -7,7 +7,7 @@
  * is inside a tab.
  */
 import { type ReactNode } from 'react'
-import { formatTokenStep, REASONING_DIALECTS, type ReasoningDialect } from '@shared/assistant'
+import { formatTokenStep, REASONING_DIALECTS, type AssistantProvider, type ReasoningDialect } from '@shared/assistant'
 import { cn } from '../../lib/cn'
 import { t, type MessageKey } from '../../lib/i18n'
 
@@ -22,7 +22,7 @@ export function Group({ title, children }: { title: string, children: ReactNode 
   )
 }
 
-const CHIP_COLUMNS = { 3: 'grid-cols-3', 5: 'grid-cols-5' } as const
+const CHIP_COLUMNS = { 3: 'grid-cols-3', 5: 'grid-cols-5', 6: 'grid-cols-6' } as const
 
 /**
  * One row of preset buttons under a token field: the reader picks 256K rather than typing 262144.
@@ -37,8 +37,9 @@ export function ChipRow({ label, steps, value, onPick, columns = 5 }: {
   steps: readonly number[]
   value: number | null
   onPick: (tokens: number | null) => void
-  /** How many picks sit on one line; a fixed count keeps the rows aligned instead of ragged. */
-  columns?: 3 | 5
+  /** How many picks sit on one line; a fixed count keeps the rows aligned instead of ragged. Six is
+   *  the context window's own ladder, which reads as a single row rather than a wider three-plus-three. */
+  columns?: 3 | 5 | 6
 }) {
   return (
     <div role='group' aria-label={label} className={cn('mt-1.5 grid gap-1', CHIP_COLUMNS[columns])}>
@@ -61,6 +62,18 @@ export function ChipRow({ label, steps, value, onPick, columns = 5 }: {
       ))}
     </div>
   )
+}
+
+/**
+ * What may be said about a stored key: that one exists, and its last four characters.
+ *
+ * The plaintext never leaves the worker, so this is the whole of what a row or a field can honestly
+ * claim. A provider row carries no hint at all until the store persists one, which is why the mask is
+ * optional here rather than a guaranteed suffix.
+ */
+export function storedKeyLabel(provider: Pick<AssistantProvider, 'hasKey' | 'keyHint'>): string {
+  if (!provider.hasKey) return t('assistant.settings.key_missing')
+  return provider.keyHint ? t('assistant.settings.key_stored_hint', { hint: provider.keyHint }) : t('assistant.settings.key_stored')
 }
 
 export const PROTOCOL_LABELS: Record<string, () => string> = {

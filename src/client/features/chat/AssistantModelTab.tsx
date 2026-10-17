@@ -21,7 +21,7 @@ import { Field, Input, Select, SettingRow, Switch } from '../../components/form'
 import { Modal, Tooltip, confirm, useClickOutside, useEscape } from '../../components/overlay'
 import { useUi } from '../../store/ui'
 import { useAssistant } from './assistant-store'
-import { DIALECT_LABELS, Group, PROTOCOL_LABELS } from './assistant-settings-shared'
+import { DIALECT_LABELS, Group, PROTOCOL_LABELS, storedKeyLabel } from './assistant-settings-shared'
 
 /**
  * One capability, drawn as the switch that sets it.
@@ -118,7 +118,7 @@ export function ModelTab({ settings }: { settings: AssistantSettings }) {
               <div className="min-w-0 flex-1">
                 <p className="truncate text-[length:var(--text-13)] font-medium text-[var(--text-primary)]">{provider.label}</p>
                 <p className="truncate text-[length:var(--text-11)] text-[var(--text-quaternary)]">
-                  {PROTOCOL_LABELS[provider.protocol]?.()} · {provider.baseUrl} · {provider.hasKey ? t('assistant.settings.key_stored') : t('assistant.settings.key_missing')}
+                  {PROTOCOL_LABELS[provider.protocol]?.()} · {provider.baseUrl} · {storedKeyLabel(provider)}
                 </p>
               </div>
               <div className="flex shrink-0 items-center gap-0.5">
@@ -443,6 +443,21 @@ export function ProviderForm({ open, provider, onClose, onCreated }: {
     setDialect('')
   }, [open, chosen, editing])
 
+  // An edit opens with an empty password box because the plaintext is not ours to show again. The box
+  // still has to state that a key is stored — its last four characters while the store keeps them, and
+  // the hint that blank means "keep" — or the empty box reads as a key that was lost.
+  const storedHint = editing?.hasKey ? editing.keyHint : ''
+  const apiKeyPlaceholder = editing?.hasKey
+    ? (storedHint
+      ? t('assistant.settings.api_key_saved_placeholder', { hint: storedHint })
+      : t('assistant.settings.api_key_saved_placeholder_nohint'))
+    : t('assistant.settings.api_key_placeholder')
+  const apiKeyHint = editing?.hasKey
+    ? (storedHint
+      ? t('assistant.settings.api_key_edit_hint', { hint: storedHint })
+      : t('assistant.settings.api_key_edit_hint_nohint'))
+    : t('assistant.settings.api_key_hint')
+
   return (
     <Modal
       open={open}
@@ -463,6 +478,8 @@ export function ProviderForm({ open, provider, onClose, onCreated }: {
                   baseUrl: baseUrl.trim(),
                   endpoints: sendable,
                   reasoningDialect: pinned || null,
+                  // A blank box means "keep the stored key", not "forget it": an untouched field is not
+                  // sent at all, and the worker keeps the ciphertext for a patch that carries no key.
                   ...(apiKey.trim() ? { apiKey: apiKey.trim() } : {}),
                 }).then(onClose)
                 return
@@ -535,13 +552,17 @@ export function ProviderForm({ open, provider, onClose, onCreated }: {
           </Field>
         ))}
         <Divider />
-        <Field label={t('assistant.settings.api_key')} hint={t('assistant.settings.api_key_hint')}>
+        {/* An edit opens with an empty password box because the plaintext is not ours to show again. The
+            field still has to say that a key is stored, or the reader reads the empty box as "my key is
+            gone" — the placeholder carries the last four characters, and the hint says blank keeps it. */}
+        <Field label={t('assistant.settings.api_key')} hint={apiKeyHint}>
           <Input
             type="password"
             value={apiKey}
             maxLength={4096}
             autoComplete="off"
             leading={<KeyRound size={13} />}
+            placeholder={apiKeyPlaceholder}
             onChange={(event) => setApiKey(event.target.value)}
             className="font-mono text-[length:var(--text-12)]"
           />

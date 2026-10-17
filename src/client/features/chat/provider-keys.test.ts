@@ -75,6 +75,17 @@ describe('the keys a provider rotates through', () => {
     // anyone reading over a shoulder, and the only form the secret ever takes on screen.
     expect(document.body.textContent).toContain('4321')
     expect(document.body.textContent).toContain('9876')
+    // The provider's own key is described the same way the provider row and the edit form describe it.
+    expect(document.body.textContent).toContain(t('assistant.settings.key_stored_hint', { hint: '9876' }))
+  })
+
+  it('still says a stored key exists when the store kept no last-four hint', async () => {
+    vi.spyOn(api.assistant, 'providerKeys').mockResolvedValue({ keys: [] })
+    await act(async () => { root.render(createElement(ProviderKeys, { provider: provider({ keyHint: '' }) })) })
+    await act(async () => { trigger()!.click() })
+    // No mask is available, but the row must not read as a missing key.
+    expect(document.body.textContent).toContain(t('assistant.settings.key_stored'))
+    expect(document.body.textContent).not.toContain(t('assistant.settings.key_missing'))
   })
 
   it('sends a new key with its label, and takes the secret back off the form', async () => {

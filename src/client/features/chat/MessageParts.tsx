@@ -50,7 +50,7 @@ import { CHAT_NOTE_LINKS } from './note-links'
 import { MessageMenu, useMessageMenu } from './MessageMenu'
 import { SelectionTick, type MessageSelection } from './SelectionBar'
 import { noteRefsFromToolResult } from './note-refs'
-import { embedConversationInNote, saveReplyAsNote } from './save-to-note'
+import { embedConversationInNote, insertReplyIntoNote, saveConversationAsNote, saveReplyAsNote } from './save-to-note'
 
 const STAGE_KEYS = {
   waiting: 'assistant.chat.stage_waiting',
@@ -749,8 +749,12 @@ export function AssistantBubble({
           ...(onRate && !streaming && !viewing ? { onRate } : {}),
           ...(messageId && !streaming ? { onFork: () => void useAssistant.getState().forkFrom(messageId) } : {}),
           ...(messageId && !streaming ? { onOpenCanvas: () => void useAssistant.getState().createArtifactFromReply(body) } : {}),
-          // Only while a note is open: the row writes into that note, and one that cannot is a row the
+          // The thread is the record and the note is the copy: the menu can keep the whole thing, or
+          // write this one answer into the note already open beside it.
+          ...(messageId && !streaming ? { onSaveConversation: () => void saveConversationAsNote() } : {}),
+          // Only while a note is open: the rows write into that note, and one that cannot is a row the
           // reader has to try to find out about.
+          ...(messageId && !streaming && useUi.getState().activeNoteId ? { onInsertIntoNote: () => insertReplyIntoNote(body) } : {}),
           ...(messageId && !streaming && useUi.getState().activeNoteId ? { onEmbedInNote: () => embedConversationInNote() } : {}),
           ...(messageId && onStartPicking ? { onSelect: () => onStartPicking(messageId) } : {}),
           ...(messageId && onShare && !streaming ? { onShare: () => onShare(messageId) } : {}),

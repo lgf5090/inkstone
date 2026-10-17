@@ -83,7 +83,8 @@ describe('summarising a folder', () => {
     expect(sent.scopes).toEqual([{ kind: 'folder', id: 'f1', name: 'Work' }])
     expect(createNote).toHaveBeenCalledWith(expect.objectContaining({
       title: t('assistant.folder_summary.title', { name: 'Work' }),
-      content: answer.current,
+      // The thread is named in the note, so the summary can be read against what was actually said.
+      content: `${answer.current}\n\n---\n\n![[chat:c1]]`,
       folderId: 'f1',
     }))
     expect(openNote).toHaveBeenCalledWith('01hzzzzzzzzzzzzzzzzzzzzz77')

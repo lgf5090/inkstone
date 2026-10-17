@@ -71,9 +71,9 @@ export function DataTab() {
           <a
             href={api.assistant.exportUrl}
             download="inkstone-assistant-backup.json"
-            className="inline-flex h-8 items-center gap-1.5 rounded-[var(--r-sm)] border border-[var(--border-default)] px-2.5 text-[length:var(--text-12)] text-[var(--text-primary)] hover:bg-[var(--bg-hover)]"
+            className="inline-flex h-8 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-[var(--r-sm)] border border-[var(--border-default)] px-2.5 text-[length:var(--text-12)] text-[var(--text-primary)] hover:bg-[var(--bg-hover)]"
           >
-            <Download size={14} />
+            <Download size={14} className="shrink-0" />
             {t('assistant.settings.export')}
           </a>
         </SettingRow>
@@ -85,8 +85,7 @@ export function DataTab() {
             <Button size="sm" variant="secondary" onClick={() => fileRef.current?.click()}>
               {t('settings.select_file')}
             </Button>
-            <Button size="sm" loading={importing} disabled={!file} onClick={() => void runImport()}>
-              <Upload size={14} />
+            <Button size="sm" loading={importing} icon={<Upload size={14} />} disabled={!file} onClick={() => void runImport()}>
               {t('assistant.settings.import')}
             </Button>
             <input

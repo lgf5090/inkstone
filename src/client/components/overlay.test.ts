@@ -2,7 +2,7 @@ import { act, createElement } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { initI18n, t } from '../lib/i18n'
-import { ConfirmHost, confirm } from './overlay'
+import { ConfirmHost, Modal, confirm } from './overlay'
 
 let container: HTMLDivElement
 let root: Root
@@ -111,6 +111,43 @@ describe('confirm', () => {
     expect(dialog().textContent).toContain('Clean unreferenced files?')
     await act(async () => { buttonIn(dialog(), t('common.cancel')).click() })
     await expect(second.result()).resolves.toBe(false)
+  })
+})
+
+/**
+ * The frame every settings dialog hangs in. A long body has to scroll inside the panel while the footer
+ * stays put, and the panel's cap has to leave room for the backdrop's own padding — a dialog as tall as
+ * the viewport pushed its footer under the fold, which is how the model editor was reported.
+ */
+describe('the dialog frame', () => {
+  function mountDialog() {
+    act(() => root.render(createElement(Modal, {
+      open: true,
+      onClose: () => undefined,
+      title: 'Edit model',
+      footer: createElement('button', { type: 'button', onClick: () => undefined }, 'Save'),
+      children: createElement('div', { style: { height: '3000px' } }, 'body'),
+    })))
+  }
+
+  it('scrolls the body under a footer that is not part of it', () => {
+    mountDialog()
+    const panel = dialog()
+    const body = panel.querySelector<HTMLElement>('.overflow-y-auto')
+    expect(body, 'the body is not a scroll container').toBeTruthy()
+    // min-h-0 is what lets the body shrink inside the flex column instead of pushing the footer out.
+    expect(body!.className).toContain('min-h-0')
+    const save = buttonIn(panel, 'Save')
+    expect(body!.contains(save), 'the footer scrolls away with the body').toBe(false)
+    expect(panel.contains(save)).toBe(true)
+  })
+
+  it('caps its height below the backdrop padding, so the footer stays on screen', () => {
+    mountDialog()
+    const panel = dialog()
+    // Mobile: the panel may reach the visual viewport. Desktop: the backdrop adds 2rem above and below.
+    expect(panel.className).toContain('max-h-[calc(var(--app-viewport-height,100dvh)-env(safe-area-inset-top))]')
+    expect(panel.className).toContain('md:max-h-[calc(var(--app-viewport-height,100dvh)-4rem)]')
   })
 })
 

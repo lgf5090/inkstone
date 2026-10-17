@@ -39,7 +39,7 @@ export function AssistantSettingsView() {
 
   return (
     <div className="no-scrollbar h-full overflow-y-auto">
-      <div className="mx-auto flex w-full max-w-[720px] flex-col gap-4 px-4 py-5 md:px-8">
+      <div className="mx-auto flex w-full max-w-[720px] flex-col gap-3 px-4 py-4 md:px-8">
         <Segmented
           size="sm"
           label={t('assistant.settings.title')}

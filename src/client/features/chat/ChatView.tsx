@@ -9,7 +9,7 @@
  * `styles/chat.css` keeps the typography and drops the page furniture.
  */
 import { Z_INDEX } from '../../lib/z-index'
-import { type ClipboardEvent as ReactClipboardEvent, type DragEvent as ReactDragEvent, type KeyboardEvent, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { type ClipboardEvent as ReactClipboardEvent, type DragEvent as ReactDragEvent, type KeyboardEvent, memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { ArrowUp, ArrowUpRight, Check, Copy, FileText, FolderOpen, Ghost, History, MoreHorizontal, PanelRight, Paperclip, Pencil, Plus, Search, Square, Star, Trash2, X } from 'lucide-react'
 import type { AssistantConversation, AssistantMessage, ChatAttachment } from '@shared/assistant'
 import { EPHEMERAL_CONVERSATION_RETENTION_DAYS, mcpToolModeFor } from '@shared/assistant'
@@ -59,6 +59,7 @@ import { CanvasPanel } from './CanvasPanel'
 import { CHAT_NOTE_LINKS } from './note-links'
 import { SelectionBar, SelectionTick, selectedMessages, type MessageSelection } from './SelectionBar'
 import { downloadTranscript } from './transcript'
+import { saveConversationAsNote } from './save-to-note'
 import { writeConversationDrag } from './conversation-drag'
 import { FOLDER_DRAG_TYPE, isNoteDrag, readDraggedNoteIds } from '../../lib/note-drag'
 import { ConversationSharePanel } from '../share/ConversationSharePanel'
@@ -127,14 +128,17 @@ export function ChatView() {
     () => (selected ? selectedMessages(messages, selected) : []),
     [messages, selected],
   )
-  const togglePicked = (id: string) => setSelected((current) => {
+  // These three are handed to every message row, so they keep one identity for the life of the view:
+  // a row that is memoised cannot skip its render if a new callback arrives on every token.
+  const togglePicked = useCallback((id: string) => setSelected((current) => {
     if (!current) return current
     const next = new Set(current)
     if (next.has(id)) next.delete(id)
     else next.add(id)
     return next
-  })
-  const startPicking = (id: string) => setSelected(new Set([id]))
+  }), [])
+  const startPicking = useCallback((id: string) => setSelected(new Set([id])), [])
+  const shareMessage = useCallback((id: string) => setShareScope([id]), [])
   // The turns the share panel is open for: `null` while it is closed. One entry is "share this message"
   // from a turn's own menu, several is the picking bar's — the panel and the link are the same either
   // way, and only the scope differs.
@@ -152,9 +156,12 @@ export function ChatView() {
     return projectId ? projects.find((project) => project.id === projectId) ?? null : null
   }, [conversations, activeId, projects])
 
-  const streaming = (!!turn && !turn.done) || remoteStreaming
   // A live reply belongs to its own conversation; only show it in the thread that owns it.
   const turnHere = turn && turn.conversationId === (activeId ?? null) ? turn : null
+  // Streaming is about the thread on screen. A reply still arriving for a conversation the reader left
+  // must not disable the composer of the one they are in — that was how a background turn locked a
+  // fresh thread — while a reply another device is writing is shown but not stoppable from here.
+  const streaming = (!!turnHere && !turnHere.done) || remoteStreaming
   const showEmpty = !activeId && !turnHere
 
   useEffect(() => {
@@ -191,6 +198,11 @@ export function ChatView() {
     const last = messages.at(-1)
     return last && last.role === 'assistant' ? last : null
   }, [messages])
+  // One identity for the whole view: the regenerate control hangs off a memoised row, and a fresh
+  // closure per token would be a different prop each time the answer streamed in.
+  const retryLast = useCallback(() => {
+    void send('', { retry: true })
+  }, [send])
 
   // The outline's stops are the turns the reader wrote — the only fixed points in a thread whose answers
   // vary in length. A new array on every store write would re-register the outline's scroll listener on
@@ -298,9 +310,9 @@ export function ChatView() {
                   key={message.id}
                   message={message}
                   busy={streaming}
-                  onRetry={message.id === lastAnswer?.id && !streaming ? () => void send('', { retry: true }) : undefined}
+                  onRetry={message.id === lastAnswer?.id && !streaming ? retryLast : undefined}
                   onStartPicking={startPicking}
-                  onShare={(id) => setShareScope([id])}
+                  onShare={shareMessage}
                   selection={selected ? { active: true, checked: selected.has(message.id), onToggle: () => togglePicked(message.id) } : undefined}
                 />
               ))}
@@ -323,7 +335,16 @@ export function ChatView() {
                   />
                 </>
               )}
-              {remoteStreaming && !turnHere && <AssistantBubble text="" reasoning="" tools={[]} error={null} streaming stage={undefined} />}
+              {remoteStreaming && !turnHere && (
+                <div className="flex flex-col gap-1.5">
+                  <AssistantBubble text="" reasoning="" tools={[]} error={null} streaming stage={undefined} />
+                  {/* Said out loud because the alternative is a box that will not take a question and
+                      never says why. The stop control in the composer is the way out of the wait. */}
+                  <p role="status" className="text-[length:var(--text-11)] text-[var(--text-quaternary)]">
+                    {t('assistant.chat.remote_streaming')}
+                  </p>
+                </div>
+              )}
             </div>
           )}
         </div>
@@ -351,7 +372,7 @@ export function ChatView() {
         <ChatComposer
           streaming={streaming}
           sendOnEnter={useAssistant((state) => state.settings?.sendOnEnter ?? true)}
-          onSend={(text) => void send(text)}
+          onSend={send}
           onStop={stop}
           disabled={blocked}
         />
@@ -359,7 +380,10 @@ export function ChatView() {
         {finding && (
           <ThreadFinder
             scroller={scrollRef}
-            revision={messages.length}
+            // The stored rows plus a finished answer that is not adopted into them yet. A stream still
+            // arriving is deliberately not counted: the marks are DOM edits inside the subtree React is
+            // writing into, so they are remade when the text settles rather than on every token.
+            revision={messages.length + (turnHere?.done ? turnHere.text.length : 0)}
             onClose={() => setFinding(false)}
           />
         )}
@@ -388,7 +412,15 @@ export function ChatView() {
   )
 }
 
-export function MessageRow({ message, onRetry, busy = false, selection, onStartPicking, onShare }: {
+/**
+ * One stored turn.
+ *
+ * Memoised because a streaming answer lives beside this list: every token re-renders the view that owns
+ * the composer, and without this every historical Markdown bubble in a long thread was parsed and laid
+ * out again for each one. The props that can actually change a row are the row itself and the few
+ * states that show on it — a callback identity is not one of them, and is not compared.
+ */
+export const MessageRow = memo(function MessageRow({ message, onRetry, busy = false, selection, onStartPicking, onShare }: {
   message: AssistantMessage
   onRetry?: () => void
   busy?: boolean
@@ -445,7 +477,14 @@ export function MessageRow({ message, onRetry, busy = false, selection, onStartP
       onActivate={(versionId) => void useAssistant.getState().activateAnswerVersion(message.id, versionId)}
     />
   )
-}
+}, (previous, next) => previous.message === next.message
+  && previous.busy === next.busy
+  && previous.onRetry === next.onRetry
+  && previous.onStartPicking === next.onStartPicking
+  && previous.onShare === next.onShare
+  // The selection object is rebuilt by the list on every render; what a row draws from it is these two.
+  && (previous.selection?.active ?? false) === (next.selection?.active ?? false)
+  && (previous.selection?.checked ?? false) === (next.selection?.checked ?? false))
 
 /**
  * One of the reader's own messages, and what they may do with it.
@@ -962,6 +1001,15 @@ function ConversationRow({
             },
           },
           {
+            id: 'save-note',
+            label: t('assistant.note.save_conversation'),
+            onSelect: () => {
+              // Saved from the row rather than from the open thread: the note is the conversation the
+              // reader picked here, which need not be the one they left behind.
+              void saveConversationAsNote(conversation.id)
+            },
+          },
+          {
             id: 'delete',
             label: t('assistant.chat.delete'),
             tone: 'danger',
@@ -1104,7 +1152,8 @@ export function ChatComposer({
 }: {
   streaming: boolean
   sendOnEnter: boolean
-  onSend: (text: string) => void
+  /** Answers false when the request never left this device, so the words can be handed back. */
+  onSend: (text: string) => Promise<boolean> | void
   onStop: () => void
   disabled?: boolean
   onManage?: (view: AssistantView) => void
@@ -1188,8 +1237,13 @@ ${current}` : seed))
   const submit = () => {
     const text = value.trim()
     if ((!text && !pending.length) || streaming || disabled || uploading) return
-    onSend(text)
     setValue('')
+    // A request the worker never took hands the words back: the composer is the only owner of the
+    // draft, and the store has already given its attachments and chips back by the time this resolves.
+    void Promise.resolve(onSend(text)).then((accepted) => {
+      if (accepted !== false) return
+      setValue((current) => (current.trim() ? current : text))
+    })
   }
 
   /** The panel answers the keyboard before the box does: Enter picks a row, it must not send the message. */
@@ -1305,10 +1359,22 @@ ${current}` : seed))
   }
 
   const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
+    // The trigger panel answers Escape and the arrows first: a half-typed `@` is closed, not stopped.
     if (onTriggerKey(event)) return
+    // A composition owns every bare key, Escape included: there the key drops a candidate, and stopping
+    // an answer while the reader is still typing a question would be the app acting on the wrong key.
+    if (isImeComposing(event)) return
+    // Escape is the reader's way out of a reply that is taking too long, and the composer is where they
+    // are looking when they press it. With no reply running it keeps its other meaning, so the section's
+    // own Escape handling (closing the find panel) still receives it.
+    if (event.key === 'Escape') {
+      if (!streaming) return
+      event.preventDefault()
+      event.stopPropagation()
+      onStop()
+      return
+    }
     if (event.key !== 'Enter') return
-    // A Chinese or Japanese input commits with Enter; that keystroke belongs to the IME, not to send.
-    if (event.nativeEvent.isComposing) return
     if (sendOnEnter !== event.shiftKey) {
       event.preventDefault()
       submit()
