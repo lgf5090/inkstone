@@ -2092,6 +2092,34 @@ describe('projects', () => {
     expect(created.project.noteScope).toEqual([])
   })
 
+  /**
+   * A brief emptied is a save, not a bad request.
+   *
+   * The project form sends the whole draft, and only the name is required of it, so a reader clearing the
+   * standing brief used to have every field of their edit refused with it.
+   */
+  it('clears a project brief the reader empties', async () => {
+    const created = await call<{ project: Project }>('POST', '/api/assistant/projects', {
+      name: 'Briefed',
+      instructions: 'Answer in Chinese.',
+    })
+    expect(created.project.instructions).toBe('Answer in Chinese.')
+    const body = {
+      name: 'Briefed',
+      description: 'What it is about',
+      instructions: '',
+      noteScope: [],
+      modelId: null,
+    }
+    const saved = await call<{ project: Project }>('PATCH', `/api/assistant/projects/${created.project.id}`, body)
+    expect(saved.project.instructions).toBe('')
+    expect(saved.project.description).toBe('What it is about')
+    const list = await call<{ projects: Project[] }>('GET', '/api/assistant/projects')
+    const row = list.projects.find((entry) => entry.id === created.project.id)!
+    expect(row.instructions).toBe('')
+    expect(row.description).toBe('What it is about')
+  })
+
   it('moves a conversation into a project and back out', async () => {
     const project = await call<{ project: Project }>('POST', '/api/assistant/projects', { name: 'Filing' })
     const created = await call<{ conversation: AssistantConversation }>('POST', '/api/assistant/conversations', { title: 'Member' })
@@ -2761,6 +2789,57 @@ describe('model editor fields', () => {
     }
   })
 
+  /**
+   * The save the editor really makes: one request carrying the whole draft.
+   *
+   * `AssistantModelTab` hands `updateModel` the draft object, so a field the reader never typed — the
+   * currency of a model nobody has priced, which every new model has as `''` — used to refuse the request
+   * and lose every other field with it. Saving one field at a time, as the case above does, cannot see it.
+   */
+  it('saves the whole draft the editor submits, currency and all', async () => {
+    await useExampleModel()
+    const listed = await call<{ models: AssistantModel[] }>('GET', '/api/assistant/settings')
+    const before = listed.models[0]!
+    expect(before.priceCurrency).toBe('')
+    const draft = {
+      label: `${before.label} edited`,
+      purpose: before.purpose,
+      kind: before.kind,
+      supportsTools: before.supportsTools,
+      reasoning: before.reasoning,
+      vision: before.vision,
+      contextTokens: 1_048_576,
+      maxInputTokens: 131_072,
+      maxOutputTokens: 16_384,
+      modalities: before.modalities,
+      temperature: before.temperature,
+      topP: before.topP,
+      customParams: before.customParams,
+      protocol: before.protocol,
+      fallbackModelId: before.fallbackModelId,
+      inputPrice: 0.25,
+      outputPrice: 1,
+      priceCurrency: '',
+    }
+    const saved = await call<{ model: AssistantModel }>('PATCH', `/api/assistant/models/${before.id}`, draft)
+    expect(saved.model.priceCurrency).toBe('')
+    const after = await call<{ models: AssistantModel[] }>('GET', '/api/assistant/settings')
+    const model = after.models.find((entry) => entry.id === before.id)!
+    expect(model.label).toBe(`${before.label} edited`)
+    expect(model.contextTokens).toBe(1_048_576)
+    expect(model.maxInputTokens).toBe(131_072)
+    expect(model.maxOutputTokens).toBe(16_384)
+    expect(model.inputPrice).toBe(0.25)
+    // A price without a currency stays without one: nothing here may invent a currency for it.
+    expect(model.priceCurrency).toBe('')
+    // A code is a code, however it was typed, and emptying the box again is an edit of its own.
+    const priced = await call<{ model: AssistantModel }>('PATCH', `/api/assistant/models/${before.id}`, { priceCurrency: 'eur' })
+    expect(priced.model.priceCurrency).toBe('EUR')
+    const unpriced = await call<{ model: AssistantModel }>('PATCH', `/api/assistant/models/${before.id}`, { priceCurrency: '' })
+    expect(unpriced.model.priceCurrency).toBe('')
+    expect(await status('PATCH', `/api/assistant/models/${before.id}`, { priceCurrency: 7 })).toBe(400)
+  })
+
   it('sends the reader\u2019s sampling and extra fields, and never lets a parameter take over the request', async () => {
     await useExampleModel()
     const listed = await call<{ models: AssistantModel[] }>('GET', '/api/assistant/settings')
@@ -3388,6 +3467,32 @@ describe('external MCP servers', () => {
     const { servers } = await catalog()
     return servers.flatMap((entry) => entry.tools).find((entry) => entry.name.includes(fragment))!.name
   }
+
+  /**
+   * A server with nothing said about it.
+   *
+   * The form requires a name and an address and sends the description box whether it was filled or not, so
+   * an undescribed server used to be refused at the door — and every field of an edit that only meant to
+   * clear the description went with it.
+   */
+  it('keeps a server whose description was left blank, on both paths', async () => {
+    const created = await call<{ server: AssistantMcpServer }>('POST', '/api/assistant/mcp', {
+      label: 'Undescribed',
+      url: 'https://mcp.example.test/mcp',
+      description: '',
+      transport: 'streamableHttp',
+      timeoutSeconds: 30,
+    })
+    expect(created.server.description).toBe('')
+    const written = await call<{ server: AssistantMcpServer }>('PATCH', `/api/assistant/mcp/${created.server.id}`, { description: 'Reads the tracker' })
+    expect(written.server.description).toBe('Reads the tracker')
+    const cleared = await call<{ server: AssistantMcpServer }>('PATCH', `/api/assistant/mcp/${created.server.id}`, { description: '' })
+    expect(cleared.server.description).toBe('')
+    const listed = await call<{ servers: AssistantMcpServer[] }>('GET', '/api/assistant/mcp')
+    const row = listed.servers.find((entry) => entry.id === created.server.id)!
+    expect(row.description).toBe('')
+    expect(row.label).toBe('Undescribed')
+  })
 
   it('reaches a server through the type it was saved as, not through the default one', async () => {
     const legacy = fakeSseServer()

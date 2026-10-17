@@ -164,11 +164,38 @@ function optionalSkillText(value: unknown, max: number): string {
   return value.trim().slice(0, max)
 }
 
-function text(value: unknown, max: number): string {
+/**
+ * A field the reader may empty on purpose.
+ *
+ * Absent, `null` and `''` all mean the same thing here — "put it back to nothing" — because the editor
+ * forms send the whole draft, including the boxes they never filled. Read one of those with `text` and the
+ * answer is "This cannot be empty.", which refuses the request and every other field travelling with it.
+ */
+function optionalTextAllowEmpty(value: unknown, max: number): string {
+  if (value === undefined || value === null) return ''
+  if (typeof value !== 'string') throw ApiError.badRequest('A text value is required.')
+  return value.trim().slice(0, max)
+}
+
+function text(value: unknown, max: number, empty = 'This cannot be empty.'): string {
   if (typeof value !== 'string') throw ApiError.badRequest('A text value is required.')
   const trimmed = value.trim()
-  if (!trimmed) throw ApiError.badRequest('This cannot be empty.')
+  if (!trimmed) throw ApiError.badRequest(empty)
   return trimmed.slice(0, max)
+}
+
+/**
+ * The currency a model's price is written in, or `''` for a model that has not been priced.
+ *
+ * `''` is the column's default and the answer for every model until somebody reads a number off a pricing
+ * page, so it is a value rather than a missing one; the store hands it back the same way and the editor
+ * sends it in its draft. Nothing is substituted here — a currency invented for an unpriced model would put
+ * a figure on the usage screen that nobody typed, under a sign nobody chose.
+ */
+function currencyValue(value: unknown): string {
+  if (value === undefined || value === null || value === '') return ''
+  if (typeof value !== 'string') throw ApiError.badRequest('A currency code has to be text.')
+  return value.trim().slice(0, 8).toUpperCase()
 }
 
 function optionalText(value: unknown, max: number): string | undefined {
@@ -340,7 +367,7 @@ function mcpServerFields(body: Record<string, unknown>): {
   headers?: Record<string, string> | null
 } {
   const out: ReturnType<typeof mcpServerFields> = {}
-  if (body.description !== undefined) out.description = text(body.description, MAX_MCP_DESCRIPTION_CHARS)
+  if (body.description !== undefined) out.description = optionalTextAllowEmpty(body.description, MAX_MCP_DESCRIPTION_CHARS)
   const transport = pickValue(body.transport, ASSISTANT_MCP_TRANSPORTS)
   if (transport !== undefined) out.transport = transport
   if (body.timeoutSeconds !== undefined) {
@@ -1542,7 +1569,7 @@ assistantRoutes.patch('/memories/:id', async (c) => {
   const id = requiredId(c.req.param('id'))
   const body = await readJson<{ content?: unknown, category?: unknown }>(c, JSON_BODY_LIMITS.small)
   const result = await new MemoryHistoryService(s, {}, settings.conflictReview).update(id, {
-    ...(body.content !== undefined ? { content: text(body.content, MAX_MEMORY_CHARS) } : {}),
+    ...(body.content !== undefined ? { content: text(body.content, MAX_MEMORY_CHARS, 'A memory has to say something.') } : {}),
     ...(body.category !== undefined ? { category: asCategory(body.category) } : {}),
   })
   return c.json({ memory: result.memory, superseded: result.superseded, reviews: result.reviews.length })
@@ -1568,7 +1595,7 @@ assistantRoutes.post('/memories/:id/correct', async (c) => {
   const body = await readJson<{ content?: unknown, category?: unknown }>(c, JSON_BODY_LIMITS.small)
   const result = await new MemoryHistoryService(s, {}, settings.conflictReview).correct(
     id,
-    text(body.content, MAX_MEMORY_CHARS),
+    text(body.content, MAX_MEMORY_CHARS, 'A memory has to say something.'),
     body.category === undefined ? undefined : asCategory(body.category),
   )
   return c.json({ memory: result.memory, superseded: result.superseded, reviews: result.reviews.length }, 201)
@@ -1646,7 +1673,7 @@ assistantRoutes.patch('/tasks/:id', async (c) => {
   const id = requiredId(c.req.param('id'))
   const body = await readJson<Record<string, unknown>>(c, JSON_BODY_LIMITS.settings)
   const task = await s.updateTask(id, {
-    ...(body.title !== undefined ? { title: text(body.title, MAX_TASK_TITLE_CHARS) } : {}),
+    ...(body.title !== undefined ? { title: text(body.title, MAX_TASK_TITLE_CHARS, 'A task title is required.') } : {}),
     ...(body.description !== undefined ? { description: optionalText(body.description, MAX_TASK_NOTES_CHARS) ?? '' } : {}),
     ...(body.status !== undefined ? { status: asTaskStatus(body.status) } : {}),
     ...(body.priority !== undefined ? { priority: asPriority(body.priority) } : {}),
@@ -1747,7 +1774,7 @@ assistantRoutes.patch('/projects/:id', async (c) => {
     ...(body.name !== undefined ? { name: text(body.name, 200) } : {}),
     ...(body.description !== undefined ? { description: optionalText(body.description, 2000) ?? '' } : {}),
     // A standing brief is read every turn in the project, so it gets the same ceiling as a message.
-    ...(body.instructions !== undefined ? { instructions: text(body.instructions, MAX_MESSAGE_CHARS) } : {}),
+    ...(body.instructions !== undefined ? { instructions: optionalTextAllowEmpty(body.instructions, MAX_MESSAGE_CHARS) } : {}),
     ...(Array.isArray(body.noteScope)
       ? { noteScope: body.noteScope.filter((id): id is string => typeof id === 'string' && isValidId(id)).slice(0, 12) }
       : {}),
@@ -2182,7 +2209,7 @@ assistantRoutes.patch('/providers/:id', async (c) => {
   const id = requiredId(c.req.param('id'))
   const body = await readJson<Record<string, unknown>>(c, JSON_BODY_LIMITS.small)
   const provider = await s.updateProvider(id, {
-    ...(body.label !== undefined ? { label: text(body.label, 60) } : {}),
+    ...(body.label !== undefined ? { label: text(body.label, 60, 'A provider name is required.') } : {}),
     ...(body.protocol !== undefined ? { protocol: asProtocol(body.protocol) } : {}),
     ...(body.baseUrl !== undefined ? { baseUrl: vetBaseUrl(body.baseUrl) } : {}),
     ...(body.apiKey === null ? { apiKey: null } : typeof body.apiKey === 'string' ? { apiKey: body.apiKey } : {}),
@@ -2397,7 +2424,7 @@ assistantRoutes.patch('/models/:id', async (c) => {
   const id = requiredId(c.req.param('id'))
   const body = await readJson<Record<string, unknown>>(c, JSON_BODY_LIMITS.small)
   const updated = await s.updateModel(id, {
-    ...(body.label !== undefined ? { label: text(body.label, 60) } : {}),
+    ...(body.label !== undefined ? { label: text(body.label, 60, 'A model name is required.') } : {}),
     ...(body.model !== undefined ? { model: text(body.model, 120).replace(/\s+/g, '') } : {}),
     ...(body.temperature !== undefined
       ? { temperature: body.temperature === null ? null : Math.min(1.5, Math.max(0, Number(body.temperature))) }
@@ -2429,7 +2456,7 @@ assistantRoutes.patch('/models/:id', async (c) => {
     // kept out of the negatives. Null clears it, which is how a model stops being counted into a total.
     ...(body.inputPrice !== undefined ? { inputPrice: price(body.inputPrice) } : {}),
     ...(body.outputPrice !== undefined ? { outputPrice: price(body.outputPrice) } : {}),
-    ...(body.priceCurrency !== undefined ? { priceCurrency: text(body.priceCurrency, 8).toUpperCase() } : {}),
+    ...(body.priceCurrency !== undefined ? { priceCurrency: currencyValue(body.priceCurrency) } : {}),
   })
   if (!updated) throw ApiError.notFound('Model not found')
   return c.json({ model: updated })
