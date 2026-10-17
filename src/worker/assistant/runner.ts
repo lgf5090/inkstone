@@ -41,6 +41,45 @@ import { fuseMemoryRecall, rankMemoriesByVector, semanticModel } from './semanti
 export const SUMMARIZE_THRESHOLD = 8
 
 /**
+ * The room a turn keeps in its prompt for what the prompt itself cannot know yet.
+ *
+ * The window was cut against the model's whole context minus a slack figure, so a turn that also meant to
+ * use its output allowance — and then appended the tool results a step reads back — went past the ceiling
+ * by exactly those two numbers, and nothing could take the prompt back down: the provider's refusal was
+ * what the reader saw. The reserve is not one result's worth but several, which is what a multi-step turn
+ * carries by the time it answers.
+ */
+const TOOL_RESULT_RESERVE_TOKENS = 1_000
+
+/**
+ * How much of one old tool answer the model is shown again.
+ *
+ * Smaller than the bound the reader's own chip is kept under (`MAX_TOOL_PAYLOAD_CHARS`), because this text
+ * goes back out on every step of every later turn: a listing from forty messages ago is worth its beginning,
+ * not its payload.
+ */
+const MAX_HISTORY_TOOL_RESULT_CHARS = 1_500
+
+/**
+ * How many citations one turn may carry, and how long each address may be.
+ *
+ * The same bounds a stored row is read back under (`decodeSources`), applied where the list is built rather
+ * than where it is parsed: which pages a vendor names is the vendor's decision, and a row that answers to it
+ * is carried every time the thread is opened.
+ */
+export const MAX_TURN_SOURCES = 20
+export const MAX_SOURCE_URL_CHARS = 2_000
+
+/**
+ * What the reader is told when the roll-up of their older turns could not be written.
+ *
+ * The answer still arrives and is still good, so this is not a failure of the turn; it is the one thing
+ * about it the reader cannot otherwise see — that the thread behind the answer was left un-condensed, and
+ * the window is shorter than they believe it to be.
+ */
+const SUMMARY_UNAVAILABLE = 'The assistant could not condense this conversation’s older turns, so this answer sees less of the thread than it should.'
+
+/**
  * The closing advice on every turn whose answer is missing because the model ran out of output room.
  *
  * One sentence, shared by the endings that mean it, because the setting named is the fix in each of them:
@@ -187,6 +226,14 @@ interface HistoryEntry {
   role: 'user' | 'assistant'
   content: string
   createdAt: number
+  /**
+   * The row's own id, kept because a millisecond is not an order.
+   *
+   * Two turns written in the same one are told apart by the rowid the store sorts on, which an id cannot
+   * recover — so this is an identity, used to name the row a summary was cut at, and not a comparison.
+   * Absent on an entry assembled by hand rather than read from a row.
+   */
+  id?: string
   calls?: ToolCallRecord[]
   images?: { mime: string, dataUrl: string }[]
   /** The files this turn carried, named here so the bytes are read only if the window keeps the turn. */
@@ -323,9 +370,10 @@ export class AssistantRunner {
         const target = await this.store.getMessage(input.retryFromMessageId)
         if (!target || target.conversationId !== conversation.id) throw ApiError.notFound('Message not found')
         if (target.role !== 'assistant') throw ApiError.badRequest('Only an answer can be asked again.')
-        const rows = await this.store.messages(conversation.id)
-        const index = rows.findIndex((row) => row.id === target.id)
-        if (index < 0) throw ApiError.notFound('Message not found')
+        // Read from the anchor rather than from a page: a thread longer than one page has rows that no
+        // page containing the newest turn will ever return. Read it before the anchor row is deleted,
+        // because that row is what the range is measured from.
+        const later = await this.store.messagesAfter(conversation.id, target.id)
         reuseId = target.id
         await this.store.deleteMessageRow(target.id)
         await this.store.archiveAnswerVersion({
@@ -339,7 +387,7 @@ export class AssistantRunner {
           durationMs: target.durationMs,
           createdAt: target.createdAt,
         })
-        for (const later of rows.slice(index + 1)) await this.store.deleteMessage(later.id)
+        for (const entry of later) await this.store.deleteMessage(entry.id)
         // The rollup described rows that no longer stand as they were.
         await this.store.clearSummary(conversation.id)
       } else {
@@ -522,6 +570,14 @@ export class AssistantRunner {
       // composer's context control, and the assistant-wide ceiling is what a model without one falls back
       // to — for the window and for the input ceiling over it alike.
       const contextTokens = contextBudgetFor(model, limits)
+      // What one step may spend, thinking included. The model's own ceiling is the whole answer here and
+      // the account's number answers only for a model the reader has not set: taking the lower of the two
+      // let the account default (1024) silently outrank a model the reader had set to 64000. Read before
+      // the history is budgeted, because the answer a turn means to write is part of what the prompt has
+      // to leave room for, and kept in a name because a turn cut off at it has to say the number that cut
+      // it.
+      const capFor = (entry: ResolvedCall) => entry.model.maxOutputTokens ?? limits.maxOutputTokens
+      let outputCap = capFor(primary)
       if (!(await this.reserve(1, limits.maxRequestsPerDay, { providerId: provider.id, providerLabel: provider.label }, model.label))) {
         throw ApiError.conflict(`The daily limit of ${limits.maxRequestsPerDay} assistant requests is reached. It is adjustable in Assistant settings.`)
       }
@@ -552,6 +608,7 @@ export class AssistantRunner {
           role: 'assistant',
           content: this.continueFrom.content,
           createdAt: this.continueFrom.createdAt,
+          id: this.continueFrom.id,
         })
       }
       const context = await this.contextLabels()
@@ -575,7 +632,9 @@ export class AssistantRunner {
         continuing: this.continueFrom !== null,
         customInstructions: this.settings.customInstructions,
       })
-      const historyBudget = Math.max(500, contextTokens - estimateTokens(system) - 600)
+      // The history is what is left once the prompt has paid for itself: the standing instructions, the
+      // answer the turn is going to write, and the results the steps after this one read back into it.
+      const historyBudget = Math.max(500, contextTokens - estimateTokens(system) - outputCap - TOOL_RESULT_RESERVE_TOKENS)
       let window = buildContextWindow(history, historyBudget, conversation.summaryUpto ?? null)
       // Only now are the files read: the turns the budget dropped were never expanded at all.
       window = await this.hydrateWindow(window, model.vision, model.modalities, historyBudget)
@@ -583,8 +642,15 @@ export class AssistantRunner {
       if (window.overflow.length >= SUMMARIZE_THRESHOLD) {
         const rolled = await this.summarize(conversationId, conversation.summary ?? null, window.overflow)
         if (rolled) {
-          window = buildContextWindow(history, historyBudget, rolled.upto)
+          // The mark is the row the roll-up ends on, named rather than timed: the newest rows of this turn
+          // can share its millisecond, and a cutoff that compares times alone would drop them — including
+          // the question being answered.
+          window = buildContextWindow(history, historyBudget, rolled.upto, rolled.uptoId)
           window = await this.hydrateWindow(window, model.vision, model.modalities, historyBudget)
+        } else {
+          // The roll-up did not happen and nothing else about the turn says so: the answer arrives as
+          // though the whole thread stood behind it. Said here, once, rather than left to a log line.
+          yield { type: 'error', code: 'summary_unavailable', message: SUMMARY_UNAVAILABLE }
         }
       }
 
@@ -607,12 +673,10 @@ export class AssistantRunner {
         calls: entry.calls,
         images: entry.images,
       }))
-      // What one step may spend, thinking included. The model's own ceiling is the whole answer here and
-      // the account's number answers only for a model the reader has not set: taking the lower of the two
-      // let the account default (1024) silently outrank a model the reader had set to 64000. Kept in a
-      // name because a turn cut off at it has to say the number that cut it.
-      const capFor = (entry: ResolvedCall) => entry.model.maxOutputTokens ?? limits.maxOutputTokens
-      let outputCap = capFor(primary)
+      // Which ceiling ended the turn, when the model was cut off rather than finished. Named in the notice
+      // the row is filed with, because "it stopped" and "it ran out of room to keep going" are different
+      // things for the reader to act on.
+      let ceiling: string | null = null
       let steps = 0
 
       for (;;) {
@@ -683,9 +747,7 @@ export class AssistantRunner {
             // The notes this call read are cited beside the answer. Collected here rather than inside the
             // tool so there is one owner of the list: a failover that discards this attempt's calls takes
             // its citations with it, because they live in the same map.
-            for (const source of noteCitationsFromTool(call.name, result)) {
-              if (!this.turnSources.has(source.url)) this.turnSources.set(source.url, source)
-            }
+            for (const source of noteCitationsFromTool(call.name, result)) this.collectSource(source)
             // What came back, kept beside the arguments above. The `result` sent to the model stays the
             // compact JSON the wire wants; what the reader is shown is the tool's own text where the tool
             // returned text, because a quoted JSON string is not what the search returned.
@@ -706,7 +768,15 @@ export class AssistantRunner {
         turns.push({ role: 'assistant', content: text, calls })
         text = ''
         stepWordsFiled = false
-        if (steps >= limits.maxAgentSteps || executor.budgetExhausted()) break
+        if (steps >= limits.maxAgentSteps || executor.budgetExhausted()) {
+          // Reaching here means the model asked for another tool and there is no allowance left to run it.
+          // That is a ceiling, not the model deciding it had finished, and the words above are the middle
+          // of a working turn — so they are filed as one, which is what also makes them continuable.
+          ceiling = steps >= limits.maxAgentSteps
+            ? `the ${limits.maxAgentSteps}-step limit for one turn`
+            : `the tool-call limit of ${limits.maxToolCalls} for one turn`
+          break
+        }
         if (!(await this.reserve(1, limits.maxRequestsPerDay, { providerId: provider.id, providerLabel: provider.label }, model.label))) {
           yield { type: 'error', code: 'rate_limited', message: 'The daily assistant request limit was reached during this turn.' }
           break
@@ -746,10 +816,21 @@ export class AssistantRunner {
         failure = answer.trim()
           ? `The model was cut off at its ${outputCap}-token output limit, so the answer above stops where it does. ${capAdvice}`
           : `The model spent the whole ${outputCap}-token output allowance thinking and never wrote an answer. ${capAdvice}`
+      } else if (ceiling) {
+        outcome = 'error'
+        // Same shape as the two above: the words the reader watched arrive stay, and what stopped them is
+        // said, so a turn that ran out of allowance is not mistaken for one that ran out of things to say.
+        failure = answer.trim()
+          ? `The assistant stopped at ${ceiling} while it was still working, so the answer above stops where it does. Ask again to carry on from here.`
+          : `The assistant stopped at ${ceiling} while it was still working, and left no answer written to carry on from. Ask it again.`
       } else if (!answer.trim()) {
-        if (tools.some((tool) => tool.status === 'success')) answer = 'Done.'
-        else {
-          outcome = 'error'
+        outcome = 'error'
+        if (tools.some((tool) => tool.status === 'success')) {
+          // The tools ran and then the model said nothing. An invented "Done." was a sentence the model
+          // never wrote, read back by the next turn as its own closing words and by the reader as an
+          // answer; what is true is that the work happened without a report of it.
+          failure = 'The assistant ran its tools, but the model wrote no answer afterwards. Try asking again.'
+        } else {
           // A model that thought and then stopped writes no answer at all, and the trace is the only
           // evidence of why. Telling the reader to check the model or the key sends them to a setting that
           // was never the problem, so the trace is named and the same advice is offered.
@@ -785,6 +866,21 @@ export class AssistantRunner {
       yield { type: 'error', code: errorCode(error), message: reason }
       yield { type: 'done', finalMessage: await finish('error', reason, spent) }
     }
+  }
+
+  /**
+   * File one page this turn leaned on, first-found first-kept.
+   *
+   * Neither the number of citations nor the length of one is the runner's choice — a vendor names what it
+   * names, and some name a chunk per paragraph — while the list is written onto the answer row and carried
+   * every time the thread opens. So it is bounded where it is collected, at the same bounds the row is read
+   * back under, and the pages that came first are the ones the answer was actually built on.
+   */
+  private collectSource(source: AssistantSource): void {
+    if (this.turnSources.size >= MAX_TURN_SOURCES) return
+    const url = source.url.slice(0, MAX_SOURCE_URL_CHARS)
+    if (!url || this.turnSources.has(url)) return
+    this.turnSources.set(url, { ...source, url })
   }
 
   /**
@@ -833,9 +929,7 @@ export class AssistantRunner {
       // it beside the text it feeds; Gemini repeats its whole list on every frame, so the same page
       // would otherwise be listed a dozen times.
       if (event.type === 'sources') {
-        for (const source of event.sources) {
-          if (!this.turnSources.has(source.url)) this.turnSources.set(source.url, source)
-        }
+        for (const source of event.sources) this.collectSource(source)
         continue
       }
       calls.push({ id: event.id, name: event.name, args: event.args, result: '', error: false })
@@ -996,7 +1090,7 @@ export class AssistantRunner {
     conversationId: string,
     previous: string | null,
     overflow: HistoryEntry[],
-  ): Promise<{ upto: number } | null> {
+  ): Promise<{ upto: number, uptoId?: string } | null> {
     const resolved = await loadModelAndProvider(this.store, this.settings)
     if (!resolved.model || !resolved.provider) return null
     const call = modelEndpoint(resolved.model, resolved.provider)
@@ -1026,7 +1120,9 @@ export class AssistantRunner {
         if (event.type === 'text') text += event.delta
       }
     } catch (error) {
-      // A conversation that cannot be summarised still answers; the window just stays short.
+      // Best-effort only in the sense that the turn can still be answered without it — the conversation is
+      // not, and the caller is what tells the reader. `null` is the signal that no roll-up was written,
+      // and the log line is for whoever operates the deployment, not for the reader.
       console.warn('[inkstone] assistant summarization skipped:', error instanceof Error ? error.name : error)
       return null
     } finally {
@@ -1034,9 +1130,12 @@ export class AssistantRunner {
     }
     const summary = text.trim().slice(0, 2000)
     if (!summary) return null
-    const upto = overflow.at(-1)?.createdAt ?? Date.now()
-    await this.store.setSummary(conversationId, summary, upto)
-    return { upto }
+    const last = overflow.at(-1)
+    if (!last) return null
+    await this.store.setSummary(conversationId, summary, last.createdAt)
+    // The row the roll-up ends on travels back with its time: two turns can share a millisecond, and the
+    // one that came after must not be folded away with the history above it.
+    return { upto: last.createdAt, ...(last.id ? { uptoId: last.id } : {}) }
   }
 
   /**
@@ -1087,13 +1186,14 @@ export class AssistantRunner {
             : undefined),
           ...(ids.length ? { attachmentIds: ids } : {}),
           createdAt: entry.createdAt,
+          id: entry.id,
           ...(entry.role === 'assistant'
             ? {
                 calls: entry.tools.filter((tool) => tool.status !== 'running').map((tool) => ({
                   id: tool.id,
                   name: tool.name,
                   args: {},
-                  result: tool.error ? JSON.stringify({ error: tool.error }) : '{"ok":true}',
+                  result: historyToolResult(tool),
                   error: tool.status === 'error',
                 })),
               }
@@ -1221,6 +1321,10 @@ export class AssistantRunner {
       )
       return fuseMemoryRecall(lexical, semantic, MAX_RELEVANT_MEMORIES)
     } catch {
+      // Best-effort by design, and said so in the doc comment above: an embedding that would not come back
+      // costs the reader the memories phrased differently from their words, not the answer. Failing the
+      // turn over it would make a Workers AI outage look like a broken assistant, and the word list it
+      // falls back to is still the reader's own recall.
       return lexical
     }
   }
@@ -1401,6 +1505,10 @@ export class AssistantRunner {
         if (event.type === 'text') text += event.delta
       }
     } catch {
+      // Best-effort, and metered rather than silent: the judgement is an extra opinion on two paragraphs
+      // the writer's own rule already has a way to handle, so a dead summariser model must not fail the
+      // write the reader asked for. The count is what makes the absence visible on the cost screen, and
+      // `null` is the answer "no opinion", which is what the caller was built to take.
       await this.store.incrementUsage({ errors: 1 })
       return null
     } finally {
@@ -1520,6 +1628,22 @@ function detailFor(args: unknown): string | undefined {
   return candidate.replace(/\s+/g, ' ').trim().slice(0, 90) || undefined
 }
 
+/**
+ * What a call from an earlier turn answers with when the model is shown its own past again.
+ *
+ * A stored `{"ok":true}` told the model it had retrieved nothing, so it called the same tool for the same
+ * answer — and inside one turn the executor refuses a repeated call outright, which left the reader
+ * watching a loop spend its steps and still not answer. So the real result travels, shortened to what a
+ * later turn needs to remember rather than to what the turn that made it wanted to say. A failure keeps
+ * naming itself, because that is the part the model has to know.
+ */
+function historyToolResult(tool: ToolActivity): string {
+  if (tool.error) return JSON.stringify({ error: tool.error })
+  if (!tool.result) return '[the result of this call was not kept]'
+  if (tool.result.length <= MAX_HISTORY_TOOL_RESULT_CHARS) return tool.result
+  return `${tool.result.slice(0, MAX_HISTORY_TOOL_RESULT_CHARS)}\n… [${tool.result.length - MAX_HISTORY_TOOL_RESULT_CHARS} more characters]`
+}
+
 const APPROVAL_OUTCOME: Record<string, string> = {
   pending: 'waiting for the reader to approve it',
   approved: 'approved by the reader and done',
@@ -1544,18 +1668,51 @@ export interface ContextWindow {
 }
 
 /**
+ * Whether a row is already inside the roll-up and must not be sent again.
+ *
+ * The mark is a millisecond, and two turns written inside one millisecond are indistinguishable to `>`:
+ * the row that came last — often the reader's newest question — used to be discarded along with the history
+ * being condensed away from it. So the cutoff row is excluded by name when the caller can name it, which it
+ * can on the turn that wrote the summary and not on a later one reading the mark out of the conversation.
+ * There the older, coarser rule stands: everything sharing that millisecond goes with it, since one of them
+ * is the row the summary was cut at and nothing here says which.
+ */
+function foldedIntoSummary(entry: HistoryEntry, summaryUpto: number | null, summaryUptoId?: string | null): boolean {
+  if (summaryUpto === null) return false
+  if (entry.createdAt !== summaryUpto) return entry.createdAt < summaryUpto
+  return summaryUptoId ? entry.id === summaryUptoId : true
+}
+
+/**
  * Fits the newest turns into `maxTokens`.
  *
  * The newest turn is always kept even when it does not fit: dropping the question the reader just
  * asked would produce an answer to nothing, which is worse than one oversized prompt.
  */
-export function buildContextWindow(history: HistoryEntry[], maxTokens: number, summaryUpto: number | null): ContextWindow {
-  const eligible = history.filter((entry) => entry.content.trim().length > 0 && (!summaryUpto || entry.createdAt > summaryUpto))
+/**
+ * What one turn costs the window.
+ *
+ * The reader's words are most of it, but an assistant turn also carries the answers its calls brought back,
+ * and every later prompt sends them again. Counting only the text under-priced exactly the turns that read
+ * the most — which is how a window could fit its own budget and the request still go over the model's.
+ */
+function entryCost(entry: HistoryEntry): number {
+  const results = (entry.calls ?? []).reduce((total, call) => total + estimateTokens(call.result), 0)
+  return estimateTokens(entry.content) + results + 4
+}
+
+export function buildContextWindow(
+  history: HistoryEntry[],
+  maxTokens: number,
+  summaryUpto: number | null,
+  summaryUptoId?: string | null,
+): ContextWindow {
+  const eligible = history.filter((entry) => entry.content.trim().length > 0 && !foldedIntoSummary(entry, summaryUpto, summaryUptoId))
   const kept: HistoryEntry[] = []
   let used = 0
   for (let index = eligible.length - 1; index >= 0; index--) {
     const entry = eligible[index]!
-    const cost = estimateTokens(entry.content) + 4
+    const cost = entryCost(entry)
     if (kept.length > 0 && used + cost > maxTokens) break
     kept.unshift(entry)
     used += cost
@@ -1589,7 +1746,7 @@ function fitToBudget(entries: HistoryEntry[], maxTokens: number): { kept: Histor
   let used = 0
   for (let index = entries.length - 1; index >= 0; index--) {
     const entry = entries[index]!
-    const cost = estimateTokens(entry.content) + 4
+    const cost = entryCost(entry)
     if (kept.length > 0 && used + cost > maxTokens) break
     kept.unshift(entry)
     used += cost
