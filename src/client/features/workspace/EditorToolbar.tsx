@@ -108,7 +108,7 @@ export function EditorToolbar({ runCommand, view, onPickImage, mobile = false, s
         });
     };
     const aiItems = [
-        ...(['ask', 'rewrite', 'summarize', 'continue', 'translate'] as const).map((action) => ({
+        ...(['ask', 'rewrite', 'summarize', 'continue', 'translate', 'outline', 'todo'] as const).map((action) => ({
             id: action,
             label: t(EDITOR_AI_LABELS[action]),
             onSelect: () => runAi(action),

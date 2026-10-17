@@ -19,7 +19,7 @@ import { useUi } from '../../store/ui'
 import { useNotes } from '../../store/notes'
 import { useAssistant } from './assistant-store'
 
-export type EditorAiAction = 'ask' | 'rewrite' | 'summarize' | 'continue' | 'translate'
+export type EditorAiAction = 'ask' | 'rewrite' | 'summarize' | 'continue' | 'translate' | 'outline' | 'todo'
 
 export interface EditorAiRequest {
   noteId: string
@@ -59,6 +59,8 @@ export const EDITOR_AI_LABELS: Record<EditorAiAction, MessageKey> = {
   summarize: 'assistant.edit.summarize',
   continue: 'assistant.edit.continue',
   translate: 'assistant.edit.translate',
+  outline: 'assistant.edit.outline',
+  todo: 'assistant.edit.todo',
 }
 
 const PROMPT_KEYS: Record<Exclude<EditorAiAction, 'ask'>, MessageKey> = {
@@ -66,6 +68,8 @@ const PROMPT_KEYS: Record<Exclude<EditorAiAction, 'ask'>, MessageKey> = {
   summarize: 'assistant.edit.prompt_summarize',
   continue: 'assistant.edit.prompt_continue',
   translate: 'assistant.edit.prompt_translate',
+  outline: 'assistant.edit.prompt_outline',
+  todo: 'assistant.edit.prompt_todo',
 }
 
 /**
