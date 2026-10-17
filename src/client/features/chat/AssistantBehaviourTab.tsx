@@ -3,11 +3,11 @@
  */
 import { useEffect, useMemo, useState } from 'react'
 import { type AssistantSettings } from '@shared/assistant'
-import { ASSISTANT_TOOL_MODES, ASSISTANT_TOOL_PERMISSIONS } from '@shared/assistant'
+import { ASSISTANT_TOOL_MODES, ASSISTANT_TOOL_PERMISSIONS, MAX_CUSTOM_INSTRUCTIONS_CHARS } from '@shared/assistant'
 import { isValidTimeZone } from '@shared/assistant-schedule'
 import { t } from '../../lib/i18n'
 import { Button } from '../../components/primitives'
-import { Input, Segmented, Select, SettingRow, Switch } from '../../components/form'
+import { Input, Segmented, Select, SettingRow, Switch, Textarea } from '../../components/form'
 import { useAssistant } from './assistant-store'
 import { Group } from './assistant-settings-shared'
 
@@ -15,6 +15,8 @@ export function BehaviourTab({ settings }: { settings: AssistantSettings }) {
   const saveSettings = useAssistant((state) => state.saveSettings)
   const [name, setName] = useState(settings.agentName)
   useEffect(() => setName(settings.agentName), [settings.agentName])
+  const [instructions, setInstructions] = useState(settings.customInstructions)
+  useEffect(() => setInstructions(settings.customInstructions), [settings.customInstructions])
   const browserZone = Intl.DateTimeFormat().resolvedOptions().timeZone
   const zones = useMemo(() => {
     const list = typeof Intl.supportedValuesOf === 'function' ? Intl.supportedValuesOf('timeZone') : [browserZone]
@@ -73,6 +75,9 @@ export function BehaviourTab({ settings }: { settings: AssistantSettings }) {
         <SettingRow title={t('assistant.settings.send_enter')} description={t('assistant.settings.send_enter_hint')}>
           <Switch checked={settings.sendOnEnter} onChange={(value) => void saveSettings({ sendOnEnter: value })} label={t('assistant.settings.send_enter')} />
         </SettingRow>
+        <SettingRow title={t('assistant.settings.auto_route')} description={t('assistant.settings.auto_route_hint')}>
+          <Switch checked={settings.autoRoute} onChange={(value) => void saveSettings({ autoRoute: value })} label={t('assistant.settings.auto_route')} />
+        </SettingRow>
         <SettingRow title={t('assistant.settings.start_view')} description={t('assistant.settings.start_view_hint')}>
           <Select value={settings.startView} onChange={(event) => void saveSettings({ startView: event.target.value })}>
             <option value="chat">{t('assistant.view.chat')}</option>
@@ -82,6 +87,35 @@ export function BehaviourTab({ settings }: { settings: AssistantSettings }) {
             <option value="settings">{t('assistant.view.settings')}</option>
           </Select>
         </SettingRow>
+      </Group>
+
+      <Group title={t('assistant.settings.custom_instructions')}>
+        <div className="flex flex-col gap-2 py-3">
+          <p className="text-[length:var(--text-11)] text-[var(--text-quaternary)]">
+            {t('assistant.settings.custom_instructions_hint')}
+          </p>
+          <Textarea
+            rows={4}
+            maxLength={MAX_CUSTOM_INSTRUCTIONS_CHARS}
+            aria-label={t('assistant.settings.custom_instructions')}
+            value={instructions}
+            onChange={(event) => setInstructions(event.target.value)}
+            placeholder={t('assistant.settings.custom_instructions_placeholder')}
+          />
+          <div className="flex items-center justify-end gap-2">
+            <span className="mr-auto text-[length:var(--text-10-5)] tabular-nums text-[var(--text-quaternary)]">
+              {instructions.length}/{MAX_CUSTOM_INSTRUCTIONS_CHARS}
+            </span>
+            <Button
+              size="sm"
+              variant="secondary"
+              disabled={instructions.trim() === settings.customInstructions}
+              onClick={() => void saveSettings({ customInstructions: instructions.trim() })}
+            >
+              {t('common.save')}
+            </Button>
+          </div>
+        </div>
       </Group>
 
       <Group title={t('assistant.settings.tool_access')}>
