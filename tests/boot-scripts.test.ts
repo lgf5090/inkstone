@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs'
 
 const bootScript = readFileSync('public/boot.js', 'utf8')
 const authorizeScript = readFileSync('public/authorize-login.js', 'utf8')
+const viteConfig = readFileSync('vite.config.ts', 'utf8')
 
 afterEach(() => {
   document.documentElement.removeAttribute('data-theme')
@@ -163,4 +164,13 @@ it('frees the reload guard for the next deploy once the app renders', () => {
 
   recovery.fail()
   expect(reload).toHaveBeenCalledTimes(1)
+})
+
+it('keeps a locked file from taking the dev server down instead of the page', () => {
+  expect(viteConfig).toContain('watcherErrorsAreNotFatal()')
+  expect(viteConfig).toMatch(/server\.watcher\.on\('error'/)
+  expect(viteConfig).toMatch(/server:\s*\{[\s\S]*watch:\s*\{[\s\S]*ignored:\s*\[/)
+  for (const pattern of ['**/.*.tmpdir/**', '**/*.tmp', '**/*.TMP', '**/*~RF*', '**/~$*', '**/tmp/**']) {
+    expect(viteConfig, pattern).toContain("'" + pattern + "'")
+  }
 })

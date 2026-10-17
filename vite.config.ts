@@ -289,8 +289,27 @@ const getVendorChunkName = (id: string) => {
   return null
 }
 
+/**
+ * A file the dev server cannot watch is one save that does not hot-reload, not a dead server.
+ *
+ * chokidar emits `error` when `fs.watch` answers EBUSY (Windows locks a file while an editor, an
+ * agent harness or an archiver is renaming it into place). EventEmitter treats an unhandled `error`
+ * as fatal, so the dev server used to exit mid-keystroke and the next page load read as a start-up
+ * failure. The listener is the fix; `server.watch.ignored` below keeps the known writers out of the
+ * tree so the warning stays rare.
+ */
+const watcherErrorsAreNotFatal = (): Plugin => ({
+  name: 'inkstone:watcher-errors',
+  configureServer(server) {
+    server.watcher.on('error', (error) => {
+      console.warn('[inkstone] dev watcher could not follow a path; this change will not hot-reload.', error)
+    })
+  },
+})
+
 const config: UserConfigFnPromise = async ({ mode, command }) => ({
   plugins: [
+    watcherErrorsAreNotFatal(),
     react(),
     katexWoff2Only(),
     excalidrawVendorPlugin(),
@@ -321,9 +340,35 @@ const config: UserConfigFnPromise = async ({ mode, command }) => ({
   },
 
   server: {
-
     port: 7712,
     strictPort: false,
+    watch: {
+      /*
+       * Windows reports EBUSY for a path that is being renamed into place, and chokidar treats that
+       * as a fatal error: one atomic save anywhere under the project used to end the dev server with
+       * an uncaught FSWatcher exception, which the person in front of the screen experiences as
+       * "Inkstone did not start". Editors and agent harnesses write through a locked temp directory
+       * next to the target; browser profiles and Wrangler's local state are locked for as long as
+       * they run. None of them is source to reload, so they are kept out of the watched tree.
+       */
+      ignored: [
+        '**/node_modules/**',
+        '**/.git/**',
+        '**/dist/**',
+        '**/.wrangler/**',
+        '**/.worktrees*/**',
+        '**/.freebuff/**',
+        '**/.workbuddy-ai/**',
+        '**/tmp/**',
+        '**/.*.tmpdir/**',
+        '**/.tmp-*',
+        '**/*.tmp',
+        '**/*.TMP',
+        '**/*~RF*',
+        '**/~$*',
+        '**/*.swp',
+      ],
+    },
   },
 
   preview: {
