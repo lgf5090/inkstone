@@ -8,7 +8,7 @@
  */
 import type { ComponentType } from 'react'
 import {
-  Archive, Clipboard, Columns2, Download, Eye, EyeOff, FolderPlus, ImagePlus, IndentDecrease, IndentIncrease, Keyboard, LayoutTemplate, Link2, ListTree, MoveDown, MoveUp, Palette, Pencil, Pin, Plus, Presentation, ScanSearch, Settings, Share2, Smile, SquarePen, Sparkles, Star, Sun, Moon, Tags, Trash2, WandSparkles, Waypoints, ChevronsDownUp, ChevronsUpDown, Search, Zap, Activity, Compass, ListChecks, Rss, BookMarked, Brain, FolderKanban, MessageSquare,
+  Archive, Clipboard, Columns2, Download, Eye, EyeOff, FolderPlus, ImagePlus, IndentDecrease, IndentIncrease, Keyboard, LayoutTemplate, Link2, ListTree, MoveDown, MoveUp, Palette, Pencil, Pin, Plus, Presentation, ScanSearch, Settings, Share2, Smile, SquarePen, Sparkles, Star, Sun, Moon, Tags, Telescope, Trash2, WandSparkles, Waypoints, ChevronsDownUp, ChevronsUpDown, Search, Zap, Activity, Compass, ListChecks, Rss, BookMarked, Brain, FolderKanban, MessageSquare,
 } from 'lucide-react'
 import type { MessageKey } from '@shared/locales/en-US'
 import { api } from '../../lib/api'
@@ -37,6 +37,8 @@ import { useAssistant, type AssistantView } from '../chat/assistant-store'
 import { startChatAboutFolder, startChatAboutNote } from '../chat/start-chat'
 import { summarizeFolder } from '../chat/folder-summary'
 import { suggestNoteMeta } from '../chat/note-suggestions'
+import { startDeepResearch } from '../chat/deep-research'
+import { prompt } from '../../components/overlay'
 import { useSession } from '../../store/session'
 import { useUi } from '../../store/ui'
 
@@ -703,6 +705,25 @@ function assistantCommands(): AppCommand[] {
           },
         ]
       : []),
+    {
+      id: 'assistant-research',
+      kind: 'command',
+      label: t('assistant.research.command'),
+      group: t('command.group_assistant'),
+      icon: Telescope,
+      run: () => {
+        // The topic is asked for here rather than taken from the composer: a research run costs several
+        // turns, and it should start from a sentence the reader meant to spend them on.
+        void prompt({
+          title: t('assistant.research.topic_title'),
+          description: t('assistant.research.topic_hint'),
+          placeholder: t('assistant.research.topic_placeholder'),
+          confirmLabel: t('assistant.research.start'),
+        }).then((topic) => {
+          if (topic) void startDeepResearch(topic)
+        })
+      },
+    },
     {
       id: 'assistant-memory',
       kind: 'command',

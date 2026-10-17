@@ -1705,6 +1705,20 @@ const allowed = new Map([
     "// The empty box holds one icon, so the one inside its own wrapper is the search glyph.",
     "// One commit per settled burst: the text reaches the store, which is what asks the server again.",
   ]],
+  ["src/client/features/chat/deep-research.test.ts", [
+    "/**\n * Deep research: several turns, one note.\n *\n * Two things are pinned. The plan parse, because the whole run is shaped by it — a bullet list has to\n * read the same as a numbered one, and a plan of nine questions must be cut down rather than obeyed. And\n * the run itself: one turn per sub-question, then the synthesis, and the note holds the synthesis rather\n * than the plan or the raw findings.\n */",
+    "// The turn the run just waited out, in the shape `lastAnswerText` reads it.",
+  ]],
+  ["src/client/features/chat/deep-research.ts", [
+    "/**\n * Deep research: one question, several turns, a note at the end.\n *\n * A single turn answers what one model call can hold: it can search, read a few notes, and write. What it\n * cannot do is decide what to look for first and then look for it properly — a plan made *before* the\n * searching is a different thing from a search improvised while writing. So a research run is several\n * turns in one thread: split the question, investigate each part with the note tools and the web, then\n * write the report from what was found. The thread is the evidence trail; the note is the deliverable.\n *\n * It is deliberately bounded. Each step is a paid model call and a wait, so the plan is capped at four\n * sub-questions and the whole run at six turns; a run the reader did not expect to be long is worse than\n * a shallow answer, because it cannot be interrupted half way without losing what it learned.\n */",
+    "/** How many sub-questions a run will investigate. Past four it is a book, not a research note. */",
+    "/** A note title is a line, not a paragraph. */",
+    "/**\n * The sub-questions out of the plan turn.\n *\n * A numbered list is asked for and a numbered list is read, but models answer in bullets and with\n * emphasis often enough that both are accepted. Anything shorter than a few characters is a heading or a\n * stray marker rather than a question, so it is dropped.\n */",
+    "/** One turn, waited out. `null` means the turn produced nothing to build on. */",
+    "/**\n * Run a research pass on a topic and file the report as a note.\n *\n * Returns the new note's id, or null when the run could not finish — in which case the thread it ran in\n * is still there, with whatever each step found, because that is the part that cost the reader money.\n */",
+    "// Research is expected to look things up on the web; the chip shows it is on for the thread, which is",
+    "// the honest place for a setting that changes what the answers are made of.",
+  ]],
   ["src/client/features/chat/editor-ai.test.ts", [
     "/**\n * Selection to assistant, and back.\n *\n * The three parts that can go wrong are pinned here: how much of a note a request carries, where an\n * answer lands, and what happens when the note moved while the answer was being written. The last one is\n * the reason this file exists — a replace that trusts stale offsets writes over the reader's paragraph,\n * and nothing about the screen says so.\n */",
     "// The note store stamps every local write with this, so a module mock has to answer for it.",
@@ -2119,6 +2133,8 @@ const allowed = new Map([
     "// The two scoped starts: they need something to be about, so they only appear while there is",
     "// something on screen to point at. The scope is pinned to a fresh thread rather than the open one,",
     "// because a chip is the record of what a thread was asked about.",
+    "// The topic is asked for here rather than taken from the composer: a research run costs several",
+    "// turns, and it should start from a sentence the reader meant to spend them on.",
   ]],
   ["src/client/features/emoji/EmojiPicker.test.ts", [
     "/** huō-jiàn, rocket: the Han word the set carries for it. */",
