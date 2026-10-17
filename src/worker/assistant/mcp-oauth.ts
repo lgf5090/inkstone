@@ -22,6 +22,7 @@
 import { toBase64Url, timingSafeEqual } from '../lib/encoding'
 import { ApiError } from '../lib/errors'
 import { isValidId } from '../lib/id'
+import { NO_REDIRECT } from '../lib/no-redirect'
 import { mcpUrlProblem } from './mcp-client'
 import type { AssistantStore } from './store'
 
@@ -108,7 +109,7 @@ type FetchLike = (input: string, init?: RequestInit) => Promise<Response>
  * functions below are called from routes and from the turn alike — so the wrapper is made once here rather
  * than at each place somebody remembered to write `fetch`.
  */
-const fetchOAuth: FetchLike = (input, init) => fetch(input, init)
+const fetchOAuth: FetchLike = (input, init) => fetch(input, { ...init, redirect: NO_REDIRECT })
 
 /**
  * Read one JSON document the third party wrote about itself.

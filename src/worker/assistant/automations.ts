@@ -140,7 +140,10 @@ export class AutomationService {
    */
   async fire(automation: Automation, execute: AutomationExecutor): Promise<void> {
     const runId = await this.store.startRun(automation)
-    await this.store.updateAutomation(automation.id, { status: 'running', claimedAt: null })
+    // The claim stays on the row for the whole run. Clearing it here used to open a window between the
+    // sweep's claim and the re-arm below, and a tick arriving in that window (a model call may outlive
+    // the minute sweep) started the same routine a second time. Re-arming is what releases it.
+    await this.store.updateAutomation(automation.id, { status: 'running' })
     let result: string | null = null
     let failure: string | null = null
     try {
@@ -163,6 +166,8 @@ export class AutomationService {
         lastResult: result,
         lastError: failure,
         runCount: current.runCount + 1,
+        // The run is over, so the claim that kept a tick from starting it again goes with it.
+        claimedAt: null,
       })
       return
     }
@@ -176,6 +181,7 @@ export class AutomationService {
         enabled: false,
         status: 'completed',
         nextRun: null,
+        claimedAt: null,
       })
       return
     }
@@ -186,6 +192,8 @@ export class AutomationService {
       runCount: current.runCount + 1,
       status: failure ? 'failed' : 'scheduled',
       nextRun: next.getTime(),
+      // The next occurrence is armed, so another sweep is welcome to start it then.
+      claimedAt: null,
     })
   }
 }

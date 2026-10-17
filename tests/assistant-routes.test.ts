@@ -798,6 +798,36 @@ describe('automations', () => {
   })
 })
 
+  it('keeps a routine claimed for the whole run, so an overlapping sweep cannot start it twice', async () => {
+    const created = await call<{ automation: Automation }>('POST', '/api/assistant/automations', {
+      name: 'Morning digest', kind: 'task_digest', message: '',
+      schedule: { type: 'daily', time: '09:00' },
+    })
+    const due = Date.now() - 1000
+    sqlite.prepare('UPDATE chat_automations SET next_run = ? WHERE id = ?').run(due, created.automation.id)
+
+    const { AssistantStore, dueAutomations } = await import('../src/worker/assistant/store')
+    const { AutomationService } = await import('../src/worker/assistant/automations')
+    const store = new AssistantStore(env.DB as D1Database, USER, env)
+    const service = new AutomationService(store, await store.getSettings())
+    const [claimed] = await dueAutomations(env.DB, Date.now(), 20)
+    expect(claimed).toBeTruthy()
+
+    let seenDuringRun = -1
+    await service.fire(claimed!.automation, async () => {
+      // A model call can outlive the minute sweep. This is that next sweep arriving mid-run.
+      seenDuringRun = (await dueAutomations(env.DB, Date.now(), 20))
+        .filter((entry) => entry.automation.id === created.automation.id).length
+      return { status: 'success' as const, result: 'delivered' }
+    })
+    expect(seenDuringRun).toBe(0)
+
+    // Re-arming is what releases the claim; the row is scheduled again and not left claimed.
+    const row = sqlite.prepare('SELECT claimed_at, next_run FROM chat_automations WHERE id = ?').get(created.automation.id) as { claimed_at: number | null, next_run: number }
+    expect(row.claimed_at).toBeNull()
+    expect(row.next_run).toBeGreaterThan(Date.now())
+  })
+
 describe('notifications', () => {
   it('counts unread, marks one read and deletes it', async () => {
     insert('chat_notifications', { id: 'n1', title: 'Reminder', body: 'Water the plants', created_at: Date.now() })
@@ -873,6 +903,34 @@ describe('providers', () => {
     const raw = sqlite.prepare('SELECT key_ciphertext FROM chat_providers').get() as { key_ciphertext: string }
     expect(raw.key_ciphertext).not.toContain('sk-secret-value')
     expect(created.provider.baseUrl).toBe('https://api.deepseek.com')
+  })
+
+  it('keeps proving which key is stored after the provider is read back', async () => {
+    const created = await call<{ provider: AssistantProvider }>('POST', '/api/assistant/providers', {
+      label: 'DeepSeek',
+      protocol: 'openai',
+      baseUrl: 'https://api.deepseek.com',
+      apiKey: 'sk-secret-value-123456',
+    })
+    // The create answer is not the screen: the row is read back on every later open, and it has to say
+    // which key is held without the ciphertext ever being decrypted for a listing.
+    expect(created.provider.keyHint).toBe('3456')
+    const listed = await call<{ providers: AssistantProvider[] }>('GET', '/api/assistant/providers')
+    expect(listed.providers[0]).toMatchObject({ hasKey: true, keyHint: '3456' })
+
+    // An edit that does not mention the key keeps both the key and its hint.
+    const renamed = await call<{ provider: AssistantProvider }>('PATCH', `/api/assistant/providers/${created.provider.id}`, { label: 'Renamed' })
+    expect(renamed.provider).toMatchObject({ hasKey: true, keyHint: '3456' })
+    const afterRename = await call<{ providers: AssistantProvider[] }>('GET', '/api/assistant/providers')
+    expect(afterRename.providers[0]).toMatchObject({ hasKey: true, keyHint: '3456' })
+
+    // A replacement recomputes the hint; clearing the key clears both facts.
+    const rotated = await call<{ provider: AssistantProvider }>('PATCH', `/api/assistant/providers/${created.provider.id}`, { apiKey: 'sk-other-value-0000' })
+    expect(rotated.provider).toMatchObject({ hasKey: true, keyHint: '0000' })
+    const cleared = await call<{ provider: AssistantProvider }>('PATCH', `/api/assistant/providers/${created.provider.id}`, { apiKey: null })
+    expect(cleared.provider).toMatchObject({ hasKey: false, keyHint: '' })
+    const afterClear = await call<{ providers: AssistantProvider[] }>('GET', '/api/assistant/providers')
+    expect(afterClear.providers[0]).toMatchObject({ hasKey: false, keyHint: '' })
   })
 
   it('refuses a private provider address', async () => {
@@ -1111,7 +1169,7 @@ describe('offline chat', () => {
     const created = await call<{ conversation: AssistantConversation }>('POST', '/api/assistant/conversations', { title: 'Busy' })
     const { AssistantStore } = await import('../src/worker/assistant/store')
     const store = new AssistantStore(env.DB as D1Database, USER, env)
-    expect(await store.claimRun(created.conversation.id)).toBe(true)
+    expect(await store.claimRun(created.conversation.id)).toBeTruthy()
     expect(await status('POST', '/api/assistant/chat', { conversationId: created.conversation.id, message: 'hello' })).toBe(409)
     await store.releaseRun(created.conversation.id)
     expect(await status('POST', '/api/assistant/chat', { conversationId: created.conversation.id, message: 'hello' })).toBe(200)
@@ -1127,6 +1185,25 @@ describe('lease and streaming turn', () => {
     const detail = await call<{ streaming: boolean }>('GET', `/api/assistant/conversations/${conversationId}`)
     // A claim nobody released would keep the conversation locked for the length of the lease.
     expect(detail.streaming).toBe(false)
+  })
+
+  it('gives a claim back only to the run that took it', async () => {
+    const { AssistantStore, RUN_LEASE_MS } = await import('../src/worker/assistant/store')
+    const store = new AssistantStore(env.DB as D1Database, USER, env)
+    const conversation = await store.createConversation('Leased')
+    const first = await store.claimRun(conversation.id)
+    expect(first).toBeTruthy()
+    // One claim at a time: the second request is refused instead of both starting a turn.
+    expect(await store.claimRun(conversation.id)).toBeNull()
+
+    // Once the lease has expired another run may take over. The old run finishing late must not delete
+    // the newer claim — that would let a third turn start beside a live one.
+    const second = await store.claimRun(conversation.id, Date.now() + RUN_LEASE_MS + 1)
+    expect(second).toBeTruthy()
+    await store.releaseRun(conversation.id, first!)
+    expect(await store.isRunning(conversation.id)).toBe(true)
+    await store.releaseRun(conversation.id, second!)
+    expect(await store.isRunning(conversation.id)).toBe(false)
   })
 
   it('claims a brand-new conversation and renews the lease on every step', async () => {
@@ -1272,6 +1349,29 @@ describe('drawing a picture', () => {
     const file = await app.fetch(new Request(`http://localhost/api/assistant/files/${id}`), env, ctx)
     expect(file.status).toBe(200)
     expect(file.headers.get('content-type')).toContain('image/png')
+  })
+
+  it('refuses an image model that answers with a redirect', async () => {
+    await useExampleModel()
+    await useImageModel()
+    const generation: Array<RequestInit | undefined> = []
+    let chatCalls = 0
+    vi.stubGlobal('fetch', vi.fn(async (input: string | URL, init?: RequestInit) => {
+      if (String(input).endsWith('/images/generations')) {
+        generation.push(init)
+        return new Response('', { status: 302, headers: { location: 'http://169.254.169.254/' } })
+      }
+      chatCalls++
+      return new Response(sse(chatCalls === 1 ? IMAGE_CALL_FRAMES : FINAL_FRAMES), { headers: { 'content-type': 'text/event-stream' } })
+    }))
+
+    const events = await chatEvents({ message: 'draw me a cat' })
+    await settleTurns()
+    vi.unstubAllGlobals()
+
+    const failed = events.find((event) => event.type === 'tool' && event.tool?.status === 'error') as { tool: { error: string } } | undefined
+    expect(failed?.tool.error).toContain('redirect')
+    expect(generation).toHaveLength(1)
   })
 
   it('says which setting to fix when no image model is configured', async () => {
@@ -1591,6 +1691,48 @@ function stubAi(model: string): { calls: string[][]; run: NonNullable<Env['AI']>
     },
   }
 }
+
+describe('a stopped turn', () => {
+  it('files the words that had already reached the reader', async () => {
+    await useExampleModel()
+    const { AssistantRunner } = await import('../src/worker/assistant/runner')
+    const { AssistantStore } = await import('../src/worker/assistant/store')
+    const store = new AssistantStore(env.DB as D1Database, USER, env)
+    const conversation = await store.createConversation('Stopped')
+    expect(await store.claimRun(conversation.id)).toBeTruthy()
+    const controller = new AbortController()
+    // A model that has said part of the answer and then waits: the reader's stop is what ends it.
+    const encoder = new TextEncoder()
+    vi.stubGlobal('fetch', vi.fn(async (_url: unknown, init?: RequestInit) => {
+      const stream = new ReadableStream<Uint8Array>({
+        start(streamController) {
+          streamController.enqueue(encoder.encode(`data: ${JSON.stringify({ choices: [{ index: 0, delta: { content: 'half an answer' } }] })}\n\n`))
+          init?.signal?.addEventListener('abort', () => streamController.error(new Error('aborted')))
+        },
+      })
+      return new Response(stream, { headers: { 'content-type': 'text/event-stream' } })
+    }))
+    const runner = new AssistantRunner({ store, env, ftsEnabled: false, origin: 'http://localhost', settings: await store.getSettings() })
+    const events: ChatStreamEvent[] = []
+    for await (const event of runner.chat({ conversationId: conversation.id, message: 'say something', signal: controller.signal })) {
+      events.push(event)
+      if (event.type === 'text') {
+        controller.abort()
+        // What the stop button does: the lease is released, so the turn ends even where the platform
+        // does not echo the dropped connection back into the isolate.
+        await store.releaseRun(conversation.id)
+      }
+    }
+    vi.unstubAllGlobals()
+
+    const done = events.find((event) => event.type === 'done') as { finalMessage: AssistantMessage } | undefined
+    expect(done?.finalMessage.status).toBe('cancelled')
+    // The transcript is the row, not the event: a cancelled answer keeps the text the reader saw.
+    const stored = (await store.messages(conversation.id)).find((entry) => entry.role === 'assistant')
+    expect(stored?.status).toBe('cancelled')
+    expect(stored?.content).toContain('half an answer')
+  })
+})
 
 describe('semantic memory recall', () => {
   it('embeds a memory as it is saved and reports it', async () => {
@@ -2128,6 +2270,131 @@ describe('backup', () => {
     const list = await call<{ automations: Automation[] }>('GET', '/api/assistant/automations')
     expect(list.automations[0]!.enabled).toBe(false)
     expect(list.automations[0]!.id).toBe(created.automation.id)
+  })
+
+  it('carries a project brief, the threads filed under it, and what each answer came from', async () => {
+    const folder = oid('bkf1')
+    addFolder(folder, 'Client knowledge')
+    const project = await call<{ project: Project }>('POST', '/api/assistant/projects', {
+      name: 'Client A', description: 'the engagement', instructions: 'Answer in French.', noteScope: [folder],
+    })
+    const conversation = (await call<{ conversation: AssistantConversation }>(
+      'POST', '/api/assistant/conversations', { title: 'Filed under A' },
+    )).conversation
+    await call('PATCH', `/api/assistant/conversations/${conversation.id}`, { projectId: project.project.id })
+    // A message is only worth restoring with the pages it leaned on and the verdict it earned, so both
+    // travel with it; a fork only means something with the thread it came from.
+    const messageId = oid('bkm1')
+    insert('chat_messages', {
+      id: messageId, conversation_id: conversation.id, role: 'assistant', content: 'Bonjour',
+      reasoning: '', tools: '[]', attachments: '[]', status: 'complete', source: 'chat',
+      input_tokens: 3, output_tokens: 2, duration_ms: 10, model_label: 'example-model',
+      sources: JSON.stringify([{ url: 'https://example.com/a', title: 'A' }]), feedback: 'up',
+      created_at: Date.now(),
+    })
+    const fork = (await call<{ conversation: AssistantConversation }>(
+      'POST', `/api/assistant/conversations/${conversation.id}/fork`, { messageId, title: 'Branch' },
+    )).conversation
+    const memory = (await call<{ memory: AssistantMemory }>('POST', '/api/assistant/memories', {
+      content: 'The engagement is monthly', category: 'fact',
+    })).memory
+    const noteId = oid('bkn1')
+    sqlite.prepare('UPDATE chat_memories SET note_id = ? WHERE id = ?').run(noteId, memory.id)
+
+    const payload = await call<Record<string, unknown>>('GET', '/api/assistant/export')
+    asUser(OTHER)
+    await call('POST', '/api/assistant/import', payload)
+
+    const projects = await call<{ projects: Project[] }>('GET', '/api/assistant/projects')
+    const restored = projects.projects.find((entry) => entry.id === project.project.id)!
+    expect(restored.instructions).toBe('Answer in French.')
+    expect(restored.description).toBe('the engagement')
+    // A knowledge scope names notebook folders, and those are not in this backup: a folder this account
+    // does not have is dropped rather than left as a dangling id that reads nothing.
+    expect(restored.noteScope).toEqual([])
+    const threads = await call<{ conversations: AssistantConversation[] }>('GET', '/api/assistant/conversations')
+    expect(threads.conversations.find((entry) => entry.id === conversation.id)?.projectId).toBe(project.project.id)
+    expect(threads.conversations.find((entry) => entry.id === fork.id)?.parentId).toBe(conversation.id)
+    const detail = await call<{ messages: AssistantMessage[] }>('GET', `/api/assistant/conversations/${conversation.id}`)
+    const restoredMessage = detail.messages.find((entry) => entry.id === messageId)!
+    expect(restoredMessage.sources?.map((entry) => entry.url)).toEqual(['https://example.com/a'])
+    expect(restoredMessage.feedback).toBe('up')
+    const memories = await call<{ memories: AssistantMemory[] }>('GET', '/api/assistant/memories')
+    expect(memories.memories.find((entry) => entry.id === memory.id)?.noteId).toBe(noteId)
+
+    // Restored beside the folder it names, the same file keeps the scope: the validation drops what this
+    // notebook cannot resolve, and a restore into the account that owns the folder resolves it.
+    asUser(USER)
+    await call('DELETE', `/api/assistant/projects/${project.project.id}`)
+    await call('POST', '/api/assistant/import', payload)
+    const back = await call<{ projects: Project[] }>('GET', '/api/assistant/projects')
+    expect(back.projects.find((entry) => entry.id === project.project.id)?.noteScope).toEqual([folder])
+  })
+
+  it('is idempotent and never writes a provider key into the file', async () => {
+    await call('POST', '/api/assistant/providers', {
+      label: 'Keyed', protocol: 'openai', baseUrl: 'https://api.example.com', apiKey: 'sk-backup-secret-1234',
+    })
+    const conversation = (await call<{ conversation: AssistantConversation }>(
+      'POST', '/api/assistant/conversations', { title: 'Twice' },
+    )).conversation
+    insert('chat_messages', {
+      id: oid('bkt1'), conversation_id: conversation.id, role: 'user', content: 'hello',
+      reasoning: '', tools: '[]', attachments: '[]', status: 'complete', source: 'chat',
+      input_tokens: 1, output_tokens: 0, duration_ms: 0, model_label: '', created_at: Date.now(),
+    })
+    const payload = await call<Record<string, unknown>>('GET', '/api/assistant/export')
+    // A backup is a file a reader can hand to somebody else: the ciphertext and the plaintext are both
+    // configuration of this deployment, not content of the reader's.
+    const file = JSON.stringify(payload)
+    expect(file).not.toContain('sk-backup-secret-1234')
+    expect(file).not.toContain('key_ciphertext')
+
+    asUser(OTHER)
+    const first = await call<{ imported: { messages: number } }>('POST', '/api/assistant/import', payload)
+    const second = await call<{ imported: { messages: number } }>('POST', '/api/assistant/import', payload)
+    expect(second.imported.messages).toBe(0)
+    const count = (sqlite.prepare('SELECT COUNT(*) AS n FROM chat_messages WHERE user_id = ?').get(OTHER) as { n: number }).n
+    expect(count).toBe(first.imported.messages)
+    const threads = await call<{ conversations: AssistantConversation[] }>('GET', '/api/assistant/conversations')
+    expect(threads.conversations.filter((entry) => entry.id === conversation.id)).toHaveLength(1)
+  })
+
+  it('never replaces a newer local edit with an older copy', async () => {
+    const conversation = (await call<{ conversation: AssistantConversation }>(
+      'POST', '/api/assistant/conversations', { title: 'Original' },
+    )).conversation
+    const task = (await call<{ task: Task }>('POST', '/api/assistant/tasks', { title: 'File it' })).task
+    const payload = await call<Record<string, unknown>>('GET', '/api/assistant/export')
+    await call('PATCH', `/api/assistant/conversations/${conversation.id}`, { title: 'Renamed here' })
+    await call('PATCH', `/api/assistant/tasks/${task.id}`, { title: 'Renamed task' })
+
+    // The same file re-imported over the copy it came from: it must merge, not roll back the newer edits.
+    await call('POST', '/api/assistant/import', payload)
+    const threads = await call<{ conversations: AssistantConversation[] }>('GET', '/api/assistant/conversations')
+    expect(threads.conversations.find((entry) => entry.id === conversation.id)?.title).toBe('Renamed here')
+    const tasks = await call<{ tasks: Task[] }>('GET', '/api/assistant/tasks')
+    expect(tasks.tasks.find((entry) => entry.id === task.id)?.title).toBe('Renamed task')
+  })
+
+  it('settles a project name another account already holds instead of failing the file', async () => {
+    const project = (await call<{ project: Project }>('POST', '/api/assistant/projects', { name: 'Client B' })).project
+    const conversation = (await call<{ conversation: AssistantConversation }>(
+      'POST', '/api/assistant/conversations', { title: 'Under B' },
+    )).conversation
+    await call('PATCH', `/api/assistant/conversations/${conversation.id}`, { projectId: project.id })
+    const payload = await call<Record<string, unknown>>('GET', '/api/assistant/export')
+
+    asUser(OTHER)
+    await call('POST', '/api/assistant/projects', { name: 'Client B' })
+    const result = await call<{ imported: { projects: number } }>('POST', '/api/assistant/import', payload)
+    expect(result.imported.projects).toBe(1)
+    const projects = await call<{ projects: Project[] }>('GET', '/api/assistant/projects')
+    const restored = projects.projects.find((entry) => entry.id === project.id)!
+    expect(restored.name).toBe('Client B (imported)')
+    // The thread the file filed under that project still points at it, which a skipped project could not.
+    const threads = await call<{ conversations: AssistantConversation[] }>('GET', '/api/assistant/conversations')
+    expect(threads.conversations.find((entry) => entry.id === conversation.id)?.projectId).toBe(project.id)
   })
 
   it('refuses a file from another app', async () => {
@@ -3146,6 +3413,24 @@ describe('external MCP servers', () => {
     vi.unstubAllGlobals()
   })
 
+  it('refuses to follow a redirect out of a stored server', async () => {
+    const seen: Array<RequestInit | undefined> = []
+    vi.stubGlobal('fetch', vi.fn(async (_url: unknown, init?: RequestInit) => {
+      seen.push(init)
+      // The saved address was vetted; the redirect target is one this app never checked, so the
+      // request must come back with the 3xx rather than quietly continue somewhere inside the network.
+      return new Response('', { status: 302, headers: { location: 'http://169.254.169.254/latest/meta-data/' } })
+    }))
+    await call('POST', '/api/assistant/mcp', { label: 'Redirector', url: 'https://mcp.example.test/mcp' })
+    const listed = await catalog()
+    vi.unstubAllGlobals()
+    expect(listed.servers).toEqual([])
+    expect(listed.problems).toHaveLength(1)
+    // Every request the client made asked fetch not to follow one.
+    expect(seen.length).toBeGreaterThan(0)
+    expect(seen.every((init) => init?.redirect === 'manual')).toBe(true)
+  })
+
   it('asks the reader before an external tool runs, and runs the approved call with the shown arguments', async () => {
     await useExampleModel()
     const calls: string[] = []
@@ -3530,6 +3815,60 @@ describe('usage attribution', () => {
     expect(stats.series[0]!.costs).toEqual([])
   })
 
+  it('rebuilds the by-model split for usage recorded before the dimension existed', async () => {
+    const { usageDay, dayBefore } = await import('../src/worker/assistant/store')
+    const day = dayBefore(usageDay(), 2)
+    const conversation = await call<{ conversation: AssistantConversation }>(
+      'POST', '/api/assistant/conversations', { title: 'Before the split' },
+    )
+    // What the old build left behind: the day's counters, and the messages they were counted from. No
+    // `chat_usage_daily_model` row exists for any of it, because the table had not been thought of yet.
+    insert('chat_usage_daily', { day, requests: 2, input_tokens: 50, output_tokens: 10, tool_calls: 2 })
+    const at = Date.parse(`${day}T12:00:00.000Z`)
+    insert('chat_messages', {
+      id: oid('m1'), conversation_id: conversation.conversation.id, role: 'assistant', content: 'one',
+      reasoning: '', tools: JSON.stringify([{ id: 't1' }]), attachments: '[]', status: 'complete',
+      source: 'chat', input_tokens: 30, output_tokens: 6, duration_ms: 1000,
+      model_label: 'deepseek-chat', created_at: at,
+    })
+    insert('chat_messages', {
+      id: oid('m2'), conversation_id: conversation.conversation.id, role: 'assistant', content: 'two',
+      reasoning: '', tools: JSON.stringify([{ id: 't2' }]), attachments: '[]', status: 'complete',
+      source: 'chat', input_tokens: 20, output_tokens: 4, duration_ms: 900,
+      model_label: 'deepseek-chat', created_at: at + 1000,
+    })
+
+    const stats = await call<{
+      total: { inputTokens: number }
+      models: { label: string, requests: number, inputTokens: number, outputTokens: number, toolCalls: number, cost: number | null }[]
+      modelOptions: string[]
+      series: { day: string, models: { label: string, requests: number }[] }[]
+      unpricedModels: number
+    }>('GET', '/api/assistant/stats?range=all')
+
+    // The day's totals were never lost; what was missing is the model behind them.
+    expect(stats.total.inputTokens).toBe(50)
+    expect(stats.models).toEqual([
+      expect.objectContaining({ label: 'deepseek-chat', requests: 2, inputTokens: 50, outputTokens: 10, toolCalls: 2, cost: null }),
+    ])
+    // A model with no price is unpriced, not free: the total above still says nothing was billed for it.
+    expect(stats.unpricedModels).toBe(1)
+    expect(stats.modelOptions).toContain('deepseek-chat')
+    expect(stats.series.find((entry) => entry.day === day)?.models.map((entry) => entry.label)).toEqual(['deepseek-chat'])
+
+    // The filter the picker now offers answers from the same rebuilt row rather than from a key table
+    // that never heard of this day.
+    const filtered = await call<{ total: { inputTokens: number }, models: { label: string }[] }>(
+      'GET', `/api/assistant/stats?range=all&model=${encodeURIComponent('deepseek-chat')}`,
+    )
+    expect(filtered.total.inputTokens).toBe(50)
+    expect(filtered.models.map((entry) => entry.label)).toEqual(['deepseek-chat'])
+
+    // Reading the screen again is not a second charge: the rebuild is inserted once and then read.
+    const again = await call<{ models: { requests: number, inputTokens: number }[] }>('GET', '/api/assistant/stats?range=all')
+    expect(again.models[0]).toMatchObject({ requests: 2, inputTokens: 50 })
+  })
+
   it('answers the account totals from the whole history, which no range narrows', async () => {
     const { usageDay } = await import('../src/worker/assistant/store')
     await useExampleModel()
@@ -3811,5 +4150,43 @@ describe('backup round trip', () => {
     const restored = new AssistantStore(env.DB as D1Database, OTHER, env)
     await restored.importRow('chat_messages', row)
     expect((await restored.messages(conversation.id)).at(-1)?.reasoning).toBe('A TRACE')
+  })
+})
+
+/**
+ * The thread a saved note came from.
+ *
+ * A note written by the model's own `create_note` tool files this row server-side, but a note written
+ * from a reply is saved by the browser, so the client reports the origin afterwards. The row is what the
+ * note's backlink panel joins on, and a conversation from somewhere else must be refused rather than
+ * stored as a link with nothing at the end.
+ */
+describe('note origins', () => {
+  it('records the thread a saved note came from, once per pair', async () => {
+    const created = await call<{ conversation: AssistantConversation }>('POST', '/api/assistant/conversations', { title: 'Origins' })
+    const noteId = '01hzzzzzzzzzzzzzzzzzzzzz01'
+
+    expect(await call<{ ok: true }>('POST', '/api/assistant/note-writes', {
+      noteId, conversationId: created.conversation.id,
+    })).toEqual({ ok: true })
+    // A thread that appends twice is still one origin: the panel lists threads, not edits.
+    await call('POST', '/api/assistant/note-writes', { noteId, conversationId: created.conversation.id })
+    const listed = await call<{ conversations: { id: string, title: string }[] }>(
+      'GET', `/api/assistant/note-writes?noteId=${noteId}`,
+    )
+    expect(listed.conversations.map((entry) => entry.id)).toEqual([created.conversation.id])
+    expect(listed.conversations[0]!.title).toBe('Origins')
+
+    // Ids are checked before the row is written, and a conversation this account does not own is not found
+    // rather than stored: it would be a link the panel could never resolve.
+    expect(await status('POST', '/api/assistant/note-writes', { noteId: 'nope', conversationId: created.conversation.id })).toBe(404)
+    expect(await status('POST', '/api/assistant/note-writes', {
+      noteId, conversationId: '01hzzzzzzzzzzzzzzzzzzzzz02',
+    })).toBe(404)
+
+    // The row is account-scoped: another reader's panel does not learn that this note exists.
+    asUser(OTHER)
+    const foreign = await call<{ conversations: unknown[] }>('GET', `/api/assistant/note-writes?noteId=${noteId}`)
+    expect(foreign.conversations).toHaveLength(0)
   })
 })

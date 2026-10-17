@@ -138,7 +138,7 @@ function applyMemoryScope(q: Query, scope: MemoryScope | undefined, column = 'pr
  * `length(key_ciphertext) > 0` answers "is a key stored" without the ciphertext ever leaving the row,
  * so no provider listing can carry a key out even if a route is added carelessly later.
  */
-const PROVIDER_COLUMNS = `id, label, protocol, base_url, endpoints, reasoning_dialect, length(key_ciphertext) > 0 AS has_key, created_at, updated_at`
+const PROVIDER_COLUMNS = `id, label, protocol, base_url, endpoints, reasoning_dialect, key_hint, length(key_ciphertext) > 0 AS has_key, created_at, updated_at`
 
 /** A provider key row, ciphertext included: read only by the rotation, never by a listing. */
 const PROVIDER_KEY_COLUMNS = `id, provider_id, label, key_ciphertext, key_hint, enabled, last_used_at, error_count, last_error, created_at, updated_at`
@@ -642,6 +642,16 @@ export interface TaskQuery {
   dayEnd?: number
 }
 
+/** One day-and-model slice of the usage series, whichever dimension table answered it. */
+type UsageSeriesRow = {
+  day: string
+  modelLabel: string
+  providerId: string
+  providerLabel: string
+  keyId: string
+  keyLabel: string
+} & UsageCounters
+
 const TASK_PRIORITY_ORDER = `CASE priority WHEN 'urgent' THEN 0 WHEN 'high' THEN 1 WHEN 'medium' THEN 2 ELSE 3 END`
 
 export class AssistantStore {
@@ -701,7 +711,7 @@ export class AssistantStore {
   /** Includes the ciphertext: only the worker may hold it, and only to sign one upstream request. */
   async providerRecord(id: string): Promise<ProviderRow | null> {
     const stored = await this.one<Omit<ProviderRow, 'protocol'> & { protocol: string }>(
-      `SELECT id, label, protocol, base_url, endpoints, reasoning_dialect, key_ciphertext, key_last_used_at, created_at, updated_at
+      `SELECT id, label, protocol, base_url, endpoints, reasoning_dialect, key_ciphertext, key_hint, key_last_used_at, created_at, updated_at
          FROM chat_providers WHERE user_id = ?1 AND id = ?2`,
       this.userId, id,
     )
@@ -727,11 +737,14 @@ export class AssistantStore {
     const key = input.apiKey.trim()
     const ciphertext = key ? await encryptAssistantKey(this.env, this.userId, key) : ''
     const dialect = compatibleDialect(input.protocol, input.reasoningDialect)
+    // The hint is stored rather than recomputed later: a listing never decrypts a key, so its last four
+    // characters have to travel with the row the way an extra key's already do.
+    const hint = key ? key.slice(-4) : ''
     await this.write(
-      `INSERT INTO chat_providers (id, user_id, label, protocol, base_url, endpoints, reasoning_dialect, key_ciphertext, created_at, updated_at)
-       VALUES (?2, ?1, ?3, ?4, ?5, ?9, ?10, ?6, ?7, ?8)`,
+      `INSERT INTO chat_providers (id, user_id, label, protocol, base_url, endpoints, reasoning_dialect, key_ciphertext, key_hint, created_at, updated_at)
+       VALUES (?2, ?1, ?3, ?4, ?5, ?9, ?10, ?6, ?11, ?7, ?8)`,
       id, input.label, input.protocol, input.baseUrl, ciphertext, at, at,
-      JSON.stringify(input.endpoints ?? {}), dialect,
+      JSON.stringify(input.endpoints ?? {}), dialect, hint,
     )
     return {
       id,
@@ -741,7 +754,7 @@ export class AssistantStore {
       endpoints: input.endpoints ?? {},
       reasoningDialect: dialect,
       hasKey: Boolean(ciphertext),
-      keyHint: key ? key.slice(-4) : '',
+      keyHint: hint,
       createdAt: at,
       updatedAt: at,
     }
@@ -769,17 +782,21 @@ export class AssistantStore {
       patch.reasoningDialect !== undefined ? patch.reasoningDialect : reasoningDialectValue(existing.reasoning_dialect),
     )
     let ciphertext = existing.key_ciphertext ?? ''
-    let hint = ''
-    if (patch.apiKey === null) ciphertext = ''
-    else if (typeof patch.apiKey === 'string' && patch.apiKey.trim()) {
+    // A patch that says nothing about the key keeps the stored hint too: the row still holds that key,
+    // and clearing the hint here would make a saved key look missing on the next listing.
+    let hint = existing.key_hint ?? ''
+    if (patch.apiKey === null) {
+      ciphertext = ''
+      hint = ''
+    } else if (typeof patch.apiKey === 'string' && patch.apiKey.trim()) {
       ciphertext = await encryptAssistantKey(this.env, this.userId, patch.apiKey)
       hint = patch.apiKey.trim().slice(-4)
     }
     const at = Date.now()
     await this.write(
-      `UPDATE chat_providers SET label = ?2, protocol = ?3, base_url = ?4, key_ciphertext = ?5, updated_at = ?6, endpoints = ?8, reasoning_dialect = ?9
+      `UPDATE chat_providers SET label = ?2, protocol = ?3, base_url = ?4, key_ciphertext = ?5, updated_at = ?6, endpoints = ?8, reasoning_dialect = ?9, key_hint = ?10
          WHERE user_id = ?1 AND id = ?7`,
-      label, protocol, baseUrl, ciphertext, at, id, JSON.stringify(endpoints), dialect,
+      label, protocol, baseUrl, ciphertext, at, id, JSON.stringify(endpoints), dialect, hint,
     )
     return {
       id,
@@ -930,7 +947,7 @@ export class AssistantStore {
    */
   async vendorAccess(id: string): Promise<{ protocol: AssistantProtocol, baseUrl: string, apiKey: string } | null> {
     const row = await this.one<ProviderRow>(
-      `SELECT id, label, protocol, base_url, endpoints, reasoning_dialect, key_ciphertext, key_last_used_at, created_at, updated_at
+      `SELECT id, label, protocol, base_url, endpoints, reasoning_dialect, key_ciphertext, key_hint, key_last_used_at, created_at, updated_at
          FROM chat_providers WHERE user_id = ?1 AND id = ?2`,
       this.userId, id,
     )
@@ -3290,6 +3307,45 @@ export class AssistantStore {
     }
   }
 
+
+  /**
+   * Heal the per-model dimension for usage written before it existed.
+   *
+   * The by-model rows arrived after readers already had history, so everything recorded before that lives
+   * only in the plain day counters — a day's tokens are there and its model is not, which reads as a chart
+   * of zeros. The message rows are the truth those counters were computed from, so a missing (day, model)
+   * pair is rebuilt from them once: `INSERT OR IGNORE` makes a second pass a no-op rather than a second
+   * charge, and a day that already has a row for that model keeps the live counters.
+   *
+   * Only days before today are healed. Today's row can be half-written while this runs — a turn inserts
+   * the day and its model row before the counters are applied — and mixing that live row with a
+   * message-derived one would count the same turn twice.
+   *
+   * What is rebuilt is what the messages can prove: `requests` counts assistant turns rather than the
+   * reserve() calls a multi-step turn makes, and tool calls are read from the tools each turn stored. A
+   * turn that failed before resolving a model has no model to be filed under and stays in the day's
+   * totals alone, which is the honest reading: it belonged to no model.
+   */
+  async backfillModelUsage(today = usageDay()): Promise<number> {
+    const result = await this.db.prepare(
+      `INSERT OR IGNORE INTO chat_usage_daily_model
+         (user_id, day, model_label, requests, input_tokens, output_tokens, tool_calls, errors)
+       SELECT m.user_id, m.day, m.model_label, COUNT(*),
+              COALESCE(SUM(m.input_tokens), 0), COALESCE(SUM(m.output_tokens), 0),
+              COALESCE(SUM(CASE WHEN json_valid(m.tools) THEN json_array_length(m.tools) ELSE 0 END), 0),
+              COALESCE(SUM(CASE WHEN m.status = 'error' THEN 1 ELSE 0 END), 0)
+         FROM (
+           SELECT user_id, model_label, input_tokens, output_tokens, tools, status,
+                  strftime('%Y-%m-%d', created_at / 1000, 'unixepoch') AS day
+             FROM chat_messages
+            WHERE user_id = ?1 AND role = 'assistant' AND model_label <> ''
+         ) m
+         JOIN chat_usage_daily d ON d.user_id = m.user_id AND d.day = m.day
+        WHERE d.day < ?2
+        GROUP BY m.user_id, m.day, m.model_label`,
+    ).bind(this.userId, today).run()
+    return result.meta?.changes ?? 0
+  }
   /**
    * The per-provider-and-key rows between two days, most used first.
    *
@@ -3369,6 +3425,47 @@ export class AssistantStore {
     return clauses.length ? ` AND ${clauses.join(' AND ')}` : ''
   }
 
+  /** Whether a filter can be answered from the model dimension alone: no provider or key was named. */
+  private modelDimensionOnly(filter: UsageFilter): boolean {
+    return !filter.providerId && filter.keyId === undefined
+  }
+
+  /** The counters one dimension-table aggregate holds, read the same way whichever dimension answered. */
+  private dimensionCounters(row: Record<string, number | string | null> | null | undefined): UsageCounters {
+    if (!row) return { ...EMPTY_USAGE }
+    return {
+      requests: Number(row.requests ?? 0),
+      inputTokens: Number(row.input_tokens ?? 0),
+      outputTokens: Number(row.output_tokens ?? 0),
+      toolCalls: Number(row.tool_calls ?? 0),
+      scheduledRuns: 0,
+      embeddings: 0,
+      errors: Number(row.errors ?? 0),
+    }
+  }
+
+  /** Day rows from either dimension table, as the API's own counters. */
+  private dimensionDays(rows: Array<Record<string, number | string>> | null | undefined): Array<{ day: string } & UsageCounters> {
+    return (rows ?? []).map((row) => ({ day: String(row.day ?? ''), ...this.dimensionCounters(row) }))
+  }
+
+  /** Per-model rows from either dimension table, most-used labels kept by the caller's own ordering. */
+  private dimensionModels(rows: Array<Record<string, number | string>> | null | undefined): Array<{ modelLabel: string } & UsageCounters> {
+    return (rows ?? []).map((row) => ({ modelLabel: String(row.model_label ?? ''), ...this.dimensionCounters(row) }))
+  }
+
+  /** One day-and-model slice of the usage series, whichever dimension table answered it. */
+  private dimensionSeries(rows: Array<Record<string, number | string>> | null | undefined, keyed: boolean): UsageSeriesRow[] {
+    return (rows ?? []).map((row) => ({
+      day: String(row.day ?? ''),
+      modelLabel: String(row.model_label ?? ''),
+      providerId: keyed ? String(row.provider_id ?? '') : '',
+      providerLabel: keyed ? String(row.provider_label ?? '') : '',
+      keyId: keyed ? String(row.key_id ?? '') : '',
+      keyLabel: keyed ? String(row.key_label ?? '') : '',
+      ...this.dimensionCounters(row),
+    }))
+  }
   /**
    * The day totals for one slice of the key dimension.
    *
@@ -3377,29 +3474,46 @@ export class AssistantStore {
    * view starts from the day it was added — the unfiltered view stays the whole history.
    */
   async usageRangeIn(from: string, to: string, filter: UsageFilter): Promise<UsageCounters> {
+    // A model-only filter is answered from the model dimension: it holds every labelled call, including
+    // the history `backfillModelUsage` rebuilt, while the key table only starts on the day a key was
+    // recorded. A provider or key filter still reads the key table, because only it knows who paid.
+    if (this.modelDimensionOnly(filter)) {
+      const binds: unknown[] = [this.userId, from, to]
+      const where = filter.model ? ' AND model_label = ?4' : ''
+      if (filter.model) binds.push(filter.model)
+      return this.dimensionCounters(await this.one<Record<string, number | null>>(
+        `SELECT COALESCE(SUM(requests),0) AS requests, COALESCE(SUM(input_tokens),0) AS input_tokens,
+                COALESCE(SUM(output_tokens),0) AS output_tokens, COALESCE(SUM(tool_calls),0) AS tool_calls,
+                COALESCE(SUM(errors),0) AS errors
+           FROM chat_usage_daily_model WHERE user_id = ?1 AND day >= ?2 AND day <= ?3${where}`,
+        ...binds,
+      ))
+    }
     const binds: unknown[] = [this.userId, from, to]
     const where = this.dimensionWhere(filter, binds)
-    const r = await this.one<Record<string, number | null>>(
+    return this.dimensionCounters(await this.one<Record<string, number | null>>(
       `SELECT COALESCE(SUM(requests),0) AS requests, COALESCE(SUM(input_tokens),0) AS input_tokens,
               COALESCE(SUM(output_tokens),0) AS output_tokens, COALESCE(SUM(tool_calls),0) AS tool_calls,
               COALESCE(SUM(errors),0) AS errors
          FROM chat_usage_daily_key WHERE user_id = ?1 AND day >= ?2 AND day <= ?3${where}`,
       ...binds,
-    )
-    if (!r) return { ...EMPTY_USAGE }
-    return {
-      requests: r.requests ?? 0,
-      inputTokens: r.input_tokens ?? 0,
-      outputTokens: r.output_tokens ?? 0,
-      toolCalls: r.tool_calls ?? 0,
-      scheduledRuns: 0,
-      embeddings: 0,
-      errors: r.errors ?? 0,
-    }
+    ))
   }
 
-  /** The day rows for one slice of the key dimension, for the trend and the heat map. */
+  /** The day rows for one slice of either dimension, for the trend and the heat map. */
   async usageDaysIn(from: string, to: string, filter: UsageFilter): Promise<Array<{ day: string } & UsageCounters>> {
+    if (this.modelDimensionOnly(filter)) {
+      const binds: unknown[] = [this.userId, from, to]
+      const where = filter.model ? ' AND model_label = ?4' : ''
+      if (filter.model) binds.push(filter.model)
+      const { results } = await this.db.prepare(
+        `SELECT day, SUM(requests) AS requests, SUM(input_tokens) AS input_tokens,
+                SUM(output_tokens) AS output_tokens, SUM(tool_calls) AS tool_calls, SUM(errors) AS errors
+           FROM chat_usage_daily_model WHERE user_id = ?1 AND day >= ?2 AND day <= ?3${where}
+          GROUP BY day ORDER BY day ASC`,
+      ).bind(...binds).all<Record<string, number | string>>()
+      return this.dimensionDays(results)
+    }
     const binds: unknown[] = [this.userId, from, to]
     const where = this.dimensionWhere(filter, binds)
     const { results } = await this.db.prepare(
@@ -3408,20 +3522,24 @@ export class AssistantStore {
          FROM chat_usage_daily_key WHERE user_id = ?1 AND day >= ?2 AND day <= ?3${where}
         GROUP BY day ORDER BY day ASC`,
     ).bind(...binds).all<Record<string, number | string>>()
-    return (results ?? []).map((row) => ({
-      day: String(row.day ?? ''),
-      requests: Number(row.requests ?? 0),
-      inputTokens: Number(row.input_tokens ?? 0),
-      outputTokens: Number(row.output_tokens ?? 0),
-      toolCalls: Number(row.tool_calls ?? 0),
-      scheduledRuns: 0,
-      embeddings: 0,
-      errors: Number(row.errors ?? 0),
-    }))
+    return this.dimensionDays(results)
   }
 
-  /** The per-model rows for one slice of the key dimension, most used first. */
+  /** The per-model rows for one slice of either dimension, most used first. */
   async modelUsageRangeIn(from: string, to: string, filter: UsageFilter): Promise<Array<{ modelLabel: string } & UsageCounters>> {
+    if (this.modelDimensionOnly(filter)) {
+      const binds: unknown[] = [this.userId, from, to]
+      const where = filter.model ? ' AND model_label = ?4' : ''
+      if (filter.model) binds.push(filter.model)
+      const { results } = await this.db.prepare(
+        `SELECT model_label, SUM(requests) AS requests, SUM(input_tokens) AS input_tokens,
+                SUM(output_tokens) AS output_tokens, SUM(tool_calls) AS tool_calls, SUM(errors) AS errors
+           FROM chat_usage_daily_model WHERE user_id = ?1 AND day >= ?2 AND day <= ?3${where}
+          GROUP BY model_label
+          ORDER BY (SUM(input_tokens) + SUM(output_tokens)) DESC, model_label ASC`,
+      ).bind(...binds).all<Record<string, number | string>>()
+      return this.dimensionModels(results)
+    }
     const binds: unknown[] = [this.userId, from, to]
     const where = this.dimensionWhere(filter, binds)
     const { results } = await this.db.prepare(
@@ -3431,34 +3549,33 @@ export class AssistantStore {
         GROUP BY model_label
         ORDER BY (SUM(input_tokens) + SUM(output_tokens)) DESC, model_label ASC`,
     ).bind(...binds).all<Record<string, number | string>>()
-    return (results ?? []).map((row) => ({
-      modelLabel: String(row.model_label ?? ''),
-      requests: Number(row.requests ?? 0),
-      inputTokens: Number(row.input_tokens ?? 0),
-      outputTokens: Number(row.output_tokens ?? 0),
-      toolCalls: Number(row.tool_calls ?? 0),
-      scheduledRuns: 0,
-      embeddings: 0,
-      errors: Number(row.errors ?? 0),
-    }))
+    return this.dimensionModels(results)
   }
 
   /**
    * The window broken down by day *and* by what paid for it.
    *
    * The charts need the same rows read two ways — a bar per day grouped by model, or the same bars grouped
-   * by key — and the per-model cards need them a third time, per model across days. One query answers all
-   * three: three queries would be three chances to disagree about the window, and the client is the only
-   * place that knows which grouping the reader asked for.
+   * by key — and the per-model cards need them a third time, per model across days. The key dimension is
+   * asked when a provider or key is named, because only it knows who paid.
+   *
+   * A model filter is answered from the model dimension instead: it holds every labelled call, including
+   * the history `backfillModelUsage` rebuilt, while asking the key table would drop every rebuilt day for
+   * having no key to name. The unfiltered chart reads both and adds the rebuilt days the key table has
+   * never heard of, so history does not draw as a gap.
    */
-  async usageSeries(from: string, to: string, filter: UsageFilter): Promise<Array<{
-    day: string
-    modelLabel: string
-    providerId: string
-    providerLabel: string
-    keyId: string
-    keyLabel: string
-  } & UsageCounters>> {
+  async usageSeries(from: string, to: string, filter: UsageFilter): Promise<UsageSeriesRow[]> {
+    const keyed = Boolean(filter.providerId) || filter.keyId !== undefined
+    if (!keyed && filter.model) return this.dimensionSeries(await this.keylessSeries(from, to, filter.model), false)
+    const keyedRows = await this.keyedSeries(from, to, filter)
+    if (keyed) return keyedRows
+    const rebuilt = await this.keylessSeries(from, to, undefined, true)
+    return [...keyedRows, ...this.dimensionSeries(rebuilt, false)]
+      .sort((left, right) => left.day.localeCompare(right.day))
+  }
+
+  /** The key dimension's rows, filtered the way the caller asked. */
+  private async keyedSeries(from: string, to: string, filter: UsageFilter): Promise<UsageSeriesRow[]> {
     const binds: unknown[] = [this.userId, from, to]
     const where = this.dimensionWhere(filter, binds)
     const { results } = await this.db.prepare(
@@ -3469,21 +3586,38 @@ export class AssistantStore {
         GROUP BY day, model_label, provider_id, provider_label, key_id, key_label
         ORDER BY day ASC`,
     ).bind(...binds).all<Record<string, number | string>>()
-    return (results ?? []).map((row) => ({
-      day: String(row.day ?? ''),
-      modelLabel: String(row.model_label ?? ''),
-      providerId: String(row.provider_id ?? ''),
-      providerLabel: String(row.provider_label ?? ''),
-      keyId: String(row.key_id ?? ''),
-      keyLabel: String(row.key_label ?? ''),
-      requests: Number(row.requests ?? 0),
-      inputTokens: Number(row.input_tokens ?? 0),
-      outputTokens: Number(row.output_tokens ?? 0),
-      toolCalls: Number(row.tool_calls ?? 0),
-      scheduledRuns: 0,
-      embeddings: 0,
-      errors: Number(row.errors ?? 0),
-    }))
+    return this.dimensionSeries(results, true)
+  }
+
+  /**
+   * The model dimension's rows for one label or for every label.
+   *
+   * `rebuiltOnly` keeps the days the key table has no row for: those are the days the backfill healed,
+   * and they are exactly what the unfiltered chart would otherwise leave as a gap. It never runs beside a
+   * keyed day, so a day with both dimensions is counted by the keyed query alone.
+   */
+  private async keylessSeries(
+    from: string,
+    to: string,
+    modelLabel: string | undefined,
+    rebuiltOnly = false,
+  ): Promise<Array<Record<string, number | string>>> {
+    const binds: unknown[] = [this.userId, from, to]
+    const where = modelLabel ? ' AND model_label = ?4' : ''
+    if (modelLabel) binds.push(modelLabel)
+    const unkeyed = rebuiltOnly
+      ? ` AND NOT EXISTS (
+           SELECT 1 FROM chat_usage_daily_key k
+            WHERE k.user_id = chat_usage_daily_model.user_id AND k.day = chat_usage_daily_model.day
+         )`
+      : ''
+    const { results } = await this.db.prepare(
+      `SELECT day, model_label, SUM(requests) AS requests, SUM(input_tokens) AS input_tokens,
+              SUM(output_tokens) AS output_tokens, SUM(tool_calls) AS tool_calls, SUM(errors) AS errors
+         FROM chat_usage_daily_model WHERE user_id = ?1 AND day >= ?2 AND day <= ?3${where}${unkeyed}
+        GROUP BY day, model_label ORDER BY day ASC`,
+    ).bind(...binds).all<Record<string, number | string>>()
+    return results ?? []
   }
 
   /**
@@ -3664,44 +3798,66 @@ export class AssistantStore {
   // -------------------------------------------------------------- run leases
 
   /**
-   * Claims a conversation for one turn.
+   * Claims a conversation for one turn, returning the token that proves the caller owns it.
    *
    * A second message while a reply is streaming would start a second run whose output interleaves into
-   * the same assistant message, so the claim is taken before anything is awaited. The lease expires on
-   * purpose: a stream abandoned by a closed laptop must not lock a conversation for the day.
+   * the same assistant message. The read-then-write this replaces let two requests both see a free row
+   * and both start a turn; one conditional upsert now decides it in the database — the insert takes a
+   * free conversation, and the conflict branch only moves the lease when the old one has expired.
+   * The lease expires on purpose: a stream abandoned by a closed laptop must not lock a conversation.
+   *
+   * The token is the claim's `started_at`. `releaseRun` takes it back, so a turn that overran its lease
+   * cannot let go of a claim somebody else has taken in the meantime.
    */
-  async claimRun(conversationId: string, now = Date.now()): Promise<boolean> {
-    const existing = await this.one<{ lease_until: number }>(
-      `SELECT lease_until FROM chat_active_runs WHERE conversation_id = ?1 AND user_id = ?2`,
-      conversationId, this.userId,
-    )
-    if (existing && existing.lease_until > now) return false
-    await this.db.prepare(
+  async claimRun(conversationId: string, now = Date.now()): Promise<number | null> {
+    const result = await this.db.prepare(
       `INSERT INTO chat_active_runs (conversation_id, user_id, started_at, lease_until)
        VALUES (?1, ?2, ?3, ?4)
-       ON CONFLICT(user_id, conversation_id) DO UPDATE SET started_at = excluded.started_at, lease_until = excluded.lease_until`,
+       ON CONFLICT(user_id, conversation_id) DO UPDATE SET
+         started_at = excluded.started_at, lease_until = excluded.lease_until
+       WHERE chat_active_runs.lease_until <= ?3`,
     ).bind(conversationId, this.userId, now, now + RUN_LEASE_MS).run()
-    return true
+    return (result.meta?.changes ?? 0) > 0 ? now : null
   }
 
-  async renewRun(conversationId: string, now = Date.now()): Promise<void> {
-    await this.db.prepare(`UPDATE chat_active_runs SET lease_until = ?2 WHERE conversation_id = ?1 AND user_id = ?3`)
-      .bind(conversationId, now + RUN_LEASE_MS, this.userId).run()
+  /**
+   * Keeps a claim alive, and with a token only the claim that token owns.
+   *
+   * A turn that lost its lease to another tab must not keep extending a claim it no longer holds.
+   */
+  async renewRun(conversationId: string, token?: number, now = Date.now()): Promise<void> {
+    const guard = token === undefined ? '' : ' AND started_at = ?4'
+    const binds = token === undefined
+      ? [conversationId, now + RUN_LEASE_MS, this.userId]
+      : [conversationId, now + RUN_LEASE_MS, this.userId, token]
+    await this.db.prepare(`UPDATE chat_active_runs SET lease_until = ?2 WHERE conversation_id = ?1 AND user_id = ?3${guard}`)
+      .bind(...binds).run()
   }
 
-  async releaseRun(conversationId: string): Promise<void> {
-    await this.db.prepare(`DELETE FROM chat_active_runs WHERE conversation_id = ?1 AND user_id = ?2`)
-      .bind(conversationId, this.userId).run()
+  /**
+   * Lets go of a claim, and only of one's own when a token is given.
+   *
+   * The token is what `claimRun` returned. Without it a turn that outlived its lease could finish after
+   * another tab had claimed the conversation and delete that newer claim, letting a third turn in beside
+   * a live one. A cancel or a conversation delete may omit it: there is no turn whose claim to protect.
+   */
+  async releaseRun(conversationId: string, token?: number): Promise<void> {
+    const guard = token === undefined ? '' : ' AND started_at = ?3'
+    const binds = token === undefined ? [conversationId, this.userId] : [conversationId, this.userId, token]
+    await this.db.prepare(`DELETE FROM chat_active_runs WHERE conversation_id = ?1 AND user_id = ?2${guard}`)
+      .bind(...binds).run()
   }
 
   async isRunning(conversationId: string, now = Date.now()): Promise<boolean> {
-    const r = await this.one<{ lease_until: number }>(
-      `SELECT lease_until FROM chat_active_runs WHERE conversation_id = ?1 AND user_id = ?2`,
+    const r = await this.one<{ lease_until: number, started_at: number }>(
+      `SELECT lease_until, started_at FROM chat_active_runs WHERE conversation_id = ?1 AND user_id = ?2`,
       conversationId, this.userId,
     )
     if (!r) return false
     if (r.lease_until > now) return true
-    await this.releaseRun(conversationId)
+    // Only the expired claim this read saw is cleared: a fresh one taken between the read and the
+    // delete belongs to a turn that is running right now.
+    await this.releaseRun(conversationId, r.started_at)
     return false
   }
 
@@ -3740,6 +3896,32 @@ export class AssistantStore {
       .bind(this.userId, id).first<{ x: number }>()
     return Boolean(r)
   }
+  /**
+   * When this account's own copy of a row was last edited, or null when it has none.
+   *
+   * An import merges by id, and the one rule it must never break is not to replace a newer local edit
+   * with an older copy out of the file. That needs the stored timestamp before deciding, so it is read
+   * through the same column map `importRow` already trusts rather than a table name out of the file.
+   */
+  async storedUpdatedAt(table: string, id: string): Promise<number | null> {
+    const columns = EXPORT_COLUMNS[table]
+    if (!columns?.includes('updated_at')) throw new Error(`unknown assistant export table ${table}`)
+    const r = await this.db.prepare(`SELECT updated_at FROM ${table} WHERE user_id = ?1 AND id = ?2`)
+      .bind(this.userId, id).first<{ updated_at: number }>()
+    return r ? Number(r.updated_at) : null
+  }
+
+  /**
+   * Every conversation id this account holds, for deciding which dependent rows an import may keep.
+   *
+   * Read as ids rather than through `listConversations`, whose page is capped: a library larger than one
+   * page would otherwise restore its newest threads whole and silently drop the messages of every older
+   * one, which is the quiet half of a data loss.
+   */
+  async conversationIds(): Promise<string[]> {
+    const list = await this.rows<{ id: string }>(`SELECT id FROM chat_conversations WHERE user_id = ?1`, this.userId)
+    return list.map((row) => row.id)
+  }
 
   /**
    * Everything a backup carries.
@@ -3776,14 +3958,24 @@ export class AssistantStore {
  * that is not here is refused before any SQL is assembled.
  */
 const EXPORT_COLUMNS: Readonly<Record<string, readonly string[]>> = {
-  chat_conversations: ['id', 'title', 'summary', 'summary_upto', 'pinned', 'starred', 'archived', 'folder_id', 'created_at', 'updated_at'],
+  // `project_id` and `parent_id` are part of a stored thread even though the backup did not always
+  // carry them: a restore that lost them put every thread back at the account's root, and a fork
+  // forgot what it was forked from.
+  chat_conversations: ['id', 'title', 'summary', 'summary_upto', 'pinned', 'starred', 'archived', 'folder_id', 'project_id', 'parent_id', 'created_at', 'updated_at'],
   chat_artifacts: ['id', 'conversation_id', 'title', 'content', 'note_id', 'created_at', 'updated_at'],
   chat_conversation_tags: ['conversation_id', 'tag_id', 'created_at'],
-  chat_messages: ['id', 'conversation_id', 'role', 'content', 'reasoning', 'tools', 'attachments', 'status', 'error', 'source', 'input_tokens', 'output_tokens', 'duration_ms', 'model_label', 'created_at'],
+  // `sources` is where a searched answer says what it read, and `feedback` is the reader's own verdict:
+  // both are shown by the transcript, so a restored row without them is a different row.
+  chat_messages: ['id', 'conversation_id', 'role', 'content', 'reasoning', 'tools', 'attachments', 'status', 'error', 'source', 'input_tokens', 'output_tokens', 'duration_ms', 'model_label', 'sources', 'feedback', 'created_at'],
   chat_answer_versions: ['id', 'message_id', 'conversation_id', 'content', 'reasoning', 'tools', 'model_label', 'input_tokens', 'output_tokens', 'duration_ms', 'created_at'],
-  chat_memories: ['id', 'content', 'category', 'source', 'status', 'superseded_by', 'valid_from', 'valid_until', 'project_id', 'created_at', 'updated_at'],
+  // `note_id` is the note a fact was written out as: a pointer the management screen shows, so it
+  // travels with the fact it belongs to.
+  chat_memories: ['id', 'content', 'category', 'source', 'status', 'superseded_by', 'valid_from', 'valid_until', 'project_id', 'note_id', 'created_at', 'updated_at'],
   chat_tasks: ['id', 'title', 'description', 'status', 'priority', 'due_at', 'project_id', 'created_at', 'updated_at', 'completed_at'],
-  chat_projects: ['id', 'name', 'description', 'created_at', 'updated_at'],
+  // The brief and the folders a project reads are what make it a context rather than a folder; a
+  // restored project without them is the same name over an empty brief. `model_id` is left out on
+  // purpose: models are not in the backup, so a carried id could only point at nothing.
+  chat_projects: ['id', 'name', 'description', 'instructions', 'note_scope', 'created_at', 'updated_at'],
   chat_automations: ['id', 'name', 'kind', 'message', 'schedule', 'enabled', 'status', 'next_run', 'last_run', 'last_result', 'last_error', 'run_count', 'created_at', 'updated_at'],
   chat_notifications: ['id', 'title', 'body', 'automation_id', 'read_at', 'created_at'],
 }
@@ -3933,6 +4125,8 @@ export interface ProviderRow {
   endpoints?: string | null
   reasoning_dialect?: string | null
   key_ciphertext?: string | null
+  /** The last four characters of the stored key, written when the key is; never derived by decrypting. */
+  key_hint?: string | null
   /** When the provider's own key last signed a call; null until it has been used once. */
   key_last_used_at?: number | null
   has_key?: number | null
@@ -3961,8 +4155,8 @@ function toProvider(r: ProviderRow): AssistantProvider {
     endpoints: parseProviderEndpoints(r.endpoints),
     reasoningDialect: reasoningDialectValue(r.reasoning_dialect),
     hasKey: bool(r.has_key ?? Boolean(r.key_ciphertext)),
-    // The ciphertext is never decrypted to build a view, so no listing can carry a key out.
-    keyHint: '',
+    // Stored beside the ciphertext, so the listing proves which key it holds without decrypting it.
+    keyHint: r.key_hint ?? '',
     createdAt: r.created_at,
     updatedAt: r.updated_at,
   }

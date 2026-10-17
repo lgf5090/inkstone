@@ -28,6 +28,9 @@ export const ASSISTANT_SCHEMA_STATEMENTS: readonly string[] = [
     endpoints TEXT NOT NULL DEFAULT '{}',
     reasoning_dialect TEXT,
     key_ciphertext TEXT NOT NULL DEFAULT '',
+    -- The last four characters of the stored key, so the settings row can prove which key it holds
+    -- without the ciphertext ever being decrypted for a listing. Empty when no key is stored.
+    key_hint TEXT NOT NULL DEFAULT '',
     key_last_used_at INTEGER,
     created_at INTEGER NOT NULL,
     updated_at INTEGER NOT NULL,
@@ -629,7 +632,7 @@ export const ASSISTANT_REQUIRED_COLUMNS: Readonly<Record<string, readonly string
   chat_usage_daily_model: ['user_id', 'day', 'model_label', 'requests', 'input_tokens', 'output_tokens', 'tool_calls', 'errors'],
   chat_usage_daily_key: ['user_id', 'day', 'model_label', 'provider_id', 'provider_label', 'key_id', 'key_label', 'requests', 'input_tokens', 'output_tokens', 'tool_calls', 'errors'],
   chat_share_links: ['slug', 'conversation_id', 'user_id', 'scope', 'password_hash', 'expires_at', 'views', 'created_at'],
-  chat_providers: ['user_id', 'id', 'label', 'protocol', 'base_url', 'endpoints', 'reasoning_dialect', 'key_ciphertext', 'key_last_used_at', 'created_at', 'updated_at'],
+  chat_providers: ['user_id', 'id', 'label', 'protocol', 'base_url', 'endpoints', 'reasoning_dialect', 'key_ciphertext', 'key_hint', 'key_last_used_at', 'created_at', 'updated_at'],
   chat_provider_keys: ['user_id', 'id', 'provider_id', 'label', 'key_ciphertext', 'key_hint', 'enabled', 'last_used_at', 'error_count', 'last_error', 'created_at', 'updated_at'],
   chat_models: ['user_id', 'id', 'provider_id', 'model', 'label', 'temperature', 'max_output_tokens', 'reasoning', 'context_tokens', 'vision',
     'purpose', 'kind', 'supports_tools', 'max_input_tokens', 'modalities', 'top_p', 'custom_params', 'protocol', 'fallback_model_id',

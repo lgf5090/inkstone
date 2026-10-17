@@ -197,6 +197,25 @@ assistantRoutes.get('/note-writes', async (c) => {
   return c.json({ conversations: await store(c).noteWriteOrigins(noteId) })
 })
 
+/**
+ * Record that the reader's own save wrote a note.
+ *
+ * The model's `create_note` tool files this row itself, but a note made from a reply is written by the
+ * browser and never passes through the worker. The row is the note's "from a conversation" backlink,
+ * so the client reports it after the note exists; an absent report leaves the note intact and only its
+ * backlink missing. Both ids are checked, and the conversation has to be this account's: the panel joins
+ * the row back to a thread, and a thread id from somewhere else would be a link with nothing at the end.
+ */
+assistantRoutes.post('/note-writes', async (c) => {
+  const body = await readJson<{ noteId?: unknown, conversationId?: unknown }>(c, JSON_BODY_LIMITS.small)
+  const noteId = requiredId(body.noteId)
+  const conversationId = requiredId(body.conversationId)
+  const s = store(c)
+  if (!(await s.getConversation(conversationId))) throw ApiError.notFound('Not found')
+  await s.recordNoteWrite(noteId, conversationId)
+  return c.json({ ok: true })
+})
+
 assistantRoutes.get('/conversations', async (c) => {
   const query = c.req.query('q')?.trim().slice(0, 200)
   const folder = c.req.query('folder')
@@ -1071,9 +1090,14 @@ assistantRoutes.post('/chat', async (c) => {
   const tools = pinnedTools(body.tools)
   const scopes = pinnedScopes(body.scopes)
 
+  // The claim's token travels to the release below, so a turn that outlives its lease cannot delete the
+  // claim another tab has taken since. A turn that creates its own conversation learns its token from
+  // the `start` event, because only the runner claimed that one.
+  let claimedToken: number | null = null
   if (conversationId) {
     if (!(await s.getConversation(conversationId))) throw ApiError.notFound('Conversation not found')
-    if (!(await s.claimRun(conversationId))) {
+    claimedToken = await s.claimRun(conversationId)
+    if (claimedToken === null) {
       throw ApiError.conflict('A reply is already being generated in this conversation.')
     }
   } else if (!message.trim() && !attachments.length) {
@@ -1087,6 +1111,8 @@ assistantRoutes.post('/chat', async (c) => {
     origin: new URL(c.req.url).origin,
     executionCtx: executionContext(c),
     settings,
+    // The route holds the claim on an existing conversation; the runner renews under that token.
+    runToken: claimedToken,
   })
 
   const controller = new AbortController()
@@ -1138,7 +1164,10 @@ assistantRoutes.post('/chat', async (c) => {
         signal: controller.signal,
         readerGone: () => readerGone,
       })) {
-        if (event.type === 'start' && event.conversationId) claimed = event.conversationId
+        if (event.type === 'start' && event.conversationId) {
+          claimed = event.conversationId
+          if (event.runToken !== undefined) claimedToken = event.runToken
+        }
         await send(event)
       }
     } catch (error) {
@@ -1146,7 +1175,7 @@ assistantRoutes.post('/chat', async (c) => {
       await send({ type: 'error', code: error instanceof ApiError ? error.code : 'internal', message: reason })
     } finally {
       requestSignal.removeEventListener('abort', onDisconnect)
-      if (claimed) await s.releaseRun(claimed)
+      if (claimed) await s.releaseRun(claimed, claimedToken ?? undefined)
       try {
         await writer.close()
       } catch {
@@ -2278,6 +2307,10 @@ assistantRoutes.get('/stats', async (c) => {
   const range = asked === '30' ? 30 : asked === 'all' ? 0 : 7
   const day = usageDay()
   const from = range === 0 ? (await s.firstUsageDay()) ?? day : dayBefore(day, range - 1)
+  // A day recorded before the by-model dimension existed has totals and no model rows, which reads as a
+  // chart of zeros. The messages are the truth those totals came from, so the missing rows are rebuilt
+  // here, on the read that needs them; the write is idempotent and only ever touches past days.
+  await s.backfillModelUsage(day)
   // A filter narrows the window to one model, one provider key, or both. `key` is `providerId` or
   // `providerId:keyId`; the key half is empty until a provider carries more than one key.
   const filter: UsageFilter = {}
@@ -2291,7 +2324,7 @@ assistantRoutes.get('/stats', async (c) => {
   }
   // Only the dimension table can answer a filtered question: the plain day table has no model or key.
   const narrowed = Boolean(filter.model || filter.providerId)
-  const [total, days, modelRows, keyRows, seriesRows, conversations, models] = await Promise.all([
+  const [total, days, modelRows, keyRows, seriesRows, conversations, models, optionRows] = await Promise.all([
     narrowed ? s.usageRangeIn(from, day, filter) : s.usageRange(from, day),
     narrowed ? s.usageDaysIn(from, day, filter) : s.usageDays(from, day),
     narrowed ? s.modelUsageRangeIn(from, day, filter) : s.modelUsageRange(from, day),
@@ -2299,6 +2332,9 @@ assistantRoutes.get('/stats', async (c) => {
     s.usageSeries(from, day, filter),
     s.usageByConversation(from, day),
     s.listModels(),
+    // The model picker keeps offering every model in the window even while the window is filtered by
+    // one: a list narrowed to the choice already made would strand the reader with no way back.
+    narrowed ? s.modelUsageRange(from, day) : Promise.resolve([]),
   ])
   const spend = new Map<string, number>()
   let unpriced = 0
@@ -2330,7 +2366,10 @@ assistantRoutes.get('/stats', async (c) => {
     series: buildUsageSeries(seriesRows, models),
     // Built from the key rows, which the filter never narrows, so picking one filter cannot empty the
     // other picker.
-    modelOptions: [...new Set(keyRows.map((row) => row.modelLabel).filter(Boolean))].sort((left, right) => left.localeCompare(right)),
+    modelOptions: [...new Set([
+      ...keyRows.map((row) => row.modelLabel),
+      ...(narrowed ? optionRows : modelRows).map((row) => row.modelLabel),
+    ].filter(Boolean))].sort((left, right) => left.localeCompare(right)),
     conversations,
     spend: [...spend].map(([currency, amount]) => ({ currency, amount })),
     unpricedModels: unpriced,
@@ -2400,7 +2439,10 @@ function buildUsageSeries(
     const price = priceUsage(models, row.modelLabel, row.inputTokens, row.outputTokens)
     // The day is split by model and by key over the same rows, so one unpriced row marks both of its slices.
     foldSlice('m', weight, tally.models, row.modelLabel || '', row.modelLabel, row, price)
-    foldSlice('k', weight, tally.keys, `${row.providerId}:${row.keyId}`, keySliceLabel(row), row, price)
+    // A rebuilt history row carries no provider or key, so it belongs to the model split and not to a
+    // nameless bar in the key split: the key it was paid with was never recorded, which is the honest
+    // reading and not a key called ''.
+    if (row.providerId) foldSlice('k', weight, tally.keys, `${row.providerId}:${row.keyId}`, keySliceLabel(row), row, price)
   }
   const order = (prefix: 'm' | 'k') => (left: SliceTally, right: SliceTally) =>
     (weight.get(`${prefix}:${right.id}`) ?? 0) - (weight.get(`${prefix}:${left.id}`) ?? 0) || left.label.localeCompare(right.label)

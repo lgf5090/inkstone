@@ -101,6 +101,8 @@ export interface RunnerDeps {
   origin: string
   executionCtx?: ExecutionContext
   settings: AssistantSettings
+  /** The run lease the caller already claimed, so this turn renews and never steals another run's. */
+  runToken?: number | null
 }
 
 export interface TurnInput {
@@ -184,6 +186,8 @@ export class AssistantRunner {
   private conversationProjectId: string | null = null
   /** Set when a step's model call was cut off at the output cap instead of stopping by itself. */
   private turnTruncated = false
+  /** The lease this turn is running under: the caller's, or one this turn took for a new conversation. */
+  private runToken: number | null = null
 
   constructor(private readonly deps: RunnerDeps) {
     this.automations = new AutomationService(deps.store, deps.settings)
@@ -231,6 +235,8 @@ export class AssistantRunner {
     // The row this turn writes into. A retry always lands on the turn's own row — including when the
     // attempt it replaces had failed — because that row is what the displaced answers are filed under.
     let reuseId: string | null = null
+    // The caller's claim, when it made one; a turn that creates its own conversation claims below.
+    this.runToken = this.deps.runToken ?? null
     if (input.retry) {
       if (!conversation) throw ApiError.badRequest('There is nothing to retry without a conversation.')
       // Drop the failed reply, then answer the reader's own last message again.
@@ -268,7 +274,8 @@ export class AssistantRunner {
         conversation = await this.store.createConversation(titleFromMessage(message), null, input.ephemeral === true)
         // The route had no id to claim yet, so the lease is taken here: without it a second tab could
         // open a parallel turn on the conversation this one has just made.
-        if (!(await this.store.claimRun(conversation.id))) {
+        this.runToken = await this.store.claimRun(conversation.id)
+        if (this.runToken === null) {
           throw ApiError.conflict('A reply is already being generated in this conversation.')
         }
         yield { type: 'title', conversationId: conversation.id, title: conversation.title }
@@ -299,6 +306,8 @@ export class AssistantRunner {
       conversationId,
       userMessageId: userMessage?.id ?? '',
       assistantMessageId: assistantId,
+      // Only a turn that claimed its own conversation carries this; the route's claim is its own.
+      ...(this.runToken === null ? {} : { runToken: this.runToken }),
     }
 
     let text = ''
@@ -306,6 +315,10 @@ export class AssistantRunner {
     // handed back after a tool call; this is what the reader watched arrive, and a turn filed from its
     // last step alone would drop the words that came before the call.
     let answer = ''
+    // Whether the current step's `text` has already been merged into `answer`. A stop can arrive inside
+    // the step (the stream is cut off, the lease was released), and the words that reached the reader
+    // have to be filed with it rather than dropped on the floor of an exception.
+    let stepWordsFiled = false
     // The whole turn's thinking, kept across steps because a turn that called a tool thought twice about
     // one question. Only what the model volunteered: a protocol that does not report a trace leaves this
     // empty, and an empty trace is what the fold needs to stay away.
@@ -438,7 +451,7 @@ export class AssistantRunner {
         steps++
         // A turn that walks several steps outlives the lease it was claimed with, and an expired lease
         // lets another device open a second run over the top of this one.
-        await this.store.renewRun(conversationId)
+        await this.store.renewRun(conversationId, this.runToken ?? undefined)
         // The row is also how a stop reaches this generator: the reader's tab closing only fails a
         // write on some platforms, and a turn nobody is watching must not keep spending their budget.
         if (!(await this.store.isRunning(conversationId))) throw new AbortError()
@@ -487,6 +500,7 @@ export class AssistantRunner {
         // point filed every plain reply as empty, which is what the reader saw as a finished turn with no
         // answer in it, and the model read back as its own last words on the next question.
         answer += text
+        stepWordsFiled = true
         if (!calls.length) break
         for (const call of calls) {
           // What the model asked for travels with the chip, so a thread opened tomorrow can still answer
@@ -523,6 +537,7 @@ export class AssistantRunner {
         }
         turns.push({ role: 'assistant', content: text, calls })
         text = ''
+        stepWordsFiled = false
         if (steps >= limits.maxAgentSteps || executor.budgetExhausted()) break
         if (!(await this.reserve(1, limits.maxRequestsPerDay, { providerId: provider.id, providerLabel: provider.label }, model.label))) {
           yield { type: 'error', code: 'rate_limited', message: 'The daily assistant request limit was reached during this turn.' }
@@ -578,6 +593,10 @@ export class AssistantRunner {
       yield { type: 'done', finalMessage: await finish(stopped() ? 'cancelled' : outcome, failure, usage) }
     } catch (error) {
       if (error instanceof AbortError || stopped()) {
+        // A stop stops the turn, not the record of it: the words the reader already watched arrive are
+        // the half answer they chose to keep, so they are merged before the row is filed. Without this
+        // a cancelled row was stored empty while the transcript on screen still showed the text.
+        if (!stepWordsFiled) answer += text
         yield { type: 'done', finalMessage: await finish('cancelled', null, null) }
         return
       }

@@ -22,6 +22,7 @@ import {
   type AssistantMcpTool,
   type AssistantMcpTransport,
 } from '@shared/assistant'
+import { NO_REDIRECT } from '../lib/no-redirect'
 
 const PROTOCOL_VERSION = '2025-06-18'
 const CLIENT_NAME = 'Inkstone Assistant'
@@ -265,6 +266,9 @@ async function ssePost(session: McpSession, url: string, body: unknown, signal: 
   const response = await fetch(url, {
     method: 'POST',
     signal,
+    // A redirect would take the request somewhere the URL check never saw; workerd answers a `manual`
+    // redirect without following it, and the status below reports it as the failure it is.
+    redirect: NO_REDIRECT,
     headers: { 'content-type': 'application/json', accept: 'application/json, text/event-stream', ...session.headers },
     body: JSON.stringify(body),
   })
@@ -304,6 +308,7 @@ async function sseRpc(session: McpSession, method: string, params: Record<string
     const response = await fetch(session.baseUrl, {
       method: 'GET',
       signal: controller.signal,
+      redirect: NO_REDIRECT,
       headers: { accept: 'text/event-stream', ...session.headers },
     })
     if (response.status === 401 || response.status === 403) throw new McpError('The server refused the credentials.', response.status)
@@ -354,6 +359,7 @@ async function rpc(session: McpSession, method: string, params: Record<string, u
     const response = await fetch(session.baseUrl, {
       method: 'POST',
       signal: controller.signal,
+      redirect: NO_REDIRECT,
       headers: {
         'content-type': 'application/json',
         accept: 'application/json, text/event-stream',
@@ -402,6 +408,7 @@ export async function mcpInitialize(
   try {
     await fetch(baseUrl, {
       method: 'POST',
+      redirect: NO_REDIRECT,
       headers: { 'content-type': 'application/json', accept: 'application/json, text/event-stream', ...headers, ...(session.sessionId ? { 'mcp-session-id': session.sessionId } : {}) },
       body: JSON.stringify({ jsonrpc: '2.0', method: 'notifications/initialized' }),
     }).catch(() => undefined)

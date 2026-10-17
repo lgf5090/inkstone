@@ -20,6 +20,7 @@ import { assertRelayableEndpoint, pickRelayHeaders } from '@shared/ai-proxy-guar
 import type { AssistantProtocol } from '@shared/assistant'
 import { fromBase64 } from '../lib/encoding'
 import { hasExpectedImageSignature } from '../lib/image'
+import { NO_REDIRECT, isRedirectResponse } from '../lib/no-redirect'
 
 /** How long one picture may take. The slowest vendors spend a minute on a large one. */
 export const IMAGE_GENERATION_TIMEOUT_MS = 120_000
@@ -90,11 +91,20 @@ export async function generateImage(input: ImageRequest): Promise<GeneratedImage
   try {
     let response: Response
     try {
-      response = await fetch(url, { method: 'POST', headers, body: JSON.stringify(body), signal: controller.signal })
+      response = await fetch(url, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(body),
+        signal: controller.signal,
+        // The address was vetted, the redirect target was not: a provider that answers with one is not
+        // allowed to move the request to an address this app never checked.
+        redirect: NO_REDIRECT,
+      })
     } catch (error) {
       if (controller.signal.aborted) throw new ImageGenerationError(`The image model did not answer within ${IMAGE_GENERATION_TIMEOUT_MS / 1000} seconds.`)
       throw new ImageGenerationError(`Could not reach the image model: ${error instanceof Error ? error.message : 'the request failed'}.`)
     }
+    if (isRedirectResponse(response)) throw new ImageGenerationError('The image model answered with a redirect, which this app refuses to follow.')
     if (!response.ok) throw new ImageGenerationError(await describeFailure(response))
 
     const payload = await response.json().catch(() => null) as { data?: unknown } | null
@@ -143,10 +153,11 @@ async function fetchVendorImage(rawUrl: string, signal: AbortSignal): Promise<Ge
   }
   let response: Response
   try {
-    response = await fetch(target, { signal })
+    response = await fetch(target, { signal, redirect: NO_REDIRECT })
   } catch {
     throw new ImageGenerationError('The picture the image model linked to could not be fetched.')
   }
+  if (isRedirectResponse(response)) throw new ImageGenerationError('The picture link redirected somewhere this app refuses to fetch.')
   if (!response.ok) throw new ImageGenerationError(`The picture the image model linked to could not be fetched (${response.status}).`)
   const bytes = new Uint8Array(await response.arrayBuffer())
   if (!bytes.length) throw new ImageGenerationError('The image model sent an empty picture.')

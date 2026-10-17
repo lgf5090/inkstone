@@ -1925,6 +1925,13 @@ export interface ChatStreamEvent {
   usage?: { inputTokens: number, outputTokens: number }
   /** For `mcp_problem`: which external server failed to list, and why. */
   server?: string
+  /**
+   * For `start`: the token of the run lease this turn took, so the route can release only its own claim.
+   *
+   * Sent only when the turn created its conversation and had to claim it itself; a turn on an existing
+   * conversation was claimed by the route, which already holds the token.
+   */
+  runToken?: number
   error?: string
   code?: string
   message?: string

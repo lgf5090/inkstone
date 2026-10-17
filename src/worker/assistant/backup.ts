@@ -12,7 +12,7 @@
 import type { AssistantImportSummary, AssistantSettings } from '@shared/assistant'
 import { clipReasoning, normalizeAssistantSettings } from '@shared/assistant'
 import { parseScheduleSpec } from '@shared/assistant-schedule'
-import { ASSISTANT_MEMORY_CATEGORIES, AUTOMATION_KINDS, MAX_ARTIFACT_CONTENT_CHARS, MAX_ARTIFACT_TITLE_CHARS } from '@shared/assistant'
+import { ASSISTANT_MEMORY_CATEGORIES, AUTOMATION_KINDS, MAX_ARTIFACT_CONTENT_CHARS, MAX_ARTIFACT_TITLE_CHARS, MAX_MESSAGE_CHARS } from '@shared/assistant'
 import { ApiError } from '../lib/errors'
 import { AssistantStore } from './store'
 
@@ -90,19 +90,46 @@ export async function importAssistant(store: AssistantStore, raw: Record<string,
   for (const project of rows(data.projects)) {
     const id = idValue(project.id)
     if (!id) continue
-    if (await store.hasRow('chat_projects', id)) {
+    const updatedAt = numberValue(project.updated_at, Date.now())
+    const name = textValue(project.name, 200) || 'Untitled'
+    // What makes a project a context rather than a folder. A brief is read every turn in it, so it
+    // gets the same ceiling the route that writes one does; the folders are re-checked against this
+    // notebook, because another deployment's folder ids mean nothing here.
+    const instructions = textValue(project.instructions, MAX_MESSAGE_CHARS)
+    const noteScope = await importProjectScope(store, project.note_scope)
+    const existing = await store.getProject(id)
+    if (existing) {
+      // The rule every row here follows: a newer local edit is never replaced by an older copy.
+      if (existing.updatedAt >= updatedAt) {
+        skipped.push(`project ${id} was newer here`)
+        continue
+      }
+      // The unique index is on the folded name, so adopting a name another project holds would make
+      // one file abort the whole restore. The name is the only thing kept back; the brief still lands.
+      const taken = await store.findProjectByName(name)
+      const nextName = taken && taken.id !== id ? existing.name : name
+      if (taken && taken.id !== id) skipped.push(`project ${id} kept its name because "${name}" is taken`)
       await store.importUpdate('chat_projects', id, {
-        name: textValue(project.name, 200),
+        name: nextName,
         description: textValue(project.description, 2000),
-        updated_at: numberValue(project.updated_at, Date.now()),
+        instructions,
+        note_scope: JSON.stringify(noteScope),
+        updated_at: updatedAt,
       })
     } else {
+      let importName = name
+      if (await store.findProjectByName(importName)) {
+        importName = await uniqueProjectName(store, importName)
+        skipped.push(`project ${id} arrived as "${importName}" because "${name}" is taken`)
+      }
       await store.importRow('chat_projects', {
         id,
-        name: textValue(project.name, 200) || 'Untitled',
+        name: importName,
         description: textValue(project.description, 2000),
+        instructions,
+        note_scope: JSON.stringify(noteScope),
         created_at: numberValue(project.created_at, Date.now()),
-        updated_at: numberValue(project.updated_at, Date.now()),
+        updated_at: updatedAt,
       })
     }
     summary.projects++
@@ -110,9 +137,14 @@ export async function importAssistant(store: AssistantStore, raw: Record<string,
 
   const knownProjects = new Set((await store.listProjects()).map((project) => project.id))
 
+  // Threads whose local copy was newer than the file: their own row is left alone, and so is the fork
+  // parent, because both are edits the reader made after this backup was written.
+  const keptNewer = new Set<string>()
   for (const conversation of rows(data.conversations)) {
     const id = idValue(conversation.id)
     if (!id) continue
+    const updatedAt = numberValue(conversation.updated_at, Date.now())
+    const projectId = idValue(conversation.project_id)
     const row = {
       id,
       title: textValue(conversation.title, 200),
@@ -130,15 +162,33 @@ export async function importAssistant(store: AssistantStore, raw: Record<string,
       folder_id: typeof conversation.folder_id === 'string' && await store.knownFolder(conversation.folder_id)
         ? conversation.folder_id
         : null,
+      // The project the thread answers under, when the file carried the project itself.
+      project_id: projectId && knownProjects.has(projectId) ? projectId : null,
       created_at: numberValue(conversation.created_at, Date.now()),
-      updated_at: numberValue(conversation.updated_at, Date.now()),
+      updated_at: updatedAt,
     }
-    if (await store.hasRow('chat_conversations', id)) await store.importUpdate('chat_conversations', id, row)
+    const localAt = await store.storedUpdatedAt('chat_conversations', id)
+    if (localAt !== null && localAt >= updatedAt) {
+      skipped.push(`conversation ${id} was newer here`)
+      keptNewer.add(id)
+      continue
+    }
+    if (localAt !== null) await store.importUpdate('chat_conversations', id, row)
     else await store.importRow('chat_conversations', row)
     summary.conversations++
   }
 
-  const conversations = new Set((await store.listConversations(undefined, { limit: 500 })).map((entry) => entry.id))
+  // Every conversation that exists here, read as ids rather than through a list page: a library larger
+  // than one page would otherwise restore its newest threads whole and drop the rest silently.
+  const conversations = new Set(await store.conversationIds())
+  // The parent of a fork is only kept when both ends are here. Applied after the loop because a file
+  // may list a fork before the thread it was forked from.
+  for (const conversation of rows(data.conversations)) {
+    const id = idValue(conversation.id)
+    const parentId = idValue(conversation.parent_id)
+    if (!id || !parentId || keptNewer.has(id) || !conversations.has(id) || !conversations.has(parentId)) continue
+    await store.importUpdate('chat_conversations', id, { parent_id: parentId })
+  }
 
   // The drafts those threads were keeping. Restored after the conversations, so a draft whose thread did
   // not come back is dropped rather than left orphaned — the panel reads them by conversation id.
@@ -197,6 +247,10 @@ export async function importAssistant(store: AssistantStore, raw: Record<string,
       output_tokens: numberValue(message.output_tokens),
       duration_ms: numberValue(message.duration_ms),
       model_label: textValue(message.model_label, 200),
+      // The pages a searched answer read and the verdict the reader left on it are both shown by the
+      // transcript, so a restored row without them is a different row from the one that was saved.
+      sources: typeof message.sources === 'string' ? message.sources.slice(0, 64 * 1024) : '[]',
+      feedback: message.feedback === 'up' || message.feedback === 'down' ? message.feedback : '',
       created_at: numberValue(message.created_at, Date.now()),
     }
     if (await store.hasRow('chat_messages', id)) continue
@@ -253,6 +307,9 @@ export async function importAssistant(store: AssistantStore, raw: Record<string,
       // Same rule as a task's project: a fact filed under a project that did not come with the backup
       // would be a fact no turn can ever recall — worse than an unfiled one, which every turn recalls.
       project_id: projectId && knownProjects.has(projectId) ? projectId : null,
+      // The note a fact was written out as is a pointer the memory page shows, so it travels with the
+      // fact; a note the backup did not carry is a notebook object, not an assistant one.
+      note_id: idValue(memory.note_id),
       created_at: numberValue(memory.created_at, updatedAt),
       updated_at: updatedAt,
     }
@@ -276,7 +333,13 @@ export async function importAssistant(store: AssistantStore, raw: Record<string,
       updated_at: numberValue(task.updated_at, Date.now()),
       completed_at: numberOrNull(task.completed_at),
     }
-    if (await store.hasRow('chat_tasks', id)) await store.importUpdate('chat_tasks', id, row)
+    // A task the reader has checked off or edited here since the file was written stays theirs.
+    const localAt = await store.storedUpdatedAt('chat_tasks', id)
+    if (localAt !== null && localAt >= row.updated_at) {
+      skipped.push(`task ${id} was newer here`)
+      continue
+    }
+    if (localAt !== null) await store.importUpdate('chat_tasks', id, row)
     else await store.importRow('chat_tasks', row)
     summary.tasks++
   }
@@ -387,4 +450,45 @@ function numberOrNull(value: unknown): number | null {
 
 function dateValue(value: unknown): string | null {
   return typeof value === 'string' && /^\d{4}(-\d{2}(-\d{2})?)?$/.test(value) ? value : null
+}
+
+/**
+ * A project name no existing project already holds.
+ *
+ * The projects table has a unique index on the folded name, so two accounts' "Client A" cannot both be
+ * restored as they were. Renaming the arriving one keeps both, and the conversations the file filed under
+ * it keep pointing at it — which a skipped row could not do.
+ */
+async function uniqueProjectName(store: AssistantStore, base: string): Promise<string> {
+  for (let attempt = 1; attempt <= 20; attempt++) {
+    const candidate = attempt === 1 ? `${base} (imported)` : `${base} (imported ${attempt})`
+    if (!(await store.findProjectByName(candidate))) return candidate
+  }
+  return `${base} (imported ${Date.now()})`
+}
+
+/**
+ * The folders a restored project reads, kept only when they are folders of this notebook.
+ *
+ * The column is JSON text in the row and may be an array in a hand-written file; anything that is not a
+ * known folder id is dropped, because a scope naming another deployment's folder reads nothing at all.
+ */
+async function importProjectScope(store: AssistantStore, value: unknown): Promise<string[]> {
+  let entries: unknown[] = []
+  if (Array.isArray(value)) entries = value
+  else if (typeof value === 'string' && value) {
+    try {
+      const parsed: unknown = JSON.parse(value)
+      entries = Array.isArray(parsed) ? parsed : []
+    } catch {
+      entries = []
+    }
+  }
+  const ids: string[] = []
+  for (const entry of entries.slice(0, 12)) {
+    const id = idValue(entry)
+    if (!id || !(await store.knownFolder(id))) continue
+    ids.push(id)
+  }
+  return ids
 }
