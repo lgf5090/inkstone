@@ -54,6 +54,9 @@ type BuildAsset = {
 
 type BuildBundle = Record<string, BuildChunk | BuildAsset>
 
+/** A chunk this large is a feature of its own, not a piece of the everyday shell. */
+const HEAVY_CHUNK_BYTES = 300_000
+
 export function inkstonePwa(): Plugin {
   return {
     name: 'inkstone:pwa',
@@ -82,6 +85,19 @@ export function inkstonePwa(): Plugin {
       }
       const buildId = hash.digest('hex').slice(0, 16)
 
+      // Shared chunks big enough that most accounts never open one. The threshold is bytes of generated
+      // code, which is what the download actually costs; the exclusion list is built from the bundle
+      // rather than written by hand, so a chunk that changes hash stays excluded.
+      const built = bundle as BuildBundle
+      const heavy = Object.values(built)
+        .filter((entry): entry is BuildChunk => entry.type === 'chunk')
+        .filter((chunk) => !coreFiles.includes(chunk.fileName) && chunk.code.length >= HEAVY_CHUNK_BYTES)
+        // A catalog is not a feature: the first screen needs one, so however large it is it stays in the
+        // warm-up. Its name comes from the source file rather than from a content hash, which is why it
+        // can be recognised here at all.
+        .filter((chunk) => !/\/(?:en|zh)-[A-Z]{2}-[\w-]+\.js$/.test(chunk.fileName))
+        .map((chunk) => chunk.fileName)
+
       this.emitFile({
         type: 'asset',
         fileName: 'sw.js',
@@ -89,6 +105,7 @@ export function inkstonePwa(): Plugin {
           buildId,
           coreFiles.map((fileName) => `/${fileName}`),
           allFiles.map((fileName) => `/${fileName}`),
+          onDemandSource(heavy),
         ),
       })
     },
@@ -156,8 +173,20 @@ function isCoreLazyChunk(chunk: BuildChunk): boolean {
  * decided not to ship — 87% of the whole warm-up set by bytes, for the few accounts that draw at all. They
  * stay reachable offline the same way as every other on-demand file: the fetch handler caches any
  * `OPTIONAL_URLS` path it serves, so an opened drawing keeps its engine and fonts for the next flight.
+ *
+ * The fixed names above are the ones that do not move. Everything else is generated per build from the
+ * bundle: a shared chunk large enough to be one of the app's heavy features is excluded by the name it was
+ * actually emitted under, because that name carries a content hash — a name written here by hand stops
+ * matching the moment the chunk changes, which is exactly how the one hand-written chunk name this list
+ * used to carry silently fell out of the exclusion.
  */
-function serviceWorkerSource(buildId: string, coreUrls: string[], allUrls: string[]): string {
+function onDemandSource(extraNames: readonly string[]): string {
+  const fixed = ['mermaid', 'diagram', 'cytoscape', 'langium', 'vscode-', 'auto-', 'mind-elixir', 'vendor/excalidraw', '/rss/']
+  const escaped = extraNames.map((name) => name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
+  return [...fixed, ...escaped].join('|')
+}
+
+function serviceWorkerSource(buildId: string, coreUrls: string[], allUrls: string[], onDemand: string): string {
 	return `const BUILD_ID = ${JSON.stringify(buildId)}
 	const SHELL_CACHE = ${JSON.stringify(`inkstone-shell-${buildId}`)}
 	const ASSET_CACHE = ${JSON.stringify(`inkstone-assets-${buildId}`)}
@@ -165,7 +194,7 @@ function serviceWorkerSource(buildId: string, coreUrls: string[], allUrls: strin
 	const ALL_OFFLINE_URLS = ${JSON.stringify(allUrls)}
 	const OPTIONAL_URLS = ALL_OFFLINE_URLS.filter((url) => !CORE_URLS.includes(url))
 	const OPTIONAL_URL_SET = new Set(OPTIONAL_URLS)
-	const ON_DEMAND_PATTERN = /(?:mermaid|diagram|cytoscape|langium|vscode-|chunk-KEIR6QF5|auto-|mind-elixir|vendor\\/excalidraw|\\/rss\\/)/i
+	const ON_DEMAND_PATTERN = new RegExp(${JSON.stringify(onDemand)}, 'i')
 	const WARMUP_URLS = OPTIONAL_URLS.filter((url) => !ON_DEMAND_PATTERN.test(url))
 	const WARMUP_TOTAL = CORE_URLS.length + WARMUP_URLS.length
 	const CACHE_META_URL = '/.inkstone-cache-meta'

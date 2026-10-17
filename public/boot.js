@@ -158,5 +158,15 @@
       if (!recovery || recovery.booted()) return
       recovery.fail()
     }, true)
+    // A lazy chunk a newer deployment replaced fails its dynamic import *after* the app is up, so the
+    // listener above has already stepped aside. Vite announces exactly that as `vite:preloadError`; the
+    // same one-reload guard answers it, and a deployment that is genuinely broken still ends at the
+    // panel instead of reloading forever. `preventDefault` stops Vite from rethrowing into the feature's
+    // error boundary, which is a dead end for a tab that has been open since the last release.
+    window.addEventListener('vite:preloadError', function (event) {
+      if (event && typeof event.preventDefault === 'function') event.preventDefault()
+      var recovery = window.__inkstoneBoot
+      if (recovery) recovery.fail()
+    })
   }
 })()
