@@ -856,7 +856,7 @@ export const api = {
       request<{ artifacts: AssistantArtifact[] }>(`/api/assistant/conversations/${id}/artifacts`),
     createConversationArtifact: (id: string, body: { title?: string, content: string }) =>
       request<{ artifact: AssistantArtifact }>(`/api/assistant/conversations/${id}/artifacts`, { method: 'POST', body }),
-    updateConversationArtifact: (id: string, artifactId: string, body: { title?: string, content?: string }) =>
+    updateConversationArtifact: (id: string, artifactId: string, body: { title?: string, content?: string, noteId?: string | null }) =>
       request<{ artifact: AssistantArtifact }>(
         `/api/assistant/conversations/${id}/artifacts/${artifactId}`, { method: 'PATCH', body },
       ),

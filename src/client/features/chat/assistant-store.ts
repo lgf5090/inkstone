@@ -369,7 +369,7 @@ interface AssistantState {
    */
   createArtifactFromReply: (text: string) => Promise<void>
   /** Rewrite a draft's name or body. The server stores what it is sent and keeps the rest. */
-  saveArtifact: (id: string, patch: { title?: string, content?: string }) => Promise<void>
+  saveArtifact: (id: string, patch: { title?: string, content?: string, noteId?: string | null }) => Promise<void>
   removeArtifact: (id: string) => Promise<void>
   decideAction: (actionId: string, approve: boolean) => Promise<void>
 

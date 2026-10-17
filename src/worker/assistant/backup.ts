@@ -154,7 +154,10 @@ export async function importAssistant(store: AssistantStore, raw: Record<string,
       conversation_id: conversationId,
       title: textValue(artifact.title, MAX_ARTIFACT_TITLE_CHARS),
       content: textValue(artifact.content, MAX_ARTIFACT_CONTENT_CHARS),
-      note_id: null,
+      // The link to the note this draft became. Carrying the draft without it would restore a second copy
+      // of a document the reader already has, so it travels — and a link to a note the backup did not
+      // carry is left as it is rather than silently re-pointed at nothing.
+      note_id: typeof artifact.note_id === 'string' && artifact.note_id !== '' ? artifact.note_id : null,
       created_at: numberValue(artifact.created_at, Date.now()),
       updated_at: numberValue(artifact.updated_at, Date.now()),
     })

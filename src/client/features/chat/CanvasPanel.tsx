@@ -14,7 +14,7 @@
  */
 
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { ArrowLeft, Check, Copy, NotebookPen, PanelRight, Trash2, X } from 'lucide-react'
+import { ArrowLeft, Check, Copy, FileText, Link2Off, NotebookPen, PanelRight, RefreshCw, Trash2, X } from 'lucide-react'
 import type { AssistantArtifact } from '@shared/assistant'
 import { DEBOUNCE } from '@shared/constants'
 import { cn } from '../../lib/cn'
@@ -34,6 +34,7 @@ import { MarkdownBody } from '../preview/MarkdownBody'
 import { useAssistant } from './assistant-store'
 import { CHAT_NOTE_LINKS } from './note-links'
 import { saveReplyAsNote } from './save-to-note'
+import { loadLinkedNote, pullFromNote, pushToNote } from './canvas-sync'
 
 /**
  * How many notes and tags the editor's completions may offer.
@@ -119,7 +120,7 @@ function ArtifactList({ artifacts, ready, onSelect }: {
 
 function ArtifactEditor({ artifact, onSave, onRemove }: {
   artifact: AssistantArtifact
-  onSave: (id: string, patch: { title?: string, content?: string }) => Promise<void>
+  onSave: (id: string, patch: { title?: string, content?: string, noteId?: string | null }) => Promise<void>
   onRemove: (id: string) => Promise<void>
 }) {
   const settings = useSession((state) => state.settings.editor)
@@ -127,17 +128,49 @@ function ArtifactEditor({ artifact, onSave, onRemove }: {
   const [content, setContent] = useState(artifact.content)
   const [mode, setMode] = useState<'write' | 'preview'>('write')
   const [copied, setCopied] = useState(false)
+  const linkedNoteId = artifact.noteId
+  const linkedTitle = useNotes((state) => (linkedNoteId ? state.notes[linkedNoteId]?.title ?? null : null))
 
   // What the server already has. A settled value equal to it is the echo of our own write coming back
   // through the store, and committing it again would be a second request for the same bytes.
   const committed = useRef({ title: artifact.title, content: artifact.content })
   const pending = useMemo(() => ({ title, content }), [title, content])
   const settled = useDebounced(pending, DEBOUNCE.persist)
+
+  // A linked draft opens on the note, not on the copy it was last saved as: the notebook is where the
+  // document has been living, and the panel showing a stale copy would invite a write over the top of it.
+  useEffect(() => {
+    if (!linkedNoteId) return
+    let alive = true
+    void loadLinkedNote(artifact.id, linkedNoteId).then((note) => {
+      if (!alive) return
+      if (note === null) {
+        useUi.getState().toast({ title: t('assistant.canvas.note_missing'), tone: 'warning' })
+        return
+      }
+      setContent(note)
+      committed.current = { title: committed.current.title, content: note }
+    })
+    return () => {
+      alive = false
+    }
+  }, [artifact.id, linkedNoteId])
+
   useEffect(() => {
     if (settled.title === committed.current.title && settled.content === committed.current.content) return
     committed.current = settled
     void onSave(artifact.id, settled)
-  }, [settled, artifact.id, onSave])
+    if (!linkedNoteId) return
+    // The note takes the same body: one document, two surfaces. A conflict is reported and the panel
+    // keeps the reader's text — losing a paragraph to a silent overwrite is the one outcome to avoid.
+    void pushToNote(artifact.id, linkedNoteId, settled.content).then((result) => {
+      if (result === 'ok') return
+      useUi.getState().toast({
+        title: t(result === 'conflict' ? 'assistant.canvas.sync_conflict' : 'assistant.canvas.note_missing'),
+        tone: 'warning',
+      })
+    })
+  }, [settled, artifact.id, onSave, linkedNoteId])
 
   // The editor completes `[[links]]` and `#tags` from the vault, the same two sources the notebook's own
   // editor is given. The upload handler drops a pasted file into the reader's library; a draft has no note
@@ -172,6 +205,33 @@ function ArtifactEditor({ artifact, onSave, onRemove }: {
     window.setTimeout(() => setCopied(false), COPY_RESET_MS)
   }
 
+  /** File the draft, then remember which note it became — the two are one document from then on. */
+  const saveAsNote = async () => {
+    const noteId = await saveReplyAsNote(content)
+    if (noteId) await onSave(artifact.id, { noteId })
+  }
+
+  const pull = async () => {
+    if (!linkedNoteId) return
+    const note = await pullFromNote(artifact.id, linkedNoteId)
+    if (note === null) {
+      useUi.getState().toast({ title: t('assistant.canvas.note_missing'), tone: 'warning' })
+      return
+    }
+    setContent(note)
+    committed.current = { title: committed.current.title, content: note }
+    useUi.getState().toast({ title: t('assistant.canvas.pulled'), tone: 'success' })
+  }
+
+  const push = async () => {
+    if (!linkedNoteId) return
+    const result = await pushToNote(artifact.id, linkedNoteId, content)
+    useUi.getState().toast({
+      title: t(result === 'ok' ? 'assistant.canvas.synced' : result === 'conflict' ? 'assistant.canvas.sync_conflict' : 'assistant.canvas.note_missing'),
+      tone: result === 'ok' ? 'success' : 'warning',
+    })
+  }
+
   const removeDraft = () => {
     void confirm({
       title: t('assistant.canvas.remove_title'),
@@ -193,6 +253,20 @@ function ArtifactEditor({ artifact, onSave, onRemove }: {
           aria-label={t('assistant.canvas.title_placeholder')}
           className="h-8 text-[length:var(--text-12-5)]"
         />
+        {linkedNoteId && (
+          <div className="flex items-center gap-1 text-[length:var(--text-11)] text-[var(--text-tertiary)]">
+            <FileText size={11} className="shrink-0 text-[var(--text-quaternary)]" />
+            <span className="min-w-0 truncate">
+              {t('assistant.canvas.linked', { title: linkedTitle || t('common.untitled_note') })}
+            </span>
+            <Button size="sm" variant="ghost" className="ml-auto shrink-0" icon={<RefreshCw size={11} />} onClick={() => void pull()}>
+              {t('assistant.canvas.pull_note')}
+            </Button>
+            <IconButton label={t('assistant.canvas.unlink')} size="sm" onClick={() => void onSave(artifact.id, { noteId: null })}>
+              <Link2Off size={11} />
+            </IconButton>
+          </div>
+        )}
         <div className="flex items-center gap-1" role="tablist" aria-label={t('assistant.canvas.title')}>
           <ModeTab id="write" current={mode} onSelect={setMode} label={t('assistant.canvas.write')} />
           <ModeTab id="preview" current={mode} onSelect={setMode} label={t('assistant.canvas.preview')} />
@@ -220,9 +294,15 @@ function ArtifactEditor({ artifact, onSave, onRemove }: {
         <Button size="sm" variant="ghost" icon={copied ? <Check size={12} /> : <Copy size={12} />} onClick={copy}>
           {copied ? t('assistant.canvas.copied') : t('assistant.canvas.copy')}
         </Button>
-        <Button size="sm" variant="ghost" icon={<NotebookPen size={12} />} onClick={() => saveReplyAsNote(content)}>
-          {t('assistant.canvas.save_note')}
-        </Button>
+        {linkedNoteId ? (
+          <Button size="sm" variant="ghost" icon={<RefreshCw size={12} />} onClick={() => void push()}>
+            {t('assistant.canvas.sync_note')}
+          </Button>
+        ) : (
+          <Button size="sm" variant="ghost" icon={<NotebookPen size={12} />} onClick={() => void saveAsNote()}>
+            {t('assistant.canvas.save_note')}
+          </Button>
+        )}
         <IconButton label={t('assistant.canvas.remove')} size="sm" className="ml-auto" onClick={removeDraft}>
           <Trash2 size={13} />
         </IconButton>

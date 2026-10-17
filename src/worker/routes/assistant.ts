@@ -967,12 +967,15 @@ assistantRoutes.patch('/conversations/:id/artifacts/:artifactId', async (c) => {
   if (!(await s.getConversation(id))) throw ApiError.notFound('Conversation not found')
   const existing = await s.getArtifact(artifactId)
   if (!existing || existing.conversationId !== id) throw ApiError.notFound('Draft not found')
-  const body = await readJson<{ title?: unknown, content?: unknown }>(c, JSON_BODY_LIMITS.artifact)
-  const patch: { title?: string, content?: string } = {}
+  const body = await readJson<{ title?: unknown, content?: unknown, noteId?: unknown }>(c, JSON_BODY_LIMITS.artifact)
+  const patch: { title?: string, content?: string, noteId?: string | null } = {}
   // Empty is a real answer on both fields here: a reader clearing a draft's name has left it untitled, and
   // one clearing its body has emptied it on purpose. Neither is a mistake to be refused.
   if (typeof body.title === 'string') patch.title = body.title.slice(0, MAX_ARTIFACT_TITLE_CHARS)
   if (typeof body.content === 'string') patch.content = body.content.slice(0, MAX_ARTIFACT_CONTENT_CHARS)
+  // `null` unlinks the draft, which is a state the panel offers; a missing key leaves the link alone.
+  if (body.noteId === null) patch.noteId = null
+  else if (typeof body.noteId === 'string') patch.noteId = requiredId(body.noteId)
   const artifact = await s.updateArtifact(artifactId, patch)
   if (!artifact) throw ApiError.notFound('Draft not found')
   return c.json({ artifact })

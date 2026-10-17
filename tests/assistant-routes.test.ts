@@ -238,6 +238,21 @@ describe('drafts', () => {
     expect(after.artifacts).toHaveLength(0)
   })
 
+  it('links a draft to a note, and unlinks it again', async () => {
+    const conversation = await newConversation()
+    const made = await call<{ artifact: AssistantArtifact }>(
+      'POST', `/api/assistant/conversations/${conversation.id}/artifacts`, { title: 'Draft', content: 'Body' },
+    )
+    const url = `/api/assistant/conversations/${conversation.id}/artifacts/${made.artifact.id}`
+    const noteId = '01hzzzzzzzzzzzzzzzzzzzzz01'
+    expect((await call<{ artifact: AssistantArtifact }>('PATCH', url, { noteId })).artifact.noteId).toBe(noteId)
+    // A write that does not name the link is not a statement about it.
+    expect((await call<{ artifact: AssistantArtifact }>('PATCH', url, { title: 'Renamed' })).artifact.noteId).toBe(noteId)
+    // Null is the unlink, and it has to survive a title-only write afterwards.
+    expect((await call<{ artifact: AssistantArtifact }>('PATCH', url, { noteId: null })).artifact.noteId).toBeNull()
+    expect((await call<{ artifact: AssistantArtifact }>('PATCH', url, { content: 'New body' })).artifact.noteId).toBeNull()
+  })
+
   it('keeps the body it is not sent, and takes an emptied one', async () => {
     const conversation = await newConversation()
     const made = await call<{ artifact: AssistantArtifact }>(
@@ -296,6 +311,9 @@ describe('drafts', () => {
     const made = await call<{ artifact: AssistantArtifact }>(
       'POST', `/api/assistant/conversations/${conversation.id}/artifacts`, { title: 'A plan', content: 'Body' },
     )
+    // The link is part of the draft, so it travels with it — a restored draft that forgot its note would
+    // silently become a second copy of a document the reader already has.
+    await call('PATCH', `/api/assistant/conversations/${conversation.id}/artifacts/${made.artifact.id}`, { noteId: '01hzzzzzzzzzzzzzzzzzzzzz02' })
     const payload = await call('GET', '/api/assistant/export') as Record<string, unknown>
     await call('DELETE', `/api/assistant/conversations/${conversation.id}`)
     const summary = await call<{ imported: { artifacts: number } }>('POST', '/api/assistant/import', payload)
@@ -305,6 +323,7 @@ describe('drafts', () => {
     const restored = await call<{ artifacts: AssistantArtifact[] }>('GET', `/api/assistant/conversations/${conversation.id}/artifacts`)
     expect(restored.artifacts.map((entry) => entry.id)).toEqual([made.artifact.id])
     expect(restored.artifacts[0]?.content).toBe('Body')
+    expect(restored.artifacts[0]?.noteId).toBe('01hzzzzzzzzzzzzzzzzzzzzz02')
   })
 })
 

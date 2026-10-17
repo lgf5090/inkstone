@@ -1749,55 +1749,57 @@ export class AssistantStore {
   }
 
   /**
-   * Make a draft.
+   * Make a draft, optionally already linked to the note it became.
    *
-   * `note_id` is written as null and is the seam a later build fills to sync a draft back into the
-   * notebook; there is deliberately no way to set it yet, so the column is a reservation rather than a
-   * second, half-wired link. Adding one later is an additive change to this signature.
+   * `note_id` is the link the panel syncs through. It is set at creation only when a caller is making a
+   * draft out of an existing note; the ordinary draft starts unlinked and gains the link when the reader
+   * files it.
    */
-  async createArtifact(input: { conversationId: string, title: string, content: string }): Promise<AssistantArtifact> {
+  async createArtifact(input: { conversationId: string, title: string, content: string, noteId?: string | null }): Promise<AssistantArtifact> {
     const id = newId()
     const at = Date.now()
     const title = input.title.slice(0, MAX_ARTIFACT_TITLE_CHARS)
     const content = input.content.slice(0, MAX_ARTIFACT_CONTENT_CHARS)
+    const noteId = input.noteId ?? null
     await this.write(
       `INSERT INTO chat_artifacts (id, user_id, conversation_id, title, content, note_id, created_at, updated_at)
        VALUES (?2, ?1, ?3, ?4, ?5, ?6, ?7, ?8)`,
-      id, input.conversationId, title, content, null, at, at,
+      id, input.conversationId, title, content, noteId, at, at,
     )
     return {
       id,
       conversationId: input.conversationId,
       title,
       content,
-      noteId: null,
+      noteId,
       createdAt: at,
       updatedAt: at,
     }
   }
 
   /**
-   * Rewrite a draft's name or its body.
+   * Rewrite a draft's name, its body, or the note it is linked to.
    *
    * A field that is not named keeps what it had, so a title typed after a body edit does not blank the
-   * body. `note_id` is carried across rather than written, for the same reason: an edit here is not a
-   * statement about the link, and the surface that sets one does not exist yet.
+   * body. `noteId: null` is a real answer — it unlinks the draft — which is why it is tested against
+   * `undefined` rather than for truthiness.
    */
   async updateArtifact(
     id: string,
-    patch: { title?: string, content?: string },
+    patch: { title?: string, content?: string, noteId?: string | null },
   ): Promise<AssistantArtifact | null> {
     const existing = await this.getArtifact(id)
     if (!existing) return null
     const title = patch.title === undefined ? existing.title : patch.title.slice(0, MAX_ARTIFACT_TITLE_CHARS)
     const content = patch.content === undefined ? existing.content : patch.content.slice(0, MAX_ARTIFACT_CONTENT_CHARS)
+    const noteId = patch.noteId === undefined ? existing.noteId : patch.noteId
     const at = Date.now()
     await this.write(
       `UPDATE chat_artifacts SET title = ?2, content = ?3, note_id = ?4, updated_at = ?5
         WHERE user_id = ?1 AND id = ?6`,
-      title, content, existing.noteId, at, id,
+      title, content, noteId, at, id,
     )
-    return { ...existing, title, content, updatedAt: at }
+    return { ...existing, title, content, noteId, updatedAt: at }
   }
 
   async deleteArtifact(id: string): Promise<boolean> {
