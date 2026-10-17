@@ -222,6 +222,12 @@ export function ChatView() {
 
   useEffect(() => {
     stickToBottom.current = true
+    // A conversation switch is a different thread, so nothing that described the one being left may
+    // survive it: a picker over rows that are not here, a share scope of another thread's message ids,
+    // a find panel marking a transcript that is gone. This is view state, so it is dropped at the view.
+    setFinding(false)
+    setSelected(null)
+    setShareScope(null)
   }, [activeId])
 
   // The server rows name whose call each third-party chip was, so the transcript reads `Context7 ·
@@ -231,10 +237,13 @@ export function ChatView() {
     void loadMcpServers()
   }, [loadMcpServers])
 
+  // The reader is following the thread, so every part of a turn that is still arriving keeps it pinned to
+  // the bottom — the reasoning trace included. Left out of the deps, a long think grew off-screen and the
+  // reader had to scroll to find the answer.
   useLayoutEffect(() => {
     const el = scrollRef.current
     if (el && stickToBottom.current) el.scrollTop = el.scrollHeight
-  }, [messages.length, turnHere?.text, turnHere?.tools.length, turnHere?.error])
+  }, [messages.length, turnHere?.text, turnHere?.reasoning, turnHere?.tools.length, turnHere?.error])
 
   // Older turns are a page away rather than part of the transcript, so the control that fetches them
   // belongs at the top of the list and the scroll position is kept where the reader left it: the new
@@ -314,6 +323,21 @@ export function ChatView() {
     })
     if (agreed) void state.send('', { retry: true, messageId })
   }, [])
+  /**
+   * The one retry control handed to every answer row.
+   *
+   * A row is memoised on its `onRetry` identity, so a closure built per message would arrive as a new prop
+   * on every re-render of the view and every historical bubble would be parsed again. The message id is
+   * passed in instead, and which door the press opens is read from the store's own rows: the newest answer
+   * is the plain retry, an older one confirms first.
+   */
+  const retryAnswer = useCallback((messageId: string) => {
+    if (useAssistant.getState().messages.at(-1)?.id === messageId) {
+      retryLast()
+      return
+    }
+    void regenerate(messageId)
+  }, [regenerate, retryLast])
 
   // The outline's stops are the turns the reader wrote — the only fixed points in a thread whose answers
   // vary in length. A new array on every store write would re-register the outline's scroll listener on
@@ -463,9 +487,7 @@ export function ChatView() {
                   busy={streaming}
                   // Every stored answer can be asked again; the newest one is the plain retry, an older
                   // one confirms that the turns below it will be removed with it.
-                  onRetry={message.role === 'assistant' && !streaming
-                    ? (message.id === lastAnswer?.id ? retryLast : () => void regenerate(message.id))
-                    : undefined}
+                  onRetry={message.role === 'assistant' && !streaming ? retryAnswer : undefined}
                   canContinue={canContinueAnswer(message, streaming, lastAnswer?.id ?? null)}
                   onStartPicking={startPicking}
                   onShare={shareMessage}
@@ -592,11 +614,13 @@ export function canContinueAnswer(message: AssistantMessage, streaming: boolean,
  * Memoised because a streaming answer lives beside this list: every token re-renders the view that owns
  * the composer, and without this every historical Markdown bubble in a long thread was parsed and laid
  * out again for each one. The props that can actually change a row are the row itself and the few
- * states that show on it — a callback identity is not one of them, and is not compared.
+ * states that show on it. The callbacks are compared because the row passes one through to its own
+ * controls — which is why the view hands them over with a single identity rather than a closure per row.
  */
 export const MessageRow = memo(function MessageRow({ message, onRetry, canContinue = false, busy = false, selection, onStartPicking, onShare }: {
   message: AssistantMessage
-  onRetry?: () => void
+  /** The row answers for its own id, so one callback serves the whole list. */
+  onRetry?: (messageId: string) => void
   /** Only the newest settled answer: continuing anything else would append to a turn already read past. */
   canContinue?: boolean
   busy?: boolean
@@ -639,7 +663,7 @@ export const MessageRow = memo(function MessageRow({ message, onRetry, canContin
       stage={undefined}
       messageId={message.id}
       createdAt={message.createdAt}
-      onRetry={onRetry}
+      onRetry={onRetry ? () => onRetry(message.id) : undefined}
       canContinue={canContinue}
       retryLabel={retryLabel}
       usage={message.usage}
@@ -1539,6 +1563,10 @@ ${current}` : seed))
   const [triggerRows, setTriggerRows] = useState<TriggerRow[]>([])
   const [triggerIndex, setTriggerIndex] = useState(0)
   const [triggerBusy, setTriggerBusy] = useState(false)
+  // Every keystroke asks again, and the answers come back in whatever order the network chose. Each lookup
+  // stamps itself with the number it was asked under, so an older response cannot write the panel a newer
+  // query did not ask for — nor clear the loading flag a request still in flight owns.
+  const triggerRequest = useRef(0)
   const turnTools = useAssistant((state) => state.turnTools)
   const turnScopes = useAssistant((state) => state.turnScopes)
   const addTurnTool = useAssistant((state) => state.addTurnTool)
@@ -1593,6 +1621,10 @@ ${current}` : seed))
   const onTriggerKey = (event: KeyboardEvent<HTMLTextAreaElement>) => {
     if (!trigger) return false
     if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+      // With nothing to pick the key belongs to the text box: wrapping against an empty list would put
+      // NaN in the index, and Enter would then look up no row and step out of a trigger the reader was
+      // still typing into.
+      if (!triggerRows.length) return false
       event.preventDefault()
       const step = event.key === 'ArrowDown' ? 1 : -1
       setTriggerIndex((current) => (current + step + triggerRows.length) % triggerRows.length)
@@ -1635,6 +1667,10 @@ ${current}` : seed))
 
   /** Rows for the trigger the caret is inside. `@` asks the server; the other two filter locally. */
   const loadTriggerRows = async (next: ActiveTrigger) => {
+    const request = ++triggerRequest.current
+    // Whether this is still the lookup the reader is waiting for. A response that lost the race writes
+    // nothing — not its rows, and not the end of the loading flag a newer request is still holding.
+    const current = () => triggerRequest.current === request
     setTriggerIndex(0)
     if (next.sigil === '/') {
       // A server that has not been listed yet is awaited rather than skipped: showing the built-ins alone
@@ -1643,6 +1679,7 @@ ${current}` : seed))
       const pending = offered.length > 0 && mcpCatalog.length === 0
       setTriggerBusy(pending)
       if (pending) await loadMcp()
+      if (!current()) return
       // The reader's own MCP tools sit beside the built-in ones, marked by their namespaced name so the
       // row says which server it came from. A tool switched off in settings, or one on a server that is off
       // or only asks, is not pinned here either: the pin would name a tool the turn never offers.
@@ -1667,17 +1704,17 @@ ${current}` : seed))
           ...tags.tags.map((tag) => ({ id: tag.id, label: `#${tag.name}`, kind: 'tag' as const })),
           ...folders.folders.map((folder) => ({ id: folder.id, label: folder.name, kind: 'folder' as const })),
         ]
-        setTriggerRows(filterRows(rows, next.query.replace(/^#/, '')))
+        if (current()) setTriggerRows(filterRows(rows, next.query.replace(/^#/, '')))
       } else {
         const found = await api.search(next.query || t('assistant.attach.note_prompt'), 8)
-        setTriggerRows(found.results.map((hit) => ({ id: hit.note.id, label: hit.note.title || t('assistant.trigger.untitled') })))
+        if (current()) setTriggerRows(found.results.map((hit) => ({ id: hit.note.id, label: hit.note.title || t('assistant.trigger.untitled') })))
       }
     } catch {
       // A failed lookup leaves the panel empty rather than closing it: the reader is still typing, and a
       // panel that vanishes under them reads as the app ignoring the trigger.
-      setTriggerRows([])
+      if (current()) setTriggerRows([])
     } finally {
-      setTriggerBusy(false)
+      if (current()) setTriggerBusy(false)
     }
   }
 
