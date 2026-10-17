@@ -15,7 +15,7 @@ import { t } from '../../lib/i18n'
 import { useUi } from '../../store/ui'
 import { useNotes } from '../../store/notes'
 import { useAssistant } from './assistant-store'
-import { lastAnswerText } from './editor-ai'
+import { sendForAnswer } from './editor-ai'
 import { rememberNoteOrigin, withConversationSource } from './save-to-note'
 
 /** How many sub-questions a run will investigate. Past four it is a book, not a research note. */
@@ -51,10 +51,14 @@ export function parseResearchPlan(text: string): string[] {
   return questions
 }
 
-/** One turn, waited out. `null` means the turn produced nothing to build on. */
+/**
+ * One turn, waited out. `null` means the turn produced nothing to build on.
+ *
+ * A run is six of these in one thread, so the answer has to be the one this step asked for: reading the
+ * newest row on the screen would let a refused step hand the previous step's findings to the report.
+ */
 async function ask(prompt: string): Promise<string | null> {
-  await useAssistant.getState().send(prompt)
-  return lastAnswerText().trim() || null
+  return await sendForAnswer(prompt)
 }
 
 /**

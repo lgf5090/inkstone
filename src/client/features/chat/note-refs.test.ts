@@ -32,8 +32,19 @@ describe('the notes a tool call named', () => {
   it('reads a listing and a single read the same way', () => {
     expect(noteRefsFromToolResult('list_notes', JSON.stringify({ total: 2, notes: [{ id: NOTE_A, title: 'A' }] })))
       .toEqual([{ id: NOTE_A, title: 'A' }])
-    expect(noteRefsFromToolResult('read_note', JSON.stringify({ id: NOTE_B, title: 'B', content: 'x' })))
-      .toEqual([{ id: NOTE_B, title: 'B' }])
+    // `read_note` answers with the worker's own field names, and they are not the search's: a note id
+    // there is `note_id`, so a chip keyed only on `id` never appears for the one tool that read a note.
+    expect(noteRefsFromToolResult('read_note', JSON.stringify({
+      note_id: NOTE_B,
+      title: 'B',
+      url: '/n/' + NOTE_B,
+      rev: 3,
+      content: 'x',
+      start_offset: 0,
+      end_offset: 1,
+    }))).toEqual([{ id: NOTE_B, title: 'B' }])
+    expect(noteRefsFromToolResult('create_note', JSON.stringify({ created: { id: NOTE_A, title: 'A' } })))
+      .toEqual([{ id: NOTE_A, title: 'A' }])
   })
 
   it('offers nothing for a tool whose ids are not notes', () => {

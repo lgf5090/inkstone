@@ -19,7 +19,6 @@ import { t } from '../../lib/i18n'
 import { COPY_RESET_MS } from '../../lib/motion'
 import { dayKey, formatDay, formatInZone } from './time-format'
 import { isImeComposing } from '../../lib/ime'
-import { navigateToPath } from '../../lib/app-history'
 import { relativeTime } from '../../lib/time'
 import { useDebouncedDraft } from '../../lib/hooks'
 import { compileQuery } from '../../lib/query-match'
@@ -59,7 +58,7 @@ import { PASTE_FILE_MIN_CHARS, useAssistant, type AssistantView } from './assist
 import { MessageMenu, useMessageMenu } from './MessageMenu'
 import { AssistantBubble } from './MessageParts'
 import { CanvasPanel } from './CanvasPanel'
-import { CHAT_NOTE_LINKS } from './note-links'
+import { CHAT_NOTE_LINKS, openNote } from './note-links'
 import { SelectionBar, SelectionTick, selectedMessages, type MessageSelection } from './SelectionBar'
 import { downloadTranscript } from './transcript'
 import { downloadTextFile, safeFileName } from '../../lib/export-note'
@@ -363,10 +362,7 @@ export function ChatView() {
           {originNoteId && (
             <button
               type="button"
-              onClick={() => {
-                useUi.getState().setActiveNote(originNoteId)
-                navigateToPath('/notes')
-              }}
+              onClick={() => openNote(originNoteId)}
               title={t('assistant.chat.from_note')}
               className="inline-flex shrink-0 items-center gap-1 rounded-[var(--r-sm)] bg-[var(--bg-inset)] px-1.5 py-0.5 text-[length:var(--text-10)] text-[var(--text-quaternary)] hover:text-[var(--text-secondary)]"
             >

@@ -149,12 +149,69 @@ export function applyEditorAiResult(text: string, mode: 'replace' | 'insert'): b
  * A turn that has finished but has not been adopted into the thread yet is still the newest answer, so
  * it is read first; the stored rows answer the case where the reader has since opened another
  * conversation and the live turn is gone.
+ *
+ * Read-only on purpose, and only for a surface that shows what is on the screen. Anything that *writes*
+ * an answer out uses `sendForAnswer`: the newest answer here is not necessarily the one it asked for.
  */
 export function lastAnswerText(): string {
   const state = useAssistant.getState()
   if (state.turn && state.turn.done && state.turn.text.trim()) return state.turn.text
   const last = state.messages.at(-1)
   return last && last.role === 'assistant' ? last.content : ''
+}
+
+/** The fields of a live turn this reads. `assistant-store` keeps its own turn record to itself. */
+interface TurnAnswer {
+  token?: number
+  assistantId: string | null
+  text: string
+  error: string | null
+  done: boolean
+}
+
+/**
+ * Send one prompt, and hand back the answer *that send* wrote — or nothing at all.
+ *
+ * `lastAnswerText` reads the newest answer on the screen, which is the wrong thing for a command that
+ * files an answer under a title of its own. When the store refuses the send because a turn is already
+ * streaming, when the worker never takes the request, or when the reader stops it, the newest answer is
+ * the one from whatever thread was already open — and that is what lands in a note named "summary of
+ * something else". So this holds on to the turn the send started, which is the one whose object is not
+ * the one already on screen, and reads only that: nothing started, an error, a turn the worker filed as
+ * stopped, or a turn with no words in it all answer `null`.
+ *
+ * The watch is a subscription rather than a read at the end, because `send` adopts the thread in its own
+ * `finally` and drops the live turn before it resolves: by then the only copy of what this turn said is
+ * the snapshot taken while it was on screen.
+ *
+ * Returns `null` without sending when a turn is already running, so a caller can say it is busy rather
+ * than queue a second question behind the reader's back.
+ */
+export async function sendForAnswer(prompt: string): Promise<string | null> {
+  const assistant = useAssistant.getState()
+  if (assistant.turn && !assistant.turn.done) return null
+  const previous = assistant.turn
+  // A box rather than a variable: the write happens inside the subscription below, and the reader of it
+  // is a different stretch of code than the writer.
+  const started: { turn: TurnAnswer | null } = { turn: null }
+  const watch = useAssistant.subscribe((state) => {
+    const turn = state.turn
+    if (!turn || turn === previous) return
+    // Once this send has a turn of its own, a later one — the reader asked something else — is not it.
+    if (started.turn && turn.token !== undefined && started.turn.token !== undefined && turn.token !== started.turn.token) return
+    started.turn = turn
+  })
+  const accepted = await useAssistant.getState().send(prompt)
+  watch()
+  const turn = started.turn
+  if (!accepted || !turn || !turn.done || turn.error || !turn.text.trim()) return null
+  // The stored row is the only place a stopped answer says so: the live turn simply ends, with its
+  // words still on the way.
+  const row = turn.assistantId
+    ? useAssistant.getState().messages.find((message) => message.id === turn.assistantId)
+    : undefined
+  if (row && row.status !== 'complete') return null
+  return turn.text
 }
 
 /** How much of a selection rides in the composer as a quote, which the reader then asks about. */

@@ -8,7 +8,7 @@
  * than the plan or the raw findings.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { initI18n } from '../../lib/i18n'
+import { initI18n, t } from '../../lib/i18n'
 import { useAssistant } from './assistant-store'
 import { useNotes } from '../../store/notes'
 import { useUi } from '../../store/ui'
@@ -19,23 +19,28 @@ const notesOriginal = useNotes.getState()
 const uiOriginal = useUi.getState()
 const asked: string[] = []
 let replies: string[] = []
+let token = 0
 const createNote = vi.fn(async () => 'note-1')
 
 beforeEach(async () => {
   await initI18n()
   asked.length = 0
   replies = []
+  token = 0
   createNote.mockClear()
   useAssistant.setState({
     turn: null,
     newConversation: async () => undefined,
     setView: () => undefined,
     setWebSearch: () => undefined,
-    // The turn the run just waited out, in the shape `lastAnswerText` reads it.
+    // The turn the run just waited out, in the shape the store really leaves it: `send` answers with
+    // whether the worker took the request, and a step with no reply queued is a send it refused.
     send: async (text: string) => {
       asked.push(text)
+      if (!replies.length) return false
       const answer = replies.shift() ?? ''
-      useAssistant.setState({ turn: { done: true, text: answer } as never })
+      useAssistant.setState({ turn: { token: ++token, done: true, text: answer, error: null } as never })
+      return true
     },
   } as never)
   useNotes.setState({ createNote } as never)
@@ -98,6 +103,18 @@ describe('running the research', () => {
     expect(await startDeepResearch('Q3 delivery')).toBeNull()
     expect(createNote).not.toHaveBeenCalled()
     expect(toast).toHaveBeenCalled()
+  })
+
+  it('files nothing when the synthesis turn was refused, rather than the last finding', async () => {
+    // One question, so the run is plan → gather → synthesis. The synthesis is the turn the store refuses,
+    // and the newest answer on the screen is then the finding it was written from — which is a note about
+    // the wrong thing under the right title.
+    replies = ['1. What shipped?', '- shipped A']
+    const toast = vi.spyOn(useUi.getState(), 'toast')
+    expect(await startDeepResearch('Q3 delivery')).toBeNull()
+    expect(asked).toHaveLength(3)
+    expect(createNote).not.toHaveBeenCalled()
+    expect(toast).toHaveBeenCalledWith(expect.objectContaining({ title: t('assistant.research.failed', { step: 3 }), tone: 'warning' }))
   })
 
   it('does nothing when the question does not split', async () => {

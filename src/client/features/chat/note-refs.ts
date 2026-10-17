@@ -30,7 +30,10 @@ function collect(value: unknown, out: NoteRef[], seen: Set<string>): void {
   }
   if (!value || typeof value !== 'object') return
   const record = value as Record<string, unknown>
-  const id = record.id
+  // Two spellings of the same fact, because the worker has two: a listing names its rows `id`, while a
+  // note read on its own answers with `note_id`. Reading only the first is how the chip that says "it
+  // read this note" never appears for the one tool that read it.
+  const id = record.id ?? record.note_id
   const title = record.title
   if (typeof id === 'string' && NOTE_ID.test(id) && typeof title === 'string' && !seen.has(id)) {
     seen.add(id)

@@ -70,15 +70,18 @@ export function withConversationSource(body: string, conversationId: string | nu
  *
  * The note is written by the browser, so the worker never sees the save; this report is what puts the
  * note in the thread's backlinks, and it is best-effort by design: the note exists either way, and a
- * missing backlink must not turn a successful save into an error. The failure is logged rather than
- * shown because the reader's outcome did not change.
+ * missing backlink must not turn a successful save into an error. It answers with whether the report got
+ * through, so a caller whose whole purpose was the link — a summary of a folder, filed in it — can say
+ * out loud that the way back is missing.
  */
-export async function rememberNoteOrigin(noteId: string, conversationId: string | null | undefined): Promise<void> {
-  if (!conversationId) return
+export async function rememberNoteOrigin(noteId: string, conversationId: string | null | undefined): Promise<boolean> {
+  if (!conversationId) return true
   try {
     await api.assistant.recordNoteWrite(noteId, conversationId)
+    return true
   } catch (error) {
     console.warn('[inkstone] could not record the note origin', error)
+    return false
   }
 }
 

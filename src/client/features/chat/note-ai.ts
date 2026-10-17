@@ -14,7 +14,7 @@ import { t } from '../../lib/i18n'
 import { useUi } from '../../store/ui'
 import { useNotes } from '../../store/notes'
 import { useAssistant } from './assistant-store'
-import { lastAnswerText } from './editor-ai'
+import { sendForAnswer } from './editor-ai'
 
 /**
  * Ask about a note and wait for the answer, or `null` when there will not be one.
@@ -22,6 +22,9 @@ import { lastAnswerText } from './editor-ai'
  * `null` is not a failure of its own: a turn already in flight is refused before it starts (the store
  * would silently drop the request, and a dropped request that returns the *previous* answer would be
  * worse than none), and an answer that came back empty is nothing to act on either. Both say why.
+ *
+ * The answer is the one this question produced, never the newest row on the screen: the caller writes it
+ * into the note's front matter, where an older answer would look like it was suggested for this page.
  */
 export async function askAboutNote(noteId: string, prompt: string): Promise<string | null> {
   const assistant = useAssistant.getState()
@@ -33,6 +36,5 @@ export async function askAboutNote(noteId: string, prompt: string): Promise<stri
   if (ui.activeNoteId !== noteId) await useNotes.getState().openNote(noteId)
   assistant.setNoteContext(true)
   ui.setAssistantDock(true)
-  await useAssistant.getState().send(prompt)
-  return lastAnswerText().trim() || null
+  return await sendForAnswer(prompt)
 }

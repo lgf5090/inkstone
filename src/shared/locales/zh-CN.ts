@@ -6070,6 +6070,7 @@ console.log(\`Hello, \${name}!\`)
     "assistant.folder_summary.done": "已保存为「{title}」。",
     "assistant.folder_summary.empty": "「{name}」里还没有可以总结的内容。",
     "assistant.folder_summary.failed": "摘要没能存成笔记。",
+    "assistant.folder_summary.backlink_failed": "笔记已保存，但没能把它链回这次对话。",
     "assistant.suggest.command": "建议标签与属性",
     "assistant.research.command": "深度研究…",
     "assistant.research.topic_title": "研究什么？",
