@@ -60,7 +60,10 @@ function renderable(value: unknown): boolean {
 describe('the command registry', () => {
   it('lists every command with the pieces the palette renders', () => {
     const commands = appCommands()
-    expect(commands.length, 'the palette used to own this list; nothing may be dropped on the way out').toBe(63)
+    // A snapshot of the list, so a command that quietly disappears is caught. It moves when one is
+    // added on purpose — the three P2 entries are the assistant's own: folder summary, tag suggestions,
+    // and deep research.
+    expect(commands.length, 'the palette used to own this list; nothing may be dropped on the way out').toBe(66)
     expect(new Set(commands.map((entry) => entry.id)).size).toBe(commands.length)
     for (const entry of commands) {
       expect(entry.kind).toBe('command')
