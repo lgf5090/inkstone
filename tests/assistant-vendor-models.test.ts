@@ -7,7 +7,7 @@
  * request leaves. Recorded frames, not a live service.
  */
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import type { AssistantProtocol } from '../src/shared/assistant'
+import { MAX_TOKEN_CEILING, type AssistantProtocol } from '../src/shared/assistant'
 import { listVendorModels } from '../src/worker/assistant/vendor-models'
 
 function json(payload: unknown, init: ResponseInit = {}): Response {
@@ -35,7 +35,12 @@ describe('the three vendor listings', () => {
     stub(json({ data: [{ id: 'deepseek-flash', created: 1_700_000_000, owned_by: 'deepseek' }] }))
     const result = await listVendorModels('openai', 'https://api.deepseek.com', 'sk-1')
     expect(result.ok).toBe(true)
-    expect(result.models).toEqual([{ id: 'deepseek-flash', label: 'deepseek-flash', ownedBy: 'deepseek', created: 1_700_000_000 }])
+    expect(result.models).toEqual([{
+      id: 'deepseek-flash', label: 'deepseek-flash', ownedBy: 'deepseek', created: 1_700_000_000,
+      // The vendor's own `/v1/models` says nothing about size, and saying so is the whole point: a row
+      // that read as "no ceiling" would cut the editor's ladder by a number nobody published.
+      contextTokens: null, maxOutputTokens: null,
+    }])
     expect(captured[0]?.url).toBe('https://api.deepseek.com/v1/models')
     expect(captured[0]?.headers.authorization).toBe('Bearer sk-1')
   })
@@ -55,6 +60,43 @@ describe('the three vendor listings', () => {
     expect(result.models[0]).toMatchObject({ id: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash' })
     expect(captured[0]?.url).toBe('https://generativelanguage.googleapis.com/v1beta/models')
     expect(captured[0]?.headers['x-goog-api-key']).toBe('g-key')
+  })
+})
+
+describe('what a listing says about a model’s size', () => {
+  it('reads the two limits Gemini puts on the model resource', async () => {
+    stub(json({ models: [{
+      name: 'models/gemini-2.5-flash', displayName: 'Gemini 2.5 Flash', inputTokenLimit: 1_048_576, outputTokenLimit: 65_536,
+    }] }))
+    const result = await listVendorModels('gemini', 'https://generativelanguage.googleapis.com', 'g-key')
+    expect(result.models[0]).toMatchObject({ id: 'gemini-2.5-flash', contextTokens: 1_048_576, maxOutputTokens: 65_536 })
+  })
+
+  it('reads what a compatible relay publishes, and leaves the rows it says nothing about unknown', async () => {
+    stub(json({ data: [
+      { id: 'deepseek/deepseek-chat', context_length: 164_000, max_completion_tokens: 8_191 },
+      { id: 'plain-model', created: 1_700_000_000 },
+    ] }))
+    const result = await listVendorModels('openai', 'https://relay.example.test/v1', 'sk-1')
+    expect(result.models[0]).toMatchObject({ contextTokens: 164_000, maxOutputTokens: 8_191 })
+    // The neighbour's numbers are not this row's: a listing that carries nothing has to say so.
+    expect(result.models[1]).toMatchObject({ contextTokens: null, maxOutputTokens: null })
+  })
+
+  it('asks no number of Anthropic’s listing, whose /v1/models has none to give', async () => {
+    stub(json({ data: [{ id: 'claude-x', display_name: 'Claude X', created_at: '2026-01-02T03:04:05Z' }] }))
+    const result = await listVendorModels('anthropic', 'https://api.anthropic.test', 'key-9')
+    expect(result.models[0]).toMatchObject({ contextTokens: null, maxOutputTokens: null })
+  })
+
+  it('refuses a count it cannot read as a size, and clamps one past what this app can store', async () => {
+    stub(json({ data: [
+      { id: 'textual', context_length: '128k', max_output_tokens: 0 },
+      { id: 'absurd', context_length: 99_000_000, max_output_tokens: -5 },
+    ] }))
+    const result = await listVendorModels('openai', 'https://api.example.com', 'sk-1')
+    expect(result.models[0]).toMatchObject({ contextTokens: null, maxOutputTokens: null })
+    expect(result.models[1]).toMatchObject({ contextTokens: MAX_TOKEN_CEILING, maxOutputTokens: null })
   })
 })
 

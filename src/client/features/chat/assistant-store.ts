@@ -2568,7 +2568,15 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
       if (mine.some((model) => model.model === id)) continue
       const entry = get().vendorModels.find((candidate) => candidate.id === id)
       try {
-        await api.assistant.createModel({ providerId, model: id, ...(entry ? { label: entry.label } : {}) })
+        await api.assistant.createModel({
+          providerId,
+          model: id,
+          ...(entry ? { label: entry.label } : {}),
+          // The vendor's own numbers, when its listing published them. A synced row should know what the
+          // service said about it, not only what a bundled table guesses from its name.
+          ...(entry?.contextTokens !== undefined ? { vendorContextTokens: entry.contextTokens } : {}),
+          ...(entry?.maxOutputTokens !== undefined ? { vendorMaxOutputTokens: entry.maxOutputTokens } : {}),
+        })
         added += 1
       } catch (error) {
         // One id the route refuses must not lose the ones the reader also ticked.

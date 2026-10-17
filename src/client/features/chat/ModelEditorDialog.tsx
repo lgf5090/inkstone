@@ -7,7 +7,7 @@
  * Everything here is read by the request path — a switch that changed nothing would be worse than no
  * switch, because it would be believed.
  */
-import { useState } from 'react'
+import { useState, type ReactNode } from 'react'
 import { Check, ChevronDown, Copy, Save, X } from 'lucide-react'
 import type {
   AssistantCustomParam,
@@ -19,7 +19,7 @@ import type {
   AssistantProvider,
   AssistantReasoning,
 } from '@shared/assistant'
-import { ASSISTANT_MODEL_KINDS, ASSISTANT_MODEL_MODALITIES, ASSISTANT_MODEL_PURPOSES, ASSISTANT_PROTOCOLS, TOKEN_STEPS, formatTokenStep } from '@shared/assistant'
+import { ASSISTANT_MODEL_KINDS, ASSISTANT_MODEL_MODALITIES, ASSISTANT_MODEL_PURPOSES, ASSISTANT_PROTOCOLS, TOKEN_STEPS, effectiveModelLimits, formatTokenStep } from '@shared/assistant'
 import type { AssistantModelModality, AssistantProtocol } from '@shared/assistant'
 import { REASONING_LABELS } from './ComposerControls'
 import { modelReasoning, reasoningOptions } from './model-reasoning'
@@ -129,7 +129,7 @@ const MODALITY_KEYS: Record<AssistantModelModality, Parameters<typeof t>[0]> = {
  * The box around the number and the note it inherits is a wrapper, not the control, so `Field` names the group
  * and this field's input carries its own `aria-label` — the label the row's title would otherwise have to lend.
  */
-function TokenField({ labelKey, hintKey, value, inherited, steps, columns = 5, onChange }: {
+function TokenField({ labelKey, hintKey, value, inherited, steps, columns = 5, warning, onChange }: {
   labelKey: Parameters<typeof t>[0]
   hintKey: Parameters<typeof t>[0]
   value: number | null
@@ -137,11 +137,21 @@ function TokenField({ labelKey, hintKey, value, inherited, steps, columns = 5, o
   inherited: number
   steps: readonly number[]
   columns?: 3 | 5 | 6 | 7
+  /** Said under the field's own note rather than as a toast, because it belongs to this number. */
+  warning?: ReactNode
   onChange: (tokens: number | null) => void
 }) {
   const label = t(labelKey)
   return (
-    <Field label={label} hint={t(hintKey)}>
+    <Field
+      label={label}
+      hint={(
+        <>
+          {t(hintKey)}
+          {warning && <span className="mt-0.5 block text-[var(--warning)]">{warning}</span>}
+        </>
+      )}
+    >
       {/* The note on the right is what a narrow dialog used to clip: it has a line of its own to fall back
           to, and a fixed input and unshrunk note otherwise never squeeze past the panel's edge. */}
       <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1">
@@ -200,17 +210,30 @@ export function ModelEditorDialog({
   // already picked, which stays listed so turning it off is something the reader can see and undo here.
   const spares = models.filter((entry) =>
     entry.id !== model.id && (entry.enabled || entry.id === draft.fallbackModelId))
-  // What this model can hold, when the reader has said. A reply cannot be longer than the window it is
-  // written inside, so the output ladder is cut to that — offering 1M of output on a model declared to hold
-  // 64K is an invitation to a provider rejection the reader cannot trace back to this field.
+  // What this model is known to hold, and so what its answer can be: the window the reader declared and
+  // the numbers the vendor stated for this model id, whichever is tighter. Offering 1M of output on a
+  // model known to stop at 8K is an invitation to a provider rejection the reader cannot trace back to
+  // this field.
   //
-  // Only the model's own number counts. The account's `maxContextTokens` is a budget for what to send, not a
-  // claim about any model's window, and its default is smaller than the default output ceiling — filtering
-  // by it would quietly shorten every answer from a reader who never touched either field.
-  const outputWindow = draft.contextTokens
-  const outputSteps = outputWindow === null
+  // Nothing known leaves the whole ladder on the table. The account's `maxContextTokens` is a budget for
+  // what to send rather than a claim about any model's window, and its own `maxOutputTokens` answers only
+  // while this field is empty — filtering by either would quietly shorten every answer from a reader who
+  // never touched them.
+  const known = effectiveModelLimits({
+    contextTokens: draft.contextTokens,
+    vendorContextTokens: model.vendorContextTokens,
+    vendorMaxOutputTokens: model.vendorMaxOutputTokens,
+  })
+  const outputCeiling = known.maxOutput
+  const outputSteps = outputCeiling === null
     ? TOKEN_STEPS
-    : TOKEN_STEPS.filter((tokens) => tokens <= outputWindow)
+    : TOKEN_STEPS.filter((tokens) => tokens <= outputCeiling)
+  // A stored number past that ceiling is the request the provider refuses, so it is said here — with the
+  // figure and with who stated it, since "the vendor says" and "you declared" ask the reader for different
+  // kinds of trust.
+  const overCeiling = outputCeiling !== null && draft.maxOutputTokens !== null && draft.maxOutputTokens > outputCeiling
+  const vendorStatedCeiling = outputCeiling !== null
+    && (model.vendorMaxOutputTokens === outputCeiling || model.vendorContextTokens === outputCeiling)
   const [more, setMore] = useState(false)
   const [copied, setCopied] = useState(false)
   const [saving, setSaving] = useState(false)
@@ -445,6 +468,9 @@ export function ModelEditorDialog({
                 hintKey="assistant.model.max_output_hint"
                 value={draft.maxOutputTokens}
                 inherited={limits.maxOutputTokens}
+                warning={overCeiling
+                  ? t(vendorStatedCeiling ? 'assistant.model.limit_over_vendor' : 'assistant.model.limit_over_declared', { tokens: formatTokenStep(outputCeiling) })
+                  : undefined}
                 // A number already stored above the window stays pickable, or the reader could not see
                 // which value they are being asked to lower.
                 steps={draft.maxOutputTokens !== null && !outputSteps.includes(draft.maxOutputTokens)

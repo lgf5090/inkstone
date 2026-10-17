@@ -10,7 +10,7 @@
  * address inside the network or after a redirect.
  */
 import { assertRelayableEndpoint, pickRelayHeaders } from '@shared/ai-proxy-guard'
-import type { AssistantProtocol, AssistantVendorModel } from '@shared/assistant'
+import { MAX_TOKEN_CEILING, type AssistantProtocol, type AssistantVendorModel } from '@shared/assistant'
 import { NO_REDIRECT, isRedirectResponse } from '../lib/no-redirect'
 import { anthropicEndpoint, openAiEndpoint } from './upstream'
 
@@ -101,7 +101,41 @@ function vendorModel(protocol: AssistantProtocol, entry: unknown): VendorModel |
   if (!id) return null
   const label = text(row.display_name ?? row.displayName, 200) || id
   const created = typeof row.created === 'number' ? row.created : Date.parse(text(row.created_at, 40))
-  return { id, label, ownedBy: text(row.owned_by ?? row.ownedBy, 120) || null, created: Number.isFinite(created) ? created : null }
+  const limits = listingLimits(protocol, row)
+  return {
+    id, label,
+    ownedBy: text(row.owned_by ?? row.ownedBy, 120) || null,
+    created: Number.isFinite(created) ? created : null,
+    contextTokens: limits.contextTokens,
+    maxOutputTokens: limits.maxOutputTokens,
+  }
+}
+
+/**
+ * The two numbers a listing row carries about a model, when it carries any.
+ *
+ * Gemini names them on the model resource itself. An OpenAI-shaped row from OpenAI carries none — the
+ * vendor's `/v1/models` gives `id`, `created` and `owned_by` — but relays that do publish limits put
+ * them on the row under one of the names below, `context_length` being what OpenRouter answers with.
+ * Anthropic's `/v1/models` has no limits field at all, so its rows are asked nothing.
+ *
+ * Everything this cannot find reads as null, which means "the vendor did not say" and not "no ceiling".
+ */
+function listingLimits(protocol: AssistantProtocol, row: Record<string, unknown>): { contextTokens: number | null, maxOutputTokens: number | null } {
+  if (protocol === 'gemini') {
+    return { contextTokens: tokenField(row.inputTokenLimit), maxOutputTokens: tokenField(row.outputTokenLimit) }
+  }
+  if (protocol !== 'openai') return { contextTokens: null, maxOutputTokens: null }
+  return {
+    contextTokens: tokenField(row.context_length ?? row.context_window),
+    maxOutputTokens: tokenField(row.max_output_tokens ?? row.max_completion_tokens),
+  }
+}
+
+/** A count the listing gave as a usable token number, clamped to the one this app can store. */
+function tokenField(value: unknown): number | null {
+  if (typeof value !== 'number' || !Number.isFinite(value) || value <= 0) return null
+  return Math.min(Math.trunc(value), MAX_TOKEN_CEILING)
 }
 
 function text(value: unknown, max: number): string {

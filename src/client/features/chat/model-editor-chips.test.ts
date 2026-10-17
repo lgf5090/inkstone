@@ -27,6 +27,8 @@ function model(over: Partial<AssistantModel> = {}): AssistantModel {
         enabled: true,
         reasoning: 'auto',
         contextTokens: null,
+        vendorContextTokens: null,
+        vendorMaxOutputTokens: null,
         vision: true,
         purpose: 'chat',
         kind: 'text',
@@ -87,6 +89,16 @@ const press = (node: HTMLElement | undefined, name: string) => {
     expect(node, `${name} is not rendered`).toBeTruthy()
     act(() => { node!.click() })
 }
+/** The presets one named row offers, read off their own labels. */
+const rowLabels = (row: string) => {
+    const scope = [...document.body.querySelectorAll<HTMLElement>('[role="group"]')]
+        .find((node) => node.getAttribute('aria-label') === row)
+    expect(scope, `${row} row is not rendered`).toBeTruthy()
+    return [...scope!.querySelectorAll('button[aria-pressed]')].map((node) => node.textContent?.trim())
+}
+/** The note under the output field: its hint, and the warning line the ceiling adds to it. */
+const outputNote = () => [...document.body.querySelectorAll('p')]
+    .find((node) => node.textContent?.includes(t('assistant.model.max_output_hint')))
 
 function open(over: Partial<AssistantModel> = {}, limits = DEFAULT_LIMITS, providerOver: Partial<AssistantProvider> = {}) {
     const host = document.createElement('div')
@@ -200,6 +212,51 @@ describe('the quick picks', () => {
             .find((node) => node.getAttribute('aria-label') === t('assistant.model.max_output'))
         expect([...row!.querySelectorAll('button[aria-pressed]')].map((node) => node.textContent?.trim()))
             .toEqual(TOKEN_STEPS.map((tokens) => formatTokenStep(tokens)))
+    })
+
+    // The vendor's own number is a second source for the same ceiling, and the reader never has to know
+    // what the model's page says for the ladder to respect it.
+    it('cuts the output ladder by the ceiling the vendor stated, not only by a hand-declared window', () => {
+        open({ vendorMaxOutputTokens: 8_192, maxOutputTokens: null })
+        const labels = rowLabels(t('assistant.model.max_output'))
+        expect(labels).toContain('8K')
+        expect(labels).not.toContain('16K')
+        expect(labels).not.toContain('1M')
+        // The window row keeps the whole ladder: the ceiling is on the answer, not on what the model holds.
+        expect(rowLabels(t('assistant.model.context'))).toEqual(TOKEN_STEPS.map((tokens) => formatTokenStep(tokens)))
+    })
+
+    it('cuts the output ladder by the window the vendor stated when the reader declared none', () => {
+        open({ vendorContextTokens: 65_536 })
+        const labels = rowLabels(t('assistant.model.max_output'))
+        expect(labels).toContain('64K')
+        expect(labels).not.toContain('128K')
+    })
+
+    it('holds the tighter of the vendor’s ceiling and the reader’s window', () => {
+        // A model declared to hold a million of context and stated to answer eight thousand at a time is
+        // the exact shape of the complaint: the field was reachable, and the provider said no.
+        open({ contextTokens: 1_048_576, vendorMaxOutputTokens: 8_192 })
+        expect(rowLabels(t('assistant.model.max_output'))).not.toContain('128K')
+    })
+
+    it('says the figure and that the vendor stated it when the stored ceiling is past it', () => {
+        open({ vendorMaxOutputTokens: 8_192, maxOutputTokens: 262_144 })
+        expect(outputNote()?.textContent).toContain(t('assistant.model.limit_over_vendor', { tokens: '8K' }))
+        expect(outputNote()?.textContent).not.toContain(t('assistant.model.limit_over_declared', { tokens: '8K' }))
+    })
+
+    it('names the reader’s own window as the bound when nobody else stated one', () => {
+        open({ contextTokens: 65_536, maxOutputTokens: 262_144 })
+        expect(outputNote()?.textContent).toContain(t('assistant.model.limit_over_declared', { tokens: '64K' }))
+        expect(outputNote()?.textContent).not.toContain(t('assistant.model.limit_over_vendor', { tokens: '64K' }))
+    })
+
+    it('adds nothing to the note while no bound is known, however large the number in the field is', () => {
+        // The paragraph is the field's description, so a warning that is not there must not be in it: an
+        // invented ceiling would tell the reader their 1M is a problem nobody stated.
+        open({ maxOutputTokens: 1_048_576 })
+        expect(outputNote()?.textContent).toBe(t('assistant.model.max_output_hint'))
     })
 
     it('lays the shared ladder out as even rows of seven rather than a ragged three', () => {

@@ -6795,6 +6795,8 @@ console.log(\`Hello, \${name}!\`)
     "assistant.model.reasoning_short": "推理",
     "assistant.model.max_output": "最大输出 Token",
     "assistant.model.max_output_hint": "这个模型的回答可以花多少。留空时继承助手设置里的「最大输出词元」；填了就按这个值发送。",
+    "assistant.model.limit_over_vendor": "超过了供应商声明的这个模型 {tokens} 的回答上限，再长会被上游拒绝。",
+    "assistant.model.limit_over_declared": "超过了这个模型声明的 {tokens} 上下文窗口，回答不可能长过它所在的窗口。",
     "assistant.model.temperature": "模型温度",
     "assistant.model.top_p": "Top-P",
     "assistant.model.off_means_default": "关掉即由供应商默认",

@@ -1423,6 +1423,27 @@ export const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
       `ALTER TABLE chat_messages ADD COLUMN scopes TEXT NOT NULL DEFAULT '[]'`,
     ],
   },
+  {
+    // The context window the vendor says this model has, learned from its listing or its published docs
+    // when the row was made. Nullable with no default and no backfill, because every row written before
+    // this column is one nobody has asked a vendor about: a guess here would cut the editor's ladder and
+    // warn about a number nobody stated. Kept apart from `context_tokens` on purpose — that one is the
+    // reader's own setting, whose null means "inherit the account's ceiling".
+    version: 92,
+    skipIfColumnExists: { table: 'chat_models', column: 'vendor_context_tokens' },
+    statements: [
+      `ALTER TABLE chat_models ADD COLUMN vendor_context_tokens INTEGER`,
+    ],
+  },
+  {
+    // The output ceiling the vendor says this model has. Same reading as the window above: null is
+    // "not known", and only a known ceiling is allowed to shorten a reader's answer.
+    version: 93,
+    skipIfColumnExists: { table: 'chat_models', column: 'vendor_max_output_tokens' },
+    statements: [
+      `ALTER TABLE chat_models ADD COLUMN vendor_max_output_tokens INTEGER`,
+    ],
+  },
 ]
 
 const FTS_STATEMENT = `CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(

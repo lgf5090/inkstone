@@ -183,12 +183,21 @@ export function modelWire(
   return { protocol, baseUrl: provider.endpoints[protocol] || provider.baseUrl }
 }
 
-/** One row of a vendor's own listing: what this key can call, named the way the vendor names it. */
+/**
+ * One row of a vendor's own listing: what this key can call, named the way the vendor names it.
+ *
+ * The two token numbers are what that row said about the model, and they are absent — not zero — for the
+ * services whose `/v1/models` answers with ids alone, which is OpenAI's own, Anthropic's and DeepSeek's.
+ * Reading a missing one as a guess is how a provider ceiling that never existed would start shortening
+ * somebody's answers.
+ */
 export interface AssistantVendorModel {
   id: string
   label: string
   ownedBy: string | null
   created: number | null
+  contextTokens?: number | null
+  maxOutputTokens?: number | null
 }
 
 /** What a model is asked to do, so the picker only offers the ones that answer. */
@@ -332,6 +341,16 @@ export interface AssistantModel {
   reasoning: AssistantReasoning
   /** This model's own context budget, so a 1M model is not fed like a 4K one. Null uses the global limit. */
   contextTokens: number | null
+  /**
+   * What the vendor's own listing said about this model, learned when the row was created.
+   *
+   * Kept apart from the two fields above because the two nulls mean opposite things: for `contextTokens`
+   * and `maxOutputTokens` null is the reader's "inherit the account's ceiling", while here it is "nobody
+   * has said". Neither column overwrites a reader's own value — detection is what the editor's ladder is
+   * cut by and what its warning names, not a setting the request reads.
+   */
+  vendorContextTokens?: number | null
+  vendorMaxOutputTokens?: number | null
   /** Whether the model may be shown a picture. On by default; a text-only upstream is turned off here. */
   vision: boolean
   /** Only a `chat` model answers the composer; the rest are listed for their own callers. */
@@ -416,6 +435,38 @@ export function contextBudgetFor(
   limits: AssistantLimits,
 ): number {
   return Math.min(model.contextTokens ?? limits.maxContextTokens, model.maxInputTokens ?? limits.maxInputTokens)
+}
+
+/** The two numbers a model is known to be held to, or null for a bound nobody has stated. */
+export interface EffectiveModelLimits {
+  contextWindow: number | null
+  maxOutput: number | null
+}
+
+/**
+ * The tightest bound every source that speaks puts on one model.
+ *
+ * Two sources say anything about a model's size: the reader, who fills in the editor's fields, and the
+ * vendor, whose number was learned when the row was created. The account's ceilings are deliberately not
+ * candidates. `maxContextTokens` is a budget for what to send rather than a claim about any model's
+ * window, and `maxOutputTokens` only answers while a model leaves its own field empty — a reader who then
+ * raises that field is raising it above the account number on purpose, so neither may cut a ladder or
+ * warn about a value. `null` is the honest third answer: a bound nobody knows must not be invented, and
+ * the caller has to be able to tell "no ceiling" from "a small one".
+ */
+export function effectiveModelLimits(
+  model: Pick<AssistantModel, 'contextTokens' | 'vendorContextTokens' | 'vendorMaxOutputTokens'>,
+): EffectiveModelLimits {
+  const contextWindow = tightestBound([model.contextTokens, model.vendorContextTokens])
+  // A reply cannot be longer than the window it is written inside, so the window bounds the output too;
+  // the reader's own output number is not a bound on itself, because changing it is what the field is for.
+  return { contextWindow, maxOutput: tightestBound([model.vendorMaxOutputTokens, contextWindow]) }
+}
+
+/** The smallest of the numbers a source actually gave, and null when none of them did. */
+function tightestBound(candidates: readonly (number | null | undefined)[]): number | null {
+  const known = candidates.filter((entry): entry is number => typeof entry === 'number' && Number.isFinite(entry) && entry > 0)
+  return known.length ? Math.min(...known) : null
 }
 
 export function reasoningValue(value: unknown): AssistantReasoning {

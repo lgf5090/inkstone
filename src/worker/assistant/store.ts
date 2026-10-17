@@ -71,6 +71,7 @@ import { MAX_BATCH_STATEMENTS } from '../db/writes'
 import { newId } from '../lib/id'
 import { parseStoredJson } from '../lib/json'
 import { decryptAssistantKey, decryptMcpOAuth, encryptAssistantKey, encryptMcpOAuth } from '../lib/crypto'
+import { curatedModelLimits } from './vendor-model-limits'
 
 /** How long a reader has to approve a destructive proposal. */
 export const PENDING_ACTION_TTL_MS = 30 * 60 * 1000
@@ -1149,6 +1150,9 @@ export class AssistantStore {
     contextTokens?: number | null
     vision?: boolean
     protocol?: AssistantProtocol | null
+    /** What the vendor's own listing said this model can hold, when it published a number. */
+    vendorContextTokens?: number | null
+    vendorMaxOutputTokens?: number | null
   }): Promise<AssistantModel> {
     const id = newId()
     const positionRow = await this.one<{ n: number }>(
@@ -1163,16 +1167,26 @@ export class AssistantStore {
     const reasoning = input.reasoning ?? 'auto'
     const contextTokens = input.contextTokens ?? null
     const vision = input.vision ?? true
+    // What the vendor's published numbers say about the id being written down, learned the moment the row
+    // is made. A number the vendor published for *this* model beats the bundled table, which is only a
+    // guess about a name; the table is all an OpenAI or Anthropic row can get, since neither listing
+    // carries limits at all. An id neither one speaks for keeps null rather than a guess: a made-up
+    // ceiling would cut the editor's ladder and warn about a number nobody stated.
+    const published = curatedModelLimits(input.model)
+    const vendorContextTokens = input.vendorContextTokens ?? published.contextTokens
+    const vendorMaxOutputTokens = input.vendorMaxOutputTokens ?? published.maxOutputTokens
     await this.write(
-      `INSERT INTO chat_models (id, user_id, provider_id, model, label, temperature, max_output_tokens, reasoning, context_tokens, vision, enabled, position, protocol)
-       VALUES (?2, ?1, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, 1, ?11, ?12)`,
-      id, input.providerId, input.model, label, temperature, maxOutputTokens, reasoning, contextTokens, vision ? 1 : 0, positionRow?.n ?? 1,
+      `INSERT INTO chat_models (id, user_id, provider_id, model, label, temperature, max_output_tokens, reasoning, context_tokens, vendor_context_tokens, vendor_max_output_tokens, vision, enabled, position, protocol)
+       VALUES (?2, ?1, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, 1, ?13, ?14)`,
+      id, input.providerId, input.model, label, temperature, maxOutputTokens, reasoning, contextTokens,
+      vendorContextTokens, vendorMaxOutputTokens, vision ? 1 : 0, positionRow?.n ?? 1,
       input.protocol ?? null,
     )
     // The columns keep their defaults, so the object handed back says the same thing the row does.
     return {
       id, providerId: input.providerId, model: input.model, label, temperature, maxOutputTokens,
       reasoning, contextTokens, vision, enabled: true,
+      vendorContextTokens, vendorMaxOutputTokens,
       purpose: 'chat', kind: 'text', supportsTools: true, maxInputTokens: null, modalities: [], topP: null, customParams: [],
       protocol: input.protocol ?? null,
       fallbackModelId: null,
@@ -1266,13 +1280,20 @@ export class AssistantStore {
    */
   async chatAttachmentTexts(ids: readonly string[]): Promise<Map<string, string>> {
     if (!ids.length) return new Map()
-    const q = new Query(this.userId)
-    q.inList('id', ids.slice(0, MAX_CHAT_ATTACHMENTS))
-    const rows = await this.rows<{ id: string, extracted_text: string | null }>(
-      `SELECT id, extracted_text FROM chat_attachments WHERE ${q.where}`,
-      ...q.binds,
-    )
-    return new Map(rows.filter((row) => row.extracted_text).map((row) => [row.id, row.extracted_text as string]))
+    // Chunked, not clamped: `MAX_CHAT_ATTACHMENTS` is how many files a turn may *hang*, and a row restored
+    // from a backup can legitimately name more than that. Reading only the first eight handed the model a
+    // turn with files in it and no word about the ones that went missing.
+    const out = new Map<string, string>()
+    for (const chunk of idReadChunks(ids)) {
+      const q = new Query(this.userId)
+      q.inList('id', chunk)
+      const rows = await this.rows<{ id: string, extracted_text: string | null }>(
+        `SELECT id, extracted_text FROM chat_attachments WHERE ${q.where}`,
+        ...q.binds,
+      )
+      for (const row of rows) if (row.extracted_text) out.set(row.id, row.extracted_text)
+    }
+    return out
   }
 
   /**
@@ -4781,7 +4802,7 @@ function toProviderKey(r: ProviderKeyRow): AssistantProviderKey {
  * ends up written but never read back: the editor saved `purpose` and the reader saw the old value.
  */
 export const MODEL_SELECT_COLUMNS = `id, provider_id, model, label, temperature, max_output_tokens,
-  reasoning, context_tokens, vision, purpose, kind, supports_tools, max_input_tokens, modalities, top_p,
+  reasoning, context_tokens, vendor_context_tokens, vendor_max_output_tokens, vision, purpose, kind, supports_tools, max_input_tokens, modalities, top_p,
   custom_params, protocol, fallback_model_id, input_price, output_price, price_currency, enabled, position`
 
 /**
@@ -4833,6 +4854,8 @@ interface ModelRow {
   max_output_tokens: number | null
   reasoning: string | null
   context_tokens: number | null
+  vendor_context_tokens: number | null
+  vendor_max_output_tokens: number | null
   vision: number | null
   purpose: string | null
   kind: string | null
@@ -4864,6 +4887,10 @@ function toModel(r: ModelRow): AssistantModel {
     maxOutputTokens: num(r.max_output_tokens),
     reasoning: reasoningValue(r.reasoning),
     contextTokens: num(r.context_tokens),
+    // Null here is "nobody has said", not the reader's "inherit the account's ceiling" that the two fields
+    // above it mean; the editor's ladder and its warning are the only things that read them.
+    vendorContextTokens: num(r.vendor_context_tokens),
+    vendorMaxOutputTokens: num(r.vendor_max_output_tokens),
     vision: r.vision === null ? true : bool(r.vision),
     purpose: pickEnum(r.purpose, ASSISTANT_MODEL_PURPOSES, 'chat'),
     kind: pickEnum(r.kind, ASSISTANT_MODEL_KINDS, 'text'),

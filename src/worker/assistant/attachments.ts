@@ -92,6 +92,14 @@ export function modalityOf(mime: string, filename: string): AssistantModelModali
   return null
 }
 
+/**
+ * The model-facing block for every file one turn carries, plus the pictures that travel with it.
+ *
+ * What a file costs this turn is decided here, against one character budget shared by text files and by
+ * documents the browser read out — and a file whose words did not fit is named in the block rather than
+ * left silent, because a model reading a turn where an attachment simply says nothing has no way to find
+ * out that anything is missing.
+ */
 export async function expandChatAttachments(
   store: AssistantStore,
   env: Env,
@@ -114,11 +122,15 @@ export async function expandChatAttachments(
   const images: { mime: string, dataUrl: string }[] = []
   const lines: string[] = []
   let used = 0
+  // How many files had words that this turn's budget could not hold. Named in the block, because a model
+  // reading a turn whose fourth attachment is simply silent has no way to find out that it is missing.
+  let leftOut = 0
   // One place spends the per-turn budget, so a text file and a document the browser read are held to the
   // same ceiling and the same "first N characters" honesty.
   const pushText = (header: string, text: string, source: string): void => {
     const room = Math.max(0, Math.min(CHAT_FILE_CHAR_CAP, CHAT_TOTAL_CHAR_CAP - used))
     if (!room) {
+      leftOut++
       lines.push(`${header} (this turn's attachment budget is full; contents not read)`)
       return
     }
@@ -186,5 +198,12 @@ export async function expandChatAttachments(
     }
     pushText(header, new TextDecoder().decode(bytes), '')
   }
-  return { block: lines.join('\n\n'), images }
+  // Said once, after every file has been named: a turn whose remaining attachments go quiet looks like
+  // empty documents rather than like a turn the budget ran out on, and the model cannot ask about a
+  // difference it was never shown.
+  const shortfall = leftOut
+    ? `\n\n${ATTACHMENT_MARKER}: text from ${leftOut} of the ${ids.length} attached files was left out of this turn — `
+      + `its ${CHAT_TOTAL_CHAR_CAP}-character attachment budget was already spent on the files above]`
+    : ''
+  return { block: `${lines.join('\n\n')}${shortfall}`, images }
 }

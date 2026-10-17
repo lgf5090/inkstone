@@ -2542,6 +2542,11 @@ assistantRoutes.post('/models', async (c) => {
     maxOutputTokens: clampTokens(body.maxOutputTokens, 64, MAX_TOKEN_CEILING),
     reasoning: reasoningValue(body.reasoning),
     contextTokens: contextBudgetValue(body.contextTokens),
+    // What the vendor's listing said, carried in from the picker so a synced row knows its own limits
+    // rather than only what a bundled table guesses about its name. Null means unstated, which is not the
+    // same as zero and must never be rounded up into a ceiling.
+    vendorContextTokens: clampTokens(body.vendorContextTokens, 1, MAX_TOKEN_CEILING),
+    vendorMaxOutputTokens: clampTokens(body.vendorMaxOutputTokens, 1, MAX_TOKEN_CEILING),
     vision: body.vision === undefined ? true : Boolean(body.vision),
     protocol: pickValue(body.protocol, ASSISTANT_PROTOCOLS) ?? null,
   })
