@@ -5,11 +5,12 @@
  * shows only whether a key is stored — because a key that comes back to the browser can be read by any
  * extension, any XSS, and any screenshot, and the assistant has no need of it on this side.
  */
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { t } from '../../lib/i18n'
 import { Spinner } from '../../components/primitives'
 import { Segmented } from '../../components/form'
 import { useAssistant } from './assistant-store'
+import { LoadFailure } from './assistant-settings-shared'
 import { ModelTab } from './AssistantModelTab'
 import { McpTab } from './AssistantMcpTab'
 import { BehaviourTab } from './AssistantBehaviourTab'
@@ -24,12 +25,32 @@ export function AssistantSettingsView() {
   const settings = useAssistant((state) => state.settings)
   const loadSettings = useAssistant((state) => state.loadSettings)
   const [tab, setTab] = useState<Tab>('model')
+  const [refused, setRefused] = useState(false)
 
-  useEffect(() => {
-    void loadSettings()
+  /**
+   * A load that was refused has to be named, because the store cannot tell one from a load in flight:
+   * `loadSettings` reports through a toast and leaves `settings` empty, and empty is exactly what the
+   * spinner branch renders — so the reader watched a spinner for a reply that was never coming. The route
+   * answers a successful load with settings, so still-empty once the await settles *is* the refusal.
+   */
+  const load = useCallback(async () => {
+    setRefused(false)
+    await loadSettings()
+    setRefused(useAssistant.getState().settings === null)
   }, [loadSettings])
 
+  useEffect(() => {
+    void load()
+  }, [load])
+
   if (!settings) {
+    if (refused) {
+      return (
+        <div className="mx-auto flex w-full max-w-[720px] px-4 py-5 md:px-8">
+          <LoadFailure messageKey="assistant.settings.load_failed" onRetry={() => void load()} />
+        </div>
+      )
+    }
     return (
       <div className="flex h-full items-center justify-center">
         <Spinner />

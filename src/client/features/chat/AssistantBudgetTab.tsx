@@ -1,7 +1,7 @@
 /**
  * The budget tab: the ceilings one request may spend, and what a turn is allowed to cost.
  */
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { type AssistantLimits, type AssistantModel, type AssistantSettings } from '@shared/assistant'
 import { CONTEXT_WINDOW_STEPS, LIMIT_RANGES, TOKEN_STEPS } from '@shared/assistant'
 import { t, type MessageKey } from '../../lib/i18n'
@@ -9,7 +9,7 @@ import { api } from '../../lib/api'
 import { Button, Spinner } from '../../components/primitives'
 import { Input, SettingRow, Slider } from '../../components/form'
 import { useAssistant } from './assistant-store'
-import { ChipRow, Group } from './assistant-settings-shared'
+import { ChipRow, Group, LoadFailure } from './assistant-settings-shared'
 
 // The three ceilings a model may leave unset, in the order the model editor draws them, then the ones
 // that shape a turn. Each of the three answers for a model that has not set its own, which is what makes
@@ -43,22 +43,41 @@ export function BudgetTab({ settings }: { settings: AssistantSettings }) {
   const [limits, setLimits] = useState<AssistantLimits>(settings.limits)
   const [temperature, setTemperature] = useState(settings.temperature)
   const [usage, setUsage] = useState<{ today: Record<string, number>, last7Days: Record<string, number> } | null>(null)
+  /**
+   * Whether the usage request was refused. `usage` null is what the in-flight branch renders, so without
+   * this a failed read and a pending one are the same picture — the spinner the reader never stops watching.
+   */
+  const [refused, setRefused] = useState(false)
   const dirty = useMemo(
     () => JSON.stringify(limits) !== JSON.stringify(settings.limits) || temperature !== settings.temperature,
     [limits, settings.limits, temperature],
   )
 
-  useEffect(() => {
+  const loadUsage = useCallback(() => {
+    setRefused(false)
     void api.assistant.usage().then((result) => {
       setUsage({ today: result.today as unknown as Record<string, number>, last7Days: result.last7Days as unknown as Record<string, number> })
-    }).catch(() => setUsage(null))
+    }).catch(() => {
+      setUsage(null)
+      setRefused(true)
+    })
   }, [])
+
+  useEffect(() => {
+    loadUsage()
+  }, [loadUsage])
 
   return (
     <>
       <Group title={t('assistant.settings.usage')}>
         {!usage ? (
-          <div className="flex justify-center py-4"><Spinner /></div>
+          refused ? (
+            <div className="py-3">
+              <LoadFailure messageKey="assistant.settings.usage_failed" onRetry={loadUsage} />
+            </div>
+          ) : (
+            <div className="flex justify-center py-4"><Spinner /></div>
+          )
         ) : (
           <div className="grid grid-cols-2 gap-2 py-3 md:grid-cols-4">
             {[

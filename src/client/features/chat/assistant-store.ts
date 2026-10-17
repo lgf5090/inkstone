@@ -197,6 +197,14 @@ interface AssistantState {
   messages: AssistantMessage[]
   messagesReady: boolean
   /**
+   * Why the open thread could not be read, and null while nothing is outstanding.
+   *
+   * `messagesReady` alone cannot tell a refused thread from an empty one, and the reader's own history
+   * disappearing into the "say something to start" screen is the worse failure: it looks like their
+   * conversation is gone. The view draws this instead of that screen.
+   */
+  messagesError: string | null
+  /**
    * The page boundary above the oldest message on screen, and whether there is more above it.
    *
    * A thread is read from its end. The turns above the first page are fetched when the reader scrolls
@@ -681,6 +689,7 @@ async function adoptThread(conversationId: string, turn: LiveTurn | null): Promi
     useAssistant.setState({
       messages: fillStoppedAnswer(mergeThreadPage(useAssistant.getState().messages, detail.messages), turn),
       messagesReady: true,
+      messagesError: null,
       // Merged rather than replaced: the rows this turn already had are still the reader's, and a
       // picture the assistant drew is a row the thread has never seen before this read.
       fileIndex: { ...useAssistant.getState().fileIndex, ...Object.fromEntries((detail.attachments ?? []).map((entry) => [entry.id, entry])) },
@@ -771,6 +780,7 @@ async function pollRemoteStream(watch: RemoteWatch): Promise<void> {
     useAssistant.setState((current) => ({
       messages: mergeThreadPage(current.messages, detail.messages),
       messagesReady: true,
+      messagesError: null,
       remoteStreaming: false,
       fileIndex: { ...current.fileIndex, ...Object.fromEntries((detail.attachments ?? []).map((entry) => [entry.id, entry])) },
     }))
@@ -956,6 +966,7 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
   activeId: null,
   messages: [],
   messagesReady: false,
+  messagesError: null,
   messagesBefore: null,
   messagesHasMore: false,
   messagesLoadingMore: false,
@@ -1554,9 +1565,9 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
     const focus = options?.focusMessageId ?? null
     // A muted chip is this thread's correction, not a setting: the next thread starts from the pointer.
     // The panel starts closed on every thread and shows no draft until that thread's own read lands.
-    set({ activeId: id, messages: [], messagesReady: false, remoteStreaming: false, noteContextOn: true, folderContextOn: true, artifacts: [], artifactsReady: false, canvasOpen: false, activeArtifactId: null, ephemeral: false, messagesBefore: null, messagesHasMore: false, messagesLoadingMore: false, messagesHasNewer: false, focusMessageId: focus })
+    set({ activeId: id, messages: [], messagesReady: false, messagesError: null, remoteStreaming: false, noteContextOn: true, folderContextOn: true, artifacts: [], artifactsReady: false, canvasOpen: false, activeArtifactId: null, ephemeral: false, messagesBefore: null, messagesHasMore: false, messagesLoadingMore: false, messagesHasNewer: false, focusMessageId: focus })
     if (!id) {
-      set({ messagesReady: true, artifactsReady: true })
+      set({ messagesReady: true, messagesError: null, artifactsReady: true })
       return
     }
     void get().loadArtifacts()
@@ -1574,6 +1585,7 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
         messages: detail.messages,
         fileIndex: Object.fromEntries((detail.attachments ?? []).map((entry) => [entry.id, entry])),
         messagesReady: true,
+        messagesError: null,
         messagesBefore: detail.nextBefore,
         messagesHasMore: detail.hasMore === true,
         messagesHasNewer: detail.hasNewer === true,
@@ -1584,7 +1596,7 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
       if (remote) watchRemoteStream(id)
     } catch (error) {
       if (get().activeId !== id) return
-      set({ messagesReady: true })
+      set({ messagesReady: true, messagesError: t('assistant.chat.load_failed') })
       toast(error)
     }
   },
@@ -1628,7 +1640,7 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
     // The pins go with the thread they were added to. They are "this turn's" by definition — the row the
     // composer draws is the record of what this question was asked about — so a new conversation that
     // inherited them would answer a question nobody asked, in a folder nobody named.
-    set({ activeId: null, messages: [], messagesReady: true, remoteStreaming: false, turn: null, noteContextOn: true, folderContextOn: true, artifacts: [], artifactsReady: true, canvasOpen: false, activeArtifactId: null, ephemeral: false, turnTools: [], turnScopes: [] })
+    set({ activeId: null, messages: [], messagesReady: true, messagesError: null, remoteStreaming: false, turn: null, noteContextOn: true, folderContextOn: true, artifacts: [], artifactsReady: true, canvasOpen: false, activeArtifactId: null, ephemeral: false, turnTools: [], turnScopes: [] })
   },
 
   /**
@@ -1641,7 +1653,7 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
     const live = get().turn
     if (live && !live.done) return
     stopRemoteStreamWatch()
-    set({ activeId: null, messages: [], messagesReady: true, remoteStreaming: false, turn: null, noteContextOn: true, folderContextOn: true, artifacts: [], artifactsReady: true, canvasOpen: false, activeArtifactId: null, ephemeral: true })
+    set({ activeId: null, messages: [], messagesReady: true, messagesError: null, remoteStreaming: false, turn: null, noteContextOn: true, folderContextOn: true, artifacts: [], artifactsReady: true, canvasOpen: false, activeArtifactId: null, ephemeral: true })
   },
 
   attachFiles: async (files) => {

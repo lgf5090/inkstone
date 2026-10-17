@@ -19,13 +19,13 @@ import type { AssistantArtifact } from '@shared/assistant'
 import { DEBOUNCE } from '@shared/constants'
 import { cn } from '../../lib/cn'
 import { t } from '../../lib/i18n'
-import { useDebounced } from '../../lib/hooks'
+import { useDebounced, useMediaQuery } from '../../lib/hooks'
 import { COPY_RESET_MS } from '../../lib/motion'
 import { relativeTime } from '../../lib/time'
 import { api } from '../../lib/api'
 import { Button, IconButton, Spinner } from '../../components/primitives'
 import { Input } from '../../components/form'
-import { confirm } from '../../components/overlay'
+import { Drawer, confirm } from '../../components/overlay'
 import { DeferredCodeEditor } from '../../editor/CodeEditor'
 import { useNotes } from '../../store/notes'
 import { useSession } from '../../store/session'
@@ -44,6 +44,19 @@ import { loadLinkedNote, pullFromNote, pushToNote } from './canvas-sync'
  */
 const COMPLETION_LIMIT = 300
 
+/**
+ * The width the panel docks beside the thread at — Tailwind's own `md`.
+ *
+ * UI2-03: below it, `w-[min(420px,42vw)]` is not a proportion of anything worth keeping. On a 390px phone
+ * the canvas took 164px and the conversation was left with 226px, which is a thread you read in two
+ * swipes. So the same content is handed to the drawer the notebook's outline already uses: full-height,
+ * dismissed by Escape or its backdrop, and it takes no room from the thread at all.
+ */
+const DOCK_QUERY = '(min-width: 768px)'
+
+/** The dock's own ceiling, reused as the drawer's width so neither is wider than the panel was. */
+const CANVAS_MAX_WIDTH = 420
+
 export function CanvasPanel() {
   const artifacts = useAssistant((state) => state.artifacts)
   const ready = useAssistant((state) => state.artifactsReady)
@@ -52,13 +65,12 @@ export function CanvasPanel() {
   const select = useAssistant((state) => state.selectArtifact)
   const save = useAssistant((state) => state.saveArtifact)
   const remove = useAssistant((state) => state.removeArtifact)
+  const docked = useMediaQuery(DOCK_QUERY)
   const active = useMemo(() => artifacts.find((entry) => entry.id === activeId) ?? null, [artifacts, activeId])
 
-  return (
-    <aside
-      aria-label={t('assistant.canvas.title')}
-      className="flex h-full w-[min(420px,42vw)] shrink-0 flex-col border-l border-[var(--border-subtle)] bg-[var(--bg-sunken)]"
-    >
+  const label = t('assistant.canvas.title')
+  const body = (
+    <>
       <div className="flex h-9 shrink-0 items-center gap-1 border-b border-[var(--border-subtle)] px-2">
         {active ? (
           <IconButton label={t('assistant.canvas.back')} size="sm" onClick={() => select(null)}>
@@ -77,6 +89,25 @@ export function CanvasPanel() {
       {active
         ? <ArtifactEditor key={active.id} artifact={active} onSave={save} onRemove={remove} />
         : <ArtifactList artifacts={artifacts} ready={ready} onSelect={select} />}
+    </>
+  )
+
+  // The chat mounts this panel only while `canvasOpen` holds, so closing the drawer *is* clearing the flag:
+  // the panel unmounts with it, and the drawer's own trap returns the focus to the toggle that opened it.
+  if (!docked) {
+    return (
+      <Drawer open onClose={() => setOpen(false)} side="right" width={CANVAS_MAX_WIDTH} ariaLabel={label}>
+        <div className="flex h-full min-h-0 flex-1 flex-col">{body}</div>
+      </Drawer>
+    )
+  }
+
+  return (
+    <aside
+      aria-label={label}
+      className="flex h-full w-[min(420px,42vw)] shrink-0 flex-col border-l border-[var(--border-subtle)] bg-[var(--bg-sunken)]"
+    >
+      {body}
     </aside>
   )
 }

@@ -715,6 +715,36 @@
 }
 .mobile-bottom-nav [aria-current='page'] { font-weight: 600; }
 .mobile-bottom-nav [aria-current='page'] .mobile-tab-content { background: var(--accent-soft); }
+/* UI2-02. The chat bar carries seven surfaces, so it cannot inherit the notebook's 56px per-tab minimum:
+   7 × 56 plus the bar's own 24px of padding asks a 360px phone for 416px, and the outermost tabs are
+   clipped or overlap. These rules belong to that bar alone — `.mobile-tab-content` keeps the sizing the
+   notebook depends on. Here the minimum is the touch target rather than the label, and under the width
+   where seven labels no longer fit the tab shows only its icon: the name still reaches assistive tech
+   through the button's `aria-label`, and the header above keeps naming the surface that is open. The
+   radius is the notebook pill's own 10px, repeated rather than retokenised so the two bars match. */
+.chat-mobile-tab-content {
+  display: inline-flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 44px;
+  min-height: 48px;
+  padding: 4px 6px;
+  justify-content: center;
+  align-items: center;
+  border-radius: 10px;
+  transition: background-color var(--dur-base) var(--ease-out);
+}
+.chat-mobile-tab-label {
+  display: block;
+  max-width: 100%;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+@media (max-width: 429px) {
+  .chat-mobile-tab-label { display: none; }
+}
+.mobile-bottom-nav [aria-current='page'] .chat-mobile-tab-content { background: var(--accent-soft); }
 @media (max-height: 500px) {
   .mobile-note-list > header { padding-top: 8px; }
   .mobile-library-brand { display: none; }

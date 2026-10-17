@@ -38,8 +38,9 @@ const VIEW_ICONS: Record<AssistantView, typeof MessageSquare> = {
 }
 
 /**
- * The bottom bar fits four Han characters per tab on a 360px phone, so the settings tab carries its
- * short name there; the rail and the header keep the full one.
+ * The seven names as the bottom bar has to wear them: short enough that a tab's label still reads at the
+ * width where labels are drawn at all, so the settings tab takes its common name rather than the full one.
+ * The rail and the header keep the long name.
  */
 const VIEW_TAB_LABELS: Record<AssistantView, MessageKey> = {
   chat: 'assistant.view.chat',
@@ -151,6 +152,12 @@ export function ChatApp() {
           {view === 'settings' && <AssistantSettingsView />}
         </div>
 
+        {/* UI2-02: all seven surfaces stay one tap away, rather than four with a "More" door. The bar is
+            always on screen, so a door would add a second gesture and an overlay to keep the focus honest
+            just to reach tabs that already fit — 7 × 44px of touch target plus the bar's 24px of padding is
+            332px, inside a 360px phone. What had to go was the notebook's 56px per-tab content minimum
+            (7 × 56 + 24 = 416px), so the tabs use the chat's own scoped class, which drops the label under
+            the width where seven no longer fit while `aria-label` and the header keep naming each surface. */}
         <nav
           aria-label={t('assistant.app.navigation')}
           className="mobile-bottom-nav flex h-[calc(64px+env(safe-area-inset-bottom))] shrink-0 items-stretch justify-around border-t border-[var(--border-subtle)] bg-[var(--bg-surface)] pb-[env(safe-area-inset-bottom)] md:hidden"
@@ -170,7 +177,7 @@ export function ChatApp() {
                   entry === view ? 'text-[var(--accent)]' : 'text-[var(--text-tertiary)]',
                 )}
               >
-                <span className="mobile-tab-content"><Icon size={17} /><span>{label}</span></span>
+                <span className="chat-mobile-tab-content"><Icon size={17} /><span className="chat-mobile-tab-label">{label}</span></span>
               </button>
             )
           })}

@@ -11,12 +11,12 @@
  * The real editor is CodeMirror and is not what this file is about; a textarea stands in for it so the
  * panel's own wiring is what is exercised.
  */
-import { act, createElement } from 'react'
+import { act, createElement, Fragment } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { DEBOUNCE } from '@shared/constants'
 import { initI18n, t } from '../../lib/i18n'
-import { installTestGlobals } from '../../lib/test-render'
+import { installTestGlobals, stubBreakpoint } from '../../lib/test-render'
 import { CanvasPanel } from './CanvasPanel'
 import { messageMenuItems } from './MessageMenu'
 import { useAssistant } from './assistant-store'
@@ -65,6 +65,36 @@ async function show(state: Partial<ReturnType<typeof useAssistant.getState>>): P
   await act(async () => { root.render(createElement(CanvasPanel)) })
 }
 
+/**
+ * Mounts the panel the way the chat mounts it: behind the composer's toggle, and only while a thread is
+ * open. The toggle is what a closed drawer has to hand the focus back to, so it has to exist.
+ */
+function Harness() {
+  const open = useAssistant((state) => state.canvasOpen)
+  const setOpen = useAssistant((state) => state.setCanvasOpen)
+  return createElement(Fragment, null,
+    createElement('button', { type: 'button', 'data-canvas-toggle': '1', onClick: () => setOpen(!open) }, 'canvas'),
+    open && useAssistant.getState().activeId ? createElement(CanvasPanel) : null)
+}
+
+async function showAt(breakpoint: 'phone' | 'wide'): Promise<void> {
+  stubBreakpoint(breakpoint === 'wide')
+  useAssistant.setState({ ...original, activeId: 'c1', artifacts: [], artifactsReady: true, activeArtifactId: null, canvasOpen: false })
+  await act(async () => { root.render(createElement(Harness)) })
+}
+
+async function openDrawer(trigger: HTMLElement): Promise<void> {
+  trigger.focus()
+  await act(async () => { useAssistant.setState({ canvasOpen: true }) })
+}
+
+const drawer = () => document.body.querySelector<HTMLElement>('[data-surface="drawer"]')
+
+/** Presses Escape the way the browser does, on the window the overlay listens to. */
+function pressEscape(): void {
+  act(() => { window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })) })
+}
+
 /** Types into a controlled input the way a browser does, which is the only way React sees a keystroke. */
 function type(node: HTMLInputElement, value: string): void {
   const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value')!.set!
@@ -89,6 +119,7 @@ afterEach(() => {
   useAssistant.setState(original, true)
   vi.clearAllMocks()
   vi.useRealTimers()
+  vi.unstubAllGlobals()
 })
 
 describe('the canvas panel', () => {
@@ -127,6 +158,69 @@ describe('the canvas panel', () => {
     expect(useAssistant.getState().artifacts).toEqual([])
     expect(useAssistant.getState().activeArtifactId).toBeNull()
     expect(document.body.textContent).toContain(t('assistant.canvas.empty'))
+  })
+})
+
+/**
+ * The panel at each end of the breakpoint.
+ *
+ * jsdom has no layout engine, so this asserts on roles and classes rather than on measured widths: what
+ * `w-[min(420px,42vw)]` costs a 390px phone is arithmetic, and the defect is that the panel asked for that
+ * arithmetic to hold. What can be proven here is which container the panel renders into, and that the phone
+ * container behaves like the modal it has to be — focus in on open, focus back on close, Escape and the
+ * backdrop both close it.
+ */
+describe('the canvas beside the thread on a wide window', () => {
+  it('is the dock it always was', async () => {
+    await showAt('wide')
+    await openDrawer(document.querySelector<HTMLElement>('[data-canvas-toggle]')!)
+    expect(drawer(), 'a wide window should not get a drawer').toBeNull()
+    const dock = [...document.querySelectorAll<HTMLElement>('aside')].find((node) => node.className.includes('42vw'))
+    expect(dock, 'the panel no longer docks beside the thread').toBeTruthy()
+  })
+})
+
+describe('the canvas on a phone', () => {
+  it('opens as a modal drawer instead of taking 42vw off the thread', async () => {
+    await showAt('phone')
+    await openDrawer(document.querySelector<HTMLElement>('[data-canvas-toggle]')!)
+    const panel = drawer()
+    expect(panel, 'the panel is not in a drawer').toBeTruthy()
+    expect(panel!.getAttribute('role')).toBe('dialog')
+    expect(panel!.getAttribute('aria-modal')).toBe('true')
+    expect(panel!.getAttribute('aria-label')).toBe(t('assistant.canvas.title'))
+    // The dock's viewport-relative width belongs to the wide layout only.
+    expect([...document.querySelectorAll<HTMLElement>('aside')].some((node) => node.className.includes('42vw'))).toBe(false)
+    // And the thread's own toggle is not left holding the focus.
+    expect(document.activeElement?.closest('[data-surface="drawer"]')).toBe(panel)
+  })
+
+  it('gives the focus back to the toggle when Escape closes it', async () => {
+    await showAt('phone')
+    const trigger = document.querySelector<HTMLElement>('[data-canvas-toggle]')!
+    await openDrawer(trigger)
+    pressEscape()
+    expect(useAssistant.getState().canvasOpen).toBe(false)
+    expect(drawer()).toBeNull()
+    expect(document.activeElement).toBe(trigger)
+  })
+
+  it('closes on the backdrop, and returns the focus with it', async () => {
+    await showAt('phone')
+    const trigger = document.querySelector<HTMLElement>('[data-canvas-toggle]')!
+    await openDrawer(trigger)
+    const scrim = [...document.body.querySelectorAll<HTMLElement>('div')].find((node) => node.className.includes('scrim'))
+    expect(scrim, 'the drawer has no backdrop').toBeTruthy()
+    act(() => { scrim!.click() })
+    expect(useAssistant.getState().canvasOpen).toBe(false)
+    expect(drawer()).toBeNull()
+    expect(document.activeElement).toBe(trigger)
+  })
+
+  it('still lists the drafts inside the drawer', async () => {
+    await showAt('phone')
+    await openDrawer(document.querySelector<HTMLElement>('[data-canvas-toggle]')!)
+    expect(drawer()!.textContent).toContain(t('assistant.canvas.empty'))
   })
 })
 

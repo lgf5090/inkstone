@@ -11,7 +11,37 @@ import { TriangleAlert } from 'lucide-react'
 import { formatTokenStep, REASONING_DIALECTS, type AssistantProvider, type ReasoningDialect } from '@shared/assistant'
 import { cn } from '../../lib/cn'
 import { t, type MessageKey } from '../../lib/i18n'
+import { Button } from '../../components/primitives'
 import type { WriteFailure } from './assistant-store'
+
+/**
+ * What a screen says when the request behind it was refused, instead of going on spinning.
+ *
+ * A failure that renders as a spinner is worse than no message at all: the reader waits for an answer that
+ * is never coming, and a failure that renders as emptiness teaches them their history is gone. This is the
+ * block the settings screens already drew inline — named thing, what the route said, one retry that asks
+ * again — so a fourth screen does not invent a fifth shape. The headline comes as a key rather than as
+ * translated text, because the message has to follow the reader's language after they switch it.
+ */
+export function LoadFailure({ messageKey, detail, onRetry }: {
+  messageKey: MessageKey
+  /** What the request itself reported, when the caller has it. The server's own English, so never the headline. */
+  detail?: string | null
+  onRetry: () => void
+}) {
+  return (
+    <div role="alert" className="flex items-start gap-2 rounded-[var(--r-md)] border border-[color-mix(in_oklab,var(--danger)_25%,var(--border-subtle))] bg-[var(--bg-base)] px-3 py-3">
+      <TriangleAlert size={14} className="mt-0.5 shrink-0 text-[var(--danger)]" />
+      <div className="min-w-0 flex-1">
+        <p className="text-[length:var(--text-12-5)] font-medium text-[var(--text-primary)]">{t(messageKey)}</p>
+        {detail && (
+          <p className="mt-0.5 break-words text-[length:var(--text-11-5)] text-[var(--text-tertiary)]">{detail}</p>
+        )}
+      </div>
+      <Button size="sm" variant="secondary" onClick={onRetry}>{t('common.retry')}</Button>
+    </div>
+  )
+}
 
 /**
  * The refusal a form prints above its own buttons, in place of the toast it used to get.

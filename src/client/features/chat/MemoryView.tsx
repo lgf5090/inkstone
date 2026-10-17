@@ -19,6 +19,7 @@ import { Field, Input, Segmented, Select, Textarea } from '../../components/form
 import { Modal, confirm } from '../../components/overlay'
 import { Empty } from '../../components/feedback'
 import { AssistantHeader } from './AssistantHeader'
+import { LoadFailure } from './assistant-settings-shared'
 import { useAssistant } from './assistant-store'
 import { useNotes } from '../../store/notes'
 import { navigateToPath } from '../../lib/app-history'
@@ -382,21 +383,39 @@ function CorrectDialog({ memory, onClose }: { memory: AssistantMemory | null, on
 
 function HistoryDialog({ memory, onClose }: { memory: AssistantMemory | null, onClose: () => void }) {
   const [data, setData] = useState<{ previous: AssistantMemory[], next: AssistantMemory[] } | null>(null)
+  /**
+   * The earlier page was refused. Kept apart from an empty page on purpose: the failure used to resolve to
+   * `{ previous: [] }`, which this dialog then read out as "no earlier versions" — a sentence that tells a
+   * reader their history is gone because one request failed.
+   */
+  const [refused, setRefused] = useState(false)
+  /** Bumped by the refusal's own retry, so the request runs again through the guard below. */
+  const [attempt, setAttempt] = useState(0)
+
   useEffect(() => {
     if (!memory) {
       setData(null)
+      setRefused(false)
       return
     }
     let cancelled = false
+    setRefused(false)
     void api.assistant.memoryHistory(memory.id).then((result) => {
       if (!cancelled) setData({ previous: result.previous, next: result.next })
     }).catch(() => {
-      if (!cancelled) setData({ previous: [], next: [] })
+      if (cancelled) return
+      setData({ previous: [], next: [] })
+      setRefused(true)
     })
     return () => {
       cancelled = true
     }
-  }, [memory])
+  }, [memory, attempt])
+
+  const retry = () => {
+    setData(null)
+    setAttempt((current) => current + 1)
+  }
 
   return (
     <Modal open={!!memory} onClose={onClose} title={t('assistant.memory.history')} width={460}>
@@ -410,7 +429,9 @@ function HistoryDialog({ memory, onClose }: { memory: AssistantMemory | null, on
             </p>
             <p className="mt-1 leading-relaxed text-[var(--text-primary)]">{memory?.content}</p>
           </div>
-          {data.previous.length === 0 ? (
+          {refused ? (
+            <LoadFailure messageKey="assistant.memory.history_failed" onRetry={retry} />
+          ) : data.previous.length === 0 ? (
             <p className="text-[var(--text-quaternary)]">{t('assistant.memory.no_earlier')}</p>
           ) : (
             <div>

@@ -18,6 +18,7 @@ import { cn } from '../../lib/cn'
 import { t } from '../../lib/i18n'
 import { COPY_RESET_MS } from '../../lib/motion'
 import { dayKey, formatDay, formatInZone } from './time-format'
+import { LoadFailure } from './assistant-settings-shared'
 import { isImeComposing } from '../../lib/ime'
 import { relativeTime } from '../../lib/time'
 import { useDebouncedDraft } from '../../lib/hooks'
@@ -156,6 +157,7 @@ export function ChatView() {
   const activeId = useAssistant((state) => state.activeId)
   const messages = useAssistant((state) => state.messages)
   const messagesReady = useAssistant((state) => state.messagesReady)
+  const messagesError = useAssistant((state) => state.messagesError)
   // The uploads the composer just accepted are already indexed; the turn's chips read from there.
   const fileIndexForTurn = useAssistant((state) => state.fileIndex)
   const turn = useAssistant((state) => state.turn)
@@ -445,6 +447,12 @@ export function ChatView() {
                 void send(text)
               }}
             />
+          ) : messagesError ? (
+            // A refused thread is not an empty one. Falling through would show the reader their own
+            // conversation as a blank page inviting them to start talking.
+            <div className="px-4 py-16">
+              <LoadFailure messageKey="assistant.chat.load_failed" onRetry={() => { if (activeId) void openConversation(activeId) }} />
+            </div>
           ) : !messagesReady && !turnHere ? (
             <div className="flex justify-center py-16">
               <Spinner />
