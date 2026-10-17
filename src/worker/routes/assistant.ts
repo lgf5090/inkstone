@@ -90,7 +90,7 @@ import { isExternalToolName, listMcpCatalog, loadExternalTools } from '../assist
 import { deleteMcpOAuthClient, finishMcpAuthorization, startMcpAuthorization, withMcpOAuthHeaders } from '../assistant/mcp-oauth'
 import { isValidId } from '../lib/id'
 import { isInlineSafe } from '../lib/image'
-import { AssistantStore, dayBefore, usageDay, type ConversationCursor } from '../assistant/store'
+import { AssistantStore, dayBefore, type ConversationCursor } from '../assistant/store'
 import { MemoryHistoryService } from '../assistant/memory-service'
 import { AutomationService } from '../assistant/automations'
 import { AssistantRunner } from '../assistant/runner'
@@ -1329,8 +1329,14 @@ assistantRoutes.post('/chat', async (c) => {
   const run = async () => {
     try {
       if (settings.offlineMode) {
-        // The id comes back so the claim taken below is the one released at the end of the turn.
-        claimed = (await offlineTurn(s, runner, claimed || null, message, send, scopes)) ?? claimed
+        // The offline answer makes its own conversation and claims it, so the claim it took comes back
+        // with the id: released at the end of the turn under that token, it cannot delete a claim a second
+        // tab has since taken on the thread it just made.
+        const offline = await offlineTurn(s, runner, claimed || null, message, send, scopes)
+        if (offline) {
+          claimed = offline.conversationId
+          if (offline.runToken !== null) claimedToken = offline.runToken
+        }
         return
       }
       for await (const event of runner.chat({
@@ -1393,6 +1399,10 @@ assistantRoutes.post('/chat', async (c) => {
  *
  * It writes the same two messages and emits the same events, so the client needs no second code path
  * and a reader can tell the difference from the reply's own words rather than from a special case.
+ *
+ * The claim is answered with its token: a conversation this turn made is claimed here, and the caller
+ * releases it at the end of the turn. An existing conversation was claimed by the route, whose token it
+ * already holds, so `runToken` comes back null and nothing new is reported.
  */
 async function offlineTurn(
   s: AssistantStore,
@@ -1402,7 +1412,7 @@ async function offlineTurn(
   send: (payload: unknown) => boolean,
   /** The pins the turn was asked under: an offline turn is still a turn, and the transcript says so. */
   scopes: AssistantTurnScope[] = [],
-): Promise<string | null> {
+): Promise<{ conversationId: string, runToken: number | null } | null> {
   const content = message.trim().slice(0, MAX_MESSAGE_CHARS)
   if (!content) {
     await send({ type: 'error', code: 'bad_request', message: 'Write something first.' })
@@ -1415,12 +1425,23 @@ async function offlineTurn(
     await send({ type: 'error', code: 'not_found', message: 'Conversation not found' })
     return null
   }
-  if (!conversationId) await s.claimRun(conversation.id)
+  let runToken: number | null = null
+  if (!conversationId) {
+    runToken = await s.claimRun(conversation.id)
+    if (runToken === null) {
+      // A second offline turn that learned this brand-new id first owns the thread; the same refusal the
+      // streamed path gives, for the same reason.
+      await send({ type: 'error', code: 'conflict', message: 'A reply is already being generated in this conversation.' })
+      return null
+    }
+  }
   const reply = await runner.offlineTurn(conversation.id, content, scopes)
-  await send({ type: 'start', conversationId: conversation.id, assistantMessageId: reply.id })
+  // The token goes out with the start event exactly as the streamed path sends it: the reader who stops
+  // this turn is stopping the claim named here, and no other.
+  await send({ type: 'start', conversationId: conversation.id, assistantMessageId: reply.id, ...(runToken === null ? {} : { runToken }) })
   await send({ type: 'text', delta: reply.content })
   await send({ type: 'done', finalMessage: reply })
-  return conversation.id
+  return { conversationId: conversation.id, runToken }
 }
 
 /**
@@ -1429,14 +1450,34 @@ async function offlineTurn(
  * The upstream call itself is cancelled by the reader's own disconnect; this exists so the conversation
  * unlocks immediately instead of waiting for the lease to expire, and so another device watching the
  * same conversation sees it stop.
+ *
+ * A stop names the turn it is stopping with the token that turn claimed, and then releases only that
+ * claim. Without one this is the blunt unlock it has always been — which is what a remote turn, whose
+ * token never reached this tab, and a conversation being deleted actually need, and what must not be what
+ * a Stop button does to the turn that started a second after it.
  */
 assistantRoutes.post('/chat/cancel', async (c) => {
   const s = store(c)
-  const id = requiredId((await readJson<{ conversationId?: unknown }>(c, JSON_BODY_LIMITS.small)).conversationId)
+  const body = await readJson<{ conversationId?: unknown, runToken?: unknown }>(c, JSON_BODY_LIMITS.small)
+  const id = requiredId(body.conversationId)
   if (!(await s.getConversation(id))) throw ApiError.notFound('Conversation not found')
-  await s.releaseRun(id)
+  await s.releaseRun(id, optionalRunToken(body.runToken))
   return c.json({ cancelled: true })
 })
+
+/**
+ * The lease a caller names as the one it is letting go of, or nothing.
+ *
+ * A token is the `started_at` of a claim, so a value that is not one is not a claim being named: refused
+ * rather than treated as absent, because a mistyped token would silently turn a targeted stop back into
+ * the unlock that releases whatever turn the conversation is running.
+ */
+function optionalRunToken(value: unknown): number | undefined {
+  if (value === undefined || value === null) return undefined
+  const numeric = typeof value === 'number' || typeof value === 'string' ? Number(value) : Number.NaN
+  if (!Number.isSafeInteger(numeric) || numeric <= 0) throw ApiError.badRequest('The run token has to be the number the turn reported.')
+  return numeric
+}
 
 assistantRoutes.post('/actions/:id/approve', async (c) => {
   const s = store(c)
@@ -2373,7 +2414,11 @@ assistantRoutes.post('/models', async (c) => {
     providerId,
     model,
     label: optionalText(body.label, 60) ?? model,
-    temperature: typeof body.temperature === 'number' ? Math.min(1.5, Math.max(0, body.temperature)) : null,
+    // Absent or null is "no per-model sampling setting"; anything else has to be a number the field can
+    // hold, because a model created without one must not be refused.
+    temperature: body.temperature === undefined || body.temperature === null
+      ? null
+      : numberInRange(body.temperature, 0, 1.5),
     // The same range the patch above accepts: a model's own ceiling is not the account's, and the editor
     // offers presets well past 8192, so clamping here quietly stored something other than what was picked.
     maxOutputTokens: clampTokens(body.maxOutputTokens, 64, MAX_TOKEN_CEILING),
@@ -2390,6 +2435,19 @@ function clampTokens(value: unknown, min: number, max: number): number | null {
   if (value === null || value === undefined || value === '') return null
   const numeric = Math.trunc(Number(value))
   if (!Number.isFinite(numeric)) return null
+  return Math.min(max, Math.max(min, numeric))
+}
+
+/**
+ * A number the reader typed, answered inside the range the field can hold.
+ *
+ * The clamps on their own could not fail: `Number('abc')` is NaN, and NaN survives both `Math.min` and
+ * `Math.max`, so a sampling field the editor could not parse was stored as NaN and handed back to the
+ * provider as one. A value the field cannot mean is refused, named for the request that carried it.
+ */
+function numberInRange(value: unknown, min: number, max: number): number {
+  const numeric = typeof value === 'number' || typeof value === 'string' ? Number(value) : Number.NaN
+  if (!Number.isFinite(numeric)) throw ApiError.badRequest('A number is required for this field.')
   return Math.min(max, Math.max(min, numeric))
 }
 
@@ -2427,7 +2485,7 @@ assistantRoutes.patch('/models/:id', async (c) => {
     ...(body.label !== undefined ? { label: text(body.label, 60, 'A model name is required.') } : {}),
     ...(body.model !== undefined ? { model: text(body.model, 120).replace(/\s+/g, '') } : {}),
     ...(body.temperature !== undefined
-      ? { temperature: body.temperature === null ? null : Math.min(1.5, Math.max(0, Number(body.temperature))) }
+      ? { temperature: body.temperature === null ? null : numberInRange(body.temperature, 0, 1.5) }
       : {}),
     ...(body.maxOutputTokens !== undefined
       ? { maxOutputTokens: body.maxOutputTokens === null ? null : clampTokens(body.maxOutputTokens, 64, MAX_TOKEN_CEILING) }
@@ -2445,7 +2503,7 @@ assistantRoutes.patch('/models/:id', async (c) => {
     // whole set the reader had already picked.
     ...(Array.isArray(body.modalities) ? { modalities: parseModelModalities(body.modalities) } : {}),
     ...(body.topP !== undefined
-      ? { topP: body.topP === null ? null : Math.min(1, Math.max(0, Number(body.topP))) }
+      ? { topP: body.topP === null ? null : numberInRange(body.topP, 0, 1) }
       : {}),
     ...(body.customParams !== undefined ? { customParams: parseCustomParams(body.customParams) } : {}),
     ...(body.reasoning !== undefined ? { reasoning: reasoningValue(body.reasoning) } : {}),
@@ -2479,9 +2537,10 @@ assistantRoutes.delete('/models/:id', async (c) => {
 assistantRoutes.get('/usage', async (c) => {
   const s = store(c)
   const settings = await s.getSettings()
-  const day = new Date().toISOString().slice(0, 10)
-  const weekStart = new Date(Date.now() - 6 * 86_400_000).toISOString().slice(0, 10)
-  const [today, week] = await Promise.all([s.todayUsage(), s.usageRange(weekStart, day)])
+  // The reader's own day, which is the key the counters are filed under: a screen that named the server's
+  // day would quote a row the quota is not measured against.
+  const day = await s.currentUsageDay()
+  const [today, week] = await Promise.all([s.todayUsage(), s.usageRange(dayBefore(day, 6), day)])
   return c.json({ day, today, last7Days: week, limits: settings.limits })
 })
 
@@ -2501,7 +2560,7 @@ assistantRoutes.get('/stats', async (c) => {
   const settings = await s.getSettings()
   const asked = c.req.query('range')
   const range = asked === '30' ? 30 : asked === 'all' ? 0 : 7
-  const day = usageDay()
+  const day = await s.currentUsageDay()
   const from = range === 0 ? (await s.firstUsageDay()) ?? day : dayBefore(day, range - 1)
   // A day recorded before the by-model dimension existed has totals and no model rows, which reads as a
   // chart of zeros. The messages are the truth those totals came from, so the missing rows are rebuilt

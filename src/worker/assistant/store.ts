@@ -62,7 +62,8 @@ import {
   type MemoryReview,
   type PendingActionStatus,
 } from '@shared/assistant'
-import { parseScheduleSpec, type ScheduleSpec } from '@shared/assistant-schedule'
+import { parseScheduleSpec, zonedTimeToUtc, type ScheduleSpec } from '@shared/assistant-schedule'
+import { localDate } from '@shared/assistant-time'
 import { likePattern } from '@shared/markdown-utils'
 import type { Env } from '../env'
 import { tagScopePredicate } from '../db/rows'
@@ -73,8 +74,15 @@ import { decryptAssistantKey, decryptMcpOAuth, encryptAssistantKey, encryptMcpOA
 /** How long a reader has to approve a destructive proposal. */
 export const PENDING_ACTION_TTL_MS = 30 * 60 * 1000
 
-/** How long a chat turn may hold its conversation's lease before it counts as abandoned. */
-export const RUN_LEASE_MS = 3 * 60 * 1000
+/**
+ * How long a chat turn may hold its conversation's lease before it counts as abandoned.
+ *
+ * Judged against one step rather than one turn: a reasoning model can spend minutes writing a long answer
+ * before the lease is next touched, and a lease that ages out while a step is still streaming is a turn
+ * that has to be allowed to renew its way back in (`touchRun`). This number is the headroom over that,
+ * not the mechanism that keeps a live turn alive.
+ */
+export const RUN_LEASE_MS = 5 * 60 * 1000
 
 /** How long an automation may be claimed by a tick that never finished before another may take it. */
 export const AUTOMATION_CLAIM_MS = 10 * 60 * 1000
@@ -3498,19 +3506,45 @@ export class AssistantStore {
   // ------------------------------------------------------------------- usage
 
   /**
-   * Adds to today's counters.
+   * The reader's zone, resolved once per store.
+   *
+   * Every counter below is keyed by a calendar day, and a day only means something somewhere: the daily
+   * ceiling is read as "today", so the day it rolls over is the reader's, not the deployment's. Kept here
+   * rather than passed in by each caller because one writer using a different key than its readers is
+   * exactly the mistake — the split would be invisible until a quota emptied eight hours early.
+   */
+  private zoneRequested?: Promise<string>
+
+  /** The day the usage counters are keyed by: `YYYY-MM-DD` where the reader lives. */
+  async currentUsageDay(at = new Date()): Promise<string> {
+    return usageDay(at, await this.usageZone())
+  }
+
+  private async usageZone(): Promise<string> {
+    this.zoneRequested ??= this.getSettings().then((settings) => settings.timezone)
+    return await this.zoneRequested
+  }
+
+  /**
+   * Adds to the day's counters.
    *
    * The record the caller holds is camelCase, the column it lands in is not, so the name is looked up
    * rather than written into the SQL: an unmapped key is dropped instead of becoming a column reference
    * that fails the statement — and a failing statement here would mark a finished answer as an error.
+   *
+   * `chargeDay` false is for the one counter a caller has already spent in its own statement: the daily
+   * ceiling is enforced where the day's `requests` moves (`reserveRequests`), and charging it twice would
+   * read back double.
    */
   async incrementUsage(
     counters: Partial<UsageCounters>,
-    day = usageDay(),
+    day?: string,
     modelLabel = '',
     keyRef?: { providerId: string, providerLabel: string, keyId?: string, keyLabel?: string },
+    chargeDay = true,
   ): Promise<void> {
-    await this.write(`INSERT INTO chat_usage_daily (user_id, day) VALUES (?1, ?2) ON CONFLICT(user_id, day) DO NOTHING`, day)
+    const today = day ?? await this.currentUsageDay()
+    await this.write(`INSERT INTO chat_usage_daily (user_id, day) VALUES (?1, ?2) ON CONFLICT(user_id, day) DO NOTHING`, today)
     // The model row is opened before the counters are applied so the two are written the same way, and
     // only when a label was given: a scheduled embedding or a failed call belongs to the day's totals
     // without belonging to any model's.
@@ -3518,7 +3552,7 @@ export class AssistantStore {
       await this.write(
         `INSERT INTO chat_usage_daily_model (user_id, day, model_label) VALUES (?1, ?2, ?3)
          ON CONFLICT(user_id, day, model_label) DO NOTHING`,
-        day, modelLabel.slice(0, 120),
+        today, modelLabel.slice(0, 120),
       )
     }
     // A third row records which provider and key answered, so a reader rotating keys can see what each
@@ -3529,13 +3563,12 @@ export class AssistantStore {
         `INSERT INTO chat_usage_daily_key (user_id, day, model_label, provider_id, provider_label, key_id, key_label)
          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
          ON CONFLICT(user_id, day, model_label, provider_id, key_id) DO NOTHING`,
-        day, modelLabel.slice(0, 120), keyRef.providerId.slice(0, 60), keyRef.providerLabel.slice(0, 120),
+        today, modelLabel.slice(0, 120), keyRef.providerId.slice(0, 60), keyRef.providerLabel.slice(0, 120),
         (keyRef.keyId ?? '').slice(0, 60), (keyRef.keyLabel ?? '').slice(0, 120),
       )
     }
-    const targets: Array<{ table: string, guard: string, extra: unknown[] }> = [
-      { table: 'chat_usage_daily', guard: 'user_id = ?1 AND day = ?2', extra: [] },
-    ]
+    const targets: Array<{ table: string, guard: string, extra: unknown[] }> = []
+    if (chargeDay) targets.push({ table: 'chat_usage_daily', guard: 'user_id = ?1 AND day = ?2', extra: [] })
     if (modelLabel) {
       targets.push({
         table: 'chat_usage_daily_model',
@@ -3552,7 +3585,7 @@ export class AssistantStore {
     }
     for (const { table, guard, extra } of targets) {
       const sets: string[] = []
-      const binds: unknown[] = [this.userId, day, ...extra]
+      const binds: unknown[] = [this.userId, today, ...extra]
       for (const [key, amount] of Object.entries(counters) as [keyof UsageCounters, number][]) {
         const column = USAGE_COLUMNS[key]
         if (!column || !amount) continue
@@ -3563,6 +3596,37 @@ export class AssistantStore {
       await this.db.prepare(`UPDATE ${table} SET ${sets.join(', ')} WHERE ${guard}`)
         .bind(...binds).run()
     }
+  }
+
+  /**
+   * Spends `count` of the reader's daily requests, and answers whether the ceiling had room for them.
+   *
+   * Reading the day's total and then writing it is what let two turns both pass: each saw one request left
+   * and both charged it, so `maxRequestsPerDay` was a number the reader could not count on. Here the guard
+   * is part of the UPDATE, so the database judges it against the row at the moment the write lands, and
+   * the answer is whether the row moved — false spends nothing anywhere.
+   *
+   * The per-model and per-key breakdowns follow a charge that succeeded rather than leading it. A turn
+   * that was refused never reached a model, so it belongs in no model's count; a day's counters are the
+   * number the ceiling is judged against, so they are the one statement that has to be right on time.
+   */
+  async reserveRequests(
+    count: number,
+    maxPerDay: number,
+    modelLabel = '',
+    keyRef?: { providerId: string, providerLabel: string, keyId?: string, keyLabel?: string },
+  ): Promise<boolean> {
+    const request = Math.max(0, Math.round(count))
+    const today = await this.currentUsageDay()
+    // The day has to have a row before a guard can be read off it; opening it charges nothing.
+    await this.write(`INSERT INTO chat_usage_daily (user_id, day) VALUES (?1, ?2) ON CONFLICT(user_id, day) DO NOTHING`, today)
+    const charged = await this.db.prepare(
+      `UPDATE chat_usage_daily SET requests = requests + ?3
+        WHERE user_id = ?1 AND day = ?2 AND requests + ?3 <= ?4`,
+    ).bind(this.userId, today, request, Math.max(0, Math.round(maxPerDay))).run()
+    if ((charged.meta?.changes ?? 0) <= 0) return false
+    await this.incrementUsage({ requests: request }, today, modelLabel, keyRef, false)
+    return true
   }
 
 
@@ -3922,7 +3986,7 @@ export class AssistantStore {
       peakDay: peak?.day ?? null,
       peakTokens: Number(peak?.tokens ?? 0),
       longestTurnMs: Number(longest?.ms ?? 0),
-      ...usageStreaks(activity.map((entry) => entry.day), usageDay()),
+      ...usageStreaks(activity.map((entry) => entry.day), await this.currentUsageDay()),
       activity,
     }
   }
@@ -3951,6 +4015,9 @@ export class AssistantStore {
     outputTokens: number
     updatedAt: number
   }>> {
+    // The window is in the reader's days, and their turns are stored in real milliseconds: bounded at UTC
+    // midnight the first hours of the oldest day would fall outside a list that says it covers them.
+    const zone = await this.usageZone()
     const { results } = await this.db.prepare(
       `SELECT c.id AS id, c.title AS title, c.updated_at AS updated_at,
               COUNT(m.id) AS requests,
@@ -3962,7 +4029,7 @@ export class AssistantStore {
         GROUP BY c.id, c.title, c.updated_at
         ORDER BY (COALESCE(SUM(m.input_tokens), 0) + COALESCE(SUM(m.output_tokens), 0)) DESC, c.updated_at DESC
         LIMIT ?4`,
-    ).bind(this.userId, startOfDayMillis(from), startOfDayMillis(to) + 86_400_000, Math.max(1, Math.min(50, limit)))
+    ).bind(this.userId, startOfDayMillis(from, zone), startOfDayMillis(to, zone) + 86_400_000, Math.max(1, Math.min(50, limit)))
       .all<Record<string, number | string>>()
     return (results ?? []).map((row) => ({
       id: String(row.id ?? ''),
@@ -4014,7 +4081,7 @@ export class AssistantStore {
   }
 
   async todayUsage(): Promise<UsageCounters> {
-    const day = usageDay()
+    const day = await this.currentUsageDay()
     return this.usageRange(day, day)
   }
 
@@ -4081,7 +4148,9 @@ export class AssistantStore {
   /**
    * Keeps a claim alive, and with a token only the claim that token owns.
    *
-   * A turn that lost its lease to another tab must not keep extending a claim it no longer holds.
+   * A turn that knows its token renews with `touchRun`, which answers whether the claim is still its own.
+   * This is for a caller that holds the lease itself and never hands the token out: with nothing to
+   * compare, an unguarded renewal extends whatever claim the conversation has.
    */
   async renewRun(conversationId: string, token?: number, now = Date.now()): Promise<void> {
     const guard = token === undefined ? '' : ' AND started_at = ?4'
@@ -4093,11 +4162,36 @@ export class AssistantStore {
   }
 
   /**
+   * Renews a claim and says whether the caller still holds it, in one statement.
+   *
+   * Renewal and ownership cannot be two reads, because the gap between them is the bug: a turn that
+   * renewed blindly kept a conversation it had already lost, and a turn that only asked whether the
+   * conversation was live read whoever was streaming and carried on — which is how two answers came to be
+   * written into one thread. The token is the `started_at` the claim was made under, so the UPDATE moves
+   * this claim's row and no other: false means somebody else owns the conversation now, and the caller
+   * stops.
+   *
+   * Expiry is deliberately not part of the guard. A step that outlived the lease is still this turn's
+   * step, and a claim only the owner can extend is what makes that safe. A lease nobody touches is still
+   * open for the next `claimRun` to take, so a laptop that closes its tab does not lock a conversation.
+   */
+  async touchRun(conversationId: string, token: number, now = Date.now()): Promise<boolean> {
+    const result = await this.db.prepare(
+      `UPDATE chat_active_runs SET lease_until = ?3
+        WHERE conversation_id = ?1 AND user_id = ?2 AND started_at = ?4`,
+    ).bind(conversationId, this.userId, now + RUN_LEASE_MS, token).run()
+    return (result.meta?.changes ?? 0) > 0
+  }
+
+  /**
    * Lets go of a claim, and only of one's own when a token is given.
    *
    * The token is what `claimRun` returned. Without it a turn that outlived its lease could finish after
    * another tab had claimed the conversation and delete that newer claim, letting a third turn in beside
-   * a live one. A cancel or a conversation delete may omit it: there is no turn whose claim to protect.
+   * a live one. A stop carries the token of the turn it stopped for the same reason: press stop and send
+   * again straight away, and an unguarded delete here would unlock — and so abort — the turn that had just
+   * begun. No token is right for a conversation being deleted, where there is no turn whose claim to
+   * protect and the point is exactly to release whatever is held.
    */
   async releaseRun(conversationId: string, token?: number): Promise<void> {
     const guard = token === undefined ? '' : ' AND started_at = ?3'
@@ -4106,6 +4200,14 @@ export class AssistantStore {
       .bind(...binds).run()
   }
 
+  /**
+   * Whether somebody is streaming into this conversation right now — a read, for the UI.
+   *
+   * A running turn asks this question of its own lease and gets the wrong answer when the row has been
+   * taken over: an expired claim deleted here reads as "not running", while another run's fresh claim
+   * reads as "still mine". `touchRun` is what a turn checks; this one stays here because the conversation
+   * screen only wants to know whether a reply is arriving.
+   */
   async isRunning(conversationId: string, now = Date.now()): Promise<boolean> {
     const r = await this.one<{ lease_until: number, started_at: number }>(
       `SELECT lease_until, started_at FROM chat_active_runs WHERE conversation_id = ?1 AND user_id = ?2`,
@@ -4324,12 +4426,27 @@ export function memorySearchTerms(query: string): string[] {
   return [...terms].slice(0, 8)
 }
 
-export function usageDay(date = new Date()): string {
-  return date.toISOString().slice(0, 10)
+/**
+ * The day a usage counter is filed under.
+ *
+ * With a zone it is that reader's calendar day; without one it is UTC, which is what the arithmetic in
+ * `dayBefore` wants — stepping a day string back never needs to know where anybody is.
+ */
+export function usageDay(date = new Date(), timezone?: string): string {
+  return timezone ? localDate(date, timezone) : date.toISOString().slice(0, 10)
 }
 
-/** Midnight UTC of a `YYYY-MM-DD` day, which is the frame the daily counters are written in. */
-export function startOfDayMillis(day: string): number {
+/**
+ * Where a `YYYY-MM-DD` day begins, in UTC milliseconds.
+ *
+ * A day is a reader's day when a zone is given, and an arbitrary UTC frame when it is not — the latter is
+ * only ever used to step between day strings, so the exact instant behind them does not matter there.
+ */
+export function startOfDayMillis(day: string, timezone?: string): number {
+  if (timezone) {
+    const [year, month, date] = day.split('-').map(Number)
+    if (year && month && date) return zonedTimeToUtc(year, month, date, 0, 0, timezone).getTime()
+  }
   const parsed = Date.parse(`${day}T00:00:00.000Z`)
   return Number.isFinite(parsed) ? parsed : Date.now()
 }

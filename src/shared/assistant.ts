@@ -2014,10 +2014,11 @@ export interface ChatStreamEvent {
    */
   notice?: 'web_search_unavailable'
   /**
-   * For `start`: the token of the run lease this turn took, so the route can release only its own claim.
+   * For `start`: the token of the run lease this turn holds, so the reader's own tab can release exactly
+   * that claim and nothing else's.
    *
-   * Sent only when the turn created its conversation and had to claim it itself; a turn on an existing
-   * conversation was claimed by the route, which already holds the token.
+   * Sent whenever the turn holds the claim — whether it took the lease itself or the route handed it the
+   * token it claimed under. A turn watching somebody else's run has no token to be given.
    */
   runToken?: number
   error?: string

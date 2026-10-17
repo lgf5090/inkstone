@@ -566,12 +566,10 @@ export class AssistantRunner {
 
       for (;;) {
         steps++
-        // A turn that walks several steps outlives the lease it was claimed with, and an expired lease
-        // lets another device open a second run over the top of this one.
-        await this.store.renewRun(conversationId, this.runToken ?? undefined)
-        // The row is also how a stop reaches this generator: the reader's tab closing only fails a
-        // write on some platforms, and a turn nobody is watching must not keep spending their budget.
-        if (!(await this.store.isRunning(conversationId))) throw new AbortError()
+        // A turn that walks several steps outlives the lease it was claimed with, and the row is also how
+        // a stop reaches this generator: the reader's tab closing only fails a write on some platforms,
+        // and a turn nobody is watching must not keep spending their budget.
+        if (!(await this.holdLease(conversationId))) throw new AbortError()
         const calls: ToolCallRecord[] = []
         let eventsSeen = 0
         // Judged per step and only the last step's verdict is kept: a step cut off mid-tool-call is
@@ -601,9 +599,10 @@ export class AssistantRunner {
           if (event.type === 'text') text += event.delta ?? ''
           if (event.type === 'reasoning') reasoning += event.delta ?? ''
           // A reader who pressed stop released the lease; on a platform that does not report the
-          // dropped connection, this is what ends the turn. Every sixteenth event keeps the extra read
-          // off the critical path while still stopping within a couple of hundred characters.
-          if (++eventsSeen % 16 === 0 && !(await this.store.isRunning(conversationId))) throw new AbortError()
+          // dropped connection, this is what ends the turn. Every sixteenth event keeps the extra write
+          // off the critical path while still stopping within a couple of hundred characters — and the
+          // same touch is what renews the lease, so a long step never runs down the clock it is standing on.
+          if (++eventsSeen % 16 === 0 && !(await this.holdLease(conversationId))) throw new AbortError()
           yield event
         }
         // Everything below is about the model that actually answered, which a failover may have moved.
@@ -889,6 +888,23 @@ export class AssistantRunner {
     }
   }
 
+  /**
+   * Keeps this turn's claim on the conversation alive, and answers whether the claim is still its own.
+   *
+   * Renewal and ownership have to be one statement, because asked separately they gave the wrong answer in
+   * both directions: a turn whose lease had aged out read its own expired row as "not running" and filed a
+   * finished answer as stopped, while a turn whose lease a second run had taken read that run's fresh row
+   * as permission and kept streaming into the same conversation. A turn with no token is running under a
+   * claim its caller kept, so it can only ask whether somebody is live.
+   */
+  private async holdLease(conversationId: string): Promise<boolean> {
+    if (this.runToken === null) {
+      await this.store.renewRun(conversationId)
+      return this.store.isRunning(conversationId)
+    }
+    return this.store.touchRun(conversationId, this.runToken)
+  }
+
   /** Charges one or more model calls against the reader's daily ceiling, refusing when it is spent. */
   private async reserve(
     count: number,
@@ -896,12 +912,9 @@ export class AssistantRunner {
     keyRef?: { providerId: string, providerLabel: string },
     modelLabel = '',
   ): Promise<boolean> {
-    const today = await this.store.todayUsage()
-    if (today.requests + count > maxPerDay) return false
-    // The request is charged with the model and key that will answer it, so a per-key or per-model view
-    // counts calls as well as tokens rather than losing them to an unlabelled row.
-    await this.store.incrementUsage({ requests: count }, undefined, modelLabel, keyRef)
-    return true
+    // The ceiling is enforced by the statement that spends it: two turns that start in the same instant
+    // used to both read a number with room left and both charge it.
+    return this.store.reserveRequests(count, maxPerDay, modelLabel, keyRef)
   }
 
   private async summarize(
