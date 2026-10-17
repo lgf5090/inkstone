@@ -1281,6 +1281,7 @@ const allowed = new Map([
     "// chip itself stays a switch and not a policy.",
     "/** What this turn was allowed to read, as it was stored with the question. */",
     "/* The pins were a choice about this one question, and they outlive the composer chips that made\n            them: a reader coming back to an answer that only knew one note should be able to see why. */",
+    "/**\n * Whether the reader can pick this answer up where it stopped.\n *\n * The status alone was the rule, and it hid the control on exactly the answer that needs it: a reply cut\n * off at the output cap is filed as an error, but the half-sentence above that notice is the thing worth\n * finishing. So the question is asked of the row's own words instead — an answer with nothing written in\n * it has nothing to carry on from, whichever flag it carries. The worker applies the same test, and a\n * reader who somehow asks for the other kind is told so rather than left watching an empty turn.\n */",
   ]],
   ["src/client/features/chat/ComposerControls.tsx", [
     "/** The token count, spelled the way the reference's slider spells it: 32K, 128K, 262K. */",
@@ -1422,7 +1423,7 @@ const allowed = new Map([
     "// should still say when it was written where the assistant lives.",
     "// A settled answer is announced once, as a log entry. A streaming one deliberately is not:",
     "// every token would be read out loud, which is worse than silence until it finishes.",
-    "/* The way back from a cut-off answer: a stopped or truncated reply is finished here rather\n                than asked for again, which would spend the same tokens twice and lose what was written. */",
+    "/* The way back from a cut-off answer: a stopped or truncated reply is finished here rather\n                than asked for again, which would spend the same tokens twice and lose what was written.\n                `canContinue` already admits a truncated row — whose notice lives in `error`, not in\n                `body` — so this one affordance is deliberately not gated on `!error` the way the\n                copy/save actions below are: there is something to carry on from. */",
   ]],
   ["src/client/features/chat/ModelEditorDialog.tsx", [
     "/**\n * The model's own editor: what it is for, what it can do, and the numbers it is given.\n *\n * The composer's chips cover the two settings a reader changes often. This covers the rest, which are\n * per-model facts rather than per-conversation choices: whether the endpoint answers in pictures, how\n * much it claims to take in, and the vendor-specific fields our request builder does not know about.\n * Everything here is read by the request path — a switch that changed nothing would be worse than no\n * switch, because it would be believed.\n */",
@@ -1926,6 +1927,9 @@ const allowed = new Map([
   ["src/client/features/chat/context-note.test.ts", [
     "/**\n * The open note's way from a chip to the request.\n *\n * The notebook's pointer rides along with every turn so \"summarise this\" works without naming the note,\n * and a chip the reader can take off is the only thing that keeps that from being an invisible decision.\n * What is pinned here is the half-wire: taking the chip off really does leave the id out of the request.\n */",
     "// The after-turn refreshes are not this chip; they would reach for api methods the mock has none of.",
+  ]],
+  ["src/client/features/chat/continue-truncated.test.ts", [
+    "/**\n * Which answer the thread offers to carry on.\n *\n * The rule is the reader's, not the row's flag: an answer cut off at the output cap is stored as an\n * `error`, and hiding the control on every error hid it on the one case it is for. So the test asks\n * whether anything was written at all — the same question the worker asks before it agrees, which is\n * what keeps a control from appearing on a turn that would only be refused.\n */",
   ]],
   ["src/client/features/chat/conversation-drag.ts", [
     "/**\n * Dragging a conversation onto a folder.\n *\n * A conversation is moved by the same gesture a note is, and by a payload of its own: a note drag carries\n * a note id, and a drop target that read one as the other would file the wrong row — or file a\n * conversation because some note id happened to name it. So the type is distinct, and only the folder\n * row that knows about conversations accepts it.\n */",
@@ -15128,6 +15132,17 @@ const allowed = new Map([
   ]],
   ["src/shared/ai-proxy-guard.ts", [
     "/**\n * Both AI relays — the worker route and the dev-server middleware — take the provider URL from the request\n * body, because the caller chooses which provider it configured. That makes the target attacker-chosen, so\n * the guard has to live in one place: a relay that reaches a private address reads whatever the deployment\n * can, and does so with this origin's identity.\n */",
+    "/** The separators a laxer host reader drops, which is why `127.0.0.1!` still has to be judged as 127.0.0.1. */",
+    "/**\n * A label read in the base its prefix says, so `0x7f`, `0177` and `127` all mean 127.\n *\n * An octal that carries an 8 or a 9 fails the whole address rather than being re-read as decimal:\n * `018.1.1.1` is not 18.1.1.1, and a guard that quietly accepted the decimal reading would be a guard\n * that answered a different question than the one the host parser asked.\n */",
+    "/**\n * Every literal-IP spelling that names an address, read as the four octets it means: the dotted quad,\n * the shortened forms `127.1` and `127.0.1`, and the single-number forms `2130706433`, `0x7f000001` and\n * `017700000001`, with a base chosen per label so `0x7f.0.0.1` counts too.\n *\n * `new URL()` rewrites all of these into a dotted quad before a relay sees the host, so this follows the\n * same rules rather than inventing narrower ones: the last label absorbs the bytes below it, and a number\n * that will not fit in them is not an address at all.\n */",
+    "/** Whether a host is written as a number at all, whether or not the number is a usable address. */",
+    "/** The reserved and internal ranges a relay must never be pointed at, once the address is four octets. */",
+    "/** The words one section of an IPv6 literal names, expanding a trailing IPv4 into the two it occupies. */",
+    "/**\n * The eight 16-bit words an IPv6 literal names, with `::` expanded and any zone id dropped.\n *\n * Text is not enough to judge an address: `0:0:0:0:0:0:0:1` is `::1`, and the deprecated\n * `::7f00:1` carries `127.0.0.1` the same `::ffff:7f00:1` does, so the words are what gets compared.\n */",
+    "/**\n * The IPv4 an IPv6 literal carries: the mapped `::ffff:a.b.c.d` and the deprecated `::a.b.c.d`, either of\n * which a stack may still route to the address it names.\n */",
+    "/**\n * The address a relay must not be aimed at.\n *\n * A literal IP is judged in every spelling that names one, because that part is decidable from the text\n * alone. A *hostname* is not: this runtime cannot resolve a name and then refuse the address it answered,\n * so a domain the account configured is trusted as configured, and a name that points at the network\n * inside it (`127.0.0.1.sslip.io`, or any zone whose operator later repoints A) is a boundary the platform\n * draws, not this function. The redirects are refused at the fetch for the same reason.\n */",
+    "// Text with a colon is written as an address, so a reading that fails is not a name anyone owns.",
+    "/**\n * A label written as a number: decimal, `0x` hexadecimal, or decimal with leading zeros, which is octal.\n *\n * This shape test is deliberately looser than `ipv4Label`, the one that decides what a number means: a\n * label like `018` or `999` is still somebody writing an address, and a host whose every label is a number\n * cannot end in a zone name, so judging the whole thing as an address costs no real provider anything.\n */",
   ]],
   ["src/shared/assistant-memory.ts", [
     "/**\n * Whether a new memory replaces, refines or contradicts an older one.\n *\n * The reference project's rules are English-only: it looked for the words \"no longer\", \"moved\",\n * \"sold\", and it split statements into words at spaces. Both assumptions fail silently on Chinese,\n * which is the language most of this app's readers write in — a Han statement has no spaces, so its\n * word sets came back as one long token and nothing ever overlapped with anything. The Han markers\n * here are what make the same judgement work in the reader's own language, and the tokeniser splits\n * Han runs into characters and adjacent pairs, which is how this app's own note index segments them.\n *\n * Every Han phrase is written as escapes because the i18n gate keeps interface copy out of `src/`.\n * These are not copy: they are the words a memory is *written with*, so they cannot come from the\n * locale catalog — a memory saved in Chinese must be recognised the same whatever language the\n * interface is currently in. Each constant is named in pinyin so the escapes stay reviewable.\n */",
@@ -16125,6 +16140,10 @@ const allowed = new Map([
     "/**\n   * Whether a picture's bytes travel with this call.\n   *\n   * False for a turn far enough back that re-sending its images would cost more than the answer: the\n   * file is still named, so the model knows the reader attached one, and the transcript never claims a\n   * picture was shown that was not.\n   */",
     "// Older than the image window. Saying so is the honest line: the file was attached, and the",
     "// model is told it is there without being handed megabytes of base64 for a turn already read.",
+    "/** The shortest fence an attachment's text is wrapped in; a body with a longer run pushes it up. */",
+    "/**\n * The two fence lines around one attachment's text.\n *\n * The tag is drawn here rather than read off the filename: a marker the reader can spell into a name is a\n * marker they can put a closing line with, and attachment text that has escaped its block is attachment\n * text standing where the instructions stand. The run of backticks is then one longer than the longest run\n * the wrapped body carries, so no line of that body ends the block either, and a body that happened to\n * contain this draw gets another.\n */",
+    "/** The longest unbroken run of `char` in `text`, which is the length a fence has to exceed. */",
+    "/**\n * Reader-supplied text as it may be written in front of the model: one line, and carrying no fence of its\n * own.\n *\n * A file's name and its type are the reader's text, while this line is model-facing prose, so a newline and\n * three backticks in either would otherwise open or close a block this function did not write.\n */",
   ]],
   ["src/worker/assistant/automations.ts", [
     "/**\n * Reminders and routines.\n *\n * The reference project armed a Durable Object alarm per schedule. This app runs on D1 with a cron\n * tick, so \"armed\" only means *next_run is in the future and the row is enabled*: the tick sweeps due\n * rows once a minute. That trades a precise alarm for a one-minute window, which is what a reminder\n * can absorb and a scheduler cannot.\n *\n * The two properties that matter and are easy to lose are kept here: a run that takes longer than the\n * sweep interval is claimed so the next tick does not start it twice, and a schedule whose next\n * occurrence is computed from the slot that fired rather than from \"now\" cannot drift later every time\n * it runs.\n */",
@@ -16202,7 +16221,6 @@ const allowed = new Map([
     "/** Per-file and per-message character ceilings, so one upload cannot evict the conversation. */",
     "/** `chat/images/<user>/<id>.png` — the id is the object's only identity, so a name can never collide. */",
     "/** Whether the bytes are worth decoding into the prompt, as opposed to just naming in it. */",
-    "/** A fenced block's language tag, taken from the extension the reader used. */",
     "/** Base64 without building one enormous string: workerd's `btoa` still needs a binary string per chunk. */",
     "/**\n * The two object bindings, behind one pair of calls.\n *\n * A deployment may run its files on R2 or on the KV namespace, and the notebook already supports both;\n * a chat upload that only worked on one would strand the reader who chose the other.\n */",
     "/**\n * Stores one upload and records its row.\n *\n * The ceiling is checked before the object is written, not after: a half-saved 30 MB file that the\n * reader cannot use is storage they pay for.\n */",
@@ -16667,6 +16685,16 @@ const allowed = new Map([
     "/**\n   * The retry policy every call to a provider is made under.\n   *\n   * A second attempt is signed with a fresh key, which is the whole point of the reader's ring: a 429 or a\n   * 401 on one key is answered by the next one, and the ring hands out the least recently used so a retry\n   * does not land on the key that just failed.\n   *\n   * A refusal is also written onto that key's row, which is the only way the settings screen can say which\n   * one of several keys is broken. Only the failures a key can be blamed for are recorded: an unreachable\n   * host or a malformed request says nothing about the key, and counting it would send the reader to the\n   * wrong row.\n   */",
     "// A diagnostic must not replace the failure it was describing: the turn still reports the",
     "// provider's own error, and the next failure will try to record itself again.",
+    "// The status is not the question a continuation has to answer. A cut-off reply is filed as an error",
+    "// because the model ran out of output room, and the unfinished sentence above that notice is exactly",
+    "// what the reader wants finished; only a row with no words of its own has nothing to go on from. The",
+    "// reason a turn failed lives in `error` and never in the content, so an empty row is a failure",
+    "// rather than a fragment, and asking again is the only thing it can be turned into.",
+    "// A cut-off answer is the model's own unfinished words, and the follow-up that asks about them —",
+    "// \"put the above into a table\" — is a question about a text the reader can still see. Leaving the",
+    "// row out made that follow-up answer a question about nothing. A failed turn that wrote nothing",
+    "// stays out: what such a turn says about itself is one sentence in `error`, and a model handed its",
+    "// own failure as its last answer reads it as an answer it had already finished.",
   ]],
   ["src/worker/assistant/scheduler.ts", [
     "/**\n * The minute sweep that runs what is due.\n *\n * Wired into the worker's cron handler alongside the existing queue drains, and deliberately kept out\n * of the hourly branch: a reminder is cheap and late delivery is visible, while the heavy work that\n * runs on the hour (backups, attachment cleanup) must not be able to take the reminders down with it.\n *\n * A routine that calls a model can outlive the sweep that started it, so each automation is claimed\n * before it runs and the claim is only released when it is re-armed — which is what stops a slow AI\n * digest from being started twice by two overlapping ticks.\n */",
@@ -17060,6 +17088,9 @@ const allowed = new Map([
     "// from, and the chip that says so has nothing left to say.",
     "/**\n * What a turn was allowed to read, as it was stored with the reader's own words.\n *\n * Forgiving in the same way as the rest of a transcript row: an older row has no scopes, and a name this\n * build cannot recognise is dropped rather than failing the thread. The name is capped because it is a\n * label in a chip, not a copy of the note.\n */",
     "/** What this turn was allowed to read, kept so the transcript can say why an answer knew so little. */",
+    "// The tenant predicate here is not only scoping: `idx_chat_messages_conversation` leads with `user_id`,",
+    "// so a correlated count that names just the conversation cannot use the index and reads every message",
+    "// row once per conversation on the page.",
   ]],
   ["src/worker/assistant/tools.ts", [
     "/**\n * The tools the assistant can reach, and the executor that runs them.\n *\n * Three things are enforced here rather than asked of the model, because a model that is confident and\n * wrong is the failure mode this app has to survive:\n *  - **budgets** — a per-turn call cap, a per-tool cap and a duplicate-call refusal, so a reasoning\n *    loop cannot spend the reader's AI quota or write a hundred tasks;\n *  - **validation** — arguments are checked against the same declaration that generates the JSON\n *    Schema the provider is given, so the two can never disagree;\n *  - **approval** — a destructive tool never runs during the turn. `prepare` resolves the exact target\n *    and writes a pending action; `commit` runs only when the reader presses Approve, once, on that\n *    target. The model can propose; it cannot delete.\n *\n * Scheduled runs get read-only tools plus `notify_reader`, so a routine that has drifted cannot edit\n * the vault while nobody is watching.\n */",
@@ -17148,7 +17179,6 @@ const allowed = new Map([
     "// the model sees as a tool error — better than feeding it a half-parsed object.",
     "// ---------------------------------------------------------------- Anthropic",
     "// ------------------------------------------------------------------- Gemini",
-    "/**\n * Gemini puts the model in the path and the key in the query, so the address is assembled rather than\n * configured. `alt=sse` is what makes the response a stream of frames instead of one JSON array.\n */",
     "// -------------------------------------------------------------------- shared",
     "// The listener stays attached for the life of the body: a reader who closes the tab has to stop the",
     "// download, not merely the request that started it. Detaching after the headers arrived would leave",
@@ -17209,6 +17239,7 @@ const allowed = new Map([
     "/**\n   * Told about each attempt that failed, before anything is decided about retrying.\n   *\n   * The caller is the only one that knows which of the reader's keys was on the wire — the request carries\n   * a key, not a row id — and \"which key is broken\" is a thing the settings screen has to be able to say.\n   * Awaited, so a key that failed twice in one turn is counted twice rather than once.\n   */",
     "// Every failed attempt is reported, including one that will not be retried: a key that is refused",
     "// once is still the key that was refused, and the retry path is where that is still known.",
+    "/**\n * Gemini puts the model in the path and takes the key from a header rather than the query, so the address\n * is assembled rather than configured. `alt=sse` is what makes the response a stream of frames instead of\n * one JSON array.\n */",
   ]],
   ["src/worker/assistant/vault.ts", [
     "/**\n * The vault as lists and counts, for the tools that answer \"what do I have\".\n *\n * `search_notes` answers a topic out of the notes; nothing answered the questions a reader asks about\n * the notebook itself — how many notes there are, which folders they sit in, which tags label them —\n * so the assistant had to guess or say it could not tell. The rows are already there, and the scope\n * every note tool obeys applies to a listing exactly as it applies to a search.\n *\n * The SQL lives here rather than in `mcp/retrieval.ts` because the shape is different: a listing pages\n * by recency rather than by relevance, and the scope is the assistant's own permission model, which the\n * MCP server does not have. What the two share is the notes schema, and that is shared through\n * `db/rows.ts`.\n */",
@@ -17245,7 +17276,10 @@ const allowed = new Map([
     "/** A listing is a convenience, not a data migration: past this the picker is unusable anyway. */",
     "// The same two suffixes `geminiEndpoint` strips, so a base copied from either address works here.",
     "// Gemini answers with a resource name, and the part after the slash is the id the request needs.",
-    "/** A vendor's error body is the reader's own diagnostic, so the message is kept and the rest dropped. */",
+    "// The key goes in a header and never in the query: a request line is what an access log, a proxy trace",
+    "// and a browser history keep word for word, and this is the account's own provider key.",
+    "// Only the status is told back: a vendor's error body is its own text, and it has carried keys and",
+    "// internal addresses before, so it is never handed on to a browser as though it were an explanation.",
   ]],
   ["src/worker/attachments/backend.ts", [
     "/**\n * Ranged read for one chunk. R2 serves it storage-side; KV has no ranged get, so callers\n * must fall back to readAttachmentObject and slice in the isolate.\n */",
@@ -18209,6 +18243,8 @@ const allowed = new Map([
     "// turn, the other extends it.",
     "/**\n * A pinned tag, folder or note: the id has to be one, and the label is only ever shown, never trusted.\n *\n * A note is included because the composer's own chips are notes as well as folders — the reader pointing\n * at one page. The runner re-reads every note id against this account before it reaches a tool, so a\n * shape-checked id here is not a promise that the note exists.\n */",
     "/** The pins the turn was asked under: an offline turn is still a turn, and the transcript says so. */",
+    "/**\n * A field the reader may empty on purpose.\n *\n * Absent, `null` and `''` all mean the same thing here — \"put it back to nothing\" — because the editor\n * forms send the whole draft, including the boxes they never filled. Read one of those with `text` and the\n * answer is \"This cannot be empty.\", which refuses the request and every other field travelling with it.\n */",
+    "/**\n * The currency a model's price is written in, or `''` for a model that has not been priced.\n *\n * `''` is the column's default and the answer for every model until somebody reads a number off a pricing\n * page, so it is a value rather than a missing one; the store hands it back the same way and the editor\n * sends it in its draft. Nothing is substituted here — a currency invented for an unpriced model would put\n * a figure on the usage screen that nobody typed, under a sign nobody chose.\n */",
   ]],
   ["src/worker/routes/auth.ts", [
     "// Account-wide cap so a distributed botnet cannot retry one account",
@@ -18655,6 +18691,9 @@ const allowed = new Map([
     "// The batch call fails, then every item is retried on its own.",
     "// Clear the backoff and the item is attempted again, incrementing attempts.",
   ]],
+  ["tests/ai-proxy-guard.test.ts", [
+    "/**\n * The one predicate every relay asks before it points a request at an address the account configured.\n *\n * What is decided here is the text of an address, so the spellings are the whole test: `2130706433` is\n * `127.0.0.1`, `0x7f000001` is `127.0.0.1`, and an IPv6 literal carries the same address in words that\n * only look unlike it. A public host and a public number have to stay allowed, or the guard is a way of\n * breaking the product rather than a guard.\n */",
+  ]],
   ["tests/ai-proxy-route.test.ts", [
     "// workerd has no `redirect: 'error'`, so the relay must ask for 'manual' and read the status.",
     "// The text a relay must never repeat back: it names a host the caller could not reach on its own.",
@@ -18671,6 +18710,17 @@ const allowed = new Map([
   ["tests/app-tab-routes.test.ts", [
     "// An address missing from this list is still served — by the asset layer's SPA fallback,",
     "// which never reaches the worker, so the document arrives without our Content-Security-Policy.",
+  ]],
+  ["tests/assistant-attachment-fence.test.ts", [
+    "/**\n * What an attachment's text is wrapped in before a model reads it.\n *\n * The fenced block is the promise that the words inside it are the file's and not the instructions, so\n * these cases are a filename and a body that each try to end the block: whatever a reader names a file, and\n * whatever they write inside one, the fence has to stay the only thing holding the text in place.\n */",
+    "/** One turn's worth of attachments and their bytes, without a database or a bucket behind them. */",
+    "/** The length of the backtick run a line opens with, which is the length a closing line has to reach. */",
+    "// The body is handed over verbatim, and the block it sits in is one mark longer than anything inside",
+    "// it, so the longest run the file can write still cannot close it.",
+    "// Two files named `.md` used to be wrapped in the same `md` marker, which is the one string an",
+    "// attacker could both predict and put in a name.",
+    "// The whole block is header, opening fence, body, closing fence: a name cannot add a line, and the",
+    "// only backtick runs in it are the two this function wrote.",
   ]],
   ["tests/assistant-code-tool.test.ts", [
     "// Past this the model is searching rather than computing, and every request costs the reader.",
@@ -19104,6 +19154,12 @@ const allowed = new Map([
     "// several, \"which one is broken\" is the question the settings screen has to answer.",
     "// A note is a pin like the composer's own chips: the reader pointing at one page, which the runner",
     "// re-reads against this account before any tool sees it.",
+    "/**\n   * A brief emptied is a save, not a bad request.\n   *\n   * The project form sends the whole draft, and only the name is required of it, so a reader clearing the\n   * standing brief used to have every field of their edit refused with it.\n   */",
+    "/**\n   * The save the editor really makes: one request carrying the whole draft.\n   *\n   * `AssistantModelTab` hands `updateModel` the draft object, so a field the reader never typed — the\n   * currency of a model nobody has priced, which every new model has as `''` — used to refuse the request\n   * and lose every other field with it. Saving one field at a time, as the case above does, cannot see it.\n   */",
+    "// A price without a currency stays without one: nothing here may invent a currency for it.",
+    "// A code is a code, however it was typed, and emptying the box again is an edit of its own.",
+    "/**\n   * A server with nothing said about it.\n   *\n   * The form requires a name and an address and sends the description box whether it was filled or not, so\n   * an undescribed server used to be refused at the door — and every field of an edit that only meant to\n   * clear the description went with it.\n   */",
+    "// The vendor's own words are never relayed: an upstream body can carry the key it was refused for.",
   ]],
   ["tests/assistant-routing.test.ts", [
     "/**\n * Which model answers a turn when the reader asked the assistant to choose.\n *\n * The rule is a policy, so it is tested as one: what may be picked at all (tools, a window that fits\n * with room to answer), and which of the eligible models wins (the smallest declared window, with an\n * undeclared one treated as the reader's default rather than as a small model).\n */",
@@ -19149,6 +19205,20 @@ const allowed = new Map([
     "// A routine exists to tell the reader something, so a policy must not leave it running and silent.",
     "// A read or a write has no target to redo itself from later, so the arguments that were shown on the",
     "// card are what is kept: approving replays that call and no other.",
+  ]],
+  ["tests/assistant-truncated-continuation.test.ts", [
+    "/**\n * What happens to an answer the model never finished.\n *\n * A turn cut off at its output cap is filed as an `error` row that still carries the words that did\n * arrive — the notice beside it even says the answer above stops where it does. Two things follow, and\n * both were wrong: the reader could not ask the model to finish those words, because a continuation\n * refused anything filed as an error; and the next turn could not see them, because the context only\n * read complete rows, so \"put the above into a table\" was a question about a text the model had never\n * been shown.\n *\n * The second half of each case is the old bug kept alive: a turn that failed *without* writing anything\n * must stay out of both lists. Its reason is one sentence about the failure, and a model handed that\n * sentence as its own last answer reads it as an answer it had already given.\n */",
+    "/** What a turn that ran out of room says about itself — and the only place that sentence is ever kept. */",
+    "// A provider with no key at all: `signKey` then answers with an empty string, and nothing has to be",
+    "// decrypted for a turn to reach the stubbed wire.",
+    "/**\n * The turn's whole life, with the bodies the model was actually sent.\n *\n * Reading what left the worker is the only way to prove the context question: the filter under test\n * decides what a model sees, and an answer it wrote is worth nothing if the next request never carried\n * it. One reply is scripted per step, so a turn that asked for a tool cannot silently reuse the first.\n */",
+    "/** A thread that ends on the answer the model never got to finish. */",
+    "// The continuation wrote a whole sentence, so nothing was cut off this time and the row says so:",
+    "// the status is decided by this turn, never carried over from the one it resumed.",
+    "// The reader asked for no new question, and the model was handed the words it had already written.",
+    "// Refusing is not deleting: the row the reader is looking at stays exactly as it was.",
+    "// Shown the words, not the sentence about them: the notice is for the reader, and a model that",
+    "// reads it as its own answer starts agreeing with it.",
   ]],
   ["tests/assistant-turn-context.test.ts", [
     "/**\n * What a turn carries beyond the reader's standing scope.\n *\n * Two shapes are pinned here. The first is the list of notes a turn may reach past its folder scope, which\n * is the one promise a context chip makes: adding a note to the turn is the reader pointing at a page, so\n * it must not be silently dropped because the page sits in a folder the assistant was not given. The\n * second is the line the model is told about those chips — a chip the prompt never mentions is a chip that\n * costs a request and changes no answer.\n *\n * Neither half needs a database, which is why this file runs everywhere: the SQL that reads the notes back\n * is the note tools' own gate, exercised in `assistant-note-scope.test.ts`.\n */",
@@ -19210,6 +19280,8 @@ const allowed = new Map([
     "/**\n * Asking a vendor what its key can call.\n *\n * The picker has to show the account's real list, so the three shapes each put the name somewhere else\n * and a fourth failure mode — a base URL that points inside the network — has to be refused before the\n * request leaves. Recorded frames, not a live service.\n */",
     "// The contract is the request option plus the name given to the answer: a followed redirect would",
     "// carry the bearer key to a host nobody vetted, and a bare \"HTTP 302\" is not what the reader should read.",
+    "// A request line is what an access log or a proxy trace keeps, so the secret has to be in the one",
+    "// place of a request that is not part of the address.",
   ]],
   ["tests/auth-password.test.ts", [
     "// The route reads the session middleware's own variables, so the harness has to bind them the way",
