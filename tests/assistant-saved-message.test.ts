@@ -231,7 +231,7 @@ describe('a keep that survives the backup', () => {
 describe('a database that predates the keep', () => {
   async function reboot(): Promise<void> {
     sqlite.exec(`DELETE FROM app_meta WHERE key LIKE 'database-state%'`)
-    await initializeDatabase({ DB: makeD1(sqlite) } as never)
+    await initializeDatabase(testBindings(makeD1(sqlite)))
   }
 
   it('gains the column and the index, and reads every earlier turn as unkept', async () => {
