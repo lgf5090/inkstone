@@ -1,15 +1,19 @@
 /**
- * Semantic recall for memories, on the deployment's own Workers AI stack.
+ * Semantic recall for the assistant, on the deployment's own Workers AI stack.
  *
  * The reference project shipped its own embedding pipeline; this app already has one for notes
  * (`src/worker/mcp/ai-search.ts`), so the model name, the blob layout, the cosine helper and the
  * rank-fusion are imported from there rather than reimplemented — two encoders would silently stop
  * matching each other's vectors, and every recall would come back empty with no error to read.
  *
+ * Both things the assistant recalls by meaning are here: memories, which this module embeds itself, and
+ * notes, whose index belongs to the MCP module and is only read from here.
+ *
  * A memory is embedded when it is written, which is rare and small: the whole set is a few dozen
  * rows, so ranking is a scan rather than an index. The daily cap is the reader's, counted in the same
  * table as the request cap.
  */
+import { truncateText } from '@shared/text-utils'
 import {
   AI_EMBEDDING_MODEL,
   cosineSimilarityPrecomputed,
@@ -17,9 +21,13 @@ import {
   decodeVector,
   encodeVector,
   fuseByRrf,
+  getAiSearchStatus,
+  searchSemanticNotes,
+  semanticSnippet,
   vectorNorm,
+  type SemanticSearchHit,
 } from '../mcp/ai-search'
-import type { AssistantMemory } from '@shared/assistant'
+import type { AssistantMemory, AssistantSettings } from '@shared/assistant'
 import type { Env } from '../env'
 import type { AssistantStore, MemoryScope } from './store'
 
@@ -213,4 +221,134 @@ export function fuseMemoryRecall(
   limit: number,
 ): AssistantMemory[] {
   return fuseByRrf(lexical, semantic).slice(0, limit).map((hit) => hit.item)
+}
+
+// ------------------------------------------------------------------ notes
+
+/** Why the meaning half of a note search was never attempted. */
+export type NoteVectorSkip = 'no_ai_binding' | 'index_off' | 'cap_reached'
+
+export interface NoteVectorGate {
+  hybrid: boolean
+  skip: NoteVectorSkip | null
+}
+
+/**
+ * Whether this turn may ask the note index for matches by meaning, and why not if it may not.
+ *
+ * Read through the index's own status function rather than a second flag, because that is the answer the
+ * settings page shows the reader: a turn that decided differently would argue with the screen beside it.
+ * The cap is the one the memory index already spends from — `limits.maxEmbeddingsPerDay`, counted in the
+ * same daily row — since a second budget for calls to the same model is a second number nobody can
+ * reconcile from the usage screen.
+ */
+export async function noteVectorGate(
+  store: AssistantStore,
+  env: Env,
+  settings: AssistantSettings,
+): Promise<NoteVectorGate> {
+  const status = await getAiSearchStatus(env.DB, env, store.userId)
+  if (!status.available) return { hybrid: false, skip: 'no_ai_binding' }
+  if (!status.enabled) return { hybrid: false, skip: 'index_off' }
+  const cap = settings.limits.maxEmbeddingsPerDay
+  if (cap <= 0) return { hybrid: false, skip: 'cap_reached' }
+  if ((await store.todayUsage()).embeddings >= cap) return { hybrid: false, skip: 'cap_reached' }
+  return { hybrid: true, skip: null }
+}
+
+export interface NoteVectorRecall {
+  hits: SemanticSearchHit[]
+  /** Why there is no meaning half after it *was* attempted; null when `hits` is the real answer. */
+  failed: string | null
+}
+
+/**
+ * How close a note's vector has to be before this turn calls it a meaning match.
+ *
+ * The index's own read ranks every stored note it scanned and returns the best forty, however far down
+ * the list the cosine fell — which is the right answer for an endpoint a caller asked to list, and the
+ * wrong one for a chat page: fusion compares ranks, so twenty notes at cosine 0.1 would each take an
+ * ordinal a keyword hit earned, and the assistant would be told they match. The bar is the one already
+ * measured on this model for memories, so the two recall paths do not disagree about what "close" means.
+ */
+const NOTE_VECTOR_FLOOR = SEMANTIC_FLOOR.absolute
+
+/**
+ * The meaning half of a note search.
+ *
+ * `searchSemanticNotes` is the index's own reader — same encoder, same model, same scan window — which is
+ * what keeps a chat answer and an MCP `search` call from disagreeing about what "similar" means. The
+ * reader's own `semanticModel` is deliberately not passed in: the stored note vectors were written by the
+ * model the index was built with, and a query encoded by a second one comes back as a confident zero for
+ * notes that have nothing to do with each other.
+ *
+ * A failure is handed back rather than absorbed, because the alternative is a keyword page that reads
+ * like a complete answer. It is logged as well: the outage is the deployment's AI binding's problem, and
+ * the log is the one place somebody can actually see it.
+ */
+export async function recallNotesByVector(
+  store: AssistantStore,
+  env: Env,
+  query: string,
+): Promise<NoteVectorRecall> {
+  if (!env.AI) return { hits: [], failed: 'this deployment has no AI binding' }
+  try {
+    const hits = await searchSemanticNotes(env, env.DB, store.userId, query, {})
+    // `null` is the index's own refusal — the binding vanished or the reader switched the index off
+    // between the gate above and this read. Nothing was embedded, so nothing is charged, and the caller
+    // is told the meaning half is absent rather than handed an empty list that reads as "no note matched".
+    if (!hits) return { hits: [], failed: 'the reader\'s AI note index stopped answering mid-read' }
+    // Counted only once the call answered: an outage that never embedded anything must not spend the
+    // reader's day, or the index would stay unused until midnight for a fault that lasts a minute.
+    await store.incrementUsage({ embeddings: 1 })
+    return { hits: hits.filter((hit) => hit.score >= NOTE_VECTOR_FLOOR), failed: null }
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : String(error)
+    console.warn('[inkstone] assistant note vector search failed:', reason)
+    return { hits: [], failed: truncateText(reason, 160) }
+  }
+}
+
+export type NoteHitSource = 'keyword' | 'meaning' | 'both'
+
+export interface KeywordNoteHit {
+  id: string
+  title: string
+  snippet: string
+}
+
+export interface FusedNoteHit {
+  id: string
+  title: string
+  excerpt: string
+  source: NoteHitSource
+}
+
+/**
+ * The two ranked lists merged into the page the model reads.
+ *
+ * Ranks, not scores: a lexical relevance number and a cosine are two different measurements of two
+ * different things, and the only comparison between them that means anything is "which of your lists put
+ * this one first". A note near the top of both beats one that only one index likes, and each hit keeps
+ * saying where it came from, because "found by keyword" and "found by meaning" are different evidence for
+ * the model to weigh and for the reader to be told.
+ */
+export function fuseNoteHits(
+  keyword: readonly KeywordNoteHit[],
+  meaning: readonly SemanticSearchHit[],
+): FusedNoteHit[] {
+  const byKeyword = new Map(keyword.map((hit) => [hit.id, hit]))
+  const byMeaning = new Map(meaning.map((hit) => [hit.id, hit]))
+  return fuseByRrf(keyword, meaning).map(({ item, sources }) => {
+    const keywordHit = sources.has('lexical') ? byKeyword.get(item.id) : undefined
+    const meaningHit = sources.has('semantic') ? byMeaning.get(item.id) : undefined
+    return {
+      id: item.id,
+      title: item.title,
+      // A keyword hit already carries the sentence that matched; a meaning hit only carries the note's
+      // own opening, which is all the index stores.
+      excerpt: keywordHit?.snippet ?? semanticSnippet(meaningHit?.excerpt ?? ''),
+      source: keywordHit && meaningHit ? 'both' : meaningHit ? 'meaning' : 'keyword',
+    }
+  })
 }

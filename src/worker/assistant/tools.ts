@@ -27,6 +27,13 @@ import { createMcpNote, editMcpNote, trashMcpNote } from '../mcp/writes'
 import { readMcpNote, searchMcpNotes } from '../mcp/retrieval'
 import { ApiError } from '../lib/errors'
 import type { AssistantStore, MemoryScope } from './store'
+import {
+  fuseNoteHits,
+  noteVectorGate,
+  recallNotesByVector,
+  type NoteVectorGate,
+  type NoteVectorRecall,
+} from './semantic'
 import { assertNoteReadable, noteTitleForLog, readableNoteIds, type NoteScope } from './note-scope'
 import { oneHopNeighbours } from './note-graph'
 import {
@@ -458,24 +465,82 @@ export const MEMORY_TOOLS: ToolDefinition[] = [
   }),
 ]
 
+/**
+ * How wide each half of a note search is looked over, and how many hits the model is finally handed.
+ *
+ * The keyword list is asked for more than the reader sees because fusion compares ranks: with eight of
+ * each, a note that is third on one list and outside the other's top eight can never be seen to be the
+ * better answer. The page that reaches the model stays at eight, which is what the turn's context budget
+ * was measured against.
+ */
+const NOTE_LEXICAL_CANDIDATES = 20
+const NOTE_VECTOR_CANDIDATES = 20
+const NOTE_RESULT_LIMIT = 8
+
+/**
+ * What this page of notes was matched with, in the sentence the model has to respect.
+ *
+ * A keyword page and a fused page are not the same evidence: only one of them can answer a question whose
+ * words the notes never used. Left unsaid, the model reports "you have no note about sea locks" from a
+ * list that never looked for the sense of it, and the reader has no way to know the difference.
+ */
+function noteRetrievalNote(
+  gate: NoteVectorGate,
+  vector: NoteVectorRecall | null,
+  keywordCount: number,
+  meaningCount: number,
+): string {
+  if (meaningCount) {
+    return `Retrieval: keyword matches and the reader's AI meaning index, merged by rank (reciprocal-rank fusion over ${keywordCount} keyword hits and ${meaningCount} meaning hits). Each hit says which list it came from.`
+  }
+  if (vector?.failed) {
+    return `Retrieval: keyword matches only — the meaning search failed (${vector.failed}), so nothing here was found by sense. Do not claim the notebook holds no matching note.`
+  }
+  if (gate.skip === 'no_ai_binding') {
+    return 'Retrieval: keyword matches only — this deployment has no AI binding, so the meaning index cannot be read at all.'
+  }
+  if (gate.skip === 'index_off') {
+    return "Retrieval: keyword matches only — the reader has not switched on AI semantic search for their notes, so meaning was never searched. Say so when the question asks for something the notes describe in other words."
+  }
+  if (gate.skip === 'cap_reached') {
+    return "Retrieval: keyword matches only — the account's daily AI embedding allowance is spent, so the meaning index was skipped for this turn."
+  }
+  return 'Retrieval: keyword matches only — the meaning index was searched and found nothing close enough to this question.'
+}
+
 export const NOTE_TOOLS: ToolDefinition[] = [
   tool({
     name: 'search_notes',
     permission: 'read',
     maxCallsPerTurn: 3,
-    description: 'Search the reader\'s notes. Returns titles, ids and short excerpts, plus the notes one link away from the best hits — read those when the question is about what a note refers to.',
+    description: 'Search the reader\'s notes. Matches the words the reader typed always, and also their AI meaning index when they have switched it on: the `retrieval` field says which of the two ran, and each hit says whether it was found by keyword, by meaning, or by both. Returns titles, ids and short excerpts, plus the notes one link away from the best hits — read those when the question is about what a note refers to.',
     fields: { query: { type: 'string', minLength: 1, maxLength: 200 } },
     async run(args, ctx) {
+      const query = String(args.query)
       const scope = await ctx.noteScope()
-      const response = await searchMcpNotes(ctx.env, ctx.store.userId, ctx.origin, ctx.ftsEnabled, {
-        query: String(args.query),
-        limit: 8,
-        // Tags narrow the search itself; the folder scope still filters the hits below, so a turn
-        // that asked for `#meeting` cannot reach an untagged note by naming it exactly.
-        ...(scope.tagIds.size ? { tags: [...scope.tagIds] } : {}),
-      })
-      const allowed = await readableNoteIds(ctx.env.DB, ctx.store.userId, response.results.map((hit) => hit.id), scope)
-      const hits = response.results.filter((hit) => allowed.has(hit.id)).slice(0, 8)
+      const gate = await noteVectorGate(ctx.store, ctx.env, ctx.settings)
+      // The fusion is done here rather than asked of the MCP retriever's `auto` mode, because that path
+      // folds a failed embedding into the same lexical answer it gives when the index is simply off — and
+      // "meaning was searched and broke" and "meaning is not switched on" are two different things to tell
+      // a reader, only one of which they can act on.
+      const [lexical, vector] = await Promise.all([
+        searchMcpNotes(ctx.env, ctx.store.userId, ctx.origin, ctx.ftsEnabled, {
+          query,
+          limit: NOTE_LEXICAL_CANDIDATES,
+          mode: 'lexical',
+          // Tags narrow the search itself; the folder scope still filters the hits below, so a turn
+          // that asked for `#meeting` cannot reach an untagged note by naming it exactly.
+          ...(scope.tagIds.size ? { tags: [...scope.tagIds] } : {}),
+        }),
+        gate.hybrid ? recallNotesByVector(ctx.store, ctx.env, query) : Promise.resolve(null),
+      ])
+      const keywordHits = lexical.results.map((hit) => ({ id: hit.id, title: hit.title, snippet: hit.snippet }))
+      // A failed or empty meaning list leaves the keyword page standing on its own: the reader keeps the
+      // answer they were already getting, and is told it is the narrower one.
+      const meaningHits = vector && !vector.failed ? vector.hits.slice(0, NOTE_VECTOR_CANDIDATES) : []
+      const fused = fuseNoteHits(keywordHits, meaningHits)
+      const allowed = await readableNoteIds(ctx.env.DB, ctx.store.userId, fused.map((hit) => hit.id), scope)
+      const hits = fused.filter((hit) => allowed.has(hit.id)).slice(0, NOTE_RESULT_LIMIT)
       // The vault's knowledge is mostly in its links: the page that says "see [[the plan]]" answers a
       // question about the plan without mentioning it. One hop from the best hits, titles only — a
       // neighbour is an invitation to read it, not a second copy of its text.
@@ -484,8 +549,11 @@ export const NOTE_TOOLS: ToolDefinition[] = [
         results: hits.map((hit) => ({
           id: hit.id,
           title: hit.title,
-          excerpt: hit.snippet.slice(0, 400),
+          excerpt: hit.excerpt.slice(0, 400),
+          source: hit.source,
         })),
+        retrieval: meaningHits.length ? 'hybrid' : 'lexical',
+        retrieval_note: noteRetrievalNote(gate, vector, keywordHits.length, meaningHits.length),
         ...(related.length
           ? {
               related: related.map((entry) => ({

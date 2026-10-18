@@ -572,6 +572,10 @@ function keepBestRows(
  * Reciprocal-rank fusion: merges two ranked lists into one by rank, so a
  * note that ranks well in both lexical and semantic search surfaces above
  * one that only appears in a single index.
+ *
+ * The two lists carry different shapes — a lexical hit has a matched snippet, a vector hit has the
+ * note's opening excerpt — so they are typed separately and merged as a union rather than made to
+ * pretend to be one row type.
  */
 export interface FusedHit<T> {
   item: T
@@ -579,13 +583,13 @@ export interface FusedHit<T> {
   sources: Set<'lexical' | 'semantic'>
 }
 
-export function fuseByRrf<T extends { id: string }>(
-  lexical: readonly T[],
-  semantic: readonly T[],
+export function fuseByRrf<L extends { id: string }, S extends { id: string }>(
+  lexical: readonly L[],
+  semantic: readonly S[],
   k = RRF_K,
-): FusedHit<T>[] {
-  const combined = new Map<string, FusedHit<T>>()
-  const push = (list: readonly T[], source: 'lexical' | 'semantic') => {
+): FusedHit<L | S>[] {
+  const combined = new Map<string, FusedHit<L | S>>()
+  const push = (list: readonly { id: string }[], source: 'lexical' | 'semantic') => {
     for (let index = 0; index < list.length; index++) {
       const item = list[index]!
       const key = item.id
@@ -594,7 +598,7 @@ export function fuseByRrf<T extends { id: string }>(
         existing.rrf += 1 / (k + index + 1)
         existing.sources.add(source)
       } else {
-        combined.set(key, { item, rrf: 1 / (k + index + 1), sources: new Set([source]) })
+        combined.set(key, { item: item as L | S, rrf: 1 / (k + index + 1), sources: new Set([source]) })
       }
     }
   }
