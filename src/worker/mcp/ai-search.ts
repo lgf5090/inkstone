@@ -742,17 +742,17 @@ export function semanticSnippet(excerpt: string, radius = 90): string {
 /**
  * The rows the vector scan may read for one filtered search.
  *
- * The tag half has to be the same rule the keyword half applies, or the two lists a caller fuses by rank
+ * Both halves have to be the same rule the keyword half applies, or the two lists a caller fuses by rank
  * are rankings of two different questions: `tagScopePredicate()` is the app's single spelling of "a tag
  * covers its whole subtree", shared with the sidebar count, the note list and the graph filter, and an
  * exact-name match here would drop every `project/sea-lock` note from the vector half while the keyword
  * half kept handing them over — a fused page nobody could explain, since the merge would be comparing
- * candidate sets that were never the same set.
+ * candidate sets that were never the same set. Folders were the same defect one filter later: the keyword
+ * half walks the folder tree, so `folderSubtreeFilterSql()` walks it here too, and the two halves answer
+ * one question about `Project` and its subfolders.
  *
- * The `folder` half is still the narrower one, and is left as it is: the keyword path walks the subfolder
- * subtree while this matches `folders.name` exactly, so a fusion asked for a folder compares a subtree
- * against one folder. That asymmetry is a separate decision with its own test to write, not something to
- * fold into this one.
+ * Every bind below is numbered against this function's own list, because the clause is spliced into a scan
+ * whose parameter numbers are counted by hand.
  */
 function semanticWhere(userId: string, filters: SemanticFilters): { binds: unknown[]; where: string } {
   const binds: unknown[] = [userId]
@@ -772,8 +772,39 @@ function semanticWhere(userId: string, filters: SemanticFilters): { binds: unkno
   }
   if (filters.folder) {
     binds.push(filters.folder)
-    where += ` AND EXISTS (SELECT 1 FROM folders f WHERE f.id = n.folder_id
-        AND f.name = ?${binds.length} COLLATE NOCASE AND f.user_id = n.user_id)`
+    where += ` AND ${folderSubtreeFilterSql(binds.length)}`
   }
   return { binds, where }
+}
+
+/**
+ * The clause for "filed in the folder this account calls `?${nameBind}`, or in any folder under it".
+ *
+ * `?1` is `semanticWhere()`'s user bind, the owner both the seed and the walk are restricted to — the same
+ * guard that stops one account pinning `Project` from reading another account's folder of that name.
+ *
+ * The keyword half's `applyFilters()` (`../search/store.ts`) owns the rule this mirrors, and mirrors it
+ * rather than calls it because that clause is written inline inside a module-private function, while the
+ * shared spelling of a *tag* subtree does live in `../db/rows.ts` as `tagScopePredicate()`. So the folder
+ * subtree is stated twice today, in two query builders, and what holds the two statements together is
+ * `tests/mcp-search-folder-scope.test.ts`: it asks both halves for the same pinned folder over one vault and
+ * fails on any change that makes them answer differently — including the two guards written here rather
+ * than invented. `UNION`, not `UNION ALL`, because a `parent_id` cycle has to terminate instead of spinning
+ * the scan, and no `deleted_at` check on `folders`, because the keyword half does not check it either: a
+ * subtree delete files its notes away and drops the rows, so notes still pointing at a deleted folder are
+ * not a state the two halves can disagree about, and adding the check here would narrow only this half.
+ *
+ * Extracting one clause out of `applyFilters()` into `../db/rows.ts` beside `tagScopePredicate()` is the
+ * follow-up that removes the duplication; it needs both files this module may not edit.
+ */
+function folderSubtreeFilterSql(nameBind: number): string {
+  return `n.folder_id IN (
+      WITH RECURSIVE folder_subtree(id) AS (
+        SELECT id FROM folders WHERE user_id = ?1 AND name = ?${nameBind} COLLATE NOCASE
+        UNION
+        SELECT f.id FROM folders f JOIN folder_subtree s ON f.parent_id = s.id
+         WHERE f.user_id = ?1
+      )
+      SELECT id FROM folder_subtree
+    )`
 }
