@@ -1,0 +1,77 @@
+// @vitest-environment node
+import { describe, expect, it } from 'vitest'
+import { SCHEMA_MIGRATIONS, type SchemaMigration } from '../src/worker/db/schema'
+
+/**
+ * The migration ledger must spend one number per entry.
+ *
+ * `applyMigrations` decides whether an entry runs by asking whether its number is already in
+ * `schema_migrations`, and it records the number with `INSERT OR IGNORE` against a
+ * `version INTEGER PRIMARY KEY`. Two entries that share a number therefore collapse into one ledger
+ * row: the first boot writes the row, and every later boot skips *both* entries — the second one can
+ * never run, and the first one runs only on the boot that happened to record it. The reader's shelf
+ * and the reading library's `users.rss` column both claimed 30, and a probe against a boot onto a
+ * database that had already spent 30 showed neither entry's statements being sent at all: the column
+ * came back only from the shape repair, which is not a migration and knows nothing about the ledger.
+ *
+ * A number spent twice is also the one mistake that cannot be undone later, because the ledger of an
+ * already-deployed account cannot be rewritten. So this is checked against the declaration rather
+ * than a boot.
+ */
+
+/** The versions this project already spent more than one column on, and will not spend again. */
+const MULTI_COLUMN_BASELINE = new Set<number>([32])
+
+/** The `ADD COLUMN` statements a version brings in, as `table.column`. */
+function addedColumns(migration: SchemaMigration): string[] {
+  const out: string[] = []
+  for (const statement of migration.statements) {
+    const added = /^\s*ALTER\s+TABLE\s+(\w+)\s+ADD\s+COLUMN\s+(\w+)/is.exec(statement)
+    if (added) out.push(`${added[1]}.${added[2]}`)
+  }
+  return out
+}
+
+function duplicatedVersions(migrations: readonly SchemaMigration[]): number[] {
+  const seen = new Map<number, number>()
+  for (const migration of migrations) seen.set(migration.version, (seen.get(migration.version) ?? 0) + 1)
+  return [...seen].filter(([, count]) => count > 1).map(([version]) => version).sort((a, b) => a - b)
+}
+
+function overSpentVersions(migrations: readonly SchemaMigration[]): number[] {
+  return migrations
+    .filter((migration) => addedColumns(migration).length > 1 && !MULTI_COLUMN_BASELINE.has(migration.version))
+    .map((migration) => migration.version)
+    .sort((a, b) => a - b)
+}
+
+describe('the migration ledger spends each version number once', () => {
+  it('holds no version claimed by two entries', () => {
+    expect(duplicatedVersions(SCHEMA_MIGRATIONS)).toEqual([])
+  })
+
+  it('holds at most one new column per version, outside the recorded baseline', () => {
+    expect(overSpentVersions(SCHEMA_MIGRATIONS)).toEqual([])
+  })
+
+  it('catches both shapes of mistake, rather than passing because the ledger happens to be clean', () => {
+    // Positive control. A guard that cannot fail is worth nothing against the next entry, and the
+    // collision it exists to stop is invisible in the code — both entries read as correct alone.
+    const collided: SchemaMigration[] = [
+      { version: 5, statements: ['ALTER TABLE users ADD COLUMN a TEXT'] },
+      { version: 5, statements: ['CREATE TABLE IF NOT EXISTS thing (id TEXT PRIMARY KEY)'] },
+      { version: 6, statements: ['ALTER TABLE thing ADD COLUMN x TEXT', 'ALTER TABLE thing ADD COLUMN y TEXT'] },
+    ]
+    expect(duplicatedVersions(collided)).toEqual([5])
+    expect(overSpentVersions(collided)).toEqual([6])
+    // The same two entries are clean once the number is spent once and the column one at a time.
+    const fixed: SchemaMigration[] = [
+      { version: 5, statements: ['ALTER TABLE users ADD COLUMN a TEXT'] },
+      { version: 7, statements: ['CREATE TABLE IF NOT EXISTS thing (id TEXT PRIMARY KEY)'] },
+      { version: 6, statements: ['ALTER TABLE thing ADD COLUMN x TEXT'] },
+      { version: 8, statements: ['ALTER TABLE thing ADD COLUMN y TEXT'] },
+    ]
+    expect(duplicatedVersions(fixed)).toEqual([])
+    expect(overSpentVersions(fixed)).toEqual([])
+  })
+})

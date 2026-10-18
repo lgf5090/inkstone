@@ -822,13 +822,6 @@ export const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
     ],
   },
   {
-    // The reader's shelf and reading state, so a cleared browser or a second device finds the books
-    // where they were left. `IF NOT EXISTS` because a fresh database already gets them from
-    // SCHEMA_STATEMENTS.
-    version: 30,
-    statements: READER_SCHEMA_STATEMENTS,
-  },
-  {
     // The flag saying a book's file is in R2, so a shelf that predates the sync can be filled in.
     version: 31,
     skipIfColumnExists: { table: 'reader_books', column: 'has_blob' },
@@ -1470,6 +1463,21 @@ export const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
             AND m.label = chat_usage_daily_model.model_label
        ) = 1`,
     ],
+  },
+  {
+    // The reader's shelf and reading state, so a cleared browser or a second device finds the books
+    // where they were left.
+    //
+    // This entry used to claim version 30 beside the `users.rss` column, and the pair cancelled each
+    // other out: the ledger keys on the number alone, so whichever boot recorded 30 first spent it, and
+    // every later boot skipped both entries — neither one's statements were ever sent again. It now
+    // sits at the end with a number nobody has spent, which is where a fresh entry belongs: nothing here
+    // depends on its position, because every statement is `CREATE ... IF NOT EXISTS` and the boot that
+    // runs migrations has already created these tables from SCHEMA_STATEMENTS. A database whose ledger
+    // spent 30 on the reader lineage simply re-runs this no-op and gains its `rss` column from the
+    // entry that now owns 30.
+    version: 95,
+    statements: READER_SCHEMA_STATEMENTS,
   },
 ]
 
