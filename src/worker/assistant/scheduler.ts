@@ -8,6 +8,10 @@
  * A routine that calls a model can outlive the sweep that started it, so each automation is claimed
  * before it runs and the claim is only released when it is re-armed — which is what stops a slow AI
  * digest from being started twice by two overlapping ticks.
+ *
+ * What a routine delivers is a row in `chat_notifications`, and the Web Push nudge that may follow it is
+ * not part of the delivery: see `deliver` below and `assistant/push-fanout.ts` for why a push service that
+ * refuses cannot make a run fail.
  */
 
 import type { Automation } from '@shared/assistant'
@@ -29,6 +33,7 @@ import { AssistantStore, dueAutomations } from './store'
 import { AutomationService } from './automations'
 import { AssistantRunner } from './runner'
 import { loadModelAndProvider } from './model-config'
+import { newPushFanoutTally, NotificationPushFanout, type PushFanoutTally } from './push-fanout'
 
 /** How many automations one sweep will start, so a backlog cannot monopolise the cron invocation. */
 export const DUE_SWEEP_LIMIT = 20
@@ -55,25 +60,47 @@ const SNAPSHOT_DIFF_THRESHOLD = 400
 export interface SweepResult {
   started: number
   failed: number
+  /**
+   * What the nudges this tick queued cost, once they were sent.
+   *
+   * A promise rather than the numbers themselves because the sends deliberately run outside the sweep's
+   * awaited path: the rows are the delivery, and waiting for a push service to answer would make the tick
+   * — and every automation after it — a hostage of a service it does not need. It resolves with counts even
+   * when every device refused, so awaiting it is how a caller (or a test) sees that nothing got through.
+   */
+  push: Promise<PushFanoutTally>
 }
 
-export async function runDueAssistantAutomations(env: Env, now = Date.now()): Promise<SweepResult> {
+/** The shape of `ctx.waitUntil`, which is how a cron fire keeps the sends alive without waiting on them. */
+export type SweepWaitUntil = (task: Promise<unknown>) => void
+
+export async function runDueAssistantAutomations(
+  env: Env,
+  now = Date.now(),
+  waitUntil?: SweepWaitUntil,
+): Promise<SweepResult> {
   const due = await dueAutomations(env.DB, now, DUE_SWEEP_LIMIT)
+  const fanout = new NotificationPushFanout(env)
   let started = 0
   let failed = 0
   for (const entry of due) {
     try {
-      await runOne(env, entry.userId, entry.automation)
+      await runOne(env, entry.userId, entry.automation, fanout)
       started++
     } catch (error) {
       failed++
       console.error('[inkstone] assistant automation failed:', error instanceof Error ? error.message : error)
     }
   }
-  return { started, failed }
+  // Nothing delivered means nothing to say: the subscription table is not read at all, so a tick that ran
+  // no routine costs no credential lookup and no request.
+  const push = fanout.empty ? Promise.resolve(newPushFanoutTally()) : fanout.flush()
+  if (waitUntil) waitUntil(push)
+  else await push
+  return { started, failed, push }
 }
 
-async function runOne(env: Env, userId: string, automation: Automation): Promise<void> {
+async function runOne(env: Env, userId: string, automation: Automation, fanout: NotificationPushFanout): Promise<void> {
   const db = env.DB
   const { ftsEnabled } = await initializeDatabase(env)
   const store = new AssistantStore(db, userId, env)
@@ -92,46 +119,52 @@ async function runOne(env: Env, userId: string, automation: Automation): Promise
   const notes = new NotesStore(db, userId, ftsEnabled)
   const folders = new FoldersStore(db, userId)
 
+  /**
+   * Delivers one thing this routine has to say: the row, then the queue for a nudge.
+   *
+   * The order is the rule and it is not negotiable here. `createNotification` is awaited and unchecked,
+   * because the row is the delivery: a reader who is nowhere near the app when 07:00 passes still finds
+   * this in their notification list. What the fan-out is handed afterwards is the account and the row's id,
+   * never the title or the body: a device that refuses, or a deployment with no VAPID keys, has to leave
+   * this run looking exactly as it did before pushes existed.
+   */
+  const deliver = async (input: { title: string, body: string }): Promise<void> => {
+    const notification = await store.createNotification({ ...input, automationId: automation.id })
+    fanout.track(userId, notification.id)
+  }
+
   await service.fire(automation, async (entry) => {
     switch (entry.kind) {
       case 'reminder': {
         // A plain reminder never spends AI: the message is the whole answer.
-        await store.createNotification({
-          title: entry.message || entry.name,
-          body: entry.message || entry.name,
-          automationId: entry.id,
-        })
+        await deliver({ title: entry.message || entry.name, body: entry.message || entry.name })
         return { status: 'success' as const, result: 'delivered' }
       }
       case 'task_digest': {
         const body = await digestBody(store, settings, catalog.digest_overdue, catalog.digest_today, catalog.digest_open, catalog.digest_none)
-        await store.createNotification({ title: entry.name, body, automationId: entry.id })
+        await deliver({ title: entry.name, body })
         if (entry.message) {
           // A digest can carry the reader's own note as well as the computed list.
-          await store.createNotification({ title: entry.name, body: entry.message, automationId: entry.id })
+          await deliver({ title: entry.name, body: entry.message })
         }
         return { status: 'success' as const, result: body.slice(0, 300) }
       }
       case 'assistant_prompt': {
-        const blocked = await spendBlocker(store, settings, catalog, entry)
+        const blocked = await spendBlocker(store, settings, catalog, entry, deliver)
         if (blocked) return blocked
         const text = await askScheduledPrompt(runner, entry)
-        await store.createNotification({ title: entry.name, body: text, automationId: entry.id })
+        await deliver({ title: entry.name, body: text })
         return { status: 'success' as const, result: text.slice(0, 300) }
       }
       case 'note_write': {
         // The target is proved before the budget is read and long before the model is asked: a routine
         // whose folder was deleted should say so and cost nothing, not answer a whole page into nowhere.
         const target = await resolveWriteTarget(notes, folders, entry)
-        const blocked = await spendBlocker(store, settings, catalog, entry)
+        const blocked = await spendBlocker(store, settings, catalog, entry, deliver)
         if (blocked) return blocked
         const text = await askScheduledPrompt(runner, entry)
         const written = await fileAnswer(db, userId, notes, entry, target, text)
-        await store.createNotification({
-          title: entry.name,
-          body: `${written.summary}\n\n${text}`,
-          automationId: entry.id,
-        })
+        await deliver({ title: entry.name, body: `${written.summary}\n\n${text}` })
         return { status: 'success' as const, result: written.summary.slice(0, 300), noteId: written.noteId }
       }
     }
@@ -143,22 +176,25 @@ async function runOne(env: Env, userId: string, automation: Automation): Promise
  *
  * The two kinds that call a model share the rule, and the refusal has to be the same shape for both: a
  * notification saying it was skipped, and a receipt saying why. Kept as a blocker rather than a boolean
- * because the reason is what the run list shows.
+ * because the reason is what the run list shows. The skip is delivered through the same `deliver` as an
+ * answer is: "the budget ran out" is exactly the event a reader should be nudged about, and it is the row
+ * they will read.
  */
 async function spendBlocker(
   store: AssistantStore,
   settings: ReturnType<typeof normalizeAssistantSettings>,
   catalog: ReturnType<typeof promptCatalog>,
   entry: Automation,
+  deliver: (input: { title: string, body: string }) => Promise<void>,
 ): Promise<{ status: 'skipped', result: string } | null> {
   const today = await store.todayUsage()
   if (today.scheduledRuns >= settings.limits.maxScheduledRunsPerDay || !settings.limits.maxScheduledRunsPerDay) {
-    await store.createNotification({ title: entry.name, body: catalog.digest_skipped, automationId: entry.id })
+    await deliver({ title: entry.name, body: catalog.digest_skipped })
     return { status: 'skipped', result: 'scheduled ai budget reached' }
   }
   const resolved = await loadModelAndProvider(store, settings)
   if (!resolved.model || !resolved.provider) {
-    await store.createNotification({ title: entry.name, body: catalog.digest_skipped, automationId: entry.id })
+    await deliver({ title: entry.name, body: catalog.digest_skipped })
     return { status: 'skipped', result: 'no model configured' }
   }
   return null

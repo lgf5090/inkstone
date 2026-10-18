@@ -58,7 +58,10 @@ export default {
       // The assistant's schedules are swept on every fire, including the minute-granular one, because
       // a reminder that arrives a quarter-hour late is a broken reminder. The existing drains keep the
       // cadence they had: they still run when they used to, not sixty times a day.
-      const assistantTick = runDueAssistantAutomations(env)
+      // The Web Push nudges a sweep queues are handed to `waitUntil` rather than awaited: the notification
+      // rows are the delivery, and a push service that answers slowly must not hold up the tick that wrote
+      // them. What the sends cost comes back in the sweep result's `push` tally.
+      const assistantTick = runDueAssistantAutomations(env, Date.now(), (task) => { ctx.waitUntil(task) })
       if (!isDrainFire(event.scheduledTime)) {
         await assistantTick
         return
