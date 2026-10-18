@@ -633,6 +633,7 @@ export function ChatView() {
                           error={turnHere.error}
                           streaming={!turnHere.done}
                           stage={turnHere.stage}
+                          sources={turnHere.sources}
                         />
                       </AnswerColumn>
                       <ComparisonColumn turn={compareHere} />
@@ -645,6 +646,7 @@ export function ChatView() {
                       error={turnHere.error}
                       streaming={!turnHere.done}
                       stage={turnHere.stage}
+                      sources={turnHere.sources}
                     />
                   )}
                 </>

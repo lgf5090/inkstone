@@ -6,14 +6,15 @@
  * parsed again for no reason (the rows are memoised precisely so that cannot happen, and a callback built
  * per row defeats it), a thread that stops following a reply that is still thinking, an interaction mode
  * that outlives the conversation it was entered for, a trigger panel whose older lookup answers last and
- * wins, and an index that turns into NaN when the panel has nothing to offer.
+ * wins, an index that turns into NaN when the panel has nothing to offer, and the citations an answer was
+ * built on reaching the bubble of the turn that is still on screen.
  *
  * The view is mounted whole because these are the view's states — none of them is reachable from a store.
  */
 import { act, createElement, type ReactNode } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { DEFAULT_ASSISTANT_SETTINGS, type AssistantMessage } from '@shared/assistant'
+import { DEFAULT_ASSISTANT_SETTINGS, type AssistantMessage, type AssistantSource } from '@shared/assistant'
 import { initI18n, t } from '../../lib/i18n'
 import { installTestGlobals } from '../../lib/test-render'
 import { useAssistant } from './assistant-store'
@@ -23,7 +24,7 @@ const harness = vi.hoisted(() => ({
   /** What `api.search` answers with, decided per case; the `@` trigger's only lookup. */
   search: null as null | ((query: string, limit: number) => Promise<{ results: Array<{ note: { id: string, title: string } }> }>),
   /** Every answer bubble the view rendered, counted by the id the row carries. */
-  bubbles: new Map<string, { renders: number, onRetry?: (() => void) | undefined }>(),
+  bubbles: new Map<string, { renders: number, onRetry?: (() => void) | undefined, sources?: unknown }>(),
 }))
 
 /** The confirm host is not mounted here, so the one dialog under test is answered by hand. */
@@ -64,6 +65,7 @@ vi.mock('./MessageParts', async (importOriginal) => {
     const seen = harness.bubbles.get(id) ?? { renders: 0 }
     seen.renders += 1
     seen.onRetry = props.onRetry
+    seen.sources = props.sources
     harness.bubbles.set(id, seen)
     return createElement(
       'div',
@@ -196,6 +198,7 @@ async function mountComposer(): Promise<void> {
 const box = () => document.body.querySelector<HTMLTextAreaElement>('textarea')!
 const scroller = () => document.querySelector<HTMLDivElement>('section div.no-scrollbar')
 const renders = (id: string) => harness.bubbles.get(id)?.renders ?? 0
+const sourcesOf = (id: string) => harness.bubbles.get(id)?.sources
 const rowButtons = () => [...document.body.querySelectorAll<HTMLButtonElement>('button')]
 const byText = (text: string) => rowButtons().find((node) => node.textContent?.includes(text))
 const byAria = (label: string) => rowButtons().find((node) => node.getAttribute('aria-label') === label)
@@ -391,5 +394,23 @@ describe('the composer’s trigger panel', () => {
     expect(markedOption()).toBe('Beta')
     pressKey('Enter')
     expect(box().value).toBe('[[Beta]]')
+  })
+})
+
+describe('the citations an answer was built on', () => {
+  const PAGE: AssistantSource = { url: 'https://example.com/a', title: 'A page' }
+
+  it('reaches the bubble of the turn still on screen, not only the one read back later', async () => {
+    // The worker files the citations on the row it writes, and the row is what the next read returns.
+    // Until then this turn's own record is the only place they exist, so a searched answer that has
+    // just landed has to be drawn with them — otherwise the reader is shown a claim that came from
+    // outside the vault with nothing saying where.
+    await mountView({ turn: liveTurn({ done: true, text: 'It says so here.', sources: [PAGE] }) })
+    expect(sourcesOf('live')).toEqual([PAGE])
+  })
+
+  it('reaches a stored answer too, which is the copy the thread is reopened to', async () => {
+    await mountView({ messages: [...THREAD, message({ id: 'm-cited', role: 'assistant', content: 'Sourced.', sources: [PAGE] })] })
+    expect(sourcesOf('m-cited')).toEqual([PAGE])
   })
 })

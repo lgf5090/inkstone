@@ -186,6 +186,7 @@ export function AssistantDock() {
                   error={turnHere.error}
                   streaming={!turnHere.done}
                   stage={turnHere.stage}
+                  sources={turnHere.sources}
                 />
               </>
             )}

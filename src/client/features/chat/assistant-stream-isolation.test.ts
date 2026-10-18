@@ -12,9 +12,12 @@
  * worker's row comes back blank, so adopting the stored thread must not erase them. And a turn that is
  * being written in another tab is a state this tab has to leave on its own, which is what the remote
  * watch is for.
+ *
+ * The last case is about what a frame is allowed to write rather than which turn it may write: the pages
+ * a search consulted exist on the stored row, and the closing frame is the only one that carries them.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import type { AssistantMessage } from '@shared/assistant'
+import type { AssistantMessage, AssistantSource } from '@shared/assistant'
 import { initI18n, t } from '../../lib/i18n'
 import { installTestGlobals } from '../../lib/test-render'
 import { useUi } from '../../store/ui'
@@ -284,5 +287,25 @@ describe('a request the worker never took', () => {
     run.resolve()
     expect(await sending).toBe(true)
     expect(useAssistant.getState().pending).toEqual([])
+  })
+})
+
+describe('the pages a turn’s search consulted', () => {
+  it('are given to the live turn by the frame that names the stored row', async () => {
+    const page: AssistantSource = { url: 'https://example.com/a', title: 'A page' }
+    reset({ activeId: 'c1' })
+    const sending = useAssistant.getState().send('what changed this week?')
+    const run = await nextRun()
+    run.apply({ type: 'start', conversationId: 'c1', assistantMessageId: 'm-answer' })
+    run.apply({ type: 'text', delta: 'It says so on the page.' })
+    // The citations are written on the row, and that row only comes back on the closing frame — which is
+    // also the one moment the answer already on screen can be told what it was built on.
+    run.apply({
+      type: 'done',
+      finalMessage: assistantRow({ id: 'm-answer', content: 'It says so on the page.', status: 'complete', sources: [page] }),
+    })
+    expect(useAssistant.getState().turn?.sources).toEqual([page])
+    run.resolve()
+    await sending
   })
 })

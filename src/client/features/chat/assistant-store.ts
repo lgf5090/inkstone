@@ -30,6 +30,7 @@ import type {
   AssistantNotification,
   AssistantProvider,
   AssistantSettings,
+  AssistantSource,
   AssistantVendorModel,
   Automation as AssistantAutomation,
   AutomationRun as AssistantAutomationRun,
@@ -132,6 +133,13 @@ interface LiveTurn {
   startedAt?: number
   /** What the model reported spending, once the `usage` frame landed. Null while it has not said. */
   usage?: { inputTokens: number, outputTokens: number } | null
+  /**
+   * The pages a web search consulted, copied from the row the worker filed at the end of the turn.
+   *
+   * The citations are drawn from here, so a turn that searched has to carry them the moment it settles —
+   * otherwise the answer looks unsourced until the reader leaves the thread and comes back to it.
+   */
+  sources?: AssistantSource[]
   /** When the turn settled; absent while it is still arriving. */
   finishedAt?: number | null
 }
@@ -2110,6 +2118,9 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
                 text: event.finalMessage?.role === 'assistant' && event.finalMessage.content
                   ? event.finalMessage.content
                   : turn.text,
+                // The pages this turn's search consulted live on the row, not on any frame, so this is the
+                // one moment the bubble on screen can be given them.
+                sources: event.finalMessage?.sources ?? turn.sources,
               },
             }
           default:

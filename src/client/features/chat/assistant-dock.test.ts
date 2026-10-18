@@ -166,4 +166,31 @@ describe('the docked assistant', () => {
     // The row goes with the answer it was about: leaving it would offer to paste it again.
     expect(useEditorAi.getState().request).toBeNull()
   })
+
+  it('shows the page an answer on screen was read from, before the thread is opened again', async () => {
+    await show({
+      loaded: true,
+      activeId: 'c1',
+      messages: [],
+      messagesReady: true,
+      turn: {
+        conversationId: 'c1',
+        userText: 'what changed this week?',
+        attachments: [],
+        assistantId: 'm2',
+        text: 'It says so on the page.',
+        reasoning: '',
+        tools: [],
+        stage: undefined,
+        error: null,
+        done: true,
+        sources: [{ url: 'https://example.com/a', title: 'A page' }],
+      },
+    })
+    // The dock is where a searched answer is most often read, so the citation has to be there from the
+    // moment the words land — a claim that came from outside the vault cannot wait for a reload.
+    const link = document.querySelector<HTMLAnchorElement>('a[href="https://example.com/a"]')
+    expect(link, 'the dock drew the answer with nothing saying where it came from').toBeTruthy()
+    expect(link!.textContent).toContain('A page')
+  })
 })
