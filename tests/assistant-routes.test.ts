@@ -3143,7 +3143,9 @@ describe('model input modalities', () => {
     const modelId = models.models[0]!.id
     expect(models.models[0]?.modalities).toEqual([])
     const first = await call<{ model: AssistantModel }>('PATCH', `/api/assistant/models/${modelId}`, { modalities: ['audio', 'video'] })
-    expect(first.model.modalities).toEqual(['audio', 'video'])
+    // `video` is an unknown value now, like `telepathy` below: the switch was deleted because no request
+    // format carried it, so a row that still names it must lose it rather than keep a promise nobody honours.
+    expect(first.model.modalities).toEqual(['audio'])
     const second = await call<{ model: AssistantModel }>('PATCH', `/api/assistant/models/${modelId}`, { modalities: ['telepathy', 'audio', 'audio'] })
     expect(second.model.modalities).toEqual(['audio'])
     const listed = await call<{ models: AssistantModel[] }>('GET', '/api/assistant/models')
