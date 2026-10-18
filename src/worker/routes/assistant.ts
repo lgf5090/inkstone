@@ -64,6 +64,7 @@ import {
   MEMORY_REVIEW_ACTIONS,
   MESSAGE_FEEDBACK,
   MAX_FEEDBACK_REASON_CHARS,
+  SAVED_MESSAGE_PAGE_SIZE,
   type MessageFeedback,
   ASSISTANT_SETTING_KEYS,
   normalizeAssistantSettings,
@@ -261,6 +262,21 @@ function pageSize(raw: string | undefined, fallback: number, ceiling: number): n
   const parsed = Number(raw ?? '')
   if (!Number.isFinite(parsed) || parsed < 1) return fallback
   return Math.min(Math.floor(parsed), ceiling)
+}
+
+/** The same pair for the shelf of kept answers: the last row a page showed, and what comes after it. */
+function encodeSavedCursor(row: { savedAt: number, id: string }): string {
+  return btoa(`${row.savedAt}:${row.id}`)
+}
+
+function decodeSavedCursor(raw: string): { savedAt: number, id: string } | null {
+  try {
+    const [savedAt, id] = atob(raw).split(':')
+    if (!/^\d{1,16}$/.test(savedAt ?? '') || !isValidId(id ?? '')) return null
+    return { savedAt: Number(savedAt), id: id! }
+  } catch {
+    return null
+  }
 }
 
 // -------------------------------------------------------------- conversations
@@ -914,6 +930,54 @@ assistantRoutes.patch('/conversations/:id/messages/:messageId/feedback', async (
   if (message.role !== 'assistant') throw ApiError.badRequest('Only an answer can be rated.')
   await s.setMessageFeedback(messageId, feedback, reason)
   return c.json({ message: await s.getMessage(messageId) })
+})
+
+/**
+ * Keep one answer, or take it back off the shelf.
+ *
+ * A press toggles and nothing else: there is no body to read, so there is no state a client can claim and
+ * have refused. The answer is the row re-read after the write, which is the only version of the truth this
+ * route can give — a response computed from what the request asked for would say "kept" about a turn that
+ * was deleted while the statement was in flight, and the shelf would then hold a mark nobody stored.
+ *
+ * The pairing check is the one every other turn route makes, and it is not decoration: it is what stops a
+ * request naming one conversation and another's message, which the account filter alone would let through
+ * because both rows belong to the reader.
+ */
+assistantRoutes.post('/conversations/:id/messages/:messageId/saved', async (c) => {
+  const s = store(c)
+  const conversationId = requiredId(c.req.param('id'))
+  const messageId = requiredId(c.req.param('messageId'))
+  if (!(await s.getConversation(conversationId))) throw ApiError.notFound('Conversation not found')
+  const message = await s.getMessage(messageId)
+  if (!message || message.conversationId !== conversationId) throw ApiError.notFound('Message not found')
+  const flipped = await s.toggleMessageSaved(messageId)
+  if (!flipped) throw ApiError.notFound('Message not found')
+  return c.json({ conversationId, messageId, saved: flipped.saved, savedAt: flipped.savedAt })
+})
+
+/**
+ * The answers the reader has kept, newest kept first, each with the thread it belongs to.
+ *
+ * The thread comes back with the row because the shelf's one job is getting the reader back to an answer:
+ * a list of message ids they cannot open is a list of nothing. Page bounds are opaque cursors over the
+ * order the list uses, so a keep made while the reader is scrolling cannot repeat a row or drop one.
+ */
+assistantRoutes.get('/saved-messages', async (c) => {
+  const cursorParam = c.req.query('cursor')
+  const cursor = cursorParam ? decodeSavedCursor(cursorParam) : null
+  // A cursor that does not decode is a caller composing one, not a reader at the end of a shelf: refused
+  // rather than answered with the first page, which would quietly show the same rows twice.
+  if (cursorParam && !cursor) throw ApiError.badRequest('Unknown cursor.')
+  const limit = pageSize(c.req.query('limit'), SAVED_MESSAGE_PAGE_SIZE, 100)
+  const s = store(c)
+  // One row past the page, trimmed back: the same trick the conversation list uses to say whether there is
+  // more without a second count over the filter.
+  const page = await s.listSavedMessages({ limit: limit + 1, before: cursor })
+  const hasMore = page.length > limit
+  const items = hasMore ? page.slice(0, limit) : page
+  const last = items[items.length - 1]
+  return c.json({ items, nextCursor: hasMore && last ? encodeSavedCursor(last) : null })
 })
 
 /**

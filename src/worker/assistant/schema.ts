@@ -239,6 +239,11 @@ export const ASSISTANT_SCHEMA_STATEMENTS: readonly string[] = [
     feedback TEXT NOT NULL DEFAULT '',
     sources TEXT NOT NULL DEFAULT '[]',
     scopes TEXT NOT NULL DEFAULT '[]',
+    -- The answer the reader kept. Nullable rather than a flag with a default, because the state the column
+    -- describes is "kept since when": the moment is what the saved list orders by and what a reader who
+    -- comes back next month wants to see, and a flag would have to be joined to a timestamp anyway. NULL is
+    -- every turn nobody kept, including every row that predates the column — the reading that loses nothing.
+    saved_at INTEGER,
     created_at INTEGER NOT NULL,
     PRIMARY KEY (user_id, id)
   )`,
@@ -246,6 +251,11 @@ export const ASSISTANT_SCHEMA_STATEMENTS: readonly string[] = [
      ON chat_messages(user_id, conversation_id, created_at, id)`,
   `CREATE INDEX IF NOT EXISTS idx_chat_messages_user
      ON chat_messages(user_id, created_at)`,
+  // The kept answers, newest kept first. Without this the list walks every turn the account has ever
+  // stored to find the few dozen a reader pressed ⭐ on, and the account column leads so the walk starts
+  // inside one tenant rather than across the table.
+  `CREATE INDEX IF NOT EXISTS idx_chat_messages_saved
+     ON chat_messages(user_id, saved_at DESC, id)`,
 
   /**
    * The answers a retry displaced, one row each.
@@ -618,6 +628,7 @@ export const ASSISTANT_REQUIRED_INDEXES: readonly string[] = [
   'idx_chat_conversation_tags_tag',
   'idx_chat_messages_conversation',
   'idx_chat_messages_user',
+  'idx_chat_messages_saved',
   'idx_chat_memories_user_updated',
   'idx_chat_memories_status',
   'idx_chat_memories_superseded',
@@ -663,7 +674,7 @@ export const ASSISTANT_REQUIRED_COLUMNS: Readonly<Record<string, readonly string
   chat_note_writes: ['user_id', 'note_id', 'conversation_id', 'created_at'],
   chat_attachments: ['user_id', 'id', 'kind', 'filename', 'mime', 'size', 'key', 'extracted_text', 'created_at'],
   chat_conversation_tags: ['user_id', 'conversation_id', 'tag_id', 'created_at'],
-  chat_messages: ['user_id', 'id', 'conversation_id', 'role', 'content', 'reasoning', 'tools', 'attachments', 'status', 'error', 'source', 'input_tokens', 'output_tokens', 'duration_ms', 'model_label', 'feedback', 'sources', 'scopes', 'created_at'],
+  chat_messages: ['user_id', 'id', 'conversation_id', 'role', 'content', 'reasoning', 'tools', 'attachments', 'status', 'error', 'source', 'input_tokens', 'output_tokens', 'duration_ms', 'model_label', 'feedback', 'sources', 'scopes', 'saved_at', 'created_at'],
   chat_answer_versions: ['user_id', 'id', 'message_id', 'conversation_id', 'content', 'reasoning', 'tools', 'model_label', 'input_tokens', 'output_tokens', 'duration_ms', 'created_at'],
   chat_mcp_servers: ['user_id', 'id', 'label', 'url', 'description', 'transport', 'timeout_seconds', 'header_ciphertext', 'oauth_ciphertext', 'oauth_meta', 'enabled', 'tool_mode', 'tool_modes', 'created_at', 'updated_at'],
   chat_memories: ['user_id', 'id', 'content', 'category', 'source', 'status', 'superseded_by', 'valid_from', 'valid_until', 'project_id', 'note_id', 'created_at', 'updated_at'],

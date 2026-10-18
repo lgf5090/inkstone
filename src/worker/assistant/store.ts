@@ -9,7 +9,7 @@
  *    written by an older build, restored from a backup file, or edited by hand — stored text is input.
  */
 
-import { ASSISTANT_MODEL_KINDS, ASSISTANT_MODEL_PURPOSES, MAX_TURN_SCOPES, clipToolPayload, parseCustomParams, isNoteSourceId, isSourceUrl } from '@shared/assistant'
+import { ASSISTANT_MODEL_KINDS, ASSISTANT_MODEL_PURPOSES, MAX_TURN_SCOPES, SAVED_MESSAGE_EXCERPT_CHARS, clipToolPayload, parseCustomParams, isNoteSourceId, isSourceUrl } from '@shared/assistant'
 import type {
   AssistantArtifact,
   AssistantConversation,
@@ -47,6 +47,7 @@ import type {
   ToolActivity,
   UsageCounters,
   ReasoningDialect,
+  SavedMessage,
 } from '@shared/assistant'
 import { dialectsForProtocol } from '@shared/reasoning'
 import type { McpOAuthSecrets, McpOAuthStatus } from './mcp-oauth'
@@ -436,12 +437,13 @@ interface MessageRow {
   feedback: string | null
   sources: string | null
   scopes: string | null
+  saved_at: number | null
   created_at: number
   version_count?: number | null
 }
 
 const MESSAGE_COLUMNS
-  = `id, conversation_id, role, content, reasoning, tools, attachments, status, error, source, input_tokens, output_tokens, duration_ms, model_label, feedback, sources, scopes, created_at`
+  = `id, conversation_id, role, content, reasoning, tools, attachments, status, error, source, input_tokens, output_tokens, duration_ms, model_label, feedback, sources, scopes, saved_at, created_at`
 /** How many answers this turn has already displaced; only the transcript list pays for it. */
 const MESSAGE_VERSION_COUNT
   = `(SELECT COUNT(*) FROM chat_answer_versions v WHERE v.user_id = chat_messages.user_id AND v.message_id = chat_messages.id) AS version_count`
@@ -452,6 +454,31 @@ const MESSAGE_VERSION_COUNT
  * every read of a conversation orders by it rather than by `id`.
  */
 const MESSAGE_ORDER = `created_at ASC, seq ASC`
+
+/** One row of the kept answers, as {@link AssistantStore.listSavedMessages} reads it. */
+interface SavedMessageRow {
+  id: string
+  conversation_id: string
+  role: string
+  created_at: number
+  saved_at: number
+  excerpt: string | null
+}
+
+/**
+ * How much of a kept answer the read takes out of the row.
+ *
+ * Wider than the shelf shows, because the whitespace flattening below folds a paragraph onto one line and a
+ * reply that opens with blank lines or a fence would otherwise arrive short of what the row has room for.
+ * It is still a slice, not the column: the shelf is a pointer into a thread, and a page of twenty full
+ * answers is the transcript paid for twice.
+ */
+const SAVED_MESSAGE_EXCERPT_READ_CHARS = SAVED_MESSAGE_EXCERPT_CHARS * 3
+
+/** The read slice as the shelf shows it: whitespace folded, then bounded to the row's own length. */
+function excerptOf(value: string | null): string {
+  return (value ?? '').replace(/\s+/g, ' ').trim().slice(0, SAVED_MESSAGE_EXCERPT_CHARS)
+}
 
 /** The reader's verdict on one answer, read back from what the column stores. */
 interface FeedbackVerdict {
@@ -518,6 +545,7 @@ function toMessage(r: MessageRow): AssistantMessage {
     ...(r.sources ? { sources: decodeSources(r.sources) } : {}),
     ...(r.scopes ? { scopes: decodeScopes(r.scopes) } : {}),
     versionCount: r.version_count ?? undefined,
+    savedAt: r.saved_at ?? null,
   }
 }
 
@@ -2516,6 +2544,109 @@ export class AssistantStore {
       id, encodeFeedback(feedback, feedback === 'down' ? reason : undefined),
     )
     return result > 0
+  }
+
+  /**
+   * Flip the reader's keep on one answer, and report what the row now holds.
+   *
+   * A toggle rather than a set, because the press is the whole request: the reader pointing at a bubble
+   * either puts it on the shelf or takes it back, and a client that sent the state it wanted would be
+   * trusted by nothing but itself. The flip is one statement — `CASE` reads the column the write is
+   * already holding — so two presses that land together cannot both decide the answer is "kept".
+   *
+   * The value returned is read back after the write rather than computed from the intent, and null means
+   * no row of this account matched: the caller's 404 is built on the same fact `setMessageFeedback`'s
+   * boolean is, and neither one says anything about a row it did not look at.
+   */
+  async toggleMessageSaved(id: string, now = Date.now()): Promise<{ saved: boolean, savedAt: number | null } | null> {
+    const changed = await this.write(
+      `UPDATE chat_messages SET saved_at = CASE WHEN saved_at IS NULL THEN ?2 ELSE NULL END
+        WHERE user_id = ?1 AND id = ?3`,
+      now, id,
+    )
+    if (!changed) return null
+    const row = await this.one<{ saved_at: number | null }>(
+      `SELECT saved_at FROM chat_messages WHERE user_id = ?1 AND id = ?2`,
+      this.userId, id,
+    )
+    // The row is this account's but the read came back with nothing, which leaves only a delete between
+    // the two statements — a turn removed while the press was in flight. Reported as not found rather
+    // than as a keep nobody stored.
+    if (!row) return null
+    const savedAt = num(row.saved_at)
+    return { saved: savedAt !== null, savedAt }
+  }
+
+  /**
+   * The answers this account kept, most recently kept first, each with the thread it belongs to.
+   *
+   * Keyset paging on `(saved_at, id)`, the same shape every list here uses: an offset would shift under a
+   * keep made while the reader was scrolling, and the shelf is exactly the place where a keep is being
+   * made. `id` breaks the tie because two answers can be kept in one millisecond, and the order has to be
+   * one the next page can resume from.
+   *
+   * A temporary conversation is not listed, matching every other read of this table — the reader asked for
+   * a thread that would not be kept, and its keeps are part of it. Its turns are deleted with it anyway, so
+   * the exclusion only covers the window before the sweep.
+   */
+  async listSavedMessages(options: {
+    limit: number
+    /** Where the previous page stopped: the last kept row it showed, as the caller was given it. */
+    before?: { savedAt: number, id: string } | null
+  }): Promise<SavedMessage[]> {
+    const q = new Query(this.userId)
+    q.raw('saved_at IS NOT NULL')
+    q.raw(`NOT EXISTS (SELECT 1 FROM chat_conversations c
+              WHERE c.user_id = chat_messages.user_id AND c.id = chat_messages.conversation_id AND c.ephemeral = 1)`)
+    const before = options.before ?? null
+    if (before) {
+      const savedAt = q.add(before.savedAt)
+      const id = q.add(before.id)
+      q.raw(`(saved_at < ${savedAt} OR (saved_at = ${savedAt} AND id < ${id}))`)
+    }
+    const limit = q.add(options.limit)
+    // Read past the excerpt's own length: the flattening below drops leading whitespace and code fences
+    // would otherwise arrive as a row of blanks, and a shorter slice than the row shows is cheaper than a
+    // whole reply per row on a shelf that is only a pointer into the thread.
+    const rows = await this.rows<SavedMessageRow>(
+      `SELECT id, conversation_id, role, created_at, saved_at,
+              substr(content, 1, ?${q.binds.length + 1}) AS excerpt
+         FROM chat_messages WHERE ${q.where}
+        ORDER BY saved_at DESC, id DESC LIMIT ${limit}`,
+      ...q.binds, SAVED_MESSAGE_EXCERPT_READ_CHARS,
+    )
+    if (!rows.length) return []
+    const titles = await this.conversationTitles(rows.map((row) => row.conversation_id))
+    return rows.map((row) => ({
+      id: row.id,
+      conversationId: row.conversation_id,
+      conversationTitle: titles.get(row.conversation_id) ?? '',
+      role: row.role === 'assistant' ? 'assistant' : 'user',
+      excerpt: excerptOf(row.excerpt),
+      savedAt: Number(row.saved_at),
+      createdAt: row.created_at,
+    }))
+  }
+
+  /**
+   * The titles of the threads one shelf page points into, in one read.
+   *
+   * The shelf shows the thread's current name rather than one copied when the answer was kept — the reader
+   * renames a conversation and expects every pointer to it to follow. A thread that is gone (its turns
+   * deleted under an open shelf) simply is not in the map, and the row falls back to the untitled name the
+   * list already shows rather than claiming a title nobody has.
+   */
+  private async conversationTitles(ids: readonly string[]): Promise<Map<string, string>> {
+    const titles = new Map<string, string>()
+    for (const chunk of idReadChunks([...new Set(ids)])) {
+      const q = new Query(this.userId)
+      q.inList('id', chunk)
+      const rows = await this.rows<{ id: string, title: string }>(
+        `SELECT id, title FROM chat_conversations WHERE ${q.where}`, ...q.binds,
+      )
+      for (const row of rows) titles.set(row.id, row.title)
+    }
+    return titles
   }
 
   async deleteMessage(id: string): Promise<void> {    await this.deleteMessageRow(id)
@@ -4718,7 +4849,11 @@ const EXPORT_COLUMNS: Readonly<Record<string, readonly string[]>> = {
   chat_conversation_tags: ['conversation_id', 'tag_id', 'created_at'],
   // `sources` is where a searched answer says what it read, and `feedback` is the reader's own verdict:
   // both are shown by the transcript, so a restored row without them is a different row.
-  chat_messages: ['id', 'conversation_id', 'role', 'content', 'reasoning', 'tools', 'attachments', 'status', 'error', 'source', 'input_tokens', 'output_tokens', 'duration_ms', 'model_label', 'sources', 'feedback', 'scopes', 'created_at'],
+  // `saved_at` rides with them for the sharper reason: the shelf that lists keeps is built from this column,
+  // so a restore that lost it leaves the reader with a thread whose answer they had kept, kept nowhere — and
+  // because the column is nullable, `INSERT OR IGNORE` drops nothing on the way back in. The row lands with
+  // the mark gone, which is the quiet version of the loss rather than the loud one.
+  chat_messages: ['id', 'conversation_id', 'role', 'content', 'reasoning', 'tools', 'attachments', 'status', 'error', 'source', 'input_tokens', 'output_tokens', 'duration_ms', 'model_label', 'sources', 'feedback', 'scopes', 'saved_at', 'created_at'],
   chat_answer_versions: ['id', 'message_id', 'conversation_id', 'content', 'reasoning', 'tools', 'model_label', 'input_tokens', 'output_tokens', 'duration_ms', 'created_at'],
   // `note_id` is the note a fact was written out as: a pointer the management screen shows, so it
   // travels with the fact it belongs to.

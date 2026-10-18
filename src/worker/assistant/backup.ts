@@ -347,6 +347,10 @@ async function mergeBackup(store: AssistantStore, data: Record<string, unknown>,
       // The scope a turn was asked under, kept for the same reason: a restored transcript that lost it
       // would show an answer with no explanation for why it only knew one note.
       scopes: typeof message.scopes === 'string' ? message.scopes.slice(0, 8 * 1024) : '[]',
+      // The reader's own keep, with the moment they made it. Named because a column the restore leaves out
+      // is written as NULL rather than skipped: the row still lands — the column is nullable — and the
+      // answer comes back off the shelf the reader put it on, which is the loss nobody would see.
+      saved_at: numberOrNull(message.saved_at),
       created_at: numberValue(message.created_at, Date.now()),
     }
     messageRows.push(row)

@@ -1930,7 +1930,53 @@ export interface AssistantMessage {
    * app's version history lists its snapshots.
    */
   versionCount?: number
+  /**
+   * When the reader kept this answer, or null for a turn nobody kept.
+   *
+   * The one piece of the saved state a transcript read carries: the bubble's press has to say whether it is
+   * down before anything is written, and a mark the reader made on Tuesday has to still be there on Friday
+   * and on another device. A timestamp rather than a flag because the shelf the keeps are listed on orders
+   * by when the answer was taken, and the same value says both. Absent on a turn still streaming, which is
+   * not a row yet and so cannot be kept.
+   */
+  savedAt?: number | null
 }
+
+/**
+ * One answer the reader kept, as the shelf lists it.
+ *
+ * The thread travels with it because a keep is a pointer into a conversation: the row has to say what it
+ * belongs to and be openable, and the server is the only thing that knows which title that thread has now.
+ * A reader coming back with only the message id in hand would have to open every thread to find the one
+ * that holds it.
+ */
+export interface SavedMessage {
+  id: string
+  conversationId: string
+  /** The thread's title as it stands now, which the row shows and the shelf opens. */
+  conversationTitle: string
+  role: 'user' | 'assistant'
+  /**
+   * The turn's opening lines, with the whitespace flattened.
+   *
+   * Enough to recognise the answer without opening the thread — the row is a pointer, not a reading surface,
+   * and a shelf of full replies is the transcript again in a narrower box.
+   */
+  excerpt: string
+  savedAt: number
+  createdAt: number
+}
+
+/**
+ * How many kept answers one page of the shelf carries.
+ *
+ * Smaller than a transcript page: these rows are a list to scan for one thing the reader remembers keeping,
+ * and a page that needs scrolling past twenty of them to reach the twenty-first answers nothing sooner.
+ */
+export const SAVED_MESSAGE_PAGE_SIZE = 20
+
+/** How much of a kept answer the shelf row shows. */
+export const SAVED_MESSAGE_EXCERPT_CHARS = 160
 
 /**
  * One earlier answer of the same turn.

@@ -1557,6 +1557,36 @@ export const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
       `ALTER TABLE chat_runs ADD COLUMN note_id TEXT`,
     ],
   },
+  {
+    // The answer the reader kept.
+    //
+    // A thread is the unit every other shortlist here works on — `starred`, `pinned` and `archived` are all
+    // columns of `chat_conversations` — but keeping is something a reader does to one answer: the paragraph
+    // that finally answered the question, not the forty turns around it. Nullable rather than a 0/1 flag:
+    // the column says both whether this turn is kept and since when, and NULL is what every row written
+    // before it means — a turn nobody kept, which is the reading that loses nothing. One column, one
+    // version number; the index the kept list needs is the next one.
+    version: 102,
+    skipIfColumnExists: { table: 'chat_messages', column: 'saved_at' },
+    statements: [
+      `ALTER TABLE chat_messages ADD COLUMN saved_at INTEGER`,
+    ],
+  },
+  {
+    // The kept answers, reached without walking the transcript.
+    //
+    // The list reads one account's turns where `saved_at` is set, newest kept first. Nothing asked that
+    // question before — the flag was on the conversation, and `idx_chat_messages_user` is ordered by when
+    // the turn was written — so the only index a saved read could reach led with `user_id` alone and then
+    // looked at every turn the account has, which is the same shape as the message count at version 98.
+    // The account still leads: this is one reader's shelf, and an index that could serve another's would be
+    // a scan waiting to happen.
+    version: 103,
+    statements: [
+      `CREATE INDEX IF NOT EXISTS idx_chat_messages_saved
+         ON chat_messages(user_id, saved_at DESC, id)`,
+    ],
+  },
 ]
 
 const FTS_STATEMENT = `CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(
