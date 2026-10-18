@@ -1067,6 +1067,12 @@ export class NotesStore {
         `UPDATE chat_memories SET note_id = NULL
           WHERE user_id = ?1 AND note_id = ?2 AND ${shiftSqlPlaceholders(guard, 2)}`,
       ).bind(this.userId, id, id, this.userId, current.rev),
+      // The run row is the account's history of what a schedule did, so it stays while the pointer to the
+      // note that no longer exists goes.
+      this.db.prepare(
+        `UPDATE chat_runs SET note_id = NULL
+          WHERE user_id = ?1 AND note_id = ?2 AND ${shiftSqlPlaceholders(guard, 2)}`,
+      ).bind(this.userId, id, id, this.userId, current.rev),
       this.db.prepare(
         `DELETE FROM import_mappings
           WHERE user_id = ?1 AND entity = 'note' AND target_id = ?2
@@ -1161,6 +1167,7 @@ export function trashPurgeStatements(
     db.prepare(`UPDATE chat_conversations SET note_id = NULL WHERE user_id = ?1 AND note_id ${inTrash}`).bind(userId, idsJson),
     db.prepare(`DELETE FROM chat_note_writes WHERE user_id = ?1 AND note_id ${inTrash}`).bind(userId, idsJson),
     db.prepare(`UPDATE chat_memories SET note_id = NULL WHERE user_id = ?1 AND note_id ${inTrash}`).bind(userId, idsJson),
+    db.prepare(`UPDATE chat_runs SET note_id = NULL WHERE user_id = ?1 AND note_id ${inTrash}`).bind(userId, idsJson),
     db.prepare(
       `DELETE FROM import_mappings WHERE user_id = ?1 AND entity = 'note' AND target_id ${inTrash}`,
     ).bind(userId, idsJson),

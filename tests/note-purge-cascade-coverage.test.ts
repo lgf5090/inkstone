@@ -143,8 +143,8 @@ const REFERENCES = noteReferences(SCHEMA_STATEMENTS).map((reference) => referenc
 
 describe('a purged note is cleared out of every chat table that names it', () => {
   it('reads note pointers out of the chat schema, not out of this file', () => {
-    expect(REFERENCES, 'the schema declares no chat table that names a note, so the scan is reading nothing').toHaveLength(4)
-    expect(REFERENCES).toEqual(['chat_artifacts', 'chat_conversations', 'chat_memories', 'chat_note_writes'])
+    expect(REFERENCES, 'the schema declares no chat table that names a note, so the scan is reading nothing').toHaveLength(5)
+    expect(REFERENCES).toEqual(['chat_artifacts', 'chat_conversations', 'chat_memories', 'chat_note_writes', 'chat_runs'])
     // The DDL and the repair list describe the same columns; a divergence between them is its own bug.
     expect(noteTablesFromRequiredColumns(ASSISTANT_REQUIRED_COLUMNS)).toEqual(REFERENCES)
     // `chat_note_writes` is the pointer the schema forbids nulling, which is why its rows go.
@@ -154,8 +154,8 @@ describe('a purged note is cleared out of every chat table that names it', () =>
     for (const name of PURGE_FUNCTIONS) {
       expect(statementsIn(STORE_TEXT, name).length, `${name}() holds no statements to read`).toBeGreaterThan(3)
     }
-    expect(handlings(statementsIn(STORE_TEXT, 'purge')).size, 'the single purge handles no chat table').toBe(4)
-    expect(handlings(statementsIn(STORE_TEXT, 'trashPurgeStatements')).size, 'the batched purge handles no chat table').toBe(4)
+    expect(handlings(statementsIn(STORE_TEXT, 'purge')).size, 'the single purge handles no chat table').toBe(5)
+    expect(handlings(statementsIn(STORE_TEXT, 'trashPurgeStatements')).size, 'the batched purge handles no chat table').toBe(5)
   })
 
   it('fails when a chat table that names a note is not cleaned by both purge paths', () => {
