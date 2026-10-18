@@ -107,7 +107,7 @@ export function createInkstoneMcpServer(options: InkstoneMcpServerOptions): McpS
     'search',
     {
       title: 'Search Inkstone',
-      description: 'Search private Inkstone notes by keyword and meaning. Returns citation-ready note ids, titles, and absolute URLs. Use before fetch.',
+      description: 'Search private Inkstone notes by keyword and meaning. Returns citation-ready note ids, titles, and absolute URLs, and says which half produced them: `mode` names the half the hits came from, `semantic_status` is `not_requested` (meaning was never asked for), `matched` (the meaning index answered with hits), `searched_no_match` (it answered with none — that is an answer about the notes, not a failure) or `unanswered` (it could not be asked at all, so the hits are keyword-only). When `notice` is not null, read it: the page is narrower than the request was, and `mode: \'lexical\'` beside `semantic_status: \'unanswered\'` never means "no note matches".',
       inputSchema: z.object({
         query: z.string().trim().min(1).max(512),
         mode: z.enum(['auto', 'lexical', 'semantic', 'hybrid']).default('auto')
@@ -115,6 +115,12 @@ export function createInkstoneMcpServer(options: InkstoneMcpServerOptions): McpS
       }),
       outputSchema: z.object({
         results: z.array(z.object({ id: z.string(), title: z.string(), url: z.string().url() })),
+        mode: z.enum(['lexical', 'semantic', 'hybrid'])
+          .describe('the half the returned hits came from; a keyword page handed to a reader who asked for meaning says lexical'),
+        semantic_status: z.enum(['not_requested', 'matched', 'searched_no_match', 'unanswered'])
+          .describe('what the meaning index did: never asked, answered with hits, answered that nothing was close, or refused to answer at all'),
+        notice: z.string().nullable()
+          .describe('null when the page is as wide as the request; otherwise the reason it is narrower, to be repeated rather than glossed over'),
       }),
       annotations: readOnlyAnnotations(),
     },
@@ -131,6 +137,11 @@ export function createInkstoneMcpServer(options: InkstoneMcpServerOptions): McpS
       const value = {
         results: found.results.map(({ id, title, url }) => ({ id, title, url })),
         mode: found.mode,
+        // The two state fields go out with the page: a client that cannot see which half answered has to
+        // guess from `mode` alone, and `mode: 'lexical'` looks identical whether the index refused or was
+        // never asked.
+        semantic_status: found.semantic_status,
+        notice: found.notice,
       }
       return structured(value)
     }),
