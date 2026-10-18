@@ -23,6 +23,7 @@ import {
   fuseByRrf,
   getAiSearchStatus,
   searchSemanticNotes,
+  SEMANTIC_SCORE_FLOOR,
   semanticSnippet,
   vectorNorm,
   type SemanticSearchHit,
@@ -122,8 +123,12 @@ export async function reindexMemoryEmbeddings(
  * best remaining ones up to `backstop` fill in, so a genuinely relevant memory is never lost to a
  * slightly lower score — while a query with nothing to match ("what is the capital of France?" tops out
  * near 0.38) still returns nothing.
+ *
+ * `absolute` is the note index's own bar rather than a second measurement of it, because a memory recall
+ * and a note recall cannot be allowed to disagree about what "close enough to say so" means: two numbers
+ * would decide the same question twice, and only one of them would get updated when the model changed.
  */
-export const SEMANTIC_FLOOR = { absolute: 0.55, relative: 0.1, backstop: 0.4 }
+export const SEMANTIC_FLOOR = { absolute: SEMANTIC_SCORE_FLOOR, relative: 0.1, backstop: 0.4 }
 export const SEMANTIC_FALLBACK_COUNT = 4
 
 export interface ScoredMemory {
@@ -263,24 +268,14 @@ export interface NoteVectorRecall {
 }
 
 /**
- * How close a note's vector has to be before this turn calls it a meaning match.
- *
- * The index's own read ranks every stored note it scanned and returns the best forty, however far down
- * the list the cosine fell — which is the right answer for an endpoint a caller asked to list, and the
- * wrong one for a chat page: fusion compares ranks, so twenty notes at cosine 0.1 would each take an
- * ordinal a keyword hit earned, and the assistant would be told they match. The bar is the one already
- * measured on this model for memories, so the two recall paths do not disagree about what "close" means.
- */
-const NOTE_VECTOR_FLOOR = SEMANTIC_FLOOR.absolute
-
-/**
  * The meaning half of a note search.
  *
- * `searchSemanticNotes` is the index's own reader — same encoder, same model, same scan window — which is
- * what keeps a chat answer and an MCP `search` call from disagreeing about what "similar" means. The
- * reader's own `semanticModel` is deliberately not passed in: the stored note vectors were written by the
- * model the index was built with, and a query encoded by a second one comes back as a confident zero for
- * notes that have nothing to do with each other.
+ * `searchSemanticNotes` is the index's own reader — same encoder, same model, same scan window, and the
+ * same `SEMANTIC_SCORE_FLOOR` applied before it answers, which is why there is no second filter here: a
+ * chat page and an MCP `search` call cannot disagree about what "similar" means, and a bar kept in two
+ * places is a bar that only moves in one of them. The reader's own `semanticModel` is deliberately not
+ * passed in: the stored note vectors were written by the model the index was built with, and a query
+ * encoded by a second one comes back as a confident zero for notes that have nothing to do with each other.
  *
  * A failure is handed back rather than absorbed, because the alternative is a keyword page that reads
  * like a complete answer. It is logged as well: the outage is the deployment's AI binding's problem, and
@@ -301,7 +296,9 @@ export async function recallNotesByVector(
     // Counted only once the call answered: an outage that never embedded anything must not spend the
     // reader's day, or the index would stay unused until midnight for a fault that lasts a minute.
     await store.incrementUsage({ embeddings: 1 })
-    return { hits: hits.filter((hit) => hit.score >= NOTE_VECTOR_FLOOR), failed: null }
+    // An empty list here is an answer rather than a gap in coverage: the index searched, and nothing of
+    // the reader's cleared its bar. The refusal above is the only case that means "no meaning half".
+    return { hits, failed: null }
   } catch (error) {
     const reason = error instanceof Error ? error.message : String(error)
     console.warn('[inkstone] assistant note vector search failed:', reason)
