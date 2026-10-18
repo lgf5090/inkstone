@@ -173,6 +173,20 @@ let refuseRevoke = false
 let writeDeviceId = 'r1'
 
 const switches = () => [...document.querySelectorAll<HTMLButtonElement>('[role="switch"]')]
+/**
+ * The sentences that send the reader to the switch above the list, read against the switch they name.
+ *
+ * Pinned the way `composer-a11y-final.test.ts` pins a disabled control's reason: the claim is taken off the
+ * rendered tree and the thing it claims is looked for in the same tree, so a sentence pointing at a control
+ * nobody drew cannot pass — which is the mistake this screen has now made three times.
+ */
+function switchClaims(): string[] {
+  return [...document.querySelectorAll<HTMLElement>('p')]
+    .filter((node) => (node.textContent ?? '').includes(t('assistant.push.devices_empty')))
+    .map((node) => (node.closest('section')?.querySelector('[role="switch"]')
+      ? 'names the switch that is on the screen'
+      : 'names a switch that is not on the screen'))
+}
 const alerts = () => [...document.querySelectorAll<HTMLElement>('[role="alert"]')]
 const buttons = () => [...document.querySelectorAll<HTMLButtonElement>('button')]
 const buttonNamed = (name: string) => buttons().find((node) => (node.textContent ?? '').includes(name))
@@ -254,7 +268,7 @@ describe('the switch that may not appear', () => {
     expect(switches(), 'a switch was offered before the server had said anything').toHaveLength(0)
   })
 
-  it('names the unconfigured server in its own words and shows no switch', async () => {
+  it('names the unconfigured server without drawing a switch, and keeps the route’s line as detail', async () => {
     configAnswer = unconfigured()
     await mount()
     expect(switches(), 'an unconfigured deployment was offered a switch that could do nothing').toHaveLength(0)
@@ -573,5 +587,51 @@ describe('revoking any device of the account', () => {
     expect(requests.filter((entry) => entry.method === 'POST')).toHaveLength(1)
     expect(listItems()).toHaveLength(1)
     expect(alerts(), 'the retry succeeded and the failure stayed on the screen').toHaveLength(0)
+  })
+})
+
+describe('the sentence that sends the reader to the switch above the list', () => {
+  it('is not drawn where the deployment cannot push, and neither is the block that held it', async () => {
+    configAnswer = unconfigured()
+    await mount()
+    expect(switches(), 'an unconfigured deployment drew a switch').toHaveLength(0)
+    expect(switchClaims(), 'the screen told the reader to use a switch it never drew').toEqual([])
+    expect(text(), 'the device list was drawn beside a notice saying nothing can be pushed')
+      .not.toContain(t('assistant.push.devices'))
+  })
+
+  it('is not drawn where the browser was told no, and the list says its emptiness without pointing', async () => {
+    permission = 'denied'
+    await mount()
+    expect(switches(), 'a blocked browser was drawn a switch').toHaveLength(0)
+    expect(buttonNamed(t('assistant.push.recheck')), 'the row drew neither a switch nor the check').toBeTruthy()
+    expect(switchClaims(), 'the empty list pointed above at a switch this browser never got').toEqual([])
+    expect(text()).toContain(t('assistant.push.devices_none'))
+  })
+
+  it('is drawn, and names the switch that is really on the screen, when both halves allow it', async () => {
+    await mount()
+    expect(switches(), 'a configured deployment with a willing browser lost its switch').toHaveLength(1)
+    expect(switchClaims(), 'the empty list no longer names the switch above it')
+      .toEqual(['names the switch that is on the screen'])
+  })
+
+  it('keeps the route’s own English behind the disclosure that opens it, under the localized sentence', async () => {
+    configAnswer = unconfigured()
+    await mount()
+    const status = document.querySelector<HTMLElement>('[role="status"]')
+    expect(status, 'the unconfigured deployment said nothing').toBeTruthy()
+    const reason = [...status!.querySelectorAll<HTMLElement>('p')]
+      .find((node) => (node.textContent ?? '').includes('VAPID_PUBLIC_KEY'))
+    expect(reason, 'the line naming the variables an operator has to set never reached the screen').toBeTruthy()
+    // The sentence the screen says is the localized one, and the deployment's own words are reached from it
+    // rather than read out as the body of a page the reader came to in their own language.
+    expect(status!.querySelector('p')!.textContent, "the deployment's own English is the first thing the screen says")
+      .toBe(t('assistant.push.server_off'))
+    const disclosure = reason!.closest('details')
+    expect(disclosure, "the deployment's own English is printed as the body of the screen").toBeTruthy()
+    const summary = disclosure!.querySelector('summary')
+    expect(summary, 'the technical detail has nothing to open it with').toBeTruthy()
+    expect(summary!.textContent).toBe(t('assistant.push.server_off_detail'))
   })
 })

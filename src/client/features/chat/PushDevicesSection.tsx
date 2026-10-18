@@ -8,8 +8,11 @@
  *
  * The rule the whole screen is written against is that a control never lies. A switch appears when the
  * deployment can push, when this browser can be subscribed, and when the reader has not already been told no
- * by their own browser; in every other case the row says which of those is missing, and for the server's
- * half it says so in the server's own words (`reason` names the variable that was never set).
+ * by their own browser; in every other case the row says which of those is missing. Nothing on the screen
+ * sends a reader to a control the screen did not draw — which is why the device list sits under the
+ * deployment that can push rather than beside a notice saying it cannot — and the server's own line
+ * (`reason`, naming the variable that was never set) is reached from a disclosure under the localized
+ * sentence rather than printed as the sentence itself.
  */
 import { useEffect } from 'react'
 import { BellRing, Trash2 } from 'lucide-react'
@@ -35,6 +38,10 @@ export function PushDevicesSection() {
 
   const serverReady = config?.enabled === true
   const browserReady = support === 'available' && (permission === 'granted' || permission === 'default')
+  // Whether the switch the list's empty sentence sends a reader to is on the screen at all. The row above it
+  // draws that switch under one condition and a re-check button under its opposite, so the sentence that
+  // names it is gated on the same condition instead of on a guess about it.
+  const switchShown = serverReady && browserReady
   // The reader's own row, by the id the account gave it when this device subscribed. Nothing here looks at
   // endpoint text: the list carries a digest of each endpoint and the browser holds the credential, so an id
   // is the only thing both sides are allowed to compare.
@@ -94,14 +101,22 @@ export function PushDevicesSection() {
         {serverReady === false && config !== null && (
           <div role="status" className="flex flex-col gap-1 rounded-[var(--r-md)] border border-[var(--border-subtle)] bg-[var(--bg-base)] px-3 py-2.5">
             <p className="text-[length:var(--text-12)] text-[var(--text-primary)]">{t('assistant.push.server_off')}</p>
-            {/* The server's own English, kept as the detail line it is: it names the variable the deployment
-                never set, which is the only part of this a reader could not guess. */}
-            {config.reason && (
-              <p className="break-words text-[length:var(--text-11-5)] text-[var(--text-tertiary)]">{config.reason}</p>
-            )}
             <p className="text-[length:var(--text-11-5)] leading-relaxed text-[var(--text-quaternary)]">
               {t('assistant.push.server_off_hint')}
             </p>
+            {/* Collapsed on purpose: the route's line is the deployment's own words, which name the variables
+                an operator has to set and are not the sentence this screen says. It stays reachable, because
+                it is the one part of this a reader could not guess. */}
+            {config.reason && (
+              <details className="flex flex-col gap-1">
+                <summary className="cursor-pointer text-[length:var(--text-11)] text-[var(--text-quaternary)]">
+                  {t('assistant.push.server_off_detail')}
+                </summary>
+                <p className="break-words text-[length:var(--text-10-5)] leading-relaxed text-[var(--text-tertiary)]">
+                  {config.reason}
+                </p>
+              </details>
+            )}
           </div>
         )}
 
@@ -143,90 +158,97 @@ export function PushDevicesSection() {
         )}
       </div>
 
-      <div className="flex flex-col gap-1.5 pb-2.5">
-        <p className="text-[length:var(--text-11-5)] font-semibold uppercase tracking-[var(--tracking-label)] text-[var(--text-quaternary)]">
-          {t('assistant.push.devices')}
-        </p>
-
-        {rows === null && !rowsFailure && (
-          <p role="status" className="text-[length:var(--text-11-5)] leading-relaxed text-[var(--text-quaternary)]">
-            {t('assistant.push.devices_reading')}
+      {/* The devices that receive pushes belong to the deployment that can send them. Where the keys were
+          never set there is no switch above this block and nothing could have subscribed, so drawing it
+          would hang a heading and a sentence over controls the screen deliberately does not offer. */}
+      {serverReady && (
+        <div className="flex flex-col gap-1.5 pb-2.5">
+          <p className="text-[length:var(--text-11-5)] font-semibold uppercase tracking-[var(--tracking-label)] text-[var(--text-quaternary)]">
+            {t('assistant.push.devices')}
           </p>
-        )}
 
-        {rowsFailure && (
-          <LoadFailure messageKey="assistant.push.devices_failed" detail={rowsFailure.detail} onRetry={() => void loadRows()} />
-        )}
+          {rows === null && !rowsFailure && (
+            <p role="status" className="text-[length:var(--text-11-5)] leading-relaxed text-[var(--text-quaternary)]">
+              {t('assistant.push.devices_reading')}
+            </p>
+          )}
 
-        {rows !== null && rows.length === 0 && (
-          <p className="text-[length:var(--text-11-5)] leading-relaxed text-[var(--text-quaternary)]">
-            {t('assistant.push.devices_empty')}
-          </p>
-        )}
+          {rowsFailure && (
+            <LoadFailure messageKey="assistant.push.devices_failed" detail={rowsFailure.detail} onRetry={() => void loadRows()} />
+          )}
 
-        {rows !== null && rows.length > 0 && (
-          <ul aria-label={t('assistant.push.devices')} className="flex flex-col gap-1">
-            {rows.map((row) => {
-              const mine = thisRow?.id === row.id
-              return (
-                <li
-                  key={row.id}
-                  className="flex items-center gap-2 rounded-[var(--r-md)] border border-[var(--border-subtle)] px-2 py-1.5"
-                >
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate font-mono text-[length:var(--text-10-5)] text-[var(--text-secondary)]" title={row.endpoint}>
-                      {row.endpoint}
-                    </p>
-                    <p className="truncate text-[length:var(--text-10-5)] tabular-nums text-[var(--text-quaternary)]">
-                      {formatInZone(row.createdAt, timezone)}
-                      {row.failures > 0 && <> · {t('assistant.push.failures', { count: row.failures })}</>}
-                      {row.lastError && <> · {t('assistant.push.last_error')} · {row.lastError}</>}
-                    </p>
-                  </div>
-                  <div className="flex shrink-0 items-center gap-1.5">
-                    {!mine && (
-                      <span className="text-[length:var(--text-10-5)] text-[var(--text-quaternary)]">
-                        {t('assistant.push.not_this_device')}
-                      </span>
-                    )}
-                    {/* Every row is revocable, because every row carries the one handle its delete needs —
-                        its own id. This device's row goes through the switch's own path so the browser is
-                        unsubscribed with it; the others are removed here and take effect on that machine the
-                        next time its reader comes back to this screen. */}
-                    <Button
-                      size="sm"
-                      variant="secondary"
-                      icon={<Trash2 size={12} />}
-                      loading={mine ? busy === 'disable' : revoking === row.id}
-                      disabled={busy !== null || revoking !== null}
-                      onClick={() => {
-                        if (mine) void press(false)
-                        else void revokeRow(row.id)
-                      }}
-                    >
-                      {t(mine ? 'assistant.push.revoke' : 'assistant.push.revoke_other')}
-                    </Button>
-                  </div>
-                </li>
-              )
-            })}
-          </ul>
-        )}
+          {/* Two empty lists that are two different facts: the switch above is the way out of one, and is not
+              on the screen for the other, where the row carries the re-check instead. */}
+          {rows !== null && rows.length === 0 && (
+            <p className="text-[length:var(--text-11-5)] leading-relaxed text-[var(--text-quaternary)]">
+              {t(switchShown ? 'assistant.push.devices_empty' : 'assistant.push.devices_none')}
+            </p>
+          )}
 
-        {revokeFailure && (
-          <LoadFailure
-            messageKey="assistant.push.revoke_failed"
-            detail={revokeFailure.detail}
-            onRetry={() => { void revokeRow(revokeFailure.id) }}
-          />
-        )}
+          {rows !== null && rows.length > 0 && (
+            <ul aria-label={t('assistant.push.devices')} className="flex flex-col gap-1">
+              {rows.map((row) => {
+                const mine = thisRow?.id === row.id
+                return (
+                  <li
+                    key={row.id}
+                    className="flex items-center gap-2 rounded-[var(--r-md)] border border-[var(--border-subtle)] px-2 py-1.5"
+                  >
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate font-mono text-[length:var(--text-10-5)] text-[var(--text-secondary)]" title={row.endpoint}>
+                        {row.endpoint}
+                      </p>
+                      <p className="truncate text-[length:var(--text-10-5)] tabular-nums text-[var(--text-quaternary)]">
+                        {formatInZone(row.createdAt, timezone)}
+                        {row.failures > 0 && <> · {t('assistant.push.failures', { count: row.failures })}</>}
+                        {row.lastError && <> · {t('assistant.push.last_error')} · {row.lastError}</>}
+                      </p>
+                    </div>
+                    <div className="flex shrink-0 items-center gap-1.5">
+                      {!mine && (
+                        <span className="text-[length:var(--text-10-5)] text-[var(--text-quaternary)]">
+                          {t('assistant.push.not_this_device')}
+                        </span>
+                      )}
+                      {/* Every row is revocable, because every row carries the one handle its delete needs —
+                          its own id. This device's row goes through the switch's own path so the browser is
+                          unsubscribed with it; the others are removed here and take effect on that machine the
+                          next time its reader comes back to this screen. */}
+                      <Button
+                        size="sm"
+                        variant="secondary"
+                        icon={<Trash2 size={12} />}
+                        loading={mine ? busy === 'disable' : revoking === row.id}
+                        disabled={busy !== null || revoking !== null}
+                        onClick={() => {
+                          if (mine) void press(false)
+                          else void revokeRow(row.id)
+                        }}
+                      >
+                        {t(mine ? 'assistant.push.revoke' : 'assistant.push.revoke_other')}
+                      </Button>
+                    </div>
+                  </li>
+                )
+              })}
+            </ul>
+          )}
 
-        {rows !== null && rows.length > 0 && (
-          <p className="text-[length:var(--text-10-5)] leading-relaxed text-[var(--text-quaternary)]">
-            {t('assistant.push.revoke_hint')}
-          </p>
-        )}
-      </div>
+          {revokeFailure && (
+            <LoadFailure
+              messageKey="assistant.push.revoke_failed"
+              detail={revokeFailure.detail}
+              onRetry={() => { void revokeRow(revokeFailure.id) }}
+            />
+          )}
+
+          {rows !== null && rows.length > 0 && (
+            <p className="text-[length:var(--text-10-5)] leading-relaxed text-[var(--text-quaternary)]">
+              {t('assistant.push.revoke_hint')}
+            </p>
+          )}
+        </div>
+      )}
     </Group>
   )
 }
