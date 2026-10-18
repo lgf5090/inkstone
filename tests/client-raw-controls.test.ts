@@ -729,8 +729,8 @@ function rawZIndexSites(): Array<{ key: string; file: string; value: string; for
  */
 const RAW_Z_INDEX_BASELINE = new Map<string, { value: string; reason: string }>([
   ['src/client/features/excalidraw/TextToDiagramModal.tsx:446', { value: '100', reason: 'Inside the Excalidraw host, whose canvas already fixes its own stacking context; the app scale governs the viewport-fixed tiers and reaching for one here would fight the vendor surface.' }],
-  ['src/client/features/graph/graph-panel/overlays.tsx:44', { value: '1', reason: 'Local stacking lift inside the graph panel, not a shell layer.' }],
-  ['src/client/features/graph/graph-panel/overlays.tsx:161', { value: '3', reason: 'Local stacking lift inside the graph panel, not a shell layer.' }],
+  ['src/client/features/graph/graph-panel/overlays.tsx:46', { value: '1', reason: 'Local stacking lift inside the graph panel, not a shell layer.' }],
+  ['src/client/features/graph/graph-panel/overlays.tsx:169', { value: '3', reason: 'Local stacking lift inside the graph panel, not a shell layer.' }],
   ['src/client/features/graph/graph-panel/settings.tsx:53', { value: '235', reason: 'The panel’s own settings drawer: deliberately above the workspace tier it opens from and below every prompt, which no band in the scale names. A band would be invented for one site; arithmetic on two bands would be a tier nobody can look up.' }],
   ['src/client/features/reading/reader/CommentCard.tsx:62', { value: '7', reason: 'Local stacking lift inside the reader card, not a shell layer.' }],
   ['src/client/features/reading/reader/LookupCard.tsx:52', { value: '8', reason: 'Local stacking lift inside the reader card, not a shell layer.' }],
@@ -902,7 +902,6 @@ describe('worker swallows state their reason beside the catch', () => {
 const CLIENT_CATCH_BASELINE = new Map<string, { sites: number; reason: string }>([
   ['src/client/editor/paste.ts', { sites: 1, reason: 'settleUploads: a refused upload falls into the in-document upload_failed marker a few lines below, which is the report the reader sees; the catch keeps one bad file from cancelling every sibling of the same paste.' }],
   ['src/client/features/chat/assistant-store.ts', { sites: 2, reason: 'dropAttachment releases an object the draft no longer references, and stop sends a cancel after the request was already aborted and the turn marked done locally; both are notices about work the reader can see finished.' }],
-  ['src/client/features/chat/ComposerControls.tsx', { sites: 1, reason: 'prompt() in components/overlay only ever resolves, so the handler has no rejection to swallow — redundant rather than silent, noted beside the line for the gate owner to delete.' }],
   ['src/client/features/chat/pdf-text.ts', { sites: 1, reason: 'The finally that destroys the opened PDF: the words have already been read, and a document that refuses to be closed has nowhere to be reported from — the upload keeps the file either way.' }],
   ['src/client/features/excalidraw/excalidraw-canvas-actions.ts', { sites: 2, reason: 'fitView tries the engine scrollToContent, then zoomToFit, then its own arithmetic: the first two catches only fall through to the next mechanism in the same ladder, and the third is the un-caught answer.' }],
   ['src/client/features/excalidraw/excalidraw-settings-store.ts', { sites: 1, reason: 'persistSettings writes a localStorage mirror of settings already applied to the in-memory store; a refused write (quota, private mode) costs the next reload, not this change.' }],
