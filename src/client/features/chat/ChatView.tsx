@@ -58,7 +58,7 @@ import { useUi } from '../../store/ui'
 import { copyText } from '../../lib/clipboard'
 import { useNotes } from '../../store/notes'
 import { MarkdownBody } from '../preview/MarkdownBody'
-import { attachmentTargetOf, compareChoices, MAX_LOADED_MESSAGES, modelLabelOf, PASTE_FILE_MIN_CHARS, useAssistant, type AssistantView, type CompareTurn } from './assistant-store'
+import { attachmentTargetOf, compareChoices, MAX_LOADED_MESSAGES, modelLabelOf, PASTE_FILE_MIN_CHARS, streamInterruptedLine, useAssistant, type AssistantView, type CompareTurn } from './assistant-store'
 import { MessageMenu, useMessageMenu } from './MessageMenu'
 import { AssistantBubble, CHAT_MENTION_LINKS } from './MessageParts'
 import { CanvasPanel } from './CanvasPanel'
@@ -371,6 +371,33 @@ export function ChatView() {
     const last = messages.at(-1)
     return last && last.role === 'assistant' ? last : null
   }, [messages])
+  /**
+   * Whether the answer this turn wrote is on the screen as a row the thread offers to carry on.
+   *
+   * The one question a broken stream's sentence asks before it names the continue control, and it is
+   * answered by the same `canContinueAnswer` that draws the control on the row — never by a second reading
+   * of the flags. A turn whose half answer has not been filed yet has no row, so it has no control, and the
+   * line written beside it may not point at one; see `streamInterruptedLine`.
+   *
+   * A row with a history is left out too, and deliberately: `MessageParts.tsx` hides that control while the
+   * reader is stepping through the older answers, and which page they are on is state this view cannot see.
+   * A sentence that named the control would then be pointing at a button the reader had already scrolled
+   * away from, so the promise stays with the rows that cannot be hidden.
+   */
+  const turnAnswerCanBePickedUp = useMemo(() => {
+    const answerId = turnHere?.assistantId
+    if (!answerId || !lastAnswer) return false
+    const filed = messages.find((message) => message.id === answerId)
+    return filed !== undefined
+      && (filed.versionCount ?? 0) === 0
+      && canContinueAnswer(filed, streaming, lastAnswer.id)
+  }, [turnHere?.assistantId, messages, streaming, lastAnswer])
+  // What the turn's own bubble prints as its failure. Everything the route refused says itself; a stream
+  // whose bytes gave out says the one sentence the thread is currently able to stand behind.
+  const turnError = turnHere === null ? null
+    : turnHere.streamInterrupted === true
+      ? streamInterruptedLine(turnAnswerCanBePickedUp)
+      : turnHere.error
   // One identity for the whole view: the regenerate control hangs off a memoised row, and a fresh
   // closure per token would be a different prop each time the answer streamed in.
   const retryLast = useCallback(() => {
@@ -688,7 +715,7 @@ export function ChatView() {
                           text={turnHere.text}
                           reasoning={turnHere.reasoning}
                           tools={turnHere.tools}
-                          error={turnHere.error}
+                          error={turnError}
                           streaming={!turnHere.done}
                           stage={turnHere.stage}
                           sources={turnHere.sources}
@@ -701,7 +728,7 @@ export function ChatView() {
                       text={turnHere.text}
                       reasoning={turnHere.reasoning}
                       tools={turnHere.tools}
-                      error={turnHere.error}
+                      error={turnError}
                       streaming={!turnHere.done}
                       stage={turnHere.stage}
                       sources={turnHere.sources}
@@ -838,12 +865,15 @@ export function ChatView() {
  * finishing. So the question is asked of the row's own words instead — an answer with nothing written in
  * it has nothing to carry on from, whichever flag it carries. The worker applies the same test, and a
  * reader who somehow asks for the other kind is told so rather than left watching an empty turn.
+ *
+ * This is also the only reading of the row that a failure sentence may use: the broken stream's line is
+ * chosen with this same call, so the words cannot promise a control the transcript did not draw.
  */
 export function canContinueAnswer(message: AssistantMessage, streaming: boolean, lastAnswerId: string | null): boolean {
   return message.role === 'assistant'
     && !streaming
     && message.id === lastAnswerId
-    && (message.status !== 'error' || message.content.trim().length > 0)
+    && message.content.trim().length > 0
 }
 
 /**

@@ -135,6 +135,15 @@ interface LiveTurn {
   tools: ToolActivity[]
   stage: ChatStreamEvent['stage']
   error: string | null
+  /**
+   * Whether the failure in `error` is the reading loop's own news that the bytes stopped arriving.
+   *
+   * Kept as a fact rather than folded into the sentence, because the sentence a broken stream may print
+   * depends on something the store cannot see when it writes: whether the transcript is drawing the
+   * continue control for this answer right now. `ChatView.tsx` reads this next to the row's own
+   * `canContinueAnswer` and asks for the line — see `streamInterruptedLine`.
+   */
+  streamInterrupted?: boolean
   done: boolean
   /** When this send started, so the composer's comparison column can say how long the answer took. */
   startedAt?: number
@@ -762,42 +771,67 @@ function failureLine(error: unknown, fallback?: string): string {
 const STREAM_DISCONNECTED_NAME = 'StreamDisconnectedError'
 
 /**
- * What a turn that ended with no answer says in its bubble.
+ * Whether a failure is the reading loop's own news that the bytes stopped arriving.
+ *
+ * The test is on the error's `name` rather than `instanceof StreamDisconnectedError`, and that is not a
+ * shortcut: `./stream` is mocked in eight test files whose factories hand back only the one function they
+ * replace, and a mocked module answers a missing export by throwing. A value import of the class would have
+ * failed those tests on their own unrelated assertions. `name` is what the class sets in its constructor for
+ * exactly this, and it is the same test `lib/api` applies to a browser abort.
+ */
+function isStreamDisconnected(error: unknown): boolean {
+  return error instanceof Error && error.name === STREAM_DISCONNECTED_NAME
+}
+
+/**
+ * The line for an answer whose bytes stopped arriving, decided by the one fact that draws the control.
  *
  * A refusal has a reason: the route wrote one, and `failureLine` carries it. A stream whose bytes stopped
  * arriving has nothing — the browser hands over "Failed to fetch" or its own wording of a network error,
- * which names no part of this app, translates to no language, and reads as a bug report rather than as
- * news about the answer. So that one case is answered from the catalog: what broke, what is still on
- * screen, and the fact that the `assistant.chat.continue` control under the bubble picks the sentence up
- * where it stopped.
+ * which names no part of this app, translates to no language, and reads as a bug report rather than as news
+ * about the answer. So that case is answered from the catalog, and the catalog holds two answers, because
+ * the two states a reader is ever left in differ in exactly one thing:
  *
- * The distinction is made on the error's own `name` rather than by `instanceof StreamDisconnectedError`,
- * and that is not a shortcut: `./stream` is mocked in eight test files whose factories hand back only the
- * one function they replace, and a mocked module answers a missing export by throwing. A value import of
- * the class would have failed those tests on their own unrelated assertions. `name` is what the class sets
- * in its constructor for exactly this, and it is the same test `lib/api` applies to a browser abort.
+ *  - the half answer is on the screen as the thread's newest stored row, which draws
+ *    `assistant.chat.continue`: the sentence may tell the reader to press it;
+ *  - it is not — the row has not been filed yet, nothing arrived, or the reader has stepped the row back to
+ *    an older version, any of which leaves no control to press: the line says only that the connection
+ *    dropped and this reply did not finish, and names no control and no kept part.
+ *
+ * `canContinue` is therefore not a copy preference but the render's own gate, and it is handed in by the
+ * surface that draws the control, computed with the same `canContinueAnswer` the control is drawn with. The
+ * two lines used to be chosen from different facts, which is how the sentence came to point at a button the
+ * transcript had not drawn — the fourth instance of that class in this repo.
+ */
+export function streamInterruptedLine(canContinue: boolean): string {
+  return canContinue ? t('assistant.chat.stream_disconnected') : t('assistant.chat.stream_interrupted')
+}
+
+/**
+ * What a turn that ended with no further words says in its bubble.
+ *
+ * The neutral line, because this is the string that also reaches the surfaces that print `turn.error`
+ * without knowing what the transcript is drawing — the editor's AI run and the assistant dock. The thread
+ * itself asks for the line that matches its controls, from the fact recorded beside this: see
+ * `streamInterruptedLine` and `LiveTurn.streamInterrupted`.
  */
 function turnFailureLine(error: unknown): string {
-  return error instanceof Error && error.name === STREAM_DISCONNECTED_NAME
-    ? t('assistant.chat.stream_disconnected')
-    : failureLine(error)
+  return isStreamDisconnected(error) ? t('assistant.chat.stream_interrupted') : failureLine(error)
 }
 
 /**
  * What the comparison's own column says when its bytes stopped arriving.
  *
- * Not the sentence above: `assistant.chat.stream_disconnected` tells the reader to press the continue
- * control and pick the answer up where it stopped, and the comparison column has no such control — it is
- * a second model's answer to one question, filed in a throwaway thread no other device is looking at, and
- * the only thing a reader can do with a half of it is ask for the whole thing again. So the column states
- * its own three facts: this column did not finish, the thread's own answer is untouched, and the
- * comparison can be run again. The same `name` test as above, for the same reason — `./stream` is mocked
+ * Not the sentence the thread's answer gets: the promising one of `streamInterruptedLine` tells the reader to
+ * press the continue control and pick the answer up where it stopped, and the comparison column has no such
+ * control — it is a second model's answer to one question, filed in a throwaway thread no other device is
+ * looking at, and the only thing a reader can do with a half of it is ask for the whole thing again. So the
+ * column states its own three facts: this column did not finish, the thread's own answer is untouched, and
+ * the comparison can be run again. The same `name` test as above, for the same reason — `./stream` is mocked
  * in eight files, and a value import of the class would fail them on assertions that are not about it.
  */
 function comparisonFailureLine(error: unknown): string {
-  return error instanceof Error && error.name === STREAM_DISCONNECTED_NAME
-    ? t('assistant.compare.stream_incomplete')
-    : failureLine(error)
+  return isStreamDisconnected(error) ? t('assistant.compare.stream_incomplete') : failureLine(error)
 }
 
 /** One failure, one surface: the form that was handed the refusal is the one that says it. */
@@ -2620,8 +2654,18 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
       )
     } catch (error) {
       if (!controller.signal.aborted) {
+        // The line and the fact are written together: the line is the one that is true whatever the thread
+        // is drawing, and the fact is what lets the thread ask for the promise it can actually keep.
+        const interrupted = isStreamDisconnected(error)
         set((current) => (current.turn?.token === token
-          ? { turn: { ...current.turn, error: turnFailureLine(error), done: true } }
+          ? {
+            turn: {
+              ...current.turn,
+              error: turnFailureLine(error),
+              streamInterrupted: interrupted,
+              done: true,
+            },
+          }
           : current))
       }
     } finally {

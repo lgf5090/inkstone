@@ -448,7 +448,12 @@ describe('a connection that broke under the turn', () => {
 
     const during = useAssistant.getState()
     expect(during.turn?.text, 'the words that arrived before the break were thrown away').toBe('half an answer that broke')
-    expect(during.turn?.error, 'a broken stream is not a refusal the route explained').toBe(t('assistant.chat.stream_disconnected'))
+    // The line the bubble prints while the read after the break is still failing: no row is on the screen
+    // yet, so nothing draws `assistant.chat.continue`, and a sentence that told the reader to press it would
+    // be naming a button that is not there. This is the case that used to print the promising line here —
+    // that one is asserted where the filed answer is actually on the screen, in `stream-disconnect-copy.test.ts`.
+    expect(during.turn?.error, 'a broken stream is not a refusal the route explained').toBe(t('assistant.chat.stream_interrupted'))
+    expect(during.turn?.streamInterrupted, 'the turn forgot that its own bytes gave out').toBe(true)
     expect(during.remoteStreaming, 'nobody was left watching for the row the worker files').toBe(true)
 
     // The worker files the half answer a moment later; the poll is what reads it back.
