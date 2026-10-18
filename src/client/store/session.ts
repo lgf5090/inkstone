@@ -81,7 +81,11 @@ export const useSession = create<SessionState>((set, get) => ({
       }
       set({
         status: 'anonymous',
-        authError: err instanceof ApiError ? err.message : t("session.could_not_connect_to_the_server"),
+        // `ApiError.message` is the localised sentence for the *code*, which is how this field used to
+        // read a refused login: the same words for a missing password, a wrong one, and a validator that
+        // named the field. `failureDescription` keeps that sentence and adds the route's own line when it
+        // gave one, so the field the server refused is visible on the form that asked for it.
+        authError: err instanceof ApiError ? failureDescription(err) : t("session.could_not_connect_to_the_server"),
       })
     }
   },

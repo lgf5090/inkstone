@@ -1,13 +1,14 @@
 // @vitest-environment jsdom
 /**
- * The two notices the session store pops for a write the reader cannot retry in place.
+ * The notices the session store leaves behind when the server refuses it.
  *
- * Signing out, and a settings change the debounce finally sent. Both used to hand the toast `err.message`,
- * which for an `ApiError` is the app's sentence for the route's *code* — and that sentence is deliberately
- * generic: `bad_request` covers an unset name, an over-long one and a body that is not JSON alike. The route
+ * Signing out, a settings change the debounce finally sent, and the banner the login form prints after a
+ * refused session read. All three used to hand the toast — or the form — `err.message`, which for an
+ * `ApiError` is the app's sentence for the route's *code*, and that sentence is deliberately generic:
+ * `bad_request` covers an unset name, an over-long one and a body that is not JSON alike. The route
  * usually names the field it refused and says what is wrong with it, and `routeApiError()` keeps that line;
- * here it was dropped at the last step, so a settings write refused for one bad enum value and a sign-out
- * refused by a stale token both read as "The request is invalid".
+ * here it was dropped at the last step, so a settings write refused for one bad enum value, a sign-out
+ * refused by a stale token and a session belonging to a deleted account all read as "The request is invalid".
  *
  * What is pinned is therefore two-sided, in the shape `useUi`'s toast already has: with a route reason the
  * notice carries it, and with none the input is exactly what it was before — same keys, same single line, no
@@ -112,6 +113,35 @@ describe('a refused sign-out', () => {
       description: t('api.request_failed_status', { status: 500 }),
       tone: 'danger',
     })
+  })
+})
+
+describe('a session read the server refused', () => {
+  it('leaves the login form the route\'s own reason, not only the generic sentence', async () => {
+    // The banner under the form is one string, and until now it held `err.message` — which for an
+    // `ApiError` is the app's sentence for the *code*. The route's line about the session existed and was
+    // discarded on the way, so a stale account, a corrupt cookie and a refused field all read the same.
+    vi.stubGlobal('fetch', vi.fn(async () => refused({
+      code: 'bad_request',
+      message: 'The stored session belongs to an account that no longer exists.',
+      details: { session: 'unknown' },
+    })))
+
+    await useSession.getState().load()
+
+    const error = useSession.getState().authError
+    expect(error, 'the banner kept nothing the route said').toBeTruthy()
+    expect(error).toContain(t('api.error.bad_request'))
+    expect(error).toContain('account that no longer exists')
+    expect(error).toContain('unknown')
+  })
+
+  it('shows the sentence it has always shown when the route named nothing', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response('', { status: 500 })))
+
+    await useSession.getState().load()
+
+    expect(useSession.getState().authError).toBe(t('api.request_failed_status', { status: 500 }))
   })
 })
 
