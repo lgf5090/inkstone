@@ -69,6 +69,21 @@ export const MEMORY_REVIEW_ACTIONS = ['keep_both', 'mark_historical', 'replace',
 export type MemoryReviewAction = (typeof MEMORY_REVIEW_ACTIONS)[number]
 
 export const MAX_MESSAGE_CHARS = 16_000
+/**
+ * How much of an unfinished answer the run lease is allowed to carry.
+ *
+ * The lease row in `chat_active_runs` is a lock, and `partial_text` rides on it only so that a turn killed
+ * mid-flight — a Worker isolate out of CPU leaves no `chat_messages` row at all — has somewhere its already
+ * written words can be read back from. That makes the row a copy of model output, and a lock table is the
+ * wrong place to store a body of text: an unbounded column here would turn every abandoned turn into a
+ * permanent duplicate of an answer the reader may never come back for.
+ *
+ * So the fragment is cut to this, which is deliberately well under what an answer can be: enough to read
+ * the direction an answer was going in and to pick it up again, too little for the row to be mistaken for
+ * the transcript. The cut has to be visible from outside, which is why a value at the ceiling is reported
+ * as truncated rather than as the whole thing.
+ */
+export const RUN_PARTIAL_MAX_CHARS = 4_000
 export const MAX_MEMORY_CHARS = 2_000
 export const MAX_TASK_TITLE_CHARS = 300
 export const MAX_TASK_NOTES_CHARS = 10_000

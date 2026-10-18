@@ -5009,6 +5009,16 @@ export class AssistantStore {
  * it goes nowhere near an export, a share or an off-site snapshot, and it is not what a restore is for. The
  * device re-subscribes itself. Adding it here is a privacy regression, not a missing feature, and
  * `tests/push-subscription-store.test.ts` fails the moment the triple reaches any export path.
+ *
+ * `chat_active_runs` stays out for the same kind of reason, and its `partial_text` is the sharper case of it.
+ * A lease is a transient state: it says what one request was doing at the instant it held the conversation,
+ * and it stops meaning anything the moment that request is gone. `partial_text` is what such a dead request
+ * left behind, and a restore is not the surface that should decide what to do with it — the reader who
+ * restores a backup onto a machine that has never seen the turn gets a half answer with no interrupted turn
+ * to attach it to, filed nowhere in the transcript and never cleared by a second one. `exportTables()` reads
+ * the same allowlist, so one list keeps both sides honest. What does deserve to survive a restore is the
+ * answer once it is finished, and that is `chat_messages.content`, which is on the list; the fragment is
+ * adopted into that row before the lease is released, so nothing that should be kept depends on this table.
  */
 const EXPORT_COLUMNS: Readonly<Record<string, readonly string[]>> = {
   // `project_id` and `parent_id` are part of a stored thread even though the backup did not always

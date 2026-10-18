@@ -1649,6 +1649,26 @@ export const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
      ON chat_notifications(user_id, created_at) WHERE pushed_at IS NULL`,
     ],
   },
+  {
+    // The words a turn had already written, carried on the claim that turn is standing on.
+    //
+    // A Worker isolate killed by its CPU limit takes the request with it, and the assistant row is written
+    // at `finish`, so nothing about that turn ever reaches `chat_messages` — while `chat_active_runs` goes
+    // on claiming the conversation for the whole `RUN_LEASE_MS`. The reader who came back to that thread saw
+    // a marker, then a toast, then nothing: the half answer was simply gone, and the control that continues
+    // an answer reads the last stored row, which did not exist. Writing the fragment out with the renewal
+    // the turn already performs costs no extra round trip and leaves something to be read back.
+    //
+    // Nullable, and only nullable: a claim made before this column, and a claim by a turn that has not
+    // streamed a word yet, both mean "nothing written yet", which is a different fact from "an empty
+    // answer". One column, one version — and no index to spend on it, because the only reader reaches this
+    // row by its primary key.
+    version: 108,
+    skipIfColumnExists: { table: 'chat_active_runs', column: 'partial_text' },
+    statements: [
+      `ALTER TABLE chat_active_runs ADD COLUMN partial_text TEXT`,
+    ],
+  },
 ]
 
 const FTS_STATEMENT = `CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(

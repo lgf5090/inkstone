@@ -624,11 +624,31 @@ export const ASSISTANT_SCHEMA_STATEMENTS: readonly string[] = [
   `CREATE INDEX IF NOT EXISTS idx_chat_activity_user
      ON chat_activity(user_id, created_at DESC)`,
 
+  /**
+   * One turn's claim on one conversation, and the words it had written when it last renewed.
+   *
+   * `lease_until` is the conversation's lock: a second tab is refused while it is in the future, and it is
+   * renewed only from inside the running request, so a turn nobody is watching ages out on its own.
+   * `started_at` is the token the claim was made under, and the only thing that can tell a turn's own lease
+   * from one a second run has taken over.
+   *
+   * `partial_text` exists because those two facts were not enough on their own. A Worker isolate killed by
+   * its CPU limit takes the request with it, and the answer is written to `chat_messages` at the end of a
+   * turn, so the half that was already streamed had no row to live on — while this row went on holding the
+   * conversation for the rest of `RUN_LEASE_MS`. It is carried here instead, by the renewal the turn already
+   * makes, at a length ceiling (`RUN_PARTIAL_MAX_CHARS` in `@shared/assistant`) rather than in full.
+   *
+   * Nullable on purpose: NULL is a turn that has not written anything yet, which is not the same claim as
+   * one that wrote an empty string. It is also not an archive — see the note on `EXPORT_COLUMNS` in
+   * `store.ts`, which says why this row and its fragment never reach a backup. Reading it back is scoped by
+   * `user_id` like every other query here, because the fragment is the account's own content.
+   */
   `CREATE TABLE IF NOT EXISTS chat_active_runs (
     user_id TEXT NOT NULL,
     conversation_id TEXT NOT NULL,
     started_at INTEGER NOT NULL,
     lease_until INTEGER NOT NULL,
+    partial_text TEXT,
     PRIMARY KEY (user_id, conversation_id)
   )`,
   `CREATE INDEX IF NOT EXISTS idx_chat_active_runs_user
@@ -738,6 +758,6 @@ export const ASSISTANT_REQUIRED_COLUMNS: Readonly<Record<string, readonly string
   chat_pending_actions: ['user_id', 'id', 'conversation_id', 'tool', 'target_id', 'target_label', 'args', 'status', 'error', 'created_at', 'expires_at', 'resolved_at'],
   chat_usage_daily: ['user_id', 'day', 'requests', 'input_tokens', 'output_tokens', 'tool_calls', 'scheduled_runs', 'embeddings', 'errors'],
   chat_activity: ['user_id', 'id', 'type', 'summary', 'created_at'],
-  chat_active_runs: ['user_id', 'conversation_id', 'started_at', 'lease_until'],
+  chat_active_runs: ['user_id', 'conversation_id', 'started_at', 'lease_until', 'partial_text'],
   chat_prompts: ['user_id', 'id', 'title', 'content', 'group_name', 'tools', 'scopes', 'model_id', 'icon', 'created_at', 'updated_at'],
 }
