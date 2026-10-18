@@ -22,6 +22,20 @@ function walk(directory: string, out: string[] = []): string[] {
 
 const sources = walk(CHAT_DIR)
 
+/**
+ * The code of one file, with its comments blanked out.
+ *
+ * These rules read source text, and prose *about* a control is not a use of it: a comment explaining that
+ * the composer renders `<input type="file">` would otherwise fail the check that keeps that button behind
+ * an app-styled trigger, and the fix would be to reword the truth. `://` is left intact so an address in
+ * an attribute is never mistaken for the start of a line comment.
+ */
+function code(text: string): string {
+  return text
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .replace(/(^|[^:\\])\/\/[^\n]*/g, '$1')
+}
+
 describe('chat surfaces avoid operating-system controls', () => {
   it('scans the whole chat directory', () => {
     expect(sources.length, 'the chat feature folder went missing').toBeGreaterThan(5)
@@ -29,7 +43,7 @@ describe('chat surfaces avoid operating-system controls', () => {
 
   it('never opens a native date, clock or month input', () => {
     for (const file of sources) {
-      const text = fs.readFileSync(file, 'utf8')
+      const text = code(fs.readFileSync(file, 'utf8'))
       for (const type of ['date', 'month', 'time', 'datetime-local', 'week']) {
         expect(text, `${file} reaches for input[type=${type}]`).not.toMatch(new RegExp(`type=["']${type}["']`))
       }
@@ -38,7 +52,7 @@ describe('chat surfaces avoid operating-system controls', () => {
 
   it('keeps every file input behind an app-styled trigger', () => {
     for (const file of sources) {
-      const text = fs.readFileSync(file, 'utf8')
+      const text = code(fs.readFileSync(file, 'utf8'))
       for (const match of text.matchAll(/<input\b[^>]*type="file"[^>]*>/gs)) {
         expect(match[0], `${file} shows the OS file button`).toMatch(/\shidden(\s|=|>)/)
       }
