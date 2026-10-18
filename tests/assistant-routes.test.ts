@@ -863,6 +863,10 @@ describe('settings', () => {
     const before = await call<{ settings: AssistantSettings }>('GET', '/api/assistant/settings')
     const flipped: Record<string, unknown> = {}
     for (const [key, value] of Object.entries(before.settings)) {
+      // One boolean in that answer is not a setting at all: the server says whether the chosen search engine
+      // is holding a key, and a client cannot tell it otherwise. `assistant-web-search-engines.test.ts`
+      // asserts that forgery directly; here it is simply left out of the patchable list.
+      if (key === 'webSearchKeyStored') continue
       if (typeof value === 'boolean') flipped[key] = !value
     }
     expect(Object.keys(flipped).length).toBeGreaterThanOrEqual(6)
