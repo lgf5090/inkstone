@@ -57,6 +57,51 @@ type BuildBundle = Record<string, BuildChunk | BuildAsset>
 /** A chunk this large is a feature of its own, not a piece of the everyday shell. */
 const HEAVY_CHUNK_BYTES = 300_000
 
+/** What may be said about a push, when nothing about the note itself may be said. */
+const PUSH_CHINESE_LOCALE = 'zh-CN'
+const PUSH_ENGLISH_LOCALE = 'en-US'
+
+/**
+ * The one sentence a push notice is allowed to wear, in each of the two languages the app ships.
+ *
+ * It is fixed text chosen here rather than anything read off the payload: `sendPush`
+ * (`src/worker/assistant/push.ts`) declares `aes128gcm` without the RFC 8291 encryption that name promises,
+ * so a payload that carried note text would deliver it in plain text to a device through a push service the
+ * deployment does not run. The shell is therefore empty on purpose, and the notice is a pointer to the app —
+ * where the transport is the reader's own authenticated one — rather than a summary of what is waiting.
+ *
+ * The table is inlined into the worker by value and `pickPushNotificationCopy` is the same decision a test
+ * can call directly, so `tests/service-worker-push.test.ts` can pin the shipped source to this file: a
+ * worker that showed something else would be a drift no source read would catch.
+ */
+const PUSH_NOTIFICATION_COPY: Record<string, { title: string, body: string }> = {
+  [PUSH_CHINESE_LOCALE]: { title: 'Inkstone 有待读的更新', body: '打开 Inkstone 看看有什么在等。' },
+  [PUSH_ENGLISH_LOCALE]: { title: 'Inkstone has something to read', body: 'Open Inkstone to see what is waiting.' },
+}
+
+export type PushNotificationCopy = { title: string, body: string }
+
+/**
+ * Which sentence a device gets.
+ *
+ * A worker woken by a push has no page to ask what language the reader picked, so this follows the same
+ * rule the app itself falls back to when nothing was saved: `detectInitialLocale`
+ * (`src/client/lib/i18n.ts`) answers a `navigator.language` starting with `zh` with Chinese. A reader who
+ * overrode the language inside the app is the case this cannot see, which is why the notice says nothing
+ * that would be wrong to read in either language.
+ */
+export function pickPushNotificationCopy(language: string | null | undefined): PushNotificationCopy {
+  return normalisePushLanguage(language) === PUSH_CHINESE_LOCALE
+    ? PUSH_NOTIFICATION_COPY[PUSH_CHINESE_LOCALE]!
+    : PUSH_NOTIFICATION_COPY[PUSH_ENGLISH_LOCALE]!
+}
+
+/** The same choice, spelled so the generated worker and this file cannot answer differently. */
+function normalisePushLanguage(language: string | null | undefined): string {
+  const tag = String(language ?? '').toLowerCase()
+  return tag.startsWith('zh') ? PUSH_CHINESE_LOCALE : PUSH_ENGLISH_LOCALE
+}
+
 export function inkstonePwa(): Plugin {
   return {
     name: 'inkstone:pwa',
@@ -202,6 +247,13 @@ function serviceWorkerSource(buildId: string, coreUrls: string[], allUrls: strin
 	const CURRENT_MANIFEST_URL = MANIFEST_META_PREFIX + BUILD_ID
 	const NETWORK_ONLY_EXACT_PATHS = ['/authorize', '/mcp']
 	const NETWORK_ONLY_PATH_PREFIXES = ['/api/', '/authorize/', '/mcp/', '/oauth/', '/.well-known/']
+	// One tag for every Inkstone push, which is what keeps five schedules from leaving five notices in the
+	// tray: a later push replaces the earlier one instead of stacking beside it.
+	const PUSH_TAG = 'inkstone-updates'
+	const PUSH_COPY = ${JSON.stringify(PUSH_NOTIFICATION_COPY)}
+	// The payload is never read, on purpose. See PUSH_NOTIFICATION_COPY above: the shell is empty because
+	// nothing may be sent unencrypted, so the notice carries no words that could belong to a note.
+	const NOTIFICATION_CENTER_URL = '/chat?notifications=1'
 	let warmPromise = null
 
 self.addEventListener('install', (event) => {
@@ -242,6 +294,64 @@ self.addEventListener('activate', (event) => {
     await self.clients.claim()
   })())
 })
+
+self.addEventListener('push', (event) => {
+  event.waitUntil(showIncomingUpdate())
+})
+
+self.addEventListener('notificationclick', (event) => {
+  event.waitUntil(revealNotificationCenter(event.notification))
+})
+
+function pushCopyForLanguage(language) {
+  const tag = String(language || '').toLowerCase()
+  return tag.startsWith('zh') ? PUSH_COPY['zh-CN'] : PUSH_COPY['en-US']
+}
+
+/**
+ * Puts the one thing this worker is allowed to say on the screen.
+ *
+ * event.data is left alone by design, and the reader ends up in the app to find out what arrived: the
+ * payload is an empty shell because the sender declares a cipher it does not implement, so a notice that
+ * quoted it would be quoting whatever a push service carried in plain text.
+ */
+async function showIncomingUpdate() {
+  const copy = pushCopyForLanguage(self.navigator && self.navigator.language)
+  await self.registration.showNotification(copy.title, {
+    body: copy.body,
+    tag: PUSH_TAG,
+    icon: '/pwa-192x192.png',
+    data: { intent: 'notification-center' },
+  })
+}
+
+/**
+ * Takes the reader to the notification centre and leaves no copy of the notice behind.
+ *
+ * An open page is focused and told, rather than navigated: reloading a page over a push would cost a note
+ * that is half written. With nothing open, the new window carries the intent in its address, because there
+ * is no page yet to receive a message. The sweep by tag closes what is still up — including a notice an
+ * older build left under a different tag scheme, which the browser would otherwise keep showing.
+ */
+async function revealNotificationCenter(notification) {
+  const shown = await self.registration.getNotifications({ tag: PUSH_TAG })
+  for (const notice of shown) notice.close()
+  if (notification && typeof notification.close === 'function') notification.close()
+  const windows = await self.clients.matchAll({ type: 'window', includeUncontrolled: true })
+  const client = windows.find((entry) => {
+    try {
+      return new URL(entry.url, self.location.origin).origin === self.location.origin
+    } catch {
+      return false
+    }
+  })
+  if (client) {
+    await client.focus()
+    client.postMessage({ type: 'OPEN_NOTIFICATION_CENTER' })
+    return
+  }
+  await self.clients.openWindow(NOTIFICATION_CENTER_URL)
+}
 
 self.addEventListener('fetch', (event) => {
   const request = event.request

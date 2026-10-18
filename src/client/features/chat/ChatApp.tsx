@@ -77,6 +77,34 @@ export function ChatApp() {
     void bootstrap()
   }, [bootstrap])
 
+  /**
+   * The door a push notice walks through.
+   *
+   * The notice carries no content — the payload is an empty shell, so it can only say that something is
+   * waiting — which makes the press a request to be taken to where the waiting things are read. An open
+   * page is told by message rather than navigated, because reloading over a push would cost a note that is
+   * half written; a window opened from nothing carries the same intent in its address, since there is no
+   * page to talk to yet. The address is cleaned afterwards, so a reload of the reader's own is not a second
+   * opening of a centre they already closed.
+   */
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search)
+    if (params.get('notifications') === '1') {
+      params.delete('notifications')
+      const query = params.toString()
+      window.history.replaceState(null, '', `${window.location.pathname}${query ? `?${query}` : ''}`)
+      setNotificationsOpen(true)
+    }
+    const worker = navigator.serviceWorker
+    if (!worker) return
+    const onMessage = (event: MessageEvent): void => {
+      if ((event.data as { type?: string } | null)?.type !== 'OPEN_NOTIFICATION_CENTER') return
+      setNotificationsOpen(true)
+    }
+    worker.addEventListener('message', onMessage)
+    return () => { worker.removeEventListener('message', onMessage) }
+  }, [])
+
   const title = useMemo(() => (view === 'chat' ? agentName || t('assistant.app.title') : t(VIEW_LABELS[view])), [view, agentName])
 
   return (
