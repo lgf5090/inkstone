@@ -6811,6 +6811,7 @@ console.log(\`Hello, \${name}!\`)
     "assistant.attach.no_audio_wire": "{model} 所用的接口线没有音频字段，{name}不会发给它——换成 OpenAI 兼容接口线的模型才能送录音",
     "assistant.attach.no_audio_switch": "{model} 没有勾选音频输入，{name}不会发给它——在模型编辑里给它勾上「音频」",
     "assistant.attach.no_audio_format": "{name} 的音频容器不在请求能携带的范围里——这里只发送 mp3 或 wav",
+    "assistant.attach.audio_too_large": "{name} 有 {size}，超过录音 {max} 的上限——超过上限的录音不会发给模型，所以这里不上传",
     "assistant.attach.pasted_as_file": "过长的文本已作为附件上传，而不是贴进输入框",
     "assistant.attach.url_prompt": "粘贴图片或文件的网址",
     "assistant.attach.note_prompt": "搜索笔记库",
