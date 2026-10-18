@@ -31,7 +31,7 @@ import { Menu, Modal, confirm, prompt, submenuFor, type MenuItem } from '../../c
 import { api } from '../../lib/api'
 import { FolderMoveMenu } from '../folders/FolderMoveMenu'
 import { ConversationTabStrip, ConversationTaxonomyPanel, moveMenuTree } from './ChatTaxonomy'
-import { AttachmentStrip, CHAT_ATTACHMENT_ACCEPT, CHAT_FOLDER_PICKER_ATTRS, MessageAttachments } from './ChatAttachments'
+import { AttachmentStrip, CHAT_FOLDER_PICKER_ATTRS, MessageAttachments, chatAttachmentAccept } from './ChatAttachments'
 import {
   detectTrigger,
   filterRows,
@@ -58,7 +58,7 @@ import { useUi } from '../../store/ui'
 import { copyText } from '../../lib/clipboard'
 import { useNotes } from '../../store/notes'
 import { MarkdownBody } from '../preview/MarkdownBody'
-import { compareChoices, MAX_LOADED_MESSAGES, modelLabelOf, PASTE_FILE_MIN_CHARS, useAssistant, type AssistantView, type CompareTurn } from './assistant-store'
+import { attachmentTargetOf, compareChoices, MAX_LOADED_MESSAGES, modelLabelOf, PASTE_FILE_MIN_CHARS, useAssistant, type AssistantView, type CompareTurn } from './assistant-store'
 import { MessageMenu, useMessageMenu } from './MessageMenu'
 import { AssistantBubble, CHAT_MENTION_LINKS } from './MessageParts'
 import { CanvasPanel } from './CanvasPanel'
@@ -1992,6 +1992,13 @@ ${current}` : seed))
   // not a thing to hold a conversation with.
   const enabled = models.filter((model) => model.enabled && model.purpose === 'chat')
   const active = enabled.find((model) => model.id === settings?.activeModelId) ?? null
+  // What the "add file" dialog may offer. A recording is on this list only while the model the reader is
+  // standing on, on the wire `modelWire` picks for it, would really receive the bytes — the same question
+  // `attachFiles` refuses on, asked before the picker is raised rather than after the file is picked.
+  const attachmentAccept = useMemo(
+    () => chatAttachmentAccept(attachmentTargetOf(models, providers, settings?.activeModelId ?? null)),
+    [models, providers, settings?.activeModelId],
+  )
   // The chip lists the levels the answering model's own service has rather than a fixed five, so a model
   // that can only be switched on and off is not offered three depths nothing will read.
   const activeReasoning = useMemo(
@@ -2458,7 +2465,7 @@ ${current}` : seed))
             </div>
           </div>
         </div>
-        <input ref={fileRef} type="file" multiple hidden accept={CHAT_ATTACHMENT_ACCEPT} onChange={() => takeFiles(fileRef.current)} />
+        <input ref={fileRef} type="file" multiple hidden accept={attachmentAccept} onChange={() => takeFiles(fileRef.current)} />
         <input
           ref={folderRef}
           type="file"

@@ -21,8 +21,8 @@
  */
 import { useEffect, useMemo, useState } from 'react'
 import { FileText, Image as ImageIcon, Loader, RotateCcw, X } from 'lucide-react'
-import { attachmentModality, type ChatAttachment } from '@shared/assistant'
-import { attachmentSenseLabel, attachmentTargetOf, unreadableAttachmentReason, useAssistant, type PendingAttachment } from './assistant-store'
+import { CHAT_AUDIO_ACCEPT, attachmentModality, type ChatAttachment } from '@shared/assistant'
+import { attachmentSenseLabel, attachmentTargetOf, unreadableAttachmentReason, useAssistant, type AttachmentTarget, type PendingAttachment } from './assistant-store'
 import { cn } from '../../lib/cn'
 import { t } from '../../lib/i18n'
 import { api, ApiError } from '../../lib/api'
@@ -52,7 +52,7 @@ function describeDownloadFailure(error: unknown): string {
 }
 
 /**
- * What a picker may hand back, as one list the composer's file and folder inputs both point at.
+ * What a picker may hand back, as the list every door that has a filter points at.
  *
  * A turn can only use a file it can read: a picture it sees, text the worker decodes into the prompt, and a
  * PDF whose words the browser extracts before uploading. Anything else arrives as bytes the model is merely
@@ -61,12 +61,17 @@ function describeDownloadFailure(error: unknown): string {
  * textual set plus images and PDFs, kept here rather than at each call site so the two pickers cannot
  * drift apart from each other or from what the server actually reads.
  *
+ * What a *recording* may be handed back is not a fact about file kinds but a fact about the model, so it is
+ * not in this list: `chatAttachmentAccept` adds it for the one input that has a model to ask. The folder
+ * picker stays on the list below even there — a reader pointing at a directory of recordings would have the
+ * whole folder offered at once, and the composer's own ceiling would then drop most of them.
+ *
  * A filter is not an answer, though: a file that comes in through a door with none — dragged onto the box,
  * pasted off the clipboard, or named by an address — still reaches `attachFiles`, since no browser hands a
  * drag or a paste through `accept`. So the refusal lives at that one join rather than in the attribute: the
  * file is not uploaded, and the row says why in words instead of quietly leaving it out of the list.
  */
-export const CHAT_ATTACHMENT_ACCEPT = [
+const CHAT_ATTACHMENT_BASE = [
   'image/*',
   'text/*',
   'application/pdf',
@@ -84,7 +89,29 @@ export const CHAT_ATTACHMENT_ACCEPT = [
   '.md', '.markdown', '.txt', '.json', '.jsonl', '.csv', '.tsv', '.yaml', '.yml', '.toml',
   '.ts', '.tsx', '.js', '.jsx', '.py', '.rb', '.go', '.rs', '.java', '.c', '.h', '.cpp', '.hpp',
   '.sh', '.sql', '.css', '.html', '.htm', '.xml', '.ini', '.conf', '.log', '.srt', '.vtt', '.pdf',
-].join(',')
+]
+
+/** The kinds every model on every wire takes: what a picker may offer whatever the composer is standing on. */
+export const CHAT_ATTACHMENT_ACCEPT = CHAT_ATTACHMENT_BASE.join(',')
+
+/**
+ * The accept list for the model the composer is standing on: the base list, plus audio when that model
+ * would really receive it.
+ *
+ * A recording used to be absent from the attribute on every model, so a reader who pressed "add file" could
+ * not see one in the system picker even on the wire that carries `input_audio` — the only ways in were the
+ * drag, the paste and an address. Widening it for everybody is the other wrong answer: an offer the request
+ * builder cannot keep walks the reader into a refusal they chose by hand.
+ *
+ * So the answer is asked of the gate itself, of a well-formed mp3: whatever `unreadableAttachmentReason`
+ * finds nothing to say about is exactly what the dialog may offer. That is deliberate rather than lazy — a
+ * second predicate over `audioWire` and the tick would be a second place to disagree with the queue, and a
+ * disagreement here is a file the picker offered, the reader picked, and the composer then turned away.
+ */
+export function chatAttachmentAccept(target: AttachmentTarget | null): string {
+  const wouldTakeIt = unreadableAttachmentReason('audio/mpeg', 'recording.mp3', target) === null
+  return [...CHAT_ATTACHMENT_BASE, ...(wouldTakeIt ? CHAT_AUDIO_ACCEPT : [])].join(',')
+}
 
 /**
  * The folder picker's directory attributes, typed once instead of cast at the call site.

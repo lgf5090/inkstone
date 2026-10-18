@@ -974,6 +974,22 @@ export function protocolCarriesAudio(protocol: AssistantProtocol): boolean {
   return AUDIO_CARRYING_PROTOCOLS.includes(protocol)
 }
 
+/**
+ * The audio entries a file picker may be given, when it may be given any.
+ *
+ * The system picker filters on the mime and on the extension, and a browser that cannot name a type hands
+ * back an empty one, so both forms are listed. The two containers are exactly the ones `audioFormatFor`
+ * answers a format for — never a wider list: `format` is an enum at the far end of the request, and an
+ * offer the field would refuse is a file the reader picked with their own hands and the turn then named
+ * back unread.
+ *
+ * Whether they belong in the attribute at all is not this list's decision; it is the model's, and the
+ * composer asks the queue's own refusal. See `chatAttachmentAccept`.
+ */
+export const CHAT_AUDIO_ACCEPT: readonly string[] = [
+  'audio/mpeg', 'audio/wav', 'audio/x-wav', '.mp3', '.wav',
+]
+
 /** A note tag or folder the reader pinned to one turn with `#`. */
 export interface AssistantTurnScope {
   /**

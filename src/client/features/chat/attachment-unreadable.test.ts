@@ -2,9 +2,10 @@
 /**
  * The composer says, in words, that a recording or a clip will not be read by *this* model.
  *
- * A reader who drops a `.mp3` on the box is not picking it from a file dialog — the pickers' `accept` list
- * stops at the kinds every model takes — so the drag and the paste are the doors that let it through, and
- * `attachment-upload-gate.test.ts` is the case that turns it away there before a byte is sent. What both of
+ * A reader who drops a `.mp3` on the box may not have picked it from a file dialog at all — the dialog only
+ * offers one beside a model that would receive it, so the drag and the paste are still the doors that let
+ * it through, and `attachment-upload-gate.test.ts` is the case that turns it away there before a byte is
+ * sent. What both of
  * them owe the reader is the same sentence the pickers' silence hides, and the sentence is about the model
  * the composer is standing on: a clip reaches no model at all, a recording reaches only one that was ticked
  * for it on a wire that carries it. The strip is drawn from the store rather than from an argument, so the
@@ -24,8 +25,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { DEFAULT_ASSISTANT_SETTINGS, type AssistantModel, type AssistantProvider, type ChatAttachment } from '@shared/assistant'
 import { initI18n, t } from '../../lib/i18n'
 import { installTestGlobals, renderElement, type RenderedElement } from '../../lib/test-render'
-import { useAssistant } from './assistant-store'
-import { AttachmentStrip, CHAT_ATTACHMENT_ACCEPT, MessageAttachments } from './ChatAttachments'
+import { useAssistant, attachmentTargetOf } from './assistant-store'
+import { AttachmentStrip, CHAT_ATTACHMENT_ACCEPT, MessageAttachments, chatAttachmentAccept } from './ChatAttachments'
 import type { PendingAttachment } from './assistant-store'
 
 function model(over: Partial<AssistantModel> = {}): AssistantModel {
@@ -180,13 +181,29 @@ describe('the same file inside a stored turn', () => {
 })
 
 describe('what the pickers offer', () => {
-  it('still stops at the kinds every model takes, which is not where the answer is given', () => {
-    // The `accept` list is a convenience, not the gate: it offers no recording and no clip, so the doors a
-    // recording comes through are the drag, the paste and an address — and those three are answered by the
-    // queue and this strip, not by an attribute a folder picker also carries.
+  it('stops at the kinds every model takes, which is not where the answer is given', () => {
+    // The `accept` list is a convenience, not the gate: the base list offers no recording and no clip, the
+    // doors a recording comes through anyway are the drag, the paste and an address, and all four are
+    // answered by the queue and this strip — not by an attribute a folder picker also carries.
     const types = CHAT_ATTACHMENT_ACCEPT.split(',')
     expect(types.some((entry) => entry.startsWith('audio/') || entry.startsWith('video/'))).toBe(false)
     expect(types).not.toContain('.mp3')
     expect(types).not.toContain('.mp4')
+  })
+
+  it('adds a recording to the dialog only for a model that would receive one', () => {
+    // The file input's filter now travels with the model rather than offering audio to nobody, so the same
+    // refusal answers both questions. `attachment-accept-audio.test.ts` follows the rendered input in both
+    // directions; this pins the rule at the list itself, where the clip stays out whatever the model is.
+    const ticked = [model({ modalities: ['audio'] })]
+    const carried = chatAttachmentAccept(attachmentTargetOf(ticked, [GATEWAY], 'm1'))
+    expect(carried.split(',')).toContain('.mp3')
+    const deadWire = chatAttachmentAccept(
+      attachmentTargetOf(ticked, [{ ...GATEWAY, protocol: 'anthropic' }], 'm1'),
+    )
+    expect(deadWire.split(',')).not.toContain('.mp3')
+    expect(deadWire).toBe(CHAT_ATTACHMENT_ACCEPT)
+    // A clip is offered on no model, because the request builder that would carry it does not exist.
+    expect(carried.split(',')).not.toContain('video/*')
   })
 })
