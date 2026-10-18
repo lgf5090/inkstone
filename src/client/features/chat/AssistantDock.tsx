@@ -26,6 +26,7 @@ import { useNotes } from '../../store/notes'
 import { useAssistant } from './assistant-store'
 import { AssistantBubble } from './MessageParts'
 import { ChatComposer, MessageRow, UserBubble } from './ChatView'
+import { ContextUsageRing } from './ContextUsageMeter'
 import {
   applyEditorAiResult,
   EDITOR_AI_LABELS,
@@ -107,6 +108,8 @@ export function AssistantDock() {
           {agentName || t('assistant.dock.title')}
         </span>
         <div className="ml-auto flex shrink-0 items-center gap-0.5">
+          {/* The same reading the chat header wears: one thread, one ring, whichever window it is read from. */}
+          <ContextUsageRing />
           <Tooltip label={t('assistant.chat.new')}>
             <IconButton label={t('assistant.chat.new')} size="sm" disabled={streaming} onClick={newConversation}>
               <Plus size={13} />
