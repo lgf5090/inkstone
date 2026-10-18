@@ -37,11 +37,30 @@ import { useAssistant } from './assistant-store'
 const harness = vi.hoisted(() => ({
   /** What `api.assistant.createTask` was pointed at, in order. */
   created: [] as { title: string, description: string, dueAt: number | null }[],
+  /** The engine keys the fake route holds: the same shape the route answers with, and the same three fields. */
+  keys: [] as { engine: string, hasKey: boolean, keyHint: string, updatedAt: number }[],
 }))
 
 const createTask = vi.fn(async (body: { title: string, description: string, dueAt: number | null }) => {
   harness.created.push(body)
   return { task: {} }
+})
+
+/**
+ * The engine key routes, faked as the worker behaves: the key is accepted, and only its last four characters
+ * are ever handed back. Nothing here keeps a key a test can print, because a test that asserts on the
+ * credential would be the leak.
+ */
+const searchKeys = vi.fn(async () => ({ keys: harness.keys.map((entry) => ({ ...entry })) }))
+const putSearchKey = vi.fn(async (engine: string, body: { apiKey: string }) => {
+  const key = { engine, hasKey: true, keyHint: body.apiKey.slice(-4), updatedAt: 1 }
+  harness.keys.splice(harness.keys.findIndex((entry) => entry.engine === engine), 1, key)
+  return { key }
+})
+const deleteSearchKey = vi.fn(async (engine: string) => {
+  const at = harness.keys.findIndex((entry) => entry.engine === engine)
+  if (at >= 0) harness.keys.splice(at, 1)
+  return { deleted: true }
 })
 
 vi.mock('../../lib/api', () => ({
@@ -57,6 +76,9 @@ vi.mock('../../lib/api', () => ({
       conversationBranches: async () => ({ parent: null, siblings: [] }),
       conversationArtifacts: async () => ({ artifacts: [] }),
       createTask: (body: { title: string, description: string, dueAt: number | null }) => createTask(body),
+      searchKeys: () => searchKeys(),
+      putSearchKey: (engine: string, body: { apiKey: string }) => putSearchKey(engine, body),
+      deleteSearchKey: (engine: string) => deleteSearchKey(engine),
     },
   },
 }))
@@ -220,6 +242,103 @@ describe('the web-search engine setting', () => {
     await click(row().save, 'the save button')
     expect(saveSettings).toHaveBeenCalledWith({ webSearchEndpoint: '' })
   })
+
+  /** Let the key listing the row asks for land, so its answer is what the row is read on. */
+  const settle = async (): Promise<void> => {
+    // A macrotask, not two microtasks: the listing is a promise the row chains on, and the answer has to
+    // have been delivered and re-rendered before anything about it is asserted.
+    await act(async () => { await new Promise((resolve) => { setTimeout(resolve, 0) }) })
+  }
+
+  /** The `<select>` a row's own title names, through the `<label for>` the row writes. */
+  function pickerNamedByRow(title: string): HTMLSelectElement | null {
+    for (const label of [...document.querySelectorAll<HTMLLabelElement>('label[for]')]) {
+      if (label.textContent?.trim() !== title) continue
+      const target = document.getElementById(label.htmlFor)
+      if (target?.tagName === 'SELECT') return target as HTMLSelectElement
+    }
+    return null
+  }
+
+  async function choose(select: HTMLSelectElement | null, value: string): Promise<void> {
+    expect(select, 'the engine picker is not drawn').toBeTruthy()
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value')?.set?.call(select, value)
+      select!.dispatchEvent(new Event('change', { bubbles: true }))
+    })
+  }
+
+  const keyBox = () => boxNamedByRow(t('assistant.settings.web_search_key'))
+
+  describe('the engine the reader picks', () => {
+    beforeEach(() => { harness.keys.length = 0; searchKeys.mockClear(); putSearchKey.mockClear(); deleteSearchKey.mockClear() })
+
+    it('is a control the row title names, and its choice is the setting that goes out', async () => {
+      await mount()
+      const picker = pickerNamedByRow(t('assistant.settings.web_search_engine'))
+      expect(picker, 'the engine row has no control answering to its title').toBeTruthy()
+      await choose(picker, 'tavily')
+      // The standing guard this file exists for: a picker whose change never reaches a PATCH is a control
+      // that only moves on screen.
+      expect(saveSettings).toHaveBeenCalledWith({ webSearchEngine: 'tavily' })
+      expect(alert()).toBeNull()
+    })
+
+    it('says what each engine does, where the reader is choosing it', async () => {
+      await mount()
+      // The note the row speaks is the picked engine's own, so a reader chooses with the trade-off in front
+      // of them rather than after the setting has already moved.
+      expect(document.body.textContent).toContain(t('assistant.settings.web_search_note.self_hosted'))
+      expect(t('assistant.settings.web_search_note.self_hosted')).toContain('your own server')
+      await mount({ webSearchEngine: 'tavily' })
+      await settle()
+      const note = t('assistant.settings.web_search_note.tavily')
+      // Which machine the query leaves for is the honest content of that note, and it is not invented here.
+      expect(note).toContain('api.tavily.com')
+      expect(document.body.textContent).toContain(note)
+      expect(document.body.textContent).not.toContain(t('assistant.settings.web_search_note.self_hosted'))
+    })
+
+    it('draws the address box only for the engine that queries it', async () => {
+      await mount()
+      expect(row().box, 'the self-hosted engine should show its address box').toBeTruthy()
+      await mount({ webSearchEngine: 'tavily' })
+      await settle()
+      expect(boxNamedByRow(t('assistant.settings.web_search'))).toBeNull()
+      expect(keyBox(), 'a hosted engine has no row to store its key in').toBeTruthy()
+    })
+
+    it('never puts the key in the box again, and answers with only its last four characters', async () => {
+      await mount({ webSearchEngine: 'tavily' })
+      await settle()
+      const box = keyBox()
+      expect(box?.getAttribute('type'), 'a credential box that shows its value is not a credential box').toBe('password')
+      // The listing answered "nothing stored", so the row says that instead of leaving a blank to be
+      // misread as a key that was lost.
+      expect(document.body.textContent).toContain(t('assistant.settings.web_search_key_required'))
+
+      await type(box, 'sk-test-0000000000000000wxyz')
+      await click(box?.closest('form')?.querySelector('button[type="submit"]') ?? null, 'the key save button')
+      await settle()
+      expect(putSearchKey).toHaveBeenCalledWith('tavily', { apiKey: 'sk-test-0000000000000000wxyz' })
+      expect(document.body.textContent).not.toContain('sk-test-0000000000000000wxyz')
+      expect(keyBox()?.value, 'the box still holds the key it was given').toBe('')
+      expect(keyBox()?.getAttribute('placeholder')).toContain('wxyz')
+    })
+
+    it('forgets the stored key when the reader asks it to', async () => {
+      harness.keys.push({ engine: 'tavily', hasKey: true, keyHint: 'wxyz', updatedAt: 1 })
+      await mount({ webSearchEngine: 'tavily' })
+      await settle()
+      const forget = [...document.body.querySelectorAll<HTMLButtonElement>('button')]
+        .find((button) => button.textContent?.trim() === t('assistant.settings.web_search_key_forget'))
+      expect(forget, 'a stored key has no way to be taken back out').toBeTruthy()
+      await click(forget ?? null, 'the forget button')
+      await settle()
+      expect(deleteSearchKey).toHaveBeenCalledWith('tavily')
+      expect(document.body.textContent).toContain(t('assistant.settings.web_search_key_required'))
+    })
+  })
 })
 
 describe('the composer chip’s three channels', () => {
@@ -296,6 +415,26 @@ describe('the composer chip’s three channels', () => {
     const control = chip()
     expect(control?.hasAttribute('disabled')).toBe(true)
     expect(descriptionOf(control)).toContain(t('assistant.search.unavailable_read_off'))
+  })
+
+  /**
+   * A hosted engine is a choice the reader can make without being able to carry it out, because the key is
+   * what is missing — and the settings screen draws no address box for that engine at all. A reason that
+   * pointed at the address would send the reader looking for a control that was never drawn, which is the
+   * mistake this repo has now made four times; the server's own read-out is what tells the two apart.
+   */
+  it('says a hosted engine waits for a key, without naming an address box', async () => {
+    await mountComposer({ settings: settings({ activeModelId: 'm1', webSearchEngine: 'tavily', webSearchKeyStored: false }) })
+    const control = chip()
+    expect(control?.hasAttribute('disabled'), 'a keyed engine with no key was counted as a channel').toBe(true)
+    const said = descriptionOf(control) ?? ''
+    expect(said).toContain(t('assistant.search.unavailable_no_key'))
+    expect(said).not.toContain(t('assistant.search.unavailable_engine'))
+  })
+
+  it('lets the same engine through once its key is stored', async () => {
+    await mountComposer({ settings: settings({ activeModelId: 'm1', webSearchEngine: 'tavily', webSearchKeyStored: true }) })
+    expect(chip()?.hasAttribute('disabled'), 'a stored key still left the switch dead').toBe(false)
   })
 })
 

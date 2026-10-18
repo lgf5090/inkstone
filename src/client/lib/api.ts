@@ -75,6 +75,7 @@ import type {
   AssistantNotification,
   AssistantProvider,
   AssistantProviderKey,
+  AssistantSearchKey,
   AssistantSettings,
   AssistantUsage,
   AssistantStats,
@@ -1351,6 +1352,18 @@ export const api = {
       request<{ key: AssistantProviderKey }>(`/api/assistant/providers/${id}/keys/${keyId}`, { method: 'PATCH', body }),
     deleteProviderKey: (id: string, keyId: string) =>
       request<{ deleted: true }>(`/api/assistant/providers/${id}/keys/${keyId}`, { method: 'DELETE' }),
+    /**
+     * The key one hosted web-search engine is queried with, and its state.
+     *
+     * `hasKey` and the last four characters are the whole of what comes back — the same bargain a provider's
+     * key makes. Writing is a `PUT` rather than a `POST` because an engine holds exactly one key: writing it
+     * again replaces it, and there is no second credential a vendor would have to guess between.
+     */
+    searchKeys: () => request<{ keys: AssistantSearchKey[] }>('/api/assistant/search-keys'),
+    putSearchKey: (engine: string, body: { apiKey: string }) =>
+      request<{ key: AssistantSearchKey }>(`/api/assistant/search-keys/${encodeURIComponent(engine)}`, { method: 'PUT', body }),
+    deleteSearchKey: (engine: string) =>
+      request<{ deleted: true }>(`/api/assistant/search-keys/${encodeURIComponent(engine)}`, { method: 'DELETE' }),
     models: () => request<{ models: AssistantModel[] }>('/api/assistant/models'),
     /** The vendor's own list, asked through the worker so the key never reaches the browser. */
     vendorModels: (id: string) =>

@@ -13,6 +13,7 @@ import { type ClipboardEvent as ReactClipboardEvent, type DragEvent as ReactDrag
 import { Archive, ArrowUp, ArrowUpRight, Check, Columns2, Copy, FileText, FolderOpen, Ghost, History, Link2Off, ListChecks, MoreHorizontal, NotebookPen, PanelRight, Paperclip, Pencil, Plus, Search, Settings2, Square, Sparkles, Star, Trash2, X } from 'lucide-react'
 import type { AssistantConversation, AssistantMessage, AssistantModel, AssistantTurnScope, ChatAttachment } from '@shared/assistant'
 import { EPHEMERAL_CONVERSATION_RETENTION_DAYS, RUN_PARTIAL_MAX_CHARS, SEARCH_NATIVE_PROTOCOLS, looksLikeSearchTool, mcpToolModeFor, webSearchConfigured } from '@shared/assistant'
+import { webSearchEngineFor } from '@shared/web-search-engines'
 import { DEBOUNCE } from '@shared/constants'
 import { cn } from '../../lib/cn'
 import { t } from '../../lib/i18n'
@@ -2199,21 +2200,30 @@ ${current}` : seed))
   // protocol, the built-in tool against an engine the reader configured, or a search-capable remote tool.
   // A protocol that is OpenAI-compatible with an engine set was reported dead here, so the reader saw a
   // disabled control on a turn that would in fact have searched.
+  // Whether a key is stored for the engine in these settings. The server answers this and rides it out with
+  // the settings themselves, because the key is deliberately not a setting and this view cannot look for it.
+  const searchKeyStored = settings?.webSearchKeyStored === true
   const webSearchChannel = useMemo(() => {
     const protocol = providers.find((entry) => entry.id === active?.providerId)?.protocol
     if (protocol && SEARCH_NATIVE_PROTOCOLS.has(protocol)) return 'native' as const
     // The built-in tool is a read tool: with that class switched off the turn cannot be handed it.
-    if (settings && settings.toolModes.read !== 'off' && webSearchConfigured(settings)) return 'engine' as const
+    if (settings && settings.toolModes.read !== 'off' && webSearchConfigured(settings, searchKeyStored)) return 'engine' as const
     const searcher = mcpServers.some((server) => server.enabled
       && (mcpCatalog.find((entry) => entry.serverId === server.id)?.tools ?? []).some((tool) => looksLikeSearchTool(tool.name)
         // A tool the reader switched off at the server is not on the table for the model either.
         && mcpToolModeFor(server, tool.remoteName) !== 'off'))
     return searcher ? ('mcp' as const) : null
-  }, [providers, active, settings, mcpServers, mcpCatalog])
+  }, [providers, active, settings, searchKeyStored, mcpServers, mcpCatalog])
   // The disabled reason names the door the reader can still open, so a dead chip is a setting to change.
-  const webSearchReason = settings && webSearchConfigured(settings)
-    ? t('assistant.search.unavailable_read_off')
-    : t('assistant.search.unavailable_engine')
+  // Three dead ends are told apart here because only one of them is fixed by the same place: an engine that
+  // was never chosen, an engine chosen but waiting for the reader's key, and an engine that is ready while
+  // its tool class is switched off. Naming the address box would point a reader at a control the settings
+  // screen draws only for the self-hosted engine.
+  const webSearchReason = !settings || !webSearchConfigured(settings, searchKeyStored)
+    ? (settings && webSearchEngineFor(settings.webSearchEngine).requiresKey
+      ? t('assistant.search.unavailable_no_key')
+      : t('assistant.search.unavailable_engine'))
+    : t('assistant.search.unavailable_read_off')
 
   /** Rows for the trigger the caret is inside. `@` asks the server; the other two filter locally. */
   const loadTriggerRows = async (next: ActiveTrigger) => {

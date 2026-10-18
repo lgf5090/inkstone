@@ -84,6 +84,14 @@ export interface WebSearchEngineSpec {
 }
 
 /**
+ * The longest engine key the worker will store.
+ *
+ * The same bound a provider's key is written to, and stated once: a token longer than this is a paste that
+ * went wrong, and storing a clipped one would leave the reader with a key that only ever answers 401.
+ */
+export const MAX_SEARCH_KEY_CHARS = 4096
+
+/**
  * How many hits one search asks for and hands on.
  *
  * One number for both: asking a hosted engine for more than the turn is given costs the reader per-request

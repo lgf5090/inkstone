@@ -109,7 +109,7 @@ import { suggestActiveModel } from '../assistant/model-config'
 import { listVendorModels } from '../assistant/vendor-models'
 import { memoryEmbeddingStatus, reindexMemoryEmbeddings, semanticModel } from '../assistant/semantic'
 import { MAX_PROVIDER_MODELS, reasoningDialectValue, reasoningValue, searchEndpointValue } from '@shared/assistant'
-import { isWebSearchEngineId } from '@shared/web-search-engines'
+import { MAX_SEARCH_KEY_CHARS, isWebSearchEngineId, webSearchEngineFor } from '@shared/web-search-engines'
 import {
   CHAT_IMAGE_MAX_BYTES,
   ChatUploadError,
@@ -2330,10 +2330,27 @@ assistantRoutes.delete('/push/subscriptions/:id', async (c) => {
 
 // ------------------------------------------------------------------ settings
 
+/**
+ * Whether the engine in these settings can be asked, told back to the client beside the settings themselves.
+ *
+ * The composer's search chip has to name the dead end it hit, and one of them is "the engine you picked is
+ * waiting for a key" — which no settings blob can say, because the key is deliberately not a setting. So the
+ * server answers the one question the client must not guess at, and this rides out as a projection: never
+ * stored, never read from a request, and never a credential.
+ */
+async function webSearchKeyStored(s: AssistantStore, settings: AssistantSettings): Promise<boolean> {
+  const engine = webSearchEngineFor(settings.webSearchEngine)
+  if (!engine.requiresKey) return false
+  return (await s.searchKeyEngines()).includes(engine.id)
+}
+
 assistantRoutes.get('/settings', async (c) => {
   const s = store(c)
   const [settings, models] = await Promise.all([s.getSettings(), s.listModels()])
-  return c.json({ settings, models })
+  return c.json({
+    settings: { ...settings, webSearchKeyStored: await webSearchKeyStored(s, settings) },
+    models,
+  })
 })
 
 assistantRoutes.patch('/settings', async (c) => {
@@ -2382,13 +2399,10 @@ assistantRoutes.patch('/settings', async (c) => {
       reindexMemoryEmbeddings(s, c.env, next.limits.maxEmbeddingsPerDay, semanticModel(next)).catch(() => undefined),
     )
   }
-  return c.json({ settings: next })
+  return c.json({ settings: { ...next, webSearchKeyStored: await webSearchKeyStored(s, next) } })
 })
 
 // ------------------------------------------------------------- search keys
-
-/** The longest engine key the vault will hold, the same bound a provider key is written to. */
-const MAX_SEARCH_KEY_CHARS = 4096
 
 /**
  * The key one hosted web-search engine is queried with.

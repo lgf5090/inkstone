@@ -690,6 +690,16 @@ export interface AssistantSettings {
    * key, which is deliberately not a setting: see `webSearchConfigured`.
    */
   webSearchEngine: string
+  /**
+   * Whether a key is stored for the engine named above. Written by the server on the way out, never read in.
+   *
+   * Not a setting: it is deliberately absent from `DEFAULT_ASSISTANT_SETTINGS`, so `ASSISTANT_SETTING_KEYS`
+   * does not name it, a PATCH cannot claim it, and the stored blob never holds it. It exists because the
+   * composer's chip has to say *why* search is off, and one honest answer is "the engine you picked is
+   * waiting for a key" — a fact no settings blob can carry, since the key itself lives in its own encrypted
+   * row and is never handed to a browser.
+   */
+  webSearchKeyStored?: boolean
 }
 
 export const ASSISTANT_START_VIEWS = ['chat', 'memory', 'tasks', 'automations', 'settings'] as const

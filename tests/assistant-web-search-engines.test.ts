@@ -455,4 +455,36 @@ describe('an engine key where it belongs', () => {
     expect(webSearchConfigured(stored)).toBe(true)
     expect(searchUrlFor(WEB_SEARCH_ENGINES[stored.webSearchEngine]!, stored.webSearchEndpoint, 'q').searchParams.get('format')).toBe('json')
   })
+
+  /**
+   * The one fact about a credential that the settings response is allowed to carry.
+   *
+   * The composer's chip says why search is off, and "your engine is waiting for a key" is only honest if the
+   * server is the one saying it — the key itself never leaves the vault, and the settings blob is plaintext.
+   * So this is a read-out: it must follow the engine the reader actually picked, and a client must not be able
+   * to write it, or a forged `true` would put a working search claim back on a chip that has nothing behind it.
+   */
+  it('says which engine is holding a key, and refuses to be told that by a client', async () => {
+    const settingsOf = async (): Promise<AssistantSettings> =>
+      ((await (await respond('GET', '/api/assistant/settings')).json()) as { settings: AssistantSettings }).settings
+
+    await respond('PATCH', '/api/assistant/settings', { webSearchEngine: 'tavily' })
+    expect((await settingsOf()).webSearchKeyStored).toBe(false)
+
+    await respond('PUT', '/api/assistant/search-keys/tavily', { apiKey: KEY })
+    expect((await settingsOf()).webSearchKeyStored).toBe(true)
+
+    // A key for one engine is not a key for another: the answer follows the pick, not the account.
+    await respond('PATCH', '/api/assistant/settings', { webSearchEngine: 'brave' })
+    expect((await settingsOf()).webSearchKeyStored).toBe(false)
+    // And an engine that needs no key is never told it is missing one.
+    await respond('PATCH', '/api/assistant/settings', { webSearchEngine: 'self-hosted' })
+    expect((await settingsOf()).webSearchKeyStored).toBe(false)
+
+    // The field is not an input: the PATCH loop forwards only `ASSISTANT_SETTING_KEYS`, and this is not one of
+    // them, so neither the answer nor the stored blob can be made to hold a claimed key.
+    await respond('PATCH', '/api/assistant/settings', { webSearchEngine: 'tavily', webSearchKeyStored: true })
+    expect((await settingsOf()).webSearchKeyStored).toBe(true)
+    expect(await store.getSettings()).not.toHaveProperty('webSearchKeyStored')
+  })
 })
