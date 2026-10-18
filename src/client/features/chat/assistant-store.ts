@@ -2564,7 +2564,22 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
             return current
         }
       })
-      if (event.type === 'title') void get().loadConversations()
+      if (event.type === 'title') {
+        // The follow-ups are the answer's own, so they are written onto the row they arrived for rather
+        // than fetched with the whole thread again: a reader may already be typing the next question into
+        // this one, and a reload would take the loaded page and their place in it away from under them.
+        const messageId = event.assistantMessageId
+        const incoming = event.suggestions ?? []
+        if (messageId && incoming.length) {
+          set((current) => {
+            const index = current.messages.findIndex((message) => message.id === messageId)
+            const row = current.messages[index]
+            if (index < 0 || !row || row.role !== 'assistant') return current
+            return { messages: current.messages.map((message, position) => (position === index ? { ...message, suggestions: incoming } : message)) }
+          })
+        }
+        void get().loadConversations()
+      }
     }
 
     // What the reader had on screen when they asked. The notebook's own pointer is the only thing that
