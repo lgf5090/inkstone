@@ -786,6 +786,7 @@ type ModelPatch = {
   label?: string, model?: string, temperature?: number | null, maxOutputTokens?: number | null,
   reasoning?: AssistantReasoning, contextTokens?: number | null, vision?: boolean, enabled?: boolean,
   purpose?: AssistantModelPurpose, kind?: AssistantModelKind, supportsTools?: boolean,
+  noTools?: boolean,
   maxInputTokens?: number | null, topP?: number | null, customParams?: AssistantCustomParam[],
   modalities?: readonly AssistantModelModality[]
   protocol?: AssistantProtocol | null
@@ -820,6 +821,7 @@ const MODEL_UPDATES: readonly {
   { key: 'purpose', column: 'purpose', bind: (patch) => patch.purpose },
   { key: 'kind', column: 'kind', bind: (patch) => patch.kind },
   { key: 'supportsTools', column: 'supports_tools', bind: (patch) => (patch.supportsTools ? 1 : 0) },
+  { key: 'noTools', column: 'no_tools', bind: (patch) => (patch.noTools ? 1 : 0) },
   { key: 'maxInputTokens', column: 'max_input_tokens', bind: (patch) => patch.maxInputTokens },
   { key: 'topP', column: 'top_p', bind: (patch) => patch.topP },
   { key: 'customParams', column: 'custom_params', bind: (patch) => JSON.stringify(parseCustomParams(patch.customParams ?? [])) },
@@ -1234,7 +1236,7 @@ export class AssistantStore {
       id, providerId: input.providerId, model: input.model, label, temperature, maxOutputTokens,
       reasoning, contextTokens, vision, enabled: true,
       vendorContextTokens, vendorMaxOutputTokens,
-      purpose: 'chat', kind: 'text', supportsTools: true, maxInputTokens: null, modalities: [], topP: null, customParams: [],
+      purpose: 'chat', kind: 'text', supportsTools: true, noTools: false, maxInputTokens: null, modalities: [], topP: null, customParams: [],
       protocol: input.protocol ?? null,
       fallbackModelId: null,
       inputPrice: null, outputPrice: null, priceCurrency: '',
@@ -3413,7 +3415,7 @@ export class AssistantStore {
   }
 
   async createProject(input: {
-    name: string, description?: string, instructions?: string, noteScope?: string[], modelId?: string | null,
+    name: string, description?: string, instructions?: string, noteScope?: string[], noteIds?: string[], modelId?: string | null,
   }): Promise<Project> {
     const id = newId()
     const at = Date.now()
@@ -3421,19 +3423,20 @@ export class AssistantStore {
     const description = input.description ?? ''
     const instructions = input.instructions ?? ''
     const noteScope = input.noteScope ?? []
+    const noteIds = input.noteIds ?? []
     const modelId = input.modelId ?? null
     await this.write(
       `INSERT INTO chat_projects
-         (id, user_id, name, description, instructions, note_scope, model_id, created_at, updated_at)
-       VALUES (?2, ?1, ?3, ?4, ?5, ?6, ?7, ?8, ?9)`,
-      id, name, description, instructions, JSON.stringify(noteScope), modelId, at, at,
+         (id, user_id, name, description, instructions, note_scope, note_ids, model_id, created_at, updated_at)
+       VALUES (?2, ?1, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)`,
+      id, name, description, instructions, JSON.stringify(noteScope), JSON.stringify(noteIds), modelId, at, at,
     )
-    return { id, name, description, instructions, noteScope, modelId, createdAt: at, updatedAt: at }
+    return { id, name, description, instructions, noteScope, noteIds, modelId, createdAt: at, updatedAt: at }
   }
 
   async updateProject(id: string, patch: {
     name?: string, description?: string, instructions?: string,
-    noteScope?: string[], modelId?: string | null,
+    noteScope?: string[], noteIds?: string[], modelId?: string | null,
   }): Promise<Project | null> {
     const fields: (readonly [string, unknown])[] = []
     const set = (column: string, value: unknown): void => { fields.push([column, value]) }
@@ -3444,6 +3447,7 @@ export class AssistantStore {
     if (patch.description !== undefined) set('description', patch.description)
     if (patch.instructions !== undefined) set('instructions', patch.instructions)
     if (patch.noteScope !== undefined) set('note_scope', JSON.stringify(patch.noteScope))
+    if (patch.noteIds !== undefined) set('note_ids', JSON.stringify(patch.noteIds))
     if (patch.modelId !== undefined) set('model_id', patch.modelId)
     set('updated_at', Date.now())
     const changes = await this.partialUpdate('chat_projects', id, fields)
@@ -4682,9 +4686,11 @@ const EXPORT_COLUMNS: Readonly<Record<string, readonly string[]>> = {
   chat_memories: ['id', 'content', 'category', 'source', 'status', 'superseded_by', 'valid_from', 'valid_until', 'project_id', 'note_id', 'created_at', 'updated_at'],
   chat_tasks: ['id', 'title', 'description', 'status', 'priority', 'due_at', 'project_id', 'created_at', 'updated_at', 'completed_at'],
   // The brief and the folders a project reads are what make it a context rather than a folder; a
-  // restored project without them is the same name over an empty brief. `model_id` is left out on
-  // purpose: models are not in the backup, so a carried id could only point at nothing.
-  chat_projects: ['id', 'name', 'description', 'instructions', 'note_scope', 'created_at', 'updated_at'],
+  // restored project without them is the same name over an empty brief. `note_ids` travels with them: a
+  // project that named three pages and came back naming none would answer from the whole vault, which is
+  // the opposite of what the reader picked. `model_id` is left out on purpose: models are not in the
+  // backup, so a carried id could only point at nothing.
+  chat_projects: ['id', 'name', 'description', 'instructions', 'note_scope', 'note_ids', 'created_at', 'updated_at'],
   chat_automations: ['id', 'name', 'kind', 'message', 'schedule', 'enabled', 'status', 'next_run', 'last_run', 'last_result', 'last_error', 'run_count', 'created_at', 'updated_at'],
   chat_notifications: ['id', 'title', 'body', 'automation_id', 'read_at', 'created_at'],
 }
@@ -4934,7 +4940,7 @@ function toProviderKey(r: ProviderKeyRow): AssistantProviderKey {
  * ends up written but never read back: the editor saved `purpose` and the reader saw the old value.
  */
 export const MODEL_SELECT_COLUMNS = `id, provider_id, model, label, temperature, max_output_tokens,
-  reasoning, context_tokens, vendor_context_tokens, vendor_max_output_tokens, vision, purpose, kind, supports_tools, max_input_tokens, modalities, top_p,
+  reasoning, context_tokens, vendor_context_tokens, vendor_max_output_tokens, vision, purpose, kind, supports_tools, no_tools, max_input_tokens, modalities, top_p,
   custom_params, protocol, fallback_model_id, input_price, output_price, price_currency, enabled, position`
 
 /**
@@ -4992,6 +4998,7 @@ interface ModelRow {
   purpose: string | null
   kind: string | null
   supports_tools: number | null
+  no_tools: number
   max_input_tokens: number | null
   modalities: string | null
   top_p: number | null
@@ -5027,6 +5034,8 @@ function toModel(r: ModelRow): AssistantModel {
     purpose: pickEnum(r.purpose, ASSISTANT_MODEL_PURPOSES, 'chat'),
     kind: pickEnum(r.kind, ASSISTANT_MODEL_KINDS, 'text'),
     supportsTools: r.supports_tools === null ? true : bool(r.supports_tools),
+    // The column is `NOT NULL DEFAULT 0`, so a row that predates it reads as the switch never touched.
+    noTools: bool(r.no_tools),
     maxInputTokens: num(r.max_input_tokens),
     modalities: parseModelModalities(parseJson(r.modalities)),
     topP: num(r.top_p),
@@ -5204,6 +5213,7 @@ interface ProjectRow {
   description: string | null
   instructions: string | null
   note_scope: string | null
+  note_ids: string | null
   model_id: string | null
   created_at: number
   updated_at: number
@@ -5216,6 +5226,7 @@ function toProject(r: ProjectRow): Project {
     description: r.description ?? '',
     instructions: r.instructions ?? '',
     noteScope: decodeStringList(r.note_scope),
+    noteIds: decodeStringList(r.note_ids),
     modelId: r.model_id,
     createdAt: r.created_at,
     updatedAt: r.updated_at,

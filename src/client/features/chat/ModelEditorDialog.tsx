@@ -63,6 +63,9 @@ export interface ModelDraft {
   purpose: AssistantModelPurpose
   kind: AssistantModelKind
   supportsTools: boolean
+  /** The account's standing refusal, kept apart from `supportsTools`: that is the vendor's claim, this is
+   *  what the reader will let the model do. See `AssistantModel.noTools`. */
+  noTools: boolean
   /** The three switches the model row now draws as its own icons, edited at their full depth here. */
   reasoning: AssistantReasoning
   vision: boolean
@@ -91,6 +94,7 @@ export function draftFromModel(model: AssistantModel): ModelDraft {
     purpose: model.purpose,
     kind: model.kind,
     supportsTools: model.supportsTools,
+    noTools: model.noTools === true,
     reasoning: model.reasoning,
     vision: model.vision,
     contextTokens: model.contextTokens,
@@ -398,6 +402,13 @@ export function ModelEditorDialog({
 
             <SettingRow title={t('assistant.model.tools')} description={t('assistant.model.tools_hint')}>
               <Switch checked={draft.supportsTools} label={t('assistant.model.tools')} onChange={(checked) => patch({ supportsTools: checked })} />
+            </SettingRow>
+
+            {/* The refusal the reader makes for themselves, beside the one the vendor makes: a model can be
+                able to call tools and still not be allowed to, and the two switches mean different things
+                to the row. Either one on keeps the schemas from going out. */}
+            <SettingRow title={t('assistant.model.no_tools')} description={t('assistant.model.no_tools_hint')}>
+              <Switch checked={draft.noTools} label={t('assistant.model.no_tools')} onChange={(checked) => patch({ noTools: checked })} />
             </SettingRow>
 
             {/* The row's reasoning icon is a switch between off and automatic; which of the depths a model is

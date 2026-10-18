@@ -10,9 +10,10 @@
 import { act, createElement } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import type { AssistantModel, Project } from '@shared/assistant'
+import { MAX_PROJECT_NOTES, type AssistantModel, type Project } from '@shared/assistant'
 import { initI18n, t } from '../../lib/i18n'
 import { installTestGlobals } from '../../lib/test-render'
+import { useNotes } from '../../store/notes'
 import { ProjectsView } from './ProjectsView'
 import { useAssistant } from './assistant-store'
 
@@ -32,6 +33,8 @@ vi.mock('../../lib/api', () => ({
     },
     // The knowledge picker reads the notebook's own folder tree; empty is enough for a form test.
     folders: { list: vi.fn(async () => ({ folders: [] })) },
+    // The named-notes picker searches the vault the same way the composer's does.
+    search: vi.fn(async () => ({ results: [] })),
   },
 }))
 
@@ -44,6 +47,7 @@ function project(over: Partial<Project> = {}): Project {
     description: '',
     instructions: 'Be terse.',
     noteScope: [],
+    noteIds: [],
     modelId: null,
     createdAt: 1,
     updatedAt: 1,
@@ -52,12 +56,14 @@ function project(over: Partial<Project> = {}): Project {
 }
 
 const original = useAssistant.getState()
+const notesOriginal = useNotes.getState()
 let root: Root
 let host: HTMLElement
 let mounted = false
 
 const buttons = () => [...document.body.querySelectorAll<HTMLButtonElement>('button')]
 const byLabel = (text: string) => buttons().find((node) => node.textContent?.trim() === text)
+const byName = (name: string) => buttons().find((node) => (node.getAttribute('aria-label') ?? '') === name)
 const click = (node: HTMLElement | undefined) => {
   expect(node, 'the control is not rendered').toBeTruthy()
   act(() => { node!.click() })
@@ -96,6 +102,7 @@ afterEach(() => {
   host.remove()
   document.body.innerHTML = ''
   useAssistant.setState(original, true)
+  useNotes.setState(notesOriginal, true)
   vi.clearAllMocks()
 })
 
@@ -137,5 +144,41 @@ describe('the project card', () => {
     await act(async () => { await Promise.resolve() })
     expect(useAssistant.getState().setProjectFilter).toHaveBeenCalledWith('p1')
     expect(useAssistant.getState().setView).toHaveBeenCalledWith('chat')
+  })
+})
+
+describe('the pages a project names by hand', () => {
+  beforeEach(() => {
+    useNotes.setState({ ...notesOriginal, notes: { n1: { id: 'n1', title: 'Quarterly plan' } as never } })
+  })
+
+  it('shows each named page by title and saves the list minus the one taken off', async () => {
+    await open({ noteIds: ['n1', 'n2'] })
+    click(byLabel(t('common.edit')))
+    expect(document.body.textContent).toContain('Quarterly plan')
+    // A page the vault no longer holds keeps its id on the chip: the row names what the project reads, and
+    // hiding one would show a selection that is not the one that saves.
+    expect(document.body.textContent).toContain('n2')
+    click(byName(t('assistant.projects.note_drop', { name: 'Quarterly plan' })))
+    click(byLabel(t('common.save')))
+    await act(async () => { await Promise.resolve() })
+    expect(mocks.updateProject).toHaveBeenCalledWith('p1', expect.objectContaining({ noteIds: ['n2'] }))
+  })
+
+  it('reaches the vault search from the add button', async () => {
+    // Without this the column would be saved and read by the server while no screen could fill it — the
+    // shape of defect that has already bitten this module twice.
+    await open()
+    click(byLabel(t('common.edit')))
+    click(byLabel(t('assistant.projects.note_add')))
+    expect(document.querySelector('[role="combobox"]'), 'the add button opens nothing').toBeTruthy()
+  })
+
+  it('says in text when the project has named all it may', async () => {
+    await open({ noteIds: Array.from({ length: MAX_PROJECT_NOTES }, (_entry, index) => `n${index}`) })
+    click(byLabel(t('common.edit')))
+    const add = byLabel(t('assistant.projects.note_add'))
+    expect(add?.hasAttribute('disabled'), 'the button stayed pressable past the cap').toBe(true)
+    expect(document.body.textContent).toContain(t('assistant.projects.notes_full', { count: MAX_PROJECT_NOTES }))
   })
 })

@@ -11,14 +11,16 @@
  */
 
 import { useEffect, useRef, useState } from 'react'
-import { FolderOpen, ListChecks, MessageSquare, Pencil, Plus, Sparkles, Trash2 } from 'lucide-react'
-import type { Project } from '@shared/assistant'
+import { FileText, FolderOpen, ListChecks, MessageSquare, Pencil, Plus, Sparkles, Trash2, X } from 'lucide-react'
+import { MAX_PROJECT_NOTES, type Project } from '@shared/assistant'
+import { NotePicker } from './ComposerControls'
 import { NoteScopePicker } from './NoteScopePicker'
 import { api } from '../../lib/api'
-import { Button } from '../../components/primitives'
+import { Button, IconButton } from '../../components/primitives'
 import { Field, Input, Select, Textarea } from '../../components/form'
 import { Menu, Modal, confirm, type MenuItem } from '../../components/overlay'
 import { Empty } from '../../components/feedback'
+import { useNotes } from '../../store/notes'
 import { useUi } from '../../store/ui'
 import { t } from '../../lib/i18n'
 import { useAssistant } from './assistant-store'
@@ -31,10 +33,11 @@ interface Draft {
   description: string
   instructions: string
   noteScope: string[]
+  noteIds: string[]
   modelId: string | null
 }
 
-const EMPTY: Draft = { id: null, name: '', description: '', instructions: '', noteScope: [], modelId: null }
+const EMPTY: Draft = { id: null, name: '', description: '', instructions: '', noteScope: [], noteIds: [], modelId: null }
 
 function draftFrom(project: Project): Draft {
   return {
@@ -43,6 +46,7 @@ function draftFrom(project: Project): Draft {
     description: project.description,
     instructions: project.instructions,
     noteScope: project.noteScope,
+    noteIds: project.noteIds,
     modelId: project.modelId,
   }
 }
@@ -72,6 +76,7 @@ export function ProjectsView({ onOpen }: { onOpen?: () => void }) {
         description: draft.description,
         instructions: draft.instructions,
         noteScope: draft.noteScope,
+        noteIds: draft.noteIds,
         modelId: draft.modelId,
       }
       if (draft.id) await api.assistant.updateProject(draft.id, body)
@@ -177,6 +182,14 @@ export function ProjectsView({ onOpen }: { onOpen?: () => void }) {
                       ? t('assistant.projects.knowledge_count', { count: project.noteScope.length })
                       : t('assistant.projects.knowledge_none')}
                   </p>
+                  {/* Named pages are the selection a reader is most often asked to justify — "why did it
+                      answer from those three" — so the card says how many, not only the editor. */}
+                  {project.noteIds.length > 0 && (
+                    <p className="mt-1 flex items-center gap-1.5 text-[length:var(--text-11)] text-[var(--text-quaternary)]">
+                      <FileText size={11} />
+                      {t('assistant.projects.notes_count', { count: project.noteIds.length })}
+                    </p>
+                  )}
                   {/* Named rather than left to the editor: which model a project answers with is the sort
                       of thing a reader wants to check at a glance across several projects. */}
                   {project.modelId && (
@@ -233,6 +246,61 @@ export function ProjectsView({ onOpen }: { onOpen?: () => void }) {
       {draft && (
         <ProjectEditor draft={draft} busy={busy} onChange={setDraft} onSave={() => void save()} onClose={() => setDraft(null)} />
       )}
+    </div>
+  )
+}
+
+/**
+ * The pages a project names by hand.
+ *
+ * The chips show titles because the reader picked by title, while the ids are what travels; a page deleted
+ * since it was named keeps its id on the chip rather than vanishing, so what is on screen is what the row
+ * holds. Reaching the cap is said in text under the button — a control that simply stops working, with the
+ * reason only in a hover hint, is a bug the reader cannot report.
+ */
+function ProjectNotesPicker({ value, onChange, disabled }: {
+  value: string[]
+  onChange: (ids: string[]) => void
+  disabled: boolean
+}) {
+  const notes = useNotes((state) => state.notes)
+  const [picking, setPicking] = useState(false)
+  const full = value.length >= MAX_PROJECT_NOTES
+  const titleOf = (id: string): string => notes[id]?.title ?? id
+  return (
+    <div className="space-y-1.5">
+      {value.length > 0 && (
+        <ul className="flex flex-wrap gap-1">
+          {value.map((id) => (
+            <li key={id} className="flex items-center gap-1 rounded-[var(--r-sm)] bg-[var(--bg-inset)] py-0.5 pr-0.5 pl-1.5 text-[length:var(--text-11)] text-[var(--text-secondary)]">
+              <FileText size={11} className="shrink-0 text-[var(--text-quaternary)]" />
+              <span className="max-w-[200px] truncate">{titleOf(id)}</span>
+              <IconButton size="sm" label={t('assistant.projects.note_drop', { name: titleOf(id) })} disabled={disabled} onClick={() => onChange(value.filter((entry) => entry !== id))}>
+                <X size={11} />
+              </IconButton>
+            </li>
+          ))}
+        </ul>
+      )}
+      <Button size="sm" variant="ghost" icon={<Plus size={13} />} disabled={disabled || full} onClick={() => setPicking(true)}>
+        {t('assistant.projects.note_add')}
+      </Button>
+      {full && (
+        <p className="text-[length:var(--text-11)] text-[var(--text-tertiary)]">{t('assistant.projects.notes_full', { count: MAX_PROJECT_NOTES })}</p>
+      )}
+      <NotePicker
+        open={picking}
+        onClose={() => setPicking(false)}
+        title={t('assistant.projects.note_add')}
+        onPick={(row) => {
+          setPicking(false)
+          if (!value.includes(row.id)) onChange([...value, row.id])
+        }}
+        search={async (query) => {
+          const response = await api.search(query || t('assistant.attach.note_prompt'), 12)
+          return response.results.map((hit) => ({ id: hit.note.id, title: hit.note.title }))
+        }}
+      />
     </div>
   )
 }
@@ -321,6 +389,9 @@ function ProjectEditor({ draft, busy, onChange, onSave, onClose }: {
         </Field>
         <Field label={t('assistant.projects.knowledge')} hint={t('assistant.projects.knowledge_hint')}>
           <NoteScopePicker value={draft.noteScope} onChange={(ids) => patch({ noteScope: ids })} disabled={busy} />
+        </Field>
+        <Field label={t('assistant.projects.notes')} hint={t('assistant.projects.notes_hint')}>
+          <ProjectNotesPicker value={draft.noteIds} onChange={(ids) => patch({ noteIds: ids })} disabled={busy} />
         </Field>
         {/* A standing choice, not a per-turn one: the point of a project is that its conversations are
             answered the same way, and the model is part of that. Empty means the account's own default. */}

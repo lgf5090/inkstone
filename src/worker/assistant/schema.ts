@@ -112,6 +112,7 @@ export const ASSISTANT_SCHEMA_STATEMENTS: readonly string[] = [
     purpose TEXT NOT NULL DEFAULT 'chat',
     kind TEXT NOT NULL DEFAULT 'text',
     supports_tools INTEGER NOT NULL DEFAULT 1,
+    no_tools INTEGER NOT NULL DEFAULT 0,
     max_input_tokens INTEGER,
     modalities TEXT NOT NULL DEFAULT '[]',
     top_p REAL,
@@ -381,6 +382,7 @@ export const ASSISTANT_SCHEMA_STATEMENTS: readonly string[] = [
     description TEXT NOT NULL DEFAULT '',
     instructions TEXT NOT NULL DEFAULT '',
     note_scope TEXT NOT NULL DEFAULT '[]',
+    note_ids TEXT NOT NULL DEFAULT '[]',
     model_id TEXT,
     created_at INTEGER NOT NULL,
     updated_at INTEGER NOT NULL,
@@ -636,7 +638,7 @@ export const ASSISTANT_REQUIRED_INDEXES: readonly string[] = [
 
 export const ASSISTANT_REQUIRED_COLUMNS: Readonly<Record<string, readonly string[]>> = {
   chat_settings: ['user_id', 'config', 'updated_at'],
-  chat_projects: ['user_id', 'id', 'name', 'description', 'instructions', 'note_scope', 'model_id', 'created_at', 'updated_at'],
+  chat_projects: ['user_id', 'id', 'name', 'description', 'instructions', 'note_scope', 'note_ids', 'model_id', 'created_at', 'updated_at'],
   chat_usage_daily_model: ['user_id', 'day', 'model_label', 'model_id', 'requests', 'input_tokens', 'output_tokens', 'tool_calls', 'errors'],
   chat_usage_daily_key: ['user_id', 'day', 'model_label', 'provider_id', 'provider_label', 'key_id', 'key_label', 'requests', 'input_tokens', 'output_tokens', 'tool_calls', 'errors'],
   chat_share_links: ['slug', 'conversation_id', 'user_id', 'scope', 'password_hash', 'expires_at', 'views', 'created_at'],
@@ -644,7 +646,7 @@ export const ASSISTANT_REQUIRED_COLUMNS: Readonly<Record<string, readonly string
   chat_provider_keys: ['user_id', 'id', 'provider_id', 'label', 'key_ciphertext', 'key_hint', 'enabled', 'last_used_at', 'error_count', 'last_error', 'created_at', 'updated_at'],
   chat_models: ['user_id', 'id', 'provider_id', 'model', 'label', 'temperature', 'max_output_tokens', 'reasoning', 'context_tokens',
     'vendor_context_tokens', 'vendor_max_output_tokens', 'vision',
-    'purpose', 'kind', 'supports_tools', 'max_input_tokens', 'modalities', 'top_p', 'custom_params', 'protocol', 'fallback_model_id',
+    'purpose', 'kind', 'supports_tools', 'no_tools', 'max_input_tokens', 'modalities', 'top_p', 'custom_params', 'protocol', 'fallback_model_id',
     'input_price', 'output_price', 'price_currency', 'enabled', 'position'],
   chat_conversations: ['user_id', 'id', 'title', 'summary', 'summary_upto', 'pinned', 'starred', 'archived', 'ephemeral', 'parent_id', 'folder_id', 'project_id', 'note_id', 'created_at', 'updated_at'],
   chat_artifacts: ['user_id', 'id', 'conversation_id', 'title', 'content', 'note_id', 'created_at', 'updated_at'],

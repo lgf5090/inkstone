@@ -1479,6 +1479,29 @@ export const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
     version: 95,
     statements: READER_SCHEMA_STATEMENTS,
   },
+  {
+    // The reader's standing decision that this model never gets a tool, kept apart from `supports_tools`
+    // because that one answers "what the vendor says this model can do" and this one answers "what this
+    // account will let it do": a model that calls tools well and writes to the vault when asked is both
+    // capable and not wanted. Defaulted rather than nullable so a row from before this column reads as
+    // the switch never being touched, which is what it was. One column, one version number.
+    version: 96,
+    skipIfColumnExists: { table: 'chat_models', column: 'no_tools' },
+    statements: [
+      `ALTER TABLE chat_models ADD COLUMN no_tools INTEGER NOT NULL DEFAULT 0`,
+    ],
+  },
+  {
+    // The pages a project reads by name. `note_scope` selects whole folders, which is the wrong grain for
+    // a brief that should be answered from three specific pages sitting in a folder of three hundred.
+    // One JSON list beside the other, defaulted rather than nullable: an empty selection is what every
+    // project written before this column means, and it is also what "no selection" reads as.
+    version: 97,
+    skipIfColumnExists: { table: 'chat_projects', column: 'note_ids' },
+    statements: [
+      `ALTER TABLE chat_projects ADD COLUMN note_ids TEXT NOT NULL DEFAULT '[]'`,
+    ],
+  },
 ]
 
 const FTS_STATEMENT = `CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(

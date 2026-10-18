@@ -310,6 +310,17 @@ export class AssistantRunner {
   private turnTools: string[] = []
   /** Set when this turn was asked to answer without tools, which outranks every tool rule below it. */
   private turnNoTools = false
+  /**
+   * Whether this step goes out with no tools at all, the one place that question is answered.
+   *
+   * Two levers mean the same thing here and are ORed rather than threaded separately: the turn's own
+   * switch, and the model's standing `noTools` column. Both go through the door `supportsTools` already
+   * uses — nothing is offered, and a call the model invents anyway is refused rather than run — because a
+   * second mechanism would be a second place where a tool leaks out on a turn that said it must not.
+   */
+  private toolsRefused(entry: ResolvedCall): boolean {
+    return this.turnNoTools || entry.model.noTools === true
+  }
   /** The model named on this turn's request, or null when the account's own rules choose. */
   private turnModelId: string | null = null
   private webSearchRequested = false
@@ -640,15 +651,15 @@ export class AssistantRunner {
       // A turn that may call nothing gets no vendor search either: on the wire that one is a tool, and an
       // answer that quietly cites pages the reader never let this turn look up is the failure the flag
       // exists to prevent.
-      this.webSearchNative = this.webSearchRequested && !this.turnNoTools && SEARCH_NATIVE_PROTOCOLS.has(call.protocol)
+      this.webSearchNative = this.webSearchRequested && !this.toolsRefused(primary) && SEARCH_NATIVE_PROTOCOLS.has(call.protocol)
       if (this.webSearchRequested && !this.webSearchNative) {
         // No vendor-side search on this protocol. What can carry the switch, in the order of how sure the
         // answer is: the worker's own tool, which searches an engine the reader pointed at; failing that,
         // one of the reader's remote tools whose *name* says it searches. The guess is the weaker one — a
         // tool called `query_orders` is not a web search — so it is only reached for when there is nothing
         // first-party to offer, and it stops firing the moment the reader configures an engine.
-        this.webSearchFirstParty = !this.turnNoTools && webSearchConfigured(this.settings) && toolModeFor(this.settings, 'read') !== 'off'
-        if (this.turnNoTools) {
+        this.webSearchFirstParty = !this.toolsRefused(primary) && webSearchConfigured(this.settings) && toolModeFor(this.settings, 'read') !== 'off'
+        if (this.toolsRefused(primary)) {
           // The switch was on and this turn is forbidden every tool that could carry it out — which is
           // said with the code the client already has for a search nothing could do, rather than left as a
           // switch that silently did nothing.
@@ -771,8 +782,9 @@ export class AssistantRunner {
           system,
           turns,
           // A model that invents tool calls is silenced by not sending the schemas at all, which is the
-          // same door a turn asked to answer without tools goes through.
-          tools: entry.model.supportsTools && !this.turnNoTools ? schemas : [],
+          // same door a turn asked to answer without tools, and a model switched off for tools, both go
+          // through.
+          tools: entry.model.supportsTools && !this.toolsRefused(entry) ? schemas : [],
           webSearch: this.webSearchNative,
           maxOutputTokens: capFor(entry),
           temperature: entry.model.temperature,
@@ -804,18 +816,22 @@ export class AssistantRunner {
         // answer in it, and the model read back as its own last words on the next question.
         answer += text
         stepWordsFiled = true
-        // A turn asked to answer without tools runs nothing the model invents. The call is filed as refused
-        // rather than dropped: a row that shows no tool and no source and says nothing about why leaves the
-        // reader reading a silent answer as an unpersuasive one, and the turn's own answer already did
-        // whatever this second model was reaching for.
-        if (this.turnNoTools && calls.length) {
+        // A turn asked to answer without tools runs nothing the model invents, and neither does a model the
+        // reader switched off for tools — the same refusal, named for whichever of the two said no. The
+        // call is filed as refused rather than dropped: a row that shows no tool and no source and says
+        // nothing about why leaves the reader reading a silent answer as an unpersuasive one, and the
+        // turn's own answer already did whatever this second model was reaching for.
+        if (this.toolsRefused(served.current) && calls.length) {
+          const refusal = this.turnNoTools
+            ? 'This turn was asked to answer without tools, so the call never ran.'
+            : 'This model is switched off for tools, so the call never ran.'
           for (const call of calls.splice(0)) {
             const refused: ToolActivity = {
               id: call.id,
               name: call.name,
               status: 'error',
               args: toolPayloadText(call.args),
-              error: 'This turn was asked to answer without tools, so the call never ran.',
+              error: refusal,
             }
             tools.push(refused)
             yield { type: 'tool', tool: { ...refused } }
@@ -1505,11 +1521,13 @@ export class AssistantRunner {
       this.scopePromise = resolveNoteScope(this.deps.env.DB, this.store.userId, effective, {
         folderIds: this.turnScopes.filter((entry) => entry.kind === 'folder').map((entry) => entry.id),
         tagIds: this.turnScopes.filter((entry) => entry.kind === 'tag').map((entry) => entry.id),
-        // The note the reader had open. This is the one narrowing a turn may widen: "summarise this"
-        // is a question about the page in front of them, and refusing it because the folder they
-        // excluded happens to hold it would answer a question nobody asked. The notes they pinned as
-        // chips are the same act, done by hand and several at a time.
-        noteIds: turnNoteIds(this.contextNoteId, this.turnScopes),
+        // The note the reader had open, the notes they pinned as chips, and the pages the project names.
+        // All three are the same act — pointing at a page and asking about it — and `noteIds` is the one
+        // channel the scope has for it: "summarise this" is a question about the page in front of them,
+        // and refusing it because the folder they excluded happens to hold it would answer a question
+        // nobody asked. A project's own list is that decision made once and standing, so it travels the
+        // same channel; the ids were checked against this account when the project was saved.
+        noteIds: [...turnNoteIds(this.contextNoteId, this.turnScopes), ...(project?.pinIds ?? [])],
       })
     }
     return this.scopePromise
@@ -1523,8 +1541,13 @@ export class AssistantRunner {
    * second permission. When the two scopes do not overlap the project's is dropped rather than left as a
    * set with nothing in it, which would make every tool answer "not found" for a reason the reader
    * cannot see.
+   *
+   * Its named pages go the other way, through `noteIds`: naming one is an addition to what the turn may
+   * read, not a folder to filter by, and it is the same channel the reader's own chip and open page use.
+   * A project that says nothing at all — no brief, no folder, no page — contributes nothing and reads as
+   * absent rather than as an empty selection.
    */
-  private projectPromise: Promise<{ name: string, instructions: string, scopeIds: string[] } | null> | null = null
+  private projectPromise: Promise<{ name: string, instructions: string, scopeIds: string[], pinIds: string[] } | null> | null = null
 
   private project() {
     if (!this.projectPromise) {
@@ -1534,8 +1557,8 @@ export class AssistantRunner {
         const project = await this.store.getProject(projectId)
         if (!project) return null
         const brief = project.instructions.trim()
-        if (!project.noteScope.length && !brief) return null
-        return { name: project.name, instructions: brief, scopeIds: project.noteScope }
+        if (!project.noteScope.length && !project.noteIds.length && !brief) return null
+        return { name: project.name, instructions: brief, scopeIds: project.noteScope, pinIds: project.noteIds }
       })()
     }
     return this.projectPromise
@@ -1584,7 +1607,13 @@ export class AssistantRunner {
   private pinnedNotes(): Promise<Array<{ id: string, title: string }>> {
     if (!this.pinnedNotesPromise) {
       this.pinnedNotesPromise = (async () => {
-        const ids = this.turnScopes.filter((entry) => entry.kind === 'note').map((entry) => entry.id)
+        // The turn's own chips and the pages the project names are one list here: both are the reader
+        // pointing at a page and asking about it, and the prompt must not name a page the scope refused.
+        const project = await this.project()
+        const ids = [...new Set([
+          ...this.turnScopes.filter((entry) => entry.kind === 'note').map((entry) => entry.id),
+          ...(project?.pinIds ?? []),
+        ])]
         if (!ids.length) return []
         const placeholders = ids.map((_, index) => `?${index + 2}`).join(', ')
         const { results } = await this.deps.env.DB.prepare(

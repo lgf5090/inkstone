@@ -38,6 +38,7 @@ import {
   ASSISTANT_PROTOCOLS,
   ASSISTANT_TOOL_SPECS,
   parseCustomParams,
+  MAX_PROJECT_NOTES,
   MAX_TURN_SCOPES,
   MAX_TURN_TOOLS,
   AUTOMATION_KINDS,
@@ -1955,12 +1956,34 @@ assistantRoutes.get('/projects', async (c) => c.json({ projects: await store(c).
 /** Each project with how many conversations answer under it, plus the ones under none. */
 assistantRoutes.get('/projects/summary', async (c) => c.json(await store(c).conversationProjectSummary()))
 
+/**
+ * The pages a project names as its knowledge base, checked against this account.
+ *
+ * Refused rather than filtered, which is what `noteScope` does to a folder id: a project that silently
+ * kept three of the ten pages picked would answer as if it had the other seven, and the reader has no way
+ * to see the difference. An id that is not this account's live note is the same fact twice over — either
+ * a stranger's row, which must never be filed here, or a page already deleted, which the reader should be
+ * told about rather than have tidied away.
+ */
+async function projectNoteIds(s: AssistantStore, value: unknown): Promise<string[]> {
+  if (!Array.isArray(value)) return []
+  const ids: string[] = []
+  for (const entry of value) {
+    if (ids.length >= MAX_PROJECT_NOTES) throw ApiError.badRequest(`A project can name at most ${MAX_PROJECT_NOTES} notes.`)
+    if (!isValidId(entry)) throw ApiError.badRequest('A project names its notes by note id.')
+    if (!(await s.knownNote(entry))) throw ApiError.badRequest('That project names a note you do not have.')
+    if (!ids.includes(entry)) ids.push(entry)
+  }
+  return ids
+}
+
 assistantRoutes.post('/projects', async (c) => {
   const s = store(c)
   const body = await readJson<{
-    name?: unknown, description?: unknown, instructions?: unknown, noteScope?: unknown, modelId?: unknown,
+    name?: unknown, description?: unknown, instructions?: unknown, noteScope?: unknown, noteIds?: unknown, modelId?: unknown,
   }>(c, JSON_BODY_LIMITS.small)
   const name = text(body.name, 200)
+  const noteIds = await projectNoteIds(s, body.noteIds)
   const existing = await s.findProjectByName(name)
   if (existing) return c.json({ project: existing })
   const project = await s.createProject({
@@ -1971,6 +1994,7 @@ assistantRoutes.post('/projects', async (c) => {
     noteScope: Array.isArray(body.noteScope)
       ? body.noteScope.filter((id): id is string => typeof id === 'string' && isValidId(id)).slice(0, 12)
       : [],
+    noteIds,
     modelId: body.modelId === null
       ? null
       : typeof body.modelId === 'string' && isValidId(body.modelId)
@@ -1983,7 +2007,10 @@ assistantRoutes.post('/projects', async (c) => {
 assistantRoutes.patch('/projects/:id', async (c) => {
   const s = store(c)
   const id = requiredId(c.req.param('id'))
-  const body = await readJson<{ name?: unknown, description?: unknown, instructions?: unknown, noteScope?: unknown, modelId?: unknown }>(c, JSON_BODY_LIMITS.small)
+  const body = await readJson<{ name?: unknown, description?: unknown, instructions?: unknown, noteScope?: unknown, noteIds?: unknown, modelId?: unknown }>(c, JSON_BODY_LIMITS.small)
+  // Checked before anything is written, so a list naming one page the account does not have leaves the row
+  // exactly as it was rather than half-saved.
+  const noteIds = body.noteIds !== undefined ? await projectNoteIds(s, body.noteIds) : undefined
   const project = await s.updateProject(id, {
     ...(body.name !== undefined ? { name: text(body.name, 200) } : {}),
     ...(body.description !== undefined ? { description: optionalText(body.description, 2000) ?? '' } : {}),
@@ -1992,6 +2019,7 @@ assistantRoutes.patch('/projects/:id', async (c) => {
     ...(Array.isArray(body.noteScope)
       ? { noteScope: body.noteScope.filter((id): id is string => typeof id === 'string' && isValidId(id)).slice(0, 12) }
       : {}),
+    ...(noteIds !== undefined ? { noteIds } : {}),
     ...(body.modelId !== undefined
       ? { modelId: body.modelId === null ? null : isValidId(body.modelId) ? body.modelId : undefined }
       : {}),
@@ -2694,6 +2722,7 @@ assistantRoutes.patch('/models/:id', async (c) => {
     ...(body.protocol !== undefined ? { protocol: pickValue(body.protocol, ASSISTANT_PROTOCOLS) ?? null } : {}),
     ...(body.fallbackModelId !== undefined ? { fallbackModelId: await spareModelFor(s, id, body.fallbackModelId) } : {}),
     ...(body.supportsTools !== undefined ? { supportsTools: Boolean(body.supportsTools) } : {}),
+    ...(body.noTools !== undefined ? { noTools: Boolean(body.noTools) } : {}),
     ...(body.maxInputTokens !== undefined ? { maxInputTokens: clampTokens(body.maxInputTokens, 1, MAX_TOKEN_CEILING) } : {}),
     // An unknown modality is dropped, not defaulted: a list of one typo must not silently reset the
     // whole set the reader had already picked.

@@ -1065,9 +1065,9 @@ export const api = {
     deleteTask: (id: string) => request<{ deleted: true }>(`/api/assistant/tasks/${id}`, { method: 'DELETE' }),
     projects: () => request<{ projects: AssistantProject[] }>('/api/assistant/projects'),
     getProject: (id: string) => request<{ project: AssistantProject }>(`/api/assistant/projects/${id}`),
-    createProject: (body: { name: string, description?: string, instructions?: string, noteScope?: string[], modelId?: string | null }) =>
+    createProject: (body: { name: string, description?: string, instructions?: string, noteScope?: string[], noteIds?: string[], modelId?: string | null }) =>
       request<{ project: AssistantProject }>('/api/assistant/projects', { method: 'POST', body }),
-    updateProject: (id: string, body: { name?: string, description?: string, instructions?: string, noteScope?: string[], modelId?: string | null }) =>
+    updateProject: (id: string, body: { name?: string, description?: string, instructions?: string, noteScope?: string[], noteIds?: string[], modelId?: string | null }) =>
       request<{ project: AssistantProject }>(`/api/assistant/projects/${id}`, { method: 'PATCH', body }),
     deleteProject: (id: string) => request<{ deleted: true }>(`/api/assistant/projects/${id}`, { method: 'DELETE' }),
     automations: () =>

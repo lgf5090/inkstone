@@ -321,6 +321,81 @@ describe('a turn that may not use tools', () => {
   })
 })
 
+describe('a model switched off for tools', () => {
+  it('holds the switch on its own row, written and read back', async () => {
+    // The column is the whole feature: a switch the editor saves and the next read forgets is a switch
+    // that does nothing, and `supportsTools` arrived through the same three lists.
+    const updated = await store.updateModel(first.id, { noTools: true })
+    expect(updated?.noTools).toBe(true)
+    expect((await store.getModel(first.id))?.noTools).toBe(true)
+    // The models listed for the picker carry it too, or the runner reads a model whose flag it cannot see.
+    expect((await store.listModels()).find((model) => model.id === first.id)?.noTools).toBe(true)
+    // Turning it back off is a value, not an absent patch: a PATCH that named no other field must not
+    // stamp the columns it did not name back to their defaults.
+    expect((await store.updateModel(first.id, { noTools: false }))?.noTools).toBe(false)
+    expect((await store.getModel(first.id))?.label).toBe('First model')
+  })
+
+  it('sends no schemas and refuses what the model invents, with nothing said about the turn', async () => {
+    await store.updateModel(first.id, { noTools: true })
+    const wire = stubWire({ at: FIRST_BASE, frames: [...called('create_task', { title: 'Written anyway' }), ...answered('I cannot write anything.')] })
+    const events = await streamed({ message: 'Make me a task.' })
+
+    expect(wire.bodies()[0]?.tools, 'a model switched off for tools still got the schemas').toBeUndefined()
+    expect(taskCount(), 'a model switched off for tools ran a write tool').toBe(0)
+    expect(wire.urls(), 'a refused call went on to another step').toHaveLength(1)
+
+    const answer = doneOf(events)
+    expect(answer?.content).toBe('I cannot write anything.')
+    // Filed as refused rather than dropped, and named for the reason that refused it — the model's own
+    // switch, not a turn that never asked for one.
+    expect(answer?.tools[0]?.status).toBe('error')
+    expect(answer?.tools[0]?.error).toContain('so the call never ran')
+    expect(answer?.tools[0]?.error, 'the refusal blamed the turn, which said nothing').toContain('This model is switched off for tools')
+    expect((await storedAnswer(answer!.conversationId))?.tools.map((tool) => tool.name)).toEqual(['create_task'])
+  })
+
+  it('combines with the turn’s switch rather than replacing it', async () => {
+    // Both directions, because an `&&` where the rule is an `||` passes the case above by accident.
+    await store.updateModel(first.id, { noTools: true })
+    const wire = stubWire({ at: FIRST_BASE, frames: answered('Refused twice over.') })
+    await streamed({ message: 'Make me a task.', noTools: true })
+    expect(wire.bodies()[0]?.tools).toBeUndefined()
+
+    await store.updateModel(first.id, { noTools: false })
+    const offered = stubWire(
+      { at: FIRST_BASE, frames: called('create_task', { title: 'Written once' }) },
+      { at: FIRST_BASE, frames: answered('Written.') },
+    )
+    expect(taskCount(), 'the fixture never reached the tool at all').toBe(0)
+    const events = await streamed({ message: 'Make me a task.' })
+    expect(JSON.stringify(offered.bodies()[0]?.tools ?? [])).toContain('create_task')
+    expect(taskCount()).toBe(1)
+    expect(doneOf(events)?.content).toBe('Written.')
+  })
+
+  it('keeps the vendor search off a model that may not call anything', async () => {
+    await store.updateModel(first.id, { noTools: true })
+    await store.saveSettings({ ...settings, webSearchEndpoint: ENGINE })
+    const wire = stubWire({ at: FIRST_BASE, frames: answered('Answered from what it already knew.') })
+    const events = await streamed({ message: 'Search the web.', webSearch: true })
+
+    expect(wire.urls().some((url) => url.includes(ENGINE)), 'a toolless model reached the search engine').toBe(false)
+    expect(JSON.stringify(wire.bodies()[0]?.tools ?? '')).not.toContain('web_search')
+    expect(events.filter((event) => event.type === 'notice').map((event) => event.notice)).toEqual(['web_search_unavailable'])
+  })
+
+  it('follows the switch onto the spare, not just the model first asked', async () => {
+    // The chain is resolved per candidate, so a turn named at the second model must go out toolless only
+    // when *that* model says so — and the spare behind it decides for itself.
+    await store.updateModel(second.id, { noTools: true })
+    const wire = stubWire({ at: SECOND_BASE, frames: answered('The named model, without tools.') })
+    const events = await streamed({ message: 'Asked of a model that does not call.', modelId: second.id })
+    expect(wire.bodies()[0]?.tools).toBeUndefined()
+    expect(doneOf(events)?.content).toBe('The named model, without tools.')
+  })
+})
+
 describe('the answer carries what it read', () => {
   /** One turn, driven straight through the runner, on the account's own settings. */
   async function drive(over: Partial<AssistantSettings>): Promise<ChatStreamEvent[]> {

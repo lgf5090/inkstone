@@ -12,7 +12,7 @@
 import type { AssistantImportSummary, AssistantSettings } from '@shared/assistant'
 import { clipReasoning, normalizeAssistantSettings } from '@shared/assistant'
 import { parseScheduleSpec } from '@shared/assistant-schedule'
-import { ASSISTANT_MEMORY_CATEGORIES, AUTOMATION_KINDS, MAX_ARTIFACT_CONTENT_CHARS, MAX_ARTIFACT_TITLE_CHARS, MAX_MESSAGE_CHARS } from '@shared/assistant'
+import { ASSISTANT_MEMORY_CATEGORIES, AUTOMATION_KINDS, MAX_ARTIFACT_CONTENT_CHARS, MAX_ARTIFACT_TITLE_CHARS, MAX_MESSAGE_CHARS, MAX_PROJECT_NOTES } from '@shared/assistant'
 import { ApiError } from '../lib/errors'
 import { AssistantStore, decodeFeedback, encodeFeedback } from './store'
 
@@ -134,6 +134,7 @@ async function mergeBackup(store: AssistantStore, data: Record<string, unknown>,
     // notebook, because another deployment's folder ids mean nothing here.
     const instructions = textValue(project.instructions, MAX_MESSAGE_CHARS)
     const noteScope = await importProjectScope(store, project.note_scope)
+    const noteIds = await importProjectNotes(store, project.note_ids)
     const existing = await store.getProject(id)
     if (existing) {
       // The rule every row here follows: a newer local edit is never replaced by an older copy.
@@ -151,6 +152,7 @@ async function mergeBackup(store: AssistantStore, data: Record<string, unknown>,
         description: textValue(project.description, 2000),
         instructions,
         note_scope: JSON.stringify(noteScope),
+        note_ids: JSON.stringify(noteIds),
         updated_at: updatedAt,
       })
     } else {
@@ -165,6 +167,7 @@ async function mergeBackup(store: AssistantStore, data: Record<string, unknown>,
         description: textValue(project.description, 2000),
         instructions,
         note_scope: JSON.stringify(noteScope),
+        note_ids: JSON.stringify(noteIds),
         created_at: numberValue(project.created_at, Date.now()),
         updated_at: updatedAt,
       })
@@ -570,11 +573,30 @@ async function uniqueProjectName(store: AssistantStore, base: string): Promise<s
 
 /**
  * The folders a restored project reads, kept only when they are folders of this notebook.
- *
- * The column is JSON text in the row and may be an array in a hand-written file; anything that is not a
- * known folder id is dropped, because a scope naming another deployment's folder reads nothing at all.
  */
 async function importProjectScope(store: AssistantStore, value: unknown): Promise<string[]> {
+  return jsonIds(value, 12, (id) => store.knownFolder(id))
+}
+
+/**
+ * The pages a restored project names, kept only when this notebook still holds them.
+ *
+ * Dropped rather than kept-and-hoped-for, same as a folder id from another deployment: a project that came
+ * back naming three deleted pages would answer as if it had read them.
+ */
+async function importProjectNotes(store: AssistantStore, value: unknown): Promise<string[]> {
+  return jsonIds(value, MAX_PROJECT_NOTES, (id) => store.knownNote(id))
+}
+
+/**
+ * One JSON list of ids off a backup row — text in a file this app wrote, an array in one written by hand —
+ * with everything this notebook does not have left out.
+ *
+ * The column is `TEXT NOT NULL DEFAULT` and arrives through the same `INSERT` the export list drives, so
+ * reading it here is also what keeps the two in step: a project row whose selection was never parsed would
+ * bind a null into that column and lose the whole row to the ignore.
+ */
+async function jsonIds(value: unknown, limit: number, known: (id: string) => Promise<boolean>): Promise<string[]> {
   let entries: unknown[] = []
   if (Array.isArray(value)) entries = value
   else if (typeof value === 'string' && value) {
@@ -586,9 +608,9 @@ async function importProjectScope(store: AssistantStore, value: unknown): Promis
     }
   }
   const ids: string[] = []
-  for (const entry of entries.slice(0, 12)) {
+  for (const entry of entries.slice(0, limit)) {
     const id = idValue(entry)
-    if (!id || !(await store.knownFolder(id))) continue
+    if (!id || !(await known(id))) continue
     ids.push(id)
   }
   return ids

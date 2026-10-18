@@ -2382,11 +2382,24 @@ describe('backup', () => {
 
     // Restored beside the folder it names, the same file keeps the scope: the validation drops what this
     // notebook cannot resolve, and a restore into the account that owns the folder resolves it.
+    const keptNote = oid('bkn2')
+    sqlite.prepare(
+      `INSERT INTO notes (id, user_id, title, title_key, content, excerpt, created_at, updated_at)
+       VALUES (?, ?, 'Kept page', 'kept page', 'still in this notebook', '', 1, 1)`,
+    ).run(keptNote, USER)
+    for (const row of (payload.data as Record<string, unknown>).projects as Record<string, unknown>[]) {
+      row.note_ids = JSON.stringify([keptNote, oid('bkn3')])
+    }
     asUser(USER)
     await call('DELETE', `/api/assistant/projects/${project.project.id}`)
     await call('POST', '/api/assistant/import', payload)
     const back = await call<{ projects: Project[] }>('GET', '/api/assistant/projects')
     expect(back.projects.find((entry) => entry.id === project.project.id)?.noteScope).toEqual([folder])
+    // Named pages follow the folders' rule — kept when this notebook has them, dropped when it does not —
+    // and the project row rides along with the answer: the column is NOT NULL and is written by the same
+    // insert, so a restore that never read the list loses the whole project, and with it every memory and
+    // thread filed under the brief.
+    expect(back.projects.find((entry) => entry.id === project.project.id)?.noteIds).toEqual([keptNote])
   })
 
   it('is idempotent and never writes a provider key into the file', async () => {

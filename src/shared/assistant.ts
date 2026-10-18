@@ -359,6 +359,15 @@ export interface AssistantModel {
   kind: AssistantModelKind
   /** False stops the tool schemas going out at all, which is what a model that hallucinates calls needs. */
   supportsTools: boolean
+  /**
+   * The account's standing refusal to let this model call anything.
+   *
+   * `supportsTools` says what the vendor claims the model can do; this says what the reader will have it
+   * do, and the two are asked together — a model capable of writing a note is still refused when this is
+   * on. The row always answers with a boolean; absent reads as off, which is every model written before
+   * the switch existed and every one the editor has never touched.
+   */
+  noTools?: boolean
   /** Null means the reader has not said: the global limit answers for it. */
   maxInputTokens: number | null
   /** What the reader says may be given to it, beyond a picture — see ASSISTANT_MODEL_MODALITIES. */
@@ -978,6 +987,15 @@ export interface SkillImportResult {
 /** Ceilings for one turn's inline picks, so a composer cannot ask for the whole vault. */
 export const MAX_TURN_TOOLS = 6
 export const MAX_TURN_SCOPES = 6
+
+/**
+ * How many pages one project may name as its knowledge base.
+ *
+ * One number for both sides of the wire: the editor stops offering a pick past it and the route refuses a
+ * body that carries more, because the list travels in the system prompt on every turn under the project.
+ * Past this many, the folder scope is the right tool rather than a longer list.
+ */
+export const MAX_PROJECT_NOTES = 24
 
 export interface AssistantConversation {
   id: string
@@ -1981,6 +1999,16 @@ export interface Project {
    * said anything, and saying nothing cannot narrow what the reader already allowed.
    */
   noteScope: string[]
+  /**
+   * The pages this project reads by name, as note ids.
+   *
+   * Beside `noteScope` rather than inside it, because the two select at a different grain and one merged
+   * list could not say which: a folder says "everything in here", this says "these three pages, wherever
+   * they sit". Only ids this account owns reach the column — the route refuses the rest rather than
+   * dropping them, because a project that quietly kept a third of a selection would report a knowledge
+   * base the reader never chose.
+   */
+  noteIds: string[]
   /** The model this project prefers, when the reader has said so. */
   modelId: string | null
   createdAt: number

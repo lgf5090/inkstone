@@ -86,7 +86,7 @@ describe('the memory page, on a fact filed under a project', () => {
     await show({
       memories: [filed],
       memoryTotal: 1,
-      projects: [{ id: PROJECT, name: 'Client A', description: '', instructions: '', noteScope: [], modelId: null, createdAt: 1, updatedAt: 1 }],
+      projects: [{ id: PROJECT, name: 'Client A', description: '', instructions: '', noteScope: [], noteIds: [], modelId: null, createdAt: 1, updatedAt: 1 }],
     })
     expect(chips()).toHaveLength(1)
     expect(document.body.textContent).toContain('Client A')
@@ -102,7 +102,7 @@ describe('the memory page, on a fact filed under a project', () => {
     await show({
       memories: [shared],
       memoryTotal: 1,
-      projects: [{ id: PROJECT, name: 'Client A', description: '', instructions: '', noteScope: [], modelId: null, createdAt: 1, updatedAt: 1 }],
+      projects: [{ id: PROJECT, name: 'Client A', description: '', instructions: '', noteScope: [], noteIds: [], modelId: null, createdAt: 1, updatedAt: 1 }],
     })
     // An account-wide fact is recalled everywhere, so a chip on it would be a claim about a restriction
     // that does not exist.
