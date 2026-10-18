@@ -13,7 +13,7 @@
  * the marks in the tree, the text the live region speaks, the accessible name a control carries and the
  * callback a press is owed.
  */
-import { act, createElement, type ReactNode, type RefObject } from 'react'
+import { act, createElement, useState, type ReactNode, type RefObject } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { DEFAULT_ASSISTANT_SETTINGS, type AssistantMessage } from '@shared/assistant'
@@ -64,6 +64,20 @@ const named = (text: string) =>
 
 async function mount(props: FinderProps): Promise<void> {
   await act(async () => { root.render(createElement(ThreadFinder, props)) })
+}
+
+/**
+ * The header's own shape, which is the one a reader meets: the press mounts the panel and the panel's own
+ * close unmounts it, so nothing here asks the test to take the panel down from the outside.
+ */
+function Raised(props: FinderProps): ReactNode {
+  const [open, setOpen] = useState(true)
+  if (!open) return null
+  return createElement(ThreadFinder, { ...props, onClose: () => setOpen(false) })
+}
+
+async function mountRaised(props: FinderProps): Promise<void> {
+  await act(async () => { root.render(createElement(Raised, props)) })
 }
 
 async function type(text: string): Promise<void> {
@@ -278,6 +292,37 @@ describe('what the box looks for', () => {
 })
 
 describe('closing the panel', () => {
+  it('pays the keystroke back through the key it borrowed, with the owner taking the panel down', async () => {
+    transcript('<p>plan</p>')
+    opener.focus()
+    await mountRaised(finderProps())
+    expect(document.activeElement, 'the box never took the keystroke').toBe(field())
+    await type('plan')
+    // The key path, on the element that actually holds the keystroke: the panel's own box, not a keystroke
+    // thrown at the document. This is the press a keyboard reader makes, and the only one that proves the
+    // handback belongs to the panel leaving rather than to whichever control in it happened to be clicked.
+    press('Escape')
+    expect(field(), 'Escape left the panel up').toBeNull()
+    expect(document.activeElement, 'the key path dropped the reader at the document').toBe(opener)
+  })
+
+  it('pays it back on the panel leaving, and on no other turn of it', async () => {
+    transcript('<p>plan</p>')
+    opener.focus()
+    await mount(finderProps())
+    await type('plan')
+    const next = document.createElement('div')
+    next.innerHTML = '<p>the plan on the page that came next</p>'
+    document.body.append(next)
+    const paid: string[] = []
+    opener.addEventListener('focus', () => { paid.push('the control that raised find') })
+    // The same box, still open, handed the scroller of a thread the view swapped under it.
+    await mount({ ...finderProps(), scroller: { current: next } })
+    expect(paid, 'the panel paid the keystroke back while it was still open').toEqual([])
+    expect(document.activeElement, 'the still-open box lost the reader mid-phrase').toBe(field())
+    next.remove()
+  })
+
   it('hands the keystroke back to the control that raised it', async () => {
     transcript('<p>plan</p>')
     opener.focus()

@@ -11,8 +11,9 @@
  * page it searched is not the conversation, so a phrase with no hit while older or newer turns are still
  * out of the transcript is said that way, with the control that brings them in — the marks are remade
  * when the thread changes, so loading a page is the way to reach a hit that lives behind it. And the
- * keystroke the panel borrowed is handed back to whatever raised it, which is the rule every other
- * transient surface in the app follows.
+ * keystroke the panel borrowed is handed back on the one exit it has, which is the rule every other
+ * transient surface in the app follows: the control that held it before the box took it, when the press
+ * that raised the box left the keystroke somewhere the panel can see.
  */
 
 import { useEffect, useId, useRef, useState, type RefObject } from 'react'
@@ -51,22 +52,35 @@ export function ThreadFinder({ scroller, revision, hasEarlier, hasLater, loading
   const earlierCappedId = useId()
   const marks = useRef<HTMLElement[]>([])
   const field = useRef<HTMLInputElement>(null)
-  // Whatever had the keystroke before the panel took it, so closing can hand it back.
+  // Whatever had the keystroke before the panel took it, so closing can hand it back. Only a control is
+  // recorded: the document itself takes no focus, so keeping it here would leave a handback that answers
+  // nothing while the panel's own sentence claims it answered.
   const opener = useRef<HTMLElement | null>(null)
 
+  // The marks belong to the page they were made on, and the panel leaves no trace behind it: they come out
+  // when the page the panel was handed is replaced, and again when the panel goes.
   useEffect(() => {
-    opener.current = document.activeElement instanceof HTMLElement ? document.activeElement : null
-    field.current?.focus()
-    field.current?.select()
-    // The panel is the thread's, and it leaves no trace: the marks come out and the focus goes back to
-    // the control that raised it — if that control is still on the page, since switching threads takes
-    // the header row with it and throwing focus at a detached node drops the reader at the document.
+    const root = scroller.current
     return () => {
-      const root = scroller.current
       if (root) clearFindMarks(root)
-      if (opener.current?.isConnected) opener.current.focus({ preventScroll: true })
     }
   }, [scroller])
+
+  // The keystroke is borrowed and paid back on one exit: the panel going away, whichever of the close press,
+  // the Escape key or the header's own toggle sent it. Binding it to anything the panel also depends on
+  // would pay it back mid-phrase, and a control that left with its thread is not chased, since throwing
+  // focus at a detached node is what drops a reader at the top of the document.
+  useEffect(() => {
+    const held = document.activeElement
+    opener.current = held instanceof HTMLElement && held !== document.body && held !== document.documentElement
+      ? held
+      : null
+    field.current?.focus()
+    field.current?.select()
+    return () => {
+      if (opener.current?.isConnected) opener.current.focus({ preventScroll: true })
+    }
+  }, [])
 
   useEffect(() => {
     const root = scroller.current
