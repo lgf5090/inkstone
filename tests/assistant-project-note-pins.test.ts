@@ -54,12 +54,20 @@ function buildApp(userId: string): Hono<AppBindings> {
   return instance
 }
 
+/**
+ * The execution context, narrowed to the one member these routes reach for.
+ *
+ * Named rather than inlined so the shape is stated once: nothing these tests defer needs waiting on, and a
+ * `never` here would let a route that starts calling `waitUntil` for real pass while doing nothing.
+ */
+const ctx = { waitUntil: () => undefined } as unknown as ExecutionContext
+
 async function request(method: string, path: string, body?: unknown): Promise<Response> {
   return app.fetch(new Request(`http://localhost/api/assistant${path}`, {
     method,
     headers: { 'content-type': 'application/json' },
     ...(body === undefined ? {} : { body: JSON.stringify(body) }),
-  }), env, { waitUntil: () => undefined } as never)
+  }), env, ctx)
 }
 
 const frame = (payload: unknown) => `data: ${JSON.stringify(payload)}\n\n`
