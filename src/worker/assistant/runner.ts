@@ -364,6 +364,15 @@ export class AssistantRunner {
   private originNoteId: string | null = null
   /** The lease this turn is running under: the caller's, or one this turn took for a new conversation. */
   private runToken: number | null = null
+  /**
+   * What this turn has written so far, as the lease row should carry it.
+   *
+   * Only the turn's own answer, not the steps' thinking or a tool's output: the one question the row exists
+   * to answer is what the reader would want back if this isolate did not reach `finish`. It is kept on the
+   * instance rather than passed in because the renewal that carries it happens at two sites in the streaming
+   * loop and one before a step starts, and all three go through `holdLease`.
+   */
+  private leaseDraft: string | null = null
 
   constructor(private readonly deps: RunnerDeps) {
     this.automations = new AutomationService(deps.store, deps.settings)
@@ -550,6 +559,10 @@ export class AssistantRunner {
     // A continued answer starts from what the reader could already see: the model writes the rest, and
     // the row is filed with both halves.
     let answer = this.continueFrom?.content ?? ''
+    // Seeded before the first event, because a continued answer had its row deleted to make room for the
+    // whole of it: a turn killed before it wrote a token has already taken the reader's words with it, and
+    // the draft is the only copy left until the lease is renewed.
+    this.leaseDraft = answer
     // Everything the turn has said so far, across its steps. The step's own text is what the model is
     // handed back after a tool call; this is what the reader watched arrive, and a turn filed from its
     // last step alone would drop the words that came before the call.
@@ -798,7 +811,12 @@ export class AssistantRunner {
           retry: this.retryFor(entry.provider),
           signal: input.signal,
         }), calls, usage)) {
-          if (event.type === 'text') text += event.delta ?? ''
+          if (event.type === 'text') {
+            text += event.delta ?? ''
+            // Everything the reader on this wire has been shown, filed steps and the step in hand. Carried
+            // to the next `holdLease` rather than written here: this runs per token.
+            this.leaseDraft = answer + text
+          }
           if (event.type === 'reasoning') reasoning += event.delta ?? ''
           // A reader who pressed stop released the lease; on a platform that does not report the
           // dropped connection, this is what ends the turn. Every sixteenth event keeps the extra write
@@ -1243,11 +1261,16 @@ export class AssistantRunner {
    * claim its caller kept, so it can only ask whether somebody is live.
    */
   private async holdLease(conversationId: string): Promise<boolean> {
+    // The draft goes with the renewal rather than after it. A turn that has written forty characters has
+    // already decided to keep going, and the write that says so is the cheapest place in the whole loop to
+    // leave the words behind: an extra statement every sixteenth event would price the interrupted-worker
+    // case into the stream of every turn that never is interrupted.
+    const draft = this.leaseDraft
     if (this.runToken === null) {
-      await this.store.renewRun(conversationId)
+      await this.store.renewRun(conversationId, undefined, Date.now(), draft)
       return this.store.isRunning(conversationId)
     }
-    return this.store.touchRun(conversationId, this.runToken)
+    return this.store.touchRun(conversationId, this.runToken, Date.now(), draft)
   }
 
   /** Charges one or more model calls against the reader's daily ceiling, refusing when it is spent. */

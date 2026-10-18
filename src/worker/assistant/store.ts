@@ -51,7 +51,7 @@ import type {
 } from '@shared/assistant'
 import { dialectsForProtocol } from '@shared/reasoning'
 import type { McpOAuthSecrets, McpOAuthStatus } from './mcp-oauth'
-import { ASSISTANT_MCP_TOOL_MODES, ASSISTANT_MCP_TRANSPORTS, DEFAULT_MCP_TIMEOUT_SECONDS, EPHEMERAL_CONVERSATION_RETENTION_DAYS, MAX_MCP_DESCRIPTION_CHARS, MAX_MCP_TOOL_OVERRIDES, MAX_MCP_HEADER_VALUE_CHARS, MAX_MCP_LABEL_CHARS, MAX_MCP_TOOL_NAME_CHARS, MAX_MCP_TIMEOUT_SECONDS, MIN_MCP_TIMEOUT_SECONDS, MAX_ARTIFACT_CONTENT_CHARS, MAX_ARTIFACT_TITLE_CHARS, MAX_ANSWER_VERSIONS, MAX_CHAT_ATTACHMENTS, MAX_FEEDBACK_REASON_CHARS, clipReasoning, isMcpHeaderName, parseModelModalities, parseProviderEndpoints, reasoningDialectValue, reasoningValue, type AssistantAnswerVersion, type AssistantMcpServer, type AssistantMcpToolMode, type AssistantMcpTransport, type AssistantModelModality, type ChatAttachment } from '@shared/assistant'
+import { ASSISTANT_MCP_TOOL_MODES, ASSISTANT_MCP_TRANSPORTS, DEFAULT_MCP_TIMEOUT_SECONDS, EPHEMERAL_CONVERSATION_RETENTION_DAYS, MAX_MCP_DESCRIPTION_CHARS, MAX_MCP_TOOL_OVERRIDES, MAX_MCP_HEADER_VALUE_CHARS, MAX_MCP_LABEL_CHARS, MAX_MCP_TOOL_NAME_CHARS, MAX_MCP_TIMEOUT_SECONDS, MIN_MCP_TIMEOUT_SECONDS, MAX_ARTIFACT_CONTENT_CHARS, MAX_ARTIFACT_TITLE_CHARS, RUN_PARTIAL_MAX_CHARS, MAX_ANSWER_VERSIONS, MAX_CHAT_ATTACHMENTS, MAX_FEEDBACK_REASON_CHARS, clipReasoning, isMcpHeaderName, parseModelModalities, parseProviderEndpoints, reasoningDialectValue, reasoningValue, type AssistantAnswerVersion, type AssistantMcpServer, type AssistantMcpToolMode, type AssistantMcpTransport, type AssistantModelModality, type ChatAttachment } from '@shared/assistant'
 import {
   ASSISTANT_MEMORY_CATEGORIES,
   ASSISTANT_PROTOCOLS,
@@ -86,6 +86,39 @@ export const PENDING_ACTION_TTL_MS = 30 * 60 * 1000
  * not the mechanism that keeps a live turn alive.
  */
 export const RUN_LEASE_MS = 5 * 60 * 1000
+
+/**
+ * What one conversation's claim currently says about itself, read without changing it.
+ *
+ * `claimed` is whether a row exists at all, which is a third state the caller has to be able to tell apart
+ * from `running`: no row is a conversation nobody has run since the last answer was filed, while a row with
+ * `running` false is a turn that stopped renewing — the one shape that can carry a fragment worth reading
+ * back. `token` is the `started_at` of that claim, and the only thing that can take it away again safely.
+ */
+export interface RunLease {
+  claimed: boolean
+  running: boolean
+  token: number | null
+  /** The words the turn had written when it last renewed, cut to `RUN_PARTIAL_MAX_CHARS`. */
+  text: string | null
+  /** Whether that fragment filled the ceiling, so whatever is here is not the whole of what was written. */
+  truncated: boolean
+}
+
+/**
+ * Cut a turn's unfinished answer to what a lease row may carry.
+ *
+ * The ceiling is what stops the lock table becoming a place to park model output: see
+ * `RUN_PARTIAL_MAX_CHARS`. Cutting is done here rather than at the caller because the column is the trust
+ * boundary — a caller that forgot, or that is handed text from somewhere else, cannot make the row bigger
+ * than this. An empty answer is stored as NULL, the same value a claim predating the column carries, so
+ * "nothing written yet" has exactly one representation.
+ */
+function clipRunPartial(value: string | null | undefined): string | null {
+  if (typeof value !== 'string') return null
+  const clipped = value.slice(0, RUN_PARTIAL_MAX_CHARS)
+  return clipped.length > 0 ? clipped : null
+}
 
 /** How long an automation may be claimed by a tick that never finished before another may take it. */
 export const AUTOMATION_CLAIM_MS = 10 * 60 * 1000
@@ -4763,7 +4796,7 @@ export class AssistantStore {
       `INSERT INTO chat_active_runs (conversation_id, user_id, started_at, lease_until)
        VALUES (?1, ?2, ?3, ?4)
        ON CONFLICT(user_id, conversation_id) DO UPDATE SET
-         started_at = excluded.started_at, lease_until = excluded.lease_until
+         started_at = excluded.started_at, lease_until = excluded.lease_until, partial_text = NULL
        WHERE chat_active_runs.lease_until <= ?3`,
     ).bind(conversationId, this.userId, now, now + RUN_LEASE_MS).run()
     return (result.meta?.changes ?? 0) > 0 ? now : null
@@ -4775,13 +4808,26 @@ export class AssistantStore {
    * A turn that knows its token renews with `touchRun`, which answers whether the claim is still its own.
    * This is for a caller that holds the lease itself and never hands the token out: with nothing to
    * compare, an unguarded renewal extends whatever claim the conversation has.
+   *
+   * The words the turn has written so far ride along on the same statement. A turn that dies without
+   * running its `finish` — a Worker isolate out of CPU leaves no assistant row at all — otherwise leaves
+   * the conversation holding a lease and nothing else, which is the half answer this repository keeps
+   * losing. Nothing here waits for that case: the renewal is the only write a live turn makes anyway.
    */
-  async renewRun(conversationId: string, token?: number, now = Date.now()): Promise<void> {
+  async renewRun(conversationId: string, token?: number, now = Date.now(), partialText?: string | null): Promise<void> {
     const guard = token === undefined ? '' : ' AND started_at = ?4'
-    const binds = token === undefined
+    const binds: (string | number | null)[] = token === undefined
       ? [conversationId, now + RUN_LEASE_MS, this.userId]
       : [conversationId, now + RUN_LEASE_MS, this.userId, token]
-    await this.db.prepare(`UPDATE chat_active_runs SET lease_until = ?2 WHERE conversation_id = ?1 AND user_id = ?3${guard}`)
+    // Bringing no draft is not the same as bringing an empty one: the timestamp moves and what the turn
+    // wrote earlier stays. Clearing takes saying so, because a renewal that knows nothing about the column
+    // must not be able to empty a thread somebody is still reading.
+    const carry = partialText === undefined ? null : clipRunPartial(partialText)
+    const set = partialText === undefined
+      ? 'lease_until = ?2'
+      : `lease_until = ?2, partial_text = ?${binds.length + 1}`
+    if (partialText !== undefined) binds.push(carry)
+    await this.db.prepare(`UPDATE chat_active_runs SET ${set} WHERE conversation_id = ?1 AND user_id = ?3${guard}`)
       .bind(...binds).run()
   }
 
@@ -4798,13 +4844,50 @@ export class AssistantStore {
    * Expiry is deliberately not part of the guard. A step that outlived the lease is still this turn's
    * step, and a claim only the owner can extend is what makes that safe. A lease nobody touches is still
    * open for the next `claimRun` to take, so a laptop that closes its tab does not lock a conversation.
+   *
+   * `partialText` is the answer as the turn has it right now, cut to the ceiling the column may carry. It
+   * is written by the same statement rather than a second one, because the renewal happens every
+   * sixteenth event and an extra round trip on that path is a price the streaming turn pays for something
+   * it may never need. Absent is a caller with no draft to report and leaves the column alone; null or an
+   * empty string is a turn that has written nothing yet, and clears it.
    */
-  async touchRun(conversationId: string, token: number, now = Date.now()): Promise<boolean> {
+  async touchRun(conversationId: string, token: number, now = Date.now(), partialText?: string | null): Promise<boolean> {
+    const binds: (string | number | null)[] = [conversationId, this.userId, now + RUN_LEASE_MS, token]
+    const set = partialText === undefined ? 'lease_until = ?3' : 'lease_until = ?3, partial_text = ?5'
+    if (partialText !== undefined) binds.push(clipRunPartial(partialText))
     const result = await this.db.prepare(
-      `UPDATE chat_active_runs SET lease_until = ?3
+      `UPDATE chat_active_runs SET ${set}
         WHERE conversation_id = ?1 AND user_id = ?2 AND started_at = ?4`,
-    ).bind(conversationId, this.userId, now + RUN_LEASE_MS, token).run()
+    ).bind(...binds).run()
     return (result.meta?.changes ?? 0) > 0
+  }
+
+  /**
+   * The claim on a conversation as it stands: whether it is live, and what had been written under it.
+   *
+   * `isRunning` answers the first question and clears a claim nobody is holding any more. This answers the
+   * other one too, and deliberately does not clear anything: the row is the only place an interrupted
+   * turn's words still exist, so the read that reports them has to leave them for whoever asks next.
+   * Ownership is the `user_id` in the WHERE clause — a lease is keyed by account, and one account can read
+   * neither another's claim nor another's half answer.
+   */
+  async readRunLease(conversationId: string, now = Date.now()): Promise<RunLease> {
+    const row = await this.one<{ started_at: number, lease_until: number, partial_text: string | null }>(
+      `SELECT started_at, lease_until, partial_text FROM chat_active_runs WHERE conversation_id = ?1 AND user_id = ?2`,
+      conversationId, this.userId,
+    )
+    if (!row) return { claimed: false, running: false, token: null, text: null, truncated: false }
+    const text = typeof row.partial_text === 'string' && row.partial_text.length > 0 ? row.partial_text : null
+    return {
+      claimed: true,
+      running: row.lease_until > now,
+      token: row.started_at,
+      text,
+      // The column is only ever written at or below the ceiling, so filling it is the whole of what a
+      // truncation can be detected from. Guessing "probably complete" here is the lie this exists to stop:
+      // an exact-multiple-of-the-ceiling answer is reported as cut short, which is the safe direction.
+      truncated: text !== null && text.length >= RUN_PARTIAL_MAX_CHARS,
+    }
   }
 
   /**

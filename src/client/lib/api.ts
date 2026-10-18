@@ -1058,6 +1058,13 @@ export const api = {
         messages: AssistantMessage[],
         attachments: ChatAttachment[],
         streaming: boolean,
+        /**
+         * What a turn that stopped renewing had already written, and whether the ceiling on the run lease
+         * cut it short. Present while `streaming` is true as well as after it turns false, which is the only
+         * way the words a killed Worker wrote can reach the screen at all.
+         */
+        partialText: string | null,
+        partialTruncated: boolean,
         /** Whether earlier turns exist above this page, and the cursor that asks for them. */
         hasMore: boolean,
         nextBefore: string | null,

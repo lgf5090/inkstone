@@ -763,11 +763,28 @@ assistantRoutes.get('/conversations/:id', async (c) => {
   // The chips name the files; the bytes only ever travel on the model's turn, so the transcript needs
   // the rows and not the contents.
   const wanted = [...new Set(messages.flatMap((entry) => entry.attachments ?? []))]
+  // The claim on this conversation answers two questions, and the second one is the reason this is a read
+  // of the row rather than `isRunning`. A Worker isolate killed by its CPU limit never reaches `finish`, so
+  // it files no assistant row — and the lease it was holding goes on claiming the conversation for the rest
+  // of its window. Asked only "is a turn live?", a reader came back to nothing, the watch timed out and
+  // said so in a toast, and the words the model had already written were gone. Both halves travel together
+  // now: `streaming` for the turn somebody is still holding, `partialText` for the answer the dead one left
+  // on the claim, and `partialTruncated` so the screen can say it is showing only the beginning of it.
+  //
+  // Scoped by the account like everything else on this table, and reached only after the conversation's own
+  // ownership check above: no reader gets another's half answer, however they name the thread.
+  const lease = await s.readRunLease(id)
+  // A claim that is neither live nor holding anything is the stale marker this read used to clear, and it
+  // still is: only a fragment is a reason to leave a row standing, and `releaseRun` is guarded by the token
+  // this read saw, so a turn that claimed the conversation in between keeps its claim.
+  if (lease.claimed && !lease.running && !lease.text && lease.token !== null) await s.releaseRun(id, lease.token)
   return c.json({
     conversation,
     messages,
     attachments: await s.chatAttachments(wanted),
-    streaming: await s.isRunning(id),
+    streaming: lease.running,
+    partialText: lease.text,
+    partialTruncated: lease.truncated,
     hasMore,
     nextBefore: hasMore && messages[0] ? encodeMessageCursor(messages[0]) : null,
     hasNewer,
