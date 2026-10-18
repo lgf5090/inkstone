@@ -496,9 +496,10 @@ async function processQueueChunk(env: Env, userId: string, items: QueueRow[]): P
  *
  * Hits below `scoreFloor` are not returned at all, so a caller that fuses this list with a keyword list
  * cannot put a note nobody asked for above one that matched by word. An empty array means the index was
- * read and nothing cleared the bar — the caller says "keyword matches only" rather than inventing a
- * meaning hit — while `null` is the index refusing to answer, which is a different sentence to tell a
- * reader and is kept distinct.
+ * read and nothing cleared the bar: that is the answer to the question, and a caller that asked for meaning
+ * says "searched, nothing close" rather than inventing a meaning hit or hiding the emptiness behind a
+ * keyword page. `null` is the index refusing to answer at all, which is the one case allowed to fall back
+ * to keywords, and the two stay distinct all the way to what the caller reports.
  */
 export async function searchSemanticNotes(
   env: Env,

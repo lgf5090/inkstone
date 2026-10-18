@@ -151,3 +151,64 @@ describe('one threshold for both readers of the index', () => {
     expect(SEMANTIC_FLOOR.absolute).toBe(SEMANTIC_SCORE_FLOOR)
   })
 })
+
+describe('the mode a page reports about itself', () => {
+  // A bar on the index leaves two tails, and both are about what a page is allowed to *say*: the mode a
+  // reader or MCP client is handed has to name the half that actually produced the hits, and an index that
+  // refused to answer must not be reported as an index that answered "nothing".
+  it('calls a searched-but-empty semantic page semantic rather than lexical', async () => {
+    seed([[KEYWORD_NOTE, 0.4], [FAR_NOTE, 0.2], [CLOSE_NOTE, 0.3]])
+    const page = await searchMcpNotes(env, USER, 'https://notes.test', false, {
+      query: 'locks holding water back from a dock',
+      mode: 'semantic',
+    })
+    // The reader asked for meaning, the index was read, and its answer was "none of these are close".
+    // Labelling that page `lexical` describes a keyword search whose keyword hits nobody asked for.
+    expect(page.mode).toBe('semantic')
+    expect(page.results).toEqual([])
+    expect(page.semantic_status).toBe('searched_no_match')
+    expect(page.notice ?? '').toMatch(/close enough/i)
+  })
+
+  // Control for the case above: the same vault, asked the ordinary way, still hands the reader their
+  // keyword page. So the empty list is about what was requested, not about the notes having disappeared.
+  it('still gives auto the keyword page when the bar empties the vector half', async () => {
+    seed([[KEYWORD_NOTE, 0.4], [FAR_NOTE, 0.2], [CLOSE_NOTE, 0.3]])
+    const page = await searchMcpNotes(env, USER, 'https://notes.test', false, {
+      query: 'gates rebuilt at the mouth in spring',
+      mode: 'auto',
+    })
+    expect(page.mode).toBe('lexical')
+    expect(idsOf(page.results)).toEqual([KEYWORD_NOTE])
+    // and it says which of the two reasons the vector half is missing, instead of leaving the label to hint
+    expect(page.semantic_status).toBe('searched_no_match')
+    expect(page.notice ?? '').toMatch(/close enough/i)
+  })
+
+  it('names a refusal as a refusal when a semantic request gets no index at all', async () => {
+    seed()
+    const noAi = { DB: env.DB } as unknown as Env
+    const page = await searchMcpNotes(noAi, USER, 'https://notes.test', false, {
+      query: 'harbour tide gates rebuilt in spring',
+      mode: 'semantic',
+    })
+    // Nothing was embedded here, so the hits really did come from keywords: the honest label is `lexical`,
+    // and the honest sentence beside it is "the index never answered", not "it found nothing".
+    expect(page.mode).toBe('lexical')
+    expect(idsOf(page.results)).toEqual([KEYWORD_NOTE])
+    expect(page.semantic_status).toBe('unanswered')
+    expect(page.notice ?? '').toMatch(/never searched|could not be searched/i)
+  })
+
+  it('keeps the refusal and the empty answer apart in what the client reads', async () => {
+    seed([[KEYWORD_NOTE, 0.4], [FAR_NOTE, 0.2], [CLOSE_NOTE, 0.3]])
+    const options = { query: 'water kept out of the harbour dock', mode: 'semantic' as const }
+    const searched = await searchMcpNotes(env, USER, 'https://notes.test', false, options)
+    const refused = await searchMcpNotes({ DB: env.DB } as unknown as Env, USER, 'https://notes.test', false, options)
+    // One reader's "no note of yours is close" and another's "this deployment cannot embed" are different
+    // next moves, so no field of the answer may fold them together.
+    expect(searched.semantic_status).toBe('searched_no_match')
+    expect(refused.semantic_status).toBe('unanswered')
+    expect(refused.notice).not.toBe(searched.notice)
+  })
+})

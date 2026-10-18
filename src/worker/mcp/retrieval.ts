@@ -43,10 +43,43 @@ export interface McpSearchHit {
   source: 'lexical' | 'semantic' | 'both'
 }
 
+/**
+ * What the vector half of one search did, told apart as far as the reader.
+ *
+ * Asked for meaning, the index answers in three ways and they are three different sentences: it answered
+ * with notes that clear its similarity bar (`matched`), it answered with none — a finished search whose
+ * vault holds nothing close (`searched_no_match`) — or it refused to answer at all, because the deployment
+ * has no AI binding, the reader switched the index off, or the embedding call failed (`unanswered`). A
+ * fourth state is that it was never asked (`not_requested`). Collapsing the two middle ones is the
+ * mistake this field exists to prevent: "no note of yours is close" is a fact about the notes and the
+ * reader can act on it, "this index cannot embed" is a fact about the deployment and they cannot.
+ */
+export type McpSemanticStatus = 'not_requested' | 'matched' | 'searched_no_match' | 'unanswered'
+
+/**
+ * The page's own account of what produced `results`.
+ *
+ * `mode` names the half the returned hits came from, and nothing else — a page of keyword hits found by a
+ * reader who asked for meaning is reported as `lexical` beside a note saying the index never answered,
+ * while a meaning page that came back empty stays `semantic` because its emptiness *is* the answer the
+ * reader asked for. `notice` then carries the same fact in words, present exactly when the page is
+ * narrower than the request was.
+ */
 export interface McpSearchResponse {
   results: McpSearchHit[]
   mode: 'lexical' | 'semantic' | 'hybrid'
+  semantic_status: McpSemanticStatus
+  notice: string | null
 }
+
+/** The two notices are fixed sentences rather than derived text: each names one of the states above. */
+const SEARCHED_NO_MATCH_NOTICE =
+  'The AI meaning index was searched for this question and no note was close enough to count as a match. '
+  + 'Nothing here was found by meaning; say so rather than reporting that the search failed.'
+const SEMANTIC_UNANSWERED_NOTICE =
+  'The AI meaning index could not be searched for this question — this deployment has no AI binding, the '
+  + 'reader switched the note index off, or the embedding call failed — so the hits below are keyword matches '
+  + 'only. Do not claim the notebook holds no matching note.'
 
 export interface NoteOutlineItem {
   level: number
@@ -72,6 +105,9 @@ export async function searchMcpNotes(
     }))
   }
   const wantsSemantic = mode === 'auto' || mode === 'hybrid' || mode === 'semantic'
+  // The keyword half is read even for a `semantic` request, because it is what the reader is left with when
+  // the index *refuses*: nothing was embedded, so nothing semantic could be claimed. An index that answered
+  // with nothing is the other case, and the two are kept apart all the way down to the response below.
   const [lexicalResult, semanticHits] = await Promise.all([
     searchUserNotes(env.DB, userId, lexicalQuery, SEARCH_CANDIDATES, ftsEnabled),
     wantsSemantic
@@ -97,10 +133,39 @@ export async function searchMcpNotes(
     updatedAt: hit.note.updatedAt,
     excerpt: hit.note.excerpt,
   }))
-  if (!semanticHits || !semanticHits.length) {
+  if (!wantsSemantic) {
     return {
-      results: lexicalHits.slice(0, limit).map((hit) => ({ ...hit, source: 'lexical' as const })),
+      results: lexicalPage(lexicalHits, limit),
       mode: 'lexical',
+      semantic_status: 'not_requested',
+      notice: null,
+    }
+  }
+  if (!semanticHits) {
+    return {
+      results: lexicalPage(lexicalHits, limit),
+      mode: 'lexical',
+      semantic_status: 'unanswered',
+      notice: SEMANTIC_UNANSWERED_NOTICE,
+    }
+  }
+  if (!semanticHits.length) {
+    // A reader who asked only for meaning and got "none of your notes are close" is handed that answer, not
+    // a keyword page wearing it: the empty list came out of the vector half, so the vector half is what the
+    // mode has to say.
+    if (mode === 'semantic') {
+      return {
+        results: [],
+        mode: 'semantic',
+        semantic_status: 'searched_no_match',
+        notice: SEARCHED_NO_MATCH_NOTICE,
+      }
+    }
+    return {
+      results: lexicalPage(lexicalHits, limit),
+      mode: 'lexical',
+      semantic_status: 'searched_no_match',
+      notice: SEARCHED_NO_MATCH_NOTICE,
     }
   }
 
@@ -121,6 +186,8 @@ export async function searchMcpNotes(
         source: 'semantic' as const,
       })),
       mode: 'semantic',
+      semantic_status: 'matched',
+      notice: null,
     }
   }
   const fused = fuseByRrf(lexicalHits, semanticCandidates)
@@ -140,8 +207,14 @@ export async function searchMcpNotes(
   })
   return {
     results,
-    mode: lexicalHits.length && semanticHits.length ? 'hybrid' : 'semantic',
+    mode: lexicalHits.length ? 'hybrid' : 'semantic',
+    semantic_status: 'matched',
+    notice: null,
   }
+}
+
+function lexicalPage(hits: readonly LexicalHit[], limit: number): McpSearchHit[] {
+  return hits.slice(0, limit).map((hit) => ({ ...hit, source: 'lexical' as const }))
 }
 
 type LexicalHit = {
