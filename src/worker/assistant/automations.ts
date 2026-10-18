@@ -17,7 +17,12 @@ import { computeNextRun, parseScheduleSpec } from '@shared/assistant-schedule'
 import { ApiError } from '../lib/errors'
 import type { AssistantStore } from './store'
 
-export type AutomationExecutor = (automation: Automation) => Promise<{ status: 'success' | 'skipped', result: string }>
+export type AutomationExecutor = (automation: Automation) => Promise<{
+  status: 'success' | 'skipped'
+  result: string
+  /** The page this run wrote, when the kind of run writes one. */
+  noteId?: string | null
+}>
 
 /** A run that was missed by more than this is executed once on the next sweep rather than skipped. */
 const MAX_CATCH_UP_MS = 24 * 60 * 60 * 1000
@@ -38,14 +43,19 @@ export class AutomationService {
     message: string
     schedule: unknown
     enabled: boolean
+    targetFolderId?: string | null
+    targetNoteId?: string | null
   }): Promise<Automation> {
     const schedule = parseScheduleSpec(input.schedule)
     if (!schedule) throw ApiError.badRequest('The schedule is not one the assistant understands.')
-    if ((input.kind === 'reminder' || input.kind === 'assistant_prompt') && !input.message.trim()) {
+    if ((input.kind === 'reminder' || input.kind === 'assistant_prompt' || input.kind === 'note_write') && !input.message.trim()) {
       throw ApiError.badRequest(input.kind === 'reminder'
         ? 'A reminder needs a message.'
-        : 'An AI routine needs a prompt.')
+        : input.kind === 'note_write'
+          ? 'A schedule that writes a note needs a prompt to answer from.'
+          : 'An AI routine needs a prompt.')
     }
+    const target = await this.resolveTarget(input.kind, input.targetFolderId ?? null, input.targetNoteId ?? null)
     const next = computeNextRun(schedule, this.timezone, new Date())
     if (!next) throw ApiError.badRequest('That time is already past. Choose a future time.')
     return this.store.insertAutomation({
@@ -56,9 +66,61 @@ export class AutomationService {
       enabled: input.enabled,
       status: input.enabled ? 'scheduled' : 'paused',
       nextRun: input.enabled ? next.getTime() : null,
+      targetFolderId: target.targetFolderId,
+      targetNoteId: target.targetNoteId,
     })
   }
 
+  /**
+   * The page or folder a note-writing routine is pointed at, checked before the row exists.
+   *
+   * Refusing here rather than at the sweep is the whole point: a schedule whose target was dropped when
+   * it was set would fire on the minute, ask a model for an answer and then have nowhere to put it — every
+   * time, forever, and quietly. So a stranger's id is an error, never a filter, and the combination is
+   * pinned down before anything is written:
+   *
+   *  - `note_write` needs exactly one target, because "write a note" without a where is not a routine;
+   *  - every other kind needs none, because nothing it does can land on a page.
+   *
+   * A folder the reader does not have is a bad request — the selection itself is wrong. A page they do
+   * not have is a 404, the same answer the note routes give for an id that does not name one of theirs,
+   * and the client's note pickers arrive by id.
+   */
+  private async resolveTarget(
+    kind: AutomationKind,
+    folderId: string | null,
+    noteId: string | null,
+  ): Promise<{ targetFolderId: string | null, targetNoteId: string | null }> {
+    if (folderId && noteId) {
+      throw ApiError.badRequest('A note-writing schedule needs one target: the folder to file into, or the page to rewrite.')
+    }
+    if (kind !== 'note_write') {
+      if (folderId || noteId) {
+        throw ApiError.badRequest('Only a schedule that writes a note can name a folder or a page.')
+      }
+      return { targetFolderId: null, targetNoteId: null }
+    }
+    if (!folderId && !noteId) {
+      throw ApiError.badRequest('A note-writing schedule has to say which folder to file into or which page to rewrite.')
+    }
+    if (folderId && !(await this.store.knownFolder(folderId))) {
+      throw ApiError.badRequest('That folder is not one of yours.')
+    }
+    if (noteId && !(await this.store.knownNote(noteId))) {
+      throw ApiError.notFound('That note is not one of yours.')
+    }
+    return { targetFolderId: folderId, targetNoteId: noteId }
+  }
+
+  /**
+   * Applies an edit to the timing and the words, and to nothing else.
+   *
+   * A note-writing routine's target is not here on purpose: the page it rewrites and the folder it files
+   * into are chosen when the schedule is made and cannot be moved afterwards. A patch that repointed them
+   * would quietly change which page gets overwritten under a name the reader already trusts, and the
+   * recovery for "I meant the other page" is a new schedule — so a body that names a `noteId` is not a
+   * field this route has, and the row answers back with the target it still holds.
+   */
   async update(id: string, patch: {
     name?: string
     message?: string
@@ -149,7 +211,7 @@ export class AutomationService {
     try {
       const outcome = await execute(automation)
       result = outcome.result.slice(0, 2000)
-      await this.store.finishRun(runId, outcome.status, result, null)
+      await this.store.finishRun(runId, outcome.status, result, null, outcome.noteId ?? null)
     } catch (error) {
       failure = error instanceof Error ? error.message : 'The run failed.'
       await this.store.finishRun(runId, 'error', null, failure)

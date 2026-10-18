@@ -1517,6 +1517,46 @@ export const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
          ON chat_memories(user_id, note_id, updated_at DESC)`,
     ],
   },
+  {
+    // The folder a note-writing schedule files its answer into.
+    //
+    // A schedule that could only leave a notification behind cannot answer "turn yesterday into a log
+    // page every morning", so the routine now writes the page itself — and the reader has to say where.
+    // Nullable rather than defaulted: every schedule that already exists writes nothing, and a routine of
+    // the other kinds must be able to say so without a sentinel. The create refuses a folder this account
+    // does not own instead of dropping it, because a schedule that quietly lost its target would run
+    // forever and write nothing. One column, one version number; its pair is the next one.
+    version: 99,
+    skipIfColumnExists: { table: 'chat_automations', column: 'target_folder_id' },
+    statements: [
+      `ALTER TABLE chat_automations ADD COLUMN target_folder_id TEXT`,
+    ],
+  },
+  {
+    // The page a note-writing schedule rewrites instead of making a new one.
+    //
+    // The other half of the choice the reader makes: file the answer somewhere, or keep one standing
+    // page and refill it. Exactly one of this and `target_folder_id` is ever set, and the pair is what
+    // the next version's `chat_runs.note_id` reports as written.
+    version: 100,
+    skipIfColumnExists: { table: 'chat_automations', column: 'target_note_id' },
+    statements: [
+      `ALTER TABLE chat_automations ADD COLUMN target_note_id TEXT`,
+    ],
+  },
+  {
+    // Which page a run wrote, named on the receipt.
+    //
+    // "Success" is not enough for a schedule that makes a page every morning: the reader looking at the
+    // run list wants to open what it made, and a result string cut to 2000 characters is not an address.
+    // Null for every run that filed nothing, including the failures — pointing at a page that was never
+    // written would be worse than pointing at none.
+    version: 101,
+    skipIfColumnExists: { table: 'chat_runs', column: 'note_id' },
+    statements: [
+      `ALTER TABLE chat_runs ADD COLUMN note_id TEXT`,
+    ],
+  },
 ]
 
 const FTS_STATEMENT = `CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(

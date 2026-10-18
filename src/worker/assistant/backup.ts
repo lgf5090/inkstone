@@ -12,7 +12,7 @@
 import type { AssistantImportSummary, AssistantSettings } from '@shared/assistant'
 import { clipReasoning, normalizeAssistantSettings } from '@shared/assistant'
 import { parseScheduleSpec } from '@shared/assistant-schedule'
-import { ASSISTANT_MEMORY_CATEGORIES, AUTOMATION_KINDS, MAX_ARTIFACT_CONTENT_CHARS, MAX_ARTIFACT_TITLE_CHARS, MAX_MESSAGE_CHARS, MAX_PROJECT_NOTES } from '@shared/assistant'
+import { ASSISTANT_MEMORY_CATEGORIES, AUTOMATION_KINDS, MAX_ARTIFACT_CONTENT_CHARS, MAX_ARTIFACT_TITLE_CHARS, MAX_AUTOMATION_TARGET_ID_CHARS, MAX_MESSAGE_CHARS, MAX_PROJECT_NOTES } from '@shared/assistant'
 import { ApiError } from '../lib/errors'
 import { AssistantStore, decodeFeedback, encodeFeedback } from './store'
 
@@ -64,6 +64,21 @@ function textValue(value: unknown, max: number): string {
 
 function idValue(value: unknown): string | null {
   return typeof value === 'string' && /^[0-9a-hjkmnp-tv-z]{26}$/.test(value) ? value : null
+}
+
+/**
+ * A schedule's folder or page target, kept as the opaque reference it is.
+ *
+ * Deliberately not `idValue`: that one guards ids that are *keys* of the rows the restore writes, and it
+ * would silently empty the column of any value whose shape it dislikes — which is precisely the failure a
+ * note-writing schedule cannot absorb, since it would go on firing and writing nothing. The bound is the
+ * same one the create applies, and the reference itself is proved where it is used: the sweep reads the
+ * target through a query scoped to this account and refuses out loud when it is not there.
+ */
+function targetIdValue(value: unknown): string | null {
+  if (typeof value !== 'string') return null
+  const id = value.trim()
+  return id && id.length <= MAX_AUTOMATION_TARGET_ID_CHARS ? id : null
 }
 
 export async function importAssistant(store: AssistantStore, raw: Record<string, unknown>): Promise<ImportSummary> {
@@ -499,6 +514,14 @@ async function mergeBackup(store: AssistantStore, data: Record<string, unknown>,
       last_result: typeof automation.last_result === 'string' ? automation.last_result.slice(0, 2000) : null,
       last_error: typeof automation.last_error === 'string' ? automation.last_error.slice(0, 1000) : null,
       run_count: numberValue(automation.run_count),
+      // The two targets ride along. A schedule that writes a page and comes back without its target would
+      // answer the prompt every time it fires and file the answer nowhere, which is the one failure this
+      // row can cause silently — `EXPORT_COLUMNS` has to list the columns for the same reason, or
+      // `INSERT OR IGNORE` drops the whole row on the way back in. A target belonging to another account is
+      // not resolved here: the row lands paused, and the sweep names the missing page or folder before it
+      // spends anything, so the reader sees why rather than watching a schedule that writes nothing.
+      target_folder_id: targetIdValue(automation.target_folder_id),
+      target_note_id: targetIdValue(automation.target_note_id),
       created_at: numberValue(automation.created_at, Date.now()),
       updated_at: Date.now(),
     }

@@ -3525,15 +3525,19 @@ export class AssistantStore {
     enabled: boolean
     status: AutomationStatus
     nextRun: number | null
+    targetFolderId: string | null
+    targetNoteId: string | null
   }): Promise<Automation> {
     const id = newId()
     const at = Date.now()
     await this.write(
       `INSERT INTO chat_automations
-         (id, user_id, name, kind, message, schedule, enabled, status, next_run, run_count, created_at, updated_at)
-       VALUES (?2, ?1, ?3, ?4, ?5, ?6, ?7, ?8, ?9, 0, ?10, ?11)`,
+         (id, user_id, name, kind, message, schedule, enabled, status, next_run, run_count,
+          target_folder_id, target_note_id, created_at, updated_at)
+       VALUES (?2, ?1, ?3, ?4, ?5, ?6, ?7, ?8, ?9, 0, ?10, ?11, ?12, ?13)`,
       id, input.name, input.kind, input.message, JSON.stringify(input.schedule),
-      input.enabled ? 1 : 0, input.status, input.nextRun, at, at,
+      input.enabled ? 1 : 0, input.status, input.nextRun,
+      input.targetFolderId, input.targetNoteId, at, at,
     )
     return {
       id,
@@ -3548,6 +3552,8 @@ export class AssistantStore {
       lastResult: null,
       lastError: null,
       runCount: 0,
+      targetFolderId: input.targetFolderId,
+      targetNoteId: input.targetNoteId,
       createdAt: at,
       updatedAt: at,
     }
@@ -3607,10 +3613,24 @@ export class AssistantStore {
     return id
   }
 
-  async finishRun(runId: string, status: AutomationRun['status'], result: string | null, error: string | null): Promise<void> {
+  /**
+   * Closes a run's receipt.
+   *
+   * `noteId` names the page the run wrote, when it wrote one: a schedule that files a note every morning
+   * has to be readable afterwards as "which one", and the result string is cut to make room for nothing.
+   * Null is the honest value for a run that filed no page, including every failed one.
+   */
+  async finishRun(
+    runId: string,
+    status: AutomationRun['status'],
+    result: string | null,
+    error: string | null,
+    noteId: string | null = null,
+  ): Promise<void> {
     await this.write(
-      `UPDATE chat_runs SET status = ?2, result = ?3, error = ?4, finished_at = ?5 WHERE user_id = ?1 AND id = ?6`,
-      status, result?.slice(0, 4000) ?? null, error?.slice(0, 1000) ?? null, Date.now(), runId,
+      `UPDATE chat_runs SET status = ?2, result = ?3, error = ?4, note_id = ?5, finished_at = ?6
+        WHERE user_id = ?1 AND id = ?7`,
+      status, result?.slice(0, 4000) ?? null, error?.slice(0, 1000) ?? null, noteId, Date.now(), runId,
     )
   }
 
@@ -4710,7 +4730,11 @@ const EXPORT_COLUMNS: Readonly<Record<string, readonly string[]>> = {
   // the opposite of what the reader picked. `model_id` is left out on purpose: models are not in the
   // backup, so a carried id could only point at nothing.
   chat_projects: ['id', 'name', 'description', 'instructions', 'note_scope', 'note_ids', 'created_at', 'updated_at'],
-  chat_automations: ['id', 'name', 'kind', 'message', 'schedule', 'enabled', 'status', 'next_run', 'last_run', 'last_result', 'last_error', 'run_count', 'created_at', 'updated_at'],
+  // The two targets travel with the schedule: a routine that was told to file its answer into one folder,
+  // or to refill one standing page, restored without that pointer would have to be re-pointed by hand —
+  // and a reader who restores a backup expecting their morning log page to keep being written would find
+  // a schedule that writes nothing and says nothing about it.
+  chat_automations: ['id', 'name', 'kind', 'message', 'schedule', 'enabled', 'status', 'next_run', 'last_run', 'last_result', 'last_error', 'run_count', 'target_folder_id', 'target_note_id', 'created_at', 'updated_at'],
   chat_notifications: ['id', 'title', 'body', 'automation_id', 'read_at', 'created_at'],
 }
 
@@ -5265,6 +5289,9 @@ interface AutomationRow {
   last_result: string | null
   last_error: string | null
   run_count: number | null
+  claimed_at: number | null
+  target_folder_id: string | null
+  target_note_id: string | null
   created_at: number
   updated_at: number
 }
@@ -5286,6 +5313,8 @@ function toAutomation(r: AutomationRow): Automation[] {
     lastResult: r.last_result,
     lastError: r.last_error,
     runCount: r.run_count ?? 0,
+    targetFolderId: r.target_folder_id ?? null,
+    targetNoteId: r.target_note_id ?? null,
     createdAt: r.created_at,
     updatedAt: r.updated_at,
   }]
@@ -5300,6 +5329,7 @@ interface RunRow {
   status: string
   result: string | null
   error: string | null
+  note_id: string | null
 }
 
 function toRun(r: RunRow): AutomationRun {
@@ -5312,6 +5342,7 @@ function toRun(r: RunRow): AutomationRun {
     status: pickEnum(r.status, RUN_STATUSES, 'running'),
     result: r.result,
     error: r.error,
+    noteId: r.note_id ?? null,
   }
 }
 

@@ -56,7 +56,7 @@ export type TaskStatus = (typeof TASK_STATUSES)[number]
 export const TASK_PRIORITIES = ['low', 'medium', 'high', 'urgent'] as const
 export type TaskPriority = (typeof TASK_PRIORITIES)[number]
 
-export const AUTOMATION_KINDS = ['reminder', 'task_digest', 'assistant_prompt'] as const
+export const AUTOMATION_KINDS = ['reminder', 'task_digest', 'assistant_prompt', 'note_write'] as const
 export type AutomationKind = (typeof AUTOMATION_KINDS)[number]
 
 export const AUTOMATION_STATUSES = ['scheduled', 'running', 'paused', 'completed', 'failed'] as const
@@ -73,6 +73,14 @@ export const MAX_MEMORY_CHARS = 2_000
 export const MAX_TASK_TITLE_CHARS = 300
 export const MAX_TASK_NOTES_CHARS = 10_000
 export const MAX_AUTOMATION_MESSAGE_CHARS = 4_000
+/**
+ * How long an id field of a schedule may be.
+ *
+ * A note or folder id is 26 characters, and the only real use of a bound here is to stop a body carrying
+ * a paragraph where an id belongs: the value is never shape-checked, because the ownership read the create
+ * performs is what rejects one that is not the reader's, whatever it looks like.
+ */
+export const MAX_AUTOMATION_TARGET_ID_CHARS = 64
 export const MAX_CONVERSATION_TITLE_CHARS = 200
 /** How much standing instruction the prompt will carry: enough for a page, short enough to stay a rule. */
 export const MAX_CUSTOM_INSTRUCTIONS_CHARS = 2_000
@@ -2028,6 +2036,18 @@ export interface Automation {
   lastResult: string | null
   lastError: string | null
   runCount: number
+  /**
+   * The folder a `note_write` routine files its answer into.
+   *
+   * Kept beside `targetNoteId` rather than merged into one "target" union because the two are read by
+   * different questions: one says "make a page in here every time", the other says "rewrite this page".
+   * Exactly one of them is set for a `note_write`, and both are null for every other kind — the create
+   * refuses any other combination, because a schedule that quietly lost its folder would run forever and
+   * write nothing. The id is only ever one this account owns; a stranger's is refused where it is set.
+   */
+  targetFolderId: string | null
+  /** The page a `note_write` routine rewrites instead of making a new one. */
+  targetNoteId: string | null
   createdAt: number
   updatedAt: number
 }
@@ -2041,6 +2061,14 @@ export interface AutomationRun {
   status: 'running' | 'success' | 'error' | 'skipped'
   result: string | null
   error: string | null
+  /**
+   * The page this run wrote, when it wrote one.
+   *
+   * The receipt has to name the note, not only say that something succeeded: the reader looking at a
+   * schedule that rewrote a page every morning wants to open that page. Null for every run that did not
+   * file a note, including the failed ones — a pointer at nothing would be worse than none.
+   */
+  noteId: string | null
 }
 
 export interface AssistantNotification {

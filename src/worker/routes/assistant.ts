@@ -43,6 +43,7 @@ import {
   MAX_TURN_TOOLS,
   AUTOMATION_KINDS,
   MAX_AUTOMATION_MESSAGE_CHARS,
+  MAX_AUTOMATION_TARGET_ID_CHARS,
   MAX_CONVERSATION_TITLE_CHARS,
   MAX_MESSAGE_CHARS,
   MAX_BACKUP_BYTES,
@@ -2077,16 +2078,41 @@ assistantRoutes.post('/automations', async (c) => {
     message,
     schedule: body.schedule,
     enabled: body.enabled !== false,
+    // Checked by the service, which owns the rules about which kinds may carry them and whose stores can
+    // say whether the reader has the folder or the page. Shape only is tested here, so a body carrying
+    // `"folderId": 42` is refused as the malformed request it is rather than reaching a query.
+    targetFolderId: optionalTargetId(body.folderId, 'folderId'),
+    targetNoteId: optionalTargetId(body.noteId, 'noteId'),
   })
   await s.recordActivity('automation.created', automation.name)
   return c.json({ automation }, 201)
 })
+
+/**
+ * An optional folder or page target, taken as the opaque id it is.
+ *
+ * Not gated on `isValidId`, because the ownership lookup the service runs is the check that matters and
+ * it is a scoped, parameterised read: an id of any shape that is not one of this account's rows answers
+ * the same way, and a schedule whose target cannot be found is refused rather than dropped. The length
+ * bound is here so a body cannot carry a paragraph in an id field.
+ */
+function optionalTargetId(value: unknown, field: 'folderId' | 'noteId'): string | null {
+  if (value === undefined || value === null) return null
+  if (typeof value !== 'string') throw ApiError.badRequest(`${field} must be a folder or note id.`)
+  const id = value.trim()
+  if (!id) return null
+  if (id.length > MAX_AUTOMATION_TARGET_ID_CHARS) throw ApiError.badRequest(`${field} is too long to be an id.`)
+  return id
+}
 
 assistantRoutes.patch('/automations/:id', async (c) => {
   const s = store(c)
   const settings = await s.getSettings()
   const id = requiredId(c.req.param('id'))
   const body = await readJson<Record<string, unknown>>(c, JSON_BODY_LIMITS.settings)
+  // The whitelist below is the whole of what a schedule may be edited into: a body naming a `noteId` or a
+  // `folderId` is not a field this route reads, so a routine keeps the page it was made against and the
+  // reader sees the target they still have rather than a half-moved one. See `AutomationService.update`.
   const automation = await new AutomationService(s, settings).update(id, {
     ...(body.name !== undefined ? { name: String(body.name) } : {}),
     ...(body.message !== undefined ? { message: String(body.message) } : {}),

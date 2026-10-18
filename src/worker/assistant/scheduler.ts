@@ -13,9 +13,18 @@
 import type { Automation } from '@shared/assistant'
 import { promptCatalog } from '@shared/assistant-prompt'
 import { localDayBounds } from '@shared/assistant-time'
+import { LIMITS } from '@shared/constants'
+import { countText, deriveExcerpt } from '@shared/markdown-utils'
+import { truncateText } from '@shared/text-utils'
 import type { Env } from '../env'
 import { normalizeAssistantSettings } from '@shared/assistant'
 import { initializeDatabase } from '../db/schema'
+import { assertNoteQuota } from '../db/quota'
+import type { NoteRow } from '../db/rows'
+import { sha256Hex } from '../lib/encoding'
+import { newId } from '../lib/id'
+import { FoldersStore } from '../folders/store'
+import { NotesStore, type NotePatchColumns } from '../notes/store'
 import { AssistantStore, dueAutomations } from './store'
 import { AutomationService } from './automations'
 import { AssistantRunner } from './runner'
@@ -33,6 +42,15 @@ export const DUE_SWEEP_LIMIT = 20
  * it again would start the same digest a second time.
  */
 const SCHEDULED_PROMPT_DEADLINE_MS = 90_000
+
+/**
+ * How different a rewritten page has to be before the text it replaces is kept as a version.
+ *
+ * A routine that overwrites a standing page every morning is the one write that can lose a day of the
+ * reader's own editing without them looking, so the previous body is snapshotted on the same rule the
+ * editor's save uses — the same reason `routes/notes.ts` keeps its own copy of this number.
+ */
+const SNAPSHOT_DIFF_THRESHOLD = 400
 
 export interface SweepResult {
   started: number
@@ -69,6 +87,10 @@ async function runOne(env: Env, userId: string, automation: Automation): Promise
     settings,
   })
   const catalog = promptCatalog(settings.language)
+  // The notebook's own persistence layer, not a statement of our own: see `fileAnswer` for why writing a
+  // routine's answer anywhere else leaves the reader a page the notebook has never heard of.
+  const notes = new NotesStore(db, userId, ftsEnabled)
+  const folders = new FoldersStore(db, userId)
 
   await service.fire(automation, async (entry) => {
     switch (entry.kind) {
@@ -91,37 +113,202 @@ async function runOne(env: Env, userId: string, automation: Automation): Promise
         return { status: 'success' as const, result: body.slice(0, 300) }
       }
       case 'assistant_prompt': {
-        const today = await store.todayUsage()
-        if (today.scheduledRuns >= settings.limits.maxScheduledRunsPerDay || !settings.limits.maxScheduledRunsPerDay) {
-          await store.createNotification({
-            title: entry.name,
-            body: catalog.digest_skipped,
-            automationId: entry.id,
-          })
-          return { status: 'skipped' as const, result: 'scheduled ai budget reached' }
-        }
-        const resolved = await loadModelAndProvider(store, settings)
-        if (!resolved.model || !resolved.provider) {
-          await store.createNotification({
-            title: entry.name,
-            body: catalog.digest_skipped,
-            automationId: entry.id,
-          })
-          return { status: 'skipped' as const, result: 'no model configured' }
-        }
-        const controller = new AbortController()
-        const timer = setTimeout(() => controller.abort(), SCHEDULED_PROMPT_DEADLINE_MS)
-        let text = ''
-        try {
-          text = await runner.runScheduledPrompt(entry.message || entry.name, controller.signal)
-        } finally {
-          clearTimeout(timer)
-        }
+        const blocked = await spendBlocker(store, settings, catalog, entry)
+        if (blocked) return blocked
+        const text = await askScheduledPrompt(runner, entry)
         await store.createNotification({ title: entry.name, body: text, automationId: entry.id })
         return { status: 'success' as const, result: text.slice(0, 300) }
       }
+      case 'note_write': {
+        // The target is proved before the budget is read and long before the model is asked: a routine
+        // whose folder was deleted should say so and cost nothing, not answer a whole page into nowhere.
+        const target = await resolveWriteTarget(notes, folders, entry)
+        const blocked = await spendBlocker(store, settings, catalog, entry)
+        if (blocked) return blocked
+        const text = await askScheduledPrompt(runner, entry)
+        const written = await fileAnswer(db, userId, notes, entry, target, text)
+        await store.createNotification({
+          title: entry.name,
+          body: `${written.summary}\n\n${text}`,
+          automationId: entry.id,
+        })
+        return { status: 'success' as const, result: written.summary.slice(0, 300), noteId: written.noteId }
+      }
     }
   })
+}
+
+/**
+ * Whether this turn may spend scheduled AI at all, answered before anything is asked.
+ *
+ * The two kinds that call a model share the rule, and the refusal has to be the same shape for both: a
+ * notification saying it was skipped, and a receipt saying why. Kept as a blocker rather than a boolean
+ * because the reason is what the run list shows.
+ */
+async function spendBlocker(
+  store: AssistantStore,
+  settings: ReturnType<typeof normalizeAssistantSettings>,
+  catalog: ReturnType<typeof promptCatalog>,
+  entry: Automation,
+): Promise<{ status: 'skipped', result: string } | null> {
+  const today = await store.todayUsage()
+  if (today.scheduledRuns >= settings.limits.maxScheduledRunsPerDay || !settings.limits.maxScheduledRunsPerDay) {
+    await store.createNotification({ title: entry.name, body: catalog.digest_skipped, automationId: entry.id })
+    return { status: 'skipped', result: 'scheduled ai budget reached' }
+  }
+  const resolved = await loadModelAndProvider(store, settings)
+  if (!resolved.model || !resolved.provider) {
+    await store.createNotification({ title: entry.name, body: catalog.digest_skipped, automationId: entry.id })
+    return { status: 'skipped', result: 'no model configured' }
+  }
+  return null
+}
+
+/** One scheduled model call, bounded so a hung upstream cannot hold the claim past the next sweep. */
+async function askScheduledPrompt(runner: AssistantRunner, entry: Automation): Promise<string> {
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), SCHEDULED_PROMPT_DEADLINE_MS)
+  try {
+    return await runner.runScheduledPrompt(entry.message || entry.name, controller.signal)
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
+/** Where a note-writing routine's answer goes: into a folder as a new page, or onto one page it refills. */
+type WriteTarget =
+  | { kind: 'folder', folderId: string }
+  | { kind: 'note', note: NoteRow }
+
+/**
+ * The page or folder the routine was pointed at, proved to still be there.
+ *
+ * Runs before any model call, and the two failures are told apart because they want different sentences:
+ * a page that has been deleted is named, so the reader knows which standing note to point the schedule
+ * at again, and a folder that is gone is named too where its row can still be read. A target that points
+ * at another account's row reads as missing rather than as someone else's, which is the answer the note
+ * routes give for the same id.
+ */
+async function resolveWriteTarget(
+  notes: NotesStore,
+  folders: FoldersStore,
+  automation: Automation,
+): Promise<WriteTarget> {
+  if (automation.targetNoteId) {
+    const note = await notes.noteRow(automation.targetNoteId)
+    if (!note) {
+      throw new Error('The page this routine rewrites is gone, so nothing was written.')
+    }
+    if (note.deleted_at !== null) {
+      throw new Error(`The page “${note.title}” this routine rewrites is in the trash, so nothing was written.`)
+    }
+    return { kind: 'note', note }
+  }
+  if (automation.targetFolderId) {
+    if (await folders.liveFolderRow(automation.targetFolderId)) {
+      return { kind: 'folder', folderId: automation.targetFolderId }
+    }
+    const trashed = await folders.folderRow(automation.targetFolderId)
+    throw new Error(trashed
+      ? `The folder “${trashed.name}” this routine files into is gone, so nothing was written.`
+      : 'The folder this routine files into is gone, so nothing was written.')
+  }
+  // The create refuses a note-writing schedule with no target, so a row that reaches here is one the
+  // column arrived under later or was written around the API; refusing it out loud is the honest answer.
+  throw new Error('This note-writing schedule has no target, so nothing was written.')
+}
+
+/** What one writing run left behind: the page it holds, and the sentence that says which. */
+interface WrittenAnswer {
+  noteId: string
+  summary: string
+}
+
+/**
+ * Files the answer through the notebook's own write path.
+ *
+ * This is the load-bearing decision of the whole feature. `NotesStore` is what `routes/notes.ts` uses,
+ * so one call here lands the row together with its tags and wiki links, its embedding and full-text queue
+ * rows, its guarded record in `changes` and — for a rewrite — the version the page had before. Writing
+ * the same page with a bare `INSERT`, or from the browser with `api.notes.create`, is what an earlier
+ * round of this feature did, and both leave the reader a note the notebook has never heard of: it is in
+ * no listing, cannot be opened, and no device finds out it exists. The server writes because the cron is
+ * what has the answer — nobody's tab is open at 07:00 — and the `changes` row is how every tab that does
+ * open later learns of the page, on the same cursor the note routes broadcast.
+ *
+ * The index queues are not drained from here on purpose: the same cron fire that found this routine
+ * drains them (`worker/index.ts`), so the page is searchable on the tick that made it.
+ */
+async function fileAnswer(
+  db: Env['DB'],
+  userId: string,
+  notes: NotesStore,
+  automation: Automation,
+  target: WriteTarget,
+  text: string,
+): Promise<WrittenAnswer> {
+  const { words, chars } = countText(text)
+  const excerpt = deriveExcerpt(text)
+  const contentHash = await sha256Hex(text)
+
+  if (target.kind === 'folder') {
+    const title = truncateText(automation.name.trim(), LIMITS.titleMaxLength)
+    const id = newId()
+    const now = Date.now()
+    await assertNoteQuota(db, userId)
+    const { row, created } = await notes.create({
+      id,
+      folderId: target.folderId,
+      title,
+      content: text,
+      excerpt,
+      words,
+      chars,
+      isStarred: false,
+      contentHash,
+      now,
+    })
+    // `create` ignores an id that turned out to be taken rather than failing, and a fresh `newId()` losing
+    // that race is a collision worth saying out loud: the answer exists in nobody's notebook otherwise.
+    if (!created || !row) throw new Error(`The note “${title}” could not be filed, so nothing was written.`)
+    return { noteId: row.id, summary: `Wrote “${row.title}”` }
+  }
+
+  const current = target.note
+  // The same body the page already carries is not a write: nothing moved, so no revision, no version and
+  // no link rebuild are earned. The run still names the page, because that is what the reader asked about.
+  if (current.content_hash === contentHash) {
+    return { noteId: current.id, summary: `Left “${current.title}” as it was` }
+  }
+  const columns: NotePatchColumns = {
+    content: text,
+    content_hash: contentHash,
+    excerpt,
+    word_count: words,
+    char_count: chars,
+  }
+  const patch = await notes.patch({
+    current,
+    expectedRev: current.rev,
+    columns,
+    title: current.title,
+    content: text,
+    contentHash,
+    now: Math.max(Date.now(), current.updated_at + 1),
+    contentChanged: true,
+    titleChanged: false,
+    derive: true,
+    snapshot: current.content
+      ? {
+          preserve: false,
+          bigChange: Math.abs(text.length - current.content.length) >= SNAPSHOT_DIFF_THRESHOLD,
+        }
+      : null,
+  })
+  if (!patch.applied) {
+    throw new Error(`The page “${current.title}” was edited while this routine was answering, so it was left alone.`)
+  }
+  return { noteId: current.id, summary: `Updated “${patch.next.title}”` }
 }
 
 /**
