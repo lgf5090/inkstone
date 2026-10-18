@@ -77,6 +77,21 @@ describe('the push subscription table', () => {
     expect((await storeFor(OTHER).listPushSubscriptions())).toHaveLength(1)
   })
 
+  it('deletes one row by its id and never a neighbour account\'s row', async () => {
+    const mine = await storeFor(USER).upsertPushSubscription({ endpoint: ENDPOINT, p256dh: P256DH, auth: AUTH })
+    const theirs = await storeFor(OTHER).upsertPushSubscription({ endpoint: OTHER_ENDPOINT, p256dh: P256DH, auth: AUTH })
+    expect(await storeFor(USER).deletePushSubscriptionById(mine.id)).toBe(true)
+    // The id is what the redacted list hands out, so it had better not be a capability: another account
+    // naming this one's row deletes nothing and is answered with false, not with an error that says whose
+    // row it was.
+    expect(await storeFor(USER).deletePushSubscriptionById(theirs.id),
+      'a row id let one account delete another account\'s subscription').toBe(false)
+    expect((await storeFor(OTHER).listPushSubscriptions()).map((row) => row.endpoint)).toEqual([OTHER_ENDPOINT])
+    // A second ask for a row already gone is false, not a crash: the surface retries it after a 404.
+    expect(await storeFor(USER).deletePushSubscriptionById(mine.id)).toBe(false)
+    expect(await storeFor(USER).listPushSubscriptions()).toEqual([])
+  })
+
   it('counts failures and drops the subscription once they reach the limit', async () => {
     const store = storeFor(USER)
     await store.upsertPushSubscription({ endpoint: ENDPOINT, p256dh: P256DH, auth: AUTH })

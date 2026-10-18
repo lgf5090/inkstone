@@ -137,7 +137,12 @@ function installFetch(): void {
       if (!configAnswer) return json({ error: { code: 'internal', message: 'no answer staged' } }, 500)
       return json(configAnswer.body, configAnswer.status)
     }
-    if (url.endsWith(SUBSCRIPTIONS_PATH)) {
+    if (url.includes(SUBSCRIPTIONS_PATH)) {
+      if (method === 'DELETE') {
+        // A revoke is addressed by the row's id, in the path — the whole endpoint is never sent for it.
+        if (refuseRevoke) return json({ error: { code: 'not_found', message: 'No device subscribed for this account carries that id.' } }, 404)
+        return json({ removed: true, subscriptions: listAfterWrite })
+      }
       // The read is its own answer: the list the account holds is what `GET` returns, staged apart from what
       // a write echoes back, so a case can tell "nothing was read" from "nothing is subscribed".
       if (method === 'GET') {
@@ -146,13 +151,14 @@ function installFetch(): void {
         return json(listAnswer.body, listAnswer.status)
       }
       if (refuseWrite) return json({ error: { code: 'bad_request', message: 'keys.p256dh must be 88 characters.' } }, 400)
-      return json({ removed: method === 'DELETE', subscriptions: listAfterWrite }, method === 'POST' ? 201 : 200)
+      return json({ subscriptions: listAfterWrite }, 201)
     }
     return json({ error: { code: 'not_found', message: 'nothing at this path' } }, 404)
   }))
 }
 
 let refuseWrite = false
+let refuseRevoke = false
 
 const switches = () => [...document.querySelectorAll<HTMLButtonElement>('[role="switch"]')]
 const alerts = () => [...document.querySelectorAll<HTMLElement>('[role="alert"]')]
@@ -188,6 +194,7 @@ beforeEach(async () => {
   listAnswer = { status: 200, body: { subscriptions: [] } }
   hangList = false
   refuseWrite = false
+  refuseRevoke = false
   listAfterWrite = [row('r1', ENDPOINT_HEAD)]
   requests = []
   subscribeOptions = []
@@ -395,7 +402,7 @@ describe('reading the account’s devices before anything is written', () => {
 })
 
 describe('turning this device off', () => {
-  it('unsubscribes the browser and deletes the endpoint it held', async () => {
+  it('unsubscribes the browser and deletes the row its endpoint matches', async () => {
     permission = 'granted'
     await mount()
     await press(switches()[0])
@@ -404,26 +411,97 @@ describe('turning this device off', () => {
 
     await press(switches()[0])
     expect(subscription!.unsubscribe).toHaveBeenCalled()
-    const deleted = requests.find((entry) => entry.method === 'DELETE' && entry.url.endsWith(SUBSCRIPTIONS_PATH))
-    expect(deleted, 'nothing was DELETEd when the switch went off').toBeTruthy()
-    expect(deleted!.body).toEqual({ endpoint: FULL_ENDPOINT })
+    const deleted = requests.filter((entry) => entry.method === 'DELETE')
+    expect(deleted, 'nothing was DELETEd when the switch went off').toHaveLength(1)
+    // Addressed by the row's id, with no body: the whole endpoint stays in the browser that made it.
+    expect(deleted[0]!.url).toContain(`${SUBSCRIPTIONS_PATH}/r1`)
+    expect(deleted[0]!.body).toBeNull()
+    expect(JSON.stringify(deleted[0]!.url), 'the credential-shaped tail reached the request').not.toContain('abcdef0123456789')
     expect(switches()[0]!.getAttribute('aria-checked')).toBe('false')
   })
 
-  it('removes the device from the row list with the same write', async () => {
+  it('turns off a device that only the read knows about', async () => {
+    // The cold case this screen used to be unable to serve: this browser already holds a subscription from
+    // an earlier visit, and nothing at all has been written in this one. The row — and the id its delete
+    // needs — can only come from the read.
     permission = 'granted'
-    listAfterWrite = [row('r1', ENDPOINT_HEAD), row('r2', 'https://other.test/push…')]
+    held = new FakeSubscription(FULL_ENDPOINT)
+    listContains([row('r7', ENDPOINT_HEAD)])
     await mount()
+    expect(switches()[0]!.getAttribute('aria-checked'), 'the subscription the browser holds was not read back').toBe('true')
+    await press(switches()[0])
+    const deleted = requests.filter((entry) => entry.method === 'DELETE')
+    expect(deleted, 'a device the read named could not be turned off').toHaveLength(1)
+    expect(deleted[0]!.url).toContain(`${SUBSCRIPTIONS_PATH}/r7`)
+  })
+})
+
+describe('revoking any device of the account', () => {
+  /** Two devices, one of them this browser's, as both the read and the writes describe them. */
+  function twoDevices(): void {
+    const rows = [row('r1', ENDPOINT_HEAD), row('r2', 'https://other.test/push…')]
+    listContains(rows)
+    listAfterWrite = rows
+  }
+
+  /** Subscribes this browser so the list holds one row this page can prove is its own. */
+  async function subscribeThisDevice(): Promise<void> {
     await press(switches()[0])
     expect(listItems()).toHaveLength(2)
-    // Only the row this page can prove is its own gets a door out; the other says what it is.
-    expect(buttonNamed(t('assistant.push.revoke'))).toBeTruthy()
-    expect(text()).toContain(t('assistant.push.other_rows_locked'))
-    expect(listItems()[1]!.textContent).toContain(t('assistant.push.not_this_device'))
+  }
 
-    listAfterWrite = [row('r2', 'https://other.test/push…')]
-    await press(buttonNamed(t('assistant.push.revoke')))
+  it('puts a way out on every row and says what a revoke costs that device', async () => {
+    permission = 'granted'
+    twoDevices()
+    await mount()
+    await subscribeThisDevice()
+    expect(buttonNamed(t('assistant.push.revoke')), 'this device lost its own door out').toBeTruthy()
+    expect(buttonNamed(t('assistant.push.revoke_other')), 'a second device has no way to be removed').toBeTruthy()
+    expect(listItems()[1]!.textContent).toContain(t('assistant.push.not_this_device'))
+    expect(text()).toContain(t('assistant.push.revoke_hint'))
+  })
+
+  it('revokes another device by the id its row carries', async () => {
+    permission = 'granted'
+    twoDevices()
+    await mount()
+    await subscribeThisDevice()
+    listAfterWrite = [row('r1', ENDPOINT_HEAD)]
+    await press(buttonNamed(t('assistant.push.revoke_other')))
+
+    const deleted = requests.filter((entry) => entry.method === 'DELETE')
+    expect(deleted).toHaveLength(1)
+    expect(deleted[0]!.url).toContain(`${SUBSCRIPTIONS_PATH}/r2`)
+    expect(deleted[0]!.body).toBeNull()
+    expect(JSON.stringify(deleted[0]), 'a revoke still sent the whole endpoint').not.toContain('abcdef0123456789')
+    const items = listItems()
+    expect(items, 'the revoked device stayed on the list').toHaveLength(1)
+    expect(items[0]!.textContent).toContain(ENDPOINT_HEAD)
+    expect(items[0]!.textContent, 'the remaining device was mislabelled as another one').not.toContain(t('assistant.push.not_this_device'))
+  })
+
+  it('keeps the route’s line when a revoke is refused, and retries the same row', async () => {
+    permission = 'granted'
+    twoDevices()
+    await mount()
+    await subscribeThisDevice()
+    refuseRevoke = true
+    await press(buttonNamed(t('assistant.push.revoke_other')))
+    expect(alerts(), 'a refused revoke said nothing').toHaveLength(1)
+    expect(text()).toContain(t('assistant.push.revoke_failed'))
+    expect(text()).toContain('No device subscribed for this account carries that id.')
+    expect(listItems()).toHaveLength(2)
+
+    refuseRevoke = false
+    listAfterWrite = [row('r1', ENDPOINT_HEAD)]
+    await press(buttonNamed(t('common.retry')))
+    const deleted = requests.filter((entry) => entry.method === 'DELETE')
+    expect(deleted, 'the retry never asked for the same device again').toHaveLength(2)
+    // The retry re-names r2, the row that failed — not this browser's own row, and not a second press of
+    // the switch that subscribed this one.
+    expect(deleted[1]!.url).toContain(`${SUBSCRIPTIONS_PATH}/r2`)
+    expect(requests.filter((entry) => entry.method === 'POST')).toHaveLength(1)
     expect(listItems()).toHaveLength(1)
-    expect(listItems()[0]!.textContent).toContain('https://other.test/push…')
+    expect(alerts(), 'the retry succeeded and the failure stayed on the screen').toHaveLength(0)
   })
 })

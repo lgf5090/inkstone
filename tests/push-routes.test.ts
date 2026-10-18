@@ -264,34 +264,78 @@ describe('GET /push/subscriptions', () => {
   })
 })
 
-describe('DELETE /push/subscriptions', () => {
+describe('DELETE /push/subscriptions/:id', () => {
+  /** The caller's two rows, and the neighbour account's one row, as each account's own list names them. */
+  let mine: SubscriptionView[]
+  let neighbour: SubscriptionView
+
+  async function readList(): Promise<SubscriptionView[]> {
+    return (await request('GET', '/api/assistant/push/subscriptions')).payload.subscriptions as SubscriptionView[]
+  }
+
+  function revoke(id: string): Promise<{ status: number, payload: Record<string, unknown> }> {
+    return request('DELETE', `/api/assistant/push/subscriptions/${id}`)
+  }
+
+  function rowsOwnedBy(userId: string): number {
+    const counted = sqlite.prepare('SELECT count(*) AS n FROM chat_push_subscriptions WHERE user_id = ?').get(userId) as { n: number }
+    return counted.n
+  }
+
   beforeEach(async () => {
     await request('POST', '/api/assistant/push/subscriptions', { endpoint: ENDPOINT, keys: { p256dh: P256DH, auth: AUTH } })
+    await request('POST', '/api/assistant/push/subscriptions', { endpoint: SECOND_ENDPOINT, keys: { p256dh: P256DH, auth: AUTH } })
+    mine = await readList()
     asUser(OTHER)
-    await request('POST', '/api/assistant/push/subscriptions', { endpoint: ENDPOINT, keys: { p256dh: P256DH, auth: AUTH } })
+    await request('POST', '/api/assistant/push/subscriptions', { endpoint: OTHER_ENDPOINT, keys: { p256dh: P256DH, auth: AUTH } })
+    neighbour = (await readList())[0]!
     asUser(USER)
+    expect(mine).toHaveLength(2)
+    expect(neighbour.id).toBeTruthy()
   })
 
-  it('removes the caller\'s own endpoint and answers with what is left', async () => {
-    const removed = await request('DELETE', '/api/assistant/push/subscriptions', { endpoint: ENDPOINT })
-    expect(removed.status).toBe(200)
-    expect(removed.payload.removed).toBe(true)
-    expect(removed.payload.subscriptions).toEqual([])
-    expect(JSON.stringify(removed.payload)).not.toContain(ENDPOINT)
-    // The same endpoint string under another account is another device and stays where it is.
-    expect(sqlite.prepare('SELECT count(*) AS n FROM chat_push_subscriptions WHERE user_id = ?').all(OTHER)).toEqual([{ n: 1 }])
-  })
-
-  it('answers 404 for an endpoint the caller does not hold', async () => {
-    const stranger = await request('DELETE', '/api/assistant/push/subscriptions', { endpoint: 'https://web.push.apple.com/DAQs1c0hKm3nPo5q' })
-    expect(stranger.status).toBe(404)
+  it('removes the row the caller names and answers with the list that is left', async () => {
+    const gone = await revoke(mine[0]!.id)
+    expect(gone.status).toBe(200)
+    expect(gone.payload.removed).toBe(true)
+    expect((gone.payload.subscriptions as SubscriptionView[]).map((row) => row.id)).toEqual([mine[1]!.id])
+    // The redaction rule survives the delete: the list that comes back is the same view the read gives, and
+    // it carries no endpoint tail and no key.
+    const wire = JSON.stringify(gone.payload)
+    expect(wire).not.toContain(ENDPOINT)
+    expect(wire).not.toContain(SECOND_ENDPOINT)
+    expect(wire).not.toContain(P256DH)
+    expect(wire).not.toContain(AUTH)
     expect(sqlite.prepare('SELECT count(*) AS n FROM chat_push_subscriptions').get()).toEqual({ n: 2 })
   })
 
-  it('refuses an endpoint that is not an https URL rather than probing with it', async () => {
-    const refused = await request('DELETE', '/api/assistant/push/subscriptions', { endpoint: 'http://updates.push.services.mozilla.com/x' })
-    expect(refused.status).toBe(400)
-    expect(errorMessage(refused.payload)).toMatch(/endpoint/)
-    expect((await request('DELETE', '/api/assistant/push/subscriptions', {})).status).toBe(400)
+  it('will not remove another account\'s row, and says so instead of pretending', async () => {
+    // A row id is handed to any signed-in reader of their own screen, so it is a handle and not a
+    // capability: naming a neighbour's row has to be refused, and refused without telling anybody whose row
+    // it was.
+    const denied = await revoke(neighbour.id)
+    expect(denied.status, 'a foreign row id was accepted as a delete').toBe(404)
+    expect(denied.payload.removed).toBeUndefined()
+    expect(denied.payload.subscriptions).toBeUndefined()
+    expect(JSON.stringify(denied.payload), 'the refusal named the account that owns the row').not.toContain(OTHER)
+    expect(rowsOwnedBy(OTHER), 'another account\'s subscription was removed by a stranger').toBe(1)
+    expect(await readList()).toHaveLength(2)
+    expect(sqlite.prepare('SELECT count(*) AS n FROM chat_push_subscriptions').get()).toEqual({ n: 3 })
+  })
+
+  it('answers 404 for an id that is not one, and for one that is simply not there', async () => {
+    const notAnId = ['', 'not-a-row-id', '../..', '0'.repeat(25), '0'.repeat(27), '0123456789abcdefghjkmnpqrsu']
+    for (const id of notAnId) {
+      expect((await revoke(id)).status, `${id} is not a row id, and must not be probed against the table`).toBe(404)
+    }
+    // Right shape, no row: answered the same way, because the difference would be a lookup into the table.
+    expect((await revoke('0123456789abcdefghjkmnpqrt')).status).toBe(404)
+    expect(sqlite.prepare('SELECT count(*) AS n FROM chat_push_subscriptions').get()).toEqual({ n: 3 })
+  })
+
+  it('requires a signed-in account', async () => {
+    app = buildApp(null)
+    expect((await revoke(mine[0]!.id)).status).toBe(401)
+    expect(rowsOwnedBy(USER)).toBe(2)
   })
 })

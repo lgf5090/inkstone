@@ -149,6 +149,10 @@ interface PushDevicesState {
   permission: PermissionChoice
   busy: 'enable' | 'disable' | null
   actionFailure: PushFailure | null
+  /** The row whose removal is in flight, so only that row's own control goes quiet. */
+  revoking: string | null
+  /** The row a removal refused, kept with its id because retrying has to ask for the same device. */
+  revokeFailure: { id: string, detail: string | null } | null
   /** Asks the server whether this deployment can push at all. Safe to retry. */
   loadConfig: () => Promise<void>
   /** Reads the account's device list. Safe to retry, and the only way the list appears without a write. */
@@ -159,6 +163,8 @@ interface PushDevicesState {
   enable: () => Promise<void>
   /** Unsubscribes this device and drops its row from the account. */
   disable: () => Promise<void>
+  /** Removes one row of the list — this account's own device or another's — by its id. */
+  revoke: (id: string) => Promise<void>
 }
 
 export const usePushDevices = create<PushDevicesState>((set, get) => ({
@@ -171,6 +177,8 @@ export const usePushDevices = create<PushDevicesState>((set, get) => ({
   permission: currentPermission(),
   busy: null,
   actionFailure: null,
+  revoking: null,
+  revokeFailure: null,
 
   loadConfig: async () => {
     set({ configFailure: null })
@@ -245,12 +253,34 @@ export const usePushDevices = create<PushDevicesState>((set, get) => ({
       const subscription = await (await livePushManager())?.getSubscription()
       if (subscription) await subscription.unsubscribe()
       if (endpoint) {
-        const { subscriptions } = await api.assistant.unsubscribePush(endpoint)
-        set({ rows: subscriptions })
+        // The route names a row by its id and the list carries only endpoint heads, so the row that is
+        // genuinely this browser's is found by matching the whole endpoint the browser holds against them —
+        // and by the time a device can be turned off, that list has been read: the mount reads it, and the
+        // write that made this endpoint is answered with it.
+        //
+        // No matching row is not a failure to report. It means the account no longer carries this device —
+        // a send the push service refused with 404 or 410 drops the row itself — and the browser has just
+        // been unsubscribed, so there is nothing left here to remove. A list that would not read at all is
+        // said by its own `rowsFailure` line, above this row, and never dressed up as an empty account.
+        const own = rowForEndpoint(endpoint, get().rows ?? [])
+        if (own) set({ rows: (await api.assistant.unsubscribePush(own.id)).subscriptions })
       }
       set({ deviceEndpoint: null, busy: null })
     } catch (error) {
       set({ busy: null, actionFailure: refusal('assistant.push.disable_failed', error) })
+    }
+  },
+
+  revoke: async (id: string) => {
+    if (get().busy || get().revoking) return
+    set({ revoking: id, revokeFailure: null })
+    try {
+      set({ rows: (await api.assistant.unsubscribePush(id)).subscriptions, revoking: null })
+    } catch (error) {
+      // Kept together with the id it refused, because the retry has to ask for the same device and not for
+      // the switch beside it: a reader revoking the laptop from the phone must not be sent through their own
+      // browser's subscription.
+      set({ revoking: null, revokeFailure: { id, detail: error instanceof ApiError ? error.serverMessage ?? null : null } })
     }
   },
 }))

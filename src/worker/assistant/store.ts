@@ -3957,6 +3957,20 @@ export class AssistantStore {
   }
 
   /**
+   * Drops one of this account's rows by its id, and answers whether anything was there to drop.
+   *
+   * The endpoint form above is what a send has to use — the sender holds the credential and no id — but a
+   * surface may not be handed a credential just to let a reader remove their own device, and the redacted
+   * list it can read carries only the head of each endpoint. This is the delete that list is answered from:
+   * the row's own id, and the account it belongs to, and nothing else. An id that names another account's
+   * row matches no row here and returns false, so the caller says 404 without ever telling the reader whose
+   * row it was not.
+   */
+  async deletePushSubscriptionById(id: string): Promise<boolean> {
+    return await this.write(`DELETE FROM chat_push_subscriptions WHERE user_id = ?1 AND id = ?2`, id) > 0
+  }
+
+  /**
    * Records a send this subscription refused, and drops it once refusals have made it worthless.
    *
    * The caller passes text already safe to keep: an endpoint never belongs in `last_error`, because a

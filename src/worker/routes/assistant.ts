@@ -2226,10 +2226,12 @@ assistantRoutes.delete('/notifications/:id', async (c) => {
  *
  * Two rules and they are both about credentials. Nothing here reads another account's rows: every call goes
  * through `store(c)`, whose statements carry the signed-in `user_id`, and the delete is looked up by
- * (account, endpoint) so handing over somebody else's endpoint string removes nothing. And no response ever
+ * (account, row id) so an id lifted off another account's list removes nothing. And no response ever
  * carries the triple back: `describeSubscription` returns the head of the endpoint and the row's own id,
  * because the whole endpoint is the ability to place a notification on that machine and this route's answer
- * travels through browser logs, screenshots and the clipboard.
+ * travels through browser logs, screenshots and the clipboard. The id is what a reader hands back to undo
+ * that — a handle for their own row, not a credential — which is why the list is readable and revocable
+ * from one screen without ever showing the endpoint whole.
  */
 
 /** The trimmed endpoint a validated body carries, or the problem with it. */
@@ -2280,13 +2282,19 @@ assistantRoutes.post('/push/subscriptions', async (c) => {
   return c.json({ subscriptions: (await s.listPushSubscriptions()).map(describeSubscription) }, 201)
 })
 
-assistantRoutes.delete('/push/subscriptions', async (c) => {
+assistantRoutes.delete('/push/subscriptions/:id', async (c) => {
   // Removal is allowed even with no VAPID keys configured: dropping a credential is never the operation that
   // needs the deployment to be able to send.
-  const body = await readJson<Record<string, unknown>>(c, JSON_BODY_LIMITS.small).catch(() => ({}) as Record<string, unknown>)
-  const endpoint = pushEndpoint(body.endpoint)
+  //
+  // The row's own id is the handle, and `requiredId` is the shape check this file already uses for every id
+  // in a path: a string that is not an id is refused as "not found" rather than as a field error, because
+  // explaining the difference would be telling the caller which ids the table holds. The delete binds the
+  // signed-in account into the statement, so an id copied out of another account's answer removes nothing
+  // and is answered as the failure it is rather than as a success.
   const s = store(c)
-  if (!await s.deletePushSubscription(endpoint)) throw ApiError.notFound('Not found')
+  if (!await s.deletePushSubscriptionById(requiredId(c.req.param('id')))) {
+    throw ApiError.notFound('No device subscribed for this account carries that id.')
+  }
   return c.json({ removed: true, subscriptions: (await s.listPushSubscriptions()).map(describeSubscription) })
 })
 

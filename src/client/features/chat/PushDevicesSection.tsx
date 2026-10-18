@@ -23,7 +23,7 @@ import { rowForEndpoint, usePushDevices } from './push-devices'
 import { formatInZone } from './time-format'
 
 export function PushDevicesSection() {
-  const { config, configFailure, rows, rowsFailure, deviceEndpoint, support, permission, busy, actionFailure, loadConfig, loadRows, readDevice, enable, disable } = usePushDevices()
+  const { config, configFailure, rows, rowsFailure, deviceEndpoint, support, permission, busy, revoking, revokeFailure, actionFailure, loadConfig, loadRows, readDevice, enable, disable, revoke } = usePushDevices()
   const timezone = useAssistant((state) => state.settings?.timezone)
   const toast = useUi((state) => state.toast)
 
@@ -53,6 +53,18 @@ export function PushDevicesSection() {
     await disable()
     const after = usePushDevices.getState()
     if (!after.actionFailure) toast({ title: t('assistant.push.disabled'), tone: 'success' })
+  }
+
+  /**
+   * Removes one row of the list, whichever device it names.
+   *
+   * The same rule as the press: a refusal is printed where the button that caused it is, with the route's own
+   * line under it and a retry that asks for the same row again.
+   */
+  const revokeRow = async (id: string): Promise<void> => {
+    await revoke(id)
+    const after = usePushDevices.getState()
+    if (after.revokeFailure?.id !== id) toast({ title: t('assistant.push.revoke_done'), tone: 'success' })
   }
 
   const description = (): string => {
@@ -168,30 +180,47 @@ export function PushDevicesSection() {
                       {row.lastError && <> · {t('assistant.push.last_error')} · {row.lastError}</>}
                     </p>
                   </div>
-                  {mine ? (
+                  <div className="flex shrink-0 items-center gap-1.5">
+                    {!mine && (
+                      <span className="text-[length:var(--text-10-5)] text-[var(--text-quaternary)]">
+                        {t('assistant.push.not_this_device')}
+                      </span>
+                    )}
+                    {/* Every row is revocable, because every row carries the one handle its delete needs —
+                        its own id. This device's row goes through the switch's own path so the browser is
+                        unsubscribed with it; the others are removed here and take effect on that machine the
+                        next time its reader comes back to this screen. */}
                     <Button
                       size="sm"
                       variant="secondary"
                       icon={<Trash2 size={12} />}
-                      loading={busy === 'disable'}
-                      onClick={() => { void press(false) }}
+                      loading={mine ? busy === 'disable' : revoking === row.id}
+                      disabled={busy !== null || revoking !== null}
+                      onClick={() => {
+                        if (mine) void press(false)
+                        else void revokeRow(row.id)
+                      }}
                     >
-                      {t('assistant.push.revoke')}
+                      {t(mine ? 'assistant.push.revoke' : 'assistant.push.revoke_other')}
                     </Button>
-                  ) : (
-                    <span className="text-[length:var(--text-10-5)] text-[var(--text-quaternary)]">
-                      {t('assistant.push.not_this_device')}
-                    </span>
-                  )}
+                  </div>
                 </li>
               )
             })}
           </ul>
         )}
 
-        {rows !== null && rows.length > 0 && rows.some((row) => thisRow?.id !== row.id) && (
+        {revokeFailure && (
+          <LoadFailure
+            messageKey="assistant.push.revoke_failed"
+            detail={revokeFailure.detail}
+            onRetry={() => { void revokeRow(revokeFailure.id) }}
+          />
+        )}
+
+        {rows !== null && rows.length > 0 && (
           <p className="text-[length:var(--text-10-5)] leading-relaxed text-[var(--text-quaternary)]">
-            {t('assistant.push.other_rows_locked')}
+            {t('assistant.push.revoke_hint')}
           </p>
         )}
       </div>

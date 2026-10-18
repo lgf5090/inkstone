@@ -1314,12 +1314,14 @@ export const api = {
      */
     subscribePush: (body: PushSubscriptionPayload) =>
       request<{ subscriptions: PushSubscriptionRow[] }>('/api/assistant/push/subscriptions', { method: 'POST', body }),
-    /** Takes one endpoint out of the account's list; the caller has to be the device that holds it whole. */
-    unsubscribePush: (endpoint: string) =>
-      request<{ removed: boolean, subscriptions: PushSubscriptionRow[] }>('/api/assistant/push/subscriptions', {
-        method: 'DELETE',
-        body: { endpoint },
-      }),
+    /**
+     * Takes one row out of the account's device list, by the id the list gave.
+     *
+     * Not by its endpoint: the list only ever carries the head of one, and the tail is the credential. The
+     * row id is the handle the reader's own screen holds, and the answer is the list that remains.
+     */
+    unsubscribePush: (id: string) =>
+      request<{ removed: boolean, subscriptions: PushSubscriptionRow[] }>(`/api/assistant/push/subscriptions/${id}`, { method: 'DELETE' }),
     settings: () => request<{ settings: AssistantSettings, models: AssistantModel[] }>('/api/assistant/settings'),
     saveSettings: (patch: Record<string, unknown>) =>
       request<{ settings: AssistantSettings }>('/api/assistant/settings', { method: 'PATCH', body: patch }),
