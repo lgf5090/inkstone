@@ -109,6 +109,29 @@ function mount(node: React.ReactElement) {
   act(() => { root.render(node) })
 }
 
+/**
+ * What a pointer is told when it rests on a control, and nothing about where that lands: jsdom lays
+ * nothing out, so the anchor's own box is stated first — the measurement `Tooltip` refuses to place a
+ * panel without. `mouseover` is the entry React reads, and the panel sits behind the component's own
+ * delay, which fake timers step over. The answer is every panel left standing, so a control with no
+ * tooltip answers an empty list rather than a null the test has to guess at.
+ */
+function toldBy(node: HTMLButtonElement | undefined): string[] {
+  expect(node, 'the control is not drawn').toBeTruthy()
+  node!.getBoundingClientRect = () => ({
+    top: 10, left: 10, right: 38, bottom: 38, x: 10, y: 10, width: 28, height: 28, toJSON: () => ({}),
+  }) as DOMRect
+  vi.useFakeTimers()
+  act(() => { node!.dispatchEvent(new MouseEvent('mouseover', { bubbles: true })) })
+  act(() => { vi.advanceTimersByTime(600) })
+  const told = [...document.body.querySelectorAll('[role="tooltip"]')].map((panel) => panel.textContent ?? '')
+  act(() => {
+    node!.dispatchEvent(new MouseEvent('mouseout', { bubbles: true, relatedTarget: document.documentElement }))
+  })
+  vi.useRealTimers()
+  return told
+}
+
 const bubble = (over: Partial<React.ComponentProps<typeof AssistantBubble>> = {}) => createElement(AssistantBubble, {
   text: 'THE ANSWER',
   reasoning: '',
@@ -224,6 +247,50 @@ describe('what an answer says about itself', () => {
     mount(bubble({ usage: { inputTokens: 100, outputTokens: 50 }, durationMs: 1000, modelLabel: 'deepseek-chat' }))
     expect(host.textContent).toContain(t('assistant.chat.tokens'))
     expect(host.textContent).toContain('deepseek-chat')
+  })
+})
+
+describe('what a pointer is told about the icon-only controls', () => {
+  const ICON_ONLY = [
+    'assistant.chat.keep',
+    'assistant.chat.rate_up',
+    'assistant.chat.rate_down',
+    'assistant.chat.message_actions',
+  ] as const
+
+  it('names every control that carries no word, in the app tooltip and nowhere else', () => {
+    mount(bubble({ onRate: () => {} }))
+    for (const key of ICON_ONLY) {
+      const control = byName(t(key))
+      expect(control, `${key} is not drawn`).toBeTruthy()
+      expect(toldBy(control), `${key} tells a pointer nothing`).toEqual([t(key)])
+      // The name stays on the control, which is what a screen reader reads; the panel is the pointer's
+      // convenience, so wiring it up as a description as well would say the same words twice.
+      expect(control!.getAttribute('aria-label'), `${key} lost its name`).toBe(t(key))
+      expect(control!.getAttribute('aria-describedby'), `${key} would be read twice`).toBeNull()
+      expect(control!.getAttribute('title'), `${key} still carries the browser's own hint`).toBeNull()
+    }
+  })
+
+  it('leaves the controls that carry their own word unhinted', () => {
+    mount(bubble({ onRate: () => {}, onRetry: () => {}, retryLabel: 'assistant.chat.regenerate' }))
+    for (const key of ['assistant.chat.copy', 'assistant.chat.regenerate', 'assistant.chat.save_to_note', 'assistant.chat.read_aloud'] as const) {
+      expect(toldBy(byName(t(key))), `${key} says it in words and drew a tooltip anyway`).toEqual([])
+    }
+  })
+
+  it('says which mark the answer already carries, and that this press takes it back', () => {
+    mount(bubble({ onRate: () => {}, savedAt: 1_700_000_000_000, feedback: 'down' }))
+    const star = byName(t('assistant.chat.unkeep'))
+    expect(toldBy(star), 'a kept answer never said it could be unkept').toEqual([t('assistant.chat.unkeep')])
+    expect(star!.getAttribute('aria-pressed'), 'the star is not drawn as pressed').toBe('true')
+    const down = byName(t('assistant.chat.rate_down'))
+    expect(toldBy(down), 'the thumb already down never said the verdict can be taken back').toEqual([t('assistant.chat.rate_down_undo')])
+    expect(down!.getAttribute('aria-pressed')).toBe('true')
+    // The thumb beside it holds nothing, so it names its own verdict rather than a cancellation.
+    const up = byName(t('assistant.chat.rate_up'))
+    expect(toldBy(up)).toEqual([t('assistant.chat.rate_up')])
+    expect(up!.getAttribute('aria-pressed')).toBe('false')
   })
 })
 

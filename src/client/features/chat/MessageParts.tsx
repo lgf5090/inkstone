@@ -47,6 +47,7 @@ import { full as fullTokenCount } from './usage-format'
 import { copyText } from '../../lib/clipboard'
 import { useLocale } from '../../lib/i18n'
 import { Button, IconButton } from '../../components/primitives'
+import { Tooltip } from '../../components/overlay'
 import { MarkdownBody } from '../preview/MarkdownBody'
 import { useAssistant } from './assistant-store'
 import { canSpeak, stopSpeaking } from './speech'
@@ -864,6 +865,12 @@ export function AssistantBubble({
   // Looking at an earlier answer means looking at the thinking that answer was written by; falling back to
   // the live trace would show the reader the wrong model's reasoning.
   const shownReasoning = viewing ? viewing.reasoning : reasoning
+  const keepLabel = t(savedAt != null ? 'assistant.chat.unkeep' : 'assistant.chat.keep')
+  const rateUpLabel = t('assistant.chat.rate_up')
+  const rateDownLabel = t('assistant.chat.rate_down')
+  const rateUpTip = feedback === 'up' ? t('assistant.chat.rate_up_undo') : rateUpLabel
+  const rateDownTip = feedback === 'down' ? t('assistant.chat.rate_down_undo') : rateDownLabel
+  const messageActionsLabel = t('assistant.chat.message_actions')
   const step = (delta: 1 | -1) => {
     const advance = (list: AssistantAnswerVersion[]) => {
       const total = list.length + 1
@@ -1079,70 +1086,76 @@ export function AssistantBubble({
                 the shelf would open. Pressed state comes from the stored `saved_at`, which is what makes it
                 the same mark on another device. */}
             {messageId && !streaming && !viewing && (
-              <IconButton
-                size="xs"
-                active={savedAt != null}
-                label={t(savedAt != null ? 'assistant.chat.unkeep' : 'assistant.chat.keep')}
-                onClick={() => void useAssistant.getState().toggleMessageSaved(messageId)}
-              >
-                <Star size={11} fill={savedAt != null ? 'currentColor' : 'none'} />
-              </IconButton>
+              <Tooltip label={keepLabel}>
+                <IconButton
+                  size="xs"
+                  active={savedAt != null}
+                  label={keepLabel}
+                  onClick={() => void useAssistant.getState().toggleMessageSaved(messageId)}
+                >
+                  <Star size={11} fill={savedAt != null ? 'currentColor' : 'none'} />
+                </IconButton>
+              </Tooltip>
             )}
             {onRate && (
               <>
-                <button
-                  type="button"
-                  onClick={() => {
-                    onRate('up')
-                    // An upvote takes the grounds card away — the reader has changed their mind about this
-                    // answer — but a card never opened is not mounted to be closed.
-                    setReasonPanel((current) => (current === 'none' ? 'none' : 'dismissed'))
-                  }}
-                  aria-pressed={feedback === 'up'}
-                  aria-label={t('assistant.chat.rate_up')}
-                  title={t('assistant.chat.rate_up')}
-                  className={cn(
-                    'ink-tap-pad relative inline-flex shrink-0 items-center rounded-[var(--r-sm)] px-1 py-0.5 text-[var(--text-quaternary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-secondary)]',
-                    feedback === 'up' && 'text-[var(--accent)]',
-                  )}
-                >
-                  <ThumbsUp size={11} />
-                </button>
-                <button
-                  type="button"
-                  ref={rateDownRef}
-                  onClick={() => {
-                    onRate('down')
-                    // The store toggles, so a second press on a down thumb is the reader taking the verdict
-                    // back — and the card closes on that press rather than opening again.
-                    setReasonPanel(feedback === 'down' ? 'dismissed' : 'open')
-                  }}
-                  aria-pressed={feedback === 'down'}
-                  aria-label={t('assistant.chat.rate_down')}
-                  title={t('assistant.chat.rate_down')}
-                  className={cn(
-                    'ink-tap-pad relative inline-flex shrink-0 items-center rounded-[var(--r-sm)] px-1 py-0.5 text-[var(--text-quaternary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-secondary)]',
-                    feedback === 'down' && 'text-[var(--danger)]',
-                  )}
-                >
-                  <ThumbsDown size={11} />
-                </button>
+                <Tooltip label={rateUpTip}>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onRate('up')
+                      // An upvote takes the grounds card away — the reader has changed their mind about this
+                      // answer — but a card never opened is not mounted to be closed.
+                      setReasonPanel((current) => (current === 'none' ? 'none' : 'dismissed'))
+                    }}
+                    aria-pressed={feedback === 'up'}
+                    aria-label={rateUpLabel}
+                    className={cn(
+                      'ink-tap-pad relative inline-flex shrink-0 items-center rounded-[var(--r-sm)] px-1 py-0.5 text-[var(--text-quaternary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-secondary)]',
+                      feedback === 'up' && 'text-[var(--accent)]',
+                    )}
+                  >
+                    <ThumbsUp size={11} />
+                  </button>
+                </Tooltip>
+                <Tooltip label={rateDownTip}>
+                  <button
+                    type="button"
+                    ref={rateDownRef}
+                    onClick={() => {
+                      onRate('down')
+                      // The store toggles, so a second press on a down thumb is the reader taking the verdict
+                      // back — and the card closes on that press rather than opening again.
+                      setReasonPanel(feedback === 'down' ? 'dismissed' : 'open')
+                    }}
+                    aria-pressed={feedback === 'down'}
+                    aria-label={rateDownLabel}
+                    className={cn(
+                      'ink-tap-pad relative inline-flex shrink-0 items-center rounded-[var(--r-sm)] px-1 py-0.5 text-[var(--text-quaternary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-secondary)]',
+                      feedback === 'down' && 'text-[var(--danger)]',
+                    )}
+                  >
+                    <ThumbsDown size={11} />
+                  </button>
+                </Tooltip>
               </>
             )}
             {body && (
               <span ref={menu.buttonRef}>
-                <button
-                  type="button"
-                  onClick={menu.openFromButton}
-                  aria-label={t('assistant.chat.message_actions')}
-                  // The panel is a disclosure, so the button says so and says whether it is down; without
-                  // these a screen reader announces a control that changes nothing it can hear.
-                  aria-haspopup="menu"
-                  aria-expanded={menu.open}
-                  className="ink-tap-pad relative inline-flex items-center rounded-[var(--r-sm)] px-1 py-0.5 text-[var(--text-quaternary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-secondary)]"
-                >
-                  <MoreHorizontal size={11} />
-                </button>
+                <Tooltip label={messageActionsLabel}>
+                  <button
+                    type="button"
+                    onClick={menu.openFromButton}
+                    aria-label={messageActionsLabel}
+                    // The panel is a disclosure, so the button says so and says whether it is down; without
+                    // these a screen reader announces a control that changes nothing it can hear.
+                    aria-haspopup="menu"
+                    aria-expanded={menu.open}
+                    className="ink-tap-pad relative inline-flex items-center rounded-[var(--r-sm)] px-1 py-0.5 text-[var(--text-quaternary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-secondary)]"
+                  >
+                    <MoreHorizontal size={11} />
+                  </button>
+                </Tooltip>
               </span>
             )}
             {pages > 1 && (
