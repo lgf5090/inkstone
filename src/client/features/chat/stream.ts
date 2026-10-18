@@ -148,7 +148,15 @@ export async function streamAssistantTurn(
         .filter((line) => line.startsWith('data:'))
         .map((line) => line.slice(5).trimStart())
         .join('\n')
-      if (!data) continue
+      if (!data) {
+        // Nothing to hand on: a comment line, which is what the worker's keepalive is. Skipping the frame
+        // is right and skipping this index along with it is not — the buffer is now `boundary + 2` bytes
+        // shorter than the number below was measured against, so the next cut would be taken from the
+        // wrong place: it would slice the middle out of the following frame, and once the buffer runs out
+        // it would never find another `\n\n` to stop on. Read the boundary again before going round.
+        boundary = buffer.indexOf('\n\n')
+        continue
+      }
       try {
         onEvent(JSON.parse(data) as ChatStreamEvent)
       } catch (error) {

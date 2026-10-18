@@ -20,13 +20,17 @@
  * different reader's problem: nothing refused the turn, so nothing has a reason to tell, and the one fact
  * worth saying is that the words stopped arriving — and then who keeps watching for the row the worker
  * files a moment after the break.
+ *
+ * The last block leaves the store behind altogether and reads bytes: a turn arrives as cuts of one buffer,
+ * and the frames a cut produces are the answer the reader sees. That is where a keepalive frame — the one
+ * line of this protocol with no `data:` on it — has somewhere to go wrong.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { AssistantMessage, AssistantSource, ChatStreamEvent } from '@shared/assistant'
 import { initI18n, t } from '../../lib/i18n'
 import { installTestGlobals } from '../../lib/test-render'
 import { useUi } from '../../store/ui'
-import type { StreamTurnInput } from './stream'
+import { streamAssistantTurn, type StreamTurnInput } from './stream'
 import {
   REMOTE_WATCH_MAX_MS,
   REMOTE_WATCH_POLL_MS,
@@ -435,5 +439,83 @@ describe('a connection that broke under the turn', () => {
     await vi.advanceTimersByTimeAsync(REMOTE_WATCH_POLL_MS)
     expect(useAssistant.getState().messages.map((message) => message.id)).toContain('m-answer')
     expect(visibleText()).not.toContain('Failed to fetch')
+  })
+})
+
+describe('the frames inside one read', () => {
+  /** One frame, in the exact shape the worker writes it. */
+  function frame(payload: Record<string, unknown>): string {
+    return `data: ${JSON.stringify(payload)}\n\n`
+  }
+
+  /**
+   * Push `chunks` through the reading loop itself and collect what it hands over, in order.
+   *
+   * The store is not the subject here: what is being checked is which bytes a cut of the buffer is
+   * allowed to produce. `realBody` puts the helper of this very file back on the wire, so the loop under
+   * test is the one `stream.ts` ships and not a stand-in that agrees with it.
+   */
+  async function readFrames(chunks: string[]): Promise<ChatStreamEvent[]> {
+    harness.realBody = true
+    const body = new ReadableStream<Uint8Array>({
+      start(controller) {
+        for (const chunk of chunks) controller.enqueue(new TextEncoder().encode(chunk))
+        controller.close()
+      },
+    })
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(body, { headers: { 'content-type': 'text/event-stream' } })))
+    const seen: ChatStreamEvent[] = []
+    // A skipped frame is logged by design, and these cases are about what arrives, not about the console.
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    await streamAssistantTurn({ message: 'a question' }, (event) => seen.push(event), new AbortController().signal)
+    warn.mockRestore()
+    return seen
+  }
+
+  /** The words the reader would end up seeing, for a stream of text frames. */
+  async function readAnswer(chunks: string[]): Promise<string[]> {
+    return (await readFrames(chunks)).map((event) => (event.type === 'text' ? event.delta ?? '' : event.type))
+  }
+
+  it('hands over every frame that shares a read with a keepalive frame', async () => {
+    // The worker writes `: keepalive\n\n` when a turn has been quiet for `KEEPALIVE_AFTER_MS`, and a
+    // comment frame is the one thing in this protocol that has no `data:` line. Skipping it is the
+    // correct answer; skipping the *boundary* with it is not, because the buffer is then one frame
+    // shorter than the index the next cut is taken from — which cuts the sentence that follows.
+    // The frames are written into one read here on purpose. A keepalive that arrives alone does the same
+    // thing to that index but leaves an empty buffer behind, and the loop then never returns to the
+    // reader at all: that case would not fail this file, it would hang it, so it is kept out and the loss
+    // of the words is what is asserted, on the shape that can say so.
+    const deltas = await readAnswer([
+      ': keepalive\n\n' + frame({ type: 'text', delta: 'half an answer' }) + frame({ type: 'text', delta: 'is' }) + frame({ type: 'text', delta: 'better than nothing' }),
+    ])
+    expect(deltas).toEqual(['half an answer', 'is', 'better than nothing'])
+  })
+
+  it('keeps the frames of one read in order and whole', async () => {
+    const events = await readFrames([
+      frame({ type: 'start', conversationId: 'c1', assistantMessageId: 'm1' })
+        + frame({ type: 'text', delta: 'half an ' })
+        + frame({ type: 'text', delta: 'answer' })
+        + frame({ type: 'done' }),
+    ])
+    expect(events.map((event) => event.type)).toEqual(['start', 'text', 'text', 'done'])
+    expect(events.map((event) => (event.type === 'text' ? event.delta : undefined)).join('')).toBe('half an answer')
+  })
+
+  it('waits for the rest of a frame that arrives cut in half', async () => {
+    const whole = frame({ type: 'text', delta: 'written across two reads' })
+    const events = await readFrames([whole.slice(0, 20), whole.slice(20)])
+    expect(events).toEqual([{ type: 'text', delta: 'written across two reads' }])
+  })
+
+  it('drops a frame it cannot parse and keeps every frame around it', async () => {
+    // Read on its own, without the keepalive above it: a comment frame leaves this index stale in a way
+    // that makes the parse-failure path below the only way out of the loop, so the two shapes are proved
+    // apart rather than as one fixture that would stall on the older reader instead of failing it.
+    const deltas = await readAnswer([
+      frame({ type: 'text', delta: 'before' }) + 'data: no json here\n\n' + frame({ type: 'text', delta: 'after' }),
+    ])
+    expect(deltas).toEqual(['before', 'after'])
   })
 })
