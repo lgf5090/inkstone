@@ -79,7 +79,22 @@ const STAGE_KEYS = {
 export function MarkdownReply({ source }: { source: string }) {
   // The reply is read by the same renderer a note's preview is, so a formula is drawn, a diagram is
   // drawn, and a `[[note]]` is a door into the notebook rather than a word that looks like a link.
-  return <MarkdownBody source={source} className="ink-chat-prose min-w-0" links={CHAT_MENTION_LINKS} />
+  //
+  // `embeds` is the same promise for a `![[note]]`: the renderer draws that box as work in progress, and
+  // only the embed pass — which needs a document to resolve against — ever fills it in or says it cannot.
+  // Without it every embed in an answer sat at "Loading" for the life of the thread, which reads as a
+  // reply still arriving rather than as a surface that never asked the notebook. An answer is not a note
+  // and has no title of its own, so `''` is what makes `![[#a heading]]` mean this reply's own heading
+  // while a named target still goes to the vault — and a target the vault cannot answer is named by the
+  // renderer's own error state, not left blank.
+  return (
+    <MarkdownBody
+      source={source}
+      className="ink-chat-prose min-w-0"
+      links={CHAT_MENTION_LINKS}
+      embeds={{ content: source, title: '' }}
+    />
+  )
 }
 
 /**

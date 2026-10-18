@@ -1035,7 +1035,12 @@ export function UserBubble({
             {/* The reader's own words are Markdown too: a `[[note]]` the composer inserted, a fenced
                 block pasted in, a list typed out — all of them mean what they say. Formulas, diagrams
                 and charts are declined because a chat bubble is a sentence, not a document, and the
-                three of them are the only channels that would pull a library in to draw one. */}
+                three of them are the only channels that would pull a library in to draw one.
+                An embed is not one of those: the composer writes `![[note]]` for the same reason it
+                writes `[[note]]`, and the box it draws is only ever filled by the pass that resolves it.
+                Left out, the question keeps saying "Loading" at the top of a thread the reader has since
+                answered — so the bubble's own words are the document it resolves against, unnamed, and a
+                note that is not in the vault is named by the renderer's own error state. */}
             <MarkdownBody
               source={text}
               className="ink-chat-prose ink-chat-authored"
@@ -1043,6 +1048,7 @@ export function UserBubble({
               mermaid={false}
               chart={false}
               links={CHAT_MENTION_LINKS}
+              embeds={{ content: text, title: '' }}
             />
           </div>
         )}
