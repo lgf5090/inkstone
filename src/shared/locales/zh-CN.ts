@@ -5961,6 +5961,8 @@ console.log(\`Hello, \${name}!\`)
     "assistant.chat.stopped": "已停止。",
     "assistant.chat.remote_streaming": "另一处正在生成回答，完成后会自动出现在这里；按停止可以立即结束它。",
     "assistant.chat.remote_streaming_lost": "无法确认另一处是否仍在生成，已恢复输入；若这段对话仍像卡住，请重新打开它。",
+    "assistant.chat.remote_partial_stopped": "这段回答没有写完：写它的后台任务被中断，不是模型自己停在这里。这些话还不是这条会话的一行记录。",
+    "assistant.chat.remote_partial_cut": "这段回答没有写完：写它的后台任务被中断，不是模型自己停在这里。这些话还不是这条会话的一行记录，而且中断前写出的内容只留下了前 {limit} 字。",
     "assistant.chat.stream_disconnected": "回答还在生成时连接断开了。已经收到的部分会保留在这里，点「继续生成」即可接着写完。",
     "assistant.chat.thinking": "思考中",
     "assistant.chat.thought": "已深度思考",
