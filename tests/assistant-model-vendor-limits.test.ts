@@ -40,7 +40,9 @@ beforeEach(async () => {
     VALUES ('${USER}', 'legacy-row', 'any-provider', 'gpt-4o', 'Written before the columns', 1)`)
 
   const db = makeD1(sqlite)
-  await initializeDatabase({ DB: db } as never)
+  // The bindings come from the factory, not a cast: a boot that starts reading another binding has to
+  // miss here rather than run against an object that only ever had `DB`.
+  await initializeDatabase(testBindings(db))
   const env = testBindings(db, { PUBLIC_URL: 'http://localhost' })
   store = new AssistantStore(env.DB as D1Database, USER, env)
 })

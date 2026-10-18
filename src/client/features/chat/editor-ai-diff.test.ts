@@ -61,6 +61,9 @@ vi.mock('../../lib/db', async (importOriginal) => {
       ...actual.localDb,
       setContentBatch: vi.fn(async () => undefined),
       enqueueOutboxBatch: vi.fn(async () => undefined),
+      // The replay lock goes with the queue: `useNotes.flush()` replays inside it, so a double that
+      // answers the writes but not the lock throws on a debounced save that fires after its own test.
+      withOutboxReplayLock: async (_owner: string, task: () => Promise<void>) => { await task(); return true },
     },
   }
 })

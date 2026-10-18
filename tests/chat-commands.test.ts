@@ -151,7 +151,9 @@ describe('the chat actions in the command registry', () => {
     const stopped = vi.fn()
     useAssistant.setState({
       stop: stopped,
-      turn: { conversationId: 'c-1', done: false } as never,
+      // A whole turn record rather than a cast: the command reads several fields off it, and an object
+      // that only pretends to be one would stop telling us when the shape changes.
+      turn: { conversationId: 'c-1', userText: '', attachments: [], assistantId: null, text: '', reasoning: '', tools: [], stage: undefined, error: null, done: false },
     } as Partial<ReturnType<typeof useAssistant.getState>>)
     runCommand('chat-stop-answer')
     expect(stopped).toHaveBeenCalled()

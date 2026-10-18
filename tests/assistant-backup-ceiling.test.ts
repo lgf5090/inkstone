@@ -88,7 +88,7 @@ function instrument(inner: D1Database): D1Database {
               return Promise.reject(new Error('simulated D1 failure between two batches'))
             }
           }
-          return (object as unknown as D1Database).batch(unwrapped as never)
+          return (object as unknown as D1Database).batch(unwrapped)
         }
       }
       return Reflect.get(object, property)
