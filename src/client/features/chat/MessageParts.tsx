@@ -11,7 +11,7 @@
  * So the chip's words come from the locale catalog by tool name, the prose is its own class, and the
  * approval card is driven by the action's current status.
  */
-import { useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
 import {
   AlertTriangle,
   Check,
@@ -30,14 +30,17 @@ import {
   Sparkles,
   ThumbsDown,
   ThumbsUp,
+  Volume2,
+  VolumeX,
   Wrench,
   XCircle
 } from 'lucide-react'
 import type { AssistantAnswerVersion, AssistantSource, MessageFeedback, ToolActivity } from '@shared/assistant'
 import { ASSISTANT_TOOL_BY_NAME, mcpToolOrigin } from '@shared/assistant'
+import { toPlainText } from '@shared/markdown-utils'
 import { cn } from '../../lib/cn'
 import { COPY_RESET_MS } from '../../lib/motion'
-import { t, type MessageKey } from '../../lib/i18n'
+import { getLocale, t, type MessageKey } from '../../lib/i18n'
 import { formatInZone } from './time-format'
 import { full as fullTokenCount } from './usage-format'
 import { copyText } from '../../lib/clipboard'
@@ -45,6 +48,7 @@ import { useLocale } from '../../lib/i18n'
 import { Button } from '../../components/primitives'
 import { MarkdownBody } from '../preview/MarkdownBody'
 import { useAssistant } from './assistant-store'
+import { canSpeak, stopSpeaking } from './speech'
 import { useUi } from '../../store/ui'
 import { MessageAttachments } from './ChatAttachments'
 import { CHAT_NOTE_LINKS, openCitedNote } from './note-links'
@@ -521,6 +525,208 @@ function AnswerFootline({ usage, durationMs, modelLabel }: {
   )
 }
 
+/**
+ * The most the engine is handed in one piece.
+ *
+ * A browser's speech synthesiser drops what it cannot say in one breath — every engine is comfortable well
+ * under a screen of text — so a long answer is read in pieces and the row stays lit until the last one has
+ * finished. It is a ceiling rather than a target: a piece ends on a clause mark or a space wherever one
+ * falls inside it, so the cut costs no word, and only a run with neither is cut mid-sentence.
+ */
+const SPEAK_PIECE_CHARS = 220
+
+/**
+ * Where a piece may end.
+ *
+ * A clause mark comes first because a Chinese answer has no spaces to cut on, and `[\u3001\u3002...]` is
+ * how its own punctuation is named without the interface copy the locale catalog owns.
+ */
+const SPEAK_CLAUSE_END = /[\u3001\u3002\uff01\u3002\uff0c\uff1a\uff1b\uff1f][ \t]*|[.!?:;][ \t]+|[ \t]+/g
+
+function lastBoundary(window: string): number {
+  let cut = -1
+  for (const match of window.matchAll(SPEAK_CLAUSE_END)) {
+    const index = match.index + match[0].length
+    if (index > cut) cut = index
+  }
+  return cut
+}
+
+/**
+ * The answer as the voice gets it: markup taken out, then cut into pieces the engine will keep.
+ *
+ * Exported because the cut is the part a reader cannot see working — the words either all arrive or some
+ * of them never do.
+ */
+export function splitForSpeech(text: string): string[] {
+  // A screen reader spelling out `##` and `**` is worse than not offering the button, so the markup goes
+  // before anything is measured: the pieces are what the answer says, not how it is written.
+  let rest = toPlainText(text)
+  if (!rest) return []
+  const pieces: string[] = []
+  while (rest.length > SPEAK_PIECE_CHARS) {
+    const cut = lastBoundary(rest.slice(0, SPEAK_PIECE_CHARS))
+    // No boundary at all in a whole piece is a run of characters with no space and no clause mark in it.
+    // Cutting it anyway is what keeps the rest of the answer readable instead of silently dropped.
+    const edge = cut > 0 ? cut : SPEAK_PIECE_CHARS
+    pieces.push(rest.slice(0, edge))
+    rest = rest.slice(edge)
+  }
+  if (rest) pieces.push(rest)
+  return pieces
+}
+
+/**
+ * Which row, if any, is holding the one voice the browser has.
+ *
+ * `speechSynthesis` is a single channel for the whole document, and a row that does not know somebody else
+ * took it goes on saying "reading" while another answer's voice is what comes out. One module token is the
+ * smallest thing that can answer that: nothing is broadcast and nothing is subscribed to — a row only asks
+ * whether the token is still its own before it believes an engine callback.
+ */
+let speakingToken: symbol | null = null
+
+/**
+ * The row's own half of that channel: forget the queue and the light, and hand the token back only if this
+ * row is the one still holding it.
+ */
+function releaseToken(token: React.RefObject<symbol | null>, queue: React.RefObject<string[]>): void {
+  if (token.current !== null && speakingToken === token.current) speakingToken = null
+  token.current = null
+  queue.current = []
+}
+
+/**
+ * Reading one answer aloud, as a switch rather than a fire-and-forget menu row.
+ *
+ * Three things make this a control instead of a trick: the state is spoken (`aria-pressed`, and a name that
+ * changes), the voice is put back down wherever the answer stops being on screen — this row unmounting, the
+ * conversation switching, another answer taking the channel — and a browser with no speech synthesis says so
+ * in the node its disabled control points at, rather than offering an icon that does nothing.
+ *
+ * An answer with nothing readable in it draws nothing: there is no capability being withheld, only no words
+ * to hear, and a press that could only apologise for itself is not an affordance.
+ */
+export function ReadAloudButton({ text }: { text: string }) {
+  const [reading, setReading] = useState(false)
+  // A voice that died while it still held the channel is a different fact from one that was never asked
+  // for, and it is the reader's, so it is said on this row rather than in a toast elsewhere.
+  const [failed, setFailed] = useState<string | null>(null)
+  const hintId = useId()
+  const conversationId = useAssistant((state) => state.activeId)
+  const token = useRef<symbol | null>(null)
+  const queue = useRef<string[]>([])
+  const pieces = useMemo(() => splitForSpeech(text), [text])
+  const available = canSpeak()
+
+  const stop = useCallback(() => {
+    // Only what this row still owns is its to stop: cancelling the channel would cut off whichever answer
+    // took it over.
+    const owned = token.current !== null && speakingToken === token.current
+    releaseToken(token, queue)
+    setReading(false)
+    if (owned) stopSpeaking()
+  }, [])
+
+  const readNext = useCallback(() => {
+    const mine = token.current
+    if (mine === null) return
+    const piece = queue.current.shift()
+    if (piece === undefined) {
+      // The whole answer has been handed over and finished: the light comes down with the queue.
+      releaseToken(token, queue)
+      setReading(false)
+      return
+    }
+    const utterance = new window.SpeechSynthesisUtterance(piece)
+    // Decided at the press rather than at render: the interface language is a setting a reader moves
+    // between answers, and a Chinese answer handed to an English voice is the mistake this avoids.
+    utterance.lang = getLocale()
+    utterance.onend = () => {
+      // Somebody else owns the channel now, so this row has one job left: stop claiming it is reading.
+      if (token.current !== mine || speakingToken !== mine) {
+        releaseToken(token, queue)
+        setReading(false)
+        return
+      }
+      readNext()
+    }
+    utterance.onerror = (event) => {
+      if (token.current !== mine) return
+      const owned = speakingToken === mine
+      releaseToken(token, queue)
+      setReading(false)
+      // `canceled` and `interrupted` are the engine obeying a stop — this row's own press, another answer
+      // taking the voice, a thread switched. Only a voice that died while it still held the channel is
+      // worth a sentence.
+      if (owned && event.error !== 'canceled' && event.error !== 'interrupted') setFailed(t('assistant.chat.read_failed'))
+    }
+    window.speechSynthesis.speak(utterance)
+  }, [])
+
+  const start = () => {
+    if (!available || !pieces.length) return
+    // The channel is one, so taking it means putting down whatever was being read on it — before this row
+    // claims it, so whoever loses it hears a stop rather than a half sentence.
+    stopSpeaking()
+    const mine = Symbol('read-aloud')
+    token.current = mine
+    speakingToken = mine
+    queue.current = [...pieces]
+    setFailed(null)
+    setReading(true)
+    readNext()
+  }
+
+  // Unmount is the thread scrolling away, the panel closing, the answer being regenerated: none of them
+  // leaves a reader who can still hear this row.
+  useEffect(() => () => {
+    const owned = token.current !== null && speakingToken === token.current
+    releaseToken(token, queue)
+    if (owned) stopSpeaking()
+  }, [])
+
+  // A voice reading an answer that is no longer on screen is the ghost this exists to kill: the reader hears
+  // a reply they cannot find, because the row that started it is on the other side of the switch.
+  const lastConversation = useRef(conversationId)
+  useEffect(() => {
+    if (lastConversation.current === conversationId) return
+    lastConversation.current = conversationId
+    stop()
+  })
+
+  if (!pieces.length) return null
+
+  return (
+    <>
+      <button
+        type="button"
+        disabled={!available}
+        {...(available ? { 'aria-pressed': reading } : {})}
+        aria-label={reading ? t('assistant.chat.read_stop') : t('assistant.chat.read_aloud')}
+        {...(!available ? { 'aria-describedby': hintId } : {})}
+        onClick={() => (reading ? stop() : start())}
+        className={cn(
+          'inline-flex shrink-0 items-center gap-1 rounded-[var(--r-sm)] px-1 py-0.5 text-[length:var(--text-11)]',
+          'text-[var(--text-quaternary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-secondary)]',
+          !available && 'cursor-not-allowed opacity-40 hover:bg-transparent hover:text-[var(--text-quaternary)]',
+        )}
+      >
+        {reading ? <VolumeX size={11} aria-hidden /> : <Volume2 size={11} aria-hidden />}
+        {reading ? t('assistant.chat.read_stop') : t('assistant.chat.read_aloud')}
+      </button>
+      {!available && <span id={hintId} className="sr-only">{t('assistant.chat.read_unavailable')}</span>}
+      {failed && (
+        // `basis-full` asks for the whole width instead of splitting the chips around it: the row is icons
+        // and one-word labels, and a reason has to be read as a line of its own.
+        <p role="alert" className="basis-full min-w-0 break-words text-[length:var(--text-11)] text-[var(--danger)]">
+          {failed}
+        </p>
+      )}
+    </>
+  )
+}
+
 export function AssistantBubble({
   text,
   reasoning,
@@ -794,6 +1000,10 @@ export function AssistantBubble({
                 {copied ? t('assistant.chat.copied') : t('assistant.chat.copy')}
               </button>
             )}
+            {/* Hearing it belongs beside copying it: a reader who wants the answer read out should not have to
+                find it in a context menu, and a switch that can be put back down is the part a menu row
+                cannot be. */}
+            {body && <ReadAloudButton text={body} />}
             {/* A finished answer can be asked again from the same footer; the error card above carries
                 its own retry, so the two never appear on one message. */}
             {!error && body && onRetry && !viewing && (
