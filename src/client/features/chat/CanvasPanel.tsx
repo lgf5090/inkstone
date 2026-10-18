@@ -16,11 +16,12 @@
  * drawn with the notebook's own code blocks, tables and highlight, and — when the renderer cannot produce
  * that — the text itself beside a sentence saying it was not drawn. A panel that goes white on a failed
  * render is indistinguishable from a draft that is empty, and an assistant draft is never empty when the
- * reader is looking at it.
+ * reader is looking at it. Drawing it is `ArtifactBody`'s job; this file is the panel, the draft's two
+ * modes, and the writes between them.
  */
 
-import { Component, useEffect, useMemo, useRef, useState, type ErrorInfo, type KeyboardEvent, type ReactNode } from 'react'
-import { ArrowLeft, Check, Copy, FileText, Link2Off, NotebookPen, PanelRight, RefreshCw, TriangleAlert, Trash2, X } from 'lucide-react'
+import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react'
+import { ArrowLeft, Check, Copy, FileText, Link2Off, NotebookPen, PanelRight, RefreshCw, Trash2, X } from 'lucide-react'
 import type { AssistantArtifact } from '@shared/assistant'
 import { DEBOUNCE } from '@shared/constants'
 import { cn } from '../../lib/cn'
@@ -29,6 +30,7 @@ import { useDebounced, useMediaQuery } from '../../lib/hooks'
 import { COPY_RESET_MS } from '../../lib/motion'
 import { relativeTime } from '../../lib/time'
 import { api } from '../../lib/api'
+import { copyText } from '../../lib/clipboard'
 import { Button, IconButton, Spinner } from '../../components/primitives'
 import { Input } from '../../components/form'
 import { Drawer, confirm } from '../../components/overlay'
@@ -36,10 +38,9 @@ import { DeferredCodeEditor } from '../../editor/CodeEditor'
 import { useNotes } from '../../store/notes'
 import { useSession } from '../../store/session'
 import { useUi } from '../../store/ui'
-import { MarkdownBody } from '../preview/MarkdownBody'
+import { ArtifactBody } from './ArtifactBody'
 import { useAssistant } from './assistant-store'
 import { LoadFailure } from './assistant-settings-shared'
-import { CHAT_NOTE_LINKS } from './note-links'
 import { saveReplyAsNote } from './save-to-note'
 import { loadLinkedNote, pullFromNote, pushToNote } from './canvas-sync'
 
@@ -169,6 +170,12 @@ function ArtifactEditor({ artifact, onSave, onRemove }: {
   const [content, setContent] = useState(artifact.content)
   const [mode, setMode] = useState<DraftMode>('write')
   const [copied, setCopied] = useState(false)
+  // The "Copied" countdown, held so that closing the panel takes the timer with the button it was drawn
+  // on rather than leaving it to run against a surface the reader already walked away from.
+  const copyTimer = useRef<number | null>(null)
+  useEffect(() => () => {
+    if (copyTimer.current !== null) window.clearTimeout(copyTimer.current)
+  }, [])
   const linkedNoteId = artifact.noteId
   const linkedTitle = useNotes((state) => (linkedNoteId ? state.notes[linkedNoteId]?.title ?? null : null))
 
@@ -271,10 +278,27 @@ function ArtifactEditor({ artifact, onSave, onRemove }: {
     },
   }), [])
 
+  /**
+   * Copies the whole draft, and says which of the two things just happened.
+   *
+   * `copyText` answers whether the clipboard took the text — it has the legacy path for a plain-http
+   * install, where `navigator.clipboard` is not offered at all — so a press that claimed success whatever
+   * it did would be a lie about a paste the reader is about to make somewhere else, and they would only
+   * find out there.
+   */
   const copy = () => {
-    void navigator.clipboard?.writeText(content)
-    setCopied(true)
-    window.setTimeout(() => setCopied(false), COPY_RESET_MS)
+    void copyText(content).then((taken) => {
+      if (!taken) {
+        useUi.getState().toast({ title: t('preview.could_not_copy'), tone: 'danger' })
+        return
+      }
+      setCopied(true)
+      if (copyTimer.current !== null) window.clearTimeout(copyTimer.current)
+      copyTimer.current = window.setTimeout(() => {
+        copyTimer.current = null
+        setCopied(false)
+      }, COPY_RESET_MS)
+    })
   }
 
   /** File the draft, then remember which note it became — the two are one document from then on. */
@@ -378,7 +402,7 @@ function ArtifactEditor({ artifact, onSave, onRemove }: {
             className="h-full"
           />
         ) : (
-          <DraftPreview content={content} />
+          <ArtifactBody content={content} title={title} />
         )}
       </div>
       <div className="flex shrink-0 items-center gap-1 border-t border-[var(--border-subtle)] px-2 py-1.5">
@@ -470,62 +494,4 @@ function ModeTabs({ artifactId, mode, onSelect }: {
       })}
     </div>
   )
-}
-
-/**
- * The preview, and what it says when it cannot draw.
- *
- * The body is handed to the notebook's own Markdown surface — the one that gives a fence its highlight and
- * its copy button, and a table its wrapper and its rules — under the class that carries those into a narrow
- * panel. `MarkdownBody` builds its markup while it renders, so a document the renderer chokes on is a render
- * error rather than a return value, and the only honest thing left to show the reader is the text they came
- * to read. The boundary resets itself when the text changes: a reader who fixes the Markdown that broke the
- * render should see the fix without closing the panel.
- */
-function DraftPreview({ content }: { content: string }) {
-  return (
-    <PreviewBoundary source={content}>
-      <div className="h-full overflow-y-auto px-3 py-2">
-        <MarkdownBody source={content} className="ink-chat-prose min-w-0" links={CHAT_NOTE_LINKS} />
-      </div>
-    </PreviewBoundary>
-  )
-}
-
-class PreviewBoundary extends Component<{ source: string, children: ReactNode }, { failed: boolean }> {
-  state: { failed: boolean } = { failed: false }
-
-  static getDerivedStateFromError(): { failed: boolean } {
-    return { failed: true }
-  }
-
-  componentDidCatch(error: Error, info: ErrorInfo): void {
-    // Not a silent downgrade: what failed has to reach the console with the document it failed on, or the
-    // reader's report of a blank draft has nothing to be traced to.
-    console.error('[inkstone] canvas draft preview failed', error, info.componentStack)
-  }
-
-  componentDidUpdate(previous: { source: string }): void {
-    if (previous.source !== this.props.source && this.state.failed) this.setState({ failed: false })
-  }
-
-  render(): ReactNode {
-    if (!this.state.failed) return this.props.children
-    return (
-      <div className="flex h-full min-h-0 flex-col gap-2 px-3 py-2">
-        <p role="alert" className="flex shrink-0 items-start gap-1.5 text-[length:var(--text-12)] leading-relaxed text-[var(--text-secondary)]">
-          <TriangleAlert size={13} className="mt-px shrink-0 text-[var(--warning)]" aria-hidden="true" />
-          <span>{t('assistant.canvas.render_failed')}</span>
-        </p>
-        <pre
-          role="region"
-          aria-label={t('assistant.canvas.raw_text')}
-          tabIndex={0}
-          className="min-h-0 flex-1 overflow-auto whitespace-pre-wrap break-words rounded-[var(--r-sm)] bg-[var(--bg-inset)] p-2 font-mono text-[length:var(--text-12)] leading-[var(--code-line)] text-[var(--text-primary)]"
-        >
-          {this.props.source}
-        </pre>
-      </div>
-    )
-  }
 }
