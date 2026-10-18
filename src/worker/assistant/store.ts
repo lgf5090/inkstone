@@ -91,6 +91,35 @@ export const RUN_LEASE_MS = 5 * 60 * 1000
 export const AUTOMATION_CLAIM_MS = 10 * 60 * 1000
 
 /**
+ * How many refused sends one device's subscription gets before it is dropped.
+ *
+ * A push service that answers 4xx/5xx without saying the endpoint is gone is usually describing a device
+ * that has been wiped, uninstalled or offline past its retention — none of which a retry fixes. Five is
+ * enough to ride out a service hiccup and small enough that a dead row does not linger holding a credential.
+ */
+export const PUSH_SUBSCRIPTION_FAILURE_LIMIT = 5
+
+/** How much of a push service's refusal is kept, so an HTML error page cannot become the row. */
+const PUSH_SUBSCRIPTION_ERROR_CHARS = 500
+
+/**
+ * One browser device a reader has asked to be notified on, as the store holds it.
+ *
+ * `endpoint`, `p256dh` and `auth` together are the ability to put a notification on that device. They stay
+ * server-side: this type is what `push.ts` sends with and what a route must redact before returning it, and
+ * the table is deliberately outside every export path (see the comment in `assistant/schema.ts`).
+ */
+export interface AssistantPushSubscription {
+  id: string
+  endpoint: string
+  p256dh: string
+  auth: string
+  createdAt: number
+  failures: number
+  lastError: string | null
+}
+
+/**
  * The counter a caller names, as the column it is stored in.
  *
  * `UsageCounters` is camelCase because it crosses the API, `chat_usage_daily` is snake_case
@@ -3828,6 +3857,76 @@ export class AssistantStore {
     await this.write(`DELETE FROM chat_notifications WHERE user_id = ?1 AND id = ?2`, id)
   }
 
+  // ----------------------------------------------------- push subscriptions
+
+  /**
+   * One browser device's Web Push subscription.
+   *
+   * `endpoint`, `p256dh` and `auth` are a credential triple: together they are the ability to place a
+   * notification on that device, so this record is never handed to an export, a share or a log line. The
+   * route that lists subscriptions returns a redacted description of each, and `describeEndpoint` in
+   * `push.ts` is what turns one into text that is safe to store in `lastError`.
+   */
+  async upsertPushSubscription(input: { endpoint: string, p256dh: string, auth: string }): Promise<AssistantPushSubscription> {
+    const id = newId()
+    // A renewed subscription overwrites its own keys and clears the failure ledger: the browser re-subscribing
+    // at the same endpoint is evidence the device is still there, and a count carried over from the old keys
+    // would delete a working subscription on the fifth send after the reader had just asked to be notified.
+    // The conflict target is the account-qualified unique index, so two accounts can never overwrite
+    // each other's row even if a push service ever handed out the same endpoint string twice.
+    await this.write(
+      `INSERT INTO chat_push_subscriptions (id, user_id, endpoint, p256dh, auth, created_at, failures, last_error)
+       VALUES (?2, ?1, ?3, ?4, ?5, ?6, 0, NULL)
+       ON CONFLICT(user_id, endpoint) DO UPDATE SET p256dh = excluded.p256dh, auth = excluded.auth,
+         failures = 0, last_error = NULL`,
+      id, input.endpoint, input.p256dh, input.auth, Date.now(),
+    )
+    const row = await this.one<PushSubscriptionRow>(
+      `SELECT * FROM chat_push_subscriptions WHERE user_id = ?1 AND endpoint = ?2`,
+      this.userId, input.endpoint,
+    )
+    if (!row) throw new Error('the push subscription write produced no row')
+    return toPushSubscription(row)
+  }
+
+  async listPushSubscriptions(): Promise<AssistantPushSubscription[]> {
+    const q = new Query(this.userId)
+    const list = await this.rows<PushSubscriptionRow>(
+      `SELECT * FROM chat_push_subscriptions WHERE ${q.where} ORDER BY created_at`,
+      ...q.binds,
+    )
+    return list.map(toPushSubscription)
+  }
+
+  /** Drops one endpoint of this account, and answers whether anything was there to drop. */
+  async deletePushSubscription(endpoint: string): Promise<boolean> {
+    return await this.write(`DELETE FROM chat_push_subscriptions WHERE user_id = ?1 AND endpoint = ?2`, endpoint) > 0
+  }
+
+  /**
+   * Records a send this subscription refused, and drops it once refusals have made it worthless.
+   *
+   * The caller passes text already safe to keep: an endpoint never belongs in `last_error`, because a
+   * database dump or a support screenshot of this column would otherwise carry a live credential. A
+   * refusal that reaches the limit is not a subscription to keep trying — the device has said nothing for
+   * five sends, and a row that cannot be delivered to is only a leak waiting to be read.
+   */
+  async notePushFailure(endpoint: string, error: string): Promise<{ failures: number, dropped: boolean }> {
+    const touched = await this.write(
+      `UPDATE chat_push_subscriptions SET failures = failures + 1, last_error = ?2 WHERE user_id = ?1 AND endpoint = ?3`,
+      error.slice(0, PUSH_SUBSCRIPTION_ERROR_CHARS), endpoint,
+    )
+    if (!touched) return { failures: 0, dropped: false }
+    const row = await this.one<{ failures: number }>(
+      `SELECT failures FROM chat_push_subscriptions WHERE user_id = ?1 AND endpoint = ?2`,
+      this.userId, endpoint,
+    )
+    const failures = row?.failures ?? 0
+    if (failures < PUSH_SUBSCRIPTION_FAILURE_LIMIT) return { failures, dropped: false }
+    await this.deletePushSubscription(endpoint)
+    return { failures, dropped: true }
+  }
+
   // --------------------------------------------------------- pending actions
 
   async createPendingAction(input: {
@@ -4837,6 +4936,12 @@ export class AssistantStore {
  * The table name reaches `importRow` from a backup file, and a column list is built from the same
  * object, so this map is what keeps a hostile file from naming a table or a column at all: an entry
  * that is not here is refused before any SQL is assembled.
+ *
+ * `chat_push_subscriptions` is absent on purpose, and so is `chat_active_runs`: a push subscription is a
+ * credential — endpoint plus p256dh plus auth is the right to place a notification on somebody's device — so
+ * it goes nowhere near an export, a share or an off-site snapshot, and it is not what a restore is for. The
+ * device re-subscribes itself. Adding it here is a privacy regression, not a missing feature, and
+ * `tests/push-subscription-store.test.ts` fails the moment the triple reaches any export path.
  */
 const EXPORT_COLUMNS: Readonly<Record<string, readonly string[]>> = {
   // `project_id` and `parent_id` are part of a stored thread even though the backup did not always
@@ -5498,6 +5603,28 @@ function toNotification(r: NotificationRow): AssistantNotification {
     automationId: r.automation_id,
     readAt: num(r.read_at),
     createdAt: r.created_at,
+  }
+}
+
+interface PushSubscriptionRow {
+  id: string
+  endpoint: string
+  p256dh: string
+  auth: string
+  created_at: number
+  failures: number
+  last_error: string | null
+}
+
+function toPushSubscription(r: PushSubscriptionRow): AssistantPushSubscription {
+  return {
+    id: r.id,
+    endpoint: r.endpoint,
+    p256dh: r.p256dh,
+    auth: r.auth,
+    createdAt: r.created_at,
+    failures: num(r.failures) ?? 0,
+    lastError: r.last_error ?? null,
   }
 }
 

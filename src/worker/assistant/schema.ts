@@ -464,6 +464,38 @@ export const ASSISTANT_SCHEMA_STATEMENTS: readonly string[] = [
   `CREATE INDEX IF NOT EXISTS idx_chat_notifications_unread
      ON chat_notifications(user_id, read_at, created_at)`,
 
+  /**
+   * The devices a reader has asked to be notified on.
+   *
+   * A row is a credential, not a preference. `endpoint` plus `p256dh` plus `auth` is everything needed to
+   * put a notification on that machine, and whoever holds the triple holds it for as long as the row lives.
+   * Three consequences are therefore fixed here and belong to any change to this table:
+   *  - it is deliberately absent from `EXPORT_COLUMNS`, from `exportTables()` and from the backup reader, so
+   *    no JSON export, share path or off-site snapshot ever carries it: a backup handed to another machine
+   *    must not hand over the right to notify this one. A device's subscriptions are re-established by that
+   *    device calling `PushManager.subscribe` again, which is the only renewal that is safe to rely on;
+   *  - the triple never reaches a log line whole. `last_error` is written by the sender with a redacted
+   *    description of the endpoint (origin plus a short digest), not with the endpoint itself;
+   *  - the row is scoped and keyed by account like everything else here, and the delete paths are as
+   *    careful as the read paths, because dropping another account's row would be denial plus a leak.
+   */
+  `CREATE TABLE IF NOT EXISTS chat_push_subscriptions (
+    user_id TEXT NOT NULL,
+    id TEXT NOT NULL,
+    endpoint TEXT NOT NULL,
+    p256dh TEXT NOT NULL,
+    auth TEXT NOT NULL,
+    created_at INTEGER NOT NULL,
+    failures INTEGER NOT NULL DEFAULT 0,
+    last_error TEXT,
+    PRIMARY KEY (user_id, id)
+  )`,
+  // One endpoint per account, once: a browser that renews its keys calls `subscribe` again at the same URL,
+  // and the store upserts against this index rather than stacking a second credential for one device. It
+  // leads with the account because every read here is one reader's device list.
+  `CREATE UNIQUE INDEX IF NOT EXISTS idx_chat_push_subscriptions_endpoint
+     ON chat_push_subscriptions(user_id, endpoint)`,
+
   `CREATE TABLE IF NOT EXISTS chat_pending_actions (
     user_id TEXT NOT NULL,
     id TEXT NOT NULL,
@@ -606,6 +638,7 @@ export const ASSISTANT_REQUIRED_TABLES: readonly string[] = [
   'chat_automations',
   'chat_runs',
   'chat_notifications',
+  'chat_push_subscriptions',
   'chat_pending_actions',
   'chat_usage_daily',
   'chat_usage_daily_model',
@@ -644,6 +677,7 @@ export const ASSISTANT_REQUIRED_INDEXES: readonly string[] = [
   'idx_chat_runs_started',
   'idx_chat_notifications_user',
   'idx_chat_notifications_unread',
+  'idx_chat_push_subscriptions_endpoint',
   'idx_chat_actions_conversation',
   'idx_chat_actions_pending',
   'idx_chat_usage_model_user',
@@ -684,6 +718,7 @@ export const ASSISTANT_REQUIRED_COLUMNS: Readonly<Record<string, readonly string
   chat_automations: ['user_id', 'id', 'name', 'kind', 'message', 'schedule', 'enabled', 'status', 'next_run', 'last_run', 'last_result', 'last_error', 'run_count', 'claimed_at', 'target_folder_id', 'target_note_id', 'created_at', 'updated_at'],
   chat_runs: ['user_id', 'id', 'automation_id', 'automation_name', 'started_at', 'finished_at', 'status', 'result', 'error', 'note_id'],
   chat_notifications: ['user_id', 'id', 'title', 'body', 'automation_id', 'read_at', 'created_at'],
+  chat_push_subscriptions: ['user_id', 'id', 'endpoint', 'p256dh', 'auth', 'created_at', 'failures', 'last_error'],
   chat_pending_actions: ['user_id', 'id', 'conversation_id', 'tool', 'target_id', 'target_label', 'args', 'status', 'error', 'created_at', 'expires_at', 'resolved_at'],
   chat_usage_daily: ['user_id', 'day', 'requests', 'input_tokens', 'output_tokens', 'tool_calls', 'scheduled_runs', 'embeddings', 'errors'],
   chat_activity: ['user_id', 'id', 'type', 'summary', 'created_at'],

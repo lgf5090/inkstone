@@ -1587,6 +1587,38 @@ export const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
          ON chat_messages(user_id, saved_at DESC, id)`,
     ],
   },
+  {
+    // The devices a reader has asked to be pushed to. Created here as well as in the table list so an
+    // account that has been running since before Web Push existed gets it on the next boot.
+    //
+    // One table, one version; the unique index the per-account upsert needs is the next one. The triple is
+    // a credential and is deliberately kept out of every export path — see the comment on the table in
+    // `assistant/schema.ts`.
+    version: 104,
+    statements: [
+      `CREATE TABLE IF NOT EXISTS chat_push_subscriptions (
+    user_id TEXT NOT NULL,
+    id TEXT NOT NULL,
+    endpoint TEXT NOT NULL,
+    p256dh TEXT NOT NULL,
+    auth TEXT NOT NULL,
+    created_at INTEGER NOT NULL,
+    failures INTEGER NOT NULL DEFAULT 0,
+    last_error TEXT,
+    PRIMARY KEY (user_id, id)
+  )`,
+    ],
+  },
+  {
+    // One endpoint per account, which is what lets a renewed subscription overwrite its own keys instead of
+    // stacking a second credential for the same device. It leads with `user_id` for the same reason every
+    // other index here does: the only list this serves is one reader's devices.
+    version: 105,
+    statements: [
+      `CREATE UNIQUE INDEX IF NOT EXISTS idx_chat_push_subscriptions_endpoint
+     ON chat_push_subscriptions(user_id, endpoint)`,
+    ],
+  },
 ]
 
 const FTS_STATEMENT = `CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(
