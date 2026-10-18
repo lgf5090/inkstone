@@ -93,6 +93,10 @@ export function MarkdownReply({ source }: { source: string }) {
       source={source}
       className="ink-chat-prose min-w-0"
       links={CHAT_MENTION_LINKS}
+      // A thread is a list of these, and the reader is at its newest turn: a reply four screens up is
+      // not worth a prism run and a katex pass before anybody scrolls to it. The markup itself is
+      // rendered either way — see the contract on the flag.
+      deferOffscreen
       embeds={{ content: source, title: '' }}
     />
   )

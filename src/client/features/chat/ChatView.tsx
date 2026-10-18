@@ -1083,6 +1083,9 @@ export function UserBubble({
               math={false}
               mermaid={false}
               chart={false}
+              // The same rule as an answer's: this is one body per turn in a list the reader opens at its
+              // end, and the markup stays on the page whether or not it has been drawn yet.
+              deferOffscreen
               links={CHAT_MENTION_LINKS}
               embeds={{ content: text, title: '' }}
             />

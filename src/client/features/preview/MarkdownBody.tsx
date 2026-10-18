@@ -20,7 +20,7 @@
  * thing either surface loads. The highlight a reader watches land, and the source fallbacks that keep a
  * block from sitting at "loading" forever, run with the render.
  */
-import { useCallback, useEffect, useMemo, useRef, type KeyboardEvent, type MouseEvent } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent, type MouseEvent } from 'react'
 import { DEBOUNCE } from '@shared/constants'
 import { cn } from '../../lib/cn'
 import { useDebounced, useThemeDark } from '../../lib/hooks'
@@ -44,6 +44,24 @@ import { moveMarkdownTabFocus, selectMarkdownTab } from './markdown-tabs'
 import { useLinkHoverHost } from './link-hover-host'
 import { WikiLinkHoverCard } from './wiki-link-hover-card'
 
+/**
+ * How far outside the room the reader is looking a held body starts drawing.
+ *
+ * The margin is what keeps the deferral invisible: a body two screens away draws while it is still
+ * coming into view rather than as it lands, so the reader never watches a fence turn into a highlighted
+ * one under their own scroll.
+ */
+const ENHANCE_APPROACH_PX = 600
+
+/** Whether a body is near enough to where the reader is that waiting for it would be a flicker. */
+function isNearViewport(node: HTMLElement): boolean {
+  const box = node.getBoundingClientRect()
+  // A host with no layout engine answers the origin for every rectangle, which reads as "in the room":
+  // that is the honest fallback, because a surface that cannot tell where its own content is has no
+  // off screen to hold back for.
+  return box.bottom >= -ENHANCE_APPROACH_PX && box.top <= window.innerHeight + ENHANCE_APPROACH_PX
+}
+
 /** What a surface with a vault behind it does when the reader follows one of the document's own links. */
 export interface MarkdownLinks {
   openNote: (noteId: string) => void
@@ -60,6 +78,24 @@ export interface MarkdownBodyProps {
   chart?: boolean
   /** Folds a code block longer than this many lines; 0 never folds. */
   codeBlockCollapseLines?: number
+  /**
+   * Hold the drawing passes back until this body has been near the viewport, once.
+   *
+   * A transcript of four hundred turns is four hundred prism runs and four hundred katex passes for the
+   * bubbles nobody is looking at, and the cost lands before the reader has scrolled anywhere. The flag
+   * defers the first draw of a body that starts off screen; it does not defer the markup.
+   *
+   * That distinction is load-bearing, because four contracts in this app read the transcript through the
+   * DOM that is already mounted, and all four break the moment a body that scrolls away is taken back
+   * out: `thread-find.ts` marks hits inside rendered nodes (`ThreadFinder` promises the reader there are
+   * turns still unloaded), `ChatView`'s `focusMessageId` finds its turn by
+   * `querySelectorAll('[data-chat-anchor]')`, the scroll anchoring after "load earlier" assumes the nodes
+   * above the reader stay where they are, and `ChatOutline` measures each anchor's rectangle. So this
+   * gate is one-way — flip it on arrival and never off — and the element, its text and its anchor are
+   * rendered by React either way. A surface that hands out bodies one at a time (a note, a draft, a
+   * slide) passes nothing and draws as it always did.
+   */
+  deferOffscreen?: boolean
   /** Rewrites the markup before it is enhanced — a share page's own access rules. */
   transformHtml?: (html: string) => string
   /**
@@ -77,6 +113,7 @@ export function MarkdownBody({
   mermaid = true,
   chart = true,
   codeBlockCollapseLines = 24,
+  deferOffscreen = false,
   transformHtml,
   embeds,
   links,
@@ -93,6 +130,9 @@ export function MarkdownBody({
   const settled = useDebounced(source, DEBOUNCE.render)
   const embedContent = embeds?.content
   const embedTitle = embeds?.title
+  // The one-way door of `deferOffscreen`: false only while this body has never been near the reader,
+  // and nothing ever sets it back. The markup is rendered regardless — see the flag's own contract.
+  const [seen, setSeen] = useState(!deferOffscreen)
 
   const rendered = useMemo(() => {
     const result = renderMarkdown(source)
@@ -108,7 +148,28 @@ export function MarkdownBody({
   // thread changed, which repaints the answer mid-stream.
   const html = useMemo(() => ({ __html: rendered.html }), [rendered])
 
+  // Waits once, on arrival, and retires. An entry that leaves again is not observed for: the passes
+  // below are what draw a picture into markup that is already on the page, and taking it back out would
+  // break the four contracts the `deferOffscreen` flag names.
   useEffect(() => {
+    if (seen) return
+    const node = host.current
+    // No observer to ask, or a body already near the room it will be read in: draw now. A host that
+    // cannot answer "where am I" must never fall through to "then never draw", which is a thread of raw
+    // fences and no formula for as long as it is open.
+    if (!node || typeof IntersectionObserver === 'undefined' || isNearViewport(node)) {
+      setSeen(true)
+      return
+    }
+    const observer = new IntersectionObserver((entries) => {
+      if (entries.some((entry) => entry.isIntersecting)) setSeen(true)
+    }, { rootMargin: `${ENHANCE_APPROACH_PX}px 0px` })
+    observer.observe(node)
+    return () => observer.disconnect()
+  }, [seen, deferOffscreen])
+
+  useEffect(() => {
+    if (!seen) return
     const node = host.current
     if (!node) return
     const revision = ++revisionRef.current
@@ -137,9 +198,10 @@ export function MarkdownBody({
     return () => {
       cancelled = true
     }
-  }, [rendered, dark, math, mermaid, chart, codeBlockCollapseLines, embedContent, embedTitle])
+  }, [seen, rendered, dark, math, mermaid, chart, codeBlockCollapseLines, embedContent, embedTitle])
 
   useEffect(() => {
+    if (!seen) return
     const node = host.current
     if (!node) return
     const revision = revisionRef.current
