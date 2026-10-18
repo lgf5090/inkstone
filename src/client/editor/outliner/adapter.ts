@@ -1,5 +1,5 @@
 import { EditorSelection, Text, type EditorState, type TransactionSpec } from '@codemirror/state';
-import { syntaxTree } from '@codemirror/language';
+import { ensureSyntaxTree, syntaxTree } from '@codemirror/language';
 import { foldedListLines } from './fold';
 import type { CursorStickMode, ListPos, ListSource, Root } from './tree';
 import { parseList } from './tree';
@@ -110,6 +110,11 @@ export function rootIsProtected(state: EditorState, root: Root): boolean {
     if (insideMathBlock(state.doc, start)) return true;
     const from = state.doc.line(start).from;
     const to = state.doc.line(end).to;
+    // The parser runs behind the document, so an unfinished tree reports "no fence here" for a region it has
+    // not read yet. Everywhere else that answer costs a missing decoration; here it is the difference between
+    // leaving an author's code sample alone and rewriting it, so the parse is awaited before its silence is
+    // taken as permission.
+    ensureSyntaxTree(state, to, 2_000);
     let hit = false;
     syntaxTree(state).iterate({
         from,

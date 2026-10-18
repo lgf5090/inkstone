@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { Decoration, EditorView } from '@codemirror/view'
 import { EditorState, RangeSetBuilder } from '@codemirror/state'
 import { markdown, markdownLanguage } from '@codemirror/lang-markdown'
-import { syntaxTree } from '@codemirror/language'
+import { ensureSyntaxTree } from '@codemirror/language'
 import { collectMarkDecorations, markdownDecorations } from './decorations'
 import { decodeDataValue } from '../lib/markdown/data-attr'
 
@@ -16,7 +16,11 @@ function mount(doc: string): EditorView {
     state: EditorState.create({ doc, extensions: [markdown({ base: markdownLanguage, addKeymap: false }), markdownDecorations] }),
     parent: container,
   })
-  syntaxTree(view.state).cursor()
+  // The tree is parsed after the fact, so a case that asks "what did the collector refuse to decorate"
+  // has to wait for the parse: `syntaxTree(...).cursor()` only walks whatever has been parsed so far, and
+  // an unfinished tree hides the fence rather than showing it — which is the whole of this file's order
+  // dependence. `ensureSyntaxTree` is the call that actually parses, and it says whether it finished.
+  ensureSyntaxTree(view.state, view.state.doc.length, 2_000)
   return view
 }
 

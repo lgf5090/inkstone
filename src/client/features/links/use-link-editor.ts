@@ -1,5 +1,5 @@
 import type { EditorView } from '@codemirror/view'
-import { syntaxTree } from '@codemirror/language'
+import { ensureSyntaxTree, syntaxTree } from '@codemirror/language'
 import type { EditorSettings } from '@shared/types'
 import { decodeDataValue } from '../../lib/markdown/data-attr'
 import { splitLines } from '../../lib/markdown/fence-edit'
@@ -126,6 +126,11 @@ const FENCE_NODES = new Set(['FencedCode', 'CodeBlock'])
 /** Whether a position belongs to a fenced block, whose `#` and `[x](y)` are sample text, not markup. */
 export function insideFencedCode(view: EditorView, pos: number): boolean {
   const line = view.state.doc.lineAt(pos)
+  // The syntax tree is built after the fact: until the parser has reached this line, finding no fence node
+  // around the pointer is not evidence that it is outside a code sample — it is evidence that nobody has
+  // looked yet. Parsing to the end of the line first is what makes the answer mean what it says, and a click
+  // is worth the few milliseconds that costs.
+  ensureSyntaxTree(view.state, line.to, 50)
   let found = false
   syntaxTree(view.state).iterate({
     from: line.from,
