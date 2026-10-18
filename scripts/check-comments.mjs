@@ -20402,6 +20402,7 @@ const allowed = new Map([
     "// not show. Read through the same clip the write used, so a backup that overfilled the row cannot overfill it here.",
     "/** Follow-up chips the naming pass volunteered for this answer, clipped to the same shape the read uses. */",
     "/**\n   * Pin the follow-up chips a naming pass volunteered onto the answer that produced them.\n   *\n   * A separate statement rather than part of `addMessage`, because the answer is filed the moment the model\n   * stops, and the chips arrive a beat later out of a second, best-effort call: the row must exist and be\n   * complete before there is anything to hang off it. Scoped by `user_id` so a naming pass can only ever write\n   * its own account's row — the same guard every message-column write here carries. The list is clipped again\n   * on the way in, so a caller that passed a longer one cannot overfill the row. `[]` clears them.\n   */",
+    "/**\n   * One imported row, written only for the columns the row itself names.\n   *\n   * The partial `UPDATE` below has always worked this way — a key the file never carried says nothing, and the\n   * patch skips it — and the insert had to agree, because binding an absent key as NULL into a `NOT NULL`\n   * column that has a default makes `INSERT OR IGNORE` drop the whole row without a word. That silent drop is\n   * what a new column does to an import: three times this table has paid for a caller that did not know the\n   * list, so the primitive now defers to the column's own default instead of depending on every caller to\n   * remember it. A key the row does carry is still written exactly as given, including an explicit `null`.\n   */",
   ]],
   ["src/worker/assistant/tools.ts", [
     "/**\n * The tools the assistant can reach, and the executor that runs them.\n *\n * Three things are enforced here rather than asked of the model, because a model that is confident and\n * wrong is the failure mode this app has to survive:\n *  - **budgets** — a per-turn call cap, a per-tool cap and a duplicate-call refusal, so a reasoning\n *    loop cannot spend the reader's AI quota or write a hundred tasks;\n *  - **validation** — arguments are checked against the same declaration that generates the JSON\n *    Schema the provider is given, so the two can never disagree;\n *  - **approval** — a destructive tool never runs during the turn. `prepare` resolves the exact target\n *    and writes a pending action; `commit` runs only when the reader presses Approve, once, on that\n *    target. The model can propose; it cannot delete.\n *\n * Scheduled runs get read-only tools plus `notify_reader`, so a routine that has drifted cannot edit\n * the vault while nobody is watching.\n */",
@@ -23431,9 +23432,6 @@ const allowed = new Map([
     "// The turn's own row is still the turn's (100/5); the naming estimate lands on the day totals on top of it.",
     "// The column rides in `exportTables` (a `SELECT *`), so the backup file carries it as a JSON string.",
     "// Restored into a fresh account through the same allowlist, the chips come back on the row.",
-    "// The failure the two-sided edit exists to prevent: an import that names every other column but this one",
-    "// binds NULL into a NOT NULL column, and `INSERT OR IGNORE` drops the whole message. A third, empty",
-    "// account isolates it from a primary-key clash — the only reason this row can fail to land is the column.",
     "/** Every `title` frame the turn sent, in the order the reader was handed them. */",
     "// The second frame is what the transcript puts the chips under the right answer with: it names the row",
     "// they were stored on as well as the thread they were named for.",
@@ -23442,6 +23440,10 @@ const allowed = new Map([
     "// The race the rename check is for: a second tab gives the thread the reader's own name between the",
     "// turn filing and the pass writing back. Their name stands, and the questions still reach the answer",
     "// they were written for — the two halves of the frame are independent precisely because this happens.",
+    "// What this import shape used to do when a caller named every other column but left this one out: bind",
+    "// NULL into a NOT NULL column and let `INSERT OR IGNORE` take the whole message away without a word. The",
+    "// insert now writes only the columns a row actually names, so the column's own default answers and the row",
+    "// lands with no chips — a third account, and a different user id, so nothing but the column can decide it.",
   ]],
   ["tests/assistant-tool-policy.test.ts", [
     "/**\n * What the reader allows the assistant to do without asking.\n *\n * The three kinds of action are the reader's own vocabulary — reading, changing, removing — and the\n * policy is a ceiling on the turn, never a second list of things to reach for. These cases pin both\n * halves of that: which tools a turn is offered at all, and what becomes of the one that is held for a\n * press. The interesting failures are silent ones, so most of what is asserted here is what did *not*\n * happen: a tool that was not offered, a write that was not made.\n *\n * The store is stood up rather than opened: what is under test is the decision the executor makes, and a\n * database behind it would only be a slower way to ask the same question.\n */",
@@ -23518,6 +23520,7 @@ const allowed = new Map([
     "// Both directions, because an `&&` where the rule is an `||` passes the case above by accident.",
     "// The chain is resolved per candidate, so a turn named at the second model must go out toolless only",
     "// when *that* model says so — and the spare behind it decides for itself.",
+    "/**\n * One accepted turn, asked inside a thread that already exists.\n *\n * The naming pass that titles a brand-new conversation and volunteers its follow-ups runs only on the turn\n * that made the thread, so asking inside an existing one keeps the wire log to the turn's own calls — which\n * is the question every test below asks. The pass itself is covered in `assistant-title-suggestions.test.ts`.\n */",
   ]],
   ["tests/assistant-upstream.test.ts", [
     "/**\n * The provider wire, tested against recorded frames rather than a live service.\n *\n * The three protocols all stream JSON in pieces, and the piece that matters — a tool call's arguments\n * arriving three characters at a time — is exactly what a hand-written parser gets wrong in a way no\n * other test can see. The failure looks like a tool that was called with `{}`.\n */",
