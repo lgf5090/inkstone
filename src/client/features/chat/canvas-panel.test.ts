@@ -23,6 +23,17 @@ import { CanvasPanel } from './CanvasPanel'
 import { messageMenuItems } from './MessageMenu'
 import { useAssistant } from './assistant-store'
 
+/**
+ * A body the stand-in renderer refuses.
+ *
+ * `MarkdownBody` is the notebook's own render path — sanitizer, enhancer, the lot — and the panel has no
+ * way to make it fail on purpose without a source string the stub recognises. What is under test here is
+ * what the *panel* does when the renderer throws, not what makes the renderer throw, so the refusal is
+ * scripted at the boundary between the two. `seen` records the class the panel asked the prose to wear,
+ * which is the only way the test can tell "handed to the notebook's renderer" from "a div of its own".
+ */
+const preview = vi.hoisted(() => ({ unrenderable: '[[[this draft cannot be rendered]]]', seen: { className: '' } }))
+
 const { DRAFT, LINKED, updateConversationArtifact, removeConversationArtifact, getNote, gate } = vi.hoisted(() => {
   const noteId = '01hzzzzzzzzzzzzzzzzzzzzz20'
   const draft = {
@@ -70,6 +81,16 @@ vi.mock('../../lib/api', () => ({
 vi.mock('../../editor/CodeEditor', () => ({
   DeferredCodeEditor: ({ value, onChange, placeholder }: { value: string, onChange: (next: string) => void, placeholder?: string }) =>
     createElement('textarea', { value, placeholder, onChange: (event: { target: { value: string } }) => onChange(event.target.value) }),
+}))
+
+// The notebook's renderer stands in for a documented refusal: it records the prose class it was handed,
+// and it throws for one body. Everything else about a draft is the panel's own contract.
+vi.mock('../preview/MarkdownBody', () => ({
+  MarkdownBody: ({ className, source }: { className?: string, source: string }) => {
+    preview.seen.className = className ?? ''
+    if (source.includes(preview.unrenderable)) throw new Error('the renderer refused this document')
+    return createElement('div', { 'data-preview': '1' })
+  },
 }))
 
 const original = useAssistant.getState()
@@ -324,6 +345,126 @@ describe('the canvas on a phone', () => {
     await showAt('phone')
     await openDrawer(document.querySelector<HTMLElement>('[data-canvas-toggle]')!)
     expect(drawer()!.textContent).toContain(t('assistant.canvas.empty'))
+  })
+})
+
+/**
+ * The draft's two modes.
+ *
+ * A draft is the assistant's answer handed over as a document, and the document is the thing that has to
+ * read well: code with its highlight and its copy button, a table that stays inside the panel, and — when
+ * the render cannot be had at all — the text itself with a sentence saying why the picture is missing. The
+ * blank panel is the failure this guards, because a blank looks exactly like an empty draft.
+ */
+describe('the draft preview', () => {
+  async function showDraft(content: string): Promise<void> {
+    // Cleared first: the stand-in records what it was last handed, and a record left over from the render
+    // before this one would answer for a document the panel never drew.
+    preview.seen.className = ''
+    await show({ activeId: 'c1', artifacts: [{ ...DRAFT, content }], artifactsReady: true, activeArtifactId: DRAFT.id })
+    const tab = buttons().find((node) => node.textContent?.includes(t('assistant.canvas.preview')))!
+    act(() => { tab.click() })
+  }
+
+  /** Switches modes with a key rather than a click, the way a keyboard reader does. */
+  function pressKey(node: Element, key: string): void {
+    act(() => {
+      node.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true }))
+    })
+  }
+
+  it('draws the draft through the notebook\'s own prose surface', async () => {
+    await showDraft(DRAFT.content)
+    // `ink-chat-prose` is what carries the code-block and table rules of `prose.css` into the narrow panel.
+    expect(preview.seen.className).toContain('ink-chat-prose')
+  })
+
+  it('says the draft could not be rendered and shows its text rather than an empty panel', async () => {
+    const errors = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+    try {
+      await showDraft(`# Heading\n\n${preview.unrenderable}\n\nthe paragraph under it`)
+      const alert = document.querySelector('[role="alert"]')
+      expect(alert?.textContent, 'a draft that failed to render said nothing').toContain(t('assistant.canvas.render_failed'))
+      // The text is the deliverable: a notice alone still leaves the reader with no document.
+      expect(document.body.textContent).toContain('the paragraph under it')
+      const raw = document.querySelector<HTMLPreElement>('pre[role="region"]')
+      expect(raw, 'the unreadable draft has no text shown').toBeTruthy()
+      expect(raw!.getAttribute('aria-label')).toBe(t('assistant.canvas.raw_text'))
+      // A region the reader scrolls with the mouse has to scroll with the keyboard too.
+      expect(raw!.tabIndex).toBe(0)
+      expect(raw!.className).toContain('font-mono')
+    } finally {
+      errors.mockRestore()
+    }
+  })
+
+  it('names the panel each mode shows', async () => {
+    await showDraft(DRAFT.content)
+    const panel = document.querySelector('[role="tabpanel"]')
+    expect(panel, 'a mode is not marked as a panel').toBeTruthy()
+    const activeTab = document.getElementById(panel!.getAttribute('aria-labelledby')!)
+    expect(activeTab?.textContent).toContain(t('assistant.canvas.preview'))
+    expect(activeTab?.getAttribute('aria-controls')).toBe(panel!.id)
+  })
+
+  /**
+   * The notice has to leave when the document it is standing in for changes.
+   *
+   * The reader cannot type while the preview is up — the editor is not mounted — but the body can still
+   * move under them: a draft linked to a note opens on what the notebook says, and that answer arrives
+   * after the first paint. A panel that kept failing over a body it was never asked to re-render would
+   * tell the reader their document is unreadable when it is sitting there, fixed.
+   */
+  it('draws the draft once the body it failed on has been replaced', async () => {
+    const errors = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+    const notesOriginal = useNotes.getState()
+    useNotes.setState({ notes: {}, contents: {}, editRemoteContent: vi.fn(async () => 'written' as const) })
+    try {
+      preview.seen.className = ''
+      useAssistant.setState({
+        ...original,
+        activeId: 'c1',
+        artifacts: [{ ...LINKED, content: preview.unrenderable }],
+        artifactsReady: true,
+        activeArtifactId: LINKED.id,
+      })
+      await act(async () => { root.render(createElement(CanvasPanel)) })
+      const tab = buttons().find((node) => node.textContent?.includes(t('assistant.canvas.preview')))!
+      act(() => { tab.click() })
+      expect(document.querySelector('[role="alert"]'), 'a draft that failed to render said nothing').toBeTruthy()
+
+      await act(async () => {
+        gate.resolve?.({ content: DRAFT.content })
+        await Promise.resolve()
+      })
+      expect(preview.seen.className, 'the panel stayed on its notice over a body it never re-rendered').toContain('ink-chat-prose')
+      expect(document.querySelector('[role="alert"]'), 'the notice outlived the document it was about').toBeNull()
+    } finally {
+      useNotes.setState(notesOriginal, true)
+      errors.mockRestore()
+    }
+  })
+
+  it('moves between the two modes with the arrow keys', async () => {
+    await show({ activeId: 'c1', artifacts: [DRAFT], artifactsReady: true, activeArtifactId: DRAFT.id })
+    const tabs = [...document.querySelectorAll<HTMLElement>('[role="tab"]')]
+    expect(tabs.length).toBe(2)
+    const [write, previewTab] = tabs as [HTMLElement, HTMLElement]
+    // One stop in the tab sequence, the one that is showing.
+    expect(write.tabIndex).toBe(0)
+    expect(previewTab.tabIndex).toBe(-1)
+
+    write.focus()
+    pressKey(write, 'ArrowRight')
+    expect(document.activeElement, 'the arrow keys do not move between the modes').toBe(previewTab)
+    expect(previewTab.getAttribute('aria-selected')).toBe('true')
+
+    pressKey(previewTab, 'ArrowRight')
+    expect(document.activeElement).toBe(write)
+    pressKey(write, 'End')
+    expect(document.activeElement).toBe(previewTab)
+    pressKey(previewTab, 'Home')
+    expect(document.activeElement).toBe(write)
   })
 })
 

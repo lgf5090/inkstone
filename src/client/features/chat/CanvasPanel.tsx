@@ -11,10 +11,16 @@
  * locally and are committed on a debounce, and the title is committed the same way, so a reader typing a
  * paragraph makes one write rather than one per character. It is not synced back into the thread — the
  * reply stays what it was, which is the whole reason the draft is a copy.
+ *
+ * The preview is the part a reader cannot edit their way out of, so it owes them two things: the document
+ * drawn with the notebook's own code blocks, tables and highlight, and — when the renderer cannot produce
+ * that — the text itself beside a sentence saying it was not drawn. A panel that goes white on a failed
+ * render is indistinguishable from a draft that is empty, and an assistant draft is never empty when the
+ * reader is looking at it.
  */
 
-import { useEffect, useMemo, useRef, useState } from 'react'
-import { ArrowLeft, Check, Copy, FileText, Link2Off, NotebookPen, PanelRight, RefreshCw, Trash2, X } from 'lucide-react'
+import { Component, useEffect, useMemo, useRef, useState, type ErrorInfo, type KeyboardEvent, type ReactNode } from 'react'
+import { ArrowLeft, Check, Copy, FileText, Link2Off, NotebookPen, PanelRight, RefreshCw, TriangleAlert, Trash2, X } from 'lucide-react'
 import type { AssistantArtifact } from '@shared/assistant'
 import { DEBOUNCE } from '@shared/constants'
 import { cn } from '../../lib/cn'
@@ -57,6 +63,9 @@ const DOCK_QUERY = '(min-width: 768px)'
 
 /** The dock's own ceiling, reused as the drawer's width so neither is wider than the panel was. */
 const CANVAS_MAX_WIDTH = 420
+
+/** What the panel shows a draft as: the editor the reader types into, or the document they read. */
+type DraftMode = 'write' | 'preview'
 
 export function CanvasPanel() {
   const artifacts = useAssistant((state) => state.artifacts)
@@ -158,7 +167,7 @@ function ArtifactEditor({ artifact, onSave, onRemove }: {
   const settings = useSession((state) => state.settings.editor)
   const [title, setTitle] = useState(artifact.title)
   const [content, setContent] = useState(artifact.content)
-  const [mode, setMode] = useState<'write' | 'preview'>('write')
+  const [mode, setMode] = useState<DraftMode>('write')
   const [copied, setCopied] = useState(false)
   const linkedNoteId = artifact.noteId
   const linkedTitle = useNotes((state) => (linkedNoteId ? state.notes[linkedNoteId]?.title ?? null : null))
@@ -337,10 +346,7 @@ function ArtifactEditor({ artifact, onSave, onRemove }: {
             </IconButton>
           </div>
         )}
-        <div className="flex items-center gap-1" role="tablist" aria-label={t('assistant.canvas.title')}>
-          <ModeTab id="write" current={mode} onSelect={setMode} label={t('assistant.canvas.write')} />
-          <ModeTab id="preview" current={mode} onSelect={setMode} label={t('assistant.canvas.preview')} />
-        </div>
+        <ModeTabs artifactId={artifact.id} mode={mode} onSelect={setMode} />
       </div>
       {noteReadFailed && (
         <div className="shrink-0 px-2 py-2">
@@ -351,7 +357,12 @@ function ArtifactEditor({ artifact, onSave, onRemove }: {
           />
         </div>
       )}
-      <div className="min-h-0 flex-1 overflow-hidden">
+      <div
+        role="tabpanel"
+        id={modePanelId(artifact.id, mode)}
+        aria-labelledby={modeTabId(artifact.id, mode)}
+        className="min-h-0 flex-1 overflow-hidden"
+      >
         {mode === 'write' ? (
           <DeferredCodeEditor
             visible
@@ -367,9 +378,7 @@ function ArtifactEditor({ artifact, onSave, onRemove }: {
             className="h-full"
           />
         ) : (
-          <div className="h-full overflow-y-auto px-3 py-2">
-            <MarkdownBody source={content} className="ink-chat-prose min-w-0" links={CHAT_NOTE_LINKS} />
-          </div>
+          <DraftPreview content={content} />
         )}
       </div>
       <div className="flex shrink-0 items-center gap-1 border-t border-[var(--border-subtle)] px-2 py-1.5">
@@ -393,25 +402,130 @@ function ArtifactEditor({ artifact, onSave, onRemove }: {
   )
 }
 
-function ModeTab({ id, current, onSelect, label }: {
-  id: 'write' | 'preview'
-  current: 'write' | 'preview'
-  onSelect: (id: 'write' | 'preview') => void
-  label: string
+/**
+ * The DOM names of one draft's two modes.
+ *
+ * A tab and the region it shows are only the same control to a screen reader when they name each other,
+ * and two drafts open in this panel in sequence would collide on a bare `canvas-write` id.
+ */
+const modeTabId = (artifactId: string, mode: DraftMode): string => `canvas-mode-tab-${artifactId}-${mode}`
+const modePanelId = (artifactId: string, mode: DraftMode): string => `canvas-mode-panel-${artifactId}-${mode}`
+
+const MODE_ORDER: readonly DraftMode[] = ['write', 'preview']
+const MODE_KEYS: Record<string, number> = { ArrowRight: 1, ArrowDown: 1, ArrowLeft: -1, ArrowUp: -1 }
+
+/**
+ * The two modes, as the single control they are.
+ *
+ * A tab pair is one stop in the tab sequence — the mode that is showing — and the arrows move between the
+ * two. Without that, Tab lands on a tab that is not selected and the reader has to activate it just to find
+ * out what it does; and without the ids naming each other, `role="tab"` is a decoration: a screen reader
+ * announces "selected, 1 of 2" and never says which region the selection belongs to.
+ */
+function ModeTabs({ artifactId, mode, onSelect }: {
+  artifactId: string
+  mode: DraftMode
+  onSelect: (mode: DraftMode) => void
 }) {
-  const active = current === id
+  const refs = useRef(new Map<DraftMode, HTMLButtonElement | null>())
+
+  const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+    const index = MODE_ORDER.indexOf(mode)
+    const last = MODE_ORDER.length - 1
+    const step = MODE_KEYS[event.key]
+    if (step === undefined && event.key !== 'Home' && event.key !== 'End') return
+    event.preventDefault()
+    const next = event.key === 'Home'
+      ? MODE_ORDER[0]!
+      : event.key === 'End'
+        ? MODE_ORDER[last]!
+        : MODE_ORDER[(index + step! + MODE_ORDER.length) % MODE_ORDER.length]!
+    if (next !== mode) onSelect(next)
+    refs.current.get(next)?.focus()
+  }
+
   return (
-    <button
-      type="button"
-      role="tab"
-      aria-selected={active}
-      onClick={() => onSelect(id)}
-      className={cn(
-        'rounded-[var(--r-sm)] px-2 py-0.5 text-[length:var(--text-11)] transition-colors duration-[var(--dur-fast)] ease-[var(--ease-out)]',
-        active ? 'bg-[var(--bg-inset)] text-[var(--text-primary)]' : 'text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]',
-      )}
-    >
-      {label}
-    </button>
+    <div role="tablist" aria-label={t('assistant.canvas.modes')} className="flex items-center gap-1" onKeyDown={onKeyDown}>
+      {MODE_ORDER.map((id) => {
+        const active = id === mode
+        return (
+          <button
+            key={id}
+            ref={(node) => { refs.current.set(id, node) }}
+            type="button"
+            role="tab"
+            id={modeTabId(artifactId, id)}
+            aria-selected={active}
+            aria-controls={modePanelId(artifactId, id)}
+            tabIndex={active ? 0 : -1}
+            onClick={() => onSelect(id)}
+            className={cn(
+              'rounded-[var(--r-sm)] px-2 py-0.5 text-[length:var(--text-11)] transition-colors duration-[var(--dur-fast)] ease-[var(--ease-out)]',
+              active ? 'bg-[var(--bg-inset)] text-[var(--text-primary)]' : 'text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]',
+            )}
+          >
+            {t(id === 'write' ? 'assistant.canvas.write' : 'assistant.canvas.preview')}
+          </button>
+        )
+      })}
+    </div>
   )
+}
+
+/**
+ * The preview, and what it says when it cannot draw.
+ *
+ * The body is handed to the notebook's own Markdown surface — the one that gives a fence its highlight and
+ * its copy button, and a table its wrapper and its rules — under the class that carries those into a narrow
+ * panel. `MarkdownBody` builds its markup while it renders, so a document the renderer chokes on is a render
+ * error rather than a return value, and the only honest thing left to show the reader is the text they came
+ * to read. The boundary resets itself when the text changes: a reader who fixes the Markdown that broke the
+ * render should see the fix without closing the panel.
+ */
+function DraftPreview({ content }: { content: string }) {
+  return (
+    <PreviewBoundary source={content}>
+      <div className="h-full overflow-y-auto px-3 py-2">
+        <MarkdownBody source={content} className="ink-chat-prose min-w-0" links={CHAT_NOTE_LINKS} />
+      </div>
+    </PreviewBoundary>
+  )
+}
+
+class PreviewBoundary extends Component<{ source: string, children: ReactNode }, { failed: boolean }> {
+  state: { failed: boolean } = { failed: false }
+
+  static getDerivedStateFromError(): { failed: boolean } {
+    return { failed: true }
+  }
+
+  componentDidCatch(error: Error, info: ErrorInfo): void {
+    // Not a silent downgrade: what failed has to reach the console with the document it failed on, or the
+    // reader's report of a blank draft has nothing to be traced to.
+    console.error('[inkstone] canvas draft preview failed', error, info.componentStack)
+  }
+
+  componentDidUpdate(previous: { source: string }): void {
+    if (previous.source !== this.props.source && this.state.failed) this.setState({ failed: false })
+  }
+
+  render(): ReactNode {
+    if (!this.state.failed) return this.props.children
+    return (
+      <div className="flex h-full min-h-0 flex-col gap-2 px-3 py-2">
+        <p role="alert" className="flex shrink-0 items-start gap-1.5 text-[length:var(--text-12)] leading-relaxed text-[var(--text-secondary)]">
+          <TriangleAlert size={13} className="mt-px shrink-0 text-[var(--warning)]" aria-hidden="true" />
+          <span>{t('assistant.canvas.render_failed')}</span>
+        </p>
+        <pre
+          role="region"
+          aria-label={t('assistant.canvas.raw_text')}
+          tabIndex={0}
+          className="min-h-0 flex-1 overflow-auto whitespace-pre-wrap break-words rounded-[var(--r-sm)] bg-[var(--bg-inset)] p-2 font-mono text-[length:var(--text-12)] leading-[var(--code-line)] text-[var(--text-primary)]"
+        >
+          {this.props.source}
+        </pre>
+      </div>
+    )
+  }
 }
