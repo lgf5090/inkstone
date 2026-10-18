@@ -979,7 +979,20 @@ export class AssistantRunner {
           limits,
           signal: input.signal,
         })
-        if (named) yield { type: 'title', conversationId, title: named }
+        // Either half is worth a frame: a pass that offered follow-ups but named nothing — a blank title, or
+        // a thread the reader renamed while the answer was being written, which this code deliberately does
+        // not step on — still has chips to put under the answer. The id rides along because the row they
+        // belong to is the row the reader is looking at, and the frame is what lets the transcript put them
+        // there without reading the thread back.
+        if (named) {
+          yield {
+            type: 'title',
+            conversationId,
+            assistantMessageId: assistantId,
+            ...(named.title ? { title: named.title } : {}),
+            ...(named.suggestions.length ? { suggestions: named.suggestions } : {}),
+          }
+        }
       }
     } catch (error) {
       // A stop stops the turn, not the record of it: the words the reader already watched arrive are
@@ -1394,8 +1407,10 @@ export class AssistantRunner {
    * The tokens are metered — charged to the day's totals under the same model label and key as the turn, so
    * the reader is never quietly burned for free — but they are deliberately NOT written into the turn's own
    * `chat_messages` usage row, and never into the `usage` frame already sent: the naming pass is a separate
-   * act of reading, not part of the price of the answer. Returns the new title when it wrote one (so the
-   * caller can emit it), or null when the thread is left as it was named.
+   * act of reading, not part of the price of the answer. Returns what the pass landed — the new title when it
+   * wrote one, and the follow-ups when it offered any — or null when it landed nothing at all. The two halves
+   * travel independently, because a thread the reader already renamed is still a thread whose first answer can
+   * be followed up on.
    */
   private async nameThreadAndSuggest(args: {
     conversationId: string
@@ -1410,7 +1425,7 @@ export class AssistantRunner {
     derivedTitle: string
     limits: AssistantSettings['limits']
     signal: AbortSignal
-  }): Promise<string | null> {
+  }): Promise<{ title: string | null, suggestions: string[] } | null> {
     // No request left on the day's ceiling: leave the derived title. A title is worth less than the reader's
     // last request to the day, and reserving here is what keeps this call off the free list.
     if (!(await this.reserve(1, args.limits.maxRequestsPerDay, args.keyRef, args.modelLabel))) return null
@@ -1472,16 +1487,16 @@ export class AssistantRunner {
     // Suggestions attach to the answer that earned them, independent of the title: a thread the reader
     // already renamed still gets follow-ups on its first answer, and an empty list writes nothing.
     if (parsed.suggestions.length) await this.store.setMessageSuggestions(args.messageId, parsed.suggestions)
-    if (!parsed.title || parsed.title === args.derivedTitle) return null
+    if (!parsed.title || parsed.title === args.derivedTitle) return { title: null, suggestions: parsed.suggestions }
     // Do not step on a title the reader chose: rename only while the row still holds the value this turn
     // derived. Re-read from the table rather than trusting the in-memory `conversation` — a second tab, a
     // restore, or a hand edit between the create above and now is exactly the case this check exists for,
     // and it is what makes "the reader renamed it" the one outcome that survives the race. If the current
     // title is anything other than the derived one, the reader owns it and it stays.
     const current = await this.store.getConversation(args.conversationId)
-    if (!current || current.title !== args.derivedTitle) return null
+    if (!current || current.title !== args.derivedTitle) return { title: null, suggestions: parsed.suggestions }
     await this.store.renameConversation(args.conversationId, parsed.title)
-    return parsed.title
+    return { title: parsed.title, suggestions: parsed.suggestions }
   }
 
   /**

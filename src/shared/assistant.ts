@@ -2417,6 +2417,14 @@ export interface ChatStreamEvent {
   userMessageId?: string
   assistantMessageId?: string
   title?: string
+  /**
+   * For `title`: the follow-up questions the naming pass volunteered for the answer it just filed.
+   *
+   * Sent beside `assistantMessageId`, which is the row they were written on and the row the chips belong
+   * under — the frame is what lets the transcript put them there without reading the thread again. Absent
+   * when the pass named the thread and volunteered nothing, and never an empty list.
+   */
+  suggestions?: string[]
   delta?: string
   tool?: ToolActivity
   stage?: 'reading' | 'searching' | 'generating' | 'waiting'

@@ -119,7 +119,9 @@ async function driveExisting(conversationId: string, message: string): Promise<C
 
 const answerFrames = (text: string) => [chunk(text, { prompt_tokens: 100, completion_tokens: 5 }), stop()]
 const namingFrames = (obj: unknown) => [chunk(JSON.stringify(obj), { prompt_tokens: 40, completion_tokens: 20 }), stop()]
-const titlesSent = (events: ChatStreamEvent[]) => events.filter((e) => e.type === 'title').map((e) => e.title)
+/** Every `title` frame the turn sent, in the order the reader was handed them. */
+const titleFrames = (events: ChatStreamEvent[]) => events.filter((e) => e.type === 'title')
+const titlesSent = (events: ChatStreamEvent[]) => titleFrames(events).map((e) => e.title)
 
 describe('a fresh conversation names itself and offers follow-ups', () => {
   it('renames the thread to the model title and stores the suggestions on the answer', async () => {
@@ -132,6 +134,14 @@ describe('a fresh conversation names itself and offers follow-ups', () => {
     // list refreshes to the name the model actually chose.
     expect((await store.getConversation(conversationId))!.title).toBe(NAMED.title)
     expect(titlesSent(events)).toEqual([titleFromMessage('Tell me about the harbour.'), NAMED.title])
+    // The second frame is what the transcript puts the chips under the right answer with: it names the row
+    // they were stored on as well as the thread they were named for.
+    expect(titleFrames(events)[1]).toMatchObject({
+      conversationId,
+      assistantMessageId: row.id,
+      title: NAMED.title,
+      suggestions: NAMED.suggestions,
+    })
 
     // The follow-ups ride on the answer that produced them, read back through the scoped message path.
     const stored = await store.getMessage(row.id)
@@ -192,8 +202,38 @@ describe('a fresh conversation names itself and offers follow-ups', () => {
     const row = events.find((e) => e.type === 'done')!.finalMessage!
 
     expect((await store.getConversation(conversationId))!.title).toBe(titleFromMessage('Tell me about the harbour.'))
-    expect(titlesSent(events)).toEqual([titleFromMessage('Tell me about the harbour.')])
+    // The follow-ups are worth a frame on their own: a pass that offered questions but named nothing still
+    // reaches the screen, and it says no rename happened by carrying no title.
+    expect(titlesSent(events)).toEqual([titleFromMessage('Tell me about the harbour.'), undefined])
+    const followUps = titleFrames(events)[1]!
+    expect(followUps.suggestions).toEqual(['Only one?'])
+    expect(followUps.assistantMessageId).toBe(row.id)
     expect((await store.getMessage(row.id))!.suggestions).toEqual(['Only one?'])
+  })
+
+  it('delivers the follow-ups when the reader renamed the thread while the pass was in flight', async () => {
+    // The race the rename check is for: a second tab gives the thread the reader's own name between the
+    // turn filing and the pass writing back. Their name stands, and the questions still reach the answer
+    // they were written for — the two halves of the frame are independent precisely because this happens.
+    vi.stubGlobal('fetch', vi.fn(async (_url: unknown, init?: RequestInit) => {
+      const request = JSON.parse(String(init?.body)) as Record<string, unknown>
+      const naming = request.response_format !== undefined
+      if (naming) {
+        const [{ id }] = sqlite.prepare('SELECT id FROM chat_conversations').all() as { id: string }[]
+        await store.renameConversation(id, 'Harbour, as I named it')
+      }
+      return new Response(sse(naming
+        ? namingFrames({ title: 'Harbour history', suggestions: ['And the gates?'] })
+        : answerFrames('The harbour was built in 1686.')), { headers: { 'content-type': 'text/event-stream' } })
+    }))
+
+    const { events, conversationId } = await driveNew('Tell me about the harbour.')
+    const row = events.find((e) => e.type === 'done')!.finalMessage!
+
+    expect((await store.getConversation(conversationId))!.title).toBe('Harbour, as I named it')
+    expect(titlesSent(events)).toEqual([titleFromMessage('Tell me about the harbour.'), undefined])
+    expect(titleFrames(events)[1]!.suggestions).toEqual(['And the gates?'])
+    expect((await store.getMessage(row.id))!.suggestions).toEqual(['And the gates?'])
   })
 })
 
