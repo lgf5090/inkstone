@@ -8,9 +8,10 @@
  * feature degrades to plain lexical search instead of failing (the old
  * behavior that surfaced as HTTP 503s).
  */
-import { toPlainText } from '@shared/markdown-utils'
+import { likePattern, toPlainText } from '@shared/markdown-utils'
 import { truncateText } from '@shared/text-utils'
 import { getMeta, selectQueueUsersRoundRobin, setMeta } from '../db/metadata'
+import { tagScopePredicate } from '../db/rows'
 import { ApiError } from '../lib/errors'
 import { acquireLease } from '../lib/lease'
 import type { Env } from '../env'
@@ -738,6 +739,21 @@ export function semanticSnippet(excerpt: string, radius = 90): string {
   return truncateText(plain, radius * 2) + (plain.length > radius * 2 ? '…' : '')
 }
 
+/**
+ * The rows the vector scan may read for one filtered search.
+ *
+ * The tag half has to be the same rule the keyword half applies, or the two lists a caller fuses by rank
+ * are rankings of two different questions: `tagScopePredicate()` is the app's single spelling of "a tag
+ * covers its whole subtree", shared with the sidebar count, the note list and the graph filter, and an
+ * exact-name match here would drop every `project/sea-lock` note from the vector half while the keyword
+ * half kept handing them over — a fused page nobody could explain, since the merge would be comparing
+ * candidate sets that were never the same set.
+ *
+ * The `folder` half is still the narrower one, and is left as it is: the keyword path walks the subfolder
+ * subtree while this matches `folders.name` exactly, so a fusion asked for a folder compares a subtree
+ * against one folder. That asymmetry is a separate decision with its own test to write, not something to
+ * fold into this one.
+ */
 function semanticWhere(userId: string, filters: SemanticFilters): { binds: unknown[]; where: string } {
   const binds: unknown[] = [userId]
   let where = `e.user_id = ?1 AND n.deleted_at IS NULL`
@@ -745,10 +761,14 @@ function semanticWhere(userId: string, filters: SemanticFilters): { binds: unkno
   if (filters.archived === true) where += ' AND n.is_archived = 1'
   else if (filters.archived === false) where += ' AND n.is_archived = 0'
   for (const tag of filters.tags ?? []) {
-    binds.push(tag)
+    // Two binds per tag — the name itself and the `name/` subtree pattern — numbered against this
+    // function's own bind list, exactly as `applyFilters()` numbers the keyword half's.
+    binds.push(tag, likePattern(`${tag}/`))
+    const nameBind = binds.length - 1
+    const prefixBind = binds.length
     where += ` AND EXISTS (SELECT 1 FROM note_tags nt JOIN tags t ON t.id = nt.tag_id
         WHERE nt.note_id = n.id AND t.user_id = n.user_id
-          AND t.name = ?${binds.length} COLLATE NOCASE)`
+          AND ${tagScopePredicate('t.name', `?${nameBind}`, `?${prefixBind}`)})`
   }
   if (filters.folder) {
     binds.push(filters.folder)

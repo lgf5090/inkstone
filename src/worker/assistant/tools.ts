@@ -254,10 +254,11 @@ async function vaultFilterFor(args: Record<string, unknown>, ctx: ToolContext): 
  * The tags a turn is pinned to, in the shape the note retriever can filter on.
  *
  * A scope keeps tags as ids — the shape its folder pins and its permission check use — while the
- * retriever narrows both of its lists by tag *name*: the keyword half turns `tags` into `tag:"…"` terms
- * that SQL compares against `t.name`, and the vector half binds `t.name` as well (`semanticWhere` in
- * `../mcp/ai-search`). Handing ids straight through is a filter no note can satisfy, so a pinned `#meeting`
- * emptied the keyword half and left the vector half answering alone: hits with nothing to say about why.
+ * retriever narrows both of its lists by tag *name*: the keyword half turns `tags` into `tag:"…"` terms,
+ * and both halves then apply `tagScopePredicate()` (`semanticWhere` in `../mcp/ai-search`), the app's one
+ * spelling of a tag and its subtree, so the two lists the turn fuses are candidate sets for the same
+ * question. Handing ids straight through is a filter no note can satisfy, so a pinned `#meeting` emptied
+ * the keyword half and left the vector half answering alone: hits with nothing to say about why.
  *
  * One lookup, spread into both search calls, so the shape question has exactly one answer in this file.
  * A pinned id with no tag behind it is a tag the reader deleted: it cannot be named, and `readableNoteIds`

@@ -12,11 +12,12 @@ import { makeD1 } from './doubles/d1-sqlite'
  * A pinned `#tag` has to narrow the keyword half of a note search, not empty it.
  *
  * A turn's scope keeps tags as *ids* — the shape the folder pins and the permission check use — while the
- * retriever filters both of its lists by tag *name*: the keyword half turns `tags` into `tag:"…"` terms
- * compared against `t.name`, and `semanticWhere` in `mcp/ai-search.ts` binds `t.name` too. Handing the ids
- * over was therefore a filter no note can satisfy: a reader pinning `#meeting` got a keyword half that was
- * always empty, and on an index that is switched on the only hits left came from the vector list, which is
- * the "it matched but nothing says why" answer.
+ * retriever filters both of its lists by tag *name*: the keyword half turns `tags` into `tag:"…"` terms,
+ * and both halves then run the app's one tag-subtree rule (`tagScopePredicate()`, which `semanticWhere` in
+ * `mcp/ai-search.ts` calls for the vector list too). Handing the ids over was therefore a filter no note
+ * can satisfy: a reader pinning `#meeting` got a keyword half that was always empty, and on an index that
+ * is switched on the only hits left came from the vector list, which is the "it matched but nothing says
+ * why" answer.
  *
  * The vector half is switched off in every case below, so any hit at all can only have come from keywords.
  */
