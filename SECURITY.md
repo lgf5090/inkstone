@@ -84,6 +84,20 @@ entry here before it merges.
   defense-in-depth around the vault's decrypt capability. A blank value is
   reported as a misconfiguration (HTTP 500) instead of quietly leaving the
   guard off.
+- **`VAPID_PUBLIC_KEY` / `VAPID_PRIVATE_KEY` (optional secrets).** Web Push is
+  signed with this pair. The private half is a JWK used only inside the Worker to
+  sign one claim per send and is never returned by any endpoint; the public half is
+  the base64url of an uncompressed P-256 point, which is what a browser puts in
+  `PushManager.subscribe`. With either unset, the push endpoints answer that the
+  server has no push keys instead of sending nothing or claiming a send. Set them
+  with `wrangler secret put`, never in a tracked wrangler config.
+- **Push subscriptions are credentials and stay in the account.** A row of
+  `chat_push_subscriptions` (endpoint + `p256dh` + `auth`) is the ability to place a
+  notification on one device. It is excluded from JSON/ZIP export, from the assistant
+  backup and its import whitelist, from shares, and from log output: an endpoint
+  reaches a stored error or a response preview only as its origin plus a short
+  digest, including when the push service echoes the URL back. A restored machine
+  re-subscribes; it does not inherit another's devices.
 - **`AI_CONNECT_HOSTS` (optional var).** Comma-separated bare hostnames (optionally
   with a port) added to the CSP `connect-src` list. AI requests go from the
   reader's browser straight to the provider, so a host that is not listed here is

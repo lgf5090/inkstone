@@ -111,6 +111,14 @@ const PUSH_SUBSCRIPTION_ERROR_CHARS = 500
  */
 export interface AssistantPushSubscription {
   id: string
+  /**
+   * The account the device belongs to.
+   *
+   * Carried because a send is a request the sender makes on its own, with no caller-side store to ask which
+   * account a row belongs to: the failure count and the delete have to go back to the row's own account, and
+   * guessing from the endpoint would be a cross-account write. It is an id, not a secret, so a route may echo it.
+   */
+  userId: string
   endpoint: string
   p256dh: string
   auth: string
@@ -5608,6 +5616,7 @@ function toNotification(r: NotificationRow): AssistantNotification {
 
 interface PushSubscriptionRow {
   id: string
+  user_id: string
   endpoint: string
   p256dh: string
   auth: string
@@ -5619,6 +5628,7 @@ interface PushSubscriptionRow {
 function toPushSubscription(r: PushSubscriptionRow): AssistantPushSubscription {
   return {
     id: r.id,
+    userId: r.user_id,
     endpoint: r.endpoint,
     p256dh: r.p256dh,
     auth: r.auth,

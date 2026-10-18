@@ -79,6 +79,25 @@ Every new account automatically receives two standard starter notes, one in Chin
    Then register, and the console asks for the setup token. See `SECURITY.md` for the rest of
    the deployment notes, and keep a backup before updating any self-hosted instance.
 
+7. Web Push stays off until the deployment has its own key pair. Generate one and store both halves as
+   secrets — they do not belong in `wrangler.toml`, and the private half never leaves the Worker:
+
+   ```bash
+   npx wrangler secret put VAPID_PUBLIC_KEY    # base64url of an uncompressed P-256 point (65 bytes)
+   npx wrangler secret put VAPID_PRIVATE_KEY   # the private JWK: {"kty":"EC","crv":"P-256","d":…,"x":…,"y":…}
+   npx wrangler secret put VAPID_SUBJECT       # optional: mailto: or https: contact for the push service
+   ```
+
+   One command prints both halves of a fresh pair, which you then paste into the two prompts above:
+
+   ```bash
+   node --input-type=module -e 'const k=await crypto.subtle.generateKey({name:"ECDSA",namedCurve:"P-256"},true,["sign"]);const j=await crypto.subtle.exportKey("jwk",k.privateKey);const r=new Uint8Array(await crypto.subtle.exportKey("raw",k.publicKey));console.log("VAPID_PUBLIC_KEY="+Buffer.from(r).toString("base64url"));console.log(`VAPID_PRIVATE_KEY=${JSON.stringify({kty:j.kty,crv:j.crv,d:j.d,x:j.x,y:j.y})}`)'
+   ```
+
+   With either of the first two unset, the push endpoints report that the server has no push keys;
+   nothing is sent and nothing is pretended. The devices readers subscribe are kept out of every export
+   and backup, because a subscription is the ability to notify that machine.
+
 Existing databases are upgraded automatically on startup with idempotent schema changes. Keep a current backup before updating any self-hosted deployment. When a newer stable Inkstone release is available, the owner receives a focused reminder without interrupting regular members.
 
 ## Exports and backups

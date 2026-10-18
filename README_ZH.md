@@ -76,6 +76,24 @@ Inkstone 是运行在 Cloudflare Workers 上的浏览器笔记本。笔记始终
 
    之后再注册，登录页会要求填写初始化令牌。其余部署注意事项见 `SECURITY.md`；更新自托管实例前请先备份。
 
+7. Web Push 在部署配好自己的密钥对之前一直是关着的。生成一对，把两半都作为 secret 存进去——不要写进
+   `wrangler.toml`，私钥也从不离开 Worker：
+
+   ```bash
+   npx wrangler secret put VAPID_PUBLIC_KEY    # 未压缩 P-256 点的 base64url（65 字节，以 0x04 开头）
+   npx wrangler secret put VAPID_PRIVATE_KEY   # 私钥 JWK：{"kty":"EC","crv":"P-256","d":…,"x":…,"y":…}
+   npx wrangler secret put VAPID_SUBJECT       # 可选：给推送服务的联系地址，mailto: 或 https:
+   ```
+
+   下面这一条命令会一次打印出两半，按提示粘贴进上面两次 `secret put` 即可：
+
+   ```bash
+   node --input-type=module -e 'const k=await crypto.subtle.generateKey({name:"ECDSA",namedCurve:"P-256"},true,["sign"]);const j=await crypto.subtle.exportKey("jwk",k.privateKey);const r=new Uint8Array(await crypto.subtle.exportKey("raw",k.publicKey));console.log("VAPID_PUBLIC_KEY="+Buffer.from(r).toString("base64url"));console.log(`VAPID_PRIVATE_KEY=${JSON.stringify({kty:j.kty,crv:j.crv,d:j.d,x:j.x,y:j.y})}`)'
+   ```
+
+   前两个变量只要有一个没配，推送接口就如实回答"服务端未配置推送密钥"：不发任何东西，也不假装发过。
+   读者订阅的设备信息不进任何导出与备份——一条订阅就是往那台设备塞通知的能力。
+
 现有数据库会在每次启动时以幂等方式补上新增的表与索引。自托管实例更新前仍建议保留一份最新备份；发现新的稳定版本时，只有站长会收到专门的更新提醒，不会打扰普通成员。
 
 ## 导出与备份
