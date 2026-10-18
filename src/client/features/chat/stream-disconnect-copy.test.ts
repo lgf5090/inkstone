@@ -256,7 +256,7 @@ async function breakTheStream(words: string | null): Promise<void> {
   // going with it — is what the thread then renders.
   await act(async () => { sending = useAssistant.getState().send(QUESTION) })
   // Never awaited: the send is still asleep in the chase after the worker's row when these cases assert.
-  void Promise.resolve(sending).catch(() => undefined)
+  void Promise.resolve(sending).catch(() => { /* The send is still in flight while these assertions run; what it settles into is read off the store, so this promise's own outcome is nobody's evidence here. */ })
   await settle()
   const run = harness.runs[0]
   expect(run, 'the turn never reached the transport').toBeTruthy()
