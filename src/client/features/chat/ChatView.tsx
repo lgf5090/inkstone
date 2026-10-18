@@ -9,7 +9,7 @@
  * `styles/chat.css` keeps the typography and drops the page furniture.
  */
 import { Z_INDEX } from '../../lib/z-index'
-import { type ClipboardEvent as ReactClipboardEvent, type DragEvent as ReactDragEvent, type KeyboardEvent, type ReactNode, Fragment, memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { type ClipboardEvent as ReactClipboardEvent, type DragEvent as ReactDragEvent, type KeyboardEvent, type ReactNode, Fragment, memo, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { Archive, ArrowUp, ArrowUpRight, Check, Columns2, Copy, FileText, FolderOpen, Ghost, History, Link2Off, ListChecks, MoreHorizontal, NotebookPen, PanelRight, Paperclip, Pencil, Plus, Search, Settings2, Square, Sparkles, Star, Trash2, X } from 'lucide-react'
 import type { AssistantConversation, AssistantMessage, AssistantModel, AssistantTurnScope, ChatAttachment } from '@shared/assistant'
 import { EPHEMERAL_CONVERSATION_RETENTION_DAYS, SEARCH_NATIVE_PROTOCOLS, looksLikeSearchTool, mcpToolModeFor, webSearchConfigured } from '@shared/assistant'
@@ -58,7 +58,7 @@ import { useUi } from '../../store/ui'
 import { copyText } from '../../lib/clipboard'
 import { useNotes } from '../../store/notes'
 import { MarkdownBody } from '../preview/MarkdownBody'
-import { compareChoices, modelLabelOf, PASTE_FILE_MIN_CHARS, useAssistant, type AssistantView, type CompareTurn } from './assistant-store'
+import { compareChoices, MAX_LOADED_MESSAGES, modelLabelOf, PASTE_FILE_MIN_CHARS, useAssistant, type AssistantView, type CompareTurn } from './assistant-store'
 import { MessageMenu, useMessageMenu } from './MessageMenu'
 import { AssistantBubble, CHAT_MENTION_LINKS } from './MessageParts'
 import { CanvasPanel } from './CanvasPanel'
@@ -318,6 +318,13 @@ export function ChatView() {
   const loadEarlierMessages = useAssistant((state) => state.loadEarlierMessages)
   const focusMessageId = useAssistant((state) => state.focusMessageId)
   const clearFocusMessage = useAssistant((state) => state.clearFocusMessage)
+  // Derived from the loaded count rather than stored: the store's own guard reads the same list, so a
+  // second flag saying "capped" could only disagree with it or go stale when a thread is switched.
+  const earlierCapped = messages.length >= MAX_LOADED_MESSAGES
+  // One id per mounted view, so the sentence naming the reason is the accessible description of the
+  // control it explains — a disabled button is skipped by the tab order, and a reason nobody is pointed
+  // at is a reason the reader finds by scrolling rather than by asking.
+  const earlierCappedId = useId()
   const loadEarlier = useCallback(async () => {
     const el = scrollRef.current
     const height = el?.scrollHeight ?? 0
@@ -568,10 +575,27 @@ export function ChatView() {
                   reader who is watching it stream and useless to the one who is not. */}
               <div aria-live="polite" role="status" className="sr-only">{answerAnnouncement}</div>
               {messagesHasMore && (
-                <div className="flex justify-center">
-                  <Button size="sm" variant="ghost" disabled={messagesLoadingMore} onClick={() => void loadEarlier()}>
+                <div className="flex flex-col items-center gap-1">
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    // At the ceiling the control stays where it is and stops answering: it is the older
+                    // turns that are still out of the transcript, and a button that vanished would read
+                    // as the thread having no more above it.
+                    disabled={messagesLoadingMore || earlierCapped}
+                    aria-describedby={earlierCapped ? earlierCappedId : undefined}
+                    onClick={() => void loadEarlier()}
+                  >
                     {messagesLoadingMore ? <Spinner /> : t('assistant.chat.load_earlier')}
                   </Button>
+                  {earlierCapped && (
+                    <p
+                      id={earlierCappedId}
+                      className="max-w-[46ch] text-center text-[length:var(--text-11)] text-[var(--text-secondary)]"
+                    >
+                      {t('assistant.chat.earlier_capped', { limit: MAX_LOADED_MESSAGES })}
+                    </p>
+                  )}
                 </div>
               )}
               {messagesHasNewer && activeId && (
@@ -722,6 +746,7 @@ export function ChatView() {
             hasEarlier={messagesHasMore}
             hasLater={messagesHasNewer}
             loadingEarlier={messagesLoadingMore}
+            earlierCapped={earlierCapped}
             onLoadEarlier={() => void loadEarlier()}
             onJumpLatest={() => { if (activeId) void openConversation(activeId) }}
             onClose={() => setFinding(false)}

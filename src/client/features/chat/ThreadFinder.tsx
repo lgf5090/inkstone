@@ -15,15 +15,16 @@
  * transient surface in the app follows.
  */
 
-import { useEffect, useRef, useState, type RefObject } from 'react'
+import { useEffect, useId, useRef, useState, type RefObject } from 'react'
 import { ChevronDown, ChevronUp, X } from 'lucide-react'
 import { t } from '../../lib/i18n'
 import { isImeComposing } from '../../lib/ime'
 import { Input } from '../../components/form'
 import { Button, IconButton } from '../../components/primitives'
 import { clearFindMarks, focusFindHit, markFindHits } from './thread-find'
+import { MAX_LOADED_MESSAGES } from './assistant-store'
 
-export function ThreadFinder({ scroller, revision, hasEarlier, hasLater, loadingEarlier, onLoadEarlier, onJumpLatest, onClose }: {
+export function ThreadFinder({ scroller, revision, hasEarlier, hasLater, loadingEarlier, earlierCapped = false, onLoadEarlier, onJumpLatest, onClose }: {
   /** The scrolling element the thread lives in. */
   scroller: RefObject<HTMLElement | null>
   /** Bumped by the thread when its content changes, so the marks are remade over the new answer. */
@@ -34,6 +35,8 @@ export function ThreadFinder({ scroller, revision, hasEarlier, hasLater, loading
   hasLater: boolean
   /** The older page is on its way, so the control that asked for it is not to be pressed twice. */
   loadingEarlier: boolean
+  /** The transcript is at the ceiling it keeps on screen, so another page is not fetched. */
+  earlierCapped?: boolean
   /** Brings the older page into the transcript. The marks are remade when it arrives. */
   onLoadEarlier: () => void
   /** Reads the thread from its newest turn, which is where the rest of the conversation is. */
@@ -44,6 +47,8 @@ export function ThreadFinder({ scroller, revision, hasEarlier, hasLater, loading
   const [index, setIndex] = useState(0)
   const [count, setCount] = useState(0)
   const [capped, setCapped] = useState(false)
+  // The sentence naming the ceiling is the disabled control's description, not a caption beside it.
+  const earlierCappedId = useId()
   const marks = useRef<HTMLElement[]>([])
   const field = useRef<HTMLInputElement>(null)
   // Whatever had the keystroke before the panel took it, so closing can hand it back.
@@ -147,21 +152,37 @@ export function ThreadFinder({ scroller, revision, hasEarlier, hasLater, loading
           they searched. This says so and hands over the same two controls the top and the bottom of the
           thread do — the store's own, so nothing here decides what a page costs. */}
       {outOfScope && (
-        <div className="flex items-center justify-end gap-1">
-          {hasEarlier && (
-            // `loading` rather than a disabled button with nothing said: the label stays the accessible
-            // name, and the reader who pressed it hears that the page is on its way instead of finding a
-            // control that stopped answering.
-            <Button size="sm" variant="ghost" loading={loadingEarlier} onClick={onLoadEarlier}>
-              {t('assistant.chat.load_earlier')}
-            </Button>
+        <>
+          <div className="flex items-center justify-end gap-1">
+            {hasEarlier && (
+              // `loading` rather than a control that stopped answering with nothing said: the label stays
+              // the accessible name, and the reader who pressed it hears that the page is on its way
+              // instead of finding a button that answers nothing. At the ceiling the button does stop
+              // answering — and the sentence under it says so, because the older turns really are still
+              // out of the transcript and a silent control would claim they are not.
+              <Button
+                size="sm"
+                variant="ghost"
+                loading={loadingEarlier}
+                disabled={earlierCapped}
+                aria-describedby={earlierCapped ? earlierCappedId : undefined}
+                onClick={onLoadEarlier}
+              >
+                {t('assistant.chat.load_earlier')}
+              </Button>
+            )}
+            {hasLater && (
+              <Button size="sm" variant="ghost" onClick={onJumpLatest}>
+                {t('assistant.chat.jump_latest')}
+              </Button>
+            )}
+          </div>
+          {hasEarlier && earlierCapped && (
+            <p id={earlierCappedId} className="max-w-full self-end text-right text-[length:var(--text-11)] text-[var(--text-secondary)]">
+              {t('assistant.chat.earlier_capped', { limit: MAX_LOADED_MESSAGES })}
+            </p>
           )}
-          {hasLater && (
-            <Button size="sm" variant="ghost" onClick={onJumpLatest}>
-              {t('assistant.chat.jump_latest')}
-            </Button>
-          )}
-        </div>
+        </>
       )}
     </div>
   )

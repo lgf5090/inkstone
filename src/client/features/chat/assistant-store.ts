@@ -1280,6 +1280,25 @@ async function uploadAttachment(localId: string, file: File, set: AttachmentSett
   }
 }
 
+/**
+ * How many turns of one thread the transcript on screen is allowed to hold.
+ *
+ * The arithmetic, in the two numbers this app already states: a page is `MESSAGE_PAGE_SIZE` (60,
+ * `@shared/assistant`) and the conversation route clamps `limit` to 500 (`src/worker/routes/assistant.ts`
+ * `pageSize(..., MESSAGE_PAGE_SIZE, 500)`). 8 × 60 = 480 is the largest whole number of pages that fits
+ * under that ceiling, so a page the reader asks for is never trimmed by the route and the count never
+ * drifts past a limit that lives in another layer. Opening a thread is one page and every press of
+ * "load earlier" adds exactly one more — the dedupe can only take rows out, never widen a page — so 480
+ * is reached and not overshot. Eight presses is a screenful of scrolling many times over, while a list
+ * with no ceiling let twenty presses put 1,200 rendered bubbles in the DOM for a reader who arrived at
+ * the thread from its newest turn.
+ *
+ * Stopping is not the same as the thread stopping: `messagesHasMore` keeps whatever the server answered,
+ * so the transcript goes on naming the older turns it does not hold, and the control that cannot fetch
+ * them says why instead of disappearing.
+ */
+export const MAX_LOADED_MESSAGES = MESSAGE_PAGE_SIZE * 8
+
 export const useAssistant = create<AssistantState>()((set, get) => ({
   view: 'chat',
   loaded: false,
@@ -1993,6 +2012,12 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
     const state = get()
     const conversationId = state.activeId
     if (!conversationId || !state.messagesHasMore || state.messagesLoadingMore || !state.messagesBefore) return
+    // The ceiling is about how much this tab keeps on screen, not about what the thread holds, so nothing
+    // here touches `messagesHasMore`: a reader stopped at the limit still has older turns above the list,
+    // and the page they are on is not the conversation. The view presents the control as unavailable and
+    // says the reason; this is the same rule enforced where the fetch actually happens, because the find
+    // panel and any other caller reach the store rather than the button.
+    if (state.messages.length >= MAX_LOADED_MESSAGES) return
     set({ messagesLoadingMore: true })
     try {
       const detail = await api.assistant.conversation(conversationId, {
