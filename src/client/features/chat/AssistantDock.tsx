@@ -174,6 +174,10 @@ export function AssistantDock() {
           <div className="flex justify-center py-10"><Spinner /></div>
         ) : (
           <div className="flex flex-col gap-4 px-3 py-4">
+            {/* Deliberately bare rows: the dock offers no retry and no continue either, because its thread is
+                not the one the store's send path writes to. A follow-up chip here would press a question into
+                the chat window's conversation — a different model, a different scope, a different thread — so
+                the affordance is left out rather than pointed at the wrong place. */}
             {messages.map((message) => (
               <MessageRow key={message.id} message={message} busy={streaming} />
             ))}

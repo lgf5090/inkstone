@@ -326,10 +326,10 @@ function ToolCallRow({ tool, messageId, open, onToggle }: {
               </button>
             )}
             {external && messageId && tool.args && tool.status !== 'running' && (
+              <Tooltip label={t('assistant.chat.replay_hint')} side="top">
               <button
                 type="button"
                 disabled={busy}
-                title={t('assistant.chat.replay_hint')}
                 onClick={() => {
                   // Read on the press, not at render: the id belongs to this action, and a turn with no
                   // conversation to run in is refused here rather than sent as an empty one, which the
@@ -353,6 +353,7 @@ function ToolCallRow({ tool, messageId, open, onToggle }: {
                 {busy ? <Loader2 size={11} className="ink-chat-spin" /> : <Play size={11} />}
                 {busy ? t('assistant.chat.replaying') : t('assistant.chat.replay')}
               </button>
+              </Tooltip>
             )}
           </div>
           {refused && (
@@ -1038,6 +1039,10 @@ export function AssistantBubble({
           >
             {sources.map((source, index) => (
               <li key={source.id ?? source.url}>
+                {/* A citation's hint is its excerpt, up to three hundred characters of it, and the app's own
+                    tooltip is one unwrapped line — the browser's is the only one that wraps. Every other hint
+                    on this row was moved to `Tooltip`; this one stays because the text it carries cannot fit
+                    there, and a hint that paints past the viewport is worse than two systems of hint. */}
                 {source.kind === 'note' && source.id
                   ? <NoteCitation index={index} source={source} noteId={source.id} />
                   : (

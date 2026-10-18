@@ -243,8 +243,9 @@ function denseSites(): DenseSite[] {
   return [
     { name: groupHeading(), padded: false },
     { name: t('assistant.chat.copy'), padded: true },
-    // The replay names itself with the hint it writes on itself, so that is what the walk meets here.
-    { name: t('assistant.chat.replay_hint'), padded: true },
+    // The replay's hint now rides the app's own tooltip, so it is no longer the control's name: what the walk
+    // meets here is the word on the button itself.
+    { name: t('assistant.chat.replay'), padded: true },
     { name: NOTE_CHIP_TITLE, padded: false },
     { name: t('assistant.chat.copy'), padded: true },
     { name: CITATION_TITLE, padded: false },
