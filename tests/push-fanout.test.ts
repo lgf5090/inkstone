@@ -323,6 +323,31 @@ describe('the delivery is not the push', () => {
     expect((await storeFor(USER).listPushSubscriptions())[0]?.failures).toBe(0)
   })
 
+  it('stamps the rows a device accepted, which is what the cron fire reads', async () => {
+    armReminder(USER, AUTOMATION, PRIVATE_NAME, PRIVATE_MESSAGE)
+    await subscribe(USER, LAPTOP)
+    stubFetch(ok)
+    const result = await sweep()
+    const tally = await result.push
+
+    // The handover between the two paths: an accepted nudge leaves a mark, so the catch-up fire does not
+    // announce the same row again. Dropping that stamping turns `tests/push-catchup.test.ts` red.
+    expect(tally.marked).toBe(1)
+    const stamped = sqlite.prepare(`SELECT pushed_at FROM chat_notifications WHERE user_id = ?1`).get(USER) as { pushed_at: number | null }
+    expect(stamped.pushed_at, 'a row nothing was told about is still marked as if it had been').not.toBeNull()
+  })
+
+  it('leaves a row nothing accepted unmarked, so the next fire may try again', async () => {
+    armReminder(USER, AUTOMATION, PRIVATE_NAME, PRIVATE_MESSAGE)
+    await subscribe(USER, LAPTOP)
+    stubFetch(() => new Response('nope', { status: 500 }))
+    const result = await sweep()
+    const tally = await result.push
+
+    expect(tally.marked).toBe(0)
+    expect(sqlite.prepare(`SELECT pushed_at FROM chat_notifications WHERE user_id = ?1`).get(USER)).toEqual({ pushed_at: null })
+  })
+
   it('lets the sender delete the endpoint a service declares gone', async () => {
     armReminder(USER, AUTOMATION, PRIVATE_NAME, PRIVATE_MESSAGE)
     await subscribe(USER, LAPTOP)

@@ -1,6 +1,7 @@
 import { runAttachmentCleanup } from './attachments/cleanup'
 import { runScheduledBackups } from './backup/scheduler'
 import { runDueAssistantAutomations } from './assistant/scheduler'
+import { runPushCatchUp } from './assistant/push-fanout'
 import { purgeExpiredEphemeralConversations } from './assistant/store'
 import type { Env } from './env'
 import { initializeDatabase } from './db/schema'
@@ -70,6 +71,11 @@ export default {
         drainAiIndexQueue(env, 300),
         drainAllFtsQueues(env.DB),
         drainRewriteQueues(env, ftsEnabled, 5),
+        // Web Push's late pass, on the fire that already has the other maintenance work: it re-says what a
+        // fan-out refused or a killed process never sent, and it prunes the subscriptions a service declares
+        // gone. It is not a delivery path — the sweep above does that on every fire — and `pushed_at` is what
+        // lets it run three times an hour without announcing the same row twice.
+        runPushCatchUp(env),
       ]
       const heavy: Promise<unknown>[] = isHourStart(event.scheduledTime)
         ? [

@@ -1,7 +1,9 @@
 /**
- * The nudge that goes out when a scheduled routine delivered a notification.
+ * The nudge that goes out when a scheduled routine delivered a notification, and the fire that says it again.
  *
- * Two rules shape this whole file, and both are about what a push here is for.
+ * Two entry points, one set of rules: `NotificationPushFanout` is the immediate path a sweep hands over
+ * (`scheduler.ts`), and `runPushCatchUp` is the cron's later pass over whatever that path never got said.
+ * Both walk the same `nudgeAccount`, so a payload rule is written once.
  *
  * A push is a courtesy, never the delivery. The reader's own notification list is the record, and the row
  * `createNotification` wrote is the thing that has to exist. So nothing in here may turn a refused send, an
@@ -22,7 +24,7 @@
  */
 
 import type { Env } from '../env'
-import { AssistantStore, type AssistantPushSubscription } from './store'
+import { accountsWithUnpushedNotifications, AssistantStore, type AssistantPushSubscription } from './store'
 import { sendPush, vapidProblem } from './push'
 
 /**
@@ -69,8 +71,10 @@ export interface PushFanoutTally {
   refused: number
   /** Endpoints a service declared gone; the sender deleted those subscription rows. */
   expired: number
-  /** Sends that blew up before an answer, and subscriptions that could not be read: counted, never swallowed. */
+  /** Sends that blew up before an answer, and listings that failed: counted, never swallowed. */
   errors: number
+  /** Notification rows stamped `pushed_at` by this fan-out, which is what makes a later fire skip them. */
+  marked: number
   /** The operator's sentence for a deployment with no usable VAPID keys; null when it can send. */
   configuration: string | null
 }
@@ -86,6 +90,7 @@ export function newPushFanoutTally(): PushFanoutTally {
     refused: 0,
     expired: 0,
     errors: 0,
+    marked: 0,
     configuration: null,
   }
 }
@@ -96,9 +101,14 @@ export function newPushFanoutTally(): PushFanoutTally {
  * The subscription table is read once per account per call and then looped over, so a tick that delivered
  * three notifications to one reader sends three devices' worth of requests, not nine, and never re-queries
  * the credential table per notification. `sendPush` owns what happens to a refusal: 404 and 410 delete the
- * row, anything else is counted against it until the store's own limit drops it.
+ * row, anything else is counted against it until the store's own limit drops it. That is also the only way
+ * this deployment learns an endpoint is dead, which is why the clean-up of gone devices happens here rather
+ * than on a timer.
  *
  * The `notificationIds` are only counted, never carried: what a device is told is how many rows there are.
+ * When one of them accepts, the rows are stamped `pushed_at`, and that stamp is what the catch-up fire below
+ * reads — one acceptance is enough, because the nudge says "there is something to read" and the next
+ * notification this reader gets will ask this device again anyway.
  */
 export async function nudgeAccount(
   env: Env,
@@ -124,12 +134,14 @@ export async function nudgeAccount(
     return
   }
   const payload = pushPingPayload(notificationIds.length)
+  let accepted = 0
   for (const subscription of subscriptions) {
     tally.devices += 1
     try {
       const result = await sendPush(subscription, payload, env)
       if (result.outcome === 'sent') {
         tally.sent += 1
+        accepted += 1
         continue
       }
       if (result.outcome === 'expired') tally.expired += 1
@@ -145,10 +157,20 @@ export async function nudgeAccount(
       console.error('[inkstone] push send failed before an answer:', errorDetail(error))
     }
   }
+  if (!accepted || !notificationIds.length) return
+  try {
+    const marked = await store.markNotificationsPushed(notificationIds)
+    tally.marked += marked
+  } catch (error) {
+    // The nudge went out, so a reader was told; failing to say so only means the next fire nudges again.
+    // That is the survivable direction, but it is still a fact worth a line rather than a silence.
+    tally.errors += 1
+    console.error('[inkstone] push fan-out could not mark its own rows:', errorDetail(error))
+  }
 }
 
 /**
- * The notifications one account has delivered since the last nudge, waiting to be sent.
+ * What one sweep has delivered and not yet announced, held per account.
  *
  * Accumulated per account rather than sent per notification, because the payload carries a count: one tick
  * that produced three rows for one reader is one nudge saying "three", and the subscription table is read
@@ -214,6 +236,86 @@ export async function flushPushFanout(
   }
   for (const [userId, ids] of [...pending]) {
     pending.delete(userId)
+    await nudgeAccount(env, userId, ids, tally)
+  }
+  return tally
+}
+
+/**
+ * How long a delivered notification stays worth a late nudge.
+ *
+ * The fires are at :00, :15 and :45, so the gap a killed process has to survive is half an hour; three hours
+ * is six of those, long enough that a reader whose deployment was restarting still hears about the morning's
+ * digest, and short enough that nobody is woken for news a day old. It stays inside the message's own `TTL`
+ * in `push.ts`, which is the other half of the bound: a nudge the push service may still be sitting on when
+ * the window closes would arrive as a surprise about something that stopped being news.
+ */
+export const PUSH_CATCHUP_WINDOW_MS = 3 * 60 * 60 * 1000
+
+/** Accounts one fire works off: the same bounded-backlog shape as `DUE_SWEEP_LIMIT`. */
+export const PUSH_CATCHUP_ACCOUNTS_PER_FIRE = 20
+
+/** Rows of one account one fire names in a nudge, so one reader's restored history cannot crowd out the rest. */
+const PUSH_CATCHUP_ROWS_PER_ACCOUNT = 20
+
+/**
+ * The cron's half of Web Push: say again what no fan-out ever got said, and let the services prune the
+ * devices that are gone.
+ *
+ * The immediate path is the delivery path; this one exists for the two ways it does not happen — a send that
+ * every device refused, and a sweep killed between writing the row and handing over the sends. It is the
+ * same walk `flushPushFanout` does, over rows read back out of `chat_notifications` instead of rows the tick
+ * produced, which is what keeps the payload rules (a signal and a count, nothing of the reader's) in one
+ * place rather than in two that can drift.
+ *
+ * **Idempotent by `pushed_at`.** A row is stamped the first time a push service accepts it, and a row that
+ * was accepted is never a candidate again; the row's own `created_at` has to be inside the window and the
+ * reader has still to have left it unread. The alternatives were tested against what they cost: `read_at`
+ * alone says what the reader has seen, not whether anybody was told, so a row they have not opened would be
+ * announced again on every fire for three hours; a window rule alone cannot tell a notification the sweep
+ * already announced from one the process died before announcing, which is the duplicate the task forbids.
+ * There is no second ledger of announced ids to keep in step either — the fact belongs on the row it
+ * describes, or it goes out of date the moment the row is deleted or read.
+ *
+ * The clean-up of dead devices is not a separate sweep, because the server has no signal that an endpoint is
+ * dead except a push service saying so: `sendPush` deletes the row on 404 and 410, the store drops it after
+ * five refusals, and this fire is what reaches the devices an immediate fan-out never got to ask. Deleting a
+ * subscription that has merely been quiet would take push away from a reader whose routines have not fired
+ * this week, which is the worse failure.
+ *
+ * Refusals are logged and counted where they happen and the row's `last_error` keeps them, so nothing here
+ * is swallowed; the tally is the return value, and the caller that wants the numbers awaits it.
+ */
+export async function runPushCatchUp(env: Env, now = Date.now()): Promise<PushFanoutTally> {
+  const tally = newPushFanoutTally()
+  const problem = vapidProblem(env)
+  if (problem) {
+    // Nothing is looked at and nothing is said, so nothing is counted: this fire's whole answer is the
+    // sentence naming the secret to set.
+    tally.configuration = problem
+    return tally
+  }
+  const sinceAt = now - PUSH_CATCHUP_WINDOW_MS
+  let accounts: string[]
+  try {
+    accounts = await accountsWithUnpushedNotifications(env.DB, sinceAt, PUSH_CATCHUP_ACCOUNTS_PER_FIRE)
+  } catch (error) {
+    tally.errors += 1
+    console.error('[inkstone] push catch-up could not find the accounts behind:', errorDetail(error))
+    return tally
+  }
+  for (const userId of accounts) {
+    let ids: string[]
+    try {
+      ids = await new AssistantStore(env.DB, userId, env).listUnpushedNotificationIds(sinceAt, PUSH_CATCHUP_ROWS_PER_ACCOUNT)
+    } catch (error) {
+      tally.errors += 1
+      console.error('[inkstone] push catch-up could not read one account\'s rows:', errorDetail(error))
+      continue
+    }
+    // A row the candidate list named and this read did not is a row that got read or announced in between,
+    // which is not a thing to count as a nudge nobody needed.
+    if (!ids.length) continue
     await nudgeAccount(env, userId, ids, tally)
   }
   return tally

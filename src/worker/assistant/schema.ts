@@ -449,6 +449,15 @@ export const ASSISTANT_SCHEMA_STATEMENTS: readonly string[] = [
   `CREATE INDEX IF NOT EXISTS idx_chat_runs_started
      ON chat_runs(user_id, started_at DESC)`,
 
+  /**
+   * What a routine delivered, and whether any device was ever told about it.
+   *
+   * `read_at` is the reader's own state and `pushed_at` is a delivery fact, and the two must not be
+   * confused: the marker is stamped by `assistant/push-fanout.ts` the first time a push service accepts the
+   * nudge for this row, and it is what makes a later cron catch-up fire idempotent. Null means "no device
+   * ever accepted one" — including every row written before Web Push existed, which is the honest reading
+   * rather than a backfill that would claim a send that never happened.
+   */
   `CREATE TABLE IF NOT EXISTS chat_notifications (
     user_id TEXT NOT NULL,
     id TEXT NOT NULL,
@@ -457,12 +466,18 @@ export const ASSISTANT_SCHEMA_STATEMENTS: readonly string[] = [
     automation_id TEXT,
     read_at INTEGER,
     created_at INTEGER NOT NULL,
+    pushed_at INTEGER,
     PRIMARY KEY (user_id, id)
   )`,
   `CREATE INDEX IF NOT EXISTS idx_chat_notifications_user
      ON chat_notifications(user_id, created_at DESC)`,
   `CREATE INDEX IF NOT EXISTS idx_chat_notifications_unread
      ON chat_notifications(user_id, read_at, created_at)`,
+  // The rows a catch-up fire is looking for: never nudged, newest first, one account at a time. Partial on
+  // purpose — a deployment keeps every notification it ever delivered, and the ones already marked are not
+  // candidates for anything, so they do not belong in the index the cron reads three times an hour.
+  `CREATE INDEX IF NOT EXISTS idx_chat_notifications_unpushed
+     ON chat_notifications(user_id, created_at) WHERE pushed_at IS NULL`,
 
   /**
    * The devices a reader has asked to be notified on.
@@ -677,6 +692,7 @@ export const ASSISTANT_REQUIRED_INDEXES: readonly string[] = [
   'idx_chat_runs_started',
   'idx_chat_notifications_user',
   'idx_chat_notifications_unread',
+  'idx_chat_notifications_unpushed',
   'idx_chat_push_subscriptions_endpoint',
   'idx_chat_actions_conversation',
   'idx_chat_actions_pending',
@@ -717,7 +733,7 @@ export const ASSISTANT_REQUIRED_COLUMNS: Readonly<Record<string, readonly string
   chat_tasks: ['user_id', 'id', 'title', 'description', 'status', 'priority', 'due_at', 'project_id', 'created_at', 'updated_at', 'completed_at'],
   chat_automations: ['user_id', 'id', 'name', 'kind', 'message', 'schedule', 'enabled', 'status', 'next_run', 'last_run', 'last_result', 'last_error', 'run_count', 'claimed_at', 'target_folder_id', 'target_note_id', 'created_at', 'updated_at'],
   chat_runs: ['user_id', 'id', 'automation_id', 'automation_name', 'started_at', 'finished_at', 'status', 'result', 'error', 'note_id'],
-  chat_notifications: ['user_id', 'id', 'title', 'body', 'automation_id', 'read_at', 'created_at'],
+  chat_notifications: ['user_id', 'id', 'title', 'body', 'automation_id', 'read_at', 'created_at', 'pushed_at'],
   chat_push_subscriptions: ['user_id', 'id', 'endpoint', 'p256dh', 'auth', 'created_at', 'failures', 'last_error'],
   chat_pending_actions: ['user_id', 'id', 'conversation_id', 'tool', 'target_id', 'target_label', 'args', 'status', 'error', 'created_at', 'expires_at', 'resolved_at'],
   chat_usage_daily: ['user_id', 'day', 'requests', 'input_tokens', 'output_tokens', 'tool_calls', 'scheduled_runs', 'embeddings', 'errors'],

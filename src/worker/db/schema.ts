@@ -1619,6 +1619,36 @@ export const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
      ON chat_push_subscriptions(user_id, endpoint)`,
     ],
   },
+  {
+    // The delivery fact behind a late nudge.
+    //
+    // `chat_notifications` said only what was delivered and whether the reader had looked; nothing said
+    // whether a device was ever told. A cron catch-up fire has to know that, or it re-nudges every unread
+    // row inside its window on every fire — the "same notification, four times an hour" shape the task this
+    // column exists for forbids. No other reading works: `read_at` is the reader's state, so a row they have
+    // not opened is not a row nobody was told about, and a window rule alone cannot tell a notification the
+    // sweep already nudged from one the process died before nudging. Null is every row written before the
+    // marker, which decays out of the window instead of being backfilled into a send that never happened.
+    version: 106,
+    skipIfColumnExists: { table: 'chat_notifications', column: 'pushed_at' },
+    statements: [
+      `ALTER TABLE chat_notifications ADD COLUMN pushed_at INTEGER`,
+    ],
+  },
+  {
+    // The rows a catch-up fire is looking for, reached without walking the notification history.
+    //
+    // The fire runs three times an hour on every account's un-nudged rows, and a deployment never deletes a
+    // delivered notification, so the query it runs is against a table that only grows. Partial on
+    // `pushed_at IS NULL`: the marked rows are never candidates for anything, and leaving them out is what
+    // keeps this index the size of the backlog rather than the size of the shelf. Same shape as version 103
+    // spending its own number on the index a column two versions up needed.
+    version: 107,
+    statements: [
+      `CREATE INDEX IF NOT EXISTS idx_chat_notifications_unpushed
+     ON chat_notifications(user_id, created_at) WHERE pushed_at IS NULL`,
+    ],
+  },
 ]
 
 const FTS_STATEMENT = `CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(

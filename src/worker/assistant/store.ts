@@ -3853,6 +3853,51 @@ export class AssistantStore {
     return r?.n ?? 0
   }
 
+  /**
+   * The rows this account has never been nudged about, oldest first.
+   *
+   * `pushed_at IS NULL` is the delivery fact and `read_at IS NULL` the reader's: a row they have opened does
+   * not need a device told about it again. Ids only — a catch-up fire has no use for a title, and reading one
+   * here would put the reader's text somewhere a payload could reach it. Oldest first so the backlog works
+   * off the row that has waited longest, rather than the newest one being reported over and over while the
+   * oldest decays out of the window unnoticed.
+   */
+  async listUnpushedNotificationIds(sinceAt: number, limit: number): Promise<string[]> {
+    const q = new Query(this.userId)
+    q.raw(`read_at IS NULL`)
+      .raw(`pushed_at IS NULL`)
+      .raw(`created_at >= ${q.add(sinceAt)}`)
+    const list = await this.rows<{ id: string }>(
+      `SELECT id FROM chat_notifications WHERE ${q.where} ORDER BY created_at LIMIT ${q.add(limit)}`,
+      ...q.binds,
+    )
+    return list.map((row) => row.id)
+  }
+
+  /**
+   * Stamps the rows a push service accepted the nudge for.
+   *
+   * This is the marker that makes a later catch-up fire idempotent, so it is written only after an
+   * acceptance: a refusal leaves the row eligible, which is the whole point — the next fire tries again until
+   * the window says the news is no longer news. Chunked because D1 bounds one statement's bind count, and a
+   * tick that delivered a great many things must not fail on the way to marking them.
+   */
+  async markNotificationsPushed(ids: readonly string[], at = Date.now()): Promise<number> {
+    let marked = 0
+    for (const chunk of idReadChunks(ids)) {
+      const q = new Query(this.userId)
+      q.raw(`pushed_at IS NULL`).inList('id', chunk)
+      // The stamped value is added last, so its number follows the id list it sits outside of in the text:
+      // SQLite binds by index, and a `Query` cannot name a value it was never given.
+      const stamp = q.add(at)
+      marked += await this.runScoped(
+        `UPDATE chat_notifications SET pushed_at = ${stamp} WHERE ${q.where}`,
+        ...q.binds,
+      )
+    }
+    return marked
+  }
+
   async markRead(id?: string): Promise<void> {
     if (id) {
       await this.write(`UPDATE chat_notifications SET read_at = ?2 WHERE user_id = ?1 AND id = ?3`, Date.now(), id)
@@ -4983,6 +5028,11 @@ const EXPORT_COLUMNS: Readonly<Record<string, readonly string[]>> = {
   // and a reader who restores a backup expecting their morning log page to keep being written would find
   // a schedule that writes nothing and says nothing about it.
   chat_automations: ['id', 'name', 'kind', 'message', 'schedule', 'enabled', 'status', 'next_run', 'last_run', 'last_result', 'last_error', 'run_count', 'target_folder_id', 'target_note_id', 'created_at', 'updated_at'],
+  // `pushed_at` stays out on purpose, unlike the rest of the row: it is this deployment's bookkeeping about
+  // devices that a restored machine does not have. Carrying it over would hand the restore a shelf of
+  // notifications the new devices were never told about and a marker saying they were — the reader would get
+  // no nudge for news they have not seen, which is the quiet direction of the mistake this table has made
+  // twice before for the opposite reason.
   chat_notifications: ['id', 'title', 'body', 'automation_id', 'read_at', 'created_at'],
 }
 
@@ -5065,6 +5115,31 @@ export async function purgeExpiredEphemeralConversations(
     removed += await new AssistantStore(db, row.user_id, env).purgeEphemeral(before)
   }
   return removed
+}
+
+/**
+ * The accounts holding a notification no device has ever been told about, inside the window.
+ *
+ * A catch-up fire is the third query in this module that is not scoped to one reader, and it is the same
+ * shape as the two above it: it goes straight to `db.prepare`, it returns ids and nothing else, and every
+ * read that follows one is made through a store bound to that account. It has to be cross-account because
+ * the fire is looking for the sweep that did not happen — a process killed between writing the row and
+ * sending the nudge leaves no trace anybody could ask a per-account reader about.
+ *
+ * `limit` is per fire, so a restored backup or a week of a deployment without VAPID keys is worked off over
+ * several ticks rather than in one invocation nobody is watching.
+ */
+export async function accountsWithUnpushedNotifications(
+  db: D1Database,
+  sinceAt: number,
+  limit: number,
+): Promise<string[]> {
+  const { results } = await db.prepare(
+    `SELECT user_id FROM chat_notifications
+      WHERE pushed_at IS NULL AND read_at IS NULL AND created_at >= ?1
+      GROUP BY user_id ORDER BY min(created_at) LIMIT ?2`,
+  ).bind(sinceAt, limit).all<{ user_id: string }>()
+  return (results ?? []).map((row) => row.user_id)
 }
 
 /** Terms worth searching a memory with: the words a reader would actually type. */
