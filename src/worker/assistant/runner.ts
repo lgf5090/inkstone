@@ -206,6 +206,26 @@ export interface TurnInput {
   /** The composer's web-search switch: ask this model for a live web search. */
   webSearch?: boolean
   /**
+   * The model the caller named for this turn.
+   *
+   * Absent means today's behaviour: the reader's own pick, or the router's. Present, it answers the whole
+   * turn — primary call, the chain of spares behind it, and the counters filed against whichever of them
+   * replied — because a turn that quietly used the account default instead of the model it was asked for
+   * is indistinguishable from one that was answered correctly. Checked against ownership and against the
+   * `chat` purpose where the request is read; a runner that cannot resolve it answers as an unconfigured
+   * turn rather than reaching for the reader's standing pick.
+   */
+  modelId?: string | null
+  /**
+   * Answer this turn without tools.
+   *
+   * No schema goes out — the same path a model with `supportsTools` turned off already takes — and a call
+   * the model invents anyway is refused rather than run, because a turn asked to compare two answers must
+   * not write to the vault a second time after the thread's own answer already did. The refusal is filed on
+   * the row, so a reader who opens the answer later can see why it cites nothing.
+   */
+  noTools?: boolean
+  /**
    * Start the conversation this turn needs as a temporary one.
    *
    * Only read when the turn creates its own conversation: a temporary thread is one the reader started
@@ -288,6 +308,10 @@ export class AssistantRunner {
   private readonly automations: AutomationService
   private scopePromise: Promise<NoteScope> | null = null
   private turnTools: string[] = []
+  /** Set when this turn was asked to answer without tools, which outranks every tool rule below it. */
+  private turnNoTools = false
+  /** The model named on this turn's request, or null when the account's own rules choose. */
+  private turnModelId: string | null = null
   private webSearchRequested = false
   private webSearchNative = false
   /**
@@ -347,9 +371,13 @@ export class AssistantRunner {
 
   async *chat(input: TurnInput): AsyncGenerator<ChatStreamEvent> {
     const message = input.message.trim()
+    this.turnNoTools = input.noTools === true
+    this.turnModelId = input.modelId ?? null
     // Read before the scope is resolved for the first time: `noteScope()` caches, so a scope pinned
     // for this turn has to be in place before anything asks for it.
-    this.turnTools = [...new Set(input.tools ?? [])].slice(0, MAX_TURN_TOOLS)
+    // A turn that may call nothing keeps no pins either: the prompt would otherwise promise the model tools
+    // this request has already decided to refuse.
+    this.turnTools = this.turnNoTools ? [] : [...new Set(input.tools ?? [])].slice(0, MAX_TURN_TOOLS)
     // The switch means different things per protocol, so it is resolved after the model is known:
     // `webSearchNative` sends the vendor's own tool, otherwise a search-capable remote tool is pinned.
     this.webSearchRequested = input.webSearch === true
@@ -609,15 +637,23 @@ export class AssistantRunner {
       // the model, which only lands if the prompt has not been built yet. A server that is slow or down is
       // reported to the settings screen rather than failing the answer.
       const external: ExternalToolsResult = await loadExternalTools(this.store)
-      this.webSearchNative = this.webSearchRequested && SEARCH_NATIVE_PROTOCOLS.has(call.protocol)
+      // A turn that may call nothing gets no vendor search either: on the wire that one is a tool, and an
+      // answer that quietly cites pages the reader never let this turn look up is the failure the flag
+      // exists to prevent.
+      this.webSearchNative = this.webSearchRequested && !this.turnNoTools && SEARCH_NATIVE_PROTOCOLS.has(call.protocol)
       if (this.webSearchRequested && !this.webSearchNative) {
         // No vendor-side search on this protocol. What can carry the switch, in the order of how sure the
         // answer is: the worker's own tool, which searches an engine the reader pointed at; failing that,
         // one of the reader's remote tools whose *name* says it searches. The guess is the weaker one — a
         // tool called `query_orders` is not a web search — so it is only reached for when there is nothing
         // first-party to offer, and it stops firing the moment the reader configures an engine.
-        this.webSearchFirstParty = webSearchConfigured(this.settings) && toolModeFor(this.settings, 'read') !== 'off'
-        if (this.webSearchFirstParty) {
+        this.webSearchFirstParty = !this.turnNoTools && webSearchConfigured(this.settings) && toolModeFor(this.settings, 'read') !== 'off'
+        if (this.turnNoTools) {
+          // The switch was on and this turn is forbidden every tool that could carry it out — which is
+          // said with the code the client already has for a search nothing could do, rather than left as a
+          // switch that silently did nothing.
+          yield { type: 'notice', notice: 'web_search_unavailable' }
+        } else if (this.webSearchFirstParty) {
           if (!this.turnTools.includes(WEB_SEARCH_TOOL_NAME)) this.turnTools = [...this.turnTools, WEB_SEARCH_TOOL_NAME].slice(0, MAX_TURN_TOOLS)
         } else {
           const searcher = external.definitions.find((definition) => looksLikeSearchTool(definition.name))
@@ -734,8 +770,9 @@ export class AssistantRunner {
           model: entry.model.model,
           system,
           turns,
-          // A model that invents tool calls is silenced by not sending the schemas at all.
-          tools: entry.model.supportsTools ? schemas : [],
+          // A model that invents tool calls is silenced by not sending the schemas at all, which is the
+          // same door a turn asked to answer without tools goes through.
+          tools: entry.model.supportsTools && !this.turnNoTools ? schemas : [],
           webSearch: this.webSearchNative,
           maxOutputTokens: capFor(entry),
           temperature: entry.model.temperature,
@@ -767,6 +804,24 @@ export class AssistantRunner {
         // answer in it, and the model read back as its own last words on the next question.
         answer += text
         stepWordsFiled = true
+        // A turn asked to answer without tools runs nothing the model invents. The call is filed as refused
+        // rather than dropped: a row that shows no tool and no source and says nothing about why leaves the
+        // reader reading a silent answer as an unpersuasive one, and the turn's own answer already did
+        // whatever this second model was reaching for.
+        if (this.turnNoTools && calls.length) {
+          for (const call of calls.splice(0)) {
+            const refused: ToolActivity = {
+              id: call.id,
+              name: call.name,
+              status: 'error',
+              args: toolPayloadText(call.args),
+              error: 'This turn was asked to answer without tools, so the call never ran.',
+            }
+            tools.push(refused)
+            yield { type: 'tool', tool: { ...refused } }
+          }
+          break
+        }
         if (!calls.length) break
         yield* this.runCalls(executor, calls, tools, stopped)
         turns.push({ role: 'assistant', content: text, calls })
@@ -1243,11 +1298,17 @@ export class AssistantRunner {
   /**
    * Which model answers this turn.
    *
-   * The reader's own model unless they asked the assistant to choose. A turn carrying files is never
-   * routed: which model can read a picture is a property of the model, and the attachment rows would
+   * A model named on the request answers it and nothing else is consulted — not the reader's standing pick
+   * and not the router, both of which would answer a different question than the one asked. The chain of
+   * spares behind it is read off that model (`modelChain`), so the per-turn choice brings its own provider
+   * rules and its own key ring rather than jumping to the account default.
+   *
+   * Otherwise the reader's own model unless they asked the assistant to choose. A turn carrying files is
+   * never routed: which model can read a picture is a property of the model, and the attachment rows would
    * have to be read before the model is known to decide — so the reader's choice stays the safe answer.
    */
   private async resolveModel(input: TurnInput) {
+    if (this.turnModelId) return loadModelAndProvider(this.store, this.settings, this.turnModelId)
     if (!this.settings.autoRoute) return loadModelAndProvider(this.store, this.settings)
     if ((input.attachments?.length ?? 0) > 0) return loadModelAndProvider(this.store, this.settings)
     const models = await this.store.listModels()

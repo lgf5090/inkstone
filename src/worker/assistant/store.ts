@@ -2448,6 +2448,10 @@ export class AssistantStore {
       usage,
       durationMs,
       modelLabel: input.modelLabel ?? '',
+      // The pages this answer leaned on are filed above, so they belong on the row handed back: the live
+      // turn is rendered from *this* object, and a return that drops them shows an answer that searched
+      // with no citation under it until the thread is opened again and read from the table.
+      sources: input.sources ?? [],
     }
   }
 

@@ -34,6 +34,16 @@ export interface StreamTurnInput {
   continueTurn?: boolean
   /** The web-search switch: ask this model for a live search this turn. */
   webSearch?: boolean
+  /**
+   * Which model answers this turn, by id.
+   *
+   * The worker checks it against this account's own enabled chat models and refuses the request rather
+   * than answering on the reader's standing pick, so an id the caller does not own is an error, not a
+   * silently different answer.
+   */
+  modelId?: string
+  /** Answer this turn without tools: nothing is offered to the model, and nothing it invents runs. */
+  noTools?: boolean
   /** Start the conversation as a temporary one, when this turn is the one that makes it. */
   ephemeral?: boolean
 }
@@ -62,6 +72,8 @@ export async function streamAssistantTurn(
       ...(input.contextFolderId ? { contextFolderId: input.contextFolderId } : {}),
       ...(input.noteId ? { noteId: input.noteId } : {}),
       ...(input.webSearch ? { webSearch: true } : {}),
+      ...(input.modelId ? { modelId: input.modelId } : {}),
+      ...(input.noTools ? { noTools: true } : {}),
       ...(input.ephemeral ? { ephemeral: true } : {}),
       ...(input.retry ? { retry: true } : {}),
       ...(input.retry && input.messageId ? { messageId: input.messageId } : {}),

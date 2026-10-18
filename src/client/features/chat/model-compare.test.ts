@@ -3,11 +3,12 @@
  * Opt-in comparison of one question across two models.
  *
  * The feature spends roughly twice the tokens of a normal turn, and the product is self-hosted and
- * self-billed, so every case here is really about one of three promises: that nothing happens until the
- * reader turns it on, that the cost is confirmed per turn in words that name both models, and that the
- * second answer never touches the thread it was asked in. The last one is checked from both ends — the
- * request it sends (a throwaway ephemeral thread, never the reader's own id) and the state it writes (its
- * own record, with its own abort handle).
+ * self-billed, so every case here is really about one of four promises: that nothing happens until the
+ * reader turns it on, that the cost is confirmed per turn in words that name both models, that the second
+ * answer never touches the thread it was asked in, and that asking for a second model never moves the
+ * reader's own. The last two are checked from both ends — the request it sends (a throwaway ephemeral
+ * thread, its own model named on the body, never the reader's own id) and the state it writes (its own
+ * record, with its own abort handle, and no settings write at all).
  *
  * jsdom lays nothing out, so "side by side" is asserted as the structure that produces it — one labelled
  * group holding two labelled groups, each naming its own model and holding only its own answer — rather
@@ -32,7 +33,15 @@ interface Run {
 const harness = vi.hoisted(() => ({
   /** Every stream the store asked for, in order: the thread's own answer first, then the comparison. */
   runs: [] as Run[],
-  /** What `api.assistant.saveSettings` was pointed at, in order — the model dance is the risk here. */
+  /**
+   * What `api.assistant.saveSettings` was pointed at, in order.
+   *
+   * A comparison used to be made by moving the reader's own model setting to the second model and putting
+   * it back, and every case that leaves this list non-empty is that race coming back: another request in
+   * the flip window resolving the wrong model, a settings patch interleaving with the restore, or a closed
+   * tab leaving the reader on a model they never picked. The turn names its model on the request instead,
+   * so the correct answer for every case here is an empty list.
+   */
   settingsWrites: [] as Record<string, unknown>[],
   /** How many requests had gone out at the moment the cost was asked about. Zero is the promise. */
   runsAtAsk: [] as number[],
@@ -351,7 +360,7 @@ describe('arming the comparison', () => {
 })
 
 describe('the two streams', () => {
-  it('asks the second model in a thread of its own, and puts the reader’s model back', async () => {
+  it('asks the second model by name, in a thread of its own, and never touches the reader’s pick', async () => {
     await mount()
     await armComparison()
     const { comparison } = await sendCompared('asked twice on purpose')
@@ -359,13 +368,20 @@ describe('the two streams', () => {
     expect(comparison.input.conversationId, 'the comparison wrote into the reader’s thread').toBeUndefined()
     expect(comparison.input.ephemeral, 'the comparison was not sent as a throwaway thread').toBe(true)
     expect(comparison.input.message).toBe('asked twice on purpose')
-    expect(harness.settingsWrites.map((entry) => entry.activeModelId)).toEqual(['model-2'])
-    expect(useAssistant.getState().settings?.activeModelId, 'the composer’s own pick changed under the reader').toBe('model-1')
+    // The second model is named on the request rather than borrowed from the settings row, so the reader's
+    // own pick never moves and no other request can resolve it while this one is in the air.
+    expect(comparison.input.modelId).toBe('model-2')
+    // A comparison must not write to the vault: the thread's own answer already did whatever it did, and a
+    // second model acting on its own would do it again.
+    expect(comparison.input.noTools, 'the comparison was allowed to call tools').toBe(true)
+    expect(harness.settingsWrites, 'naming the second model still moved the reader’s setting').toEqual([])
 
-    // The first frame proves the worker read the settings for this request; that is when the write back
-    // is safe, and it happens before the answer has finished arriving.
+    // The first frame used to be the moment the setting was put back. There is nothing left to put back, so
+    // the only honest thing a frame can do now is leave the reader's pick exactly where it was.
     await act(async () => { comparison.apply({ type: 'start', conversationId: 'tmp-1', assistantMessageId: 'm-cmp', runToken: 2 }) })
-    await vi.waitFor(() => expect(harness.settingsWrites.map((entry) => entry.activeModelId)).toEqual(['model-2', 'model-1']))
+    await flush()
+    expect(harness.settingsWrites, 'the comparison restored a setting it never wrote').toEqual([])
+    expect(useAssistant.getState().settings?.activeModelId, 'the composer’s own pick changed under the reader').toBe('model-1')
   })
 
   it('stops the comparison alone, leaving the thread’s own answer running', async () => {

@@ -58,7 +58,14 @@ export interface ResolvedModel {
 export async function loadModelAndProvider(
   store: AssistantStore,
   settings: AssistantSettings,
-  /** A model chosen for this turn, when automatic routing picked one instead of the reader's own. */
+  /**
+   * A model chosen for this turn, which answers it instead of the reader's own.
+   *
+   * Two callers have one: the automatic router, which picked one out of the reader's catalogue, and a
+   * request that named its own — and a named id is checked against this account's enabled `chat` models
+   * where the request is read, because an answer from the default model would otherwise look exactly like
+   * the answer that was asked for.
+   */
   overrideModelId?: string | null,
 ): Promise<ResolvedModel> {
   const activeId = overrideModelId ?? settings.activeModelId

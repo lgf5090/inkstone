@@ -176,7 +176,8 @@ function endedWith(events: ChatStreamEvent[]): AssistantMessage | undefined {
  * The answer as the row filed it.
  *
  * The sources of a turn live on the stored row, which is what a thread reopened later renders its chips
- * from; the event that ends a turn carries the row this store hands back, and that one has no sources on it.
+ * from. The frame that ends a turn carries that same row, so this reads the database rather than the wire
+ * and says what was actually filed.
  */
 async function filedAnswer(events: ChatStreamEvent[]): Promise<AssistantMessage | undefined> {
   const answer = endedWith(events)

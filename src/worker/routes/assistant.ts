@@ -1278,6 +1278,28 @@ function pinnedScopes(value: unknown): AssistantTurnScope[] {
     .slice(0, MAX_TURN_SCOPES)
 }
 
+const TURN_MODEL_REFUSAL = 'The model named for this turn is not an enabled chat model of this account.'
+
+/**
+ * The model this turn asked to be answered by, or null when the caller named none.
+ *
+ * The id is checked against ownership and against what an id is allowed to mean here — one of *this*
+ * account's models, enabled, and of the `chat` purpose — and anything else refuses the request outright
+ * instead of answering on the account's own pick. That refusal is the whole point of the parameter: a
+ * turn that quietly used a different model than the one it was asked for looks exactly like one answered
+ * correctly, and a comparison built on that silence reads as a comparison that happened.
+ *
+ * `getModel` is scoped to the caller's own user id, so a foreign row is simply not found and gets the
+ * same answer as an id that never existed: nothing here says whether it belongs to somebody else.
+ */
+async function turnModelId(s: AssistantStore, value: unknown): Promise<string | null> {
+  if (value === undefined || value === null) return null
+  if (typeof value !== 'string' || !isValidId(value)) throw ApiError.badRequest(TURN_MODEL_REFUSAL)
+  const model = await s.getModel(value)
+  if (!model || !model.enabled || model.purpose !== 'chat') throw ApiError.badRequest(TURN_MODEL_REFUSAL)
+  return model.id
+}
+
 /** How long a turn may go without saying anything before the stream has to say something for it. */
 const KEEPALIVE_AFTER_MS = 15_000
 
@@ -1359,13 +1381,17 @@ async function unstartableTurn(
  * closed tab does not keep spending the account's AI budget on an answer nobody is reading.
  */
 assistantRoutes.post('/chat', async (c) => {
-  const body = await readJson<{ conversationId?: unknown, message?: string, retry?: boolean, messageId?: unknown, continue?: unknown, attachments?: unknown, tools?: unknown, scopes?: unknown, webSearch?: unknown, contextNoteId?: unknown, contextFolderId?: unknown, noteId?: unknown, ephemeral?: unknown }>(c, 64 * 1024)
+  const body = await readJson<{ conversationId?: unknown, message?: string, retry?: boolean, messageId?: unknown, continue?: unknown, attachments?: unknown, tools?: unknown, scopes?: unknown, webSearch?: unknown, contextNoteId?: unknown, contextFolderId?: unknown, noteId?: unknown, ephemeral?: unknown, modelId?: unknown, noTools?: unknown }>(c, 64 * 1024)
   const s = store(c)
   const settings = await s.getSettings()
   const conversationId = body.conversationId === undefined || body.conversationId === null
     ? undefined
     : requiredId(body.conversationId)
   const message = typeof body.message === 'string' ? body.message : ''
+  // A model named for this turn is a resource the caller has to own and be allowed to ask for, so it is
+  // checked against this account's rows before anything runs — and a name that fails is refused here,
+  // because answering it with the account's own pick would sell a different model as the one asked for.
+  const modelId = await turnModelId(s, body.modelId)
   // Only ids the reader owns survive: an attachment they cannot name is not fuel for their turn.
   const attachments = Array.isArray(body.attachments)
     ? (await store(c).chatAttachments(body.attachments.filter((id): id is string => typeof id === 'string' && isValidId(id))).then((rows) => rows.map((row) => row.id)))
@@ -1382,6 +1408,9 @@ assistantRoutes.post('/chat', async (c) => {
   const continueTurn = body.continue === true && !retryTurn
   const retryMessageId = retryTurn && typeof body.messageId === 'string' && isValidId(body.messageId) ? body.messageId : undefined
   const webSearch = body.webSearch === true
+  // A turn may also ask to be answered with no tools at all. Nothing here decides whether that is a good
+  // idea for this model — the runner enforces it, because a client-side promise is not a trust boundary.
+  const noTools = body.noTools === true
   const turn = {
     conversationId,
     retry: retryTurn,
@@ -1487,6 +1516,12 @@ assistantRoutes.post('/chat', async (c) => {
         // The note the thread began beside, recorded on the conversation rather than on the turn.
         ...(typeof body.noteId === 'string' && isValidId(body.noteId) && await s.knownNote(body.noteId) ? { originNoteId: body.noteId } : {}),
         webSearch,
+        // The turn's own model, when it named one: already checked against this account's enabled chat
+        // models above, so a name that got here is a name the caller owns.
+        ...(modelId ? { modelId } : {}),
+        // Answer without tools. A comparison asks the same question twice, and a model that reaches for a
+        // write tool on its own authority would perform it a second time.
+        noTools,
         // Only read when the turn makes its own conversation; the runner says why a later turn cannot
         // change the kind of thread it is already in.
         ephemeral: body.ephemeral === true,

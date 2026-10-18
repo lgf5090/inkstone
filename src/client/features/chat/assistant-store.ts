@@ -244,8 +244,8 @@ interface AssistantState {
   /**
    * Ask the second model the same question, off the record.
    *
-   * Started by `send`, once the primary turn's own request has been taken; see the note there for why
-   * this is the only shape a second call can take without a server change.
+   * Started by `send` once the thread's own turn has been taken. The request names its model and asks for
+   * no tools; see `runComparison` for why both of those are the shape of this call rather than a detail.
    */
   runComparison: (input: { message: string, model: AssistantModel, threadId: string | null }) => Promise<void>
   /** Stop the comparison only, leaving the thread's own answer running — and the other way round. */
@@ -2033,9 +2033,9 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
     const apply = (event: ChatStreamEvent) => {
       if (event.type !== 'title') accepted = true
       if (event.type === 'start' && event.conversationId) filedConversationId = event.conversationId
-      // A frame is the proof that the worker took this turn, and the turn read the account's settings
-      // before it emitted one — which is the only moment a second model may be pointed at without moving
-      // the reader's own pick out from under the answer they are watching arrive. See `runComparison`.
+      // A frame is the proof that the worker took this turn, so the second question is asked once the
+      // reader's own answer is under way rather than before it exists. Both turns name their own model on
+      // the request, so neither waits on the other and nothing is pointed at through the settings row.
       if (event.type === 'start' && compareModel && !comparisonStarted) {
         comparisonStarted = true
         void get().runComparison({
@@ -2196,34 +2196,32 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
    *
    * Three facts decide the shape of this, and none of them is a preference:
    *
-   *  1. Which model answers is read from the account's settings, once per request, and there is no model
-   *     id on the chat request and no room here to add a route or a column. So the only way to make a
-   *     second model answer is to point the setting at it for the length of one request and put it back.
-   *     The two writes go straight to `api`, not through `activateModel`, because the composer keeps
-   *     showing the reader's own pick the whole time — a chip that flickered to the comparison model
-   *     would say the reader changed their mind when they did not. The setting is put back as soon as the
-   *     comparison's own `start` frame lands, which is the first moment that proves the worker has read
-   *     it, so the window is one round trip rather than the length of the answer. If the setting cannot
-   *     be restored that is said out loud: leaving the reader's model changed in silence is the one
-   *     outcome this cannot absorb.
-   *  2. The comparison is not a reply to anything in the thread, so it must not be filed there. It asks
+   *  1. The turn names the model it wants on the request, and the worker answers on that model or refuses
+   *     the request. It is not pointed at through the account's settings: which model answers is read from
+   *     that row once per request, so writing it for the length of one turn would let every other request
+   *     in the window resolve the comparison model as the reader's own pick, let a settings patch
+   *     interleave with the write back, and leave a reader who closed the tab on the wrong model.
+   *  2. It is asked without tools. The thread's own answer already ran whatever tools it ran, and a second
+   *     model that reaches for a write tool on its own authority would perform that write a second time,
+   *     from a column the reader opened only to compare two answers.
+   *  3. The comparison is not a reply to anything in the thread, so it must not be filed there. It asks
    *     for its own conversation and sends `ephemeral: true`, which is the app's existing promise for a
    *     thread the reader did not ask to keep: the row is written, and then it is kept out of every
    *     listing, out of search and out of a backup, and the hourly sweep in `purgeExpiredEphemeralConversations`
    *     deletes it once it has gone untouched for `EPHEMERAL_CONVERSATION_RETENTION_DAYS`. Its stored
    *     rows therefore need no cleanup of their own and no second mechanism — `dismissComparison` is the
    *     early door on the same rows, and the sweep is the one that always closes.
-   *  3. Because it is a different conversation, it is a different run lease: `claimRun` is keyed by
-   *     conversation, so the comparison can neither take the thread's claim nor release it, and its stop
-   *     names only its own `runToken`. Its events are written by token into `compareTurn`, never into
-   *     `turn`, and it touches neither `activeId` nor `messages`.
+   *
+   * Because it is a different conversation, it is a different run lease: `claimRun` is keyed by
+   * conversation, so the comparison can neither take the thread's claim nor release it, and its stop names
+   * only its own `runToken`. Its events are written by token into `compareTurn`, never into `turn`, and it
+   * touches neither `activeId` nor `messages`.
    */
   runComparison: async ({ message, model, threadId }) => {
     const previous = get().compareTurn
     // One comparison at a time. A second turn's answer replacing the first is the reader's own doing, but
     // a first one still arriving underneath it would keep spending after its column was gone.
     if (previous && !previous.done) inflight.get(previous.token)?.abort()
-    const primaryModelId = get().settings?.activeModelId ?? null
     const token = ++turnSeq
     const controller = new AbortController()
     inflight.set(token, controller)
@@ -2244,22 +2242,7 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
       },
     })
 
-    let restored = false
-    const restore = async () => {
-      if (restored || !primaryModelId || primaryModelId === model.id) return
-      restored = true
-      try {
-        await api.assistant.saveSettings({ activeModelId: primaryModelId })
-      } catch (error) {
-        // The reader's own model is still the one the account points at. Said, not swallowed: it is a
-        // change to their settings, and the next turn answering in the wrong voice is their problem to
-        // fix, not this stream's to keep quiet.
-        reportFailure(error)
-      }
-    }
-
     const apply = (event: ChatStreamEvent) => {
-      if (event.type === 'start') void restore()
       set((current) => {
         const turn = current.compareTurn
         // The same rule that keeps two threads' sentences out of one bubble: an event belongs to the send
@@ -2295,11 +2278,16 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
     }
 
     try {
-      await api.assistant.saveSettings({ activeModelId: model.id })
-      await streamAssistantTurn({ message, ephemeral: true }, apply, controller.signal)
+      await streamAssistantTurn(
+        { message, ephemeral: true, modelId: model.id, noTools: true },
+        apply,
+        controller.signal,
+      )
     } catch (error) {
       // An abort is the reader's own stop and leaves the fragment they watched arrive on the column.
-      // Anything else is the comparison failing for a reason, and the column says that reason.
+      // Anything else is the comparison failing for a reason, and the column says that reason — including
+      // the worker's refusal of a model this account cannot answer with, which is the honest answer and
+      // not a second column written by the reader's own model.
       if (!controller.signal.aborted) {
         set((current) => (current.compareTurn?.token === token
           ? { compareTurn: { ...current.compareTurn, error: error instanceof Error ? error.message : t('assistant.toast.failed'), done: true, finishedAt: Date.now() } }
@@ -2307,7 +2295,6 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
       }
     } finally {
       inflight.delete(token)
-      await restore()
       set((current) => (current.compareTurn?.token === token && !current.compareTurn.done
         ? { compareTurn: { ...current.compareTurn, done: true, finishedAt: Date.now() } }
         : current))
