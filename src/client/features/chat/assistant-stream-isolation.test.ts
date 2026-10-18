@@ -712,7 +712,7 @@ describe('a request that died before its headers', () => {
    * A request that dies on the way to the headers never gets that far, so nothing in the loop is involved
    * — and the error the browser raises is the same untranslatable sentence, arriving where no failure
    * handler had been put. It is not the same sentence to the reader either: there is no half answer to
-   * keep on the screen and no turn for 「继续生成」 to pick up, because the worker was never told.
+   * keep on the screen and no turn for `assistant.chat.continue` to pick up, because the worker was never told.
    */
   it('says the app’s own offline line, not the browser’s', async () => {
     harness.realBody = true

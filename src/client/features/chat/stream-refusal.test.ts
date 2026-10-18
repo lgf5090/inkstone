@@ -24,7 +24,7 @@
  * reading it. That failure belongs to the engine — no `TextDecoderStream`, a body it will not pipe — and it
  * arrives as a `TypeError` in English, which is what used to be printed. It is also the one failure of this
  * turn with no half answer behind it, so the sentence it gets cannot be the broken-stream one either: that
- * one tells the reader to press 「继续生成」, and nothing here draws that control.
+ * one tells the reader to press the control behind `assistant.chat.continue`, and nothing here draws it.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ApiError, api } from '../../lib/api'
@@ -215,7 +215,7 @@ describe('a reply this browser could not start reading', () => {
    *
    * The sentence is the app's own, from the catalog, with no second line: an engine's `TypeError` names no
    * part of this app and translates to no language. And it is *not* `assistant.chat.stream_disconnected` —
-   * that one ends by pointing the reader at 「继续生成」, which `canContinueAnswer` in `ChatView.tsx` draws
+   * that one ends by pointing the reader at `assistant.chat.continue`, which `canContinueAnswer` in `ChatView.tsx` draws
    * only for an answer with words in it. Nothing arrived on this path, so the control is not on the screen,
    * and a sentence that tells the reader to press it is a lie about the interface.
    */
