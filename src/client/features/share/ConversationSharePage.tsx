@@ -3,9 +3,10 @@
  *
  * The same promise a shared note makes, for a different thing: the reader sees the turns as they were —
  * who spoke, what was said, and which model answered — and nothing else. There is no composer, no
- * sidebar and no vault behind it: a visitor has no notes to open, so `[[links]]` stay inert, a `![[note]]`
- * is answered by the share page's own markup rule rather than by a read nobody is allowed to make, and
- * the assistant's sources are plain links out.
+ * sidebar and no vault behind it: a visitor has no notes to open, so `[[links]]` stay inert, a mention the
+ * composer wrote for an `@` pick keeps the title it shows and loses the id it addresses, a `![[note]]` is
+ * answered by the share page's own markup rule rather than by a read nobody is allowed to make, and the
+ * assistant's sources are plain links out.
  *
  * The passcode gate is the note page's, deliberately: a reader who has opened one shared link before
  * should recognise this screen, and the server-side throttle is the same one.
@@ -22,7 +23,7 @@ import { Input } from '../../components/form'
 import { LoadingBlock } from '../../components/feedback'
 import { Tooltip } from '../../components/overlay'
 import { MarkdownBody } from '../preview/MarkdownBody'
-import { neutralizeShareEmbeds } from './share-markdown'
+import { prepareShareMarkup, redactShareMentions } from './share-markdown'
 import { t } from '../../lib/i18n'
 
 export function ConversationSharePage({ slug }: { slug: string }) {
@@ -173,14 +174,16 @@ export function ConversationSharePage({ slug }: { slug: string }) {
                 >
                   {message.role === 'user' ? (
                     <div className="max-w-[85%] whitespace-pre-wrap break-words rounded-[var(--r-lg)] rounded-br-[var(--r-xs)] bg-[var(--accent-soft)] px-3 py-2 text-[length:var(--text-13-5)] leading-relaxed text-[var(--text-primary)]">
-                      {message.content}
+                      {/* Verbatim, minus the handle: a question is the author's own words, but an `@` pick in
+                          it is the composer's id, and a stranger has nothing to do with one. */}
+                      {redactShareMentions(message.content)}
                     </div>
                   ) : (
                     <div className="min-w-0 flex-1">
                       {/* The same markup rules the shared note page runs, for the same reason: an answer can
                           name a note, and a reader with no account and no vault is owed one honest sentence
                           about it rather than a box that waits forever. */}
-                      {message.content && <MarkdownBody source={message.content} className="ink-chat-prose" transformHtml={neutralizeShareEmbeds} />}
+                      {message.content && <MarkdownBody source={message.content} className="ink-chat-prose" transformHtml={prepareShareMarkup} />}
                       {message.sources && message.sources.length > 0 && (
                         <ul aria-label={t('assistant.chat.sources')} className="mt-0.5 flex flex-wrap gap-1">
                           {message.sources.map((source, index) => (

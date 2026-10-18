@@ -11,7 +11,7 @@ import { LoadingBlock } from '../../components/feedback';
 import { Tooltip } from '../../components/overlay';
 import { AudienceView } from '../presentation/audience-view';
 import { MarkdownBody } from '../preview/MarkdownBody';
-import { neutralizeShareEmbeds } from './share-markdown';
+import { prepareShareMarkup } from './share-markdown';
 import { t } from "../../lib/i18n";
 
 export function SharePage({ slug }: {
@@ -167,7 +167,7 @@ export function SharePage({ slug }: {
 }
 function addShareAccess(html: string, slug: string): string {
     const template = document.createElement('template');
-    template.innerHTML = neutralizeShareEmbeds(html);
+    template.innerHTML = prepareShareMarkup(html);
     for (const task of template.content.querySelectorAll<HTMLInputElement>('input.task-list-item-checkbox')) {
         task.disabled = true;
         task.removeAttribute('data-task-line');
