@@ -5,7 +5,7 @@ import { beforeEach, describe, expect, it } from 'vitest'
 import { SCHEMA_STATEMENTS } from '../src/worker/db/schema'
 import { errorResponse } from '../src/worker/lib/errors'
 import { assistantRoutes } from '../src/worker/routes/assistant'
-import { toBase64Url } from '../src/worker/lib/encoding'
+import { toBase64Url, toHex } from '../src/worker/lib/encoding'
 import type { AppBindings, Env } from '../src/worker/env'
 import { makeD1 } from './doubles/d1-sqlite'
 import { testBindings } from './doubles/bindings'
@@ -20,7 +20,12 @@ import { testBindings } from './doubles/bindings'
  */
 const USER = '0123456789abcdefghjkmnpqrs'
 const OTHER = '0123456789abcdefghjkmnpqrt'
+/** The three shapes a push service really answers with, and the reason a redaction may not read the path. */
 const ENDPOINT = 'https://updates.push.services.mozilla.com/wpush/v2/gAAAAABx0197tPQY0kq0Y1sQ7Q9rUxF7Vh1sQYb1W1pZ9YQ3s6zXw1oQ2m7cPv8rJn0kLm3n'
+const GOOGLE_ENDPOINT = 'https://fcm.googleapis.com/fcm/send/e3HO4d0nTQY0kq0Y1sQ7Q9rUxF7Vh1sQYb1W1pZ9YQ3s6zXw1oQ2m7cPv8rJn0kLm3n'
+const APPLE_ENDPOINT = 'https://notify.apple.com/DAQs1c0hKm3nPo5qRs7tUv9wXy1Za3Bc5De7Fg9Hi1Jk3Lm5No7Pq9Rs1Tu3Vw5Xy7Za1Bc3De'
+/** The Apple endpoint with its last characters moved: same origin, same path shape, different device. */
+const APPLE_TWIN_ENDPOINT = 'https://notify.apple.com/DAQs1c0hKm3nPo5qRs7tUv9wXy1Za3Bc5De7Fg9Hi1Jk3Lm5No7Pq9Rs1Tu3Vw5Xy7Za1Bc3Df'
 const SECOND_ENDPOINT = 'https://fcmregistrations.googleapis.com/v1/projects/inkstone-test/registrations/AAAAAABx02TokenForASecondDeviceThatIsNotTheFirstOnesRow'
 const OTHER_ENDPOINT = 'https://web.push.apple.com/DAQs1c0hKm3nPo5qRs7tUv9wXy1Za3Bc5De7Fg9Hi1Jk3Lm5No7Pq9Rs1Tu3Vw5Xy7Za1Bc3De'
 
@@ -69,6 +74,17 @@ async function request(method: string, path: string, body?: unknown): Promise<{ 
 
 function asUser(userId: string): void {
   app = buildApp(userId)
+}
+
+/**
+ * An endpoint's full SHA-256 in both spellings.
+ *
+ * A truncated digest is a label; the whole digest of an endpoint is a check value against a guessed address,
+ * and neither spelling belongs anywhere near a response body or a stored error line.
+ */
+async function fullDigestsOf(endpoint: string): Promise<string[]> {
+  const bytes = new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(endpoint)))
+  return [toHex(bytes), toBase64Url(bytes)]
 }
 
 async function freshPoint(): Promise<string> {
@@ -127,6 +143,8 @@ describe('POST /push/subscriptions', () => {
     expect(list).toHaveLength(1)
     expect(list[0]!.endpoint).not.toBe(ENDPOINT)
     expect(list[0]!.endpoint.length).toBeLessThan(ENDPOINT.length)
+    // The row's id is the handle the screen keeps for "this device", so the write has to name it.
+    expect(made.payload.deviceId).toBe(list[0]!.id)
     const wire = JSON.stringify(made.payload)
     expect(wire).not.toContain(ENDPOINT)
     expect(wire).not.toContain(P256DH)
@@ -337,5 +355,79 @@ describe('DELETE /push/subscriptions/:id', () => {
     app = buildApp(null)
     expect((await revoke(mine[0]!.id)).status).toBe(401)
     expect(rowsOwnedBy(USER)).toBe(2)
+  })
+})
+
+/**
+ * The redaction may not know what an endpoint's path means.
+ *
+ * Taking "the head" of an endpoint was a shape assumption, and the shape that breaks it is the common one:
+ * Apple's services put the whole replayable token in the first path segment (`https://notify.apple.com/DAQs…`),
+ * so a path head there *is* the credential — and endpoint + `p256dh` + `auth` together let anybody place a
+ * notification on that device. These cases hold every service to one form, an origin and a short digest, and
+ * they are written against the wire a reader's browser actually receives rather than against the helper.
+ */
+describe('push endpoint redaction is independent of the path shape', () => {
+  /** The only shape a masked endpoint may take: an origin, a `#`, then eight base64url characters. */
+  const MASKED_FORM = /^https:\/\/[A-Za-z0-9.-]+#[A-Za-z0-9_-]{8}$/
+
+  /** Subscribes one endpoint under the signed-in account and reads the row back as the wire that carries it. */
+  async function labelled(endpoint: string): Promise<{ row: SubscriptionView, wire: string }> {
+    const made = await request('POST', '/api/assistant/push/subscriptions', { endpoint, keys: { p256dh: P256DH, auth: AUTH } })
+    expect(made.status).toBe(201)
+    const read = await request('GET', '/api/assistant/push/subscriptions')
+    const rows = read.payload.subscriptions as SubscriptionView[]
+    expect(rows).toHaveLength(1)
+    return { row: rows[0]!, wire: JSON.stringify([read.payload, made.payload]) }
+  }
+
+  const shapes = [
+    { name: 'a Mozilla long path', endpoint: ENDPOINT },
+    { name: 'a Google FCM path', endpoint: GOOGLE_ENDPOINT },
+    { name: 'an Apple short path', endpoint: APPLE_ENDPOINT },
+  ]
+
+  for (const shape of shapes) {
+    it(`echoes no token segment of ${shape.name}`, async () => {
+      const { row, wire } = await labelled(shape.endpoint)
+      const url = new URL(shape.endpoint)
+      const label = new URL(row.endpoint)
+      expect(row.endpoint, `${shape.name} was answered in a form other than origin plus digest`).toMatch(MASKED_FORM)
+      // No path at all survives, however many segments the service used to spell it.
+      expect(label.pathname, `${shape.name} kept part of the endpoint's path`).toBe('/')
+      expect(label.hash.slice(1), `${shape.name}'s digest is not a fixed width`).toHaveLength(8)
+      // The replayable piece named directly: no segment long enough to be a token has even its head echoed.
+      for (const segment of url.pathname.split('/').filter(Boolean)) {
+        if (segment.length < 8) continue
+        expect(wire, `${shape.name} echoed the head of its token segment`).not.toContain(segment.slice(0, 8))
+      }
+      expect(wire).not.toContain(shape.endpoint)
+      expect(wire, `${shape.name} leaked the path the token travels in`).not.toContain(url.pathname)
+      for (const digest of await fullDigestsOf(shape.endpoint)) {
+        expect(wire, 'the whole digest of an endpoint is a check value, not a label').not.toContain(digest)
+      }
+      // The keys are never on the wire either, whatever the endpoint looks like.
+      expect(wire).not.toContain(P256DH)
+      expect(wire).not.toContain(AUTH)
+    })
+  }
+
+  it('labels two Apple endpoints that share every visible character differently', async () => {
+    // The positive control against a redaction that quietly went back to reading the path: a prefix rule
+    // gives these two rows the same label, because they share their origin, their shape and 110 of their
+    // characters. Only a digest of the whole endpoint tells them apart.
+    const first = await labelled(APPLE_ENDPOINT)
+    sqlite.exec('DELETE FROM chat_push_subscriptions')
+    const twin = await labelled(APPLE_TWIN_ENDPOINT)
+    expect(first.row.endpoint).toMatch(MASKED_FORM)
+    expect(twin.row.endpoint).toMatch(MASKED_FORM)
+    expect(twin.row.endpoint, 'two different devices were given the same endpoint label').not.toBe(first.row.endpoint)
+  })
+
+  it('labels one endpoint the same way on every read, so a row stays recognisable', async () => {
+    const made = await request('POST', '/api/assistant/push/subscriptions', { endpoint: APPLE_ENDPOINT, keys: { p256dh: P256DH, auth: AUTH } })
+    const written = (made.payload.subscriptions as SubscriptionView[])[0]!
+    const read = await request('GET', '/api/assistant/push/subscriptions')
+    expect((read.payload.subscriptions as SubscriptionView[])[0]!.endpoint).toBe(written.endpoint)
   })
 })

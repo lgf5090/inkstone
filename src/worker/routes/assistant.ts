@@ -102,7 +102,7 @@ import { AutomationService } from '../assistant/automations'
 import { AssistantRunner } from '../assistant/runner'
 import { cancelApprovedAction, runApprovedAction } from '../assistant/tools'
 import { exportAssistant, importAssistant } from '../assistant/backup'
-import { describeSubscription, pushConfigStatus, pushEndpointProblem, pushKeyProblem, vapidProblem } from '../assistant/push'
+import { describeSubscription, pushConfigStatus, pushEndpointProblem, pushKeyProblem, vapidProblem, type PushSubscriptionView } from '../assistant/push'
 import { importSessionFile, MAX_SESSION_FILE_BYTES, SESSION_IMPORT_BODY_BYTES } from '../assistant/session-import'
 import { ChatShareStore, conversationSharePasswordHash, messageScope, MAX_SHARED_PICK, type ChatShareRow } from '../assistant/share'
 import { suggestActiveModel } from '../assistant/model-config'
@@ -2247,13 +2247,18 @@ assistantRoutes.delete('/notifications/:id', async (c) => {
  *
  * Two rules and they are both about credentials. Nothing here reads another account's rows: every call goes
  * through `store(c)`, whose statements carry the signed-in `user_id`, and the delete is looked up by
- * (account, row id) so an id lifted off another account's list removes nothing. And no response ever
- * carries the triple back: `describeSubscription` returns the head of the endpoint and the row's own id,
- * because the whole endpoint is the ability to place a notification on that machine and this route's answer
- * travels through browser logs, screenshots and the clipboard. The id is what a reader hands back to undo
- * that — a handle for their own row, not a credential — which is why the list is readable and revocable
- * from one screen without ever showing the endpoint whole.
+ * (account, row id) so an id lifted off another account's list removes nothing. And no response ever carries
+ * the triple back: `describeSubscription` renders each endpoint as the push service's origin plus a short
+ * digest, because any real piece of the path is a piece of the token — and on a short-path service the whole
+ * token is the first piece. The row's own id is what a reader hands back to undo a subscription: a handle for
+ * their own row, not a credential, which is why the list is readable and revocable from one screen without
+ * ever showing the endpoint or a prefix of it.
  */
+
+/** The account's devices in the one redacted view every push route answers with. */
+async function describeDevices(s: AssistantStore): Promise<PushSubscriptionView[]> {
+  return await Promise.all((await s.listPushSubscriptions()).map(describeSubscription))
+}
 
 /** The trimmed endpoint a validated body carries, or the problem with it. */
 function pushEndpoint(value: unknown): string {
@@ -2274,12 +2279,12 @@ assistantRoutes.get('/push/config', async (c) => c.json(pushConfigStatus(c.env))
  * thirds of the reader's devices on it and no way to tell that the rest exists.
  *
  * The answer is the same redacted view a write already returns — `describeSubscription`, one row per device,
- * endpoint head and row id and the failure ledger — and it is scoped the same way: `store(c)` carries the
+ * endpoint digest and row id and the failure ledger — and it is scoped the same way: `store(c)` carries the
  * signed-in `user_id` into the statement, so this route cannot name another account's row.
  */
 assistantRoutes.get('/push/subscriptions', async (c) => {
   const s = store(c)
-  return c.json({ subscriptions: (await s.listPushSubscriptions()).map(describeSubscription) })
+  return c.json({ subscriptions: await describeDevices(s) })
 })
 
 assistantRoutes.post('/push/subscriptions', async (c) => {
@@ -2299,8 +2304,11 @@ assistantRoutes.post('/push/subscriptions', async (c) => {
     throw new ApiError(500, 'server_misconfigured', configuration)
   }
   const s = store(c)
-  await s.upsertPushSubscription({ endpoint, p256dh: (pair.p256dh as string).trim(), auth: (pair.auth as string).trim() })
-  return c.json({ subscriptions: (await s.listPushSubscriptions()).map(describeSubscription) }, 201)
+  const saved = await s.upsertPushSubscription({ endpoint, p256dh: (pair.p256dh as string).trim(), auth: (pair.auth as string).trim() })
+  // `deviceId` names the row this browser's endpoint resolves to, so the screen can mark its own device
+  // without ever being given back the address it just sent. It is the row's id and not a credential: an id
+  // of this account does nothing on its own beyond naming one row of this account's own list.
+  return c.json({ deviceId: saved.id, subscriptions: await describeDevices(s) }, 201)
 })
 
 assistantRoutes.delete('/push/subscriptions/:id', async (c) => {
@@ -2316,7 +2324,7 @@ assistantRoutes.delete('/push/subscriptions/:id', async (c) => {
   if (!await s.deletePushSubscriptionById(requiredId(c.req.param('id')))) {
     throw ApiError.notFound('No device subscribed for this account carries that id.')
   }
-  return c.json({ removed: true, subscriptions: (await s.listPushSubscriptions()).map(describeSubscription) })
+  return c.json({ removed: true, subscriptions: await describeDevices(s) })
 })
 
 // ------------------------------------------------------------------ settings

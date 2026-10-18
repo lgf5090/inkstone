@@ -19,11 +19,11 @@ import { SettingRow, Switch } from '../../components/form'
 import { useUi } from '../../store/ui'
 import { useAssistant } from './assistant-store'
 import { Group, LoadFailure } from './assistant-settings-shared'
-import { rowForEndpoint, usePushDevices } from './push-devices'
+import { rowForId, usePushDevices } from './push-devices'
 import { formatInZone } from './time-format'
 
 export function PushDevicesSection() {
-  const { config, configFailure, rows, rowsFailure, deviceEndpoint, support, permission, busy, revoking, revokeFailure, actionFailure, loadConfig, loadRows, readDevice, enable, disable, revoke } = usePushDevices()
+  const { config, configFailure, rows, rowsFailure, deviceEndpoint, deviceId, support, permission, busy, revoking, revokeFailure, actionFailure, loadConfig, loadRows, readDevice, enable, disable, revoke } = usePushDevices()
   const timezone = useAssistant((state) => state.settings?.timezone)
   const toast = useUi((state) => state.toast)
 
@@ -35,7 +35,10 @@ export function PushDevicesSection() {
 
   const serverReady = config?.enabled === true
   const browserReady = support === 'available' && (permission === 'granted' || permission === 'default')
-  const thisRow = rowForEndpoint(deviceEndpoint, rows ?? [])
+  // The reader's own row, by the id the account gave it when this device subscribed. Nothing here looks at
+  // endpoint text: the list carries a digest of each endpoint and the browser holds the credential, so an id
+  // is the only thing both sides are allowed to compare.
+  const thisRow = rowForId(deviceId, rows ?? [])
 
   /**
    * The press, and the two things it can turn into.

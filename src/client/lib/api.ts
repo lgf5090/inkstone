@@ -591,12 +591,14 @@ export interface PushConfig {
 }
 
 /**
- * One device as the account's own list describes it: the head of the endpoint, never the whole credential.
+ * One device as the account's own list describes it: the push service's origin and a digest, never the
+ * credential or any piece of its path.
  *
  * The tail of an endpoint is the ability to place a notification on that machine, and this answer travels
- * through browser logs, screenshots and the clipboard, so the route hands back `<origin>/<first segment>…`.
- * That head is a literal prefix of the endpoint it came from, which is the only thing that lets a screen
- * point at the reader's own row without reimplementing the server's masking rule.
+ * through browser logs, screenshots and the clipboard, so the route hands back `<origin>#<digest>`. The
+ * digest is one-way and path-independent on purpose: on a short-path service the whole token *is* the first
+ * path segment, so no prefix of the endpoint may be echoed. Which of these rows is the reader's own device is
+ * answered by `id` — the row id the subscription write returned — and never by comparing endpoint text.
  */
 export interface PushSubscriptionRow {
   id: string
@@ -1311,21 +1313,24 @@ export const api = {
      *
      * This is what lets a settings screen open with the truth on it instead of with nothing: the write routes
      * answer with the same list, but only once a device has been added or removed. The rows are the redacted
-     * view — endpoint head and row id — so nothing here carries a credential.
+     * view — endpoint digest and row id — so nothing here carries a credential.
      */
     pushSubscriptions: () => request<{ subscriptions: PushSubscriptionRow[] }>('/api/assistant/push/subscriptions'),
     /**
      * Hands this browser's subscription to the account.
      *
-     * The answer is the account's whole device list, so a write does not need a second read behind it.
+     * The answer is the account's whole device list plus `deviceId`, the row this endpoint resolves to. The
+     * id is the only handle that can point at "my row" once the list carries digests instead of path heads,
+     * so the write reports it rather than leaving the screen to compare endpoint text.
      */
     subscribePush: (body: PushSubscriptionPayload) =>
-      request<{ subscriptions: PushSubscriptionRow[] }>('/api/assistant/push/subscriptions', { method: 'POST', body }),
+      request<{ subscriptions: PushSubscriptionRow[], deviceId: string }>('/api/assistant/push/subscriptions', { method: 'POST', body }),
     /**
      * Takes one row out of the account's device list, by the id the list gave.
      *
-     * Not by its endpoint: the list only ever carries the head of one, and the tail is the credential. The
-     * row id is the handle the reader's own screen holds, and the answer is the list that remains.
+     * Not by its endpoint: the list only ever carries a digest of one, and the path behind it is the
+     * credential. The row id is the handle the reader's own screen holds, and the answer is the list that
+     * remains.
      */
     unsubscribePush: (id: string) =>
       request<{ removed: boolean, subscriptions: PushSubscriptionRow[] }>(`/api/assistant/push/subscriptions/${id}`, { method: 'DELETE' }),

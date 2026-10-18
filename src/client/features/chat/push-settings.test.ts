@@ -23,12 +23,20 @@ import type { PushSubscriptionRow } from '../../lib/api'
 import { initI18n, t } from '../../lib/i18n'
 import { installTestGlobals } from '../../lib/test-render'
 import { PushDevicesSection } from './PushDevicesSection'
-import { usePushDevices } from './push-devices'
+import { PUSH_DEVICE_ROW_STORAGE_KEY, usePushDevices } from './push-devices'
 
 const PUBLIC_KEY = 'BFakeVapidPublicKeyBase64UrlValue'
 const FULL_ENDPOINT = 'https://push.example.org/s/abcdef0123456789'
-/** What the route echoes back for that endpoint: the origin and the first path segment, then the ellipsis. */
-const ENDPOINT_HEAD = 'https://push.example.org/s…'
+/**
+ * What the route answers for that endpoint: its origin and a digest of the whole thing.
+ *
+ * Deliberately not a prefix of `FULL_ENDPOINT` — the first path segment of an endpoint is where a short-path
+ * push service puts the token, so nothing of the path may come back. The screen therefore has another way to
+ * point at the reader's own row, and the cases below prove which one it uses.
+ */
+const MASKED_ENDPOINT = 'https://push.example.org#Kp9mZ3tQ'
+/** A second device's label, spelled the same way and carrying nothing of its endpoint. */
+const OTHER_MASKED_ENDPOINT = 'https://other.test#Qv3nY8kP'
 const CONFIG_PATH = '/api/assistant/push/config'
 const SUBSCRIPTIONS_PATH = '/api/assistant/push/subscriptions'
 
@@ -151,7 +159,9 @@ function installFetch(): void {
         return json(listAnswer.body, listAnswer.status)
       }
       if (refuseWrite) return json({ error: { code: 'bad_request', message: 'keys.p256dh must be 88 characters.' } }, 400)
-      return json({ subscriptions: listAfterWrite }, 201)
+      // The write names the row this browser's endpoint became — the only handle the screen has for
+      // "this device", since every endpoint on the list is a digest and none is a prefix of anything.
+      return json({ subscriptions: listAfterWrite, deviceId: writeDeviceId }, 201)
     }
     return json({ error: { code: 'not_found', message: 'nothing at this path' } }, 404)
   }))
@@ -159,6 +169,8 @@ function installFetch(): void {
 
 let refuseWrite = false
 let refuseRevoke = false
+/** Which row of `listAfterWrite` the subscription write claims this browser's endpoint resolved to. */
+let writeDeviceId = 'r1'
 
 const switches = () => [...document.querySelectorAll<HTMLButtonElement>('[role="switch"]')]
 const alerts = () => [...document.querySelectorAll<HTMLElement>('[role="alert"]')]
@@ -195,7 +207,10 @@ beforeEach(async () => {
   hangList = false
   refuseWrite = false
   refuseRevoke = false
-  listAfterWrite = [row('r1', ENDPOINT_HEAD)]
+  writeDeviceId = 'r1'
+  // This browser remembers its own row across visits; every case starts with a browser that never was here.
+  localStorage.clear()
+  listAfterWrite = [row('r1', MASKED_ENDPOINT)]
   requests = []
   subscribeOptions = []
   held = null
@@ -211,6 +226,7 @@ beforeEach(async () => {
     rows: null,
     rowsFailure: null,
     deviceEndpoint: null,
+    deviceId: null,
     support: 'available',
     permission: 'default',
     busy: null,
@@ -317,16 +333,23 @@ describe('turning this device on', () => {
     expect(switches()[0]!.getAttribute('aria-checked'), 'the switch did not come back on').toBe('true')
     const items = listItems()
     expect(items, 'the device never appeared in the list').toHaveLength(1)
-    expect(items[0]!.textContent).toContain(ENDPOINT_HEAD)
+    expect(items[0]!.textContent).toContain(MASKED_ENDPOINT)
     expect(items[0]!.textContent).toContain(t('assistant.push.revoke'))
+    // The write's answer is what marks this row as the browser's own, and the browser keeps that id for the
+    // next visit: the list carries digests, so nothing on it could be matched against an endpoint.
+    expect(localStorage.getItem(PUSH_DEVICE_ROW_STORAGE_KEY)).toBe('r1')
   })
 
-  it('prints the head the route gave and never the whole endpoint', async () => {
+  it('prints the digest label the route gave and no part of the endpoint behind it', async () => {
     permission = 'granted'
     await mount()
     await press(switches()[0])
-    expect(text()).toContain(ENDPOINT_HEAD)
+    expect(text()).toContain(MASKED_ENDPOINT)
     expect(text(), 'the credential-shaped tail reached the screen').not.toContain('abcdef0123456789')
+    for (const segment of new URL(FULL_ENDPOINT).pathname.split('/').filter(Boolean)) {
+      if (segment.length < 8) continue
+      expect(text(), `the screen printed a whole path segment of the endpoint: ${segment}`).not.toContain(segment)
+    }
   })
 
   it('keeps the refusal the route wrote, and retries the same write', async () => {
@@ -358,20 +381,20 @@ describe('turning this device on', () => {
 
 describe('reading the account’s devices before anything is written', () => {
   it('asks the device route on mount and prints what it answers', async () => {
-    listContains([row('r1', ENDPOINT_HEAD), row('r2', 'https://other.test/push…', { failures: 3, lastError: 'the push service answered 500' })])
+    listContains([row('r1', MASKED_ENDPOINT), row('r2', OTHER_MASKED_ENDPOINT, { failures: 3, lastError: 'the push service answered 500' })])
     await mount()
     const reads = requests.filter((entry) => entry.method === 'GET' && entry.url.endsWith(SUBSCRIPTIONS_PATH))
     expect(reads, 'the screen never asked the server which devices this account has').toHaveLength(1)
     const items = listItems()
     expect(items, 'the devices the route named never reached the list').toHaveLength(2)
-    expect(items[0]!.textContent).toContain(ENDPOINT_HEAD)
-    expect(items[1]!.textContent).toContain('https://other.test/push…')
+    expect(items[0]!.textContent).toContain(MASKED_ENDPOINT)
+    expect(items[1]!.textContent).toContain(OTHER_MASKED_ENDPOINT)
     expect(items[1]!.textContent).toContain('the push service answered 500')
     expect(text()).not.toContain(t('assistant.push.devices_reading'))
   })
 
   it('gets there without spending a write', async () => {
-    listContains([row('r1', ENDPOINT_HEAD)])
+    listContains([row('r1', MASKED_ENDPOINT)])
     await mount()
     const written = requests.filter((entry) => entry.method !== 'GET')
     expect(written, 'the device list arrived only because something was written').toEqual([])
@@ -393,7 +416,7 @@ describe('reading the account’s devices before anything is written', () => {
     expect(alerts().map((node) => node.textContent).join(' ')).toContain(t('assistant.push.devices_failed'))
     expect(text()).toContain('D1 is unavailable on this deployment.')
 
-    listAnswer = { status: 200, body: { subscriptions: [row('r1', ENDPOINT_HEAD)] } }
+    listAnswer = { status: 200, body: { subscriptions: [row('r1', MASKED_ENDPOINT)] } }
     await press(buttonNamed(t('common.retry')))
     expect(requests.filter((entry) => entry.method === 'GET' && entry.url.endsWith(SUBSCRIPTIONS_PATH))).toHaveLength(2)
     expect(listItems()).toHaveLength(1)
@@ -402,7 +425,7 @@ describe('reading the account’s devices before anything is written', () => {
 })
 
 describe('turning this device off', () => {
-  it('unsubscribes the browser and deletes the row its endpoint matches', async () => {
+  it('unsubscribes the browser and deletes the row the write named for it', async () => {
     permission = 'granted'
     await mount()
     await press(switches()[0])
@@ -418,28 +441,75 @@ describe('turning this device off', () => {
     expect(deleted[0]!.body).toBeNull()
     expect(JSON.stringify(deleted[0]!.url), 'the credential-shaped tail reached the request').not.toContain('abcdef0123456789')
     expect(switches()[0]!.getAttribute('aria-checked')).toBe('false')
+    // A row that has been removed leaves no record behind to be mistaken for the next subscription.
+    expect(localStorage.getItem(PUSH_DEVICE_ROW_STORAGE_KEY)).toBeNull()
   })
 
-  it('turns off a device that only the read knows about', async () => {
-    // The cold case this screen used to be unable to serve: this browser already holds a subscription from
-    // an earlier visit, and nothing at all has been written in this one. The row — and the id its delete
-    // needs — can only come from the read.
+  it('turns off the row an earlier visit was told is this browser’s, by its id alone', async () => {
+    // The cold case: the browser still holds the subscription it made on an earlier visit and nothing at all
+    // has been written in this one. The label the read answers with shares no character with the endpoint the
+    // browser holds, so a client that compared endpoint text would find nothing here to turn off; the row id
+    // the earlier visit was given is the only thing that can name it.
     permission = 'granted'
     held = new FakeSubscription(FULL_ENDPOINT)
-    listContains([row('r7', ENDPOINT_HEAD)])
+    localStorage.setItem(PUSH_DEVICE_ROW_STORAGE_KEY, 'r7')
+    listContains([row('r7', OTHER_MASKED_ENDPOINT), row('r1', MASKED_ENDPOINT)])
     await mount()
     expect(switches()[0]!.getAttribute('aria-checked'), 'the subscription the browser holds was not read back').toBe('true')
+    expect(listItems()[0]!.textContent, 'the remembered row was not labelled as this device').toContain(t('assistant.push.revoke'))
+    expect(listItems()[1]!.textContent).toContain(t('assistant.push.not_this_device'))
+
     await press(switches()[0])
     const deleted = requests.filter((entry) => entry.method === 'DELETE')
     expect(deleted, 'a device the read named could not be turned off').toHaveLength(1)
     expect(deleted[0]!.url).toContain(`${SUBSCRIPTIONS_PATH}/r7`)
+    expect(deleted[0]!.body).toBeNull()
+    expect(JSON.stringify(deleted[0]!.url), 'the endpoint was sent to address the delete').not.toContain('abcdef0123456789')
+    expect(localStorage.getItem(PUSH_DEVICE_ROW_STORAGE_KEY)).toBeNull()
+  })
+
+  it('marks the row the write named even when another row carries the same label', async () => {
+    // The control against any matching on endpoint text: two rows whose labels are identical characters, so
+    // only the id the write returned can say which of them is this device.
+    permission = 'granted'
+    const twins = [row('r1', MASKED_ENDPOINT), row('r2', MASKED_ENDPOINT)]
+    listContains(twins)
+    listAfterWrite = twins
+    writeDeviceId = 'r2'
+    await mount()
+    await press(switches()[0])
+    expect(listItems()).toHaveLength(2)
+    expect(listItems()[0]!.textContent).toContain(t('assistant.push.not_this_device'))
+    expect(listItems()[1]!.textContent, 'the row the write named was not marked as this device').toContain(t('assistant.push.revoke'))
+
+    listAfterWrite = [row('r1', MASKED_ENDPOINT)]
+    await press(switches()[0])
+    const deleted = requests.filter((entry) => entry.method === 'DELETE')
+    expect(deleted).toHaveLength(1)
+    expect(deleted[0]!.url, 'the switch went through the wrong row').toContain(`${SUBSCRIPTIONS_PATH}/r2`)
+  })
+
+  it('takes the browser off in silence when no row was ever named for it', async () => {
+    // A device this screen never subscribed has no row id to spend, and guessing one from endpoint text is the
+    // leak the redaction exists to stop. The browser is unsubscribed, nothing is deleted, and every row keeps
+    // its own revoke — which is the truth on the screen rather than a failure invented for it.
+    permission = 'granted'
+    held = new FakeSubscription(FULL_ENDPOINT)
+    listContains([row('r1', MASKED_ENDPOINT), row('r2', OTHER_MASKED_ENDPOINT)])
+    await mount()
+    await press(switches()[0])
+    expect(held!.unsubscribe, 'the browser kept its subscription').toHaveBeenCalled()
+    expect(requests.filter((entry) => entry.method === 'DELETE'), 'a row was deleted on a guess').toEqual([])
+    expect(alerts(), 'a device the account never named was reported as a failure').toHaveLength(0)
+    expect(buttonNamed(t('assistant.push.revoke_other')), 'a row lost its own way out').toBeTruthy()
+    expect(switches()[0]!.getAttribute('aria-checked')).toBe('false')
   })
 })
 
 describe('revoking any device of the account', () => {
   /** Two devices, one of them this browser's, as both the read and the writes describe them. */
   function twoDevices(): void {
-    const rows = [row('r1', ENDPOINT_HEAD), row('r2', 'https://other.test/push…')]
+    const rows = [row('r1', MASKED_ENDPOINT), row('r2', OTHER_MASKED_ENDPOINT)]
     listContains(rows)
     listAfterWrite = rows
   }
@@ -466,7 +536,7 @@ describe('revoking any device of the account', () => {
     twoDevices()
     await mount()
     await subscribeThisDevice()
-    listAfterWrite = [row('r1', ENDPOINT_HEAD)]
+    listAfterWrite = [row('r1', MASKED_ENDPOINT)]
     await press(buttonNamed(t('assistant.push.revoke_other')))
 
     const deleted = requests.filter((entry) => entry.method === 'DELETE')
@@ -476,7 +546,7 @@ describe('revoking any device of the account', () => {
     expect(JSON.stringify(deleted[0]), 'a revoke still sent the whole endpoint').not.toContain('abcdef0123456789')
     const items = listItems()
     expect(items, 'the revoked device stayed on the list').toHaveLength(1)
-    expect(items[0]!.textContent).toContain(ENDPOINT_HEAD)
+    expect(items[0]!.textContent).toContain(MASKED_ENDPOINT)
     expect(items[0]!.textContent, 'the remaining device was mislabelled as another one').not.toContain(t('assistant.push.not_this_device'))
   })
 
@@ -493,7 +563,7 @@ describe('revoking any device of the account', () => {
     expect(listItems()).toHaveLength(2)
 
     refuseRevoke = false
-    listAfterWrite = [row('r1', ENDPOINT_HEAD)]
+    listAfterWrite = [row('r1', MASKED_ENDPOINT)]
     await press(buttonNamed(t('common.retry')))
     const deleted = requests.filter((entry) => entry.method === 'DELETE')
     expect(deleted, 'the retry never asked for the same device again').toHaveLength(2)

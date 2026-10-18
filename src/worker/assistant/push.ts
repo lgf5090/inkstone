@@ -45,6 +45,12 @@ const PUSH_MAX_PAYLOAD_BYTES = 4096
 /** How much of an endpoint's digest is enough to tell one device's URL from another's in a log line. */
 const ENDPOINT_DIGEST_CHARS = 12
 
+/**
+ * How much of an endpoint's digest a device row wears on screen: 8 base64url characters is 48 bits, which
+ * separates this device's row from another's and is far too short to be worth attacking backwards.
+ */
+const VIEW_DIGEST_CHARS = 8
+
 /** A refusal's shape, as the sender saw it. */
 export type PushOutcome = 'sent' | 'expired' | 'failed'
 
@@ -205,7 +211,7 @@ export function pushKeyProblem(value: unknown, field: 'p256dh' | 'auth'): string
 /** What a browser may be told about one of its own subscriptions, with the credential left out. */
 export interface PushSubscriptionView {
   id: string
-  /** The service's origin plus the first path segment, and an ellipsis: the head of an endpoint, not its token. */
+  /** The service's origin, a `#`, and a short one-way digest of the whole endpoint: never a piece of its path. */
   endpoint: string
   createdAt: number
   failures: number
@@ -214,25 +220,38 @@ export interface PushSubscriptionView {
 }
 
 /**
- * One subscription rendered for the surface that manages it.
+ * The endpoint's SHA-256 in base64url, cut to the width a screen needs.
  *
- * A reader needs to tell two devices apart, not to read a credential off the screen — the row's own id is the
- * handle a delete needs, and the service plus its path head is what says "this is the laptop's Firefox".
- * Handing back `endpoint` whole would put the ability to notify that machine into a browser log, a screenshot
- * and the reader's own clipboard, none of which the subscription was ever stored for.
+ * Cut, not kept: the whole digest of an endpoint is a check value an attacker could confirm a guess against,
+ * and the point of this label is only to tell two devices apart.
  */
-export function describeSubscription(subscription: AssistantPushSubscription): PushSubscriptionView {
-  let head = 'unknown push service'
+async function endpointDigest(endpoint: string): Promise<string> {
+  const digest = await crypto.subtle.digest('SHA-256', utf8(endpoint) as BufferSource)
+  return toBase64Url(new Uint8Array(digest)).slice(0, VIEW_DIGEST_CHARS)
+}
+
+/**
+ * One subscription rendered for the surface that manages it: the push service's origin and a digest.
+ *
+ * A reader needs to tell two devices apart, not to read a credential off the screen. This form deliberately
+ * ignores the shape of the path, because the previous one did not: it took the first path segment as a
+ * "head", and a short-path service such as Apple puts the whole token in that first segment, so its head
+ * was a replayable credential printed on a settings screen. Origin plus digest holds for every service —
+ * nothing of the path survives, and two rows of one service never look alike by accident.
+ *
+ * Which row is the reader's own device is therefore not answered here: the write route hands back the row's
+ * id, and that id — not any text derived from the endpoint — is what the screen matches on.
+ */
+export async function describeSubscription(subscription: AssistantPushSubscription): Promise<PushSubscriptionView> {
+  let origin = 'unknown push service'
   try {
-    const url = new URL(subscription.endpoint)
-    const firstSegment = url.pathname.split('/').filter(Boolean)[0]
-    head = firstSegment ? `${url.origin}/${firstSegment}` : url.origin
+    origin = new URL(subscription.endpoint).origin
   } catch {
-    // A row whose endpoint stopped parsing reads as the unusable thing it is rather than as a partial URL.
+    // A row whose endpoint stopped parsing keeps its digest, so it still tells apart from another broken row.
   }
   return {
     id: subscription.id,
-    endpoint: `${head}…`,
+    endpoint: `${origin}#${await endpointDigest(subscription.endpoint)}`,
     createdAt: subscription.createdAt,
     failures: subscription.failures,
     lastError: subscription.lastError,

@@ -86,25 +86,58 @@ export function subscriptionPayload(subscription: SubscriptionShape): PushSubscr
   return { endpoint, keys: { p256dh, auth } }
 }
 
-/** The character the route puts on the end of every masked endpoint it hands back. */
-const MASKED_SUFFIX = '…'
+/**
+ * Which row of the account's list this browser was told is its own.
+ *
+ * Matched by row id and by nothing else. The list carries an origin and a digest, so there is no endpoint
+ * text left to compare against the endpoint this browser holds — and a client that compared any part of an
+ * endpoint would be comparing the credential. The id is not a secret: it names one row of this account, and
+ * the route that acts on it re-scopes the lookup to the signed-in account anyway.
+ */
+export function rowForId(id: string | null, rows: readonly PushSubscriptionRow[]): PushSubscriptionRow | null {
+  if (!id) return null
+  return rows.find((row) => row.id === id) ?? null
+}
 
 /**
- * Which row of the account's list is this device.
+ * Where this browser remembers which row its own subscription became.
  *
- * The list only carries the head of each endpoint, and the head is a literal prefix of the whole thing, so
- * the one row this page can prove is its own is the row whose head starts its endpoint — longest head wins
- * when two rows share a push service. That is the whole matching rule, which is deliberate: the server owns
- * how an endpoint is masked, and a client that reimplements it is free to drift from the answer it is
- * comparing against.
+ * The write is the only moment the account says "this endpoint is that row", and a reader who subscribed
+ * last week is looking at the screen with no write behind it. Without the record the row would still be
+ * listed and still removable, only never labelled as this device's — so the record is kept here, in this
+ * browser, and it is the row id rather than anything derived from the endpoint.
  */
-export function rowForEndpoint(endpoint: string | null, rows: readonly PushSubscriptionRow[]): PushSubscriptionRow | null {
-  if (!endpoint) return null
-  const matches = rows.filter((row) => endpoint.startsWith(row.endpoint.endsWith(MASKED_SUFFIX)
-    ? row.endpoint.slice(0, -MASKED_SUFFIX.length)
-    : row.endpoint))
-  if (!matches.length) return null
-  return matches.reduce((longest, row) => (row.endpoint.length > longest.endpoint.length ? row : longest))
+export const PUSH_DEVICE_ROW_STORAGE_KEY = 'inkstone:push-device-row:v1'
+
+/** The longest row id a stored record may carry; a hand-edited value is dropped rather than looked up. */
+const MAX_STORED_ROW_ID_CHARS = 64
+
+function deviceRowStorage(): Storage | null {
+  return typeof localStorage === 'undefined' ? null : localStorage
+}
+
+function readStoredDeviceRow(): string | null {
+  const source = deviceRowStorage()
+  if (!source) return null
+  try {
+    const stored = source.getItem(PUSH_DEVICE_ROW_STORAGE_KEY)
+    if (stored === null) return null
+    const id = stored.trim()
+    return id && id.length <= MAX_STORED_ROW_ID_CHARS ? id : null
+  } catch {
+    // A browser that will not hand back its record costs only the "this device" label on the row, never a
+    // way out: every row of the list still carries its own revoke.
+    return null
+  }
+}
+
+function writeStoredDeviceRow(id: string | null): void {
+  const source = deviceRowStorage()
+  if (!source) return
+  try {
+    if (id === null) source.removeItem(PUSH_DEVICE_ROW_STORAGE_KEY)
+    else source.setItem(PUSH_DEVICE_ROW_STORAGE_KEY, id)
+  } catch { /* Best-effort: the next write re-records it, and nothing about this device's own state depends on the copy. */ }
 }
 
 function refusal(headline: MessageKey, error: unknown): PushFailure {
@@ -145,6 +178,14 @@ interface PushDevicesState {
   /** The device read itself refused; kept apart from the write failure because they retry different things. */
   rowsFailure: { detail: string | null } | null
   deviceEndpoint: string | null
+  /**
+   * The row of `rows` that is this browser, as the account named it when this device was subscribed.
+   *
+   * An id, never endpoint text: the list carries a digest of each endpoint, so nothing here can be matched
+   * against the credential the browser holds. Null means this browser has never been told, which is a
+   * different fact from "this account holds no device" and gets a different label on the row.
+   */
+  deviceId: string | null
   support: DeviceSupport
   permission: PermissionChoice
   busy: 'enable' | 'disable' | null
@@ -173,6 +214,7 @@ export const usePushDevices = create<PushDevicesState>((set, get) => ({
   rows: null,
   rowsFailure: null,
   deviceEndpoint: null,
+  deviceId: null,
   support: currentDeviceSupport(),
   permission: currentPermission(),
   busy: null,
@@ -204,7 +246,9 @@ export const usePushDevices = create<PushDevicesState>((set, get) => ({
   },
 
   readDevice: async () => {
-    set({ support: currentDeviceSupport(), permission: currentPermission() })
+    // The row this browser was told is its own comes back with the browser's own state, not out of the
+    // endpoint: a reader who subscribed on an earlier visit has nothing written here to identify it.
+    set({ support: currentDeviceSupport(), permission: currentPermission(), deviceId: readStoredDeviceRow() })
     if (currentDeviceSupport() !== 'available') return
     try {
       const subscription = await (await livePushManager())?.getSubscription()
@@ -238,8 +282,11 @@ export const usePushDevices = create<PushDevicesState>((set, get) => ({
         set({ busy: null, actionFailure: { headline: 'assistant.push.no_keys', detail: null } })
         return
       }
-      const { subscriptions } = await api.assistant.subscribePush(payload)
-      set({ rows: subscriptions, deviceEndpoint: payload.endpoint, busy: null })
+      const { subscriptions, deviceId } = await api.assistant.subscribePush(payload)
+      // The route says which row this endpoint became. Kept for the next visit, because the list itself can
+      // never say it: every endpoint on it is a digest.
+      writeStoredDeviceRow(deviceId)
+      set({ rows: subscriptions, deviceEndpoint: payload.endpoint, deviceId, busy: null })
     } catch (error) {
       set({ busy: null, actionFailure: refusal('assistant.push.enable_failed', error) })
     }
@@ -253,19 +300,23 @@ export const usePushDevices = create<PushDevicesState>((set, get) => ({
       const subscription = await (await livePushManager())?.getSubscription()
       if (subscription) await subscription.unsubscribe()
       if (endpoint) {
-        // The route names a row by its id and the list carries only endpoint heads, so the row that is
-        // genuinely this browser's is found by matching the whole endpoint the browser holds against them —
-        // and by the time a device can be turned off, that list has been read: the mount reads it, and the
-        // write that made this endpoint is answered with it.
+        // The row that is this browser's is the one the account named when this device was subscribed, kept
+        // locally as an id — never one found by comparing endpoint text, since the list carries digests and
+        // the browser holds the credential. By the time a device can be turned off, the list has been read:
+        // the mount reads it, and the write that made this endpoint is answered with it.
         //
-        // No matching row is not a failure to report. It means the account no longer carries this device —
-        // a send the push service refused with 404 or 410 drops the row itself — and the browser has just
-        // been unsubscribed, so there is nothing left here to remove. A list that would not read at all is
-        // said by its own `rowsFailure` line, above this row, and never dressed up as an empty account.
-        const own = rowForEndpoint(endpoint, get().rows ?? [])
+        // No matching row is not a failure to report. It means this browser never learned its row — an
+        // account that subscribed before this record existed, a device the push service already dropped, a
+        // list that would not read (said by its own `rowsFailure` line above this row, never dressed up as
+        // an empty account). The browser has just been unsubscribed either way, and the row stays on the
+        // list with its own revoke beside it.
+        const own = rowForId(get().deviceId, get().rows ?? [])
         if (own) set({ rows: (await api.assistant.unsubscribePush(own.id)).subscriptions })
       }
-      set({ deviceEndpoint: null, busy: null })
+      // Either the row is gone or this browser never had one to point at; in both cases the record has
+      // finished its job and must not be offered to the next subscription as if it were still a device.
+      writeStoredDeviceRow(null)
+      set({ deviceEndpoint: null, deviceId: null, busy: null })
     } catch (error) {
       set({ busy: null, actionFailure: refusal('assistant.push.disable_failed', error) })
     }
