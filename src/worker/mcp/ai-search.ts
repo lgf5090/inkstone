@@ -78,6 +78,24 @@ export interface SemanticFilters {
   archived?: boolean
 }
 
+/**
+ * The cosine a stored vector has to reach before anything read out of this index calls it a match.
+ *
+ * The scan window returns the best `SEMANTIC_TOP_K` notes it saw *however far down the list the cosine
+ * fell*, which is right for a caller that asked the index to list its neighbours and wrong for a page that
+ * merges them with keyword hits by rank: rank fusion has no notion of distance, so twenty notes at cosine
+ * 0.1 would each claim an ordinal a keyword hit earned, and a caller would be told they match. Measured on
+ * this index's own model (bge-m3), a question with nothing to match in the vault still tops out near 0.38,
+ * so 0.55 is the line between "the note the reader meant" and "whatever the scan reached".
+ *
+ * It belongs to the index rather than to a caller because both readers of these vectors need the same
+ * answer: an MCP `search` and an assistant turn disagreeing about what "close" means is a bug nobody can
+ * see. The memory half in `assistant/semantic.ts` carries the same measurement as `SEMANTIC_FLOOR.absolute`
+ * and should read this one instead of keeping a second copy; the equality is pinned in
+ * `tests/mcp-semantic-score-floor.test.ts` so the two cannot drift apart unnoticed.
+ */
+export const SEMANTIC_SCORE_FLOOR = 0.55
+
 export function isAiSearchAvailable(env: Env): boolean {
   return Boolean(env.AI)
 }
@@ -475,6 +493,12 @@ async function processQueueChunk(env: Env, userId: string, items: QueueRow[]): P
  * Semantic retrieval over the account's embedding index. Returns null when
  * AI is unavailable or the query embedding fails; the caller degrades to
  * lexical search.
+ *
+ * Hits below `scoreFloor` are not returned at all, so a caller that fuses this list with a keyword list
+ * cannot put a note nobody asked for above one that matched by word. An empty array means the index was
+ * read and nothing cleared the bar — the caller says "keyword matches only" rather than inventing a
+ * meaning hit — while `null` is the index refusing to answer, which is a different sentence to tell a
+ * reader and is kept distinct.
  */
 export async function searchSemanticNotes(
   env: Env,
@@ -482,6 +506,7 @@ export async function searchSemanticNotes(
   userId: string,
   query: string,
   filters: SemanticFilters,
+  scoreFloor = SEMANTIC_SCORE_FLOOR,
 ): Promise<SemanticSearchHit[] | null> {
   if (!env.AI || !await isAiSearchEnabled(db, userId)) return null
   const queryVector = await embedQueryText(env.AI, query)
@@ -528,14 +553,16 @@ export async function searchSemanticNotes(
     b.row.updated_at - a.row.updated_at ||
     a.row.id.localeCompare(b.row.id),
   )
-  return best.slice(0, SEMANTIC_TOP_K).map(({ row, score }) => ({
-    id: row.id,
-    title: row.title,
-    excerpt: row.excerpt,
-    rev: row.rev,
-    updatedAt: row.updated_at,
-    score,
-  }))
+  return best.slice(0, SEMANTIC_TOP_K)
+    .filter(({ score }) => score >= scoreFloor)
+    .map(({ row, score }) => ({
+      id: row.id,
+      title: row.title,
+      excerpt: row.excerpt,
+      rev: row.rev,
+      updatedAt: row.updated_at,
+      score,
+    }))
 }
 
 type ScannedVectorRow = EmbeddingRow & { indexed_at: number; note_id: string }

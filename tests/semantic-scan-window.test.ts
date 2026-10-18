@@ -82,10 +82,13 @@ describe('searchSemanticNotes scan window', () => {
   })
 
   it('stops paging once the account runs out of vectors', async () => {
-    seed(7, [idOf(0)])
+    // Every row is a match: the index now drops what sits below its similarity bar before it answers, so a
+    // count of the scan window is only a count of the window when nothing in it was filtered away.
+    seed(7, [0, 1, 2, 3, 4, 5, 6].map(idOf))
     const hits = (await searchSemanticNotes(env, env.DB, USER, QUERY, {})) ?? []
     expect(hits).toHaveLength(7)
-    expect(hits[0]).toMatchObject({ id: idOf(0), score: 1 })
+    // Equal cosine, so the tie breaks on the newest note first: the window ended at index 6, none was lost.
+    expect(hits[0]).toMatchObject({ id: idOf(6), score: 1 })
   })
 
   // A chunk of notes indexed inside the same millisecond shares indexed_at, so the page
