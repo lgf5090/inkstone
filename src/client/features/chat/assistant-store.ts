@@ -43,7 +43,8 @@ import type {
 } from '@shared/assistant'
 import type { AssistantSkill } from '@shared/assistant'
 import { DEBOUNCE } from '@shared/constants'
-import { MAX_ARTIFACT_CONTENT_CHARS, MAX_ARTIFACT_TITLE_CHARS, MAX_CHAT_ATTACHMENTS, MAX_TURN_SCOPES, MAX_TURN_TOOLS, CONVERSATION_PAGE_SIZE, MESSAGE_PAGE_SIZE, attachmentModality, audioFormatFor, modelWire, protocolCarriesAudio, type AssistantModelModality, type AttachmentSense, type AssistantTurnScope, type ChatAttachment, type AssistantSkillInput, type SkillImportResult, type AssistantMcpToolMode } from '@shared/assistant'
+import { formatBytes } from '@shared/byte-format'
+import { MAX_ARTIFACT_CONTENT_CHARS, MAX_ARTIFACT_TITLE_CHARS, MAX_CHAT_ATTACHMENTS, AUDIO_SEND_MAX_BYTES, MAX_TURN_SCOPES, MAX_TURN_TOOLS, CONVERSATION_PAGE_SIZE, MESSAGE_PAGE_SIZE, attachmentModality, audioFormatFor, modelWire, protocolCarriesAudio, type AssistantModelModality, type AttachmentSense, type AssistantTurnScope, type ChatAttachment, type AssistantSkillInput, type SkillImportResult, type AssistantMcpToolMode } from '@shared/assistant'
 import { api, ApiError } from '../../lib/api'
 import { confirm } from '../../components/overlay'
 import { t } from '../../lib/i18n'
@@ -1262,6 +1263,40 @@ export function unreadableAttachmentReason(mime: string, filename: string, targe
 }
 
 /**
+ * Whether these bytes are worth uploading at all — the model's four reasons, then the size ceiling.
+ *
+ * A recording bigger than `AUDIO_SEND_MAX_BYTES` reaches the worker and is named there with a line saying it
+ * was not sent, which is honest but late: the reader waited for a five-megabyte upload and paid to store a
+ * file no turn would read, and the answer was always going to be the same. So the queue asks the ceiling it
+ * asks the model, off the constant the request builder itself compares against — `@shared/assistant`, one
+ * copy of the number, never a client-side second opinion of it.
+ *
+ * Only a recording is weighed. A text file's bytes are read out of storage into the prompt and a picture has
+ * its own ceiling that the composer does not pre-check, so pointing this one at either would refuse files the
+ * turn really does read.
+ *
+ * The model is asked first: on a wire with no field for audio the reason the reader can act on is the wire,
+ * and shrinking the file would not have helped.
+ */
+export function attachmentUploadRefusal(
+  mime: string,
+  filename: string,
+  size: number,
+  target: AttachmentTarget | null,
+): string | null {
+  const reason = unreadableAttachmentReason(mime, filename, target)
+  if (reason) return reason
+  if (attachmentModality(mime, filename) === 'audio' && size > AUDIO_SEND_MAX_BYTES) {
+    return t('assistant.attach.audio_too_large', {
+      name: filename,
+      size: formatBytes(size),
+      max: formatBytes(AUDIO_SEND_MAX_BYTES),
+    })
+  }
+  return null
+}
+
+/**
  * Send one pending file, and record where it got to.
  *
  * Shared by the first attempt and by the retry: a second code path for "upload again" is how the two
@@ -2103,7 +2138,7 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
       // pickers' `accept` filter — a drag and a paste both hand over whatever the reader had, and a file
       // dialog lets them widen the type themselves — so the question has to be asked here, where all three
       // arrive. Nothing is uploaded, and the row carries the reason instead of the bytes.
-      const refused = unreadableAttachmentReason(file.type, filename, attachmentTarget())
+      const refused = attachmentUploadRefusal(file.type, filename, file.size, attachmentTarget())
       if (refused) {
         set((current) => ({
           pending: [...current.pending, {
@@ -2135,7 +2170,7 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
   retryAttachment: async (localId) => {
     const entry = get().pending.find((item) => item.localId === localId)
     if (!entry?.sourceFile || entry.status === 'uploading') return
-    const refused = unreadableAttachmentReason(entry.mime, entry.filename, attachmentTarget())
+    const refused = attachmentUploadRefusal(entry.mime, entry.filename, entry.sourceFile.size, attachmentTarget())
     if (refused) {
       set((current) => ({
         pending: current.pending.map((item) => (

@@ -975,6 +975,20 @@ export function protocolCarriesAudio(protocol: AssistantProtocol): boolean {
 }
 
 /**
+ * A recording is sent inline up to this size.
+ *
+ * Half the ceiling a chat file is stored under, on purpose: base64 costs about a third again of the bytes,
+ * eight attachments is the composer's own limit, and a body of four megabytes is also four megabytes of the
+ * isolate held for the answer. Below this the reader gets the recording; above it they get a line saying so,
+ * which is what a picture already does at its own number.
+ *
+ * The number lives here rather than in the worker because two surfaces have to answer with it: the request
+ * builder that decides whether these bytes ride at all, and the composer that refuses the file before a byte
+ * of it leaves the browser. A second copy of it in the client would be a ceiling the worker never agreed to.
+ */
+export const AUDIO_SEND_MAX_BYTES = 2 * 1024 * 1024
+
+/**
  * The audio entries a file picker may be given, when it may be given any.
  *
  * The system picker filters on the mime and on the extension, and a browser that cannot name a type hands

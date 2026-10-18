@@ -10,8 +10,9 @@
  * reader took back out of the box should not stay in their storage.
  *
  * Two sentences are drawn here rather than hidden, because both are worth knowing before something is
- * paid for. A clip reaches no model at all, and a recording reaches only the one on screen: the row asks
- * the same question the queue asked before turning the file away — `unreadableAttachmentReason`, so the
+ * paid for. A clip reaches no model at all, a recording reaches only the one on screen, and a recording
+ * past the inline ceiling reaches no turn whatever the model is: the row asks the same question the queue
+ * asked before turning the file away — `attachmentUploadRefusal`, so the
  * strip and `attachFiles` cannot say it two different ways — in words an eye reads, not a `title` that has
  * to be hunted for. A row still carrying a refusal gets the cross and no retry, because the press would
  * answer with the same words; once the reader changes what the queue is standing on, the refusal is gone
@@ -22,7 +23,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { FileText, Image as ImageIcon, Loader, RotateCcw, X } from 'lucide-react'
 import { CHAT_AUDIO_ACCEPT, attachmentModality, type ChatAttachment } from '@shared/assistant'
-import { attachmentSenseLabel, attachmentTargetOf, unreadableAttachmentReason, useAssistant, type AttachmentTarget, type PendingAttachment } from './assistant-store'
+import { attachmentSenseLabel, attachmentTargetOf, attachmentUploadRefusal, unreadableAttachmentReason, useAssistant, type AttachmentTarget, type PendingAttachment } from './assistant-store'
 import { cn } from '../../lib/cn'
 import { t } from '../../lib/i18n'
 import { api, ApiError } from '../../lib/api'
@@ -195,14 +196,15 @@ export function AttachmentStrip({
     <div className="flex flex-wrap gap-1.5 px-1.5 pb-1.5 pt-1">
       {items.map((entry) => {
         const ready = entry.status === 'ready' && entry.id
-        // Whether *this* model can be handed these bytes is known the moment the name, the type and the
-        // picked model are, which is before the reader decides to press send — and the row is the only
-        // place that gets to say it. `attachFiles` asks the same question of the same target and refuses
+        // Whether *this* model can be handed these bytes, and whether they are small enough to be handed at
+        // all, is known the moment the name, the type, the size and the picked model are — before the reader
+        // decides to press send, and the row is the only place that gets to say it. `attachFiles` asks the
+        // same question of the same target and refuses
         // the file outright, so what reaches this row with an answer is a file that was never uploaded; the
         // address door and any row older than the gate are the ones still drawn over a stored file. Change
         // what the queue is standing on — tick the model, or move to a wire with a field for audio — and
         // this line goes away without the file being picked again.
-        const refusal = unreadableAttachmentReason(entry.mime, entry.filename, target)
+        const refusal = attachmentUploadRefusal(entry.mime, entry.filename, entry.size, target)
         // A row is retriable the moment the reason for its refusal is gone: a recording dropped on an
         // unticked model becomes uploadable when the reader ticks it, and the press is what sends it without
         // picking the file again. While a refusal stands — a clip, a container nothing decodes, the model

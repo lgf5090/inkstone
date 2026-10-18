@@ -16,11 +16,13 @@
 import { describe, expect, it, vi } from 'vitest'
 import {
   ATTACHMENT_MARKER,
-  AUDIO_SEND_MAX_BYTES,
   expandChatAttachments,
 } from '../src/worker/assistant/attachments'
 import {
   ASSISTANT_MODEL_MODALITIES,
+  // The ceiling the client also refuses against, so a worker that quietly moved its own number would fail
+  // here rather than disagree with the sentence the composer printed.
+  AUDIO_SEND_MAX_BYTES,
   audioFormatFor,
   parseModelModalities,
   protocolCarriesAudio,
