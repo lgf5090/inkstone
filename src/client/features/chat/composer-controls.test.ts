@@ -8,13 +8,13 @@
 import { act, createElement, type ReactElement } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import type { AssistantModel, AssistantSkill } from '@shared/assistant'
+import type { AssistantModel, AssistantSkill, AssistantTurnScope } from '@shared/assistant'
 import type { PendingAttachment } from './assistant-store'
 import { initI18n, t } from '../../lib/i18n'
 import { installTestGlobals } from '../../lib/test-render'
 import { api } from '../../lib/api'
 import { useUi } from '../../store/ui'
-import { ApprovalMenu, ControlChip, ContextMenu, ModelMenu, PlusMenu, ReasoningMenu, VoiceButton, WebSearchMenu, formatContext } from './ComposerControls'
+import { AnswerScopeProvenance, ApprovalMenu, ControlChip, ContextMenu, ModelMenu, PlusMenu, ReasoningMenu, ScopeChip, VoiceButton, WebSearchMenu, formatContext } from './ComposerControls'
 import { AttachmentStrip } from './ChatAttachments'
 import { detectTrigger, filterRows, TOOL_TRIGGER_ROWS, TriggerPanel, type TriggerRow } from './ComposerTriggers'
 
@@ -438,5 +438,65 @@ describe('a control chip’s own face', () => {
     const chip = renderChip({ hint: '审批模式' })
     expect(hover(chip, 'the approval chip')).toBe('审批模式')
     expect(chip?.getAttribute('aria-label')).toBe('审批模式: 写入确认')
+  })
+})
+
+const folderScope: AssistantTurnScope = { kind: 'folder', id: 'f1', name: '工作' }
+const tagScope: AssistantTurnScope = { kind: 'tag', id: 't1', name: 'reading' }
+
+describe('the current turn’s scope chip', () => {
+  const render = async (props: Partial<React.ComponentProps<typeof ScopeChip>> = {}) => {
+    const onDrop = props.onDrop ?? vi.fn()
+    const onOpenScopes = props.onOpenScopes ?? vi.fn()
+    await act(async () => {
+      root.render(createElement(ScopeChip, { scope: folderScope, onDrop, onOpenScopes, ...props }))
+    })
+    return { onDrop, onOpenScopes }
+  }
+
+  it('says out loud what the pin limits', async () => {
+    await render()
+    // The name is not just the folder's own word — it states the kind and that this is a limit, so a
+    // reader who reaches the chip by keyboard learns what it does without hovering it.
+    const body = buttons().find((node) => (node.getAttribute('aria-label') ?? '').includes(t('assistant.scope.kind.folder')))
+    expect(body, 'no chip names what it limits').toBeTruthy()
+    const name = body!.getAttribute('aria-label')!
+    expect(name).toContain(folderScope.name)
+  })
+
+  it('opens onto the control that changes it, and drops only on its own X', async () => {
+    const { onDrop, onOpenScopes } = await render()
+    const body = buttons().find((node) => (node.getAttribute('aria-label') ?? '').includes(t('assistant.scope.kind.folder')))!
+    // The chip body reaches the scope control; it does not silently remove the pin.
+    await click(body)
+    expect(onOpenScopes).toHaveBeenCalledTimes(1)
+    expect(onDrop).not.toHaveBeenCalled()
+    // Removing is its own, separately named control.
+    const drop = buttons().find((node) => node.getAttribute('aria-label') === t('assistant.trigger.drop_scope', { name: folderScope.name }))
+    expect(drop, 'the chip has no keyboard-reachable drop').toBeTruthy()
+    await click(drop)
+    expect(onDrop).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('a stored answer’s scope provenance', () => {
+  const render = async (scopes: AssistantTurnScope[]) => {
+    await act(async () => { root.render(createElement(AnswerScopeProvenance, { scopes })) })
+  }
+  it('shows what the answer could read, in text a screen reader reaches', async () => {
+    await render([folderScope, tagScope])
+    const group = document.querySelector('[role="group"]')
+    expect(group?.getAttribute('aria-label')).toBe(t('assistant.scope.answer_saw'))
+    // Surfaced, not merely stored behind a mouse `title`: the names and kinds are in the accessible text.
+    const text = group?.textContent ?? ''
+    expect(text).toContain(folderScope.name)
+    expect(text).toContain(t('assistant.scope.kind.folder'))
+    expect(text).toContain(tagScope.name)
+    expect(text).toContain(t('assistant.scope.kind.tag'))
+    expect(group?.querySelector('[title]'), 'the names should not hide behind a tooltip alone').toBeNull()
+  })
+  it('renders nothing when the turn was not scoped', async () => {
+    await render([])
+    expect(document.querySelector('[role="group"]')).toBeNull()
   })
 })

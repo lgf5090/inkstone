@@ -30,6 +30,8 @@ import { revealPreviewTarget } from '../preview/markdown-tabs';
 import { SplitResizer } from '../shell/Resizer';
 import { EditorToolbar } from './EditorToolbar';
 import { BacklinksPanel } from './BacklinksPanel';
+import { CanvasPanel } from '../chat/CanvasPanel';
+import { useAssistant } from '../chat/assistant-store';
 import { SaveIndicator } from '../shell/SaveIndicator';
 import type { Heading } from '../../lib/markdown/renderer';
 import { useUi, type WorkspacePane } from '../../store/ui';
@@ -79,6 +81,9 @@ export function Workspace({ onMobileBack, pane = 'active', grouped = false, }: {
     const toggleLocalGraph = useUi((s) => s.toggleLocalGraph);
     const assistantDockOpen = useUi((s) => s.assistantDockOpen);
     const toggleAssistantDock = useUi((s) => s.toggleAssistantDock);
+    // A canvas draft opened in the chat stays available here, so the reader can work on the draft the
+    // conversation produced against the note it is going into — the two are the same document.
+    const canvasOpen = useAssistant((s) => s.canvasOpen);
     const splitRatio = useUi((s) => s.splitRatio);
     const setLayout = useUi((s) => s.setLayout);
     const activeWorkspacePane = useUi((s) => s.activeWorkspacePane);
@@ -698,6 +703,7 @@ export function Workspace({ onMobileBack, pane = 'active', grouped = false, }: {
           </div>)}
         {!showPreview && outlineVisible && <Outline headings={headings} onSelect={jumpToHeading} noteId={note.id} defaultLevel={outlineDefaultLevel} showProgress={outlineShowProgress} keepSearch={outlineKeepSearch} activeOverride={outlineCursorActive} content={content} onContentChange={onChange} dragEdits={outlineDragEdits} autoExpand={outlineAutoExpand} tooltipSide={outlineTooltipSide} truncateLength={outlineTruncateLength} markdownLabels={outlineMarkdownLabels} showReadingTime={outlineShowReadingTime} readingSpeed={outlineReadingSpeed} wordCount={note.wordCount} hoverPeek={outlineHoverPeek} textDirection={outlineTextDirection}/>}
         {outlineFloatingVisible && (<FloatingOutline headings={headings} onSelect={jumpToHeading} scrollerRef={previewScrollerRef} noteId={note.id} defaultLevel={outlineDefaultLevel} showProgress={outlineShowProgress} keepSearch={outlineKeepSearch} activeOverride={outlineCursorActive} content={content} onContentChange={onChange} dragEdits={outlineDragEdits} autoExpand={outlineAutoExpand} tooltipSide={outlineTooltipSide} truncateLength={outlineTruncateLength} markdownLabels={outlineMarkdownLabels} showReadingTime={outlineShowReadingTime} readingSpeed={outlineReadingSpeed} wordCount={note.wordCount} hoverPeek={outlineHoverPeek} textDirection={outlineTextDirection} collapsible={outlineMode === 'floating-circle'} containerRef={containerRef}/>)}
+        {canvasOpen && paneActive && <CanvasPanel/>}
       </div>
 
       {backlinksOpen && paneActive && <BacklinksPanel noteId={note.id}/>}

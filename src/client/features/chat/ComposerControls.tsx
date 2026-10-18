@@ -21,6 +21,8 @@ import {
   FolderPlus,
   Gauge,
   Globe,
+  Hash,
+  Folder,
   Link2,
   Loader2,
   MessageSquareQuote,
@@ -31,8 +33,9 @@ import {
   ShieldQuestion,
   Sparkles,
   Wand2,
+  X,
 } from 'lucide-react'
-import type { AssistantModel, AssistantReasoning, AssistantSkill, AssistantToolMode } from '@shared/assistant'
+import type { AssistantModel, AssistantReasoning, AssistantSkill, AssistantToolMode, AssistantTurnScope } from '@shared/assistant'
 import { ASSISTANT_TOOL_MODES, TOKEN_STEPS } from '@shared/assistant'
 import { cn } from '../../lib/cn'
 import { t, type MessageKey } from '../../lib/i18n'
@@ -683,5 +686,90 @@ export function VoiceButton({ onText }: { onText: (chunk: string) => void }) {
     >
       <Mic size={14} />
     </IconButton>
+  )
+}
+
+/** The word each scope kind is called, so a chip can name what it limits rather than only what it is. */
+export const SCOPE_KIND_LABELS: Record<AssistantTurnScope['kind'], MessageKey> = {
+  tag: 'assistant.scope.kind.tag',
+  folder: 'assistant.scope.kind.folder',
+  note: 'assistant.scope.kind.note',
+}
+
+function scopeIcon(kind: AssistantTurnScope['kind'], size: number) {
+  if (kind === 'folder') return <Folder size={size} />
+  if (kind === 'note') return <FileText size={size} />
+  return <Hash size={size} />
+}
+
+/**
+ * One scope the current turn is limited to, drawn as a control rather than a label.
+ *
+ * A chip that only shows a name hides two things the reader coming back to the composer needs: what the
+ * pin actually does (it narrows what the assistant may read this turn), and where to change it (the `#`
+ * picker). So the name of the chip says "this turn is limited to the folder …" in full, the body is a
+ * button that reaches the control that changes it, and only the small X removes it. Nothing here opens a
+ * settings page — it hands the reader back to the composer's own scope control.
+ */
+export function ScopeChip({ scope, onDrop, onOpenScopes }: {
+  scope: AssistantTurnScope
+  onDrop: () => void
+  onOpenScopes: () => void
+}) {
+  const name = t('assistant.scope.chip', { kind: t(SCOPE_KIND_LABELS[scope.kind]), name: scope.name })
+  return (
+    <Tooltip label={t('assistant.scope.open')}>
+      <span className="flex max-w-full items-center gap-1 rounded-[var(--r-sm)] border border-[var(--border-default)] bg-[var(--bg-sunken)] py-[1px] pl-0.5 pr-0.5 text-[length:var(--text-11)] text-[var(--text-secondary)]">
+        <button
+          type="button"
+          aria-label={name}
+          onClick={onOpenScopes}
+          className="inline-flex min-w-0 items-center gap-1 rounded-[var(--r-sm)] px-1 py-0.5 transition-colors hover:bg-[var(--bg-hover)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--accent)]"
+        >
+          <span aria-hidden className="shrink-0">{scopeIcon(scope.kind, 11)}</span>
+          <span className="min-w-0 truncate">{scope.name}</span>
+        </button>
+        <button
+          type="button"
+          aria-label={t('assistant.trigger.drop_scope', { name: scope.name })}
+          onClick={onDrop}
+          className="ink-tap-pad relative flex size-4 shrink-0 items-center justify-center rounded-full text-[var(--text-tertiary)] hover:text-[var(--danger)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--accent)]"
+        >
+          <X size={9} />
+        </button>
+      </span>
+    </Tooltip>
+  )
+}
+
+/**
+ * What a stored answer was allowed to read, spelled out where the reader can actually find it.
+ *
+ * The turn's scopes are stored with the message, but stored is not the same as surfaced: a chip that only
+ * carries a mouse `title` is invisible to a keyboard and to a screen reader, and to a reader coming back
+ * to an old thread it is the whole point — knowing the answer only saw this folder. So the names are in
+ * the accessible text, grouped under a label that says what they limit, not hidden behind a hover.
+ */
+export function AnswerScopeProvenance({ scopes }: { scopes: AssistantTurnScope[] }) {
+  if (!scopes.length) return null
+  return (
+    <div
+      role="group"
+      aria-label={t('assistant.scope.answer_saw')}
+      className="flex flex-wrap items-center gap-1 text-[length:var(--text-10)] text-[var(--text-quaternary)]"
+    >
+      <span className="shrink-0">{t('assistant.scope.answer_saw')}</span>
+      {scopes.map((scope) => (
+        <span
+          key={`${scope.kind}:${scope.id}`}
+          className="inline-flex max-w-[180px] items-center gap-1 truncate rounded-[var(--r-sm)] bg-[var(--bg-inset)] px-1.5 py-0.5"
+        >
+          <span aria-hidden className="shrink-0">{scopeIcon(scope.kind, 10)}</span>
+          <span className="min-w-0 truncate">
+            {t(SCOPE_KIND_LABELS[scope.kind])} · {scope.name}
+          </span>
+        </span>
+      ))}
+    </div>
   )
 }
