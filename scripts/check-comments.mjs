@@ -408,6 +408,9 @@ const allowed = new Map([
     "// replaces a name rather than adding to it.",
     "/* Several children — a control beside its unit, or a field above its own row of presets — make the\n          block itself the group, so the label still says what the controls are for. */",
     "/**\n   * The `id` of the control this row's title names.\n   *\n   * A row's title is usually the only words belonging to the control beside it — the select, the number\n   * box — so without this association that control has no accessible name at all, and a screen reader\n   * announces only \"combo box\". Pass the control's own `id` here and the title becomes a real `<label for>`.\n   * A control that cannot take one — a group of them, or one already named by its own `aria-label` — leaves\n   * this unset.\n   */",
+    "// A conditional child arrives as one fragment holding the real branches. A fragment takes no `id`, so",
+    "// treating it as the control would leave the label's `for` pointing at nothing a reader could reach:",
+    "// it is the several-children case for naming, and the block becomes the group the label describes.",
   ]],
   ["src/client/components/overlay-search.test.ts", [
     "/** What the user sees after typing: the field's own value plus whatever the list kept. */",
@@ -21038,6 +21041,8 @@ const allowed = new Map([
     "// not the reader editing their memory or reopening a thread, and it should not reorder either list.",
     "// The same chat-side cascade `purge` runs for one note; see the comment there for why each column is",
     "// nulled and why `chat_note_writes` is deleted instead.",
+    "// The run row is the account's history of what a schedule did, so it stays while the pointer to the",
+    "// note that no longer exists goes.",
   ]],
   ["src/worker/quickadd/store.ts", [
     "/**\n * Every read and write the QuickAdd HTTP routes make against D1.\n *\n * The shape follows `share/store.ts`: a store built per request from the account it serves, methods\n * that hand back rows, the boolean a guarded write matched, or the answers the route prints, and no\n * `Response` in between. Two kinds of read live here:\n *  - the library envelope on the account's own `users` row. `WHERE id = ?1` binds `c.get('userId')`,\n *    and `users.id` *is* the account, so one device can neither read nor overwrite another's library.\n *    The envelope text is the route's to build and to parse; the store only moves the column;\n *  - the property scans behind `{{FIELD:}}`. Their `user_id` predicate is not a literal in the\n *    template but the first clause `fieldScopeWhere()` always splices — `n.user_id = ?1` bound to the\n *    account the store was built with — because the optional folder/tag scopes are named by the\n *    caller and have to be numbered after it.\n *\n * The scan's three bounds (`FIELD_SCAN_LIMIT`, `FIELD_VALUE_LIMIT`, `FIELD_VALUE_MAX_LENGTH`) are part\n * of the answer rather than configuration: a value list is a convenience, and a slow one is worse than\n * the author typing the word.\n */",
