@@ -1730,20 +1730,38 @@ async function approvalContext(
 
 // ------------------------------------------------------------------ memories
 
+/**
+ * How many facts one page is asked for.
+ *
+ * The memory page reads the account's whole library, because that is the list the reader walks. A note
+ * asks a narrower question — what was written out of this page — and the panel that asks it is a pointer
+ * list beside the editor, not a second memory page. Bounded server-side rather than trimmed in the
+ * browser, so a page with a hundred facts filed under it does not make the notebook fetch a hundred.
+ */
+const MEMORIES_PER_NOTE = 50
+
 assistantRoutes.get('/memories', async (c) => {
   const s = store(c)
   const query = c.req.query('q')?.trim().slice(0, 200)
   const category = c.req.query('category')
+  // A note asks what the assistant remembers about it, and the answer is the facts written out of it. The
+  // conversations list applies the same rule to the same shape of mistake: an id that is not an id narrows
+  // to nothing rather than to everything, because a backlink panel that printed the reader's whole library
+  // would be answering a question nobody asked. Absent means the whole list, which is what the memory page
+  // reads, and the page's own filters are the other three parameters.
+  const note = c.req.query('noteId')
+  const noteId = note === undefined ? undefined : (isValidId(note) ? note : '')
   const [memories, active, historical, review, total] = await Promise.all([
     s.listMemories({
       query: query || undefined,
       status: c.req.query('status') ?? 'all',
       category: category || undefined,
+      ...(noteId === undefined ? {} : { noteId, limit: MEMORIES_PER_NOTE }),
     }),
-    s.countMemories('active'),
-    s.countMemories('historical'),
-    s.countMemories('review'),
-    s.countMemories('all'),
+    s.countMemories('active', noteId),
+    s.countMemories('historical', noteId),
+    s.countMemories('review', noteId),
+    s.countMemories('all', noteId),
   ])
   return c.json({ memories, total, counts: { active, historical, review } })
 })

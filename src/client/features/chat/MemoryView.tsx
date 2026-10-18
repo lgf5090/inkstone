@@ -7,7 +7,7 @@
  * used to say" still answers — and a plain edit stays a plain edit, for fixing a typo.
  */
 import { useEffect, useMemo, useState } from 'react'
-import { Archive, ArchiveRestore, GitCompare, History, NotebookPen, Pencil, Plus, RefreshCw, Search, Trash2 } from 'lucide-react'
+import { Archive, ArchiveRestore, GitCompare, History, Link2Off, NotebookPen, Pencil, Plus, RefreshCw, Search, Trash2 } from 'lucide-react'
 import type { AssistantMemory } from '@shared/assistant'
 import { ASSISTANT_MEMORY_CATEGORIES } from '@shared/assistant'
 import { api } from '../../lib/api'
@@ -21,8 +21,8 @@ import { Empty } from '../../components/feedback'
 import { AssistantHeader } from './AssistantHeader'
 import { LoadFailure } from './assistant-settings-shared'
 import { useAssistant } from './assistant-store'
+import { notePointer, openMemoryNote, unlinkMemoryNote } from './memory-note'
 import { useNotes } from '../../store/notes'
-import { navigateToPath } from '../../lib/app-history'
 import { folderPathLabel } from '../../lib/folders'
 
 const CATEGORY_LABELS: Record<string, () => string> = {
@@ -73,6 +73,11 @@ export function MemoryView() {
   const resolveReview = useAssistant((state) => state.resolveReview)
   const projects = useAssistant((state) => state.projects)
   const loadProjects = useAssistant((state) => state.loadProjects)
+  // The notebook's own list is what says whether the page a fact names is still there. Read whole rather
+  // than one note at a time because the rows below name any number of pages, and a page the list does not
+  // carry after it has been read is the state the row has to speak of.
+  const notes = useNotes((state) => state.notes)
+  const hydrated = useNotes((state) => state.hydrated)
   const [editing, setEditing] = useState<AssistantMemory | 'new' | null>(null)
   const [correcting, setCorrecting] = useState<AssistantMemory | null>(null)
   const [historyOf, setHistoryOf] = useState<AssistantMemory | null>(null)
@@ -190,6 +195,9 @@ export function MemoryView() {
                   // A fact learned inside a project is only recalled there, so the row has to say which
                   // one: a reader wondering why the assistant forgot something is looking at this line.
                   const project = memory.projectId ? projects.find((entry) => entry.id === memory.projectId) : undefined
+                  // And the row has to say what became of the page the fact was written out as, because the
+                  // page can be gone while the pointer is not.
+                  const pointer = notePointer(memory, notes, hydrated)
                   return (
                   <li key={memory.id} className="group flex items-start gap-2 border-b border-[var(--border-subtle)] px-3 py-2 transition-colors duration-[var(--dur-fast)] last:border-b-0 hover:bg-[var(--bg-hover)]">
                     <div className="min-w-0 flex-1">
@@ -212,6 +220,16 @@ export function MemoryView() {
                             {project.name}
                           </span>
                         )}
+                        {pointer.state === 'gone' && (
+                          // Not a link that goes nowhere, and not silence: the fact stays useful, so the row
+                          // says which half of it is out of date and lets the reader take the pointer off.
+                          <span
+                            className="ml-1.5 rounded-[var(--r-sm)] bg-[var(--bg-inset)] px-1.5 py-0.5 text-[length:var(--text-10)]"
+                            title={t('assistant.memory.note_gone')}
+                          >
+                            {t('assistant.memory.note_gone')}
+                          </span>
+                        )}
                       </p>
                     </div>
                     <div className="flex shrink-0 items-center gap-px">
@@ -230,21 +248,30 @@ export function MemoryView() {
                       >
                         {memory.status === 'historical' ? <ArchiveRestore size={13} /> : <Archive size={13} />}
                       </IconButton>
-                      <IconButton
-                        label={memory.noteId ? t('assistant.memory.open_note') : t('assistant.memory.save_note')}
-                        size="xs"
-                        onClick={() => {
-                          if (!memory.noteId) {
+                      {pointer.state === 'gone' ? (
+                        // The door is gone, so the row offers the only thing that is true about it: taking the
+                        // pointer off, which is the same write the reader made when the note was there.
+                        <IconButton label={t('assistant.memory.forget_note_link')} size="xs" onClick={() => void unlinkMemoryNote(memory.id)}>
+                          <Link2Off size={13} />
+                        </IconButton>
+                      ) : (
+                        <IconButton
+                          label={pointer.state === 'open'
+                            ? (pointer.title ? `${t('assistant.memory.open_note')}: ${pointer.title}` : t('assistant.memory.open_note'))
+                            : t('assistant.memory.save_note')}
+                          size="xs"
+                          onClick={() => {
+                            if (pointer.state === 'open' && memory.noteId) {
+                              // The note is the memory's own copy, so the way to change it is to go there.
+                              openMemoryNote(memory.noteId)
+                              return
+                            }
                             setWriting(memory)
-                            return
-                          }
-                          // The note is the memory's own copy, so the way to change it is to go there.
-                          navigateToPath('/notes')
-                          void useNotes.getState().openNote(memory.noteId)
-                        }}
-                      >
-                        <NotebookPen size={13} />
-                      </IconButton>
+                          }}
+                        >
+                          <NotebookPen size={13} />
+                        </IconButton>
+                      )}
                       <IconButton label={t('assistant.memory.edit')} size="xs" onClick={() => setEditing(memory)}>
                         <Pencil size={13} />
                       </IconButton>

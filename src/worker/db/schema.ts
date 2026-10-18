@@ -1502,6 +1502,21 @@ export const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
       `ALTER TABLE chat_projects ADD COLUMN note_ids TEXT NOT NULL DEFAULT '[]'`,
     ],
   },
+  {
+    // Which facts the assistant remembers were written out of which page.
+    //
+    // `chat_memories.note_id` has been here since version 90, and nothing has ever asked for the rows by
+    // it: the memory page filters by project, by status and by text, and the note's own backlink panel did
+    // not exist. That panel is the first reader that names a page and asks what is known about it, and the
+    // only index the query could reach starts with `user_id` alone — so the answer walked every fact in the
+    // account. An index led by the account and then the page is what makes it a seek, and the same read
+    // keeps working for a vault with one page or with ten thousand facts.
+    version: 98,
+    statements: [
+      `CREATE INDEX IF NOT EXISTS idx_chat_memories_note
+         ON chat_memories(user_id, note_id, updated_at DESC)`,
+    ],
+  },
 ]
 
 const FTS_STATEMENT = `CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(

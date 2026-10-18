@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
-import { ArrowUpRight, Link2, Link as LinkIcon, MessageSquareText, MessagesSquare, Sparkles } from 'lucide-react';
-import type { AssistantConversation } from '@shared/assistant';
+import { ArrowUpRight, Brain, Link2, Link as LinkIcon, MessageSquareText, MessagesSquare, Sparkles } from 'lucide-react';
+import type { AssistantConversation, AssistantMemory } from '@shared/assistant';
 import type { Backlink } from '@shared/types';
 import { api } from '../../lib/api';
 import { Button } from '../../components/primitives';
@@ -8,6 +8,7 @@ import { useNotes } from '../../store/notes';
 import { t } from "../../lib/i18n";
 import { relativeTime } from '../../lib/time';
 import { openConversationInChat } from '../chat/start-chat';
+import { noteMemories, openAssistantMemories } from '../chat/note-memories';
 
 /** How many of a note's threads the panel asks for. The section is a pointer list, not the chat's own library. */
 const CONVERSATIONS_SHOWN = 20;
@@ -25,6 +26,16 @@ export function BacklinksPanel({ noteId, fill = false }: {
     const [about, setAbout] = useState<AssistantConversation[] | null>(null);
     const [aboutError, setAboutError] = useState<string | null>(null);
     const [aboutReload, setAboutReload] = useState(0);
+    /**
+     * The facts the assistant wrote out of this page, and whether that read came back.
+     *
+     * `null` is "not answered yet" and an empty list is "nothing is remembered here", which is the same
+     * distinction the thread list above keeps: a refused read drawn as an empty list would tell the reader
+     * their own memory page has nothing about the note, and no request ever established that.
+     */
+    const [memories, setMemories] = useState<AssistantMemory[] | null>(null);
+    const [memoriesError, setMemoriesError] = useState<string | null>(null);
+    const [memoriesReload, setMemoriesReload] = useState(0);
     const [loadError, setLoadError] = useState<string | null>(null);
     const [reload, setReload] = useState(0);
     const [linking, setLinking] = useState<string | null>(null);
@@ -37,6 +48,8 @@ export function BacklinksPanel({ noteId, fill = false }: {
         // row about another page under this one's heading would be a link the reader did not ask for.
         setAbout(null);
         setAboutError(null);
+        setMemories(null);
+        setMemoriesError(null);
     }, [noteId]);
     // Which threads were started from this note answers from the conversation's own `note_id`, so it follows
     // the note rather than the keystrokes inside it: no debounce and no revision here, and its own retry so a
@@ -65,6 +78,32 @@ export function BacklinksPanel({ noteId, fill = false }: {
             controller.abort();
         };
     }, [noteId, aboutReload]);
+    // What the assistant took away from this page is read the same way: it names the note rather than the
+    // keystrokes inside it, and it retries on its own, because the facts are the assistant's rows and a note
+    // being edited does not change them.
+    useEffect(() => {
+        let cancelled = false;
+        noteMemories(noteId)
+            .then((rows) => {
+            // The read is asked for this page, and the panel still draws only the rows that say so: a row
+            // about another note under this one's heading is a fact the reader never asked to be shown. And
+            // newest first by the rows' own clock rather than by the order they arrived in, which is the
+            // same rule the two thread sections above follow.
+            if (!cancelled) {
+                setMemories(rows
+                    .filter((memory) => memory.noteId === noteId)
+                    .sort((left, right) => right.updatedAt - left.updatedAt));
+                setMemoriesError(null);
+            }
+        })
+            .catch((error) => {
+            if (!cancelled)
+                setMemoriesError(error instanceof Error ? error.message : String(error));
+        });
+        return () => {
+            cancelled = true;
+        };
+    }, [noteId, memoriesReload]);
     useEffect(() => {
         const controller = new AbortController();
         let cancelled = false;
@@ -164,6 +203,27 @@ export function BacklinksPanel({ noteId, fill = false }: {
         </li>))}
     </ul>);
 
+    /**
+     * One fact the assistant kept from this page.
+     *
+     * The row is the memory's own text, because that is the thing the reader is checking, and the door is the
+     * assistant's memory page — where a fact can be corrected, superseded or forgotten. Drawing an editor
+     * here would put a second copy of that page inside the notebook, and the two would drift.
+     */
+    const memoryRows = (items: AssistantMemory[]) => (<ul className="p-2">
+      {items.map((memory) => (<li key={memory.id}>
+          <button
+            type="button"
+            onClick={openAssistantMemories}
+            aria-label={`${t("workspace.open_in_assistant")}: ${memory.content}`}
+            className="flex w-full min-w-0 items-baseline justify-between gap-2 rounded-[var(--r-md)] px-2 py-2 text-left transition-colors hover:bg-[var(--bg-hover)]"
+          >
+            <span className="min-w-0 truncate-2 text-[length:var(--text-12-5)] text-[var(--text-primary)]">{memory.content}</span>
+            <span className="shrink-0 text-[length:var(--text-10-5)] text-[var(--text-quaternary)]">{relativeTime(memory.updatedAt)}</span>
+          </button>
+        </li>))}
+    </ul>);
+
     return (<section className={fill ? 'min-h-0' : 'max-h-[36%] shrink-0 overflow-y-auto border-t border-[var(--border-subtle)] bg-[var(--bg-base)]'}>
       {fill
         ? links && links.length > 0 && (<div className="flex items-center justify-center gap-1.5 px-2 pt-1 pb-1 text-[length:var(--text-10-5)] font-semibold tracking-[0.06em] text-[var(--text-quaternary)]">
@@ -205,6 +265,20 @@ export function BacklinksPanel({ noteId, fill = false }: {
             <MessagesSquare size={11} aria-hidden="true"/>{t("workspace.conversations_about")}<span className="tabular">· {about.length}</span>
           </div>
           {conversationRows(about)}
+        </>)}
+
+      {/* What the assistant remembered from this page: the third thing a note can be asked about, and the one
+          whose row has been stored since the day it was written. A refusal is drawn as a refusal, never as an
+          empty list, because an empty list is a statement about the reader's own memory that no answer gave. */}
+      {memoriesError !== null && (<div className="flex items-center justify-between gap-3 border-t border-[var(--border-subtle)] px-3 py-4 text-[length:var(--text-12)] text-[var(--text-quaternary)]">
+          <span>{t("workspace.could_not_load_memories")}</span><Button size="sm" variant="ghost" onClick={() => setMemoriesReload((value) => value + 1)}>{t("common.retry")}</Button>
+        </div>)}
+
+      {memories !== null && memories.length > 0 && memoriesError === null && (<>
+          <div className="sticky top-0 z-10 flex items-center gap-1.5 border-t border-[var(--border-subtle)] bg-[var(--bg-base)] px-3 py-2 text-[length:var(--text-10-5)] font-semibold tracking-[0.06em] text-[var(--text-quaternary)]">
+            <Brain size={11} aria-hidden="true"/>{t("workspace.memories_about")}<span className="tabular">· {memories.length}</span>
+          </div>
+          {memoryRows(memories)}
         </>)}
     </section>);
 }

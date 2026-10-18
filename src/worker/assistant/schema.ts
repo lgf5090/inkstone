@@ -326,6 +326,12 @@ export const ASSISTANT_SCHEMA_STATEMENTS: readonly string[] = [
      ON chat_memories(user_id, status, updated_at)`,
   `CREATE INDEX IF NOT EXISTS idx_chat_memories_superseded
      ON chat_memories(user_id, superseded_by)`,
+  // Which facts were written out of which page. The note's own backlink panel asks this — "what does the
+  // assistant remember about this page?" — and it is the only memory read that does not arrive through a
+  // project, a status or the account's whole list, so without this index the answer is a walk over every
+  // fact the reader has saved.
+  `CREATE INDEX IF NOT EXISTS idx_chat_memories_note
+     ON chat_memories(user_id, note_id, updated_at DESC)`,
 
   // One embedding per memory, in the same blob layout as ai_note_embeddings so the app's own
   // encoder and cosine helpers are the only implementation of either.
@@ -612,6 +618,7 @@ export const ASSISTANT_REQUIRED_INDEXES: readonly string[] = [
   'idx_chat_memories_user_updated',
   'idx_chat_memories_status',
   'idx_chat_memories_superseded',
+  'idx_chat_memories_note',
   'idx_chat_memory_embeddings_user',
   'idx_chat_reviews_memory',
   'idx_chat_reviews_other',

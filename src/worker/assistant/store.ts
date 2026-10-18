@@ -2968,9 +2968,20 @@ export class AssistantStore {
     return before
   }
 
-  async listMemories(opts: { query?: string, category?: string, status?: string, limit?: number, scope?: MemoryScope } = {}): Promise<AssistantMemory[]> {
+  /**
+   * The saved facts, narrowed by whatever the caller names.
+   *
+   * `noteId` is the one filter that arrives from the notebook rather than from the memory page: standing on
+   * a page, "what does the assistant remember about this?" is asked by the page, and the answer is the rows
+   * that were written out of it. It is an equality on the account's own rows — `Query` puts `user_id = ?1`
+   * in front of every clause — so a note id copied out of another account's backup can only ever match
+   * nothing here. An empty string is the same kind of mistake as a malformed id and narrows to nothing,
+   * which is what the caller asked for; the whole library is what an *absent* filter means.
+   */
+  async listMemories(opts: { query?: string, category?: string, status?: string, noteId?: string, limit?: number, scope?: MemoryScope } = {}): Promise<AssistantMemory[]> {
     const q = new Query(this.userId).raw(this.statusClause(opts.status ?? 'all'))
     applyMemoryScope(q, opts.scope)
+    if (opts.noteId !== undefined) q.eq('note_id', opts.noteId)
     if (opts.category) q.eq(`category`, opts.category)
     if (opts.query) q.raw(`content LIKE ${q.add(containsPattern(opts.query))} ESCAPE '\\'`)
     const limit = q.add(opts.limit ?? 500)
@@ -2981,8 +2992,16 @@ export class AssistantStore {
     return list.map(toMemory)
   }
 
-  async countMemories(status?: string): Promise<number> {
+  /**
+   * How many facts the caller's filter answers with.
+   *
+   * The note filter rides along with the status because the two are read together by the same route: a
+   * listing that says three rows beside a header that counted the account's whole library is a number the
+   * answer does not support.
+   */
+  async countMemories(status?: string, noteId?: string): Promise<number> {
     const q = new Query(this.userId).raw(this.statusClause(status ?? 'all'))
+    if (noteId !== undefined) q.eq('note_id', noteId)
     const r = await this.one<{ n: number }>(
       `SELECT count(*) AS n FROM chat_memories WHERE ${q.where}`,
       ...q.binds,
