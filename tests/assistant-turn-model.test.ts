@@ -30,6 +30,8 @@ import { AssistantStore } from '../src/worker/assistant/store'
 import { newId } from '../src/worker/lib/id'
 import type { AppBindings, Env } from '../src/worker/env'
 import type { AssistantMessage, AssistantModel, AssistantSettings, ChatStreamEvent } from '../src/shared/assistant'
+import { DEFAULT_ASSISTANT_SETTINGS } from '../src/shared/assistant'
+import { promptCatalog } from '../src/shared/assistant-prompt'
 import { makeD1 } from './doubles/d1-sqlite'
 import { testBindings } from './doubles/bindings'
 
@@ -97,6 +99,9 @@ const frame = (payload: unknown) => `data: ${JSON.stringify(payload)}\n\n`
 const USAGE = frame({ choices: [], usage: { prompt_tokens: 12, completion_tokens: 4 } })
 
 /** One step that answers in prose and stops. */
+/** The naming pass's own instructions: the one thing that tells its call apart from a turn's. */
+const NAMING_SYSTEM = promptCatalog(DEFAULT_ASSISTANT_SETTINGS.language).naming_system
+
 function answered(text: string): string[] {
   return [frame({ choices: [{ index: 0, finish_reason: 'stop', delta: { content: text } }] }), USAGE]
 }
@@ -124,7 +129,13 @@ function stubWire(...answers: Array<{ at: string, frames: string[] } | { status:
   const seen: { url: string, body: Record<string, unknown> }[] = []
   vi.stubGlobal('fetch', vi.fn(async (input: string | URL | Request, init?: { body?: unknown }) => {
     const url = String(typeof input === 'string' || input instanceof URL ? input : input.url)
-    seen.push({ url, body: JSON.parse(String(init?.body ?? '{}')) as Record<string, unknown> })
+    const body = JSON.parse(String(init?.body ?? '{}')) as Record<string, unknown>
+    // The follow-up pass that runs after the answer is filed is not part of the turn's own traffic. Every
+    // case here counts what one question cost — one call, or two with a tool step between them — so that
+    // call is answered and left out of the log rather than adding one to every number in this file. It is
+    // recognised by the instructions it was sent with, which no turn's request carries.
+    if (JSON.stringify(body).includes(NAMING_SYSTEM)) return sse(answered(''))
+    seen.push({ url, body })
     const answer = seen.length <= answers.length ? answers[seen.length - 1] : answers.at(-1)
     if (!answer) throw new Error(`nothing stubbed for ${url}`)
     if ('status' in answer) return new Response('{"error":{"message":"the provider does not know that model"}}', { status: answer.status })
@@ -147,18 +158,6 @@ async function streamed(body: Record<string, unknown>): Promise<ChatStreamEvent[
 
 const doneOf = (events: ChatStreamEvent[]): AssistantMessage | undefined =>
   events.find((event) => event.type === 'done')?.finalMessage
-
-/**
- * One accepted turn, asked inside a thread that already exists.
- *
- * The naming pass that titles a brand-new conversation and volunteers its follow-ups runs only on the turn
- * that made the thread, so asking inside an existing one keeps the wire log to the turn's own calls — which
- * is the question every test below asks. The pass itself is covered in `assistant-title-suggestions.test.ts`.
- */
-async function turnInExistingThread(body: Record<string, unknown>): Promise<ChatStreamEvent[]> {
-  const conversation = await store.createConversation('An existing thread')
-  return await streamed({ conversationId: conversation.id, ...body })
-}
 
 /** Reads the answer straight back off the row, the way a reopened thread would. */
 async function storedAnswer(conversationId: string): Promise<AssistantMessage | undefined> {
@@ -198,7 +197,7 @@ afterEach(async () => {
 describe('a turn that names its own model', () => {
   it('answers on the model it named, and charges that model', async () => {
     const wire = stubWire({ at: SECOND_BASE, frames: answered('Spoken by the second model.') })
-    const events = await turnInExistingThread({ message: 'Asked of a different model.', modelId: second.id })
+    const events = await streamed({ message: 'Asked of a different model.', modelId: second.id })
 
     // One request, to the named model's own provider, naming the named model.
     expect(wire.urls()).toHaveLength(1)
@@ -267,7 +266,7 @@ describe('the chain behind a named model', () => {
     // A 404 is the provider saying it does not know this model: not worth repeating on the same door, and
     // exactly the case the reader's spare exists for.
     const wire = stubWire({ status: 404 }, { at: SPARE_BASE, frames: answered('The spare answered.') })
-    const events = await turnInExistingThread({ message: 'Asked of a model that has gone away.', modelId: second.id })
+    const events = await streamed({ message: 'Asked of a model that has gone away.', modelId: second.id })
 
     expect(wire.urls()).toHaveLength(2)
     expect(wire.urls()[1]).toContain(SPARE_BASE)
@@ -286,7 +285,7 @@ describe('the chain behind a named model', () => {
 describe('a turn that may not use tools', () => {
   it('sends no schemas, and runs nothing the model invents', async () => {
     const wire = stubWire({ at: FIRST_BASE, frames: [...called('create_task', { title: 'Written twice' }), ...answered('Noted, without writing anything.')] })
-    const events = await turnInExistingThread({ message: 'Answer this without touching anything.', noTools: true })
+    const events = await streamed({ message: 'Answer this without touching anything.', noTools: true })
 
     // Nothing offered: the request carries no tool list at all, so the model cannot be blamed for reading
     // one it was never given.
@@ -312,7 +311,7 @@ describe('a turn that may not use tools', () => {
       { at: FIRST_BASE, frames: called('create_task', { title: 'Written once' }) },
       { at: FIRST_BASE, frames: answered('Written.') },
     )
-    const events = await turnInExistingThread({ message: 'Make me a task.' })
+    const events = await streamed({ message: 'Make me a task.' })
 
     expect(JSON.stringify(wire.bodies()[0]?.tools ?? [])).toContain('create_task')
     expect(wire.urls()).toHaveLength(2)
@@ -351,7 +350,7 @@ describe('a model switched off for tools', () => {
   it('sends no schemas and refuses what the model invents, with nothing said about the turn', async () => {
     await store.updateModel(first.id, { noTools: true })
     const wire = stubWire({ at: FIRST_BASE, frames: [...called('create_task', { title: 'Written anyway' }), ...answered('I cannot write anything.')] })
-    const events = await turnInExistingThread({ message: 'Make me a task.' })
+    const events = await streamed({ message: 'Make me a task.' })
 
     expect(wire.bodies()[0]?.tools, 'a model switched off for tools still got the schemas').toBeUndefined()
     expect(taskCount(), 'a model switched off for tools ran a write tool').toBe(0)

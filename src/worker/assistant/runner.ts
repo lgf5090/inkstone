@@ -964,12 +964,13 @@ export class AssistantRunner {
       // a reader who stopped the turn in the meantime must not have their half answer filed as whole.
       const finalMessage = await finish(stopped() ? 'cancelled' : outcome, failure, usage)
       yield { type: 'done', finalMessage }
-      // A fresh, kept conversation's first answer, filed whole: spend one cheap call on the model that just
-      // answered to name the thread and propose what to ask next. Best-effort and self-contained — it can
-      // neither throw into the turn's `catch` nor leave the reader with a title the model never gave. When it
-      // yields nothing (no budget, a dead call, an answer that is not JSON), the derived title stands and the
-      // answer carries no suggestions, which is the honest reading rather than a rename that did not happen.
-      if (wasNewConversation && !input.ephemeral && finalMessage.status === 'complete') {
+      // Every kept answer that finished whole gets one cheap call to the model that just answered, asking
+      // what the reader would want to ask next — and, on the turn that made the thread, what the thread is
+      // called. Best-effort and self-contained: it can neither throw into the turn's `catch` nor leave the
+      // reader with a title the model never gave. When it yields nothing (no budget, a dead call, an answer
+      // that is not JSON), the derived title stands and the answer shows no chips, which is the honest
+      // reading rather than a rename that did not happen.
+      if (!input.ephemeral && finalMessage.status === 'complete') {
         const named = await this.nameThreadAndSuggest({
           conversationId,
           messageId: assistantId,
@@ -980,6 +981,9 @@ export class AssistantRunner {
           call,
           modelLabel,
           keyRef,
+          // Only the turn that made the conversation may name it: a later turn has no claim on a title the
+          // reader may have chosen since, and the thread's own list would change under them.
+          wantTitle: wasNewConversation,
           derivedTitle: conversation.title,
           limits,
           signal: input.signal,
@@ -1427,6 +1431,8 @@ export class AssistantRunner {
     call: ModelEndpoint
     modelLabel: string
     keyRef?: { providerId: string, providerLabel: string }
+    /** Whether this turn made the conversation, and therefore whether it may name it. */
+    wantTitle: boolean
     derivedTitle: string
     limits: AssistantSettings['limits']
     signal: AbortSignal
@@ -1492,7 +1498,9 @@ export class AssistantRunner {
     // Suggestions attach to the answer that earned them, independent of the title: a thread the reader
     // already renamed still gets follow-ups on its first answer, and an empty list writes nothing.
     if (parsed.suggestions.length) await this.store.setMessageSuggestions(args.messageId, parsed.suggestions)
-    if (!parsed.title || parsed.title === args.derivedTitle) return { title: null, suggestions: parsed.suggestions }
+    // A later turn's answer gets its follow-ups and nothing else: the title belongs to whoever made the
+    // thread, and renaming a thread the reader has been reading for ten turns would move the row under them.
+    if (!args.wantTitle || !parsed.title || parsed.title === args.derivedTitle) return { title: null, suggestions: parsed.suggestions }
     // Do not step on a title the reader chose: rename only while the row still holds the value this turn
     // derived. Re-read from the table rather than trusting the in-memory `conversation` — a second tab, a
     // restore, or a hand edit between the create above and now is exactly the case this check exists for,

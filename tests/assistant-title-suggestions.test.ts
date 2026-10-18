@@ -261,17 +261,27 @@ describe('a naming pass that does not land', () => {
     expect((await store.getConversation(conversationId))!.title).toBe(titleFromMessage('Tell me about the harbour.'))
   })
 
-  it('names nothing for a later turn of an existing conversation', async () => {
-    // A thread that already exists is already named: a second answer must neither re-title it nor spend a call.
+  it('offers follow-ups on a later turn, and never re-titles the thread', async () => {
+    // The reader asked for the next three questions under the answer they are looking at, not only under the
+    // first one, so the pass runs again on every answer that finished whole. What it may not do is rename:
+    // a thread the reader has been reading for ten turns is named whatever they left it named.
     const conversation = await store.createConversation('A named thread')
-    const wire = stubWire([answerFrames('The tide gates were replaced in 1902.')])
+    const wire = stubWire([answerFrames('The tide gates were replaced in 1902.'), namingFrames(NAMED)])
 
     const events = await driveExisting(conversation.id, 'And the gates?')
 
-    expect(wire.calls).toBe(1)
-    expect(titlesSent(events)).toEqual([])
+    expect(wire.calls).toBe(2)
+    // One frame went out, and it carried follow-ups only: no title on it, and the row unchanged.
+    expect(titleFrames(events)).toHaveLength(1)
+    expect(titleFrames(events).every((frame) => frame.title === undefined)).toBe(true)
     expect((await store.getConversation(conversation.id))!.title).toBe('A named thread')
+    // The answer's own row carries none of them when it is filed — the pass has not run yet at that frame.
     expect((events.find((e) => e.type === 'done')!.finalMessage!.suggestions)).toBeUndefined()
+    // They arrive on the frame after, and land on the row that earned them.
+    const frame = events.find((e) => e.type === 'title')
+    expect(frame?.suggestions).toEqual(NAMED.suggestions)
+    const stored = await store.messages(conversation.id, 20)
+    expect(stored.find((row) => row.id === frame?.assistantMessageId)?.suggestions).toEqual(NAMED.suggestions)
   })
 
   it('never asks a model in offline mode', async () => {
