@@ -318,7 +318,7 @@ function ToolCallRow({ tool, messageId, open, onToggle }: {
                     window.setTimeout(() => setCopied(false), COPY_RESET_MS)
                   })
                 }}
-                className="inline-flex items-center gap-1 rounded-[var(--r-sm)] px-1 py-0.5 text-[length:var(--text-11)] text-[var(--text-quaternary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-secondary)]"
+                className="ink-tap-pad relative inline-flex items-center gap-1 rounded-[var(--r-sm)] px-1 py-0.5 text-[length:var(--text-11)] text-[var(--text-quaternary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-secondary)]"
               >
                 {copied ? <Check size={11} /> : <Copy size={11} />}
                 {copied ? t('assistant.chat.copied') : t('assistant.chat.copy')}
@@ -347,7 +347,7 @@ function ToolCallRow({ tool, messageId, open, onToggle }: {
                     .catch((error: unknown) => setRefused(error instanceof Error ? error.message : String(error)))
                     .finally(() => setBusy(false))
                 }}
-                className="inline-flex items-center gap-1 rounded-[var(--r-sm)] px-1 py-0.5 text-[length:var(--text-11)] font-medium text-[var(--accent-on-soft)] hover:bg-[var(--accent-soft)] disabled:opacity-50"
+                className="ink-tap-pad relative inline-flex items-center gap-1 rounded-[var(--r-sm)] px-1 py-0.5 text-[length:var(--text-11)] font-medium text-[var(--accent-on-soft)] hover:bg-[var(--accent-soft)] disabled:opacity-50"
               >
                 {busy ? <Loader2 size={11} className="ink-chat-spin" /> : <Play size={11} />}
                 {busy ? t('assistant.chat.replaying') : t('assistant.chat.replay')}
