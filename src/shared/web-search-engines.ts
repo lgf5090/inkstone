@@ -161,15 +161,19 @@ export const WEB_SEARCH_ENGINES: Readonly<Record<string, WebSearchEngineSpec>> =
   },
 
   /**
-   * Brave Search API. Shape read off their own quickstart page,
-   * https://api-dashboard.search.brave.com/documentation/quickstart — the host would not answer a request
-   * from the machine this was written on, so the page's own text was taken as it was quoted back by a
-   * search, and nothing here comes from a third party's write-up of it.
+   * Brave Search API. `GET https://api.search.brave.com/res/v1/web/search?q=<words>` with the key in
+   * `X-Subscription-Token` — the one engine here that will not take a bearer value — and the list nested at
+   * `web.results`, each hit with `title`, `url` and `description`.
    *
-   * `GET https://api.search.brave.com/res/v1/web/search?q=<words>` with the key in `X-Subscription-Token`,
-   * which is the one engine here that will not take a bearer value. The list is nested at `web.results`,
-   * each hit with `title`, `url` and `description`. The `count` parameter is left alone because the
-   * quickstart does not state its bounds and the reply is capped on the way in anyway.
+   * **Not read off Brave's own reference.** `api-dashboard.search.brave.com` and `developer.brave.com` both
+   * failed to answer from the machine this entry was written on, so the shape above is what several
+   * independent clients send — gpt-researcher's Brave retriever, OpenClaw's `web_search`, and the MoltBot
+   * client all agree on the method, the header name and the `web.results` path — which is corroboration, not
+   * verification at the source. If Brave's reference ever disagrees with any field here, the reference wins
+   * and this entry is the thing to fix.
+   *
+   * The `count` parameter is left alone because none of those readings stated its bounds and the reply is
+   * capped on the way in anyway.
    */
   brave: {
     id: 'brave',
