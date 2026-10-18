@@ -27,7 +27,7 @@ import type { MoveMenuFolder } from '../../lib/tree'
 import { Button, Divider, IconButton, Spinner } from '../../components/primitives'
 import { FilterInput } from '../../components/FilterInput'
 import { Input, Textarea } from '../../components/form'
-import { Menu, Modal, confirm, prompt, submenuFor, type MenuItem } from '../../components/overlay'
+import { Menu, Modal, Tooltip, confirm, prompt, submenuFor, type MenuItem } from '../../components/overlay'
 import { api } from '../../lib/api'
 import { FolderMoveMenu } from '../folders/FolderMoveMenu'
 import { ConversationTabStrip, ConversationTaxonomyPanel, moveMenuTree } from './ChatTaxonomy'
@@ -458,9 +458,13 @@ export function ChatView() {
         }}
       >
         <div className="flex h-9 shrink-0 items-center gap-1 border-b border-[var(--border-subtle)] px-2">
-          <IconButton label={t('assistant.chat.history')} size="sm" className="lg:hidden" onClick={() => setListOpen(true)}>
-            <History size={15} />
-          </IconButton>
+          {/* Each icon here says what its press does, to a pointer and to a tab stop: an `aria-label` is read
+              by a screen reader and by nothing else, so on this row the sighted reader was left guessing. */}
+          <Tooltip label={t('assistant.chat.history.tip')} side="bottom">
+            <IconButton label={t('assistant.chat.history')} size="sm" className="lg:hidden" onClick={() => setListOpen(true)}>
+              <History size={15} />
+            </IconButton>
+          </Tooltip>
           <span className="min-w-0 truncate text-[length:var(--text-12)] text-[var(--text-tertiary)]">
             {title}
           </span>
@@ -486,14 +490,16 @@ export function ChatView() {
               {/* The origin is written once and was never undoable, so a thread mislabelled at creation
                   stayed in that note's "conversations about it" forever. Keyboard-reachable rather than
                   hover-only, and always shown on a coarse pointer where there is no hover to wait for. */}
-              <button
-                type="button"
-                onClick={() => { if (activeId) void setConversationNote(activeId, null) }}
-                aria-label={`${t('assistant.chat.unlink_from_note')}: ${originNoteTitle || t('assistant.chat.from_note')}`}
-                className="pointer-coarse:opacity-100 flex items-center border-l border-[var(--border-subtle)] px-1 py-0.5 text-[var(--text-quaternary)] opacity-0 transition-opacity duration-[var(--dur-fast)] focus-visible:opacity-100 hover:text-[var(--text-primary)] group-hover/origin:opacity-100"
-              >
-                <Link2Off size={10} aria-hidden="true" />
-              </button>
+              <Tooltip label={t('assistant.chat.unlink_from_note.tip')} side="bottom">
+                <button
+                  type="button"
+                  onClick={() => { if (activeId) void setConversationNote(activeId, null) }}
+                  aria-label={`${t('assistant.chat.unlink_from_note')}: ${originNoteTitle || t('assistant.chat.from_note')}`}
+                  className="pointer-coarse:opacity-100 flex items-center border-l border-[var(--border-subtle)] px-1 py-0.5 text-[var(--text-quaternary)] opacity-0 transition-opacity duration-[var(--dur-fast)] focus-visible:opacity-100 hover:text-[var(--text-primary)] group-hover/origin:opacity-100"
+                >
+                  <Link2Off size={10} aria-hidden="true" />
+                </button>
+              </Tooltip>
             </span>
           )}
           {ephemeral && (
@@ -507,37 +513,47 @@ export function ChatView() {
           <div className="ml-auto flex shrink-0 items-center gap-1">
             {/* How full this thread is, worn where the other facts about it already live. */}
             <ContextUsageRing />
-            <IconButton
-              label={t('assistant.chat.temporary_start')}
-              size="sm"
-              disabled={streaming}
-              // The thread on screen is emptied by this press, so it is asked for first — the same
-              // courtesy the row's own delete control pays. A native dialog is not an option.
-              onClick={() => {
-                void confirm({
-                  title: t('assistant.chat.temporary_confirm_title'),
-                  description: t('assistant.chat.temporary_confirm_hint', { days: EPHEMERAL_CONVERSATION_RETENTION_DAYS }),
-                  confirmLabel: t('assistant.chat.temporary_start'),
-                  tone: 'danger',
-                }).then((agreed) => {
-                  if (agreed) startTemporaryConversation()
-                })
-              }}
-            >
-              <Ghost size={15} />
-            </IconButton>
-            <IconButton
-              label={t('assistant.canvas.title')}
-              size="sm"
-              active={canvasOpen}
-              disabled={!activeId}
-              onClick={() => setCanvasOpen(!canvasOpen)}
-            >
-              <PanelRight size={15} />
-            </IconButton>
-            <IconButton active={finding} label={t('assistant.chat.find')} size="sm" onClick={() => setFinding((open) => !open)}>
-              <Search size={15} />
-            </IconButton>
+            <Tooltip label={t('assistant.chat.temporary_start.tip')} side="bottom">
+              <IconButton
+                label={t('assistant.chat.temporary_start')}
+                size="sm"
+                disabled={streaming}
+                // The thread on screen is emptied by this press, so it is asked for first — the same
+                // courtesy the row's own delete control pays. A native dialog is not an option.
+                onClick={() => {
+                  void confirm({
+                    title: t('assistant.chat.temporary_confirm_title'),
+                    description: t('assistant.chat.temporary_confirm_hint', { days: EPHEMERAL_CONVERSATION_RETENTION_DAYS }),
+                    confirmLabel: t('assistant.chat.temporary_start'),
+                    tone: 'danger',
+                  }).then((agreed) => {
+                    if (agreed) startTemporaryConversation()
+                  })
+                }}
+              >
+                <Ghost size={15} />
+              </IconButton>
+            </Tooltip>
+            {/* A toggle owes the reader which way it is about to go: naming the panel says only what the
+                button belongs to, and the button already looks pressed when the panel is up. */}
+            <Tooltip label={canvasOpen ? t('assistant.canvas.close') : t('assistant.canvas.show.tip')} side="bottom">
+              <IconButton
+                label={t('assistant.canvas.title')}
+                size="sm"
+                active={canvasOpen}
+                disabled={!activeId}
+                onClick={() => setCanvasOpen(!canvasOpen)}
+              >
+                <PanelRight size={15} />
+              </IconButton>
+            </Tooltip>
+            {/* The chord is part of the answer: this control is the one thing on the row the keyboard already
+                reaches, and the overview prints the same table. */}
+            <Tooltip label={finding ? t('assistant.chat.find.close.tip') : t('assistant.chat.find.tip')} combo={CHAT_SHORTCUTS.find} side="bottom">
+              <IconButton active={finding} label={t('assistant.chat.find')} size="sm" onClick={() => setFinding((open) => !open)}>
+                <Search size={15} />
+              </IconButton>
+            </Tooltip>
             <Button size="sm" variant="ghost" icon={<Plus size={14} />} onClick={newConversation} disabled={streaming}>
               {t('assistant.chat.new')}
             </Button>

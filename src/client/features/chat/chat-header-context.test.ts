@@ -15,9 +15,11 @@ import { act, createElement, type ReactNode } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { AssistantMessage, AssistantModel } from '@shared/assistant'
+import type { Note } from '@shared/types'
 import { DEFAULT_ASSISTANT_SETTINGS, formatTokenStep } from '@shared/assistant'
 import { initI18n, t } from '../../lib/i18n'
 import { installTestGlobals } from '../../lib/test-render'
+import { useNotes } from '../../store/notes'
 import { ChatView } from './ChatView'
 import { useAssistant } from './assistant-store'
 
@@ -76,6 +78,18 @@ function message(over: Partial<AssistantMessage>): AssistantMessage {
   }
 }
 
+const NOTE_ID = 'n1'
+const notesOriginal = useNotes.getState()
+
+/** The page the thread came from, so the header draws its origin chip and that chip's own cross. */
+function originNote(): Note {
+  return {
+    id: NOTE_ID, title: 'Q3 review', excerpt: 'Q3 review', folderId: null, tags: [], isPinned: false,
+    isStarred: false, isArchived: false, wordCount: 2, charCount: 9, rev: 1, position: 0,
+    createdAt: 1_700_000_000_000, updatedAt: 1_700_000_000_000, deletedAt: null, content: 'Q3 review',
+  }
+}
+
 /** The thread the view is shown: three loaded turns, and older ones behind a page that was never asked for. */
 async function mountView(over: Partial<AssistantState> = {}): Promise<void> {
   await act(async () => {
@@ -83,7 +97,7 @@ async function mountView(over: Partial<AssistantState> = {}): Promise<void> {
       ...originalState,
       view: 'chat',
       activeId: 'c1',
-      conversations: [{ id: 'c1', title: 'First thread', updatedAt: 2 } as AssistantState['conversations'][number]],
+      conversations: [{ id: 'c1', title: 'First thread', noteId: NOTE_ID, updatedAt: 2 } as AssistantState['conversations'][number]],
       messages: [message({ id: 'm1' }), message({ id: 'm2' }), message({ id: 'm3' })],
       messagesReady: true,
       messagesHasMore: true,
@@ -132,10 +146,50 @@ const click = async (node: Element | null, what: string): Promise<void> => {
 }
 const panel = () => document.body.querySelector<HTMLElement>('[role="note"]')
 
+/**
+ * What the header tells a pointer, and what it tells a tab stop.
+ *
+ * `Tooltip` refuses to place a panel on an anchor it cannot measure, so the box is stated first; the
+ * keyboard half is asked for `:focus-visible` on this element only, because that is the guard the component
+ * reads before it shows anything. Each path ends by leaving again, which is how the panel comes down through
+ * the component rather than by the test pulling a portal's node out of the tree.
+ */
+function toldBy(node: HTMLElement | undefined, what: string, raise: (target: HTMLElement) => void, lower: (target: HTMLElement) => void): string | null {
+  expect(node, what).toBeTruthy()
+  node!.getBoundingClientRect = () => ({
+    top: 10, left: 10, right: 38, bottom: 38, x: 10, y: 10, width: 28, height: 28, toJSON: () => ({}),
+  }) as DOMRect
+  vi.useFakeTimers()
+  act(() => { raise(node!) })
+  act(() => { vi.advanceTimersByTime(600) })
+  const told = document.body.querySelector('[role="tooltip"]')?.textContent ?? null
+  act(() => { lower(node!) })
+  vi.useRealTimers()
+  return told
+}
+
+const hover = (node: HTMLElement | undefined, what: string): string | null => toldBy(node, what,
+  (target) => { target.dispatchEvent(new MouseEvent('mouseover', { bubbles: true })) },
+  (target) => { target.dispatchEvent(new MouseEvent('mouseout', { bubbles: true })) })
+
+const focus = (node: HTMLElement | undefined, what: string): string | null => {
+  const matches = node?.matches.bind(node) ?? null
+  if (node && matches) node.matches = (selector: string) => (selector === ':focus-visible' ? true : matches(selector))
+  const told = toldBy(node, what,
+    (target) => { target.dispatchEvent(new FocusEvent('focusin', { bubbles: true })) },
+    (target) => { target.dispatchEvent(new FocusEvent('focusout', { bubbles: true })) })
+  if (node && matches) node.matches = matches
+  return told
+}
+
+/** The control whose name starts with a key's words, for the one header control that appends the note title. */
+const namedByPrefix = (name: string) => buttons().find((node) => (node.getAttribute('aria-label') ?? '').startsWith(name))
+
 beforeEach(async () => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true)
   installTestGlobals()
   await initI18n()
+  useNotes.setState({ notes: { [NOTE_ID]: originNote() } })
   host = document.createElement('div')
   document.body.append(host)
   root = createRoot(host)
@@ -146,6 +200,7 @@ afterEach(() => {
   host.remove()
   document.body.innerHTML = ''
   useAssistant.setState(originalState, true)
+  useNotes.setState(notesOriginal, true)
   vi.restoreAllMocks()
   vi.unstubAllGlobals()
 })
@@ -189,5 +244,83 @@ describe('the reading leaves the box', () => {
     expect(panel()?.textContent).not.toContain('312')
     expect(panel()?.textContent, 'a reading nobody stated was printed as a fraction').not.toContain('/')
     expect(panel()?.textContent).not.toContain(t('assistant.context.meter_warning'))
+  })
+})
+
+/**
+ * The header's icons, each with the sentence it owes a reader who can see it but not hear it.
+ *
+ * Every control here carries an `aria-label`, which is why the ones the app ships pass a screen reader and
+ * fail a sighted one: nothing on the button says what pressing it does, and the row is the only place a
+ * reader learns that the ghost, the panel and the magnifier are three different verbs. The tooltip is the
+ * app's own, so a pointer and a tab stop are answered the same way and no native `title` is left for a
+ * browser to time out on.
+ *
+ * The list is pinned twice over: by the pair each name has to be told with, and by the whole set of
+ * icon-only controls the header draws, so a new icon that arrives with no sentence is a new line here first.
+ */
+describe('the header says what its icons mean', () => {
+  const header = () => ring()!.closest('div.h-9')
+
+  /** Every control the header row draws that shows no word of its own. */
+  const iconControls = () => [...header()!.querySelectorAll<HTMLButtonElement>('button')]
+    .filter((node) => !(node.textContent ?? '').trim())
+
+  /**
+   * Each name with the sentence it owes, read after the catalog is loaded rather than while the file is
+   * being collected — a `describe.each` built at the top of a module asks `t()` before it has anything.
+   */
+  const pairs = (): Array<{ name: string, tip: string, byPrefix?: boolean }> => [
+    { name: t('assistant.chat.history'), tip: t('assistant.chat.history.tip') },
+    { name: t('assistant.chat.temporary_start'), tip: t('assistant.chat.temporary_start.tip') },
+    { name: t('assistant.canvas.title'), tip: t('assistant.canvas.show.tip') },
+    { name: t('assistant.chat.find'), tip: t('assistant.chat.find.tip') },
+    { name: t('assistant.chat.unlink_from_note'), tip: t('assistant.chat.unlink_from_note.tip'), byPrefix: true },
+    { name: t('assistant.context.meter_label'), tip: t('assistant.context.ring_summary', { used: '312', limit: '48K' }) },
+  ]
+
+  it('answers a pointer with the app’s tooltip for every icon it draws', async () => {
+    await mountView()
+    const told = iconControls().map((node) => hover(node, node.getAttribute('aria-label') ?? 'an icon'))
+    // The origin chip's cross and the mobile history door are drawn, so the header owes each one a sentence.
+    expect(told, 'a header icon answers no pointer').toHaveLength(6)
+    expect(told.every((line) => line !== null)).toBe(true)
+  })
+
+  it('tells each icon the sentence its own name is about, to a pointer and to a tab stop', async () => {
+    await mountView()
+    for (const { name, tip, byPrefix } of pairs()) {
+      const control = name === t('assistant.context.meter_label')
+        ? ring()!.closest('button') ?? undefined
+        : byPrefix ? namedByPrefix(name) : named(name)
+      for (const [way, raise] of [['pointer', hover], ['tab stop', focus]] as const) {
+        expect(raise(control, `${name} under a ${way}`), `${name} under a ${way} says nothing`).toContain(tip)
+      }
+    }
+  })
+
+  /**
+   * The two toggles answer with the direction their next press takes: a button that still reads "the panel
+   * is on the right, open or close it" when the panel is already up tells a pointer nothing it did not know
+   * before hovering, and the pressed look is only noticed after the press.
+   */
+  it('names the direction each toggle is about to go', async () => {
+    await mountView()
+    const canvas = () => named(t('assistant.canvas.title'))
+    const finder = () => named(t('assistant.chat.find'))
+    expect(hover(canvas(), 'the canvas toggle'), 'canvas down offers no opening').toContain(t('assistant.canvas.show.tip'))
+    await click(canvas() ?? null, 'the canvas toggle')
+    expect(hover(canvas(), 'the canvas toggle with the panel up'), 'canvas up offers no closing').toContain(t('assistant.canvas.close'))
+    expect(hover(finder(), 'the find toggle'), 'find down offers no opening').toContain(t('assistant.chat.find.tip'))
+    await click(finder() ?? null, 'the find toggle')
+    expect(hover(finder(), 'the find toggle with the bar up'), 'find up offers no closing').toContain(t('assistant.chat.find.close.tip'))
+  })
+
+  it('leaves the native title attribute to the footer, where it was already inconsistent', async () => {
+    await mountView()
+    for (const node of iconControls()) {
+      expect(node.getAttribute('title'), `${node.getAttribute('aria-label') ?? 'an icon'} carries a browser title`)
+        .toBeNull()
+    }
   })
 })
