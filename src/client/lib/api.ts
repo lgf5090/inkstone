@@ -1,5 +1,6 @@
 import type { RssFetchResult } from '@shared/rss/model'
 import { CLIENT_HEADER } from '@shared/constants'
+import { truncateText } from '@shared/text-utils'
 import type { ReaderUsage } from '@shared/types'
 import type { ChatAttachment,
   AssistantSkill,
@@ -104,9 +105,14 @@ export class ApiError extends Error {
      *
      * A code the client has a mapping for answers with one sentence for every kind of mistake it covers —
      * "the request is invalid" covers an unset name and an over-long one alike — while the route usually
-     * names the field it refused. Mapping the code used to throw that sentence away, so a form could only
-     * repeat the generic refusal for a mistake it was able to point at. It is a detail line for a surface
-     * that has one, never a toast headline: it is the server's own English, and no catalog key translates it.
+     * names the field it refused, and says what is wrong with it. Mapping the code used to throw that
+     * sentence away, so a form could only repeat the generic refusal for a mistake it was able to point at.
+     * This line carries both: the route's message, and its `details` rendered as `field: reason` pairs.
+     *
+     * It is a detail line for a surface that has one, never a toast headline: it is the server's own
+     * English, and no catalog key translates it. Everything in it is text the deployment wrote rather than
+     * the app, so it arrives already flattened to one bounded plain line with credential-shaped runs taken
+     * out — a surface prints it as a child node, and nothing here builds markup.
      */
     readonly serverMessage?: string,
   ) {
@@ -123,6 +129,113 @@ export class ApiError extends Error {
   get isConflict(): boolean {
     return this.status === 409
   }
+}
+
+/** How much of the route's own reason a surface is shown. */
+const SERVER_REASON_MAX_CHARS = 240
+/** A field's reason is a phrase, not a document; a validator's whole error tree is not one line. */
+const SERVER_DETAIL_MAX_VALUE_CHARS = 90
+const SERVER_DETAIL_MAX_PAIRS = 6
+const SERVER_DETAIL_MAX_DEPTH = 2
+
+/**
+ * Runs that carry a credential's shape rather than a reason's.
+ *
+ * A route can echo back what it refused — an API key being validated, a header a remote server sent — and
+ * this line is written to sit on a screen a screenshot can leave. Refusing to show a secret is not the
+ * same as hiding the mistake: the label in front of it stays, so the reader still sees which field the
+ * route was talking about.
+ */
+const CREDENTIAL_PLACEHOLDER = '[redacted]'
+const CREDENTIAL_SHAPED: Array<[RegExp, string]> = [
+  [/\bBearer\s+[A-Za-z0-9._~+/=-]+/gi, `Bearer ${CREDENTIAL_PLACEHOLDER}`],
+  [/\bsk-[A-Za-z0-9_-]{8,}/g, `sk-${CREDENTIAL_PLACEHOLDER}`],
+  [/(\b(?:api[_-]?key|access[_-]?token|refresh[_-]?token|client[_-]?secret|password|secret)["']?\s*[:=]\s*)[^\s"',;]{6,}/gi, `$1${CREDENTIAL_PLACEHOLDER}`],
+  // A bare opaque run: a key the route printed without naming it.
+  [/\b[A-Za-z0-9+/_-]{32,}={0,2}/g, CREDENTIAL_PLACEHOLDER],
+]
+
+/**
+ * The field-level half of a refusal, as `field.path: what is wrong with it`.
+ *
+ * Covers the two shapes the routes actually answer with: a flat `{ field: 'reason' }` (or a list of
+ * reasons under one field), and a validator's `{ fieldErrors: { field: […] } }` one level deeper. Past
+ * that depth the payload is a document rather than an explanation, so it is left out instead of being
+ * stringified — an `[object Object]` on a failure line teaches the reader nothing about the field.
+ */
+function detailPairs(details: unknown): string[] {
+  const out: string[] = []
+  walk(details, '', 0)
+  return out
+
+  function walk(value: unknown, path: string, depth: number): void {
+    if (value === null || value === undefined || depth > SERVER_DETAIL_MAX_DEPTH) return
+    if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
+      const text = truncateText(String(value), SERVER_DETAIL_MAX_VALUE_CHARS)
+      if (text) out.push(path ? `${path}: ${text}` : text)
+      return
+    }
+    if (Array.isArray(value)) {
+      const scalars = value.filter((entry) => typeof entry === 'string' || typeof entry === 'number' || typeof entry === 'boolean')
+      if (path && scalars.length === value.length && scalars.length) {
+        out.push(`${path}: ${truncateText(scalars.map(String).join('; '), SERVER_DETAIL_MAX_VALUE_CHARS)}`)
+        return
+      }
+      for (const entry of value.slice(0, SERVER_DETAIL_MAX_PAIRS)) walk(entry, path, depth + 1)
+      return
+    }
+    if (typeof value !== 'object') return
+    for (const [key, entry] of Object.entries(value as Record<string, unknown>).slice(0, SERVER_DETAIL_MAX_PAIRS)) {
+      walk(entry, path ? `${path}.${key}` : key, depth + 1)
+    }
+  }
+}
+
+/**
+ * The route's own reason as one line the interface may print, or nothing when it said nothing.
+ *
+ * Built in the one place a route's answer becomes an error, so every surface that already shows this line
+ * — the settings forms' inline refusal, a toast's description — gains the field names without any caller
+ * having to reassemble them. Control characters and line breaks go because the line sits inside a
+ * sentence; credentials go because a refusal never needs the value it refused to be readable again.
+ */
+function serverReason(message: string | undefined, details: unknown): string | undefined {
+  const flat = [message?.trim(), ...detailPairs(details)]
+    .filter((part): part is string => Boolean(part))
+    .join(' — ')
+    .replace(/[\u0000-\u001f\u007f]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+  if (!flat) return undefined
+  const safe = CREDENTIAL_SHAPED.reduce((text, [pattern, replacement]) => text.replace(pattern, replacement), flat)
+  return truncateText(safe, SERVER_REASON_MAX_CHARS)
+}
+
+/** The `{ error: { code, message, details } }` half of a route's failure answer. */
+interface RouteErrorBody {
+  code?: string
+  message?: string
+  details?: unknown
+}
+
+/**
+ * The refusal a route answered with, told the way the interface reads it.
+ *
+ * The headline is the app's own sentence for that code, in the reader's language; the second line is what
+ * the route said about the field it refused. One factory for both, because the download path used to build
+ * the same error and keep only the code — which is how a too-large archive read as a mystery.
+ */
+function routeApiError(status: number, body: unknown): ApiError {
+  const error = (body as { error?: RouteErrorBody } | null | undefined)?.error
+  const code = error?.code ?? 'unknown'
+  const fallback = error?.message ?? t('api.request_failed_status', { status })
+  return new ApiError(
+    status,
+    code,
+    translateApiError(code, fallback),
+    error?.details,
+    serverReason(error?.message, error?.details),
+  )
 }
 
 interface RequestOptions {
@@ -214,18 +327,7 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
       }
     }
 
-    if (!response.ok) {
-      const error = (data as { error?: { code: string; message: string; details?: unknown } } | null)?.error
-      const code = error?.code ?? 'unknown'
-      const fallback = error?.message ?? t("api.request_failed_status", { status: response.status })
-      throw new ApiError(
-        response.status,
-        code,
-        translateApiError(code, fallback),
-        error?.details,
-        error?.message,
-      )
-    }
+    if (!response.ok) throw routeApiError(response.status, data)
 
     if (invalidJson) {
       throw new ApiError(502, 'invalid_response', t("api.invalid_server_response"))
@@ -270,15 +372,7 @@ async function fetchDownload(path: string, fallbackName: string): Promise<{ resp
     const data = isJsonResponse(response)
       ? await response.json().catch(() => null)
       : null
-    const error = (data as { error?: { code: string; message: string; details?: unknown } } | null)?.error
-    const code = error?.code ?? 'unknown'
-    const fallback = error?.message ?? t("api.request_failed_status", { status: response.status })
-    throw new ApiError(
-      response.status,
-      code,
-      translateApiError(code, fallback),
-      error?.details,
-    )
+    throw routeApiError(response.status, data)
   }
 
   const disposition = response.headers.get('Content-Disposition') ?? ''
