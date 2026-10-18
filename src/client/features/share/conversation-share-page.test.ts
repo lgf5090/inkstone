@@ -15,11 +15,18 @@
  * private title and id included, in a source card. So what is pinned here is that the answer is a static
  * sentence and nothing else — no read of a note, no read of an attachment, no read of a conversation, no
  * id in the markup, no address into the notebook — while the words around the embed keep arriving.
+ *
+ * The third hole of the same shape is the one a box does not explain: an author's `@` pick is written as
+ * `[[<id>|Title]]`, so a user turn shown verbatim and an assistant wikilink shown as an alias both left
+ * the 26-character handle on a public page — in text, or in `data-wikilink`. An id is not a word a reader
+ * needed, and it is exactly what another entry point can be aimed with, so the handle goes and the alias
+ * the author already wrote stays.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createElement } from 'react'
 import type { PublicConversation } from '@shared/assistant'
 import { initI18n, t } from '../../lib/i18n'
+import { decodeDataValue } from '../../lib/markdown/data-attr'
 import { installTestGlobals, renderElement, type RenderedElement } from '../../lib/test-render'
 import { useNotes } from '../../store/notes'
 import { ConversationSharePage } from './ConversationSharePage'
@@ -52,6 +59,8 @@ vi.mock('../../lib/api', async (importOriginal) => {
 const PRIVATE_NOTE_ID = '01jqz0000000000000000000zz'
 const PRIVATE_TITLE = 'Private Roadmap'
 const PRIVATE_BODY = 'Only the owner may read this line.'
+/** The one sentence a mention whose only name is its id is allowed to be answered with. */
+const PRIVATE_REFERENCE_KEY = 'share.private_note_reference_is_not_included_in_public_shares'
 
 const SHARED = [
   'The dates are in ![[Private Roadmap]].',
@@ -61,6 +70,22 @@ const SHARED = [
   '```',
   '',
   'And the plan itself: ![[Private Roadmap|the plan]].',
+  '',
+  // The same reference aimed at a note by its id instead of its title, with and without an alias. The
+  // alias is a word the reader can use; the handle is what another entry point can be attacked with.
+  `The roadmap is [[${PRIVATE_NOTE_ID}|the roadmap]], see also [[${PRIVATE_NOTE_ID}]].`,
+  '',
+  // Three things the fix must leave alone: a wiki-link-looking string inside a code span, an ordinary
+  // Markdown link, and brackets that name nothing.
+  'A literal `[[Private Roadmap]]` stays, [the roadmap](https://example.com/roadmap) stays a link, and a bracket [note] is text.',
+  '',
+  // A box whose only name is the handle: the renderer shows the target as its own heading, and that
+  // heading is the part which has to change.
+  `The schedule: ![[${PRIVATE_NOTE_ID}]].`,
+  '',
+  // Positions the two structural passes never see: a mention quoted in a code span, one with a heading
+  // glued to the handle, and the notebook's own deep link pasted as an ordinary address.
+  `Quoted: \`[[${PRIVATE_NOTE_ID}|the roadmap]]\`, headed: [[${PRIVATE_NOTE_ID}#Heading]], deep link: [the note](/n/${PRIVATE_NOTE_ID}).`,
 ].join('\n')
 
 const CONVERSATION: PublicConversation = {
@@ -71,9 +96,16 @@ const CONVERSATION: PublicConversation = {
   site: { name: 'Inkstone' },
   share: { slug: 'abc123' },
   messages: [
-    // The question's own words are shown verbatim, so a reference named here is the author's doing; the
-    // turn below is the one drawn through the Markdown renderer, and the one that gets an embed box.
-    { role: 'user', content: `What about [[${PRIVATE_TITLE}]]?`, createdAt: 1_700_000_000_000, modelLabel: '' },
+    // A user turn is shown verbatim, so a mention the author typed themselves carries whatever they put
+    // in it — including the id the composer writes for an `@` pick. The turn below is the one drawn
+    // through the Markdown renderer, and the one that gets an embed box.
+    {
+      role: 'user',
+      content: `What about [[${PRIVATE_NOTE_ID}|${PRIVATE_TITLE}]]? And [[${PRIVATE_TITLE}]] itself? `
+        + `The bare one: [[${PRIVATE_NOTE_ID}]] and the headed one: [[${PRIVATE_NOTE_ID}#Heading]].`,
+      createdAt: 1_700_000_000_000,
+      modelLabel: '',
+    },
     { role: 'assistant', content: SHARED, createdAt: 1_700_000_001_000, modelLabel: 'gpt-test' },
   ],
 }
@@ -130,10 +162,32 @@ function boxState(): string {
   return boxes.map((box) => `${box.className.trim()} :: ${box.querySelector('.note-embed-body')?.textContent?.trim() ?? ''}`).join(' | ')
 }
 
+/**
+ * Every handle-shaped run the page hands a stranger, read out of its words and out of every attribute.
+ *
+ * A shape rather than the one id this file happens to use, because the promise is about the kind of thing
+ * that must not go out: 26 characters of the alphabet the app mints its note addresses from. `b64.` values
+ * are read back first, since that is how the renderer writes a wiki target and a handle inside base64 is
+ * the same handle — and an attribute is as much a leak as a sentence, whatever it is called.
+ */
+function handlesOnPage(): string[] {
+  const found = new Set<string>()
+  for (const value of [
+    rendered!.container.textContent ?? '',
+    ...[...rendered!.container.querySelectorAll<HTMLElement>('*')]
+      .flatMap((element) => [...element.attributes].flatMap((attribute) => [attribute.value, decodeDataValue(attribute.value)])),
+  ]) {
+    for (const part of value.split(/[^0-9a-hjkmnp-tv-z]+/i)) {
+      if (part.length === 26) found.add(part)
+    }
+  }
+  return [...found]
+}
+
 describe('a shared conversation that names a note', () => {
   it('answers the reference with a static sentence instead of a spinner', () => {
     const boxes = [...rendered!.container.querySelectorAll<HTMLElement>('.note-embed')]
-    expect(boxes.length, 'the transcript lost the embed it was asked to show').toBe(2)
+    expect(boxes.length, 'the transcript lost the embed it was asked to show').toBe(3)
     for (const box of boxes) {
       expect(box.classList.contains('loading'), `an embed is still waiting: ${boxState()}`).toBe(false)
       expect(box.querySelector('[aria-busy="true"]'), `an embed claims work in progress: ${boxState()}`).toBeNull()
@@ -147,8 +201,12 @@ describe('a shared conversation that names a note', () => {
   it('shows the rest of the answer, aliases included', () => {
     // Only the box is answered; the sentence around it is what the author shared and stays verbatim.
     expect(rendered!.container.textContent).toContain('The dates are in')
-    expect(rendered!.container.querySelector('.note-embed-head')?.textContent).toBe(PRIVATE_TITLE)
-    expect([...rendered!.container.querySelectorAll('.note-embed-head')].at(-1)?.textContent).toBe('the plan')
+    const heads = [...rendered!.container.querySelectorAll('.note-embed-head')].map((head) => head.textContent?.trim())
+    // A box named by title keeps the title; one whose only name was the handle is answered with the
+    // sentence, because a heading reading `01jq…` is a handle painted where a name should be.
+    expect(heads, 'a box named by title lost its title').toContain(PRIVATE_TITLE)
+    expect(heads, 'a box that carried its alias lost it').toContain('the plan')
+    expect(heads, 'a box named only by its handle kept the handle').toContain(t(PRIVATE_REFERENCE_KEY))
   })
 
   it('never reaches for the viewer\'s vault to fill a reference in', () => {
@@ -158,16 +216,58 @@ describe('a shared conversation that names a note', () => {
   })
 
   it('keeps the private note out of the markup it hands a stranger', () => {
-    const html = rendered!.container.innerHTML
-    const text = rendered!.container.textContent ?? ''
-    expect(html).not.toContain(PRIVATE_NOTE_ID)
-    expect(text).not.toContain(PRIVATE_NOTE_ID)
-    expect(text).not.toContain(PRIVATE_BODY)
+    expect(handlesOnPage(), `a note handle reached the page: ${handlesOnPage().join(', ')}`).toEqual([])
+    expect(rendered!.container.innerHTML, 'a note id was published in the markup').not.toContain(PRIVATE_NOTE_ID)
+    expect(rendered!.container.textContent, 'a note body was published').not.toContain(PRIVATE_BODY)
     expect(rendered!.container.querySelector('a[href*="/n/"]'), 'a dead link into the notebook was published')
       .toBeNull()
     // The resolver hook is what points at a note, and nothing here is allowed to point at one.
     for (const box of rendered!.container.querySelectorAll<HTMLElement>('.note-embed')) {
       expect(box.hasAttribute('data-embed-target'), `an embed kept its target: ${boxState()}`).toBe(false)
     }
+    for (const link of rendered!.container.querySelectorAll<HTMLElement>('.wikilink')) {
+      expect(link.hasAttribute('data-wikilink'), 'a wikilink kept its target').toBe(false)
+    }
+  })
+
+  it('keeps the words a reader could already use when the handle goes', () => {
+    // The alias is what the author wrote for a human to read, so redacting the id must not take it too —
+    // and it has to survive in the link that carried it, not merely somewhere on the page.
+    const labels = [...rendered!.container.querySelectorAll<HTMLElement>('.wikilink')]
+      .map((link) => link.textContent?.trim())
+    expect(labels, 'an id-named mention lost the alias the author wrote').toContain('the roadmap')
+    // A mention with no human-readable name is answered with one honest sentence, not a bare handle.
+    expect(labels, 'a bare id mention was left with its handle').toContain(t(PRIVATE_REFERENCE_KEY))
+    const question = [...rendered!.container.querySelectorAll<HTMLElement>('li')]
+      .find((item) => item.className.includes('justify-end'))?.textContent ?? ''
+    // The question is drawn as text, not Markdown, so every shape there is redacted in place: the alias
+    // stays, a mention with nothing but the handle is answered, and one named by title is left alone.
+    expect(question, 'a mention the author named by title was rewritten too').toContain(`[[${PRIVATE_TITLE}]]`)
+    expect(question, 'an alias the author wrote was taken with the handle').toContain(PRIVATE_TITLE)
+    expect(question, 'a bare handle survived the user turn').not.toContain('[[01jqz')
+    expect(question, 'a handle with a heading glued to it survived the user turn').not.toContain('#Heading]]')
+    expect(question).toContain(t(PRIVATE_REFERENCE_KEY))
+    // A deep link pasted as ordinary prose is the notebook's own address; the words describing it are not.
+    const code = [...rendered!.container.querySelectorAll('.ink-chat-prose code')]
+    expect(code.some((node) => (node.textContent ?? '').includes('01jqz')), 'a code block kept the handle')
+      .toBe(false)
+    const quoted = code.find((node) => node.textContent?.includes('the roadmap'))
+    expect(quoted, 'a quoted mention lost its alias along with the handle').toBeTruthy()
+    const deep = [...rendered!.container.querySelectorAll<HTMLAnchorElement>('.ink-chat-prose a')]
+      .find((anchor) => anchor.textContent?.trim() === 'the note')
+    expect(deep, 'the words of the pasted deep link were eaten with the address').toBeTruthy()
+    expect(deep?.hasAttribute('href'), 'a share page still points into the notebook').toBe(false)
+  })
+
+  it('leaves content that is not a private reference alone', () => {
+    const text = rendered!.container.textContent ?? ''
+    expect(text, 'a code span lost the wiki-link-looking text it quotes').toContain('[[Private Roadmap]]')
+    expect(text).toContain('const plan = "october"')
+    expect(text, 'an ordinary link lost its words').toContain('a bracket [note] is text')
+    const external = rendered!.container.querySelector<HTMLAnchorElement>('a[href="https://example.com/roadmap"]')
+    expect(external, 'a public share rewrote or ate an ordinary markdown link').toBeTruthy()
+    expect(external!.getAttribute('href')).toBe('https://example.com/roadmap')
+    // A reference the author named by title is theirs and stays; only the id is the thing that goes.
+    expect(rendered!.container.querySelector('.note-embed-head')?.textContent).toBe(PRIVATE_TITLE)
   })
 })
