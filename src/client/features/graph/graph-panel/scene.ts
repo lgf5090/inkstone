@@ -1,4 +1,4 @@
-import type { GraphNode, GraphResponse } from '@shared/types'
+import type { SceneNode, SceneResponse } from './types'
 import { organizerColorOrNull } from '@shared/organizer-colors'
 import { truncateText } from '@shared/text-utils'
 import type { GraphColorGroup, GraphPreferences, GroupBy } from '../../../lib/graph-settings'
@@ -55,7 +55,7 @@ export function prefersReducedMotion(): boolean {
   return typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches
 }
 
-export function nodeRadius(node: GraphNode, nodeScale: number): number {
+export function nodeRadius(node: SceneNode, nodeScale: number): number {
   return (4 + Math.min(9, Math.sqrt(node.degree) * 2.4)) * nodeScale
 }
 
@@ -65,7 +65,7 @@ export function spiralPoint(index: number): { x: number; y: number } {
   return { x: Math.cos(angle) * radius, y: Math.sin(angle) * radius }
 }
 
-export function graphNodeLabel(node: GraphNode): string {
+export function graphNodeLabel(node: SceneNode): string {
   return node.title.length > GRAPH_LABEL_MAX ? `${truncateText(node.title, GRAPH_LABEL_MAX)}…` : node.title
 }
 
@@ -74,7 +74,7 @@ export function graphLabelVisible(node: CanvasNode, scale: number): boolean {
 }
 
 export function matchedColorGroup(
-  node: GraphNode,
+  node: SceneNode,
   groups: readonly GraphColorGroup[],
 ): string | null {
   for (const group of groups) {
@@ -83,7 +83,7 @@ export function matchedColorGroup(
   return null
 }
 
-export function matchesColorGroup(node: GraphNode, query: string): boolean {
+export function matchesColorGroup(node: SceneNode, query: string): boolean {
   const needle = query.trim().toLowerCase()
   if (!needle) return false
   // Field by field: a crawl across the joined string would let one term's letters borrow from the
@@ -104,7 +104,7 @@ export function nodeColor(node: CanvasNode, groupBy: GroupBy, fallback: string):
 }
 
 export function buildSceneNodes(
-  response: GraphResponse,
+  response: SceneResponse,
   prefs: Pick<GraphPreferences, 'nodeScale' | 'groupBy' | 'colorGroups'>,
   carried: ReadonlyMap<string, { x: number; y: number }>,
   pinnedIds: readonly string[],
@@ -125,7 +125,7 @@ export function buildSceneNodes(
   })
 }
 
-export function buildSceneEdges(response: GraphResponse, nodes: readonly CanvasNode[]): CanvasEdge[] {
+export function buildSceneEdges(response: SceneResponse, nodes: readonly CanvasNode[]): CanvasEdge[] {
   const byId = new Map(nodes.map((node) => [node.id, node]))
   return response.edges.flatMap((edge) => {
     const a = byId.get(edge.source)
@@ -296,7 +296,7 @@ export function labelReservedHeight(node: CanvasNode, scale: number): number {
   return graphLabelVisible(node, scale) ? GRAPH_LABEL_FONT_SIZE + GRAPH_LABEL_OFFSET : 0
 }
 
-export function normalizedResponse(response: GraphResponse): GraphResponse {
+export function normalizedResponse(response: SceneResponse): SceneResponse {
   const nodes = response.nodes.map((node) => ({
     ...node,
     kind: node.kind ?? 'note',
@@ -323,21 +323,26 @@ export interface GraphCounts {
   links: number
   tags: number
   unresolved: number
+  conversations: number
 }
 
-export function graphCounts(response: GraphResponse | null): GraphCounts {
+export function graphCounts(response: SceneResponse | null): GraphCounts {
   const nodes = response?.nodes ?? []
   const unresolved = nodes.filter((node) => node.kind === 'unresolved').length
   const tags = new Set(nodes.filter((node) => node.kind === 'tag').map((node) => node.id)).size
+  const conversations = new Set(nodes.filter((node) => node.kind === 'conversation').map((node) => node.id)).size
   return {
-    notes: nodes.length - unresolved - tags,
+    // A thread is not a note, and the header says how many of each the reader is looking at: counting one as
+    // the other would put a number on the graph that its own legend contradicts.
+    notes: nodes.length - unresolved - tags - conversations,
     links: response?.edges.length ?? 0,
     tags,
     unresolved,
+    conversations,
   }
 }
 
-export function graphSearchHits(nodes: readonly GraphNode[], query: string): Set<string> | null {
+export function graphSearchHits(nodes: readonly SceneNode[], query: string): Set<string> | null {
   const needle = query.trim().toLowerCase()
   if (!needle) return null
   const hits = nodes.filter((node) => matchesQuery(node.title, needle)).map((node) => node.id)
@@ -345,14 +350,14 @@ export function graphSearchHits(nodes: readonly GraphNode[], query: string): Set
 }
 
 export interface GraphNeighbours {
-  incoming: GraphNode[]
-  outgoing: GraphNode[]
+  incoming: SceneNode[]
+  outgoing: SceneNode[]
 }
 
-export function graphNeighbours(response: GraphResponse, id: string): GraphNeighbours {
+export function graphNeighbours(response: SceneResponse, id: string): GraphNeighbours {
   const byId = new Map(response.nodes.map((node) => [node.id, node]))
-  const incoming: GraphNode[] = []
-  const outgoing: GraphNode[] = []
+  const incoming: SceneNode[] = []
+  const outgoing: SceneNode[] = []
   const seenIn = new Set<string>()
   const seenOut = new Set<string>()
   for (const edge of response.edges) {
@@ -369,7 +374,7 @@ export function graphNeighbours(response: GraphResponse, id: string): GraphNeigh
 
 export interface GraphNeighbourGroup {
   key: 'incoming' | 'outgoing'
-  nodes: GraphNode[]
+  nodes: SceneNode[]
   hidden: number
 }
 
@@ -399,7 +404,7 @@ export interface ColorLegendItem {
 }
 
 export function colorLegends(
-  nodes: readonly GraphNode[],
+  nodes: readonly SceneNode[],
   groupBy: GroupBy,
   colorGroups: readonly GraphColorGroup[],
   limit: number,

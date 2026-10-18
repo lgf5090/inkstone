@@ -875,6 +875,8 @@ export const ZH_CN_MESSAGES = {
     "graph.restore_all_notes": "全部恢复",
     "graph.show_tags": "将标签显示为节点",
     "graph.stats_tags": "{count} 个标签",
+    "graph.stats_conversations": "{count} 个对话",
+    "graph.threads_missing": "无法加载对话，这张图只显示笔记。",
     "graph.tags_match": "标签匹配",
     "graph.tags_match_all": "全部满足（AND）",
     "graph.tags_match_any": "任一满足（OR）",

@@ -1,6 +1,5 @@
 import { useRef, useState } from 'react'
 import { List } from 'lucide-react'
-import type { GraphNode, GraphResponse } from '@shared/types'
 import { truncateText } from '@shared/text-utils'
 import { Button, IconButton } from '../../../components/primitives'
 import { Menu, type MenuItem } from '../../../components/overlay'
@@ -9,7 +8,8 @@ import { t } from '../../../lib/i18n'
 import { GRAPH_NEIGHBOUR_LIST_MAX, GRAPH_PREVIEW_CARD_HEIGHT } from './constants'
 import { graphNeighbourGroups, graphNeighbours } from './scene'
 import type { ColorLegendItem } from './scene'
-import type { CanvasNode } from './types'
+import { conversationIdOf } from './conversations'
+import type { CanvasNode, SceneNode, SceneResponse } from './types'
 
 export interface GraphPreviewCard {
   node: CanvasNode
@@ -19,9 +19,9 @@ export interface GraphPreviewCard {
 }
 
 export interface GraphOverlaysProps {
-  data: GraphResponse
+  data: SceneResponse
   hover: CanvasNode | null
-  selected: GraphNode | null
+  selected: SceneNode | null
   hint: string
   hintBrief: string
   legend: ColorLegendItem[]
@@ -30,20 +30,22 @@ export interface GraphOverlaysProps {
   unresolvedCount?: number
   onOpenNote: (id: string) => void
   onFocusNode: (id: string) => void
+  /** Pressed on a thread in the neighbour list: the panel decides what opening a conversation means. */
+  onOpenConversation?: (threadId: string) => void
   preview: GraphPreviewCard | null
   announcement?: string
 }
 
 export function GraphOverlays({
   data, hover, selected, hint, hintBrief, legend, legendActive, onLegendSelect,
-  onOpenNote, onFocusNode, preview, announcement, unresolvedCount = 0,
+  onOpenNote, onFocusNode, onOpenConversation, preview, announcement, unresolvedCount = 0,
 }: GraphOverlaysProps) {
   const shown = hover ?? selected
   return <>
     {data.meta.truncated && <GraphTruncatedBadge shown={data.nodes.length} total={data.meta.totalNodes}/>}
     <div className="pointer-events-none absolute inset-x-4 bottom-4 z-[1] flex flex-col items-center gap-2">
       <GraphLegend items={legend} isActive={legendActive} onSelect={onLegendSelect} unresolvedCount={unresolvedCount}/>
-      {shown && <GraphNodeBadge node={shown} data={data} onOpenNote={onOpenNote} onFocusNode={onFocusNode}/>}
+      {shown && <GraphNodeBadge node={shown} data={data} onOpenNote={onOpenNote} onFocusNode={onFocusNode} onOpenConversation={onOpenConversation}/>}
     </div>
     <GraphHint hint={hint} hintBrief={hintBrief}/>
     {preview && <GraphPreviewCardView card={preview}/>}
@@ -88,26 +90,28 @@ export function GraphLegend({ items, isActive, onSelect, unresolvedCount = 0 }: 
   </div>
 }
 
-export function GraphNodeBadge({ node, data, onOpenNote, onFocusNode }: {
-  node: CanvasNode | GraphNode
-  data: GraphResponse
+export function GraphNodeBadge({ node, data, onOpenNote, onFocusNode, onOpenConversation }: {
+  node: CanvasNode | SceneNode
+  data: SceneResponse
   onOpenNote: (id: string) => void
   onFocusNode: (id: string) => void
+  onOpenConversation?: (threadId: string) => void
 }) {
   return <div data-graph-detail="" className="pointer-events-auto flex max-w-[80vw] items-center rounded-full border border-[var(--border-default)] bg-[var(--bg-overlay)] py-1.5 pr-2 pl-3.5 text-[length:var(--text-12)] shadow-[var(--shadow-pop)]">
     <span className="max-w-[50vw] truncate">{node.title || t('common.untitled_note')}</span>
     <span className="ml-2 shrink-0 text-[var(--text-tertiary)]">
       {t('graph.direction_counts', { incoming: node.inDegree, outgoing: node.outDegree })}
     </span>
-    <GraphNeighborList node={node} data={data} onOpenNote={onOpenNote} onFocusNode={onFocusNode}/>
+    <GraphNeighborList node={node} data={data} onOpenNote={onOpenNote} onFocusNode={onFocusNode} onOpenConversation={onOpenConversation}/>
   </div>
 }
 
-function GraphNeighborList({ node, data, onOpenNote, onFocusNode }: {
-  node: CanvasNode | GraphNode
-  data: GraphResponse
+function GraphNeighborList({ node, data, onOpenNote, onFocusNode, onOpenConversation }: {
+  node: CanvasNode | SceneNode
+  data: SceneResponse
   onOpenNote: (id: string) => void
   onFocusNode: (id: string) => void
+  onOpenConversation?: (threadId: string) => void
 }) {
   const anchorRef = useRef<HTMLButtonElement>(null)
   const [open, setOpen] = useState(false)
@@ -119,7 +123,11 @@ function GraphNeighborList({ node, data, onOpenNote, onFocusNode }: {
       id: `${group.key}:${neighbour.id}`,
       label: neighbour.title || t('common.untitled_note'),
       onSelect: () => {
-        if (neighbour.kind === 'note') onOpenNote(neighbour.id)
+        // The list is the keyboard and screen-reader way round the canvas, so a row has to do what the
+        // same node does under a pointer: a thread opens, a note opens, anything else is focused.
+        const threadId = conversationIdOf(neighbour)
+        if (threadId && onOpenConversation) onOpenConversation(threadId)
+        else if (neighbour.kind === 'note') onOpenNote(neighbour.id)
         else onFocusNode(neighbour.id)
         setOpen(false)
       },

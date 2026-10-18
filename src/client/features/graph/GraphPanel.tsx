@@ -18,7 +18,7 @@ import {
   Settings2,
   X,
 } from 'lucide-react'
-import type { GraphQuery, GraphResponse } from '@shared/types'
+import type { GraphQuery } from '@shared/types'
 import { DEBOUNCE } from '@shared/constants'
 import { deriveExcerpt } from '@shared/markdown-utils'
 import { api } from '../../lib/api'
@@ -47,6 +47,7 @@ import {
 } from './graph-panel/constants'
 import { GraphCanvas } from './graph-panel/canvas'
 import { createGraphState } from './graph-panel/canvas'
+import { attachThreads, conversationIdOf, openGraphConversation } from './graph-panel/conversations'
 import { useGraphExport } from './graph-panel/use-graph-export'
 import { GraphPaintError, GraphOverlays, type GraphPreviewCard } from './graph-panel/overlays'
 import { GraphSettingsPanel } from './graph-panel/settings'
@@ -58,7 +59,7 @@ import {
   readPalette,
   type ColorLegendItem,
 } from './graph-panel/scene'
-import type { CanvasNode, CanvasState, GraphCanvasControls } from './graph-panel/types'
+import type { CanvasNode, CanvasState, GraphCanvasControls, SceneResponse } from './graph-panel/types'
 
 export { pickDirectional } from './graph-panel/scene'
 export type { CanvasNode } from './graph-panel/types'
@@ -73,9 +74,11 @@ export function GraphPanel({ onClose }: { onClose: () => void }) {
   const [search, setSearch] = useState('')
   const pinyinVersion = usePinyinVersion()
   const query = useDebounced(search.trim(), DEBOUNCE.search)
-  const [data, setData] = useState<GraphResponse | null>(null)
+  const [data, setData] = useState<SceneResponse | null>(null)
   const [pending, setPending] = useState(false)
   const [loadError, setLoadError] = useState<string | null>(null)
+  // Said, not swallowed: the threads are a second read, and a graph drawn without them has to say so.
+  const [threadsProblem, setThreadsProblem] = useState<string | null>(null)
   const [reload, setReload] = useState(0)
   const [hover, setHover] = useState<CanvasNode | null>(null)
   const [hoverAnchor, setHoverAnchor] = useState<{ x: number; y: number } | null>(null)
@@ -158,10 +161,15 @@ export function GraphPanel({ onClose }: { onClose: () => void }) {
     let cancelled = false
     setPending(true)
     setLoadError(null)
-    api.graph(request, controller.signal).then((response) => {
+    api.graph(request, controller.signal).then(async (response) => {
+      if (cancelled) return
+      // The threads are a second read beside the notes' own graph. One that breaks must not blank a picture
+      // that is about notes — but it is said in the header rather than left as a quietly smaller graph.
+      const merged = await attachThreads(normalizedResponse(response), request.center ?? null, controller.signal)
       if (cancelled) return
       setPending(false)
-      setData(normalizedResponse(response))
+      setThreadsProblem(merged.problem)
+      setData(merged.scene)
     }).catch((error) => {
       if (cancelled || (error as Error)?.name === 'AbortError') return
       setPending(false)
@@ -258,10 +266,25 @@ export function GraphPanel({ onClose }: { onClose: () => void }) {
     onClose()
   }, [createNote, onClose])
 
+  /**
+   * Open the thread a conversation node stands for, and leave the graph the reader pressed it from.
+   *
+   * Same hand-off as opening a note from the graph: the thread is the thing they asked for, and a panel
+   * still covering it would be a second place to look.
+   */
+  const openConversationFromGraph = useCallback((threadId: string) => {
+    openGraphConversation(threadId)
+    onClose()
+  }, [onClose])
+
   const openNode = useCallback((node: CanvasNode) => {
     if (node.kind === 'unresolved') createNoteFromGraph(node.title)
+    else if (node.kind === 'conversation') {
+      const threadId = conversationIdOf(node)
+      if (threadId) openConversationFromGraph(threadId)
+    }
     else openNoteFromGraph(node.id)
-  }, [createNoteFromGraph, openNoteFromGraph])
+  }, [createNoteFromGraph, openConversationFromGraph, openNoteFromGraph])
 
   const menuItems = useMemo<MenuItem[]>(() => {
     if (!context) return []
@@ -372,7 +395,14 @@ export function GraphPanel({ onClose }: { onClose: () => void }) {
             ? t('graph.stats_with_unresolved', { notes: counts.notes, links: counts.links, unresolved: counts.unresolved })
             : t('graph.stats', { notes: counts.notes, links: counts.links })}
           {counts.tags > 0 && ` · ${t('graph.stats_tags', { count: counts.tags })}`}
+          {counts.conversations > 0 && ` · ${t('graph.stats_conversations', { count: counts.conversations })}`}
         </span>}
+        {/* A graph drawn without its threads is a smaller picture than the reader asked for, and the only
+            honest thing to do with that is say it where the counts are — the number above already stopped
+            counting a thread as a note, so the header is the place both facts belong. */}
+        {threadsProblem && <p role="status" className="text-[length:var(--text-11)] text-[var(--warning)]">
+          {t('graph.threads_missing')} — {threadsProblem}
+        </p>}
       </div>
       <Segmented
         size="sm"
@@ -449,6 +479,7 @@ export function GraphPanel({ onClose }: { onClose: () => void }) {
             callbacks={{
               onOpenNote: openNoteFromGraph,
               onCreateNote: createNoteFromGraph,
+              onOpenConversation: openConversationFromGraph,
               onPinChange: togglePin,
               onFilterByTag: (name) => changePref('tags', toggleListItem(tagFilter, name)),
             }}
@@ -472,6 +503,7 @@ export function GraphPanel({ onClose }: { onClose: () => void }) {
             legendActive={legendActive}
             onLegendSelect={onLegendSelect}
             onOpenNote={openNoteFromGraph}
+            onOpenConversation={openConversationFromGraph}
             onFocusNode={(id) => controlsRef.current?.selectNode(id)}
             preview={preview}
             announcement={announcement}

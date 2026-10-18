@@ -875,6 +875,8 @@ export const EN_US_MESSAGES = {
     "graph.restore_all_notes": "Restore all",
     "graph.show_tags": "Show tags as nodes",
     "graph.stats_tags": "{count} tags",
+    "graph.stats_conversations": "{count} conversations",
+    "graph.threads_missing": "Conversations could not be loaded, so this graph shows notes only.",
     "graph.tags_match": "Tag match",
     "graph.tags_match_all": "All (AND)",
     "graph.tags_match_any": "Any (OR)",

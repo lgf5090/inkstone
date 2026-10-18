@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useImperativeHandle, useRef, type RefObject } from 'react'
-import type { GraphResponse } from '@shared/types'
 import { t } from '../../../lib/i18n'
+import { conversationIdOf } from './conversations'
 import { usePinnedWindows } from '../../../store/pinned-windows'
 import type { GraphPreferences } from '../../../lib/graph-settings'
 import {
@@ -32,7 +32,7 @@ import {
   stampColorGroups,
   stepPhysics,
 } from './scene'
-import type { CanvasNode, CanvasState, GraphCanvasCallbacks, GraphCanvasControls } from './types'
+import type { CanvasNode, CanvasState, GraphCanvasCallbacks, GraphCanvasControls, SceneResponse } from './types'
 
 function emptyState(): CanvasState {
   return {
@@ -48,7 +48,7 @@ export function createGraphState(): CanvasState {
 }
 
 export interface GraphCanvasProps {
-  data: GraphResponse
+  data: SceneResponse
   prefs: GraphPreferences
   activeNoteId: string | null
   searchHits: ReadonlySet<string> | null
@@ -390,6 +390,12 @@ export function GraphCanvas({
   const openNode = useCallback((node: CanvasNode) => {
     if (node.kind === 'tag') callbacksRef.current.onFilterByTag?.(node.title)
     else if (node.kind === 'unresolved') callbacksRef.current.onCreateNote(node.title)
+    else if (node.kind === 'conversation') {
+      // A thread is opened, not created and not filed: the panel owns what that means, and the canvas only
+      // knows which node was under the press.
+      const threadId = conversationIdOf(node)
+      if (threadId) callbacksRef.current.onOpenConversation?.(threadId)
+    }
     else {
       if (usePinnedWindows.getState().focusPinnedByNote(node.id)) return
       callbacksRef.current.onOpenNote(node.id)

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { ExternalLink, ImageDown, Maximize2, Waypoints, X } from 'lucide-react'
-import type { GraphQuery, GraphResponse } from '@shared/types'
+import type { GraphQuery } from '@shared/types'
 import { api } from '../../lib/api'
 import { cn } from '../../lib/cn'
 import { IconButton } from '../../components/primitives'
@@ -11,9 +11,10 @@ import { useNotes } from '../../store/notes'
 import { t } from '../../lib/i18n'
 import { GRAPH_DEPTHS, loadPreferences, type GraphPreferences } from '../../lib/graph-settings'
 import { createGraphState, GraphCanvas } from './graph-panel/canvas'
+import { attachThreads, openGraphConversation } from './graph-panel/conversations'
 import { normalizedResponse, readPalette } from './graph-panel/scene'
 import { useGraphExport } from './graph-panel/use-graph-export'
-import type { CanvasState, GraphCanvasControls } from './graph-panel/types'
+import type { CanvasState, GraphCanvasControls, SceneResponse } from './graph-panel/types'
 
 export interface LocalGraphPanelProps {
   noteId: string
@@ -29,8 +30,10 @@ export function LocalGraphPanel({ noteId, onClose, onOpenFullGraph, fill = false
   const stored = useMemo(() => loadPreferences(), [])
   const prefs = useMemo<GraphPreferences>(() => ({ ...stored, mode: 'local' }), [stored])
   const [depth, setDepth] = useState(stored.depth)
-  const [data, setData] = useState<GraphResponse | null>(null)
+  const [data, setData] = useState<SceneResponse | null>(null)
   const [loadError, setLoadError] = useState<string | null>(null)
+  // Said in the header rather than left as a graph that quietly has no threads in it.
+  const [threadsProblem, setThreadsProblem] = useState<string | null>(null)
   const [reload, setReload] = useState(0)
   const openNote = useNotes((state) => state.openNote)
   const createNote = useNotes((state) => state.createNote)
@@ -56,9 +59,14 @@ export function LocalGraphPanel({ noteId, onClose, onOpenFullGraph, fill = false
     let cancelled = false
     setData(null)
     setLoadError(null)
-    api.graph(request, controller.signal).then((response) => {
+    api.graph(request, controller.signal).then(async (response) => {
       if (cancelled) return
-      setData(normalizedResponse(response))
+      // The threads beside this page are a second read: when it fails the local graph still draws its
+      // notes, and the header says the threads are missing rather than showing a quieter picture.
+      const merged = await attachThreads(normalizedResponse(response), noteId, controller.signal)
+      if (cancelled) return
+      setThreadsProblem(merged.problem)
+      setData(merged.scene)
     }).catch((error) => {
       if (cancelled || (error as Error)?.name === 'AbortError') return
       setLoadError(error instanceof Error ? error.message : String(error))
@@ -76,6 +84,11 @@ export function LocalGraphPanel({ noteId, onClose, onOpenFullGraph, fill = false
         <Waypoints size={12} aria-hidden="true"/>
         {!fill && <span className="truncate">{t('graph.local_graph')}</span>}
         {data && <span className="tabular shrink-0 text-[length:var(--text-10-5)]">· {data.nodes.length}</span>}
+        {/* The reason is too long for this row and is logged at the read that failed; what belongs here is
+            that the threads are absent, so a smaller picture is not mistaken for the whole one. */}
+        {threadsProblem && <span role="status" className="min-w-0 truncate text-[length:var(--text-10-5)] text-[var(--warning)]">
+          {t('graph.threads_missing')}
+        </span>}
       </div>
       <div className="flex shrink-0 items-center gap-0.5">
         <Tooltip label={t('graph.depth')}>
@@ -123,6 +136,7 @@ export function LocalGraphPanel({ noteId, onClose, onOpenFullGraph, fill = false
           callbacks={{
             onOpenNote: (id) => { void openNote(id) },
             onCreateNote: (title) => { void createNote?.({ title, open: true }) },
+            onOpenConversation: openGraphConversation,
           }}
           controlsRef={controlsRef}
           stateRef={stateRef}
