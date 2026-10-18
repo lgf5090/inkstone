@@ -39,7 +39,7 @@ import type { AssistantModel, AssistantReasoning, AssistantSkill, AssistantToolM
 import { ASSISTANT_TOOL_MODES, TOKEN_STEPS } from '@shared/assistant'
 import { cn } from '../../lib/cn'
 import { t, type MessageKey } from '../../lib/i18n'
-import { Menu, Modal, Tooltip, prompt, submenuFor, type MenuItem } from '../../components/overlay'
+import { Menu, Modal, Tooltip, submenuFor, type MenuItem } from '../../components/overlay'
 import { Input } from '../../components/form'
 import { IconButton } from '../../components/primitives'
 
@@ -570,7 +570,14 @@ interface SpeechEngine {
   interimResults: boolean
   onresult: ((event: SpeechResultEvent) => void) | null
   onend: (() => void) | null
-  onerror: (() => void) | null
+  /**
+   * The engine's own report of why a session ended badly.
+   *
+   * Read for `error`, and only optionally: the Web Speech spec puts the reason on the event, but a browser
+   * — and the test engine this file is driven by — may call the handler with nothing, which has to be
+   * reported as a failure rather than silently swallowed.
+   */
+  onerror: ((event?: { error?: string }) => void) | null
   start: () => void
   stop: () => void
 }
@@ -581,19 +588,73 @@ function speechRecognitionCtor(): (new () => SpeechEngine) | null {
   return (scope.SpeechRecognition ?? scope.webkitSpeechRecognition ?? null) as (new () => SpeechEngine) | null
 }
 
+/** Why dictation cannot be offered at all, before anybody presses it. */
+type VoiceBlocker = 'none' | 'unsupported' | 'insecure'
+
+/**
+ * Whether this browser can be asked for a microphone at all, and which of the two facts says it cannot.
+ *
+ * The engine's absence is the obvious half. The second is the one that used to look like a broken button:
+ * recognition records audio through `getUserMedia`, and a browser only hands that out on a potentially
+ * trustworthy URL, so on plain http the engine exists, `start()` is refused with a permission-shaped
+ * error, and the reader has a lit icon and nothing else. Checking the context is free; checking it after
+ * the press would be the same modal in a later frame.
+ */
+function voiceBlocker(): VoiceBlocker {
+  if (!speechRecognitionCtor()) return 'unsupported'
+  if (typeof window !== 'undefined' && window.isSecureContext === false) return 'insecure'
+  return 'none'
+}
+
+/** The blocker a disabled control explains, in the words the reader can act on. */
+function voiceBlockerReason(blocker: Exclude<VoiceBlocker, 'none'>): MessageKey {
+  return blocker === 'insecure' ? 'assistant.composer.voice_insecure' : 'assistant.composer.voice_unsupported'
+}
+
+/** How an engine ends without being refused anything: nobody spoke, and this app stopped it. */
+const VOICE_ENDINGS = ['aborted', 'no-speech', 'silent'] as const
+
+/**
+ * The sentence a failed press owes the reader, or null when nothing went wrong.
+ *
+ * Unknown names answer with the general reason rather than with silence: a failure this table has never
+ * seen is still a press that produced no microphone, and an unexplained one is the bug this whole branch
+ * exists to kill.
+ */
+function voiceRefusal(error: string | undefined): string | null {
+  if (!error) return t('assistant.composer.voice_failed')
+  if ((VOICE_ENDINGS as readonly string[]).includes(error)) return null
+  if (error === 'not-allowed' || error === 'service-not-allowed') return t('assistant.composer.voice_denied')
+  if (error === 'audio-capture') return t('assistant.composer.voice_no_mic')
+  if (error === 'network') return t('assistant.composer.voice_network')
+  return t('assistant.composer.voice_failed')
+}
+
+/** The anchor a control that opens no menu still has to hand to `ControlChip`. */
+const VOICE_REF: React.RefObject<HTMLButtonElement | null> = { current: null }
+
 /**
  * Dictation, when the browser offers it.
  *
- * The button is drawn disabled rather than hidden on a browser without speech recognition: a control
- * that is missing is a feature the reader never learns exists, while a dead one with a reason is
- * legible.
+ * The button is drawn disabled rather than hidden where no engine exists or where the page is not a secure
+ * context: a control that is missing is a feature the reader never learns exists, while a dead one whose
+ * reason is spoken (the `aria-describedby` node, not only a hover) is legible and says which of the two
+ * problems it is. The alternative path — typing the same sentence into the box beside it — is never taken
+ * away, so nothing here blocks a turn.
  *
  * The engine is owned by this component for exactly as long as it is mounted. A microphone still open
  * after the reader closed the panel is not a dangling timer: it is an open microphone, so unmount and a
  * hidden tab both stop it rather than leaving it to the next press of a button that may never come.
+ *
+ * A press that fails keeps nothing behind but a sentence: the light goes out, the engine is dropped, and
+ * the next press starts a new one. `start()` is what asks for the microphone, and a browser only honours
+ * that for a call made inside the press itself — so nothing here awaits a permission check first.
  */
 export function VoiceButton({ onText }: { onText: (chunk: string) => void }) {
   const [listening, setListening] = useState(false)
+  // Why the last press produced no microphone. A modal for this was the old reading, and it asked the
+  // reader to dismiss a dialog to learn something that belongs on the control they just pressed.
+  const [refusal, setRefusal] = useState<string | null>(null)
   const engineRef = useRef<SpeechEngine | null>(null)
   /**
    * The last result index already handed to the composer.
@@ -604,6 +665,8 @@ export function VoiceButton({ onText }: { onText: (chunk: string) => void }) {
    * appended twice.
    */
   const lastFinalRef = useRef(-1)
+
+  const blocker = voiceBlocker()
 
   const stopListening = () => {
     const engine = engineRef.current
@@ -631,16 +694,18 @@ export function VoiceButton({ onText }: { onText: (chunk: string) => void }) {
   })
 
   const toggle = () => {
+    // A new press is a new question: the last answer must not still be hanging under the button when the
+    // reader is trying again, and a press that works is the one thing that proves it was wrong.
+    setRefusal(null)
     if (listening) {
       stopListening()
       return
     }
     const Ctor = speechRecognitionCtor()
     if (!Ctor) {
-      // Redundant rather than silent: `prompt()` in `components/overlay` only ever resolves — it answers
-      // null with no host mounted and null on dismiss — so there is no rejection for this catch to
-      // swallow. Recorded here and baselined; deleting it is a call for the gate's owner, not this slice.
-      void prompt({ title: t('assistant.composer.voice_unsupported') }).catch(() => undefined)
+      // Unreachable while the disabled control is what is drawn, and kept because the two are decided in
+      // different frames: a browser whose engine disappears mid-session gets the same sentence, here.
+      setRefusal(t(voiceBlockerReason('unsupported')))
       return
     }
     const engine = new Ctor()
@@ -660,41 +725,75 @@ export function VoiceButton({ onText }: { onText: (chunk: string) => void }) {
         if (chunk) onText(chunk)
       }
     }
-    const settle = () => {
-      // An engine that ended on its own must not be mistaken for one this component still owns: the
-      // cleanup of a newer engine, or an unmount, may already have replaced it.
+    // The engine is only let go once, and only by whoever still owns it: a newer engine, or an unmount, may
+    // already have taken it, and cleaning up after that would put out a live microphone.
+    const release = () => {
       if (engineRef.current !== engine) return
       engineRef.current = null
       setListening(false)
     }
-    engine.onend = settle
-    engine.onerror = settle
+    // An end with no reason is an ending: the phrase ran out, the reader stopped talking, the browser
+    // closed the session. Nothing is wrong and nothing is said about it.
+    engine.onend = release
+    engine.onerror = (event) => {
+      const reason = voiceRefusal(event?.error)
+      release()
+      if (reason) setRefusal(reason)
+    }
+    // The engine is owned from the moment it exists, before it is started: a browser that reports the
+    // refusal *inside* `start()` (and the test engine, which does exactly that) has to find an owner
+    // already in place, or its own error handler releases nothing and the light goes up over a microphone
+    // that never opened.
+    engineRef.current = engine
+    setListening(true)
     try {
       engine.start()
     } catch {
-      // Starting can be refused (no microphone, permission revoked, or a start already in flight). Best
-      // effort: the button returns to its off state and says why, rather than staying lit over a dead
-      // engine.
-      engineRef.current = null
-      setListening(false)
-      // The failure is already state and a prompt; the prompt only ever resolves (see the
-      // no-microphone branch above), so there is no rejection left for a catch to ignore.
-      void prompt({ title: t('assistant.composer.voice_failed') })
+      // Starting can be refused (no microphone, permission revoked, or a start already in flight). The
+      // button returns to its off state with the reason on the row, rather than staying lit over a dead
+      // engine, and stays pressable: the next press constructs a new one.
+      release()
+      setRefusal(t('assistant.composer.voice_failed'))
       return
     }
-    engineRef.current = engine
-    setListening(true)
+  }
+
+  // The row is icons only, so a reason that has to be readable is either a name (here: the description the
+  // disabled control points at) or a line the row makes room for below itself (`basis-full` asks for the
+  // whole width instead of splitting the chips around it).
+  if (blocker !== 'none') {
+    return (
+      <ControlChip
+        refObject={VOICE_REF}
+        label={t('assistant.composer.voice')}
+        icon={<Mic size={12} />}
+        disabled
+        hint={t(voiceBlockerReason(blocker))}
+        onClick={() => undefined}
+      />
+    )
   }
 
   return (
-    <IconButton
-      label={listening ? t('assistant.composer.voice_stop') : t('assistant.composer.voice')}
-      size="sm"
-      onClick={toggle}
-      className={cn('size-7 rounded-[var(--r-md)]', listening && 'text-[var(--accent)]')}
-    >
-      <Mic size={14} />
-    </IconButton>
+    <>
+      <IconButton
+        label={listening ? t('assistant.composer.voice_stop') : t('assistant.composer.voice')}
+        active={listening}
+        size="sm"
+        onClick={toggle}
+        className="size-7 rounded-[var(--r-md)]"
+      >
+        <Mic size={14} />
+      </IconButton>
+      {refusal && (
+        <p
+          role="alert"
+          className="basis-full min-w-0 break-words px-1 text-[length:var(--text-11)] leading-snug text-[var(--danger)]"
+        >
+          {refusal}
+        </p>
+      )}
+    </>
   )
 }
 

@@ -250,9 +250,16 @@ describe('plus menu', () => {
 describe('voice chip', () => {
   it('says it cannot listen instead of looking broken', async () => {
     await act(async () => { root.render(createElement(VoiceButton, { onText: vi.fn() })) })
-    await click(byAria(t('assistant.composer.voice')))
-    // The chip is not a dead button: with no engine the reader is told, and it never enters listening.
-    expect(promptDialog).toHaveBeenCalledWith({ title: t('assistant.composer.voice_unsupported') })
+    const control = byAria(t('assistant.composer.voice'))
+    // Nothing in this test file installs an engine, so the chip is the disabled half of the control: it
+    // stays in the row, says why in the node it points at, and cannot be pressed into doing nothing.
+    expect(control?.hasAttribute('disabled')).toBe(true)
+    const described = (control?.getAttribute('aria-describedby') ?? '')
+      .split(/\s+/).filter(Boolean).map((id) => document.getElementById(id)?.textContent ?? '').join(' ')
+    expect(described).toContain(t('assistant.composer.voice_unsupported'))
+    await click(control)
+    // The reason is drawn on the control, so there is no dialog to raise for it.
+    expect(promptDialog).not.toHaveBeenCalled()
     expect(byAria(t('assistant.composer.voice_stop'))).toBeUndefined()
   })
 })
