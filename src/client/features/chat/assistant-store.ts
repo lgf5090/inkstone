@@ -658,8 +658,8 @@ export interface WriteFailure {
  */
 export type ReportFailure = (failure: WriteFailure) => void
 
-function describeFailure(error: unknown): WriteFailure {
-  const headline = error instanceof ApiError || error instanceof Error ? error.message : t('assistant.toast.failed')
+function describeFailure(error: unknown, fallback = t('assistant.toast.failed')): WriteFailure {
+  const headline = error instanceof ApiError || error instanceof Error ? error.message : fallback
   // The route's sentence repeats the headline whenever the code has no mapping of its own, and a line the
   // reader has just read above it is not a second fact about the same mistake.
   const said = error instanceof ApiError ? error.serverMessage : undefined
@@ -667,7 +667,31 @@ function describeFailure(error: unknown): WriteFailure {
 }
 
 function toast(error: unknown): void {
-  useUi.getState().toast({ title: describeFailure(error).headline, tone: 'danger' })
+  const failure = describeFailure(error)
+  useUi.getState().toast({
+    title: failure.headline,
+    // The route's line goes where a toast has a place for it. Added only when there is one, so a failure
+    // with no field reason stays the single-line notice it has always been rather than gaining an empty row
+    // under the headline — and a write the reader cannot retry in place is exactly the case that line was
+    // written for, because nothing else about the refusal reaches them.
+    ...(failure.detail ? { description: failure.detail } : {}),
+    tone: 'danger',
+  })
+}
+
+/**
+ * The two lines of a failure as one, for the places that hold a single string instead of a headline and a
+ * description: a stopped turn's bubble, a tool row's reason, a vendor listing that never arrived.
+ *
+ * These surfaces print one line and cannot be given two without changing what they are, so the route's
+ * reason is joined to the app's headline rather than dropped — the same loss the toast had, in a place where
+ * a reader is more likely to be stuck: a turn that was refused for the name of a model, or a call that will
+ * not run again. What is joined here is text the deployment wrote, and every surface that shows it renders
+ * it as a child node, so it arrives already bounded and plain from `routeApiError()`.
+ */
+function failureLine(error: unknown, fallback?: string): string {
+  const failure = fallback === undefined ? describeFailure(error) : describeFailure(error, fallback)
+  return failure.detail ? `${failure.headline} — ${failure.detail}` : failure.headline
 }
 
 /** One failure, one surface: the form that was handed the refusal is the one that says it. */
@@ -1017,7 +1041,7 @@ async function uploadAttachment(localId: string, file: File, set: AttachmentSett
       fileIndex: { ...current.fileIndex, [stored.id]: stored },
     }))
   } catch (error) {
-    const reason = error instanceof Error ? error.message : String(error)
+    const reason = failureLine(error, String(error))
     set((current) => ({
       pending: current.pending.map((entry) => (
         entry.localId === localId ? { ...entry, status: 'error' as const, error: reason } : entry
@@ -1135,7 +1159,7 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
       // first slash is typed — otherwise the picker shows only the built-ins until settings are opened.
       void get().loadMcp()
     } catch (error) {
-      set({ loading: false, error: error instanceof Error ? error.message : t('assistant.toast.failed') })
+      set({ loading: false, error: failureLine(error) })
       toast(error)
     }
   },
@@ -1376,7 +1400,7 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
     try {
       return await api.assistant.replayMcpTool(conversationId, messageId, toolId)
     } catch (error) {
-      return { ok: false, error: error instanceof Error ? error.message : String(error), result: '' }
+      return { ok: false, error: failureLine(error, String(error)), result: '' }
     }
   },
 
@@ -1395,7 +1419,7 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
       await get().loadMcp()
       return { ok: result.ok, error: result.error, count: result.tools.length }
     } catch (error) {
-      return { ok: false, error: error instanceof Error ? error.message : String(error), count: 0 }
+      return { ok: false, error: failureLine(error, String(error)), count: 0 }
     }
   },
 
@@ -1827,7 +1851,7 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
         fileIndex: { ...current.fileIndex, [stored.attachment.id]: stored.attachment },
       }))
     } catch (error) {
-      useUi.getState().toast({ title: t('assistant.attach.failed'), description: error instanceof Error ? error.message : String(error), tone: 'danger' })
+      useUi.getState().toast({ title: t('assistant.attach.failed'), description: failureLine(error, String(error)), tone: 'danger' })
     }
   },
 
@@ -2169,7 +2193,7 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
     } catch (error) {
       if (!controller.signal.aborted) {
         set((current) => (current.turn?.token === token
-          ? { turn: { ...current.turn, error: error instanceof Error ? error.message : t('assistant.toast.failed'), done: true } }
+          ? { turn: { ...current.turn, error: failureLine(error), done: true } }
           : current))
       }
     } finally {
@@ -2301,7 +2325,7 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
       // not a second column written by the reader's own model.
       if (!controller.signal.aborted) {
         set((current) => (current.compareTurn?.token === token
-          ? { compareTurn: { ...current.compareTurn, error: error instanceof Error ? error.message : t('assistant.toast.failed'), done: true, finishedAt: Date.now() } }
+          ? { compareTurn: { ...current.compareTurn, error: failureLine(error), done: true, finishedAt: Date.now() } }
           : current))
       }
     } finally {
@@ -2847,7 +2871,7 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
       // A listing that never arrived is said in the dialog, which still has its manual entry.
       set({
         vendorModels: [],
-        vendorModelsError: error instanceof Error ? error.message : t('assistant.model.list_failed'),
+        vendorModelsError: failureLine(error, t('assistant.model.list_failed')),
         vendorModelsLoading: false,
       })
     }
@@ -2866,7 +2890,7 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
       // Said in the dialog, which keeps the hand-typed ids as the way forward.
       set({
         vendorModels: [],
-        vendorModelsError: error instanceof Error ? error.message : t('assistant.model.list_failed'),
+        vendorModelsError: failureLine(error, t('assistant.model.list_failed')),
         vendorModelsLoading: false,
       })
     }

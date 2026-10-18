@@ -67,7 +67,13 @@ describe('a write the reader asked for', () => {
   it('keeps toasting for a caller that prints nothing, as the model list rows do', async () => {
     vi.spyOn(api.assistant, 'updateModel').mockRejectedValue(refusal())
     expect(await useAssistant.getState().updateModel('m1', { reasoning: 'off' })).toBe(false)
-    expect(toastSpy).toHaveBeenCalledWith({ title: t('api.error.bad_request'), tone: 'danger' })
+    // The toast is this caller's only surface, so the route's line rides on it as the description: the
+    // generic headline alone is the half the reader cannot act on.
+    expect(toastSpy).toHaveBeenCalledWith({
+      title: t('api.error.bad_request'),
+      description: 'A model name is required.',
+      tone: 'danger',
+    })
   })
 
   it('answers false for every write a form waits on', async () => {
