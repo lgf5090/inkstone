@@ -11,7 +11,9 @@
  *
  * Two sentences are drawn here rather than hidden, because both are worth knowing before something is
  * paid for. A recording or a clip cannot reach a model at all, so the row says that in words the moment it
- * appears — a `title` is not read before a click, and the click is the turn.
+ * appears — a `title` is not read before a click, and the click is the turn. And a download the server
+ * refused says why: the transport names its own failure, and the route's sentence about *this* file rides
+ * beside it, the same way the assistant's toast and the thread's load banner already carry it.
  */
 import { useEffect, useState } from 'react'
 import { FileText, Image as ImageIcon, Loader, RotateCcw, X } from 'lucide-react'
@@ -19,7 +21,7 @@ import { attachmentModality, type AssistantModelModality, type ChatAttachment } 
 import type { PendingAttachment } from './assistant-store'
 import { cn } from '../../lib/cn'
 import { t } from '../../lib/i18n'
-import { api } from '../../lib/api'
+import { api, ApiError } from '../../lib/api'
 import { Modal } from '../../components/overlay'
 import { useUi } from '../../store/ui'
 
@@ -31,6 +33,24 @@ export function attachmentUrl(id: string): string {
 const MODALITY_LABEL_KEYS: Record<AssistantModelModality, Parameters<typeof t>[0]> = {
   audio: 'assistant.model.modality.audio',
   video: 'assistant.model.modality.video',
+}
+
+/**
+ * A refused download, told the way every other failure in the chat is told.
+ *
+ * The transport's own line stays the headline — it names which direction broke and with what status — and
+ * the route's sentence rides behind it, because that sentence is the only half that says anything about the
+ * file this reader asked for. `assistant-store.ts` holds the same rule for the toast, a streamed turn and
+ * the thread banner; it is not exported, and a chip should not reach into the conversation store for the
+ * way one line is joined, so the rule is restated here in the four lines it takes and held to the same
+ * outcome by `attachment-viewer-failure.test.ts`. The text arrives bounded, flattened and credential-free
+ * from `routeApiError()`; a refusal that said nothing of its own comes back exactly as it always did — the
+ * headline alone, with no separator hanging off the end.
+ */
+function describeDownloadFailure(error: unknown): string {
+  const headline = error instanceof Error ? error.message : String(error)
+  const said = error instanceof ApiError ? error.serverMessage : undefined
+  return said && said !== headline ? `${headline} — ${said}` : headline
 }
 
 /**
@@ -218,7 +238,9 @@ export function AttachmentStrip({
  * A recording and a clip are not shown, and not fetched to be shown: decoding their bytes as text is how a
  * three-minute voice note used to land as a wall of replacement characters, which claims a reading the panel
  * cannot do. They are told what they are, and the download in the footer is left as the door that still
- * works.
+ * works. A refusal of the kind that is not about the file's shape arrives with the route's own sentence
+ * beside the transport's, so a pruned file, an unowned one and a bucket that is not configured are three
+ * different answers rather than one mystery.
  */
 export function AttachmentViewer({ attachment, onClose }: { attachment: ChatAttachment, onClose: () => void }) {
   const modality = attachmentModality(attachment.mime, attachment.filename)
@@ -238,7 +260,7 @@ export function AttachmentViewer({ attachment, onClose }: { attachment: ChatAtta
       setProgress(1)
       setText(await blob.text())
     }).catch((reason: unknown) => {
-      if (!cancelled) setError(reason instanceof Error ? reason.message : String(reason))
+      if (!cancelled) setError(describeDownloadFailure(reason))
     })
     return () => {
       cancelled = true
