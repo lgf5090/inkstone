@@ -102,6 +102,7 @@ import { AutomationService } from '../assistant/automations'
 import { AssistantRunner } from '../assistant/runner'
 import { cancelApprovedAction, runApprovedAction } from '../assistant/tools'
 import { exportAssistant, importAssistant } from '../assistant/backup'
+import { describeSubscription, pushConfigStatus, pushEndpointProblem, pushKeyProblem, vapidProblem } from '../assistant/push'
 import { importSessionFile, MAX_SESSION_FILE_BYTES, SESSION_IMPORT_BODY_BYTES } from '../assistant/session-import'
 import { ChatShareStore, conversationSharePasswordHash, messageScope, MAX_SHARED_PICK, type ChatShareRow } from '../assistant/share'
 import { suggestActiveModel } from '../assistant/model-config'
@@ -2216,6 +2217,59 @@ assistantRoutes.delete('/notifications/:id', async (c) => {
   const s = store(c)
   await s.deleteNotification(requiredId(c.req.param('id')))
   return c.json({ unread: await s.unreadCount() })
+})
+
+// ---------------------------------------------------------------------- push
+
+/**
+ * The devices a reader has asked this account to notify.
+ *
+ * Two rules and they are both about credentials. Nothing here reads another account's rows: every call goes
+ * through `store(c)`, whose statements carry the signed-in `user_id`, and the delete is looked up by
+ * (account, endpoint) so handing over somebody else's endpoint string removes nothing. And no response ever
+ * carries the triple back: `describeSubscription` returns the head of the endpoint and the row's own id,
+ * because the whole endpoint is the ability to place a notification on that machine and this route's answer
+ * travels through browser logs, screenshots and the clipboard.
+ */
+
+/** The trimmed endpoint a validated body carries, or the problem with it. */
+function pushEndpoint(value: unknown): string {
+  const problem = pushEndpointProblem(value)
+  if (problem) throw ApiError.badRequest(problem)
+  return (value as string).trim()
+}
+
+assistantRoutes.get('/push/config', async (c) => c.json(pushConfigStatus(c.env)))
+
+assistantRoutes.post('/push/subscriptions', async (c) => {
+  const body = await readJson<Record<string, unknown>>(c, JSON_BODY_LIMITS.small)
+  const endpoint = pushEndpoint(body.endpoint)
+  const keys = body.keys
+  if (!keys || typeof keys !== 'object' || Array.isArray(keys)) {
+    throw ApiError.badRequest('keys must be the { p256dh, auth } pair the browser produced.')
+  }
+  const pair = keys as Record<string, unknown>
+  const keyProblem = pushKeyProblem(pair.p256dh, 'p256dh') ?? pushKeyProblem(pair.auth, 'auth')
+  if (keyProblem) throw ApiError.badRequest(keyProblem)
+  const configuration = vapidProblem(c.env)
+  if (configuration) {
+    // A deployment with no keys can store this row and deliver nothing with it, which is a subscription that
+    // quietly never works. Say so with the same sentence `/push/config` gives the interface.
+    throw new ApiError(500, 'server_misconfigured', configuration)
+  }
+  const s = store(c)
+  await s.upsertPushSubscription({ endpoint, p256dh: (pair.p256dh as string).trim(), auth: (pair.auth as string).trim() })
+  return c.json({ subscriptions: (await s.listPushSubscriptions()).map(describeSubscription) }, 201)
+})
+
+assistantRoutes.delete('/push/subscriptions', async (c) => {
+  // Removal is allowed even with no VAPID keys configured: dropping a credential is never the operation that
+  // needs the deployment to be able to send.
+  const body = await readJson<Record<string, unknown>>(c, JSON_BODY_LIMITS.small).catch(() => ({}) as Record<string, unknown>)
+  const endpoint = pushEndpoint(body.endpoint)
+  const s = store(c)
+  if (!await s.deletePushSubscription(endpoint)) throw ApiError.notFound('Not found')
+  return c.json({ removed: true, subscriptions: (await s.listPushSubscriptions()).map(describeSubscription) })
 })
 
 // ------------------------------------------------------------------ settings

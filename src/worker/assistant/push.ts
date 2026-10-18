@@ -147,6 +147,111 @@ export async function describeEndpoint(endpoint: string): Promise<string> {
 }
 
 /**
+ * The shape of the subscription material a browser may hand over, and the bounds around it.
+ *
+ * A push endpoint is a URL at the service and a token inside it, and a subscription is only ever as good as
+ * the device that made it: an unchecked string here becomes the row a send is later addressed to. The limits
+ * are generous against what real services produce (a few hundred characters at most) and stop the case that
+ * matters — a body of any size arriving as a credential.
+ */
+export const MAX_PUSH_ENDPOINT_CHARS = 2048
+export const MAX_PUSH_KEY_CHARS = 512
+/** A base64url token, the way the Push API spells it: no padding, no `+`, no `/`, no whitespace. */
+const BASE64URL = /^[A-Za-z0-9_-]+$/
+
+/** What is wrong with an endpoint as a subscription address; null when it is usable. */
+export function pushEndpointProblem(value: unknown): string | null {
+  if (typeof value !== 'string') return 'endpoint must be the URL the push service gave this device.'
+  const endpoint = value.trim()
+  if (!endpoint) return 'endpoint is required: it is the address the push service gave this device.'
+  if (endpoint.length > MAX_PUSH_ENDPOINT_CHARS) return `endpoint is too long to be a push address (${endpoint.length} characters, ${MAX_PUSH_ENDPOINT_CHARS} at most).`
+  let url: URL
+  try {
+    url = new URL(endpoint)
+  } catch {
+    return 'endpoint is not a URL.'
+  }
+  if (url.protocol !== 'https:') return `endpoint has to be an https:// address, not ${url.protocol}.`
+  if (!url.hostname) return 'endpoint has no push service host to send to.'
+  if (url.username || url.password) return 'endpoint must not carry credentials in the URL.'
+  return null
+}
+
+/** What is wrong with one of a subscription's keys; null when it is a usable base64url token. */
+export function pushKeyProblem(value: unknown, field: 'p256dh' | 'auth'): string | null {
+  if (typeof value !== 'string') return `keys.${field} has to be the base64url text the browser produced.`
+  const key = value.trim()
+  if (!key) return `keys.${field} is required.`
+  if (key.length > MAX_PUSH_KEY_CHARS) return `keys.${field} is too long (${key.length} characters, ${MAX_PUSH_KEY_CHARS} at most).`
+  if (!BASE64URL.test(key)) return `keys.${field} is not base64url text.`
+  // Decoding is the only way to tell a base64url-shaped string from a key: the shape alone accepts junk.
+  let bytes: Uint8Array
+  try {
+    bytes = fromBase64Url(key)
+  } catch {
+    return `keys.${field} is not base64url text.`
+  }
+  if (!bytes.byteLength) return `keys.${field} is empty once decoded.`
+  // The subscription's public key is an uncompressed P-256 point on every browser this app targets, and the
+  // auth secret is a short random value; anything else cannot take part in a delivery, so it is refused here
+  // rather than stored and failed over on every send.
+  if (field === 'p256dh' && (bytes.byteLength !== 65 || bytes[0] !== 0x04)) {
+    return 'keys.p256dh is not an uncompressed P-256 public key.'
+  }
+  if (field === 'auth' && bytes.byteLength > 64) return 'keys.auth is longer than a push auth secret can be.'
+  return null
+}
+
+/** What a browser may be told about one of its own subscriptions, with the credential left out. */
+export interface PushSubscriptionView {
+  id: string
+  /** The service's origin plus the first path segment, and an ellipsis: the head of an endpoint, not its token. */
+  endpoint: string
+  createdAt: number
+  failures: number
+  /** Written through `describeEndpoint`, so it never names the device's address. */
+  lastError: string | null
+}
+
+/**
+ * One subscription rendered for the surface that manages it.
+ *
+ * A reader needs to tell two devices apart, not to read a credential off the screen — the row's own id is the
+ * handle a delete needs, and the service plus its path head is what says "this is the laptop's Firefox".
+ * Handing back `endpoint` whole would put the ability to notify that machine into a browser log, a screenshot
+ * and the reader's own clipboard, none of which the subscription was ever stored for.
+ */
+export function describeSubscription(subscription: AssistantPushSubscription): PushSubscriptionView {
+  let head = 'unknown push service'
+  try {
+    const url = new URL(subscription.endpoint)
+    const firstSegment = url.pathname.split('/').filter(Boolean)[0]
+    head = firstSegment ? `${url.origin}/${firstSegment}` : url.origin
+  } catch {
+    // A row whose endpoint stopped parsing reads as the unusable thing it is rather than as a partial URL.
+  }
+  return {
+    id: subscription.id,
+    endpoint: `${head}…`,
+    createdAt: subscription.createdAt,
+    failures: subscription.failures,
+    lastError: subscription.lastError,
+  }
+}
+
+/**
+ * Whether this deployment can push, and what a browser needs to subscribe to it.
+ *
+ * `enabled: false` always carries the reason, and the reason names the variable. An interface that got a bare
+ * `false` could only invent an explanation, which is the dishonesty this whole file is written against.
+ */
+export function pushConfigStatus(env: Env): { enabled: boolean, publicKey: string | null, reason?: string } {
+  const problem = vapidProblem(env)
+  if (problem) return { enabled: false, publicKey: null, reason: problem }
+  return { enabled: true, publicKey: configured(env.VAPID_PUBLIC_KEY) }
+}
+
+/**
  * The `Authorization` header value for one push service.
  *
  * `WebPush <base64url(header)>.<base64url(claims)>.<base64url(signature)>.<base64url(public key)>`: a JWS in
