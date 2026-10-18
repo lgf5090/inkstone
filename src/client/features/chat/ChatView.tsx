@@ -12,7 +12,7 @@ import { Z_INDEX } from '../../lib/z-index'
 import { type ClipboardEvent as ReactClipboardEvent, type DragEvent as ReactDragEvent, type KeyboardEvent, type ReactNode, Fragment, memo, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { Archive, ArrowUp, ArrowUpRight, Check, Columns2, Copy, FileText, FolderOpen, Ghost, History, Link2Off, ListChecks, MoreHorizontal, NotebookPen, PanelRight, Paperclip, Pencil, Plus, Search, Settings2, Square, Sparkles, Star, Trash2, X } from 'lucide-react'
 import type { AssistantConversation, AssistantMessage, AssistantModel, AssistantTurnScope, ChatAttachment } from '@shared/assistant'
-import { EPHEMERAL_CONVERSATION_RETENTION_DAYS, SEARCH_NATIVE_PROTOCOLS, looksLikeSearchTool, mcpToolModeFor, webSearchConfigured } from '@shared/assistant'
+import { EPHEMERAL_CONVERSATION_RETENTION_DAYS, RUN_PARTIAL_MAX_CHARS, SEARCH_NATIVE_PROTOCOLS, looksLikeSearchTool, mcpToolModeFor, webSearchConfigured } from '@shared/assistant'
 import { DEBOUNCE } from '@shared/constants'
 import { cn } from '../../lib/cn'
 import { t } from '../../lib/i18n'
@@ -171,6 +171,9 @@ export function ChatView() {
   const fileIndexForTurn = useAssistant((state) => state.fileIndex)
   const turn = useAssistant((state) => state.turn)
   const remoteStreaming = useAssistant((state) => state.remoteStreaming)
+  /** The unfinished reply of a turn whose writer was interrupted rather than finished. */
+  const remotePartial = useAssistant((state) => state.remotePartial)
+  const remotePartialTruncated = useAssistant((state) => state.remotePartialTruncated)
   const send = useAssistant((state) => state.send)
   const loadMcpServers = useAssistant((state) => state.loadMcpServers)
   const newConversation = useAssistant((state) => state.newConversation)
@@ -699,6 +702,46 @@ export function ChatView() {
                     {t('assistant.chat.remote_streaming')}
                   </p>
                 </div>
+              )}
+              {/*
+               * The half answer of a turn whose writer was interrupted, and never became a row.
+               *
+               * A Worker isolate run out of CPU does not reach the `finally` that files an answer, so the
+               * thread holds the lease that turn claimed and nothing else — the words are on the claim, and
+               * the conversation read reports them. They are drawn here rather than invented into a stored
+               * row because there is no row: this is the transcript's one surface for a reply that exists
+               * only as what a dead request managed to renew with.
+               *
+               * It is shown as the bubble's own notice, the way a reply cut off at its output cap is, for
+               * the reason that notice exists: an unfinished answer with no word about it looks exactly like
+               * a finished one. Two facts are said, because either alone reads as the other — the worker
+               * stopped, and when the ceiling on the lease column was reached, that this excerpt is itself
+               * shorter than what was written. `RUN_PARTIAL_MAX_CHARS` is that ceiling and the server cuts to
+               * it, so no fragment here can be longer than the number the sentence names.
+               *
+               * No continue control, on purpose. Continuing reads the newest *stored* row and writes from it
+               * (`routes/assistant.ts` refuses a continue whose last row is not an assistant row with words
+               * in it, before the claim, and `runner.ts` reads that same row to start the answer off) — a
+               * fragment that lives only on a lease is exactly the case that refusal is for, so the control
+               * would promise a turn the worker answers with an error. The way these words become
+               * continuable is the next turn taking the claim over, which files them as the unfinished
+               * answer it is; that is why the notice says this is not yet a turn of the thread.
+               *
+               * Hidden while a turn of this tab is on screen or a writer still holds the thread: in both
+               * cases the draft on the claim is somebody's live answer, not a corpse, and this is the one
+               * surface that claims it is.
+               */}
+              {!remoteStreaming && !turnHere && remotePartial && (
+                <AssistantBubble
+                  text={remotePartial}
+                  reasoning=""
+                  tools={[]}
+                  error={remotePartialTruncated
+                    ? t('assistant.chat.remote_partial_cut', { limit: RUN_PARTIAL_MAX_CHARS })
+                    : t('assistant.chat.remote_partial_stopped')}
+                  streaming={false}
+                  stage={undefined}
+                />
               )}
             </div>
           )}

@@ -347,6 +347,22 @@ interface AssistantState {
    */
   answerVersions: Record<string, AssistantAnswerVersion[] | undefined>
   remoteStreaming: boolean
+  /**
+   * The half answer of a turn the server no longer claims, and whether the ceiling on the run lease cut it.
+   *
+   * A Worker isolate killed by its CPU limit never runs `finish`: it files no assistant row, and the lease it
+   * held goes on claiming the thread for the rest of its window. The renewal it did perform carried the words
+   * it had written, so the conversation read hands them back beside `streaming: false` — the only shape in
+   * which a reader can be told that an answer stopped because the writer was interrupted rather than because
+   * the model had said what it meant.
+   *
+   * Deliberately not filled while a turn is still being held: a draft of an answer somebody is writing belongs
+   * to the waiting placeholder, and putting it on the screen as a reply would say the writer is gone when the
+   * only evidence is a lease nobody has let go of yet.
+   */
+  remotePartial: string | null
+  /** Whether `remotePartial` filled the ceiling the lease can carry, so more was written than is shown. */
+  remotePartialTruncated: boolean
   turn: LiveTurn | null
 
   /**
@@ -873,6 +889,23 @@ function mergeThreadPage(current: AssistantMessage[], page: AssistantMessage[]):
   return [...keep, ...page]
 }
 
+/** One read of one thread, as the conversation route answers it. */
+type ConversationRead = Awaited<ReturnType<typeof api.assistant.conversation>>
+
+/**
+ * The half answer a read leaves on the screen, in the one state this store holds it in.
+ *
+ * Every read of a thread answers for the thread it read, so this is called from each of them rather than
+ * from one place that could go stale: opening a thread, the chase after a stream this tab broke, and the
+ * watch that waits on a writer somewhere else. A turn the server still claims contributes nothing — the
+ * words on that lease are arriving rather than lost, and the placeholder says so. Three call sites, one
+ * rule about what may be shown as an interrupted answer.
+ */
+function interruptedDraft(read: ConversationRead): Pick<AssistantState, 'remotePartial' | 'remotePartialTruncated'> {
+  if (read.streaming || !read.partialText) return { remotePartial: null, remotePartialTruncated: false }
+  return { remotePartial: read.partialText, remotePartialTruncated: read.partialTruncated === true }
+}
+
 /**
  * Brings the saved thread on screen.
  *
@@ -910,7 +943,7 @@ async function adoptThread(conversationId: string, turn: LiveTurn | null): Promi
       fileIndex: { ...useAssistant.getState().fileIndex, ...Object.fromEntries((detail.attachments ?? []).map((entry) => [entry.id, entry])) },
     })
     if (!detail.streaming) {
-      useAssistant.setState({ remoteStreaming: false })
+      useAssistant.setState({ remoteStreaming: false, ...interruptedDraft(detail) })
       releaseTurn(turn?.token)
       return
     }
@@ -1027,6 +1060,11 @@ async function pollRemoteStream(watch: RemoteWatch): Promise<void> {
       messagesReady: true,
       messagesError: null,
       remoteStreaming: false,
+      // The draft a claim is still carrying, if this read found one. A turn that finished filed its row and
+      // let go of the claim, so this is null for the ordinary end of a watch; a writer that was killed
+      // leaves the claim standing with the words it had written, and those are what the thread has to show
+      // until the next turn takes them over into a row of their own.
+      ...interruptedDraft(detail),
       fileIndex: { ...current.fileIndex, ...Object.fromEntries((detail.attachments ?? []).map((entry) => [entry.id, entry])) },
     }))
     // The bubble goes only once its own row is actually on screen. A thread that stops claiming a run
@@ -1402,6 +1440,8 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
   focusMessageId: null,
   answerVersions: {},
   remoteStreaming: false,
+  remotePartial: null,
+  remotePartialTruncated: false,
   turn: null,
   artifacts: [],
   artifactsReady: false,
@@ -2025,7 +2065,7 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
     // A comparison is this thread's choice: leaving it armed would spend a second model's tokens on the
     // next thread without anyone asking. The answer already on screen keeps its thread's id, so it is
     // simply not drawn here — the same rule the live turn follows when the reader walks away mid-reply.
-    set({ activeId: id, messages: [], messagesReady: false, messagesError: null, remoteStreaming: false, noteContextOn: true, folderContextOn: true, artifacts: [], artifactsReady: false, canvasOpen: false, activeArtifactId: null, ephemeral: false, compareOn: false, compareModelId: null, messagesBefore: null, messagesHasMore: false, messagesLoadingMore: false, messagesHasNewer: false, focusMessageId: focus })
+    set({ activeId: id, messages: [], messagesReady: false, messagesError: null, remoteStreaming: false, remotePartial: null, remotePartialTruncated: false, noteContextOn: true, folderContextOn: true, artifacts: [], artifactsReady: false, canvasOpen: false, activeArtifactId: null, ephemeral: false, compareOn: false, compareModelId: null, messagesBefore: null, messagesHasMore: false, messagesLoadingMore: false, messagesHasNewer: false, focusMessageId: focus })
     if (!id) {
       set({ messagesReady: true, messagesError: null, artifactsReady: true })
       return
@@ -2052,6 +2092,7 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
         remoteStreaming: remote,
         // Read from the row rather than from the list, which never carries a temporary conversation.
         ephemeral: detail.conversation.ephemeral === true,
+        ...interruptedDraft(detail),
       })
       if (remote) watchRemoteStream(id)
     } catch (error) {
@@ -2111,7 +2152,7 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
     // The pins go with the thread they were added to. They are "this turn's" by definition — the row the
     // composer draws is the record of what this question was asked about — so a new conversation that
     // inherited them would answer a question nobody asked, in a folder nobody named.
-    set({ activeId: null, messages: [], messagesReady: true, messagesError: null, remoteStreaming: false, turn: null, noteContextOn: true, folderContextOn: true, artifacts: [], artifactsReady: true, canvasOpen: false, activeArtifactId: null, ephemeral: false, compareOn: false, compareModelId: null, turnTools: [], turnScopes: [] })
+    set({ activeId: null, messages: [], messagesReady: true, messagesError: null, remoteStreaming: false, remotePartial: null, remotePartialTruncated: false, turn: null, noteContextOn: true, folderContextOn: true, artifacts: [], artifactsReady: true, canvasOpen: false, activeArtifactId: null, ephemeral: false, compareOn: false, compareModelId: null, turnTools: [], turnScopes: [] })
   },
 
   /**
@@ -2124,7 +2165,7 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
     const live = get().turn
     if (live && !live.done) return
     stopRemoteStreamWatch()
-    set({ activeId: null, messages: [], messagesReady: true, messagesError: null, remoteStreaming: false, turn: null, noteContextOn: true, folderContextOn: true, artifacts: [], artifactsReady: true, canvasOpen: false, activeArtifactId: null, ephemeral: true, compareOn: false, compareModelId: null })
+    set({ activeId: null, messages: [], messagesReady: true, messagesError: null, remoteStreaming: false, remotePartial: null, remotePartialTruncated: false, turn: null, noteContextOn: true, folderContextOn: true, artifacts: [], artifactsReady: true, canvasOpen: false, activeArtifactId: null, ephemeral: true, compareOn: false, compareModelId: null })
   },
 
   attachFiles: async (files) => {
@@ -2417,6 +2458,11 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
         finishedAt: null,
       },
       remoteStreaming: false,
+      // This send is the turn that takes a dead claim over, and the worker files the fragment it held as
+      // the unfinished answer of the turn that died. Leaving the draft here too would show one half answer
+      // twice — once on the screen and once, shortly, in the thread it was written for.
+      remotePartial: null,
+      remotePartialTruncated: false,
       ...(retry || continuing ? {} : { pending: [], turnTools: [], turnScopes: [] }),
     })
 
