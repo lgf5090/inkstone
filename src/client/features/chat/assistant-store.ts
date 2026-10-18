@@ -766,6 +766,23 @@ function turnFailureLine(error: unknown): string {
     : failureLine(error)
 }
 
+/**
+ * What the comparison's own column says when its bytes stopped arriving.
+ *
+ * Not the sentence above: `assistant.chat.stream_disconnected` tells the reader to press the continue
+ * control and pick the answer up where it stopped, and the comparison column has no such control — it is
+ * a second model's answer to one question, filed in a throwaway thread no other device is looking at, and
+ * the only thing a reader can do with a half of it is ask for the whole thing again. So the column states
+ * its own three facts: this column did not finish, the thread's own answer is untouched, and the
+ * comparison can be run again. The same `name` test as above, for the same reason — `./stream` is mocked
+ * in eight files, and a value import of the class would fail them on assertions that are not about it.
+ */
+function comparisonFailureLine(error: unknown): string {
+  return error instanceof Error && error.name === STREAM_DISCONNECTED_NAME
+    ? t('assistant.compare.stream_incomplete')
+    : failureLine(error)
+}
+
 /** One failure, one surface: the form that was handed the refusal is the one that says it. */
 function reportFailure(error: unknown, report?: ReportFailure): void {
   if (report) report(describeFailure(error))
@@ -2629,10 +2646,11 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
       // An abort is the reader's own stop and leaves the fragment they watched arrive on the column.
       // Anything else is the comparison failing for a reason, and the column says that reason — including
       // the worker's refusal of a model this account cannot answer with, which is the honest answer and
-      // not a second column written by the reader's own model.
+      // not a second column written by the reader's own model. A stream that only lost its bytes has no
+      // reason, and gets the column's own line: see `comparisonFailureLine`.
       if (!controller.signal.aborted) {
         set((current) => (current.compareTurn?.token === token
-          ? { compareTurn: { ...current.compareTurn, error: failureLine(error), done: true, finishedAt: Date.now() } }
+          ? { compareTurn: { ...current.compareTurn, error: comparisonFailureLine(error), done: true, finishedAt: Date.now() } }
           : current))
       }
     } finally {
