@@ -11,7 +11,14 @@
  */
 
 const HIT_ATTRIBUTE = 'data-find-hit'
-const MAX_HITS = 400
+/** How many occurrences are marked on a page. Exported so the panel can say when the count is a ceiling. */
+export const MAX_FIND_HITS = 400
+
+/** What one search pass left behind: the marks in document order, and whether it had to stop early. */
+export interface FindResult {
+  marks: HTMLElement[]
+  truncated: boolean
+}
 
 function isSkipped(node: Node): boolean {
   const parent = node.parentElement
@@ -32,16 +39,24 @@ export function clearFindMarks(root: HTMLElement): void {
 }
 
 /**
- * Wraps every occurrence of `query`, and answers with the marks in the order they appear.
+ * Wraps every occurrence of `query`, and answers with the marks in the order they appear plus whether it
+ * had to stop.
  *
  * The query is matched case-insensitively over each text node's own content, which means a phrase that
  * spans an element boundary — `hello **world**` — is not a hit. That is the same limitation the browser's
  * own find has on a line break, and paying for the alternative would mean rebuilding the markup.
+ *
+ * The match is the literal phrase and nothing more: no wildcard, no pattern, and no reading of a Chinese
+ * run. That is the same rule the conversation search on the server answers with — a `LIKE` whose wildcards
+ * are escaped, matching the stored body — and the app's pinyin readings are written down as being for
+ * titles, headings and tags, never for a body. A box that quietly read `a.c` as a pattern would find words
+ * the reader never typed, and one that read `ysms` as a body's initials would find things the list they
+ * came from does not.
  */
-export function markFindHits(root: HTMLElement, query: string): HTMLElement[] {
+export function markFindHits(root: HTMLElement, query: string): FindResult {
   clearFindMarks(root)
   const needle = query.trim().toLowerCase()
-  if (!needle) return []
+  if (!needle) return { marks: [], truncated: false }
   const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
     acceptNode: (node) => (isSkipped(node) || !node.textContent?.toLowerCase().includes(needle)
       ? NodeFilter.FILTER_REJECT
@@ -50,14 +65,15 @@ export function markFindHits(root: HTMLElement, query: string): HTMLElement[] {
   const targets: Text[] = []
   while (walker.nextNode()) targets.push(walker.currentNode as Text)
   const marks: HTMLElement[] = []
-  for (const node of targets) {
+  let stopped = false
+  for (const [position, node] of targets.entries()) {
     const text = node.textContent ?? ''
     const lowered = text.toLowerCase()
     let from = lowered.indexOf(needle)
     if (from < 0) continue
     const fragment = document.createDocumentFragment()
     let cursor = 0
-    while (from >= 0 && marks.length < MAX_HITS) {
+    while (from >= 0 && marks.length < MAX_FIND_HITS) {
       if (from > cursor) fragment.append(document.createTextNode(text.slice(cursor, from)))
       const mark = document.createElement('mark')
       mark.setAttribute(HIT_ATTRIBUTE, '')
@@ -69,9 +85,16 @@ export function markFindHits(root: HTMLElement, query: string): HTMLElement[] {
     }
     if (cursor < text.length) fragment.append(document.createTextNode(text.slice(cursor)))
     node.parentNode?.replaceChild(fragment, node)
-    if (marks.length >= MAX_HITS) break
+    if (marks.length >= MAX_FIND_HITS) {
+      // Whether anything was left behind, rather than whether the number came out even: a page that holds
+      // exactly the ceiling was searched whole, and calling that a ceiling is its own lie.
+      stopped = from >= 0 || position < targets.length - 1
+      break
+    }
   }
-  return marks
+  // Stopping at the ceiling is only honest if it is said: a count that ends at the cap reads as the whole
+  // total, and the reader stops looking for a hit they were told does not exist.
+  return { marks, truncated: stopped }
 }
 
 /** Brings one hit into view and marks it as the one the count is pointing at. */

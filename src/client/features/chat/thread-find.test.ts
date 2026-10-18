@@ -8,7 +8,7 @@
  * pinned here, along with the code block a reader most often searches for.
  */
 import { beforeEach, describe, expect, it } from 'vitest'
-import { clearFindMarks, focusFindHit, markFindHits } from './thread-find'
+import { MAX_FIND_HITS, clearFindMarks, focusFindHit, markFindHits } from './thread-find'
 
 let host: HTMLElement
 
@@ -16,6 +16,9 @@ function thread(html: string): HTMLElement {
   host.innerHTML = html
   return host
 }
+
+/** The marks one pass left behind; the ceiling is pinned separately, where it is the subject. */
+const found = (root: HTMLElement, query: string): HTMLElement[] => markFindHits(root, query).marks
 
 const hits = () => [...host.querySelectorAll('[data-find-hit]')].map((mark) => mark.textContent)
 
@@ -28,21 +31,21 @@ beforeEach(() => {
 describe('marking what the reader searched for', () => {
   it('finds every occurrence, whatever the case, and leaves the words intact', () => {
     const root = thread('<p>The plan, the PLAN and the plan again.</p>')
-    expect(markFindHits(root, 'plan')).toHaveLength(3)
+    expect(found(root, 'plan')).toHaveLength(3)
     expect(root.textContent).toBe('The plan, the PLAN and the plan again.')
     expect(hits()).toEqual(['plan', 'PLAN', 'plan'])
   })
 
   it('finds text inside a code block, which is what a reader hunts for most', () => {
     const root = thread('<pre><code>const answer = 42</code></pre><p>answer is 42</p>')
-    expect(markFindHits(root, 'answer')).toHaveLength(2)
-    expect(markFindHits(root, '42')).toHaveLength(2)
+    expect(found(root, 'answer')).toHaveLength(2)
+    expect(found(root, '42')).toHaveLength(2)
   })
 
   it('matches each word only once when the same search runs twice', () => {
     const root = thread('<p>plan and plan</p>')
     markFindHits(root, 'plan')
-    expect(markFindHits(root, 'plan')).toHaveLength(2)
+    expect(found(root, 'plan')).toHaveLength(2)
     expect(hits()).toEqual(['plan', 'plan'])
   })
 
@@ -64,15 +67,42 @@ describe('marking what the reader searched for', () => {
 
   it('finds nothing for a query that is only spaces', () => {
     const root = thread('<p>plan</p>')
-    expect(markFindHits(root, '   ')).toEqual([])
+    expect(markFindHits(root, '   ')).toEqual({ marks: [], truncated: false })
     expect(hits()).toEqual([])
+  })
+
+  it('reads the phrase as literal text, the way the server reads a LIKE it escaped', () => {
+    // `%`, `_` and `.` are characters in the reader's phrase, not operators: the conversation search the
+    // store runs escapes the wildcards, and the app has no regex path for a body.
+    const root = thread('<p>abc a% a_b 演示模式</p>')
+    expect(found(root, 'a.c')).toHaveLength(0)
+    expect(found(root, 'a%')).toHaveLength(1)
+    expect(found(root, 'a_b')).toHaveLength(1)
+    expect(found(root, 'ysms')).toHaveLength(0)
+    expect(found(root, '演示模式')).toHaveLength(1)
+  })
+
+  it('marks up to its ceiling and then says it stopped', () => {
+    const root = thread(`<p>${'plan '.repeat(MAX_FIND_HITS + 20)}</p>`)
+    const result = markFindHits(root, 'plan')
+    expect(result.marks).toHaveLength(MAX_FIND_HITS)
+    expect(result.truncated, 'a count that stopped is reported as the total').toBe(true)
+    // Under the ceiling the same answer has to say nothing: a ceiling mentioned for 3 hits is noise.
+    expect(markFindHits(thread('<p>plan and plan</p>'), 'plan')).toEqual({ marks: expect.any(Array), truncated: false })
+  })
+
+  it('calls a page that holds exactly the ceiling a whole search', () => {
+    const root = thread(`<p>${'plan '.repeat(MAX_FIND_HITS)}</p>`)
+    const result = markFindHits(root, 'plan')
+    expect(result.marks).toHaveLength(MAX_FIND_HITS)
+    expect(result.truncated, 'nothing was left behind, so the count is the total').toBe(false)
   })
 })
 
 describe('stepping through the hits', () => {
   it('marks the one the count points at', () => {
     const root = thread('<p>plan</p><p>plan</p><p>plan</p>')
-    const marks = markFindHits(root, 'plan')
+    const marks = found(root, 'plan')
     focusFindHit(marks, 1, null)
     expect(marks.map((mark) => mark.classList.contains('is-current'))).toEqual([false, true, false])
     focusFindHit(marks, 2, null)
@@ -80,7 +110,7 @@ describe('stepping through the hits', () => {
   })
 
   it('survives an index that is past the end', () => {
-    const marks = markFindHits(thread('<p>plan</p>'), 'plan')
+    const marks = found(thread('<p>plan</p>'), 'plan')
     expect(() => focusFindHit(marks, 5, null)).not.toThrow()
   })
 })

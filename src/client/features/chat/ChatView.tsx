@@ -716,6 +716,14 @@ export function ChatView() {
             // arriving is deliberately not counted: the marks are DOM edits inside the subtree React is
             // writing into, so they are remade when the text settles rather than on every token.
             revision={transcriptRevision(messages, turnHere)}
+            // The panel searches this page and has to be able to say so, so it is told what the thread
+            // still holds. Both controls are the ones the top and the bottom of the transcript already
+            // run — the store's own paging — and a page that arrives remakes the marks through `revision`.
+            hasEarlier={messagesHasMore}
+            hasLater={messagesHasNewer}
+            loadingEarlier={messagesLoadingMore}
+            onLoadEarlier={() => void loadEarlier()}
+            onJumpLatest={() => { if (activeId) void openConversation(activeId) }}
             onClose={() => setFinding(false)}
           />
         )}
