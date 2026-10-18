@@ -9,7 +9,8 @@ import { act, createElement, type ReactElement } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { AssistantModel, AssistantSkill, AssistantTurnScope } from '@shared/assistant'
-import type { PendingAttachment } from './assistant-store'
+import { DEFAULT_ASSISTANT_SETTINGS } from '@shared/assistant'
+import { useAssistant, type PendingAttachment } from './assistant-store'
 import { initI18n, t } from '../../lib/i18n'
 import { installTestGlobals } from '../../lib/test-render'
 import { api } from '../../lib/api'
@@ -130,6 +131,135 @@ describe('model chip', () => {
     const row = buttons().find((node) => node.getAttribute('role') === 'menuitemcheckbox')
     expect(row?.getAttribute('aria-checked')).toBe('true')
     await click(row)
+    expect(onVision).toHaveBeenCalledWith(false)
+  })
+})
+
+describe('the model chip under automatic routing', () => {
+  /**
+   * The routing switch lives in the assistant's own settings row, which is where the chip reads it from.
+   *
+   * Restored after every case: the store is module-level, and a routing flag left on would make the
+   * unrelated chips below read the wrong setting.
+   */
+  const assistantOriginal = useAssistant.getState()
+
+  afterEach(async () => {
+    // The store write redraws the chip, so both directions of it go through `act`: written bare, React
+    // reports an update outside the test's own flush and the asserts below read a chip that has not redrawn.
+    await act(async () => { useAssistant.setState(assistantOriginal, true) })
+  })
+
+  async function route(on: boolean): Promise<void> {
+    await act(async () => {
+      useAssistant.setState({ ...assistantOriginal, settings: { ...DEFAULT_ASSISTANT_SETTINGS, autoRoute: on, activeModelId: 'm1' } })
+    })
+  }
+
+  async function mountChip(onPick = vi.fn()): Promise<typeof onPick> {
+    await act(async () => {
+      root.render(createElement(ModelMenu, {
+        models: [model(), model({ id: 'm2', label: 'Mini' })],
+        activeId: 'm1',
+        onPick,
+        onManage: vi.fn(),
+        onVision: vi.fn(),
+      }))
+    })
+    return onPick
+  }
+
+  const chip = () => buttons().find((node) => (node.getAttribute('aria-label') ?? '').startsWith(`${t('assistant.composer.model')}:`))
+  const described = (node: Element | null | undefined) => (node?.getAttribute('aria-describedby') ?? '')
+    .split(/\s+/).filter(Boolean).map((id) => document.getElementById(id)?.textContent ?? '').join(' ').trim()
+
+  it('names the standing model while routing is off', async () => {
+    await route(false)
+    await mountChip()
+    expect(chip()?.getAttribute('aria-label')).toBe(`${t('assistant.composer.model')}: DeepSeek Flash`)
+    expect(described(chip())).toBe('')
+  })
+
+  it('stops naming the standing model once routing answers instead', async () => {
+    await route(true)
+    await mountChip()
+    const name = chip()?.getAttribute('aria-label') ?? ''
+    // The reader is about to be answered by a model the worker picks per turn, and a chip naming one
+    // specific model would be a claim about a turn nobody has asked yet.
+    expect(name).toBe(`${t('assistant.composer.model')}: ${t('assistant.composer.model_auto')}`)
+    expect(name).not.toContain('DeepSeek Flash')
+  })
+
+  it('says the rule, the catalogue it chooses from, and the fallback it falls back to', async () => {
+    await route(true)
+    await mountChip()
+    const reason = described(chip())
+    // Counted from the models this row was given, because that count is this account's own — a name the
+    // server never resolved is not something the row is allowed to print.
+    expect(reason).toContain(t('assistant.composer.model_auto_hint', { count: 2, model: 'DeepSeek Flash' }))
+    // A reason a pointer has to hover for is not a reason: the words are in the node the control names.
+    expect(chip()?.getAttribute('aria-describedby')).toBeTruthy()
+  })
+
+  it('still lets the reader move the fallback, and still opens the menu', async () => {
+    await route(true)
+    const onPick = await mountChip()
+    expect(chip()?.hasAttribute('disabled'), 'routing turned the control dead').toBe(false)
+    await click(chip())
+    await click(byText('Mini'))
+    expect(onPick).toHaveBeenCalledWith('m2')
+  })
+
+  it('names no model as the fallback when none has been picked', async () => {
+    await act(async () => {
+      useAssistant.setState({ ...assistantOriginal, settings: { ...DEFAULT_ASSISTANT_SETTINGS, autoRoute: true, activeModelId: null } })
+      root.render(createElement(ModelMenu, { models: [model()], activeId: null, onPick: vi.fn(), onManage: vi.fn(), onVision: vi.fn() }))
+    })
+    expect(chip()?.getAttribute('aria-label')).toBe(`${t('assistant.composer.model')}: ${t('assistant.composer.model_auto')}`)
+    expect(described(chip())).toContain(t('assistant.composer.model_none'))
+  })
+
+  const menuRows = () => buttons().filter((node) => node.getAttribute('role') === 'menuitem')
+  const rowSaying = (text: string) => menuRows().find((node) => node.textContent?.includes(text))
+
+  it('says in words what the ticked row is, once the chip stopped naming an answerer', async () => {
+    await route(true)
+    await mountChip()
+    await click(chip())
+    // A tick is paint: an assistive reader is handed nothing but the row's name, and a bare name under a
+    // tick in a picker means "this one answers" — the exact claim the chip above has just withdrawn.
+    expect(rowSaying('DeepSeek Flash')?.textContent)
+      .toBe(t('assistant.composer.model_auto_default', { model: 'DeepSeek Flash' }))
+    // The rest of the catalogue stays plain, so the word marks one row and not the whole list.
+    expect(rowSaying('Mini')?.textContent).toBe('Mini')
+  })
+
+  it('leaves the ticked row named as the answer while routing is off', async () => {
+    await route(false)
+    await mountChip()
+    await click(chip())
+    // Nothing changed for a plain pick: the row says the model's own name and no routing word.
+    expect(rowSaying('DeepSeek Flash')?.textContent).toBe('DeepSeek Flash')
+  })
+
+  it('keeps the picture switch pointed at the row the menu ticks', async () => {
+    await route(true)
+    const onVision = vi.fn()
+    await act(async () => {
+      root.render(createElement(ModelMenu, {
+        models: [model({ vision: true }), model({ id: 'm2', label: 'Mini', vision: false })],
+        activeId: 'm1',
+        onPick: vi.fn(),
+        onManage: vi.fn(),
+        onVision,
+      }))
+    })
+    await click(chip())
+    // Routing picks the answer, but which model can be shown a picture stays a property of the standing
+    // pick — a file turn is never routed — so the switch still reads and writes that one row.
+    const switchRow = buttons().find((node) => node.getAttribute('role') === 'menuitemcheckbox')
+    expect(switchRow?.getAttribute('aria-checked')).toBe('true')
+    await click(switchRow)
     expect(onVision).toHaveBeenCalledWith(false)
   })
 })
