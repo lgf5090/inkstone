@@ -7,6 +7,7 @@ import { ErrorBoundary } from './components/ErrorBoundary'
 import { LoginPage } from './features/auth/LoginPage'
 import { dismissBootScreen } from './lib/boot'
 import { peekPropertyDecoration, subscribePropertyDecoration } from './lib/property-commands'
+import { peekTemplateSlotJob, subscribeTemplateSlotJob } from './features/chat/template-slot-job'
 import { t, useLocale } from './lib/i18n'
 import { initializePwa, requestOfflineWarmup } from './store/pwa'
 import { usePresentation } from './store/presentation'
@@ -36,6 +37,9 @@ const LintPreviewHost = lazy(() =>
 )
 const Lightbox = lazy(() =>
   import('./features/preview/Lightbox').then((module) => ({ default: module.Lightbox })),
+)
+const TemplateSlotProgress = lazy(() =>
+  import('./features/chat/template-progress').then((module) => ({ default: module.TemplateSlotProgress })),
 )
 
 /**
@@ -135,6 +139,7 @@ export function App() {
           out of the boot chunk for everyone who is not presenting. */}
       {status === 'authed' && <ShowOverlay />}
       {status === 'authed' && <LightboxLayer />}
+      {status === 'authed' && <SlotFillLayer />}
       {status === 'authed' && <DecorationLayer />}
       <Toaster />
       <ConfirmHost />
@@ -196,6 +201,27 @@ function LightboxLayer() {
   return (
     <Suspense fallback={null}>
       <Lightbox />
+    </Suspense>
+  )
+}
+
+/**
+ * The card a template's AI passages report to.
+ *
+ * The note is made and opened before its passages come back, and the gallery closes behind them, so the
+ * run needs a host that outlives both — the same reason the lightbox sits here. It is mounted only once a
+ * run exists, which keeps the assistant's transport out of the boot chunk for the readers who never use a
+ * template with an `ai:` slot in it.
+ */
+function SlotFillLayer() {
+  const [requested, setRequested] = useState(() => peekTemplateSlotJob() !== null)
+  useEffect(() => subscribeTemplateSlotJob((job) => {
+    if (job) setRequested(true)
+  }), [])
+  if (!requested) return null
+  return (
+    <Suspense fallback={null}>
+      <TemplateSlotProgress />
     </Suspense>
   )
 }

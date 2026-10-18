@@ -25,10 +25,11 @@ export async function createNoteFromTemplate(template: NoteTemplate, options: { 
   if (id) {
     useUi.getState().toast({ title: t('templates.created_note_from_template'), tone: 'success' })
     // A template that asked the assistant to write something is not finished until it has. The chat
-    // module is loaded on demand: a template without slots never pays for it.
+    // module is loaded on demand: a template without slots never pays for it. The run is started rather
+    // than awaited — the note is already made and open, and its passages arrive as the card says they do.
     if (rendered.aiSlots.length > 0) {
-      const { fillTemplateSlots } = await import('../features/chat/template-fill')
-      void fillTemplateSlots(id, rendered.aiSlots)
+      const { startTemplateSlotFill } = await import('../features/chat/template-fill')
+      startTemplateSlotFill(id, rendered.aiSlots)
     }
   }
   return id
