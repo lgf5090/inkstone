@@ -1159,7 +1159,7 @@ export const api = {
       request<{ action: PendingAction, result?: string }>(`/api/assistant/actions/${id}/approve`, { method: 'POST', body: {} }),
     declineAction: (id: string) =>
       request<{ action: PendingAction, result?: string }>(`/api/assistant/actions/${id}/cancel`, { method: 'POST', body: {} }),
-    memories: (params: { q?: string, status?: string, category?: string } = {}) =>
+    memories: (params: { q?: string, status?: string, category?: string, noteId?: string } = {}) =>
       request<{ memories: AssistantMemory[], total: number, counts: { active: number, historical: number, review: number } }>(
         `/api/assistant/memories${toQuery(params)}`,
       ),

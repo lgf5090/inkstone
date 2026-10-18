@@ -15,16 +15,6 @@ import { navigateToPath } from '../../lib/app-history'
 import { useAssistant } from './assistant-store'
 
 /**
- * The published memory read names the memory page's own three filters.
- *
- * The note filter is a fourth, answered by the same route, and `lib/api.ts` belongs to another change this
- * round — so the key is carried on a query type widened here rather than on a request of this module's own.
- * Widening that signature is the edit that retires these two lines.
- */
-type PublishedMemoryQuery = NonNullable<Parameters<typeof api.assistant.memories>[0]>
-type NoteMemoryQuery = PublishedMemoryQuery & { noteId?: string }
-
-/**
  * The facts written out of this page, current ones only.
  *
  * `current` rather than `all`: the panel is a pointer list beside the editor, and a retired fact about a page
@@ -32,8 +22,7 @@ type NoteMemoryQuery = PublishedMemoryQuery & { noteId?: string }
  * that superseded each one.
  */
 export async function noteMemories(noteId: string): Promise<AssistantMemory[]> {
-  const query: NoteMemoryQuery = { status: 'current', noteId }
-  const answer = await api.assistant.memories(query)
+  const answer = await api.assistant.memories({ status: 'current', noteId })
   return answer.memories
 }
 
