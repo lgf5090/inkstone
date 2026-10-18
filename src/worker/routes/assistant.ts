@@ -101,6 +101,7 @@ import { AutomationService } from '../assistant/automations'
 import { AssistantRunner } from '../assistant/runner'
 import { cancelApprovedAction, runApprovedAction } from '../assistant/tools'
 import { exportAssistant, importAssistant } from '../assistant/backup'
+import { importSessionFile, MAX_SESSION_FILE_BYTES, SESSION_IMPORT_BODY_BYTES } from '../assistant/session-import'
 import { ChatShareStore, conversationSharePasswordHash, messageScope, MAX_SHARED_PICK, type ChatShareRow } from '../assistant/share'
 import { suggestActiveModel } from '../assistant/model-config'
 import { listVendorModels } from '../assistant/vendor-models'
@@ -3151,5 +3152,37 @@ assistantRoutes.post('/import', async (c) => {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) throw ApiError.badRequest('The backup is not a JSON object.')
   const summary = await importAssistant(s, raw as Record<string, unknown>)
   await s.recordActivity('data.imported', `backup imported (${summary.conversations} conversation(s))`)
+  return c.json({ imported: summary })
+})
+
+/**
+ * A chat log exported somewhere else, read in as threads of this account.
+ *
+ * Not the backup route: this file was not written by this app, so there is no format marker to check and
+ * no promise that its rows are rows. What is promised instead is in `session-import.ts` — the shapes a
+ * reader is likely to have are read, the turns that cannot be stored are refused out loud, and the counts
+ * in the answer are the counts the batches wrote. The text arrives as a JSON field rather than as a file
+ * body because that is the shape the backup import on the same screen already posts; the ceiling is on the
+ * text either way, and the ceiling that counts is the one applied here rather than the one the browser
+ * checked before asking.
+ */
+assistantRoutes.post('/sessions/import', async (c) => {
+  const s = store(c)
+  let raw: { filename?: unknown, text?: unknown }
+  try {
+    raw = await readJson<{ filename?: unknown, text?: unknown }>(c, SESSION_IMPORT_BODY_BYTES)
+  } catch (error) {
+    // The body reader gives no number and no way down, and the reader has to know which file to go split.
+    if (error instanceof ApiError && error.status === 413) {
+      throw ApiError.tooLarge(`That file is over the ${formatBytes(MAX_SESSION_FILE_BYTES)} a session import reads. Split it into fewer conversations and import them one at a time.`)
+    }
+    throw error
+  }
+  if (typeof raw.text !== 'string' || !raw.text.trim()) throw ApiError.badRequest('No file text arrived.')
+  // The name only steers which shape is tried first; the content decides, so a lying extension costs the
+  // reader a retry rather than a wrong import.
+  const filename = typeof raw.filename === 'string' ? raw.filename.slice(0, 300) : ''
+  const summary = await importSessionFile(s, filename, raw.text)
+  await s.recordActivity('session.imported', `session file imported (${summary.threads} thread(s), ${summary.messages} message(s))`)
   return c.json({ imported: summary })
 })

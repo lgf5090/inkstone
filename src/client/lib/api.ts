@@ -560,6 +560,21 @@ async function downloadChatFileWithProgress(
   return new Blob([merged as unknown as BlobPart], { type: response.headers.get('content-type') ?? 'application/octet-stream' })
 }
 
+/**
+ * What one session import did, as the route answered it.
+ *
+ * `src/worker/assistant/session-import.ts` owns this shape and the worker module is not something the
+ * display layer may reach into, so the fields are restated here rather than imported. What keeps the two
+ * agreeing is `tests/assistant-session-import.test.ts`, which reads the route's own answer and asserts
+ * every one of these numbers against the tables.
+ */
+export interface SessionImportSummary {
+  threads: number
+  messages: number
+  alreadyImported: number
+  skipped: string[]
+}
+
 export const api = {
   session: () => request<SessionInfo>('/api/auth/session'),
   logout: () => request<{ ok: true }>('/api/auth/logout', { method: 'POST' }),
@@ -1268,6 +1283,14 @@ export const api = {
     exportBackup: () => request<Record<string, unknown>>('/api/assistant/export'),
     importBackup: (payload: unknown) =>
       request<{ imported: AssistantImportSummary }>('/api/assistant/import', { method: 'POST', body: payload }),
+    /**
+     * One chat log exported somewhere else, read in as threads of this account.
+     *
+     * The text rather than the `File`: the route reads a bounded JSON body the same way the backup import
+     * beside it does, and the byte ceiling that counts is the one the worker applies to the text.
+     */
+    importSessionFile: (payload: { filename: string, text: string }) =>
+      request<{ imported: SessionImportSummary }>('/api/assistant/sessions/import', { method: 'POST', body: payload }),
   },
 }
 

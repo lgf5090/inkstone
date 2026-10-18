@@ -7,7 +7,7 @@ import type { ChatAttachment } from '@shared/assistant'
 import { MAX_BACKUP_BYTES } from '@shared/assistant'
 import { formatBytes } from '@shared/byte-format'
 import { t } from '../../lib/i18n'
-import { api, ApiError } from '../../lib/api'
+import { api, ApiError, type SessionImportSummary } from '../../lib/api'
 import { downloadTextFile } from '../../lib/export-note'
 import { Button, IconButton, Spinner } from '../../components/primitives'
 import { SettingRow } from '../../components/form'
@@ -182,6 +182,127 @@ export function ChatFileSpace() {
   )
 }
 
+/**
+ * A chat log exported somewhere else, read in as threads of this account.
+ *
+ * Three states, because the reader is handing over a file this app did not write: nothing picked yet, the
+ * import running, and then either what landed — with every turn the file could not contribute named under
+ * it — or the reason it was refused. The counts are the route's rather than added up here, for the same
+ * reason the backup import reads its summary back: a screen that counts on its own can claim an import
+ * that did not happen. The reason lines are the server's own English, so they travel as the detail under a
+ * localized headline rather than as the headline.
+ */
+export function SessionImportRow() {
+  const fileRef = useRef<HTMLInputElement>(null)
+  const toast = useUi((state) => state.toast)
+  const [file, setFile] = useState<File | null>(null)
+  const [importing, setImporting] = useState(false)
+  const [result, setResult] = useState<SessionImportSummary | null>(null)
+  // Kept apart from the result rather than derived from it: a file that was refused and a file that
+  // imported nothing are two different facts, and the route's reason travels with the first one only — and
+  // only when the first one has one. A fetch that died never reached the route, so the state says "refused"
+  // and leaves the detail blank rather than inventing one.
+  const [failure, setFailure] = useState<{ detail: string | null } | null>(null)
+
+  const run = async () => {
+    if (!file) return
+    setImporting(true)
+    setFailure(null)
+    setResult(null)
+    try {
+      const { imported } = await api.assistant.importSessionFile({ filename: file.name, text: await file.text() })
+      setResult(imported)
+      toast({
+        title: imported.threads || imported.messages
+          ? t('assistant.settings.sessions_result', { threads: imported.threads, messages: imported.messages })
+          : t('assistant.settings.import_nothing'),
+        description: imported.skipped.length ? imported.skipped.join('; ') : undefined,
+        tone: 'success',
+        duration: 8000,
+      })
+      await useAssistant.getState().bootstrap(true)
+    } catch (error) {
+      // The route names what stopped it — the byte ceiling, or how far the write got. A toast that said
+      // only "failed" would leave a reader with half a library of threads and no idea where it stopped, and
+      // a toast alone disappears while the screen still looks like nothing happened.
+      const detail = error instanceof ApiError ? error.serverMessage ?? null : null
+      setFailure({ detail })
+      toast({
+        title: t('assistant.settings.sessions_failed'),
+        description: detail ?? undefined,
+        tone: 'danger',
+        duration: detail ? 12_000 : undefined,
+      })
+    } finally {
+      setImporting(false)
+    }
+  }
+
+  return (
+    <>
+      <SettingRow
+        title={t('assistant.settings.import_sessions')}
+        description={importing
+          ? t('assistant.settings.sessions_running', { name: file?.name ?? '' })
+          : file
+            ? t('assistant.settings.sessions_picked', { name: file.name, size: formatBytes(file.size) })
+            : t('assistant.settings.import_sessions_hint')}
+      >
+        <div className="flex items-center gap-1.5">
+          <Button size="sm" variant="secondary" disabled={importing} onClick={() => fileRef.current?.click()}>
+            {t('settings.select_file')}
+          </Button>
+          <Button size="sm" loading={importing} icon={<Upload size={14} />} disabled={!file} onClick={() => void run()}>
+            {t('assistant.settings.import_sessions')}
+          </Button>
+          <input
+            ref={fileRef}
+            type="file"
+            accept="application/json,text/plain,.json,.jsonl,.ndjson,.md,.txt"
+            hidden
+            onChange={(event) => {
+              const picked = event.target.files?.[0] ?? null
+              event.target.value = ''
+              setFile(picked)
+              setResult(null)
+              setFailure(null)
+            }}
+          />
+        </div>
+      </SettingRow>
+
+      {failure !== null && (
+        <LoadFailure messageKey="assistant.settings.sessions_failed" detail={failure.detail} onRetry={() => void run()} />
+      )}
+
+      {result !== null && (
+        <div role="status" className="rounded-[var(--r-md)] border border-[var(--border-subtle)] bg-[var(--bg-base)] px-3 py-2.5">
+          <p className="text-[length:var(--text-12)] text-[var(--text-primary)]">
+            {result.threads || result.messages
+              ? t('assistant.settings.sessions_result', { threads: result.threads, messages: result.messages })
+              : t('assistant.settings.import_nothing')}
+            {result.alreadyImported > 0 && (
+              <span className="text-[var(--text-tertiary)]"> · {t('assistant.settings.sessions_already', { count: result.alreadyImported })}</span>
+            )}
+          </p>
+          {result.skipped.length > 0 && (
+            <>
+              <p className="mt-1 text-[length:var(--text-11-5)] text-[var(--text-tertiary)]">
+                {t('assistant.settings.sessions_skipped', { count: result.skipped.length })}
+              </p>
+              {/* The server's own reasons, listed rather than summarised: a reader deciding whether to fix
+                  the file and try again needs the per-kind detail, not a count. */}
+              <ul className="mt-1 flex list-disc flex-col gap-0.5 pl-4 text-[length:var(--text-11-5)] text-[var(--text-quaternary)]">
+                {result.skipped.map((note) => <li key={note}>{note}</li>)}
+              </ul>
+            </>
+          )}
+        </div>
+      )}
+    </>
+  )
+}
+
 export function DataTab() {
   const fileRef = useRef<HTMLInputElement>(null)
   const [importing, setImporting] = useState(false)
@@ -294,6 +415,12 @@ export function DataTab() {
             />
           </div>
         </SettingRow>
+
+        {/* The other way a conversation gets in: a file this app never wrote. It shares the group with the
+            backup rows because it is the same question — the reader's own records, moving — and it is the
+            one row on this screen that has to answer with what it refused, so it carries its own result
+            block rather than a toast alone. */}
+        <SessionImportRow />
       </Group>
 
       <ChatFileSpace />
