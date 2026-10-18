@@ -1,12 +1,14 @@
 // @vitest-environment jsdom
 /**
- * A recording or a clip is refused before its first byte leaves the browser.
+ * A recording the model on screen cannot be handed is refused before its first byte leaves the browser.
  *
- * The strip has said for a while that no model can be handed these bytes — the three request builders in
- * `worker/assistant/upstream.ts` put text and pictures into a body and nothing else ever goes in. Saying it
- * after the upload only explains the waste: the file went to the reader's storage, the round trip was paid
- * for, and the answer is still going to be the same sentence. So the queue asks `attachmentModality` itself
- * and turns the file away at the door, and the row that appears carries the reason instead of the bytes.
+ * Saying it after the upload only explains the waste: the file went to the reader's storage, the round trip
+ * was paid for, and the answer is still going to be the same sentence. So the queue asks the model it is
+ * standing on — `attachmentTarget`, through the same two shared predicates the worker builds its request
+ * with — and turns the file away at the door, and the row that appears carries the reason instead of the
+ * bytes. Which model that is changes the answer, so the model the cases stand on is written out rather than
+ * left to an empty store; `attachment-model-target.test.ts` is where the other direction, and each of the
+ * four refusals, is pinned to the fact it names.
  *
  * The door has to be the queue rather than the pickers' `accept` attribute, because a drag and a paste do
  * not pass through that attribute at all — `ChatView.tsx` hands `attachFiles` the clipboard's and the
@@ -17,7 +19,7 @@
  */
 import { act, createElement } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import type { ChatAttachment } from '@shared/assistant'
+import { DEFAULT_ASSISTANT_SETTINGS, type AssistantModel, type AssistantProvider, type ChatAttachment } from '@shared/assistant'
 import { initI18n, t } from '../../lib/i18n'
 import { installTestGlobals, renderElement, type RenderedElement } from '../../lib/test-render'
 import { useAssistant } from './assistant-store'
@@ -39,6 +41,22 @@ vi.mock('../../lib/api', () => ({
   },
 }))
 
+function model(over: Partial<AssistantModel> = {}): AssistantModel {
+  return {
+    id: 'm1', providerId: 'p1', model: 'deepseek-chat', label: 'DeepSeek Chat', temperature: 0.4,
+    maxOutputTokens: 8192, enabled: true, reasoning: 'auto', contextTokens: null, vision: true, purpose: 'chat',
+    kind: 'text', supportsTools: true, maxInputTokens: null, modalities: [], topP: null, customParams: [],
+    protocol: null, fallbackModelId: null, inputPrice: null, outputPrice: null, priceCurrency: '', ...over,
+  }
+}
+
+function provider(protocol: AssistantProvider['protocol']): AssistantProvider {
+  return {
+    id: 'p1', label: 'Gateway', protocol, baseUrl: 'https://gateway.example.org/v1', endpoints: {},
+    hasKey: true, keyHint: 'abcd', reasoningDialect: null, createdAt: 1, updatedAt: 1,
+  }
+}
+
 function pick(name: string, type: string, bytes = 2_048): File {
   return new File([new Uint8Array(bytes)], name, { type })
 }
@@ -49,8 +67,13 @@ const NOTE = pick('notes.md', 'text/markdown')
 const PICTURE = pick('plot.png', 'image/png')
 
 /** What the row owes the reader, built from the keys rather than from the function under test. */
-function refusalFor(kindKey: 'assistant.model.modality.audio' | 'assistant.model.modality.video', name: string): string {
-  return t('assistant.attach.unreadable', { kind: t(kindKey), name })
+function clipRefusal(name: string): string {
+  return t('assistant.attach.unreadable', { kind: t('assistant.model.modality.video'), name })
+}
+
+/** The sentence for a model on a wire that does carry audio, which is the one a tick can still fix. */
+function unmarkedRefusal(name: string): string {
+  return t('assistant.attach.no_audio_switch', { model: 'DeepSeek Chat', name })
 }
 
 function storedFor(file: File, id: string): ChatAttachment {
@@ -95,7 +118,15 @@ function mountStrip(onRetry?: (localId: string) => void): void {
 beforeEach(async () => {
   installTestGlobals()
   await initI18n()
-  useAssistant.setState({ pending: [], fileIndex: {} })
+  // The model every case below stands on: an OpenAI-compatible wire, which does carry a recording, with
+  // the audio tick left off — so a clip is refused for what it is and a recording for the missing tick.
+  useAssistant.setState({
+    pending: [],
+    fileIndex: {},
+    models: [model()],
+    providers: [provider('openai')],
+    settings: { ...DEFAULT_ASSISTANT_SETTINGS, activeModelId: 'm1' },
+  })
   uploadChatFile.mockReset().mockImplementation(async (file: File) => storedFor(file, `up-${uploadChatFile.mock.calls.length}`))
   deleteChatFile.mockReset().mockResolvedValue({ deleted: true })
 })
@@ -120,15 +151,15 @@ describe('a recording dropped or pasted into the composer', () => {
     expect(row?.status, 'the refused row is not marked as a failure').toBe('error')
     expect(row?.id, 'a refused row claims a server id it never earned').toBe('')
     expect(row?.progress, 'a refused row reports progress on bytes it never sent').toBe(0)
-    expect(row?.error, 'the row itself carries no reason').toBe(refusalFor('assistant.model.modality.audio', 'voice-note.mp3'))
+    expect(row?.error, 'the row itself carries no reason').toBe(unmarkedRefusal('voice-note.mp3'))
   })
 
   it('names the reason as text a reader sees, beside every refused file', async () => {
     await attach(RECORDING, CLIP)
     mountStrip()
     expect(refusalLines(), 'the refused rows are drawn with no reason beside them').toHaveLength(2)
-    expect(refusalLines()[0]!.textContent).toContain(refusalFor('assistant.model.modality.audio', 'voice-note.mp3'))
-    expect(refusalLines()[1]!.textContent).toContain(refusalFor('assistant.model.modality.video', 'standup.mp4'))
+    expect(refusalLines()[0]!.textContent).toContain(unmarkedRefusal('voice-note.mp3'))
+    expect(refusalLines()[1]!.textContent).toContain(clipRefusal('standup.mp4'))
     // A copy hidden under `sr-only` or parked in a `title` would answer nobody deciding whether to press send.
     expect(refusalLines()[0]!.className).not.toContain('sr-only')
   })
@@ -160,7 +191,7 @@ describe('a recording dropped or pasted into the composer', () => {
     expect(uploadChatFile, 'the retry path uploaded a recording it had refused').not.toHaveBeenCalled()
     const row = rows()[0]!
     expect(row.status).toBe('error')
-    expect(row.error).toBe(refusalFor('assistant.model.modality.audio', 'voice-note.mp3'))
+    expect(row.error).toBe(unmarkedRefusal('voice-note.mp3'))
   })
 
   it('keeps such a row out of the turn, and says nothing about the files the turn reads', async () => {

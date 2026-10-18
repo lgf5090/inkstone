@@ -10,18 +10,19 @@
  * reader took back out of the box should not stay in their storage.
  *
  * Two sentences are drawn here rather than hidden, because both are worth knowing before something is
- * paid for. A recording or a clip cannot reach a model at all: `attachFiles` refuses one before a byte
- * leaves the browser, and the row it draws carries the same sentence — `unreadableAttachmentReason`, so the
- * queue and the chip cannot say it two different ways — in words an eye reads, not a `title` that has to be
- * hunted for. Such a row gets the cross and no retry, because nothing a retry changes can make a recording
- * readable. And a download the server refused says why: the transport names its own failure, and the route's
- * sentence about *this* file rides beside it, the same way the assistant's toast and the thread's load
- * banner already carry it.
+ * paid for. A clip reaches no model at all, and a recording reaches only the one on screen: the row asks
+ * the same question the queue asked before turning the file away — `unreadableAttachmentReason`, so the
+ * strip and `attachFiles` cannot say it two different ways — in words an eye reads, not a `title` that has
+ * to be hunted for. A row still carrying a refusal gets the cross and no retry, because the press would
+ * answer with the same words; once the reader changes what the queue is standing on, the refusal is gone
+ * and the retry appears with it. And a download the server refused says why: the transport names its own
+ * failure, and the route's sentence about *this* file rides beside it, the same way the assistant's toast
+ * and the thread's load banner already carry it.
  */
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { FileText, Image as ImageIcon, Loader, RotateCcw, X } from 'lucide-react'
 import { attachmentModality, type ChatAttachment } from '@shared/assistant'
-import { attachmentSenseLabel, unreadableAttachmentReason, type PendingAttachment } from './assistant-store'
+import { attachmentSenseLabel, attachmentTargetOf, unreadableAttachmentReason, useAssistant, type PendingAttachment } from './assistant-store'
 import { cn } from '../../lib/cn'
 import { t } from '../../lib/i18n'
 import { api, ApiError } from '../../lib/api'
@@ -149,6 +150,16 @@ export function AttachmentStrip({
 }) {
   const setLightbox = useUi((state) => state.setLightbox)
   const [viewing, setViewing] = useState<ChatAttachment | null>(null)
+  // The model the next turn would be answered by, because the row's sentence is now about that model and
+  // nothing else. Read as three stable pieces rather than as a built object: a selector returning a new
+  // one every render would have this row re-decide whether it is refused on every keystroke.
+  const models = useAssistant((state) => state.models)
+  const providers = useAssistant((state) => state.providers)
+  const activeModelId = useAssistant((state) => state.settings?.activeModelId ?? null)
+  const target = useMemo(
+    () => attachmentTargetOf(models, providers, activeModelId),
+    [models, providers, activeModelId],
+  )
   // A thumbnail that will not load is said with the picture glyph rather than left as a browser's broken
   // image: the file is still there and still removable, and a torn icon claims nothing about either.
   const [brokenThumb, setBrokenThumb] = useState<Record<string, boolean>>({})
@@ -157,14 +168,18 @@ export function AttachmentStrip({
     <div className="flex flex-wrap gap-1.5 px-1.5 pb-1.5 pt-1">
       {items.map((entry) => {
         const ready = entry.status === 'ready' && entry.id
-        // Whether any model could be handed these bytes is known the moment the name and the type are, which
-        // is before the reader decides to press send — and the row is the only place that gets to say it.
-        // `attachFiles` asks the same question and refuses the file outright, so what reaches this row with
-        // an answer is a file that was never uploaded; the address door and any row older than the gate are
-        // the ones still drawn over a stored file.
-        const refusal = unreadableAttachmentReason(entry.mime, entry.filename)
-        // A row that was refused for what it *is* has nothing a retry could change, so it gets no press that
-        // answers with nothing — the removal cross is the exit that still means something.
+        // Whether *this* model can be handed these bytes is known the moment the name, the type and the
+        // picked model are, which is before the reader decides to press send — and the row is the only
+        // place that gets to say it. `attachFiles` asks the same question of the same target and refuses
+        // the file outright, so what reaches this row with an answer is a file that was never uploaded; the
+        // address door and any row older than the gate are the ones still drawn over a stored file. Change
+        // what the queue is standing on — tick the model, or move to a wire with a field for audio — and
+        // this line goes away without the file being picked again.
+        const refusal = unreadableAttachmentReason(entry.mime, entry.filename, target)
+        // A row is retriable the moment the reason for its refusal is gone: a recording dropped on an
+        // unticked model becomes uploadable when the reader ticks it, and the press is what sends it without
+        // picking the file again. While a refusal stands — a clip, a container nothing decodes, the model
+        // still not marked — the press only answers with the same words, so it is not drawn.
         const retryable = entry.status === 'error' && !refusal
         // What assistive tech is told that the eye is not: the refusal is on screen and read where it is
         // drawn, so a row carrying one is spoken with its size rather than with the same sentence twice.

@@ -43,7 +43,7 @@ import type {
 } from '@shared/assistant'
 import type { AssistantSkill } from '@shared/assistant'
 import { DEBOUNCE } from '@shared/constants'
-import { MAX_ARTIFACT_CONTENT_CHARS, MAX_ARTIFACT_TITLE_CHARS, MAX_CHAT_ATTACHMENTS, MAX_TURN_SCOPES, MAX_TURN_TOOLS, CONVERSATION_PAGE_SIZE, MESSAGE_PAGE_SIZE, attachmentModality, type AttachmentSense, type AssistantTurnScope, type ChatAttachment, type AssistantSkillInput, type SkillImportResult, type AssistantMcpToolMode } from '@shared/assistant'
+import { MAX_ARTIFACT_CONTENT_CHARS, MAX_ARTIFACT_TITLE_CHARS, MAX_CHAT_ATTACHMENTS, MAX_TURN_SCOPES, MAX_TURN_TOOLS, CONVERSATION_PAGE_SIZE, MESSAGE_PAGE_SIZE, attachmentModality, audioFormatFor, modelWire, protocolCarriesAudio, type AssistantModelModality, type AttachmentSense, type AssistantTurnScope, type ChatAttachment, type AssistantSkillInput, type SkillImportResult, type AssistantMcpToolMode } from '@shared/assistant'
 import { api, ApiError } from '../../lib/api'
 import { confirm } from '../../components/overlay'
 import { t } from '../../lib/i18n'
@@ -541,7 +541,8 @@ interface AssistantState {
   /**
    * Queue files the reader picked, dragged or pasted, and send the ones a turn could read.
    *
-   * A recording or a clip is turned away here without an upload: see `unreadableAttachmentReason`.
+   * A clip, and a recording the model on screen cannot be handed, are turned away here without an upload:
+   * see `unreadableAttachmentReason`.
    */
   attachFiles: (files: File[]) => Promise<void>
   /** Uploads one failed attachment again, from the file the browser still holds. */
@@ -1082,23 +1083,86 @@ export function attachmentSenseLabel(sense: AttachmentSense): string {
 }
 
 /**
- * Why these bytes can never be read into a turn, or null when a turn can read them.
+ * The model these bytes would be handed to, in the two facts the attachment rules read off it.
  *
- * `attachmentModality` is the single judge, and it answers before anything is sent rather than after:
- * knowing once the file is already stored only explains the waste — the upload costs the reader storage,
- * the wait costs them a round trip, and nothing about the answer changes. So the queue refuses the file
- * here, no byte leaves the browser, and `send()`, which carries only `ready` attachments, never pays for a
- * turn that could not have read it. The row still says why in the same words, and still keeps its cross,
- * because a file the reader picked has to be takeable back out of the box.
- *
- * A clip is refused whatever the model is: no request format in this app carries one. A recording is
- * refused here too, because this question is asked without asking which model is picking the bytes up —
- * and on the two wires with no audio field the answer would be the same refusal anyway.
+ * What the reader ticked, and which wire the model is actually called on. Both are needed and neither is
+ * the same question: a tick on a model whose request format has no field for a recording is a promise
+ * nobody keeps, and a wire with the field means nothing until the reader marks the model for it.
  */
-export function unreadableAttachmentReason(mime: string, filename: string): string | null {
+export interface AttachmentTarget {
+  /** What the reader calls this model, for the sentence that has to name it. */
+  label: string
+  modalities: readonly AssistantModelModality[]
+  audioWire: boolean
+}
+
+/**
+ * Which model the next turn would answer with, as an `AttachmentTarget`.
+ *
+ * Read off `activeModelId` because that is the one the composer sends with, and the provider is consulted
+ * through `modelWire` — the same rule the worker builds its request from — so a model that follows its
+ * provider's wire is judged on that wire here rather than on a guess.
+ *
+ * Filtered through `chatModels` for the same reason the worker's `loadModelAndProvider` answers `no_model`
+ * for a disabled row: the question is which model *would* pick these bytes up, and one that is switched off
+ * answers nothing.
+ */
+export function attachmentTargetOf(
+  models: readonly AssistantModel[],
+  providers: readonly AssistantProvider[],
+  activeModelId: string | null,
+): AttachmentTarget | null {
+  const model = chatModels(models).find((entry) => entry.id === activeModelId)
+  if (!model) return null
+  const provider = providers.find((entry) => entry.id === model.providerId) ?? null
+  const protocol = provider ? modelWire(model, provider).protocol : model.protocol
+  return {
+    label: modelLabelOf(model),
+    modalities: model.modalities,
+    audioWire: protocol !== null && protocolCarriesAudio(protocol),
+  }
+}
+
+/** The same question asked of the store as it stands, for the two actions that only ever have the store. */
+export function attachmentTarget(): AttachmentTarget | null {
+  const state = useAssistant.getState()
+  return attachmentTargetOf(state.models, state.providers, state.settings?.activeModelId ?? null)
+}
+
+/**
+ * Why these bytes cannot be read into a turn, or null when this model can.
+ *
+ * `attachmentModality` says what the file asks for; the target says whether the model the reader is
+ * standing on can answer it. The answer is asked before anything is sent rather than after: knowing once
+ * the file is already stored only explains the waste — the upload costs the reader storage, the wait costs
+ * them a round trip, and nothing about the answer changes. So the queue refuses the file here, no byte
+ * leaves the browser, and `send()`, which carries only `ready` attachments, never pays for a turn that
+ * could not have read it. The row still says why in the same words, and still keeps its cross, because a
+ * file the reader picked has to be takeable back out of the box.
+ *
+ * A clip is one refusal and a recording is four, and each of the four names the one fact that fails:
+ * no model to answer (`activeModelId` unset or switched off), a wire with no field for the bytes, a model
+ * nobody ticked, a container no provider decodes. Telling a reader "not supported" teaches them nothing,
+ * and the file is not the thing they have to change in three of the four cases.
+ *
+ * The wire is asked before the tick, because the model editor draws the audio switch only on a wire that
+ * honours it. A tick-first answer of "go tick the model" sent the reader to a control that is not there;
+ * on a dead wire the wire is the only fact they can act on, whatever the stored tick says. The worker names
+ * these same facts in its own lines for a file that arrives anyway (`attachments.ts`), off the same two
+ * shared predicates — `protocolCarriesAudio` and `audioFormatFor` — not a second copy of this rule, and it
+ * adds the two that are only known once the bytes are in front of it: the size ceiling and the window.
+ */
+export function unreadableAttachmentReason(mime: string, filename: string, target: AttachmentTarget | null): string | null {
   const sense = attachmentModality(mime, filename)
   if (!sense) return null
-  return t('assistant.attach.unreadable', { kind: attachmentSenseLabel(sense), name: filename })
+  if (sense === 'video') return t('assistant.attach.unreadable', { kind: attachmentSenseLabel(sense), name: filename })
+  if (!target) return t('assistant.attach.no_audio_target', { name: filename })
+  if (!target.audioWire) return t('assistant.attach.no_audio_wire', { model: target.label, name: filename })
+  if (!target.modalities.includes('audio')) {
+    return t('assistant.attach.no_audio_switch', { model: target.label, name: filename })
+  }
+  if (!audioFormatFor(mime, filename)) return t('assistant.attach.no_audio_format', { name: filename })
+  return null
 }
 
 /**
@@ -1918,7 +1982,7 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
       // pickers' `accept` filter — a drag and a paste both hand over whatever the reader had, and a file
       // dialog lets them widen the type themselves — so the question has to be asked here, where all three
       // arrive. Nothing is uploaded, and the row carries the reason instead of the bytes.
-      const refused = unreadableAttachmentReason(file.type, filename)
+      const refused = unreadableAttachmentReason(file.type, filename, attachmentTarget())
       if (refused) {
         set((current) => ({
           pending: [...current.pending, {
@@ -1940,14 +2004,17 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
    * Try a failed upload again, with the file the browser still has.
    *
    * The row keeps its place and its name, so a flaky connection costs one press rather than re-picking
-   * the file and losing which one failed. A file that was never uploaded because no model can be handed
-   * its bytes is the one failure a retry cannot fix, so it is refused the same way the first attempt was
-   * — the strip hides the press, and this keeps it impossible from the other door.
+   * the file and losing which one failed. A row the gate turned away is asked the same question again
+   * rather than refused on sight: the answer is about the model on screen, so a recording refused under
+   * one model uploads after the reader ticks audio or switches to a wire that carries it. What stays
+   * refused is what no press can change — a clip, a container nothing decodes, and the case where there
+   * is still no model to answer — and the strip hides the press for all of them, while this keeps the
+   * other doors honest.
    */
   retryAttachment: async (localId) => {
     const entry = get().pending.find((item) => item.localId === localId)
     if (!entry?.sourceFile || entry.status === 'uploading') return
-    const refused = unreadableAttachmentReason(entry.mime, entry.filename)
+    const refused = unreadableAttachmentReason(entry.mime, entry.filename, attachmentTarget())
     if (refused) {
       set((current) => ({
         pending: current.pending.map((item) => (

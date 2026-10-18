@@ -1,16 +1,19 @@
 // @vitest-environment jsdom
 /**
- * The composer says, in words, that a recording or a clip will not be read.
+ * The composer says, in words, that a recording or a clip will not be read by *this* model.
  *
- * A reader who drops a `.mp3` on the box is not picking it from a file dialog — the pickers already refuse
- * those types — so the drag and the paste are the doors that let it through, and `attachment-upload-gate.test.ts`
- * is the case that turns it away there before a byte is sent. What both of them owe the reader is the same
- * sentence the pickers' silence hides: this app never puts a recording or a clip in front of a model, so the
- * file cannot be read into the turn. It is owed by a row that arrived anyway — a file stored by an address,
- * or one uploaded before the gate existed — which is why the strip is the surface that answers here. Telling
- * it in a `title` is telling it to nobody, because the reason is only useful before the turn is paid for, and
- * a tooltip is not read before a click. So the cases below read the strip's *rendered text*, which is what an
- * eye sees, and refuse to accept a visually-hidden node or an attribute in its place.
+ * A reader who drops a `.mp3` on the box is not picking it from a file dialog — the pickers' `accept` list
+ * stops at the kinds every model takes — so the drag and the paste are the doors that let it through, and
+ * `attachment-upload-gate.test.ts` is the case that turns it away there before a byte is sent. What both of
+ * them owe the reader is the same sentence the pickers' silence hides, and the sentence is about the model
+ * the composer is standing on: a clip reaches no model at all, a recording reaches only one that was ticked
+ * for it on a wire that carries it. The strip is drawn from the store rather than from an argument, so the
+ * model below is named in the text the case expects — a row that only ever said "not supported" would pass
+ * with the wrong model on screen. It is owed by a row that arrived anyway — a file stored by an address, or
+ * one queued before the reader switched models — which is why the strip is the surface that answers here.
+ * Telling it in a `title` is telling it to nobody, because the reason is only useful before the turn is paid
+ * for, and a tooltip is not read before a click. So the cases below read the strip's *rendered text*, which
+ * is what an eye sees, and refuse to accept a visually-hidden node or an attribute in its place.
  *
  * The same sentence belongs on the panel that opens: it is the door to the file's download, which is the one
  * thing a clip can still be asked for — and it is asked for without pulling megabytes of audio over the wire
@@ -18,11 +21,26 @@
  */
 import { act, createElement } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import type { ChatAttachment } from '@shared/assistant'
+import { DEFAULT_ASSISTANT_SETTINGS, type AssistantModel, type AssistantProvider, type ChatAttachment } from '@shared/assistant'
 import { initI18n, t } from '../../lib/i18n'
 import { installTestGlobals, renderElement, type RenderedElement } from '../../lib/test-render'
+import { useAssistant } from './assistant-store'
 import { AttachmentStrip, CHAT_ATTACHMENT_ACCEPT, MessageAttachments } from './ChatAttachments'
 import type { PendingAttachment } from './assistant-store'
+
+function model(over: Partial<AssistantModel> = {}): AssistantModel {
+  return {
+    id: 'm1', providerId: 'p1', model: 'deepseek-chat', label: 'DeepSeek Chat', temperature: 0.4,
+    maxOutputTokens: 8192, enabled: true, reasoning: 'auto', contextTokens: null, vision: true, purpose: 'chat',
+    kind: 'text', supportsTools: true, maxInputTokens: null, modalities: [], topP: null, customParams: [],
+    protocol: null, fallbackModelId: null, inputPrice: null, outputPrice: null, priceCurrency: '', ...over,
+  }
+}
+
+const GATEWAY: AssistantProvider = {
+  id: 'p1', label: 'Gateway', protocol: 'openai', baseUrl: 'https://gateway.example.org/v1', endpoints: {},
+  hasKey: true, keyHint: 'abcd', reasoningDialect: null, createdAt: 1, updatedAt: 1,
+}
 
 const CLIP: ChatAttachment = {
   id: 'v1', kind: 'file', filename: 'standup.mp4', mime: 'video/mp4', size: 40_000, key: 'chat/files/u/v1.mp4', createdAt: 1,
@@ -68,6 +86,13 @@ function dialogText(): string {
 beforeEach(async () => {
   installTestGlobals()
   await initI18n()
+  // A model on the one wire that does carry a recording, with the audio tick left off: the sentence the
+  // strip owes is the one about that tick, and it has to name the model it was read off.
+  useAssistant.setState({
+    models: [model()],
+    providers: [GATEWAY],
+    settings: { ...DEFAULT_ASSISTANT_SETTINGS, activeModelId: 'm1' },
+  })
   vi.stubGlobal('fetch', vi.fn(async () => new Response('body', { status: 200, headers: { 'content-type': 'text/plain' } })))
 })
 
@@ -81,9 +106,9 @@ afterEach(() => {
 describe('a recording dropped into the composer', () => {
   it('says the reason as text a reader sees, not as a tooltip', () => {
     rendered = renderElement(createElement(AttachmentStrip, { items: [pending()], onRemove: () => {} }))
-    const said = t('assistant.attach.unreadable', { kind: t('assistant.model.modality.audio'), name: 'voice-note.mp3' })
+    const said = t('assistant.attach.no_audio_switch', { model: 'DeepSeek Chat', name: 'voice-note.mp3' })
 
-    expect(refusalLines(), 'the strip draws no reason for a file no model can be handed').toHaveLength(1)
+    expect(refusalLines(), 'the strip draws no reason for a file this model cannot be handed').toHaveLength(1)
     const line = refusalLines()[0]!
     expect(line.textContent).toContain(said)
     // The same words inside a `title` or an `sr-only` node would pass for a tooltip and answer nothing for
@@ -94,6 +119,9 @@ describe('a recording dropped into the composer', () => {
   })
 
   it('names a clip as video rather than reusing the audio sentence', () => {
+    // A clip is the one refusal that is not about the model: switching to the most capable row in the
+    // catalogue changes nothing, so it keeps the old sentence and gets none of the four new ones.
+    useAssistant.setState({ models: [model({ modalities: ['audio'] })] })
     rendered = renderElement(createElement(AttachmentStrip, {
       items: [pending({ id: 'v1', filename: 'standup.mp4', mime: 'video/mp4' })],
       onRemove: () => {},
@@ -152,9 +180,10 @@ describe('the same file inside a stored turn', () => {
 })
 
 describe('what the pickers offer', () => {
-  it('never offers a kind the composer now refuses in words', () => {
-    // Two doors, one answer: the pickers do not offer what the strip says cannot be read, so the only way a
-    // recording reaches the box is a drag, a paste or an address — the three the refusal line is drawn for.
+  it('still stops at the kinds every model takes, which is not where the answer is given', () => {
+    // The `accept` list is a convenience, not the gate: it offers no recording and no clip, so the doors a
+    // recording comes through are the drag, the paste and an address — and those three are answered by the
+    // queue and this strip, not by an attribute a folder picker also carries.
     const types = CHAT_ATTACHMENT_ACCEPT.split(',')
     expect(types.some((entry) => entry.startsWith('audio/') || entry.startsWith('video/'))).toBe(false)
     expect(types).not.toContain('.mp3')
