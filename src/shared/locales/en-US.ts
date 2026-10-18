@@ -2495,6 +2495,7 @@ export const EN_US_MESSAGES = {
     "share.passcode": "Passcode",
     "share.passcode_protected": "Passcode protected",
     "share.public_link": "Public link",
+    "share.private_note_reference_is_not_included_in_public_shares": "a private note this share does not include",
     "share.public_link_created": "Public link created",
     "share.public_links_are_read_only_visitors_can_see_only_the_latest_version_of_t": "Public links are read-only. Visitors can view only the latest content of this note and cannot access other notes.",
     "share.refresh_list": "Refresh shared notes",

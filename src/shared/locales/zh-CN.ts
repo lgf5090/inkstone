@@ -2495,6 +2495,7 @@ export const ZH_CN_MESSAGES = {
     "share.passcode": "口令",
     "share.passcode_protected": "已加口令",
     "share.public_link": "公开链接",
+    "share.private_note_reference_is_not_included_in_public_shares": "未随本分享导出的私有引用",
     "share.public_link_created": "公开链接已生成",
     "share.public_links_are_read_only_visitors_can_see_only_the_latest_version_of_t": "公开链接为只读。访问者只能查看这篇笔记的最新内容，无法访问其他笔记。",
     "share.refresh_list": "刷新分享列表",
