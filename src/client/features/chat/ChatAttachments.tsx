@@ -10,15 +10,18 @@
  * reader took back out of the box should not stay in their storage.
  *
  * Two sentences are drawn here rather than hidden, because both are worth knowing before something is
- * paid for. A recording or a clip cannot reach a model at all, so the row says that in words the moment it
- * appears — a `title` is not read before a click, and the click is the turn. And a download the server
- * refused says why: the transport names its own failure, and the route's sentence about *this* file rides
- * beside it, the same way the assistant's toast and the thread's load banner already carry it.
+ * paid for. A recording or a clip cannot reach a model at all: `attachFiles` refuses one before a byte
+ * leaves the browser, and the row it draws carries the same sentence — `unreadableAttachmentReason`, so the
+ * queue and the chip cannot say it two different ways — in words an eye reads, not a `title` that has to be
+ * hunted for. Such a row gets the cross and no retry, because nothing a retry changes can make a recording
+ * readable. And a download the server refused says why: the transport names its own failure, and the route's
+ * sentence about *this* file rides beside it, the same way the assistant's toast and the thread's load
+ * banner already carry it.
  */
 import { useEffect, useState } from 'react'
 import { FileText, Image as ImageIcon, Loader, RotateCcw, X } from 'lucide-react'
-import { attachmentModality, type AssistantModelModality, type ChatAttachment } from '@shared/assistant'
-import type { PendingAttachment } from './assistant-store'
+import { attachmentModality, type ChatAttachment } from '@shared/assistant'
+import { attachmentModalityLabel, unreadableAttachmentReason, type PendingAttachment } from './assistant-store'
 import { cn } from '../../lib/cn'
 import { t } from '../../lib/i18n'
 import { api, ApiError } from '../../lib/api'
@@ -27,12 +30,6 @@ import { useUi } from '../../store/ui'
 
 export function attachmentUrl(id: string): string {
   return api.assistant.chatFileUrl(id)
-}
-
-/** What a reader calls the two senses a model would need, in their own language. */
-const MODALITY_LABEL_KEYS: Record<AssistantModelModality, Parameters<typeof t>[0]> = {
-  audio: 'assistant.model.modality.audio',
-  video: 'assistant.model.modality.video',
 }
 
 /**
@@ -64,7 +61,9 @@ function describeDownloadFailure(error: unknown): string {
  * drift apart from each other or from what the server actually reads.
  *
  * A filter is not an answer, though: a file that comes in through a door with none — dragged onto the box,
- * pasted, named by an address — is told to the reader in the row below, not quietly left out of the list.
+ * pasted off the clipboard, or named by an address — still reaches `attachFiles`, since no browser hands a
+ * drag or a paste through `accept`. So the refusal lives at that one join rather than in the attribute: the
+ * file is not uploaded, and the row says why in words instead of quietly leaving it out of the list.
  */
 export const CHAT_ATTACHMENT_ACCEPT = [
   'image/*',
@@ -160,10 +159,20 @@ export function AttachmentStrip({
         const ready = entry.status === 'ready' && entry.id
         // Whether any model could be handed these bytes is known the moment the name and the type are, which
         // is before the reader decides to press send — and the row is the only place that gets to say it.
-        const modality = attachmentModality(entry.mime, entry.filename)
-        const label = entry.status === 'uploading'
-          ? t('assistant.attach.uploading', { percent: Math.round(entry.progress * 100) })
-          : entry.status === 'error' ? entry.error ?? t('assistant.attach.failed') : `${entry.filename} · ${formatSize(entry.size)}`
+        // `attachFiles` asks the same question and refuses the file outright, so what reaches this row with
+        // an answer is a file that was never uploaded; the address door and any row older than the gate are
+        // the ones still drawn over a stored file.
+        const refusal = unreadableAttachmentReason(entry.mime, entry.filename)
+        // A row that was refused for what it *is* has nothing a retry could change, so it gets no press that
+        // answers with nothing — the removal cross is the exit that still means something.
+        const retryable = entry.status === 'error' && !refusal
+        // What assistive tech is told that the eye is not: the refusal is on screen and read where it is
+        // drawn, so a row carrying one is spoken with its size rather than with the same sentence twice.
+        const sizeLine = `${entry.filename} · ${formatSize(entry.size)}`
+        const label = refusal ? sizeLine
+          : entry.status === 'uploading'
+            ? t('assistant.attach.uploading', { percent: Math.round(entry.progress * 100) })
+            : entry.status === 'error' ? entry.error ?? t('assistant.attach.failed') : sizeLine
         return (
           <span key={entry.localId} className="relative">
             <ChipFrame
@@ -194,7 +203,7 @@ export function AttachmentStrip({
                 <Loader size={12} className="absolute right-1 top-1 animate-spin text-[var(--text-tertiary)]" />
               )}
             </ChipFrame>
-            {entry.status === 'error' && onRetry && (
+            {retryable && onRetry && (
               <button
                 type="button"
                 onClick={() => onRetry(entry.localId)}
@@ -213,12 +222,12 @@ export function AttachmentStrip({
               <X size={9} />
             </button>
             <span className="sr-only">{label}</span>
-            {modality && (
+            {refusal && (
               <span
                 data-attachment-unreadable="true"
                 className="mt-1 block max-w-[240px] text-[length:var(--text-11)] leading-snug text-[var(--danger)]"
               >
-                {t('assistant.attach.unreadable', { kind: t(MODALITY_LABEL_KEYS[modality]), name: entry.filename })}
+                {refusal}
               </span>
             )}
           </span>
@@ -289,7 +298,7 @@ export function AttachmentViewer({ attachment, onClose }: { attachment: ChatAtta
       </div>
       {modality ? (
         <p data-attachment-unreadable="true" className="p-4 text-[length:var(--text-12-5)] text-[var(--text-secondary)]">
-          {t('assistant.attach.unreadable_view', { kind: t(MODALITY_LABEL_KEYS[modality]) })}
+          {t('assistant.attach.unreadable_view', { kind: attachmentModalityLabel(modality) })}
         </p>
       ) : error ? (
         <p className="p-4 text-[length:var(--text-12-5)] text-[var(--danger)]">{error}</p>

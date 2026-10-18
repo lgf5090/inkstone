@@ -43,7 +43,7 @@ import type {
 } from '@shared/assistant'
 import type { AssistantSkill } from '@shared/assistant'
 import { DEBOUNCE } from '@shared/constants'
-import { MAX_ARTIFACT_CONTENT_CHARS, MAX_ARTIFACT_TITLE_CHARS, MAX_CHAT_ATTACHMENTS, MAX_TURN_SCOPES, MAX_TURN_TOOLS, CONVERSATION_PAGE_SIZE, MESSAGE_PAGE_SIZE, type AssistantTurnScope, type ChatAttachment, type AssistantSkillInput, type SkillImportResult, type AssistantMcpToolMode } from '@shared/assistant'
+import { MAX_ARTIFACT_CONTENT_CHARS, MAX_ARTIFACT_TITLE_CHARS, MAX_CHAT_ATTACHMENTS, MAX_TURN_SCOPES, MAX_TURN_TOOLS, CONVERSATION_PAGE_SIZE, MESSAGE_PAGE_SIZE, attachmentModality, type AssistantModelModality, type AssistantTurnScope, type ChatAttachment, type AssistantSkillInput, type SkillImportResult, type AssistantMcpToolMode } from '@shared/assistant'
 import { api, ApiError } from '../../lib/api'
 import { confirm } from '../../components/overlay'
 import { t } from '../../lib/i18n'
@@ -79,7 +79,11 @@ function isPdfFile(file: File): boolean {
 /** One file on its way to the server, or waiting there for the reader to press send. */
 export interface PendingAttachment {
   localId: string
-  /** Empty until the upload lands; the server's id is what the turn names. */
+  /**
+   * Empty until the upload lands; the server's id is what the turn names.
+   *
+   * A row refused before it was ever uploaded stays empty, because there is nothing on the server to name.
+   */
   id: string
   filename: string
   mime: string
@@ -88,12 +92,14 @@ export interface PendingAttachment {
   /** 0..1 of the bytes the browser has handed over. */
   progress: number
   status: 'uploading' | 'ready' | 'error'
+  /** Why this row is not in the turn: the line a refused upload gave, or the reason a file was never sent. */
   error?: string
   /**
    * The file as the browser handed it over, kept only so a failed upload can be tried again.
    *
    * Memory only: the bytes are already the browser's, and a retry that asked the reader to pick the
-   * file again would lose the context the failure happened in.
+   * file again would lose the context the failure happened in. A row refused before its first byte left
+   * keeps it as well, so that every door into `retryAttachment` meets the same answer there.
    */
   sourceFile?: File
 }
@@ -522,6 +528,11 @@ interface AssistantState {
    * covers a turn that ran and a turn the reader stopped: either way the question itself was sent.
    */
   send: (text: string, opts?: { retry?: boolean, messageId?: string, continue?: boolean }) => Promise<boolean>
+  /**
+   * Queue files the reader picked, dragged or pasted, and send the ones a turn could read.
+   *
+   * A recording or a clip is turned away here without an upload: see `unreadableAttachmentReason`.
+   */
   attachFiles: (files: File[]) => Promise<void>
   /** Uploads one failed attachment again, from the file the browser still holds. */
   retryAttachment: (localId: string) => Promise<void>
@@ -1039,6 +1050,41 @@ function schedulePersist(): void {
 }
 
 type AttachmentSetter = (updater: (state: AssistantState) => Partial<AssistantState>) => void
+
+/** The two senses a file can ask of a model, as the reader's own language names them. */
+const MODALITY_LABEL_KEYS: Record<AssistantModelModality, Parameters<typeof t>[0]> = {
+  audio: 'assistant.model.modality.audio',
+  video: 'assistant.model.modality.video',
+}
+
+/**
+ * Say which sense a model would have to be handed these bytes for.
+ *
+ * One function rather than a map each surface indexes by hand, because the queue now writes this sentence
+ * into a row before the strip is asked to draw it: two surfaces, one wording, and no place for the two to
+ * drift apart.
+ */
+export function attachmentModalityLabel(modality: AssistantModelModality): string {
+  return t(MODALITY_LABEL_KEYS[modality])
+}
+
+/**
+ * Why these bytes can never be read into a turn, or null when a turn can read them.
+ *
+ * `attachmentModality` is the single judge, and it answers before anything is sent rather than after: a
+ * recording or a clip asks for a sense none of the three request builders in `worker/assistant/upstream.ts`
+ * can be handed, since they put text and pictures into a body and nothing else ever goes in. Knowing that
+ * once the file is already stored only explains the waste — the upload costs the reader storage, the wait
+ * costs them a round trip, and nothing about the answer changes. So the queue refuses the file here, no
+ * byte leaves the browser, and `send()`, which carries only `ready` attachments, never pays for a turn that
+ * could not have read it. The row still says why in the same words, and still keeps its cross, because a
+ * file the reader picked has to be takeable back out of the box.
+ */
+export function unreadableAttachmentReason(mime: string, filename: string): string | null {
+  const modality = attachmentModality(mime, filename)
+  if (!modality) return null
+  return t('assistant.attach.unreadable', { kind: attachmentModalityLabel(modality), name: filename })
+}
 
 /**
  * Send one pending file, and record where it got to.
@@ -1832,9 +1878,23 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
     for (const file of files.slice(0, room)) {
       const localId = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`
       const kind = file.type.startsWith('image/') ? 'image' : 'file'
+      const filename = file.name || 'file'
+      // Refused before the request, not explained after it: no door into this function respects the
+      // pickers' `accept` filter — a drag and a paste both hand over whatever the reader had, and a file
+      // dialog lets them widen the type themselves — so the question has to be asked here, where all three
+      // arrive. Nothing is uploaded, and the row carries the reason instead of the bytes.
+      const refused = unreadableAttachmentReason(file.type, filename)
+      if (refused) {
+        set((current) => ({
+          pending: [...current.pending, {
+            localId, id: '', filename, mime: file.type, size: file.size, kind, progress: 0, status: 'error' as const, error: refused, sourceFile: file,
+          }],
+        }))
+        continue
+      }
       set((current) => ({
         pending: [...current.pending, {
-          localId, id: '', filename: file.name || 'file', mime: file.type, size: file.size, kind, progress: 0, status: 'uploading', sourceFile: file,
+          localId, id: '', filename, mime: file.type, size: file.size, kind, progress: 0, status: 'uploading', sourceFile: file,
         }],
       }))
       await uploadAttachment(localId, file, set)
@@ -1845,11 +1905,22 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
    * Try a failed upload again, with the file the browser still has.
    *
    * The row keeps its place and its name, so a flaky connection costs one press rather than re-picking
-   * the file and losing which one failed.
+   * the file and losing which one failed. A file that was never uploaded because no model can be handed
+   * its bytes is the one failure a retry cannot fix, so it is refused the same way the first attempt was
+   * — the strip hides the press, and this keeps it impossible from the other door.
    */
   retryAttachment: async (localId) => {
     const entry = get().pending.find((item) => item.localId === localId)
     if (!entry?.sourceFile || entry.status === 'uploading') return
+    const refused = unreadableAttachmentReason(entry.mime, entry.filename)
+    if (refused) {
+      set((current) => ({
+        pending: current.pending.map((item) => (
+          item.localId === localId ? { ...item, status: 'error' as const, progress: 0, error: refused } : item
+        )),
+      }))
+      return
+    }
     set((current) => ({
       pending: current.pending.map((item) => (
         item.localId === localId ? { ...item, status: 'uploading' as const, progress: 0, error: undefined } : item

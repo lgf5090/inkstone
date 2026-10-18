@@ -3,12 +3,14 @@
  * The composer says, in words, that a recording or a clip will not be read.
  *
  * A reader who drops a `.mp3` on the box is not picking it from a file dialog — the pickers already refuse
- * those types — so the drag, the paste and the web-address doors are the ones that let it in. What they owe
- * the reader is the sentence the pickers' silence hides: this app never puts a recording or a clip in front
- * of a model, so the file cannot be read into the turn. Telling it in a `title` is telling it to nobody,
- * because the reason is only useful before the turn is paid for, and a tooltip is not read before a click.
- * So the case below reads the strip's *rendered text*, which is what an eye sees, and refuses to accept a
- * visually-hidden node or an attribute in its place.
+ * those types — so the drag and the paste are the doors that let it through, and `attachment-upload-gate.test.ts`
+ * is the case that turns it away there before a byte is sent. What both of them owe the reader is the same
+ * sentence the pickers' silence hides: this app never puts a recording or a clip in front of a model, so the
+ * file cannot be read into the turn. It is owed by a row that arrived anyway — a file stored by an address,
+ * or one uploaded before the gate existed — which is why the strip is the surface that answers here. Telling
+ * it in a `title` is telling it to nobody, because the reason is only useful before the turn is paid for, and
+ * a tooltip is not read before a click. So the cases below read the strip's *rendered text*, which is what an
+ * eye sees, and refuse to accept a visually-hidden node or an attribute in its place.
  *
  * The same sentence belongs on the panel that opens: it is the door to the file's download, which is the one
  * thing a clip can still be asked for — and it is asked for without pulling megabytes of audio over the wire
