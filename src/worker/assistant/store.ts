@@ -5038,10 +5038,21 @@ export class AssistantStore {
     return columns
   }
 
+  /**
+   * One imported row, written only for the columns the row itself names.
+   *
+   * The partial `UPDATE` below has always worked this way — a key the file never carried says nothing, and the
+   * patch skips it — and the insert had to agree, because binding an absent key as NULL into a `NOT NULL`
+   * column that has a default makes `INSERT OR IGNORE` drop the whole row without a word. That silent drop is
+   * what a new column does to an import: three times this table has paid for a caller that did not know the
+   * list, so the primitive now defers to the column's own default instead of depending on every caller to
+   * remember it. A key the row does carry is still written exactly as given, including an explicit `null`.
+   */
   private importInsert(table: string, columns: readonly string[], row: Record<string, unknown>): D1PreparedStatement {
-    const names = ['user_id', ...columns]
+    const named = columns.filter((column) => column in row)
+    const names = ['user_id', ...named]
     const placeholders = names.map((_, index) => `?${index + 1}`).join(', ')
-    const values = [this.userId, ...columns.map((column) => normaliseBind(row[column]))]
+    const values = [this.userId, ...named.map((column) => normaliseBind(row[column]))]
     return this.db.prepare(`INSERT OR IGNORE INTO ${table} (${names.join(', ')}) VALUES (${placeholders})`)
       .bind(...values)
   }

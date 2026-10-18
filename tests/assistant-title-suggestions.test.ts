@@ -335,7 +335,7 @@ describe('a naming stream that reports no usage', () => {
 })
 
 describe('the suggestions column keeps both sides of a restore in step', () => {
-  it('carries the chips through export and import, and drops a row whose NOT NULL key is left out', async () => {
+  it('carries the chips through export and import, and lets a row that says nothing about them land anyway', async () => {
     stubWire([answerFrames('The harbour was built in 1686.'), namingFrames(NAMED)])
     const { events } = await driveNew('Tell me about the harbour.')
     const rowId = events.find((e) => e.type === 'done')!.finalMessage!.id
@@ -349,13 +349,16 @@ describe('the suggestions column keeps both sides of a restore in step', () => {
     await restored.importRows('chat_messages', [exported])
     expect((await restored.getMessage(rowId))!.suggestions).toEqual(NAMED.suggestions)
 
-    // The failure the two-sided edit exists to prevent: an import that names every other column but this one
-    // binds NULL into a NOT NULL column, and `INSERT OR IGNORE` drops the whole message. A third, empty
-    // account isolates it from a primary-key clash — the only reason this row can fail to land is the column.
-    const dropped = new AssistantStore(env.DB as D1Database, 'dddddddddddddddddddddddddd', env)
+    // What this import shape used to do when a caller named every other column but left this one out: bind
+    // NULL into a NOT NULL column and let `INSERT OR IGNORE` take the whole message away without a word. The
+    // insert now writes only the columns a row actually names, so the column's own default answers and the row
+    // lands with no chips — a third account, and a different user id, so nothing but the column can decide it.
+    const partial = new AssistantStore(env.DB as D1Database, 'dddddddddddddddddddddddddd', env)
     const stripped: Record<string, unknown> = { ...exported }
     delete stripped.suggestions
-    await dropped.importRows('chat_messages', [stripped])
-    expect(await dropped.getMessage(rowId)).toBeNull()
+    await partial.importRows('chat_messages', [stripped])
+    const landed = await partial.getMessage(rowId)
+    expect(landed).not.toBeNull()
+    expect(landed!.suggestions).toBeUndefined()
   })
 })
