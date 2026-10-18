@@ -250,6 +250,31 @@ async function vaultFilterFor(args: Record<string, unknown>, ctx: ToolContext): 
   return filter
 }
 
+/**
+ * The tags a turn is pinned to, in the shape the note retriever can filter on.
+ *
+ * A scope keeps tags as ids — the shape its folder pins and its permission check use — while the
+ * retriever narrows both of its lists by tag *name*: the keyword half turns `tags` into `tag:"…"` terms
+ * that SQL compares against `t.name`, and the vector half binds `t.name` as well (`semanticWhere` in
+ * `../mcp/ai-search`). Handing ids straight through is a filter no note can satisfy, so a pinned `#meeting`
+ * emptied the keyword half and left the vector half answering alone: hits with nothing to say about why.
+ *
+ * One lookup, spread into both search calls, so the shape question has exactly one answer in this file.
+ * A pinned id with no tag behind it is a tag the reader deleted: it cannot be named, and `readableNoteIds`
+ * still refuses every note afterwards, so it drops out of the retrieval filter instead of being passed on
+ * as a tag name no note carries.
+ */
+async function tagSearchFilter(db: D1Database, userId: string, scope: NoteScope): Promise<{ tags?: string[] }> {
+  const ids = [...scope.tagIds]
+  if (!ids.length) return {}
+  const placeholders = ids.map((_, index) => `?${index + 2}`).join(', ')
+  const { results } = await db.prepare(
+    `SELECT name FROM tags WHERE user_id = ?1 AND id IN (${placeholders})`,
+  ).bind(userId, ...ids).all<{ name: string }>()
+  const names = (results ?? []).map((row) => row.name)
+  return names.length ? { tags: names } : {}
+}
+
 export const TASK_TOOLS: ToolDefinition[] = [
   tool({
     name: 'create_task',
@@ -519,6 +544,9 @@ export const NOTE_TOOLS: ToolDefinition[] = [
       const query = String(args.query)
       const scope = await ctx.noteScope()
       const gate = await noteVectorGate(ctx.store, ctx.env, ctx.settings)
+      // Tags narrow the search itself; the folder scope still filters the hits below, so a turn that asked
+      // for `#meeting` cannot reach an untagged note by naming it exactly.
+      const tagFilter = await tagSearchFilter(ctx.env.DB, ctx.store.userId, scope)
       // The fusion is done here rather than asked of the MCP retriever's `auto` mode, because that path
       // folds a failed embedding into the same lexical answer it gives when the index is simply off — and
       // "meaning was searched and broke" and "meaning is not switched on" are two different things to tell
@@ -528,9 +556,7 @@ export const NOTE_TOOLS: ToolDefinition[] = [
           query,
           limit: NOTE_LEXICAL_CANDIDATES,
           mode: 'lexical',
-          // Tags narrow the search itself; the folder scope still filters the hits below, so a turn
-          // that asked for `#meeting` cannot reach an untagged note by naming it exactly.
-          ...(scope.tagIds.size ? { tags: [...scope.tagIds] } : {}),
+          ...tagFilter,
         }),
         gate.hybrid ? recallNotesByVector(ctx.store, ctx.env, query) : Promise.resolve(null),
       ])
@@ -888,10 +914,11 @@ export const SEARCH_TOOLS: ToolDefinition[] = [
         ctx.store.listConversations(query, { limit: 5 }),
       ])
       const scope = await ctx.noteScope()
+      const tagFilter = await tagSearchFilter(ctx.env.DB, ctx.store.userId, scope)
       const notes = await searchMcpNotes(ctx.env, ctx.store.userId, ctx.origin, ctx.ftsEnabled, {
         query,
         limit: 5,
-        ...(scope.tagIds.size ? { tags: [...scope.tagIds] } : {}),
+        ...tagFilter,
       })
       const allowed = await readableNoteIds(ctx.env.DB, ctx.store.userId, notes.results.map((hit) => hit.id), scope)
       return {
