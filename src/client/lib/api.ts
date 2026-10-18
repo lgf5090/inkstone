@@ -576,6 +576,42 @@ export interface SessionImportSummary {
   skipped: string[]
 }
 
+/**
+ * Whether this deployment can push at all, and what a browser needs in order to subscribe.
+ *
+ * `src/worker/assistant/push.ts` owns this shape (`pushConfigStatus`) and the display layer may not reach
+ * into a worker module, so it is restated here the way `SessionImportSummary` is. `reason` is the server's
+ * own sentence about which variable is missing, which is why `enabled: false` is never a bare no — and why a
+ * screen that hides its switch has something to say in its place.
+ */
+export interface PushConfig {
+  enabled: boolean
+  publicKey: string | null
+  reason?: string
+}
+
+/**
+ * One device as the account's own list describes it: the head of the endpoint, never the whole credential.
+ *
+ * The tail of an endpoint is the ability to place a notification on that machine, and this answer travels
+ * through browser logs, screenshots and the clipboard, so the route hands back `<origin>/<first segment>…`.
+ * That head is a literal prefix of the endpoint it came from, which is the only thing that lets a screen
+ * point at the reader's own row without reimplementing the server's masking rule.
+ */
+export interface PushSubscriptionRow {
+  id: string
+  endpoint: string
+  createdAt: number
+  failures: number
+  lastError: string | null
+}
+
+/** The triple the browser produced, in the spelling the subscription route validates. */
+export interface PushSubscriptionPayload {
+  endpoint: string
+  keys: { p256dh: string, auth: string }
+}
+
 export const api = {
   session: () => request<SessionInfo>('/api/auth/session'),
   logout: () => request<{ ok: true }>('/api/auth/logout', { method: 'POST' }),
@@ -1261,6 +1297,23 @@ export const api = {
     markNotificationsRead: (id?: string) =>
       request<{ unread: number }>('/api/assistant/notifications/read', { method: 'POST', body: id ? { id } : {} }),
     deleteNotification: (id: string) => request<{ unread: number }>(`/api/assistant/notifications/${id}`, { method: 'DELETE' }),
+    /** Whether this deployment can push, and with which public key. Nothing here invents an answer. */
+    pushConfig: () => request<PushConfig>('/api/assistant/push/config'),
+    /**
+     * Hands this browser's subscription to the account.
+     *
+     * The answer is the account's whole device list, and there is no route that reads that list on its own:
+     * a screen opens with nothing listed because nothing was written yet, which is a fact it has to say
+     * rather than dress up as an empty account.
+     */
+    subscribePush: (body: PushSubscriptionPayload) =>
+      request<{ subscriptions: PushSubscriptionRow[] }>('/api/assistant/push/subscriptions', { method: 'POST', body }),
+    /** Takes one endpoint out of the account's list; the caller has to be the device that holds it whole. */
+    unsubscribePush: (endpoint: string) =>
+      request<{ removed: boolean, subscriptions: PushSubscriptionRow[] }>('/api/assistant/push/subscriptions', {
+        method: 'DELETE',
+        body: { endpoint },
+      }),
     settings: () => request<{ settings: AssistantSettings, models: AssistantModel[] }>('/api/assistant/settings'),
     saveSettings: (patch: Record<string, unknown>) =>
       request<{ settings: AssistantSettings }>('/api/assistant/settings', { method: 'PATCH', body: patch }),

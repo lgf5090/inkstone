@@ -15,6 +15,7 @@ import { confirm } from '../../components/overlay'
 import { useUi } from '../../store/ui'
 import { useAssistant } from './assistant-store'
 import { Group, LoadFailure } from './assistant-settings-shared'
+import { PushDevicesSection } from './PushDevicesSection'
 import { formatInZone } from './time-format'
 import { UsagePanel } from './AssistantUsagePanel'
 
@@ -424,6 +425,11 @@ export function DataTab() {
       </Group>
 
       <ChatFileSpace />
+
+      {/* What leaves the account on its own: the devices this deployment may wake up. It sits with the
+          export and the file list because the reader who comes to this tab is asking what the assistant
+          holds and what it sends. */}
+      <PushDevicesSection />
 
       <Group title={t('assistant.settings.danger')}>
         <SettingRow title={t('assistant.settings.clear_chats')} description={t('assistant.settings.clear_chats_hint')}>
