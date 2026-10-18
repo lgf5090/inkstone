@@ -21,6 +21,8 @@ import { testBindings } from './doubles/bindings'
 const USER = '0123456789abcdefghjkmnpqrs'
 const OTHER = '0123456789abcdefghjkmnpqrt'
 const ENDPOINT = 'https://updates.push.services.mozilla.com/wpush/v2/gAAAAABx0197tPQY0kq0Y1sQ7Q9rUxF7Vh1sQYb1W1pZ9YQ3s6zXw1oQ2m7cPv8rJn0kLm3n'
+const SECOND_ENDPOINT = 'https://fcmregistrations.googleapis.com/v1/projects/inkstone-test/registrations/AAAAAABx02TokenForASecondDeviceThatIsNotTheFirstOnesRow'
+const OTHER_ENDPOINT = 'https://web.push.apple.com/DAQs1c0hKm3nPo5qRs7tUv9wXy1Za3Bc5De7Fg9Hi1Jk3Lm5No7Pq9Rs1Tu3Vw5Xy7Za1Bc3De'
 
 interface SubscriptionView {
   id: string
@@ -188,6 +190,77 @@ describe('POST /push/subscriptions', () => {
     const anonymous = await request('POST', '/api/assistant/push/subscriptions', { endpoint: ENDPOINT, keys: { p256dh: P256DH, auth: AUTH } })
     expect(anonymous.status).toBe(401)
     expect((await request('GET', '/api/assistant/push/config')).status).toBe(401)
+  })
+})
+
+describe('GET /push/subscriptions', () => {
+  /** Subscribes `endpoint`s under one account and hands back the rows the write echoed. */
+  async function subscribe(userId: string, ...endpoints: string[]): Promise<SubscriptionView[]> {
+    asUser(userId)
+    let rows: SubscriptionView[] = []
+    for (const endpoint of endpoints) {
+      const made = await request('POST', '/api/assistant/push/subscriptions', { endpoint, keys: { p256dh: P256DH, auth: AUTH } })
+      rows = made.payload.subscriptions as SubscriptionView[]
+    }
+    return rows
+  }
+
+  it('lists the account\'s devices without making it write one first', async () => {
+    const written = await subscribe(USER, ENDPOINT, SECOND_ENDPOINT)
+    asUser(USER)
+    const read = await request('GET', '/api/assistant/push/subscriptions')
+    expect(read.status).toBe(200)
+    const listed = read.payload.subscriptions as SubscriptionView[]
+    // The same rows the write echoed back, with the same handles: a read is not a thinner view of the list.
+    expect(listed.map((row) => row.id).sort()).toEqual(written.map((row) => row.id).sort())
+    expect(listed.map((row) => row.endpoint).sort()).toEqual(written.map((row) => row.endpoint).sort())
+    // The columns the settings screen prints beside each device, present on every row of a cold read.
+    for (const row of listed) {
+      expect(typeof row.createdAt).toBe('number')
+      expect(row.failures).toBe(0)
+      expect(row.lastError).toBeNull()
+    }
+  })
+
+  it('reads one account and never its neighbour\'s rows', async () => {
+    const mine = await subscribe(USER, ENDPOINT, SECOND_ENDPOINT)
+    await subscribe(OTHER, OTHER_ENDPOINT)
+    asUser(USER)
+    const listed = (await request('GET', '/api/assistant/push/subscriptions')).payload.subscriptions as SubscriptionView[]
+    // Three rows exist in the table and exactly the caller's two are answered. Dropping the tenant filter —
+    // even one that still reads as scoped to the statement guard, because the guard only matches the SQL text
+    // — puts the neighbour's row id in this answer, which fails the equality below rather than passing on
+    // a count.
+    expect(listed).toHaveLength(2)
+    expect(listed.map((row) => row.id).sort()).toEqual(mine.map((row) => row.id).sort())
+    expect(sqlite.prepare('SELECT count(*) AS n FROM chat_push_subscriptions').get()).toEqual({ n: 3 })
+    // Redaction is not the read's own rule: the same view a write returns, so no endpoint tail on the wire.
+    const wire = JSON.stringify(listed)
+    expect(wire).not.toContain(ENDPOINT)
+    expect(wire).not.toContain(SECOND_ENDPOINT)
+    expect(wire).not.toContain(OTHER_ENDPOINT)
+    expect(wire).not.toContain(P256DH)
+    expect(wire).not.toContain(AUTH)
+  })
+
+  it('answers an empty list for an account that holds no device', async () => {
+    const read = await request('GET', '/api/assistant/push/subscriptions')
+    expect(read.status).toBe(200)
+    // Empty is a fact about the account, not a missing read: the screen has to be able to tell them apart.
+    expect(read.payload.subscriptions).toEqual([])
+  })
+
+  it('carries the failure ledger each row has behind it', async () => {
+    await subscribe(USER, ENDPOINT)
+    sqlite.prepare('UPDATE chat_push_subscriptions SET failures = 2, last_error = ? WHERE user_id = ?')
+      .run('the push service answered 500 for https://example.invalid/other-device', USER)
+    const listed = (await request('GET', '/api/assistant/push/subscriptions')).payload.subscriptions as SubscriptionView[]
+    expect(listed[0]).toMatchObject({ failures: 2, lastError: 'the push service answered 500 for https://example.invalid/other-device' })
+  })
+
+  it('requires a signed-in account', async () => {
+    app = buildApp(null)
+    expect((await request('GET', '/api/assistant/push/subscriptions')).status).toBe(401)
   })
 })
 

@@ -2241,6 +2241,24 @@ function pushEndpoint(value: unknown): string {
 
 assistantRoutes.get('/push/config', async (c) => c.json(pushConfigStatus(c.env)))
 
+/**
+ * The account's devices, read without writing anything first.
+ *
+ * Deliberately unpaginated, and that is a claim about this table rather than a shortcut: a row is one browser
+ * subscription, so the list is bounded by how many devices one reader actually owns — a laptop, a phone,
+ * maybe a tablet. Every paginated list in this file walks a table that grows without bound (messages,
+ * conversations, files, usage days). A page boundary here would only let the settings screen open with two
+ * thirds of the reader's devices on it and no way to tell that the rest exists.
+ *
+ * The answer is the same redacted view a write already returns — `describeSubscription`, one row per device,
+ * endpoint head and row id and the failure ledger — and it is scoped the same way: `store(c)` carries the
+ * signed-in `user_id` into the statement, so this route cannot name another account's row.
+ */
+assistantRoutes.get('/push/subscriptions', async (c) => {
+  const s = store(c)
+  return c.json({ subscriptions: (await s.listPushSubscriptions()).map(describeSubscription) })
+})
+
 assistantRoutes.post('/push/subscriptions', async (c) => {
   const body = await readJson<Record<string, unknown>>(c, JSON_BODY_LIMITS.small)
   const endpoint = pushEndpoint(body.endpoint)

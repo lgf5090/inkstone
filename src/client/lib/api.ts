@@ -1300,11 +1300,17 @@ export const api = {
     /** Whether this deployment can push, and with which public key. Nothing here invents an answer. */
     pushConfig: () => request<PushConfig>('/api/assistant/push/config'),
     /**
+     * The account's devices, read without writing anything first.
+     *
+     * This is what lets a settings screen open with the truth on it instead of with nothing: the write routes
+     * answer with the same list, but only once a device has been added or removed. The rows are the redacted
+     * view — endpoint head and row id — so nothing here carries a credential.
+     */
+    pushSubscriptions: () => request<{ subscriptions: PushSubscriptionRow[] }>('/api/assistant/push/subscriptions'),
+    /**
      * Hands this browser's subscription to the account.
      *
-     * The answer is the account's whole device list, and there is no route that reads that list on its own:
-     * a screen opens with nothing listed because nothing was written yet, which is a fact it has to say
-     * rather than dress up as an empty account.
+     * The answer is the account's whole device list, so a write does not need a second read behind it.
      */
     subscribePush: (body: PushSubscriptionPayload) =>
       request<{ subscriptions: PushSubscriptionRow[] }>('/api/assistant/push/subscriptions', { method: 'POST', body }),

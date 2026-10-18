@@ -5,8 +5,8 @@
  * deciding whether one device may be woken up, and the facts that decide it live in three places that agree
  * only by convention — what the deployment was configured with (`GET /push/config`), what the browser will
  * allow (`Notification.permission`, `window.isSecureContext`, the presence of `PushManager`), and what the
- * account already holds (the list the two write routes hand back). The transcript store has no business
- * carrying any of them.
+ * account already holds (`GET /push/subscriptions`, echoed back by the two write routes). The transcript
+ * store has no business carrying any of them.
  *
  * The honesty rule the whole file is built on: a switch that cannot work is not offered. Every state that
  * makes the press meaningless — no VAPID keys on the server, a browser that has been told to block
@@ -135,8 +135,15 @@ interface PushDevicesState {
   /** Null until the read came back, which is what separates "not asked yet" from "answered no". */
   config: PushConfig | null
   configFailure: { detail: string | null } | null
-  /** The account's devices, as the last write handed them back. Null is "nothing has been written yet". */
+  /**
+   * The account's devices.
+   *
+   * Null is "not read yet" — nothing may be claimed about the account either way. An empty array is the
+   * server saying the account holds no subscription, which is a different fact and gets a different sentence.
+   */
   rows: PushSubscriptionRow[] | null
+  /** The device read itself refused; kept apart from the write failure because they retry different things. */
+  rowsFailure: { detail: string | null } | null
   deviceEndpoint: string | null
   support: DeviceSupport
   permission: PermissionChoice
@@ -144,6 +151,8 @@ interface PushDevicesState {
   actionFailure: PushFailure | null
   /** Asks the server whether this deployment can push at all. Safe to retry. */
   loadConfig: () => Promise<void>
+  /** Reads the account's device list. Safe to retry, and the only way the list appears without a write. */
+  loadRows: () => Promise<void>
   /** Re-reads the browser's side: permission, the APIs it has, and the subscription it holds. */
   readDevice: () => Promise<void>
   /** Subscribes this device. Only ever called from a press, which is the gesture `requestPermission` needs. */
@@ -156,6 +165,7 @@ export const usePushDevices = create<PushDevicesState>((set, get) => ({
   config: null,
   configFailure: null,
   rows: null,
+  rowsFailure: null,
   deviceEndpoint: null,
   support: currentDeviceSupport(),
   permission: currentPermission(),
@@ -170,6 +180,18 @@ export const usePushDevices = create<PushDevicesState>((set, get) => ({
       // Nothing was read, so nothing may be claimed: the switch stays off the screen because the answer
       // that would justify it never arrived.
       set({ config: null, configFailure: readRefusal(error) })
+    }
+  },
+
+  loadRows: async () => {
+    set({ rowsFailure: null })
+    try {
+      const { subscriptions } = await api.assistant.pushSubscriptions()
+      set({ rows: subscriptions })
+    } catch (error) {
+      // A list that would not come back is not an empty account, and the screen must not say it is. What the
+      // route said is kept beside the headline so the reader has the field-level reason, same as a write.
+      set({ rows: null, rowsFailure: readRefusal(error) })
     }
   },
 

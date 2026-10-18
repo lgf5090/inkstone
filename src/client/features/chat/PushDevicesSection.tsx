@@ -23,14 +23,15 @@ import { rowForEndpoint, usePushDevices } from './push-devices'
 import { formatInZone } from './time-format'
 
 export function PushDevicesSection() {
-  const { config, configFailure, rows, deviceEndpoint, support, permission, busy, actionFailure, loadConfig, readDevice, enable, disable } = usePushDevices()
+  const { config, configFailure, rows, rowsFailure, deviceEndpoint, support, permission, busy, actionFailure, loadConfig, loadRows, readDevice, enable, disable } = usePushDevices()
   const timezone = useAssistant((state) => state.settings?.timezone)
   const toast = useUi((state) => state.toast)
 
   useEffect(() => {
     void loadConfig()
+    void loadRows()
     void readDevice()
-  }, [loadConfig, readDevice])
+  }, [loadConfig, loadRows, readDevice])
 
   const serverReady = config?.enabled === true
   const browserReady = support === 'available' && (permission === 'granted' || permission === 'default')
@@ -132,10 +133,14 @@ export function PushDevicesSection() {
           {t('assistant.push.devices')}
         </p>
 
-        {rows === null && (
+        {rows === null && !rowsFailure && (
           <p role="status" className="text-[length:var(--text-11-5)] leading-relaxed text-[var(--text-quaternary)]">
-            {t('assistant.push.devices_not_read')}
+            {t('assistant.push.devices_reading')}
           </p>
+        )}
+
+        {rowsFailure && (
+          <LoadFailure messageKey="assistant.push.devices_failed" detail={rowsFailure.detail} onRetry={() => void loadRows()} />
         )}
 
         {rows !== null && rows.length === 0 && (

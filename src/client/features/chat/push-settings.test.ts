@@ -9,7 +9,9 @@
  * variable that was never set. Second, that `requestPermission()` is spent by a press and never by a mount.
  * Third, the chain a reader needs to work: press on → the browser's `PushManager.subscribe` with the key
  * this route handed out → a real POST to `/api/assistant/push/subscriptions` → the device listed, and
- * removable again.
+ * removable again. Fourth, that the list itself is read: mounting the screen asks
+ * `GET /api/assistant/push/subscriptions`, so an account that has devices shows them before anything is
+ * written and an account that has none is told so by the server rather than by the screen's own silence.
  *
  * jsdom ships no `Notification`, no `PushManager` and no service worker, so all three are stood up as
  * concrete fakes; `fetch` is stubbed so the assertions are about the requests that actually went out.
@@ -62,6 +64,9 @@ let root: Root
 let host: HTMLElement
 let configAnswer: ConfigAnswer | null
 let hangConfig = false
+/** What `GET /push/subscriptions` answers: the account's list before anything was written here. */
+let listAnswer: ConfigAnswer | null
+let hangList = false
 /** What each write answers with as the account's list. */
 let listAfterWrite: PushSubscriptionRow[]
 let requests: Array<{ method: string, url: string, body: Record<string, unknown> | null }>
@@ -81,6 +86,11 @@ function configured(): ConfigAnswer {
 
 function unconfigured(): ConfigAnswer {
   return { status: 200, body: { enabled: false, publicKey: null, reason: 'VAPID_PUBLIC_KEY and VAPID_PRIVATE_KEY are not set on this deployment.' } }
+}
+
+/** Stages what the account's device read answers with. */
+function listContains(devices: PushSubscriptionRow[]): void {
+  listAnswer = { status: 200, body: { subscriptions: devices } }
 }
 
 function json(body: Record<string, unknown>, status = 200): Response {
@@ -128,6 +138,13 @@ function installFetch(): void {
       return json(configAnswer.body, configAnswer.status)
     }
     if (url.endsWith(SUBSCRIPTIONS_PATH)) {
+      // The read is its own answer: the list the account holds is what `GET` returns, staged apart from what
+      // a write echoes back, so a case can tell "nothing was read" from "nothing is subscribed".
+      if (method === 'GET') {
+        if (hangList) return new Promise<Response>(() => {})
+        if (!listAnswer) return json({ error: { code: 'internal', message: 'no list answer staged' } }, 500)
+        return json(listAnswer.body, listAnswer.status)
+      }
       if (refuseWrite) return json({ error: { code: 'bad_request', message: 'keys.p256dh must be 88 characters.' } }, 400)
       return json({ removed: method === 'DELETE', subscriptions: listAfterWrite }, method === 'POST' ? 201 : 200)
     }
@@ -167,6 +184,9 @@ beforeEach(async () => {
   await initI18n()
   configAnswer = configured()
   hangConfig = false
+  // A cold read that answered "no devices" is the ordinary case; a case that wants rows stages them itself.
+  listAnswer = { status: 200, body: { subscriptions: [] } }
+  hangList = false
   refuseWrite = false
   listAfterWrite = [row('r1', ENDPOINT_HEAD)]
   requests = []
@@ -182,6 +202,7 @@ beforeEach(async () => {
     config: null,
     configFailure: null,
     rows: null,
+    rowsFailure: null,
     deviceEndpoint: null,
     support: 'available',
     permission: 'default',
@@ -316,15 +337,60 @@ describe('turning this device on', () => {
     expect(listItems()).toHaveLength(1)
   })
 
-  it('leaves the row empty-but-explained when the account has nothing subscribed', async () => {
+  it('says the account has nothing subscribed once its device read says so', async () => {
     permission = 'granted'
     listAfterWrite = []
     await mount()
-    expect(text()).toContain(t('assistant.push.devices_not_read'))
+    expect(text()).toContain(t('assistant.push.devices_empty'))
+    expect(text()).not.toContain(t('assistant.push.devices_reading'))
     await press(switches()[0])
     expect(listItems()).toHaveLength(0)
     expect(text()).toContain(t('assistant.push.devices_empty'))
-    expect(text()).not.toContain(t('assistant.push.devices_not_read'))
+  })
+})
+
+describe('reading the account’s devices before anything is written', () => {
+  it('asks the device route on mount and prints what it answers', async () => {
+    listContains([row('r1', ENDPOINT_HEAD), row('r2', 'https://other.test/push…', { failures: 3, lastError: 'the push service answered 500' })])
+    await mount()
+    const reads = requests.filter((entry) => entry.method === 'GET' && entry.url.endsWith(SUBSCRIPTIONS_PATH))
+    expect(reads, 'the screen never asked the server which devices this account has').toHaveLength(1)
+    const items = listItems()
+    expect(items, 'the devices the route named never reached the list').toHaveLength(2)
+    expect(items[0]!.textContent).toContain(ENDPOINT_HEAD)
+    expect(items[1]!.textContent).toContain('https://other.test/push…')
+    expect(items[1]!.textContent).toContain('the push service answered 500')
+    expect(text()).not.toContain(t('assistant.push.devices_reading'))
+  })
+
+  it('gets there without spending a write', async () => {
+    listContains([row('r1', ENDPOINT_HEAD)])
+    await mount()
+    const written = requests.filter((entry) => entry.method !== 'GET')
+    expect(written, 'the device list arrived only because something was written').toEqual([])
+  })
+
+  it('names the read still running instead of guessing at its answer', async () => {
+    hangList = true
+    await mount()
+    expect(text()).toContain(t('assistant.push.devices_reading'))
+    expect(listItems()).toHaveLength(0)
+    expect(alerts(), 'a read still in flight was reported as a failure').toHaveLength(0)
+    expect(text(), 'a read that has not answered was reported as an empty account').not.toContain(t('assistant.push.devices_empty'))
+  })
+
+  it('refuses to call an unread list an empty account, and asks again on retry', async () => {
+    listAnswer = { status: 500, body: { error: { code: 'internal', message: 'D1 is unavailable on this deployment.' } } }
+    await mount()
+    expect(text(), 'a list that would not come back was reported as no devices').not.toContain(t('assistant.push.devices_empty'))
+    expect(alerts().map((node) => node.textContent).join(' ')).toContain(t('assistant.push.devices_failed'))
+    expect(text()).toContain('D1 is unavailable on this deployment.')
+
+    listAnswer = { status: 200, body: { subscriptions: [row('r1', ENDPOINT_HEAD)] } }
+    await press(buttonNamed(t('common.retry')))
+    expect(requests.filter((entry) => entry.method === 'GET' && entry.url.endsWith(SUBSCRIPTIONS_PATH))).toHaveLength(2)
+    expect(listItems()).toHaveLength(1)
+    expect(alerts(), 'the second read succeeded and still reported a failure').toHaveLength(0)
   })
 })
 
