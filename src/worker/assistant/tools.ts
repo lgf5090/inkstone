@@ -17,6 +17,7 @@
 
 import type { AssistantSettings, Task } from '@shared/assistant'
 import { ASSISTANT_TOOL_SPECS, MAX_TASK_TITLE_CHARS, TASK_PRIORITIES, TASK_STATUSES, WEB_SEARCH_TOOL_NAME, toolPayloadText, toolModeFor, webSearchConfigured, type AssistantMemory, type AssistantMemoryCategory, type AutomationKind } from '@shared/assistant'
+import { webSearchEngineFor } from '@shared/web-search-engines'
 import { MEMORY_CATEGORIES_FOR_TOOLS } from './memory-service'
 import { parseLocalTime, toLocalMinute } from '@shared/assistant-time'
 import { hasHistoricalIntent } from '@shared/assistant-memory'
@@ -95,6 +96,16 @@ export interface ToolContext {
   automations: AutomationService
   /** Resolved once per turn by the runner: the note tools all ask it, and a second answer would be a race. */
   noteScope: () => Promise<NoteScope>
+  /**
+   * The key the reader stored for the web-search engine the settings name, resolved once per turn.
+   *
+   * `null` when the engine needs none, and `undefined` when nobody resolved it — which the search tool reads
+   * as "no key", because a tool offered without the credential it must send is a call that can only fail and
+   * a reader who then distrusts the engine. The value never leaves this isolate: it is written into one
+   * outbound request's headers and into nothing else, and it is not a settings field, so it is not in a
+   * backup, not in a listing and not in a log.
+   */
+  webSearchKey?: string | null
   /** Present in chat mode: the note tools write through the same path the MCP server uses. */
   writeContext?: McpWriteContext
   /**
@@ -141,10 +152,12 @@ interface BaseTool {
    * a turn on a call that cannot succeed, and the reader would read the resulting error as their app being
    * broken. It is not a settings problem they can fix, so it is not raised as one.
    *
-   * The second half is a setting the *reader* controls and cannot see from the tool list: a search tool with
-   * no configured address is the same silent failure, and answered the same way — not offered.
+   * The second half is a setting the *reader* controls and cannot see from the tool list: a search tool whose
+   * engine has no address, or no key, is the same silent failure, and answered the same way — not offered.
+   * That is why the turn's resolved context is handed over too: whether a key exists is not a setting, and a
+   * predicate with only settings to read cannot answer the question.
    */
-  requires?: (env: Env, settings: AssistantSettings) => boolean
+  requires?: (env: Env, settings: AssistantSettings, ctx: ToolContext) => boolean
 }
 
 export interface ImmediateTool extends BaseTool {
@@ -1098,10 +1111,12 @@ export const WEB_TOOLS: ToolDefinition[] = [
     // Two, the same ceiling the note-side search carries: one search to ask the question and one to refine
     // it is a working turn, and past that a model is paging through results with the reader's clock running.
     maxCallsPerTurn: 2,
-    // Not offered without an address to ask. The switch in the composer then says why rather than letting
-    // the model call a tool that would answer with a configuration error on every turn.
-    requires: (_env, settings) => webSearchConfigured(settings),
-    description: 'Search the web through the reader\'s own search engine and get back titles, addresses and short excerpts. Use it when the answer needs what is true out there now, or a fact you are not sure of. It searches only the engine the reader configured and cannot read a page: use fetch_url for one you already have the address of.',
+    // Not offered without a channel that could answer. The switch in the composer then says why rather than
+    // letting the model call a tool that would answer with a configuration error on every turn — and for a
+    // hosted engine the missing thing is a key rather than an address, which is the same refusal said about
+    // the other half of what an engine needs.
+    requires: (_env, settings, ctx) => webSearchConfigured(settings, Boolean(ctx.webSearchKey)),
+    description: 'Search the web through the engine the reader picked and get back titles, addresses and short excerpts. Use it when the answer needs what is true out there now, or a fact you are not sure of. It searches only that engine and cannot read a page: use fetch_url for one you already have the address of.',
     fields: {
       query: {
         type: 'string',
@@ -1112,13 +1127,20 @@ export const WEB_TOOLS: ToolDefinition[] = [
     },
     async run(args, ctx) {
       const query = String(args.query)
-      const endpoint = ctx.settings.webSearchEndpoint.trim()
-      // Unreachable through the executor, which will not offer the tool without one; said anyway because a
-      // scheduled run and an approval replay both reach `run` by other doors.
+      const engine = webSearchEngineFor(ctx.settings.webSearchEngine)
+      // A vendor's address is written down in the engine table; only a self-hosted engine reads the one the
+      // reader typed, and an empty one of those still means the tool is off.
+      const endpoint = (engine.selfHosted ? ctx.settings.webSearchEndpoint : engine.endpoint ?? '').trim()
+      const apiKey = ctx.webSearchKey ?? ''
+      // Unreachable through the executor, which will not offer the tool without what its engine asks for; said
+      // anyway because a scheduled run and an approval replay both reach `run` by other doors.
       if (!endpoint) throw new ToolError('Web search has no engine configured. Set one under Assistant settings.')
+      if (engine.requiresKey && !apiKey) {
+        throw new ToolError(`Web search needs a key for ${engine.name}. Store one under Assistant settings.`)
+      }
       let hits
       try {
-        hits = await searchWeb(endpoint, query)
+        hits = await searchWeb({ engine, endpoint, query, apiKey })
       } catch (error) {
         throw new ToolError(error instanceof Error ? error.message : 'The search engine did not answer.')
       }
@@ -1359,7 +1381,7 @@ export class ToolExecutor {
   private offers(definition: ToolDefinition): boolean {
     // A capability the deployment does not have, or an address the reader has not configured, takes the
     // tool away before the reader's policy is asked, because no policy can put it back.
-    if (definition.requires && !definition.requires(this.ctx.env, this.ctx.settings)) return false
+    if (definition.requires && !definition.requires(this.ctx.env, this.ctx.settings, this.ctx)) return false
     const mode = toolModeFor(this.ctx.settings, definition.permission)
     if (this.ctx.mode === 'chat') return mode !== 'off'
     return mode === 'auto' || definition.name === 'notify_reader'

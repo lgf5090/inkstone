@@ -109,6 +109,7 @@ import { suggestActiveModel } from '../assistant/model-config'
 import { listVendorModels } from '../assistant/vendor-models'
 import { memoryEmbeddingStatus, reindexMemoryEmbeddings, semanticModel } from '../assistant/semantic'
 import { MAX_PROVIDER_MODELS, reasoningDialectValue, reasoningValue, searchEndpointValue } from '@shared/assistant'
+import { isWebSearchEngineId } from '@shared/web-search-engines'
 import {
   CHAT_IMAGE_MAX_BYTES,
   ChatUploadError,
@@ -2355,6 +2356,13 @@ assistantRoutes.patch('/settings', async (c) => {
       throw ApiError.badRequest('The web search endpoint must be a public http(s) address with no credentials in it.')
     }
   }
+  // The engine is a name from a table this build owns, not an address the worker is asked to reach, so the
+  // check is a whitelist rather than the relay guard above: an id that is not in it would leave the settings
+  // holding a channel nothing can build a request for. The secret that engine may need is never here — it has
+  // its own encrypted row under `/search-keys`, and a settings blob that could hold one would ride a backup.
+  if (patch.webSearchEngine !== undefined && !isWebSearchEngineId(patch.webSearchEngine)) {
+    throw ApiError.badRequest('The web search engine must be one the assistant knows how to query.')
+  }
   const next = normalizeAssistantSettings({ ...current, ...patch })
   await s.saveSettings(next)
   if (next.timezone !== current.timezone) {
@@ -2376,6 +2384,58 @@ assistantRoutes.patch('/settings', async (c) => {
   }
   return c.json({ settings: next })
 })
+
+// ------------------------------------------------------------- search keys
+
+/** The longest engine key the vault will hold, the same bound a provider key is written to. */
+const MAX_SEARCH_KEY_CHARS = 4096
+
+/**
+ * The key one hosted web-search engine is queried with.
+ *
+ * Deliberately not a settings field: `chat_settings` is a plaintext JSON blob that every surface reads and a
+ * backup copies, and a vendor's API key belongs in neither. One encrypted row per engine holds it — the same
+ * vault material a provider's key is — and these routes answer about it with only two facts: that one exists,
+ * and what its last four characters are. Nothing here returns a key, and none of it is in a backup, so a
+ * reader who restores their account onto another deployment picks their engine again and types its key again.
+ */
+assistantRoutes.get('/search-keys', async (c) => c.json({ keys: await store(c).listSearchKeys() }))
+
+/** Writes one engine's key, or replaces it. The value that went in is never the value that comes back. */
+assistantRoutes.put('/search-keys/:engine', async (c) => {
+  const engine = searchEngineParam(c.req.param('engine'))
+  const body = await readJson<{ apiKey?: unknown }>(c, JSON_BODY_LIMITS.small)
+  const key = await store(c).putSearchKey(engine, searchEngineKeyValue(body.apiKey))
+  return c.json({ key })
+})
+
+assistantRoutes.delete('/search-keys/:engine', async (c) => {
+  const engine = searchEngineParam(c.req.param('engine'))
+  // The account is bound into the statement, so an engine named here can only ever forget this reader's own
+  // key. Nothing stored for it is answered as not found rather than as a deletion that did nothing.
+  if (!await store(c).deleteSearchKey(engine)) throw ApiError.notFound('No key is stored for that search engine.')
+  return c.json({ deleted: true })
+})
+
+/** An engine named in a path, checked against the table the assistant can build a request from. */
+function searchEngineParam(value: unknown): string {
+  if (!isWebSearchEngineId(value)) throw ApiError.badRequest('That is not one of the search engines the assistant knows.')
+  return value as string
+}
+
+/**
+ * A key as it arrives: text, not blank, and short enough to store.
+ *
+ * Clipped rather than refused would be the worse silence — a vendor's token cut by four characters is a key
+ * that answers 401 forever and reads as the reader having typed the wrong thing.
+ */
+function searchEngineKeyValue(value: unknown): string {
+  if (typeof value !== 'string') throw ApiError.badRequest('A search engine key is written as text.')
+  const key = value.trim()
+  if (!key) throw ApiError.badRequest('A search engine key cannot be empty.')
+  if (key.length > MAX_SEARCH_KEY_CHARS) throw ApiError.badRequest('That search engine key is too long to store.')
+  return key
+}
 
 // ----------------------------------------------------------- chat attachments
 

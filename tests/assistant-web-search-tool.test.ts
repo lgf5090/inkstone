@@ -24,6 +24,7 @@ import { AssistantStore } from '../src/worker/assistant/store'
 import { CredentialVault } from '../src/worker/durable/credential-vault'
 import { ToolExecutor, type ToolContext } from '../src/worker/assistant/tools'
 import { hitsFromSearchPayload, searchUrlFor, webSearchSources } from '../src/worker/assistant/web-search'
+import { WEB_SEARCH_ENGINES } from '../src/shared/web-search-engines'
 import { DEFAULT_ASSISTANT_SETTINGS, normalizeAssistantSettings, type AssistantMessage, type AssistantSettings, type ChatStreamEvent } from '../src/shared/assistant'
 import type { AppBindings, Env } from '../src/worker/env'
 import { makeD1 } from './doubles/d1-sqlite'
@@ -265,18 +266,21 @@ describe('the configured search address', () => {
 
 describe('the address a search is sent to', () => {
   it('is checked by the guard that refuses a metadata address, before anything is fetched', () => {
-    expect(() => searchUrlFor('http://169.254.169.254/latest/meta-data/', 'q')).toThrow()
-    expect(() => searchUrlFor('http://127.0.0.1:8383/search', 'q')).toThrow()
-    expect(() => searchUrlFor('file:///etc/passwd', 'q')).toThrow()
-    expect(() => searchUrlFor('https://localhost:8383/search', 'q')).toThrow()
+    // The self-hosted entry is what these addresses are read as: a vendor engine names its own host, and its
+    // address is guarded on the way out just the same.
+    const SELF = WEB_SEARCH_ENGINES['self-hosted']!
+    expect(() => searchUrlFor(SELF, 'http://169.254.169.254/latest/meta-data/', 'q')).toThrow()
+    expect(() => searchUrlFor(SELF, 'http://127.0.0.1:8383/search', 'q')).toThrow()
+    expect(() => searchUrlFor(SELF, 'file:///etc/passwd', 'q')).toThrow()
+    expect(() => searchUrlFor(SELF, 'https://localhost:8383/search', 'q')).toThrow()
 
-    const asked = searchUrlFor(ENGINE, 'self hosted search')
+    const asked = searchUrlFor(SELF, ENGINE, 'self hosted search')
     expect(asked.searchParams.get('q')).toBe('self hosted search')
     // SearXNG answers in HTML unless told otherwise, and an endpoint that was never asked for JSON is the
     // one case a reader would otherwise debug for an hour.
     expect(asked.searchParams.get('format')).toBe('json')
     // An address that already names its own format is left alone.
-    expect(searchUrlFor(`${ENGINE}?format=jsonlite`, 'q').searchParams.get('format')).toBe('jsonlite')
+    expect(searchUrlFor(SELF, `${ENGINE}?format=jsonlite`, 'q').searchParams.get('format')).toBe('jsonlite')
   })
 
   it('reads the hits whichever shape the engine answers with', () => {

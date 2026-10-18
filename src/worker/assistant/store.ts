@@ -29,6 +29,7 @@ import type {
   AssistantNotification,
   AssistantProvider,
   AssistantProviderKey,
+  AssistantSearchKey,
   AssistantReasoning,
   AssistantSettings,
   Automation,
@@ -223,6 +224,14 @@ const PROVIDER_COLUMNS = `id, label, protocol, base_url, endpoints, reasoning_di
 
 /** A provider key row, ciphertext included: read only by the rotation, never by a listing. */
 const PROVIDER_KEY_COLUMNS = `id, provider_id, label, key_ciphertext, key_hint, enabled, last_used_at, error_count, last_error, created_at, updated_at`
+
+/**
+ * A search engine's key, ciphertext included.
+ *
+ * The listing version asks for `length(key_ciphertext) > 0` instead of the ciphertext, the same way a
+ * provider listing does, so a route that only wants to say whether a key exists cannot read one out.
+ */
+const SEARCH_KEY_COLUMNS = `engine, key_ciphertext, key_hint, created_at, updated_at`
 
 function bool(value: unknown): boolean {
   return value === 1 || value === true
@@ -1202,6 +1211,78 @@ export class AssistantStore {
 
   async deleteProviderKey(id: string): Promise<void> {
     await this.write(`DELETE FROM chat_provider_keys WHERE user_id = ?1 AND id = ?2`, id)
+  }
+
+  // ----------------------------------------------------------- search keys
+  //
+  // One credential per hosted web-search engine, kept in vault ciphertext. What a settings screen may learn
+  // about one is `hasKey` and its last four characters; what the search call may learn is the plaintext, and
+  // only in the isolate that is about to sign a request with it.
+
+  /**
+   * Which engines this reader has a key for.
+   *
+   * Ids only — not even the hint — because the only question the search tool's gate asks is whether the
+   * chosen engine has something to send, and a turn has no business learning what the other engines hold.
+   */
+  async searchKeyEngines(): Promise<string[]> {
+    const rows = await this.rows<{ engine: string }>(
+      `SELECT engine FROM chat_search_keys WHERE user_id = ?1 AND length(key_ciphertext) > 0`,
+      this.userId,
+    )
+    return rows.map((row) => row.engine)
+  }
+
+  /** Every engine's key state, newest written last: the settings screen's own listing. */
+  async listSearchKeys(): Promise<AssistantSearchKey[]> {
+    const rows = await this.rows<{ engine: string, has_key?: unknown, key_hint?: string | null, updated_at: number }>(
+      `SELECT engine, key_hint, length(key_ciphertext) > 0 AS has_key, updated_at
+         FROM chat_search_keys WHERE user_id = ?1 ORDER BY updated_at`,
+      this.userId,
+    )
+    return rows.map(toSearchKeyPresence)
+  }
+
+  /**
+   * The plaintext key one engine is searched with, or an empty string when none is stored.
+   *
+   * The one read of the ciphertext in this table, and it is not a listing: a route that answered with this
+   * would be handing a credential back to a browser that already proved it owns the account, which is not
+   * the same thing as needing the key.
+   */
+  async searchApiKey(engine: string): Promise<string> {
+    const row = await this.one<SearchKeyRow>(
+      `SELECT ${SEARCH_KEY_COLUMNS} FROM chat_search_keys WHERE user_id = ?1 AND engine = ?2`,
+      this.userId, engine,
+    )
+    if (!row?.key_ciphertext) return ''
+    return (await decryptAssistantKey(this.env, this.userId, row.key_ciphertext)) ?? ''
+  }
+
+  /** Stores, or replaces, the key one engine is searched with. */
+  async putSearchKey(engine: string, apiKey: string): Promise<AssistantSearchKey> {
+    const key = apiKey.trim()
+    // `encryptAssistantKey` refuses an empty or over-long key, but only after the vault round trip; refused
+    // here first, so the row a reader was told about is the row that changed.
+    if (!key) throw new Error('invalid_search_credential')
+    const at = Date.now()
+    const ciphertext = await encryptAssistantKey(this.env, this.userId, key)
+    await this.write(
+      `INSERT INTO chat_search_keys (user_id, engine, key_ciphertext, key_hint, created_at, updated_at)
+       VALUES (?1, ?2, ?3, ?4, ?5, ?5)
+       ON CONFLICT(user_id, engine) DO UPDATE SET
+         key_ciphertext = excluded.key_ciphertext, key_hint = excluded.key_hint, updated_at = excluded.updated_at`,
+      engine, ciphertext, key.slice(-4), at,
+    )
+    return { engine, hasKey: true, keyHint: key.slice(-4), updatedAt: at }
+  }
+
+  /** Forgets one engine's key. False when there was nothing to forget, which the route answers as not found. */
+  async deleteSearchKey(engine: string): Promise<boolean> {
+    return await this.write(
+      `DELETE FROM chat_search_keys WHERE user_id = ?1 AND engine = ?2 AND length(key_ciphertext) > 0`,
+      engine,
+    ) > 0
   }
 
   /**
@@ -5517,6 +5598,30 @@ function toProviderKey(r: ProviderKeyRow): AssistantProviderKey {
     errorCount: r.error_count ?? 0,
     lastError: r.last_error ?? null,
     createdAt: r.created_at,
+    updatedAt: r.updated_at,
+  }
+}
+
+interface SearchKeyRow {
+  engine: string
+  key_ciphertext?: string | null
+  key_hint?: string | null
+  created_at: number
+  updated_at: number
+}
+
+/**
+ * What a search engine's row says about its key: that one is there, and what it ends with.
+ *
+ * The ciphertext is read into nothing here — a row that carried it out of this file would be a secret in an
+ * API response, which is the one thing this table exists to avoid. The listing computes `has_key` from its
+ * length in SQL, so no statement that feeds this converter ever selects the column at all.
+ */
+function toSearchKeyPresence(r: { engine: string, has_key?: unknown, key_hint?: string | null, updated_at: number }): AssistantSearchKey {
+  return {
+    engine: r.engine,
+    hasKey: bool(r.has_key ?? false),
+    keyHint: r.key_hint ?? '',
     updatedAt: r.updated_at,
   }
 }

@@ -61,6 +61,31 @@ export const ASSISTANT_SCHEMA_STATEMENTS: readonly string[] = [
      ON chat_provider_keys(user_id, provider_id, created_at)`,
 
   /**
+   * The key the reader stores for one hosted web-search engine.
+   *
+   * It is its own table rather than a settings field because `chat_settings` is a plaintext JSON blob and a
+   * search key is a credential: a settings row is read by every surface, written by a patch, and copied into
+   * a backup file. Here the only thing that ever leaves is `key_hint`, the last four characters, which is the
+   * same bargain `chat_provider_keys` makes — and this table is not in the backup's column list at all, so a
+   * restored account has to type its key again rather than receive one it never sent.
+   *
+   * Keyed by `(user_id, engine)` instead of an id, because there is exactly one key per engine per reader:
+   * a second one is not a second credential the vendor would honour, it is the same account, and replacing
+   * it is an update on the row the engine names.
+   */
+  `CREATE TABLE IF NOT EXISTS chat_search_keys (
+    user_id TEXT NOT NULL,
+    engine TEXT NOT NULL,
+    key_ciphertext TEXT NOT NULL DEFAULT '',
+    -- The last four characters of the stored key, so the settings screen can say which key it holds without
+    -- the ciphertext ever being decrypted for a listing. Empty when no key is stored.
+    key_hint TEXT NOT NULL DEFAULT '',
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL,
+    PRIMARY KEY (user_id, engine)
+  )`,
+
+  /**
    * The reader's own saved skills, the library behind the composer's `/` and ➕ entries.
    *
    * The table keeps the name it shipped under (`chat_prompts`, migration 48). A skill is what the row
@@ -685,6 +710,7 @@ export const ASSISTANT_REQUIRED_TABLES: readonly string[] = [
   'chat_usage_daily_model',
   'chat_usage_daily_key',
   'chat_provider_keys',
+  'chat_search_keys',
   'chat_share_links',
   'chat_activity',
   'chat_active_runs',
@@ -741,6 +767,7 @@ export const ASSISTANT_REQUIRED_COLUMNS: Readonly<Record<string, readonly string
   chat_share_links: ['slug', 'conversation_id', 'user_id', 'scope', 'password_hash', 'expires_at', 'views', 'created_at'],
   chat_providers: ['user_id', 'id', 'label', 'protocol', 'base_url', 'endpoints', 'reasoning_dialect', 'key_ciphertext', 'key_hint', 'key_last_used_at', 'created_at', 'updated_at'],
   chat_provider_keys: ['user_id', 'id', 'provider_id', 'label', 'key_ciphertext', 'key_hint', 'enabled', 'last_used_at', 'error_count', 'last_error', 'created_at', 'updated_at'],
+  chat_search_keys: ['user_id', 'engine', 'key_ciphertext', 'key_hint', 'created_at', 'updated_at'],
   chat_models: ['user_id', 'id', 'provider_id', 'model', 'label', 'temperature', 'max_output_tokens', 'reasoning', 'context_tokens',
     'vendor_context_tokens', 'vendor_max_output_tokens', 'vision',
     'purpose', 'kind', 'supports_tools', 'no_tools', 'max_input_tokens', 'modalities', 'top_p', 'custom_params', 'protocol', 'fallback_model_id',

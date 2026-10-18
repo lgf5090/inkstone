@@ -9,6 +9,7 @@
 
 import { assertRelayableEndpoint } from './ai-proxy-guard'
 import { isValidTimeZone, parseScheduleSpec, type ScheduleSpec } from './assistant-schedule'
+import { DEFAULT_WEB_SEARCH_ENGINE_ID, webSearchEngineFor, webSearchEngineValue } from './web-search-engines'
 import type { MessageKey } from './locales/en-US'
 
 export type AssistantProtocol = 'openai' | 'anthropic' | 'gemini'
@@ -171,6 +172,20 @@ export interface AssistantProviderKey {
   errorCount: number
   lastError: string | null
   createdAt: number
+  updatedAt: number
+}
+
+/**
+ * One hosted web-search engine's key, as a listing is allowed to describe it.
+ *
+ * There is no key field and no ciphertext field here, and that is the whole design: the only thing a screen
+ * may show about a stored credential is that one exists and what its last four characters are. The secret
+ * itself is read by one server-side call that signs one outbound search.
+ */
+export interface AssistantSearchKey {
+  engine: string
+  hasKey: boolean
+  keyHint: string
   updatedAt: number
 }
 
@@ -661,11 +676,20 @@ export interface AssistantSettings {
   /**
    * The address the built-in `web_search` tool queries, for a provider whose protocol has no search of its own.
    *
-   * Empty means the tool is not offered at all. It is a self-hosted one — a SearXNG instance or an
-   * OpenSearch-compatible endpoint the reader runs — because a paid search API would mean a second key and
-   * a second bill for a feature whose whole point is that a self-hosted deployment has no vendor search.
+   * It is read only by the engine named in `webSearchEngine`, and only when that engine is a self-hosted
+   * one: a vendor's API has its own fixed address and takes a key instead, and the key lives in its own
+   * encrypted row rather than in this blob. Empty means a self-hosted search is off — the tool is not
+   * offered at all — because a search that cannot be asked for is worse than no search.
    */
   webSearchEndpoint: string
+  /**
+   * Which engine the built-in `web_search` tool asks: one of the ids in `@shared/web-search-engines`.
+   *
+   * Self-hosted is the default, which is what every setup already in the field is, and what a reader who
+   * configured nothing keeps. A hosted engine is not usable from this field alone — it needs the reader's
+   * key, which is deliberately not a setting: see `webSearchConfigured`.
+   */
+  webSearchEngine: string
 }
 
 export const ASSISTANT_START_VIEWS = ['chat', 'memory', 'tasks', 'automations', 'settings'] as const
@@ -690,6 +714,7 @@ export const DEFAULT_ASSISTANT_SETTINGS: AssistantSettings = {
   customInstructions: '',
   autoRoute: false,
   webSearchEndpoint: '',
+  webSearchEngine: DEFAULT_WEB_SEARCH_ENGINE_ID,
 }
 
 function record(value: unknown): Record<string, unknown> {
@@ -800,6 +825,7 @@ export function normalizeAssistantSettings(value: unknown): AssistantSettings {
     customInstructions: stringValue(raw.customInstructions, DEFAULT_ASSISTANT_SETTINGS.customInstructions, MAX_CUSTOM_INSTRUCTIONS_CHARS),
     autoRoute: booleanValue(raw.autoRoute, DEFAULT_ASSISTANT_SETTINGS.autoRoute),
     webSearchEndpoint: searchEndpointValue(raw.webSearchEndpoint),
+    webSearchEngine: webSearchEngineValue(raw.webSearchEngine),
   }
 }
 
@@ -1248,9 +1274,26 @@ export const SEARCH_NATIVE_PROTOCOLS: ReadonlySet<string> = new Set(['anthropic'
  */
 export const WEB_SEARCH_TOOL_NAME = 'web_search'
 
-/** Whether the reader has configured an address the built-in search tool can query. */
-export function webSearchConfigured(settings: Pick<AssistantSettings, 'webSearchEndpoint'>): boolean {
-  return settings.webSearchEndpoint.trim().length > 0
+/**
+ * Whether the built-in search tool has a channel it could actually use.
+ *
+ * The answer depends on which engine the reader picked, because the two kinds need different things: a
+ * self-hosted engine needs an address and nothing else, while a vendor's API has its address written down
+ * and answers only for a key — a key that is stored encrypted in its own row, never in this blob, so
+ * settings alone cannot tell whether the reader has one. That is what `keyStored` is for.
+ *
+ * A caller that cannot ask leaves it out, and an unknown is then taken at the reader's word: the composer
+ * has only these settings to read, and telling a reader with a stored key that nothing could search would
+ * be the likelier lie. A server-side caller must pass it — offering a keyed engine's tool without a key is
+ * a call that can only fail, and the reader would read that failure as the engine being broken.
+ */
+export function webSearchConfigured(
+  settings: Pick<AssistantSettings, 'webSearchEndpoint' | 'webSearchEngine'>,
+  keyStored?: boolean,
+): boolean {
+  const engine = webSearchEngineFor(settings.webSearchEngine)
+  if (!engine.requiresKey) return settings.webSearchEndpoint.trim().length > 0
+  return keyStored !== false
 }
 
 /**

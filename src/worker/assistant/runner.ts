@@ -13,6 +13,7 @@
  */
 
 import { MAX_MESSAGE_CHARS, SEARCH_NATIVE_PROTOCOLS, WEB_SEARCH_TOOL_NAME, looksLikeSearchTool, toolModeFor, toolPayloadText, webSearchConfigured } from '@shared/assistant'
+import { webSearchEngineFor } from '@shared/web-search-engines'
 import type { AssistantMessage, AssistantModel, AssistantModelModality, AssistantProtocol, AssistantSettings, AssistantSource, ChatStreamEvent, ToolActivity } from '@shared/assistant'
 import { contextBudgetFor, customParamBody, MAX_CHAT_ATTACHMENTS, MAX_CONVERSATION_TITLE_CHARS, MAX_TURN_SCOPES, MAX_TURN_TOOLS, clipSuggestionList, estimateTokens, titleFromMessage, type AssistantTurnScope } from '@shared/assistant'
 import { hasHistoricalIntent, memoryTokenBudget } from '@shared/assistant-memory'
@@ -688,11 +689,15 @@ export class AssistantRunner {
       this.webSearchNative = this.webSearchRequested && !this.toolsRefused(primary) && SEARCH_NATIVE_PROTOCOLS.has(call.protocol)
       if (this.webSearchRequested && !this.webSearchNative) {
         // No vendor-side search on this protocol. What can carry the switch, in the order of how sure the
-        // answer is: the worker's own tool, which searches an engine the reader pointed at; failing that,
+        // answer is: the worker's own tool, which searches the engine the reader picked — an engine that
+        // needs a key the reader never stored is not a channel, whatever the settings name; failing that,
         // one of the reader's remote tools whose *name* says it searches. The guess is the weaker one — a
         // tool called `query_orders` is not a web search — so it is only reached for when there is nothing
         // first-party to offer, and it stops firing the moment the reader configures an engine.
-        this.webSearchFirstParty = !this.toolsRefused(primary) && webSearchConfigured(this.settings) && toolModeFor(this.settings, 'read') !== 'off'
+        const searchKey = await this.webSearchKey()
+        this.webSearchFirstParty = !this.toolsRefused(primary)
+          && webSearchConfigured(this.settings, Boolean(searchKey))
+          && toolModeFor(this.settings, 'read') !== 'off'
         if (this.toolsRefused(primary)) {
           // The switch was on and this turn is forbidden every tool that could carry it out — which is
           // said with the code the client already has for a search nothing could do, rather than left as a
@@ -1815,6 +1820,27 @@ export class AssistantRunner {
     return this.pinnedNotesPromise
   }
 
+  /**
+   * The key this reader stored for the web-search engine the settings name, resolved once per turn.
+   *
+   * Two doors ask the same question — whether the built-in search tool may be offered at all, and what it
+   * signs its request with — and an engine's key must not be read twice from the vault in one turn, both
+   * because the second read is a duplicate round trip and because the two answers could then disagree
+   * about whether the reader has a key at all. An engine that needs no key never reaches the database.
+   */
+  private searchKeyPromise: Promise<string | null> | null = null
+
+  private webSearchKey(): Promise<string | null> {
+    if (!this.searchKeyPromise) {
+      this.searchKeyPromise = (async () => {
+        const engine = webSearchEngineFor(this.settings.webSearchEngine)
+        if (!engine.requiresKey) return null
+        return await this.store.searchApiKey(engine.id) || null
+      })()
+    }
+    return this.searchKeyPromise
+  }
+
   private async scopeLabels(): Promise<string[]> {
     if (!this.settings.noteScope.length) return []
     const placeholders = this.settings.noteScope.map((_, index) => `?${index + 2}`).join(', ')
@@ -1841,6 +1867,7 @@ export class AssistantRunner {
       memoryScope: this.memoryScope,
       automations: this.automations,
       noteScope: () => this.noteScope(),
+      webSearchKey: await this.webSearchKey(),
       ...(generatedAttachments ? { generatedAttachments } : {}),
       ...(conversationId
         ? {
