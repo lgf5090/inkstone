@@ -18,6 +18,7 @@ import type { MessageFeedback } from '@shared/assistant'
 import type { MessageKey } from '@shared/locales/en-US'
 import { api } from '../../lib/api'
 import { t } from '../../lib/i18n'
+import { isImeComposing } from '../../lib/ime'
 import { useUi } from '../../store/ui'
 import { Button, IconButton } from '../../components/primitives'
 import { Field, Input } from '../../components/form'
@@ -130,7 +131,9 @@ export function FeedbackReasonPanel({ messageId, open, triggerRef, onClose }: {
       data-feedback-reasons=""
       className="max-w-[72ch] space-y-2 rounded-[var(--r-md)] border border-[var(--border-subtle)] bg-[var(--bg-inset)] p-2.5"
       onKeyDown={(event) => {
-        if (event.key !== 'Escape') return
+        // Escape cancels a candidate before it means "close this card": the grounds are typed, and a
+        // reader using an input method would lose half a sentence to the key that was meant for the IME.
+        if (event.key !== 'Escape' || isImeComposing(event)) return
         event.preventDefault()
         close()
       }}
