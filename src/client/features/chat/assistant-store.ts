@@ -741,6 +741,31 @@ function failureLine(error: unknown, fallback?: string): string {
   return failure.detail ? `${failure.headline} — ${failure.detail}` : failure.headline
 }
 
+/** The `name` `StreamDisconnectedError` in `./stream` sets on itself; kept as text for the reason below. */
+const STREAM_DISCONNECTED_NAME = 'StreamDisconnectedError'
+
+/**
+ * What a turn that ended with no answer says in its bubble.
+ *
+ * A refusal has a reason: the route wrote one, and `failureLine` carries it. A stream whose bytes stopped
+ * arriving has nothing — the browser hands over "Failed to fetch" or its own wording of a network error,
+ * which names no part of this app, translates to no language, and reads as a bug report rather than as
+ * news about the answer. So that one case is answered from the catalog: what broke, what is still on
+ * screen, and the fact that the `assistant.chat.continue` control under the bubble picks the sentence up
+ * where it stopped.
+ *
+ * The distinction is made on the error's own `name` rather than by `instanceof StreamDisconnectedError`,
+ * and that is not a shortcut: `./stream` is mocked in eight test files whose factories hand back only the
+ * one function they replace, and a mocked module answers a missing export by throwing. A value import of
+ * the class would have failed those tests on their own unrelated assertions. `name` is what the class sets
+ * in its constructor for exactly this, and it is the same test `lib/api` applies to a browser abort.
+ */
+function turnFailureLine(error: unknown): string {
+  return error instanceof Error && error.name === STREAM_DISCONNECTED_NAME
+    ? t('assistant.chat.stream_disconnected')
+    : failureLine(error)
+}
+
 /** One failure, one surface: the form that was handed the refusal is the one that says it. */
 function reportFailure(error: unknown, report?: ReportFailure): void {
   if (report) report(describeFailure(error))
@@ -838,6 +863,10 @@ function mergeThreadPage(current: AssistantMessage[], page: AssistantMessage[]):
  * the reply blinks out and reappears on the next open. `turn` is the live turn the caller is adopting,
  * and is the only turn this read is allowed to settle — every write below is either about that turn or
  * about the thread, never about whatever turn happens to be on screen now.
+ *
+ * A budget is a promise about how long the worker takes, and a broken connection is the case that breaks
+ * it: the read may fail outright, or the run may still be going when the attempts run out. Neither is an
+ * answer that has settled, so both leave the thread to `watchRemoteStream` below rather than ending here.
  */
 async function adoptThread(conversationId: string, turn: LiveTurn | null): Promise<void> {
   for (let attempt = 0; attempt < ADOPT_ATTEMPTS; attempt++) {
@@ -845,6 +874,10 @@ async function adoptThread(conversationId: string, turn: LiveTurn | null): Promi
     try {
       detail = await api.assistant.conversation(conversationId)
     } catch {
+      // The read went out over the same connection that just broke the turn, so this is the ordinary
+      // failure rather than the surprising one. Returning here used to leave the bubble on screen with
+      // nothing coming back for the row the worker is still going to file.
+      handOffToRemoteWatch(conversationId, turn)
       return
     }
     // Another thread is on screen. This read is only worth anything to the thread the reader can see,
@@ -865,7 +898,26 @@ async function adoptThread(conversationId: string, turn: LiveTurn | null): Promi
     }
     await new Promise((resolve) => setTimeout(resolve, ADOPT_POLL_MS))
   }
-  releaseTurn(turn?.token)
+  // The worker still claims the run after every attempt this side was willing to spend. Dropping the
+  // turn here is what deleted the reader's half answer, on the chance that its row would be there the
+  // next time they opened the thread.
+  handOffToRemoteWatch(conversationId, turn)
+}
+
+/**
+ * Leaves a thread the chase could not settle to the conversation's own watch.
+ *
+ * This is not a second mechanism: `watchRemoteStream` is what already asks an open thread whether a run
+ * is going, on the same read, until the server says it is not. The point of routing both give-ups through
+ * it is what they used to do — decide the answer is finished — without the evidence. The turn goes with
+ * the watch so that the one read which finds its row is also the one that takes the bubble down.
+ */
+function handOffToRemoteWatch(conversationId: string, turn: LiveTurn | null): void {
+  // A thread the reader has left is read again by the next open of it, the same rule the chase follows
+  // above: nothing here may write into whatever is on screen now.
+  if (useAssistant.getState().activeId !== conversationId) return
+  useAssistant.setState({ remoteStreaming: true })
+  watchRemoteStream(conversationId, turn)
 }
 
 /**
@@ -893,6 +945,14 @@ interface RemoteWatch {
   conversationId: string
   startedAt: number
   timer: number
+  /**
+   * A turn this tab was watching when the watch began, if any.
+   *
+   * Only a stream that broke under its own turn hands one over: the ordinary watch is started by opening
+   * a thread somebody else is writing, where there is no bubble of this tab's to settle. When there is
+   * one, this read is the only thing that will ever say it is finished, so it is carried here.
+   */
+  turn: LiveTurn | null
 }
 
 let remoteWatch: RemoteWatch | null = null
@@ -942,12 +1002,23 @@ async function pollRemoteStream(watch: RemoteWatch): Promise<void> {
   if (!detail.streaming) {
     stopRemoteStreamWatch()
     useAssistant.setState((current) => ({
-      messages: mergeThreadPage(current.messages, detail.messages),
+      // The same two rules the chase applies: rows the reader had scrolled back to stay, and the words
+      // this tab watched arrive are filled into a row the worker filed blank. Then, and not before, the
+      // bubble goes — which is what keeps a turn that broke mid-stream from losing its own answer.
+      messages: fillStoppedAnswer(mergeThreadPage(current.messages, detail.messages), watch.turn),
       messagesReady: true,
       messagesError: null,
       remoteStreaming: false,
       fileIndex: { ...current.fileIndex, ...Object.fromEntries((detail.attachments ?? []).map((entry) => [entry.id, entry])) },
     }))
+    // The bubble goes only once its own row is actually on screen. A thread that stops claiming a run
+    // without ever filing this turn's row keeps the fragment the reader watched instead of taking it
+    // down with the marker — and an ordinary watch, which carries no turn, matches nothing here and
+    // leaves whatever is on screen alone, exactly as it did before.
+    const assistantId = watch.turn?.assistantId
+    if (assistantId && useAssistant.getState().messages.some((message) => message.id === assistantId)) {
+      releaseTurn(watch.turn?.token)
+    }
     void useAssistant.getState().loadConversations()
     return
   }
@@ -967,9 +1038,17 @@ function giveUpRemoteStream(watch: RemoteWatch): void {
   useUi.getState().toast({ title: t('assistant.chat.remote_streaming_lost'), tone: 'warning' })
 }
 
-function watchRemoteStream(conversationId: string): void {
+/**
+ * Starts asking an open thread whether its run is over.
+ *
+ * `turn` is only ever given by `handOffToRemoteWatch`: a stream that broke under a turn this tab was
+ * watching has the watch settle that turn as well as the thread, so nothing that is on screen depends on
+ * a chase that already ran out. Opening a conversation somebody else is writing carries nothing, because
+ * the bubble on that screen belongs to a different turn.
+ */
+function watchRemoteStream(conversationId: string, turn: LiveTurn | null = null): void {
   stopRemoteStreamWatch()
-  const watch: RemoteWatch = { conversationId, startedAt: Date.now(), timer: 0 }
+  const watch: RemoteWatch = { conversationId, startedAt: Date.now(), timer: 0, turn }
   remoteWatch = watch
   scheduleRemotePoll(watch)
 }
@@ -2396,7 +2475,7 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
     } catch (error) {
       if (!controller.signal.aborted) {
         set((current) => (current.turn?.token === token
-          ? { turn: { ...current.turn, error: failureLine(error), done: true } }
+          ? { turn: { ...current.turn, error: turnFailureLine(error), done: true } }
           : current))
       }
     } finally {

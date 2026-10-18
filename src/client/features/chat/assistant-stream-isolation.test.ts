@@ -15,12 +15,18 @@
  *
  * The last case is about what a frame is allowed to write rather than which turn it may write: the pages
  * a search consulted exist on the stored row, and the closing frame is the only one that carries them.
+ *
+ * The block at the end is about the stream dying under a turn rather than being stopped in it. That is a
+ * different reader's problem: nothing refused the turn, so nothing has a reason to tell, and the one fact
+ * worth saying is that the words stopped arriving — and then who keeps watching for the row the worker
+ * files a moment after the break.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import type { AssistantMessage, AssistantSource } from '@shared/assistant'
+import type { AssistantMessage, AssistantSource, ChatStreamEvent } from '@shared/assistant'
 import { initI18n, t } from '../../lib/i18n'
 import { installTestGlobals } from '../../lib/test-render'
 import { useUi } from '../../store/ui'
+import type { StreamTurnInput } from './stream'
 import {
   REMOTE_WATCH_MAX_MS,
   REMOTE_WATCH_POLL_MS,
@@ -29,8 +35,8 @@ import {
 } from './assistant-store'
 
 interface Run {
-  input: Record<string, unknown>
-  apply: (event: { type: string } & Record<string, unknown>) => void
+  input: StreamTurnInput
+  apply: (event: ChatStreamEvent) => void
   signal: AbortSignal
   resolve: () => void
   reject: (error: unknown) => void
@@ -41,6 +47,10 @@ const harness = vi.hoisted(() => ({
   runs: [] as Run[],
   /** What `api.assistant.conversation` answers with, changed per case. */
   detail: { messages: [] as unknown[], streaming: false },
+  /** How many thread reads fail from now on: the read that follows a broken connection. */
+  failingReads: 0,
+  /** Set by the cases that want the real reader over a real body instead of a recorded run. */
+  realBody: false,
 }))
 
 vi.mock('../../lib/api', () => ({
@@ -48,12 +58,18 @@ vi.mock('../../lib/api', () => ({
   CLIENT_ID: 'test-client',
   api: {
     assistant: {
-      conversation: vi.fn(async (id: string) => ({
-        conversation: { id, ephemeral: false },
-        messages: harness.detail.messages,
-        attachments: [],
-        streaming: harness.detail.streaming,
-      })),
+      conversation: vi.fn(async (id: string) => {
+        if (harness.failingReads > 0) {
+          harness.failingReads -= 1
+          throw new Error('the thread read failed the way a read over a dead connection does')
+        }
+        return {
+          conversation: { id, ephemeral: false },
+          messages: harness.detail.messages,
+          attachments: [],
+          streaming: harness.detail.streaming,
+        }
+      }),
       conversationArtifacts: vi.fn(async () => ({ artifacts: [] })),
       cancel: vi.fn(async () => ({ cancelled: true })),
     },
@@ -61,16 +77,25 @@ vi.mock('../../lib/api', () => ({
 }))
 
 // The transport, held open by the test: each case decides what each stream emits and when it ends.
-vi.mock('./stream', () => ({
-  streamAssistantTurn: (
-    input: Record<string, unknown>,
-    apply: (event: { type: string } & Record<string, unknown>) => void,
-    signal: AbortSignal,
-  ) => new Promise<void>((resolve, reject) => {
-    harness.runs.push({ input, apply, signal, resolve, reject })
-    signal.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')))
-  }),
-}))
+// The two breakage cases opt into the real helper instead, so what is under test is the reading loop
+// itself — a body whose frames stop arriving — and not a stand-in chosen to agree with it.
+vi.mock('./stream', async () => {
+  const actual = await vi.importActual<typeof import('./stream')>('./stream')
+  return {
+    ...actual,
+    streamAssistantTurn: (
+      input: StreamTurnInput,
+      apply: (event: ChatStreamEvent) => void,
+      signal: AbortSignal,
+    ) => {
+      if (harness.realBody) return actual.streamAssistantTurn(input, apply, signal)
+      return new Promise<void>((resolve, reject) => {
+        harness.runs.push({ input, apply, signal, resolve, reject })
+        signal.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')))
+      })
+    },
+  }
+})
 
 const original = useAssistant.getState()
 
@@ -116,11 +141,43 @@ function assistantRow(over: Partial<AssistantMessage> = {}): AssistantMessage {
   }
 }
 
+function userRow(): AssistantMessage {
+  return assistantRow({ id: 'm-question', role: 'user', content: 'a long question', status: 'complete', createdAt: 0 })
+}
+
+/**
+ * A turn whose connection gives out under it: four frames arrive, and the read after them fails.
+ *
+ * The failure is raised from `pull` rather than from `start` so that it lands only once the reader has
+ * taken every frame that was queued — the case is a stream that died mid-sentence, not one that never
+ * began. The reason is the browser's own: a `TypeError` reading "Failed to fetch", which names no part
+ * of this app and has no translation.
+ */
+function stubTurnThatBreaksAfterFourFrames(): void {
+  const frames = [
+    { type: 'start', conversationId: 'c1', assistantMessageId: 'm-answer' },
+    { type: 'text', delta: 'half an ' },
+    { type: 'text', delta: 'answer ' },
+    { type: 'text', delta: 'that broke' },
+  ]
+  const body = new ReadableStream<Uint8Array>({
+    start(controller) {
+      for (const frame of frames) controller.enqueue(new TextEncoder().encode(`data: ${JSON.stringify(frame)}\n\n`))
+    },
+    pull(controller) {
+      controller.error(new TypeError('Failed to fetch'))
+    },
+  })
+  vi.stubGlobal('fetch', vi.fn(async () => new Response(body, { headers: { 'content-type': 'text/event-stream' } })))
+}
+
 beforeEach(async () => {
   installTestGlobals()
   await initI18n()
   harness.runs.length = 0
   harness.detail = { messages: [], streaming: false }
+  harness.failingReads = 0
+  harness.realBody = false
   reset()
 })
 
@@ -128,6 +185,7 @@ afterEach(() => {
   stopRemoteStreamWatch()
   vi.useRealTimers()
   vi.clearAllMocks()
+  vi.unstubAllGlobals()
   useAssistant.setState(original, true)
 })
 
@@ -307,5 +365,75 @@ describe('the pages a turn’s search consulted', () => {
     expect(useAssistant.getState().turn?.sources).toEqual([page])
     run.resolve()
     await sending
+  })
+})
+
+describe('a connection that broke under the turn', () => {
+  // The chase's own budget (`ADOPT_ATTEMPTS` × `ADOPT_POLL_MS`) is 2400ms and is not exported; this is
+  // longer than it and shorter than one remote poll after it, so the hand-over is what is being watched.
+  const CHASE_BUDGET_MS = 3000
+
+  /** Every string the thread surface can print for this turn, in one blob to search. */
+  function visibleText(): string {
+    const state = useAssistant.getState()
+    return JSON.stringify([
+      state.messages,
+      state.turn ? { text: state.turn.text, error: state.turn.error } : null,
+      state.messagesError,
+    ])
+  }
+
+  it('says the connection broke, then brings the filed row on screen', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] })
+    harness.realBody = true
+    stubTurnThatBreaksAfterFourFrames()
+    // The read that follows the break goes out with it — the connection is not back yet — and the worker
+    // has not filed the cancelled row at this moment.
+    harness.failingReads = 1
+    harness.detail = { messages: [userRow()], streaming: true }
+    reset({ activeId: 'c1' })
+
+    const sending = useAssistant.getState().send('a long question')
+    await vi.advanceTimersByTimeAsync(0)
+    await sending
+
+    const during = useAssistant.getState()
+    expect(during.turn?.text, 'the words that arrived before the break were thrown away').toBe('half an answer that broke')
+    expect(during.turn?.error, 'a broken stream is not a refusal the route explained').toBe(t('assistant.chat.stream_disconnected'))
+    expect(during.remoteStreaming, 'nobody was left watching for the row the worker files').toBe(true)
+
+    // The worker files the half answer a moment later; the poll is what reads it back.
+    harness.detail = { messages: [userRow(), assistantRow({ content: 'half an answer that broke' })], streaming: false }
+    await vi.advanceTimersByTimeAsync(REMOTE_WATCH_POLL_MS)
+
+    const after = useAssistant.getState()
+    expect(after.messages.map((message) => message.id), 'the cancelled row never reached the screen').toContain('m-answer')
+    expect(after.messages[1]?.status).toBe('cancelled')
+    expect(after.turn, 'the bubble is dropped only once its row is on screen').toBeNull()
+    expect(visibleText(), 'the browser’s own text was handed to the reader').not.toContain('Failed to fetch')
+  })
+
+  it('hands the thread to the conversation poll when the row misses the whole chase budget', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] })
+    harness.realBody = true
+    stubTurnThatBreaksAfterFourFrames()
+    // Every read succeeds and every one of them still says the run is going, so the chase runs out while
+    // the stored row is still missing.
+    harness.detail = { messages: [userRow()], streaming: true }
+    reset({ activeId: 'c1' })
+
+    const sending = useAssistant.getState().send('a long question')
+    await vi.advanceTimersByTimeAsync(CHASE_BUDGET_MS)
+    await sending
+
+    const state = useAssistant.getState()
+    expect(state.remoteStreaming, 'the chase gave up without leaving a poll behind').toBe(true)
+    expect(state.turn?.text, 'the half answer went off the screen with the turn').toBe('half an answer that broke')
+
+    // And the poll is really running: one more beat, with the row now filed, puts it on screen.
+    harness.detail = { messages: [userRow(), assistantRow({ content: 'half an answer that broke' })], streaming: false }
+    await vi.advanceTimersByTimeAsync(REMOTE_WATCH_POLL_MS)
+    expect(useAssistant.getState().messages.map((message) => message.id)).toContain('m-answer')
+    expect(visibleText()).not.toContain('Failed to fetch')
   })
 })

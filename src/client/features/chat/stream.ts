@@ -48,6 +48,28 @@ export interface StreamTurnInput {
   ephemeral?: boolean
 }
 
+/**
+ * The bytes under a turn stopped arriving, and nothing said why.
+ *
+ * A turn ends without an answer in two quite different ways, and the reader has to be told about them
+ * differently. A refusal arrives as an `error` frame carrying the worker's own sentence, written to be
+ * printed; a connection that gives out mid-sentence carries only whatever the browser felt like — today
+ * "Failed to fetch", in another engine a network error in a language of its own, and never a translation
+ * of anything. So the reading loop names its own failure with this type and keeps the browser's text as
+ * `cause`: for the console of whoever has to debug it, never for a bubble.
+ *
+ * `name` is set here and read as text by the store, not by `instanceof`: a test that mocks this module
+ * usually replaces only the one function it needs, and then answers a missing export by throwing — the
+ * class would be the thing under test for the wrong reason. Rename it and `assistant-store.ts` is the
+ * file that stops saying the right sentence.
+ */
+export class StreamDisconnectedError extends Error {
+  constructor(message: string, options: { cause?: unknown }) {
+    super(message, options)
+    this.name = 'StreamDisconnectedError'
+  }
+}
+
 export async function streamAssistantTurn(
   input: StreamTurnInput,
   onEvent: (event: ChatStreamEvent) => void,
@@ -104,7 +126,17 @@ export async function streamAssistantTurn(
   const reader = response.body.pipeThrough(new TextDecoderStream()).getReader()
   let buffer = ''
   for (;;) {
-    const { value, done } = await reader.read()
+    // A read that fails is the connection giving out under a turn the worker never refused. The stop the
+    // reader pressed is the one exception, and `signal` is the proof of it: that stream is closed on
+    // purpose, so its rejection goes back exactly as it came and the caller keeps treating it as a stop.
+    let chunk
+    try {
+      chunk = await reader.read()
+    } catch (error) {
+      if (signal.aborted) throw error
+      throw new StreamDisconnectedError('The assistant stream ended before the turn was answered.', { cause: error })
+    }
+    const { value, done } = chunk
     if (done) break
     buffer += value
     let boundary = buffer.indexOf('\n\n')
@@ -119,8 +151,13 @@ export async function streamAssistantTurn(
       if (!data) continue
       try {
         onEvent(JSON.parse(data) as ChatStreamEvent)
-      } catch {
-        // A frame we cannot read is not worth losing the rest of the answer over.
+      } catch (error) {
+        // Best-effort on purpose, and it stays that way: a frame this reader cannot parse is one frame
+        // lost, and the answer keeps arriving after it. Throwing would trade the rest of a reply the
+        // reader is watching for a line the transport wrote badly, so the frame is skipped and only the
+        // parse failure is recorded — the frame's own text is an answer's worth of reading material and
+        // does not belong in a console log.
+        console.warn('[inkstone] an assistant stream frame could not be parsed and was skipped', error)
       }
       boundary = buffer.indexOf('\n\n')
     }
