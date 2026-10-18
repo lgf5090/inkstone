@@ -58,7 +58,21 @@ const harness = vi.hoisted(() => ({
 }))
 
 vi.mock('../../lib/api', () => ({
-  ApiError: class ApiError extends Error {},
+  // Built the way `lib/api` builds it — status, code, message, and the route's own line last. A stand-in
+  // that read its first argument as the message would print `0` in the bubble for every `ApiError` the
+  // stream helper throws, which is not the sentence any of these cases are about.
+  ApiError: class ApiError extends Error {
+    constructor(
+      readonly status: number,
+      readonly code: string,
+      message: string,
+      readonly details?: unknown,
+      readonly serverMessage?: string,
+    ) {
+      super(message)
+      this.name = 'ApiError'
+    }
+  },
   CLIENT_ID: 'test-client',
   api: {
     assistant: {
@@ -147,6 +161,16 @@ function assistantRow(over: Partial<AssistantMessage> = {}): AssistantMessage {
 
 function userRow(): AssistantMessage {
   return assistantRow({ id: 'm-question', role: 'user', content: 'a long question', status: 'complete', createdAt: 0 })
+}
+
+/** Every string the thread surface can print for this turn, in one blob to search. */
+function visibleText(): string {
+  const state = useAssistant.getState()
+  return JSON.stringify([
+    state.messages,
+    state.turn ? { text: state.turn.text, error: state.turn.error } : null,
+    state.messagesError,
+  ])
 }
 
 /**
@@ -377,16 +401,6 @@ describe('a connection that broke under the turn', () => {
   // longer than it and shorter than one remote poll after it, so the hand-over is what is being watched.
   const CHASE_BUDGET_MS = 3000
 
-  /** Every string the thread surface can print for this turn, in one blob to search. */
-  function visibleText(): string {
-    const state = useAssistant.getState()
-    return JSON.stringify([
-      state.messages,
-      state.turn ? { text: state.turn.text, error: state.turn.error } : null,
-      state.messagesError,
-    ])
-  }
-
   it('says the connection broke, then brings the filed row on screen', async () => {
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] })
     harness.realBody = true
@@ -517,5 +531,47 @@ describe('the frames inside one read', () => {
       frame({ type: 'text', delta: 'before' }) + 'data: no json here\n\n' + frame({ type: 'text', delta: 'after' }),
     ])
     expect(deltas).toEqual(['before', 'after'])
+  })
+})
+
+describe('a request that died before its headers', () => {
+  /**
+   * A turn whose `fetch` itself never answered.
+   *
+   * This is the other half of a broken connection, and a different piece of code: everything above this
+   * block failed *under* a response the worker had already started, and only the reading loop can see it.
+   * A request that dies on the way to the headers never gets that far, so nothing in the loop is involved
+   * — and the error the browser raises is the same untranslatable sentence, arriving where no failure
+   * handler had been put. It is not the same sentence to the reader either: there is no half answer to
+   * keep on the screen and no turn for 「继续生成」 to pick up, because the worker was never told.
+   */
+  it('says the app’s own offline line, not the browser’s', async () => {
+    harness.realBody = true
+    vi.stubGlobal('fetch', vi.fn(async () => { throw new TypeError('Failed to fetch') }))
+    reset({ activeId: 'c1' })
+
+    const sending = useAssistant.getState().send('a long question')
+    expect(await sending, 'a request that never reached the worker was taken as an accepted turn').toBe(false)
+
+    const state = useAssistant.getState()
+    expect(state.turn?.error, 'a request that died on the way there is not the app’s own news').toBe(t('api.no_network_connection'))
+    expect(visibleText(), 'the browser’s own text was handed to the reader').not.toContain('Failed to fetch')
+    expect(visibleText()).not.toContain('TypeError')
+  })
+
+  it('leaves the reader’s own stop a stop, even before the headers', async () => {
+    // The one failure this path is not allowed to relabel: the request the reader cancelled answers with an
+    // abort, and turning that into "no network" would tell them their connection is gone when their finger
+    // pressed the button.
+    harness.realBody = true
+    vi.stubGlobal('fetch', vi.fn((_input: unknown, init?: { signal?: AbortSignal }) => new Promise<never>((_resolve, reject) => {
+      init?.signal?.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')))
+    })))
+    reset({ activeId: 'c1' })
+
+    const controller = new AbortController()
+    const pending = streamAssistantTurn({ message: 'a long question' }, () => undefined, controller.signal)
+    controller.abort()
+    await expect(pending).rejects.toMatchObject({ name: 'AbortError' })
   })
 })

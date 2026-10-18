@@ -10,7 +10,7 @@
 import { CLIENT_HEADER } from '@shared/constants'
 import type { AssistantTurnScope, ChatStreamEvent } from '@shared/assistant'
 import { ApiError, CLIENT_ID, routeApiError } from '../../lib/api'
-import { getLocale } from '../../lib/i18n'
+import { getLocale, t } from '../../lib/i18n'
 
 export interface StreamTurnInput {
   conversationId?: string
@@ -75,35 +75,51 @@ export async function streamAssistantTurn(
   onEvent: (event: ChatStreamEvent) => void,
   signal: AbortSignal,
 ): Promise<void> {
-  const response = await fetch('/api/assistant/chat', {
-    method: 'POST',
-    headers: {
-      [CLIENT_HEADER]: '1',
-      'X-Inkstone-Origin': CLIENT_ID,
-      'Accept-Language': getLocale(),
-      'content-type': 'application/json',
-      accept: 'text/event-stream',
-    },
-    body: JSON.stringify({
-      ...(input.conversationId ? { conversationId: input.conversationId } : {}),
-      message: input.message,
-      ...(input.attachments?.length ? { attachments: input.attachments } : {}),
-      ...(input.tools?.length ? { tools: input.tools } : {}),
-      ...(input.scopes?.length ? { scopes: input.scopes } : {}),
-      ...(input.contextNoteId ? { contextNoteId: input.contextNoteId } : {}),
-      ...(input.contextFolderId ? { contextFolderId: input.contextFolderId } : {}),
-      ...(input.noteId ? { noteId: input.noteId } : {}),
-      ...(input.webSearch ? { webSearch: true } : {}),
-      ...(input.modelId ? { modelId: input.modelId } : {}),
-      ...(input.noTools ? { noTools: true } : {}),
-      ...(input.ephemeral ? { ephemeral: true } : {}),
-      ...(input.retry ? { retry: true } : {}),
-      ...(input.retry && input.messageId ? { messageId: input.messageId } : {}),
-      ...(input.continueTurn ? { continue: true } : {}),
-    }),
-    credentials: 'same-origin',
-    signal,
-  })
+  // The request is made inside the `try` below, and that placement is the whole point: a turn can lose its
+  // connection before there is a response to read at all, and then the only thing the browser has to say
+  // for itself is "Failed to fetch" — a sentence no reader was given, and no translator knows.
+  let response: Response
+  try {
+    response = await fetch('/api/assistant/chat', {
+      method: 'POST',
+      headers: {
+        [CLIENT_HEADER]: '1',
+        'X-Inkstone-Origin': CLIENT_ID,
+        'Accept-Language': getLocale(),
+        'content-type': 'application/json',
+        accept: 'text/event-stream',
+      },
+      body: JSON.stringify({
+        ...(input.conversationId ? { conversationId: input.conversationId } : {}),
+        message: input.message,
+        ...(input.attachments?.length ? { attachments: input.attachments } : {}),
+        ...(input.tools?.length ? { tools: input.tools } : {}),
+        ...(input.scopes?.length ? { scopes: input.scopes } : {}),
+        ...(input.contextNoteId ? { contextNoteId: input.contextNoteId } : {}),
+        ...(input.contextFolderId ? { contextFolderId: input.contextFolderId } : {}),
+        ...(input.noteId ? { noteId: input.noteId } : {}),
+        ...(input.webSearch ? { webSearch: true } : {}),
+        ...(input.modelId ? { modelId: input.modelId } : {}),
+        ...(input.noTools ? { noTools: true } : {}),
+        ...(input.ephemeral ? { ephemeral: true } : {}),
+        ...(input.retry ? { retry: true } : {}),
+        ...(input.retry && input.messageId ? { messageId: input.messageId } : {}),
+        ...(input.continueTurn ? { continue: true } : {}),
+      }),
+      credentials: 'same-origin',
+      signal,
+    })
+  } catch (error) {
+    // The stop the reader pressed, again the one exception: an abort is the reader's own act and goes back
+    // exactly as it came, or `send` would tell them their network is down because their finger was here.
+    if (signal.aborted) throw error
+    // Everything else is the same fact `request()` already answers for every other call in the app — the
+    // request never got an answer — so it is answered with the same error and the same catalog sentence,
+    // not with a third line written here. Deliberately not `StreamDisconnectedError`: that one points the
+    // reader at `assistant.chat.continue`, and a turn the worker was never told about has no half answer to
+    // carry on.
+    throw new ApiError(0, 'offline', t('api.no_network_connection'))
+  }
 
   if (!response.ok) {
     // The body is read here, and only the body: on success this response is a stream the helper owns, so

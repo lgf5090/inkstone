@@ -14,6 +14,11 @@
  * and that they are the *same* two halves the JSON path produces for the same body. The flattening that
  * keeps a reason readable (one bounded line, control characters gone, a credential taken out) is written
  * once, so a second copy of it in this file's subject would be a second set of rules to keep in step.
+ *
+ * The last block is the failure that never gets as far as a refusal: a request that dies before there are
+ * any headers to read. It has no status and no body, so there is nothing to translate — which is exactly
+ * how it came to reach the reader as the browser's own sentence. The answer is the one `request()` already
+ * gives for it, and the two paths are held to that answer again here.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ApiError, api } from '../../lib/api'
@@ -121,5 +126,57 @@ describe('a failure that is not a JSON refusal', () => {
     expect(error.code).toBe('unknown')
     expect(error.serverMessage ?? null).toBeNull()
     expect(error.message).toBe(t('api.request_failed_status', { status: 500 }))
+  })
+})
+
+describe('a turn whose request died before there were headers', () => {
+  /** Ask for a turn over a transport that answers with the browser's own network failure. */
+  async function turnOverADeadConnection(): Promise<unknown> {
+    vi.stubGlobal('fetch', vi.fn(async () => { throw new TypeError('Failed to fetch') }))
+    try {
+      await streamAssistantTurn({ message: 'what changed this week?' }, () => undefined, new AbortController().signal)
+    } catch (error) {
+      return error
+    }
+    throw new Error('a turn whose request never got a response has to answer with an error')
+  }
+
+  /** The same failure read by the ordinary JSON path, which is the answer the turn has to agree with. */
+  async function jsonRouteOverADeadConnection(): Promise<ApiError> {
+    vi.stubGlobal('fetch', vi.fn(async () => { throw new TypeError('Failed to fetch') }))
+    try {
+      await api.assistant.updateModel('m1', { label: '' })
+    } catch (error) {
+      return error as ApiError
+    }
+    throw new Error('a request that never reached the network has to answer with an error')
+  }
+
+  it('says the same thing the JSON path says when the request itself fails', async () => {
+    const turn = await turnOverADeadConnection()
+    expect(turn, 'a request that never got a response is still the app’s own news, not the browser’s').toBeInstanceOf(ApiError)
+    expect((turn as ApiError).status).toBe(0)
+    expect((turn as ApiError).code).toBe('offline')
+    expect((turn as ApiError).message).toBe(t('api.no_network_connection'))
+    // The sentence is not written here a second time: it is the one every other call in the app answers a
+    // failed request with, so the two paths have to agree on it for the same failure.
+    const json = await jsonRouteOverADeadConnection()
+    expect((turn as ApiError).message).toBe(json.message)
+    expect((turn as ApiError).code).toBe(json.code)
+    expect((turn as ApiError).status).toBe(json.status)
+  })
+
+  it('leaves a stop pressed before the headers the reader’s own abort', async () => {
+    // An abort on this path is not a network failure and must not be dressed as one: the reader pressed
+    // Stop, and `send` settles the turn as a stop only while the error says so.
+    const controller = new AbortController()
+    vi.stubGlobal('fetch', vi.fn((_input: unknown, init?: { signal?: AbortSignal }) => new Promise<never>((_resolve, reject) => {
+      init?.signal?.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')))
+    })))
+    const pending = streamAssistantTurn({ message: 'what changed this week?' }, () => undefined, controller.signal)
+    controller.abort()
+    const error = await pending.then(() => null).catch((caught: unknown) => caught as Error)
+    expect((error as Error).name).toBe('AbortError')
+    expect(error).not.toBeInstanceOf(ApiError)
   })
 })
