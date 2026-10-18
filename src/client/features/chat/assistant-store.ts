@@ -1728,7 +1728,12 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
       if (remote) watchRemoteStream(id)
     } catch (error) {
       if (get().activeId !== id) return
-      set({ messagesReady: true, messagesError: t('assistant.chat.load_failed') })
+      // The banner's own headline comes from the catalog, so what belongs in this field is the reason the
+      // route gave — and only that. Storing the translated sentence here (which is what it used to hold)
+      // made the view's detail compare equal to the headline and drop itself, so the refusal that survived
+      // in the toast was still missing from the one surface that stays on screen. With no reason to carry,
+      // the generic sentence comes back and the detail line disappears as it should.
+      set({ messagesReady: true, messagesError: describeFailure(error).detail ?? t('assistant.chat.load_failed') })
       toast(error)
     }
   },
