@@ -1,15 +1,16 @@
 import { lazy, Suspense, useEffect, useState } from 'react'
+import { RefreshCw } from 'lucide-react'
 import { ConfirmHost, PromptHost } from './components/overlay'
 import { QuickAddPromptGate } from './features/quickadd/prompt-gate'
 import { Toaster } from './components/feedback'
-import { Spinner } from './components/primitives'
+import { Button, Spinner } from './components/primitives'
 import { ErrorBoundary } from './components/ErrorBoundary'
 import { LoginPage } from './features/auth/LoginPage'
 import { dismissBootScreen } from './lib/boot'
 import { peekPropertyDecoration, subscribePropertyDecoration } from './lib/property-commands'
 import { peekTemplateSlotJob, subscribeTemplateSlotJob } from './features/chat/template-slot-job'
 import { t, useLocale } from './lib/i18n'
-import { initializePwa, requestOfflineWarmup } from './store/pwa'
+import { initializePwa, requestOfflineWarmup, usePwa } from './store/pwa'
 import { usePresentation } from './store/presentation'
 import { useSession, watchSystemTheme } from './store/session'
 import { useUi } from './store/ui'
@@ -118,6 +119,7 @@ export function App() {
           </Suspense>
         </ErrorBoundary>
         <Toaster />
+        <UpdateCard />
       </>
     )
   }
@@ -142,6 +144,7 @@ export function App() {
       {status === 'authed' && <SlotFillLayer />}
       {status === 'authed' && <DecorationLayer />}
       <Toaster />
+      <UpdateCard />
       <ConfirmHost />
       <PromptHost />
       {/* The lint preview dialog is only ever opened by a run, so its chunk stays unloaded until one asks. */}
@@ -149,6 +152,55 @@ export function App() {
       {/* A choice run asks with its own dialogs, and the gate costs one subscription until a run needs them. */}
       {status === 'authed' && <QuickAddPromptGate />}
     </>
+  )
+}
+
+/**
+ * The card a waiting build puts on the screen.
+ *
+ * `initializePwa` raises `updateAvailable` the moment a new worker finishes caching its own shell, and
+ * this is where that flag becomes something a reader can see and press. It used to be a half-minute
+ * toast: a notice that expires in front of a change that does not, leaving a new build installed on the
+ * device, unreachable except by a reload nobody asks for. So the card has no dismiss control — that is
+ * the design, not an oversight. It goes away when the reader takes the update up, or when another tab
+ * already did and this page's waiting worker stopped existing.
+ *
+ * The corner is the one this app already uses for a standing, actionable status: the template run's card
+ * occupies the same slot, above the phone's navigation row and below a notch, which are the insets the
+ * manifest's `display: standalone` makes real rather than decorative.
+ */
+function UpdateCard() {
+  const updateAvailable = usePwa((s) => s.updateAvailable)
+  const applyingUpdate = usePwa((s) => s.applyingUpdate)
+  const applyUpdate = usePwa((s) => s.applyUpdate)
+  if (!updateAvailable) return null
+  return (
+    <div
+      role="status"
+      className="pointer-events-none fixed left-2 bottom-[calc(64px+env(safe-area-inset-bottom))] z-[var(--z-toast)] md:left-4 md:bottom-4"
+    >
+      <div className="pointer-events-auto flex w-[min(400px,calc(100vw-32px))] items-start gap-2.5 rounded-[var(--r-lg)] border border-[var(--border-default)] bg-[var(--bg-overlay)] p-3 shadow-[var(--shadow-pop)]">
+        <RefreshCw size={14} aria-hidden="true" className="mt-[3px] shrink-0 text-[var(--accent)]" />
+        <div className="min-w-0 flex-1">
+          <div className="text-[length:var(--text-12-5)] leading-snug font-medium text-[var(--text-primary)]">
+            {t('pwa.update_ready')}
+          </div>
+          <div className="mt-0.5 text-[length:var(--text-11-5)] leading-relaxed text-[var(--text-tertiary)]">
+            {t('pwa.update_ready_description')}
+          </div>
+        </div>
+        <Button
+          size="sm"
+          variant="primary"
+          loading={applyingUpdate}
+          onClick={() => {
+            void applyUpdate()
+          }}
+        >
+          {t('pwa.refresh_now')}
+        </Button>
+      </div>
+    </div>
   )
 }
 

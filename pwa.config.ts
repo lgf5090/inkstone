@@ -208,12 +208,18 @@ self.addEventListener('install', (event) => {
   event.waitUntil((async () => {
     const previousShells = (await caches.keys()).filter((key) =>
       key.startsWith('inkstone-') && key !== SHELL_CACHE && key !== ASSET_CACHE)
+    // The shell is the whole promise of the offline mode: without these files the cached page is an
+    // empty document. It is cached before anything else and a single failure rejects the install, which
+    // is what makes the installed state the page's own listener waits for mean "this build opens offline".
     await cacheCoreResources()
-    if (previousShells.length) await warmOfflineCache(false)
+    if (previousShells.length) await warmOfflineCache()
   })())
 })
 
 self.addEventListener('message', (event) => {
+  // Nothing here activates a waiting worker on its own. The page keeps serving the build it booted with
+  // until a reader presses the update card, which is the only moment the app knows the reload is wanted;
+  // skipWaiting on install would swap the files under a note that is half written.
   if (event.data?.type === 'SKIP_WAITING') {
     self.skipWaiting()
     return
@@ -223,7 +229,7 @@ self.addEventListener('message', (event) => {
     return
   }
   if (event.data?.type === 'WARM_OFFLINE_CACHE') {
-    event.waitUntil(warmOfflineCache(false))
+    event.waitUntil(warmOfflineCache())
   }
 })
 
@@ -248,11 +254,20 @@ self.addEventListener('fetch', (event) => {
 	    NETWORK_ONLY_PATH_PREFIXES.some((prefix) => url.pathname.startsWith(prefix))
 	  ) return
 
+  // The document itself is network-first and every file behind it is cache-first, and that split is the
+  // whole cache policy: a reader with a connection must never be served yesterday's page (the document is
+  // what says which build this is), while the files it names are content-hashed and can only ever be the
+  // ones this build shipped. The few un-hashed paths — the shell assets, the icons, the feed fixtures —
+  // live in a cache named after the build that wrote them, and the activate step deletes every older one, so
+  // cache-first cannot outlive a deploy by more than one reload.
   if (request.mode === 'navigate') {
     event.respondWith(
       fetch(request).catch(async () => {
         const shell = await caches.open(SHELL_CACHE)
         const cached = await shell.match('/index.html')
+        // No cached shell is a real answer with nothing to give, not a page to dress up: the browser
+        // shows its own offline notice, which is true, instead of a blank document from a cache that
+        // was never filled.
         return cached || Response.error()
       }),
     )
@@ -283,10 +298,10 @@ async function cacheCoreResources() {
   await shell.put(CACHE_META_URL, new Response(String(Date.now())))
 }
 
-function warmOfflineCache(notifyWhenComplete) {
+function warmOfflineCache() {
   if (!warmPromise) {
-    warmPromise = runOfflineWarmup(notifyWhenComplete)
-      .catch(() => broadcastStatus('error', 0, WARMUP_TOTAL, false).catch(() => {}))
+    warmPromise = runOfflineWarmup()
+      .catch(() => broadcastStatus('error', 0, WARMUP_TOTAL).catch(() => {}))
       .finally(() => {
         warmPromise = null
       })
@@ -294,16 +309,16 @@ function warmOfflineCache(notifyWhenComplete) {
   return warmPromise
 }
 
-async function runOfflineWarmup(notifyWhenComplete) {
+async function runOfflineWarmup() {
   const assets = await caches.open(ASSET_CACHE)
   if (await assets.match(CURRENT_MANIFEST_URL)) {
-    await broadcastStatus('ready', WARMUP_TOTAL, WARMUP_TOTAL, false)
+    await broadcastStatus('ready', WARMUP_TOTAL, WARMUP_TOTAL)
     return
   }
   let completed = await countAvailable()
   let processed = 0
   let failed = 0
-  await broadcastStatus('preparing', completed, WARMUP_TOTAL, false)
+  await broadcastStatus('preparing', completed, WARMUP_TOTAL)
 
   // Fill the complete offline cache quietly after the app is ready. A single
   // request at a time plus a short yield keeps foreground traffic responsive.
@@ -326,24 +341,24 @@ async function runOfflineWarmup(notifyWhenComplete) {
     }
     processed++
     if (processed % 8 === 0) {
-      await broadcastStatus('preparing', completed, WARMUP_TOTAL, false)
+      await broadcastStatus('preparing', completed, WARMUP_TOTAL)
     }
     await pauseBackgroundWarmup()
   })
   if (failed) {
-    await broadcastStatus('error', completed, WARMUP_TOTAL, false)
+    await broadcastStatus('error', completed, WARMUP_TOTAL)
     return
   }
   await writeCurrentManifest(assets)
   await pruneAssetCache(assets)
-  await broadcastStatus('ready', WARMUP_TOTAL, WARMUP_TOTAL, notifyWhenComplete)
+  await broadcastStatus('ready', WARMUP_TOTAL, WARMUP_TOTAL)
 }
 
 async function reportOfflineStatus(target) {
   const assets = await caches.open(ASSET_CACHE)
   const complete = Boolean(await assets.match(CURRENT_MANIFEST_URL))
   const completed = complete ? WARMUP_TOTAL : await countAvailable()
-  const message = statusMessage(complete ? 'ready' : 'preparing', completed, WARMUP_TOTAL, false)
+  const message = statusMessage(complete ? 'ready' : 'preparing', completed, WARMUP_TOTAL)
   if (target && 'postMessage' in target) target.postMessage(message)
   else await broadcast(message)
 }
@@ -418,12 +433,15 @@ async function forEachConcurrent(values, concurrency, work) {
   await Promise.all(workers)
 }
 
-function statusMessage(status, completed, total, notify) {
-  return { type: 'OFFLINE_CACHE_STATUS', buildId: BUILD_ID, status, completed, total, notify }
+// What the ready status means, and the page repeats it: every file in the warm-up set is cached. It is not a claim
+// about ON_DEMAND_PATTERN files, which this worker only caches when a page asks for one while online, so
+// a notice built on this status has to leave the heavy engines out of its promise.
+function statusMessage(status, completed, total) {
+  return { type: 'OFFLINE_CACHE_STATUS', buildId: BUILD_ID, status, completed, total }
 }
 
-async function broadcastStatus(status, completed, total, notify) {
-  await broadcast(statusMessage(status, completed, total, notify))
+async function broadcastStatus(status, completed, total) {
+  await broadcast(statusMessage(status, completed, total))
 }
 
 async function broadcast(message) {
