@@ -21,6 +21,7 @@
  */
 import {
   attachmentModality,
+  AUDIO_SEND_MAX_BYTES,
   audioFormatFor,
   protocolCarriesAudio,
   type AssistantModelModality,
@@ -48,16 +49,6 @@ export const ATTACHMENT_MARKER = '[attachment'
 
 /** A picture is sent inline up to this size; past it the base64 body costs more than it answers. */
 export const IMAGE_SEND_MAX_BYTES = 4 * 1024 * 1024
-
-/**
- * A recording is sent inline up to this size.
- *
- * Half the ceiling a chat file is stored under, on purpose: base64 costs about a third again of the bytes,
- * eight attachments is the composer's own limit, and a body of four megabytes is also four megabytes of the
- * isolate held for the answer. Below this the reader gets the recording; above it they get a line saying so,
- * which is what a picture already does at its own number.
- */
-export const AUDIO_SEND_MAX_BYTES = 2 * 1024 * 1024
 
 /** The shortest fence an attachment's text is wrapped in; a body with a longer run pushes it up. */
 const FENCE_MIN_TICKS = 3
