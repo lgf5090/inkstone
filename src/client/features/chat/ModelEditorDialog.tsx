@@ -19,7 +19,7 @@ import type {
   AssistantProvider,
   AssistantReasoning,
 } from '@shared/assistant'
-import { ASSISTANT_MODEL_KINDS, ASSISTANT_MODEL_MODALITIES, ASSISTANT_MODEL_PURPOSES, ASSISTANT_PROTOCOLS, TOKEN_STEPS, effectiveModelLimits, formatTokenStep } from '@shared/assistant'
+import { ASSISTANT_MODEL_KINDS, ASSISTANT_MODEL_MODALITIES, ASSISTANT_MODEL_PURPOSES, ASSISTANT_PROTOCOLS, TOKEN_STEPS, effectiveModelLimits, formatTokenStep, modelWire, protocolCarriesAudio } from '@shared/assistant'
 import type { AssistantModelModality, AssistantProtocol } from '@shared/assistant'
 import { REASONING_LABELS } from './ComposerControls'
 import { modelReasoning, reasoningOptions } from './model-reasoning'
@@ -121,7 +121,6 @@ function priceValue(raw: string): number | null {
 
 const MODALITY_KEYS: Record<AssistantModelModality, Parameters<typeof t>[0]> = {
   audio: 'assistant.model.modality.audio',
-  video: 'assistant.model.modality.video',
 }
 
 /**
@@ -253,11 +252,25 @@ export function ModelEditorDialog({
     setDraft((current) => ({ ...current, ...part }))
   }
 
+  // Which wire this model will be called on, read off the one rule the worker builds its request from —
+  // the model's own pick when it has one, the provider's when it follows. Null is a model with no provider
+  // behind it, which answers nothing at all.
+  const wire = provider ? modelWire({ protocol: draft.protocol }, provider) : null
+  // Audio is the only thing left to tick and exactly one of the three request formats has a field for it, so
+  // the whole group stands or falls on this. A clip has no field on any of them, which is why no switch
+  // claims one.
+  const audioOnThisWire = wire !== null && protocolCarriesAudio(wire.protocol)
+  const honouredModalities = audioOnThisWire ? draft.modalities : []
+
   const submit = async () => {
     if (saving || nameMissing) return
     setSaving(true)
     // The store hands the refusal here instead of toasting it, so one failure is told in one place.
-    const ok = await onSave(draft, setFailure)
+    //
+    // A tick the wire cannot honour is taken back out before the write: stored as it stands it would say
+    // the reader can attach a recording to a model that answers with "this request format carries no audio
+    // field", which is the disagreement this dialog exists to prevent.
+    const ok = await onSave({ ...draft, modalities: honouredModalities }, setFailure)
     setSaving(false)
     if (ok) {
       onClose()
@@ -431,29 +444,38 @@ export function ModelEditorDialog({
               <Switch checked={draft.vision} label={t('assistant.model.vision')} onChange={(checked) => patch({ vision: checked })} />
             </SettingRow>
 
+            {/* A switch is only drawn where the request built for this model has a field behind it. On the
+                two wires that have none the group would be an empty box, and an empty box is not what the
+                reader needs to hear — what they need is the sentence saying why there is nothing to tick. */}
             <Field label={t('assistant.model.modalities')}>
-              <div role="group" aria-label={t('assistant.model.modalities')} className="flex flex-wrap gap-1.5">
-                {ASSISTANT_MODEL_MODALITIES.map((modality) => {
-                  const on = draft.modalities.includes(modality)
-                  return (
-                    <button
-                      key={modality}
-                      type="button"
-                      aria-pressed={on}
-                      onClick={() => patch({ modalities: on ? draft.modalities.filter((entry) => entry !== modality) : [...draft.modalities, modality] })}
-                      className={cn(
-                        'rounded-full border px-2 py-0.5 text-[length:var(--text-11-5)] transition-colors',
-                        on
-                          ? 'border-[var(--accent)] bg-[var(--accent-soft)] text-[var(--accent-on-soft)]'
-                          : 'border-[var(--border-subtle)] text-[var(--text-quaternary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-secondary)]',
-                      )}
-                    >
-                      {t(MODALITY_KEYS[modality])}
-                    </button>
-                  )
-                })}
-              </div>
-              <p className="mt-1 text-[length:var(--text-11)] leading-snug text-[var(--text-quaternary)]">{t('assistant.model.modalities_hint')}</p>
+              {audioOnThisWire ? (
+                <>
+                  <div role="group" aria-label={t('assistant.model.modalities')} className="flex flex-wrap gap-1.5">
+                    {ASSISTANT_MODEL_MODALITIES.map((modality) => {
+                      const on = draft.modalities.includes(modality)
+                      return (
+                        <button
+                          key={modality}
+                          type="button"
+                          aria-pressed={on}
+                          onClick={() => patch({ modalities: on ? draft.modalities.filter((entry) => entry !== modality) : [...draft.modalities, modality] })}
+                          className={cn(
+                            'rounded-full border px-2 py-0.5 text-[length:var(--text-11-5)] transition-colors',
+                            on
+                              ? 'border-[var(--accent)] bg-[var(--accent-soft)] text-[var(--accent-on-soft)]'
+                              : 'border-[var(--border-subtle)] text-[var(--text-quaternary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-secondary)]',
+                          )}
+                        >
+                          {t(MODALITY_KEYS[modality])}
+                        </button>
+                      )
+                    })}
+                  </div>
+                  <p className="mt-1 text-[length:var(--text-11)] leading-snug text-[var(--text-quaternary)]">{t('assistant.model.modalities_hint')}</p>
+                </>
+              ) : (
+                <p className="text-[length:var(--text-11)] leading-snug text-[var(--text-quaternary)]">{t('assistant.model.modalities_no_audio')}</p>
+              )}
             </Field>
             <div className="flex flex-col gap-3">
               <TokenField

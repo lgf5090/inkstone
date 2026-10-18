@@ -9,6 +9,7 @@ import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from 'vitest'
 import type { AssistantModel, AssistantProvider } from '@shared/assistant'
 import { DEFAULT_LIMITS, MAX_TOKEN_CEILING, TOKEN_STEPS, formatTokenStep } from '@shared/assistant'
+import { ASSISTANT_MODEL_MODALITIES } from '@shared/assistant'
 import { initI18n, t } from '../../lib/i18n'
 import { installTestGlobals } from '../../lib/test-render'
 import { ContextMenu, formatContext } from './ComposerControls'
@@ -329,20 +330,35 @@ describe('leaving a token number unset', () => {
 })
 
 describe('the input modality chips', () => {
-    it('adds and removes one modality without disturbing the other', async () => {
-        const { saved } = open({ modalities: ['audio'] })
-        expect(chip(t('assistant.model.modality.audio'))?.getAttribute('aria-pressed')).toBe('true')
-        expect(chip(t('assistant.model.modality.video'))?.getAttribute('aria-pressed')).toBe('false')
-        press(chip(t('assistant.model.modality.video')), 'the video chip')
+    it('offers the audio tick on the one wire with a field for it', async () => {
+        const { saved } = open({ modalities: [] })
+        expect(chip(t('assistant.model.modality.audio'))?.getAttribute('aria-pressed')).toBe('false')
         press(chip(t('assistant.model.modality.audio')), 'the audio chip')
+        expect(chip(t('assistant.model.modality.audio'))?.getAttribute('aria-pressed')).toBe('true')
         await save()
-        expect(saved.mock.calls[0]?.[0].modalities).toEqual(['video'])
+        expect(saved.mock.calls[0]?.[0].modalities).toEqual(['audio'])
     })
+
+    it('offers a clip to nobody', () => {
+        // A tick no request format honours is a promise the app cannot keep, so the switch is gone rather
+        // than left to be contradicted by the composer.
+        expect(ASSISTANT_MODEL_MODALITIES).not.toContain('video')
+        open({ modalities: ['audio'] })
+        expect(chip(t('assistant.model.modality.video'))).toBeUndefined()
+    })
+
+    it('draws no switch and saves none on a wire that carries no audio', async () => {
+        const { saved } = open({ modalities: ['audio'] }, DEFAULT_LIMITS, { protocol: 'anthropic' })
+        expect(chip(t('assistant.model.modality.audio')), 'a switch nobody would honour was still offered').toBeUndefined()
+        await save()
+        expect(saved.mock.calls[0]?.[0].modalities).toEqual([])
+    })
+
     it('carries the saved set into the draft as a copy', () => {
-        expect(draftFromModel(model({ modalities: ['video'] })).modalities).toEqual(['video'])
+        expect(draftFromModel(model({ modalities: ['audio'] })).modalities).toEqual(['audio'])
         const stored = model({ modalities: ['audio'] })
         const draft = draftFromModel(stored)
-        draft.modalities.push('video')
+        draft.modalities.push('audio')
         expect(stored.modalities).toEqual(['audio'])
     })
 })

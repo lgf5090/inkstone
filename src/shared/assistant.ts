@@ -221,11 +221,33 @@ export type AssistantModelKind = (typeof ASSISTANT_MODEL_KINDS)[number]
  * What the reader says the model can be *given*.
  *
  * `image` is deliberately absent: the older `vision` switch already owns that fact, the runner and its
- * tests read it, and a second column saying the same thing is a future disagreement. These three are the
- * modalities nothing else speaks for.
+ * tests read it, and a second column saying the same thing is a future disagreement.
+ *
+ * `video` was here and is gone. A tick is a promise this app has to keep, and nothing kept it: no request
+ * builder in `worker/assistant/upstream.ts` has a field for a clip on any of the three protocols, and no
+ * local decoder exists that could turn one into words. So a marked model was handed the clip's *name*, the
+ * composer said the file could not be read, and the two disagreed about what the tick meant. A switch with
+ * nobody to honour it is worse than no switch, and the stored values of the models that had it ticked are
+ * dropped by `parseModelModalities` on the way out rather than migrated.
+ *
+ * `audio` stays because it is now kept: the OpenAI-compatible branch puts `input_audio` in the same part
+ * list that already carries a picture, for the two containers a provider decodes. Read
+ * `protocolCarriesAudio` with that sentence — the tick means *this model, on this wire*, and the composer
+ * refuses the other two wires before the reader pays for them.
  */
-export const ASSISTANT_MODEL_MODALITIES = ['audio', 'video'] as const
+export const ASSISTANT_MODEL_MODALITIES = ['audio'] as const
 export type AssistantModelModality = (typeof ASSISTANT_MODEL_MODALITIES)[number]
+
+/**
+ * What a file asks for that a turn cannot otherwise answer: the two kinds of bytes a reader can hand the
+ * composer that are neither decoded as text nor shown as a picture.
+ *
+ * Wider than `AssistantModelModality` by exactly `video`, the one thing no protocol in this app can be
+ * given. Every refusal the composer and the transcript print is judged against this list, so a clip can
+ * still be explained even while no switch claims to accept one.
+ */
+export const ATTACHMENT_SENSES = ['audio', 'video'] as const
+export type AttachmentSense = (typeof ATTACHMENT_SENSES)[number]
 
 export function parseModelModalities(value: unknown): AssistantModelModality[] {
   if (!Array.isArray(value)) return []
@@ -867,22 +889,74 @@ export interface ChatAttachment {
  * The sense a file asks of a model, or null when a turn already knows how to read it.
  *
  * A text file is decoded into the prompt and a picture rides with it as an image part, so both are answered
- * by every path the composer offers. A recording or a clip asks for something else, and this is the point
- * where the app has to answer honestly: the three request builders in `worker/assistant/upstream.ts` put
- * text and pictures into a body and nothing else ever goes in, so the bytes of an audio or video file reach
- * no model — including a model the reader has marked as taking them. `AssistantModel.modalities` says what a
- * vendor *could* answer, not what this app can send, which is why a tick there does not make this null.
+ * by every path the composer offers. A recording asks for `audio` and a clip for `video`, and the two are
+ * not the same list as `ASSISTANT_MODEL_MODALITIES`: this one is about what a file *wants*, which outlives
+ * any switch the app can honestly offer.
  *
- * One function answers the question because two surfaces have to give the same answer: the worker names the
- * file in the model-facing block, and the composer warns the reader before the turn is paid for. A second
- * definition is a second place for the two to drift, and the drift is a chip that says a file went into a
- * turn that could never have read it.
+ * Whether one particular recording can be sent is a narrower question, answered by `audioFormatFor` and
+ * `protocolCarriesAudio`, and this function is not it — a `.m4a` is still `audio` here even though no
+ * provider would decode it.
+ *
+ * One function answers the question because three surfaces have to give the same answer: the worker names
+ * the file in the model-facing block, the composer warns the reader before the turn is paid for, and the
+ * viewer says so on the panel it opens. A second definition is a second place for those to drift, and the
+ * drift is a chip that claims a file went into a turn that could never have read it.
  */
-export function attachmentModality(mime: string, filename: string): AssistantModelModality | null {
+export function attachmentModality(mime: string, filename: string): AttachmentSense | null {
   const lower = `${mime} ${filename}`.toLocaleLowerCase()
   if (mime.startsWith('audio/') || /\.(mp3|wav|m4a|flac|ogg|aac)$/.test(lower)) return 'audio'
   if (mime.startsWith('video/') || /\.(mp4|mov|webm|avi|mkv)$/.test(lower)) return 'video'
   return null
+}
+
+/**
+ * The containers the audio field is documented to take.
+ *
+ * Not a wider list on purpose: `format` is an enum at the far end, and a request carrying one it does not
+ * know is refused outright — the whole turn costs the reader and answers nothing. Guessing `mp3` for a
+ * `.flac` would trade one honest refusal for a provider error.
+ */
+export type ChatAudioFormat = 'mp3' | 'wav'
+
+const AUDIO_WAV_MIME = /^audio\/(x-)?(wav|wave|pcm)$/
+const AUDIO_MP3_MIME = /^audio\/(mpeg|mp3)$/
+const AUDIO_MP3_NAME = /\.(mp3|mpega)$/
+const AUDIO_WAV_NAME = /\.(wav|wave)$/
+
+/**
+ * Which container these bytes are, or null when nothing downstream would decode them.
+ *
+ * A browser hands a dragged file with no `type` at all, so the extension answers too — the same pair the
+ * pickers and `attachmentModality` already read. The name is checked last because a file called `song.mp3`
+ * that is really a FLAC is a request the provider refuses; when a type is present and says something else,
+ * the type wins and the answer is null.
+ */
+export function audioFormatFor(mime: string, filename: string): ChatAudioFormat | null {
+  const type = mime.toLocaleLowerCase().split(';')[0]!.trim()
+  if (type) {
+    if (AUDIO_WAV_MIME.test(type)) return 'wav'
+    if (AUDIO_MP3_MIME.test(type)) return 'mp3'
+    return null
+  }
+  const lower = filename.toLocaleLowerCase()
+  if (AUDIO_WAV_NAME.test(lower)) return 'wav'
+  if (AUDIO_MP3_NAME.test(lower)) return 'mp3'
+  return null
+}
+
+/**
+ * The wires that have a field for audio bytes.
+ *
+ * `openai` is the chat-completions shape every imitator copies, and it is the one with `input_audio`.
+ * Anthropic's messages API has no audio block at all, and Gemini's `inline_data` would be a third shape
+ * this app has no case for sending — so on those two a recording is named in the turn and never carried,
+ * whatever the reader has ticked.
+ */
+const AUDIO_CARRYING_PROTOCOLS: readonly AssistantProtocol[] = ['openai']
+
+/** Whether this protocol's request builder can be handed a recording's bytes. */
+export function protocolCarriesAudio(protocol: AssistantProtocol): boolean {
+  return AUDIO_CARRYING_PROTOCOLS.includes(protocol)
 }
 
 /** A note tag or folder the reader pinned to one turn with `#`. */

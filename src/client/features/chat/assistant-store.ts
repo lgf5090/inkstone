@@ -43,7 +43,7 @@ import type {
 } from '@shared/assistant'
 import type { AssistantSkill } from '@shared/assistant'
 import { DEBOUNCE } from '@shared/constants'
-import { MAX_ARTIFACT_CONTENT_CHARS, MAX_ARTIFACT_TITLE_CHARS, MAX_CHAT_ATTACHMENTS, MAX_TURN_SCOPES, MAX_TURN_TOOLS, CONVERSATION_PAGE_SIZE, MESSAGE_PAGE_SIZE, attachmentModality, type AssistantModelModality, type AssistantTurnScope, type ChatAttachment, type AssistantSkillInput, type SkillImportResult, type AssistantMcpToolMode } from '@shared/assistant'
+import { MAX_ARTIFACT_CONTENT_CHARS, MAX_ARTIFACT_TITLE_CHARS, MAX_CHAT_ATTACHMENTS, MAX_TURN_SCOPES, MAX_TURN_TOOLS, CONVERSATION_PAGE_SIZE, MESSAGE_PAGE_SIZE, attachmentModality, type AttachmentSense, type AssistantTurnScope, type ChatAttachment, type AssistantSkillInput, type SkillImportResult, type AssistantMcpToolMode } from '@shared/assistant'
 import { api, ApiError } from '../../lib/api'
 import { confirm } from '../../components/overlay'
 import { t } from '../../lib/i18n'
@@ -1052,7 +1052,7 @@ function schedulePersist(): void {
 type AttachmentSetter = (updater: (state: AssistantState) => Partial<AssistantState>) => void
 
 /** The two senses a file can ask of a model, as the reader's own language names them. */
-const MODALITY_LABEL_KEYS: Record<AssistantModelModality, Parameters<typeof t>[0]> = {
+const SENSE_LABEL_KEYS: Record<AttachmentSense, Parameters<typeof t>[0]> = {
   audio: 'assistant.model.modality.audio',
   video: 'assistant.model.modality.video',
 }
@@ -1063,27 +1063,32 @@ const MODALITY_LABEL_KEYS: Record<AssistantModelModality, Parameters<typeof t>[0
  * One function rather than a map each surface indexes by hand, because the queue now writes this sentence
  * into a row before the strip is asked to draw it: two surfaces, one wording, and no place for the two to
  * drift apart.
+ *
+ * It reads `AttachmentSense`, not `AssistantModelModality`: the sentence is about what the *file* asks for,
+ * and a clip asks for a thing no model can be ticked for here any more.
  */
-export function attachmentModalityLabel(modality: AssistantModelModality): string {
-  return t(MODALITY_LABEL_KEYS[modality])
+export function attachmentSenseLabel(sense: AttachmentSense): string {
+  return t(SENSE_LABEL_KEYS[sense])
 }
 
 /**
  * Why these bytes can never be read into a turn, or null when a turn can read them.
  *
- * `attachmentModality` is the single judge, and it answers before anything is sent rather than after: a
- * recording or a clip asks for a sense none of the three request builders in `worker/assistant/upstream.ts`
- * can be handed, since they put text and pictures into a body and nothing else ever goes in. Knowing that
- * once the file is already stored only explains the waste — the upload costs the reader storage, the wait
- * costs them a round trip, and nothing about the answer changes. So the queue refuses the file here, no
- * byte leaves the browser, and `send()`, which carries only `ready` attachments, never pays for a turn that
- * could not have read it. The row still says why in the same words, and still keeps its cross, because a
- * file the reader picked has to be takeable back out of the box.
+ * `attachmentModality` is the single judge, and it answers before anything is sent rather than after:
+ * knowing once the file is already stored only explains the waste — the upload costs the reader storage,
+ * the wait costs them a round trip, and nothing about the answer changes. So the queue refuses the file
+ * here, no byte leaves the browser, and `send()`, which carries only `ready` attachments, never pays for a
+ * turn that could not have read it. The row still says why in the same words, and still keeps its cross,
+ * because a file the reader picked has to be takeable back out of the box.
+ *
+ * A clip is refused whatever the model is: no request format in this app carries one. A recording is
+ * refused here too, because this question is asked without asking which model is picking the bytes up —
+ * and on the two wires with no audio field the answer would be the same refusal anyway.
  */
 export function unreadableAttachmentReason(mime: string, filename: string): string | null {
-  const modality = attachmentModality(mime, filename)
-  if (!modality) return null
-  return t('assistant.attach.unreadable', { kind: attachmentModalityLabel(modality), name: filename })
+  const sense = attachmentModality(mime, filename)
+  if (!sense) return null
+  return t('assistant.attach.unreadable', { kind: attachmentSenseLabel(sense), name: filename })
 }
 
 /**

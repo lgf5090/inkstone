@@ -32,7 +32,7 @@ import { resolveNoteScope, turnNoteIds, type NoteScope } from './note-scope'
 import { noteCitationsFromTool } from './note-citations'
 import { matchVaultFolders, noteTitleIfLive } from './vault'
 import { parametersSchema, ToolError, ToolExecutor, type ToolContext } from './tools'
-import { AbortError, streamUpstream, UpstreamError, type ModelTurn, type ToolCallRecord, type ToolSchema, type UpstreamRequest, type UpstreamRetry, type UpstreamStopReason } from './upstream'
+import { AbortError, streamUpstream, UpstreamError, type ChatAudioPart, type ModelTurn, type ToolCallRecord, type ToolSchema, type UpstreamRequest, type UpstreamRetry, type UpstreamStopReason } from './upstream'
 import { webSearchSources } from './web-search'
 import { loadModelAndProvider, modelEndpoint, type ModelEndpoint } from './model-config'
 import { pickModelForTurn } from '@shared/assistant-routing'
@@ -268,6 +268,8 @@ interface HistoryEntry {
   id?: string
   calls?: ToolCallRecord[]
   images?: { mime: string, dataUrl: string }[]
+  /** Recordings the turn plays with its text; set only for a wire that has the field. */
+  audio?: ChatAudioPart[]
   /** The files this turn carried, named here so the bytes are read only if the window keeps the turn. */
   attachmentIds?: string[]
 }
@@ -713,7 +715,7 @@ export class AssistantRunner {
       const historyBudget = Math.max(500, contextTokens - estimateTokens(system) - outputCap - TOOL_RESULT_RESERVE_TOKENS)
       let window = buildContextWindow(history, historyBudget, conversation.summaryUpto ?? null)
       // Only now are the files read: the turns the budget dropped were never expanded at all.
-      window = await this.hydrateWindow(window, model.vision, model.modalities, historyBudget)
+      window = await this.hydrateWindow(window, model.vision, model.modalities, historyBudget, call.protocol)
 
       if (window.overflow.length >= SUMMARIZE_THRESHOLD) {
         const rolled = await this.summarize(conversationId, conversation.summary ?? null, window.overflow)
@@ -722,7 +724,7 @@ export class AssistantRunner {
           // can share its millisecond, and a cutoff that compares times alone would drop them — including
           // the question being answered.
           window = buildContextWindow(history, historyBudget, rolled.upto, rolled.uptoId)
-          window = await this.hydrateWindow(window, model.vision, model.modalities, historyBudget)
+          window = await this.hydrateWindow(window, model.vision, model.modalities, historyBudget, call.protocol)
         } else {
           // The roll-up did not happen and nothing else about the turn says so: the answer arrives as
           // though the whole thread stood behind it. Said here, once, rather than left to a log line.
@@ -753,6 +755,7 @@ export class AssistantRunner {
         content: entry.content,
         calls: entry.calls,
         images: entry.images,
+        audio: entry.audio,
       }))
       // Which ceiling ended the turn, when the model was cut off rather than finished. Named in the notice
       // the row is filed with, because "it stopped" and "it ran out of room to keep going" are different
@@ -1361,7 +1364,7 @@ export class AssistantRunner {
           // A placeholder per file, so the window's estimate knows the turn carries attachments without
           // the worker having read a byte of them. Hydration replaces this with the real block below.
           content: withEntryAttachments(withApprovalOutcomes(entry, actions), entry.role, ids.length
-            ? { block: ids.map(() => `${ATTACHMENT_MARKER}]`).join('\n'), images: [] }
+            ? { block: ids.map(() => `${ATTACHMENT_MARKER}]`).join('\n'), images: [], audio: [] }
             : undefined),
           ...(ids.length ? { attachmentIds: ids } : {}),
           createdAt: entry.createdAt,
@@ -1405,6 +1408,7 @@ export class AssistantRunner {
     vision: boolean,
     modalities: readonly AssistantModelModality[],
     budget: number,
+    protocol: AssistantProtocol,
   ): Promise<ContextWindow> {
     if (!window.messages.some((entry) => entry.attachmentIds?.length)) return window
     let turnsFromEnd = 0
@@ -1429,13 +1433,14 @@ export class AssistantRunner {
       const key = `${withImages ? 'recent' : 'older'}:${ids.join(',')}`
       let payload = memo.get(key)
       if (!payload) {
-        payload = await expandChatAttachments(this.store, this.deps.env, ids, vision, modalities, withImages)
+        payload = await expandChatAttachments(this.store, this.deps.env, ids, vision, modalities, withImages, protocol)
         memo.set(key, payload)
       }
       hydrated.push({
         ...entry,
         content: withEntryAttachments(entry.content, 'user', payload),
         ...(payload.images.length ? { images: payload.images } : {}),
+        ...(payload.audio.length ? { audio: payload.audio } : {}),
       })
     }
     const { kept, dropped } = fitToBudget(hydrated, budget)

@@ -1,22 +1,23 @@
 // @vitest-environment node
 /**
- * Which attached file no model in this app can be handed — and the proof that the answer is the truth.
+ * Which attached file no turn can be given — and the proof that the answer is the truth.
  *
- * A recording and a clip are the two kinds a reader can drop into the composer that a turn cannot use. The
- * composer's file and folder pickers already refuse them, so this is about the three doors that do not go
- * through a picker: a drag onto the box, a paste, and a web address. What decides those is one question —
- * can the bytes of this file ever reach a model? — and it has to have one answer in one place, or the
- * client refuses a file the worker is perfectly able to read, or the other way round.
+ * A clip is the kind a reader can drop into the composer that no turn here can use, and a recording is the
+ * kind that depends on which wire the turn is written on. The composer's file and folder pickers already
+ * refuse both, so this is about the three doors that do not go through a picker: a drag onto the box, a
+ * paste, and a web address. What decides those is one question — can the bytes of this file ever reach a
+ * model? — and it has to have one answer in one place, or the client refuses a file the worker is
+ * perfectly able to read, or the other way round.
  *
- * The answer here is proved rather than asserted. `attachments.ts` claims an audio file is only *named* in
- * a turn even when the model is marked as taking audio, and a reader who is told that at attach time has a
- * right to know it is actually so. So the case below hands the expansion a bucket that records every read
+ * The answer here is proved rather than asserted. Where no request format has been named for the turn,
+ * `attachments.ts` hands an audio file's *name* and nothing else, and a reader told that at attach time has
+ * a right to know it is actually so. So the case below hands the expansion a bucket that records every read
  * it is asked for, and shows the bucket was never opened: no bytes leave storage, no base64 joins the
- * request, and nothing marks a model as able to take audio changes that. The judgment the composer acts on
- * is the judgment the worker's own code can be shown to hold.
+ * request. What happens when a wire that does carry audio is named is `assistant-audio-attachment.test.ts`,
+ * which reads this file as its other half: the same judgment, both ways round.
  */
 import { describe, expect, it } from 'vitest'
-import { ATTACHMENT_MARKER, expandChatAttachments } from '../src/worker/assistant/attachments'
+import { expandChatAttachments } from '../src/worker/assistant/attachments'
 import { attachmentModality } from '../src/shared/assistant'
 import type { AssistantStore } from '../src/worker/assistant/store'
 import type { ChatAttachment } from '../src/shared/assistant'
@@ -64,18 +65,20 @@ describe('the sense a file asks of a model', () => {
 })
 
 describe('what the worker really hands a model for those files', () => {
-  it('reads not one byte of a recording, even for a model marked as taking audio', async () => {
+  it('reads not one byte of a recording until a wire for it is named', async () => {
     const clip = row('a1', 'voice-note.mp3', 'audio/mpeg')
     const marked = harness([clip], { [`chat/files/user/${clip.id}`]: 'ID3\x00fake-mpeg-bytes' })
     const payload = await expandChatAttachments(marked.store, marked.env, [clip.id], true, ['audio'])
 
-    // The premise of telling the reader at attach time: a marked model gets the file's *name*, and nothing
-    // else. No read from storage, no part in the request, and `images` is the only binary channel there is.
-    expect(marked.reads, 'a recording the worker never needed to open was read from storage').toEqual([])
+    // Ticked, and no request format has been named for the turn yet. The bytes stay in storage until a wire
+    // with a field for them is known — which is what `assistant-audio-attachment.test.ts` shows being
+    // honoured, and what the block says either way.
+    expect(marked.reads, 'a recording with no wire named was read from storage anyway').toEqual([])
     expect(payload.images).toEqual([])
+    expect(payload.audio).toEqual([])
     expect(payload.block).toContain('voice-note.mp3')
     expect(payload.block).not.toContain('fake-mpeg-bytes')
-    expect(payload.block).toContain(`${ATTACHMENT_MARKER}: voice-note.mp3, audio/mpeg, 1 KB] (not text; contents not read)`)
+    expect(payload.block).toContain('carries no audio field')
   })
 
   it('says so in other words when the model is not even marked', async () => {
@@ -85,7 +88,8 @@ describe('what the worker really hands a model for those files', () => {
 
     expect(plain.reads).toEqual([])
     expect(payload.images).toEqual([])
-    expect(payload.block).toContain('this model is not marked as able to take video')
+    // No switch claims a clip any more, so the line does not blame a tick the reader never had.
+    expect(payload.block).toContain('no request format in this app carries a clip')
   })
 
   it('still reads the text file it is able to read', async () => {

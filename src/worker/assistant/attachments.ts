@@ -6,16 +6,26 @@
  * summary. A side channel the model could only reach once would lose the file as soon as the
  * conversation moved on.
  *
- * A picture is a different shape of thing: it travels as an image part of the same turn, and only when
- * the model is marked able to see. The line the reader sees in the transcript says which of the two
+ * A picture is a different shape of thing: it travels as an image part of the same turn, and only when the
+ * model is marked able to see. The line the reader sees in the transcript says which of the two
  * happened, so nothing ever claims to have shown the model an image it did not receive.
  *
- * A recording and a clip are the third shape, and the one with no door: no request builder in this app puts
- * those bytes in front of a model, whatever the reader has marked. They are therefore named, never read —
- * and since a name is all a turn can carry of them, the composer says so as soon as one is attached, rather
- * than letting a paid answer arrive without the file its reader asked about.
+ * A recording is the third shape, and it travels too: the OpenAI-compatible request builder puts its base64
+ * beside the picture in the same part list. Four things have to be true for that — the model is ticked for
+ * audio, the protocol is one with a field for it, the container is one the provider decodes, and the file is
+ * inside the ceiling below — and each of them gets its own line in the block when it fails, because "not
+ * sent" and "not sent for a reason you can fix" are different answers for the reader.
+ *
+ * A clip is the fourth, and it has no door: no request builder here carries one and nothing local decodes
+ * it into words. It is named, never read, and the composer says so before the turn is paid for.
  */
-import { attachmentModality, type AssistantModelModality } from '@shared/assistant'
+import {
+  attachmentModality,
+  audioFormatFor,
+  protocolCarriesAudio,
+  type AssistantModelModality,
+  type AssistantProtocol,
+} from '@shared/assistant'
 import {
   CHAT_FILE_CHAR_CAP,
   CHAT_TEXT_INLINE_BYTES,
@@ -24,6 +34,7 @@ import {
   isTextualAttachment,
   readChatObject,
 } from './chat-files'
+import type { ChatAudioPart } from './upstream'
 import type { Env } from '../env'
 import type { AssistantStore } from './store'
 
@@ -37,6 +48,16 @@ export const ATTACHMENT_MARKER = '[attachment'
 
 /** A picture is sent inline up to this size; past it the base64 body costs more than it answers. */
 export const IMAGE_SEND_MAX_BYTES = 4 * 1024 * 1024
+
+/**
+ * A recording is sent inline up to this size.
+ *
+ * Half the ceiling a chat file is stored under, on purpose: base64 costs about a third again of the bytes,
+ * eight attachments is the composer's own limit, and a body of four megabytes is also four megabytes of the
+ * isolate held for the answer. Below this the reader gets the recording; above it they get a line saying so,
+ * which is what a picture already does at its own number.
+ */
+export const AUDIO_SEND_MAX_BYTES = 2 * 1024 * 1024
 
 /** The shortest fence an attachment's text is wrapped in; a body with a longer run pushes it up. */
 const FENCE_MIN_TICKS = 3
@@ -83,6 +104,13 @@ export interface AttachmentPayload {
   /** The block appended to the reader's own text for the model. */
   block: string
   images: { mime: string, dataUrl: string }[]
+  /**
+   * Recordings that ride with this turn, as bare base64 and the container name the field asks for.
+   *
+   * Not a data URL, whatever `images` is: `input_audio` takes the encoded bytes and nothing else, and a
+   * `data:` prefix in front of them is a request the provider reads as a corrupt file.
+   */
+  audio: ChatAudioPart[]
 }
 
 /**
@@ -107,15 +135,25 @@ export async function expandChatAttachments(
    *
    * False for a turn far enough back that re-sending its images would cost more than the answer: the
    * file is still named, so the model knows the reader attached one, and the transcript never claims a
-   * picture was shown that was not.
+   * picture was shown that was not. A recording is held to the same window for the same reason — the
+   * bytes are heavier, not lighter.
    */
   includeImages = true,
+  /**
+   * Which request format this turn is going to be written in, or null when no call has been picked yet.
+   *
+   * `modalities` says what the reader marked; this says what the wire can carry. Only the second half lets
+   * a recording's bytes join the body, and the two are asked separately because they are two different
+   * things for the reader to change.
+   */
+  protocol: AssistantProtocol | null = null,
 ): Promise<AttachmentPayload> {
-  if (!ids.length) return { block: '', images: [] }
+  if (!ids.length) return { block: '', images: [], audio: [] }
   const rows = await store.chatAttachments(ids)
   const found = new Map(rows.map((row) => [row.id, row]))
   const extracted = await store.chatAttachmentTexts(ids)
   const images: { mime: string, dataUrl: string }[] = []
+  const audio: ChatAudioPart[] = []
   const lines: string[] = []
   let used = 0
   // How many files had words that this turn's budget could not hold. Named in the block, because a model
@@ -169,14 +207,44 @@ export async function expandChatAttachments(
       continue
     }
     if (!isTextualAttachment(row.mime, row.filename)) {
-      // A recording or a clip is named the way a picture is when the model cannot be shown one, so the
-      // transcript never reads as if the model had been given something it was not. The two sentences are
-      // not the same claim, and both are true: a marked model is handed the file's *name*, because nothing
-      // in `upstream.ts` puts those bytes in a body — which is what the composer tells the reader before
-      // they pay for the turn (see `attachmentModality` and `attachment-unreadable.test.ts`).
-      const modality = attachmentModality(row.mime, row.filename)
-      if (modality && !modalities.includes(modality)) {
-        lines.push(`${header} (the reader can play this; this model is not marked as able to take ${modality})`)
+      // Four answers belong here, and they are four different sentences the reader can act on: a tick they
+      // left off, a wire with no field for the bytes, a container no provider decodes, a file above the
+      // ceiling. One "not sent" for all four is how a reader re-attaches the same clip to the same model.
+      // Each line says what happened to the bytes, so the transcript never reads as a file the model saw.
+      const sense = attachmentModality(row.mime, row.filename)
+      if (sense === 'video') {
+        lines.push(`${header} (no request format in this app carries a clip, so it was not sent)`)
+        continue
+      }
+      if (sense === 'audio') {
+        if (!modalities.includes('audio')) {
+          lines.push(`${header} (the reader can play this; this model is not marked as able to take audio)`)
+          continue
+        }
+        if (!protocol || !protocolCarriesAudio(protocol)) {
+          lines.push(`${header} (audio is ticked for this model, but the ${protocol ?? 'unknown'} request format carries no audio field; not sent)`)
+          continue
+        }
+        const format = audioFormatFor(row.mime, row.filename)
+        if (!format) {
+          lines.push(`${header} (${modelFacingLabel(row.mime || 'this file type')} is not a container the request carries; not sent)`)
+          continue
+        }
+        if (row.size > AUDIO_SEND_MAX_BYTES) {
+          lines.push(`${header} (larger than ${Math.round(AUDIO_SEND_MAX_BYTES / 1024 / 1024)} MB; not sent)`)
+          continue
+        }
+        if (!includeImages) {
+          lines.push(`${header} (an earlier recording; not re-sent with this turn)`)
+          continue
+        }
+        const bytes = await readChatObject(env, row.key)
+        if (!bytes) {
+          lines.push(`${header} (the stored recording could not be read)`)
+        } else {
+          audio.push({ mime: row.mime || 'audio/mpeg', base64: base64FromBytes(bytes), format })
+          lines.push(`${header} (sent to the model with this turn)`)
+        }
         continue
       }
       // A PDF's words were read by the browser's own parser at upload time, because the worker cannot
@@ -204,5 +272,5 @@ export async function expandChatAttachments(
     ? `\n\n${ATTACHMENT_MARKER}: text from ${leftOut} of the ${ids.length} attached files was left out of this turn — `
       + `its ${CHAT_TOTAL_CHAR_CAP}-character attachment budget was already spent on the files above]`
     : ''
-  return { block: `${lines.join('\n\n')}${shortfall}`, images }
+  return { block: `${lines.join('\n\n')}${shortfall}`, images, audio }
 }

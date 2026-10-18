@@ -146,21 +146,21 @@ describe('a model PATCH that names one field', () => {
 
   it('writes null as a value and leaves a field it did not name alone', async () => {
     await store.updateModel(model.id, {
-      temperature: 0.25, topP: 0.5, modalities: ['audio', 'video'],
+      temperature: 0.25, topP: 0.5, modalities: ['audio'],
       customParams: [{ name: 'reasoning_effort', type: 'number', value: '7' }],
     })
     const renamed = await store.updateModel(model.id, { label: 'Renamed' })
     expect(renamed?.label).toBe('Renamed')
     expect(renamed?.temperature).toBe(0.25)
     expect(renamed?.topP).toBe(0.5)
-    expect(renamed?.modalities).toEqual(['audio', 'video'])
+    expect(renamed?.modalities).toEqual(['audio'])
     expect(renamed?.customParams).toHaveLength(1)
     // Null is the reader emptying the box; it has to reach the row rather than be read as "no change".
     const cleared = await store.updateModel(model.id, { temperature: null, topP: null, fallbackModelId: null })
     expect(cleared?.temperature).toBeNull()
     expect(cleared?.topP).toBeNull()
     expect(cleared?.label).toBe('Renamed')
-    expect(cleared?.modalities).toEqual(['audio', 'video'])
+    expect(cleared?.modalities).toEqual(['audio'])
     expect((await store.getModel(model.id))?.temperature).toBeNull()
     // A patch that names nothing writes nothing, and still answers with the row as it stands.
     const untouched = await store.updateModel(model.id, { label: 'Renamed again' })

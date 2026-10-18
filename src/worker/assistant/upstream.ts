@@ -24,7 +24,14 @@
  */
 
 import { assertRelayableEndpoint, pickRelayHeaders } from '@shared/ai-proxy-guard'
-import { estimateTokens, isSourceUrl, type AssistantProtocol, type AssistantReasoning, type ReasoningDialect } from '@shared/assistant'
+import {
+  estimateTokens,
+  isSourceUrl,
+  type AssistantProtocol,
+  type AssistantReasoning,
+  type ChatAudioFormat,
+  type ReasoningDialect,
+} from '@shared/assistant'
 import { anthropicReasoning, geminiThinkingConfig, openAiReasoningFields, reasoningDialect } from '@shared/reasoning'
 import { NO_REDIRECT, isRedirectResponse } from '../lib/no-redirect'
 
@@ -43,6 +50,20 @@ export interface ToolCallRecord {
   error: boolean
 }
 
+/**
+ * One recording the model is handed with this turn.
+ *
+ * `base64` is the encoded bytes with no `data:` prefix in front of them — the field wants the bare string —
+ * and `format` is the container name the provider agrees to decode, decided by `audioFormatFor` in the
+ * shared module rather than guessed here. Only the OpenAI-compatible builder reads this; the other two have
+ * no field for it, which is what `protocolCarriesAudio` exists to keep the turn and the wire agreeing on.
+ */
+export interface ChatAudioPart {
+  mime: string
+  base64: string
+  format: ChatAudioFormat
+}
+
 /** One turn of history as the providers need it: text, plus the calls an assistant turn made. */
 export interface ModelTurn {
   role: 'user' | 'assistant'
@@ -53,6 +74,13 @@ export interface ModelTurn {
    * ride beside it, which is what each protocol's own multi-part shape expects.
    */
   images?: { mime: string, dataUrl: string }[]
+  /**
+   * Recordings the model is played with this turn.
+   *
+   * Set only for a wire that has the field, so a turn that carries audio never arrives on a protocol that
+   * would answer it with a refusal.
+   */
+  audio?: ChatAudioPart[]
 }
 
 export type UpstreamEvent
@@ -632,12 +660,22 @@ function openAiBody(request: UpstreamRequest): Record<string, unknown> {
   }
 }
 
-/** A user turn with pictures is a part list; one without is the plain string every server accepts. */
+/**
+ * A user turn with a picture or a recording is a part list; one without is the plain string every server
+ * accepts.
+ *
+ * `input_audio` is the field the OpenAI shape was built for and the one its imitators copy — DeepSeek and
+ * friends refuse it as an unknown type, which is why a recording only reaches here when the reader ticked
+ * audio for the model and `attachments.ts` read the bytes for that same model.
+ */
 function openAiUserContent(turn: ModelTurn): unknown {
-  if (!turn.images?.length) return turn.content
+  const images = turn.images ?? []
+  const audio = turn.audio ?? []
+  if (!images.length && !audio.length) return turn.content
   return [
     { type: 'text', text: turn.content },
-    ...turn.images.map((image) => ({ type: 'image_url', image_url: { url: image.dataUrl } })),
+    ...images.map((image) => ({ type: 'image_url', image_url: { url: image.dataUrl } })),
+    ...audio.map((entry) => ({ type: 'input_audio', input_audio: { data: entry.base64, format: entry.format } })),
   ]
 }
 

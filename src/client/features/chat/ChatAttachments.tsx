@@ -21,7 +21,7 @@
 import { useEffect, useState } from 'react'
 import { FileText, Image as ImageIcon, Loader, RotateCcw, X } from 'lucide-react'
 import { attachmentModality, type ChatAttachment } from '@shared/assistant'
-import { attachmentModalityLabel, unreadableAttachmentReason, type PendingAttachment } from './assistant-store'
+import { attachmentSenseLabel, unreadableAttachmentReason, type PendingAttachment } from './assistant-store'
 import { cn } from '../../lib/cn'
 import { t } from '../../lib/i18n'
 import { api, ApiError } from '../../lib/api'
@@ -252,7 +252,7 @@ export function AttachmentStrip({
  * different answers rather than one mystery.
  */
 export function AttachmentViewer({ attachment, onClose }: { attachment: ChatAttachment, onClose: () => void }) {
-  const modality = attachmentModality(attachment.mime, attachment.filename)
+  const sense = attachmentModality(attachment.mime, attachment.filename)
   const [text, setText] = useState<string | null>(null)
   const [progress, setProgress] = useState(0)
   const [error, setError] = useState<string | null>(null)
@@ -260,7 +260,7 @@ export function AttachmentViewer({ attachment, onClose }: { attachment: ChatAtta
   useEffect(() => {
     // Nothing to read back: the panel already said so, and the byte counter would only be a bar over a box
     // that will never hold anything.
-    if (modality) return
+    if (sense) return
     let cancelled = false
     void api.assistant.downloadChatFile(attachment.id, (received, total) => {
       if (!cancelled && total > 0) setProgress(received / total)
@@ -274,7 +274,7 @@ export function AttachmentViewer({ attachment, onClose }: { attachment: ChatAtta
     return () => {
       cancelled = true
     }
-  }, [attachment.id, modality])
+  }, [attachment.id, sense])
 
   return (
     <Modal
@@ -296,9 +296,9 @@ export function AttachmentViewer({ attachment, onClose }: { attachment: ChatAtta
       <div className="h-0.5 w-full bg-[var(--bg-inset)]">
         <div className="h-full bg-[var(--accent)] transition-[width] duration-150" style={{ width: `${Math.round(progress * 100)}%` }} />
       </div>
-      {modality ? (
+      {sense ? (
         <p data-attachment-unreadable="true" className="p-4 text-[length:var(--text-12-5)] text-[var(--text-secondary)]">
-          {t('assistant.attach.unreadable_view', { kind: attachmentModalityLabel(modality) })}
+          {t('assistant.attach.unreadable_view', { kind: attachmentSenseLabel(sense) })}
         </p>
       ) : error ? (
         <p className="p-4 text-[length:var(--text-12-5)] text-[var(--danger)]">{error}</p>
