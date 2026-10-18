@@ -12,6 +12,7 @@ import { Check, FileText, Folder, Hash, Wrench, X } from 'lucide-react'
 import { ASSISTANT_TOOL_SPECS, type AssistantTurnScope } from '@shared/assistant'
 import { cn } from '../../lib/cn'
 import { t } from '../../lib/i18n'
+import { ScopeChip } from './ComposerControls'
 
 export type TriggerSigil = '@' | '/' | '#'
 
@@ -141,18 +142,23 @@ export function scopeIcon(kind: 'tag' | 'folder') {
  * What `/` and `#` added to this turn, where the reader can still see and undo it.
  *
  * A pin that left no trace would read as a hidden instruction to the model: the chips name the tools and
- * the scopes, and the X is the only way to take them back off.
+ * the scopes, and the X is the only way to take them back off. A scope chip is more than its own name —
+ * it says what kind of limit it is, and pressing it reaches the `#` picker that changes it, because the
+ * reader who asks "how do I widen this?" is standing on the chip that says the turn is narrow.
  */
 export function TurnPinRow({
   tools,
   scopes,
   onDropTool,
   onDropScope,
+  onOpenScopes,
 }: {
   tools: string[]
   scopes: AssistantTurnScope[]
   onDropTool: (name: string) => void
   onDropScope: (id: string) => void
+  /** Focus the composer and raise the `#` trigger — the control these chips were made from. */
+  onOpenScopes: () => void
 }) {
   if (!tools.length && !scopes.length) return null
   const chip = (key: string, Icon: typeof Wrench, label: string, onDrop: () => void, dropLabel: string) => (
@@ -167,12 +173,8 @@ export function TurnPinRow({
   return (
     <div className="flex flex-wrap gap-1 px-1.5 pb-1">
       {tools.map((name) => chip(`tool-${name}`, Wrench, name, () => onDropTool(name), t('assistant.trigger.drop_tool', { name })))}
-      {scopes.map((entry) => chip(
-        `scope-${entry.id}`,
-        entry.kind === 'folder' ? Folder : entry.kind === 'note' ? FileText : Hash,
-        entry.name,
-        () => onDropScope(entry.id),
-        t('assistant.trigger.drop_scope', { name: entry.name }),
+      {scopes.map((entry) => (
+        <ScopeChip key={`scope-${entry.id}`} scope={entry} onDrop={() => onDropScope(entry.id)} onOpenScopes={onOpenScopes} />
       ))}
     </div>
   )

@@ -80,8 +80,21 @@ describe('the composer attachment chip', () => {
 
 describe('the pinned tool chip', () => {
   it('pads the detach cross without redrawing it', () => {
-    mount(createElement(TurnPinRow, { tools: ['search_notes'], scopes: [], onDropTool: () => {}, onDropScope: () => {} }))
+    mount(createElement(TurnPinRow, { tools: ['search_notes'], scopes: [], onDropTool: () => {}, onDropScope: () => {}, onOpenScopes: () => {} }))
     expectPadded(byName(t('assistant.trigger.drop_tool', { name: 'search_notes' })), 'size-4')
+  })
+})
+
+describe('the pinned scope chip', () => {
+  it('pads its own cross, now that the chip body is a control too', () => {
+    mount(createElement(TurnPinRow, {
+      tools: [],
+      scopes: [{ kind: 'folder', id: 'f1', name: '工作' }],
+      onDropTool: () => {},
+      onDropScope: () => {},
+      onOpenScopes: () => {},
+    }))
+    expectPadded(byName(t('assistant.trigger.drop_scope', { name: '工作' })), 'size-4')
   })
 })
 

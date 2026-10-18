@@ -1,10 +1,11 @@
 import { CaseUpper, CheckSquare, Copy, ExternalLink, FileText, Heading, Images, List, Maximize2, Network, Pencil, Plus, Sigma, SquarePen, Trash2 } from 'lucide-react'
 import { submenuFor, type MenuItem } from '../../../components/overlay'
 import { t } from '../../../lib/i18n'
-import { findNoteByTitle } from '../../../store/notes'
+import { findNoteByTitle, noteById } from '../../../store/notes'
 import { updateTaskAtSourceLine } from '../../../editor/commands'
 import { formatMenuItems } from '../../../editor/editorMenus'
 import { editLinkFromMenu } from '../../links/use-link-editor'
+import { buildNoteTaskMenuItem } from '../../chat/note-task-link'
 import { joinLines, splitLines } from '../../../lib/markdown/fence-edit'
 import { MEDIA_BLOCK_DEFAULTS, parseMediaRow } from '../../../lib/markdown/media-layout'
 import type { MediaBlockOptions } from '../../../lib/markdown/media-layout'
@@ -156,6 +157,19 @@ export function buildTaskItems(ctx: MenuCtx): MenuItem[] | null {
         else ctx.onEditContent(next)
       },
     })
+  }
+  // The one-way copy out to the assistant's task list, offered wherever the box itself is readable: the
+  // line is taken from the note's own text rather than from the parsed checkbox, because the module that
+  // builds the task also reads the due date written on that line. It sits on both sides of the split view
+  // — a reader deciding in the rendered document that this belongs on their task list has no reason to
+  // jump to the source first. Without a note to point back at, the task would be a copy with no way home,
+  // so the row is not offered.
+  const sourceLine = line === null || line === undefined ? '' : (splitLines(ctx.content).lines[line] ?? '')
+  const toAssistant = ctx.noteId
+    ? buildNoteTaskMenuItem({ line: sourceLine, noteId: ctx.noteId, noteTitle: noteById(ctx.noteId)?.title ?? '' })
+    : null
+  if (toAssistant) items.push(toAssistant)
+  if (isSourceMenu(ctx)) {
     items.push(deleteLineItem(ctx, line!, t('contextmenu.task_delete')))
   } else if (line !== undefined && line !== null) {
     items.push(jumpItem(ctx, line))

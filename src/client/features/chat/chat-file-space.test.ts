@@ -190,4 +190,34 @@ describe('the file space', () => {
     expect(text()).toContain('report.pdf')
     expect(toast).toHaveBeenCalledWith(expect.objectContaining({ tone: 'danger' }))
   })
+
+  /**
+   * What the toast says about the turns the file was quoted by.
+   *
+   * The route answers a delete with the number of message rows it had to take the reference out of, and a
+   * file that was named by four turns is not the same fact as one that belonged to nothing — so the count
+   * belongs in the sentence the reader is handed, not left in a response they never see.
+   */
+  it('says how many turns the deleted file was unlinked from', async () => {
+    chatFiles.mockResolvedValueOnce({ files: [file()] })
+    deleteChatFile.mockResolvedValueOnce({ deleted: true, referenced_by_turns: 4 })
+    await mount()
+    await act(async () => { byAria(t('assistant.settings.files_delete', { name: 'report.pdf' }))!.click() })
+    await settle()
+    expect(toast).toHaveBeenCalledWith(expect.objectContaining({
+      title: t('assistant.settings.files_deleted_turns', { name: 'report.pdf', count: 4 }),
+      tone: 'success',
+    }))
+  })
+
+  it('claims a file was standalone only when the route said it was', async () => {
+    chatFiles.mockResolvedValueOnce({ files: [file()] })
+    deleteChatFile.mockResolvedValueOnce({ deleted: true, referenced_by_turns: 0 })
+    await mount()
+    await act(async () => { byAria(t('assistant.settings.files_delete', { name: 'report.pdf' }))!.click() })
+    await settle()
+    expect(toast).toHaveBeenCalledWith(expect.objectContaining({
+      title: t('assistant.settings.files_deleted', { name: 'report.pdf' }),
+    }))
+  })
 })

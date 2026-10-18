@@ -3,7 +3,7 @@
  */
 import { useEffect, useId, useMemo, useState } from 'react'
 import { type AssistantSettings } from '@shared/assistant'
-import { ASSISTANT_TOOL_MODES, ASSISTANT_TOOL_PERMISSIONS, MAX_CUSTOM_INSTRUCTIONS_CHARS } from '@shared/assistant'
+import { ASSISTANT_TOOL_MODES, ASSISTANT_TOOL_PERMISSIONS, MAX_CUSTOM_INSTRUCTIONS_CHARS, MAX_SEARCH_ENDPOINT_CHARS, searchEndpointValue } from '@shared/assistant'
 import { isValidTimeZone } from '@shared/assistant-schedule'
 import { t } from '../../lib/i18n'
 import { Button } from '../../components/primitives'
@@ -17,6 +17,8 @@ export function BehaviourTab({ settings }: { settings: AssistantSettings }) {
   useEffect(() => setName(settings.agentName), [settings.agentName])
   const [instructions, setInstructions] = useState(settings.customInstructions)
   useEffect(() => setInstructions(settings.customInstructions), [settings.customInstructions])
+  const [endpoint, setEndpoint] = useState(settings.webSearchEndpoint)
+  useEffect(() => setEndpoint(settings.webSearchEndpoint), [settings.webSearchEndpoint])
   const browserZone = Intl.DateTimeFormat().resolvedOptions().timeZone
   const zones = useMemo(() => {
     const list = typeof Intl.supportedValuesOf === 'function' ? Intl.supportedValuesOf('timeZone') : [browserZone]
@@ -27,6 +29,15 @@ export function BehaviourTab({ settings }: { settings: AssistantSettings }) {
   const agentNameId = useId()
   const timezoneId = useId()
   const startViewId = useId()
+  const endpointId = useId()
+  // Blank is a real answer here — it is how the built-in search tool is switched off — so only a value the
+  // route would drop is worth refusing before the request goes out. `searchEndpointValue` is that route's
+  // own rule, asked here so an address the worker will not relay to is answered beside this box instead of
+  // through a toast over a field that still holds the rejected words.
+  const wantedEndpoint = endpoint.trim()
+  const endpointUnusable = wantedEndpoint !== '' && searchEndpointValue(wantedEndpoint, '') !== wantedEndpoint
+  const endpointProblem = endpointUnusable ? t('assistant.settings.web_search_invalid') : null
+  const endpointSaved = wantedEndpoint === settings.webSearchEndpoint
 
   return (
     <>
@@ -143,6 +154,44 @@ export function BehaviourTab({ settings }: { settings: AssistantSettings }) {
             />
           </SettingRow>
         ))}
+        <SettingRow
+          title={t('assistant.settings.web_search')}
+          description={t('assistant.settings.web_search_hint')}
+          controlId={endpointId}
+        >
+          <form
+            className="flex gap-1.5"
+            onSubmit={(event) => {
+              event.preventDefault()
+              // The rule the route applies, asked before the request: an address the worker will not relay
+              // to is answered beside this box rather than as a toast over a field that still shows it.
+              if (endpointUnusable || endpointSaved) return
+              void saveSettings({ webSearchEndpoint: wantedEndpoint })
+            }}
+          >
+            {/* A plain text box, not `type="url"`: the browser's own constraint validation would swallow
+                the submit and answer with its bubble instead of this row's words. */}
+            <Input
+              id={endpointId}
+              value={endpoint}
+              inputMode="url"
+              spellCheck={false}
+              maxLength={MAX_SEARCH_ENDPOINT_CHARS}
+              invalid={endpointProblem !== null}
+              aria-describedby={endpointProblem !== null ? `${endpointId}-problem` : undefined}
+              onChange={(event) => setEndpoint(event.target.value)}
+              className="h-8 w-64 font-mono text-[length:var(--text-11)]"
+            />
+            <Button type="submit" size="sm" variant="secondary" disabled={endpointUnusable || endpointSaved}>
+              {t('common.save')}
+            </Button>
+          </form>
+          {endpointProblem !== null && (
+            <p id={`${endpointId}-problem`} role="alert" className="mt-1 break-words text-[length:var(--text-11)] text-[var(--danger)]">
+              {endpointProblem}
+            </p>
+          )}
+        </SettingRow>
       </Group>
     </>
   )

@@ -264,23 +264,32 @@ export function ContextMenu({
  * The web-search chip.
  *
  * It asks for a live web search this turn. What that means depends on the model: two protocols have a
- * vendor-side search tool that is sent as-is, and where there is none the assistant pins a search-capable
- * tool from the reader's own MCP servers instead. A switch that could do neither would be worse than no
- * switch, because it would be believed.
+ * vendor-side search tool that is sent as-is; where there is none the worker queries the search engine the
+ * reader configured with its own tool, and only if that is not set either does it fall back to pinning a
+ * search-capable tool from the reader's MCP servers. A switch that could do none of the three would be
+ * worse than no switch, because it would be believed.
  */
 const SEARCH_REF: React.RefObject<HTMLButtonElement | null> = { current: null }
 
-export function WebSearchMenu({ value, onChange, available = true }: {
+export function WebSearchMenu({ value, onChange, available = true, reason }: {
   value: boolean
   onChange: (next: boolean) => void
   /**
    * Whether this model can search at all.
    *
-   * A protocol with a vendor-side search can; anywhere else the assistant needs a search-capable tool
-   * from the reader's own MCP servers. When neither holds, the switch is drawn disabled with the reason,
-   * because a switch that turns on and does nothing is worse than one that cannot be pressed.
+   * Three channels carry the switch, the same three the runner resolves: the vendor's own search on this
+   * protocol, the built-in tool against an engine the reader configured, or a search-capable tool from the
+   * reader's MCP servers. When none of them holds, the switch is drawn disabled with the reason, because a
+   * switch that turns on and does nothing is worse than one that cannot be pressed.
    */
   available?: boolean
+  /**
+   * Which channel is missing, for the reader who has to fix it.
+   *
+   * Said by the caller, which is the only place that knows what was checked: a disabled control that names
+   * one door is a setting to change, while one that names none is a broken app.
+   */
+  reason?: string
 }) {
   const on = value && available
   return (
@@ -291,7 +300,7 @@ export function WebSearchMenu({ value, onChange, available = true }: {
       active={on}
       pressed={on}
       disabled={!available}
-      hint={available ? t('assistant.search.hint') : t('assistant.search.unavailable')}
+      hint={available ? t('assistant.search.hint') : (reason ?? t('assistant.search.unavailable'))}
       onClick={() => onChange(!value)}
       refObject={SEARCH_REF}
     />

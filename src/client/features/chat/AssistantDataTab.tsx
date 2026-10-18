@@ -46,8 +46,9 @@ const FILE_LIST_LIMIT = 60
  * deleted left its files behind with no trace. This is the list and the way out, on the tab the reader
  * already comes to for storage.
  *
- * A row carries no word about which conversation used it, so nothing here claims a file is unused — the
- * delete is stated as what it does to the stored bytes, which is all this screen can know.
+ * A row carries no word about which conversation used it, so nothing here claims a file is unused — but the
+ * route answers a delete with the number of turns it had to take the reference out of, and the toast says
+ * that many rather than letting a quoted file read as a standalone one.
  */
 export function ChatFileSpace() {
   const timezone = useAssistant((state) => state.settings?.timezone)
@@ -83,9 +84,19 @@ export function ChatFileSpace() {
     }))) return
     setRemoving(file.id)
     try {
-      await api.assistant.deleteChatFile(file.id)
+      // The route answers with how many turns stopped naming this file when it was taken out of the
+      // message rows. `api.assistant.deleteChatFile` still types only `{ deleted }`, so the answer is read
+      // through the shape the route actually returns — a file that was quoted by four turns must not be
+      // reported as one that belonged to nothing.
+      const result: { deleted: boolean, referenced_by_turns?: number } = await api.assistant.deleteChatFile(file.id)
+      const unlinked = Number.isFinite(result.referenced_by_turns) ? result.referenced_by_turns ?? 0 : 0
       setFiles((current) => (current ?? []).filter((entry) => entry.id !== file.id))
-      toast({ title: t('assistant.settings.files_deleted', { name: file.filename }), tone: 'success' })
+      toast({
+        title: unlinked > 0
+          ? t('assistant.settings.files_deleted_turns', { name: file.filename, count: unlinked })
+          : t('assistant.settings.files_deleted', { name: file.filename }),
+        tone: 'success',
+      })
     } catch (error) {
       toast({
         title: t('assistant.toast.failed'),

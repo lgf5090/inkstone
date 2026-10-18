@@ -12,7 +12,7 @@ import { Z_INDEX } from '../../lib/z-index'
 import { type ClipboardEvent as ReactClipboardEvent, type DragEvent as ReactDragEvent, type KeyboardEvent, type ReactNode, Fragment, memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { Archive, ArrowUp, ArrowUpRight, Check, Columns2, Copy, FileText, FolderOpen, Ghost, History, Link2Off, ListChecks, MoreHorizontal, NotebookPen, PanelRight, Paperclip, Pencil, Plus, Search, Settings2, Square, Sparkles, Star, Trash2, X } from 'lucide-react'
 import type { AssistantConversation, AssistantMessage, AssistantModel, AssistantTurnScope, ChatAttachment } from '@shared/assistant'
-import { EPHEMERAL_CONVERSATION_RETENTION_DAYS, SEARCH_NATIVE_PROTOCOLS, looksLikeSearchTool, mcpToolModeFor } from '@shared/assistant'
+import { EPHEMERAL_CONVERSATION_RETENTION_DAYS, SEARCH_NATIVE_PROTOCOLS, looksLikeSearchTool, mcpToolModeFor, webSearchConfigured } from '@shared/assistant'
 import { DEBOUNCE } from '@shared/constants'
 import { cn } from '../../lib/cn'
 import { t } from '../../lib/i18n'
@@ -43,6 +43,7 @@ import {
 } from './ComposerTriggers'
 import {
   ApprovalMenu,
+  AnswerScopeProvenance,
   ControlChip,
   ContextMenu,
   ModelMenu,
@@ -1016,22 +1017,7 @@ export function UserBubble({
       <div className="group flex max-w-[85%] flex-col items-end gap-1">
         {/* The pins were a choice about this one question, and they outlive the composer chips that made
             them: a reader coming back to an answer that only knew one note should be able to see why. */}
-        {scopes.length > 0 && (
-          <div className="flex flex-wrap items-center justify-end gap-1" aria-label={t('assistant.chat.scoped_to')}>
-            <span className="text-[length:var(--text-10)] text-[var(--text-quaternary)]">
-              {t('assistant.chat.scoped_to')}
-            </span>
-            {scopes.map((scope) => (
-              <span
-                key={`${scope.kind}:${scope.id}`}
-                className="max-w-[180px] truncate rounded-[var(--r-sm)] bg-[var(--bg-inset)] px-1.5 py-0.5 text-[length:var(--text-10)] text-[var(--text-quaternary)]"
-                title={scope.name}
-              >
-                {scope.name}
-              </span>
-            ))}
-          </div>
-        )}
+        <AnswerScopeProvenance scopes={scopes} />
         {attachments.length > 0 && <MessageAttachments ids={attachments} index={fileIndex} />}
         {text && (
           <div className="break-words rounded-[var(--r-lg)] rounded-br-[var(--r-xs)] bg-[var(--accent-soft)] px-3 py-2 text-[length:var(--text-13-5)] leading-relaxed text-[var(--text-primary)]">
@@ -2034,14 +2020,26 @@ ${current}` : seed))
   const mcpCatalog = useAssistant((state) => state.mcpCatalog)
   const mcpServers = useAssistant((state) => state.mcpServers)
   const loadMcp = useAssistant((state) => state.loadMcp)
-  // Whether the web-search switch can do anything under this model: a vendor-side search, or a
-  // search-capable tool among the reader's own MCP servers. Read here rather than inside the chip so the
-  // chip itself stays a switch and not a policy.
-  const webSearchAvailable = useMemo(() => {
+  // Which of the three channels the runner can actually resolve for this model, or none. Read here rather
+  // than inside the chip so the chip stays a switch and not a policy: the vendor's own search on this
+  // protocol, the built-in tool against an engine the reader configured, or a search-capable remote tool.
+  // A protocol that is OpenAI-compatible with an engine set was reported dead here, so the reader saw a
+  // disabled control on a turn that would in fact have searched.
+  const webSearchChannel = useMemo(() => {
     const protocol = providers.find((entry) => entry.id === active?.providerId)?.protocol
-    if (protocol && SEARCH_NATIVE_PROTOCOLS.has(protocol)) return true
-    return mcpCatalog.some((entry) => entry.tools.some((tool) => looksLikeSearchTool(tool.name)))
-  }, [providers, mcpCatalog, active])
+    if (protocol && SEARCH_NATIVE_PROTOCOLS.has(protocol)) return 'native' as const
+    // The built-in tool is a read tool: with that class switched off the turn cannot be handed it.
+    if (settings && settings.toolModes.read !== 'off' && webSearchConfigured(settings)) return 'engine' as const
+    const searcher = mcpServers.some((server) => server.enabled
+      && (mcpCatalog.find((entry) => entry.serverId === server.id)?.tools ?? []).some((tool) => looksLikeSearchTool(tool.name)
+        // A tool the reader switched off at the server is not on the table for the model either.
+        && mcpToolModeFor(server, tool.remoteName) !== 'off'))
+    return searcher ? ('mcp' as const) : null
+  }, [providers, active, settings, mcpServers, mcpCatalog])
+  // The disabled reason names the door the reader can still open, so a dead chip is a setting to change.
+  const webSearchReason = settings && webSearchConfigured(settings)
+    ? t('assistant.search.unavailable_read_off')
+    : t('assistant.search.unavailable_engine')
 
   /** Rows for the trigger the caret is inside. `@` asks the server; the other two filter locally. */
   const loadTriggerRows = async (next: ActiveTrigger) => {
@@ -2177,6 +2175,29 @@ ${current}` : seed))
   }
 
   /**
+   * Raise the composer's own `#` picker from a scope chip.
+   *
+   * The chip says what the turn is limited to; the picker is the control that changes it, so a press hands
+   * the reader back to the door rather than opening a settings page somewhere else.
+   */
+  const openScopes = () => {
+    const box = ref.current
+    if (!trigger || trigger.sigil !== '#') {
+      const head = value && !/\s$/.test(value) ? `${value} ` : value
+      const next = `${head}#`
+      onTextChange(next, next.length)
+      if (box) {
+        box.focus()
+        // The caret belongs on the token the panel is filtering with, or the next keystroke is typed at
+        // the start of the box and the panel closes again.
+        box.setSelectionRange(next.length, next.length)
+      }
+      return
+    }
+    box?.focus()
+  }
+
+  /**
    * A note or folder dropped on the box becomes a chip, not a file.
    *
    * The notebook's own rails already drag notes and folders around, so the gesture arrives here for free —
@@ -2241,7 +2262,7 @@ ${current}` : seed))
           )}
         >
           <AttachmentStrip items={pending} onRemove={(localId) => void dropAttachment(localId)} onRetry={(localId) => void retryAttachment(localId)} />
-          <TurnPinRow tools={turnTools} scopes={turnScopes} onDropTool={dropTurnTool} onDropScope={dropTurnScope} />
+          <TurnPinRow tools={turnTools} scopes={turnScopes} onDropTool={dropTurnTool} onDropScope={dropTurnScope} onOpenScopes={openScopes} />
           <ContextStrip />
           <textarea
             ref={ref}
@@ -2317,7 +2338,7 @@ ${current}` : seed))
                     value={active.contextTokens}
                     onPick={(tokens) => void updateModel(active.id, { contextTokens: tokens })}
                   />
-                  <WebSearchMenu value={webSearch} onChange={setWebSearch} available={webSearchAvailable} />
+                  <WebSearchMenu value={webSearch} onChange={setWebSearch} available={webSearchChannel !== null} reason={webSearchReason} />
                   <CompareMenu on={compareOn} candidates={compareCandidates} onToggle={setCompareOn} />
                   {/* The second model is only asked for once the reader has said they want a second
                       answer. With the switch off there is nothing here to pick, and nothing to pay for. */}
