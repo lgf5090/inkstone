@@ -484,6 +484,16 @@ interface AssistantState {
   removeMessage: (messageId: string) => Promise<void>
   /** Records or takes back the reader's verdict on one answer. */
   rateAnswer: (messageId: string, feedback: MessageFeedback) => Promise<void>
+  /**
+   * Keep one turn, or take it back off the shelf.
+   *
+   * Nothing is painted before the write answers: a keep is a row on the server, and a bubble that goes on
+   * looking kept after the route refused is a mark the reader believes. The local row is set from what came
+   * back, not from what was asked for. `false` means the shelf is unchanged, and the refusal — the route's
+   * own line about the field it disliked — goes to `report` when the caller can show one, and to a toast
+   * when it cannot.
+   */
+  toggleMessageSaved: (messageId: string, report?: ReportFailure) => Promise<boolean>
   /** Starts a new conversation that carries this one up to the given message. */
   forkFrom: (messageId: string) => Promise<void>
   /** Deletes exactly the turns a reader selected. */
@@ -1593,6 +1603,26 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
     } catch (error) {
       paint(current)
       toast(error)
+    }
+  },
+
+  toggleMessageSaved: async (messageId, report) => {
+    const state = get()
+    // The thread the row lives on is read from the row itself rather than from whatever is open: the shelf
+    // takes a keep off a turn in another conversation, and `activeId` there names the wrong thread.
+    const conversationId = state.messages.find((message) => message.id === messageId)?.conversationId ?? state.activeId
+    if (!conversationId) return false
+    try {
+      const answer = await api.assistant.setMessageSaved(conversationId, messageId)
+      // After the await, and from the server's number: the row on screen is made to agree with the row in
+      // the account, which is what lets the press be a toggle the reader can trust from either side.
+      set((current) => ({
+        messages: current.messages.map((message) => (message.id === messageId ? { ...message, savedAt: answer.savedAt } : message)),
+      }))
+      return true
+    } catch (error) {
+      reportFailure(error, report)
+      return false
     }
   },
 

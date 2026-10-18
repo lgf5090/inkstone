@@ -1135,6 +1135,17 @@ export const api = {
         `/api/assistant/conversations/${conversationId}/messages/${messageId}/feedback`,
         { method: 'PATCH', body: { feedback, ...(reason === undefined || reason === '' ? {} : { reason }) } },
       ),
+    /**
+     * Keep one turn, or take it back off the shelf.
+     *
+     * The press toggles and there is nothing to send: the answer is what the row holds once the write has
+     * landed, which is the only state the caller is allowed to paint.
+     */
+    setMessageSaved: (conversationId: string, messageId: string) =>
+      request<{ conversationId: string, messageId: string, saved: boolean, savedAt: number | null }>(
+        `/api/assistant/conversations/${conversationId}/messages/${messageId}/saved`,
+        { method: 'POST' },
+      ),
     /** Take a turn back: the message and, under a reader's own row, the answer it drew. */
     removeMessage: (conversationId: string, messageId: string) =>
       request<{ removed: string[], messages: AssistantMessage[] }>(

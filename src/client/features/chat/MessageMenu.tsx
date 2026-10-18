@@ -12,7 +12,7 @@
  */
 
 import { useCallback, useEffect, useRef, useState, type MouseEvent, type RefObject } from 'react'
-import { Copy, CornerUpLeft, Download, GitBranch, ListChecks, MessageSquareQuote, NotebookPen, NotebookText, PanelRight, Pencil, Play, RotateCcw, Share2, TextCursorInput, ThumbsDown, ThumbsUp, Trash2, Volume2, type LucideIcon } from 'lucide-react'
+import { Copy, CornerUpLeft, Download, GitBranch, ListChecks, MessageSquareQuote, NotebookPen, NotebookText, PanelRight, Pencil, Play, RotateCcw, Share2, Star, TextCursorInput, ThumbsDown, ThumbsUp, Trash2, Volume2, type LucideIcon } from 'lucide-react'
 import { toPlainText } from '@shared/markdown-utils'
 import type { MessageFeedback } from '@shared/assistant'
 import { Z_INDEX } from '../../lib/z-index'
@@ -46,6 +46,16 @@ export interface MessageMenuTarget {
   feedback?: MessageFeedback
   /** Present only where a verdict can be recorded — a stored answer, not a turn still streaming. */
   onRate?: (feedback: MessageFeedback) => void
+  /** Whether this turn is on the reader's shelf of kept answers, so the row says which way it acts. */
+  saved?: boolean
+  /**
+   * Put this turn on the shelf, or take it back off.
+   *
+   * Present for a stored turn only: a keep is a column on the row, so a reply still arriving has nothing to
+   * keep — and a row that pressed the shelf for a message the server has not written would leave the reader
+   * looking at a mark on an answer that does not exist yet.
+   */
+  onToggleSaved?: () => void
   /** Present for a stored turn: a branch carries the thread up to and including this message. */
   onFork?: () => void
   /** Turns the thread into a picker with this message already ticked. */
@@ -189,6 +199,19 @@ export function messageMenuItems(target: MessageMenuTarget): MenuItem[] {
   if (target.onShare) {
     specs.push({ id: 'share', icon: Share2, label: t('assistant.chat.share_message'), run: target.onShare, separatorBefore: true })
   }
+  // The one row here that writes a mark on the turn rather than sending it somewhere: keeping is the reader
+  // saying this answer is worth coming back to, so it sits above the two verdicts, which say the same thing
+  // about the answer's quality instead of its place.
+  if (target.onToggleSaved) {
+    specs.push({
+      id: 'keep',
+      icon: Star,
+      label: t(target.saved ? 'assistant.chat.unkeep' : 'assistant.chat.keep'),
+      run: target.onToggleSaved,
+      checked: target.saved === true,
+      separatorBefore: true,
+    })
+  }
   if (target.onRate) {
     specs.push(
       {
@@ -197,7 +220,7 @@ export function messageMenuItems(target: MessageMenuTarget): MenuItem[] {
         label: t('assistant.chat.rate_up'),
         run: () => target.onRate!('up'),
         checked: target.feedback === 'up',
-        separatorBefore: true,
+        separatorBefore: !target.onToggleSaved,
       },
       {
         id: 'rate-down',

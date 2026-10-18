@@ -28,6 +28,7 @@ import {
   RotateCcw,
   ShieldAlert,
   Sparkles,
+  Star,
   ThumbsDown,
   ThumbsUp,
   Volume2,
@@ -45,7 +46,7 @@ import { formatInZone } from './time-format'
 import { full as fullTokenCount } from './usage-format'
 import { copyText } from '../../lib/clipboard'
 import { useLocale } from '../../lib/i18n'
-import { Button } from '../../components/primitives'
+import { Button, IconButton } from '../../components/primitives'
 import { MarkdownBody } from '../preview/MarkdownBody'
 import { useAssistant } from './assistant-store'
 import { canSpeak, stopSpeaking } from './speech'
@@ -760,6 +761,7 @@ export function AssistantBubble({
   sources = [],
   attachments = [],
   feedback,
+  savedAt = null,
   onRate,
   canContinue,
   createdAt,
@@ -791,6 +793,13 @@ export function AssistantBubble({
   attachments?: string[]
   /** The verdict already left on this answer, so the thumb that is down stays down. */
   feedback?: MessageFeedback
+  /**
+   * When the reader kept this answer, or null for one nobody kept.
+   *
+   * Read off the row rather than guessed from the press: a thread opened on a second device has to show the
+   * star it showed on the first, and the mark is only in the stored turn.
+   */
+  savedAt?: number | null
   /** Absent on a live turn: a verdict needs a row to be stored on. */
   onRate?: (feedback: MessageFeedback) => void
   /**
@@ -1061,6 +1070,20 @@ export function AssistantBubble({
                 {t('assistant.chat.save_to_note')}
               </button>
             )}
+            {/* The keep is a row on the server, so it is offered only where there is a row: not while the
+                answer is still arriving, and not over an older version paged back, whose text is not what
+                the shelf would open. Pressed state comes from the stored `saved_at`, which is what makes it
+                the same mark on another device. */}
+            {messageId && !streaming && !viewing && (
+              <IconButton
+                size="xs"
+                active={savedAt != null}
+                label={t(savedAt != null ? 'assistant.chat.unkeep' : 'assistant.chat.keep')}
+                onClick={() => void useAssistant.getState().toggleMessageSaved(messageId)}
+              >
+                <Star size={11} fill={savedAt != null ? 'currentColor' : 'none'} />
+              </IconButton>
+            )}
             {onRate && (
               <>
                 <button
@@ -1182,6 +1205,11 @@ export function AssistantBubble({
           ...(onRetry && !viewing ? { onRetry, onRetryLabel: retryLabel } : {}),
           ...(canContinue && !streaming && !viewing ? { onContinue: () => void useAssistant.getState().send('', { continue: true }) } : {}),
           ...(feedback ? { feedback } : {}),
+          // The same keep the star under the answer is, reached from the menu instead: one action, two
+          // entries, and neither painted over a turn the server has no row for yet.
+          ...(messageId && !streaming && !viewing
+            ? { saved: savedAt != null, onToggleSaved: () => void useAssistant.getState().toggleMessageSaved(messageId) }
+            : {}),
           ...(onRate && !streaming && !viewing ? { onRate } : {}),
           ...(messageId && !streaming ? { onFork: () => void useAssistant.getState().forkFrom(messageId) } : {}),
           ...(messageId && !streaming ? { onOpenCanvas: () => void useAssistant.getState().createArtifactFromReply(body) } : {}),

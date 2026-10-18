@@ -847,6 +847,9 @@ export const MessageRow = memo(function MessageRow({ message, onRetry, canContin
       sources={message.sources}
       attachments={message.attachments ?? []}
       feedback={message.feedback}
+      // The reader's own keep, read off the row: the star has to be pressed on the device that did not
+      // press it, and the mark is only ever stored in the turn.
+      savedAt={message.savedAt ?? null}
       onRate={message.role === 'assistant' ? (verdict) => void useAssistant.getState().rateAnswer(message.id, verdict) : undefined}
       selection={selection}
       onStartPicking={onStartPicking}

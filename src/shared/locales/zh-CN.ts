@@ -6040,6 +6040,8 @@ console.log(\`Hello, \${name}!\`)
     "assistant.chat.forked": "已从这条分叉出新对话「{title}」",
     "assistant.chat.rate_up": "这个回答不错",
     "assistant.chat.rate_down": "这个回答有问题",
+    "assistant.chat.keep": "收藏这条回答",
+    "assistant.chat.unkeep": "取消收藏",
     "assistant.chat.reason_title": "哪里不对？",
     "assistant.chat.reason_wrong": "答错了",
     "assistant.chat.reason_incomplete": "答得不全",
