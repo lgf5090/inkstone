@@ -120,15 +120,6 @@ function mount(): void {
   })
 }
 
-async function press(node: HTMLButtonElement | null | undefined): Promise<void> {
-  expect(node, 'the control is not drawn').toBeTruthy()
-  await act(async () => {
-    node!.click()
-    await Promise.resolve()
-  })
-  mount()
-}
-
 const originalAssistant = useAssistant.getState()
 const originalUi = useUi.getState()
 
