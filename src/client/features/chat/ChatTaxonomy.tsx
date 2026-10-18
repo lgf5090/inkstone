@@ -6,7 +6,7 @@
  * these two components read the counts the assistant API computes over those shared tables.
  */
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Archive, ArchiveRestore, ChevronRight, FolderClosed, FolderKanban, Inbox, Layers, Pin, Star, Tags } from 'lucide-react'
+import { Archive, ArchiveRestore, Bookmark, ChevronRight, FolderClosed, FolderKanban, Inbox, Layers, Pin, Star, Tags } from 'lucide-react'
 import type { AssistantConversation, ChatFolderNode, ConversationTag } from '@shared/assistant'
 import { cn } from '../../lib/cn'
 import { IconButton } from '../../components/primitives'
@@ -14,6 +14,7 @@ import { t, type MessageKey } from '../../lib/i18n'
 import { relativeTime } from '../../lib/time'
 import { treeIndent, treeItemProps, useTreeKeyboard, type MoveMenuFolder } from '../../lib/tree'
 import { ChatFolderMenu, ConversationTagChip, NewRootFolderRow, useChatFolderMenu } from './ChatTaxonomyMenus'
+import { SavedShelf } from './SavedShelf'
 import { isConversationDrag, readConversationDrag } from './conversation-drag'
 import { FolderMotionIcon } from '../../components/FolderMotionIcon'
 import { useUi } from '../../store/ui'
@@ -421,6 +422,7 @@ const TAB_ICONS: Record<ConversationListTab, React.ReactNode> = {
   starred: <Star size={14} />,
   pinned: <Pin size={14} />,
   archived: <Archive size={14} />,
+  saved: <Bookmark size={14} />,
 }
 
 const TAB_LABELS: Record<ConversationListTab, MessageKey> = {
@@ -430,6 +432,7 @@ const TAB_LABELS: Record<ConversationListTab, MessageKey> = {
   starred: 'assistant.chat.tab.starred',
   pinned: 'assistant.chat.tab.pinned',
   archived: 'assistant.chat.tab.archived',
+  saved: 'assistant.chat.tab.saved',
 }
 
 export const CHAT_TAXONOMY_PANEL_ID = 'chat-taxonomy-panel'
@@ -585,6 +588,7 @@ export function ConversationTaxonomyPanel({ onOpen }: { onOpen?: () => void }) {
       {tab === 'starred' && <FlaggedList kind="starred" onOpen={onOpen} />}
       {tab === 'pinned' && <FlaggedList kind="pinned" onOpen={onOpen} />}
       {tab === 'archived' && <FlaggedList kind="archived" onOpen={onOpen} />}
+      {tab === 'saved' && <SavedShelf onOpen={onOpen} />}
     </div>
   )
 }

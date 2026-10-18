@@ -85,6 +85,7 @@ import type {
   MemoryReview,
   PendingAction,
   Project as AssistantProject,
+  SavedMessage,
   Task as AssistantTask,
 } from '@shared/assistant'
 import { publishBroadcast } from './db'
@@ -1145,6 +1146,20 @@ export const api = {
       request<{ conversationId: string, messageId: string, saved: boolean, savedAt: number | null }>(
         `/api/assistant/conversations/${conversationId}/messages/${messageId}/saved`,
         { method: 'POST' },
+      ),
+    /**
+     * The answers the reader kept, most recently kept first, each with the thread it belongs to.
+     *
+     * `cursor` is the opaque one the previous page handed back: the route refuses a caller that composes
+     * its own rather than answering it with the first page again, so this method only ever forwards what it
+     * was given. `SavedMessage` and `nextCursor` are the worker's own shape (`listSavedMessages` in
+     * `src/worker/assistant/store.ts`), and `tests/assistant-saved-message.test.ts` is what keeps the two
+     * agreeing — it reads this route's answer and asserts every row and both page bounds.
+     */
+    savedMessages: (params: { cursor?: string, limit?: number } = {}, signal?: AbortSignal) =>
+      request<{ items: SavedMessage[], nextCursor: string | null }>(
+        `/api/assistant/saved-messages${toQuery(params)}`,
+        { signal },
       ),
     /** Take a turn back: the message and, under a reader's own row, the answer it drew. */
     removeMessage: (conversationId: string, messageId: string) =>

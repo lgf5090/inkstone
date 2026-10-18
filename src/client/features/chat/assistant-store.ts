@@ -59,10 +59,10 @@ export type AssistantView = 'chat' | 'memory' | 'tasks' | 'automations' | 'skill
 
 export const ASSISTANT_VIEWS: readonly AssistantView[] = ['chat', 'memory', 'tasks', 'automations', 'skills', 'projects', 'settings']
 
-/** The five pickers the conversation list's tab strip offers, in the order it draws them. */
-export type ConversationListTab = 'folders' | 'projects' | 'tags' | 'starred' | 'pinned' | 'archived'
+/** The picks the conversation list's tab strip offers, in the order it draws them. */
+export type ConversationListTab = 'folders' | 'projects' | 'tags' | 'starred' | 'pinned' | 'archived' | 'saved'
 
-export const CONVERSATION_LIST_TABS: readonly ConversationListTab[] = ['folders', 'projects', 'tags', 'starred', 'pinned', 'archived']
+export const CONVERSATION_LIST_TABS: readonly ConversationListTab[] = ['folders', 'projects', 'tags', 'starred', 'pinned', 'archived', 'saved']
 
 /**
  * A paste at least this long is turned into a text file instead of being pasted into the box.

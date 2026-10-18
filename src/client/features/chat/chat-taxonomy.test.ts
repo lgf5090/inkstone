@@ -81,17 +81,21 @@ describe('conversation tab strip', () => {
     expect(tabs().map((entry) => entry.title)).toEqual([
       t('assistant.chat.tab.folders'), t('assistant.chat.tab.projects'), t('assistant.chat.tab.tags'),
       t('assistant.chat.tab.starred'), t('assistant.chat.tab.pinned'), t('assistant.chat.tab.archived'),
+      t('assistant.chat.tab.saved'),
     ])
   })
 
   it('moves the selection with the arrow keys and wraps at both ends', async () => {
+    // Read off the strip's own order rather than spelled: the wrap point is the last picker, and a test
+    // that names one by hand has to be rewritten every time a picker is added.
+    const last = CONVERSATION_LIST_TABS[CONVERSATION_LIST_TABS.length - 1]!
     await act(async () => {
       tab('folders').focus()
       tab('folders').dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowLeft', bubbles: true, cancelable: true }))
     })
-    expect(useAssistant.getState().listTab).toBe('archived')
+    expect(useAssistant.getState().listTab).toBe(last)
     await act(async () => {
-      tab('archived').dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true, cancelable: true }))
+      tab(last).dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true, cancelable: true }))
     })
     expect(useAssistant.getState().listTab).toBe('folders')
   })
