@@ -2821,8 +2821,16 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
       const settle = (tool: ToolActivity) => (tool.approval?.id === actionId && action.action
         ? { ...tool, approval: action.action, ...(action.result ? { result: action.result } : {}) }
         : tool)
+      // Only the row that carries this action is replaced. Mapping every message into a fresh object —
+      // which is what this did — handed the whole transcript a new identity for one press: `MessageRow`
+      // compares `message` by reference (ChatView's memo), so a hundred stored turns re-rendered and
+      // re-parsed their Markdown because the reader approved a call in one of them.
       set((current) => ({
-        messages: current.messages.map((message) => ({ ...message, tools: message.tools.map(settle) })),
+        messages: current.messages.map((message) => (
+          message.tools.some((tool) => tool.approval?.id === actionId)
+            ? { ...message, tools: message.tools.map(settle) }
+            : message
+        )),
         turn: current.turn
           ? { ...current.turn, tools: current.turn.tools.map(settle) }
           : current.turn,

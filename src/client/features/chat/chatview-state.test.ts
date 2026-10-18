@@ -47,6 +47,35 @@ vi.mock('../../lib/api', () => ({
       skills: async () => ({ skills: [] }),
       conversationBranches: async () => ({ parent: null, siblings: [] }),
       conversationArtifacts: async () => ({ artifacts: [] }),
+      // The two halves of `decideAction`. The row it hands back is approved either way; which verb was
+      // pressed is not what these cases are about.
+      approveAction: async (id: string) => ({
+        action: {
+          id,
+          tool: 'note_delete',
+          conversationId: 'c1',
+          targetId: '01hzzzzzzzzzzzzzzzzzzzzz11',
+          targetLabel: 'A note',
+          status: 'approved',
+          error: null,
+          createdAt: 1_700_000_000_000,
+          expiresAt: 1_700_000_600_000,
+        },
+        result: 'The note is gone.',
+      }),
+      declineAction: async (id: string) => ({
+        action: {
+          id,
+          tool: 'note_delete',
+          conversationId: 'c1',
+          targetId: '01hzzzzzzzzzzzzzzzzzzzzz11',
+          targetLabel: 'A note',
+          status: 'cancelled',
+          error: null,
+          createdAt: 1_700_000_000_000,
+          expiresAt: 1_700_000_600_000,
+        },
+      }),
     },
   },
 }))
@@ -286,6 +315,58 @@ describe('a memoised answer row', () => {
     await click(document.querySelector<HTMLElement>('[data-answer="m-old"] button'), 'an older answer’s retry')
     expect(asked).toHaveBeenCalledWith(expect.objectContaining({ title: t('assistant.chat.regenerate_middle_title'), tone: 'danger' }))
     expect(sendTurn).toHaveBeenLastCalledWith('', { retry: true, messageId: 'm-old' })
+  })
+})
+
+/**
+ * A call the reader is being asked to allow, carried by one stored answer.
+ *
+ * Only one row of the thread holds it, which is the whole subject: settling it must not be able to hand
+ * the other rows a new object.
+ */
+function pendingAction(actionId: string) {
+  return {
+    id: `tool-${actionId}`,
+    name: 'note_delete',
+    status: 'running' as const,
+    approval: {
+      id: actionId,
+      tool: 'note_delete',
+      conversationId: 'c1',
+      targetId: '01hzzzzzzzzzzzzzzzzzzzzz11',
+      targetLabel: 'A note',
+      status: 'pending' as const,
+      error: null,
+      createdAt: 1_700_000_000_000,
+      expiresAt: 1_700_000_600_000,
+    },
+  }
+}
+
+describe('one approval settles one row', () => {
+  it('replaces only the message that carries the action, and re-renders only that row', async () => {
+    await mountView({
+      messages: [
+        message({ id: 'm-question', content: 'Delete that note.' }),
+        message({ id: 'm-old', role: 'assistant', content: 'An answer with a call pending.', tools: [pendingAction('a-1')] }),
+        message({ id: 'm-new', role: 'assistant', content: 'The newest answer.' }),
+      ],
+    })
+    const before = useAssistant.getState().messages
+    const oldBefore = renders('m-old')
+    const newBefore = renders('m-new')
+
+    await act(async () => { await useAssistant.getState().decideAction('a-1', true) })
+
+    const after = useAssistant.getState().messages
+    expect(after[1].tools[0].approval?.status, 'the action was not settled on its own row').toBe('approved')
+    expect(after[1], 'the row that carries the action kept its identity').not.toBe(before[1])
+    // The claim the memo comparator is built on: a row the press did not touch is the same object, so the
+    // view never re-parses its Markdown.
+    expect(after[0], 'a row without the action was replaced').toBe(before[0])
+    expect(after[2], 'a row without the action was replaced').toBe(before[2])
+    expect(renders('m-old') - oldBefore, 'the row that was answered did not re-render').toBe(1)
+    expect(renders('m-new') - newBefore, 'the whole transcript re-rendered for one approval').toBe(0)
   })
 })
 
