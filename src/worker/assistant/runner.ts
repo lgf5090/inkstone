@@ -12,7 +12,7 @@
  *    who closes the tab still finds the half-answer and the reason.
  */
 
-import { MAX_MESSAGE_CHARS, SEARCH_NATIVE_PROTOCOLS, looksLikeSearchTool, toolPayloadText } from '@shared/assistant'
+import { MAX_MESSAGE_CHARS, SEARCH_NATIVE_PROTOCOLS, WEB_SEARCH_TOOL_NAME, looksLikeSearchTool, toolModeFor, toolPayloadText, webSearchConfigured } from '@shared/assistant'
 import type { AssistantMessage, AssistantModel, AssistantModelModality, AssistantProtocol, AssistantSettings, AssistantSource, ChatStreamEvent, ToolActivity } from '@shared/assistant'
 import { contextBudgetFor, customParamBody, MAX_CHAT_ATTACHMENTS, MAX_TURN_SCOPES, MAX_TURN_TOOLS, estimateTokens, titleFromMessage, type AssistantTurnScope } from '@shared/assistant'
 import { hasHistoricalIntent, memoryTokenBudget } from '@shared/assistant-memory'
@@ -33,6 +33,7 @@ import { noteCitationsFromTool } from './note-citations'
 import { matchVaultFolders, noteTitleIfLive } from './vault'
 import { parametersSchema, ToolError, ToolExecutor, type ToolContext } from './tools'
 import { AbortError, streamUpstream, UpstreamError, type ModelTurn, type ToolCallRecord, type ToolSchema, type UpstreamRequest, type UpstreamRetry, type UpstreamStopReason } from './upstream'
+import { webSearchSources } from './web-search'
 import { loadModelAndProvider, modelEndpoint, type ModelEndpoint } from './model-config'
 import { pickModelForTurn } from '@shared/assistant-routing'
 import { fuseMemoryRecall, rankMemoriesByVector, semanticModel } from './semantic'
@@ -289,6 +290,14 @@ export class AssistantRunner {
   private turnTools: string[] = []
   private webSearchRequested = false
   private webSearchNative = false
+  /**
+   * Whether this turn can be searched by the worker's own tool.
+   *
+   * Three states matter to the wire, not two: a vendor-side search (which carries the name `web_search`
+   * itself on Anthropic), a first-party tool the reader configured, or neither. The last of these decides
+   * both whether the tool is offered and whether the name is free to take.
+   */
+  private webSearchFirstParty = false
   private turnScopes: AssistantTurnScope[] = []
   /**
    * What this turn's answer was built on, by url, in the order it was found.
@@ -345,6 +354,7 @@ export class AssistantRunner {
     // `webSearchNative` sends the vendor's own tool, otherwise a search-capable remote tool is pinned.
     this.webSearchRequested = input.webSearch === true
     this.webSearchNative = false
+    this.webSearchFirstParty = false
     this.turnScopes = (input.scopes ?? []).slice(0, MAX_TURN_SCOPES)
     // Also read before the scope is resolved: the note on screen is readable for this turn, and the
     // scope promise is what enforces that.
@@ -601,13 +611,21 @@ export class AssistantRunner {
       const external: ExternalToolsResult = await loadExternalTools(this.store)
       this.webSearchNative = this.webSearchRequested && SEARCH_NATIVE_PROTOCOLS.has(call.protocol)
       if (this.webSearchRequested && !this.webSearchNative) {
-        // No vendor-side search on this protocol: the next best thing that is actually true is a remote
-        // tool that can search, named for the model in the same line the reader's own pins use.
-        const searcher = external.definitions.find((definition) => looksLikeSearchTool(definition.name))
-        if (searcher && !this.turnTools.includes(searcher.name)) this.turnTools = [...this.turnTools, searcher.name].slice(0, MAX_TURN_TOOLS)
-        // The switch was on and nothing can carry it out. Saying so is the difference between a search
-        // that did not happen and one the reader believes happened.
-        if (!searcher) yield { type: 'notice', notice: 'web_search_unavailable' }
+        // No vendor-side search on this protocol. What can carry the switch, in the order of how sure the
+        // answer is: the worker's own tool, which searches an engine the reader pointed at; failing that,
+        // one of the reader's remote tools whose *name* says it searches. The guess is the weaker one — a
+        // tool called `query_orders` is not a web search — so it is only reached for when there is nothing
+        // first-party to offer, and it stops firing the moment the reader configures an engine.
+        this.webSearchFirstParty = webSearchConfigured(this.settings) && toolModeFor(this.settings, 'read') !== 'off'
+        if (this.webSearchFirstParty) {
+          if (!this.turnTools.includes(WEB_SEARCH_TOOL_NAME)) this.turnTools = [...this.turnTools, WEB_SEARCH_TOOL_NAME].slice(0, MAX_TURN_TOOLS)
+        } else {
+          const searcher = external.definitions.find((definition) => looksLikeSearchTool(definition.name))
+          if (searcher && !this.turnTools.includes(searcher.name)) this.turnTools = [...this.turnTools, searcher.name].slice(0, MAX_TURN_TOOLS)
+          // The switch was on and nothing can carry it out. Saying so is the difference between a search
+          // that did not happen and one the reader believes happened.
+          if (!searcher) yield { type: 'notice', notice: 'web_search_unavailable' }
+        }
       }
       const selected = await this.recallMemories(userMessage?.content ?? message)
       const memories = this.memoryHistory.promptMemories(selected, memoryTokenBudget(contextTokens))
@@ -667,12 +685,17 @@ export class AssistantRunner {
 
       yield { type: 'stage', stage: 'generating' }
       const executor = new ToolExecutor(await this.toolContext(conversationId, generatedAttachments), { maxToolCalls: limits.maxToolCalls }, external.definitions)
-      const schemas: ToolSchema[] = executor.available().map((definition) => ({
-        name: definition.name,
-        description: definition.description,
-        // A remote tool's own JSON Schema, because this file has no FieldSpec list for it.
-        parameters: external.schemas[definition.name] ?? parametersSchema(definition.fields),
-      }))
+      const schemas: ToolSchema[] = executor.available()
+        // On a protocol that sends the vendor's own search tool, that one already carries this name, and a
+        // request with two entries called `web_search` is a request the provider refuses outright. The
+        // vendor's search is the better of the two wherever it exists, so the built-in one steps aside.
+        .filter((definition) => !(this.webSearchNative && definition.name === WEB_SEARCH_TOOL_NAME))
+        .map((definition) => ({
+          name: definition.name,
+          description: definition.description,
+          // A remote tool's own JSON Schema, because this file has no FieldSpec list for it.
+          parameters: external.schemas[definition.name] ?? parametersSchema(definition.fields),
+        }))
       // A server the reader added that will not answer is their business, not a silent absence: without
       // this the tool list just looks shorter than it should be.
       for (const problem of external.problems) {
@@ -1023,6 +1046,9 @@ export class AssistantRunner {
         // tool so there is one owner of the list: a failover that discards this attempt's calls takes
         // its citations with it, because they live in the same map.
         for (const source of noteCitationsFromTool(call.name, result)) this.collectSource(source)
+        // A search the worker ran itself joins the same list as one a vendor ran on its own server, so the
+        // chips under the answer do not care which wire the pages came from.
+        for (const source of webSearchSources(call.name, result)) this.collectSource(source)
         // What came back, kept beside the arguments above. The `result` sent to the model stays the
         // compact JSON the wire wants; what the reader is shown is the tool's own text where the tool
         // returned text, because a quoted JSON string is not what the search returned.

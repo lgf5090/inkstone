@@ -103,7 +103,7 @@ import { ChatShareStore, conversationSharePasswordHash, messageScope, MAX_SHARED
 import { suggestActiveModel } from '../assistant/model-config'
 import { listVendorModels } from '../assistant/vendor-models'
 import { memoryEmbeddingStatus, reindexMemoryEmbeddings, semanticModel } from '../assistant/semantic'
-import { MAX_PROVIDER_MODELS, reasoningDialectValue, reasoningValue } from '@shared/assistant'
+import { MAX_PROVIDER_MODELS, reasoningDialectValue, reasoningValue, searchEndpointValue } from '@shared/assistant'
 import {
   CHAT_IMAGE_MAX_BYTES,
   ChatUploadError,
@@ -2064,6 +2064,16 @@ assistantRoutes.patch('/settings', async (c) => {
   for (const key of ASSISTANT_SETTING_KEYS) {
     if (body[key] !== undefined) patch[key] = body[key]
   }
+  // The web-search address is fetched by the worker, on a model's say-so, so it is the same class of input
+  // as a provider address and is refused here rather than stored and discovered later as a tool that only
+  // ever fails. `searchEndpointValue` is the rule; a value it cannot keep is a value worth telling the
+  // reader about, and blank means the search tool is simply not offered.
+  if (patch.webSearchEndpoint !== undefined) {
+    const wanted = typeof patch.webSearchEndpoint === 'string' ? patch.webSearchEndpoint.trim() : ''
+    if (wanted && searchEndpointValue(wanted, '') !== wanted) {
+      throw ApiError.badRequest('The web search endpoint must be a public http(s) address with no credentials in it.')
+    }
+  }
   const next = normalizeAssistantSettings({ ...current, ...patch })
   await s.saveSettings(next)
   if (next.timezone !== current.timezone) {
@@ -2176,13 +2186,21 @@ assistantRoutes.get('/files/:id', async (c) => {
   })
 })
 
-/** The composer's X button: an upload nobody sent is an upload that should stop existing. */
+/**
+ * The composer's X button: an upload nobody sent is an upload that should stop existing.
+ *
+ * The count is part of the answer because the file is not always standalone. Turns keep their own record of
+ * what was attached to them, so a delete that found references rewrote those rows, and a caller that said
+ * only "deleted" would be describing something else — a file that had been part of the conversation.
+ */
 assistantRoutes.delete('/files/:id', async (c) => {
   const s = store(c)
   const id = requiredId(c.req.param('id'))
-  const removed = await s.deleteChatAttachment(id)
+  const { removed, strippedTurns } = await s.deleteChatAttachment(id)
+  // Safe to take the bytes only now: the references and the row went together, so nothing this account owns
+  // can still name this object.
   if (removed) await deleteChatObject(c.env, removed.key)
-  return c.json({ deleted: Boolean(removed) })
+  return c.json({ deleted: Boolean(removed), referenced_by_turns: strippedTurns })
 })
 
 // -------------------------------------------------------------------- skills

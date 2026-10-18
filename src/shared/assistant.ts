@@ -7,6 +7,7 @@
  * into a 500. This mirrors how `mergeSettings` treats the rest of the app's settings.
  */
 
+import { assertRelayableEndpoint } from './ai-proxy-guard'
 import { isValidTimeZone, parseScheduleSpec, type ScheduleSpec } from './assistant-schedule'
 import type { MessageKey } from './locales/en-US'
 
@@ -599,6 +600,14 @@ export interface AssistantSettings {
    * the voice would be the kind of setting nobody reads until it surprises them.
    */
   autoRoute: boolean
+  /**
+   * The address the built-in `web_search` tool queries, for a provider whose protocol has no search of its own.
+   *
+   * Empty means the tool is not offered at all. It is a self-hosted one — a SearXNG instance or an
+   * OpenSearch-compatible endpoint the reader runs — because a paid search API would mean a second key and
+   * a second bill for a feature whose whole point is that a self-hosted deployment has no vendor search.
+   */
+  webSearchEndpoint: string
 }
 
 export const ASSISTANT_START_VIEWS = ['chat', 'memory', 'tasks', 'automations', 'settings'] as const
@@ -622,6 +631,7 @@ export const DEFAULT_ASSISTANT_SETTINGS: AssistantSettings = {
   sendOnEnter: true,
   customInstructions: '',
   autoRoute: false,
+  webSearchEndpoint: '',
 }
 
 function record(value: unknown): Record<string, unknown> {
@@ -731,7 +741,32 @@ export function normalizeAssistantSettings(value: unknown): AssistantSettings {
     sendOnEnter: booleanValue(raw.sendOnEnter, DEFAULT_ASSISTANT_SETTINGS.sendOnEnter),
     customInstructions: stringValue(raw.customInstructions, DEFAULT_ASSISTANT_SETTINGS.customInstructions, MAX_CUSTOM_INSTRUCTIONS_CHARS),
     autoRoute: booleanValue(raw.autoRoute, DEFAULT_ASSISTANT_SETTINGS.autoRoute),
+    webSearchEndpoint: searchEndpointValue(raw.webSearchEndpoint),
   }
+}
+
+/** The longest web-search address the settings will hold: one address, not a query string someone pasted. */
+export const MAX_SEARCH_ENDPOINT_CHARS = 2_048
+
+/**
+ * The configured web-search address, as stored text: blank, or a public http(s) URL.
+ *
+ * The worker fetches this address with its own network position, on the model's say-so, which makes it the
+ * same class of input as a provider's base URL — so it is vetted by the same guard, and a value that fails
+ * is dropped to blank rather than stored. Blank is a real answer here: the tool is then simply not offered,
+ * and the composer says so instead of running a search that returns nothing.
+ */
+export function searchEndpointValue(value: unknown, fallback = ''): string {
+  if (typeof value !== 'string') return fallback
+  const trimmed = value.trim()
+  if (!trimmed) return ''
+  if (trimmed.length > MAX_SEARCH_ENDPOINT_CHARS) return fallback
+  try {
+    assertRelayableEndpoint(trimmed)
+  } catch {
+    return fallback
+  }
+  return trimmed
 }
 
 /**
@@ -1009,7 +1044,27 @@ export interface AssistantConversation {
  */
 export const SEARCH_NATIVE_PROTOCOLS: ReadonlySet<string> = new Set(['anthropic', 'gemini'])
 
-/** Whether a tool name looks like something that can search the web, the same test the runner applies. */
+/**
+ * The assistant's own search tool, executed by the worker against the reader's configured search address.
+ *
+ * Named apart from the vendor's search because the two are different things: this one is a tool call the
+ * worker answers itself, so it works on every protocol, while the vendor-side one only exists on the two
+ * protocols above and is preferred wherever it does.
+ */
+export const WEB_SEARCH_TOOL_NAME = 'web_search'
+
+/** Whether the reader has configured an address the built-in search tool can query. */
+export function webSearchConfigured(settings: Pick<AssistantSettings, 'webSearchEndpoint'>): boolean {
+  return settings.webSearchEndpoint.trim().length > 0
+}
+
+/**
+ * Whether a remote tool's name suggests it can search the web.
+ *
+ * The fallback for an MCP server that really does search, and only consulted when the built-in tool above
+ * is not configured: a name matched by this test can still be an unrelated lookup, so a first-party tool
+ * the reader pointed at their own engine outranks a guess about somebody else's.
+ */
 export function looksLikeSearchTool(name: string): boolean {
   return /search|query|web|browse/i.test(name)
 }
@@ -1536,6 +1591,7 @@ export const ASSISTANT_TOOL_SPECS: readonly AssistantToolSpec[] = [
   { name: 'image_generate', labelKey: 'assistant.tool.image_generate', permission: 'write' },
   { name: 'code_execute', labelKey: 'assistant.tool.code_execute', permission: 'write' },
   { name: 'fetch_url', labelKey: 'assistant.tool.fetch_url', permission: 'read' },
+  { name: 'web_search', labelKey: 'assistant.tool.web_search', permission: 'read' },
 ]
 
 /** A page the model actually consulted, as the vendor reported it. */

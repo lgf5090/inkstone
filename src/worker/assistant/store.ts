@@ -1368,11 +1368,54 @@ export class AssistantStore {
       .sort((left, right) => (order.get(left.id) ?? 0) - (order.get(right.id) ?? 0))
   }
 
-  async deleteChatAttachment(id: string): Promise<ChatAttachment | null> {
+  /**
+   * Removes one uploaded file, and every turn's reference to it, in as few batches as the ceiling allows.
+   *
+   * The row and its bytes are not the whole of it. A message that named the file in its `attachments` array
+   * goes on showing a chip for a file that no longer resolves, and the transcript then claims a turn carried
+   * something the account no longer owns — so the rewrite is part of the delete rather than a caller's
+   * follow-up. D1 gives no transaction to roll back with, and a batch is the one thing that either lands
+   * together or not at all: the rewrites and the row removal share a statement batch whenever they fit in
+   * {@link MAX_BATCH_STATEMENTS}, which they do for any file a reader has actually attached to a handful of
+   * turns. Past that ceiling the rewrites go first and the row last, so a failure partway through leaves the
+   * file still there — the reverse order is the one that would leave a turn pointing at nothing.
+   *
+   * The caller may therefore drop the object from the bucket once this returns: by then nothing this account
+   * owns names it.
+   */
+  async deleteChatAttachment(id: string): Promise<{ removed: ChatAttachment | null, strippedTurns: number }> {
     const [row] = await this.chatAttachments([id])
-    if (!row) return null
-    await this.write(`DELETE FROM chat_attachments WHERE user_id = ?1 AND id = ?2`, id)
-    return row
+    if (!row) return { removed: null, strippedTurns: 0 }
+    // The id is validated by the caller before it reaches here, and `requiredId`'s charset carries no LIKE
+    // metacharacter, so the pattern below can only ever over-match — which the parse-and-filter step sorts
+    // out. Scanning this account's messages is the price of a delete that has to find every turn naming the
+    // file, and a delete is not a path a reader walks often.
+    const referrers = await this.rows<{ id: string, attachments: string | null }>(
+      `SELECT id, attachments FROM chat_messages WHERE user_id = ?1 AND attachments LIKE ?2`,
+      this.userId, `%${id}%`,
+    )
+    const rewrites: D1PreparedStatement[] = []
+    for (const message of referrers) {
+      const before = decodeStringList(message.attachments)
+      const kept = before.filter((entry) => entry !== id)
+      if (kept.length === before.length) continue
+      rewrites.push(this.db
+        .prepare(`UPDATE chat_messages SET attachments = ?2 WHERE user_id = ?1 AND id = ?3`)
+        .bind(this.userId, JSON.stringify(kept), message.id))
+    }
+    const removal = this.db
+      .prepare(`DELETE FROM chat_attachments WHERE user_id = ?1 AND id = ?2`)
+      .bind(this.userId, id)
+    // One transaction for the ordinary case. Past the ceiling the rewrites are split, and the row goes with
+    // the last chunk: every turn that named the file has stopped naming it before the file can be missed.
+    const batches: D1PreparedStatement[][] = []
+    for (let start = 0; start < rewrites.length; start += MAX_BATCH_STATEMENTS - 1) {
+      batches.push(rewrites.slice(start, start + MAX_BATCH_STATEMENTS - 1))
+    }
+    if (!batches.length) batches.push([])
+    batches[batches.length - 1]!.push(removal)
+    for (const batch of batches) await this.db.batch(batch)
+    return { removed: row, strippedTurns: rewrites.length }
   }
 
   // ------------------------------------------------------------------- skills

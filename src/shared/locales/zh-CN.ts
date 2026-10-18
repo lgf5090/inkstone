@@ -6625,6 +6625,7 @@ console.log(\`Hello, \${name}!\`)
     "assistant.tool.notify_reader": "正在发送通知",
     "assistant.tool.image_generate": "正在绘图",
     "assistant.tool.fetch_url": "读取网页",
+    "assistant.tool.web_search": "正在联网搜索",
     "assistant.tool.code_execute": "正在运行代码",
     "assistant.chat.folder_filter": "\u5bf9\u8bdd\u6587\u4ef6\u5939",
     "assistant.chat.all": "\u5168\u90e8\u5bf9\u8bdd",
