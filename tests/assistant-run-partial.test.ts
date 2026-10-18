@@ -13,6 +13,11 @@
  * nothing further, which is what proves the text travels inside the touch that was already happening rather
  * than in a write of its own. The rest is about reading it back honestly — bounded, attributable to nobody
  * but the account that wrote it, and reported as cut short when the ceiling did the cutting.
+ *
+ * The last section is where those words stop being a draft. A conversation read may not settle the claim it
+ * is reporting — the half answer is on the screen because that read handed it over — so the fragment is
+ * filed as the unfinished turn it was by the next claim, which is the statement that would otherwise wipe
+ * the column, and the continuation control is offered only once it is a row.
  */
 import { DatabaseSync } from 'node:sqlite'
 import { Hono } from 'hono'
@@ -354,5 +359,103 @@ describe('the conversation read reports the lease it read', () => {
     expect(token).not.toBeNull()
     expect((await store.readRunLease(conversation.id, token! + RUN_LEASE_MS - 1)).running).toBe(true)
     expect((await store.readRunLease(conversation.id, token! + RUN_LEASE_MS)).running).toBe(false)
+  })
+})
+
+describe('the turn that takes a dead claim over files what it holds', () => {
+  /** The answers this thread was filed, oldest first. */
+  const answers = async (conversationId: string) =>
+    (await store.messages(conversationId)).filter((row) => row.role === 'assistant')
+
+  it('files a dead turn’s words as an unfinished answer instead of clearing them', async () => {
+    const conversation = await store.createConversation('Taken over after the death')
+    const dead = await store.claimRun(conversation.id)
+    expect(dead).not.toBeNull()
+    expect(await store.touchRun(conversation.id, dead!, Date.now(), 'half of it, then the isolate died')).toBe(true)
+    expireLease()
+    // The reader was shown the fragment, and now asks something new. That send claims the thread, and the
+    // claim is the statement that wipes the column — the last moment these words exist anywhere else.
+    const mine = await store.claimRun(conversation.id, Date.now() + 1)
+    expect(mine).not.toBeNull()
+
+    const filed = await answers(conversation.id)
+    expect(filed).toHaveLength(1)
+    expect(filed[0]?.content).toBe('half of it, then the isolate died')
+    // An answer that did not finish, said as the thing that happened to it rather than as a stop the
+    // reader asked for, and with the reason on the row so the transcript carries it after this read.
+    expect(filed[0]?.status).toBe('error')
+    expect(filed[0]?.error).toContain('ran out of time')
+
+    // The new turn starts from nothing: inheriting a dead turn's first half is the other bug this table had.
+    expect((await store.readRunLease(conversation.id)).text).toBeNull()
+    await store.releaseRun(conversation.id, mine!)
+  })
+
+  it('files nothing for a claim somebody is still holding', async () => {
+    const conversation = await store.createConversation('Still writing')
+    const token = await store.claimRun(conversation.id)
+    expect(token).not.toBeNull()
+    expect(await store.touchRun(conversation.id, token!, Date.now(), 'still arriving')).toBe(true)
+    // A second tab's send is refused by the lease, and a refusal may not reach the transcript: this turn
+    // has written words the reader is still being sent, and lifting them out would file them twice.
+    expect(await store.claimRun(conversation.id, Date.now() + 1)).toBeNull()
+    expect(await answers(conversation.id)).toHaveLength(0)
+    expect((await store.readRunLease(conversation.id)).text).toBe('still arriving')
+    await store.releaseRun(conversation.id, token!)
+  })
+
+  it('files one answer for one dead claim, whichever turn reaches it', async () => {
+    const conversation = await store.createConversation('Two turns, one corpse')
+    const dead = await store.claimRun(conversation.id)
+    expect(dead).not.toBeNull()
+    expect(await store.touchRun(conversation.id, dead!, Date.now(), 'written by a turn that never came back')).toBe(true)
+    expireLease()
+    const first = await store.claimRun(conversation.id, Date.now() + 1)
+    expect(first).not.toBeNull()
+    const second = await store.claimRun(conversation.id, Date.now() + 2)
+    // The takeover above is a live claim now, so the second send is refused — and a refused send that
+    // also filed an answer would put the same fragment in the thread twice.
+    expect(second).toBeNull()
+    expect(await answers(conversation.id)).toHaveLength(1)
+    await store.releaseRun(conversation.id, first!)
+  })
+
+  it('files no fragment for an account that did not write it', async () => {
+    const conversation = await store.createConversation('Someone else thread, taken over')
+    const dead = await store.claimRun(conversation.id)
+    expect(dead).not.toBeNull()
+    const secret = 'the words only this account was shown'
+    expect(await store.touchRun(conversation.id, dead!, Date.now(), secret)).toBe(true)
+    expireLease()
+
+    // Another account can name the same conversation id and get a claim of its own; the row it reads is
+    // keyed by that account, so there is nothing of ours to take and nothing to file under theirs.
+    expect(await other.claimRun(conversation.id)).not.toBeNull()
+    const theirs = (await other.messages(conversation.id)).filter((row) => row.role === 'assistant')
+    expect(theirs).toHaveLength(0)
+    expect((await store.readRunLease(conversation.id)).text).toBe(secret)
+  })
+
+  it('refuses to continue an answer the lease is the only copy of', async () => {
+    const conversation = await store.createConversation('Nothing to continue yet')
+    const dead = await store.claimRun(conversation.id)
+    expect(dead).not.toBeNull()
+    await store.addMessage({ conversationId: conversation.id, role: 'user', content: 'Tell me the whole story.' })
+    expect(await store.touchRun(conversation.id, dead!, Date.now(), 'half of it, then the isolate died')).toBe(true)
+    expireLease()
+
+    const response = await buildApp(USER).fetch(new Request('http://localhost/api/assistant/chat', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ conversationId: conversation.id, message: '', continue: true }),
+    }), env, {} as ExecutionContext)
+    // The newest row is the reader's own question, so the continuation is refused before anything claims
+    // the thread — which is why the screen shows this fragment as an interrupted turn's words rather than
+    // offering the control that finishes an answer. Filing it is the takeover's job, and the row it files
+    // is the shape the control does read.
+    expect(response.status).toBe(409)
+    await response.text()
+    expect(await answers(conversation.id)).toHaveLength(0)
+    expect((await store.readRunLease(conversation.id)).text).toBe('half of it, then the isolate died')
   })
 })

@@ -771,6 +771,10 @@ assistantRoutes.get('/conversations/:id', async (c) => {
   // now: `streaming` for the turn somebody is still holding, `partialText` for the answer the dead one left
   // on the claim, and `partialTruncated` so the screen can say it is showing only the beginning of it.
   //
+  // Reporting the claim is the whole of what this read does with it. Filing the fragment as a turn is
+  // `claimRun`'s job — a read that wrote the row would also delete the claim whose text it has just handed
+  // the screen, so the reader would have to re-open the thread to keep the words they were shown.
+  //
   // Scoped by the account like everything else on this table, and reached only after the conversation's own
   // ownership check above: no reader gets another's half answer, however they name the thread.
   const lease = await s.readRunLease(id)

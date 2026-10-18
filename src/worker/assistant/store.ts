@@ -4790,8 +4790,19 @@ export class AssistantStore {
    *
    * The token is the claim's `started_at`. `releaseRun` takes it back, so a turn that overran its lease
    * cannot let go of a claim somebody else has taken in the meantime.
+   *
+   * A takeover is also the last moment a dead turn's half answer exists anywhere else, so it is the moment
+   * it gets filed: the upsert below clears `partial_text` — deliberately, since a new answer must never
+   * start from another turn's first half — and without the read above that would delete the only copy of
+   * what a killed Worker had already written. See `adoptRunPartial` for why this is not done by the read
+   * that shows the fragment instead.
    */
   async claimRun(conversationId: string, now = Date.now()): Promise<number | null> {
+    // One extra read per turn, on the row this statement is about to write anyway, and it files anything
+    // only when the claim has aged out: a lease somebody is holding has nothing to adopt, and `adoptRunPartial`
+    // refuses it again under the same condition.
+    const held = await this.readRunLease(conversationId, now)
+    if (held.text) await this.adoptRunPartial(conversationId, held, now)
     const result = await this.db.prepare(
       `INSERT INTO chat_active_runs (conversation_id, user_id, started_at, lease_until)
        VALUES (?1, ?2, ?3, ?4)
@@ -4888,6 +4899,56 @@ export class AssistantStore {
       // an exact-multiple-of-the-ceiling answer is reported as cut short, which is the safe direction.
       truncated: text !== null && text.length >= RUN_PARTIAL_MAX_CHARS,
     }
+  }
+
+  /**
+   * Files a dead turn's fragment as the unfinished answer it is, and lets go of the claim with it.
+   *
+   * This is what makes the half answer continuable rather than merely visible. A continuation picks an
+   * answer up out of `chat_messages` — `routes/assistant.ts` refuses one whose newest row is not an
+   * assistant row with words in it, and `runner.ts` reads the same row to start writing from — so a
+   * fragment that only ever lives on the lease has nothing for the control to carry on from, and a screen
+   * that offered it would be offering a turn the worker refuses. Filing the row turns the interrupted-
+   * worker case into the state that path was already written for: an answer with content and a status
+   * that says it did not finish.
+   *
+   * Called from `claimRun`, which is where the fragment is about to be destroyed, and not from the
+   * conversation read that shows it. That read is how the half answer reaches the screen at all, and a
+   * read that also filed the row would delete the claim it has just reported — so the reader would have
+   * to re-open the thread to keep the words they were just shown. `tests/assistant-run-partial.test.ts`
+   * pins both halves of that: the read reports a stale claim's fragment, and the claim still holds it
+   * after the read returned.
+   *
+   * Only a claim nobody holds any more is taken this way. A lease inside its window may belong to an
+   * isolate that is still writing, and a fragment lifted from under a live turn would leave that answer
+   * arriving beside a copy of its own first half. The delete names the token the caller read *and* the
+   * window, in one statement: two turns reaching one dead claim file one answer, and the one that loses
+   * the race finds nothing to take and files nothing.
+   *
+   * No model label and no usage, deliberately. A turn killed before `finish` never settled which model
+   * was answering, and its request was already charged when the turn started — charging it again would
+   * spend the reader's daily ceiling twice for work no vendor finished selling.
+   */
+  async adoptRunPartial(conversationId: string, lease: RunLease, now = Date.now()): Promise<AssistantMessage | null> {
+    if (!lease.text || lease.token === null || lease.running) return null
+    const result = await this.db.prepare(
+      `DELETE FROM chat_active_runs
+        WHERE conversation_id = ?1 AND user_id = ?2 AND started_at = ?3 AND lease_until <= ?4`,
+    ).bind(conversationId, this.userId, lease.token, now).run()
+    if ((result.meta?.changes ?? 0) === 0) return null
+    return this.addMessage({
+      conversationId,
+      role: 'assistant',
+      content: lease.text,
+      // `error`, not `cancelled`: nobody stopped this turn, and the transcript has to say which of the two
+      // happened. An error row with words in it is also the exact shape the continue control already admits.
+      status: 'error',
+      error: lease.truncated
+        // Both halves of the truth, because each alone reads as the other: the deployment cut the turn off,
+        // and the ceiling on the column that carried it cut what is filed here off again.
+        ? `The worker writing this answer ran out of time before it finished, so it stops where it does; the model did not choose this ending. Only the first ${RUN_PARTIAL_MAX_CHARS} characters of what it had written were kept, so more was written than is shown above.`
+        : 'The worker writing this answer ran out of time before it finished, so it stops where it does; the model did not choose this ending. Everything above is what it had written.',
+    })
   }
 
   /**
@@ -5101,7 +5162,8 @@ export class AssistantStore {
  * to attach it to, filed nowhere in the transcript and never cleared by a second one. `exportTables()` reads
  * the same allowlist, so one list keeps both sides honest. What does deserve to survive a restore is the
  * answer once it is finished, and that is `chat_messages.content`, which is on the list; the fragment is
- * adopted into that row before the lease is released, so nothing that should be kept depends on this table.
+ * adopted into such a row by `claimRun`, the statement that would otherwise overwrite it, so nothing that
+ * should be kept depends on this table.
  */
 const EXPORT_COLUMNS: Readonly<Record<string, readonly string[]>> = {
   // `project_id` and `parent_id` are part of a stored thread even though the backup did not always
