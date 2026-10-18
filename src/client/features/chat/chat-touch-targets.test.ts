@@ -17,8 +17,10 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { initI18n, t } from '../../lib/i18n'
 import { installTestGlobals } from '../../lib/test-render'
 import { AttachmentStrip } from './ChatAttachments'
+import chatViewSource from './ChatView?raw'
 import { TurnPinRow } from './ComposerTriggers'
 import { SelectionTick } from './SelectionBar'
+import assistantBubbleSource from './MessageParts?raw'
 import { AssistantBubble } from './MessageParts'
 import type { PendingAttachment } from './assistant-store'
 
@@ -124,5 +126,78 @@ describe('the answer pager arrows', () => {
     }))
     expectPadded(byName(t('assistant.chat.previous')), 'size-5')
     expectPadded(byName(t('assistant.chat.next')), 'size-5')
+  })
+})
+
+const FOOTER_CONTROLS = [
+  'assistant.chat.copy',
+  'assistant.chat.read_aloud',
+  'assistant.chat.regenerate',
+  'assistant.chat.continue',
+  'assistant.chat.save_to_note',
+  'assistant.chat.rate_up',
+  'assistant.chat.rate_down',
+  'assistant.chat.message_actions',
+] as const
+
+const DENSE_CHIP_PADDING = 'py-0.5'
+
+function mountAnswer(): void {
+  mount(createElement(AssistantBubble, {
+    text: 'An answer the reader has settled with.',
+    reasoning: '',
+    tools: [],
+    error: null,
+    streaming: false,
+    messageId: 'm1',
+    onRetry: () => {},
+    retryLabel: 'assistant.chat.regenerate',
+    canContinue: true,
+    onRate: () => {},
+  }))
+}
+
+describe('the answer footer', () => {
+  it('pads the five word controls and the three icon controls it draws under 24 pixels', () => {
+    mountAnswer()
+    for (const key of FOOTER_CONTROLS) {
+      expectPadded(byName(t(key)), DENSE_CHIP_PADDING)
+    }
+  })
+
+  it('pads every dense chip control in that row, so a new one cannot arrive unpadded', () => {
+    mountAnswer()
+    const copy = byName(t('assistant.chat.copy'))
+    expect(copy, 'the answer footer is not drawn').toBeTruthy()
+    const dense = [...copy!.parentElement!.querySelectorAll<HTMLButtonElement>('button')]
+      .filter((node) => ` ${node.className} `.includes(` ${DENSE_CHIP_PADDING} `))
+    expect(dense.map((node) => node.getAttribute('aria-label'))).toHaveLength(FOOTER_CONTROLS.length)
+    for (const node of dense) {
+      expect(node.className, `${node.getAttribute('aria-label')} is drawn dense but carries no tap pad`).toContain('ink-tap-pad')
+      expect(`${node.className} `, `${node.getAttribute('aria-label')} cannot place a tap pad`).toMatch(/(?:^|\s)(?:relative|absolute)\s/)
+    }
+  })
+})
+
+function writtenButton(text: string, file: string, needle: string): string {
+  const at = text.indexOf(needle)
+  expect(at, `${file} no longer writes ${needle}`).toBeGreaterThan(-1)
+  const open = text.lastIndexOf('<button', at)
+  expect(open, `${needle} is not written on a <button>`).toBeGreaterThan(-1)
+  const close = text.indexOf('>', at)
+  expect(close, `${needle} is not inside an opening tag`).toBeGreaterThan(-1)
+  return text.slice(open, close)
+}
+
+describe('the context chip drawn over the composer', () => {
+  it('pads a cross no component here can mount, read from the source that writes it', () => {
+    const cross = writtenButton(chatViewSource, 'ChatView.tsx', 'assistant.context.remove')
+    expect(cross).toMatch(/className="[^"]*\bink-tap-pad\b/)
+    expect(cross).toMatch(/className="[^"]*\b(?:relative|absolute)\b/)
+    expect(cross).not.toMatch(/\bh-\d|\bw-\d|\bmin-h-\d|\bsize-\d/)
+  })
+
+  it('reads a padded control when one is written, so the check above cannot pass on a blind read', () => {
+    expect(writtenButton(assistantBubbleSource, 'MessageParts.tsx', 'assistant.chat.previous')).toMatch(/\bink-tap-pad\b/)
   })
 })

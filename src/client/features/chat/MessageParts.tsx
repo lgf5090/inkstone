@@ -727,7 +727,7 @@ export function ReadAloudButton({ text }: { text: string }) {
         {...(!available ? { 'aria-describedby': hintId } : {})}
         onClick={() => (reading ? stop() : start())}
         className={cn(
-          'inline-flex shrink-0 items-center gap-1 rounded-[var(--r-sm)] px-1 py-0.5 text-[length:var(--text-11)]',
+          'ink-tap-pad relative inline-flex shrink-0 items-center gap-1 rounded-[var(--r-sm)] px-1 py-0.5 text-[length:var(--text-11)]',
           'text-[var(--text-quaternary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-secondary)]',
           !available && 'cursor-not-allowed opacity-40 hover:bg-transparent hover:text-[var(--text-quaternary)]',
         )}
@@ -1022,7 +1022,7 @@ export function AssistantBubble({
                   })
                 }}
                 aria-label={t('assistant.chat.copy')}
-                className="inline-flex items-center gap-1 rounded-[var(--r-sm)] px-1 py-0.5 text-[length:var(--text-11)] text-[var(--text-quaternary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-secondary)]"
+                className="ink-tap-pad relative inline-flex items-center gap-1 rounded-[var(--r-sm)] px-1 py-0.5 text-[length:var(--text-11)] text-[var(--text-quaternary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-secondary)]"
               >
                 {copied ? <Check size={11} /> : <Copy size={11} />}
                 {copied ? t('assistant.chat.copied') : t('assistant.chat.copy')}
@@ -1039,7 +1039,7 @@ export function AssistantBubble({
                 type="button"
                 onClick={onRetry}
                 aria-label={t(retryLabel)}
-                className="inline-flex shrink-0 items-center gap-1 rounded-[var(--r-sm)] px-1 py-0.5 text-[length:var(--text-11)] text-[var(--text-quaternary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-secondary)]"
+                className="ink-tap-pad relative inline-flex shrink-0 items-center gap-1 rounded-[var(--r-sm)] px-1 py-0.5 text-[length:var(--text-11)] text-[var(--text-quaternary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-secondary)]"
               >
                 <RotateCcw size={11} />
                 {t(retryLabel)}
@@ -1055,7 +1055,7 @@ export function AssistantBubble({
                 type="button"
                 onClick={() => void useAssistant.getState().send('', { continue: true })}
                 aria-label={t('assistant.chat.continue')}
-                className="inline-flex shrink-0 items-center gap-1 rounded-[var(--r-sm)] px-1 py-0.5 text-[length:var(--text-11)] text-[var(--text-quaternary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-secondary)]"
+                className="ink-tap-pad relative inline-flex shrink-0 items-center gap-1 rounded-[var(--r-sm)] px-1 py-0.5 text-[length:var(--text-11)] text-[var(--text-quaternary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-secondary)]"
               >
                 <Play size={11} />
                 {t('assistant.chat.continue')}
@@ -1068,7 +1068,7 @@ export function AssistantBubble({
                 type="button"
                 onClick={() => saveReplyAsNote(body)}
                 aria-label={t('assistant.chat.save_to_note')}
-                className="inline-flex shrink-0 items-center gap-1 rounded-[var(--r-sm)] px-1 py-0.5 text-[length:var(--text-11)] text-[var(--text-quaternary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-secondary)]"
+                className="ink-tap-pad relative inline-flex shrink-0 items-center gap-1 rounded-[var(--r-sm)] px-1 py-0.5 text-[length:var(--text-11)] text-[var(--text-quaternary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-secondary)]"
               >
                 <NotebookPen size={11} />
                 {t('assistant.chat.save_to_note')}
@@ -1102,7 +1102,7 @@ export function AssistantBubble({
                   aria-label={t('assistant.chat.rate_up')}
                   title={t('assistant.chat.rate_up')}
                   className={cn(
-                    'inline-flex shrink-0 items-center rounded-[var(--r-sm)] px-1 py-0.5 text-[var(--text-quaternary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-secondary)]',
+                    'ink-tap-pad relative inline-flex shrink-0 items-center rounded-[var(--r-sm)] px-1 py-0.5 text-[var(--text-quaternary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-secondary)]',
                     feedback === 'up' && 'text-[var(--accent)]',
                   )}
                 >
@@ -1121,7 +1121,7 @@ export function AssistantBubble({
                   aria-label={t('assistant.chat.rate_down')}
                   title={t('assistant.chat.rate_down')}
                   className={cn(
-                    'inline-flex shrink-0 items-center rounded-[var(--r-sm)] px-1 py-0.5 text-[var(--text-quaternary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-secondary)]',
+                    'ink-tap-pad relative inline-flex shrink-0 items-center rounded-[var(--r-sm)] px-1 py-0.5 text-[var(--text-quaternary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-secondary)]',
                     feedback === 'down' && 'text-[var(--danger)]',
                   )}
                 >
@@ -1139,7 +1139,7 @@ export function AssistantBubble({
                   // these a screen reader announces a control that changes nothing it can hear.
                   aria-haspopup="menu"
                   aria-expanded={menu.open}
-                  className="inline-flex items-center rounded-[var(--r-sm)] px-1 py-0.5 text-[var(--text-quaternary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-secondary)]"
+                  className="ink-tap-pad relative inline-flex items-center rounded-[var(--r-sm)] px-1 py-0.5 text-[var(--text-quaternary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-secondary)]"
                 >
                   <MoreHorizontal size={11} />
                 </button>

@@ -1852,7 +1852,7 @@ function ContextStrip() {
             type="button"
             aria-label={t('assistant.context.remove', { name: chip.label })}
             onClick={chip.onRemove}
-            className="shrink-0 text-[var(--text-quaternary)] transition-colors hover:text-[var(--text-secondary)]"
+            className="ink-tap-pad relative shrink-0 text-[var(--text-quaternary)] transition-colors hover:text-[var(--text-secondary)]"
           >
             <X size={11} />
           </button>
