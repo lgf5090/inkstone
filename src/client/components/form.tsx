@@ -1,5 +1,6 @@
 import {
   cloneElement,
+  Fragment,
   isValidElement,
   useEffect,
   useId,
@@ -453,11 +454,15 @@ export function Field({
   const labelId = `${id}-label`
   const hintId = hint ? `${id}-hint` : undefined
   const child = isValidElement<FieldChildProps>(children) ? children : null
+  // A conditional child arrives as one fragment holding the real branches. A fragment takes no `id`, so
+  // treating it as the control would leave the label's `for` pointing at nothing a reader could reach:
+  // it is the several-children case for naming, and the block becomes the group the label describes.
+  const branch = child !== null && child.type === Fragment
   const wrapper = child !== null && typeof child.type === 'string' && FIELD_WRAPPER_ELEMENTS.has(child.type)
   // The case a label can reach directly: one child that is, or renders, the control. It takes the id, the
   // label reference and the hint, which is how every plain `<Field><Input /></Field>` site already works.
-  const direct = child !== null && !wrapper
-  const multiple = child === null
+  const direct = child !== null && !wrapper && !branch
+  const multiple = child === null || branch
   let controlId = `${id}-control`
   let control: ReactNode = children
   if (child && direct) {
