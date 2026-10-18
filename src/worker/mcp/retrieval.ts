@@ -9,6 +9,8 @@ import { isValidId } from '../lib/id'
 import { searchUserNotes } from '../search/service'
 import {
   fuseByRrf,
+  isAiSearchAvailable,
+  isAiSearchEnabled,
   searchSemanticNotes,
   semanticSnippet,
   type SemanticSearchHit,
@@ -48,11 +50,16 @@ export interface McpSearchHit {
  *
  * Asked for meaning, the index answers in three ways and they are three different sentences: it answered
  * with notes that clear its similarity bar (`matched`), it answered with none — a finished search whose
- * vault holds nothing close (`searched_no_match`) — or it refused to answer at all, because the deployment
- * has no AI binding, the reader switched the index off, or the embedding call failed (`unanswered`). A
- * fourth state is that it was never asked (`not_requested`). Collapsing the two middle ones is the
- * mistake this field exists to prevent: "no note of yours is close" is a fact about the notes and the
- * reader can act on it, "this index cannot embed" is a fact about the deployment and they cannot.
+ * vault holds nothing close (`searched_no_match`) — or it refused to answer at all (`unanswered`). A fourth
+ * state is that it was never asked (`not_requested`). Collapsing the two middle ones is the mistake this
+ * field exists to prevent: "no note of yours is close" is a fact about the notes and the reader can act on
+ * it, "this index cannot embed" is a fact about the deployment and they cannot.
+ *
+ * `unanswered` has three causes — no AI binding, the reader's own index switched off, a failed embedding
+ * call — and they stay one state value, because what they share is the only thing the *state* is for:
+ * nothing was embedded, so the hits below are keyword-only. Which of the three it was is the `notice`'s
+ * job, because that is the sentence a reader can act on, and the three actions (ask the operator, open the
+ * AI settings, wait and retry) do not overlap.
  */
 export type McpSemanticStatus = 'not_requested' | 'matched' | 'searched_no_match' | 'unanswered'
 
@@ -76,10 +83,39 @@ export interface McpSearchResponse {
 const SEARCHED_NO_MATCH_NOTICE =
   'The AI meaning index was searched for this question and no note was close enough to count as a match. '
   + 'Nothing here was found by meaning; say so rather than reporting that the search failed.'
-const SEMANTIC_UNANSWERED_NOTICE =
-  'The AI meaning index could not be searched for this question — this deployment has no AI binding, the '
-  + 'reader switched the note index off, or the embedding call failed — so the hits below are keyword matches '
-  + 'only. Do not claim the notebook holds no matching note.'
+
+/**
+ * One refusal sentence, with the cause that actually happened named inside it.
+ *
+ * The three causes used to be listed together in one sentence — "no AI binding, the reader switched the
+ * index off, or the embedding call failed" — which told a reader that something was missing and nothing
+ * about what to do. A sentence per cause is the same fact at the size the reader can act on.
+ */
+function unansweredNotice(cause: string): string {
+  return `The AI meaning index could not be searched for this question — ${cause} — so the hits below are `
+    + 'keyword matches only. Do not claim the notebook holds no matching note.'
+}
+
+/**
+ * Why the meaning half refused, in words for the reader.
+ *
+ * `threw` separates the two shapes the refusal reaches this function in: the index answering `null` is it
+ * declining to be asked at all, and a rejection is a call that was made and did not come back. The rest is
+ * the same two questions the index itself asks before it embeds anything, read again here rather than
+ * guessed at, so the sentence cannot say "no AI binding" to a deployment that has one. The final case is
+ * the race between those two reads — the reader toggling the index between the refusal and this answer —
+ * and gets its own wording instead of one of the three confident ones.
+ *
+ * This is deliberately a sentence and not a state: `semantic_status` stays `unanswered` for all of them,
+ * because `tests/mcp-semantic-score-floor.test.ts` guards the line between *refused* and *searched, found
+ * nothing*, and no cause may blur it.
+ */
+async function unansweredCause(env: Env, userId: string, threw: boolean): Promise<string> {
+  if (threw) return 'the embedding call failed'
+  if (!isAiSearchAvailable(env)) return 'this deployment has no AI binding'
+  if (!await isAiSearchEnabled(env.DB, userId)) return 'the reader switched the note index off'
+  return 'the note index stopped answering mid-read'
+}
 
 export interface NoteOutlineItem {
   level: number
@@ -108,7 +144,9 @@ export async function searchMcpNotes(
   // The keyword half is read even for a `semantic` request, because it is what the reader is left with when
   // the index *refuses*: nothing was embedded, so nothing semantic could be claimed. An index that answered
   // with nothing is the other case, and the two are kept apart all the way down to the response below.
-  const [lexicalResult, semanticHits] = await Promise.all([
+  // `threw` keeps the two ways the meaning half can be missing apart *inside* the refusal case, so the
+  // sentence beside `unanswered` can name the one that happened.
+  const [lexicalResult, semantic] = await Promise.all([
     searchUserNotes(env.DB, userId, lexicalQuery, SEARCH_CANDIDATES, ftsEnabled),
     wantsSemantic
       ? searchSemanticNotes(env, env.DB, userId, options.query, {
@@ -116,12 +154,14 @@ export async function searchMcpNotes(
         folder: options.folder,
         starred: options.starred,
         archived: options.archived,
-      }).catch((error) => {
-        // AI unavailable, rate-limited, or malformed response: degrade to lexical.
-        console.warn('[inkstone] Semantic search unavailable; using lexical:', error instanceof Error ? error.message : error)
-        return null
-      })
-      : Promise.resolve(null),
+      }).then((hits): SemanticOutcome => ({ hits, threw: false }))
+        .catch((error): SemanticOutcome => {
+          // Rate-limited, malformed response, or the binding vanishing mid-call: degrade to lexical, and
+          // remember that this is a call that failed rather than an index that declined to answer.
+          console.warn('[inkstone] Semantic search unavailable; using lexical:', error instanceof Error ? error.message : error)
+          return { hits: null, threw: true }
+        })
+      : Promise.resolve({ hits: null, threw: false } satisfies SemanticOutcome),
   ])
   const lexicalHits: LexicalHit[] = lexicalResult.results.map((hit) => ({
     id: hit.note.id,
@@ -141,15 +181,15 @@ export async function searchMcpNotes(
       notice: null,
     }
   }
-  if (!semanticHits) {
+  if (!semantic.hits) {
     return {
       results: lexicalPage(lexicalHits, limit),
       mode: 'lexical',
       semantic_status: 'unanswered',
-      notice: SEMANTIC_UNANSWERED_NOTICE,
+      notice: unansweredNotice(await unansweredCause(env, userId, semantic.threw)),
     }
   }
-  if (!semanticHits.length) {
+  if (!semantic.hits.length) {
     // A reader who asked only for meaning and got "none of your notes are close" is handed that answer, not
     // a keyword page wearing it: the empty list came out of the vector half, so the vector half is what the
     // mode has to say.
@@ -169,7 +209,7 @@ export async function searchMcpNotes(
     }
   }
 
-  const semanticCandidates: SemanticHit[] = semanticHits.slice(0, HYBRID_CANDIDATES).map((hit) => ({
+  const semanticCandidates: SemanticHit[] = semantic.hits.slice(0, HYBRID_CANDIDATES).map((hit) => ({
     ...hit,
     url: noteUrl(origin, hit.id),
   }))
@@ -216,6 +256,16 @@ export async function searchMcpNotes(
 function lexicalPage(hits: readonly LexicalHit[], limit: number): McpSearchHit[] {
   return hits.slice(0, limit).map((hit) => ({ ...hit, source: 'lexical' as const }))
 }
+
+/**
+ * The meaning half's answer, keeping the two ways it can be missing apart.
+ *
+ * `hits: null` on its own says only "no vector page", which is true both of an index that declined to be
+ * asked and of a call that went out and came back broken. The reader's next move differs — one is a setting
+ * they hold, the other an outage they wait out — so the distinction is carried from the promise that made
+ * it down to the sentence that reports it, instead of being rebuilt from a log line nobody reads.
+ */
+type SemanticOutcome = { hits: SemanticSearchHit[] | null; threw: boolean }
 
 type LexicalHit = {
   id: string
