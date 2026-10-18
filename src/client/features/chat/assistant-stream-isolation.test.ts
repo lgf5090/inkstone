@@ -23,7 +23,10 @@
  *
  * The last block leaves the store behind altogether and reads bytes: a turn arrives as cuts of one buffer,
  * and the frames a cut produces are the answer the reader sees. That is where a keepalive frame — the one
- * line of this protocol with no `data:` on it — has somewhere to go wrong.
+ * line of this protocol with no `data:` on it — has somewhere to go wrong. It has one more, which no shape
+ * of a buffer can show: alone in its chunk it leaves nothing behind to cut, so the only thing left to check
+ * is whether the loop came back to the reader at all. That is what the block after it holds a reader of its
+ * own for.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { AssistantMessage, AssistantSource, ChatStreamEvent } from '@shared/assistant'
@@ -531,6 +534,109 @@ describe('the frames inside one read', () => {
       frame({ type: 'text', delta: 'before' }) + 'data: no json here\n\n' + frame({ type: 'text', delta: 'after' }),
     ])
     expect(deltas).toEqual(['before', 'after'])
+  })
+})
+
+describe('a keepalive that arrives in a chunk of its own', () => {
+  /** How many chunks this case hands the loop at most, and the point of holding the reader itself. */
+  const MAX_CHUNKS = 4
+  /**
+   * How many cuts taken out of an already-empty buffer count as a loop that has stopped going back to the
+   * reader. A run that behaves makes none; a spin reaches this in microseconds.
+   */
+  const EMPTY_CUT_CAP = 500
+
+  /**
+   * Start counting cuts taken out of an already-empty buffer, and hand back the release.
+   *
+   * A loop that has stopped going back to the reader is the harder shape to observe, and it is the one this
+   * case is about: with a stale index it cuts the same empty buffer round and round *synchronously*, so the
+   * thread never yields, and no timer, race or assertion written in this case can run while it does. Leaving
+   * it alone would freeze the runner beside a file that never reports — which is why the older block above
+   * says it kept this shape out. So the cut itself is counted, and past the cap it throws. That breaks the
+   * spin, misses the loop's own failure handler entirely, and lets the case state what happened.
+   *
+   * A run that behaves makes no such cut at all: every frame it splits has a line in it.
+   */
+  function countEmptyCuts(cuts: { count: number }): () => void {
+    // The untouched method, held in the loose shape that can forward whatever the loop passes to it.
+    const split = String.prototype.split as (this: unknown, separator?: unknown, limit?: unknown) => string[]
+    Object.defineProperty(String.prototype, 'split', {
+      configurable: true,
+      writable: true,
+      value(this: string, separator?: unknown, limit?: unknown): string[] {
+        if (this.length === 0 && separator === '\n') {
+          cuts.count += 1
+          if (cuts.count > EMPTY_CUT_CAP) throw new Error(`the reading loop cut an empty buffer ${EMPTY_CUT_CAP} times over`)
+        }
+        return split.call(this, separator, limit)
+      },
+    })
+    return () => {
+      Object.defineProperty(String.prototype, 'split', { configurable: true, writable: true, value: split })
+    }
+  }
+
+  /**
+   * Read `chunks` through the loop with a reader the case bounds by hand.
+   *
+   * The block above can afford a real `ReadableStream`, because it wants to know which frames a cut of the
+   * buffer produces. This one wants to know whether the loop comes back for the next chunk at all, and only
+   * a reader of the test's own can say how many times it was asked — so `pipeThrough` is handed a reader that
+   * counts, answers the chunks it was given, and reports the stream as over past them. A loop that kept
+   * asking would then end here rather than wait on a reader that never answers, and its count is the failure.
+   */
+  async function readBounded(chunks: string[]): Promise<{ events: ChatStreamEvent[]; reads: number; cuts: number; failure: unknown }> {
+    harness.realBody = true
+    let reads = 0
+    const reader = {
+      read(): Promise<unknown> {
+        reads += 1
+        const chunk = reads <= chunks.length ? chunks[reads - 1] : undefined
+        if (chunk === undefined || reads > MAX_CHUNKS) return Promise.resolve({ done: true })
+        return Promise.resolve({ value: chunk, done: false })
+      },
+    }
+    const response = new Response(new ReadableStream<Uint8Array>({ start: (controller) => controller.close() }), {
+      headers: { 'content-type': 'text/event-stream' },
+    })
+    Object.defineProperty(response, 'body', { value: { pipeThrough: () => ({ getReader: () => reader }) } })
+    vi.stubGlobal('fetch', vi.fn(async () => response))
+
+    const cuts = { count: 0 }
+    const releaseCuts = countEmptyCuts(cuts)
+    const events: ChatStreamEvent[] = []
+    let failure: unknown = null
+    try {
+      await streamAssistantTurn({ message: 'a question' }, (event) => events.push(event), new AbortController().signal)
+    } catch (error) {
+      failure = error
+    } finally {
+      releaseCuts()
+    }
+    return { events, reads, cuts: cuts.count, failure }
+  }
+
+  it('goes back to the reader instead of spinning on the buffer the keepalive emptied', async () => {
+    // The worker's keepalive is one line with no `data:` on it, and a quiet turn writes it between two
+    // answers rather than in the middle of one — so it arrives as a chunk by itself, and cutting it leaves
+    // the buffer empty. The index the next cut is taken from was measured against a longer buffer, and a
+    // loop that keeps that index does not lose any words here: it never gets back to the reader, and the
+    // page hangs with an answer still coming. That is the shape `d7fe6d01` closed, and it had no assertion
+    // because nothing above it could see it: the frames that survive a stale index are the shared-chunk
+    // case, which is what the older file was written to say.
+    const { events, reads, cuts, failure } = await readBounded([
+      ': keepalive\n\n',
+      `data: ${JSON.stringify({ type: 'text', delta: 'the words after the keepalive' })}\n\n`,
+    ])
+
+    expect(cuts, 'the loop cut the emptied buffer over and over instead of asking the reader again').toBeLessThanOrEqual(EMPTY_CUT_CAP)
+    expect(failure, 'the reading loop did not finish the stream it was handed').toBeNull()
+    // The keepalive, the chunk after it, and the end of the stream: the loop returned to the reader once
+    // per chunk, and stopped returning once there were no more.
+    expect(reads, 'the reader was not asked for the chunk after the keepalive').toBe(3)
+    expect(reads, 'a loop past the chunks it was given never went back to the reader').toBeLessThanOrEqual(MAX_CHUNKS)
+    expect(events).toEqual([{ type: 'text', delta: 'the words after the keepalive' }])
   })
 })
 
