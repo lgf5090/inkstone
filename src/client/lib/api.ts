@@ -247,6 +247,29 @@ export function routeApiError(status: number, body: unknown): ApiError {
   )
 }
 
+/** How much of a file's name a refusal line may hold; the chip beside it already carries the whole name. */
+const TRANSFER_NAME_MAX_CHARS = 60
+
+/**
+ * The refusal of a bulk transfer, told with the file it was about.
+ *
+ * The upload and the download own their transport — a progress bar needs byte counts that `fetch` never
+ * reports — so neither can throw from inside `request()`. They used to invent the whole sentence: the route's
+ * `message` as the headline, or a bare status code when it had none. That lost twice. A composer holding four
+ * attachments and one refusal could not say which chip to pull, and the route's own words reached the screen
+ * unbounded, unflattened and with any credential it echoed still in them, because the policy that keeps those
+ * out lives in the factory.
+ *
+ * So the headline stays the transfer's own line, naming which direction and which status, and the reason rides
+ * beside it as the detail every other surface already prints. The detail comes out of `routeApiError()` rather
+ * than being assembled again here: how much of a route's sentence a screen may hold is one policy, and a
+ * second place to state it is a second place it can drift.
+ */
+function transferApiError(status: number, body: unknown, headline: string): ApiError {
+  const failure = routeApiError(status, body)
+  return new ApiError(status, failure.code, headline, failure.details, failure.serverMessage)
+}
+
 interface RequestOptions {
   method?: string
   body?: unknown
@@ -474,18 +497,25 @@ function uploadChatFileWithProgress(
       if (event.lengthComputable) onProgress(event.loaded, event.total)
     }
     xhr.onload = () => {
-      let parsed: { attachment?: ChatAttachment, error?: { message?: string } } = {}
+      let body: unknown = null
       try {
-        parsed = JSON.parse(xhr.responseText || '{}') as typeof parsed
+        body = JSON.parse(xhr.responseText || 'null') as unknown
       } catch {
-        parsed = {}
+        // A gateway's HTML page, a truncated write: the status is all the answer says, so the headline the
+        // transfer owns stays the whole story rather than quoting markup back at the reader.
+        body = null
       }
-      if (xhr.status >= 200 && xhr.status < 300 && parsed.attachment) {
+      const attachment = (body as { attachment?: ChatAttachment } | null)?.attachment
+      if (xhr.status >= 200 && xhr.status < 300 && attachment) {
         onProgress(file.size, file.size)
-        resolve(parsed.attachment)
+        resolve(attachment)
         return
       }
-      reject(new Error(parsed.error?.message || `Upload failed (${xhr.status})`))
+      reject(transferApiError(
+        xhr.status,
+        body,
+        `Upload failed (${xhr.status}): ${truncateText(file.name, TRANSFER_NAME_MAX_CHARS)}`,
+      ))
     }
     xhr.onerror = () => reject(new Error('The upload could not reach the server.'))
     xhr.onabort = () => reject(new Error('The upload was cancelled.'))
@@ -499,7 +529,12 @@ async function downloadChatFileWithProgress(
   onProgress: (received: number, total: number) => void,
 ): Promise<Blob> {
   const response = await fetch(`/api/assistant/files/${id}`, { headers: { [CLIENT_HEADER]: '1' } })
-  if (!response.ok) throw new Error(`Download failed (${response.status})`)
+  if (!response.ok) {
+    const data = isJsonResponse(response)
+      ? await response.json().catch(() => null)
+      : null
+    throw transferApiError(response.status, data, `Download failed (${response.status})`)
+  }
   const total = Number(response.headers.get('content-length') ?? 0)
   if (!response.body || !total) {
     const blob = await response.blob()

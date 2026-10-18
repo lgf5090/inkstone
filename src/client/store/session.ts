@@ -250,7 +250,7 @@ export const useSession = create<SessionState>((set, get) => ({
       } catch (err) {
         useUi.getState().toast({
           title: t('session.logout_failed'),
-          description: err instanceof ApiError ? err.message : String(err),
+          description: failureDescription(err),
           tone: 'danger',
         })
         return
@@ -292,6 +292,22 @@ export const useSession = create<SessionState>((set, get) => ({
 
 type SessionSetter = (partial: Partial<SessionState>) => void
 
+/**
+ * What a toast says about a session write that was refused.
+ *
+ * The title is this screen's own line — "Could not sign out" — and the description has always been the app's
+ * sentence for the route's code. That sentence is deliberately generic: `bad_request` covers an unset name,
+ * an over-long one and a body that is not JSON alike, which is why a route that refused one field is asked
+ * for here as well. A toast holds one description, so the two lines are joined rather than nested, and the
+ * reason is added only when there is one: a failure the route explained with a bare status stays exactly the
+ * single notice it has always been, instead of gaining an empty line under the headline.
+ */
+function failureDescription(error: unknown): string {
+  const headline = error instanceof ApiError ? error.message : String(error)
+  const said = error instanceof ApiError ? error.serverMessage : undefined
+  return said && said !== headline ? `${headline} — ${said}` : headline
+}
+
 async function flushSettingsPatch(set: SessionSetter, get: () => SessionState): Promise<void> {
   saveTimer = undefined
   if (settingsSaveInFlight || !pendingSettingsPatch) return
@@ -329,7 +345,7 @@ async function flushSettingsPatch(set: SessionSetter, get: () => SessionState): 
     if (shouldNotify) {
       useUi.getState().toast({
         title: t("session.could_not_save_settings"),
-        description: err instanceof ApiError ? err.message : String(err),
+        description: failureDescription(err),
         tone: 'danger',
       })
     }

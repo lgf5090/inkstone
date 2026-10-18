@@ -246,6 +246,13 @@ export function ChatView() {
   // fresh thread — while a reply another device is writing is shown but not stoppable from here.
   const streaming = (!!turnHere && !turnHere.done) || remoteStreaming
   const showEmpty = !activeId && !turnHere
+  // What the refused thread's banner says beneath its own headline.
+  //
+  // The store keeps the reason here, and the toast that carried it expires; the banner is what stays. It is
+  // a detail and never the headline, because it is the deployment's own English and no catalog key translates
+  // it — and it is dropped when it is the very sentence the headline already prints, so a refusal the route
+  // gave a bare status for does not read the same line twice.
+  const loadFailureDetail = messagesError && messagesError !== t('assistant.chat.load_failed') ? messagesError : null
   // One polite region for the whole thread, flipped once when a reply lands. Every stored answer used to
   // carry its own `role="log"`, which gave a long transcript dozens of live regions — and because the
   // streaming turn is a different component that is replaced once the row is saved, the region only
@@ -545,7 +552,11 @@ export function ChatView() {
             // A refused thread is not an empty one. Falling through would show the reader their own
             // conversation as a blank page inviting them to start talking.
             <div className="px-4 py-16">
-              <LoadFailure messageKey="assistant.chat.load_failed" onRetry={() => { if (activeId) void openConversation(activeId) }} />
+              <LoadFailure
+                messageKey="assistant.chat.load_failed"
+                detail={loadFailureDetail}
+                onRetry={() => { if (activeId) void openConversation(activeId) }}
+              />
             </div>
           ) : !messagesReady && !turnHere ? (
             <div className="flex justify-center py-16">
