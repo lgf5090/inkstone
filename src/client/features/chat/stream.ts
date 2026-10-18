@@ -139,7 +139,33 @@ export async function streamAssistantTurn(
     throw new ApiError(502, 'internal', 'The assistant returned no stream.')
   }
 
-  const reader = response.body.pipeThrough(new TextDecoderStream()).getReader()
+  // Building the reader is the engine's own work: `TextDecoderStream` is what turns the bytes into text, and
+  // an engine without that constructor, or one that will not pipe this body, fails right here — before a
+  // single word of the answer has been read. Left bare, that failure is a `TypeError` in English, and the
+  // bubble prints whatever the thrower handed up, which is the rule this turn has already agreed to break
+  // twice above. So it is said from the catalog instead.
+  //
+  // Deliberately not `StreamDisconnectedError`: the line the store answers that with,
+  // `assistant.chat.stream_disconnected`, ends by telling the reader to press the continue control, and
+  // `ChatView.tsx`'s `canContinueAnswer` draws that control only for an answer with words in it. Nothing
+  // arrived on this path, so the control is not on the screen and the sentence would name a button the
+  // reader cannot press — the mistake `39ba8131` refused to make for the comparison column, for the same
+  // reason. This one states the fact and nothing else, which is also why it reads correctly in the
+  // comparison's column.
+  //
+  // There is no `signal.aborted` exception here, unlike the two catches either side of it, because there is
+  // nothing to except: building a reader is synchronous, so the stop the reader pressed cannot be what made
+  // this throw.
+  let reader: ReadableStreamDefaultReader<string>
+  try {
+    reader = response.body.pipeThrough(new TextDecoderStream()).getReader()
+  } catch (error) {
+    const failure = new ApiError(502, 'internal', t('assistant.chat.stream_reader_unavailable'))
+    // The engine's text stays on the error as its `cause` — the same place the reading loop puts it, for
+    // whoever has to debug this rather than read it — and the reader gets the catalog line above.
+    failure.cause = error
+    throw failure
+  }
   let buffer = ''
   for (;;) {
     // A read that fails is the connection giving out under a turn the worker never refused. The stop the

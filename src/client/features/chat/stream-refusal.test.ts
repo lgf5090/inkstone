@@ -15,10 +15,16 @@
  * keeps a reason readable (one bounded line, control characters gone, a credential taken out) is written
  * once, so a second copy of it in this file's subject would be a second set of rules to keep in step.
  *
- * The last block is the failure that never gets as far as a refusal: a request that dies before there are
+ * One block is the failure that never gets as far as a refusal: a request that dies before there are
  * any headers to read. It has no status and no body, so there is nothing to translate — which is exactly
  * how it came to reach the reader as the browser's own sentence. The answer is the one `request()` already
  * gives for it, and the two paths are held to that answer again here.
+ *
+ * The last block is one step later than that: the worker started its answer, and the browser cannot start
+ * reading it. That failure belongs to the engine — no `TextDecoderStream`, a body it will not pipe — and it
+ * arrives as a `TypeError` in English, which is what used to be printed. It is also the one failure of this
+ * turn with no half answer behind it, so the sentence it gets cannot be the broken-stream one either: that
+ * one tells the reader to press 「继续生成」, and nothing here draws that control.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ApiError, api } from '../../lib/api'
@@ -178,5 +184,89 @@ describe('a turn whose request died before there were headers', () => {
     const error = await pending.then(() => null).catch((caught: unknown) => caught as Error)
     expect((error as Error).name).toBe('AbortError')
     expect(error).not.toBeInstanceOf(ApiError)
+  })
+})
+
+describe('a reply this browser could not start reading', () => {
+  /**
+   * Ask for a turn over a response the worker did start, and that fails at the one step which is the
+   * engine's own work rather than this app's: building the reader that turns bytes into text.
+   *
+   * Two shapes reach it. `TextDecoderStream` may simply not exist in the browser, and then the constructor
+   * throws before anything is piped. Or the body may refuse to be piped — a stream the engine already
+   * handed somewhere else — and then `pipeThrough` throws, which is what `body` here stands in for. Both
+   * fail before a single word of the answer has been read, and both used to fail *loudly*: the engine's
+   * own `TypeError` text went straight up into the bubble.
+   */
+  async function turnOverAnUnreadableStream(body?: unknown): Promise<unknown> {
+    const response = new Response(new ReadableStream<Uint8Array>({ start: (controller) => controller.close() }))
+    if (body !== undefined) Object.defineProperty(response, 'body', { value: body })
+    vi.stubGlobal('fetch', vi.fn(async () => response))
+    try {
+      await streamAssistantTurn({ message: 'what changed this week?' }, () => undefined, new AbortController().signal)
+    } catch (error) {
+      return error
+    }
+    throw new Error('a turn whose reader cannot be built has to answer with an error')
+  }
+
+  /**
+   * What the interface is allowed to print for it, and the two things it is not.
+   *
+   * The sentence is the app's own, from the catalog, with no second line: an engine's `TypeError` names no
+   * part of this app and translates to no language. And it is *not* `assistant.chat.stream_disconnected` —
+   * that one ends by pointing the reader at 「继续生成」, which `canContinueAnswer` in `ChatView.tsx` draws
+   * only for an answer with words in it. Nothing arrived on this path, so the control is not on the screen,
+   * and a sentence that tells the reader to press it is a lie about the interface.
+   */
+  function expectTheAppOwnLineFor(error: unknown): ApiError {
+    expect(error, 'a reader the browser could not build is still the app’s own news, not the engine’s').toBeInstanceOf(ApiError)
+    const failure = error as ApiError
+    expect(failure.message).toBe(t('assistant.chat.stream_reader_unavailable'))
+    expect(failure.serverMessage ?? null).toBeNull()
+    expect(failure.message).not.toBe(t('assistant.chat.stream_disconnected'))
+    // Kept for debugging, never printed: see the comment on `StreamDisconnectedError`’s `cause`.
+    expect(failure.cause).toBeInstanceOf(TypeError)
+    return failure
+  }
+
+  it('says its own line when the engine has no decoder to read with', async () => {
+    vi.stubGlobal('TextDecoderStream', undefined)
+    const failure = expectTheAppOwnLineFor(await turnOverAnUnreadableStream())
+    expect(failure.code).toBe('internal')
+    expect(failure.message).not.toContain('TextDecoderStream')
+    expect(failure.message).not.toContain('is not a constructor')
+  })
+
+  it('says its own line when the body refuses to be piped', async () => {
+    const failure = expectTheAppOwnLineFor(await turnOverAnUnreadableStream({
+      pipeThrough: () => { throw new TypeError('Cannot read properties of undefined (reading \'pipe\')') },
+    }))
+    expect(failure.code).toBe('internal')
+    expect(failure.message).not.toContain('pipeThrough')
+    expect(failure.message).not.toContain('Cannot read properties')
+  })
+
+  it('relabels nothing the reader stopped, because stopping cannot break this step', async () => {
+    // The one place a turn can fail where the reader's own Stop is not a candidate: building the reader is
+    // synchronous, so an abort cannot be what made it throw, and there is no `signal.aborted` exception to
+    // keep here. A stop pressed just before this still reaches the reader as their own stop: `send` prints
+    // no failure line at all while its signal says they pressed it.
+    const controller = new AbortController()
+    const response = new Response(new ReadableStream<Uint8Array>({ start: (streamController) => streamController.close() }))
+    Object.defineProperty(response, 'body', {
+      value: {
+        pipeThrough: () => {
+          controller.abort()
+          throw new TypeError('pipeThrough is not a function')
+        },
+      },
+    })
+    vi.stubGlobal('fetch', vi.fn(async () => response))
+    const error = await streamAssistantTurn({ message: 'what changed this week?' }, () => undefined, controller.signal)
+      .then(() => null)
+      .catch((caught: unknown) => caught as Error)
+    expect(error).toBeInstanceOf(ApiError)
+    expect((error as ApiError).message).toBe(t('assistant.chat.stream_reader_unavailable'))
   })
 })
