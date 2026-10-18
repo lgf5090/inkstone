@@ -6,14 +6,19 @@
  * taller than the window (measured before this existed: 443px of bubble for 12 characters of text).
  * These rules keep the typography — headings, lists, code, tables all come from prose.css — and drop
  * only the page furniture, so an assistant answer and a note read the same and stack differently.
+ *
+ * "The same" is the point of the two tokens below, so they are worth spelling out rather than
+ * hard-coding: the size is the reader's own body-text size with the chat's one step taken off it, and the
+ * leading is the dense UI leading until the density selector in `tokens.css` retunes it. A literal here is
+ * a size and a rhythm the reader cannot change from Settings, which is the bug these two lines replaced.
  */
 
 .ink-chat-prose {
   max-width: none;
   margin-inline: 0;
   padding-block: 0;
-  font-size: var(--text-13);
-  line-height: var(--ui-line);
+  font-size: var(--chat-size);
+  line-height: var(--chat-line);
 }
 
 .ink-chat-prose > *:first-child {

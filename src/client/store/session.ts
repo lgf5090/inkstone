@@ -481,6 +481,10 @@ export function syncAppearanceToDom(settings: UserSettings): void {
   setStyle('--editor-size', `${settings.editor.fontSize}px`)
   const guides = settings.editor.outliner && settings.editor.outlinerGuides ? 'on' : 'off'
   if (root.dataset.outlinerGuides !== guides) root.dataset.outlinerGuides = guides
+  // The density the reader picked has to be on the document, not only in the store: `tokens.css` answers
+  // it with a `[data-density]` selector, and a setting that never reaches the cascade moves nothing the
+  // reader is reading. Written from the stored settings, so it survives a reload the same way the sizes do.
+  if (root.dataset.density !== appearance.density) root.dataset.density = appearance.density
   if (root.dataset.preview !== preview.layout) root.dataset.preview = preview.layout
   if (getLocale() !== appearance.language) setLocale(appearance.language)
 

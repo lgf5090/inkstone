@@ -120,7 +120,7 @@ export function AppearanceSettings({
           </div>
         </SettingRow>
 
-        <SettingRow title={t("settings.interface_density")}>
+        <SettingRow title={t("settings.interface_density")} description={t("settings.interface_density_desc")}>
           <Segmented<UiDensity>
             label={t("settings.interface_density")}
             value={appearance.density}
@@ -167,7 +167,7 @@ export function AppearanceSettings({
           />
         </SettingRow>
 
-        <SettingRow title={t("settings.body_text_size")}>
+        <SettingRow title={t("settings.body_text_size")} description={t("settings.body_text_size_desc")}>
           <Slider
             label={t("settings.body_text_size")}
             className="w-[200px]"

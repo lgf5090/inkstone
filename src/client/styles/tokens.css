@@ -86,6 +86,19 @@
   /* The leading every dense UI stack shares, so a card and its column header agree. */
   --ui-line: 1.55;
 
+  /* ── The reader's type, on one setting for both surfaces they read on ──────────────────────────
+     `settings → appearance → body text size` writes `--prose-size` on the document element, and the note
+     preview has always read it. An assistant answer is the same prose in a narrower column, so it takes the
+     same step down the scale rather than a second size nobody can find: `.ink-chat-prose` used to carry a
+     literal `--text-13`, which meant a reader who raised their text size for the notebook still read the
+     assistant at 13px. The gap between the two is its own named step, not arithmetic in a stylesheet.
+     `--chat-line` is the same trick in the other direction: it is the dense leading until the density
+     selector below says otherwise, and it is the only thing density moves here — a reader's line height,
+     measure and size stay theirs to set. */
+  --chat-size-offset: 3px;
+  --chat-size: calc(var(--prose-size) - var(--chat-size-offset));
+  --chat-line: var(--ui-line);
+
   --dur-fast: 130ms;
   --dur-base: 220ms;
   --dur-slow: 340ms;
@@ -418,6 +431,17 @@
   --bg-raised: #252629;
   --bg-overlay: #292a2d;
   --bg-inset: #111214;
+}
+
+/* Interface density is one attribute on the document element, written by `syncAppearanceToDom` from the
+   reader's own setting, and this is the only place a density value is allowed to live: a rule that reaches
+   for a pixel per surface is a second setting under the first. Compact tightens the leading the chat is
+   read at — the rows of the note list already answer it in code — and stops there, because font size, line
+   height and measure are three settings a reader moves by hand and density must not quietly move again.
+   Nothing here is eased: a re-read of the same text at a new leading has to be instant, and an animation
+   of it would be one more thing a reader who asked for reduced motion had to sit through. */
+:root[data-density='compact'] {
+  --chat-line: 1.42;
 }
 
 

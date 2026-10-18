@@ -44,6 +44,21 @@ describe('appearance synchronization', () => {
       observer.disconnect()
     }
   })
+
+  /**
+   * The density the reader picked has to arrive on the document, not only in the store.
+   *
+   * `--chat-line` and the dense rows are answered by a `[data-density]` selector, so a density that lives
+   * only in `useUi` is a setting with no effect on anything the reader is reading — and a reload is exactly
+   * the moment that shows whether the attribute is written from the stored settings or only from the
+   * screen the reader changed it on.
+   */
+  it('carries the stored density onto the document element', () => {
+    syncAppearanceToDom(mergeSettingsPatch(DEFAULT_SETTINGS, { appearance: { density: 'compact' } }))
+    expect(document.documentElement.dataset.density).toBe('compact')
+    syncAppearanceToDom(DEFAULT_SETTINGS)
+    expect(document.documentElement.dataset.density).toBe(DEFAULT_SETTINGS.appearance.density)
+  })
 })
 
 describe('settings patch queue', () => {
