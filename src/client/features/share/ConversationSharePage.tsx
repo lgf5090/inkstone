@@ -23,7 +23,7 @@ import { Input } from '../../components/form'
 import { LoadingBlock } from '../../components/feedback'
 import { Tooltip } from '../../components/overlay'
 import { MarkdownBody } from '../preview/MarkdownBody'
-import { prepareShareMarkup, redactShareMentions } from './share-markdown'
+import { prepareShareMarkup, prepareShareSource } from './share-markdown'
 import { t } from '../../lib/i18n'
 
 export function ConversationSharePage({ slug }: { slug: string }) {
@@ -176,7 +176,7 @@ export function ConversationSharePage({ slug }: { slug: string }) {
                     <div className="max-w-[85%] whitespace-pre-wrap break-words rounded-[var(--r-lg)] rounded-br-[var(--r-xs)] bg-[var(--accent-soft)] px-3 py-2 text-[length:var(--text-13-5)] leading-relaxed text-[var(--text-primary)]">
                       {/* Verbatim, minus the handle: a question is the author's own words, but an `@` pick in
                           it is the composer's id, and a stranger has nothing to do with one. */}
-                      {redactShareMentions(message.content)}
+                      {prepareShareSource(message.content)}
                     </div>
                   ) : (
                     <div className="min-w-0 flex-1">

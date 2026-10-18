@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { KeyRound, Lock, Moon, Sun } from 'lucide-react';
 import { LIMITS } from '@shared/constants';
 import type { PublicNote } from '@shared/types';
@@ -11,7 +11,7 @@ import { LoadingBlock } from '../../components/feedback';
 import { Tooltip } from '../../components/overlay';
 import { AudienceView } from '../presentation/audience-view';
 import { MarkdownBody } from '../preview/MarkdownBody';
-import { prepareShareMarkup } from './share-markdown';
+import { prepareShareMarkup, prepareShareSource } from './share-markdown';
 import { t } from "../../lib/i18n";
 
 export function SharePage({ slug }: {
@@ -84,6 +84,9 @@ export function SharePage({ slug }: {
     // The access rules are this note's, and they are a property of the markup rather than of the pass
     // that draws it, so they are folded in before the body is handed over.
     const transformHtml = useCallback((html: string) => addShareAccess(html, slug), [slug]);
+    // A slide is drawn by the presentation module, which owns its own render and takes no transform from
+    // this page, so the handles a mention carries have to come out of the source before the deck sees it.
+    const deckSource = useMemo(() => note ? prepareShareSource(note.content) : '', [note]);
     const toggleTheme = () => {
         const next = !dark;
         setDark(next);
@@ -130,7 +133,7 @@ export function SharePage({ slug }: {
           </div>) : error ? (<div className="mx-auto max-w-[380px] pt-[18vh] text-center">
             <h1 className="text-[length:var(--text-16)] font-semibold text-[var(--text-primary)]">{t("share.content_unavailable")}</h1>
             <p role="alert" className="mt-2 text-[length:var(--text-13)] leading-relaxed text-[var(--text-tertiary)]">{error}</p>
-          </div>) : presentToken && note ? (<AudienceView slug={slug} token={presentToken} source={note.content}/>) : note ? (<article className="pt-7 md:pt-10">
+          </div>) : presentToken && note ? (<AudienceView slug={slug} token={presentToken} source={deckSource}/>) : note ? (<article className="pt-7 md:pt-10">
             <header className="mb-6 md:mb-8">
               <h1 className="text-[length:var(--text-26)] leading-[1.25] font-bold tracking-[-0.03em] text-[var(--text-primary)] md:text-[length:var(--text-30)]">
                 {note.title || t("common.untitled_note")}

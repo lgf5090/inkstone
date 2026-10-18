@@ -12,7 +12,7 @@ import { beforeEach, describe, expect, it } from 'vitest'
 import { initI18n, t } from '../../lib/i18n'
 import { renderMarkdown } from '../../lib/markdown/renderer'
 import { decodeDataValue, encodeDataValue } from '../../lib/markdown/data-attr'
-import { neutralizeShareEmbeds, prepareShareMarkup, redactShareMentionMarkup, redactShareMentions } from './share-markdown'
+import { neutralizeShareEmbeds, prepareShareMarkup, prepareShareSource, redactShareMentionMarkup } from './share-markdown'
 
 const NOTE_ID = '01jqz0000000000000000000zz'
 /** An attachment address, which shares the note id's alphabet and is the one handle a share page keeps. */
@@ -59,24 +59,50 @@ function handlesIn(html: string): string[] {
   return [...new Set(found)]
 }
 
-describe('a mention in text that is not Markdown', () => {
+describe('a mention in text handed on to be drawn somewhere else', () => {
   it('keeps the alias and drops the handle', () => {
-    expect(redactShareMentions(`What about [[${NOTE_ID}|Private Roadmap]]?`)).toBe('What about Private Roadmap?')
-    expect(redactShareMentions(`See ![[${NOTE_ID}|the plan]].`)).toBe('See the plan.')
+    expect(prepareShareSource(`What about [[${NOTE_ID}|Private Roadmap]]?`)).toBe('What about Private Roadmap?')
+    expect(prepareShareSource(`See ![[${NOTE_ID}|the plan]].`)).toBe('See the plan.')
   })
 
   it('answers a mention that has no name but its id', () => {
-    expect(redactShareMentions(`Read [[${NOTE_ID}]] first.`)).toBe(`Read ${t(SENTENCE)} first.`)
-    expect(redactShareMentions(`Read [[${NOTE_ID}#Heading]] first.`)).toBe(`Read ${t(SENTENCE)} first.`)
-    expect(containsId(redactShareMentions(`[[${NOTE_ID}|${NOTE_ID}]]`))).toBe(false)
+    expect(prepareShareSource(`Read [[${NOTE_ID}]] first.`)).toBe(`Read ${t(SENTENCE)} first.`)
+    expect(prepareShareSource(`Read [[${NOTE_ID}#Heading]] first.`)).toBe(`Read ${t(SENTENCE)} first.`)
+    expect(containsId(prepareShareSource(`[[${NOTE_ID}|${NOTE_ID}]]`))).toBe(false)
   })
 
   it('leaves a reference named by a word, and everything that is not a mention', () => {
     // The author's own words are what a reader was given; an id-shaped target is the only thing taken out.
-    expect(redactShareMentions('What about [[Private Roadmap]]?')).toBe('What about [[Private Roadmap]]?')
-    expect(redactShareMentions('A bracket [note] and a stray [[ and ]] stay.')).toBe('A bracket [note] and a stray [[ and ]] stay.')
-    expect(redactShareMentions('[the roadmap](https://example.com/roadmap)')).toBe('[the roadmap](https://example.com/roadmap)')
-    expect(redactShareMentions('Two: [[Private Roadmap]] and [[Some Other Note]].')).toBe('Two: [[Private Roadmap]] and [[Some Other Note]].')
+    expect(prepareShareSource('What about [[Private Roadmap]]?')).toBe('What about [[Private Roadmap]]?')
+    expect(prepareShareSource('A bracket [note] and a stray [[ and ]] stay.')).toBe('A bracket [note] and a stray [[ and ]] stay.')
+    expect(prepareShareSource('[the roadmap](https://example.com/roadmap)')).toBe('[the roadmap](https://example.com/roadmap)')
+    expect(prepareShareSource('Two: [[Private Roadmap]] and [[Some Other Note]].')).toBe('Two: [[Private Roadmap]] and [[Some Other Note]].')
+  })
+
+  /**
+   * The notebook's own deep link is the same handle wearing an address, and a page that hands the words
+   * to another renderer — a chat turn shown as text, a note sent to the deck — cannot run the markup sweep
+   * over them. So the address comes out here, and a 26-character run that is not part of one is left
+   * alone: an id-shaped tracking code in a shared note is the author's own text.
+   */
+  it('takes an address into the notebook out of a document that is not markup yet', () => {
+    expect(prepareShareSource(`See [the note](/n/${NOTE_ID}) for it.`)).toBe('See [the note](#) for it.')
+    expect(prepareShareSource(`Pasted: https://vault.example.com/n/${NOTE_ID}?x=1`)).toBe('Pasted: https://vault.example.com#')
+    expect(prepareShareSource('Tracking code 01jqz0000000000000000000aa stays.')).toBe('Tracking code 01jqz0000000000000000000aa stays.')
+    expect(prepareShareSource('A shorter run 01jqz000000000000000000aa stays.')).toBe('A shorter run 01jqz000000000000000000aa stays.')
+  })
+
+  /**
+   * The notebook's “copy link” writes `/n/<id>`, so an author who pastes one into a question, or into a
+   * note they then share, hands a stranger the same handle by a road that has no brackets on it. The
+   * address goes and the words around it stay — and an address that names no note is left alone, because
+   * shared prose is the author's to read.
+   */
+  it('takes the notebook’s own deep link out of the source', () => {
+    expect(prepareShareSource(`See [the note](/n/${NOTE_ID}) now.`)).toBe('See [the note](#) now.')
+    expect(prepareShareSource(`Address: https://vault.example.com/n/${NOTE_ID}?x=1 end`)).toBe('Address: https://vault.example.com# end')
+    expect(prepareShareSource('A 26-character tracking code: 01jqz000000000000000000000 stays.')).toBe('A 26-character tracking code: 01jqz000000000000000000000 stays.')
+    expect(prepareShareSource('A path that is not a note: /notes/01jqz0000000000000000000zz stays.')).toContain('/notes/')
   })
 })
 

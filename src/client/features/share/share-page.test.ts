@@ -18,8 +18,10 @@ import { act, createElement } from 'react'
 import type { PublicNote } from '@shared/types'
 import { initI18n } from '../../lib/i18n'
 import { decodeDataValue } from '../../lib/markdown/data-attr'
+import { renderMarkdown } from '../../lib/markdown/renderer'
 import { installTestGlobals, renderElement, type RenderedElement } from '../../lib/test-render'
 import { useUi } from '../../store/ui'
+import { prepareShareSource } from './share-markdown'
 import { SharePage } from './SharePage'
 
 /** A note id of the shape the app mints, and an attachment id of the very same shape. */
@@ -80,14 +82,16 @@ afterEach(() => {
 const ATTACHMENT_ADDRESS = /\/api\/files\/[0-9a-hjkmnp-tv-z]{26}/gi
 
 /**
- * Every handle-shaped run on the page: its words, and every attribute of every element, read back out of
- * `b64.` first because that is how the renderer writes a wiki target.
+ * Every handle-shaped run a document hands out: its words, and every attribute of every element it is
+ * made of, read back out of `b64.` first because that is how the renderer writes a wiki target.
  */
-function handlesOnPage(): string[] {
+function handlesIn(html: string): string[] {
+  const template = document.createElement('template')
+  template.innerHTML = html
   const found = new Set<string>()
   const values = [
-    rendered!.container.textContent ?? '',
-    ...[...rendered!.container.querySelectorAll<HTMLElement>('*')]
+    template.content.textContent ?? '',
+    ...[...template.content.querySelectorAll<HTMLElement>('*')]
       .flatMap((element) => [...element.attributes].flatMap((attribute) => [attribute.value, decodeDataValue(attribute.value)])),
   ]
   for (const value of values) {
@@ -97,6 +101,9 @@ function handlesOnPage(): string[] {
   }
   return [...found]
 }
+
+/** The same reading, taken off the page a visitor was actually served. */
+const handlesOnPage = () => handlesIn(rendered!.container.innerHTML)
 
 describe('a shared note', () => {
   it('draws its code highlighted, from the same renderer the chat uses', async () => {
@@ -157,5 +164,23 @@ describe('a shared note', () => {
     const linked = [...rendered!.container.querySelectorAll<HTMLAnchorElement>('a[href]')]
       .find((anchor) => anchor.getAttribute('href')?.includes('/api/files/'))
     expect(linked?.getAttribute('href'), 'a shared file link was dropped or left unstamped').toContain(stamped)
+  })
+
+  /**
+   * Present mode hands the note to the presentation module, which renders its own markup and takes no
+   * transform from this page — so the page has to take the handles out of the source first. Asserted
+   * against the deck's own renderer rather than against the deck, because the renderer is the half that
+   * decides whether a mention becomes a handle on a slide.
+   */
+  it('hands the deck a source its own renderer cannot leak from', () => {
+    const leaked = handlesIn(renderMarkdown(NOTE.content).html)
+    expect(leaked, 'the fixture no longer carries a handle, so this check proves nothing').toContain(NOTE_ID)
+    expect(handlesIn(renderMarkdown(prepareShareSource(NOTE.content)).html), 'a slide was handed a note handle')
+      .toEqual([])
+    // The words a reader needed are the author's and stay: the alias, the prose, the code.
+    const prepared = renderMarkdown(prepareShareSource(NOTE.content)).html
+    expect(prepared).toContain('the roadmap')
+    expect(prepared).toContain('const answer = 42')
+    expect(prepared).toContain('A private note')
   })
 })

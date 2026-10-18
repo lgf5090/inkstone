@@ -30,16 +30,19 @@
  * renderer's cap — and an attribute can be stamped with it by any later pass that resolves one embed into
  * another. So one rule covers all of them: after the two structural passes, a last sweep reads every
  * remaining word and every attribute of the document and takes out whatever still addresses a note by its
- * handle. Only a reference is touched — the `[[…]]` shape in text, an attribute that *is* a handle or
- * parses to one, the notebook's own `/n/<id>` address — because shared prose is the author's and a
- * 26-character run inside it is a git hash, a tracking code or a typo until something says otherwise.
- * The one address kept is `/api/files/<id>`, which names the attachment the author did choose to share.
+ * handle. What is taken is a reference, never a number that merely looks like one: the `[[…]]` shape, an
+ * attribute that *is* a handle or parses to one, and the notebook's own `/n/<id>` address in a link or in
+ * a sentence. Shared prose is the author's, and a 26-character run inside it is a git hash, a tracking
+ * code or a typo until something says otherwise; so is the `/api/files/<id>` address, which names the very
+ * attachment the author chose to share.
  *
  * A reference the author named with a word is their own shared text and stays exactly as it was, in a
  * code span as much as in a paragraph.
  *
  * Both public pages run through these rules, because they are the same promise: a shared note and a
- * shared conversation must not drift into answering one reference two different ways.
+ * shared conversation must not drift into answering one reference two different ways. A document handed to
+ * some other renderer instead — a chat turn shown as words, a note sent to the deck's own paginator — is
+ * read by `prepareShareSource` first, because that is the only moment this module can reach it.
  */
 import { t } from '../../lib/i18n'
 import { decodeDataValue } from '../../lib/markdown/data-attr'
@@ -54,8 +57,19 @@ const NOTE_ID = /^[0-9a-hjkmnp-tv-z]{26}$/i
  */
 const MENTION_RE = /!?\[\[([^[\]\n]{1,400})\]\]/g
 
-/** The notebook's own deep link, relative or absolute — a handle wearing the shape of an address. */
-const NOTE_ADDRESS_RE = /(?:^|[/(])n\/[0-9a-hjkmnp-tv-z]{26}(?:[/?#)]|$)/i
+/**
+ * The notebook's own deep link — a handle wearing the shape of an address.
+ *
+ * Matched without an origin because the app writes it both ways, as `/n/<id>` behind the author's own
+ * host and as the relative path the notebook's “copy link” puts on the clipboard, and `/n/<id>` is a
+ * substring of either.
+ */
+const NOTE_ADDRESS_SOURCE = String.raw`/n\/[0-9a-hjkmnp-tv-z]{26}(?:[/?#]\S*)?`
+const NOTE_ADDRESS_RE = new RegExp(NOTE_ADDRESS_SOURCE, 'i')
+const NOTE_ADDRESSES_RE = new RegExp(NOTE_ADDRESS_SOURCE, 'gi')
+
+/** What an address into the notebook is replaced with: an anchor that leads nowhere, in any context. */
+const REDACTED_ADDRESS = '#'
 
 /** The one handle a public page is allowed to hand out: the attachment this very share was opened for. */
 const ATTACHMENT_ADDRESS_RE = /\/api\/files\/[0-9a-hjkmnp-tv-z]{26}(?:[?#/]|$)/i
@@ -80,9 +94,22 @@ function mentionLabel(target: string): string {
   return t(PRIVATE_REFERENCE_KEY)
 }
 
-/** Rewrites the ids out of mentions in text that is drawn without Markdown, in place. */
-export function redactShareMentions(text: string): string {
+/** Takes the handles out of the mention shapes in one string. */
+function redactMentions(text: string): string {
   return text.replace(MENTION_RE, (whole, target: string) => namesNoteById(target) ? mentionLabel(target) : whole)
+}
+
+/**
+ * The rule for text a page hands on to be drawn somewhere this module cannot follow.
+ *
+ * Two callers need it and neither is a markup pass. A chat turn is shown as words, not parsed, so the
+ * mention the composer wrote — `[[<id>|Title]]` — and any deep link the author pasted into their own
+ * question travel to a stranger inside the sentence. And `SharePage`'s present mode hands the note to the
+ * presentation module, which owns its own render and takes no transform from the page at all, so the only
+ * moment this page can act is before the source goes.
+ */
+export function prepareShareSource(source: string): string {
+  return redactMentions(source).replace(NOTE_ADDRESSES_RE, REDACTED_ADDRESS)
 }
 
 /**
@@ -100,8 +127,11 @@ function isNoteHandleAttribute(value: string): boolean {
 /** Takes a handle out of one attribute value, or answers `null` when the attribute has to go entirely. */
 function redactShareAttributeValue(value: string): string | null {
   if (isNoteHandleAttribute(value)) return null
-  const quoted = redactShareMentions(value)
+  const quoted = redactMentions(value)
   if (quoted !== value) return quoted
+  // An address into the notebook is a handle with a path around it, and a stranger cannot open it: the
+  // attribute goes, its words stay. The attachment address this share was opened for is the exception,
+  // and `SharePage` stamps it with the slug right after this pass.
   const addressable = NOTE_ADDRESS_RE.test(value) && !ATTACHMENT_ADDRESS_RE.test(value)
   return addressable ? null : value
 }
@@ -121,7 +151,7 @@ export function scrubShareHandles(html: string): string {
   // is every word below it — writing back to that would replace the whole document with one text node.
   for (let node = walker.firstChild(); node; node = walker.nextNode()) {
     const text = node.textContent ?? ''
-    const redacted = redactShareMentions(text)
+    const redacted = prepareShareSource(text)
     if (redacted !== text) node.textContent = redacted
   }
   for (const element of [...template.content.querySelectorAll('*')]) {

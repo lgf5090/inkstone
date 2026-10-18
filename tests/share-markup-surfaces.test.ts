@@ -34,6 +34,11 @@ function publicPages(): Array<{ file: string, source: string }> {
     .sort((left, right) => left.file.localeCompare(right.file))
 }
 
+/** One public page by its file name, or `undefined` when the surface has gone. */
+function pageNamed(name: string): { file: string, source: string } | undefined {
+  return publicPages().find((page) => path.basename(page.file) === name)
+}
+
 /** Every `<MarkdownBody …>` a public page draws, with the attributes it was written with. */
 function markdownBodies(): Array<{ file: string, call: string }> {
   return publicPages().flatMap(({ file, source }) =>
@@ -57,14 +62,14 @@ describe('the surfaces that hand a stranger a document', () => {
 
   /**
    * One rule, not one of its halves. `neutralizeShareEmbeds` answers a box but leaves the handle that
-   * names it, and `redactShareMentions` answers words but never sees markup: a page that reaches for
+   * names it, and `prepareShareSource` answers words but never sees markup: a page that reaches for
    * either one alone has published part of the promise and kept the rest.
    */
   it('draws every document through the one composed rule', () => {
     for (const { file, source } of publicPages()) {
       const imported = ruleImports(source)
       expect(imported, `${file} renders share markup without the composed rule`).toContain('prepareShareMarkup')
-      const strays = imported.filter((name) => name !== 'prepareShareMarkup' && name !== 'redactShareMentions')
+      const strays = imported.filter((name) => name !== 'prepareShareMarkup' && name !== 'prepareShareSource')
       expect(strays, `${file} runs a single pass of the rule beside the composed one`).toEqual([])
     }
     for (const { file, call } of markdownBodies()) {
@@ -73,13 +78,23 @@ describe('the surfaces that hand a stranger a document', () => {
   })
 
   /**
-   * A chat turn is drawn as words, not parsed, so no `transformHtml` can reach it. The mention the
-   * composer wrote into a question — `[[<id>|Title]]` — only goes out through this other half.
+   * Two paths take no markup at all, and a page can forget each of them without touching a
+   * `transformHtml`. A chat turn is drawn as words, not parsed, so the mention the composer wrote into a
+   * question — `[[<id>|Title]]` — only goes out through the source rule. And present mode hands the note
+   * to the presentation module, which renders its own markup and accepts no transform from the page, so
+   * the deck has to be handed a source that has already been read.
    */
-  it('applies the text half to the words that never reach a renderer', () => {
-    const chat = publicPages().find(({ file }) => file.endsWith('ConversationSharePage.tsx'))
+  it('applies the source half to the words that never reach this module’s renderer', () => {
+    const chat = pageNamed('ConversationSharePage.tsx')
     expect(chat, 'the shared transcript moved and this file did not notice').toBeTruthy()
-    expect(chat!.source, 'a user turn is shown verbatim again').toMatch(/redactShareMentions\(/)
+    expect(chat!.source, 'a user turn is shown verbatim again').toMatch(/prepareShareSource\(/)
+    const deck = pageNamed('SharePage.tsx')
+    expect(deck, 'the shared note page moved and this file did not notice').toBeTruthy()
+    const audience = /<AudienceView\b[\s\S]*?\/>/.exec(deck!.source)?.[0] ?? ''
+    expect(audience, 'present mode no longer draws a deck this module cannot reach').toContain('AudienceView')
+    expect(audience, 'the deck was handed the note with its handles still in it').toMatch(/source=\{\s*deckSource\s*\}/)
+    expect(deck!.source, 'deckSource is not built by the source rule')
+      .toMatch(/const deckSource[\s\S]{0,80}prepareShareSource\(/)
   })
 
   /**
