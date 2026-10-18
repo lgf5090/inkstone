@@ -384,6 +384,26 @@ describe('the two streams', () => {
     expect(useAssistant.getState().settings?.activeModelId, 'the composer’s own pick changed under the reader').toBe('model-1')
   })
 
+  it('hands the turn’s files to the thread’s answer and to the comparison not at all', async () => {
+    // Why the composer is allowed to judge one model rather than both. `runComparison` names no
+    // `attachments`, `./stream` drops an absent list, the route resolves an absent list to none, and the
+    // comparison answers in a fresh ephemeral thread whose history has no attachment rows either — so no
+    // second model is ever handed these bytes, and there is no worker sentence waiting to disagree with
+    // the composer's. This is the pin against the day that changes: give the second column the turn's ids
+    // and this fails long before a reader sees two columns disagree about a recording.
+    await mount({
+      pending: [{ localId: 'l1', id: 'att-1', filename: 'notes.md', mime: 'text/markdown', size: 512, kind: 'file', progress: 1, status: 'ready' }],
+      fileIndex: {
+        'att-1': { id: 'att-1', kind: 'file', filename: 'notes.md', mime: 'text/markdown', size: 512, key: 'chat/files/u/att-1.md', createdAt: 1 },
+      },
+    })
+    await armComparison()
+    const { primary, comparison } = await sendCompared('what does the file say')
+
+    expect(primary.input.attachments, 'the thread’s own answer lost the file it was asked with').toEqual(['att-1'])
+    expect(comparison.input.attachments, 'the comparison column was handed the turn’s files').toBeUndefined()
+  })
+
   it('stops the comparison alone, leaving the thread’s own answer running', async () => {
     await mount()
     await armComparison()

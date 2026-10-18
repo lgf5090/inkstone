@@ -1203,6 +1203,14 @@ export interface AttachmentTarget {
  * Filtered through `chatModels` for the same reason the worker's `loadModelAndProvider` answers `no_model`
  * for a disabled row: the question is which model *would* pick these bytes up, and one that is switched off
  * answers nothing.
+ *
+ * One target, not two — and the armed comparison is not the missing one. A turn hands its files to the model
+ * that answers it and to nobody else: `runComparison` names no `attachments`, `./stream` drops an absent
+ * list, the route resolves an absent list to none, and the comparison runs in a fresh ephemeral thread whose
+ * history holds no attachment rows either. So the second column is never given these bytes, whatever it can
+ * read, and there is no worker line waiting to disagree with what is said here. Widening this to the
+ * comparison model would refuse recordings on a fact about a model that could not have seen them;
+ * `model-compare.test.ts` pins the request shape this rests on.
  */
 export function attachmentTargetOf(
   models: readonly AssistantModel[],
@@ -2588,7 +2596,7 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
   /**
    * Ask the same question of the second model, into a thread of its own.
    *
-   * Three facts decide the shape of this, and none of them is a preference:
+   * Four facts decide the shape of this, and none of them is a preference:
    *
    *  1. The turn names the model it wants on the request, and the worker answers on that model or refuses
    *     the request. It is not pointed at through the account's settings: which model answers is read from
@@ -2605,6 +2613,11 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
    *     deletes it once it has gone untouched for `EPHEMERAL_CONVERSATION_RETENTION_DAYS`. Its stored
    *     rows therefore need no cleanup of their own and no second mechanism — `dismissComparison` is the
    *     early door on the same rows, and the sweep is the one that always closes.
+   *  4. It is asked without the turn's files. The thread's own answer is the one the reader attached them
+   *     to, and a second model asked to compare two answers has no claim on bytes it was never shown — so
+   *     no `attachments` is named, and the worker expands none: they come from the conversation's own
+   *     message rows, and this thread has just been made. The composer's attachment gate therefore judges
+   *     one model and tells no lie about the other; `model-compare.test.ts` pins both halves of that.
    *
    * Because it is a different conversation, it is a different run lease: `claimRun` is keyed by
    * conversation, so the comparison can neither take the thread's claim nor release it, and its stop names
