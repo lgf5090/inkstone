@@ -27,10 +27,15 @@
  * of a buffer can show: alone in its chunk it leaves nothing behind to cut, so the only thing left to check
  * is whether the loop came back to the reader at all. That is what the block after it holds a reader of its
  * own for.
+ *
+ * Two shapes are left, and both are the transport failing outside the frame loop: a request that dies before
+ * there are headers, and a turn the worker read and refused. The second is built by the same factory every
+ * JSON route's failure goes through, so this file's stand-in for `lib/api` has to carry it — a mocked module
+ * answers an export left out with a complaint of its own, and that complaint would be what the bubble says.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { AssistantMessage, AssistantSource, ChatStreamEvent } from '@shared/assistant'
-import { initI18n, t } from '../../lib/i18n'
+import { initI18n, t, translateApiError } from '../../lib/i18n'
 import { installTestGlobals } from '../../lib/test-render'
 import { useUi } from '../../store/ui'
 import { streamAssistantTurn, type StreamTurnInput } from './stream'
@@ -60,11 +65,11 @@ const harness = vi.hoisted(() => ({
   realBody: false,
 }))
 
-vi.mock('../../lib/api', () => ({
+vi.mock('../../lib/api', () => {
   // Built the way `lib/api` builds it — status, code, message, and the route's own line last. A stand-in
   // that read its first argument as the message would print `0` in the bubble for every `ApiError` the
   // stream helper throws, which is not the sentence any of these cases are about.
-  ApiError: class ApiError extends Error {
+  class ApiError extends Error {
     constructor(
       readonly status: number,
       readonly code: string,
@@ -75,27 +80,50 @@ vi.mock('../../lib/api', () => ({
       super(message)
       this.name = 'ApiError'
     }
-  },
-  CLIENT_ID: 'test-client',
-  api: {
-    assistant: {
-      conversation: vi.fn(async (id: string) => {
-        if (harness.failingReads > 0) {
-          harness.failingReads -= 1
-          throw new Error('the thread read failed the way a read over a dead connection does')
-        }
-        return {
-          conversation: { id, ephemeral: false },
-          messages: harness.detail.messages,
-          attachments: [],
-          streaming: harness.detail.streaming,
-        }
-      }),
-      conversationArtifacts: vi.fn(async () => ({ artifacts: [] })),
-      cancel: vi.fn(async () => ({ cancelled: true })),
+  }
+
+  return {
+    ApiError,
+    CLIENT_ID: 'test-client',
+    // The signature the real factory has, for the one path this file lets run: a streamed turn owns its
+    // response, so it reads a non-2xx itself and builds the error with this. An export left out does not
+    // quietly skip the refusal — the mock's own complaint about the missing export is what arrives in the
+    // bubble, which is why the case in `a turn the worker refused` says so out loud. Only the shape is
+    // stood in for here: how much of a route's reason a screen may hold, and which runs of it are a
+    // credential instead of a diagnosis, is `lib/api`'s policy and no copy of it belongs in a test. That
+    // half is pinned where it is decided — `stream-refusal.test.ts` holds this streamed path and an
+    // ordinary JSON route to the same two lines for the same body.
+    routeApiError: (status: number, body: unknown): ApiError => {
+      const refused = (body as { error?: { code?: string, message?: string, details?: unknown } } | null | undefined)?.error
+      const code = refused?.code ?? 'unknown'
+      return new ApiError(
+        status,
+        code,
+        translateApiError(code, refused?.message ?? t('api.request_failed_status', { status })),
+        refused?.details,
+        refused?.message,
+      )
     },
-  },
-}))
+    api: {
+      assistant: {
+        conversation: vi.fn(async (id: string) => {
+          if (harness.failingReads > 0) {
+            harness.failingReads -= 1
+            throw new Error('the thread read failed the way a read over a dead connection does')
+          }
+          return {
+            conversation: { id, ephemeral: false },
+            messages: harness.detail.messages,
+            attachments: [],
+            streaming: harness.detail.streaming,
+          }
+        }),
+        conversationArtifacts: vi.fn(async () => ({ artifacts: [] })),
+        cancel: vi.fn(async () => ({ cancelled: true })),
+      },
+    },
+  }
+})
 
 // The transport, held open by the test: each case decides what each stream emits and when it ends.
 // The two breakage cases opt into the real helper instead, so what is under test is the reading loop
@@ -637,6 +665,41 @@ describe('a keepalive that arrives in a chunk of its own', () => {
     expect(reads, 'the reader was not asked for the chunk after the keepalive').toBe(3)
     expect(reads, 'a loop past the chunks it was given never went back to the reader').toBeLessThanOrEqual(MAX_CHUNKS)
     expect(events).toEqual([{ type: 'text', delta: 'the words after the keepalive' }])
+  })
+})
+
+describe('a turn the worker refused before it started', () => {
+  it('hands the reader the refusal this app already has for the code, and nothing about the mock', async () => {
+    // The third way a turn ends with no answer: the worker read the request, said no, and answered with a
+    // status and a body instead of a stream. `stream.ts` reads that failure itself — on the other half of
+    // this file's wire it owns the response — and it builds the error with `routeApiError`, the same factory
+    // every JSON route's failure goes through. A stand-in for `lib/api` that leaves that export out does not
+    // make this case about refusals fail to be about refusals; it makes the turn answer with a mock warning
+    // dressed as a refusal, which is the shape of every hole this file's transport has ever had.
+    harness.realBody = true
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({
+      error: {
+        code: 'bad_request',
+        message: 'A model name is required.',
+        details: { modelId: 'The model named for this turn is not an enabled chat model of this account.' },
+      },
+    }), { status: 400, headers: { 'content-type': 'application/json' } })))
+    reset({ activeId: 'c1' })
+
+    const sending = useAssistant.getState().send('a long question')
+    expect(await sending, 'a turn the worker refused was taken as one it started').toBe(false)
+
+    const state = useAssistant.getState()
+    expect(state.turn?.error, 'a refusal read by the stream helper lost the sentence the app writes for its code')
+      .toContain(t('api.error.bad_request'))
+    expect(state.turn?.error, 'the field the route named did not reach the line the reader is shown')
+      .toContain('A model name is required.')
+    // Not the two failures this file is otherwise about: nobody broke a connection, and nothing was cut off
+    // mid-sentence, so neither of their lines may be what the reader is told.
+    expect(state.turn?.error).not.toBe(t('assistant.chat.stream_disconnected'))
+    expect(state.turn?.error).not.toBe(t('api.no_network_connection'))
+    expect(visibleText(), 'the stand-in’s own complaint reached the reader instead of the refusal')
+      .not.toContain('routeApiError')
   })
 })
 
