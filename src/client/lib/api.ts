@@ -224,8 +224,17 @@ interface RouteErrorBody {
  * The headline is the app's own sentence for that code, in the reader's language; the second line is what
  * the route said about the field it refused. One factory for both, because the download path used to build
  * the same error and keep only the code — which is how a too-large archive read as a mystery.
+ *
+ * Exported for the one caller that cannot reach it through `request()`: the assistant's streamed turn owns
+ * its response because on success it is not a body but a `ReadableStream`, so it reads its own failure — and
+ * it must not assemble that second line again. What makes the line safe to print is a policy, not a format:
+ * how much of it a screen may hold, which control characters may sit inside a sentence, which runs are a
+ * credential rather than a diagnosis. Restated in a second place, that policy is free to drift from the one
+ * the review set, and the drift shows up as a leak or a truncated reason rather than as a failing test. So
+ * the streamed turn calls this, and `stream-refusal.test.ts` pins its output against the JSON path's for the
+ * same body, which is the only way the rule stays one rule.
  */
-function routeApiError(status: number, body: unknown): ApiError {
+export function routeApiError(status: number, body: unknown): ApiError {
   const error = (body as { error?: RouteErrorBody } | null | undefined)?.error
   const code = error?.code ?? 'unknown'
   const fallback = error?.message ?? t('api.request_failed_status', { status })

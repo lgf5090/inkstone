@@ -9,7 +9,7 @@
 
 import { CLIENT_HEADER } from '@shared/constants'
 import type { AssistantTurnScope, ChatStreamEvent } from '@shared/assistant'
-import { ApiError, CLIENT_ID } from '../../lib/api'
+import { ApiError, CLIENT_ID, routeApiError } from '../../lib/api'
 import { getLocale } from '../../lib/i18n'
 
 export interface StreamTurnInput {
@@ -84,16 +84,18 @@ export async function streamAssistantTurn(
   })
 
   if (!response.ok) {
-    let code = 'unknown'
-    let message = `Request failed (${response.status})`
+    // The body is read here, and only the body: on success this response is a stream the helper owns, so
+    // it cannot go through `request()`. A refusal is still an ordinary route's refusal, so it is turned
+    // into an error by the same factory every other call uses — the bounds that keep a route's reason
+    // printable are decided once there, and `stream-refusal.test.ts` holds the two paths to the same answer
+    // for the same body rather than letting this one grow a second set of rules.
+    let body: unknown = null
     try {
-      const body = await response.json() as { error?: { code?: string, message?: string } }
-      code = body.error?.code ?? code
-      message = body.error?.message ?? message
+      body = await response.json()
     } catch {
       // A non-JSON failure still has to surface as an error, not as a stalled stream.
     }
-    throw new ApiError(response.status, code, message)
+    throw routeApiError(response.status, body)
   }
   if (!response.body) {
     throw new ApiError(502, 'internal', 'The assistant returned no stream.')
