@@ -26,6 +26,7 @@ import { SkillsView } from './SkillsView'
 import { AssistantSettingsView } from './AssistantSettingsView'
 import { ProjectsView } from './ProjectsView'
 import { NotificationCenter } from './NotificationCenter'
+import { DeepResearchProgress } from './DeepResearchProgress'
 
 const VIEW_ICONS: Record<AssistantView, typeof MessageSquare> = {
   chat: MessageSquare,
@@ -141,6 +142,10 @@ export function ChatApp() {
             {error}
           </div>
         )}
+
+        {/* A research run belongs above whichever surface the reader walked to, because it is the one job
+            this container drives across them; its steps, findings and retry live in its own banner. */}
+        <DeepResearchProgress />
 
         <div className="min-h-0 flex-1 overflow-hidden">
           {view === 'chat' && <ChatView />}
