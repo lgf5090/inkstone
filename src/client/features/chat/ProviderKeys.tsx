@@ -10,13 +10,14 @@
  * key, and a request per provider for a fact nobody is looking at is a request too many.
  */
 import { useCallback, useEffect, useState } from 'react'
-import { ChevronDown, KeyRound, Plus, Trash2 } from 'lucide-react'
+import { ChevronDown, KeyRound, Plus, RefreshCw, Trash2 } from 'lucide-react'
 import type { AssistantProvider, AssistantProviderKey } from '@shared/assistant'
+import type { KeyBalance, ProviderBalanceAnswer } from '@shared/provider-balance'
 import { t } from '../../lib/i18n'
 import { api } from '../../lib/api'
 import { Button, IconButton, Spinner } from '../../components/primitives'
 import { Input, Switch } from '../../components/form'
-import { confirm } from '../../components/overlay'
+import { Tooltip, confirm } from '../../components/overlay'
 import { cn } from '../../lib/cn'
 import { useUi } from '../../store/ui'
 import { storedKeyLabel } from './assistant-settings-shared'
@@ -27,6 +28,51 @@ function lastUsed(at: number | null): string {
   return new Date(at).toLocaleString()
 }
 
+/**
+ * What a balance is worth saying, in one of five sentences.
+ *
+ * Written out rather than assembled from the reason, because a key built at runtime is a key nobody can
+ * find with a search and the translation gate cannot see either.
+ */
+function balanceWords(reading: KeyBalance): string {
+  if (reading.ok) {
+    return t('assistant.balance.amount', {
+      amount: reading.amount.toLocaleString(undefined, { maximumFractionDigits: 3 }),
+      currency: reading.currency,
+    })
+  }
+  switch (reading.reason) {
+    case 'unauthorized': return t('assistant.balance.unauthorized')
+    case 'unreachable': return t('assistant.balance.unreachable')
+    case 'unsupported': return t('assistant.balance.unsupported')
+    case 'unreadable': return t('assistant.balance.unreadable')
+  }
+}
+
+/**
+ * One key's wallet, worn by the row that owns it.
+ *
+ * The number is short and the question behind it is not: with three keys on a provider, the only way a reader
+ * can tell whose balance they are looking at is the row it sits in, so the tooltip names that row out loud —
+ * the label they gave it and the last four characters. A failed reading is shown in the same place rather
+ * than hidden, because "this vendor refused this key" is worth knowing about that key.
+ */
+function BalanceChip({ reading, name }: { reading: KeyBalance | undefined, name: string }) {
+  if (!reading) return null
+  return (
+    <Tooltip label={t('assistant.balance.tip', { key: name, hint: reading.keyHint })} side="top">
+      <span
+        className={cn(
+          'shrink-0 tabular text-[length:var(--text-10-5)]',
+          reading.ok ? 'text-[var(--text-secondary)]' : 'text-[var(--text-quaternary)]',
+        )}
+      >
+        {balanceWords(reading)}
+      </span>
+    </Tooltip>
+  )
+}
+
 export function ProviderKeys({ provider }: { provider: AssistantProvider }) {
   const toast = useUi((state) => state.toast)
   const [keys, setKeys] = useState<AssistantProviderKey[] | null>(null)
@@ -34,6 +80,25 @@ export function ProviderKeys({ provider }: { provider: AssistantProvider }) {
   const [adding, setAdding] = useState(false)
   const [draft, setDraft] = useState({ label: '', apiKey: '' })
   const [busy, setBusy] = useState(false)
+  // What each key is owed. Asked when the ring is opened rather than with the tab, for the same reason the
+  // keys are: most readers never look here, and a vendor call for a number nobody is reading is a call too
+  // many. A reading is never stored — it is a fact about the moment it was asked.
+  const [balances, setBalances] = useState<ProviderBalanceAnswer | null>(null)
+  const [balanceProblem, setBalanceProblem] = useState<string | null>(null)
+  const [balanceBusy, setBalanceBusy] = useState(false)
+
+  const loadBalances = useCallback(async () => {
+    setBalanceBusy(true)
+    setBalanceProblem(null)
+    try {
+      setBalances(await api.assistant.providerBalance(provider.id))
+    } catch (error) {
+      setBalances(null)
+      setBalanceProblem(error instanceof Error ? error.message : String(error))
+    } finally {
+      setBalanceBusy(false)
+    }
+  }, [provider.id])
 
   const load = useCallback(async () => {
     try {
@@ -45,8 +110,13 @@ export function ProviderKeys({ provider }: { provider: AssistantProvider }) {
   }, [provider.id, toast])
 
   useEffect(() => {
-    if (open) void load()
-  }, [open, load])
+    if (!open) return
+    void load()
+    void loadBalances()
+  }, [open, load, loadBalances])
+
+  /** The reading for one row of the ring, or nothing to say about it yet. */
+  const balanceOf = (keyId: string): KeyBalance | undefined => balances?.readings.find((entry) => entry.keyId === keyId)
 
   // One writer at a time: every action here rewrites the same list, and two in flight would leave the
   // screen showing whichever answered last rather than what is stored.
@@ -107,6 +177,7 @@ export function ProviderKeys({ provider }: { provider: AssistantProvider }) {
             <span className="shrink-0 font-mono text-[length:var(--text-10-5)] text-[var(--text-quaternary)]">
               {storedKeyLabel(provider)}
             </span>
+            <BalanceChip reading={balanceOf('')} name={t('assistant.keys.primary')} />
           </div>
 
           {keys === null ? (
@@ -129,6 +200,7 @@ export function ProviderKeys({ provider }: { provider: AssistantProvider }) {
                       {key.errorCount > 0 && ` · ${t('assistant.keys.errors', { count: key.errorCount })}`}
                     </p>
                   </div>
+                  <BalanceChip reading={balanceOf(key.id)} name={key.label || t('assistant.keys.unnamed')} />
                   <Switch
                     checked={key.enabled}
                     disabled={busy}
@@ -158,6 +230,24 @@ export function ProviderKeys({ provider }: { provider: AssistantProvider }) {
                 </li>
               ))}
             </ul>
+          )}
+
+          {/* One line for the whole ring: whether it can be asked at all, and the means to ask again. A
+              provider that reports nothing is said so, rather than leaving the numbers off with no reason —
+              silence here reads as "zero left", which is the opposite of the truth. */}
+          {balanceProblem !== null && (
+            <p role="status" className="text-[length:var(--text-10-5)] text-[var(--text-quaternary)]">{balanceProblem}</p>
+          )}
+          {balanceProblem === null && balances === null && (
+            <p className="text-[length:var(--text-10-5)] text-[var(--text-quaternary)]">{t('assistant.balance.reading')}</p>
+          )}
+          {balances !== null && !balances.supported && (
+            <p className="text-[length:var(--text-10-5)] text-[var(--text-quaternary)]">{t('assistant.balance.unsupported_provider')}</p>
+          )}
+          {balances?.supported === true && (
+            <Button size="sm" variant="ghost" icon={<RefreshCw size={12} />} disabled={balanceBusy} onClick={() => void loadBalances()}>
+              {t('assistant.balance.refresh')}
+            </Button>
           )}
 
           {adding ? (

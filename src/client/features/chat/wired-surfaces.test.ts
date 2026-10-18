@@ -30,6 +30,7 @@ import { useUi } from '../../store/ui'
 import type { MenuCtx } from '../workspace/context-menu/types'
 import { buildTaskItems } from '../workspace/context-menu/items-inline'
 import { BehaviourTab } from './AssistantBehaviourTab'
+import { ProviderKeys } from './ProviderKeys'
 import { ChatComposer, UserBubble } from './ChatView'
 import { TurnPinRow } from './ComposerTriggers'
 import { useAssistant } from './assistant-store'
@@ -79,8 +80,28 @@ vi.mock('../../lib/api', () => ({
       searchKeys: () => searchKeys(),
       putSearchKey: (engine: string, body: { apiKey: string }) => putSearchKey(engine, body),
       deleteSearchKey: (engine: string) => deleteSearchKey(engine),
+      providerKeys: () => providerKeys(),
+      providerBalance: () => providerBalance(),
     },
   },
+}))
+
+/** The ring as the route describes it: two rows, each with its own last four characters. */
+const providerKeys = vi.fn(async () => ({
+  keys: [
+    { id: 'k1', providerId: 'p1', label: 'Work', hasKey: true, keyHint: 'wxyz', enabled: true, lastUsedAt: null, errorCount: 0, lastError: null, createdAt: 1, updatedAt: 1 },
+    { id: 'k2', providerId: 'p1', label: 'Spare', hasKey: true, keyHint: 'beef', enabled: true, lastUsedAt: null, errorCount: 0, lastError: null, createdAt: 2, updatedAt: 2 },
+  ],
+}))
+
+/** What each of those keys is owed. Swapped per case, because the screen says what the answer said. */
+const providerBalance = vi.fn(async () => ({
+  supported: true,
+  readings: [
+    { keyId: '', label: '', keyHint: 'abcd', ok: true, amount: 12.5, currency: 'CNY' },
+    { keyId: 'k1', label: 'Work', keyHint: 'wxyz', ok: true, amount: 3, currency: 'CNY' },
+    { keyId: 'k2', label: 'Spare', keyHint: 'beef', ok: false, reason: 'unauthorized' },
+  ],
 }))
 
 const ENGINED = 'https://searx.example.org/search'
@@ -566,5 +587,87 @@ describe('a checkbox’s way out to the task list', () => {
     // A note without an id has nowhere to point the task back at.
     const idless = { ...sourceCtx(), noteId: null }
     expect((buildTaskItems(idless) ?? []).map((item) => item.id)).not.toContain('task-to-assistant')
+  })
+})
+
+describe('what each key is owed', () => {
+  const settle = async (): Promise<void> => {
+    await act(async () => { await Promise.resolve(); await Promise.resolve() })
+  }
+
+  /** Open the ring, which is where the balance is asked — not with the tab, and not never. */
+  const openRing = async (): Promise<void> => {
+    await act(async () => { root.render(createElement(ProviderKeys, { provider: provider('openai') })) })
+    await settle()
+    const toggle = [...document.body.querySelectorAll<HTMLButtonElement>('button')]
+      .find((button) => (button.textContent ?? '').includes(t('assistant.keys.title')))
+    await click(toggle, 'the key ring')
+    await settle()
+  }
+
+  /** The app's own tooltip, which only exists while a pointer is on the thing it describes. */
+  const toldTo = (node: HTMLElement | null | undefined): string | null => {
+    expect(node, 'the chip the tooltip hangs from is not drawn').toBeTruthy()
+    // `Tooltip` refuses to place a panel on an anchor it cannot measure, and jsdom measures nothing.
+    node!.getBoundingClientRect = () => ({
+      top: 10, left: 10, right: 90, bottom: 30, x: 10, y: 10, width: 80, height: 20, toJSON: () => ({}),
+    }) as DOMRect
+    vi.useFakeTimers()
+    act(() => { node!.dispatchEvent(new MouseEvent('mouseover', { bubbles: true })) })
+    act(() => { vi.advanceTimersByTime(600) })
+    const told = document.body.querySelector('[role="tooltip"]')?.textContent ?? null
+    act(() => { node!.dispatchEvent(new MouseEvent('mouseout', { bubbles: true })) })
+    vi.useRealTimers()
+    return told
+  }
+
+  /**
+   * The chip's own span, not the `Tooltip` wrapper around it.
+   * 
+   * The wrapper's text is its child's text, so a search over all spans finds the wrapper first — and the
+   * component measures the child, so stubbing the wrapper's box would leave the panel unplaced and this
+   * case would fail for a reason that has nothing to do with what it asks.
+   */
+  const chipSaying = (words: string): HTMLElement | undefined =>
+    [...document.body.querySelectorAll<HTMLElement>('span.contents > span')].find((node) => (node.textContent ?? '') === words)
+
+  const amount = (value: string, currency: string): string => t('assistant.balance.amount', { amount: value, currency })
+
+  beforeEach(() => {
+    providerBalance.mockImplementation(async () => ({
+      supported: true,
+      readings: [
+        { keyId: '', label: '', keyHint: 'abcd', ok: true, amount: 12.5, currency: 'CNY' },
+        { keyId: 'k1', label: 'Work', keyHint: 'wxyz', ok: true, amount: 3, currency: 'CNY' },
+        { keyId: 'k2', label: 'Spare', keyHint: 'beef', ok: false, reason: 'unauthorized' as const },
+      ],
+    }))
+  })
+
+  it('gives every key its own number, and the failed one its own reason', async () => {
+    await openRing()
+    expect(providerBalance).toHaveBeenCalled()
+    // Three rows, three answers: the provider's own key, and each of the two in the ring.
+    expect(document.body.textContent).toContain(amount('12.5', 'CNY'))
+    expect(document.body.textContent).toContain(amount('3', 'CNY'))
+    // A refusal is shown beside the key it happened to, rather than hidden: an absent number would read as
+    // a balance of nothing, which is a different claim about a different key.
+    expect(document.body.textContent).toContain(t('assistant.balance.unauthorized'))
+  })
+
+  it('says which key a balance belongs to when the pointer asks', async () => {
+    await openRing()
+    const told = toldTo(chipSaying(amount('3', 'CNY')))
+    expect(told, 'the chip answers no pointer').toBeTruthy()
+    // The name the reader gave the row, and its last four: the only two things that can tell two keys apart.
+    expect(told).toContain('Work')
+    expect(told).toContain('wxyz')
+  })
+
+  it('says so when the provider reports nothing, instead of leaving the numbers off with no reason', async () => {
+    providerBalance.mockImplementation(async () => ({ supported: false, readings: [] }))
+    await openRing()
+    expect(document.body.textContent).toContain(t('assistant.balance.unsupported_provider'))
+    expect(document.body.textContent).not.toContain(amount('3', 'CNY'))
   })
 })

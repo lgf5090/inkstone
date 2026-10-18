@@ -11,6 +11,7 @@ import type { ChatAttachment,
 } from '@shared/assistant'
 import type { MarkdownBackupManifest } from '@shared/backup-format'
 import type { ConversationShareInfo, PublicConversation } from '@shared/assistant'
+import type { ProviderBalanceAnswer } from '@shared/provider-balance'
 import type {
   PublicSharePresence,
   SharePresencePosition,
@@ -1352,6 +1353,13 @@ export const api = {
       request<{ key: AssistantProviderKey }>(`/api/assistant/providers/${id}/keys/${keyId}`, { method: 'PATCH', body }),
     deleteProviderKey: (id: string, keyId: string) =>
       request<{ deleted: true }>(`/api/assistant/providers/${id}/keys/${keyId}`, { method: 'DELETE' }),
+    /**
+     * What is left in each of a provider's keys.
+     *
+     * The worker asks the vendor and hands back a reading per key row; no credential travels in either
+     * direction, and `supported: false` is the answer for a provider that does not report one.
+     */
+    providerBalance: (id: string) => request<ProviderBalanceAnswer>(`/api/assistant/providers/${id}/balance`),
     /**
      * The key one hosted web-search engine is queried with, and its state.
      *

@@ -1322,6 +1322,38 @@ export class AssistantStore {
     return null
   }
 
+  /**
+   * Every credential one provider holds, decrypted, for the screen that asks each of them the same question.
+   *
+   * `pickProviderKey` hands out one key because a turn signs with one. A balance is asked of all of them,
+   * because a reader with three keys has three wallets and wants three numbers — and a reading that covered
+   * only the least recently used key would be a number ascribed to the wrong row. The plaintext leaves this
+   * method and no route returns it: what reaches the browser is the last four characters the row already
+   * shows, plus what the vendor said about what is left.
+   */
+  async providerKeySecrets(providerId: string): Promise<{ baseUrl: string, keys: Array<{ keyId: string, key: string, label: string, keyHint: string }> }> {
+    const record = await this.providerRecord(providerId)
+    if (!record) return { baseUrl: '', keys: [] }
+    const out: Array<{ keyId: string, key: string, label: string, keyHint: string }> = []
+    if (record.key_ciphertext) {
+      const key = (await decryptAssistantKey(this.env, this.userId, record.key_ciphertext)) ?? ''
+      // The provider's own key carries no label of its own: its row is the provider, and the screen calls it
+      // the primary one. `keyId: ''` is how every other surface already names that same key.
+      if (key) out.push({ keyId: '', key, label: '', keyHint: record.key_hint ?? '' })
+    }
+    const extras = await this.rows<ProviderKeyRow>(
+      `SELECT ${PROVIDER_KEY_COLUMNS} FROM chat_provider_keys
+        WHERE user_id = ?1 AND provider_id = ?2 AND enabled = 1 ORDER BY created_at`,
+      this.userId, providerId,
+    )
+    for (const row of extras) {
+      if (!row.key_ciphertext) continue
+      const key = (await decryptAssistantKey(this.env, this.userId, row.key_ciphertext)) ?? ''
+      if (key) out.push({ keyId: row.id, key, label: row.label, keyHint: row.key_hint ?? '' })
+    }
+    return { baseUrl: record.base_url, keys: out }
+  }
+
   /** Records that a key just answered, so the next turn starts from a different one. */
   async markProviderKeyUsed(providerId: string, keyId: string): Promise<void> {
     const at = Date.now()

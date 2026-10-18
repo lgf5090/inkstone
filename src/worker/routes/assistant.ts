@@ -91,6 +91,7 @@ import type { AppBindings } from '../env'
 import { ApiError } from '../lib/errors'
 import { requireAuth } from '../middleware/auth'
 import { FORM_BODY_LIMITS, JSON_BODY_LIMITS, readFormDataWithinLimit, readJson, readStreamWithinLimit } from '../lib/request'
+import { fetchProviderBalance } from '../assistant/balance'
 import { McpError, mcpCallTool, mcpInitialize, mcpListTools, mcpProbe, mcpUrlProblem } from '../assistant/mcp-client'
 import { isExternalToolName, listMcpCatalog, loadExternalTools } from '../assistant/mcp-tools'
 import { deleteMcpOAuthClient, finishMcpAuthorization, startMcpAuthorization, withMcpOAuthHeaders } from '../assistant/mcp-oauth'
@@ -110,6 +111,7 @@ import { listVendorModels } from '../assistant/vendor-models'
 import { memoryEmbeddingStatus, reindexMemoryEmbeddings, semanticModel } from '../assistant/semantic'
 import { MAX_PROVIDER_MODELS, reasoningDialectValue, reasoningValue, searchEndpointValue } from '@shared/assistant'
 import { MAX_SEARCH_KEY_CHARS, isWebSearchEngineId, webSearchEngineFor } from '@shared/web-search-engines'
+import { balanceSpecFor } from '@shared/provider-balance'
 import {
   CHAT_IMAGE_MAX_BYTES,
   ChatUploadError,
@@ -2792,6 +2794,34 @@ assistantRoutes.post('/providers/:id/keys', async (c) => {
   const body = await readJson<{ label?: unknown, apiKey?: unknown }>(c, JSON_BODY_LIMITS.small)
   const apiKey = text(body.apiKey, 4096)
   return c.json({ key: await s.createProviderKey(id, { label: optionalText(body.label, 60) ?? '', apiKey }) }, 201)
+})
+
+/**
+ * What is left in each of one provider's wallets.
+ *
+ * A reading per stored key, because that is how the reader divided the budget: three keys are three wallets,
+ * and a single number beside the provider would be one of them chosen by an order nobody can see. The answer
+ * holds no credential — the row's id, the label the reader gave it, its last four characters, and whatever
+ * the vendor said about what is left.
+ *
+ * A provider whose address is not one of the vendors this build knows how to ask is answered as
+ * `supported: false`, not as a failure: "this provider does not tell" is information, and an error beside a
+ * key that is working fine is a lie about the reader's account.
+ */
+assistantRoutes.get('/providers/:id/balance', async (c) => {
+  const s = store(c)
+  const id = requiredId(c.req.param('id'))
+  const targets = await s.providerKeySecrets(id)
+  if (!targets.baseUrl) throw ApiError.notFound('Provider not found')
+  const spec = balanceSpecFor(targets.baseUrl)
+  if (!spec) return c.json({ supported: false, readings: [] })
+  const readings = await Promise.all(targets.keys.map(async (entry) => ({
+    keyId: entry.keyId,
+    label: entry.label,
+    keyHint: entry.keyHint,
+    ...await fetchProviderBalance(spec, targets.baseUrl, entry.key, `${c.get('userId')}:${id}:${entry.keyId}`),
+  })))
+  return c.json({ supported: true, readings })
 })
 
 assistantRoutes.patch('/providers/:id/keys/:keyId', async (c) => {
