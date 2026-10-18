@@ -9,8 +9,13 @@
  * A picture is a different shape of thing: it travels as an image part of the same turn, and only when
  * the model is marked able to see. The line the reader sees in the transcript says which of the two
  * happened, so nothing ever claims to have shown the model an image it did not receive.
+ *
+ * A recording and a clip are the third shape, and the one with no door: no request builder in this app puts
+ * those bytes in front of a model, whatever the reader has marked. They are therefore named, never read —
+ * and since a name is all a turn can carry of them, the composer says so as soon as one is attached, rather
+ * than letting a paid answer arrive without the file its reader asked about.
  */
-import type { AssistantModelModality } from '@shared/assistant'
+import { attachmentModality, type AssistantModelModality } from '@shared/assistant'
 import {
   CHAT_FILE_CHAR_CAP,
   CHAT_TEXT_INLINE_BYTES,
@@ -81,19 +86,10 @@ export interface AttachmentPayload {
 }
 
 /**
- * Reads the reader's own attachments by id. An id that is not theirs, or whose bytes are gone, is named
- * in the block rather than silently dropped, so the transcript never claims a file arrived that did not.
- */
-/** Which sense a file needs, if any: a clip and a recording are not the same ask of a model. */
-export function modalityOf(mime: string, filename: string): AssistantModelModality | null {
-  const lower = `${mime} ${filename}`.toLocaleLowerCase()
-  if (mime.startsWith('audio/') || /\.(mp3|wav|m4a|flac|ogg|aac)$/.test(lower)) return 'audio'
-  if (mime.startsWith('video/') || /\.(mp4|mov|webm|avi|mkv)$/.test(lower)) return 'video'
-  return null
-}
-
-/**
  * The model-facing block for every file one turn carries, plus the pictures that travel with it.
+ *
+ * Reads the reader's own attachments by id: an id that is not theirs, or whose bytes are gone, is named in
+ * the block rather than silently dropped, so the transcript never claims a file arrived that did not.
  *
  * What a file costs this turn is decided here, against one character budget shared by text files and by
  * documents the browser read out — and a file whose words did not fit is named in the block rather than
@@ -174,8 +170,11 @@ export async function expandChatAttachments(
     }
     if (!isTextualAttachment(row.mime, row.filename)) {
       // A recording or a clip is named the way a picture is when the model cannot be shown one, so the
-      // transcript never reads as if the model had been given something it was not.
-      const modality = modalityOf(row.mime, row.filename)
+      // transcript never reads as if the model had been given something it was not. The two sentences are
+      // not the same claim, and both are true: a marked model is handed the file's *name*, because nothing
+      // in `upstream.ts` puts those bytes in a body — which is what the composer tells the reader before
+      // they pay for the turn (see `attachmentModality` and `attachment-unreadable.test.ts`).
+      const modality = attachmentModality(row.mime, row.filename)
       if (modality && !modalities.includes(modality)) {
         lines.push(`${header} (the reader can play this; this model is not marked as able to take ${modality})`)
         continue

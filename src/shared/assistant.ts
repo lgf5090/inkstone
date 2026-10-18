@@ -863,6 +863,28 @@ export interface ChatAttachment {
   createdAt: number
 }
 
+/**
+ * The sense a file asks of a model, or null when a turn already knows how to read it.
+ *
+ * A text file is decoded into the prompt and a picture rides with it as an image part, so both are answered
+ * by every path the composer offers. A recording or a clip asks for something else, and this is the point
+ * where the app has to answer honestly: the three request builders in `worker/assistant/upstream.ts` put
+ * text and pictures into a body and nothing else ever goes in, so the bytes of an audio or video file reach
+ * no model — including a model the reader has marked as taking them. `AssistantModel.modalities` says what a
+ * vendor *could* answer, not what this app can send, which is why a tick there does not make this null.
+ *
+ * One function answers the question because two surfaces have to give the same answer: the worker names the
+ * file in the model-facing block, and the composer warns the reader before the turn is paid for. A second
+ * definition is a second place for the two to drift, and the drift is a chip that says a file went into a
+ * turn that could never have read it.
+ */
+export function attachmentModality(mime: string, filename: string): AssistantModelModality | null {
+  const lower = `${mime} ${filename}`.toLocaleLowerCase()
+  if (mime.startsWith('audio/') || /\.(mp3|wav|m4a|flac|ogg|aac)$/.test(lower)) return 'audio'
+  if (mime.startsWith('video/') || /\.(mp4|mov|webm|avi|mkv)$/.test(lower)) return 'video'
+  return null
+}
+
 /** A note tag or folder the reader pinned to one turn with `#`. */
 export interface AssistantTurnScope {
   /**

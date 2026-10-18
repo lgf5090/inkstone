@@ -8,10 +8,14 @@
  * Pressing a chip opens it: a picture goes to the app's lightbox, a text file to a viewer that reads
  * the bytes back with its own progress bar. The X removes it — and deletes the upload, since a file the
  * reader took back out of the box should not stay in their storage.
+ *
+ * Two sentences are drawn here rather than hidden, because both are worth knowing before something is
+ * paid for. A recording or a clip cannot reach a model at all, so the row says that in words the moment it
+ * appears — a `title` is not read before a click, and the click is the turn.
  */
 import { useEffect, useState } from 'react'
 import { FileText, Image as ImageIcon, Loader, RotateCcw, X } from 'lucide-react'
-import type { ChatAttachment } from '@shared/assistant'
+import { attachmentModality, type AssistantModelModality, type ChatAttachment } from '@shared/assistant'
 import type { PendingAttachment } from './assistant-store'
 import { cn } from '../../lib/cn'
 import { t } from '../../lib/i18n'
@@ -23,6 +27,12 @@ export function attachmentUrl(id: string): string {
   return api.assistant.chatFileUrl(id)
 }
 
+/** What a reader calls the two senses a model would need, in their own language. */
+const MODALITY_LABEL_KEYS: Record<AssistantModelModality, Parameters<typeof t>[0]> = {
+  audio: 'assistant.model.modality.audio',
+  video: 'assistant.model.modality.video',
+}
+
 /**
  * What a picker may hand back, as one list the composer's file and folder inputs both point at.
  *
@@ -32,6 +42,9 @@ export function attachmentUrl(id: string): string {
  * without a filter uploads every thumbnail and lock file beside the document. The list is the worker's own
  * textual set plus images and PDFs, kept here rather than at each call site so the two pickers cannot
  * drift apart from each other or from what the server actually reads.
+ *
+ * A filter is not an answer, though: a file that comes in through a door with none — dragged onto the box,
+ * pasted, named by an address — is told to the reader in the row below, not quietly left out of the list.
  */
 export const CHAT_ATTACHMENT_ACCEPT = [
   'image/*',
@@ -125,6 +138,9 @@ export function AttachmentStrip({
     <div className="flex flex-wrap gap-1.5 px-1.5 pb-1.5 pt-1">
       {items.map((entry) => {
         const ready = entry.status === 'ready' && entry.id
+        // Whether any model could be handed these bytes is known the moment the name and the type are, which
+        // is before the reader decides to press send — and the row is the only place that gets to say it.
+        const modality = attachmentModality(entry.mime, entry.filename)
         const label = entry.status === 'uploading'
           ? t('assistant.attach.uploading', { percent: Math.round(entry.progress * 100) })
           : entry.status === 'error' ? entry.error ?? t('assistant.attach.failed') : `${entry.filename} · ${formatSize(entry.size)}`
@@ -177,6 +193,14 @@ export function AttachmentStrip({
               <X size={9} />
             </button>
             <span className="sr-only">{label}</span>
+            {modality && (
+              <span
+                data-attachment-unreadable="true"
+                className="mt-1 block max-w-[240px] text-[length:var(--text-11)] leading-snug text-[var(--danger)]"
+              >
+                {t('assistant.attach.unreadable', { kind: t(MODALITY_LABEL_KEYS[modality]), name: entry.filename })}
+              </span>
+            )}
           </span>
         )
       })}
@@ -190,13 +214,22 @@ export function AttachmentStrip({
  *
  * The bytes are read back with a counter rather than handed to the browser as a link, because the
  * reader asked to *see* it: a download that lands in the shelf answers a question nobody asked.
+ *
+ * A recording and a clip are not shown, and not fetched to be shown: decoding their bytes as text is how a
+ * three-minute voice note used to land as a wall of replacement characters, which claims a reading the panel
+ * cannot do. They are told what they are, and the download in the footer is left as the door that still
+ * works.
  */
 export function AttachmentViewer({ attachment, onClose }: { attachment: ChatAttachment, onClose: () => void }) {
+  const modality = attachmentModality(attachment.mime, attachment.filename)
   const [text, setText] = useState<string | null>(null)
   const [progress, setProgress] = useState(0)
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
+    // Nothing to read back: the panel already said so, and the byte counter would only be a bar over a box
+    // that will never hold anything.
+    if (modality) return
     let cancelled = false
     void api.assistant.downloadChatFile(attachment.id, (received, total) => {
       if (!cancelled && total > 0) setProgress(received / total)
@@ -210,7 +243,7 @@ export function AttachmentViewer({ attachment, onClose }: { attachment: ChatAtta
     return () => {
       cancelled = true
     }
-  }, [attachment.id])
+  }, [attachment.id, modality])
 
   return (
     <Modal
@@ -232,7 +265,11 @@ export function AttachmentViewer({ attachment, onClose }: { attachment: ChatAtta
       <div className="h-0.5 w-full bg-[var(--bg-inset)]">
         <div className="h-full bg-[var(--accent)] transition-[width] duration-150" style={{ width: `${Math.round(progress * 100)}%` }} />
       </div>
-      {error ? (
+      {modality ? (
+        <p data-attachment-unreadable="true" className="p-4 text-[length:var(--text-12-5)] text-[var(--text-secondary)]">
+          {t('assistant.attach.unreadable_view', { kind: t(MODALITY_LABEL_KEYS[modality]) })}
+        </p>
+      ) : error ? (
         <p className="p-4 text-[length:var(--text-12-5)] text-[var(--danger)]">{error}</p>
       ) : text === null ? (
         <p className="p-4 text-[length:var(--text-12-5)] text-[var(--text-quaternary)]">{t('common.loading')}</p>
