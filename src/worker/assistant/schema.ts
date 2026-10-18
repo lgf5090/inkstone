@@ -239,6 +239,12 @@ export const ASSISTANT_SCHEMA_STATEMENTS: readonly string[] = [
     feedback TEXT NOT NULL DEFAULT '',
     sources TEXT NOT NULL DEFAULT '[]',
     scopes TEXT NOT NULL DEFAULT '[]',
+    -- The follow-up chips a naming pass volunteered for this answer, kept on the answer itself. A JSON array
+    -- of at most three trimmed strings, [] when there are none — the same shape sources and scopes carry.
+    -- NOT NULL with a default so a restore's INSERT OR IGNORE never drops a whole message over a missing
+    -- key, exactly as every other array column here already does, and so a row written before the column and a
+    -- row that got no suggestions read back identically.
+    suggestions TEXT NOT NULL DEFAULT '[]',
     -- The answer the reader kept. Nullable rather than a flag with a default, because the state the column
     -- describes is "kept since when": the moment is what the saved list orders by and what a reader who
     -- comes back next month wants to see, and a flag would have to be joined to a timestamp anyway. NULL is
@@ -744,7 +750,7 @@ export const ASSISTANT_REQUIRED_COLUMNS: Readonly<Record<string, readonly string
   chat_note_writes: ['user_id', 'note_id', 'conversation_id', 'created_at'],
   chat_attachments: ['user_id', 'id', 'kind', 'filename', 'mime', 'size', 'key', 'extracted_text', 'created_at'],
   chat_conversation_tags: ['user_id', 'conversation_id', 'tag_id', 'created_at'],
-  chat_messages: ['user_id', 'id', 'conversation_id', 'role', 'content', 'reasoning', 'tools', 'attachments', 'status', 'error', 'source', 'input_tokens', 'output_tokens', 'duration_ms', 'model_label', 'feedback', 'sources', 'scopes', 'saved_at', 'created_at'],
+  chat_messages: ['user_id', 'id', 'conversation_id', 'role', 'content', 'reasoning', 'tools', 'attachments', 'status', 'error', 'source', 'input_tokens', 'output_tokens', 'duration_ms', 'model_label', 'feedback', 'sources', 'scopes', 'suggestions', 'saved_at', 'created_at'],
   chat_answer_versions: ['user_id', 'id', 'message_id', 'conversation_id', 'content', 'reasoning', 'tools', 'model_label', 'input_tokens', 'output_tokens', 'duration_ms', 'created_at'],
   chat_mcp_servers: ['user_id', 'id', 'label', 'url', 'description', 'transport', 'timeout_seconds', 'header_ciphertext', 'oauth_ciphertext', 'oauth_meta', 'enabled', 'tool_mode', 'tool_modes', 'created_at', 'updated_at'],
   chat_memories: ['user_id', 'id', 'content', 'category', 'source', 'status', 'superseded_by', 'valid_from', 'valid_until', 'project_id', 'note_id', 'created_at', 'updated_at'],

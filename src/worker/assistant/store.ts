@@ -9,7 +9,7 @@
  *    written by an older build, restored from a backup file, or edited by hand — stored text is input.
  */
 
-import { ASSISTANT_MODEL_KINDS, ASSISTANT_MODEL_PURPOSES, MAX_TURN_SCOPES, SAVED_MESSAGE_EXCERPT_CHARS, clipToolPayload, parseCustomParams, isNoteSourceId, isSourceUrl } from '@shared/assistant'
+import { ASSISTANT_MODEL_KINDS, ASSISTANT_MODEL_PURPOSES, MAX_TURN_SCOPES, SAVED_MESSAGE_EXCERPT_CHARS, clipSuggestionList, clipToolPayload, parseCustomParams, isNoteSourceId, isSourceUrl } from '@shared/assistant'
 import type {
   AssistantArtifact,
   AssistantConversation,
@@ -466,6 +466,17 @@ export function decodeScopes(value: unknown): AssistantTurnScope[] {
   return out.slice(0, MAX_TURN_SCOPES)
 }
 
+/**
+ * The follow-up chips an answer volunteered, read back through the same clip the naming pass wrote them with.
+ *
+ * A row that predates the column, and a backup that names none, both come back `[]` and the transcript shows
+ * no group at all — which is the honest reading, not an empty frame. The clip re-runs here because this column
+ * is also what a restore hands back, and a file is trusted for nothing a live turn was held to.
+ */
+export function decodeSuggestions(value: unknown): string[] {
+  return clipSuggestionList(parseJson(value))
+}
+
 export function decodeTools(value: unknown): ToolActivity[] {
   const parsed = parseJson(value)
   if (!Array.isArray(parsed)) return []
@@ -507,13 +518,14 @@ interface MessageRow {
   feedback: string | null
   sources: string | null
   scopes: string | null
+  suggestions: string | null
   saved_at: number | null
   created_at: number
   version_count?: number | null
 }
 
 const MESSAGE_COLUMNS
-  = `id, conversation_id, role, content, reasoning, tools, attachments, status, error, source, input_tokens, output_tokens, duration_ms, model_label, feedback, sources, scopes, saved_at, created_at`
+  = `id, conversation_id, role, content, reasoning, tools, attachments, status, error, source, input_tokens, output_tokens, duration_ms, model_label, feedback, sources, scopes, suggestions, saved_at, created_at`
 /** How many answers this turn has already displaced; only the transcript list pays for it. */
 const MESSAGE_VERSION_COUNT
   = `(SELECT COUNT(*) FROM chat_answer_versions v WHERE v.user_id = chat_messages.user_id AND v.message_id = chat_messages.id) AS version_count`
@@ -595,6 +607,11 @@ export function encodeFeedback(verdict: MessageFeedback | null, reason?: string)
 
 function toMessage(r: MessageRow): AssistantMessage {
   const verdict = decodeFeedback(r.feedback)
+  // A `[]`, a null and a row predating the column all mean "no suggestions", and all are dropped rather than
+  // surfaced as an empty array: the footline renders the group only when it has something to put in it, and a
+  // transcript where every answer carries `suggestions: []` would be a transcript that promises chips it does
+  // not show. Read through the same clip the write used, so a backup that overfilled the row cannot overfill it here.
+  const suggestions = decodeSuggestions(r.suggestions)
   return {
     id: r.id,
     conversationId: r.conversation_id,
@@ -614,6 +631,7 @@ function toMessage(r: MessageRow): AssistantMessage {
     ...(verdict?.reason ? { feedbackReason: verdict.reason } : {}),
     ...(r.sources ? { sources: decodeSources(r.sources) } : {}),
     ...(r.scopes ? { scopes: decodeScopes(r.scopes) } : {}),
+    ...(suggestions.length ? { suggestions } : {}),
     versionCount: r.version_count ?? undefined,
     savedAt: r.saved_at ?? null,
   }
@@ -2506,6 +2524,8 @@ export class AssistantStore {
     sources?: AssistantSource[]
     /** What this turn was allowed to read, kept so the transcript can say why an answer knew so little. */
     scopes?: AssistantTurnScope[]
+    /** Follow-up chips the naming pass volunteered for this answer, clipped to the same shape the read uses. */
+    suggestions?: string[]
     createdAt?: number
   }): Promise<AssistantMessage> {
     const id = input.id ?? newId()
@@ -2520,14 +2540,16 @@ export class AssistantStore {
     // The reader's own words are stored as written; a trace is bounded before it lands, because a thinking
     // model can produce more of it than a row should carry.
     const reasoning = clipReasoning(input.reasoning ?? '')
+    const suggestionList = clipSuggestionList(input.suggestions ?? [])
     await this.write(
       `INSERT INTO chat_messages
-         (id, user_id, conversation_id, role, content, reasoning, tools, attachments, status, error, source, input_tokens, output_tokens, duration_ms, model_label, feedback, sources, scopes, created_at)
-       VALUES (?2, ?1, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, '', ?17, ?18, ?16)`,
+         (id, user_id, conversation_id, role, content, reasoning, tools, attachments, status, error, source, input_tokens, output_tokens, duration_ms, model_label, feedback, sources, scopes, suggestions, created_at)
+       VALUES (?2, ?1, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, '', ?17, ?18, ?19, ?16)`,
       id, input.conversationId, input.role, input.content, reasoning, JSON.stringify(tools), JSON.stringify(attachments),
       status, error, source, usage?.inputTokens ?? 0, usage?.outputTokens ?? 0, durationMs, input.modelLabel ?? '', at,
       JSON.stringify(input.sources ?? []),
       JSON.stringify((input.scopes ?? []).slice(0, MAX_TURN_SCOPES)),
+      JSON.stringify(suggestionList),
     )
     await this.write(
       `UPDATE chat_conversations SET updated_at = ?2 WHERE user_id = ?1 AND id = ?3`,
@@ -2552,6 +2574,7 @@ export class AssistantStore {
       // turn is rendered from *this* object, and a return that drops them shows an answer that searched
       // with no citation under it until the thread is opened again and read from the table.
       sources: input.sources ?? [],
+      ...(suggestionList.length ? { suggestions: suggestionList } : {}),
     }
   }
 
@@ -2612,6 +2635,23 @@ export class AssistantStore {
     const result = await this.write(
       `UPDATE chat_messages SET feedback = ?3 WHERE user_id = ?1 AND id = ?2`,
       id, encodeFeedback(feedback, feedback === 'down' ? reason : undefined),
+    )
+    return result > 0
+  }
+
+  /**
+   * Pin the follow-up chips a naming pass volunteered onto the answer that produced them.
+   *
+   * A separate statement rather than part of `addMessage`, because the answer is filed the moment the model
+   * stops, and the chips arrive a beat later out of a second, best-effort call: the row must exist and be
+   * complete before there is anything to hang off it. Scoped by `user_id` so a naming pass can only ever write
+   * its own account's row — the same guard every message-column write here carries. The list is clipped again
+   * on the way in, so a caller that passed a longer one cannot overfill the row. `[]` clears them.
+   */
+  async setMessageSuggestions(id: string, suggestions: readonly string[]): Promise<boolean> {
+    const result = await this.write(
+      `UPDATE chat_messages SET suggestions = ?3 WHERE user_id = ?1 AND id = ?2`,
+      id, JSON.stringify(clipSuggestionList(suggestions)),
     )
     return result > 0
   }
@@ -5180,7 +5220,7 @@ const EXPORT_COLUMNS: Readonly<Record<string, readonly string[]>> = {
   // so a restore that lost it leaves the reader with a thread whose answer they had kept, kept nowhere — and
   // because the column is nullable, `INSERT OR IGNORE` drops nothing on the way back in. The row lands with
   // the mark gone, which is the quiet version of the loss rather than the loud one.
-  chat_messages: ['id', 'conversation_id', 'role', 'content', 'reasoning', 'tools', 'attachments', 'status', 'error', 'source', 'input_tokens', 'output_tokens', 'duration_ms', 'model_label', 'sources', 'feedback', 'scopes', 'saved_at', 'created_at'],
+  chat_messages: ['id', 'conversation_id', 'role', 'content', 'reasoning', 'tools', 'attachments', 'status', 'error', 'source', 'input_tokens', 'output_tokens', 'duration_ms', 'model_label', 'sources', 'feedback', 'scopes', 'suggestions', 'saved_at', 'created_at'],
   chat_answer_versions: ['id', 'message_id', 'conversation_id', 'content', 'reasoning', 'tools', 'model_label', 'input_tokens', 'output_tokens', 'duration_ms', 'created_at'],
   // `note_id` is the note a fact was written out as: a pointer the management screen shows, so it
   // travels with the fact it belongs to.

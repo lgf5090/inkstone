@@ -14,12 +14,12 @@
 
 import { MAX_MESSAGE_CHARS, SEARCH_NATIVE_PROTOCOLS, WEB_SEARCH_TOOL_NAME, looksLikeSearchTool, toolModeFor, toolPayloadText, webSearchConfigured } from '@shared/assistant'
 import type { AssistantMessage, AssistantModel, AssistantModelModality, AssistantProtocol, AssistantSettings, AssistantSource, ChatStreamEvent, ToolActivity } from '@shared/assistant'
-import { contextBudgetFor, customParamBody, MAX_CHAT_ATTACHMENTS, MAX_TURN_SCOPES, MAX_TURN_TOOLS, estimateTokens, titleFromMessage, type AssistantTurnScope } from '@shared/assistant'
+import { contextBudgetFor, customParamBody, MAX_CHAT_ATTACHMENTS, MAX_CONVERSATION_TITLE_CHARS, MAX_TURN_SCOPES, MAX_TURN_TOOLS, clipSuggestionList, estimateTokens, titleFromMessage, type AssistantTurnScope } from '@shared/assistant'
 import { hasHistoricalIntent, memoryTokenBudget } from '@shared/assistant-memory'
 import { ATTACHMENT_MARKER, expandChatAttachments, type AttachmentPayload } from './attachments'
 import { resolveNoteMentions } from './note-mentions'
 import { loadExternalTools, type ExternalToolsResult } from './mcp-tools'
-import { buildSystemPrompt, offlineAnswer, promptCatalog, summarizerPrompt } from '@shared/assistant-prompt'
+import { buildSystemPrompt, namingPrompt, offlineAnswer, promptCatalog, summarizerPrompt } from '@shared/assistant-prompt'
 import { describeLocalTime, localDayBounds } from '@shared/assistant-time'
 import type { Env } from '../env'
 import { ApiError } from '../lib/errors'
@@ -109,16 +109,29 @@ const TURN_REFUSED = 'The model declined to answer, so the reply above stops whe
 const TURN_FILTERED = 'The provider cut this reply short under its own content rules, so the answer above stops where it does. Try rephrasing it, or ask a different model.'
 
 /**
- * The deadlines on the two model calls that run beside a turn rather than as it.
+ * The deadlines on the model calls that run beside a turn rather than as it.
  *
- * Both abort the request rather than answer for it, so what is being chosen is how long a reader waits
- * before the turn continues without the extra work: the summariser has a whole overflow to read and can
+ * All of them abort the request rather than answer for it, so what is being chosen is how long a reader waits
+ * before the turn proceeds without the extra work: the summariser has a whole overflow to read and can
  * afford the most time, the conflict judge is asked about two paragraphs and is the one a writer notices
- * when it is late. A call that runs past its deadline is dropped, not retried, because both are work the
- * turn can proceed without.
+ * when it is late. The naming pass runs after the reader's answer is already on screen and filed, so it is
+ * the shortest leash here — a title that has not arrived by now is not worth making the isolate wait for. A
+ * call that runs past its deadline is dropped, not retried, because all three are work the turn can proceed
+ * without.
  */
 const SUMMARIZE_DEADLINE_MS = 45_000
 const CONFLICT_JUDGE_DEADLINE_MS = 30_000
+/** The naming pass reads one short exchange and writes a dozen words; a quarter of a minute is generous. */
+const NAMING_DEADLINE_MS = 25_000
+/**
+ * The output ceiling on the naming call, in tokens.
+ *
+ * A title and at most three follow-up questions do not need the model's whole allowance, and asking for less
+ * is the one lever that actually makes this second call cheaper than the turn it follows. Bounded well above
+ * the words it means to emit so a chatty model is cut off rather than allowed to run, and the JSON is read
+ * from whatever arrived.
+ */
+const NAMING_MAX_OUTPUT_TOKENS = 200
 
 /**
  * How many extra attempts a model call gets before the turn reports the failure.
@@ -430,6 +443,11 @@ export class AssistantRunner {
     // The row this turn writes into. A retry always lands on the turn's own row — including when the
     // attempt it replaces had failed — because that row is what the displaced answers are filed under.
     let reuseId: string | null = null
+    // Whether this turn is the one that made the conversation. The naming pass only runs for a thread it
+    // just created: a later turn cannot rename it (the reader may have titled it themselves by then), and a
+    // retry that reuses a row is answering inside an already-named thread, so `complete` on its own is not
+    // enough to decide "this is the first answer of a fresh conversation".
+    let wasNewConversation = false
     // The caller's claim, when it made one; a turn that creates its own conversation claims below.
     this.runToken = this.deps.runToken ?? null
     if (input.retry) {
@@ -514,6 +532,7 @@ export class AssistantRunner {
       if (conversation && !conversation.noteId && this.originNoteId) await this.store.setConversationNote(conversation.id, this.originNoteId)
       if (!conversation) {
         conversation = await this.store.createConversation(titleFromMessage(message), null, input.ephemeral === true, null, this.originNoteId)
+        wasNewConversation = true
         // The route had no id to claim yet, so the lease is taken here: without it a second tab could
         // open a parallel turn on the conversation this one has just made.
         this.runToken = await this.store.claimRun(conversation.id)
@@ -938,7 +957,30 @@ export class AssistantRunner {
       yield { type: 'usage', usage }
       // Read the signal again here: every `yield` above hands control back to the response writer, and
       // a reader who stopped the turn in the meantime must not have their half answer filed as whole.
-      yield { type: 'done', finalMessage: await finish(stopped() ? 'cancelled' : outcome, failure, usage) }
+      const finalMessage = await finish(stopped() ? 'cancelled' : outcome, failure, usage)
+      yield { type: 'done', finalMessage }
+      // A fresh, kept conversation's first answer, filed whole: spend one cheap call on the model that just
+      // answered to name the thread and propose what to ask next. Best-effort and self-contained — it can
+      // neither throw into the turn's `catch` nor leave the reader with a title the model never gave. When it
+      // yields nothing (no budget, a dead call, an answer that is not JSON), the derived title stands and the
+      // answer carries no suggestions, which is the honest reading rather than a rename that did not happen.
+      if (wasNewConversation && !input.ephemeral && finalMessage.status === 'complete') {
+        const named = await this.nameThreadAndSuggest({
+          conversationId,
+          messageId: assistantId,
+          question: message,
+          answer,
+          model,
+          provider,
+          call,
+          modelLabel,
+          keyRef,
+          derivedTitle: conversation.title,
+          limits,
+          signal: input.signal,
+        })
+        if (named) yield { type: 'title', conversationId, title: named }
+      }
     } catch (error) {
       // A stop stops the turn, not the record of it: the words the reader already watched arrive are
       // the half answer they chose to keep, so they are merged before the row is filed. Without this
@@ -1335,6 +1377,111 @@ export class AssistantRunner {
     // The row the roll-up ends on travels back with its time: two turns can share a millisecond, and the
     // one that came after must not be folded away with the history above it.
     return { upto: last.createdAt, ...(last.id ? { uptoId: last.id } : {}) }
+  }
+
+  /**
+   * Name a fresh conversation and propose its follow-ups, in one cheap call to the model that just answered.
+   *
+   * The reader asked for a title written by the model rather than a truncation of their first line, and for
+   * three questions to ask next. Both come out of the same reading of the same exchange, so they are asked
+   * for together — one request, one bill — on the same model, the same provider and a key signed from that
+   * provider's own ring. It runs after the answer is already filed and already on the reader's screen, so
+   * everything here is strictly best-effort: a call that has no budget left, times out, is refused, or hands
+   * back something that is not JSON leaves the derived title standing and the answer showing no suggestions,
+   * and says so by yielding nothing rather than by renaming to a name the model never gave — a failure here
+   * is reported by the absence of a change, not by a wrong one that looks like it worked.
+   *
+   * The tokens are metered — charged to the day's totals under the same model label and key as the turn, so
+   * the reader is never quietly burned for free — but they are deliberately NOT written into the turn's own
+   * `chat_messages` usage row, and never into the `usage` frame already sent: the naming pass is a separate
+   * act of reading, not part of the price of the answer. Returns the new title when it wrote one (so the
+   * caller can emit it), or null when the thread is left as it was named.
+   */
+  private async nameThreadAndSuggest(args: {
+    conversationId: string
+    messageId: string
+    question: string
+    answer: string
+    model: AssistantModel
+    provider: ProviderRow
+    call: ModelEndpoint
+    modelLabel: string
+    keyRef?: { providerId: string, providerLabel: string }
+    derivedTitle: string
+    limits: AssistantSettings['limits']
+    signal: AbortSignal
+  }): Promise<string | null> {
+    // No request left on the day's ceiling: leave the derived title. A title is worth less than the reader's
+    // last request to the day, and reserving here is what keeps this call off the free list.
+    if (!(await this.reserve(1, args.limits.maxRequestsPerDay, args.keyRef, args.modelLabel))) return null
+    const { system, user } = namingPrompt(this.settings.language, args.question, args.answer)
+    // Its own controller, so a stop of the reader's or the deadline ends this call without touching the turn
+    // (which is already filed). The turn's signal is watched, not replaced.
+    const controller = new AbortController()
+    const onAbort = () => controller.abort(args.signal.reason)
+    if (args.signal.aborted) onAbort()
+    else args.signal.addEventListener('abort', onAbort, { once: true })
+    const timer = setTimeout(() => controller.abort(), NAMING_DEADLINE_MS)
+    // `max` rather than `+`: the naming call is one step, so there is no second usage frame to add, and a
+    // provider that repeats a total on `done` must not count it twice.
+    const spent = { inputTokens: 0, outputTokens: 0 }
+    let text = ''
+    try {
+      for await (const event of streamUpstream(args.call.protocol, {
+        baseUrl: args.call.baseUrl,
+        // Signed from the same provider that answered, so the naming pass travels on the reader's own key and
+        // nothing else's. No `retry`: a single cheap attempt, one key, one shot — this is a nicety on an
+        // answer that already succeeded, and rotating the ring or trying another model for it would cost the
+        // reader more than the title is worth.
+        apiKey: await this.signKey(args.provider),
+        model: args.model.model,
+        system,
+        turns: [{ role: 'user', content: user }],
+        tools: [],
+        maxOutputTokens: NAMING_MAX_OUTPUT_TOKENS,
+        temperature: 0,
+        reasoning: 'off',
+        reasoningDialect: args.call.reasoningDialect,
+        structured: true,
+        signal: controller.signal,
+      })) {
+        if (event.type === 'text') text += event.delta
+        if (event.type === 'usage') {
+          spent.inputTokens = Math.max(spent.inputTokens, event.inputTokens)
+          spent.outputTokens = Math.max(spent.outputTokens, event.outputTokens)
+        }
+      }
+    } catch (error) {
+      // A refused, unreachable or timed-out call. Meter the attempt as an error against the day (the same
+      // shape the conflict judge leaves behind), then get out: the derived title is the honest answer.
+      console.warn('[inkstone] assistant naming skipped:', error instanceof Error ? error.name : error)
+      await this.store.incrementUsage({ errors: 1 }, undefined, args.modelLabel, args.keyRef)
+      return null
+    } finally {
+      clearTimeout(timer)
+      args.signal.removeEventListener('abort', onAbort)
+    }
+    // The call ran, so its tokens are paid for whether or not the answer is usable. Estimate when a relay
+    // streamed no usage frame, so a naming pass is never free, then record it against the model and key.
+    const charged = spent.inputTokens || spent.outputTokens
+      ? spent
+      : { inputTokens: estimateTokens(`${system}\n${user}`), outputTokens: estimateTokens(text) }
+    await this.store.incrementUsage({ inputTokens: charged.inputTokens, outputTokens: charged.outputTokens }, undefined, args.modelLabel, args.keyRef)
+    const parsed = parseNaming(text)
+    if (!parsed) return null
+    // Suggestions attach to the answer that earned them, independent of the title: a thread the reader
+    // already renamed still gets follow-ups on its first answer, and an empty list writes nothing.
+    if (parsed.suggestions.length) await this.store.setMessageSuggestions(args.messageId, parsed.suggestions)
+    if (!parsed.title || parsed.title === args.derivedTitle) return null
+    // Do not step on a title the reader chose: rename only while the row still holds the value this turn
+    // derived. Re-read from the table rather than trusting the in-memory `conversation` — a second tab, a
+    // restore, or a hand edit between the create above and now is exactly the case this check exists for,
+    // and it is what makes "the reader renamed it" the one outcome that survives the race. If the current
+    // title is anything other than the derived one, the reader owns it and it stays.
+    const current = await this.store.getConversation(args.conversationId)
+    if (!current || current.title !== args.derivedTitle) return null
+    await this.store.renameConversation(args.conversationId, parsed.title)
+    return parsed.title
   }
 
   /**
@@ -2004,6 +2151,38 @@ export function parseVerdict(text: string): { relationship: string, confidence: 
   } catch {
     return null
   }
+}
+
+/**
+ * The title and follow-ups, taken out of whatever the naming call answered with.
+ *
+ * Same brace-extraction discipline as `parseVerdict`: the request asked the wire for JSON (see `structured`),
+ * a provider that honoured it answers with a bare object, a relay that ignored it answers with an object
+ * wrapped in prose, and the brace finds the object either way. What comes back is then validated rather than
+ * trusted: the title is a single trimmed line bounded by `MAX_CONVERSATION_TITLE_CHARS`, the follow-ups run
+ * through `clipSuggestionList` (at most three, each length-bounded, empties and repeats dropped) — so a model
+ * that volunteered five, or a run-on paragraph where a name belongs, is trimmed to something safe rather than
+ * rejected whole or stored as-is. `null` means the answer held no usable object at all, which leaves the
+ * derived title standing and no suggestions shown; a valid object that named only follow-ups (empty title) is
+ * not `null` — it returns with the suggestions and an empty title, and the caller renames nothing.
+ */
+function parseNaming(text: string): { title: string, suggestions: string[] } | null {
+  const match = text.match(/\{[\s\S]*\}/)
+  if (!match) return null
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(match[0])
+  } catch {
+    return null
+  }
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return null
+  const record = parsed as Record<string, unknown>
+  const title = typeof record.title === 'string'
+    ? record.title.replace(/\s+/g, ' ').trim().slice(0, MAX_CONVERSATION_TITLE_CHARS)
+    : ''
+  const suggestions = clipSuggestionList(record.suggestions)
+  if (!title && !suggestions.length) return null
+  return { title, suggestions }
 }
 
 function errorCode(error: unknown): string {

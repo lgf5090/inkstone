@@ -1669,6 +1669,25 @@ export const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
       `ALTER TABLE chat_active_runs ADD COLUMN partial_text TEXT`,
     ],
   },
+  {
+    // The follow-up chips a naming pass volunteers for a finished first answer.
+    //
+    // The reader asked for the thread to be named by the model rather than by their first line, and the same
+    // cheap second call that writes that title also proposes three questions to ask next. Those questions
+    // belong to the answer they follow, so they are stored on the assistant row that produced them — the one
+    // place that survives reopening the thread, and a restore onto another device, and is why the transcript
+    // can show the same three chips tomorrow without a second call. `[]` means none, which is what every row
+    // written before this column carries and what a naming call that failed leaves behind: an honest absence,
+    // not a frame of filler. NOT NULL with a default because the column rides in the assistant backup's
+    // `EXPORT_COLUMNS`, and a nullable one there is the quiet half of a bug this table has paid for twice — a
+    // restore that binds the missing key NULL into a NOT NULL column loses the whole message row to
+    // `INSERT OR IGNORE`. One column, one version.
+    version: 109,
+    skipIfColumnExists: { table: 'chat_messages', column: 'suggestions' },
+    statements: [
+      `ALTER TABLE chat_messages ADD COLUMN suggestions TEXT NOT NULL DEFAULT '[]'`,
+    ],
+  },
 ]
 
 const FTS_STATEMENT = `CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(

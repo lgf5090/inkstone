@@ -99,6 +99,10 @@ export const MAX_AUTOMATION_TARGET_ID_CHARS = 64
 export const MAX_CONVERSATION_TITLE_CHARS = 200
 /** How much standing instruction the prompt will carry: enough for a page, short enough to stay a rule. */
 export const MAX_CUSTOM_INSTRUCTIONS_CHARS = 2_000
+/** How many follow-up questions the model may volunteer under a finished answer. A shorter list is honest; padding one is not. */
+export const MAX_TITLE_SUGGESTIONS = 3
+/** The widest a single follow-up chip may run before the server trims it, so one long sentence cannot crowd the footline. */
+export const MAX_TITLE_SUGGESTION_CHARS = 200
 
 /**
  * The largest backup the import route will read, and the size the export warns about.
@@ -868,6 +872,30 @@ export function titleFromMessage(message: string): string {
   for (const mark of TITLE_BREAK_PUNCTUATION) lastClause = Math.max(lastClause, cut.lastIndexOf(mark))
   const breakAt = Math.max(lastSpace > 20 ? lastSpace : -1, lastClause > 8 ? lastClause : -1)
   return breakAt > 0 ? cut.slice(0, breakAt) : cut
+}
+
+/**
+ * A follow-up list made safe to store and to show: trimmed, empties dropped, each line bounded, duplicates
+ * removed, and the whole thing capped to {@link MAX_TITLE_SUGGESTIONS}.
+ *
+ * This is the one shape both sides of the column share. The naming pass runs it on what the model volunteered
+ * before writing — a list of five, or of three long sentences, is trimmed to three short ones rather than
+ * thrown out whole, because a partial answer is worth more than none — and the transcript read runs it again
+ * on the stored value, because the same column is what a backup hands back, and a file is not held to the
+ * limits the live turn was. An input that is not an array, or an array of nothing usable, becomes `[]`, which
+ * is what lets the row stay absent-keyed rather than carry a field nobody renders.
+ */
+export function clipSuggestionList(value: unknown): string[] {
+  if (!Array.isArray(value)) return []
+  const out: string[] = []
+  for (const entry of value) {
+    if (typeof entry !== 'string') continue
+    const clean = entry.replace(/\s+/g, ' ').trim().slice(0, MAX_TITLE_SUGGESTION_CHARS)
+    if (!clean || out.includes(clean)) continue
+    out.push(clean)
+    if (out.length >= MAX_TITLE_SUGGESTIONS) break
+  }
+  return out
 }
 
 /**
@@ -2010,6 +2038,18 @@ export interface AssistantMessage {
    * column existed.
    */
   scopes?: AssistantTurnScope[]
+  /**
+   * The follow-up questions the model volunteered for this answer, kept on the answer that produced them.
+   *
+   * Only the assistant row of a conversation's first turn ever carries them: they are asked for in the same
+   * post-turn call that names the thread, and stored on the reply they follow so reopening the thread a week
+   * later — or reading it from a backup on another device — shows the same three chips. Absent on a turn that
+   * was never given a naming pass, on every row written before the column existed, and on every row whose
+   * naming call failed (the answer is honest about having no suggestions rather than inventing filler).
+   * Bounded to `MAX_TITLE_SUGGESTIONS`, each trimmed to `MAX_TITLE_SUGGESTION_CHARS`, on the way in and the
+   * way back out.
+   */
+  suggestions?: string[]
   /** The project this turn was answered under, so the thread can say where its brief came from. */
   projectId?: string | null
   /**

@@ -347,6 +347,12 @@ async function mergeBackup(store: AssistantStore, data: Record<string, unknown>,
       // The scope a turn was asked under, kept for the same reason: a restored transcript that lost it
       // would show an answer with no explanation for why it only knew one note.
       scopes: typeof message.scopes === 'string' ? message.scopes.slice(0, 8 * 1024) : '[]',
+      // The follow-up chips the answer volunteered, kept because the transcript renders them off the row: a
+      // restored answer that lost them shows fewer questions than the reader saw before. Named for the
+      // harder reason than `scopes`: the column is NOT NULL, so a key the restore leaves out is bound NULL
+      // and `INSERT OR IGNORE` drops the whole message — the loud half of the failure this table has hit
+      // twice for a column that was exported but not rebuilt here.
+      suggestions: typeof message.suggestions === 'string' ? message.suggestions.slice(0, 8 * 1024) : '[]',
       // The reader's own keep, with the moment they made it. Named because a column the restore leaves out
       // is written as NULL rather than skipped: the row still lands — the column is nullable — and the
       // answer comes back off the shelf the reader put it on, which is the loss nobody would see.

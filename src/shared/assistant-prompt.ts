@@ -141,6 +141,28 @@ export function conflictCheckPrompt(language: PromptLanguage, older: string, new
   })
 }
 
+/**
+ * The naming pass: one cheap call that turns a conversation's first exchange into a title and three
+ * follow-up questions.
+ *
+ * Both halves arrive from one request, because the two are the same act of reading — "what is this thread
+ * about, and what would the reader want to ask next" — and paying for a second call to split them would burn
+ * the reader's key for nothing. The prompt asks for bare JSON, the same way the conflict judge does, so a
+ * vendor that honours the `structured` field returns an object and one that ignores it returns an object in
+ * prose the caller can still brace-match. The question and answer are bounded here: the naming pass has no
+ * business reading a forty-thousand-character reply, and what it needs to name a thread fits in a few hundred.
+ */
+export function namingPrompt(language: PromptLanguage, question: string, answer: string): { system: string, user: string } {
+  const catalog = promptCatalog(language)
+  return {
+    system: catalog.naming_system,
+    user: fill(catalog.naming_user, {
+      question: question.slice(0, 1_000),
+      answer: answer.slice(0, 2_000),
+    }),
+  }
+}
+
 export function offlineAnswer(language: PromptLanguage, echo: string): string {
   return fill(promptCatalog(language).offline_answer, { echo })
 }

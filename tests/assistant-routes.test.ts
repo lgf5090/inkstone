@@ -1256,6 +1256,9 @@ describe('lease and streaming turn', () => {
     expect(observed.map((entry) => entry.url)).toEqual([
       'https://api.example.com/v1/chat/completions',
       'https://api.example.com/v1/chat/completions',
+      // The naming pass that titles a brand-new conversation is a third call, made after the answer is
+      // filed, to the same model on the same key.
+      'https://api.example.com/v1/chat/completions',
     ])
     expect(observed[0]!.leaseUntil).toBeGreaterThan(Date.now())
     expect(observed[1]!.leaseUntil).toBeGreaterThan(1)
@@ -1278,9 +1281,11 @@ describe('lease and streaming turn', () => {
     const usage = await call<{ today: Record<string, number> }>('GET', '/api/assistant/usage')
     // The meter is written with the answer's own column names; a mismatch there fails the statement
     // and the turn is filed as an error even though the reply arrived whole.
-    expect(usage.today.requests).toBe(2)
-    expect(usage.today.inputTokens).toBe(20)
-    expect(usage.today.outputTokens).toBe(6)
+    // The day totals now carry both the turn and the naming pass that followed it (the wire's canned
+    // `FINAL_FRAMES` answers both calls, so each reports 20/6): two calls, 40 in, 12 out, one tool call.
+    expect(usage.today.requests).toBe(3)
+    expect(usage.today.inputTokens).toBe(40)
+    expect(usage.today.outputTokens).toBe(12)
     expect(usage.today.toolCalls).toBe(1)
   })
 
@@ -2868,7 +2873,9 @@ describe('model editor fields', () => {
     })
     let sent = ''
     vi.stubGlobal('fetch', vi.fn(async (_url: string, init?: RequestInit) => {
-      sent = String(init?.body ?? '')
+      // Keep the first request only: the naming pass that follows a new conversation's answer is a second
+      // call, and this test is about what the reader's sampling settings did to the turn's own request.
+      if (!sent) sent = String(init?.body ?? '')
       return new Response(sse(FINAL_FRAMES), { headers: { 'content-type': 'text/event-stream' } })
     }))
     const events = await chatEvents({ message: 'hi' })
@@ -3106,17 +3113,20 @@ describe('model input modalities', () => {
     }))
 
     stub()
+    const refusedTurn = bodies.length
     await chatEvents({ message: '这条录音里说了什么？', attachments: [clip.attachment.id] })
     await settleTurns()
-    const refused = bodies.at(-1) ?? ''
+    // Read the turn's own request, not the naming pass that follows it (bodies keeps both).
+    const refused = bodies[refusedTurn] ?? ''
     expect(refused).toContain('not marked as able to take audio')
 
     await call('PATCH', `/api/assistant/models/${modelId}`, { modalities: ['audio'] })
     stub()
+    const acceptedTurn = bodies.length
     await chatEvents({ message: '这条录音里说了什么？', attachments: [clip.attachment.id] })
     await settleTurns()
     vi.unstubAllGlobals()
-    const accepted = bodies.at(-1) ?? ''
+    const accepted = bodies[acceptedTurn] ?? ''
     // The refusal is gone, and the recording is still not passed off as read: it is named as what it is.
     expect(accepted).not.toContain('not marked as able to take audio')
     expect(accepted).toContain('voice-note.mp3')
@@ -3917,8 +3927,9 @@ describe('usage attribution', () => {
     const row = stats.keys.find((entry) => entry.providerLabel === 'Example')
     expect(row).toBeTruthy()
     expect(row!.requests).toBeGreaterThanOrEqual(1)
-    expect(row!.inputTokens).toBe(20)
-    expect(row!.outputTokens).toBe(6)
+    // The day carries the turn and the naming pass that follows it — the wire answers both with 20/6.
+    expect(row!.inputTokens).toBe(40)
+    expect(row!.outputTokens).toBe(12)
   })
 
   it('prices the window day by day, split by model and by key from the same rows', async () => {
@@ -3942,8 +3953,8 @@ describe('usage attribution', () => {
       models: { label: string, currency: string, cost: number | null }[]
     }>('GET', '/api/assistant/stats?range=all')
 
-    // 20 tokens in at 1/M and 6 out at 2/M.
-    const expected = (1 * 20 + 2 * 6) / 1_000_000
+    // 40 tokens in at 1/M and 12 out at 2/M — the turn's 20/6 plus the naming pass's 20/6.
+    const expected = (1 * 40 + 2 * 12) / 1_000_000
     expect(stats.series).toHaveLength(1)
     const day = stats.series[0]!
     expect(day.requests).toBeGreaterThanOrEqual(1)
@@ -4047,13 +4058,13 @@ describe('usage attribution', () => {
       }
     }>('GET', '/api/assistant/stats/overview')
 
-    // 20 tokens in and 6 out, on the one day this account has ever been used.
-    expect(overview.totalTokens).toBe(26)
+    // 40 tokens in and 12 out (the turn plus the naming pass), on the one day this account has ever been used.
+    expect(overview.totalTokens).toBe(52)
     expect(overview.peakDay).toBe(usageDay())
-    expect(overview.peakTokens).toBe(26)
+    expect(overview.peakTokens).toBe(52)
     expect(overview.currentStreak).toBe(1)
     expect(overview.longestStreak).toBe(1)
-    expect(overview.activity).toEqual([{ day: usageDay(), tokens: 26 }])
+    expect(overview.activity).toEqual([{ day: usageDay(), tokens: 52 }])
     // The turn is timed, so the longest one is a real number rather than a missing field.
     expect(overview.longestTurnMs).toBeGreaterThanOrEqual(0)
   })
@@ -4096,13 +4107,13 @@ describe('usage attribution', () => {
     const byKey = await call<{ total: { inputTokens: number }, models: { label: string }[] }>(
       'GET', `/api/assistant/stats?range=all&key=${entry.providerId}`,
     )
-    expect(byKey.total.inputTokens).toBe(20)
+    expect(byKey.total.inputTokens).toBe(40)
     expect(byKey.models.map((model) => model.label)).toEqual([modelLabel])
 
     const byModel = await call<{ total: { inputTokens: number } }>(
       'GET', `/api/assistant/stats?range=all&model=${encodeURIComponent(modelLabel)}`,
     )
-    expect(byModel.total.inputTokens).toBe(20)
+    expect(byModel.total.inputTokens).toBe(40)
 
     const none = await call<{ total: { inputTokens: number } }>('GET', '/api/assistant/stats?range=all&model=nope')
     expect(none.total.inputTokens).toBe(0)
@@ -4259,8 +4270,9 @@ describe('the model a turn falls back to', () => {
     await settleTurns()
     vi.unstubAllGlobals()
 
-    // The chosen model gets its retries first, and only then is the spare asked.
-    expect(hosts).toEqual(['api.example.com', 'api.example.com', 'api.example.com', 'spare.example.com'])
+    // The chosen model gets its retries first, and only then is the spare asked. The fifth call is the
+    // naming pass: it follows the answer on the spare that actually served the turn, not the primary that could not.
+    expect(hosts).toEqual(['api.example.com', 'api.example.com', 'api.example.com', 'spare.example.com', 'spare.example.com'])
     expect(events.some((event) => event.type === 'error')).toBe(false)
     const conversationId = events.find((event) => event.type === 'start')!.conversationId!
     const detail = await call<{ messages: AssistantMessage[] }>('GET', `/api/assistant/conversations/${conversationId}`)
