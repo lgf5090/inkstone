@@ -6969,6 +6969,7 @@ console.log(\`Hello, \${name}!\`)
     "assistant.compare.seconds": "{seconds} 秒",
     "assistant.compare.stats_pending": "尚未报告用量",
     "assistant.compare.stop": "停止对比",
+    "assistant.compare.stream_incomplete": "对比那一栏没有跑完，你的模型的回答不受影响；重新发送这个问题可以再跑一次对比。",
     "assistant.compare.dismiss": "移除这次对比",
     "assistant.composer.search": "联网",
     "assistant.search.on": "已联网",
