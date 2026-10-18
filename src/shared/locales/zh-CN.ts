@@ -5937,6 +5937,7 @@ console.log(\`Hello, \${name}!\`)
     "assistant.chat.empty": "还没有对话。",
     "assistant.chat.no_matches": "没有匹配项。",
     "assistant.chat.load_earlier": "加载更早的消息",
+    "assistant.chat.earlier_capped": "这里只加载最近的 {limit} 条消息；更早的消息仍然保存在这条对话里，只是没有加载。",
     "assistant.chat.jump_latest": "回到最新消息",
     "assistant.chat.pick_start": "批量选择对话",
     "assistant.chat.pick_cancel": "退出批量选择",
