@@ -656,6 +656,7 @@ export function ChatView() {
                   // one confirms that the turns below it will be removed with it.
                   onRetry={message.role === 'assistant' && !streaming ? retryAnswer : undefined}
                   canContinue={canContinueAnswer(message, streaming, lastAnswer?.id ?? null)}
+                  canAskNext={canAskNextAnswer(message, streaming, lastAnswer?.id ?? null)}
                   onStartPicking={startPicking}
                   onShare={shareMessage}
                   selection={selected ? { active: true, checked: selected.has(message.id), onToggle: () => togglePicked(message.id) } : undefined}
@@ -846,6 +847,22 @@ export function canContinueAnswer(message: AssistantMessage, streaming: boolean,
 }
 
 /**
+ * Whether this answer is the one a follow-up question can be asked from.
+ *
+ * The three questions a naming pass volunteers are written onto the answer that produced them, and only the
+ * newest settled answer has a next turn for them to be asked into: pressing one under an older answer would
+ * send the words to a thread that has already moved past it, while looking like it continued that turn. A
+ * reply still being written is not an answer yet, and one the model stopped or failed to finish holds
+ * nothing the reader is being invited to follow up on.
+ */
+export function canAskNextAnswer(message: AssistantMessage, streaming: boolean, lastAnswerId: string | null): boolean {
+  return message.role === 'assistant'
+    && !streaming
+    && message.status === 'complete'
+    && message.id === lastAnswerId
+}
+
+/**
  * Which transcript the find panel's marks are sitting on, told as the one number it takes.
  *
  * Summed magnitudes could not answer that: one new message and one typed character move
@@ -880,12 +897,14 @@ export function transcriptRevision(messages: readonly AssistantMessage[], turn: 
  * states that show on it. The callbacks are compared because the row passes one through to its own
  * controls — which is why the view hands them over with a single identity rather than a closure per row.
  */
-export const MessageRow = memo(function MessageRow({ message, onRetry, canContinue = false, busy = false, selection, onStartPicking, onShare }: {
+export const MessageRow = memo(function MessageRow({ message, onRetry, canContinue = false, canAskNext = false, busy = false, selection, onStartPicking, onShare }: {
   message: AssistantMessage
   /** The row answers for its own id, so one callback serves the whole list. */
   onRetry?: (messageId: string) => void
   /** Only the newest settled answer: continuing anything else would append to a turn already read past. */
   canContinue?: boolean
+  /** Only the newest settled answer: a follow-up asked under an older one would be answered by the whole thread. */
+  canAskNext?: boolean
   busy?: boolean
   selection?: MessageSelection
   onStartPicking?: (messageId: string) => void
@@ -928,6 +947,10 @@ export const MessageRow = memo(function MessageRow({ message, onRetry, canContin
       createdAt={message.createdAt}
       onRetry={onRetry ? () => onRetry(message.id) : undefined}
       canContinue={canContinue}
+      // The questions the model volunteered for this answer, and whether this is the answer they can be
+      // asked from — which only the thread can say, not the row.
+      suggestions={message.suggestions ?? []}
+      canAskNext={canAskNext}
       retryLabel={retryLabel}
       usage={message.usage}
       sources={message.sources}
@@ -950,6 +973,7 @@ export const MessageRow = memo(function MessageRow({ message, onRetry, canContin
 }, (previous, next) => previous.message === next.message
   && previous.busy === next.busy
   && previous.canContinue === next.canContinue
+  && previous.canAskNext === next.canAskNext
   && previous.onRetry === next.onRetry
   && previous.onStartPicking === next.onStartPicking
   && previous.onShare === next.onShare

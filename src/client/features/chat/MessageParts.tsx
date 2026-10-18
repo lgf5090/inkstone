@@ -547,6 +547,39 @@ function AnswerFootline({ usage, durationMs, modelLabel }: {
 }
 
 /**
+ * The questions the model offered as what to ask next.
+ *
+ * They come out of the same cheap call that names a fresh thread and are stored on the answer they follow,
+ * so a thread reopened a week later — or read on another device — offers the same ones. Pressing a chip asks
+ * it the way the composer would, through the store's own `send`: the turn then carries this thread's scope,
+ * its model and the guards that refuse a second turn while one is being written, none of which a line of
+ * text dropped into the box would do.
+ *
+ * A chip holds the whole question, so a long one is folded onto two lines and cut with an ellipsis rather
+ * than pushing the row apart — the stored value is allowed to be far longer than a chip wants to show.
+ */
+function AnswerSuggestions({ items }: { items: string[] }) {
+  return (
+    <div
+      role="group"
+      aria-label={t('assistant.chat.ask_next')}
+      className="flex max-w-[72ch] flex-wrap gap-1 pt-0.5"
+    >
+      {items.map((question) => (
+        <button
+          key={question}
+          type="button"
+          onClick={() => void useAssistant.getState().send(question)}
+          className="ink-tap-pad relative inline-flex max-w-full items-center rounded-[var(--r-full)] border border-[var(--border-subtle)] bg-[var(--bg-surface)] px-1.5 py-0.5 text-left text-[length:var(--text-11)] text-[var(--text-tertiary)] transition-colors duration-[var(--dur-fast)] hover:border-[var(--accent)] hover:text-[var(--accent)]"
+        >
+          <span className="line-clamp-2 min-w-0 break-words">{question}</span>
+        </button>
+      ))}
+    </div>
+  )
+}
+
+/**
  * The most the engine is handed in one piece.
  *
  * A browser's speech synthesiser drops what it cannot say in one breath — every engine is comfortable well
@@ -771,6 +804,8 @@ export function AssistantBubble({
   canContinue,
   createdAt,
   selection,
+  suggestions = [],
+  canAskNext = false,
   onStartPicking,
   onShare,
   loadVersions,
@@ -816,6 +851,20 @@ export function AssistantBubble({
   canContinue?: boolean
   /** When the answer was written; absent on a live turn, which has no row yet. */
   createdAt?: number
+  /**
+   * The follow-up questions the model volunteered for this answer.
+   *
+   * Empty on every answer that was never given a naming pass, and on one whose pass offered nothing — the
+   * row simply carries none.
+   */
+  suggestions?: string[]
+  /**
+   * Whether this is the answer the reader can ask the next question from.
+   *
+   * The thread decides it, not the row: the newest settled answer is the only one a follow-up continues
+   * from, and a question aimed at an older turn would be answered against everything below it.
+   */
+  canAskNext?: boolean
   /** Present while the reader is picking turns out of the thread. */
   selection?: MessageSelection
   /** Turns the thread into a picker, starting from this answer. */
@@ -1196,6 +1245,11 @@ export function AssistantBubble({
               <AnswerFootline usage={usage} durationMs={durationMs} modelLabel={modelLabel} />
             )}
           </div>
+        )}
+        {/* The questions the answer earned, in the row it belongs to and nowhere else: an older answer in
+            the thread keeps its own chips, but only the newest one has a next turn to be asked into. */}
+        {canAskNext && !streaming && !viewing && !error && suggestions.length > 0 && (
+          <AnswerSuggestions items={suggestions} />
         )}
         {/* Why the down thumb is down, asked in the row it belongs to rather than in a dialog: the grounds
             are about this answer, and a modal would move the reader off it. */}
