@@ -614,6 +614,10 @@ const allowed = new Map([
   ]],
   ["src/client/editor/decorations.test.ts", [
     "/** Two visible ranges whose boundary falls inside the anchor line, as a wrapped viewport does. */",
+    "// The tree is parsed after the fact, so a case that asks \"what did the collector refuse to decorate\"",
+    "// has to wait for the parse: `syntaxTree(...).cursor()` only walks whatever has been parsed so far, and",
+    "// an unfinished tree hides the fence rather than showing it — which is the whole of this file's order",
+    "// dependence. `ensureSyntaxTree` is the call that actually parses, and it says whether it finished.",
   ]],
   ["src/client/editor/decorations.ts", [
     "// The name rides on the mark because CodeMirror strips attributes a decoration does not declare,",
@@ -805,6 +809,10 @@ const allowed = new Map([
     "/** `$$` on a line of its own opens a formula, and an unclosed one runs to the end of the note. */",
     "/** Lines are memoised on demand: pre-building the array costs a pass over the whole note per command. */",
     "/** A `Text` is immutable, so a document identity is enough to reuse the line scans done over it. */",
+    "// The parser runs behind the document, so an unfinished tree reports \"no fence here\" for a region it has",
+    "// not read yet. Everywhere else that answer costs a missing decoration; here it is the difference between",
+    "// leaving an author's code sample alone and rewriting it, so the parse is awaited before its silence is",
+    "// taken as permission.",
   ]],
   ["src/client/editor/outliner/commands.ts", [
     "/**\n * The outliner must not rewrite a line while an input method is still building a word out of the\n * same keystrokes. `view.composing` only turns on after the first composed character, so the editor\n * keeps its own count from the moment composition starts.\n */",
@@ -5075,6 +5083,10 @@ const allowed = new Map([
     "/**\n * Open the editor over the link a context menu was raised on.\n *\n * The menu already knows which link it means, but it knows that differently on each side: a character\n * position in the note's text on one, an element plus the source line it was rendered from on the\n * other. Both are turned back into a span here so the menu rows stay one line of code each.\n */",
     "// A rendered block and the editor's own DOM can both answer for one click; reopening the same span",
     "// would remount the panel and throw the reader's caret away.",
+    "// The syntax tree is built after the fact: until the parser has reached this line, finding no fence node",
+    "// around the pointer is not evidence that it is outside a code sample — it is evidence that nobody has",
+    "// looked yet. Parsing to the end of the line first is what makes the answer mean what it says, and a click",
+    "// is worth the few milliseconds that costs.",
   ]],
   ["src/client/features/linter/LintPreview.tsx", [
     "/**\n * The dialog that shows what a run would do before it does it.\n *\n * The reference plugin keeps a dockable diff view; this app has one modal surface per question, so\n * the preview is a dialog over the rows the drive already worked out. The rows arrive as plain data\n * — the diff is computed where the rules are, behind the same dynamic import — which keeps this file\n * light enough to sit in the shell from the first render.\n */",
