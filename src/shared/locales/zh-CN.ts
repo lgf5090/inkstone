@@ -6064,6 +6064,7 @@ console.log(\`Hello, \${name}!\`)
     "assistant.chat.select_quote_to_note": "引到笔记",
     "assistant.chat.select_translate_ask": "请翻译上面这段文字。",
     "assistant.chat.sources": "参考来源",
+    "assistant.chat.ask_next": "接着问",
     "assistant.chat.attachments": "附件",
     "assistant.chat.save_to_note": "保存到笔记",
     "assistant.chat.saved_to_note": "已存成笔记「{title}」",
