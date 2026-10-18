@@ -11,6 +11,7 @@ import { LoadingBlock } from '../../components/feedback';
 import { Tooltip } from '../../components/overlay';
 import { AudienceView } from '../presentation/audience-view';
 import { MarkdownBody } from '../preview/MarkdownBody';
+import { neutralizeShareEmbeds } from './share-markdown';
 import { t } from "../../lib/i18n";
 
 export function SharePage({ slug }: {
@@ -166,17 +167,7 @@ export function SharePage({ slug }: {
 }
 function addShareAccess(html: string, slug: string): string {
     const template = document.createElement('template');
-    template.innerHTML = html;
-    for (const embed of template.content.querySelectorAll<HTMLElement>('.note-embed[data-embed-target]')) {
-        embed.removeAttribute('data-embed-target');
-        embed.classList.remove('loading');
-        embed.classList.add('error');
-        const body = embed.querySelector<HTMLElement>('.note-embed-body');
-        if (body) {
-            body.removeAttribute('aria-busy');
-            body.textContent = t("share.embedded_private_notes_are_not_included_in_public_shares");
-        }
-    }
+    template.innerHTML = neutralizeShareEmbeds(html);
     for (const task of template.content.querySelectorAll<HTMLInputElement>('input.task-list-item-checkbox')) {
         task.disabled = true;
         task.removeAttribute('data-task-line');

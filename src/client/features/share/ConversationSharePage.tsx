@@ -3,8 +3,9 @@
  *
  * The same promise a shared note makes, for a different thing: the reader sees the turns as they were —
  * who spoke, what was said, and which model answered — and nothing else. There is no composer, no
- * sidebar and no vault behind it: a visitor has no notes to open, so `[[links]]` stay inert and the
- * assistant's sources are plain links out.
+ * sidebar and no vault behind it: a visitor has no notes to open, so `[[links]]` stay inert, a `![[note]]`
+ * is answered by the share page's own markup rule rather than by a read nobody is allowed to make, and
+ * the assistant's sources are plain links out.
  *
  * The passcode gate is the note page's, deliberately: a reader who has opened one shared link before
  * should recognise this screen, and the server-side throttle is the same one.
@@ -21,6 +22,7 @@ import { Input } from '../../components/form'
 import { LoadingBlock } from '../../components/feedback'
 import { Tooltip } from '../../components/overlay'
 import { MarkdownBody } from '../preview/MarkdownBody'
+import { neutralizeShareEmbeds } from './share-markdown'
 import { t } from '../../lib/i18n'
 
 export function ConversationSharePage({ slug }: { slug: string }) {
@@ -175,7 +177,10 @@ export function ConversationSharePage({ slug }: { slug: string }) {
                     </div>
                   ) : (
                     <div className="min-w-0 flex-1">
-                      {message.content && <MarkdownBody source={message.content} className="ink-chat-prose" />}
+                      {/* The same markup rules the shared note page runs, for the same reason: an answer can
+                          name a note, and a reader with no account and no vault is owed one honest sentence
+                          about it rather than a box that waits forever. */}
+                      {message.content && <MarkdownBody source={message.content} className="ink-chat-prose" transformHtml={neutralizeShareEmbeds} />}
                       {message.sources && message.sources.length > 0 && (
                         <ul aria-label={t('assistant.chat.sources')} className="mt-0.5 flex flex-wrap gap-1">
                           {message.sources.map((source, index) => (
