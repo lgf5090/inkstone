@@ -5960,6 +5960,7 @@ console.log(\`Hello, \${name}!\`)
     "assistant.chat.stopped": "已停止。",
     "assistant.chat.remote_streaming": "另一处正在生成回答，完成后会自动出现在这里；按停止可以立即结束它。",
     "assistant.chat.remote_streaming_lost": "无法确认另一处是否仍在生成，已恢复输入；若这段对话仍像卡住，请重新打开它。",
+    "assistant.chat.stream_disconnected": "回答还在生成时连接断开了。已经收到的部分会保留在这里，点「继续生成」即可接着写完。",
     "assistant.chat.thinking": "思考中",
     "assistant.chat.thought": "已深度思考",
     "assistant.chat.tool_args": "调用参数",
