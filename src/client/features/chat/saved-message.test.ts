@@ -222,7 +222,7 @@ describe('the star on an answer', () => {
     await act(async () => {
       byName(KEEP())!.click()
       gate.reject(new Error('The backup is being restored right now.'))
-      await gate.promise.catch(() => {})
+      await gate.promise.catch(() => { /* the row under test is the handler; this only keeps the runner quiet */ })
     })
     mount()
     const toasts = useUi.getState().toasts
