@@ -191,6 +191,31 @@ export function modelLabelOf(model: AssistantModel | null | undefined): string {
   return model.label || model.model
 }
 
+/**
+ * What `POST /automations` reads, written down rather than left as a loose record.
+ *
+ * The two target fields are the reason this exists: the route asks for `folderId` and `noteId`, while the
+ * row it answers with calls them `targetFolderId` and `targetNoteId`. A client body that sent the row's
+ * names would be accepted — and read as no target at all, because a field the route does not look at is a
+ * field the route does not have. Naming them here is what keeps that mismatch from coming back as a
+ * schedule that silently writes nowhere.
+ *
+ * A target is settable only at create: `PATCH /automations/:id` whitelists the words and the timing, so a
+ * routine cannot be repointed at another page after the reader has learned to trust its name.
+ *
+ * A type alias and not an interface on purpose: `api` takes the body as `Record<string, unknown>`, and an
+ * interface has no implicit index signature, so the call below would need a cast to say the same thing.
+ */
+export type AutomationCreateInput = {
+  name: string
+  kind: AssistantAutomation['kind']
+  message: string
+  schedule: AssistantAutomation['schedule']
+  enabled: boolean
+  folderId?: string
+  noteId?: string
+}
+
 interface AssistantState {
   view: AssistantView
   loaded: boolean
@@ -581,7 +606,7 @@ interface AssistantState {
   removeProject: (id: string) => Promise<void>
 
   loadAutomations: () => Promise<void>
-  addAutomation: (body: Record<string, unknown>) => Promise<boolean>
+  addAutomation: (body: AutomationCreateInput) => Promise<boolean>
   toggleAutomation: (automation: AssistantAutomation) => Promise<void>
   updateAutomation: (id: string, body: Record<string, unknown>) => Promise<void>
   removeAutomation: (id: string) => Promise<void>
