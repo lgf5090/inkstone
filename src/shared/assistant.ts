@@ -1287,10 +1287,12 @@ export const WEB_SEARCH_TOOL_NAME = 'web_search'
 /**
  * Whether the built-in search tool has a channel it could actually use.
  *
- * The answer depends on which engine the reader picked, because the two kinds need different things: a
- * self-hosted engine needs an address and nothing else, while a vendor's API has its address written down
- * and answers only for a key — a key that is stored encrypted in its own row, never in this blob, so
- * settings alone cannot tell whether the reader has one. That is what `keyStored` is for.
+ * The answer depends on which engine the reader picked, because the kinds differ in what they wait for: a
+ * self-hosted engine has no address until one is written, a vendor's API has its own address written down
+ * and answers only for a key — a key stored encrypted in its own row, never in this blob, so settings alone
+ * cannot tell whether the reader has one. That is what `keyStored` is for. And DuckDuckGo's Instant Answer
+ * waits for nothing at all: no address to write, no key to store, which is why "needs no key" and "is
+ * self-hosted" are two different questions and cannot share one branch.
  *
  * A caller that cannot ask leaves it out, and an unknown is then taken at the reader's word: the composer
  * has only these settings to read, and telling a reader with a stored key that nothing could search would
@@ -1302,7 +1304,8 @@ export function webSearchConfigured(
   keyStored?: boolean,
 ): boolean {
   const engine = webSearchEngineFor(settings.webSearchEngine)
-  if (!engine.requiresKey) return settings.webSearchEndpoint.trim().length > 0
+  if (engine.selfHosted) return settings.webSearchEndpoint.trim().length > 0
+  if (!engine.requiresKey) return true
   return keyStored !== false
 }
 
