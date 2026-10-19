@@ -17317,6 +17317,24 @@ const allowed = new Map([
   ["src/client/lib/tasks/dependency-contract.test.ts", [
     "/**\n * Upstream seeds `dtstart` with a moment that has been moved to local midnight and then re-tagged as\n * UTC, so the rule iterates over calendar days rather than instants. Reproduced with plain Dates.\n */",
   ]],
+  ["src/client/lib/tasks/status/registry.ts", [
+    "/**\n * The statuses a vault recognises, and how one leads to the next.\n *\n * A checkbox character has no meaning on its own: `[-]` is \"cancelled\" only because something says\n * so. This registry is that something, and it is built from the reader's settings on every read so\n * no two callers can disagree about what a note says.\n */",
+    "/** Never fails: an unregistered character still gets a type, so old notes keep reading. */",
+    "/**\n   * The status a recurring task should be born with once its current instance is finished.\n   *\n   * Following `nextStatusSymbol` blindly can land the new copy on another done-like character, and\n   * the task would then vanish from every `not done` search the moment it was completed. Walking the\n   * chain to the first open status is what keeps a recurring task visible; the bounded walk is what\n   * keeps a mis-linked chain from looping forever, and the space is what keeps a vault with no open\n   * status at all from losing its tasks entirely.\n   */",
+    "/** Characters a note uses that the reader never defined, so the settings screen can offer them. */",
+    "/**\n * The four statuses a fresh install answers with.\n *\n * `On Hold` and `Non-Task` exist as types but are deliberately not registered: a reader who never\n * asked for `[h]` should not have it change how their vault groups tasks.\n */",
+    "/**\n * Reject a status table that would make toggling unsafe before it is ever saved.\n *\n * A dangling `nextStatusSymbol` is the damaging one: the reader would click a checkbox and watch the\n * character change to something no longer in the list, with no way back except editing the note.\n */",
+  ]],
+  ["src/client/lib/tasks/status/status.ts", [
+    "/**\n * What a status character means to the task layer.\n *\n * `DONE` and `CANCELLED` end a task, `TODO` and `IN_PROGRESS` keep it open, and the distinction is\n * what makes `not done` answer correctly for a vault that ticks tasks with `/` rather than `x`.\n */",
+    "/**\n * A registered status, as it is persisted in settings.\n *\n * `name` is data rather than chrome: readers filter on `status.name includes Done`, so translating\n * it would break their queries. The settings screen shows a translated label beside it.\n */",
+    "/** The character between the square brackets. */",
+    "/** The character to write when the task moves on from this status. */",
+    "/** Whether the reader may bind a command to it. */",
+    "/**\n   * A group heading that sorts in a meaningful order.\n   *\n   * The `%%n%%` prefix orders the groups and is stripped again by the renderer; without it,\n   * `CANCELLED` would lead the list purely because of its spelling.\n   */",
+    "/** How this status reads in a checkbox the reader is looking at. */",
+    "/** The type a symbol carries when the reader never registered it, so old notes still read. */",
+  ]],
   ["src/client/lib/template-notes.ts", [
     "/**\n * Create a note from a gallery template and open it, returning the new id.\n *\n * The template's `{{cursor}}` is handed to the editor through `createNote`, so\n * the marker is stripped from the body and the caret lands where the author\n * pointed it rather than at the end of the front matter. Placement follows the\n * same rules as the `+` button — the open folder, else the inbox — because a\n * template note is still just a new note.\n */",
     "// A template that asked the assistant to write something is not finished until it has. The chat",
