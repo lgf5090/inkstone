@@ -19364,6 +19364,14 @@ const allowed = new Map([
     "// harder reason than `scopes`: the column is NOT NULL, so a key the restore leaves out is bound NULL",
     "// and `INSERT OR IGNORE` drops the whole message — the loud half of the failure this table has hit",
     "// twice for a column that was exported but not rebuilt here.",
+    "/** A stored repeat rule, read the way the listing reads it: anything unreadable means \"does not repeat\". */",
+    "// Lists travel before the tasks that point at them, so a restored task can keep its list. A list",
+    "// already in the account wins: it is the reader's own object, and the file's copy has no newer claim.",
+    "// A list the file did not carry leaves the task in the inbox rather than pointing at nothing.",
+    "// A restore is not a delivery: the reminder has to be able to fire on the machine that received",
+    "// the file, so the mark that says it already went out does not travel.",
+    "// Tags are this app's own objects, like a notebook tag: the file's list is restored first, then a",
+    "// link is kept only when both ends exist here. A link to a tag the reader deleted is not restored.",
   ]],
   ["src/worker/assistant/balance.ts", [
     "/**\n * Asking a provider what it is owed, once per key.\n *\n * The reader with three keys has three wallets, and the settings screen showed none of them. This is the\n * whole of the asking: build the one GET the vendor's own row in `@shared/provider-balance` describes, hand\n * it the credential that provider already holds, and read a number out of the answer. Nothing is stored —\n * a balance is a fact about a moment, and a balance kept in a database becomes a number a reader mistakes\n * for a current one.\n *\n * Three things keep this from being a way to make the worker fetch arbitrary places with somebody's key:\n *  - the address is the provider's own origin plus a path from a table this build owns. No reader input\n *    reaches either half, and the row is chosen by matching the provider's host exactly, so a relay at an\n *    address of the reader's own never receives a billing request aimed at a vendor;\n *  - the same relay guard every other outbound address passes through, and the same refusal to follow a\n *    redirect, which is what stops a public address from being a public address only until it is followed;\n *  - one attempt, a short deadline, a byte ceiling, and no retry: this answers a question a screen asked,\n *    and it is never worth a second one.\n *\n * A reading is cached in this isolate for a few minutes so that opening the same panel twice does not ask\n * the vendor twice. The cache key is the account and the key row, never the credential.\n */",
@@ -20901,6 +20909,10 @@ const allowed = new Map([
     "/**\n   * Replaces a task's tags with the names given, creating the ones this account does not have.\n   *\n   * Names rather than ids because that is what the model and the reader type; the tag list is the\n   * account's own vocabulary, and a name it has not used yet is a new word, not an error.\n   */",
     "// ------------------------------------------------------------------- steps",
     "/** Appends a step. Returns null when the task already holds the maximum, rather than growing forever. */",
+    "// Every column the app reads travels, not only the ones the tool layer writes: a task restored",
+    "// without its list, star, repeat or note link is a different task, and `reminded_at` is the one",
+    "// exception — a restore is not a delivery, so the next sweep may announce it again.",
+    "// A link has no id of its own: its key is the pair, so it is only ever inserted, never patched.",
   ]],
   ["src/worker/assistant/tools.ts", [
     "/**\n * The tools the assistant can reach, and the executor that runs them.\n *\n * Three things are enforced here rather than asked of the model, because a model that is confident and\n * wrong is the failure mode this app has to survive:\n *  - **budgets** — a per-turn call cap, a per-tool cap and a duplicate-call refusal, so a reasoning\n *    loop cannot spend the reader's AI quota or write a hundred tasks;\n *  - **validation** — arguments are checked against the same declaration that generates the JSON\n *    Schema the provider is given, so the two can never disagree;\n *  - **approval** — a destructive tool never runs during the turn. `prepare` resolves the exact target\n *    and writes a pending action; `commit` runs only when the reader presses Approve, once, on that\n *    target. The model can propose; it cannot delete.\n *\n * Scheduled runs get read-only tools plus `notify_reader`, so a routine that has drifted cannot edit\n * the vault while nobody is watching.\n */",
@@ -25988,6 +26000,10 @@ const allowed = new Map([
     "// Without the restart, one request per minute kept the slug locked indefinitely:",
     "// a lock freezes last_fail_at, so the window never rolls over while traffic continues.",
     "// Work stays bounded, but the lock is no longer self-sustaining across four hours.",
+  ]],
+  ["tests/todo-backup.test.ts", [
+    "/**\n * A backup carries the to-do app's own objects, not just the task rows.\n *\n * A task restored without its list, tags or steps is a different task, and the reader would have no\n * way to tell that the file had held more. The round trip here is the only thing that proves the\n * export columns and the import row agree — the failure mode otherwise is silent, because\n * `INSERT OR IGNORE` drops a row rather than complaining.\n */",
+    "// A file written by hand, or by a build that did not export lists.",
   ]],
   ["tests/todo-model.test.ts", [
     "// The same wall time a week later, which is one hour short of seven times 24 hours because",

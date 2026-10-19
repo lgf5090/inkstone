@@ -5749,6 +5749,10 @@ export class AssistantStore {
       answer_versions: await select('chat_answer_versions', `AND ${onlyKept}`),
       memories: await select('chat_memories'),
       tasks: await select('todos_tasks'),
+      task_lists: await select('todos_lists'),
+      task_steps: await select('todos_steps'),
+      task_tags: await select('todos_tags'),
+      task_tag_links: await select('todos_tag_links'),
       projects: await select('chat_projects'),
       automations: await select('chat_automations'),
       notifications: await select('chat_notifications'),
@@ -5800,7 +5804,15 @@ const EXPORT_COLUMNS: Readonly<Record<string, readonly string[]>> = {
   // `note_id` is the note a fact was written out as: a pointer the management screen shows, so it
   // travels with the fact it belongs to.
   chat_memories: ['id', 'content', 'category', 'source', 'status', 'superseded_by', 'valid_from', 'valid_until', 'project_id', 'note_id', 'created_at', 'updated_at'],
-  todos_tasks: ['id', 'title', 'description', 'status', 'priority', 'due_at', 'project_id', 'created_at', 'updated_at', 'completed_at'],
+  // Every column the app reads travels, not only the ones the tool layer writes: a task restored
+  // without its list, star, repeat or note link is a different task, and `reminded_at` is the one
+  // exception — a restore is not a delivery, so the next sweep may announce it again.
+  todos_tasks: ['id', 'title', 'description', 'status', 'priority', 'due_at', 'project_id', 'list_id', 'starred', 'repeat_rule', 'remind_at', 'note_id', 'conversation_id', 'created_at', 'updated_at', 'completed_at'],
+  todos_lists: ['id', 'name', 'icon', 'color', 'position', 'created_at', 'updated_at'],
+  todos_steps: ['id', 'task_id', 'text', 'done', 'position', 'created_at'],
+  todos_tags: ['id', 'name', 'color', 'created_at', 'updated_at'],
+  // A link has no id of its own: its key is the pair, so it is only ever inserted, never patched.
+  todos_tag_links: ['task_id', 'tag_id', 'created_at'],
   // The brief and the folders a project reads are what make it a context rather than a folder; a
   // restored project without them is the same name over an empty brief. `note_ids` travels with them: a
   // project that named three pages and came back naming none would answer from the whole vault, which is
