@@ -18161,6 +18161,7 @@ const allowed = new Map([
     "// Walking local calendar days covers a 31-day month rule and a weekly rule that has to wait a",
     "// whole week; 400 steps is more than a year of days, which is the longest gap any rule can open.",
     "/**\n * Which locale message describes a schedule, with the parts a translation needs. The sentence itself\n * lives in the catalog: this module has no business owning interface copy, and the reference project\n * it came from hardcoded English here.\n *\n * The weekday list is the one part a caller has to name, because joining day names is locale work —\n * a Chinese reader and an English reader share neither the day words nor the separator between them. Without a\n * formatter this falls back to the English abbreviations, which is a legible last resort and nothing\n * more.\n */",
+    "/**\n * The number of days in a calendar month.\n *\n * Exported because the todo module repeats a due date by calendar month, and \"the 31st in a month\n * with 30 days\" has one answer in this app.\n */",
   ]],
   ["src/shared/assistant-time.ts", [
     "/**\n * Conversions between what a reader types and what a database stores.\n *\n * Due dates and schedules are entered as wall-clock readings (\"tomorrow at 9\"), stored as UTC\n * milliseconds, and shown again in the reader's timezone. All three steps have to agree, or a task\n * written in Shanghai appears a day early in Berlin — which is why the helpers live in one shared\n * module rather than beside each caller.\n */",
@@ -19045,6 +19046,25 @@ const allowed = new Map([
   ["src/shared/text-utils.ts", [
     "/**\n * UTF-8 byte length without allocating an encoded copy (note bodies reach 1.9 MB and\n * this runs on every write). Lone surrogates count as 3 bytes, matching TextEncoder's\n * U+FFFD replacement.\n */",
     "/**\n * Title suffixes that carry a note's file type. The workspace picks the drawing editor and the mind map\n * editor off the END of the title, so appending the copy marker after the extension turns the duplicate\n * into plain text: `Board.excalidraw` used to become `Board.excalidraw copy`, which no editor claims.\n * The list lives here because this module must not reach into the client; the test pins both consumers\n * (`isMindmapDocumentTitle` and the workspace's drawing check) to it, so adding a type without adding\n * it here goes red.\n */",
+  ]],
+  ["src/shared/todos/model.ts", [
+    "/**\n * The todo module's vocabulary, shared by the worker, the client and the tests.\n *\n * A task itself is the assistant's `Task` — the tool layer has written that shape since the chat\n * could create one — and this module only adds the fields the to-do app needs on top of it. Keeping\n * the extension here rather than widening `Task` means a backup, a shared conversation or an old\n * answer version never has to learn about lists and tags it does not carry.\n */",
+    "/**\n * How often a task comes back.\n *\n * `interval` is in units of `freq` — every 2 weeks is `{ freq: 'weekly', interval: 2 }` — and the\n * next occurrence is counted from the due date rather than from the moment the reader ticked it,\n * so finishing a weekly report on Thursday does not move it to Thursday for good.\n */",
+    "/** The views the server can answer in one query. */",
+    "/**\n * How far ahead \"upcoming\" reaches.\n *\n * A week is what a reader can still plan around; anything further is a list they will look at when\n * it gets closer, and putting it in the same view makes that view unusable.\n */",
+    "/** How long a reminder may be set before the due time. */",
+    "/** The most a single listing answers with. The board reads the open set once and slices it. */",
+    "/** A completed list is history: the newest page is enough to answer \"what did I finish\". */",
+    "/** A lucide icon name or one emoji, stored as the reader picked it. */",
+    "/** What one page of tasks answers with, so the client never has to compute \"today\" itself. */",
+    "/** End of the reader's local day, in UTC milliseconds. */",
+    "/**\n * Reads a stored repeat rule.\n *\n * Returns null rather than throwing: a row written by an older build, or by a hand-edited backup,\n * must not take the whole listing down with it. An unknown shape simply means \"does not repeat\".\n */",
+    "/**\n * The due time of the next occurrence, in the reader's own calendar.\n *\n * The arithmetic happens on wall-clock parts and goes back through `zonedTimeToUtc`, so a weekly\n * task due at 09:00 stays at 09:00 across a daylight-saving change instead of drifting to 08:00.\n * A month that lacks the day (the 31st, or 29 February) clamps to its last day.\n */",
+    "/**\n * When to remind the reader, as an absolute instant.\n *\n * Stored as a time rather than an offset because the sweep has to answer \"is it due\" without\n * knowing which offset the reader chose, and because a reminder set for \"1 day before\" must not\n * move when the due date is later edited by hand.\n */",
+    "/**\n * The tag names a caller asked for, as this app stores them.\n *\n * A leading `#` is how a reader writes a tag and not part of its name; duplicates differ only by\n * case, so `Work` and `work` are one tag. Order is kept, because the list is also what the reader\n * sees on the task.\n */",
+    "/** The `done / total` a list card shows. A list with no tasks reads as `0 / 0`. */",
+    "/** The status a task moves to when its checkbox is pressed. */",
+    "/** The priorities, ordered as the app shows them. Re-exported so callers need one import. */",
   ]],
   ["src/shared/types.ts", [
     "/** Only computed on the first page of a listing; later keyset pages return null. */",
@@ -25933,6 +25953,10 @@ const allowed = new Map([
     "// Without the restart, one request per minute kept the slug locked indefinitely:",
     "// a lock freezes last_fail_at, so the window never rolls over while traffic continues.",
     "// Work stays bounded, but the lock is no longer self-sustaining across four hours.",
+  ]],
+  ["tests/todo-model.test.ts", [
+    "// The same wall time a week later, which is one hour short of seven times 24 hours because",
+    "// the clock sprang forward in between. That hour is the point of the test.",
   ]],
   ["tests/token-definitions.test.ts", [
     "// A token counts as defined either in a stylesheet or as a quoted '--x' literal",

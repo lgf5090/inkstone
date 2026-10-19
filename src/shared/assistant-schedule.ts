@@ -41,7 +41,13 @@ export function isValidCalendarDate(year: number, month: number, day: number): b
   return month >= 1 && month <= 12 && day >= 1 && day <= daysInMonth(year, month)
 }
 
-function daysInMonth(year: number, month: number): number {
+/**
+ * The number of days in a calendar month.
+ *
+ * Exported because the todo module repeats a due date by calendar month, and "the 31st in a month
+ * with 30 days" has one answer in this app.
+ */
+export function daysInMonth(year: number, month: number): number {
   return new Date(Date.UTC(year, month, 0)).getUTCDate()
 }
 
