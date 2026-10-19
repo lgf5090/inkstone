@@ -189,6 +189,7 @@ export const EN_US_MESSAGES = {
     "auth.enter_recovery_code": "Enter one of your recovery codes",
     "auth.live_split_view_markdown_preview_realtime_multi_device_sync_multiple_web": "Live split-view Markdown preview · Realtime multi-device sync · Multiple WebDAV / S3 backups",
     "auth.network_error_try_again": "Network error. Try again",
+    "auth.server_did_not_answer": "The server did not answer",
     "auth.no_account_create_one": "No account? Create one",
     "auth.password_minimum_8_characters": "Password (minimum 8 characters)",
     "auth.recovery_code": "Recovery code",

@@ -19,6 +19,8 @@ vi.mock('./store/session', () => {
   return {
     useSession: (selector?: (s: typeof state) => unknown) => (selector ? selector(state) : state),
     watchSystemTheme: () => () => undefined,
+    // Reached by the boot-ceiling case below, which has to press the retry and see the store asked.
+    sessionState: state,
   }
 })
 
@@ -92,5 +94,53 @@ describe('the update card in the app', () => {
     usePwa.setState({ updateAvailable: false })
 
     expect(card(await renderApp())).toBeUndefined()
+  })
+})
+
+/**
+ * The eight-second ceiling on the boot screen.
+ *
+ * The screen is removed at the ceiling whether or not the session answered, so the question this case asks
+ * is what the reader is left holding when it never did. The answer used to be a blank page: no words, no
+ * reason, nothing to press — and `status === 'loading'` renders an invisible div, so every structural
+ * assertion in the rest of the file sails straight past it.
+ */
+describe('the boot ceiling', () => {
+  const alert = () => document.body.querySelector<HTMLElement>('[role="alert"]')
+
+  it('says the server did not answer, and gives the one thing that can end the wait', async () => {
+    const { App } = await import('./App')
+    const session = (await import('./store/session')) as unknown as { sessionState: { load: ReturnType<typeof vi.fn> } }
+    session.sessionState.load.mockClear()
+
+    // Fake the clock before the effect registers its timer, but after the module graph is loaded: dynamic
+    // import is promise work, and it should not be made to wait on a clock this test controls.
+    vi.useFakeTimers()
+    try {
+      await act(async () => {
+        rendered = renderElement(createElement(App))
+      })
+      expect(alert(), 'the page confesses something before the ceiling').toBeNull()
+
+      await act(async () => {
+        vi.advanceTimersByTime(8_000)
+      })
+      const node = alert()
+      expect(node, 'the boot screen came down and left a blank page behind').toBeTruthy()
+      expect(node!.textContent).toContain(t('auth.server_did_not_answer'))
+
+      const button = node!.querySelector('button')
+      expect(button, 'the page says nothing answered and offers no way to ask again').toBeTruthy()
+      expect(button!.textContent).toContain(t('common.retry'))
+      // The panel takes focus on its own: it appears under a reader who was looking at nothing.
+      expect(document.activeElement).toBe(button)
+
+      await act(async () => {
+        button!.click()
+      })
+      expect(session.sessionState.load).toHaveBeenCalled()
+    } finally {
+      vi.useRealTimers()
+    }
   })
 })

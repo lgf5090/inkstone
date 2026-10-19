@@ -189,6 +189,7 @@ export const ZH_CN_MESSAGES = {
     "auth.enter_recovery_code": "请输入一枚恢复码",
     "auth.live_split_view_markdown_preview_realtime_multi_device_sync_multiple_web": "Markdown 分屏实时预览 · 多端实时同步 · 多路 WebDAV / S3 备份",
     "auth.network_error_try_again": "网络错误，请重试",
+    "auth.server_did_not_answer": "服务器没有回音",
     "auth.no_account_create_one": "没有账号？注册一个",
     "auth.password_minimum_8_characters": "密码（至少 8 位）",
     "auth.recovery_code": "恢复码",
