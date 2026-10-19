@@ -25,6 +25,7 @@ import type { Env } from '../src/worker/env'
 import { contextBudgetFor, estimateTokens, type AssistantMessage, type AssistantSettings, type ChatStreamEvent } from '../src/shared/assistant'
 import { makeD1 } from './doubles/d1-sqlite'
 import { testBindings } from './doubles/bindings'
+import { isNamingRequest, namingAnswer } from './doubles/naming-pass'
 
 const USER = '0123456789abcdefghjkmnpqrs'
 
@@ -101,7 +102,10 @@ function stubWire(
 ): { requests: Record<string, unknown>[], calls: () => number } {
   const requests: Record<string, unknown>[] = []
   vi.stubGlobal('fetch', vi.fn(async (_url: unknown, init?: RequestInit) => {
-    requests.push(JSON.parse(String(init?.body)) as Record<string, unknown>)
+    const body = JSON.parse(String(init?.body)) as Record<string, unknown>
+    // The follow-up pass that runs after the answer is filed is not one of this turn's calls.
+    if (isNamingRequest(body)) return namingAnswer()
+    requests.push(body)
     if (options.refuse === requests.length) {
       return new Response(JSON.stringify({ error: { message: 'the summariser is not answering' } }), { status: 400 })
     }

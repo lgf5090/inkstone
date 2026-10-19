@@ -30,10 +30,9 @@ import { AssistantStore } from '../src/worker/assistant/store'
 import { newId } from '../src/worker/lib/id'
 import type { AppBindings, Env } from '../src/worker/env'
 import type { AssistantMessage, AssistantModel, AssistantSettings, ChatStreamEvent } from '../src/shared/assistant'
-import { DEFAULT_ASSISTANT_SETTINGS } from '../src/shared/assistant'
-import { promptCatalog } from '../src/shared/assistant-prompt'
 import { makeD1 } from './doubles/d1-sqlite'
 import { testBindings } from './doubles/bindings'
+import { isNamingRequest, namingAnswer } from './doubles/naming-pass'
 
 const USER = '0123456789abcdefghjkmnpqrs'
 const OTHER = '0123456789abcdefghjkmnpqrt'
@@ -100,7 +99,6 @@ const USAGE = frame({ choices: [], usage: { prompt_tokens: 12, completion_tokens
 
 /** One step that answers in prose and stops. */
 /** The naming pass's own instructions: the one thing that tells its call apart from a turn's. */
-const NAMING_SYSTEM = promptCatalog(DEFAULT_ASSISTANT_SETTINGS.language).naming_system
 
 function answered(text: string): string[] {
   return [frame({ choices: [{ index: 0, finish_reason: 'stop', delta: { content: text } }] }), USAGE]
@@ -134,7 +132,7 @@ function stubWire(...answers: Array<{ at: string, frames: string[] } | { status:
     // case here counts what one question cost — one call, or two with a tool step between them — so that
     // call is answered and left out of the log rather than adding one to every number in this file. It is
     // recognised by the instructions it was sent with, which no turn's request carries.
-    if (JSON.stringify(body).includes(NAMING_SYSTEM)) return sse(answered(''))
+    if (isNamingRequest(body)) return namingAnswer()
     seen.push({ url, body })
     const answer = seen.length <= answers.length ? answers[seen.length - 1] : answers.at(-1)
     if (!answer) throw new Error(`nothing stubbed for ${url}`)

@@ -25,6 +25,7 @@ import type { AppBindings, Env } from '../src/worker/env'
 import type { AssistantMessage, AssistantModel, AssistantProvider, ChatStreamEvent } from '../src/shared/assistant'
 import { makeD1 } from './doubles/d1-sqlite'
 import { testBindings } from './doubles/bindings'
+import { isNamingRequest, namingAnswer } from './doubles/naming-pass'
 
 const USER = '0123456789abcdefghjkmnpqrs'
 
@@ -105,7 +106,9 @@ function claimOf(conversationId: string): number | null {
  */
 function stubLongAnswer(options: { expireMidStep?: boolean } = {}): number[] {
   const calls: number[] = []
-  vi.stubGlobal('fetch', vi.fn(async () => {
+  vi.stubGlobal('fetch', vi.fn(async (_url: unknown, init?: RequestInit) => {
+    // The follow-up pass after the answer is filed is not a step of this turn, and must not age the lease.
+    if (isNamingRequest(JSON.parse(String(init?.body ?? '{}')))) return namingAnswer()
     calls.push(calls.length)
     if (options.expireMidStep !== false) expireLease()
     return new Response(sse([...LONG_ANSWER, STOP, USAGE]), { headers: { 'content-type': 'text/event-stream' } })
@@ -115,7 +118,8 @@ function stubLongAnswer(options: { expireMidStep?: boolean } = {}): number[] {
 
 function stubAnswer(content = 'Answered.'): number[] {
   const calls: number[] = []
-  vi.stubGlobal('fetch', vi.fn(async () => {
+  vi.stubGlobal('fetch', vi.fn(async (_url: unknown, init?: RequestInit) => {
+    if (isNamingRequest(JSON.parse(String(init?.body ?? '{}')))) return namingAnswer()
     calls.push(calls.length)
     return new Response(sse([frame({ choices: [{ index: 0, finish_reason: 'stop', delta: { content } }] }), USAGE]),
       { headers: { 'content-type': 'text/event-stream' } })
@@ -215,7 +219,10 @@ describe('a turn that holds its conversation', () => {
     const token = await store.claimRun(conversation.id)
     expect(token).not.toBeNull()
     let calls = 0
-    vi.stubGlobal('fetch', vi.fn(async () => {
+    vi.stubGlobal('fetch', vi.fn(async (_url: unknown, init?: RequestInit) => {
+      // The follow-up pass after the answer is filed is not one of this turn's steps, and the question here
+      // is whether the steps between the first and the last renewed their way back into the lease.
+      if (isNamingRequest(JSON.parse(String(init?.body ?? '{}')))) return namingAnswer()
       calls++
       // Every step runs the clock on past the lease: the next one has to renew its way back in.
       expireLease()

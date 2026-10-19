@@ -12,7 +12,7 @@ import { ASSISTANT_PROTOCOLS, PROVIDER_PRESETS, endpointFieldState } from '@shar
 import { dialectsForProtocol } from '@shared/reasoning'
 import { ModelEditorDialog } from './ModelEditorDialog'
 import { ModelPickerDialog } from './ModelPickerDialog'
-import { ProviderKeys } from './ProviderKeys'
+import { ProviderKeys, useProviderBalances, WalletChips } from './ProviderKeys'
 import { cn } from '../../lib/cn'
 import { matchesQuery } from '../../lib/fuzzy'
 import { t, type MessageKey } from '../../lib/i18n'
@@ -198,11 +198,95 @@ function ModelList({ models, activeModelId, labelId, onEdit }: {
   )
 }
 
+/**
+ * One provider's card: its own row, the keys it rotates through, and the models switched on under it.
+ *
+ * The card is the smallest thing that can answer "what is this provider worth to me", which is why the
+ * balance lives here rather than in the tab: one read of the wallet feeds the chips in the header and the
+ * rows in the ring below, so the two can never show two different numbers for the same key.
+ */
+function ProviderCard({ provider, models, activeModelId, onEditProvider, onPickModels, onAddModel, onEditModel }: {
+  provider: AssistantProvider
+  models: AssistantModel[]
+  activeModelId: string | null
+  onEditProvider: (provider: AssistantProvider) => void
+  onPickModels: (provider: AssistantProvider) => void
+  onAddModel: (provider: AssistantProvider) => void
+  onEditModel: (model: AssistantModel) => void
+}) {
+  const removeProvider = useAssistant((state) => state.removeProvider)
+  const wallet = useProviderBalances(provider)
+
+  return (
+    <div className="flex flex-col gap-1.5 py-3">
+      <div className="flex items-center gap-2.5">
+        {/* The key state is the one fact about a provider that costs a round trip to learn, so it is
+            drawn as the row's own mark rather than as a word at the end of a sentence. */}
+        <span
+          aria-hidden
+          className={cn(
+            'flex size-7 shrink-0 items-center justify-center rounded-[var(--r-md)] border',
+            provider.hasKey
+              ? 'border-[var(--accent)] bg-[var(--accent-soft)] text-[var(--accent-on-soft)]'
+              : 'border-[var(--border-default)] text-[var(--text-quaternary)]',
+          )}
+        >
+          <KeyRound size={13} />
+        </span>
+        <div className="min-w-0 flex-1">
+          <p id={providerLabelId(provider.id)} className="truncate text-[length:var(--text-13)] font-medium text-[var(--text-primary)]">{provider.label}</p>
+          <p className="truncate text-[length:var(--text-11)] text-[var(--text-quaternary)]">
+            {PROTOCOL_LABELS[provider.protocol]?.()} · {provider.baseUrl} · {storedKeyLabel(provider)}
+          </p>
+        </div>
+        <WalletChips wallet={wallet} />
+        <div className="flex shrink-0 items-center gap-0.5">
+          <IconButton label={t('assistant.settings.edit_provider')} size="xs" onClick={() => onEditProvider(provider)}>
+            <Settings2 size={13} />
+          </IconButton>
+          <IconButton label={t('assistant.picker.open')} size="xs" onClick={() => onPickModels(provider)}>
+            <Download size={13} />
+          </IconButton>
+          <IconButton label={t('assistant.settings.add_model')} size="xs" onClick={() => onAddModel(provider)}>
+            <Plus size={13} />
+          </IconButton>
+          <IconButton
+            label={t('assistant.settings.delete_provider')}
+            size="xs"
+            onClick={() => {
+              void confirm({
+                title: t('assistant.settings.delete_provider'),
+                description: t('assistant.settings.delete_provider_hint', { label: provider.label }),
+                confirmLabel: t('assistant.settings.delete_provider'),
+                tone: 'danger',
+              }).then((yes) => {
+                if (yes) void removeProvider(provider.id)
+              })
+            }}
+          >
+            <Trash2 size={13} />
+          </IconButton>
+        </div>
+      </div>
+      <ProviderKeys provider={provider} wallet={wallet} />
+      {models.length === 0 ? (
+        <p className="pl-9 text-[length:var(--text-11)] text-[var(--text-quaternary)]">{t('assistant.settings.no_models')}</p>
+      ) : (
+        <ModelList
+          models={models}
+          activeModelId={activeModelId}
+          labelId={providerLabelId(provider.id)}
+          onEdit={onEditModel}
+        />
+      )}
+    </div>
+  )
+}
+
 export function ModelTab({ settings }: { settings: AssistantSettings }) {
   const providers = useAssistant((state) => state.providers)
   const models = useAssistant((state) => state.models)
   const saveSettings = useAssistant((state) => state.saveSettings)
-  const removeProvider = useAssistant((state) => state.removeProvider)
   const addModel = useAssistant((state) => state.addModel)
   const updateModel = useAssistant((state) => state.updateModel)
   const toast = useUi((state) => state.toast)
@@ -224,67 +308,16 @@ export function ModelTab({ settings }: { settings: AssistantSettings }) {
           <p className="py-3 text-[length:var(--text-12)] text-[var(--text-tertiary)]">{t('assistant.settings.no_providers')}</p>
         )}
         {byProvider.map(({ provider, models: list }) => (
-          <div key={provider.id} className="flex flex-col gap-1.5 py-3">
-            <div className="flex items-center gap-2.5">
-              {/* The key state is the one fact about a provider that costs a round trip to learn, so it is
-                  drawn as the row's own mark rather than as a word at the end of a sentence. */}
-              <span
-                aria-hidden
-                className={cn(
-                  'flex size-7 shrink-0 items-center justify-center rounded-[var(--r-md)] border',
-                  provider.hasKey
-                    ? 'border-[var(--accent)] bg-[var(--accent-soft)] text-[var(--accent-on-soft)]'
-                    : 'border-[var(--border-default)] text-[var(--text-quaternary)]',
-                )}
-              >
-                <KeyRound size={13} />
-              </span>
-              <div className="min-w-0 flex-1">
-                <p id={providerLabelId(provider.id)} className="truncate text-[length:var(--text-13)] font-medium text-[var(--text-primary)]">{provider.label}</p>
-                <p className="truncate text-[length:var(--text-11)] text-[var(--text-quaternary)]">
-                  {PROTOCOL_LABELS[provider.protocol]?.()} · {provider.baseUrl} · {storedKeyLabel(provider)}
-                </p>
-              </div>
-              <div className="flex shrink-0 items-center gap-0.5">
-                <IconButton label={t('assistant.settings.edit_provider')} size="xs" onClick={() => setEditingProvider(provider)}>
-                  <Settings2 size={13} />
-                </IconButton>
-                <IconButton label={t('assistant.picker.open')} size="xs" onClick={() => setPicking(provider)}>
-                  <Download size={13} />
-                </IconButton>
-                <IconButton label={t('assistant.settings.add_model')} size="xs" onClick={() => setAddingModel(provider)}>
-                  <Plus size={13} />
-                </IconButton>
-                <IconButton
-                  label={t('assistant.settings.delete_provider')}
-                  size="xs"
-                  onClick={() => {
-                  void confirm({
-                    title: t('assistant.settings.delete_provider'),
-                    description: t('assistant.settings.delete_provider_hint', { label: provider.label }),
-                    confirmLabel: t('assistant.settings.delete_provider'),
-                    tone: 'danger',
-                  }).then((yes) => {
-                    if (yes) void removeProvider(provider.id)
-                  })
-                }}
-                >
-                  <Trash2 size={13} />
-                </IconButton>
-              </div>
-            </div>
-            <ProviderKeys provider={provider} />
-            {list.length === 0 ? (
-              <p className="pl-9 text-[length:var(--text-11)] text-[var(--text-quaternary)]">{t('assistant.settings.no_models')}</p>
-            ) : (
-              <ModelList
-                models={list}
-                activeModelId={settings.activeModelId}
-                labelId={providerLabelId(provider.id)}
-                onEdit={setEditing}
-              />
-            )}
-          </div>
+          <ProviderCard
+            key={provider.id}
+            provider={provider}
+            models={list}
+            activeModelId={settings.activeModelId}
+            onEditProvider={setEditingProvider}
+            onPickModels={setPicking}
+            onAddModel={setAddingModel}
+            onEditModel={setEditing}
+          />
         ))}
               {editing && (
                 <ModelEditorDialog

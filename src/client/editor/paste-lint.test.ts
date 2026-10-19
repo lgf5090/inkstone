@@ -41,11 +41,14 @@ function setLinter(patch: Partial<LinterSettings>): void {
 }
 
 beforeAll(async () => {
-  // `paste.ts` reaches the rules through `await import('../lib/linter')`. Cold, that import waits on
-  // the bundler's transform queue, and a full-suite run is contended enough for the wait to outlast
-  // any timeout this file could reasonably carry — the paste then lands after the case has given up.
-  // Loading it once here puts it in the module graph, so the handler's own import resolves on a tick.
-  await import('../lib/linter');
+  // `paste.ts` reaches the rules through `await import('../lib/linter')`, and that module reaches the
+  // runner and the registry through two more dynamic imports of its own. Cold, those wait on the
+  // bundler's transform queue, and a full-suite run is contended enough for the wait to outlast any
+  // timeout this file could reasonably carry — the paste then lands after the case has given up.
+  // Loading all three here puts them in the module graph, so the handler's own imports resolve on a
+  // tick. Warming only the index is what left this file failing in the full run: `lintPaste` never
+  // touches `./runner` until it is called.
+  await Promise.all([import('../lib/linter'), import('../lib/linter/runner'), import('../lib/linter/registry')]);
 });
 
 beforeEach(() => {

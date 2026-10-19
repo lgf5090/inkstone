@@ -233,6 +233,34 @@ describe('what a search reports when it did not happen', () => {
     vi.unstubAllGlobals()
   })
 
+  it('posts Perplexity the query and its own cap, and reads the ranked pages it returns', async () => {
+    const sent = stubWire({
+      body: {
+        results: [
+          { title: 'Example Article', url: 'https://example.test/article', snippet: 'A short excerpt from the page.', date: '2025-09-25T00:00:00Z', last_updated: '2025-09-25' },
+          // A hit with no address is dropped rather than handed on: the model could cite it and no reader
+          // could open it.
+          { title: 'No url', snippet: 'Nothing to link to.' },
+        ],
+      },
+    })
+    const hits = await request({ engine: WEB_SEARCH_ENGINES.perplexity!, endpoint: 'https://api.perplexity.ai/search', apiKey: KEY })
+
+    expect(sent[0]!.method).toBe('POST')
+    expect(sent[0]!.url).toBe('https://api.perplexity.ai/search')
+    expect(sent[0]!.headers.authorization).toBe(`Bearer ${KEY}`)
+    const body = JSON.parse(sent[0]!.body!) as Record<string, unknown>
+    expect(body.query).toBe('self hosted search')
+    expect(body.max_results).toBe(8)
+    // This is the search endpoint and not the Sonar chat one: the reply is a list of pages, so nothing here
+    // sends a prompt or expects an answer the vendor wrote. A channel that handed back somebody else's
+    // finished answer would be presented to the reader as this assistant's own.
+    expect(body.messages).toBeUndefined()
+    expect(hits.map((hit) => hit.url)).toEqual(['https://example.test/article'])
+    expect(hits[0]!.snippet).toBe('A short excerpt from the page.')
+    vi.unstubAllGlobals()
+  })
+
   it('reports a status nobody documented for itself plainly, with the number it was', async () => {
     stubWire({ status: 429 })
     await expect(request({ engine: WEB_SEARCH_ENGINES.tavily!, endpoint: 'https://api.tavily.com/search', apiKey: KEY }))
@@ -298,7 +326,7 @@ describe('the gate that offers the search tool', () => {
   })
 
   it('reads an unknown engine id as the self-hosted default, whoever wrote it', () => {
-    expect(normalizeAssistantSettings({ webSearchEngine: 'perplexity' }).webSearchEngine).toBe('self-hosted')
+    expect(normalizeAssistantSettings({ webSearchEngine: 'altavista' }).webSearchEngine).toBe('self-hosted')
     expect(normalizeAssistantSettings({ webSearchEngine: 'tavily' }).webSearchEngine).toBe('tavily')
     expect(normalizeAssistantSettings({}).webSearchEngine).toBe('self-hosted')
     expect(webSearchEngineShapeIsDataOnly()).toBe(true)
@@ -424,7 +452,7 @@ describe('an engine key where it belongs', () => {
   })
 
   it('refuses an engine it does not know, an empty key, and one too long to store', async () => {
-    expect((await respond('PUT', '/api/assistant/search-keys/perplexity', { apiKey: KEY })).status).toBe(400)
+    expect((await respond('PUT', '/api/assistant/search-keys/altavista', { apiKey: KEY })).status).toBe(400)
     expect((await respond('PUT', '/api/assistant/search-keys/tavily', { apiKey: '   ' })).status).toBe(400)
     expect((await respond('PUT', '/api/assistant/search-keys/tavily', {})).status).toBe(400)
     // Clipping a token into the vault would store a key that only ever answers 401.

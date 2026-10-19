@@ -386,9 +386,9 @@ self.addEventListener('fetch', (event) => {
 
   event.respondWith((async () => {
     const cached = await caches.match(request, { ignoreSearch: true })
-    if (cached) return cached
+    if (cached && !isDocumentFallback(url, cached)) return cached
     const response = await fetch(request)
-    if (response.ok && OPTIONAL_URL_SET.has(url.pathname)) {
+    if (response.ok && OPTIONAL_URL_SET.has(url.pathname) && !isDocumentFallback(url, response)) {
       const assets = await caches.open(ASSET_CACHE)
       await assets.put(url.pathname, response.clone())
     }
@@ -402,6 +402,10 @@ async function cacheCoreResources() {
     if (await shell.match(url)) return
     let response = null
     if (isImmutableAsset(url)) response = await caches.match(url, { ignoreSearch: true })
+    // Reuse reaches across every cache, and install runs before activate deletes the previous build's —
+    // so a document someone left under this file's name would be copied forward into the new shell and
+    // survive the deploy that was supposed to clear it. Checked exactly like a fresh fetch.
+    if (response && isDocumentFallback(url, response)) response = null
     if (!response) response = await fetchRequired(url)
     await shell.put(url, response.clone())
   })
@@ -440,9 +444,10 @@ async function runOfflineWarmup() {
   await forEachConcurrent(WARMUP_URLS, 1, async (url) => {
     try {
       if (isImmutableAsset(url) && await assets.match(url)) return
-      const reused = isImmutableAsset(url)
+      let reused = isImmutableAsset(url)
         ? await caches.match(url, { ignoreSearch: true })
         : null
+      if (reused && isDocumentFallback(url, reused)) reused = null
       const response = reused || await fetchRequired(url)
       await assets.put(url, response.clone())
       if (!reused) completed++
@@ -521,7 +526,25 @@ async function pruneAssetCache(cache) {
 async function fetchRequired(url) {
   const response = await fetch(url)
   if (!response.ok) throw new Error('Failed to cache ' + url + ': HTTP ' + response.status)
+  if (isDocumentFallback(url, response)) {
+    throw new Error('Refused to cache ' + url + ': the edge answered with the app document')
+  }
   return response
+}
+
+/**
+ * A file this build no longer serves does not come back as a 404. The edge is configured to answer a miss
+ * with HTTP 200 and the app document (not_found_handling in wrangler.toml), so response.ok cannot tell a
+ * chunk from the page that replaced it, and caching that page under a .js key is the most damaging mistake
+ * available to this worker: the next load reads HTML where a module script belongs, the browser refuses it
+ * on MIME grounds, the entry point's dynamic import never settles, and the reader stares at an empty root
+ * that survives every reload because the cache is consulted first. So a body that claims to be a document
+ * while the URL asked for a file counts as a failed fetch, and the existing retry paths handle it as one.
+ */
+function isDocumentFallback(url, response) {
+  const type = response.headers.get('content-type') || ''
+  if (!type.toLowerCase().includes('text/html')) return false
+  return !new URL(url, self.location.origin).pathname.endsWith('.html')
 }
 
 function pauseBackgroundWarmup() {
