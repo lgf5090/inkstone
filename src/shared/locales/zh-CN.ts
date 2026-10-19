@@ -6175,6 +6175,7 @@ console.log(\`Hello, \${name}!\`)
     "assistant.canvas.quick_skill_group": "技能",
     "assistant.canvas.quick_prompt": "请按以下要求处理画布草稿《{title}》。只回复处理后的完整文档，不要开场白，也不要解释。\n\n要求：{instructions}",
     "assistant.canvas.quick_selection_prompt": "请按以下要求处理画布草稿《{title}》里选中的这段文字。只回复处理后的文字，不要开场白，也不要解释。\n\n要求：{instructions}\n\n---\n{text}\n---",
+    "assistant.canvas.quick_insert_prompt": "请按以下要求为画布草稿《{title}》续写。只回复要插入到末尾的文字，不要重复原文，不要开场白，也不要解释。\n\n要求：{instructions}",
     "assistant.canvas.quick_shorten": "缩短",
     "assistant.canvas.quick_shorten_hint": "把内容缩短，保留关键信息。",
     "assistant.canvas.quick_expand": "扩写",

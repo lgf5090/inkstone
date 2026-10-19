@@ -646,7 +646,7 @@ function ArtifactEditor({ artifact, onSave, onRemove }: {
     setSelection(null)
     setAiBusy(true)
     setAiError(null)
-    void runCanvasQuickAction(request, { instructions, modelId })
+    void runCanvasQuickAction(request, { instructions, modelId, insert })
       .then((result) => settleAi(result, request, label))
       .finally(() => setAiBusy(false))
   }

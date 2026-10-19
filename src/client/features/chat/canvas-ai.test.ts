@@ -7,7 +7,7 @@
  * a paragraph neither side selected.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { initI18n } from '../../lib/i18n'
+import { initI18n, t } from '../../lib/i18n'
 import {
   applyCanvasAi,
   canvasAiPrompt,
@@ -87,6 +87,19 @@ describe('canvas AI', () => {
 
     await runCanvasQuickAction({ ...whole, whole: 'x'.repeat(MAX_CANVAS_AI_SOURCE + 1) }, { instructions: 'Shorten it.' })
     expect(send).toHaveBeenLastCalledWith(expect.any(String), expect.objectContaining({ noTools: false }))
+  })
+
+  it('asks for the inserted text alone when a continuation targets the whole document', async () => {
+    send.mockResolvedValue({ status: 'ok', text: 'More.' })
+    const end = WHOLE.length
+    await runCanvasQuickAction(
+      request({ source: '', from: end, to: end, anchor: editorAiAnchor(WHOLE, end, end) }),
+      { instructions: 'Continue it.', insert: true },
+    )
+    expect(send).toHaveBeenCalledWith(
+      t('assistant.canvas.quick_insert_prompt', { title: 'Plan', instructions: 'Continue it.' }),
+      expect.objectContaining({ noTools: true }),
+    )
   })
 
   it('applies a skill to the selection with the skill\'s model', async () => {

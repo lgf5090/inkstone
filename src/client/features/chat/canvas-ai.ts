@@ -80,14 +80,16 @@ export async function runCanvasAi(
  */
 export async function runCanvasQuickAction(
   request: CanvasWriteRequest,
-  action: { instructions: string, modelId?: string | null },
+  action: { instructions: string, modelId?: string | null, insert?: boolean },
 ): Promise<AnswerResult> {
   const selection = request.source.trim()
   if (!selection && !request.whole.trim()) return { status: 'empty' }
   const title = request.title || t('assistant.canvas.untitled')
   const prompt = selection
     ? t('assistant.canvas.quick_selection_prompt', { title, instructions: action.instructions, text: selection })
-    : t('assistant.canvas.quick_prompt', { title, instructions: action.instructions })
+    : action.insert
+      ? t('assistant.canvas.quick_insert_prompt', { title, instructions: action.instructions })
+      : t('assistant.canvas.quick_prompt', { title, instructions: action.instructions })
   return sendForAnswerDetailed(prompt, {
     activeArtifactId: request.artifactId,
     modelId: action.modelId ?? null,
