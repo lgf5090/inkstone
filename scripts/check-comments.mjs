@@ -17314,14 +17314,41 @@ const allowed = new Map([
     "/** A date that was written in the right shape but names no real day, such as `2022-02-30`. */",
     "/**\n * Order two task dates.\n *\n * Dated tasks come before undated ones, and among dated tasks the unparseable shape sorts first:\n * a reader scanning a list wants the broken dates where they can be seen, not parked at the end.\n */",
   ]],
+  ["src/client/lib/tasks/date/wall-clock.ts", [
+    "/**\n * Wall-clock day transport between local time and UTC.\n *\n * `rrule` iterates over UTC instants and knows nothing about time zones, while a task's due date is\n * a civil day in the reader's calendar. Re-tagging the fields carries a day into `rrule`'s world and\n * back without ever letting an offset shift it onto the neighbouring day — which is the whole reason\n * a due date must not be stored as an instant.\n */",
+    "/** A local civil day and clock, re-expressed as the same wall-clock fields in UTC. */",
+    "/** The inverse of {@link asUtcWallClock}: UTC wall-clock fields, re-expressed as local ones. */",
+    "/** Whole days in UTC space, where a fixed 24 hours really is one calendar day. */",
+  ]],
   ["src/client/lib/tasks/dependency-contract.test.ts", [
     "/**\n * Upstream seeds `dtstart` with a moment that has been moved to local midnight and then re-tagged as\n * UTC, so the rule iterates over calendar days rather than instants. Reproduced with plain Dates.\n */",
+  ]],
+  ["src/client/lib/tasks/layout/task-layout.ts", [
+    "/**\n * The parts a task line is made of.\n *\n * **This declaration order is the on-disk order.** Writing `📅` before `✅` and then reading the\n * line back works either way, but a stable order is what lets a rewrite change one field without\n * reshuffling its neighbours into a diff the reader has to re-learn.\n */",
+    "/**\n * Which components a query draws, and how much of each.\n *\n * `shortMode` keeps a field's symbol and drops its value, which is how a dense list still shows\n * that a task is overdue without spending a column on the date.\n */",
+    "/** Components in declaration order, which is also the order they are written back in. */",
+  ]],
+  ["src/client/lib/tasks/model/occurrence.ts", [
+    "/**\n * The three dates a recurrence rule moves together.\n *\n * Only these three: `created`, `done` and `cancelled` describe what already happened to an\n * instance, so carrying them into the next occurrence would be rewriting history.\n */",
+    "/**\n   * Whether the reader asked for the scheduled date to be dropped on each new occurrence.\n   *\n   * It changes which date the rule is anchored to, not merely which dates get written: if the\n   * scheduled date is going to be deleted anyway, anchoring to it would drift the whole series.\n   */",
+    "/**\n * One instance of a recurring task, in terms of the dates that define when it is due.\n *\n * All three dates are civil days with the clock stripped, because every comparison the recurrence\n * layer makes is a comparison of days, and an instance that kept its creation time would answer\n * `due on 2026-10-19` differently depending on when the reader happened to tick it.\n */",
+    "/**\n   * The date the rest of the series is measured from: due beats scheduled beats start.\n   *\n   * A task that is due on Friday and starts on Monday is a Friday thing that happens to have a\n   * lead time, and the reader expects the next occurrence to keep that lead time rather than the\n   * Friday-to-Friday gap.\n   */",
+    "/**\n   * The same series shifted onto a new reference date, keeping each date's distance from it.\n   *\n   * The distance is rounded to whole days rather than carried as an exact span, because a series\n   * that crosses a daylight-saving change would otherwise arrive an hour early or late and land on\n   * the wrong side of a `due before today` filter.\n   */",
   ]],
   ["src/client/lib/tasks/model/on-completion.ts", [
     "/**\n * What the reader asked to happen to a recurring task when it is completed.\n *\n * `Ignore` is the unwritten default and must stay invisible on the line: a task that serialises\n * `🏁 keep` for every reader who never asked for it would rewrite half of a vault on first tick.\n */",
   ]],
   ["src/client/lib/tasks/model/priority.ts", [
     "/**\n * How badly a task wants to be done before something else.\n *\n * The values are strings that sort correctly: `Low` must land after `None`, so a vault with no\n * priority set on most of its tasks still puts the ones the reader did mark low underneath them.\n */",
+  ]],
+  ["src/client/lib/tasks/model/recurrence.ts", [
+    "/** Everything up to an optional ` when done`, which is the only part `rrule` cannot say. */",
+    "/**\n * A repetition rule, in the reader's own words.\n *\n * The rule is stored rather than evaluated so that `toText()` can write it back unchanged: a reader\n * who typed `every month on the 2nd` should not find `every 1 month on the 2nd of the month` in\n * their note after ticking the box once.\n */",
+    "/**\n   * Parse an English recurrence rule, or null when it does not read as one.\n   *\n   * A half-typed rule is the common case — the reader is still writing `every 4 weeks on` — so\n   * failing here is normal and must not surface as an error in the note.\n   */",
+    "/**\n   * The dates of the next instance.\n   *\n   * Anchored either on the original series (`every week` keeps its phase no matter when the reader\n   * got round to it) or on the completion day (`when done` restarts the clock from today), which is\n   * the entire difference between the two spellings.\n   */",
+    "/**\n   * The next instance after `after`.\n   *\n   * Monthly and yearly rules are stepped here rather than asked of `rrule`, because `rrule` fixes the\n   * day of month from `dtstart` and then omits any month too short to hold it: measured on rrule\n   * 2.8.1, a task due 2022-01-31 set to `every month` answers 2022-03-31 and skips February whole.\n   * Stepping a whole number of intervals from the *original* start and letting the target month clamp\n   * answers 2022-02-28, and stepping from the original rather than from the previous answer is what\n   * keeps the series on the 31st once February is past.\n   *\n   * A rule that names its own day (`every month on the 31st`) is left to `rrule`: there the omission\n   * is nearer the instruction than a clamp to the 28th would be.\n   */",
+    "/** The first clamped multiple of `interval` units from `start` that falls strictly after `after`. */",
+    "/** Refuses to search forever for a later day, which a zero or negative interval would require. */",
   ]],
   ["src/client/lib/tasks/model/task-location.ts", [
     "/**\n * Where a task lives, so a result can be written back to the exact line it came from.\n *\n * `lineNumber` alone is not enough: two notes can hold byte-identical task lines, and a reader who\n * ticks one must not have the other rewritten. `sectionStart` and `sectionIndex` are the fallback\n * the write path uses when the line has moved since the query last ran.\n */",
