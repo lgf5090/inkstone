@@ -1601,7 +1601,18 @@ export async function flushLocalDbWrites(): Promise<void> {
                 r(false);
         }
     }
-    await localDb.setContentBatch(currentContent);
+    // Best effort, and reported here rather than left to the caller: every reader of these keys falls back
+    // to the server when the entry is missing, and all three call sites below run this as a fire-and-forget
+    // `void` — a debounced timer, a blur, and an exit handler. A store that cannot be opened at all (no
+    // IndexedDB in this document) throws while the batch promise is still being built, so the `.catch` on
+    // `setContentBatch` never gets attached, and the rejection that escapes a `void` is an unhandled one:
+    // it poisons whichever test the run happens to be inside, and in a browser it would be a console error
+    // with no context about what it cost. The outbox above is guarded for the same reason.
+    try {
+        await localDb.setContentBatch(currentContent);
+    } catch (error) {
+        console.warn('[inkstone] the local note cache could not be written', error);
+    }
 }
 
 function flushQueuedWritesOnExit(): void {
