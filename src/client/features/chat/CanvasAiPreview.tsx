@@ -9,12 +9,12 @@ import { useMemo } from 'react'
 import { t } from '../../lib/i18n'
 import { Button } from '../../components/primitives'
 import { Modal } from '../../components/overlay'
-import { applyCanvasAi, type CanvasAiRequest } from './canvas-ai'
-import { EDITOR_AI_LABELS } from './editor-ai'
+import { applyCanvasAi, type CanvasWriteRequest } from './canvas-ai'
 import { buildWriteDiff, WriteDiffView } from './editor-ai-diff'
 
-export function CanvasAiPreview({ request, answer, content, saving, onApply, onClose }: {
-  request: CanvasAiRequest
+export function CanvasAiPreview({ request, label, answer, content, saving, onApply, onClose }: {
+  request: CanvasWriteRequest
+  label: string
   answer: string
   content: string
   saving: boolean
@@ -27,7 +27,7 @@ export function CanvasAiPreview({ request, answer, content, saving, onApply, onC
     <Modal
       open
       onClose={onClose}
-      title={`${t(EDITOR_AI_LABELS[request.action])} · ${t('assistant.canvas.ai_title')}`}
+      title={`${label} · ${t('assistant.canvas.ai_title')}`}
       description={t('assistant.canvas.ai_hint')}
       width={720}
       footer={<>

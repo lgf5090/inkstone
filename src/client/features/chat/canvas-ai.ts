@@ -7,6 +7,7 @@
  * is; the anchor is checked against the text as it stands, and a moved passage is refused rather than
  * guessed at.
  */
+import { MAX_ARTIFACT_CONTEXT_CHARS } from '@shared/assistant'
 import { t, type MessageKey } from '../../lib/i18n'
 import {
   resolveWriteTarget,
@@ -17,11 +18,18 @@ import {
   type WriteRange,
 } from './editor-ai'
 
-/** What one canvas action is acting on. */
-export interface CanvasAiRequest extends WriteRange {
+/** What one canvas write is acting on: the draft, the range, and the document around it. */
+export interface CanvasWriteRequest extends WriteRange {
   artifactId: string
   version: number
   title: string
+  /** The document the range was taken from, used to decide whether the model needs a tool to see it all. */
+  whole: string
+  /** Replace the selected range, or insert the answer after it. Continuations insert. */
+  mode?: 'replace' | 'insert'
+}
+
+export interface CanvasAiRequest extends CanvasWriteRequest {
   action: Exclude<EditorAiAction, 'ask'>
 }
 
@@ -63,6 +71,30 @@ export async function runCanvasAi(
   })
 }
 
+/**
+ * A preset or a skill applied to the draft, or to the passage selected in it.
+ *
+ * A short document travels in the system prompt, so the turn needs no tools. A long one does: the prompt
+ * carries only the head and tail, and the model reads the middle with `read_artifact` before rewriting.
+ * A selection is always in the prompt itself, so it never needs the tool either.
+ */
+export async function runCanvasQuickAction(
+  request: CanvasWriteRequest,
+  action: { instructions: string, modelId?: string | null },
+): Promise<AnswerResult> {
+  const selection = request.source.trim()
+  if (!selection && !request.whole.trim()) return { status: 'empty' }
+  const title = request.title || t('assistant.canvas.untitled')
+  const prompt = selection
+    ? t('assistant.canvas.quick_selection_prompt', { title, instructions: action.instructions, text: selection })
+    : t('assistant.canvas.quick_prompt', { title, instructions: action.instructions })
+  return sendForAnswerDetailed(prompt, {
+    activeArtifactId: request.artifactId,
+    modelId: action.modelId ?? null,
+    noTools: selection ? true : request.whole.length <= MAX_ARTIFACT_CONTEXT_CHARS,
+  })
+}
+
 export type CanvasAiWrite =
   | { status: 'stale' }
   | { status: 'ok', content: string }
@@ -74,8 +106,8 @@ export type CanvasAiWrite =
  * around it, or a unique occurrence, or a refusal. A canvas is edited by the assistant too, so the
  * chance that the range moved while the model was thinking is higher here, not lower.
  */
-export function applyCanvasAi(content: string, request: CanvasAiRequest, answer: string): CanvasAiWrite {
+export function applyCanvasAi(content: string, request: CanvasWriteRequest, answer: string): CanvasAiWrite {
   const target = resolveWriteTarget(content, request)
   if (target.status === 'stale') return { status: 'stale' }
-  return { status: 'ok', content: writeEditorAiContent(content, target, 'replace', answer.trim()) }
+  return { status: 'ok', content: writeEditorAiContent(content, target, request.mode ?? 'replace', answer.trim()) }
 }

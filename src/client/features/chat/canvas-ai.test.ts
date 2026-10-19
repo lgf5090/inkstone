@@ -13,6 +13,7 @@ import {
   canvasAiPrompt,
   MAX_CANVAS_AI_SOURCE,
   runCanvasAi,
+  runCanvasQuickAction,
   type CanvasAiRequest,
 } from './canvas-ai'
 import { editorAiAnchor } from './editor-ai'
@@ -34,6 +35,7 @@ function request(over: Partial<CanvasAiRequest> = {}): CanvasAiRequest {
     version: 3,
     title: 'Plan',
     action: 'rewrite',
+    whole: WHOLE,
     from,
     to,
     source: 'First paragraph.',
@@ -71,11 +73,44 @@ describe('canvas AI', () => {
     expect(send).not.toHaveBeenCalled()
   })
 
+  it('sends a whole-document quick action without tools when the draft fits, and with them when it does not', async () => {
+    send.mockResolvedValue({ status: 'ok', text: 'Done.' })
+    const whole = {
+      ...request({ source: '', from: 0, to: WHOLE.length, anchor: editorAiAnchor(WHOLE, 0, WHOLE.length) }),
+    }
+    await runCanvasQuickAction(whole, { instructions: 'Shorten it.' })
+    expect(send).toHaveBeenLastCalledWith(expect.stringContaining('Shorten it.'), {
+      activeArtifactId: 'a1',
+      modelId: null,
+      noTools: true,
+    })
+
+    await runCanvasQuickAction({ ...whole, whole: 'x'.repeat(MAX_CANVAS_AI_SOURCE + 1) }, { instructions: 'Shorten it.' })
+    expect(send).toHaveBeenLastCalledWith(expect.any(String), expect.objectContaining({ noTools: false }))
+  })
+
+  it('applies a skill to the selection with the skill\'s model', async () => {
+    send.mockResolvedValue({ status: 'ok', text: 'Done.' })
+    await runCanvasQuickAction(request(), { instructions: 'Use my house style.', modelId: 'm-skill' })
+    expect(send).toHaveBeenCalledWith(expect.stringContaining('Use my house style.'), {
+      activeArtifactId: 'a1',
+      modelId: 'm-skill',
+      noTools: true,
+    })
+  })
+
   it('replaces the selection and leaves the rest of the document alone', () => {
     const result = applyCanvasAi(WHOLE, request(), 'Rewritten paragraph.')
     expect(result.status).toBe('ok')
     if (result.status !== 'ok') return
     expect(result.content).toBe('# Plan\n\nRewritten paragraph.\n\nSecond paragraph.')
+  })
+
+  it('inserts a continuation after the passage instead of replacing it', () => {
+    const result = applyCanvasAi(WHOLE, { ...request(), mode: 'insert' }, 'A continuation.')
+    expect(result.status).toBe('ok')
+    if (result.status !== 'ok') return
+    expect(result.content).toBe('# Plan\n\nFirst paragraph.\n\nA continuation.\n\nSecond paragraph.')
   })
 
   it('refuses when the passage is gone by the time the answer arrives', () => {

@@ -21,11 +21,11 @@
  */
 
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type PointerEvent as ReactPointerEvent } from 'react'
-import { ArrowLeft, Check, Copy, FileText, Link2Off, Loader2, NotebookPen, PanelRight, Plus, RefreshCw, Trash2, X } from 'lucide-react'
+import { ArrowLeft, Check, Copy, FileText, Link2Off, Loader2, NotebookPen, PanelRight, Plus, RefreshCw, Sparkles, Trash2, X } from 'lucide-react'
 import type { AssistantArtifact } from '@shared/assistant'
 import { DEBOUNCE } from '@shared/constants'
 import { cn } from '../../lib/cn'
-import { t } from '../../lib/i18n'
+import { t, type MessageKey } from '../../lib/i18n'
 import { useDebounced, useMediaQuery } from '../../lib/hooks'
 import { COPY_RESET_MS } from '../../lib/motion'
 import { relativeTime } from '../../lib/time'
@@ -33,7 +33,7 @@ import { api, ApiError } from '../../lib/api'
 import { copyText } from '../../lib/clipboard'
 import { Button, IconButton, Spinner } from '../../components/primitives'
 import { Input } from '../../components/form'
-import { Drawer, confirm } from '../../components/overlay'
+import { Drawer, Menu, confirm, type MenuItem } from '../../components/overlay'
 import { DeferredCodeEditor } from '../../editor/CodeEditor'
 import { useNotes } from '../../store/notes'
 import { useSession } from '../../store/session'
@@ -43,9 +43,9 @@ import { ArtifactBody } from './ArtifactBody'
 import { ArtifactHistory, HistoryButton } from './ArtifactHistory'
 import { CanvasAiPreview } from './CanvasAiPreview'
 import { CanvasSelectionBar } from './CanvasSelectionBar'
-import { runCanvasAi, type CanvasAiRequest } from './canvas-ai'
+import { runCanvasAi, runCanvasQuickAction, type CanvasAiRequest, type CanvasWriteRequest } from './canvas-ai'
 import { CANVAS_DEFAULT_WIDTH, CANVAS_MAX_DOCK_WIDTH, CANVAS_MIN_DOCK_WIDTH, CANVAS_WIDTH_KEY, clampCanvasWidth, stepCanvasWidth } from './canvas-width'
-import { editorAiAnchor, quotePassage, type EditorAiAction } from './editor-ai'
+import { EDITOR_AI_LABELS, editorAiAnchor, quotePassage, type AnswerResult, type EditorAiAction } from './editor-ai'
 import { useAssistant } from './assistant-store'
 import { LoadFailure } from './assistant-settings-shared'
 import { saveReplyAsNote } from './save-to-note'
@@ -250,6 +250,17 @@ function ArtifactList({ artifacts, ready, onSelect }: {
 type SaveState = 'idle' | 'saving' | 'saved' | 'error'
 type SyncState = 'synced' | 'syncing' | 'diverged' | 'failed'
 
+/** The one-click writing actions; each is an instruction the generic canvas prompt wraps. */
+const QUICK_PRESETS: ReadonlyArray<{ id: string, labelKey: MessageKey, hintKey: MessageKey, insert?: boolean }> = [
+  { id: 'shorten', labelKey: 'assistant.canvas.quick_shorten', hintKey: 'assistant.canvas.quick_shorten_hint' },
+  { id: 'expand', labelKey: 'assistant.canvas.quick_expand', hintKey: 'assistant.canvas.quick_expand_hint' },
+  { id: 'polish', labelKey: 'assistant.canvas.quick_polish', hintKey: 'assistant.canvas.quick_polish_hint' },
+  { id: 'translate', labelKey: 'assistant.canvas.quick_translate', hintKey: 'assistant.canvas.quick_translate_hint' },
+  { id: 'outline', labelKey: 'assistant.canvas.quick_outline', hintKey: 'assistant.canvas.quick_outline_hint' },
+  { id: 'summarize', labelKey: 'assistant.canvas.quick_summarize', hintKey: 'assistant.canvas.quick_summarize_hint' },
+  { id: 'continue', labelKey: 'assistant.canvas.quick_continue', hintKey: 'assistant.canvas.quick_continue_hint', insert: true },
+]
+
 /** The one control an empty panel offers: start a document rather than explaining why there is none. */
 function NewDraftButton() {
   const createDraft = useAssistant((state) => state.createDraft)
@@ -280,7 +291,16 @@ function ArtifactEditor({ artifact, onSave, onRemove }: {
   const [selection, setSelection] = useState<EditorSelectionInfo | null>(null)
   const [aiBusy, setAiBusy] = useState(false)
   const [aiError, setAiError] = useState<string | null>(null)
-  const [aiResult, setAiResult] = useState<{ request: CanvasAiRequest, answer: string, messageId: string | null } | null>(null)
+  const [aiResult, setAiResult] = useState<{
+    request: CanvasWriteRequest
+    answer: string
+    messageId: string | null
+    label: string
+  } | null>(null)
+  const [quickOpen, setQuickOpen] = useState(false)
+  const quickRef = useRef<HTMLButtonElement>(null)
+  const skills = useAssistant((state) => state.skills)
+  const loadSkills = useAssistant((state) => state.loadSkills)
   const stop = useAssistant((state) => state.stop)
   const [retryTick, setRetryTick] = useState(0)
   const [conflict, setConflict] = useState(false)
@@ -543,6 +563,17 @@ function ArtifactEditor({ artifact, onSave, onRemove }: {
    * `ask` is the one action whose question the reader writes, so it seeds the composer and stops there.
    * The rest become a chat turn; the answer is not written back until the reader has seen the diff.
    */
+  /** One answer, said the way the panel says it: preview, wait, or a line that stays where it happened. */
+  const settleAi = (result: AnswerResult, request: CanvasWriteRequest, label: string): void => {
+    if (result.status === 'ok') {
+      setAiResult({ request, answer: result.text, messageId: result.messageId ?? null, label })
+      return
+    }
+    if (result.status === 'busy') setAiError(t('assistant.canvas.ai_busy_other'))
+    else if (result.status === 'failed') setAiError(result.error || t('assistant.canvas.ai_failed'))
+    else setAiError(t('assistant.canvas.ai_empty'))
+  }
+
   const onSelectionAction = (action: EditorAiAction): void => {
     if (!selection) return
     if (action === 'ask') {
@@ -555,25 +586,97 @@ function ArtifactEditor({ artifact, onSave, onRemove }: {
       version: artifact.version,
       title,
       action,
+      whole: content,
+      mode: action === 'continue' ? 'insert' : 'replace',
       from: selection.from,
       to: selection.to,
       source: selection.text,
       anchor: editorAiAnchor(content, selection.from, selection.to),
     }
+    const label = t(EDITOR_AI_LABELS[action])
     setSelection(null)
     setAiBusy(true)
     setAiError(null)
     void runCanvasAi(request)
-      .then((result) => {
-        if (result.status === 'ok') {
-          setAiResult({ request, answer: result.text, messageId: result.messageId ?? null })
-          return
-        }
-        if (result.status === 'busy') setAiError(t('assistant.canvas.ai_busy_other'))
-        else if (result.status === 'failed') setAiError(result.error || t('assistant.canvas.ai_failed'))
-        else setAiError(t('assistant.canvas.ai_empty'))
-      })
+      .then((result) => settleAi(result, request, label))
       .finally(() => setAiBusy(false))
+  }
+
+  /**
+   * A preset or a skill against the selection when there is one, otherwise the whole document.
+   *
+   * The request spans the range being replaced; a whole-document action is one range from the first
+   * character to the last, so the same anchor check decides whether the document is still the one the
+   * answer was written for.
+   */
+  const runQuick = (instructions: string, label: string, modelId: string | null, insert = false): void => {
+    if (aiBusy) return
+    if (!selection && !content.trim()) {
+      setAiError(t('assistant.canvas.ai_empty'))
+      return
+    }
+    const range = selection
+      ? {
+          from: selection.from,
+          to: selection.to,
+          source: selection.text,
+          anchor: editorAiAnchor(content, selection.from, selection.to),
+        }
+      : insert
+        ? {
+            from: content.length,
+            to: content.length,
+            source: '',
+            anchor: editorAiAnchor(content, content.length, content.length),
+          }
+        : {
+            from: 0,
+            to: content.length,
+            source: content,
+            anchor: editorAiAnchor(content, 0, content.length),
+          }
+    const request: CanvasWriteRequest = {
+      artifactId: artifact.id,
+      version: artifact.version,
+      title,
+      whole: content,
+      mode: insert ? 'insert' : 'replace',
+      ...range,
+    }
+    setSelection(null)
+    setAiBusy(true)
+    setAiError(null)
+    void runCanvasQuickAction(request, { instructions, modelId })
+      .then((result) => settleAi(result, request, label))
+      .finally(() => setAiBusy(false))
+  }
+
+  const quickItems: MenuItem[] = QUICK_PRESETS.map((preset) => ({
+    id: preset.id,
+    label: t(preset.labelKey),
+    onSelect: () => {
+      setQuickOpen(false)
+      runQuick(t(preset.hintKey), t(preset.labelKey), null, preset.insert === true)
+    },
+  }))
+  if (skills.length) {
+    quickItems.push({
+      id: 'skills-group',
+      label: t('assistant.canvas.quick_skill_group'),
+      separatorBefore: true,
+      disabled: true,
+    })
+    for (const skill of skills) {
+      const label = skill.title || t('assistant.canvas.untitled')
+      quickItems.push({
+        id: `skill:${skill.id}`,
+        label,
+        onSelect: () => {
+          setQuickOpen(false)
+          runQuick(skill.content, label, skill.modelId)
+        },
+      })
+    }
   }
 
   /**
@@ -773,6 +876,20 @@ function ArtifactEditor({ artifact, onSave, onRemove }: {
             }}
           />
           <div className="ml-auto flex shrink-0 items-center gap-1">
+            <IconButton
+              ref={quickRef}
+              label={t('assistant.canvas.quick_actions')}
+              size="sm"
+              aria-haspopup="menu"
+              aria-expanded={quickOpen}
+              disabled={aiBusy}
+              onClick={() => {
+                setQuickOpen((open) => !open)
+                if (!skills.length) void loadSkills()
+              }}
+            >
+              <Sparkles size={13} />
+            </IconButton>
             <HistoryButton onOpen={() => { setSelection(null); setHistoryOpen(true) }} />
             <span aria-live="polite" className="text-[length:var(--text-10-5)] text-[var(--text-quaternary)]">
               {saveState === 'saving'
@@ -903,9 +1020,19 @@ function ArtifactEditor({ artifact, onSave, onRemove }: {
           onDismiss={() => setSelection(null)}
         />
       )}
+      <Menu
+        anchor={quickRef}
+        open={quickOpen}
+        onClose={() => setQuickOpen(false)}
+        items={quickItems}
+        align="end"
+        width={250}
+        label={t('assistant.canvas.quick_actions')}
+      />
       {aiResult && (
         <CanvasAiPreview
           request={aiResult.request}
+          label={aiResult.label}
           answer={aiResult.answer}
           content={content}
           saving={saveState === 'saving'}

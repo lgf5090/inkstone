@@ -36,6 +36,13 @@ import { useAssistant } from './assistant-store'
  */
 const preview = vi.hoisted(() => ({ unrenderable: '[[[this draft cannot be rendered]]]', seen: { className: '' } }))
 
+/** The two model calls the panel makes; the real prompt/apply logic stays in `canvas-ai`. */
+const canvasAi = vi.hoisted(() => ({ runCanvasAi: vi.fn(), runCanvasQuickAction: vi.fn() }))
+vi.mock('./canvas-ai', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('./canvas-ai')>()
+  return { ...actual, ...canvasAi }
+})
+
 const {
   DRAFT, LINKED, updateConversationArtifact, removeConversationArtifact, conversationArtifacts,
   createConversation, createConversationArtifact, conversation,
@@ -319,6 +326,61 @@ describe('the canvas panel', () => {
     })
     const last = updateConversationArtifact.mock.calls.at(-1)!
     expect(last[2]).toMatchObject({ content: 'my paragraph', baseVersion: 2 })
+  })
+
+  it('runs a preset from the quick menu against the whole draft', async () => {
+    canvasAi.runCanvasQuickAction.mockResolvedValueOnce({ status: 'ok', text: 'Short.' })
+    await show({ activeId: 'c1', artifacts: [DRAFT], artifactsReady: true, activeArtifactId: 'a1' })
+    const quick = buttons().find((node) => node.getAttribute('aria-label') === t('assistant.canvas.quick_actions'))
+    expect(quick, 'the editor has no quick-action control').toBeTruthy()
+    await act(async () => { quick!.click(); await Promise.resolve() })
+    const shorten = [...document.querySelectorAll<HTMLButtonElement>('button')]
+      .find((node) => node.textContent?.trim() === t('assistant.canvas.quick_shorten'))
+    expect(shorten, 'the quick menu offers no preset').toBeTruthy()
+    await act(async () => {
+      shorten!.click()
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+    expect(canvasAi.runCanvasQuickAction).toHaveBeenCalledWith(
+      expect.objectContaining({
+        artifactId: 'a1',
+        whole: DRAFT.content,
+        mode: 'replace',
+        from: 0,
+        to: DRAFT.content.length,
+        source: DRAFT.content,
+      }),
+      expect.objectContaining({ modelId: null, instructions: expect.any(String) }),
+    )
+  })
+
+  it('runs a saved skill with its own model', async () => {
+    canvasAi.runCanvasQuickAction.mockResolvedValueOnce({ status: 'ok', text: 'Short.' })
+    await show({
+      activeId: 'c1',
+      artifacts: [DRAFT],
+      artifactsReady: true,
+      activeArtifactId: 'a1',
+      skills: [{
+        id: 's1', title: 'House style', content: 'Use short sentences.', group: '', icon: '',
+        tools: [], scopes: [], modelId: 'm-skill', createdAt: 1, updatedAt: 1,
+      }],
+    })
+    const quick = buttons().find((node) => node.getAttribute('aria-label') === t('assistant.canvas.quick_actions'))
+    await act(async () => { quick!.click(); await Promise.resolve() })
+    const skill = [...document.querySelectorAll<HTMLButtonElement>('button')]
+      .find((node) => node.textContent?.trim() === 'House style')
+    expect(skill, 'the quick menu does not list the reader\'s skills').toBeTruthy()
+    await act(async () => {
+      skill!.click()
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+    expect(canvasAi.runCanvasQuickAction).toHaveBeenCalledWith(
+      expect.objectContaining({ artifactId: 'a1', whole: DRAFT.content }),
+      { instructions: 'Use short sentences.', modelId: 'm-skill' },
+    )
   })
 
   it('opens the version history and reads the stored snapshots', async () => {

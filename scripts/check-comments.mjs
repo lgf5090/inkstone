@@ -1280,6 +1280,9 @@ const allowed = new Map([
     "// session; losing it on reload is not worth a visible failure.",
     "/**\n   * One action from the selection bar.\n   *\n   * `ask` is the one action whose question the reader writes, so it seeds the composer and stops there.\n   * The rest become a chat turn; the answer is not written back until the reader has seen the diff.\n   */",
     "/**\n   * Write the previewed text into the draft.\n   *\n   * The content is updated before the request and `committed` moves with it, so the debounce does not\n   * fire a second, user-sourced save for the same words. A failed save puts the baseline back and lets\n   * the panel's error line own the retry.\n   */",
+    "/** The one-click writing actions; each is an instruction the generic canvas prompt wraps. */",
+    "/** One answer, said the way the panel says it: preview, wait, or a line that stays where it happened. */",
+    "/**\n   * A preset or a skill against the selection when there is one, otherwise the whole document.\n   *\n   * The request spans the range being replaced; a whole-document action is one range from the first\n   * character to the last, so the same anchor check decides whether the document is still the one the\n   * answer was written for.\n   */",
   ]],
   ["src/client/features/chat/CanvasSelectionBar.tsx", [
     "/**\n * The action bar over a passage selected in the canvas.\n *\n * It floats in a portal because the editor scrolls; the parent handles the action and dismisses the bar.\n * The bar is icon-only so seven actions fit above a paragraph rather than wrapping into a menu the\n * reader has to open first. Every button keeps its name for a screen reader.\n */",
@@ -3031,10 +3034,13 @@ const allowed = new Map([
   ]],
   ["src/client/features/chat/canvas-ai.ts", [
     "/**\n * Asking the assistant about a passage in the canvas.\n *\n * The request is a chat turn like the note editor's: the selection rides in the prompt, the draft rides\n * in the turn's canvas context, and the answer comes back through the same stream, accounting and stop\n * button. Writing it back is the client's job, because only the client knows where the selection still\n * is; the anchor is checked against the text as it stands, and a moved passage is refused rather than\n * guessed at.\n */",
-    "/** What one canvas action is acting on. */",
     "/**\n * The most a selection may carry.\n *\n * The composer refuses messages past sixteen thousand characters, and the instructions need room. A\n * selection longer than this is a whole section, not a passage; the reader is asked to take it in parts\n * rather than have a rewrite land on text the model only saw the start of.\n */",
     "/** The request as a chat turn: the open draft is named so the canvas chip cannot switch it off. */",
     "/**\n * The document as it would read with this answer replacing the selection.\n *\n * `resolveWriteTarget` is the same check the note editor uses: the passage's own words plus the words\n * around it, or a unique occurrence, or a refusal. A canvas is edited by the assistant too, so the\n * chance that the range moved while the model was thinking is higher here, not lower.\n */",
+    "/** What one canvas write is acting on: the draft, the range, and the document around it. */",
+    "/** The document the range was taken from, used to decide whether the model needs a tool to see it all. */",
+    "/** Replace the selected range, or insert the answer after it. Continuations insert. */",
+    "/**\n * A preset or a skill applied to the draft, or to the passage selected in it.\n *\n * A short document travels in the system prompt, so the turn needs no tools. A long one does: the prompt\n * carries only the head and tail, and the model reads the middle with `read_artifact` before rewriting.\n * A selection is always in the prompt itself, so it never needs the tool either.\n */",
   ]],
   ["src/client/features/chat/canvas-panel.test.ts", [
     "/**\n * The side panel: the drafts a conversation keeps.\n *\n * What is pinned here is the shape of the contract rather than the editor inside it. The panel is the\n * drive — an empty conversation says so, a draft can be picked out of the list, and a rename is committed\n * once the typing settles rather than once per keystroke — and the menu is the door: a reply offers the\n * canvas only where there is a row to hang a draft on, which is why the live turn and the reader's own\n * messages do not.\n *\n * The real editor is CodeMirror and is not what this file is about; a textarea stands in for it so the\n * panel's own wiring is what is exercised.\n */",
@@ -3075,6 +3081,7 @@ const allowed = new Map([
     "// A new version from elsewhere — an assistant write, or the same draft in another tab — replaces the",
     "// body the preview failed on. The panel adopts it while the editor is clean, so the notice goes with",
     "// the document it was about.",
+    "/** The two model calls the panel makes; the real prompt/apply logic stays in `canvas-ai`. */",
   ]],
   ["src/client/features/chat/canvas-selection-bar.test.ts", [
     "/**\n * The bar over a canvas selection.\n *\n * What it owns is the handover: the seven actions are buttons with names, the chosen one reaches the\n * parent, and Escape gives the editor its keyboard back. The position arithmetic is the same function\n * the answer bar already tests.\n */",
