@@ -261,8 +261,10 @@ self.addEventListener('install', (event) => {
     const previousShells = (await caches.keys()).filter((key) =>
       key.startsWith('inkstone-') && key !== SHELL_CACHE && key !== ASSET_CACHE)
     // The shell is the whole promise of the offline mode: without these files the cached page is an
-    // empty document. It is cached before anything else and a single failure rejects the install, which
-    // is what makes the installed state the page's own listener waits for mean "this build opens offline".
+    // empty document. It is cached before anything else, and a file the build does not actually have
+    // rejects the install, which is what makes the installed state the page's own listener waits for
+    // mean "this build opens offline". A connection the edge dropped is not that: see
+    // cacheCoreResources, where the difference decides whether this worker ever activates.
     await cacheCoreResources()
     if (previousShells.length) await warmOfflineCache()
   })())
@@ -384,6 +386,18 @@ self.addEventListener('fetch', (event) => {
     return
   }
 
+  // The guard that answers a broken start-up must not be delivered by the thing it exists to recover
+  // from. A client whose install keeps failing serves the previous build's boot.js out of the previous
+  // build's cache, so the fix that would let it update never reaches it — which is how one dropped
+  // connection turned into a page that could never leave an old build. This one path gets the
+  // document's own policy, and falls back to the cache so an offline start still has its guard.
+  if (url.pathname === '/boot.js') {
+    event.respondWith(
+      fetch(request).catch(async () => (await caches.match(request)) || Response.error()),
+    )
+    return
+  }
+
   event.respondWith((async () => {
     const cached = await caches.match(request, { ignoreSearch: true })
     if (cached && !isDocumentFallback(url, cached)) return cached
@@ -398,6 +412,7 @@ self.addEventListener('fetch', (event) => {
 
 async function cacheCoreResources() {
   const shell = await caches.open(SHELL_CACHE)
+  const dropped = []
   await forEachConcurrent(CORE_URLS, 4, async (url) => {
     if (await shell.match(url)) return
     let response = null
@@ -406,9 +421,25 @@ async function cacheCoreResources() {
     // so a document someone left under this file's name would be copied forward into the new shell and
     // survive the deploy that was supposed to clear it. Checked exactly like a fresh fetch.
     if (response && isDocumentFallback(url, response)) response = null
-    if (!response) response = await fetchRequired(url)
+    if (!response) {
+      try {
+        response = await fetchRequired(url)
+      } catch (error) {
+        // Two failures that only look alike. A file the edge answers with the app document is a file this
+        // build does not have, and the previous worker is the safe thing to keep, so that one still
+        // rejects the install. A dropped connection says nothing about the build — the warm-up below
+        // already skips and retries those — and rejecting for it leaves the client pinned to the previous
+        // worker forever, whose cached boot.js is the start-up guard a deploy exists to replace.
+        if (error && error.refused) throw error
+        dropped.push(url)
+        return
+      }
+    }
     await shell.put(url, response.clone())
   })
+  if (dropped.length) {
+    console.warn('[inkstone] shell left incomplete, the warm-up retries it: ' + dropped.join(', '))
+  }
   await shell.put(CACHE_META_URL, new Response(String(Date.now())))
 }
 
@@ -424,6 +455,10 @@ function warmOfflineCache() {
 }
 
 async function runOfflineWarmup() {
+  // A core file the install skipped because the edge dropped its connection is filled in here, on every
+  // trigger the page already gives this function. Ahead of the manifest check below, or a build whose
+  // background set is complete would never notice its own shell is short one file.
+  await cacheCoreResources()
   const assets = await caches.open(ASSET_CACHE)
   if (await assets.match(CURRENT_MANIFEST_URL)) {
     await broadcastStatus('ready', WARMUP_TOTAL, WARMUP_TOTAL)
@@ -527,7 +562,12 @@ async function fetchRequired(url) {
   const response = await fetch(url)
   if (!response.ok) throw new Error('Failed to cache ' + url + ': HTTP ' + response.status)
   if (isDocumentFallback(url, response)) {
-    throw new Error('Refused to cache ' + url + ': the edge answered with the app document')
+    const error = new Error('Refused to cache ' + url + ': the edge answered with the app document')
+    // The one failure the shell's caller must not swallow: it is the build being wrong, not the
+    // connection being brief. Marked rather than matched by message, so the two can never be confused
+    // by a rewording.
+    error.refused = true
+    throw error
   }
   return response
 }

@@ -340,6 +340,40 @@ it('caches the shell before anything else so a first visit can boot offline', as
   expect(worker.fetched.filter((path) => path.startsWith('/vendor/excalidraw/'))).toEqual([])
 })
 
+// A connection the edge dropped says nothing about the build, but an install that rejects on it leaves
+// the previous worker in control forever — its cached shell and its cached boot.js included, which is the
+// start-up guard a deploy exists to replace. Measured on the live deployment: one install killed this way
+// left every build after it stuck in `installing`, never activating.
+it('activates with a short shell when the edge drops a core file, and fills it in later', async () => {
+  const worker = bootServiceWorker({ failing: ['/assets/app.js'] })
+  await expect(worker.install()).resolves.toHaveLength(1)
+
+  const short = await worker.shellCache()
+  expect(short.has(ORIGIN + '/assets/app.js')).toBe(false)
+  expect(short.has(ORIGIN + '/index.html')).toBe(true)
+  expect(short.has(ORIGIN + '/boot.js')).toBe(true)
+
+  worker.setFailing([])
+  await expect(worker.message({ type: 'WARM_OFFLINE_CACHE' })).resolves.toHaveLength(1)
+  expect((await worker.shellCache()).get(ORIGIN + '/assets/app.js')?.body).toBe('body:/assets/app.js')
+})
+
+// The guard must not be delivered by the thing it recovers from, so it is the one cached file this
+// worker asks the network for — and the cache is still what an offline start reads.
+it('serves the start-up guard from the network, and from the cache only when there is no network', async () => {
+  const worker = bootServiceWorker()
+  await worker.install()
+  const shell = await worker.shellCache()
+  shell.set(ORIGIN + '/boot.js', new FakeResponse('the previous build guard'))
+
+  const online = await worker.requestPath('/boot.js')
+  expect((online as FakeResponse).body).toBe('body:/boot.js')
+
+  worker.setFailing(['/boot.js'])
+  const offline = await worker.requestPath('/boot.js')
+  expect((offline as FakeResponse).body).toBe('the previous build guard')
+})
+
 // The edge answers a missing file with HTTP 200 and the app document, so a chunk that is simply not there
 // looks like a successful fetch. Storing that document under the chunk's name is the worst thing this worker
 // can do: the reader gets HTML where a `<script type=module>` belongs, the browser refuses it, and every

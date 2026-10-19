@@ -25724,6 +25724,12 @@ const allowed = new Map([
     "// reload repeats — the screen stays empty and nothing in the console explains it.",
     "// Install runs before activate deletes the previous build's caches, and reuse looks across all of them —",
     "// without this check the poison outlives the very deploy that was meant to clear it.",
+    "// A connection the edge dropped says nothing about the build, but an install that rejects on it leaves",
+    "// the previous worker in control forever — its cached shell and its cached boot.js included, which is the",
+    "// start-up guard a deploy exists to replace. Measured on the live deployment: one install killed this way",
+    "// left every build after it stuck in `installing`, never activating.",
+    "// The guard must not be delivered by the thing it recovers from, so it is the one cached file this",
+    "// worker asks the network for — and the cache is still what an offline start reads.",
   ]],
   ["tests/settings-route.test.ts", [
     "// Behavioural coverage for `src/worker/routes/settings.ts` (its three D1 statements now live in",
