@@ -1921,6 +1921,7 @@ export class AssistantRunner {
       automations: this.automations,
       noteScope: () => this.noteScope(),
       webSearchKey: await this.webSearchKey(),
+      ...(this.contextArtifact ? { artifactContext: { id: this.contextArtifact.id } } : {}),
       ...(generatedAttachments ? { generatedAttachments } : {}),
       ...(conversationId
         ? {

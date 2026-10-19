@@ -15,8 +15,8 @@
  * the vault while nobody is watching.
  */
 
-import type { AssistantSettings, Task } from '@shared/assistant'
-import { ASSISTANT_TOOL_SPECS, MAX_TASK_TITLE_CHARS, TASK_PRIORITIES, TASK_STATUSES, WEB_SEARCH_TOOL_NAME, toolPayloadText, toolModeFor, webSearchConfigured, type AssistantMemory, type AssistantMemoryCategory, type AutomationKind } from '@shared/assistant'
+import type { AssistantArtifact, AssistantSettings, Task } from '@shared/assistant'
+import { ASSISTANT_TOOL_SPECS, MAX_ARTIFACT_CONTENT_CHARS, MAX_ARTIFACT_TITLE_CHARS, MAX_ARTIFACTS_PER_CONVERSATION, MAX_TASK_TITLE_CHARS, TASK_PRIORITIES, TASK_STATUSES, WEB_SEARCH_TOOL_NAME, toolPayloadText, toolModeFor, webSearchConfigured, type AssistantMemory, type AssistantMemoryCategory, type AutomationKind } from '@shared/assistant'
 import { webSearchEngineFor } from '@shared/web-search-engines'
 import { MEMORY_CATEGORIES_FOR_TOOLS } from './memory-service'
 import { parseLocalTime, toLocalMinute } from '@shared/assistant-time'
@@ -27,7 +27,7 @@ import type { McpWriteContext } from '../mcp/writes'
 import { createMcpNote, editMcpNote, trashMcpNote } from '../mcp/writes'
 import { readMcpNote, searchMcpNotes } from '../mcp/retrieval'
 import { ApiError } from '../lib/errors'
-import type { AssistantStore, MemoryScope } from './store'
+import { ArtifactVersionConflictError, type AssistantStore, type MemoryScope } from './store'
 import {
   fuseNoteHits,
   noteVectorGate,
@@ -108,6 +108,13 @@ export interface ToolContext {
   webSearchKey?: string | null
   /** Present in chat mode: the note tools write through the same path the MCP server uses. */
   writeContext?: McpWriteContext
+  /**
+   * The draft the reader has open, so the artifact tools can default to it.
+   *
+   * Only the id: the tools read the row again before writing, which is what keeps a draft changed
+   * between two calls from being overwritten with the copy the model last saw.
+   */
+  artifactContext?: { id: string }
   /**
    * This reader's external tools by their namespaced name, loaded again for the approval replay.
    *
@@ -234,6 +241,44 @@ async function resolveProjectIdOrThrow(ref: unknown, ctx: ToolContext): Promise<
   const found = await ctx.store.resolveProject(String(ref).slice(0, 200))
   if (!found) throw new ToolError(`Project "${String(ref).slice(0, 80)}" does not exist. Create it first with create_project.`)
   return found.id
+}
+
+/** How much of a draft one read returns by default, and the most it will return at once. */
+const READ_ARTIFACT_DEFAULT_CHARS = 12_000
+const READ_ARTIFACT_MAX_CHARS = 20_000
+
+function requireConversation(ctx: ToolContext): string {
+  if (!ctx.conversationId) throw new ToolError('Drafts belong to a conversation, and this run has none.')
+  return ctx.conversationId
+}
+
+/**
+ * The draft a tool means: the one named, or the one the reader has open.
+ *
+ * The row is read fresh every time rather than taken from the turn context, because the reader may
+ * have typed into it between two tool calls — and the version check on the write is what turns that
+ * into a refusal instead of an overwrite.
+ */
+async function resolveArtifact(ref: unknown, ctx: ToolContext): Promise<AssistantArtifact> {
+  const conversationId = requireConversation(ctx)
+  const id = typeof ref === 'string' && ref.trim() ? ref.trim() : ctx.artifactContext?.id
+  if (!id) throw new ToolError('No draft is open. Call list_artifacts to see the drafts in this conversation, then pass its id.')
+  const artifact = await ctx.store.getArtifact(id)
+  if (!artifact || artifact.conversationId !== conversationId) throw new ToolError('No such draft in this conversation.')
+  return artifact
+}
+
+/** The metadata a write returns: enough for the model and the panel, never the whole document. */
+function artifactReceipt(artifact: AssistantArtifact, created: boolean): Record<string, unknown> {
+  return {
+    artifact: {
+      id: artifact.id,
+      title: artifact.title,
+      version: artifact.version,
+      chars: artifact.content.length,
+      created,
+    },
+  }
 }
 
 /**
@@ -777,6 +822,148 @@ export const NOTE_TOOLS: ToolDefinition[] = [
   }),
 ]
 
+export const ARTIFACT_TOOLS: ToolDefinition[] = [
+  tool({
+    name: 'list_artifacts',
+    permission: 'read',
+    maxCallsPerTurn: 2,
+    description: 'List the drafts this conversation keeps in the canvas, with their ids, titles and versions.',
+    fields: {},
+    async run(_args, ctx) {
+      const conversationId = requireConversation(ctx)
+      const artifacts = await ctx.store.listArtifacts(conversationId)
+      return {
+        artifacts: artifacts.map((artifact) => ({
+          id: artifact.id,
+          title: artifact.title,
+          version: artifact.version,
+          chars: artifact.content.length,
+          updated_at: artifact.updatedAt,
+        })),
+      }
+    },
+  }),
+  tool({
+    name: 'read_artifact',
+    permission: 'read',
+    maxCallsPerTurn: 3,
+    description: 'Read a draft\'s text. Omit id to read the draft the reader has open. Long drafts can be read in slices with offset and limit.',
+    fields: {
+      id: { type: 'string', minLength: 1, maxLength: 26, optional: true, description: 'The draft id; defaults to the open draft.' },
+      offset: { type: 'integer', minimum: 0, optional: true },
+      limit: { type: 'integer', minimum: 1, maximum: READ_ARTIFACT_MAX_CHARS, optional: true },
+    },
+    async run(args, ctx) {
+      const artifact = await resolveArtifact(args.id, ctx)
+      const offset = typeof args.offset === 'number' ? Math.max(0, Math.trunc(args.offset)) : 0
+      const limit = typeof args.limit === 'number'
+        ? Math.min(READ_ARTIFACT_MAX_CHARS, Math.max(1, Math.trunc(args.limit)))
+        : READ_ARTIFACT_DEFAULT_CHARS
+      const content = artifact.content.slice(offset, offset + limit)
+      return {
+        artifact: {
+          id: artifact.id,
+          title: artifact.title,
+          version: artifact.version,
+          chars: artifact.content.length,
+          offset,
+          content,
+          truncated: offset + content.length < artifact.content.length,
+        },
+      }
+    },
+  }),
+  tool({
+    name: 'create_artifact',
+    permission: 'write',
+    maxCallsPerTurn: 2,
+    description: 'Create a new draft in the canvas and show it to the reader. Use this for a document, plan, spec or long piece they will keep working on, not for a short answer.',
+    fields: {
+      title: { type: 'string', maxLength: MAX_ARTIFACT_TITLE_CHARS, optional: true },
+      content: { type: 'string', maxLength: MAX_ARTIFACT_CONTENT_CHARS },
+    },
+    async run(args, ctx) {
+      const conversationId = requireConversation(ctx)
+      if (await ctx.store.countArtifacts(conversationId) >= MAX_ARTIFACTS_PER_CONVERSATION) {
+        throw new ToolError(`This conversation already holds ${MAX_ARTIFACTS_PER_CONVERSATION} drafts. Edit one instead of making another.`)
+      }
+      const title = typeof args.title === 'string' ? args.title.slice(0, MAX_ARTIFACT_TITLE_CHARS) : ''
+      const content = String(args.content).slice(0, MAX_ARTIFACT_CONTENT_CHARS)
+      const artifact = await ctx.store.createArtifact({
+        conversationId,
+        title,
+        content,
+        source: 'assistant',
+      })
+      await ctx.store.recordActivity('artifact.created', title || 'Untitled draft')
+      return artifactReceipt(artifact, true)
+    },
+  }),
+  tool({
+    name: 'update_artifact',
+    permission: 'write',
+    maxCallsPerTurn: 4,
+    description: 'Rewrite a draft. Omit id for the open draft. Read it first. Use content to replace the whole body, append to add at the end, or find and replace to change one exact passage.',
+    fields: {
+      id: { type: 'string', minLength: 1, maxLength: 26, optional: true, description: 'The draft id; defaults to the open draft.' },
+      title: { type: 'string', maxLength: MAX_ARTIFACT_TITLE_CHARS, optional: true },
+      content: { type: 'string', maxLength: MAX_ARTIFACT_CONTENT_CHARS, optional: true },
+      append: { type: 'string', maxLength: 20_000, optional: true },
+      find: { type: 'string', maxLength: 8_000, optional: true, description: 'Exact text to replace; must occur once.' },
+      replace: { type: 'string', maxLength: 20_000, optional: true, description: 'The text that takes the place of find.' },
+    },
+    async run(args, ctx) {
+      const artifact = await resolveArtifact(args.id, ctx)
+      const hasContent = typeof args.content === 'string'
+      const hasAppend = typeof args.append === 'string'
+      const hasFind = typeof args.find === 'string'
+      const hasReplace = typeof args.replace === 'string'
+      if (hasFind !== hasReplace) throw new ToolError('find and replace have to be given together.')
+      if ([hasContent, hasAppend, hasFind].filter(Boolean).length > 1) {
+        throw new ToolError('Choose one: content, append, or find + replace.')
+      }
+      if (!hasContent && !hasAppend && !hasFind && typeof args.title !== 'string') {
+        throw new ToolError('Name content, append, find + replace, or a new title.')
+      }
+      let next = artifact.content
+      if (hasContent) {
+        next = String(args.content)
+      } else if (hasAppend) {
+        const separator = next && !next.endsWith('\n') ? '\n' : ''
+        next = `${next}${separator}${String(args.append)}`
+      } else if (hasFind) {
+        const find = String(args.find)
+        if (!find) throw new ToolError('find cannot be empty.')
+        const at = next.indexOf(find)
+        if (at < 0) throw new ToolError('The text to replace was not found. Read the draft and use an exact excerpt.')
+        if (next.indexOf(find, at + find.length) >= 0) {
+          throw new ToolError('That text occurs more than once. Use a longer excerpt that appears only once.')
+        }
+        next = `${next.slice(0, at)}${String(args.replace)}${next.slice(at + find.length)}`
+      }
+      const title = typeof args.title === 'string' ? args.title.slice(0, MAX_ARTIFACT_TITLE_CHARS) : artifact.title
+      const unchanged = next === artifact.content && title === artifact.title
+      if (unchanged) return { ...artifactReceipt(artifact, false), changed: false }
+      let updated: AssistantArtifact | null
+      try {
+        updated = await ctx.store.updateArtifact(
+          artifact.id,
+          { content: next, title },
+          { source: 'assistant', baseVersion: artifact.version },
+        )
+      } catch (error) {
+        if (error instanceof ArtifactVersionConflictError) {
+          throw new ToolError('The draft changed while you were writing. Read it again, then make the change against the new version.')
+        }
+        throw error
+      }
+      if (!updated) throw new ToolError('The draft disappeared before it could be written.')
+      await ctx.store.recordActivity('artifact.updated', updated.title || 'Untitled draft')
+      return { ...artifactReceipt(updated, false), changed: true }
+    },
+  }),
+]
+
 export const AUTOMATION_TOOLS: ToolDefinition[] = [
   tool({
     name: 'create_reminder',
@@ -1213,6 +1400,7 @@ export const ALL_TOOLS: ToolDefinition[] = [
   ...TASK_TOOLS,
   ...MEMORY_TOOLS,
   ...NOTE_TOOLS,
+  ...ARTIFACT_TOOLS,
   ...AUTOMATION_TOOLS,
   ...PROJECT_TOOLS,
   ...SEARCH_TOOLS,

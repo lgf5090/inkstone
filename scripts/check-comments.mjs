@@ -20993,6 +20993,10 @@ const allowed = new Map([
     "// reader typed, and an empty one of those still means the tool is off.",
     "// Unreachable through the executor, which will not offer the tool without what its engine asks for; said",
     "// anyway because a scheduled run and an approval replay both reach `run` by other doors.",
+    "/**\n   * The draft the reader has open, so the artifact tools can default to it.\n   *\n   * Only the id: the tools read the row again before writing, which is what keeps a draft changed\n   * between two calls from being overwritten with the copy the model last saw.\n   */",
+    "/** How much of a draft one read returns by default, and the most it will return at once. */",
+    "/**\n * The draft a tool means: the one named, or the one the reader has open.\n *\n * The row is read fresh every time rather than taken from the turn context, because the reader may\n * have typed into it between two tool calls — and the version check on the write is what turns that\n * into a refusal instead of an overwrite.\n */",
+    "/** The metadata a write returns: enough for the model and the panel, never the whole document. */",
   ]],
   ["src/worker/assistant/upstream.ts", [
     "/** A JSON Schema object, built by `toolSchemaFor` from the tool's own declared parameters. */",
@@ -23033,6 +23037,9 @@ const allowed = new Map([
     "/** Put a current database back into the shape it had before migrations 110-112 ran. */",
     "// Build the rest of the schema at its current shape, then rewind only the part this migration owns.",
     "// A second boot sees the ledger complete and the fingerprint's schema; it must not add a second row.",
+  ]],
+  ["tests/assistant-artifact-tools.test.ts", [
+    "/**\n * The tools that let the model work on a draft.\n *\n * The store is the real one: the value of these tools is that a call becomes a version, so a fake that\n * only echoed the content would pass while the history stayed empty. The cases pin the two defaults the\n * model relies on — \"the draft I have open\" and \"read before you write\" — and the exact-match rule that\n * keeps a find-and-replace from landing on the wrong paragraph.\n */",
   ]],
   ["tests/assistant-attachment-fence.test.ts", [
     "/** One turn's worth of attachments and their bytes, without a database or a bucket behind them. */",
