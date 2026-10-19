@@ -3132,7 +3132,7 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
 
   loadTasks: async () => {
     try {
-      const result = await api.assistant.tasks({ limit: 500 })
+      const result = await api.todos.list({ limit: 500 })
       set({ tasks: result.tasks })
     } catch (error) {
       toast(error)
@@ -3144,7 +3144,7 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
   addTask: async (title) => {
     try {
       const today = get().taskTab === 'today'
-      await api.assistant.createTask({ title, ...(today ? { dueAt: endOfTodayLocal() } : {}) })
+      await api.todos.create({ title, ...(today ? { dueAt: endOfTodayLocal() } : {}) })
       await get().loadTasks()
     } catch (error) {
       toast(error)
@@ -3153,7 +3153,7 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
 
   updateTask: async (id, patch) => {
     try {
-      await api.assistant.updateTask(id, patch)
+      await api.todos.update(id, patch)
       await get().loadTasks()
     } catch (error) {
       toast(error)
@@ -3162,7 +3162,7 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
 
   toggleTask: async (task) => {
     try {
-      await api.assistant.updateTask(task.id, { status: task.status === 'done' ? 'todo' : 'done' })
+      await api.todos.update(task.id, { status: task.status === 'done' ? 'todo' : 'done' })
       await get().loadTasks()
     } catch (error) {
       toast(error)
@@ -3171,7 +3171,7 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
 
   removeTask: async (id) => {
     try {
-      await api.assistant.deleteTask(id)
+      await api.todos.remove(id)
       await get().loadTasks()
     } catch (error) {
       toast(error)

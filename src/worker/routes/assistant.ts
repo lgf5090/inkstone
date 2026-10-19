@@ -59,8 +59,6 @@ import {
   MAX_SKILL_BUNDLE_SKILLS,
   skillBundleOf,
   type SkillImportSkip,
-  MAX_TASK_NOTES_CHARS,
-  MAX_TASK_TITLE_CHARS,
   MEMORY_REVIEW_ACTIONS,
   MESSAGE_FEEDBACK,
   MAX_FEEDBACK_REASON_CHARS,
@@ -75,8 +73,6 @@ import {
   type AssistantSettings,
   type AssistantTurnScope,
   type MemoryReviewAction,
-  type TaskPriority,
-  type TaskStatus,
   type AssistantKeyUsage,
   type AssistantModel,
   type AssistantConversation,
@@ -86,7 +82,7 @@ import {
   type UsageFilter,
 } from '@shared/assistant'
 import { assertRelayableEndpoint } from '@shared/ai-proxy-guard'
-import { localDayBounds, parseLocalTime } from '@shared/assistant-time'
+import { localDayBounds } from '@shared/assistant-time'
 import type { AppBindings } from '../env'
 import { ApiError } from '../lib/errors'
 import { requireAuth } from '../middleware/auth'
@@ -1955,107 +1951,6 @@ function asCategory(value: unknown): AssistantMemoryCategory {
     return value as AssistantMemoryCategory
   }
   throw ApiError.badRequest('Unknown memory category.')
-}
-
-// --------------------------------------------------------------------- tasks
-
-assistantRoutes.get('/tasks', async (c) => {
-  const s = store(c)
-  const settings = await s.getSettings()
-  const view = c.req.query('view')
-  const status = c.req.query('status')
-  const tasks = await s.listTasks({
-    status: taskStatusFilter(status),
-    view: view === 'today' || view === 'upcoming' || view === 'overdue' || view === 'completed' ? view : 'all',
-    query: c.req.query('q')?.trim().slice(0, 200) || undefined,
-    projectId: c.req.query('project_id') || undefined,
-    limit: clampLimit(c.req.query('limit'), 200),
-    dayEnd: readerDayEnd(settings.timezone),
-  })
-  return c.json({ tasks })
-})
-
-assistantRoutes.post('/tasks', async (c) => {
-  const s = store(c)
-  const settings = await s.getSettings()
-  const body = await readJson<Record<string, unknown>>(c, JSON_BODY_LIMITS.settings)
-  const task = await s.createTask({
-    title: text(body.title, MAX_TASK_TITLE_CHARS),
-    description: optionalText(body.description, MAX_TASK_NOTES_CHARS) ?? '',
-    status: body.status === undefined ? undefined : asTaskStatus(body.status),
-    priority: body.priority === undefined ? undefined : asPriority(body.priority),
-    dueAt: parseDue(body.dueAt, settings.timezone),
-    projectId: await projectRef(s, body.projectId),
-  })
-  await s.recordActivity('task.created', task.title)
-  return c.json({ task }, 201)
-})
-
-assistantRoutes.patch('/tasks/:id', async (c) => {
-  const s = store(c)
-  const settings = await s.getSettings()
-  const id = requiredId(c.req.param('id'))
-  const body = await readJson<Record<string, unknown>>(c, JSON_BODY_LIMITS.settings)
-  const task = await s.updateTask(id, {
-    ...(body.title !== undefined ? { title: text(body.title, MAX_TASK_TITLE_CHARS, 'A task title is required.') } : {}),
-    ...(body.description !== undefined ? { description: optionalText(body.description, MAX_TASK_NOTES_CHARS) ?? '' } : {}),
-    ...(body.status !== undefined ? { status: asTaskStatus(body.status) } : {}),
-    ...(body.priority !== undefined ? { priority: asPriority(body.priority) } : {}),
-    ...(body.dueAt !== undefined ? { dueAt: parseDue(body.dueAt, settings.timezone) } : {}),
-    ...(body.projectId !== undefined ? { projectId: await projectRef(s, body.projectId) } : {}),
-  })
-  if (!task) throw ApiError.notFound('Task not found')
-  return c.json({ task })
-})
-
-assistantRoutes.delete('/tasks/:id', async (c) => {
-  const s = store(c)
-  const id = requiredId(c.req.param('id'))
-  const existing = await s.getTask(id)
-  if (!existing) throw ApiError.notFound('Task not found')
-  await s.deleteTask(id)
-  await s.recordActivity('task.deleted', existing.title)
-  return c.json({ deleted: true })
-})
-
-function taskStatusFilter(value: string | undefined): TaskStatus | 'open' | 'all' {
-  if (!value || value === 'all' || value === 'open') return (value ?? 'all') as TaskStatus | 'open' | 'all'
-  return asTaskStatus(value)
-}
-
-function asTaskStatus(value: unknown): TaskStatus {
-  if (value === 'todo' || value === 'in_progress' || value === 'done') return value
-  throw ApiError.badRequest('Unknown task status.')
-}
-
-function asPriority(value: unknown): TaskPriority {
-  if (value === 'low' || value === 'medium' || value === 'high' || value === 'urgent') return value
-  throw ApiError.badRequest('Unknown task priority.')
-}
-
-function parseDue(value: unknown, timezone: string): number | null {
-  if (value === undefined || value === null || value === '') return null
-  if (typeof value === 'number' && Number.isFinite(value)) return Math.trunc(value)
-  if (typeof value === 'string') {
-    const parsed = parseLocalTime(value, timezone)
-    if (parsed === null) throw ApiError.badRequest('That date could not be read.')
-    return parsed
-  }
-  throw ApiError.badRequest('A due date must be text or a number.')
-}
-
-async function projectRef(s: AssistantStore, value: unknown): Promise<string | null> {
-  if (value === undefined || value === null || value === '') return null
-  if (typeof value !== 'string') throw ApiError.badRequest('A project must be named by id.')
-  const found = await s.resolveProject(value)
-  if (!found) throw ApiError.badRequest('That project does not exist.')
-  return found.id
-}
-
-function clampLimit(value: string | undefined, fallback: number): number {
-  const numeric = Number(value)
-  if (!Number.isFinite(numeric)) return fallback
-  return Math.max(1, Math.min(500, Math.trunc(numeric)))
 }
 
 // ------------------------------------------------------------------ projects

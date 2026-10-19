@@ -30,6 +30,7 @@ import { readerLibraryRoutes } from './routes/reader-library'
 import { readerDiscoveryRoutes } from './routes/reader-discovery'
 import { rssRoutes } from './routes/rss'
 import { subscriptionRoutes } from './routes/subscriptions'
+import { todoRoutes } from './routes/todos'
 import { subscriptionInboundRoutes } from './routes/subscriptions-inbound'
 import type { AppBindings } from './env'
 import { selectAttachmentStorage } from './attachments/backend'
@@ -110,6 +111,7 @@ export function createApp() {
   app.route('/api/update', updateRoutes)
   app.route('/api/mcp', mcpSettingsRoutes)
   app.route('/api/ai', aiProxyRoutes)
+  app.route('/api/todos', todoRoutes)
   app.route('/api/assistant', assistantRoutes)
   app.route('/api/excalidraw/ai', aiProxyRoutes)
   app.route('/api/excalidraw/library', excalidrawLibraryRoutes)

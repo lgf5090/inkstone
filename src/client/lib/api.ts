@@ -105,8 +105,8 @@ import type {
   PendingAction,
   Project as AssistantProject,
   SavedMessage,
-  Task as AssistantTask,
 } from '@shared/assistant'
+import type { TaskCounts, TaskList, TaskStep, TaskTag, TodoTask } from '@shared/todos/model'
 import { publishBroadcast } from './db'
 import { randomLocalId } from './random-id'
 import { getLocale, t, translateApiError } from './i18n'
@@ -1048,6 +1048,37 @@ export const api = {
    * The chat assistant. Its own group because it is its own app container: the rail's Chat tab owns
    * these routes, and nothing in the notebook calls them.
    */
+  todos: {
+    list: (params: { status?: string, view?: string, list?: string, tag?: string, priority?: string, starred?: string, q?: string, limit?: number, offset?: number } = {}) =>
+      request<{ tasks: TodoTask[], counts: TaskCounts, dayEnd: number }>(`/api/todos${toQuery(params)}`),
+    get: (id: string) => request<{ task: TodoTask, steps: TaskStep[] }>(`/api/todos/${id}`),
+    create: (body: Record<string, unknown>) => request<{ task: TodoTask }>('/api/todos', { method: 'POST', body }),
+    update: (id: string, body: Record<string, unknown>) =>
+      request<{ task: TodoTask }>(`/api/todos/${id}`, { method: 'PATCH', body }),
+    remove: (id: string) => request<{ deleted: true }>(`/api/todos/${id}`, { method: 'DELETE' }),
+
+    addStep: (id: string, text: string) =>
+      request<{ step: TaskStep }>(`/api/todos/${id}/steps`, { method: 'POST', body: { text } }),
+    updateStep: (id: string, stepId: string, body: { text?: string, done?: boolean }) =>
+      request<{ step: TaskStep }>(`/api/todos/${id}/steps/${stepId}`, { method: 'PATCH', body }),
+    removeStep: (id: string, stepId: string) =>
+      request<{ deleted: true }>(`/api/todos/${id}/steps/${stepId}`, { method: 'DELETE' }),
+
+    lists: () => request<{ lists: TaskList[] }>('/api/todos/lists'),
+    createList: (body: { name: string, icon?: string | null, color?: string | null }) =>
+      request<{ list: TaskList }>('/api/todos/lists', { method: 'POST', body }),
+    updateList: (id: string, body: { name?: string, icon?: string | null, color?: string | null, position?: number }) =>
+      request<{ list: TaskList }>(`/api/todos/lists/${id}`, { method: 'PATCH', body }),
+    removeList: (id: string) => request<{ deleted: true }>(`/api/todos/lists/${id}`, { method: 'DELETE' }),
+
+    tags: () => request<{ tags: TaskTag[] }>('/api/todos/tags'),
+    createTag: (body: { name: string, color?: string | null }) =>
+      request<{ tag: TaskTag }>('/api/todos/tags', { method: 'POST', body }),
+    updateTag: (id: string, body: { name?: string, color?: string | null }) =>
+      request<{ tag: TaskTag }>(`/api/todos/tags/${id}`, { method: 'PATCH', body }),
+    removeTag: (id: string) => request<{ deleted: true }>(`/api/todos/tags/${id}`, { method: 'DELETE' }),
+  },
+
   assistant: {
     /** The conversations that wrote one note: the note's own "from a conversation" backlinks. */
     noteWrites: (noteId: string, signal?: AbortSignal) =>
@@ -1324,12 +1355,6 @@ export const api = {
     reviews: () => request<{ reviews: MemoryReview[] }>('/api/assistant/memories/reviews'),
     resolveReview: (id: string, action: string) =>
       request<{ kept: number, deleted: boolean }>(`/api/assistant/memories/reviews/${id}`, { method: 'POST', body: { action } }),
-    tasks: (params: { status?: string, view?: string, q?: string, project_id?: string, limit?: number } = {}) =>
-      request<{ tasks: AssistantTask[] }>(`/api/assistant/tasks${toQuery(params)}`),
-    createTask: (body: Record<string, unknown>) => request<{ task: AssistantTask }>('/api/assistant/tasks', { method: 'POST', body }),
-    updateTask: (id: string, body: Record<string, unknown>) =>
-      request<{ task: AssistantTask }>(`/api/assistant/tasks/${id}`, { method: 'PATCH', body }),
-    deleteTask: (id: string) => request<{ deleted: true }>(`/api/assistant/tasks/${id}`, { method: 'DELETE' }),
     projects: () => request<{ projects: AssistantProject[] }>('/api/assistant/projects'),
     getProject: (id: string) => request<{ project: AssistantProject }>(`/api/assistant/projects/${id}`),
     createProject: (body: { name: string, description?: string, instructions?: string, noteScope?: string[], noteIds?: string[], modelId?: string | null }) =>

@@ -100,7 +100,7 @@ export async function createTaskFromNoteCheckbox(input: NoteTaskInput): Promise<
   const payload = buildNoteTaskPayload(input)
   if (!payload) return false
   try {
-    await api.assistant.createTask(payload)
+    await api.todos.create(payload)
     await useAssistant.getState().loadTasks()
     useUi.getState().toast({ title: t('assistant.task.made_from_note'), tone: 'success' })
     return true
