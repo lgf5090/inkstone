@@ -9,9 +9,11 @@
  *    written by an older build, restored from a backup file, or edited by hand — stored text is input.
  */
 
-import { ASSISTANT_MODEL_KINDS, ASSISTANT_MODEL_PURPOSES, MAX_TURN_SCOPES, SAVED_MESSAGE_EXCERPT_CHARS, clipSuggestionList, clipToolPayload, parseCustomParams, isNoteSourceId, isSourceUrl } from '@shared/assistant'
+import { ASSISTANT_MODEL_KINDS, ASSISTANT_MODEL_PURPOSES, MAX_ARTIFACT_VERSIONS, MAX_TURN_SCOPES, SAVED_MESSAGE_EXCERPT_CHARS, clipSuggestionList, clipToolPayload, parseCustomParams, isNoteSourceId, isSourceUrl } from '@shared/assistant'
 import type {
   AssistantArtifact,
+  AssistantArtifactVersion,
+  AssistantArtifactVersionSource,
   AssistantConversation,
   AssistantMemory,
   AssistantMemoryCategory,
@@ -2378,7 +2380,8 @@ export class AssistantStore {
     await this.write(`DELETE FROM chat_active_runs WHERE user_id = ?1 AND conversation_id = ?2`, id)
     await this.write(`DELETE FROM chat_conversation_tags WHERE user_id = ?1 AND conversation_id = ?2`, id)
     // A draft belongs to its thread: a conversation the reader deleted must not leave one behind to be
-    // found by nothing.
+    // found by nothing, and its history goes with the draft.
+    await this.write(`DELETE FROM chat_artifact_versions WHERE user_id = ?1 AND conversation_id = ?2`, id)
     await this.write(`DELETE FROM chat_artifacts WHERE user_id = ?1 AND conversation_id = ?2`, id)
     // The origin of a note the thread wrote goes with it: a backlink panel must not offer to open a
     // conversation that no longer exists.
@@ -2396,6 +2399,7 @@ export class AssistantStore {
     await this.write(`DELETE FROM chat_pending_actions WHERE user_id = ?1`)
     await this.write(`DELETE FROM chat_active_runs WHERE user_id = ?1`)
     await this.write(`DELETE FROM chat_conversation_tags WHERE user_id = ?1`)
+    await this.write(`DELETE FROM chat_artifact_versions WHERE user_id = ?1`)
     await this.write(`DELETE FROM chat_artifacts WHERE user_id = ?1`)
     await this.write(`DELETE FROM chat_note_writes WHERE user_id = ?1`)
     await this.write(`DELETE FROM chat_conversations WHERE user_id = ?1`)
@@ -2459,25 +2463,41 @@ export class AssistantStore {
    *
    * `note_id` is the link the panel syncs through. It is set at creation only when a caller is making a
    * draft out of an existing note; the ordinary draft starts unlinked and gains the link when the reader
-   * files it.
+   * files it. The first version is written with the draft so a history opened on a brand-new draft is a
+   * list of one rather than an empty panel.
    */
-  async createArtifact(input: { conversationId: string, title: string, content: string, noteId?: string | null }): Promise<AssistantArtifact> {
+  async createArtifact(input: {
+    conversationId: string
+    title: string
+    content: string
+    noteId?: string | null
+    source?: 'user' | 'assistant'
+    messageId?: string | null
+  }): Promise<AssistantArtifact> {
     const id = newId()
     const at = Date.now()
     const title = input.title.slice(0, MAX_ARTIFACT_TITLE_CHARS)
     const content = input.content.slice(0, MAX_ARTIFACT_CONTENT_CHARS)
     const noteId = input.noteId ?? null
-    await this.write(
-      `INSERT INTO chat_artifacts (id, user_id, conversation_id, title, content, note_id, created_at, updated_at)
-       VALUES (?2, ?1, ?3, ?4, ?5, ?6, ?7, ?8)`,
-      id, input.conversationId, title, content, noteId, at, at,
-    )
+    const source = input.source ?? 'user'
+    await this.db.batch([
+      this.db.prepare(
+        `INSERT INTO chat_artifacts (id, user_id, conversation_id, title, content, note_id, version, created_at, updated_at)
+         VALUES (?2, ?1, ?3, ?4, ?5, ?6, 1, ?7, ?7)`,
+      ).bind(this.userId, id, input.conversationId, title, content, noteId, at),
+      this.db.prepare(
+        `INSERT INTO chat_artifact_versions
+           (id, user_id, artifact_id, conversation_id, version, title, content, source, message_id, created_at)
+         VALUES (?2, ?1, ?3, ?4, 1, ?5, ?6, ?7, ?8, ?9)`,
+      ).bind(this.userId, newId(), id, input.conversationId, title, content, source, input.messageId ?? null, at),
+    ])
     return {
       id,
       conversationId: input.conversationId,
       title,
       content,
       noteId,
+      version: 1,
       createdAt: at,
       updatedAt: at,
     }
@@ -2489,27 +2509,168 @@ export class AssistantStore {
    * A field that is not named keeps what it had, so a title typed after a body edit does not blank the
    * body. `noteId: null` is a real answer — it unlinks the draft — which is why it is tested against
    * `undefined` rather than for truthiness.
+   *
+   * A manual edit updates the head version in place: the reader is still working on the same draft, and
+   * a version per keystroke would make the history useless. An assistant edit appends, because its whole
+   * point is that the text before it can be returned to. `baseVersion` is the optimistic guard: a writer
+   * that read version 4 must not overwrite a version 5 that arrived while it was thinking.
    */
   async updateArtifact(
     id: string,
     patch: { title?: string, content?: string, noteId?: string | null },
+    options: { source?: 'user' | 'assistant', baseVersion?: number, messageId?: string | null } = {},
   ): Promise<AssistantArtifact | null> {
     const existing = await this.getArtifact(id)
     if (!existing) return null
+    if (options.baseVersion !== undefined && options.baseVersion !== existing.version) {
+      throw new ArtifactVersionConflictError(existing)
+    }
     const title = patch.title === undefined ? existing.title : patch.title.slice(0, MAX_ARTIFACT_TITLE_CHARS)
     const content = patch.content === undefined ? existing.content : patch.content.slice(0, MAX_ARTIFACT_CONTENT_CHARS)
     const noteId = patch.noteId === undefined ? existing.noteId : patch.noteId
     const at = Date.now()
-    await this.write(
-      `UPDATE chat_artifacts SET title = ?2, content = ?3, note_id = ?4, updated_at = ?5
-        WHERE user_id = ?1 AND id = ?6`,
-      title, content, noteId, at, id,
+    const contentChanged = title !== existing.title || content !== existing.content
+    const assistant = options.source === 'assistant' && contentChanged
+    const nextVersion = assistant ? existing.version + 1 : existing.version
+    const statements: D1PreparedStatement[] = [
+      // A draft restored from a backup written before versions has no head row. Writing it first keeps
+      // the in-place update below from matching zero rows and leaving history without the head.
+      this.db.prepare(
+        `INSERT OR IGNORE INTO chat_artifact_versions
+           (id, user_id, artifact_id, conversation_id, version, title, content, source, message_id, created_at)
+         VALUES (?2, ?1, ?3, ?4, ?5, ?6, ?7, 'user', NULL, ?8)`,
+      ).bind(this.userId, newId(), id, existing.conversationId, existing.version, existing.title, existing.content, existing.updatedAt),
+    ]
+    if (assistant) {
+      statements.push(
+        this.db.prepare(
+          `INSERT INTO chat_artifact_versions
+             (id, user_id, artifact_id, conversation_id, version, title, content, source, message_id, created_at)
+           VALUES (?2, ?1, ?3, ?4, ?5, ?6, ?7, 'assistant', ?8, ?9)`,
+        ).bind(this.userId, newId(), id, existing.conversationId, nextVersion, title, content, options.messageId ?? null, at),
+      )
+    } else if (contentChanged) {
+      statements.push(
+        this.db.prepare(
+          `UPDATE chat_artifact_versions SET title = ?4, content = ?5
+            WHERE user_id = ?1 AND artifact_id = ?2 AND version = ?3`,
+        ).bind(this.userId, id, existing.version, title, content),
+      )
+    }
+    statements.push(
+      this.db.prepare(
+        `UPDATE chat_artifacts SET title = ?3, content = ?4, note_id = ?5, version = ?6, updated_at = ?7
+          WHERE user_id = ?1 AND id = ?2`,
+      ).bind(this.userId, id, title, content, noteId, nextVersion, at),
     )
-    return { ...existing, title, content, noteId, updatedAt: at }
+    // The head is always among the newest fifty: the cutoff is strictly below the version just written,
+    // so this can never prune the row the artifact points at.
+    const cutoff = nextVersion - MAX_ARTIFACT_VERSIONS
+    if (cutoff > 0) {
+      statements.push(
+        this.db.prepare(
+          `DELETE FROM chat_artifact_versions
+            WHERE user_id = ?1 AND artifact_id = ?2 AND version <= ?3`,
+        ).bind(this.userId, id, cutoff),
+      )
+    }
+    await this.db.batch(statements)
+    return { ...existing, title, content, noteId, version: nextVersion, updatedAt: at }
+  }
+
+  /**
+   * The versions of one draft, newest first, without their bodies.
+   *
+   * A list of fifty snapshots is not a list if each row carries the document. The single read carries the
+   * body. A draft that predates versions (an old backup) gets its head row written here, once; the unique
+   * key makes two concurrent reads harmless.
+   */
+  async listArtifactVersions(artifactId: string): Promise<AssistantArtifactVersion[]> {
+    const rows = await this.rows<ArtifactVersionRow>(
+      `SELECT id, artifact_id, conversation_id, version, title, '' AS content, source, message_id, created_at
+         FROM chat_artifact_versions
+        WHERE user_id = ?1 AND artifact_id = ?2
+        ORDER BY version DESC`,
+      this.userId, artifactId,
+    )
+    if (rows.length) return rows.map((row) => toArtifactVersion(row, false))
+    const artifact = await this.getArtifact(artifactId)
+    if (!artifact) return []
+    await this.db.prepare(
+      `INSERT OR IGNORE INTO chat_artifact_versions
+         (id, user_id, artifact_id, conversation_id, version, title, content, source, message_id, created_at)
+       VALUES (?2, ?1, ?3, ?4, ?5, ?6, ?7, 'import', NULL, ?8)`,
+    ).bind(this.userId, newId(), artifact.id, artifact.conversationId, artifact.version, artifact.title, artifact.content, artifact.updatedAt).run()
+    return [{
+      id: '',
+      artifactId: artifact.id,
+      conversationId: artifact.conversationId,
+      version: artifact.version,
+      title: artifact.title,
+      source: 'import',
+      messageId: null,
+      createdAt: artifact.updatedAt,
+    }]
+  }
+
+  async getArtifactVersion(artifactId: string, versionId: string): Promise<AssistantArtifactVersion | null> {
+    const row = await this.one<ArtifactVersionRow>(
+      `SELECT ${ARTIFACT_VERSION_COLUMNS} FROM chat_artifact_versions
+        WHERE user_id = ?1 AND artifact_id = ?2 AND id = ?3`,
+      this.userId, artifactId, versionId,
+    )
+    return row ? toArtifactVersion(row, true) : null
+  }
+
+  /**
+   * Bring an old version back as a new head.
+   *
+   * Append-only on purpose: restoring v2 while the head is v5 must not delete v3..v5 — the reader asked
+   * to return to a text, not to forget the way back. The new row is the one the artifact points at.
+   */
+  async restoreArtifactVersion(artifactId: string, versionId: string): Promise<AssistantArtifact | null> {
+    const [existing, old] = await Promise.all([
+      this.getArtifact(artifactId),
+      this.getArtifactVersion(artifactId, versionId),
+    ])
+    if (!existing || !old) return null
+    const at = Date.now()
+    const nextVersion = existing.version + 1
+    const statements: D1PreparedStatement[] = [
+      this.db.prepare(
+        `INSERT OR IGNORE INTO chat_artifact_versions
+           (id, user_id, artifact_id, conversation_id, version, title, content, source, message_id, created_at)
+         VALUES (?2, ?1, ?3, ?4, ?5, ?6, ?7, 'user', NULL, ?8)`,
+      ).bind(this.userId, newId(), artifactId, existing.conversationId, existing.version, existing.title, existing.content, existing.updatedAt),
+      this.db.prepare(
+        `INSERT INTO chat_artifact_versions
+           (id, user_id, artifact_id, conversation_id, version, title, content, source, message_id, created_at)
+         VALUES (?2, ?1, ?3, ?4, ?5, ?6, ?7, 'restore', NULL, ?8)`,
+      ).bind(this.userId, newId(), artifactId, existing.conversationId, nextVersion, old.title, old.content ?? '', at),
+      this.db.prepare(
+        `UPDATE chat_artifacts SET title = ?3, content = ?4, version = ?5, updated_at = ?6
+          WHERE user_id = ?1 AND id = ?2`,
+      ).bind(this.userId, artifactId, old.title, old.content ?? '', nextVersion, at),
+    ]
+    const cutoff = nextVersion - MAX_ARTIFACT_VERSIONS
+    if (cutoff > 0) {
+      statements.push(
+        this.db.prepare(
+          `DELETE FROM chat_artifact_versions
+            WHERE user_id = ?1 AND artifact_id = ?2 AND version <= ?3`,
+        ).bind(this.userId, artifactId, cutoff),
+      )
+    }
+    await this.db.batch(statements)
+    return { ...existing, title: old.title, content: old.content ?? '', version: nextVersion, updatedAt: at }
   }
 
   async deleteArtifact(id: string): Promise<boolean> {
-    return (await this.write(`DELETE FROM chat_artifacts WHERE user_id = ?1 AND id = ?2`, id)) > 0
+    const [, artifact] = await this.db.batch([
+      this.db.prepare(`DELETE FROM chat_artifact_versions WHERE user_id = ?1 AND artifact_id = ?2`).bind(this.userId, id),
+      this.db.prepare(`DELETE FROM chat_artifacts WHERE user_id = ?1 AND id = ?2`).bind(this.userId, id),
+    ])
+    return (artifact.meta?.changes ?? 0) > 0
   }
 
   /**
@@ -5293,6 +5454,7 @@ export class AssistantStore {
     return {
       conversations: await select('chat_conversations', 'AND ephemeral = 0'),
       artifacts: await select('chat_artifacts', `AND ${onlyKept}`),
+      artifact_versions: await select('chat_artifact_versions', `AND ${onlyKept}`),
       conversation_tags: await select('chat_conversation_tags', `AND ${onlyKept}`),
       messages: await select('chat_messages', `AND ${onlyKept}`),
       answer_versions: await select('chat_answer_versions', `AND ${onlyKept}`),
@@ -5336,7 +5498,10 @@ const EXPORT_COLUMNS: Readonly<Record<string, readonly string[]>> = {
   // `note_id` rides along for the same reason: a thread restored without it forgets which note it came
   // from, and the chip that says so has nothing left to say.
   chat_conversations: ['id', 'title', 'summary', 'summary_upto', 'pinned', 'starred', 'archived', 'folder_id', 'project_id', 'parent_id', 'note_id', 'created_at', 'updated_at'],
-  chat_artifacts: ['id', 'conversation_id', 'title', 'content', 'note_id', 'created_at', 'updated_at'],
+  chat_artifacts: ['id', 'conversation_id', 'title', 'content', 'note_id', 'version', 'created_at', 'updated_at'],
+  // Every snapshot travels: a restore onto another device that kept only the head would turn a document
+  // with history into one that has never been edited, which is the opposite of what the panel promises.
+  chat_artifact_versions: ['id', 'artifact_id', 'conversation_id', 'version', 'title', 'content', 'source', 'message_id', 'created_at'],
   chat_conversation_tags: ['conversation_id', 'tag_id', 'created_at'],
   // `sources` is where a searched answer says what it read, and `feedback` is the reader's own verdict:
   // both are shown by the transcript, so a restored row without them is a different row.
@@ -5799,7 +5964,8 @@ function toChatAttachment(r: ChatAttachmentRow): ChatAttachment {
   }
 }
 
-const ARTIFACT_COLUMNS = `id, conversation_id, title, content, note_id, created_at, updated_at`
+const ARTIFACT_COLUMNS = `id, conversation_id, title, content, note_id, version, created_at, updated_at`
+const ARTIFACT_VERSION_COLUMNS = `id, artifact_id, conversation_id, version, title, content, source, message_id, created_at`
 
 /**
  * The conversation row, as every reader of it spells it.
@@ -5816,6 +5982,7 @@ interface ArtifactRow {
   title: string
   content: string
   note_id: string | null
+  version: number
   created_at: number
   updated_at: number
 }
@@ -5827,8 +5994,49 @@ function toArtifact(row: ArtifactRow): AssistantArtifact {
     title: row.title,
     content: row.content,
     noteId: row.note_id ?? null,
+    version: row.version,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
+  }
+}
+
+interface ArtifactVersionRow {
+  id: string
+  artifact_id: string
+  conversation_id: string
+  version: number
+  title: string
+  content: string
+  source: AssistantArtifactVersionSource
+  message_id: string | null
+  created_at: number
+}
+
+function toArtifactVersion(row: ArtifactVersionRow, includeContent: boolean): AssistantArtifactVersion {
+  return {
+    id: row.id,
+    artifactId: row.artifact_id,
+    conversationId: row.conversation_id,
+    version: row.version,
+    title: row.title,
+    ...(includeContent ? { content: row.content } : {}),
+    source: row.source,
+    messageId: row.message_id ?? null,
+    createdAt: row.created_at,
+  }
+}
+
+/**
+ * The draft changed since the caller read it.
+ *
+ * The store throws this rather than returning a conflict value because every caller has to answer it and
+ * an ignored return value would silently overwrite the newer text. The route turns it into a 409; the
+ * tools turn it into an error the model can read and retry after `read_artifact`.
+ */
+export class ArtifactVersionConflictError extends Error {
+  constructor(readonly current: AssistantArtifact) {
+    super('artifact_version_conflict')
+    this.name = 'ArtifactVersionConflictError'
   }
 }
 

@@ -191,12 +191,41 @@ export const ASSISTANT_SCHEMA_STATEMENTS: readonly string[] = [
     title TEXT NOT NULL DEFAULT '',
     content TEXT NOT NULL DEFAULT '',
     note_id TEXT,
+    version INTEGER NOT NULL DEFAULT 1,
     created_at INTEGER NOT NULL,
     updated_at INTEGER NOT NULL,
     PRIMARY KEY (user_id, id)
   )`,
   `CREATE INDEX IF NOT EXISTS idx_chat_artifacts_conversation
      ON chat_artifacts(user_id, conversation_id, updated_at DESC)`,
+
+  // The versions a draft has been through.
+  //
+  // The artifact row is the head: its title and content are exactly the version its `version` number
+  // names. A version row is immutable except for a manual edit, which updates the head version in place;
+  // an assistant write and a restore both append a new version, so the history is never rewritten. That
+  // is what makes it safe for a model to edit a draft: the previous text is always one row away.
+  //
+  // `source` says how the version came to exist, not what the reader later typed into it. `message_id`
+  // points at the assistant turn that produced an assistant version so the history can say where it came
+  // from; it is null for user edits, imports and restores.
+  `CREATE TABLE IF NOT EXISTS chat_artifact_versions (
+    user_id TEXT NOT NULL,
+    id TEXT NOT NULL,
+    artifact_id TEXT NOT NULL,
+    conversation_id TEXT NOT NULL,
+    version INTEGER NOT NULL,
+    title TEXT NOT NULL DEFAULT '',
+    content TEXT NOT NULL,
+    source TEXT NOT NULL CHECK (source IN ('user','assistant','restore','import')),
+    message_id TEXT,
+    created_at INTEGER NOT NULL,
+    PRIMARY KEY (user_id, id)
+  )`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS idx_chat_artifact_versions_unique
+     ON chat_artifact_versions(user_id, artifact_id, version)`,
+  `CREATE INDEX IF NOT EXISTS idx_chat_artifact_versions_conversation
+     ON chat_artifact_versions(user_id, conversation_id, version DESC)`,
 
   // Which conversations have written which notes.
   //
@@ -723,6 +752,8 @@ export const ASSISTANT_REQUIRED_INDEXES: readonly string[] = [
   'idx_chat_conversations_folder',
   'idx_chat_conversations_project',
   'idx_chat_artifacts_conversation',
+  'idx_chat_artifact_versions_unique',
+  'idx_chat_artifact_versions_conversation',
   'idx_chat_note_writes_note',
   'idx_chat_attachments_user',
   'idx_chat_conversation_tags_tag',
@@ -773,7 +804,8 @@ export const ASSISTANT_REQUIRED_COLUMNS: Readonly<Record<string, readonly string
     'purpose', 'kind', 'supports_tools', 'no_tools', 'max_input_tokens', 'modalities', 'top_p', 'custom_params', 'protocol', 'fallback_model_id',
     'input_price', 'output_price', 'price_currency', 'enabled', 'position'],
   chat_conversations: ['user_id', 'id', 'title', 'summary', 'summary_upto', 'pinned', 'starred', 'archived', 'ephemeral', 'parent_id', 'folder_id', 'project_id', 'note_id', 'created_at', 'updated_at'],
-  chat_artifacts: ['user_id', 'id', 'conversation_id', 'title', 'content', 'note_id', 'created_at', 'updated_at'],
+  chat_artifacts: ['user_id', 'id', 'conversation_id', 'title', 'content', 'note_id', 'version', 'created_at', 'updated_at'],
+  chat_artifact_versions: ['user_id', 'id', 'artifact_id', 'conversation_id', 'version', 'title', 'content', 'source', 'message_id', 'created_at'],
   chat_note_writes: ['user_id', 'note_id', 'conversation_id', 'created_at'],
   chat_attachments: ['user_id', 'id', 'kind', 'filename', 'mime', 'size', 'key', 'extracted_text', 'created_at'],
   chat_conversation_tags: ['user_id', 'conversation_id', 'tag_id', 'created_at'],

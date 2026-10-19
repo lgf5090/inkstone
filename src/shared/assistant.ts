@@ -1352,8 +1352,32 @@ export interface AssistantArtifact {
   content: string
   /** The note this draft was filed as and pushes back to; null while it is only a draft. */
   noteId: string | null
+  /** The head version number. The row's title and content are this version's snapshot. */
+  version: number
   createdAt: number
   updatedAt: number
+}
+
+/** How one draft version came to exist. A manual edit after it does not change this. */
+export type AssistantArtifactVersionSource = 'user' | 'assistant' | 'restore' | 'import'
+
+/**
+ * One snapshot of a draft.
+ *
+ * The list endpoint returns these without `content` — a hundred thousand characters times fifty versions
+ * is not a list — and a single-version read carries it. `messageId` is the assistant turn that wrote an
+ * assistant version, when there was one.
+ */
+export interface AssistantArtifactVersion {
+  id: string
+  artifactId: string
+  conversationId: string
+  version: number
+  title: string
+  content?: string
+  source: AssistantArtifactVersionSource
+  messageId: string | null
+  createdAt: number
 }
 
 /** How long a draft's own name may be. The same bound every other stored title carries. */
@@ -1371,6 +1395,29 @@ export const MAX_ARTIFACT_CONTENT_CHARS = 100_000
 
 /** How many drafts one conversation may carry, so the panel's own list stays a list. */
 export const MAX_ARTIFACTS_PER_CONVERSATION = 50
+
+/**
+ * How many versions one draft keeps.
+ *
+ * Old snapshots are pruned from the bottom when a write crosses this line, never the head. Fifty is far
+ * more than a working document needs and small enough that a backup carrying every version stays a file
+ * a reader can move.
+ */
+export const MAX_ARTIFACT_VERSIONS = 50
+
+/**
+ * How much of the open draft rides in the system prompt.
+ *
+ * A draft is the document the turn is working on, so the model needs to see it — but the whole of a
+ * hundred-thousand-character draft on every turn would spend the context on text nobody asked about.
+ * The runner sends the head and tail around this cap and tells the model to call `read_artifact` for the
+ * rest. Eight thousand characters is roughly two thousand tokens, the same order as a long note.
+ */
+export const MAX_ARTIFACT_CONTEXT_CHARS = 8_000
+
+/** The head and tail the prompt keeps when a draft is longer than its cap. */
+export const ARTIFACT_CONTEXT_HEAD_CHARS = 6_000
+export const ARTIFACT_CONTEXT_TAIL_CHARS = 2_000
 
 /** A folder of the note tree, with how many conversations it holds. */
 export interface ChatFolderNode {
@@ -2368,6 +2415,8 @@ export interface AssistantImportSummary {
   conversations: number
   /** The drafts those conversations were carrying, restored with them. */
   artifacts: number
+  /** The snapshots those drafts were carrying, restored with them. */
+  artifactVersions: number
   messages: number
   /** Answers the reader had paged away from, restored with their threads. */
   answerVersions: number

@@ -97,7 +97,7 @@ import { isExternalToolName, listMcpCatalog, loadExternalTools } from '../assist
 import { deleteMcpOAuthClient, finishMcpAuthorization, startMcpAuthorization, withMcpOAuthHeaders } from '../assistant/mcp-oauth'
 import { isValidId } from '../lib/id'
 import { isInlineSafe } from '../lib/image'
-import { AssistantStore, dayBefore, type ConversationCursor } from '../assistant/store'
+import { ArtifactVersionConflictError, AssistantStore, dayBefore, type ConversationCursor } from '../assistant/store'
 import { MemoryHistoryService } from '../assistant/memory-service'
 import { AutomationService } from '../assistant/automations'
 import { AssistantRunner } from '../assistant/runner'
@@ -1252,12 +1252,14 @@ assistantRoutes.post('/conversations/:id/artifacts', async (c) => {
   // part of what the reader is editing. Empty after whitespace is still refused, because a draft with
   // nothing in it is not a document the panel can show.
   const raw = body.content
-  if (typeof raw !== 'string' || !raw.trim()) throw ApiError.badRequest('A draft needs a body.')
+  // An empty draft is a real document the reader is about to type into; it is not a missing value. The
+  // panel's "new draft" button depends on this, so only a non-string is refused.
+  if (typeof raw !== 'string') throw ApiError.badRequest('A draft needs a body.')
   if (await s.countArtifacts(id) >= MAX_ARTIFACTS_PER_CONVERSATION) {
     throw ApiError.conflict(`A conversation can hold ${MAX_ARTIFACTS_PER_CONVERSATION} drafts.`)
   }
   const title = optionalText(body.title, MAX_ARTIFACT_TITLE_CHARS) ?? ''
-  const artifact = await s.createArtifact({ conversationId: id, title, content: raw.slice(0, MAX_ARTIFACT_CONTENT_CHARS) })
+  const artifact = await s.createArtifact({ conversationId: id, title, content: raw.slice(0, MAX_ARTIFACT_CONTENT_CHARS), source: 'user' })
   return c.json({ artifact }, 201)
 })
 
@@ -1268,7 +1270,14 @@ assistantRoutes.patch('/conversations/:id/artifacts/:artifactId', async (c) => {
   if (!(await s.getConversation(id))) throw ApiError.notFound('Conversation not found')
   const existing = await s.getArtifact(artifactId)
   if (!existing || existing.conversationId !== id) throw ApiError.notFound('Draft not found')
-  const body = await readJson<{ title?: unknown, content?: unknown, noteId?: unknown }>(c, JSON_BODY_LIMITS.artifact)
+  const body = await readJson<{
+    title?: unknown
+    content?: unknown
+    noteId?: unknown
+    baseVersion?: unknown
+    source?: unknown
+    messageId?: unknown
+  }>(c, JSON_BODY_LIMITS.artifact)
   const patch: { title?: string, content?: string, noteId?: string | null } = {}
   // Empty is a real answer on both fields here: a reader clearing a draft's name has left it untitled, and
   // one clearing its body has emptied it on purpose. Neither is a mistake to be refused.
@@ -1277,9 +1286,65 @@ assistantRoutes.patch('/conversations/:id/artifacts/:artifactId', async (c) => {
   // `null` unlinks the draft, which is a state the panel offers; a missing key leaves the link alone.
   if (body.noteId === null) patch.noteId = null
   else if (typeof body.noteId === 'string') patch.noteId = requiredId(body.noteId)
-  const artifact = await s.updateArtifact(artifactId, patch)
+  // `baseVersion` is optional for older clients; the panel always sends it so a write that read v3 cannot
+  // overwrite a v4 that arrived while the reader was typing. `source` says whether the words were typed
+  // by the reader or applied from an assistant answer; it changes how the version row is stored, not who
+  // is allowed to write.
+  let baseVersion: number | undefined
+  if (body.baseVersion !== undefined) {
+    if (typeof body.baseVersion !== 'number' || !Number.isInteger(body.baseVersion) || body.baseVersion < 1) {
+      throw ApiError.badRequest('baseVersion must be a positive integer.')
+    }
+    baseVersion = body.baseVersion
+  }
+  let source: 'user' | 'assistant' | undefined
+  if (body.source !== undefined) {
+    if (body.source !== 'user' && body.source !== 'assistant') throw ApiError.badRequest('Unknown draft source.')
+    source = body.source
+  }
+  const messageId = typeof body.messageId === 'string' ? requiredId(body.messageId) : null
+  const artifact = await s.updateArtifact(artifactId, patch, { baseVersion, source, messageId }).catch((error: unknown) => {
+    if (error instanceof ArtifactVersionConflictError) throw ApiError.conflict('The draft changed while it was being edited.')
+    throw error
+  })
   if (!artifact) throw ApiError.notFound('Draft not found')
   return c.json({ artifact })
+})
+
+assistantRoutes.get('/conversations/:id/artifacts/:artifactId/versions', async (c) => {
+  const s = store(c)
+  const id = requiredId(c.req.param('id'))
+  const artifactId = requiredId(c.req.param('artifactId'))
+  if (!(await s.getConversation(id))) throw ApiError.notFound('Conversation not found')
+  const artifact = await s.getArtifact(artifactId)
+  if (!artifact || artifact.conversationId !== id) throw ApiError.notFound('Draft not found')
+  return c.json({ versions: await s.listArtifactVersions(artifactId) })
+})
+
+assistantRoutes.get('/conversations/:id/artifacts/:artifactId/versions/:versionId', async (c) => {
+  const s = store(c)
+  const id = requiredId(c.req.param('id'))
+  const artifactId = requiredId(c.req.param('artifactId'))
+  const versionId = requiredId(c.req.param('versionId'))
+  if (!(await s.getConversation(id))) throw ApiError.notFound('Conversation not found')
+  const artifact = await s.getArtifact(artifactId)
+  if (!artifact || artifact.conversationId !== id) throw ApiError.notFound('Draft not found')
+  const version = await s.getArtifactVersion(artifactId, versionId)
+  if (!version) throw ApiError.notFound('Draft version not found')
+  return c.json({ version })
+})
+
+assistantRoutes.post('/conversations/:id/artifacts/:artifactId/versions/:versionId/restore', async (c) => {
+  const s = store(c)
+  const id = requiredId(c.req.param('id'))
+  const artifactId = requiredId(c.req.param('artifactId'))
+  const versionId = requiredId(c.req.param('versionId'))
+  if (!(await s.getConversation(id))) throw ApiError.notFound('Conversation not found')
+  const artifact = await s.getArtifact(artifactId)
+  if (!artifact || artifact.conversationId !== id) throw ApiError.notFound('Draft not found')
+  const restored = await s.restoreArtifactVersion(artifactId, versionId)
+  if (!restored) throw ApiError.notFound('Draft version not found')
+  return c.json({ artifact: restored })
 })
 
 assistantRoutes.delete('/conversations/:id/artifacts/:artifactId', async (c) => {

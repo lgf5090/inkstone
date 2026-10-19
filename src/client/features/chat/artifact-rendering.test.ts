@@ -83,7 +83,7 @@ function CanvasHost() {
 async function drawDraft(content: string): Promise<void> {
   useAssistant.setState({
     activeId: 'c1',
-    artifacts: [{ id: 'a1', conversationId: 'c1', title: 'A plan', content, noteId: null, createdAt: 1, updatedAt: 2 }],
+    artifacts: [{ id: 'a1', conversationId: 'c1', title: 'A plan', content, noteId: null, version: 1, createdAt: 1, updatedAt: 2 }],
     artifactsReady: true,
     activeArtifactId: 'a1',
     canvasOpen: true,

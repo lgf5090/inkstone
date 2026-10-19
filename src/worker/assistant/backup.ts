@@ -92,6 +92,7 @@ export async function importAssistant(store: AssistantStore, raw: Record<string,
   const summary: ImportSummary = {
     conversations: 0,
     artifacts: 0,
+    artifactVersions: 0,
     messages: 0,
     answerVersions: 0,
     memories: 0,
@@ -118,7 +119,7 @@ export async function importAssistant(store: AssistantStore, raw: Record<string,
 /** The summary's counts, said the way a reader needs them after a restore that stopped. */
 const LANDED_LABELS: readonly [key: keyof Omit<ImportSummary, 'skipped'>, label: string][] = [
   ['projects', 'project'], ['conversations', 'conversation'], ['messages', 'message'],
-  ['answerVersions', 'answer'], ['artifacts', 'draft'], ['memories', 'memory'],
+  ['answerVersions', 'answer'], ['artifacts', 'draft'], ['artifactVersions', 'draft version'], ['memories', 'memory'],
   ['tasks', 'task'], ['automations', 'schedule'], ['notifications', 'notification'],
 ]
 
@@ -283,11 +284,40 @@ async function mergeBackup(store: AssistantStore, data: Record<string, unknown>,
       // of a document the reader already has, so it travels — and a link to a note the backup did not
       // carry is left as it is rather than silently re-pointed at nothing.
       note_id: typeof artifact.note_id === 'string' && artifact.note_id !== '' ? artifact.note_id : null,
+      // A restored draft whose head number fell back to 1 would point at the wrong snapshot as soon as
+      // its history came back with it, so the head number travels with the row.
+      version: Math.max(1, numberValue(artifact.version, 1)),
       created_at: numberValue(artifact.created_at, Date.now()),
       updated_at: numberValue(artifact.updated_at, Date.now()),
     })
   }
   await store.importRows('chat_artifacts', draftRows, (landed) => { summary.artifacts += landed })
+  // The snapshots come after the drafts they belong to. A version whose draft did not land is skipped
+  // rather than left as a row nothing can reach.
+  const restoredArtifactIds = new Set(draftRows.map((row) => String(row.id)))
+  const artifactVersionRows: Record<string, unknown>[] = []
+  for (const version of rows(data.artifact_versions)) {
+    const id = idValue(version.id)
+    const artifactId = idValue(version.artifact_id)
+    const conversationId = idValue(version.conversation_id)
+    const versionNumber = numberValue(version.version, 0)
+    if (!id || !artifactId || !conversationId || !restoredArtifactIds.has(artifactId) || versionNumber < 1) continue
+    const source = version.source === 'user' || version.source === 'assistant' || version.source === 'restore'
+      ? version.source
+      : 'import'
+    artifactVersionRows.push({
+      id,
+      artifact_id: artifactId,
+      conversation_id: conversationId,
+      version: versionNumber,
+      title: textValue(version.title, MAX_ARTIFACT_TITLE_CHARS),
+      content: textValue(version.content, MAX_ARTIFACT_CONTENT_CHARS),
+      source,
+      message_id: idValue(version.message_id),
+      created_at: numberValue(version.created_at, Date.now()),
+    })
+  }
+  await store.importRows('chat_artifact_versions', artifactVersionRows, (landed) => { summary.artifactVersions += landed })
   // Tags are the notebook's objects, so the file's own list of them is checked against this account once
   // rather than once per link.
   const tagLinks = rows(data.conversation_tags)

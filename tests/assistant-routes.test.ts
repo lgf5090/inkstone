@@ -12,6 +12,7 @@ import type { AppBindings, Env } from '../src/worker/env'
 import type {
   AssistantAnswerVersion,
   AssistantArtifact,
+  AssistantArtifactVersion,
   AssistantConversation,
   AssistantMessage,
   AssistantMemory,
@@ -26,7 +27,7 @@ import type {
   Project,
   Task,
 } from '../src/shared/assistant'
-import { DEFAULT_SEMANTIC_MODEL, MAX_ANSWER_VERSIONS, MAX_ARTIFACTS_PER_CONVERSATION, MAX_MCP_TIMEOUT_SECONDS, MAX_SKILL_CONTENT_CHARS, MAX_SKILL_ICON_CHARS, MAX_SKILL_TITLE_CHARS, MAX_REASONING_CHARS, MAX_TOKEN_CEILING, MAX_TURN_SCOPES, MAX_TURN_TOOLS, ASSISTANT_TOOL_BY_NAME } from '../src/shared/assistant'
+import { DEFAULT_SEMANTIC_MODEL, MAX_ANSWER_VERSIONS, MAX_ARTIFACTS_PER_CONVERSATION, MAX_ARTIFACT_VERSIONS, MAX_MCP_TIMEOUT_SECONDS, MAX_SKILL_CONTENT_CHARS, MAX_SKILL_ICON_CHARS, MAX_SKILL_TITLE_CHARS, MAX_REASONING_CHARS, MAX_TOKEN_CEILING, MAX_TURN_SCOPES, MAX_TURN_TOOLS, ASSISTANT_TOOL_BY_NAME } from '../src/shared/assistant'
 import { makeD1 } from './doubles/d1-sqlite'
 import { toBase64 } from '../src/worker/lib/encoding'
 import { purgeExpiredEphemeralConversations } from '../src/worker/assistant/store'
@@ -272,10 +273,16 @@ describe('drafts', () => {
     expect(emptied.artifact.title).toBe('Renamed')
   })
 
-  it('refuses an empty body and a draft of another conversation', async () => {
+  it('takes an empty body, and refuses a draft of another conversation', async () => {
     const conversation = await newConversation()
     const other = await newConversation('Elsewhere')
-    expect(await status('POST', `/api/assistant/conversations/${conversation.id}/artifacts`, { title: 'x', content: '   ' })).toBe(400)
+    // A new draft is empty until the reader types into it; the panel's "new draft" entry depends on this.
+    const blank = await call<{ artifact: AssistantArtifact }>(
+      'POST', `/api/assistant/conversations/${conversation.id}/artifacts`, { title: 'x', content: '   ' },
+    )
+    expect(blank.artifact.content).toBe('   ')
+    // A missing body is still a malformed request, not an empty draft.
+    expect(await status('POST', `/api/assistant/conversations/${conversation.id}/artifacts`, { title: 'x' })).toBe(400)
 
     const made = await call<{ artifact: AssistantArtifact }>(
       'POST', `/api/assistant/conversations/${conversation.id}/artifacts`, { title: 'Mine', content: 'Body' },
@@ -289,13 +296,21 @@ describe('drafts', () => {
     expect(await status('POST', `/api/assistant/conversations/${conversation.id}/artifacts`, { title: 'x', content: 'Body' })).toBe(404)
   })
 
-  it('takes its drafts with it when the conversation goes', async () => {
+  it('takes its drafts and their history with it when the conversation goes', async () => {
     const conversation = await newConversation()
-    await call('POST', `/api/assistant/conversations/${conversation.id}/artifacts`, { title: 'One', content: 'Body' })
+    const made = await call<{ artifact: AssistantArtifact }>(
+      'POST', `/api/assistant/conversations/${conversation.id}/artifacts`, { title: 'One', content: 'Body' },
+    )
+    await call(
+      'PATCH', `/api/assistant/conversations/${conversation.id}/artifacts/${made.artifact.id}`,
+      { content: 'Second body', source: 'assistant', baseVersion: 1 },
+    )
     expect(await status('DELETE', `/api/assistant/conversations/${conversation.id}`)).toBe(200)
-    // The row is gone rather than orphaned: the listing is by conversation, so nothing could ever read it.
+    // The rows are gone rather than orphaned: the listing is by conversation, so nothing could read them.
     const remaining = sqlite.prepare('SELECT count(*) AS n FROM chat_artifacts WHERE user_id = ?').get(USER) as { n: number }
+    const versions = sqlite.prepare('SELECT count(*) AS n FROM chat_artifact_versions WHERE user_id = ?').get(USER) as { n: number }
     expect(remaining.n).toBe(0)
+    expect(versions.n).toBe(0)
   })
 
   it('refuses a draft past the cap', async () => {
@@ -324,6 +339,121 @@ describe('drafts', () => {
     expect(restored.artifacts.map((entry) => entry.id)).toEqual([made.artifact.id])
     expect(restored.artifacts[0]?.content).toBe('Body')
     expect(restored.artifacts[0]?.noteId).toBe('01hzzzzzzzzzzzzzzzzzzzzz02')
+  })
+
+  it('carries the history of a draft through a backup round-trip', async () => {
+    const conversation = await newConversation('With history')
+    const made = await call<{ artifact: AssistantArtifact }>(
+      'POST', `/api/assistant/conversations/${conversation.id}/artifacts`, { title: 'A plan', content: 'First body' },
+    )
+    const second = await call<{ artifact: AssistantArtifact }>(
+      'PATCH', `/api/assistant/conversations/${conversation.id}/artifacts/${made.artifact.id}`,
+      { content: 'Second body', source: 'assistant', baseVersion: 1 },
+    )
+    expect(second.artifact.version).toBe(2)
+    const payload = await call('GET', '/api/assistant/export') as Record<string, unknown>
+    await call('DELETE', `/api/assistant/conversations/${conversation.id}`)
+    const summary = await call<{ imported: { artifacts: number, artifactVersions: number } }>('POST', '/api/assistant/import', payload)
+    expect(summary.imported.artifacts).toBe(1)
+    expect(summary.imported.artifactVersions).toBe(2)
+    const restored = await call<{ artifacts: AssistantArtifact[] }>('GET', `/api/assistant/conversations/${conversation.id}/artifacts`)
+    expect(restored.artifacts[0]?.version).toBe(2)
+    expect(restored.artifacts[0]?.content).toBe('Second body')
+    const versions = await call<{ versions: AssistantArtifactVersion[] }>(
+      'GET', `/api/assistant/conversations/${conversation.id}/artifacts/${made.artifact.id}/versions`,
+    )
+    expect(versions.versions.map((entry) => entry.version)).toEqual([2, 1])
+    expect(versions.versions.map((entry) => entry.source)).toEqual(['assistant', 'user'])
+  })
+})
+
+describe('draft history', () => {
+  const newConversation = async () =>
+    (await call<{ conversation: AssistantConversation }>('POST', '/api/assistant/conversations', { title: 'History' })).conversation
+
+  const makeDraft = async (conversationId: string, content = 'First body') =>
+    (await call<{ artifact: AssistantArtifact }>(
+      'POST', `/api/assistant/conversations/${conversationId}/artifacts`, { title: 'A plan', content },
+    )).artifact
+
+  const versionsOf = async (conversationId: string, artifactId: string) =>
+    (await call<{ versions: AssistantArtifactVersion[] }>(
+      'GET', `/api/assistant/conversations/${conversationId}/artifacts/${artifactId}/versions`,
+    )).versions
+
+  it('updates the head in place for a manual edit and appends for an assistant edit', async () => {
+    const conversation = await newConversation()
+    const draft = await makeDraft(conversation.id)
+    expect(draft.version).toBe(1)
+    const first = await versionsOf(conversation.id, draft.id)
+    expect(first.map((entry) => entry.version)).toEqual([1])
+    expect(first[0]?.source).toBe('user')
+    // The list is a list: it does not carry the document body.
+    expect(first[0]).not.toHaveProperty('content')
+
+    // A reader typing is still the same version; a snapshot per keystroke would bury the history.
+    const edited = await call<{ artifact: AssistantArtifact }>(
+      'PATCH', `/api/assistant/conversations/${conversation.id}/artifacts/${draft.id}`,
+      { content: 'First body, edited', baseVersion: 1 },
+    )
+    expect(edited.artifact.version).toBe(1)
+    expect((await versionsOf(conversation.id, draft.id)).map((entry) => entry.version)).toEqual([1])
+
+    // An assistant write is a new version, and the one it replaced can still be read.
+    const assistant = await call<{ artifact: AssistantArtifact }>(
+      'PATCH', `/api/assistant/conversations/${conversation.id}/artifacts/${draft.id}`,
+      { content: 'Second body', source: 'assistant', baseVersion: 1 },
+    )
+    expect(assistant.artifact.version).toBe(2)
+    const versions = await versionsOf(conversation.id, draft.id)
+    expect(versions.map((entry) => entry.version)).toEqual([2, 1])
+    expect(versions[0]?.source).toBe('assistant')
+    const old = await call<{ version: AssistantArtifactVersion }>(
+      'GET', `/api/assistant/conversations/${conversation.id}/artifacts/${draft.id}/versions/${versions[1]!.id}`,
+    )
+    expect(old.version.content).toBe('First body, edited')
+
+    // A write based on the version it read is refused once a newer one exists.
+    expect(await status(
+      'PATCH', `/api/assistant/conversations/${conversation.id}/artifacts/${draft.id}`,
+      { content: 'Stale write', baseVersion: 1 },
+    )).toBe(409)
+
+    // Restoring appends: the way forward is not deleted to make the old text current again.
+    const restored = await call<{ artifact: AssistantArtifact }>(
+      'POST', `/api/assistant/conversations/${conversation.id}/artifacts/${draft.id}/versions/${versions[1]!.id}/restore`,
+    )
+    expect(restored.artifact.version).toBe(3)
+    expect(restored.artifact.content).toBe('First body, edited')
+    const after = await versionsOf(conversation.id, draft.id)
+    expect(after.map((entry) => entry.version)).toEqual([3, 2, 1])
+    expect(after[0]?.source).toBe('restore')
+  })
+
+  it('keeps fifty versions and never prunes the head', async () => {
+    const conversation = await newConversation()
+    const draft = await makeDraft(conversation.id)
+    let version = 1
+    for (let index = 0; index < MAX_ARTIFACT_VERSIONS; index++) {
+      const answer = await call<{ artifact: AssistantArtifact }>(
+        'PATCH', `/api/assistant/conversations/${conversation.id}/artifacts/${draft.id}`,
+        { content: `Body ${index + 2}`, source: 'assistant', baseVersion: version },
+      )
+      version = answer.artifact.version
+    }
+    const versions = await versionsOf(conversation.id, draft.id)
+    expect(versions).toHaveLength(MAX_ARTIFACT_VERSIONS)
+    expect(versions[0]?.version).toBe(version)
+    expect(versions.at(-1)?.version).toBe(version - MAX_ARTIFACT_VERSIONS + 1)
+  })
+
+  it('does not let one conversation read another conversation\'s history', async () => {
+    const conversation = await newConversation()
+    const other = await newConversation()
+    const draft = await makeDraft(conversation.id)
+    expect(await status(
+      'GET', `/api/assistant/conversations/${other.id}/artifacts/${draft.id}/versions`,
+    )).toBe(404)
   })
 })
 

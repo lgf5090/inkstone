@@ -81,6 +81,7 @@ import type {
   AssistantMcpServer,
   AssistantMcpServerDetail,
   AssistantArtifact,
+  AssistantArtifactVersion,
   AssistantConversation,
   ChatFolderNode,
   ChatProjectNode,
@@ -1135,12 +1136,28 @@ export const api = {
       }>(`/api/assistant/conversations/${id}/branches`),
     createConversationArtifact: (id: string, body: { title?: string, content: string }) =>
       request<{ artifact: AssistantArtifact }>(`/api/assistant/conversations/${id}/artifacts`, { method: 'POST', body }),
-    updateConversationArtifact: (id: string, artifactId: string, body: { title?: string, content?: string, noteId?: string | null }) =>
+    updateConversationArtifact: (id: string, artifactId: string, body: {
+      title?: string
+      content?: string
+      noteId?: string | null
+      baseVersion?: number
+      source?: 'user' | 'assistant'
+      messageId?: string | null
+    }) =>
       request<{ artifact: AssistantArtifact }>(
         `/api/assistant/conversations/${id}/artifacts/${artifactId}`, { method: 'PATCH', body },
       ),
     removeConversationArtifact: (id: string, artifactId: string) =>
       request<{ ok: true }>(`/api/assistant/conversations/${id}/artifacts/${artifactId}`, { method: 'DELETE' }),
+    /** The snapshots of one draft, newest first and without their bodies. */
+    conversationArtifactVersions: (id: string, artifactId: string) =>
+      request<{ versions: AssistantArtifactVersion[] }>(`/api/assistant/conversations/${id}/artifacts/${artifactId}/versions`),
+    conversationArtifactVersion: (id: string, artifactId: string, versionId: string) =>
+      request<{ version: AssistantArtifactVersion }>(`/api/assistant/conversations/${id}/artifacts/${artifactId}/versions/${versionId}`),
+    restoreConversationArtifact: (id: string, artifactId: string, versionId: string) =>
+      request<{ artifact: AssistantArtifact }>(
+        `/api/assistant/conversations/${id}/artifacts/${artifactId}/versions/${versionId}/restore`, { method: 'POST' },
+      ),
     renameConversation: (id: string, title: string) =>
       request<{ conversation: AssistantConversation }>(`/api/assistant/conversations/${id}`, { method: 'PATCH', body: { title } }),
     // ------------------------------------------------------------ external MCP servers

@@ -42,6 +42,7 @@ const { DRAFT, LINKED, updateConversationArtifact, removeConversationArtifact, g
     title: 'A plan',
     content: '# A plan\n\nFirst, the thing.',
     noteId: null,
+    version: 1,
     createdAt: 1,
     updatedAt: 2,
   }

@@ -1695,6 +1695,52 @@ export const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
       `ALTER TABLE chat_messages ADD COLUMN suggestions TEXT NOT NULL DEFAULT '[]'`,
     ],
   },
+  {
+    // The history of one draft. The artifact row stays the head, so the list of drafts does not need a
+    // join; each version is a full snapshot because a diff is a view over two of them, not the storage
+    // format. The unique key makes replaying the backfill below idempotent.
+    version: 110,
+    statements: [
+      `CREATE TABLE IF NOT EXISTS chat_artifact_versions (
+    user_id TEXT NOT NULL,
+    id TEXT NOT NULL,
+    artifact_id TEXT NOT NULL,
+    conversation_id TEXT NOT NULL,
+    version INTEGER NOT NULL,
+    title TEXT NOT NULL DEFAULT '',
+    content TEXT NOT NULL,
+    source TEXT NOT NULL CHECK (source IN ('user','assistant','restore','import')),
+    message_id TEXT,
+    created_at INTEGER NOT NULL,
+    PRIMARY KEY (user_id, id)
+  )`,
+      `CREATE UNIQUE INDEX IF NOT EXISTS idx_chat_artifact_versions_unique
+         ON chat_artifact_versions(user_id, artifact_id, version)`,
+      `CREATE INDEX IF NOT EXISTS idx_chat_artifact_versions_conversation
+         ON chat_artifact_versions(user_id, conversation_id, version DESC)`,
+    ],
+  },
+  {
+    // The head version number. Existing rows are version 1; the backfill in the next migration writes
+    // the matching version row, so a draft that predates history still opens with one entry in it.
+    version: 111,
+    skipIfColumnExists: { table: 'chat_artifacts', column: 'version' },
+    statements: [
+      `ALTER TABLE chat_artifacts ADD COLUMN version INTEGER NOT NULL DEFAULT 1`,
+    ],
+  },
+  {
+    // One version row per draft that predates history. `INSERT OR IGNORE` against the unique key makes
+    // a retry safe; the id is generated in SQL because a migration has no access to the app's id helper.
+    // The alphabet SQLite produces here (lowercase hex) is a subset of the app's id alphabet.
+    version: 112,
+    statements: [
+      `INSERT OR IGNORE INTO chat_artifact_versions
+         (id, user_id, artifact_id, conversation_id, version, title, content, source, message_id, created_at)
+       SELECT lower(hex(randomblob(13))), user_id, id, conversation_id, 1, title, content, 'import', NULL, updated_at
+         FROM chat_artifacts`,
+    ],
+  },
 ]
 
 const FTS_STATEMENT = `CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(
