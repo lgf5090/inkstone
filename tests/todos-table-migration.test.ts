@@ -3,6 +3,7 @@ import { DatabaseSync } from 'node:sqlite'
 import { describe, expect, it } from 'vitest'
 import { initializeDatabase } from '../src/worker/db/schema'
 import { makeD1 } from './doubles/d1-sqlite'
+import { testBindings } from './doubles/bindings'
 
 /**
  * The task table moved from `chat_tasks` to `todos_tasks`.
@@ -43,7 +44,7 @@ function legacyRow(sqlite: DatabaseSync, id: string, title: string, userId = 'us
 }
 
 async function boot(sqlite: DatabaseSync): Promise<void> {
-  await initializeDatabase({ DB: makeD1(sqlite) } as never)
+  await initializeDatabase(testBindings(makeD1(sqlite)))
 }
 
 /** A boot whose stored fingerprint still matches returns early, so a reboot drops that note first. */

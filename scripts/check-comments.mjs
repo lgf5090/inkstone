@@ -4729,7 +4729,8 @@ const allowed = new Map([
     "// Taking it clears it, which is what stops the back button reopening the same dialog.",
     "// A snapshot of the list, so a command that quietly disappears is caught. It moves when one is",
     "// added on purpose — the three P2 entries are the assistant's own: folder summary, tag suggestions,",
-    "// and deep research, and the five after them are the chat's actions (`chat-*`).",
+    "// and deep research; the five after them are the chat's actions (`chat-*`); and the last four open",
+    "// the to-do app, put a note selection in it, or read today's list.",
   ]],
   ["src/client/features/command/registry.ts", [
     "/**\n * The application commands, as data.\n *\n * The palette used to build this list inside its own component, which made the commands unreachable\n * from anywhere else — a QuickAdd macro could not say \"do what the palette entry called X does\"\n * without opening the palette. Every entry here reads what it needs from the stores when it is\n * called, so the palette, a hotkey and an automation step all run the same one implementation.\n */",

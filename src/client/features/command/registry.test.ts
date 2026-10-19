@@ -62,8 +62,9 @@ describe('the command registry', () => {
     const commands = appCommands()
     // A snapshot of the list, so a command that quietly disappears is caught. It moves when one is
     // added on purpose — the three P2 entries are the assistant's own: folder summary, tag suggestions,
-    // and deep research, and the five after them are the chat's actions (`chat-*`).
-    expect(commands.length, 'the palette used to own this list; nothing may be dropped on the way out').toBe(71)
+    // and deep research; the five after them are the chat's actions (`chat-*`); and the last four open
+    // the to-do app, put a note selection in it, or read today's list.
+    expect(commands.length, 'the palette used to own this list; nothing may be dropped on the way out').toBe(75)
     expect(new Set(commands.map((entry) => entry.id)).size).toBe(commands.length)
     for (const entry of commands) {
       expect(entry.kind).toBe('command')
