@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useState } from 'react'
+import { lazy, Suspense, useEffect, useRef, useState } from 'react'
 import { RefreshCw } from 'lucide-react'
 import { ConfirmHost, PromptHost } from './components/overlay'
 import { QuickAddPromptGate } from './features/quickadd/prompt-gate'
@@ -52,11 +52,44 @@ const TemplateSlotProgress = lazy(() =>
  */
 const BOOT_WATCHDOG_MS = 8000
 
+/**
+ * What the reader is shown when the session request never answers.
+ *
+ * The watchdog above removes the boot screen at its ceiling, and until now that left a page with no words,
+ * no reason and nothing to press — a blank sheet that looks like the notes are gone. The request itself
+ * says nothing either way, so this says only what is known: the server has not answered, and here is the
+ * one thing that can end the wait. Focus moves to that button because a keyboard reader should not have to
+ * hunt for it on a page that just changed under them.
+ */
+function BootStalled({ onRetry }: { onRetry: () => void }) {
+  const box = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    box.current?.querySelector<HTMLButtonElement>('button')?.focus()
+  }, [])
+  return (
+    <div ref={box} className="flex min-h-full items-center justify-center p-6">
+      <div
+        role="alert"
+        className="flex w-full max-w-[420px] items-start gap-2 rounded-[var(--r-md)] border border-[var(--border-default)] bg-[var(--bg-surface)] px-3 py-3"
+      >
+        <RefreshCw size={14} aria-hidden className="mt-0.5 shrink-0 text-[var(--text-tertiary)]" />
+        <p className="min-w-0 flex-1 text-[length:var(--text-12-5)] font-medium text-[var(--text-primary)]">
+          {t('auth.server_did_not_answer')}
+        </p>
+        <Button size="sm" variant="secondary" onClick={onRetry}>{t('common.retry')}</Button>
+      </div>
+    </div>
+  )
+}
+
 export function App() {
 
   useLocale()
   const status = useSession((s) => s.status)
   const load = useSession((s) => s.load)
+  // One-way: raised when the boot screen's ceiling is reached, never lowered again. A retry that hangs
+  // again has nothing new to say, and a retry that answers changes the status out from under this.
+  const [bootStalled, setBootStalled] = useState(false)
   const [shareSlug] = useState(() => {
     const match = /^\/s\/([A-Za-z0-9_-]+)/.exec(location.pathname)
     return match?.[1] ?? null
@@ -96,7 +129,12 @@ export function App() {
 
   useEffect(() => {
     if (shareSlug || conversationShareSlug || isPresenter) return
-    const timer = window.setTimeout(() => dismissBootScreen(), BOOT_WATCHDOG_MS)
+    const timer = window.setTimeout(() => {
+      dismissBootScreen()
+      // Set whether or not the session has resolved by now: the flag only ever paints while the status is
+      // still 'loading', so a build that boots slowly but alive never sees this branch.
+      setBootStalled(true)
+    }, BOOT_WATCHDOG_MS)
     return () => window.clearTimeout(timer)
   }, [shareSlug, isPresenter])
 
@@ -127,7 +165,9 @@ export function App() {
   return (
     <>
       <ErrorBoundary>
-        {status === 'loading' && <div className="h-full" />}
+        {status === 'loading' && (bootStalled
+          ? <BootStalled onRetry={() => void load()} />
+          : <div className="h-full" />)}
         {status === 'anonymous' && <LoginPage />}
         {status === 'authed' && (
           <Suspense fallback={<PageFallback />}>

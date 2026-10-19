@@ -8,12 +8,13 @@
  * how the key travels, where the query goes and which fields carry a result. `web-search.ts` reads these
  * fields and holds no per-engine code path, so the next engine is an entry rather than a branch.
  *
- * **Every entry below was read off the vendor's own documentation, and the citation is written on it.**
- * An engine whose request shape could not be verified is not offered at all: a picker row that sends a
- * guessed endpoint reads as a working option while it only ever fails, which is worse than absence.
- * DuckDuckGo has no general web-search API of its own (only a keyless Instant Answer endpoint that returns
- * an abstract, and scraping its HTML violates their terms), and Perplexity's Sonar contract could not be
- * reached from the machine this was written on, so neither is here.
+ * **Every entry below was read off the vendor's own documentation, or measured from its live endpoint, and
+ * the citation is written on it.** An engine whose request shape could not be verified is not offered at
+ * all: a picker row that sends a guessed endpoint reads as a working option while it only ever fails, which
+ * is worse than absence. DuckDuckGo is here on that basis but with its reach stated, because measuring it
+ * showed an endpoint that answers encyclopedic questions and nothing else — see its entry. Perplexity's
+ * Sonar *chat* contract is still not offered: the entry below is its structured search endpoint, and a
+ * channel that handed back a model's finished answer would be presented to the reader as this one's.
  *
  * What a request may look like is data, but what a *reader* may type is not: a self-hosted address still
  * goes through `assertRelayableEndpoint`, and so does every vendor address in this table, because the
@@ -53,6 +54,14 @@ export interface WebSearchEngineSpec {
   /** The parameter or body field the query words are written to. */
   queryField: string
   /**
+   * Fixed fields written onto the query string of every request, for a GET engine that takes them.
+   *
+   * The GET twin of `body`. DuckDuckGo is the reason it exists: its answer is HTML-marked unless the
+   * request says `no_html=1`, and a parameter buried inside the address string would be a field name
+   * nobody reading this table could see.
+   */
+  params?: Record<string, string>
+  /**
    * The longest query this engine takes, where its own documentation names one.
    *
    * Clipping is the honest response to a bound: the tool lets the model ask in up to 200 characters, and an
@@ -74,6 +83,20 @@ export interface WebSearchEngineSpec {
   urlKeys: readonly string[]
   titleKeys: readonly string[]
   snippetKeys: readonly string[]
+  /**
+   * A hit built from the reply's own top-level fields, placed in front of the list.
+   *
+   * Some engines answer the question *and* list places that might be related, and the answer is not inside
+   * the list: DuckDuckGo's summary sits at the root as `AbstractText` / `AbstractURL` / `Heading`. Reading
+   * only the declared list would throw away the one field worth citing, so the root is declared as a hit
+   * rather than special-cased in the caller. An engine with nothing to say at the root contributes nothing:
+   * a missing field is not turned into an empty hit.
+   */
+  rootHit?: {
+    urlKeys: readonly string[]
+    titleKeys: readonly string[]
+    snippetKeys: readonly string[]
+  }
   /**
    * What a refusal means, for a status this vendor documents and nobody else's guess about would not.
    *
@@ -258,6 +281,59 @@ export const WEB_SEARCH_ENGINES: Readonly<Record<string, WebSearchEngineSpec>> =
     urlKeys: ['url'],
     titleKeys: ['title'],
     snippetKeys: ['snippet'],
+  },
+
+  /**
+   * DuckDuckGo Instant Answer. Its shape was measured from the live endpoint on 2026-10-19, not read off a
+   * documentation page — which matters here more than anywhere else in this table, because what it is able
+   * to answer is the whole of the question.
+   *
+   * `GET https://api.duckduckgo.com/?q=<words>&format=json&no_html=1`, with no key of any kind. The reply
+   * arrives as HTTP **202** with `content-type: application/x-javascript` carrying JSON, so neither the
+   * status class nor the media type an API would normally use may be assumed.
+   *
+   * **This is not a web search and is not offered as one.** It answers "what is X" for an encyclopedic X.
+   * Measured over 16 queries from this machine: 8 of 8 entity questions (barack obama, Mount Everest,
+   * python programming language, photosynthesis, TikTok, Second World War, black hole, React JavaScript
+   * library) returned a summary or related entries, and **0 of 8** practical ones did (an API's pricing,
+   * a how-to, a release note, a library's new operator, a hotel, a health question) — those come back as a
+   * fixed 1 252-byte body with every field empty. The picker's note says so in the reader's language,
+   * because a row that reads as a search engine and hands back nothing on the questions an assistant
+   * actually asks is precisely the failure this table exists to prevent.
+   *
+   * Two shapes are read. The summary at the reply's root (`Heading` + `AbstractText` + `AbstractURL`, the
+   * source's own address) becomes the first hit — it is the answer, and it is not inside the list.
+   * `RelatedTopics` then holds leaves (`FirstURL` + `Text`) and groups (`Name` + `Topics`); a group has no
+   * address of its own, so the caller's "no usable address, no hit" rule drops it, and the addresses that
+   * do survive point at DuckDuckGo's own topic pages rather than at the underlying site. `Text` is plain
+   * only because `no_html=1` was asked for: without it the same words arrive wrapped in `<a href=…>`
+   * markup, which is not something to hand a model or file as a citation.
+   */
+  duckduckgo: {
+    id: 'duckduckgo',
+    name: 'DuckDuckGo Instant Answer (topic summaries, not a web search)',
+    labelKey: 'assistant.settings.web_search_engine.duckduckgo',
+    noteKey: 'assistant.settings.web_search_note.duckduckgo',
+    selfHosted: false,
+    requiresKey: false,
+    endpoint: 'https://api.duckduckgo.com/',
+    method: 'GET',
+    queryPlacement: 'search-param',
+    queryField: 'q',
+    params: { format: 'json', no_html: '1' },
+    // `format` is one of the fixed parameters above, so the self-hosted engine's "ask for JSON" flag has
+    // nothing left to do here.
+    asksForJson: false,
+    resultPaths: [['RelatedTopics']],
+    urlKeys: ['FirstURL'],
+    titleKeys: ['Text'],
+    // The leaf's `Text` already carries its own description, and `Result` is the same words as markup.
+    snippetKeys: [],
+    rootHit: {
+      urlKeys: ['AbstractURL'],
+      titleKeys: ['Heading'],
+      snippetKeys: ['AbstractText'],
+    },
   },
 }
 

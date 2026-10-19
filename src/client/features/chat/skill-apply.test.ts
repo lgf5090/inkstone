@@ -47,7 +47,13 @@ describe('applying a saved skill', () => {
     useAssistant = built.useAssistant
     assistant = built.assistant
     useAssistant.setState({ turnTools: [], turnScopes: [], settings: null })
-  })
+    // The budget is stated because this hook is not cheap: `vi.resetModules()` throws away the registry, so
+    // the whole assistant-store graph has to be evaluated again before a single assertion runs. Alone it is
+    // far under the 10 s default, but measured over two full parallel runs on 2026-10-19 it crossed it —
+    // and the second failure that followed (`saveSettings is not a spy`) was the next test reading a
+    // half-built registry left behind by the hook that timed out. vitest.config.ts keeps the global hook
+    // clock tight on purpose; a file whose work is above the line says so here instead.
+  }, 30_000)
 
   it('pins the tools and folders the skill names, in place of the turn’s own', () => {
     useAssistant.setState({ turnTools: ['list_tasks'], turnScopes: [{ kind: 'tag', id: 't1', name: '旧标签' }] })

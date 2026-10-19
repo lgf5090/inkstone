@@ -261,6 +261,83 @@ describe('what a search reports when it did not happen', () => {
     vi.unstubAllGlobals()
   })
 
+  it('asks DuckDuckGo in the open, with the two parameters that keep its answer plain', async () => {
+    const sent = stubWire({
+      // Measured off the live endpoint: a 202 whose body is JSON but whose media type is neither
+      // application/json nor text/*. Accepting that one label is what makes this engine reachable.
+      status: 202,
+      contentType: 'application/x-javascript',
+      body: {
+        Heading: 'Mount Everest',
+        AbstractText: 'Mount Everest is the highest mountain above sea level.',
+        AbstractURL: 'https://en.wikipedia.org/wiki/Mount_Everest',
+        RelatedTopics: [
+          { FirstURL: 'https://duckduckgo.com/Mount_Everest_in_popular_culture', Text: 'Mount Everest in popular culture - a list of media' },
+          // A group carries no address of its own, so the rule that drops an unusable hit drops it whole.
+          { Name: 'See also', Topics: [{ FirstURL: 'https://duckduckgo.com/d/Everest', Text: 'Everest' }] },
+        ],
+      },
+    })
+    const hits = await request({ engine: WEB_SEARCH_ENGINES.duckduckgo!, endpoint: 'https://api.duckduckgo.com/' })
+
+    expect(sent[0]!.method).toBe('GET')
+    const asked = new URL(sent[0]!.url!)
+    expect(`${asked.origin}${asked.pathname}`).toBe('https://api.duckduckgo.com/')
+    expect(asked.searchParams.get('q')).toBe('self hosted search')
+    expect(asked.searchParams.get('format')).toBe('json')
+    // Without this the same words come back wrapped in <a href=…> markup, which is not something to hand a
+    // model or file as a citation.
+    expect(asked.searchParams.get('no_html')).toBe('1')
+    // The one engine here that asks for nothing: no key exists to send, so none may be demanded.
+    expect(sent[0]!.headers.authorization).toBeUndefined()
+    // The summary is the answer and it sits outside the list, so it goes first — with the source's own
+    // address rather than DuckDuckGo's, which is the difference between citing Wikipedia and citing an
+    // index page.
+    expect(hits[0]).toEqual({
+      title: 'Mount Everest',
+      url: 'https://en.wikipedia.org/wiki/Mount_Everest',
+      snippet: 'Mount Everest is the highest mountain above sea level.',
+    })
+    expect(hits.map((hit) => hit.url)).toEqual([
+      'https://en.wikipedia.org/wiki/Mount_Everest',
+      'https://duckduckgo.com/Mount_Everest_in_popular_culture',
+    ])
+    vi.unstubAllGlobals()
+  })
+
+  it('says nothing at all when DuckDuckGo has no entry for the question, as it has for most practical ones', async () => {
+    // The empty answer is a real shape, measured on 8 of 8 pricing / how-to / error-message queries: every
+    // field present and every field blank.
+    stubWire({
+      status: 202,
+      contentType: 'application/x-javascript',
+      body: { Heading: '', AbstractText: '', AbstractURL: '', RelatedTopics: [] },
+    })
+    await expect(request({ engine: WEB_SEARCH_ENGINES.duckduckgo!, endpoint: 'https://api.duckduckgo.com/' }))
+      .resolves.toEqual([])
+    vi.unstubAllGlobals()
+  })
+
+  it('will not turn a summary with nowhere to read it into a hit', async () => {
+    stubWire({
+      status: 202,
+      contentType: 'application/x-javascript',
+      body: { Heading: 'Something', AbstractText: 'Words, but no source address came with them.', AbstractURL: '', RelatedTopics: [] },
+    })
+    await expect(request({ engine: WEB_SEARCH_ENGINES.duckduckgo!, endpoint: 'https://api.duckduckgo.com/' }))
+      .resolves.toEqual([])
+    vi.unstubAllGlobals()
+  })
+
+  it('still refuses an answer whose media type is neither JSON nor text', async () => {
+    // Only one label was added to the accepted set, for one vendor measured doing it. A binary stream is
+    // still not a result list, and this is the check that the widening left standing.
+    stubWire({ status: 202, contentType: 'application/octet-stream', body: { results: [] } })
+    await expect(request({ engine: WEB_SEARCH_ENGINES.brave!, endpoint: 'https://api.search.brave.com/res/v1/web/search', apiKey: KEY }))
+      .rejects.toThrow(/not a result list/)
+    vi.unstubAllGlobals()
+  })
+
   it('reports a status nobody documented for itself plainly, with the number it was', async () => {
     stubWire({ status: 429 })
     await expect(request({ engine: WEB_SEARCH_ENGINES.tavily!, endpoint: 'https://api.tavily.com/search', apiKey: KEY }))
@@ -325,6 +402,17 @@ describe('the gate that offers the search tool', () => {
     expect(offeredNames(DEFAULT_ASSISTANT_SETTINGS, { webSearchKey: KEY })).not.toContain('web_search')
   })
 
+  it('offers a hosted engine that needs nothing, with no address written and no key stored', () => {
+    // "Needs no key" and "is self-hosted" are two questions. Reading them as one asks a reader to fill an
+    // address box the settings screen only draws for the self-hosted engine, so the tool would sit there
+    // reporting itself unconfigured for an engine that is ready the moment it is chosen.
+    const ready: AssistantSettings = { ...DEFAULT_ASSISTANT_SETTINGS, webSearchEngine: 'duckduckgo' }
+    expect(ready.webSearchEndpoint).toBe('')
+    expect(webSearchConfigured(ready, false)).toBe(true)
+    expect(offeredNames(ready)).toContain('web_search')
+    expect(offeredNames(ready, { webSearchKey: null })).toContain('web_search')
+  })
+
   it('reads an unknown engine id as the self-hosted default, whoever wrote it', () => {
     expect(normalizeAssistantSettings({ webSearchEngine: 'altavista' }).webSearchEngine).toBe('self-hosted')
     expect(normalizeAssistantSettings({ webSearchEngine: 'tavily' }).webSearchEngine).toBe('tavily')
@@ -345,7 +433,12 @@ function webSearchEngineShapeIsDataOnly(): boolean {
     if (engine.requiresKey && !engine.keyCarrier) return false
     if (engine.selfHosted === (engine.endpoint !== undefined)) return false
     if (!engine.resultPaths.length) return false
-    if (!engine.urlKeys.length || !engine.titleKeys.length || !engine.snippetKeys.length) return false
+    // An address and at least one field of words: a hit with neither is nothing to cite. Which of the two
+    // word fields an engine fills is its own business — DuckDuckGo's related entries carry one string that
+    // is both the heading and the excerpt, and inventing a second key to satisfy this check would only
+    // print the same sentence twice under an answer.
+    if (!engine.urlKeys.length || (!engine.titleKeys.length && !engine.snippetKeys.length)) return false
+    if (engine.rootHit && (!engine.rootHit.urlKeys.length || !engine.rootHit.snippetKeys.length)) return false
   }
   return true
 }
@@ -466,7 +559,9 @@ describe('an engine key where it belongs', () => {
     expect((await store.getSettings()).webSearchEngine).toBe('tavily')
     // A turn assembled from these settings still has no key, so the tool is not on it.
     expect(offeredNames(await store.getSettings())).not.toContain('web_search')
-    expect((await respond('PATCH', '/api/assistant/settings', { webSearchEngine: 'duckduckgo' })).status).toBe(400)
+    // An id this build's table has no entry for. DuckDuckGo was the example here until it became a real
+    // engine, which is the point of the row above: the route refuses a name, not a vendor.
+    expect((await respond('PATCH', '/api/assistant/settings', { webSearchEngine: 'altavista' })).status).toBe(400)
     expect((await store.getSettings()).webSearchEngine).toBe('tavily')
     expect((await respond('PATCH', '/api/assistant/settings', { webSearchEngine: 'self-hosted' })).status).toBe(200)
     expect((await store.getSettings()).webSearchEngine).toBe('self-hosted')

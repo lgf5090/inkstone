@@ -83,12 +83,39 @@ function listAt(payload: unknown, path: readonly string[]): unknown[] | null {
 }
 
 /**
+ * The one hit an engine keeps outside its list.
+ *
+ * Requires both halves of a citation: an address with no words under it is a link the model cannot read,
+ * and words with no address are a claim with no source, so either missing half means this engine said
+ * nothing at the root and the list is all there is.
+ */
+function rootHitOf(payload: unknown, fields: NonNullable<WebSearchEngineSpec['rootHit']>): WebSearchHit | null {
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return null
+  const record = payload as Record<string, unknown>
+  const url = textOf(record, fields.urlKeys)
+  const snippet = textOf(record, fields.snippetKeys)
+  if (!snippet) return null
+  return {
+    title: (textOf(record, fields.titleKeys) || url).slice(0, 200),
+    url,
+    snippet: snippet.slice(0, SNIPPET_CHARS),
+  }
+}
+
+/**
  * The hits inside an engine's answer, in the order it put them.
  *
  * Nothing here is guessed at beyond what the engine's own entry declares: an entry with no usable address is
  * dropped, because a hit the model cannot cite and a reader cannot open is worse than one fewer result.
  */
 export function hitsFromPayload(payload: unknown, engine: WebSearchEngineSpec): WebSearchHit[] {
+  const out: WebSearchHit[] = []
+  const seen = new Set<string>()
+  const root = engine.rootHit ? rootHitOf(payload, engine.rootHit) : null
+  if (root && isSourceUrl(root.url) && !seen.has(root.url)) {
+    seen.add(root.url)
+    out.push(root)
+  }
   let list: unknown[] | null = null
   for (const path of engine.resultPaths) {
     const candidate = listAt(payload, path)
@@ -97,9 +124,7 @@ export function hitsFromPayload(payload: unknown, engine: WebSearchEngineSpec): 
       break
     }
   }
-  if (!list) return []
-  const out: WebSearchHit[] = []
-  const seen = new Set<string>()
+  if (!list) return out
   for (const entry of list) {
     if (out.length >= WEB_SEARCH_RESULT_LIMIT) break
     if (!entry || typeof entry !== 'object' || Array.isArray(entry)) continue
@@ -153,6 +178,11 @@ export function searchUrlFor(engine: WebSearchEngineSpec, endpoint: string, quer
   if (!words) throw new WebSearchError('The search was asked for with no words in it.')
   target.searchParams.set(engine.queryField, words)
   if (engine.asksForJson && !target.searchParams.has('format')) target.searchParams.set('format', 'json')
+  // The engine's own fixed parameters, and never one of the reader's: a declared field only fills a gap,
+  // so nothing here can quietly overwrite the words that were just asked with.
+  for (const [field, value] of Object.entries(engine.params ?? {})) {
+    if (!target.searchParams.has(field)) target.searchParams.set(field, value)
+  }
   return target
 }
 
@@ -234,7 +264,10 @@ export async function searchWeb(request: WebSearchRequest): Promise<WebSearchHit
   const declared = Number(response.headers.get('content-length') ?? 0)
   if (declared > MAX_RESPONSE_BYTES) throw new WebSearchError(`${who} answered with more than a result list holds.`)
   const mime = (response.headers.get('content-type') ?? '').split(';')[0]!.trim().toLowerCase()
-  if (mime && !/^(?:application\/json|text\/)/.test(mime)) {
+  // `application/x-javascript` is in the list because DuckDuckGo's Instant Answer labels its JSON that way
+  // and answers 202 while doing it: measured from the endpoint, not from a specification. The check is
+  // about "is this a document pretending to be an answer", so a vendor's own odd name for JSON passes.
+  if (mime && !/^(?:application\/json|application\/x-javascript|text\/)/.test(mime)) {
     throw new WebSearchError(`${who} answered with ${mime}, which is not a result list.`)
   }
   const bytes = new Uint8Array(await response.arrayBuffer())
