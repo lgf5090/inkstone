@@ -37,6 +37,7 @@ import { useAssistant, type AssistantView } from '../chat/assistant-store'
 import { CHAT_SHORTCUTS } from '../chat/chat-shortcuts'
 import { requestChatIntent } from '../chat/chat-intents'
 import { startChatAboutFolder, startChatAboutNote } from '../chat/start-chat'
+import { useTodos } from '../todos/store'
 import { summarizeFolder } from '../chat/folder-summary'
 import { suggestNoteMeta } from '../chat/note-suggestions'
 import { startDeepResearch } from '../chat/deep-research'
@@ -101,6 +102,36 @@ export function appCommands(): AppCommand[] {
         combo: APP_SHORTCUTS.templates,
         group: t("command.commands"),
         run: () => openPanel('templates'),
+    },
+    {
+        id: 'cmd-new-todo',
+        kind: 'command',
+        label: t("todo.action.new_task"),
+        icon: ListChecks,
+        group: t("command.commands"),
+        run: () => {
+            navigateToPath('/todo')
+            useTodos.getState().openEditor({})
+        },
+    },
+    {
+        id: 'cmd-open-todo',
+        kind: 'command',
+        label: t("todo.action.open_todo"),
+        icon: ListChecks,
+        group: t("command.commands"),
+        run: () => navigateToPath('/todo'),
+    },
+    {
+        id: 'cmd-today-todo',
+        kind: 'command',
+        label: t("todo.view.plan"),
+        icon: ListChecks,
+        group: t("command.commands"),
+        run: () => {
+            navigateToPath('/todo')
+            useTodos.getState().setView('plan')
+        },
     },
     {
         id: 'cmd-new-folder',

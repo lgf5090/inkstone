@@ -10599,6 +10599,59 @@ const allowed = new Map([
     "/** The tag as written on the template; the `#` is drawn here, so no call site restates it. */",
     "/* Read as a name, not as \"hash sprint\": the sigil is decoration, the same way `TagChip` keeps it. */",
   ]],
+  ["src/client/features/todos/BoardView.tsx", [
+    "/**\n * The board: every list as a card, the way the reference app opens.\n *\n * A card answers one question — what does this list still owe me — so it shows a few open tasks and\n * a `done / total` line, and nothing else. The chips above it are the same lists, because on a phone\n * the board is two columns wide and a list that is not on screen needs a way to be reached.\n */",
+  ]],
+  ["src/client/features/todos/ListsView.tsx", [
+    "/**\n * The management page: every list and every tag, with the counts that make them worth managing.\n *\n * It is a page rather than a drawer because it is where a reader goes when they are rearranging,\n * not while they are working, and because on a phone a drawer over the board would leave the thing\n * being edited half visible.\n */",
+  ]],
+  ["src/client/features/todos/OrganizerEditors.tsx", [
+    "/**\n * The two editors a list and a tag need: a name, and the colour (a list also has an icon).\n *\n * The icon grid and the emoji list are the kanban block's own — the same thirteen icons and forty\n * emoji, offered through the same badge — because a second icon vocabulary would be a second thing\n * for a reader to learn. Colours come from the organiser palette folders and note tags already use.\n */",
+  ]],
+  ["src/client/features/todos/TaskCard.tsx", [
+    "/**\n * One task, as a card.\n *\n * The same component draws a board card, a row in the plan view and a line inside a list, because\n * those are the same object seen at three densities — a second implementation would drift the moment\n * one of them learned about steps or tags. The checkbox is a real `role=\"checkbox\"` button with a\n * 44px hit area; the visible circle is 20px, which is what the reference app shows.\n */",
+    "// A star that only appears on hover is a star a thumb never finds.",
+  ]],
+  ["src/client/features/todos/TaskEditor.tsx", [
+    "/**\n * The task editor: one dialog for a new task and for an existing one.\n *\n * It is a `Modal`, which already renders as a bottom sheet on a phone and a centred dialog on a\n * desktop — the two shapes the reference app has, without a second component. Fields are saved\n * together rather than on every keystroke: a title is edited in one pass, and a save per character\n * would be a write per character.\n *\n * Steps are the exception, and only for a task that already exists: adding a step is its own request\n * because the row it produces has to come back with an id the panel can tick.\n */",
+  ]],
+  ["src/client/features/todos/TaskViews.tsx", [
+    "/**\n * The four reading views: plan, starred, completed, and one list or tag.\n *\n * They share one grouped list because they differ only in how the page is split and what the group\n * headings say. Each view owns its own split — the plan groups by when, completed by the day it was\n * finished — and hands the result here.\n */",
+    "/** One list, or one tag: the same rows with the open ones first. */",
+    "// The inbox is \"no list at all\", which is a value rather than the absence of a filter.",
+    "/** The list or tag the header is naming, so a page opened from the board says where it is. */",
+  ]],
+  ["src/client/features/todos/TodosApp.tsx", [
+    "/**\n * The to-do container: the rail's `/todo` address, and the frame every view sits in.\n *\n * Two layouts, one state. A desktop gets a fixed sidebar and a board with room for three columns; a\n * phone gets a large title, the same board in two columns, a floating bottom bar for the three\n * cross-cutting views, and a button that adds a task. The breakpoint is a `matchMedia` query rather\n * than CSS alone because the two layouts differ in structure, not only in spacing.\n */",
+  ]],
+  ["src/client/features/todos/store.ts", [
+    "/**\n * The to-do app's state, and the only place it is written.\n *\n * Three rules shape it. The open set is read once and the smart lists are derived from it, because\n * every one of them answers a question about the same tasks and a second fetch would let two panes\n * disagree. A write replaces the row with what the server returned rather than patching a guess, so a\n * repeat that rolled forward or a due date the server re-read shows up as it actually is. And the\n * counts are re-read after a write instead of being adjusted by hand: they are a timezone-aware\n * aggregate, and a second implementation in the browser is a second answer waiting to be wrong.\n */",
+    "/** What the editor is open on: an existing task, or a draft for a new one. */",
+    "/** An instant, or a local `YYYY-MM-DD[THH:MM]` the server reads in the reader's timezone. */",
+    "/** Re-creates a deleted task from the snapshot the reader still has on screen. */",
+    "/** Re-reads one task so its step counts match the rows the detail panel is showing. */",
+  ]],
+  ["src/client/features/todos/task-groups.ts", [
+    "/**\n * The readings the views share: how a set of tasks splits into groups, and in what order.\n *\n * These are pure functions over a page the server already scoped, so the grouping rules are the only\n * thing here — no fetching, no state. The day boundaries come in from the server (`dayEnd` is the end\n * of the reader's own day), which is why nothing in this file calls `Date.now()` for \"today\".\n */",
+    "/** Overdue first, then by due time, then by priority, then oldest first. */",
+    "/**\n * The four groups the plan view shows.\n *\n * An in-progress task with no due date sits in \"today\" on purpose: the reader started it, so it is\n * on them now, and a task that disappears into \"no date\" is one they will forget.\n */",
+    "/** The tasks of one list, in the order a list is read: open first, finished last. */",
+    "/**\n * Finished tasks by the day they were finished, newest day first.\n *\n * Grouped in the reader's timezone rather than the browser's: the app's \"today\" is already that\n * span, and a reader travelling would otherwise see yesterday's work filed under today.\n */",
+    "/** The search box and the two id filters, applied to a page the server already scoped. */",
+    "/** How many of a list's tasks are open, for the card's progress line. */",
+  ]],
+  ["src/client/features/todos/todo-ui.ts", [
+    "/**\n * The small readings the to-do screens share: how a due date reads, how a priority looks, and the\n * words a repeat rule is described with.\n *\n * Kept out of the components because three of them need the same answer, and because a date that\n * reads one way on a card and another in the editor is the kind of difference a reader notices.\n */",
+    "/** The class a priority dot is painted with. The label always rides along, so colour is never alone. */",
+    "/**\n * A due date as a card shows it: the time when it is today, the day otherwise.\n *\n * A date with no time is stored as the end of that day, so it is shown as a day and never as\n * \"23:59\" — the minute is an implementation detail of \"due by then\", not something the reader wrote.\n */",
+    "/** The words a repeat rule is described with, or null when the task does not repeat. */",
+    "/** A due date as the date picker wants it: local wall time, or an empty string. */",
+  ]],
+  ["src/client/features/todos/todos-app.test.ts", [
+    "/**\n * The two layouts the container promises.\n *\n * A phone gets the cross-cutting views as a bottom bar and a button that adds a task; a wide window\n * gets a sidebar with every list and no bottom bar. The store is stubbed at the API boundary so the\n * case is about structure rather than about a fetch that never lands.\n */",
+    "// The first paint is the loading block; the stubbed page lands one microtask later.",
+    "// No sidebar: the list panel is a page of its own on a phone.",
+  ]],
   ["src/client/features/workspace/BacklinksPanel.tsx", [
     "// Debounced refresh on note revision changes; unrelated sync traffic",
     "// (cursor) no longer refetches, and stale links stay visible until the",
@@ -20913,6 +20966,8 @@ const allowed = new Map([
     "// without its list, star, repeat or note link is a different task, and `reminded_at` is the one",
     "// exception — a restore is not a delivery, so the next sweep may announce it again.",
     "// A link has no id of its own: its key is the pair, so it is only ever inserted, never patched.",
+    "// The inbox is folded in under its own key: a card shows the same `done / total` line whether",
+    "// the list is the reader's or the one every unfiled task lands in.",
   ]],
   ["src/worker/assistant/tools.ts", [
     "/**\n * The tools the assistant can reach, and the executor that runs them.\n *\n * Three things are enforced here rather than asked of the model, because a model that is confident and\n * wrong is the failure mode this app has to survive:\n *  - **budgets** — a per-turn call cap, a per-tool cap and a duplicate-call refusal, so a reasoning\n *    loop cannot spend the reader's AI quota or write a hundred tasks;\n *  - **validation** — arguments are checked against the same declaration that generates the JSON\n *    Schema the provider is given, so the two can never disagree;\n *  - **approval** — a destructive tool never runs during the turn. `prepare` resolves the exact target\n *    and writes a pending action; `commit` runs only when the reader presses Approve, once, on that\n *    target. The model can propose; it cannot delete.\n *\n * Scheduled runs get read-only tools plus `notify_reader`, so a routine that has drifted cannot edit\n * the vault while nobody is watching.\n */",
@@ -26004,6 +26059,9 @@ const allowed = new Map([
   ["tests/todo-backup.test.ts", [
     "/**\n * A backup carries the to-do app's own objects, not just the task rows.\n *\n * A task restored without its list, tags or steps is a different task, and the reader would have no\n * way to tell that the file had held more. The round trip here is the only thing that proves the\n * export columns and the import row agree — the failure mode otherwise is silent, because\n * `INSERT OR IGNORE` drops a row rather than complaining.\n */",
     "// A file written by hand, or by a build that did not export lists.",
+  ]],
+  ["tests/todo-groups.test.ts", [
+    "// 23:30 UTC is already the next morning in Shanghai.",
   ]],
   ["tests/todo-model.test.ts", [
     "// The same wall time a week later, which is one hour short of seven times 24 hours because",

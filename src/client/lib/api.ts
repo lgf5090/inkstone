@@ -1050,7 +1050,7 @@ export const api = {
    */
   todos: {
     list: (params: { status?: string, view?: string, list?: string, tag?: string, priority?: string, starred?: string, q?: string, limit?: number, offset?: number } = {}) =>
-      request<{ tasks: TodoTask[], counts: TaskCounts, dayEnd: number }>(`/api/todos${toQuery(params)}`),
+      request<{ tasks: TodoTask[], counts: TaskCounts, dayEnd: number, timezone: string }>(`/api/todos${toQuery(params)}`),
     get: (id: string) => request<{ task: TodoTask, steps: TaskStep[] }>(`/api/todos/${id}`),
     create: (body: Record<string, unknown>) => request<{ task: TodoTask }>('/api/todos', { method: 'POST', body }),
     update: (id: string, body: Record<string, unknown>) =>

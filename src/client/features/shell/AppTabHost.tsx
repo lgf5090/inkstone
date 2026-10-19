@@ -33,6 +33,7 @@ const CONTAINERS: Partial<Record<AppTabId, ComponentType>> = {
   notes: AppShell,
   reading: ReadingApp,
   subscriptions: lazy(() => import('../subscriptions/SubscriptionsApp').then((module) => ({ default: module.SubscriptionsApp }))),
+  todo: lazy(() => import('../todos/TodosApp').then((module) => ({ default: module.TodosApp }))),
   rss: lazy(() => import('../rss/RssApp').then(module => ({ default: module.RssApp }))),
   chat: ChatApp,
 }

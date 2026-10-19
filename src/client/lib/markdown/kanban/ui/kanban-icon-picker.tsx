@@ -4,7 +4,7 @@ import { t } from '../../../i18n'
 import { KANBAN_ICONS } from './kanban-icon-badge'
 import { KanbanPanel } from './kanban-panel'
 
-const KANBAN_COMMON_EMOJIS = [
+export const KANBAN_COMMON_EMOJIS = [
   '📝', '🎯', '🚀', '💡', '📌', '🏷️', '⭐', '☕', '🎨', '📦',
   '🛠️', '✅', '⏳', '🛑', '🔍', '📊', '📈', '💬', '📅', '🐛',
   '🔥', '🎉', '⚡', '💻', '🔒', '📱', '🔔', '✨', '🌐', '📚',

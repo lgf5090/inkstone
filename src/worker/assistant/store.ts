@@ -3949,9 +3949,11 @@ export class AssistantStore {
        FROM todos_tasks WHERE user_id = ?1`,
       this.userId, dayEnd, upcomingEnd, now,
     )
+    // The inbox is folded in under its own key: a card shows the same `done / total` line whether
+    // the list is the reader's or the one every unfiled task lands in.
     const perList = await this.rows<{ list_id: string; status: string; n: number }>(
-      `SELECT list_id, status, COUNT(*) AS n FROM todos_tasks
-        WHERE user_id = ?1 AND list_id IS NOT NULL GROUP BY list_id, status`,
+      `SELECT COALESCE(list_id, 'inbox') AS list_id, status, COUNT(*) AS n FROM todos_tasks
+        WHERE user_id = ?1 GROUP BY COALESCE(list_id, 'inbox'), status`,
       this.userId,
     )
     const byList: Record<string, { open: number; done: number }> = {}

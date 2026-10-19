@@ -208,7 +208,7 @@ todoRoutes.get('/', async (c) => {
     offset: Number.isFinite(offset) ? Math.max(0, Math.trunc(offset)) : undefined,
     dayEnd,
   })
-  return c.json({ tasks, counts: await s.taskCounts(dayEnd), dayEnd })
+  return c.json({ tasks, counts: await s.taskCounts(dayEnd), dayEnd, timezone: settings.timezone })
 })
 
 todoRoutes.post('/', async (c) => {
