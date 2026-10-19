@@ -177,7 +177,11 @@ function SubscriptionRow({
             ref={anchor}
             label={t('subscriptions.row_actions')}
             size="sm"
-            className={cn('opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100', menuOpen && 'opacity-100')}
+            className={cn(
+              /* Always drawn on touch screens, where there is no hover to reveal it; the desktop keeps the quiet row. */
+              'size-11 opacity-100 transition-opacity md:size-6 md:opacity-0 md:group-hover:opacity-100 focus-visible:opacity-100',
+              menuOpen && 'md:opacity-100',
+            )}
             onClick={() => setMenuOpen(open => !open)}
           >
             <MoreHorizontal size={15} />

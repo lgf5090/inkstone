@@ -145,7 +145,7 @@ export function SubscriptionsApp(): ReactElement {
         {railOpen ? <PanelLeftClose size={15} /> : <PanelLeftOpen size={15} />}
       </IconButton>
       <Wallet size={15} className="shrink-0 text-[var(--text-secondary)]" aria-hidden="true" />
-      <h1 className="min-w-0 shrink-0 truncate text-[length:var(--text-13-5)] font-semibold text-[var(--text-primary)]">{t('subscriptions.title')}</h1>
+      <h1 className="min-w-0 shrink truncate text-[length:var(--text-13-5)] font-semibold text-[var(--text-primary)]">{t('subscriptions.title')}</h1>
       {overview && (
         <span className="hidden shrink-0 text-[length:var(--text-11)] tabular-nums text-[var(--text-quaternary)] sm:inline">
           {formatAmount(overview.monthly.amount, overviewCurrency)}
@@ -159,10 +159,11 @@ export function SubscriptionsApp(): ReactElement {
           placeholder={t('subscriptions.search')}
           leading={<Search size={13} />}
           onChange={(event) => useSubscriptions.getState().setFilter({ query: event.target.value })}
-          className="h-7 w-40 text-[length:var(--text-11-5)] lg:w-52"
+          className="h-7 w-24 text-[length:var(--text-11-5)] sm:w-40 lg:w-52"
         />
         <Tooltip label={t('subscriptions.keys.title')} side="bottom">
-          <IconButton label={t('subscriptions.keys.title')} size="sm" onClick={() => setKeysOpen(true)}><CircleHelp size={15} /></IconButton>
+          {/* A touch screen has no keys to press, so the card is offered only where it can be used. */}
+          <IconButton label={t('subscriptions.keys.title')} size="sm" className="hidden sm:inline-flex" onClick={() => setKeysOpen(true)}><CircleHelp size={15} /></IconButton>
         </Tooltip>
         <Tooltip label={t('subscriptions.view.settings')} side="bottom">
           <IconButton label={t('subscriptions.view.settings')} size="sm" onClick={() => setSettingsOpen(true)}><Settings2 size={15} /></IconButton>

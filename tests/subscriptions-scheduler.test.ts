@@ -2,10 +2,11 @@
 import { DatabaseSync } from 'node:sqlite'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { SCHEMA_STATEMENTS } from '../src/worker/db/schema'
-import type { AppBindings } from '../src/worker/env'
+import type { Env } from '../src/worker/env'
 import { sweepSubscriptions } from '../src/worker/subscriptions/scheduler'
 import { saveChannel, saveSettings } from '../src/worker/subscriptions/settings'
 import { SubscriptionsStore, storeContext } from '../src/worker/subscriptions/store'
+import { testBindings } from './doubles/bindings'
 import { makeD1 } from './doubles/d1-sqlite'
 
 const DAY = 86_400_000
@@ -16,6 +17,7 @@ let db: D1Database
 let deliveries: string[]
 const secrets = new Set<string>()
 
+/* The one binding a double cannot describe structurally: only `idFromName`/`get` are ever reached here. */
 const vault = {
   idFromName: (name: string) => name,
   get: () => ({
@@ -31,10 +33,10 @@ const vault = {
       return Response.json({ value: JSON.parse(Buffer.from(stored, 'base64').toString('utf8')) })
     },
   }),
-}
+} as unknown as DurableObjectNamespace
 
-function env(): AppBindings['Bindings'] {
-  return { DB: db, CREDENTIAL_VAULT: vault } as unknown as AppBindings['Bindings']
+function env(): Env {
+  return testBindings(db, { CREDENTIAL_VAULT: vault })
 }
 
 async function seed(userId: string, options: { name?: string; days: number; hours?: string[] }) {
@@ -93,7 +95,7 @@ describe('the sweep', () => {
   it('does nothing when no subscription is due', async () => {
     await seed('u1', { name: 'Later', days: 20 })
     await enableGotify('u1')
-    const result = await sweepSubscriptions(env() as never, NOW)
+    const result = await sweepSubscriptions(env(), NOW)
     expect(result.sent).toBe(0)
     expect(deliveries).toEqual([])
     expect(schedules('u1')[0]!.status).toBe('skipped')
@@ -103,7 +105,7 @@ describe('the sweep', () => {
     await seed('u1', { name: 'Netflix', days: 7 })
     await seed('u1', { name: 'Spotify', days: 7 })
     await enableGotify('u1')
-    const result = await sweepSubscriptions(env() as never, NOW)
+    const result = await sweepSubscriptions(env(), NOW)
     expect(result.matched).toBe(2)
     expect(result.sent).toBe(1)
     expect(deliveries).toHaveLength(1)
@@ -118,8 +120,8 @@ describe('the sweep', () => {
   it('does not send the same hour twice', async () => {
     await seed('u1', { days: 7 })
     await enableGotify('u1')
-    await sweepSubscriptions(env() as never, NOW)
-    const second = await sweepSubscriptions(env() as never, NOW + 15 * 60_000)
+    await sweepSubscriptions(env(), NOW)
+    const second = await sweepSubscriptions(env(), NOW + 15 * 60_000)
     expect(deliveries).toHaveLength(1)
     expect(second.deduped).toBeGreaterThan(0)
     expect(schedules('u1')[0]!.status).toBe('skipped')
@@ -130,7 +132,7 @@ describe('the sweep', () => {
     sqlite.prepare(`UPDATE sub_item SET expiry_date = ? WHERE id = ?`).run(NOW - 3 * DAY, created.item.id)
     await enableGotify('u1')
 
-    const result = await sweepSubscriptions(env() as never, NOW)
+    const result = await sweepSubscriptions(env(), NOW)
     expect(result.renewed).toBe(1)
     expect(result.sent).toBe(0)
     expect(deliveries).toEqual([])
@@ -144,7 +146,7 @@ describe('the sweep', () => {
 
   it('writes a log line saying no channel is enabled', async () => {
     await seed('u1', { days: 7 })
-    const result = await sweepSubscriptions(env() as never, NOW)
+    const result = await sweepSubscriptions(env(), NOW)
     expect(result.sent).toBe(0)
     const log = schedules('u1')[0]!
     expect(log.status).toBe('ok')
@@ -155,7 +157,7 @@ describe('the sweep', () => {
     await seed('u1', { name: 'Alice plan', days: 7 })
     await seed('u2', { name: 'Bob plan', days: 7 })
     await enableGotify('u1')
-    await sweepSubscriptions(env() as never, NOW)
+    await sweepSubscriptions(env(), NOW)
     expect(deliveries).toHaveLength(1)
     const alice = sqlite.prepare(`SELECT body FROM sub_notify_log WHERE user_id = 'u1'`).all() as Array<{ body: string }>
     const bob = sqlite.prepare(`SELECT body FROM sub_notify_log WHERE user_id = 'u2'`).all() as Array<{ body: string }>
@@ -171,13 +173,13 @@ describe('the sweep', () => {
     sqlite.prepare(`INSERT INTO sub_reminder_rule (user_id, id, subscription_id, kind, value, unit, repeat_interval, repeat_until, enabled, created_at)
       VALUES ('u1', 'rule-after', ?, 'after_expiry', 0, 'days', 12, 'renewed', 1, ?)`).run(created.item.id, NOW)
 
-    await sweepSubscriptions(env() as never, NOW)
+    await sweepSubscriptions(env(), NOW)
     expect(deliveries).toHaveLength(1)
     // The next hour is a new claim key, but the interval has not elapsed.
-    await sweepSubscriptions(env() as never, NOW + 60 * 60_000)
+    await sweepSubscriptions(env(), NOW + 60 * 60_000)
     expect(deliveries).toHaveLength(1)
     // Twelve hours later it is due again.
-    await sweepSubscriptions(env() as never, NOW + 13 * 60 * 60_000)
+    await sweepSubscriptions(env(), NOW + 13 * 60 * 60_000)
     expect(deliveries).toHaveLength(2)
   })
 
@@ -188,7 +190,7 @@ describe('the sweep', () => {
       throw new Error('boom')
     })
     await enableGotify('u1')
-    const result = await sweepSubscriptions(env() as never, NOW)
+    const result = await sweepSubscriptions(env(), NOW)
     expect(result.failed).toBe(1)
     const log = schedules('u1')[0]!
     expect(log.status).toBe('error')

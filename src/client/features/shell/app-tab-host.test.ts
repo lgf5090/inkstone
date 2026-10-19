@@ -21,6 +21,7 @@ vi.mock('./AppShell', () => ({
 import { initI18n, t } from '../../lib/i18n'
 import { navigateToPath } from '../../lib/app-history'
 import { renderElement, type RenderedElement } from '../../lib/test-render'
+import { APP_TABS } from './app-tabs'
 import { AppRail } from './AppRail'
 import { AppTabHost } from './AppTabHost'
 
@@ -74,7 +75,7 @@ describe('the tab host', () => {
     expect(window.location.pathname).toBe('/calendar')
     expect(notebook()).toBeNull()
     expect(placeholderHeading()).toBe(t('app.tabs.calendar'))
-    expect(view.container.querySelectorAll('nav a[href]').length).toBe(10)
+    expect(view.container.querySelectorAll('nav a[href]').length).toBe(APP_TABS.length)
   })
 
   it('keeps the sync engine of the account mounted across a tab switch', () => {
@@ -113,6 +114,6 @@ describe('the tab host', () => {
 
   it('renders the rail it is described by', () => {
     view = renderElement(createElement(AppRail))
-    expect(view.container.querySelectorAll('nav a[href]').length).toBe(10)
+    expect(view.container.querySelectorAll('nav a[href]').length).toBe(APP_TABS.length)
   })
 })

@@ -198,11 +198,11 @@ export function SubscriptionDetail({
                     </div>
                     <div className="mt-0.5 flex items-center gap-1">
                       {payment.note && <span className="min-w-0 flex-1 truncate text-[length:var(--text-10-5)] text-[var(--text-quaternary)]">{payment.note}</span>}
-                      <span className="ml-auto flex shrink-0 items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
-                        <Button size="sm" variant="ghost" className="h-6 px-1 text-[length:var(--text-10-5)]" onClick={() => callbacks.onEditPayment(payment)}>
+                      <span className="ml-auto flex shrink-0 items-center gap-0.5 opacity-100 transition-opacity md:opacity-0 md:group-hover:opacity-100 focus-within:opacity-100">
+                        <Button size="sm" variant="ghost" className="h-9 px-2 text-[length:var(--text-11)] md:h-6 md:px-1 md:text-[length:var(--text-10-5)]" onClick={() => callbacks.onEditPayment(payment)}>
                           {t('subscriptions.payments.edit')}
                         </Button>
-                        <IconButton label={t('subscriptions.payments.delete')} size="xs" onClick={() => callbacks.onDeletePayment(payment)}>
+                        <IconButton label={t('subscriptions.payments.delete')} size="xs" className="size-9 md:size-6" onClick={() => callbacks.onDeletePayment(payment)}>
                           <Trash2 size={12} />
                         </IconButton>
                       </span>

@@ -10406,9 +10406,11 @@ const allowed = new Map([
   ]],
   ["src/client/features/subscriptions/SubscriptionForm.tsx", [
     "/**\n * The form a subscription is created or corrected with.\n *\n * The order is the order a reader thinks in — what it is, what it costs, when it ends — and the expiry\n * field is the only one that is required, because a subscription whose date is unknown is not a\n * subscription this app can do anything with. The two derived affordances are what make the form worth\n * having over a JSON editor: \"compute the expiry from the cycle\" fills the date the reader would have\n * counted on their fingers, and the line under it says what that date means in days and in the lunar\n * calendar when that is switched on.\n */",
+    "/* The suggestions live outside the fields: a `Field` holding two children becomes a group, and a\n              group names itself instead of naming the input inside it. */",
   ]],
   ["src/client/features/subscriptions/SubscriptionList.tsx", [
     "/**\n * The subscriptions, under the headings their dates put them in.\n *\n * A row is two siblings rather than one: the part that opens the detail panel is a real button, and the\n * actions menu is its own button beside it. Nesting the second inside the first would be a button in a\n * button, which is the one thing a screen reader cannot describe.\n *\n * The row shows the amount and the countdown on the right and the identity on the left, because those\n * are the two questions a reader opens this app with: what does it cost, and how long have I got.\n */",
+    "/* Always drawn on touch screens, where there is no hover to reveal it; the desktop keeps the quiet row. */",
   ]],
   ["src/client/features/subscriptions/SubscriptionSettings.tsx", [
     "/**\n * Settings, in two halves: how this app behaves, and where its reminders may go.\n *\n * The channel half is drawn from the shared field table rather than from nine hand-written forms, so a\n * field added to an adapter appears here without this file knowing what a bot token is. What it does own\n * is the shape of the interaction: a secret that is already stored is never shown, and leaving the box\n * empty keeps it — the only arrangement that lets a reader change a webhook address without retyping a\n * token they cannot see.\n */",
@@ -10417,6 +10419,7 @@ const allowed = new Map([
   ["src/client/features/subscriptions/SubscriptionsApp.tsx", [
     "/**\n * The subscription app: the frame the rail, the list, the dashboard and the detail panel share.\n *\n * It owns nothing but the wiring — every rule lives in the store or in a component — and it owns the\n * responsive decision the other containers make too: three panes when there is room, one pane and a\n * drawer when there is not. Loading is on mount rather than at boot, so a reader who never opens this\n * tab does not pay for a library they will not look at.\n */",
     "/**\n * The time-zone diagnostic the reference project served at `/debug`.\n *\n * Computed in the browser because that is where the question is asked: a reader whose reminders arrive\n * at the wrong hour wants to know what this deployment thinks the hour is, and the answer is the same\n * arithmetic the scheduler runs, shown rather than described.\n */",
+    "/* A touch screen has no keys to press, so the card is offered only where it can be used. */",
   ]],
   ["src/client/features/subscriptions/list-view.ts", [
     "/**\n * How the list is narrowed and how it is grouped.\n *\n * Both are pure functions of the rows and the filter, which is what lets the counts in the rail and the\n * rows under them come from the same place: a rail that said \"3 expiring\" over a list showing two would\n * be the kind of disagreement that makes a reader stop trusting the numbers.\n */",
@@ -25768,6 +25771,7 @@ const allowed = new Map([
   ["tests/subscriptions-scheduler.test.ts", [
     "// The next hour is a new claim key, but the interval has not elapsed.",
     "// Twelve hours later it is due again.",
+    "/* The one binding a double cannot describe structurally: only `idFromName`/`get` are ever reached here. */",
   ]],
   ["tests/tag-count-live-sync.test.ts", [
     "// `since <= 0` makes the route answer with a full snapshot, which always carries full facets.",

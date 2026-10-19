@@ -207,9 +207,6 @@ export function SubscriptionForm({
                 placeholder={t('subscriptions.form.type_placeholder')}
                 onChange={(event) => set('customType', event.target.value)}
               />
-              <datalist id="subscriptions-type-options">
-                {types.map((type) => <option key={type} value={type} />)}
-              </datalist>
             </Field>
             <Field label={t('subscriptions.detail.category')}>
               <Input
@@ -218,11 +215,16 @@ export function SubscriptionForm({
                 placeholder={t('subscriptions.form.category_placeholder')}
                 onChange={(event) => set('category', event.target.value)}
               />
-              <datalist id="subscriptions-category-options">
-                {categories.map((category) => <option key={category} value={category} />)}
-              </datalist>
             </Field>
           </div>
+          {/* The suggestions live outside the fields: a `Field` holding two children becomes a group, and a
+              group names itself instead of naming the input inside it. */}
+          <datalist id="subscriptions-type-options">
+            {types.map((type) => <option key={type} value={type} />)}
+          </datalist>
+          <datalist id="subscriptions-category-options">
+            {categories.map((category) => <option key={category} value={category} />)}
+          </datalist>
         </section>
 
         <section className="space-y-2.5">
