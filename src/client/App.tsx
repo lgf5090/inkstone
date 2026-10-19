@@ -1,5 +1,5 @@
 import { lazy, Suspense, useEffect, useRef, useState } from 'react'
-import { RefreshCw } from 'lucide-react'
+import { RefreshCw, TriangleAlert } from 'lucide-react'
 import { ConfirmHost, PromptHost } from './components/overlay'
 import { QuickAddPromptGate } from './features/quickadd/prompt-gate'
 import { Toaster } from './components/feedback'
@@ -196,7 +196,7 @@ export function App() {
 }
 
 /**
- * The card a waiting build puts on the screen.
+ * The card a build update puts on the screen.
  *
  * `initializePwa` raises `updateAvailable` the moment a new worker finishes caching its own shell, and
  * this is where that flag becomes something a reader can see and press. It used to be a half-minute
@@ -205,39 +205,53 @@ export function App() {
  * the design, not an oversight. It goes away when the reader takes the update up, or when another tab
  * already did and this page's waiting worker stopped existing.
  *
+ * The other thing it can say is that no update is coming. `updateStuck` is raised when a newer build's
+ * worker is discarded before it finishes installing, which is the case where this page is pinned to the
+ * build it opened with and every reload re-runs the same failed install; the press clears the worker and
+ * the caches it was serving from, the only lever a page has. Same corner, same no-dismiss rule, because
+ * the condition behind it is just as standing.
+ *
  * The corner is the one this app already uses for a standing, actionable status: the template run's card
  * occupies the same slot, above the phone's navigation row and below a notch, which are the insets the
  * manifest's `display: standalone` makes real rather than decorative.
  */
 function UpdateCard() {
   const updateAvailable = usePwa((s) => s.updateAvailable)
+  const updateStuck = usePwa((s) => s.updateStuck)
   const applyingUpdate = usePwa((s) => s.applyingUpdate)
+  const clearingUpdate = usePwa((s) => s.clearingUpdate)
   const applyUpdate = usePwa((s) => s.applyUpdate)
-  if (!updateAvailable) return null
+  const clearStuckUpdate = usePwa((s) => s.clearStuckUpdate)
+  if (!updateAvailable && !updateStuck) return null
+  // One card, two answers to the same question — "where is my update?". A build that did finish installing
+  // is the better answer to a jammed channel, so when both flags are somehow up the ready card owns it.
+  const stuck = !updateAvailable
   return (
     <div
       role="status"
       className="pointer-events-none fixed left-2 bottom-[calc(64px+env(safe-area-inset-bottom))] z-[var(--z-toast)] md:left-4 md:bottom-4"
     >
       <div className="pointer-events-auto flex w-[min(400px,calc(100vw-32px))] items-start gap-2.5 rounded-[var(--r-lg)] border border-[var(--border-default)] bg-[var(--bg-overlay)] p-3 shadow-[var(--shadow-pop)]">
-        <RefreshCw size={14} aria-hidden="true" className="mt-[3px] shrink-0 text-[var(--accent)]" />
+        {stuck
+          ? <TriangleAlert size={14} aria-hidden="true" className="mt-[3px] shrink-0 text-[var(--danger)]" />
+          : <RefreshCw size={14} aria-hidden="true" className="mt-[3px] shrink-0 text-[var(--accent)]" />}
         <div className="min-w-0 flex-1">
           <div className="text-[length:var(--text-12-5)] leading-snug font-medium text-[var(--text-primary)]">
-            {t('pwa.update_ready')}
+            {stuck ? t('pwa.update_stuck') : t('pwa.update_ready')}
           </div>
           <div className="mt-0.5 text-[length:var(--text-11-5)] leading-relaxed text-[var(--text-tertiary)]">
-            {t('pwa.update_ready_description')}
+            {stuck ? t('pwa.update_stuck_description') : t('pwa.update_ready_description')}
           </div>
         </div>
         <Button
           size="sm"
-          variant="primary"
-          loading={applyingUpdate}
+          variant={stuck ? 'secondary' : 'primary'}
+          loading={stuck ? clearingUpdate : applyingUpdate}
           onClick={() => {
-            void applyUpdate()
+            void (stuck ? clearStuckUpdate() : applyUpdate())
           }}
         >
-          {t('pwa.refresh_now')}
+          {stuck ? t('pwa.clear_and_reload') : t('pwa.refresh_now')}
         </Button>
       </div>
     </div>

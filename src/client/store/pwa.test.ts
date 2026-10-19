@@ -49,6 +49,7 @@ class FakeWorker extends EventTarget {
 class FakeRegistration extends EventTarget {
   readonly scope = 'http://localhost/'
   readonly update = vi.fn(async () => undefined)
+  readonly unregister = vi.fn(async () => true)
 
   constructor(
     readonly active: FakeWorker | null,
@@ -116,6 +117,19 @@ function announceWaitingBuild(registration: FakeRegistration): FakeWorker {
   registration.installing = worker
   registration.dispatchEvent(new Event('updatefound'))
   worker.moveTo('installed')
+  return worker
+}
+
+/**
+ * Runs the sequence a rejected install runs: the worker appears, then the browser throws it away without
+ * ever reading `installed`. That is the update channel jammed — the page keeps its old build, and the next
+ * reload repeats the same failure.
+ */
+function announceFailedBuild(registration: FakeRegistration): FakeWorker {
+  const worker = new FakeWorker('installing')
+  registration.installing = worker
+  registration.dispatchEvent(new Event('updatefound'))
+  worker.moveTo('redundant')
   return worker
 }
 
@@ -318,6 +332,70 @@ describe('the update entry', () => {
 
     expect(flush).not.toHaveBeenCalled()
     expect(useUi.getState().toasts).toHaveLength(0)
+  })
+})
+
+describe('the jammed update channel', () => {
+  it('names the build that was thrown away before it installed', async () => {
+    const { registration } = await startControlledWorker()
+
+    announceFailedBuild(registration)
+
+    expect(usePwa.getState().updateStuck).toBe(true)
+    expect(usePwa.getState().updateAvailable).toBe(false)
+  })
+
+  it('says nothing on a first visit, where there is no older build to be stuck on', async () => {
+    vi.stubEnv('PROD', true)
+    const registration = new FakeRegistration(null)
+    const stub = stubServiceWorker(registration, null)
+    const pwa = await import('./pwa')
+    pwa.initializePwa()
+    await vi.waitFor(() => expect(stub.register).toHaveBeenCalled())
+
+    announceFailedBuild(registration)
+
+    expect(usePwa.getState().updateStuck).toBe(false)
+  })
+
+  it('goes quiet as soon as a build does finish installing', async () => {
+    const { registration } = await startControlledWorker()
+    announceFailedBuild(registration)
+    expect(usePwa.getState().updateStuck).toBe(true)
+
+    announceWaitingBuild(registration)
+
+    expect(usePwa.getState().updateAvailable).toBe(true)
+    expect(usePwa.getState().updateStuck).toBe(false)
+  })
+
+  it('clears the worker and this app’s caches, then reloads', async () => {
+    const deleted: string[] = []
+    vi.stubGlobal('caches', {
+      keys: async () => ['inkstone-shell-abc', 'inkstone-assets-abc', 'someone-elses-cache'],
+      delete: async (key: string) => { deleted.push(key); return true },
+    })
+    const { registration, reload } = await startControlledWorker()
+    announceFailedBuild(registration)
+
+    await usePwa.getState().clearStuckUpdate()
+
+    expect(registration.unregister).toHaveBeenCalled()
+    expect(deleted).toEqual(['inkstone-shell-abc', 'inkstone-assets-abc'])
+    expect(reload, 'the card promised a reload; the page never moved').toHaveBeenCalled()
+  })
+
+  it('still reloads when the browser will not hand the caches over', async () => {
+    vi.stubGlobal('caches', {
+      keys: async () => { throw new TypeError('cache storage denied') },
+    })
+    const { registration, reload } = await startControlledWorker()
+    announceFailedBuild(registration)
+
+    await usePwa.getState().clearStuckUpdate()
+
+    expect(registration.unregister).toHaveBeenCalled()
+    expect(reload).toHaveBeenCalled()
   })
 })
 

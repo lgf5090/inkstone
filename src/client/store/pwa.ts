@@ -19,11 +19,18 @@ interface PwaState {
    */
   updateAvailable: boolean
   applyingUpdate: boolean
+  /**
+   * A newer build's worker was thrown away before it finished installing, so this page cannot leave the
+   * build it opened with. `App.tsx` renders it as a card with the one action that clears the jam.
+   */
+  updateStuck: boolean
+  clearingUpdate: boolean
   offlineStatus: 'idle' | 'preparing' | 'ready' | 'error'
   offlineCompleted: number
   offlineTotal: number
   install: () => Promise<void>
   applyUpdate: () => Promise<void>
+  clearStuckUpdate: () => Promise<void>
 }
 
 let installPrompt: InstallPromptEvent | null = null
@@ -34,12 +41,17 @@ let serviceWorkerRegistration: ServiceWorkerRegistration | null = null
 let warmupRequested = false
 let warmupScheduled = false
 
+/** What every cache this app's worker owns is named for — `inkstone-shell-<build>`, `inkstone-assets-<build>`. */
+const CACHE_PREFIX = 'inkstone-'
+
 export const usePwa = create<PwaState>((set, get) => ({
   installAvailable: false,
   installed: isStandalone(),
   installing: false,
   updateAvailable: false,
   applyingUpdate: false,
+  updateStuck: false,
+  clearingUpdate: false,
   offlineStatus: 'idle',
   offlineCompleted: 0,
   offlineTotal: 0,
@@ -86,8 +98,39 @@ export const usePwa = create<PwaState>((set, get) => ({
       return
     }
     reloadForUpdate = true
-    set({ updateAvailable: false, applyingUpdate: false })
+    set({ updateAvailable: false, applyingUpdate: false, updateStuck: false })
     worker.postMessage({ type: 'SKIP_WAITING' })
+  },
+
+  /**
+   * Clears the worker that cannot finish installing, together with the copy it cached.
+   *
+   * This is the reader's own way out of a jammed update channel, and the only one that works from inside
+   * the page: unregistering drops the worker that keeps serving the previous build, and deleting the
+   * caches drops what it was serving from — the start-up guard included, whose stale copy is what made the
+   * jam permanent. The reload then registers a worker against the current build.
+   *
+   * What it costs is the offline copy, which the new worker downloads again, so the card says that out
+   * loud and nothing here runs unasked. Both steps are best-effort: a browser that refuses to delete a
+   * cache is not a reason to stop the reload, and if the jam is still there the card simply comes back.
+   */
+  async clearStuckUpdate() {
+    if (get().clearingUpdate) return
+    set({ clearingUpdate: true })
+    try {
+      await serviceWorkerRegistration?.unregister()
+    } catch {
+      // Best-effort, for the reason above: the press is answered by the reload, not by this step.
+    }
+    try {
+      const keys = await caches.keys()
+      await Promise.all(keys
+        .filter((key) => key.startsWith(CACHE_PREFIX))
+        .map((key) => caches.delete(key)))
+    } catch {
+      // Same: cache storage the browser will not hand over still leaves a reload worth having.
+    }
+    location.reload()
   },
 }))
 
@@ -139,7 +182,7 @@ export function initializePwa(): void {
     // worker this card points at no longer exists. That tab's reload is its own business; a card left
     // here would be an invitation to reload for a reason that already happened.
     waitingWorker = null
-    usePwa.setState({ updateAvailable: false, applyingUpdate: false })
+    usePwa.setState({ updateAvailable: false, applyingUpdate: false, updateStuck: false })
   })
   window.addEventListener('online', scheduleOfflineWarmup)
   void registerServiceWorker()
@@ -202,11 +245,16 @@ async function registerServiceWorker(): Promise<void> {
     registration.addEventListener('updatefound', () => {
       const worker = registration.installing
       if (!worker) return
+      let reachedInstall = false
       worker.addEventListener('statechange', () => {
-        // `installed` and not `activated`: this is the moment the new build has finished caching its own
-        // shell, which is what makes the card's promise — reload, and this page still opens — true.
-        if (worker.state !== 'installed') return
-        if (navigator.serviceWorker.controller) notifyUpdate(worker)
+        if (worker.state === 'installed') {
+          // `installed` and not `activated`: this is the moment the new build has finished caching its own
+          // shell, which is what makes the card's promise — reload, and this page still opens — true.
+          reachedInstall = true
+          if (navigator.serviceWorker.controller) notifyUpdate(worker)
+          return
+        }
+        reportFailedInstall(worker, reachedInstall)
       })
     })
 
@@ -304,7 +352,27 @@ function handleServiceWorkerMessage(event: MessageEvent): void {
  */
 function notifyUpdate(worker: ServiceWorker): void {
   waitingWorker = worker
-  usePwa.setState({ updateAvailable: true })
+  usePwa.setState({ updateAvailable: true, updateStuck: false })
+}
+
+/**
+ * Names the update that will not arrive.
+ *
+ * A worker the browser throws away before it ever reaches `installed` is the update channel jammed: the
+ * page keeps running the build it opened with, served by a worker that keeps failing to be replaced, and
+ * nothing the reader does to the page — reload, hard reload — touches the file that is wrong. This is the
+ * only place that failure can be seen: the browser reports it inside the worker's own console, which a
+ * reader has no reason to open.
+ *
+ * `redundant` is the state a discarded worker lands in, and it is also where a worker goes when a newer
+ * one takes its place, so only one that never finished installing counts as a jam. A first visit is left
+ * out for the reason the waiting notice is: with no controller there is no previous build to be stuck on,
+ * and the only thing that failed is the offline copy.
+ */
+function reportFailedInstall(worker: ServiceWorker, reachedInstall: boolean): void {
+  if (worker.state !== 'redundant' || reachedInstall) return
+  if (!navigator.serviceWorker.controller) return
+  usePwa.setState({ updateStuck: true })
 }
 
 function isStandalone(): boolean {

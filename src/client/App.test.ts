@@ -50,6 +50,12 @@ function card(container: HTMLElement): HTMLElement | undefined {
     .find((node) => node.textContent?.includes(t('pwa.update_ready')))
 }
 
+/** The same slot's other answer: the update that never arrived. */
+function stuckCard(container: HTMLElement): HTMLElement | undefined {
+  return Array.from(container.querySelectorAll<HTMLElement>('[role="status"]'))
+    .find((node) => node.textContent?.includes(t('pwa.update_stuck')))
+}
+
 beforeEach(async () => {
   vi.resetModules()
   const i18n = await import('./lib/i18n')
@@ -94,6 +100,40 @@ describe('the update card in the app', () => {
     usePwa.setState({ updateAvailable: false })
 
     expect(card(await renderApp())).toBeUndefined()
+  })
+
+  it('confesses a jammed install, and offers the only way out a page has', async () => {
+    usePwa.setState({ updateStuck: true })
+
+    const node = stuckCard(await renderApp())
+
+    expect(node, 'the update never arrived and the page says nothing about it').toBeTruthy()
+    expect(node!.textContent).toContain(t('pwa.update_stuck_description'))
+    const button = node!.querySelector('button')
+    expect(button, 'the card names the jam but leaves the reader in it').toBeTruthy()
+    expect(button!.tagName).toBe('BUTTON')
+    expect(button!.textContent).toContain(t('pwa.clear_and_reload'))
+  })
+
+  it('presses the store action that clears the jam', async () => {
+    const clearStuckUpdate = vi.fn(async () => undefined)
+    usePwa.setState({ updateStuck: true, clearStuckUpdate })
+
+    const node = stuckCard(await renderApp())
+    await act(async () => {
+      node!.querySelector('button')!.click()
+    })
+
+    expect(clearStuckUpdate).toHaveBeenCalled()
+  })
+
+  it('prefers the build that did arrive when both answers are on the table', async () => {
+    usePwa.setState({ updateAvailable: true, updateStuck: true })
+
+    const container = await renderApp()
+
+    expect(card(container), 'a waiting build is answered with a complaint about the jam').toBeTruthy()
+    expect(stuckCard(container)).toBeUndefined()
   })
 })
 
