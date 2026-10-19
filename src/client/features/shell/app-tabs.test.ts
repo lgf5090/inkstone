@@ -11,6 +11,7 @@ const EVERY_TAB_ID: Record<AppTabId, true> = {
   projects: true,
   nav: true,
   chat: true,
+  subscriptions: true,
   reading: true,
   rss: true,
   music: true,

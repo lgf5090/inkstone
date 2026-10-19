@@ -101,7 +101,7 @@ export function EditorSkeleton() {
       <Skeleton className="h-[13px] w-[70%]"/>
     </div>);
 }
-export type EmptyArt = 'notes' | 'search' | 'trash' | 'starred' | 'archive' | 'folder' | 'select' | 'tag';
+export type EmptyArt = 'notes' | 'search' | 'trash' | 'starred' | 'archive' | 'folder' | 'select' | 'tag' | 'subscriptions';
 export function Empty({ art = 'notes', title, description, action, compact, }: {
     art?: EmptyArt;
     title: string;
@@ -165,6 +165,13 @@ function EmptyIllustration({ art }: {
             return (<svg {...common}>
           <path d="M31 12H16a4 4 0 0 0-4 4v15l21 21 19-19z"/>
           <circle cx="23" cy="23" r="3.5"/>
+        </svg>);
+        case 'subscriptions':
+            return (<svg {...common}>
+          <rect x="12" y="16" width="40" height="34" rx="4"/>
+          <path d="M12 25h40"/>
+          <path d="M22 34h10M22 41h18" opacity="0.6"/>
+          <circle cx="44" cy="34" r="2" opacity="0.7"/>
         </svg>);
         case 'select':
             return (<svg {...common}>

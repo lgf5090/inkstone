@@ -10,6 +10,23 @@ import type { ChatAttachment,
   MessageFeedback,
 } from '@shared/assistant'
 import type { MarkdownBackupManifest } from '@shared/backup-format'
+import type {
+  ChannelKind,
+  ChannelState,
+  CurrencyCode,
+  NextReminder,
+  NotifyLocale,
+  NotifyLogEntry,
+  NotifyLogFilter,
+  ReminderRule,
+  ReminderRuleInput,
+  RenewOptions,
+  ScheduleLogEntry,
+  SubscriptionBundle,
+  SubscriptionDetail,
+  SubscriptionInput,
+  SubscriptionSettings,
+} from '@shared/subscriptions/model'
 import type { ConversationShareInfo, PublicConversation } from '@shared/assistant'
 import type { ProviderBalanceAnswer } from '@shared/provider-balance'
 import type {
@@ -288,6 +305,30 @@ interface RequestOptions {
   /** A question about *now* must not be answered from the cache; a stored "where is the talk" is a
    * different question's answer. */
   cache?: RequestCache
+}
+
+/** What a channel fan-out cost, as the worker reports it after one message. */
+export interface DispatchSummary {
+  attempted: number
+  successCount: number
+  failedCount: number
+}
+
+/** The fields of a payment a reader may correct; the period is the receipt's, not theirs to edit. */
+export interface PaymentPatch {
+  date?: string
+  amount?: number
+  currency?: CurrencyCode
+  note?: string
+}
+
+/** The settings a save may carry. Anything left out keeps what the account already had. */
+export interface SettingsPatch {
+  timezone?: string
+  notificationHours?: string[]
+  showLunar?: boolean
+  paymentHistoryLimit?: number
+  locale?: NotifyLocale
 }
 
 async function request<T>(path: string, options: RequestOptions = {}): Promise<T> {
@@ -1411,6 +1452,101 @@ export const api = {
      */
     importSessionFile: (payload: { filename: string, text: string }) =>
       request<{ imported: SessionImportSummary }>('/api/assistant/sessions/import', { method: 'POST', body: payload }),
+  },
+
+  /**
+   * The subscription app.
+   *
+   * One bundle call and then per-entity writes: the app is opened rarely and read all at once, while
+   * every change afterwards is one row. `bundle()` is the only request that carries the overview with
+   * it, because recomputing a year of spending after every edit would make a toggle feel like a reload.
+   */
+  subscriptions: {
+    bundle: () => request<SubscriptionBundle>('/api/subscriptions'),
+    create: (input: SubscriptionInput) =>
+      request<SubscriptionDetail>('/api/subscriptions', { method: 'POST', body: input }),
+    detail: (id: string) => request<SubscriptionDetail>(`/api/subscriptions/${encodeURIComponent(id)}`),
+    update: (id: string, input: SubscriptionInput) =>
+      request<SubscriptionDetail>(`/api/subscriptions/${encodeURIComponent(id)}`, { method: 'PUT', body: input }),
+    remove: (id: string) =>
+      request<{ ok: true }>(`/api/subscriptions/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+    toggle: (id: string, isActive: boolean) =>
+      request<SubscriptionDetail>(`/api/subscriptions/${encodeURIComponent(id)}/toggle`, {
+        method: 'POST',
+        body: { isActive },
+      }),
+    renew: (id: string, options: RenewOptions) =>
+      request<SubscriptionDetail>(`/api/subscriptions/${encodeURIComponent(id)}/renew`, {
+        method: 'POST',
+        body: options,
+      }),
+    testNotify: (id: string) =>
+      request<{ result: DispatchSummary }>(`/api/subscriptions/${encodeURIComponent(id)}/test-notify`, { method: 'POST' }),
+    updatePayment: (id: string, paymentId: string, patch: PaymentPatch) =>
+      request<SubscriptionDetail>(
+        `/api/subscriptions/${encodeURIComponent(id)}/payments/${encodeURIComponent(paymentId)}`,
+        { method: 'PUT', body: patch },
+      ),
+    deletePayment: (id: string, paymentId: string) =>
+      request<SubscriptionDetail>(
+        `/api/subscriptions/${encodeURIComponent(id)}/payments/${encodeURIComponent(paymentId)}`,
+        { method: 'DELETE' },
+      ),
+    replaceRules: (id: string, rules: ReminderRuleInput[]) =>
+      request<{ rules: ReminderRule[] }>(`/api/subscriptions/${encodeURIComponent(id)}/reminders`, {
+        method: 'PUT',
+        body: { rules },
+      }),
+    addRule: (id: string, rule: ReminderRuleInput) =>
+      request<{ rule: ReminderRule }>(`/api/subscriptions/${encodeURIComponent(id)}/reminders`, {
+        method: 'POST',
+        body: rule,
+      }),
+    applyPresetRules: (id: string) =>
+      request<{ rules: ReminderRule[] }>(`/api/subscriptions/${encodeURIComponent(id)}/reminders`, {
+        method: 'POST',
+        body: { preset: true },
+      }),
+    updateRule: (id: string, ruleId: string, patch: ReminderRuleInput) =>
+      request<{ rule: ReminderRule }>(
+        `/api/subscriptions/${encodeURIComponent(id)}/reminders/${encodeURIComponent(ruleId)}`,
+        { method: 'PUT', body: patch },
+      ),
+    deleteRule: (id: string, ruleId: string) =>
+      request<{ ok: true }>(
+        `/api/subscriptions/${encodeURIComponent(id)}/reminders/${encodeURIComponent(ruleId)}`,
+        { method: 'DELETE' },
+      ),
+    nextReminder: (id: string) =>
+      request<{ nextReminder: NextReminder | null; allUpcoming: NextReminder[] }>(
+        `/api/subscriptions/${encodeURIComponent(id)}/next-reminder`,
+      ),
+    addCategory: (name: string) =>
+      request<{ categories: string[] }>('/api/subscriptions/categories', { method: 'POST', body: { name } }),
+    saveSettings: (patch: SettingsPatch) =>
+      request<{ settings: SubscriptionSettings }>('/api/subscriptions/settings', { method: 'PUT', body: patch }),
+    saveChannel: (kind: ChannelKind, input: { enabled?: boolean; config: Record<string, unknown> }) =>
+      request<{ channel: ChannelState }>(`/api/subscriptions/channels/${kind}`, { method: 'PUT', body: input }),
+    clearChannel: (kind: ChannelKind) =>
+      request<{ channels: ChannelState[] }>(`/api/subscriptions/channels/${kind}`, { method: 'DELETE' }),
+    testChannel: (kind: ChannelKind) =>
+      request<{ result: { success: boolean; channel: ChannelKind; error?: string } }>(
+        `/api/subscriptions/channels/${kind}/test`,
+        { method: 'POST' },
+      ),
+    notifyLogs: (filter: NotifyLogFilter = {}) =>
+      request<{ logs: NotifyLogEntry[] }>(`/api/subscriptions/logs/notify${toQuery({
+        subscriptionId: filter.subscriptionId,
+        channel: filter.channel,
+        status: filter.status,
+        since: filter.since,
+        until: filter.until,
+        limit: filter.limit,
+      })}`),
+    scheduleLogs: (limit = 20) =>
+      request<{ logs: ScheduleLogEntry[] }>(`/api/subscriptions/logs/schedule${toQuery({ limit })}`),
+    rotateInboundToken: () =>
+      request<{ token: string; hint: string }>('/api/subscriptions/inbound-token', { method: 'POST' }),
   },
 }
 

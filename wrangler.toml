@@ -30,6 +30,7 @@ run_worker_first = [
   "/projects",
   "/nav",
   "/chat",
+  "/subscriptions",
   "/reading",
   "/reading/*",
   "/rss",

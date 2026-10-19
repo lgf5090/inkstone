@@ -11,7 +11,7 @@
  * worker's Content-Security-Policy. tests/app-tab-routes.test.ts is what says so out loud.
  */
 import type { ComponentType } from 'react'
-import { BookOpen, CalendarDays, Compass, FileText, FolderKanban, ListChecks, MessageSquare, Music, Rss, Wrench } from 'lucide-react'
+import { BookOpen, CalendarDays, Compass, FileText, FolderKanban, ListChecks, MessageSquare, Music, Rss, Wallet, Wrench } from 'lucide-react'
 import type { MessageKey } from '@shared/locales/en-US'
 
 export type AppTabId =
@@ -21,6 +21,7 @@ export type AppTabId =
   | 'projects'
   | 'nav'
   | 'chat'
+  | 'subscriptions'
   | 'reading'
   | 'rss'
   | 'music'
@@ -41,6 +42,7 @@ export const APP_TABS: readonly AppTab[] = [
   { id: 'projects', path: '/projects', labelKey: 'app.tabs.projects', icon: FolderKanban },
   { id: 'nav', path: '/nav', labelKey: 'app.tabs.nav', icon: Compass },
   { id: 'chat', path: '/chat', labelKey: 'app.tabs.chat', icon: MessageSquare },
+  { id: 'subscriptions', path: '/subscriptions', labelKey: 'app.tabs.subscriptions', icon: Wallet },
   { id: 'reading', path: '/reading', labelKey: 'app.tabs.reading', icon: BookOpen },
   { id: 'rss', path: '/rss', labelKey: 'app.tabs.rss', icon: Rss },
   { id: 'music', path: '/music', labelKey: 'app.tabs.music', icon: Music },

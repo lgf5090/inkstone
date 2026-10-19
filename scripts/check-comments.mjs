@@ -10382,6 +10382,57 @@ const allowed = new Map([
     "// at `depth: 0` and so render at the same `treeIndent(0)` column and `aria-level: 1`. The `+1` is",
     "// not an off-by-one to remove — dropping it would push the folder tree's root one step left.",
   ]],
+  ["src/client/features/subscriptions/FilterRail.tsx", [
+    "/**\n * The rail: which slice of the list is showing, and what is in each slice.\n *\n * Counts come from the same rows the list draws, so a heading that says three and a list that shows two\n * cannot happen. The channel summary at the bottom is there because a reader whose reminders stopped\n * arriving looks first at the list and second at \"did anything send at all\" — this answers the second\n * before they have to open the settings.\n */",
+  ]],
+  ["src/client/features/subscriptions/LogsView.tsx", [
+    "/**\n * What was sent, and what the sweep did.\n *\n * The two halves answer different questions and are deliberately on one screen: \"did this channel\n * deliver that message\" is the delivery log, and \"did the sweep run at all\" is the schedule log. A\n * reader whose reminders stopped needs the second the moment the first is empty — a page that only\n * listed deliveries would show nothing and explain nothing.\n */",
+  ]],
+  ["src/client/features/subscriptions/OverviewView.tsx", [
+    "/**\n * The dashboard: what this costs, what is about to renew, and whether the reminders are running.\n *\n * The four cards answer the questions a reader opens the app with, in the order they ask them. The bar\n * chart is six months of receipts rather than a projection, because a subscription app's whole value is\n * knowing what was actually charged. Every bar is a plain box with a height — a charting library would\n * be a second rendering stack for six rectangles, and it would draw on a canvas a screen reader cannot\n * read.\n */",
+  ]],
+  ["src/client/features/subscriptions/PaymentDialog.tsx", [
+    "/**\n * Correcting one receipt.\n *\n * Only the four fields a receipt actually carries are editable. The period it bought is not one of them:\n * moving a receipt's dates would silently move the subscription's expiry with it, and a reader fixing a\n * typo in an amount should not have to reason about that.\n */",
+  ]],
+  ["src/client/features/subscriptions/RenewDialog.tsx", [
+    "/**\n * Renewing by hand, with the date it will land on shown before it is saved.\n *\n * The preview is the point of the dialog: a reader choosing \"two cycles\" is really asking \"when will I be\n * billed next\", and making them save to find out is how a wrong renewal gets recorded. It runs the same\n * arithmetic the worker will — the cycle from the current expiry, or from the payment date in reset mode.\n */",
+  ]],
+  ["src/client/features/subscriptions/StatusPill.tsx", [
+    "/**\n * Where a subscription stands, as one pill.\n *\n * The tone is the semantic token rather than a colour: an expired plan and a full disk are the same\n * alarm, and a reader who switched to a different accent should not have to relearn which green means\n * \"fine\". The word is always there beside the colour, because a pill that only means something to\n * people who can tell two hues apart is a pill half the readers cannot use.\n */",
+  ]],
+  ["src/client/features/subscriptions/SubscriptionDetail.tsx", [
+    "/**\n * One subscription, in full: what it is, how far through its term it is, when it will remind, what it\n * has cost, and the rules that decide when it speaks.\n *\n * The period bar is the one number the reference project never showed and a reader wants most — \"12 days\n * left\" means something different on a monthly plan than on a three-year one. It is derived from the\n * subscription's own start and expiry, so a plan with no start date simply does not draw one.\n */",
+    "/**\n * One rule, editable in place.\n *\n * The type decides which controls exist: a before-expiry rule has a number and a unit, an on-expiry rule\n * has neither (it is \"that day\"), and an after-expiry rule has an interval instead. Showing all three\n * controls for every kind would leave a reader guessing which of them the scheduler reads.\n */",
+  ]],
+  ["src/client/features/subscriptions/SubscriptionForm.tsx", [
+    "/**\n * The form a subscription is created or corrected with.\n *\n * The order is the order a reader thinks in — what it is, what it costs, when it ends — and the expiry\n * field is the only one that is required, because a subscription whose date is unknown is not a\n * subscription this app can do anything with. The two derived affordances are what make the form worth\n * having over a JSON editor: \"compute the expiry from the cycle\" fills the date the reader would have\n * counted on their fingers, and the line under it says what that date means in days and in the lunar\n * calendar when that is switched on.\n */",
+  ]],
+  ["src/client/features/subscriptions/SubscriptionList.tsx", [
+    "/**\n * The subscriptions, under the headings their dates put them in.\n *\n * A row is two siblings rather than one: the part that opens the detail panel is a real button, and the\n * actions menu is its own button beside it. Nesting the second inside the first would be a button in a\n * button, which is the one thing a screen reader cannot describe.\n *\n * The row shows the amount and the countdown on the right and the identity on the left, because those\n * are the two questions a reader opens this app with: what does it cost, and how long have I got.\n */",
+  ]],
+  ["src/client/features/subscriptions/SubscriptionSettings.tsx", [
+    "/**\n * Settings, in two halves: how this app behaves, and where its reminders may go.\n *\n * The channel half is drawn from the shared field table rather than from nine hand-written forms, so a\n * field added to an adapter appears here without this file knowing what a bot token is. What it does own\n * is the shape of the interaction: a secret that is already stored is never shown, and leaving the box\n * empty keeps it — the only arrangement that lets a reader change a webhook address without retyping a\n * token they cannot see.\n */",
+    "/** A dialog wrapper, so the app does not repeat the modal's own props at its call site. */",
+  ]],
+  ["src/client/features/subscriptions/SubscriptionsApp.tsx", [
+    "/**\n * The subscription app: the frame the rail, the list, the dashboard and the detail panel share.\n *\n * It owns nothing but the wiring — every rule lives in the store or in a component — and it owns the\n * responsive decision the other containers make too: three panes when there is room, one pane and a\n * drawer when there is not. Loading is on mount rather than at boot, so a reader who never opens this\n * tab does not pay for a library they will not look at.\n */",
+    "/**\n * The time-zone diagnostic the reference project served at `/debug`.\n *\n * Computed in the browser because that is where the question is asked: a reader whose reminders arrive\n * at the wrong hour wants to know what this deployment thinks the hour is, and the answer is the same\n * arithmetic the scheduler runs, shown rather than described.\n */",
+  ]],
+  ["src/client/features/subscriptions/list-view.ts", [
+    "/**\n * How the list is narrowed and how it is grouped.\n *\n * Both are pure functions of the rows and the filter, which is what lets the counts in the rail and the\n * rows under them come from the same place: a rail that said \"3 expiring\" over a list showing two would\n * be the kind of disagreement that makes a reader stop trusting the numbers.\n */",
+    "/** Which bucket a row falls in. A stopped subscription is its own bucket whatever its date says. */",
+    "/** Whether a row survives the current filter. */",
+    "/** The labels a subscription carries; the category field may name several. */",
+    "/**\n * The rows under their headings, soonest first inside each.\n *\n * An empty bucket is dropped rather than drawn: five headings with three of them empty is a page that\n * looks broken rather than a page that is organised.\n */",
+    "/** What the rail prints beside each view, counted off the same rows the list draws. */",
+    "/** How many subscriptions name each category, for the rail's category list. */",
+    "/** Everything the list shows for one filter, in one call. */",
+  ]],
+  ["src/client/features/subscriptions/store.ts", [
+    "/**\n * The subscription app's state, and the only place it is written.\n *\n * Two rules shape it. A mutation never guesses what the server did — every write answers with the\n * subscription it produced, and that answer replaces the row in place, so a screen and a database\n * cannot disagree about a date the server rolled forward. And a write that moves money reloads the\n * bundle instead of patching the overview by hand: the dashboard's totals are a year of receipts\n * aggregated in the account's time zone, and a second implementation of that arithmetic in the browser\n * is a second answer waiting to be wrong.\n */",
+    "/** Replace one row in the list, keeping the list's own order. */",
+    "// A slower answer for a row the reader has already left must not replace the one they are on.",
+  ]],
   ["src/client/features/tags/SidebarTags.tsx", [
     "// Expansion is keyed by path, so a rename or a move would otherwise collapse the branch the",
     "// user was looking at. Replay the path change against the open set as the tags arrive.",
@@ -10856,6 +10907,10 @@ const allowed = new Map([
     "/**\n     * Takes one row out of the account's device list, by the id the list gave.\n     *\n     * Not by its endpoint: the list only ever carries a digest of one, and the path behind it is the\n     * credential. The row id is the handle the reader's own screen holds, and the answer is the list that\n     * remains.\n     */",
     "/**\n     * The key one hosted web-search engine is queried with, and its state.\n     *\n     * `hasKey` and the last four characters are the whole of what comes back — the same bargain a provider's\n     * key makes. Writing is a `PUT` rather than a `POST` because an engine holds exactly one key: writing it\n     * again replaces it, and there is no second credential a vendor would have to guess between.\n     */",
     "/**\n     * What is left in each of a provider's keys.\n     *\n     * The worker asks the vendor and hands back a reading per key row; no credential travels in either\n     * direction, and `supported: false` is the answer for a provider that does not report one.\n     */",
+    "/** What a channel fan-out cost, as the worker reports it after one message. */",
+    "/** The fields of a payment a reader may correct; the period is the receipt's, not theirs to edit. */",
+    "/** The settings a save may carry. Anything left out keeps what the account already had. */",
+    "/**\n   * The subscription app.\n   *\n   * One bundle call and then per-entity writes: the app is opened rarely and read all at once, while\n   * every change afterwards is one row. `bundle()` is the only request that carries the overview with\n   * it, because recomputing a year of spending after every edit would make a toggle feel like a reload.\n   */",
   ]],
   ["src/client/lib/app-history.ts", [
     "/**\n * The address bar as the one source of truth for which app tab is up.\n *\n * The tab is a path rather than a store field so that a rail button is an ordinary link: the\n * address a reader copies is the screen they are looking at, the back button walks the tabs they\n * visited, and a cold load of `/calendar` needs nothing but the document the server already sends.\n * `history.pushState` fires no event of its own, so the writers here announce their own changes and\n * `popstate` covers everything the browser does by itself.\n */",
