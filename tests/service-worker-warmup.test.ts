@@ -156,17 +156,31 @@ function generateServiceWorkerSource() {
   return source
 }
 
+const APP_DOCUMENT = '<!doctype html><html><head></head><body><div id="root"></div></body></html>'
+
+const documentResponse = () => new FakeResponse(APP_DOCUMENT, {
+  headers: { 'content-type': 'text/html; charset=utf-8' },
+})
+
 function bootServiceWorker(options: {
   failing?: string[]
   previousShell?: boolean
   brokenCaches?: boolean
+  documents?: string[]
+  poisoned?: Array<{ cache: string, path: string }>
 } = {}) {
   const listeners = new Map<string, Array<(event: never) => void>>()
   const statuses: Array<Record<string, unknown>> = []
   const fetched: string[] = []
   const caches = new FakeCacheStorage()
   const failing = new Set(options.failing ?? [])
+  const documents = new Set(options.documents ?? [])
   if (options.previousShell) caches.maps.set('inkstone-shell-previous', new FakeCache())
+  for (const entry of options.poisoned ?? []) {
+    const cache = caches.maps.get(entry.cache) ?? new FakeCache()
+    cache.entries.set(`${ORIGIN}${entry.path}`, documentResponse())
+    caches.maps.set(entry.cache, cache)
+  }
   if (options.brokenCaches) {
     caches.open = async () => { throw new Error('cache storage unavailable') }
   }
@@ -175,6 +189,10 @@ function bootServiceWorker(options: {
     const path = toPath(input)
     fetched.push(path)
     if (failing.has(path)) throw new TypeError('Failed to fetch')
+    if (documents.has(path)) return documentResponse()
+    // The document is the one path that is honestly HTML: it must still be cached, or this guard becomes
+    // the reason offline boot fails.
+    if (path.endsWith('.html')) return new FakeResponse(`body:${path}`, { headers: { 'content-type': 'text/html; charset=utf-8' } })
     return new FakeResponse(`body:${path}`)
   }
 
@@ -210,6 +228,7 @@ function bootServiceWorker(options: {
       request: { method: 'GET', url: ORIGIN + path, mode: 'cors' },
       respondWith: (promise: Promise<unknown>) => { respondWith = promise },
     }))
+    if (!respondWith) throw new Error(`the worker answered nothing for ${path}`)
     return respondWith
   }
 
@@ -225,8 +244,12 @@ function bootServiceWorker(options: {
     failing.clear()
     for (const path of paths) failing.add(path)
   }
+  const setDocuments = (paths: string[]) => {
+    documents.clear()
+    for (const path of paths) documents.add(path)
+  }
 
-  return { install, message, requestPath, assetCache, shellCache, fetched, statuses, setFailing }
+  return { install, message, requestPath, assetCache, shellCache, fetched, statuses, setFailing, setDocuments }
 }
 
 const manifestPath = async (worker: ReturnType<typeof bootServiceWorker>) => {
@@ -315,4 +338,47 @@ it('caches the shell before anything else so a first visit can boot offline', as
   expect(shell.has(ORIGIN + '/assets/Workspace-2.js')).toBe(true)
   expect(shell.has(ORIGIN + '/.inkstone-cache-meta')).toBe(true)
   expect(worker.fetched.filter((path) => path.startsWith('/vendor/excalidraw/'))).toEqual([])
+})
+
+// The edge answers a missing file with HTTP 200 and the app document, so a chunk that is simply not there
+// looks like a successful fetch. Storing that document under the chunk's name is the worst thing this worker
+// can do: the reader gets HTML where a `<script type=module>` belongs, the browser refuses it, and every
+// reload repeats — the screen stays empty and nothing in the console explains it.
+it('rejects the install when a shell chunk comes back as the app document', async () => {
+  const worker = bootServiceWorker({ documents: ['/assets/app.js'] })
+  await expect(worker.install()).rejects.toThrow(/Refused to cache \/assets\/app\.js/)
+  expect((await worker.shellCache()).has(ORIGIN + '/assets/app.js')).toBe(false)
+})
+
+it('counts a background chunk served as the document as a failure and retries it clean', async () => {
+  const worker = bootServiceWorker({ previousShell: true, documents: ['/assets/notes-4.js'] })
+  await expect(worker.install()).resolves.toHaveLength(1)
+  const entries = await worker.assetCache()
+  expect(entries.has(ORIGIN + '/assets/notes-4.js')).toBe(false)
+  expect(worker.statuses.at(-1)?.status).toBe('error')
+  expect(await manifestPath(worker)).toEqual([])
+
+  worker.setDocuments([])
+  await expect(worker.message({ type: 'WARM_OFFLINE_CACHE' })).resolves.toHaveLength(1)
+  expect(worker.statuses.at(-1)?.status).toBe('ready')
+  expect((await worker.assetCache()).get(ORIGIN + '/assets/notes-4.js')?.body).toBe('body:/assets/notes-4.js')
+  expect(await manifestPath(worker)).toHaveLength(1)
+})
+
+it('will not copy a document an earlier build left under a chunk name into the new shell', async () => {
+  // Install runs before activate deletes the previous build's caches, and reuse looks across all of them —
+  // without this check the poison outlives the very deploy that was meant to clear it.
+  const worker = bootServiceWorker({ poisoned: [{ cache: 'inkstone-assets-previous', path: '/assets/app.js' }] })
+  await worker.install()
+  expect((await worker.shellCache()).get(ORIGIN + '/assets/app.js')?.body).toBe('body:/assets/app.js')
+  expect(worker.fetched).toContain('/assets/app.js')
+})
+
+it('serves the real file instead of a cached document, and caches the real file', async () => {
+  const engine = '/vendor/excalidraw/excalidraw.production.min.js'
+  const worker = bootServiceWorker({ poisoned: [{ cache: 'inkstone-assets-previous', path: engine }] })
+  const response = await worker.requestPath(engine)
+  expect(response).toBeInstanceOf(FakeResponse)
+  expect((response as FakeResponse).body).toBe(`body:${engine}`)
+  expect((await worker.assetCache()).get(ORIGIN + engine)?.body).toBe(`body:${engine}`)
 })

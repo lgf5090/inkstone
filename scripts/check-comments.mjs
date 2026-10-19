@@ -25379,6 +25379,16 @@ const allowed = new Map([
     "// The accessors throw on contact, so reaching this line at all is the proof.",
     "// The empty-shell payload is the reason: no title or body here may be assembled from it.",
   ]],
+  ["tests/service-worker-warmup.test.ts", [
+    "// The document is the one path that is honestly HTML: it must still be cached, or this guard becomes",
+    "// the reason offline boot fails.",
+    "// The edge answers a missing file with HTTP 200 and the app document, so a chunk that is simply not there",
+    "// looks like a successful fetch. Storing that document under the chunk's name is the worst thing this worker",
+    "// can do: the reader gets HTML where a `<script type=module>` belongs, the browser refuses it, and every",
+    "// reload repeats — the screen stays empty and nothing in the console explains it.",
+    "// Install runs before activate deletes the previous build's caches, and reuse looks across all of them —",
+    "// without this check the poison outlives the very deploy that was meant to clear it.",
+  ]],
   ["tests/settings-route.test.ts", [
     "// Behavioural coverage for `src/worker/routes/settings.ts` (its three D1 statements now live in",
     "// `src/worker/settings/store.ts`; the claims here are about what the routes answer, not about which",
