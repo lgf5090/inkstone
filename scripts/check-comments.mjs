@@ -1259,6 +1259,7 @@ const allowed = new Map([
     "// Save first, so the row the note is compared against and the words sent to it are the same.",
     "/** Take the incoming version, discarding the local text — the reader's explicit choice in the banner. */",
     "/** Keep the local text over the incoming version; the incoming one stays restorable in history. */",
+    "/** The one control an empty panel offers: start a document rather than explaining why there is none. */",
   ]],
   ["src/client/features/chat/ChatApp.tsx", [
     "/**\n * The chat app: the assistant's own container behind the rail's Chat tab.\n *\n * It borrows the notebook's chrome vocabulary rather than the reference project's — the same 48px\n * icon rail, the same 44px header, the same tokens — so the reader moves between containers without\n * finding a second visual language. What the reference called its sidebar becomes a second rail one\n * step in from the app rail, because the app rail already owns the outermost column.\n *\n * The five surfaces share one store on purpose: a turn in the chat can write a memory, a task and a\n * schedule in the same breath, and the tab that shows them has to be current the moment it is opened.\n */",
@@ -2765,6 +2766,7 @@ const allowed = new Map([
     "// asked again rather than left showing the version before the approval.",
     "// The error is deliberately not toasted here: the panel owns the save line and the conflict banner,",
     "// and a toast that said the same thing in a corner would outlive the text it is about.",
+    "/**\n   * Start an empty draft, creating the conversation it needs when there is none.\n   *\n   * A draft belongs to a thread, so the panel opened on an empty screen has to make one before it can\n   * make the draft. The empty conversation is a real thread the reader can leave or delete; it is not a\n   * second kind of draft storage.\n   */",
   ]],
   ["src/client/features/chat/assistant-stream-isolation.test.ts", [
     "/** Every send's stream, in the order the store asked for them. */",

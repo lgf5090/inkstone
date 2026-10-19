@@ -35,7 +35,10 @@ import { useAssistant } from './assistant-store'
  */
 const preview = vi.hoisted(() => ({ unrenderable: '[[[this draft cannot be rendered]]]', seen: { className: '' } }))
 
-const { DRAFT, LINKED, updateConversationArtifact, removeConversationArtifact, conversationArtifacts, getNote, gate } = vi.hoisted(() => {
+const {
+  DRAFT, LINKED, updateConversationArtifact, removeConversationArtifact, conversationArtifacts,
+  createConversation, createConversationArtifact, conversation, getNote, gate,
+} = vi.hoisted(() => {
   const noteId = '01hzzzzzzzzzzzzzzzzzzzzz20'
   const draft = {
     id: 'a1',
@@ -66,6 +69,16 @@ const { DRAFT, LINKED, updateConversationArtifact, removeConversationArtifact, c
     })),
     removeConversationArtifact: vi.fn(async () => ({ ok: true })),
     conversationArtifacts: vi.fn(async () => ({ artifacts: [draft] })),
+    createConversation: vi.fn(async () => ({ conversation: { id: 'c1' } })),
+    createConversationArtifact: vi.fn(async (id: string) => ({
+      artifact: { ...draft, id: 'a3', conversationId: id, title: '', content: '' },
+    })),
+    conversation: vi.fn(async (id: string) => ({
+      conversation: { id, ephemeral: false },
+      messages: [],
+      attachments: [],
+      streaming: false,
+    })),
   }
 })
 
@@ -89,6 +102,9 @@ vi.mock('../../lib/api', () => ({
       updateConversationArtifact,
       removeConversationArtifact,
       conversationArtifacts,
+      createConversation,
+      createConversationArtifact,
+      conversation,
     },
     notes: { get: getNote },
     files: { upload: vi.fn(async () => ({ url: '', filename: '', mime: '' })) },
@@ -192,6 +208,18 @@ describe('the canvas panel', () => {
   it('says so when the conversation has no drafts', async () => {
     await show({ activeId: 'c1', artifacts: [], artifactsReady: true, activeArtifactId: null })
     expect(document.body.textContent).toContain(t('assistant.canvas.empty'))
+  })
+
+  it('starts an empty draft, and the conversation it needs, from an empty panel', async () => {
+    await show({ activeId: null, artifacts: [], artifactsReady: true, activeArtifactId: null })
+    const start = buttons().find((node) => node.textContent?.includes(t('assistant.canvas.new')))
+    expect(start, 'an empty panel offers no way to start').toBeTruthy()
+    await act(async () => { start!.click(); await Promise.resolve(); await Promise.resolve() })
+    expect(createConversation).toHaveBeenCalled()
+    expect(createConversationArtifact).toHaveBeenCalledWith('c1', { title: '', content: '' })
+    expect(useAssistant.getState().activeId).toBe('c1')
+    expect(useAssistant.getState().activeArtifactId).toBe('a3')
+    expect(useAssistant.getState().canvasOpen).toBe(true)
   })
 
   it('lists the drafts and opens the one that is picked', async () => {

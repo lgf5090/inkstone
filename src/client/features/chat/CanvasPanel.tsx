@@ -21,7 +21,7 @@
  */
 
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react'
-import { ArrowLeft, Check, Copy, FileText, Link2Off, NotebookPen, PanelRight, RefreshCw, Trash2, X } from 'lucide-react'
+import { ArrowLeft, Check, Copy, FileText, Link2Off, NotebookPen, PanelRight, Plus, RefreshCw, Trash2, X } from 'lucide-react'
 import type { AssistantArtifact } from '@shared/assistant'
 import { DEBOUNCE } from '@shared/constants'
 import { cn } from '../../lib/cn'
@@ -76,6 +76,7 @@ export function CanvasPanel() {
   const select = useAssistant((state) => state.selectArtifact)
   const save = useAssistant((state) => state.saveArtifact)
   const remove = useAssistant((state) => state.removeArtifact)
+  const createDraft = useAssistant((state) => state.createDraft)
   const docked = useMediaQuery(DOCK_QUERY)
   const active = useMemo(() => artifacts.find((entry) => entry.id === activeId) ?? null, [artifacts, activeId])
 
@@ -93,9 +94,16 @@ export function CanvasPanel() {
         <span className="min-w-0 truncate text-[length:var(--text-12)] text-[var(--text-tertiary)]">
           {active ? (active.title || t('assistant.canvas.untitled')) : t('assistant.canvas.drafts')}
         </span>
-        <IconButton label={t('assistant.canvas.close')} size="sm" className="ml-auto" onClick={() => setOpen(false)}>
-          <X size={13} />
-        </IconButton>
+        <div className="ml-auto flex shrink-0 items-center gap-0.5">
+          {!active && (
+            <IconButton label={t('assistant.canvas.new')} size="sm" onClick={() => void createDraft()}>
+              <Plus size={13} />
+            </IconButton>
+          )}
+          <IconButton label={t('assistant.canvas.close')} size="sm" onClick={() => setOpen(false)}>
+            <X size={13} />
+          </IconButton>
+        </div>
       </div>
       {active
         ? <ArtifactEditor key={active.id} artifact={active} onSave={save} onRemove={remove} />
@@ -133,9 +141,12 @@ function ArtifactList({ artifacts, ready, onSelect }: {
   }
   if (!artifacts.length) {
     return (
-      <p className="px-5 py-10 text-center text-[length:var(--text-12)] leading-relaxed text-[var(--text-quaternary)]">
-        {t('assistant.canvas.empty')}
-      </p>
+      <div className="flex flex-1 flex-col items-center justify-center gap-2 px-5 py-10 text-center">
+        <p className="text-[length:var(--text-12)] leading-relaxed text-[var(--text-quaternary)]">
+          {t('assistant.canvas.empty')}
+        </p>
+        <NewDraftButton />
+      </div>
     )
   }
   return (
@@ -162,6 +173,16 @@ function ArtifactList({ artifacts, ready, onSelect }: {
 
 type SaveState = 'idle' | 'saving' | 'saved' | 'error'
 type SyncState = 'synced' | 'syncing' | 'diverged' | 'failed'
+
+/** The one control an empty panel offers: start a document rather than explaining why there is none. */
+function NewDraftButton() {
+  const createDraft = useAssistant((state) => state.createDraft)
+  return (
+    <Button size="sm" variant="secondary" icon={<Plus size={12} />} onClick={() => void createDraft()}>
+      {t('assistant.canvas.new')}
+    </Button>
+  )
+}
 
 function ArtifactEditor({ artifact, onSave, onRemove }: {
   artifact: AssistantArtifact

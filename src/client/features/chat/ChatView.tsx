@@ -569,7 +569,6 @@ export function ChatView() {
                 label={t('assistant.canvas.title')}
                 size="sm"
                 active={canvasOpen}
-                disabled={!activeId}
                 onClick={() => setCanvasOpen(!canvasOpen)}
               >
                 <PanelRight size={15} />
@@ -844,7 +843,7 @@ export function ChatView() {
         )}
       </section>
 
-      {canvasOpen && activeId && <CanvasPanel />}
+      {canvasOpen && <CanvasPanel />}
 
       {activeId && shareScope && (
         <ConversationSharePanel

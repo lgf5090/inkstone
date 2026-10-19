@@ -636,6 +636,14 @@ interface AssistantState {
    * rather than as timestamps.
    */
   createArtifactFromReply: (text: string) => Promise<void>
+  /**
+   * Start an empty draft, creating the conversation it needs when there is none.
+   *
+   * A draft belongs to a thread, so the panel opened on an empty screen has to make one before it can
+   * make the draft. The empty conversation is a real thread the reader can leave or delete; it is not a
+   * second kind of draft storage.
+   */
+  createDraft: () => Promise<void>
   /** Rewrite a draft's name or body. The server stores what it is sent and keeps the rest. */
   saveArtifact: (
     id: string,
@@ -3000,6 +3008,27 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
       })
       set((current) => ({
         artifacts: [artifact, ...current.artifacts],
+        artifactsReady: true,
+        canvasOpen: true,
+        activeArtifactId: artifact.id,
+        canvasContextOn: true,
+      }))
+    } catch (error) {
+      toast(error)
+    }
+  },
+
+  createDraft: async () => {
+    try {
+      let conversationId = get().activeId
+      if (!conversationId) {
+        const { conversation } = await api.assistant.createConversation()
+        await get().openConversation(conversation.id)
+        conversationId = conversation.id
+      }
+      const { artifact } = await api.assistant.createConversationArtifact(conversationId, { title: '', content: '' })
+      set((current) => ({
+        artifacts: [artifact, ...current.artifacts.filter((entry) => entry.id !== artifact.id)],
         artifactsReady: true,
         canvasOpen: true,
         activeArtifactId: artifact.id,
