@@ -161,19 +161,15 @@ export const WEB_SEARCH_ENGINES: Readonly<Record<string, WebSearchEngineSpec>> =
   },
 
   /**
-   * Brave Search API. `GET https://api.search.brave.com/res/v1/web/search?q=<words>` with the key in
-   * `X-Subscription-Token` — the one engine here that will not take a bearer value — and the list nested at
-   * `web.results`, each hit with `title`, `url` and `description`.
+   * Brave Search API. Shape read off https://api-dashboard.search.brave.com/app/documentation/web-search/get-started.
    *
-   * **Not read off Brave's own reference.** `api-dashboard.search.brave.com` and `developer.brave.com` both
-   * failed to answer from the machine this entry was written on, so the shape above is what several
-   * independent clients send — gpt-researcher's Brave retriever, OpenClaw's `web_search`, and the MoltBot
-   * client all agree on the method, the header name and the `web.results` path — which is corroboration, not
-   * verification at the source. If Brave's reference ever disagrees with any field here, the reference wins
-   * and this entry is the thing to fix.
+   * `GET https://api.search.brave.com/res/v1/web/search?q=<words>` with the key in `X-Subscription-Token`,
+   * which is the one engine here that will not take a bearer value. The list is nested at `web.results`,
+   * each hit with `title`, `url` and `description` — and `extra_snippets`, which is only sent when the
+   * request asks for it and is not needed to answer a model.
    *
-   * The `count` parameter is left alone because none of those readings stated its bounds and the reply is
-   * capped on the way in anyway.
+   * The `count` parameter is left alone because the page states no bound for the free tier's own use of it
+   * and the reply is capped on the way in anyway.
    */
   brave: {
     id: 'brave',
@@ -229,6 +225,39 @@ export const WEB_SEARCH_ENGINES: Readonly<Record<string, WebSearchEngineSpec>> =
       402: 'the account has no balance left, so the search could not be paid for',
       429: 'the account went over its per-second limit',
     },
+  },
+
+  /**
+   * Perplexity Search API. Shape read off https://docs.perplexity.ai/api-reference/search-post.
+   *
+   * `POST https://api.perplexity.ai/search` with `Authorization: Bearer <key>` and a JSON body: `query`
+   * (required), `max_results` (default 10, up to 20 for a web search). This is the structured search
+   * endpoint, not the Sonar chat endpoint — the reply is a ranked `results[]` of `title`, `url`, `snippet`
+   * and `last_updated`, and no answer of the vendor's own is generated over them, which is what makes it
+   * fit the tool at all: a channel that handed back somebody else's finished answer would be presented to
+   * the reader as this assistant's.
+   *
+   * `search_type` is left at its documented default of `web`. `fast` is cheaper and lower-latency, and
+   * choosing it here would trade result quality for money the reader never agreed to spend differently.
+   */
+  perplexity: {
+    id: 'perplexity',
+    name: 'Perplexity Search',
+    labelKey: 'assistant.settings.web_search_engine.perplexity',
+    noteKey: 'assistant.settings.web_search_note.perplexity',
+    selfHosted: false,
+    requiresKey: true,
+    endpoint: 'https://api.perplexity.ai/search',
+    method: 'POST',
+    keyCarrier: 'authorization-bearer',
+    queryPlacement: 'json-body',
+    queryField: 'query',
+    asksForJson: false,
+    body: { max_results: WEB_SEARCH_RESULT_LIMIT },
+    resultPaths: [['results']],
+    urlKeys: ['url'],
+    titleKeys: ['title'],
+    snippetKeys: ['snippet'],
   },
 }
 
