@@ -950,6 +950,13 @@ const allowed = new Map([
     "// Not a silent downgrade: what failed has to reach the console with the document it failed on, or the",
     "// reader's report of a blank draft has nothing to be traced to.",
   ]],
+  ["src/client/features/chat/ArtifactHistory.tsx", [
+    "/**\n * The versions of one draft.\n *\n * A draft the assistant can rewrite is only safe if the text it replaced is still reachable. The list\n * is metadata — version, who wrote it, when — because a hundred thousand characters times fifty versions\n * is not a list; the body is read for the one version the reader picks. Restoring appends, it does not\n * rewind: the way forward stays in the history, and the current text is the next version's parent.\n */",
+    "/** Above this, a character-level diff costs more than it tells; the two versions are still readable. */",
+    "// The current version is the one most readers want to see first; a history that opens on a blank pane",
+    "// makes them pick a row to find out what they were already looking at.",
+    "/** The header control that opens the history; the editor owns the open state. */",
+  ]],
   ["src/client/features/chat/AssistantBehaviourTab.tsx", [
     "/**\n * The behaviour tab: what the assistant calls itself, and how it answers.\n */",
     "// The three controls whose only words are the row's title: each id is what turns that title into the",
@@ -2767,6 +2774,11 @@ const allowed = new Map([
     "// The error is deliberately not toasted here: the panel owns the save line and the conflict banner,",
     "// and a toast that said the same thing in a corner would outlive the text it is about.",
     "/**\n   * Start an empty draft, creating the conversation it needs when there is none.\n   *\n   * A draft belongs to a thread, so the panel opened on an empty screen has to make one before it can\n   * make the draft. The empty conversation is a real thread the reader can leave or delete; it is not a\n   * second kind of draft storage.\n   */",
+    "/**\n   * The snapshots of each draft that has been asked for, keyed by draft id.\n   *\n   * Loaded on demand rather than with the draft list: a conversation with fifty drafts would otherwise\n   * pay for fifty histories the reader may never open.\n   */",
+    "/** One snapshot with its body. Throws when the read fails, so the history view can say so and retry. */",
+    "/** Bring an old snapshot back as a new head; returns the draft as it now stands. */",
+    "// The head is new, so the list the history was showing is stale. It is read again when opened;",
+    "// fetching it now would race the modal the reader is about to close.",
   ]],
   ["src/client/features/chat/assistant-stream-isolation.test.ts", [
     "/** Every send's stream, in the order the store asked for them. */",

@@ -39,6 +39,7 @@ import { useNotes } from '../../store/notes'
 import { useSession } from '../../store/session'
 import { useUi } from '../../store/ui'
 import { ArtifactBody } from './ArtifactBody'
+import { ArtifactHistory, HistoryButton } from './ArtifactHistory'
 import { useAssistant } from './assistant-store'
 import { LoadFailure } from './assistant-settings-shared'
 import { saveReplyAsNote } from './save-to-note'
@@ -200,6 +201,7 @@ function ArtifactEditor({ artifact, onSave, onRemove }: {
   const [copied, setCopied] = useState(false)
   const [saveState, setSaveState] = useState<SaveState>('idle')
   const [saveError, setSaveError] = useState<string | null>(null)
+  const [historyOpen, setHistoryOpen] = useState(false)
   const [retryTick, setRetryTick] = useState(0)
   const [conflict, setConflict] = useState(false)
   const [syncState, setSyncState] = useState<SyncState>(artifact.noteId ? 'syncing' : 'synced')
@@ -613,24 +615,27 @@ function ArtifactEditor({ artifact, onSave, onRemove }: {
         )}
         <div className="flex items-center gap-2">
           <ModeTabs artifactId={artifact.id} mode={mode} onSelect={setMode} />
-          <span aria-live="polite" className="ml-auto text-[length:var(--text-10-5)] text-[var(--text-quaternary)]">
-            {saveState === 'saving'
-              ? t('assistant.canvas.saving')
-              : saveState === 'saved'
-                ? t('assistant.canvas.saved')
-                : saveState === 'error'
-                  ? t('assistant.canvas.unsaved')
-                  : null}
-          </span>
-          {saveState === 'error' && !conflict && (
-            <button
-              type="button"
-              onClick={() => setRetryTick((tick) => tick + 1)}
-              className="shrink-0 text-[length:var(--text-10-5)] font-medium text-[var(--accent-on-soft)] hover:underline"
-            >
-              {t('assistant.canvas.retry_save')}
-            </button>
-          )}
+          <div className="ml-auto flex shrink-0 items-center gap-1">
+            <HistoryButton onOpen={() => setHistoryOpen(true)} />
+            <span aria-live="polite" className="text-[length:var(--text-10-5)] text-[var(--text-quaternary)]">
+              {saveState === 'saving'
+                ? t('assistant.canvas.saving')
+                : saveState === 'saved'
+                  ? t('assistant.canvas.saved')
+                  : saveState === 'error'
+                    ? t('assistant.canvas.unsaved')
+                    : null}
+            </span>
+            {saveState === 'error' && !conflict && (
+              <button
+                type="button"
+                onClick={() => setRetryTick((tick) => tick + 1)}
+                className="shrink-0 text-[length:var(--text-10-5)] font-medium text-[var(--accent-on-soft)] hover:underline"
+              >
+                {t('assistant.canvas.retry_save')}
+              </button>
+            )}
+          </div>
         </div>
       </div>
       {linkedNoteId && syncState === 'diverged' && (
@@ -706,6 +711,7 @@ function ArtifactEditor({ artifact, onSave, onRemove }: {
           <Trash2 size={13} />
         </IconButton>
       </div>
+      {historyOpen && <ArtifactHistory artifact={artifact} onClose={() => setHistoryOpen(false)} />}
     </>
   )
 }

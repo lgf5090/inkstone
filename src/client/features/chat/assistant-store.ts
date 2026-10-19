@@ -15,6 +15,7 @@
 import { create } from 'zustand'
 import type {
   AssistantArtifact,
+  AssistantArtifactVersion,
   AssistantConversation,
   ChatFolderNode,
   ChatProjectNode,
@@ -644,6 +645,18 @@ interface AssistantState {
    * second kind of draft storage.
    */
   createDraft: () => Promise<void>
+  /**
+   * The snapshots of each draft that has been asked for, keyed by draft id.
+   *
+   * Loaded on demand rather than with the draft list: a conversation with fifty drafts would otherwise
+   * pay for fifty histories the reader may never open.
+   */
+  artifactVersions: Record<string, AssistantArtifactVersion[] | undefined>
+  loadArtifactVersions: (artifactId: string) => Promise<void>
+  /** One snapshot with its body. Throws when the read fails, so the history view can say so and retry. */
+  readArtifactVersion: (artifactId: string, versionId: string) => Promise<AssistantArtifactVersion>
+  /** Bring an old snapshot back as a new head; returns the draft as it now stands. */
+  restoreArtifactVersion: (artifactId: string, versionId: string) => Promise<AssistantArtifact>
   /** Rewrite a draft's name or body. The server stores what it is sent and keeps the rest. */
   saveArtifact: (
     id: string,
@@ -1501,6 +1514,7 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
   turn: null,
   artifacts: [],
   artifactsReady: false,
+  artifactVersions: {},
   canvasOpen: false,
   activeArtifactId: null,
   ephemeral: false,
@@ -2121,7 +2135,7 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
     // A comparison is this thread's choice: leaving it armed would spend a second model's tokens on the
     // next thread without anyone asking. The answer already on screen keeps its thread's id, so it is
     // simply not drawn here — the same rule the live turn follows when the reader walks away mid-reply.
-    set({ activeId: id, messages: [], messagesReady: false, messagesError: null, remoteStreaming: false, remotePartial: null, remotePartialTruncated: false, noteContextOn: true, folderContextOn: true, canvasContextOn: true, artifacts: [], artifactsReady: false, canvasOpen: false, activeArtifactId: null, ephemeral: false, compareOn: false, compareModelId: null, messagesBefore: null, messagesHasMore: false, messagesLoadingMore: false, messagesHasNewer: false, focusMessageId: focus })
+    set({ activeId: id, messages: [], messagesReady: false, messagesError: null, remoteStreaming: false, remotePartial: null, remotePartialTruncated: false, noteContextOn: true, folderContextOn: true, canvasContextOn: true, artifacts: [], artifactsReady: false, artifactVersions: {}, canvasOpen: false, activeArtifactId: null, ephemeral: false, compareOn: false, compareModelId: null, messagesBefore: null, messagesHasMore: false, messagesLoadingMore: false, messagesHasNewer: false, focusMessageId: focus })
     if (!id) {
       set({ messagesReady: true, messagesError: null, artifactsReady: true })
       return
@@ -2208,7 +2222,7 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
     // The pins go with the thread they were added to. They are "this turn's" by definition — the row the
     // composer draws is the record of what this question was asked about — so a new conversation that
     // inherited them would answer a question nobody asked, in a folder nobody named.
-    set({ activeId: null, messages: [], messagesReady: true, messagesError: null, remoteStreaming: false, remotePartial: null, remotePartialTruncated: false, turn: null, noteContextOn: true, folderContextOn: true, canvasContextOn: true, artifacts: [], artifactsReady: true, canvasOpen: false, activeArtifactId: null, ephemeral: false, compareOn: false, compareModelId: null, turnTools: [], turnScopes: [] })
+    set({ activeId: null, messages: [], messagesReady: true, messagesError: null, remoteStreaming: false, remotePartial: null, remotePartialTruncated: false, turn: null, noteContextOn: true, folderContextOn: true, canvasContextOn: true, artifacts: [], artifactsReady: true, artifactVersions: {}, canvasOpen: false, activeArtifactId: null, ephemeral: false, compareOn: false, compareModelId: null, turnTools: [], turnScopes: [] })
   },
 
   /**
@@ -2221,7 +2235,7 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
     const live = get().turn
     if (live && !live.done) return
     stopRemoteStreamWatch()
-    set({ activeId: null, messages: [], messagesReady: true, messagesError: null, remoteStreaming: false, remotePartial: null, remotePartialTruncated: false, turn: null, noteContextOn: true, folderContextOn: true, canvasContextOn: true, artifacts: [], artifactsReady: true, canvasOpen: false, activeArtifactId: null, ephemeral: true, compareOn: false, compareModelId: null })
+    set({ activeId: null, messages: [], messagesReady: true, messagesError: null, remoteStreaming: false, remotePartial: null, remotePartialTruncated: false, turn: null, noteContextOn: true, folderContextOn: true, canvasContextOn: true, artifacts: [], artifactsReady: true, artifactVersions: {}, canvasOpen: false, activeArtifactId: null, ephemeral: true, compareOn: false, compareModelId: null })
   },
 
   attachFiles: async (files) => {
@@ -2963,7 +2977,7 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
       await api.assistant.deleteConversation(id)
       if (get().activeId === id) {
         stopRemoteStreamWatch()
-        set({ activeId: null, messages: [], turn: null, artifacts: [], artifactsReady: true, canvasOpen: false, activeArtifactId: null, ephemeral: false, compareOn: false, compareModelId: null })
+        set({ activeId: null, messages: [], turn: null, artifacts: [], artifactsReady: true, artifactVersions: {}, canvasOpen: false, activeArtifactId: null, ephemeral: false, compareOn: false, compareModelId: null })
       }
       await get().loadConversations()
     } catch (error) {
@@ -2991,6 +3005,35 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
       set({ artifactsReady: true })
       toast(error)
     }
+  },
+
+  loadArtifactVersions: async (artifactId) => {
+    const conversationId = get().activeId
+    if (!conversationId) return
+    const { versions } = await api.assistant.conversationArtifactVersions(conversationId, artifactId)
+    // The reader may have switched threads while the read was in flight.
+    if (get().activeId !== conversationId) return
+    set((current) => ({ artifactVersions: { ...current.artifactVersions, [artifactId]: versions } }))
+  },
+
+  readArtifactVersion: async (artifactId, versionId) => {
+    const conversationId = get().activeId
+    if (!conversationId) throw new Error('No conversation is open.')
+    const { version } = await api.assistant.conversationArtifactVersion(conversationId, artifactId, versionId)
+    return version
+  },
+
+  restoreArtifactVersion: async (artifactId, versionId) => {
+    const conversationId = get().activeId
+    if (!conversationId) throw new Error('No conversation is open.')
+    const { artifact } = await api.assistant.restoreConversationArtifact(conversationId, artifactId, versionId)
+    set((current) => ({
+      artifacts: current.artifacts.map((entry) => (entry.id === artifact.id ? artifact : entry)),
+      // The head is new, so the list the history was showing is stale. It is read again when opened;
+      // fetching it now would race the modal the reader is about to close.
+      artifactVersions: { ...current.artifactVersions, [artifactId]: undefined },
+    }))
+    return artifact
   },
 
   createArtifactFromReply: async (text) => {

@@ -15,6 +15,7 @@ import { act, createElement, Fragment } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { DEBOUNCE } from '@shared/constants'
+import type { AssistantArtifactVersion } from '@shared/assistant'
 import { ApiError } from '../../lib/api'
 import { initI18n, t } from '../../lib/i18n'
 import { installTestGlobals, stubBreakpoint } from '../../lib/test-render'
@@ -37,7 +38,8 @@ const preview = vi.hoisted(() => ({ unrenderable: '[[[this draft cannot be rende
 
 const {
   DRAFT, LINKED, updateConversationArtifact, removeConversationArtifact, conversationArtifacts,
-  createConversation, createConversationArtifact, conversation, getNote, gate,
+  createConversation, createConversationArtifact, conversation,
+  conversationArtifactVersions, conversationArtifactVersion, restoreConversationArtifact, getNote, gate,
 } = vi.hoisted(() => {
   const noteId = '01hzzzzzzzzzzzzzzzzzzzzz20'
   const draft = {
@@ -79,6 +81,13 @@ const {
       attachments: [],
       streaming: false,
     })),
+    conversationArtifactVersions: vi.fn(async (): Promise<{ versions: AssistantArtifactVersion[] }> => ({ versions: [] })),
+    conversationArtifactVersion: vi.fn(async (_id: string, _artifactId: string, versionId: string) => ({
+      version: { id: versionId, artifactId: 'a1', conversationId: 'c1', version: 1, title: 'A plan', content: DRAFT.content, source: 'user', messageId: null, createdAt: 1 },
+    })),
+    restoreConversationArtifact: vi.fn(async (_id: string, artifactId: string) => ({
+      artifact: { ...draft, id: artifactId, version: 2 },
+    })),
   }
 })
 
@@ -105,6 +114,9 @@ vi.mock('../../lib/api', () => ({
       createConversation,
       createConversationArtifact,
       conversation,
+      conversationArtifactVersions,
+      conversationArtifactVersion,
+      restoreConversationArtifact,
     },
     notes: { get: getNote },
     files: { upload: vi.fn(async () => ({ url: '', filename: '', mime: '' })) },
@@ -307,6 +319,30 @@ describe('the canvas panel', () => {
     })
     const last = updateConversationArtifact.mock.calls.at(-1)!
     expect(last[2]).toMatchObject({ content: 'my paragraph', baseVersion: 2 })
+  })
+
+  it('opens the version history and reads the stored snapshots', async () => {
+    conversationArtifactVersions.mockResolvedValueOnce({
+      versions: [
+        { id: 'v2', artifactId: 'a1', conversationId: 'c1', version: 2, title: 'A plan', source: 'assistant', messageId: null, createdAt: 2 },
+        { id: 'v1', artifactId: 'a1', conversationId: 'c1', version: 1, title: 'A plan', source: 'user', messageId: null, createdAt: 1 },
+      ],
+    })
+    conversationArtifactVersion.mockResolvedValueOnce({
+      version: { id: 'v2', artifactId: 'a1', conversationId: 'c1', version: 2, title: 'A plan', content: DRAFT.content, source: 'assistant', messageId: null, createdAt: 2 },
+    })
+    await show({ activeId: 'c1', artifacts: [DRAFT], artifactsReady: true, activeArtifactId: 'a1' })
+    const history = buttons().find((node) => node.getAttribute('aria-label') === t('assistant.canvas.history'))
+    expect(history, 'the editor has no history control').toBeTruthy()
+    await act(async () => {
+      history!.click()
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+    expect(conversationArtifactVersions).toHaveBeenCalledWith('c1', 'a1')
+    expect(document.body.textContent).toContain('v2')
+    expect(document.body.textContent).toContain('v1')
+    expect(document.body.textContent).toContain(t('assistant.canvas.source_assistant'))
   })
 
   it('drops a deleted draft, and falls back to the list', async () => {
