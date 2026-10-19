@@ -9,6 +9,7 @@
 
 import type { Task, TaskPriority, TaskStatus } from '../assistant'
 import { daysInMonth, getZonedParts, zonedTimeToUtc } from '../assistant-schedule'
+import { ORGANIZER_COLORS } from '../organizer-colors'
 
 export const REPEAT_FREQUENCIES = ['daily', 'weekly', 'monthly', 'yearly'] as const
 export type RepeatFrequency = (typeof REPEAT_FREQUENCIES)[number]
@@ -219,6 +220,19 @@ export function normalizeTagNames(input: unknown): string[] {
     if (out.length >= MAX_TAGS_PER_TASK) break
   }
   return out
+}
+
+/**
+ * The colour a list or tag gets when its reader did not pick one.
+ *
+ * Derived from the name so two devices that create the same list independently agree, and so the
+ * colour survives a restore that dropped the column. The palette is the one folders and note tags
+ * already use: a second set of colours would be a second vocabulary for the same idea.
+ */
+export function defaultColorFor(seed: string): string {
+  let hash = 0
+  for (let index = 0; index < seed.length; index += 1) hash = (hash * 31 + seed.charCodeAt(index)) >>> 0
+  return ORGANIZER_COLORS[hash % ORGANIZER_COLORS.length]!
 }
 
 /** The `done / total` a list card shows. A list with no tasks reads as `0 / 0`. */

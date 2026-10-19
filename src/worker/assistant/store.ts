@@ -42,7 +42,6 @@ import type {
   UsageFilter,
   PendingAction,
   Project,
-  Task,
   TaskPriority,
   TaskStatus,
   ToolActivity,
@@ -51,6 +50,26 @@ import type {
   SavedMessage,
 } from '@shared/assistant'
 import { dialectsForProtocol } from '@shared/reasoning'
+import {
+  COMPLETED_PAGE_SIZE,
+  MAX_STEPS_PER_TASK,
+  MAX_STEP_TEXT_CHARS,
+  MAX_TASKS_PER_QUERY,
+  MAX_TAG_NAME_CHARS,
+  MAX_LIST_NAME_CHARS,
+  UPCOMING_DAYS,
+  defaultColorFor,
+  nextOccurrence,
+  normalizeTagNames,
+  parseRepeatRule,
+  type RepeatRule,
+  type TaskCounts,
+  type TaskList,
+  type TaskStep,
+  type TaskTag,
+  type TaskView,
+  type TodoTask,
+} from '@shared/todos/model'
 import type { McpOAuthSecrets, McpOAuthStatus } from './mcp-oauth'
 import { ASSISTANT_MCP_TOOL_MODES, ASSISTANT_MCP_TRANSPORTS, DEFAULT_MCP_TIMEOUT_SECONDS, EPHEMERAL_CONVERSATION_RETENTION_DAYS, MAX_MCP_DESCRIPTION_CHARS, MAX_MCP_TOOL_OVERRIDES, MAX_MCP_HEADER_VALUE_CHARS, MAX_MCP_LABEL_CHARS, MAX_MCP_TOOL_NAME_CHARS, MAX_MCP_TIMEOUT_SECONDS, MIN_MCP_TIMEOUT_SECONDS, MAX_ARTIFACT_CONTENT_CHARS, MAX_ARTIFACT_TITLE_CHARS, RUN_PARTIAL_MAX_CHARS, MAX_ANSWER_VERSIONS, MAX_CHAT_ATTACHMENTS, MAX_FEEDBACK_REASON_CHARS, clipReasoning, isMcpHeaderName, parseModelModalities, parseProviderEndpoints, reasoningDialectValue, reasoningValue, type AssistantAnswerVersion, type AssistantMcpServer, type AssistantMcpToolMode, type AssistantMcpTransport, type AssistantModelModality, type ChatAttachment } from '@shared/assistant'
 import {
@@ -877,14 +896,30 @@ export interface NewTask {
   priority?: TaskPriority
   dueAt?: number | null
   projectId?: string | null
+  listId?: string | null
+  starred?: boolean
+  repeat?: RepeatRule | null
+  remindAt?: number | null
+  noteId?: string | null
+  conversationId?: string | null
+  /** Tag names; an unknown one is created. Replaces the task's tags when given to `updateTask`. */
+  tags?: string[]
+  /** Step texts, created in order. Only read by `createTask`. */
+  steps?: string[]
 }
 
 export interface TaskQuery {
   status?: TaskStatus | 'open' | 'all'
-  view?: 'today' | 'upcoming' | 'overdue' | 'completed' | 'all'
+  view?: TaskView
   projectId?: string
+  /** `null` asks for the inbox; leaving it out applies no list filter at all. */
+  listId?: string | null
+  tagId?: string
+  priority?: TaskPriority
+  starred?: boolean
   query?: string
   limit?: number
+  offset?: number
   /** End of the reader's local day, in UTC milliseconds. */
   dayEnd?: number
 }
@@ -1004,7 +1039,7 @@ export class AssistantStore {
    * literals from this module, and the caller-supplied part is only ever a value.
    */
   private async partialUpdate(
-    table: 'chat_models' | 'chat_providers' | 'chat_projects',
+    table: 'chat_models' | 'chat_providers' | 'chat_projects' | 'todos_tasks' | 'todos_lists' | 'todos_tags',
     id: string,
     fields: readonly (readonly [column: string, value: unknown])[],
   ): Promise<number> {
@@ -3654,106 +3689,229 @@ export class AssistantStore {
 
   // ------------------------------------------------------------------- tasks
 
-  async listTasks(query: TaskQuery = {}): Promise<Task[]> {
+  /**
+   * The rows a query matches, before tags and step counts are attached.
+   *
+   * One builder rather than a query per view: the smart lists differ only in a WHERE clause, and a
+   * second copy of "what is due today" is how the app and the reminder sweep start disagreeing.
+   */
+  private async taskRows(query: TaskQuery = {}): Promise<TaskRow[]> {
     const q = new Query(this.userId)
     const status = query.status ?? 'all'
     if (status === 'open') q.raw(`status != 'done'`)
     else if (status !== 'all') q.eq(`status`, status)
     const now = Date.now()
+    const dayEnd = query.dayEnd ?? now
+    const upcomingEnd = dayEnd + UPCOMING_DAYS * 24 * 60 * 60 * 1000
     switch (query.view) {
+      case 'inbox':
+        q.raw(`status != 'done' AND list_id IS NULL`)
+        break
       case 'today':
-        q.raw(`status != 'done' AND ((due_at IS NOT NULL AND due_at < ${q.add(query.dayEnd ?? now)})
+        q.raw(`status != 'done' AND ((due_at IS NOT NULL AND due_at < ${q.add(dayEnd)})
           OR (due_at IS NULL AND status = 'in_progress'))`)
         break
       case 'upcoming':
-        q.raw(`status != 'done' AND (due_at IS NULL OR due_at >= ${q.add(query.dayEnd ?? now)})`)
+        q.raw(`status != 'done' AND due_at IS NOT NULL AND due_at >= ${q.add(dayEnd)} AND due_at < ${q.add(upcomingEnd)}`)
         break
       case 'overdue':
         q.raw(`status != 'done' AND due_at IS NOT NULL AND due_at < ${q.add(now)}`)
         break
+      case 'open':
+        q.raw(`status != 'done'`)
+        break
       case 'completed':
         q.raw(`status = 'done'`)
+        break
+      case 'starred':
+        q.raw(`status != 'done' AND starred = 1`)
         break
       default:
         break
     }
     if (query.projectId) q.eq(`project_id`, query.projectId)
+    if (query.listId === null) q.raw(`list_id IS NULL`)
+    else if (query.listId) q.eq(`list_id`, query.listId)
+    if (query.tagId) {
+      q.raw(`id IN (SELECT task_id FROM todos_tag_links WHERE user_id = ?1 AND tag_id = ${q.add(query.tagId)})`)
+    }
+    if (query.priority) q.eq(`priority`, query.priority)
+    if (query.starred) q.raw(`starred = 1`)
     if (query.query) {
       const pattern = q.add(containsPattern(query.query))
       q.or([`title LIKE ${pattern} ESCAPE '\\'`, `description LIKE ${pattern} ESCAPE '\\'`])
     }
-    const limit = q.add(query.limit ?? 200)
+    const pageSize = query.view === 'completed' ? COMPLETED_PAGE_SIZE : MAX_TASKS_PER_QUERY
+    const limit = q.add(Math.min(query.limit ?? pageSize, MAX_TASKS_PER_QUERY))
+    const offset = query.offset && query.offset > 0 ? ` OFFSET ${q.add(Math.trunc(query.offset))}` : ''
     const order = query.view === 'completed'
-      ? `completed_at DESC`
+      ? `completed_at DESC, created_at DESC`
       : `CASE WHEN due_at IS NULL THEN 1 ELSE 0 END, due_at ASC, ${TASK_PRIORITY_ORDER}, created_at ASC`
-    const list = await this.rows<TaskRow>(
-      `SELECT * FROM todos_tasks WHERE ${q.where} ORDER BY ${order} LIMIT ${limit}`,
+    return await this.rows<TaskRow>(
+      `SELECT * FROM todos_tasks WHERE ${q.where} ORDER BY ${order} LIMIT ${limit}${offset}`,
       ...q.binds,
     )
-    return list.map(toTask)
   }
 
-  async getTask(id: string): Promise<Task | null> {
-    const r = await this.one<TaskRow>(`SELECT * FROM todos_tasks WHERE user_id = ?1 AND id = ?2`, this.userId, id)
-    return r ? toTask(r) : null
+  /** The step counts of many tasks in one query, so a listing is not a query per row. */
+  private async stepCounts(ids: readonly string[]): Promise<Map<string, { total: number; done: number }>> {
+    if (!ids.length) return new Map()
+    const marks = ids.map((_, index) => `?${index + 2}`).join(', ')
+    const list = await this.rows<{ task_id: string; total: number; done: number | null }>(
+      `SELECT task_id, COUNT(*) AS total, SUM(CASE WHEN done = 1 THEN 1 ELSE 0 END) AS done
+         FROM todos_steps WHERE user_id = ?1 AND task_id IN (${marks}) GROUP BY task_id`,
+      this.userId, ...ids,
+    )
+    return new Map(list.map((row) => [row.task_id, { total: row.total, done: row.done ?? 0 }]))
   }
 
-  async createTask(input: NewTask): Promise<Task> {
+  /** The tags of many tasks in one query, keyed by task. */
+  private async tagsForTasks(ids: readonly string[]): Promise<Map<string, TaskTag[]>> {
+    if (!ids.length) return new Map()
+    const marks = ids.map((_, index) => `?${index + 2}`).join(', ')
+    const list = await this.rows<TaskTagRow & { task_id: string }>(
+      `SELECT l.task_id, t.id, t.name, t.color, t.created_at, t.updated_at
+         FROM todos_tag_links l
+         JOIN todos_tags t ON t.user_id = l.user_id AND t.id = l.tag_id
+        WHERE l.user_id = ?1 AND l.task_id IN (${marks})
+        ORDER BY t.name COLLATE NOCASE`,
+      this.userId, ...ids,
+    )
+    const out = new Map<string, TaskTag[]>()
+    for (const row of list) {
+      const bucket = out.get(row.task_id) ?? []
+      bucket.push(toTaskTag(row, 0))
+      out.set(row.task_id, bucket)
+    }
+    return out
+  }
+
+  private async tasksWithDetails(rows: TaskRow[]): Promise<TodoTask[]> {
+    if (!rows.length) return []
+    const ids = rows.map((row) => row.id)
+    const [steps, tags] = await Promise.all([this.stepCounts(ids), this.tagsForTasks(ids)])
+    return rows.map((row) => toTask(row, {
+      tags: tags.get(row.id) ?? [],
+      stepTotal: steps.get(row.id)?.total ?? 0,
+      stepDone: steps.get(row.id)?.done ?? 0,
+    }))
+  }
+
+  async listTasks(query: TaskQuery = {}): Promise<TodoTask[]> {
+    return await this.tasksWithDetails(await this.taskRows(query))
+  }
+
+  async getTask(id: string): Promise<TodoTask | null> {
+    const row = await this.one<TaskRow>(`SELECT * FROM todos_tasks WHERE user_id = ?1 AND id = ?2`, this.userId, id)
+    if (!row) return null
+    const [task] = await this.tasksWithDetails([row])
+    return task ?? null
+  }
+
+  async createTask(input: NewTask): Promise<TodoTask> {
     const id = newId()
     const at = Date.now()
     const status = input.status ?? 'todo'
-    const task: Task = {
-      id,
-      title: input.title.trim(),
-      description: input.description ?? '',
-      status,
-      priority: input.priority ?? 'medium',
-      dueAt: input.dueAt ?? null,
-      projectId: input.projectId ?? null,
-      createdAt: at,
-      updatedAt: at,
-      completedAt: status === 'done' ? at : null,
-    }
+    const repeat = input.repeat ?? null
     await this.write(
       `INSERT INTO todos_tasks
-         (id, user_id, title, description, status, priority, due_at, project_id, created_at, updated_at, completed_at)
-       VALUES (?2, ?1, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)`,
-      id, task.title, task.description, task.status, task.priority, task.dueAt, task.projectId, at, at, task.completedAt,
+         (id, user_id, title, description, status, priority, due_at, project_id, list_id, starred,
+          repeat_rule, remind_at, note_id, conversation_id, created_at, updated_at, completed_at)
+       VALUES (?2, ?1, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17)`,
+      id, input.title.trim().slice(0, 300), input.description ?? '', status, input.priority ?? 'medium',
+      input.dueAt ?? null, input.projectId ?? null, input.listId ?? null, input.starred ? 1 : 0,
+      repeat ? JSON.stringify(repeat) : null, input.remindAt ?? null, input.noteId ?? null,
+      input.conversationId ?? null, at, at, status === 'done' ? at : null,
     )
-    return task
+    if (input.tags?.length) await this.setTaskTags(id, input.tags)
+    for (const text of input.steps ?? []) await this.addStep(id, text)
+    const created = await this.getTask(id)
+    if (!created) throw new Error(`The task ${id} was written but could not be read back.`)
+    return created
   }
 
-  async updateTask(id: string, patch: Partial<NewTask>): Promise<Task | null> {
+  /**
+   * A partial write: only the columns the caller named.
+   *
+   * Writing the whole row back from a snapshot read a moment earlier is how two edits made at once
+   * lose one of themselves, and it is how a column this method does not know about gets cleared.
+   */
+  async updateTask(id: string, patch: Partial<NewTask>): Promise<TodoTask | null> {
     const existing = await this.getTask(id)
     if (!existing) return null
     const at = Date.now()
-    const next: Task = {
-      ...existing,
-      ...(patch.title !== undefined ? { title: patch.title.trim() } : {}),
-      ...(patch.description !== undefined ? { description: patch.description } : {}),
-      ...(patch.status !== undefined ? { status: patch.status } : {}),
-      ...(patch.priority !== undefined ? { priority: patch.priority } : {}),
-      ...(patch.dueAt !== undefined ? { dueAt: patch.dueAt } : {}),
-      ...(patch.projectId !== undefined ? { projectId: patch.projectId } : {}),
-      updatedAt: at,
+    const fields: (readonly [string, unknown])[] = []
+    if (patch.title !== undefined) fields.push(['title', patch.title.trim().slice(0, 300)])
+    if (patch.description !== undefined) fields.push(['description', patch.description])
+    if (patch.priority !== undefined) fields.push(['priority', patch.priority])
+    if (patch.dueAt !== undefined) fields.push(['due_at', patch.dueAt])
+    if (patch.projectId !== undefined) fields.push(['project_id', patch.projectId])
+    if (patch.listId !== undefined) fields.push(['list_id', patch.listId])
+    if (patch.starred !== undefined) fields.push(['starred', patch.starred ? 1 : 0])
+    if (patch.repeat !== undefined) fields.push(['repeat_rule', patch.repeat ? JSON.stringify(patch.repeat) : null])
+    if (patch.noteId !== undefined) fields.push(['note_id', patch.noteId])
+    if (patch.conversationId !== undefined) fields.push(['conversation_id', patch.conversationId])
+    if (patch.status !== undefined) {
+      fields.push(['status', patch.status])
+      fields.push(['completed_at', patch.status === 'done' ? (existing.completedAt ?? at) : null])
     }
-    if (patch.status !== undefined && patch.status !== existing.status) {
-      next.completedAt = patch.status === 'done' ? at : null
+    // A reminder follows its due date unless the caller set one explicitly, and either way the task
+    // has not been announced at its new time yet.
+    if (patch.remindAt !== undefined) fields.push(['remind_at', patch.remindAt])
+    else if (patch.dueAt !== undefined && patch.dueAt !== null && existing.remindAt !== null && existing.dueAt !== null) {
+      fields.push(['remind_at', existing.remindAt + (patch.dueAt - existing.dueAt)])
     }
-    await this.write(
-      `UPDATE todos_tasks SET title = ?2, description = ?3, status = ?4, priority = ?5, due_at = ?6,
-              project_id = ?7, updated_at = ?8, completed_at = ?9 WHERE user_id = ?1 AND id = ?10`,
-      next.title, next.description, next.status, next.priority, next.dueAt, next.projectId, at, next.completedAt, id,
-    )
-    return next
+    if (patch.dueAt !== undefined || patch.remindAt !== undefined) fields.push(['reminded_at', null])
+    fields.push(['updated_at', at])
+    await this.partialUpdate('todos_tasks', id, fields)
+    if (patch.tags !== undefined) await this.setTaskTags(id, patch.tags)
+    return await this.getTask(id)
   }
 
   async deleteTask(id: string): Promise<void> {
+    await this.write(`DELETE FROM todos_steps WHERE user_id = ?1 AND task_id = ?2`, id)
+    await this.write(`DELETE FROM todos_tag_links WHERE user_id = ?1 AND task_id = ?2`, id)
     await this.write(`DELETE FROM todos_tasks WHERE user_id = ?1 AND id = ?2`, id)
   }
 
+  /**
+   * Completes a task, and returns the next occurrence when it repeats.
+   *
+   * The finished row stays: "I did write that report last week" is a fact worth keeping, and a task
+   * that silently moved its own due date forward would erase it. The next one is a new row with the
+   * same content, its steps unchecked, and a due date counted from the old one.
+   */
+  async completeTask(id: string, timeZone: string): Promise<{ task: TodoTask; next: TodoTask | null } | null> {
+    const existing = await this.getTask(id)
+    if (!existing) return null
+    if (existing.status === 'done') return { task: existing, next: null }
+    const task = await this.updateTask(id, { status: 'done' })
+    if (!task) return null
+    if (!existing.repeat) return { task, next: null }
+    const anchor = existing.dueAt ?? Date.now()
+    const dueAt = nextOccurrence(anchor, existing.repeat, timeZone)
+    const delta = existing.remindAt !== null && existing.dueAt !== null ? existing.remindAt - existing.dueAt : null
+    const steps = await this.listSteps(id)
+    const next = await this.createTask({
+      title: existing.title,
+      description: existing.description,
+      priority: existing.priority,
+      dueAt,
+      projectId: existing.projectId,
+      listId: existing.listId,
+      starred: existing.starred,
+      repeat: existing.repeat,
+      remindAt: delta === null ? null : dueAt + delta,
+      noteId: existing.noteId,
+      conversationId: existing.conversationId,
+      tags: existing.tags.map((tag) => tag.name),
+      steps: steps.map((step) => step.text),
+    })
+    return { task, next }
+  }
+
   /** By id, or by a title match that is unambiguous: the assistant must not guess which task was meant. */
-  async resolveTask(ref: string): Promise<Task | null> {
+  async resolveTask(ref: string): Promise<TodoTask | null> {
     const direct = await this.getTask(ref)
     if (direct) return direct
     const list = await this.rows<TaskRow>(
@@ -3761,7 +3919,300 @@ export class AssistantStore {
         ORDER BY status = 'done', updated_at DESC LIMIT 2`,
       this.userId, containsPattern(ref),
     )
-    return list.length === 1 ? toTask(list[0]!) : null
+    if (list.length !== 1) return null
+    const [task] = await this.tasksWithDetails(list)
+    return task ?? null
+  }
+
+  /**
+   * The counts every smart list and every sidebar row shows.
+   *
+   * Computed here rather than in the browser because "today" is a span in the reader's timezone:
+   * two implementations would disagree for exactly the hours around midnight.
+   */
+  async taskCounts(dayEnd: number): Promise<TaskCounts> {
+    const now = Date.now()
+    const upcomingEnd = dayEnd + UPCOMING_DAYS * 24 * 60 * 60 * 1000
+    const totals = await this.one<{
+      inbox: number | null; today: number | null; upcoming: number | null; overdue: number | null
+      open: number | null; completed: number | null; starred: number | null
+    }>(
+      `SELECT
+         SUM(CASE WHEN status != 'done' AND list_id IS NULL THEN 1 ELSE 0 END) AS inbox,
+         SUM(CASE WHEN status != 'done' AND ((due_at IS NOT NULL AND due_at < ?2)
+              OR (due_at IS NULL AND status = 'in_progress')) THEN 1 ELSE 0 END) AS today,
+         SUM(CASE WHEN status != 'done' AND due_at IS NOT NULL AND due_at >= ?2 AND due_at < ?3 THEN 1 ELSE 0 END) AS upcoming,
+         SUM(CASE WHEN status != 'done' AND due_at IS NOT NULL AND due_at < ?4 THEN 1 ELSE 0 END) AS overdue,
+         SUM(CASE WHEN status != 'done' THEN 1 ELSE 0 END) AS open,
+         SUM(CASE WHEN status = 'done' THEN 1 ELSE 0 END) AS completed,
+         SUM(CASE WHEN status != 'done' AND starred = 1 THEN 1 ELSE 0 END) AS starred
+       FROM todos_tasks WHERE user_id = ?1`,
+      this.userId, dayEnd, upcomingEnd, now,
+    )
+    const perList = await this.rows<{ list_id: string; status: string; n: number }>(
+      `SELECT list_id, status, COUNT(*) AS n FROM todos_tasks
+        WHERE user_id = ?1 AND list_id IS NOT NULL GROUP BY list_id, status`,
+      this.userId,
+    )
+    const byList: Record<string, { open: number; done: number }> = {}
+    for (const row of perList) {
+      const bucket = byList[row.list_id] ?? { open: 0, done: 0 }
+      if (row.status === 'done') bucket.done += row.n
+      else bucket.open += row.n
+      byList[row.list_id] = bucket
+    }
+    const perTag = await this.rows<{ tag_id: string; n: number }>(
+      `SELECT l.tag_id, COUNT(*) AS n FROM todos_tag_links l
+         JOIN todos_tasks t ON t.user_id = l.user_id AND t.id = l.task_id
+        WHERE l.user_id = ?1 AND t.status != 'done' GROUP BY l.tag_id`,
+      this.userId,
+    )
+    const byTag: Record<string, number> = {}
+    for (const row of perTag) byTag[row.tag_id] = row.n
+    return {
+      inbox: totals?.inbox ?? 0,
+      today: totals?.today ?? 0,
+      upcoming: totals?.upcoming ?? 0,
+      overdue: totals?.overdue ?? 0,
+      all: totals?.open ?? 0,
+      completed: totals?.completed ?? 0,
+      starred: totals?.starred ?? 0,
+      byList,
+      byTag,
+    }
+  }
+
+  // ------------------------------------------------------------------- lists
+
+  async listTaskLists(): Promise<TaskList[]> {
+    const lists = await this.rows<TaskListRow>(
+      `SELECT * FROM todos_lists WHERE user_id = ?1 ORDER BY position ASC, name COLLATE NOCASE ASC`,
+      this.userId,
+    )
+    const counts = await this.rows<{ list_id: string; status: string; n: number }>(
+      `SELECT list_id, status, COUNT(*) AS n FROM todos_tasks
+        WHERE user_id = ?1 AND list_id IS NOT NULL GROUP BY list_id, status`,
+      this.userId,
+    )
+    const byList = new Map<string, { open: number; done: number }>()
+    for (const row of counts) {
+      const bucket = byList.get(row.list_id) ?? { open: 0, done: 0 }
+      if (row.status === 'done') bucket.done += row.n
+      else bucket.open += row.n
+      byList.set(row.list_id, bucket)
+    }
+    return lists.map((row) => toTaskList(row, byList.get(row.id) ?? { open: 0, done: 0 }))
+  }
+
+  async getTaskList(id: string): Promise<TaskList | null> {
+    const row = await this.one<TaskListRow>(`SELECT * FROM todos_lists WHERE user_id = ?1 AND id = ?2`, this.userId, id)
+    if (!row) return null
+    const counts = await this.one<{ open: number | null; done: number | null }>(
+      `SELECT SUM(CASE WHEN status = 'done' THEN 1 ELSE 0 END) AS done,
+              SUM(CASE WHEN status != 'done' THEN 1 ELSE 0 END) AS open
+         FROM todos_tasks WHERE user_id = ?1 AND list_id = ?2`,
+      this.userId, id,
+    )
+    return toTaskList(row, { open: counts?.open ?? 0, done: counts?.done ?? 0 })
+  }
+
+  async findTaskListByName(name: string): Promise<TaskList | null> {
+    const row = await this.one<TaskListRow>(
+      `SELECT * FROM todos_lists WHERE user_id = ?1 AND lower(name) = lower(?2) LIMIT 1`,
+      this.userId, name.trim(),
+    )
+    return row ? await this.getTaskList(row.id) : null
+  }
+
+  async resolveTaskList(ref: string): Promise<TaskList | null> {
+    return (await this.getTaskList(ref)) ?? (await this.findTaskListByName(ref))
+  }
+
+  async createTaskList(input: { name: string; icon?: string | null; color?: string | null }): Promise<TaskList> {
+    const name = input.name.trim().slice(0, MAX_LIST_NAME_CHARS)
+    if (!name) throw new Error('A list needs a name.')
+    const existing = await this.findTaskListByName(name)
+    if (existing) return existing
+    const id = newId()
+    const at = Date.now()
+    const position = await this.nextListPosition()
+    await this.write(
+      `INSERT INTO todos_lists (id, user_id, name, icon, color, position, created_at, updated_at)
+       VALUES (?2, ?1, ?3, ?4, ?5, ?6, ?7, ?8)`,
+      id, name, input.icon ?? null, input.color ?? defaultColorFor(name), position, at, at,
+    )
+    const created = await this.getTaskList(id)
+    if (!created) throw new Error(`The list ${id} was written but could not be read back.`)
+    return created
+  }
+
+  async updateTaskList(id: string, patch: { name?: string; icon?: string | null; color?: string | null; position?: number }): Promise<TaskList | null> {
+    const existing = await this.getTaskList(id)
+    if (!existing) return null
+    const fields: (readonly [string, unknown])[] = []
+    if (patch.name !== undefined) fields.push(['name', patch.name.trim().slice(0, MAX_LIST_NAME_CHARS)])
+    if (patch.icon !== undefined) fields.push(['icon', patch.icon])
+    if (patch.color !== undefined) fields.push(['color', patch.color])
+    if (patch.position !== undefined) fields.push(['position', Math.trunc(patch.position)])
+    fields.push(['updated_at', Date.now()])
+    await this.partialUpdate('todos_lists', id, fields)
+    return await this.getTaskList(id)
+  }
+
+  /** Deletes a list. Its tasks are not deleted with it: they move to the inbox, where nothing is lost. */
+  async deleteTaskList(id: string): Promise<void> {
+    await this.write(`UPDATE todos_tasks SET list_id = NULL, updated_at = ?3 WHERE user_id = ?1 AND list_id = ?2`, id, Date.now())
+    await this.write(`DELETE FROM todos_lists WHERE user_id = ?1 AND id = ?2`, id)
+  }
+
+  private async nextListPosition(): Promise<number> {
+    const row = await this.one<{ next: number | null }>(
+      `SELECT COALESCE(MAX(position), -1) + 1 AS next FROM todos_lists WHERE user_id = ?1`,
+      this.userId,
+    )
+    return row?.next ?? 0
+  }
+
+  // -------------------------------------------------------------------- tags
+
+  async listTaskTags(): Promise<TaskTag[]> {
+    const tags = await this.rows<TaskTagRow>(
+      `SELECT * FROM todos_tags WHERE user_id = ?1 ORDER BY name COLLATE NOCASE ASC`,
+      this.userId,
+    )
+    const counts = await this.rows<{ tag_id: string; n: number }>(
+      `SELECT l.tag_id, COUNT(*) AS n FROM todos_tag_links l
+         JOIN todos_tasks t ON t.user_id = l.user_id AND t.id = l.task_id
+        WHERE l.user_id = ?1 AND t.status != 'done' GROUP BY l.tag_id`,
+      this.userId,
+    )
+    const byTag = new Map(counts.map((row) => [row.tag_id, row.n]))
+    return tags.map((row) => toTaskTag(row, byTag.get(row.id) ?? 0))
+  }
+
+  async getTaskTag(id: string): Promise<TaskTag | null> {
+    const row = await this.one<TaskTagRow>(`SELECT * FROM todos_tags WHERE user_id = ?1 AND id = ?2`, this.userId, id)
+    return row ? toTaskTag(row, 0) : null
+  }
+
+  async findTaskTagByName(name: string): Promise<TaskTag | null> {
+    const row = await this.one<TaskTagRow>(
+      `SELECT * FROM todos_tags WHERE user_id = ?1 AND lower(name) = lower(?2) LIMIT 1`,
+      this.userId, name.trim(),
+    )
+    return row ? toTaskTag(row, 0) : null
+  }
+
+  async resolveTaskTag(ref: string): Promise<TaskTag | null> {
+    return (await this.getTaskTag(ref)) ?? (await this.findTaskTagByName(ref))
+  }
+
+  async createTaskTag(input: { name: string; color?: string | null }): Promise<TaskTag> {
+    const name = input.name.trim().slice(0, MAX_TAG_NAME_CHARS)
+    if (!name) throw new Error('A tag needs a name.')
+    const existing = await this.findTaskTagByName(name)
+    if (existing) return existing
+    const id = newId()
+    const at = Date.now()
+    await this.write(
+      `INSERT INTO todos_tags (id, user_id, name, color, created_at, updated_at)
+       VALUES (?2, ?1, ?3, ?4, ?5, ?6)`,
+      id, name, input.color ?? defaultColorFor(name), at, at,
+    )
+    const created = await this.getTaskTag(id)
+    if (!created) throw new Error(`The tag ${id} was written but could not be read back.`)
+    return created
+  }
+
+  async updateTaskTag(id: string, patch: { name?: string; color?: string | null }): Promise<TaskTag | null> {
+    const existing = await this.getTaskTag(id)
+    if (!existing) return null
+    const fields: (readonly [string, unknown])[] = []
+    if (patch.name !== undefined) fields.push(['name', patch.name.trim().slice(0, MAX_TAG_NAME_CHARS)])
+    if (patch.color !== undefined) fields.push(['color', patch.color])
+    fields.push(['updated_at', Date.now()])
+    await this.partialUpdate('todos_tags', id, fields)
+    return await this.getTaskTag(id)
+  }
+
+  async deleteTaskTag(id: string): Promise<void> {
+    await this.write(`DELETE FROM todos_tag_links WHERE user_id = ?1 AND tag_id = ?2`, id)
+    await this.write(`DELETE FROM todos_tags WHERE user_id = ?1 AND id = ?2`, id)
+  }
+
+  /**
+   * Replaces a task's tags with the names given, creating the ones this account does not have.
+   *
+   * Names rather than ids because that is what the model and the reader type; the tag list is the
+   * account's own vocabulary, and a name it has not used yet is a new word, not an error.
+   */
+  async setTaskTags(taskId: string, names: readonly string[]): Promise<TaskTag[]> {
+    const wanted: TaskTag[] = []
+    for (const name of normalizeTagNames(names)) wanted.push(await this.createTaskTag({ name }))
+    await this.write(`DELETE FROM todos_tag_links WHERE user_id = ?1 AND task_id = ?2`, taskId)
+    for (const tag of wanted) {
+      await this.write(
+        `INSERT OR IGNORE INTO todos_tag_links (user_id, task_id, tag_id, created_at) VALUES (?1, ?2, ?3, ?4)`,
+        taskId, tag.id, Date.now(),
+      )
+    }
+    return wanted
+  }
+
+  // ------------------------------------------------------------------- steps
+
+  async listSteps(taskId: string): Promise<TaskStep[]> {
+    const rows = await this.rows<TaskStepRow>(
+      `SELECT * FROM todos_steps WHERE user_id = ?1 AND task_id = ?2 ORDER BY position ASC, created_at ASC`,
+      this.userId, taskId,
+    )
+    return rows.map(toTaskStep)
+  }
+
+  /** Appends a step. Returns null when the task already holds the maximum, rather than growing forever. */
+  async addStep(taskId: string, text: string): Promise<TaskStep | null> {
+    const clean = text.trim().slice(0, MAX_STEP_TEXT_CHARS)
+    if (!clean) return null
+    const count = await this.one<{ n: number }>(
+      `SELECT COUNT(*) AS n FROM todos_steps WHERE user_id = ?1 AND task_id = ?2`,
+      this.userId, taskId,
+    )
+    if ((count?.n ?? 0) >= MAX_STEPS_PER_TASK) return null
+    const id = newId()
+    await this.write(
+      `INSERT INTO todos_steps (id, user_id, task_id, text, done, position, created_at)
+       VALUES (?2, ?1, ?3, ?4, 0,
+         (SELECT COALESCE(MAX(position), -1) + 1 FROM todos_steps WHERE user_id = ?1 AND task_id = ?3), ?5)`,
+      id, taskId, clean, Date.now(),
+    )
+    const row = await this.one<TaskStepRow>(`SELECT * FROM todos_steps WHERE user_id = ?1 AND id = ?2`, this.userId, id)
+    return row ? toTaskStep(row) : null
+  }
+
+  async updateStep(taskId: string, stepId: string, patch: { text?: string; done?: boolean }): Promise<TaskStep | null> {
+    const fields: (readonly [string, unknown])[] = []
+    if (patch.text !== undefined) fields.push(['text', patch.text.trim().slice(0, MAX_STEP_TEXT_CHARS)])
+    if (patch.done !== undefined) fields.push(['done', patch.done ? 1 : 0])
+    if (!fields.length) return null
+    const changes = await this.write(
+      `UPDATE todos_steps SET ${fields.map(([column], index) => `${column} = ?${index + 3}`).join(', ')}
+        WHERE user_id = ?1 AND task_id = ?2 AND id = ?${fields.length + 3}`,
+      taskId, ...fields.map(([, value]) => value), stepId,
+    )
+    if (!changes) return null
+    const row = await this.one<TaskStepRow>(
+      `SELECT * FROM todos_steps WHERE user_id = ?1 AND task_id = ?2 AND id = ?3`,
+      this.userId, taskId, stepId,
+    )
+    return row ? toTaskStep(row) : null
+  }
+
+  async deleteStep(taskId: string, stepId: string): Promise<boolean> {
+    const changes = await this.write(
+      `DELETE FROM todos_steps WHERE user_id = ?1 AND task_id = ?2 AND id = ?3`,
+      taskId, stepId,
+    )
+    return changes > 0
   }
 
   // ---------------------------------------------------------------- projects
@@ -5910,12 +6361,49 @@ interface TaskRow {
   priority: string
   due_at: number | null
   project_id: string | null
+  list_id: string | null
+  starred: number | null
+  repeat_rule: string | null
+  remind_at: number | null
+  reminded_at: number | null
+  note_id: string | null
+  conversation_id: string | null
   created_at: number
   updated_at: number
   completed_at: number | null
 }
 
-function toTask(r: TaskRow): Task {
+interface TaskListRow {
+  id: string
+  name: string
+  icon: string | null
+  color: string | null
+  position: number
+  created_at: number
+  updated_at: number
+}
+
+interface TaskTagRow {
+  id: string
+  name: string
+  color: string | null
+  created_at: number
+  updated_at: number
+}
+
+interface TaskStepRow {
+  id: string
+  task_id: string
+  text: string
+  done: number
+  position: number
+  created_at: number
+}
+
+function toTask(
+  r: TaskRow,
+  extras: { tags: TaskTag[]; stepTotal: number; stepDone: number },
+): TodoTask {
   return {
     id: r.id,
     title: r.title,
@@ -5924,9 +6412,55 @@ function toTask(r: TaskRow): Task {
     priority: pickEnum(r.priority, TASK_PRIORITY_VALUES, 'medium'),
     dueAt: num(r.due_at),
     projectId: r.project_id,
+    listId: r.list_id,
+    tags: extras.tags,
+    starred: (r.starred ?? 0) === 1,
+    repeat: parseRepeatRule(parseJson(r.repeat_rule)),
+    remindAt: num(r.remind_at),
+    remindedAt: num(r.reminded_at),
+    noteId: r.note_id,
+    conversationId: r.conversation_id,
+    stepTotal: extras.stepTotal,
+    stepDone: extras.stepDone,
     createdAt: r.created_at,
     updatedAt: r.updated_at,
     completedAt: num(r.completed_at),
+  }
+}
+
+function toTaskList(r: TaskListRow, counts: { open: number; done: number }): TaskList {
+  return {
+    id: r.id,
+    name: r.name,
+    icon: r.icon,
+    color: r.color,
+    position: r.position,
+    createdAt: r.created_at,
+    updatedAt: r.updated_at,
+    openCount: counts.open,
+    doneCount: counts.done,
+  }
+}
+
+function toTaskTag(r: TaskTagRow, openCount: number): TaskTag {
+  return {
+    id: r.id,
+    name: r.name,
+    color: r.color,
+    createdAt: r.created_at,
+    updatedAt: r.updated_at,
+    openCount,
+  }
+}
+
+function toTaskStep(r: TaskStepRow): TaskStep {
+  return {
+    id: r.id,
+    taskId: r.task_id,
+    text: r.text,
+    done: r.done === 1,
+    position: r.position,
+    createdAt: r.created_at,
   }
 }
 
