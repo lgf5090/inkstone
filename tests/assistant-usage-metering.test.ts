@@ -20,6 +20,7 @@ import type { Env } from '../src/worker/env'
 import { estimateTokens, type AssistantMessage, type AssistantProtocol, type ChatStreamEvent } from '../src/shared/assistant'
 import { makeD1 } from './doubles/d1-sqlite'
 import { testBindings } from './doubles/bindings'
+import { NAMING_USAGE, isNamingRequest, namingAnswer } from './doubles/naming-pass'
 
 const USER = '0123456789abcdefghjkmnpqrs'
 
@@ -103,7 +104,11 @@ function stubWire(
 ): { requests: Record<string, unknown>[], calls: number } {
   const seen = { requests: [] as Record<string, unknown>[], calls: 0 }
   vi.stubGlobal('fetch', vi.fn(async (_url: unknown, init?: RequestInit) => {
-    seen.requests.push(JSON.parse(String(init?.body)) as Record<string, unknown>)
+    const body = JSON.parse(String(init?.body)) as Record<string, unknown>
+    // The follow-up pass that runs after the answer is filed is billed, but it is not one of this turn's
+    // calls — a test about what one step costs must not have it counted as a step.
+    if (isNamingRequest(body)) return namingAnswer()
+    seen.requests.push(body)
     seen.calls++
     await options.onCall?.(seen.calls)
     // Refused outright rather than dropped: a 400 is the one failure a turn does not retry, so the step
@@ -148,7 +153,12 @@ describe('a step that reports its running total on every frame', () => {
 
     expect(reportedUsage(events)).toEqual({ inputTokens: 100, outputTokens: 5 })
     expect(row.usage).toEqual({ inputTokens: 100, outputTokens: 5 })
-    expect(await store.todayUsage()).toMatchObject({ inputTokens: 100, outputTokens: 5 })
+    // The day carries the turn and the follow-up pass that answered after it: the pass is not free, and the
+    // answer's own row is where the split is kept — `row.usage` above is the turn alone.
+    expect(await store.todayUsage()).toMatchObject({
+      inputTokens: 100 + NAMING_USAGE.inputTokens,
+      outputTokens: 5 + NAMING_USAGE.outputTokens,
+    })
   })
 
   it('adds the steps of one turn, because each step pays for its own prompt', async () => {
@@ -242,7 +252,8 @@ describe('a turn that never finished', () => {
     expect(toolText.length).toBeGreaterThan(500)
 
     expect(row.usage).toEqual({ inputTokens: promptTokens(wire.requests.at(-1)!), outputTokens: estimateTokens('Noted.') })
-    expect((await store.todayUsage()).inputTokens).toBe(promptTokens(wire.requests.at(-1)!))
+    // Plus the follow-up pass's own reported numbers, which land on the day and nowhere on the row.
+    expect((await store.todayUsage()).inputTokens).toBe(promptTokens(wire.requests.at(-1)!) + NAMING_USAGE.inputTokens)
   })
 })
 

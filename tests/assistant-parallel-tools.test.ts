@@ -22,6 +22,7 @@ import type { Env } from '../src/worker/env'
 import type { AssistantMessage, ChatStreamEvent, Task } from '../src/shared/assistant'
 import { makeD1 } from './doubles/d1-sqlite'
 import { testBindings } from './doubles/bindings'
+import { isNamingRequest, namingAnswer } from './doubles/naming-pass'
 
 const USER = '0123456789abcdefghjkmnpqrs'
 
@@ -136,7 +137,10 @@ async function runTurn(input: {
 
   const requests: Record<string, unknown>[] = []
   vi.stubGlobal('fetch', vi.fn(async (_url: unknown, init?: RequestInit) => {
-    requests.push(JSON.parse(String(init?.body)) as Record<string, unknown>)
+    const body = JSON.parse(String(init?.body)) as Record<string, unknown>
+    // The follow-up pass that runs after the answer is filed is not one of this turn's steps.
+    if (isNamingRequest(body)) return namingAnswer()
+    requests.push(body)
     const frames = requests.length === 1
       ? [...asked.map((view, index) => callFrame(index, view)), finishFrame('tool_calls')]
       : [textFrame('Three lists, all read at once.'), finishFrame('stop')]
