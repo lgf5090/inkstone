@@ -1,6 +1,7 @@
 import { runAttachmentCleanup } from './attachments/cleanup'
 import { runScheduledBackups } from './backup/scheduler'
 import { runDueAssistantAutomations } from './assistant/scheduler'
+import { sweepTaskReminders } from './assistant/tasks'
 import { runPushCatchUp } from './assistant/push-fanout'
 import { purgeExpiredEphemeralConversations } from './assistant/store'
 import type { Env } from './env'
@@ -69,8 +70,11 @@ export default {
       // reminder is cheap, and the sweep deduplicates by the reader's own local hour, so the second and
       // third fires of an hour find their deliveries already claimed.
       const subscriptionTick = sweepSubscriptions(env, event.scheduledTime)
+      // Task reminders ride the same every-fire cadence, for the same reason: the claim on the row is
+      // what deduplicates them, so a second fire in the same minute finds nothing left to deliver.
+      const reminderTick = sweepTaskReminders(env, event.scheduledTime, (task) => { ctx.waitUntil(task) })
       if (!isDrainFire(event.scheduledTime)) {
-        await Promise.all([assistantTick, subscriptionTick])
+        await Promise.all([assistantTick, subscriptionTick, reminderTick])
         return
       }
       const drains: Promise<unknown>[] = [
@@ -95,7 +99,7 @@ export default {
             providerForScheduled(env).purgeExpiredData(env, { batchSize: 100 }),
           ]
         : []
-      await Promise.all([...drains, ...heavy, subscriptionTick])
+      await Promise.all([...drains, ...heavy, subscriptionTick, reminderTick])
     })())
   },
 } satisfies ExportedHandler<Env>
