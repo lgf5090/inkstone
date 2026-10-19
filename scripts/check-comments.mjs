@@ -22797,6 +22797,7 @@ const allowed = new Map([
     "// The shape the cards are rendered from is unchanged.",
     "// ------------------------------------------------------------------ the roll-up that did not happen",
     "// The answer itself is still good, and still filed as one.",
+    "// The follow-up pass that runs after the answer is filed is not one of this turn's calls.",
   ]],
   ["tests/assistant-effective-limits.test.ts", [
     "/**\n * The two numbers a model is known to be held to.\n *\n * `effectiveModelLimits` is what the model editor cuts its output ladder by and what its warning names, so\n * the difference between \"nobody said\" and \"it is small\" is the whole file: a ceiling invented here hides\n * presets the provider would have accepted, and a missing one leaves a 1M request to be refused upstream.\n * The account's own ceilings are deliberately absent from the result, which is what the last cases pin.\n */",
@@ -23026,6 +23027,7 @@ const allowed = new Map([
     "/**\n * The duplicate refusal, asked for inside one batched step.\n *\n * `ToolExecutor` records a call's signature synchronously, before its first await, and the pool hands its\n * calls out in order — so the second of two identical asks is refused on exactly the call it was refused on\n * when a step ran them one at a time. That is only true because the check keeps happening before anything\n * is awaited, and this is the case that says so.\n */",
     "// The second ask never reaches the tool: the refusal happens where the call is taken, before any of",
     "// its work is started, and batching cannot move that check behind an await.",
+    "// The follow-up pass that runs after the answer is filed is not one of this turn's steps.",
   ]],
   ["tests/assistant-project-note-pins.test.ts", [
     "/**\n * A project that names the notes it reads, one by one.\n *\n * A project's knowledge used to be selectable only by folder, which is the wrong grain for the case that\n * started it: a brief that should be answered from three specific pages sitting in a folder that holds\n * three hundred. The ids a caller names are the reader's own or nothing — a project that quietly kept the\n * ones it could not verify would report a knowledge base it does not have, and one that kept a stranger's\n * id would hand that stranger's note to the model the moment this account made a note with the same id.\n */",
@@ -23501,6 +23503,9 @@ const allowed = new Map([
     "// The turn that was refused never reached the wire, so the reader spent nothing on it.",
     "// The same question one layer down, where the answer is one statement's worth of race: both charges",
     "// are judged against the row as the database finds it, so the second has nowhere to spend.",
+    "// The follow-up pass after the answer is filed is not a step of this turn, and must not age the lease.",
+    "// The follow-up pass after the answer is filed is not one of this turn's steps, and the question here",
+    "// is whether the steps between the first and the last renewed their way back into the lease.",
   ]],
   ["tests/assistant-run-partial-column.test.ts", [
     "/**\n * The shape of `chat_active_runs.partial_text`, and the fact that it never leaves the database.\n *\n * A run lease is a lock, and a lock that says nothing about what it is holding is what lost an answer here:\n * a Worker isolate killed by its CPU limit takes the request with it, the assistant row is written at the end\n * of a turn so no row exists, and `chat_active_runs` goes on claiming the conversation for the rest of\n * `RUN_LEASE_MS` while the reader's side waits, gives up and is told nothing. The column lets the renewal\n * that already happens carry the words the turn had written, so there is something to read back.\n *\n * Two properties are load-bearing and are checked against a real database rather than against the source\n * text. It has to arrive on an account that predates it — including on one whose ledger already claims\n * version 108 was spent, which is the shape that has quietly broken this schema's boots before — and it has\n * to be nullable, because \"nothing written yet\" is not \"an empty answer\" and a NOT NULL column would make\n * every claim made before it un-insertable.\n *\n * The third is privacy: the fragment is model output the reader may never come back for, on a table that is\n * not a transcript. It is not in the export allowlist, and this is where that stays true.\n */",
@@ -23898,6 +23903,11 @@ const allowed = new Map([
     "// A wire that reports no numbers at all: the estimate is the only thing the reader's cost screen gets.",
     "// ------------------------------------------------------------------ stop reasons",
     "// What did arrive stays: the reader sees where the answer stopped, and can ask for the rest.",
+    "// The follow-up pass that runs after the answer is filed is billed, but it is not one of this turn's",
+    "// calls — a test about what one step costs must not have it counted as a step.",
+    "// The day carries the turn and the follow-up pass that answered after it: the pass is not free, and the",
+    "// answer's own row is where the split is kept — `row.usage` above is the turn alone.",
+    "// Plus the follow-up pass's own reported numbers, which land on the day and nowhere on the row.",
   ]],
   ["tests/assistant-vault.test.ts", [
     "/**\n * What the assistant can say about the notebook itself.\n *\n * The reader's question was \"how many notes do I have\", and the answer used to be \"I cannot tell\":\n * `search_notes` matches a topic, so the count it reported was however many notes happened to contain\n * the words. These are the listings that answer the question directly, and the scope every note tool\n * obeys has to hold here too — a count that leaked a folder the reader excluded would be a permission\n * bug wearing the costume of a nice feature.\n */",
@@ -24441,6 +24451,11 @@ const allowed = new Map([
     "// runs in the jsdom environment, in both cases with \"Provided value cannot be bound to SQLite",
     "// parameter N\". A view over the same bytes satisfies D1 and both node:sqlite paths.",
     "/**\n * The verb D1 would judge the statement by.\n *\n * A common-table expression is a prefix, not a statement kind: `WITH subtree AS (…) INSERT …` writes\n * and answers with `meta`, while `WITH subtree AS (…) SELECT …` reads. So the CTE body is skipped by\n * paren depth and the first verb outside it decides — which also means the word inside a literal\n * (`'delete'` written into the changes table) can never win, because the verb always comes first.\n */",
+  ]],
+  ["tests/doubles/naming-pass.ts", [
+    "/**\n * The one thing a wire stub needs to know about the naming pass.\n *\n * Every answer that finishes whole is followed by one cheap call to the same model, asking what the reader\n * would want to ask next. It is not part of the turn's own traffic, so a test that counts what one question\n * cost — calls, steps, tokens, lease renewals — has to answer it and step over it. Recognising it by the\n * instructions it carries is the only reading that does not depend on ordering: it is the last call, yes,\n * but \"the last call\" is exactly what a test about retries cannot say.\n */",
+    "/** Whether this request body is the follow-up pass rather than the turn's own step. */",
+    "/**\n * An answer the pass finds nothing in: plain words, no braces, so no title and no follow-ups.\n *\n * Returning the turn's own canned reply here would be the trap — a reply that happens to quote a JSON object\n * would be read as the model naming the thread, and the test would be asserting a rename it never asked for.\n *\n * It does carry a usage frame, and a fixed one: the pass is billed for what it spends, so a test that reads\n * the day's totals has to be able to name the amount it is adding. 40 in / 20 out is what the naming cases\n * in `assistant-title-suggestions.test.ts` report, so the two files agree on one number.\n */",
   ]],
   ["tests/excalidraw-interaction-gate.test.ts", [
     "// That api arrives from onExcalidrawAPI, which may not have run yet when the reader first touches",
