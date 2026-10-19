@@ -17288,6 +17288,9 @@ const allowed = new Map([
     "/**\n * A tree row edits one segment, so committing it has to re-attach the parent path — sending the\n * bare segment would silently move the tag to the top level.\n */",
     "/**\n * Paths of the siblings sharing `fullPath`'s parent that themselves have children — the rows a\n * \"toggle this level\" action has to touch.\n */",
   ]],
+  ["src/client/lib/tasks/dependency-contract.test.ts", [
+    "/**\n * Upstream seeds `dtstart` with a moment that has been moved to local midnight and then re-tagged as\n * UTC, so the rule iterates over calendar days rather than instants. Reproduced with plain Dates.\n */",
+  ]],
   ["src/client/lib/template-notes.ts", [
     "/**\n * Create a note from a gallery template and open it, returning the new id.\n *\n * The template's `{{cursor}}` is handed to the editor through `createNote`, so\n * the marker is stripped from the body and the caret lands where the author\n * pointed it rather than at the end of the front matter. Placement follows the\n * same rules as the `+` button — the open folder, else the inbox — because a\n * template note is still just a new note.\n */",
     "// A template that asked the assistant to write something is not finished until it has. The chat",
