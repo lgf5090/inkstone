@@ -1444,6 +1444,8 @@ export interface ToolActivity {
   detail?: string
   status: 'running' | 'success' | 'error'
   error?: string
+  /** The draft this call created or rewrote, so the chip can offer to open it. */
+  artifactId?: string
   approval?: PendingAction
   /**
    * What the model asked the tool for, as JSON — and what came back.
@@ -2521,7 +2523,7 @@ export function normalizeModelId(value: unknown): string {
 }
 
 export interface ChatStreamEvent {
-  type: 'start' | 'text' | 'reasoning' | 'tool' | 'title' | 'stage' | 'usage' | 'error' | 'done' | 'mcp_problem' | 'notice'
+  type: 'start' | 'text' | 'reasoning' | 'tool' | 'artifact' | 'title' | 'stage' | 'usage' | 'error' | 'done' | 'mcp_problem' | 'notice'
   conversationId?: string
   userMessageId?: string
   assistantMessageId?: string
@@ -2536,6 +2538,14 @@ export interface ChatStreamEvent {
   suggestions?: string[]
   delta?: string
   tool?: ToolActivity
+  /**
+   * For `artifact`: the draft a tool just created or rewrote.
+   *
+   * The whole row travels because the panel is showing the text: a frame that carried only an id would
+   * make every write a second request before the reader could see what changed.
+   */
+  artifact?: AssistantArtifact
+  change?: 'created' | 'updated' | 'restored'
   stage?: 'reading' | 'searching' | 'generating' | 'waiting'
   usage?: { inputTokens: number, outputTokens: number }
   /** For `mcp_problem`: which external server failed to list, and why. */

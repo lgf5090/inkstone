@@ -1210,6 +1210,9 @@ export class AssistantRunner {
     let next = 0
     let abandoned = false
     const running = new Map<number, Promise<number>>()
+    // The draft each finished call changed, so the loop can put it on the wire as its own frame. A map
+    // keyed by the call's position keeps a slow call from being attributed to a faster one beside it.
+    const artifactChanges = new Map<number, { id: string, change: 'created' | 'updated' }>()
 
     const runOne = async (index: number): Promise<void> => {
       const call = calls[index]!
@@ -1221,6 +1224,11 @@ export class AssistantRunner {
         if (abandoned) return
         call.result = JSON.stringify(result ?? null)
         call.error = false
+        const artifactChange = artifactChangeFromTool(call.name, result)
+        if (artifactChange) {
+          activity.artifactId = artifactChange.id
+          artifactChanges.set(index, artifactChange)
+        }
         // The notes this call read are cited beside the answer. Collected here rather than inside the
         // tool so there is one owner of the list: a failover that discards this attempt's calls takes
         // its citations with it, because they live in the same map.
@@ -1261,6 +1269,11 @@ export class AssistantRunner {
       dispatch()
       if (stopped()) abandoned = true
       if (abandoned) continue
+      const artifactChange = artifactChanges.get(finished)
+      if (artifactChange) {
+        const artifact = await this.store.getArtifact(artifactChange.id)
+        if (artifact) yield { type: 'artifact', artifact, change: artifactChange.change }
+      }
       yield { type: 'tool', tool: { ...activities[finished]! } }
     }
     // The loop above only empties once everything that was started has settled, so nothing is left running
@@ -2087,6 +2100,25 @@ export class AssistantRunner {
       content: offlineAnswer(this.settings.language, `> ${content.slice(0, 400)}`),
     })
   }
+}
+
+/**
+ * The draft a tool wrote, if it wrote one.
+ *
+ * Only the two artifact tools can produce this receipt, and an update that changed nothing is not a
+ * change to send: the panel would flash a version that does not exist. The full row is read by the
+ * caller after this, because the tool's answer to the model is deliberately just the receipt.
+ */
+function artifactChangeFromTool(name: string, result: unknown): { id: string, change: 'created' | 'updated' } | null {
+  if (name !== 'create_artifact' && name !== 'update_artifact') return null
+  if (!result || typeof result !== 'object') return null
+  const record = result as { artifact?: unknown, changed?: unknown }
+  if (record.changed === false) return null
+  if (!record.artifact || typeof record.artifact !== 'object') return null
+  const id = (record.artifact as { id?: unknown }).id
+  if (typeof id !== 'string') return null
+  const created = (record.artifact as { created?: unknown }).created === true
+  return { id, change: created ? 'created' : 'updated' }
 }
 
 /** The fragment a tool acted on, taken from its own arguments rather than invented. */

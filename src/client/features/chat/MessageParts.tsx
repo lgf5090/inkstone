@@ -24,6 +24,7 @@ import {
   Loader2,
   MoreHorizontal,
   NotebookPen,
+  PanelRight,
   Play,
   RotateCcw,
   ShieldAlert,
@@ -211,6 +212,7 @@ function ToolCallRow({ tool, messageId, open, onToggle }: {
   onToggle: () => void
 }) {
   const { label, external } = useToolLabel(tool.name)
+  const artifactId = tool.artifactId
   const replay = useAssistant((state) => state.replayMcpTool)
   const [copied, setCopied] = useState(false)
   const [busy, setBusy] = useState(false)
@@ -232,36 +234,53 @@ function ToolCallRow({ tool, messageId, open, onToggle }: {
           : 'border-[var(--border-subtle)] bg-[var(--bg-inset)]',
       )}
     >
-      <button
-        type="button"
-        data-tool-chip={tool.name}
-        aria-expanded={open}
-        onClick={onToggle}
-        className="flex w-full items-center gap-2 px-2 py-1.5 text-left transition-colors duration-[var(--dur-fast)] ease-[var(--ease-out)] hover:bg-[var(--bg-hover)]"
-      >
-        {tool.status === 'running'
-          ? <Loader2 size={12} className="ink-chat-spin shrink-0 text-[var(--text-quaternary)]" />
-          : tool.status === 'error'
-            ? <XCircle size={12} className="shrink-0 text-[var(--danger)]" />
-            : isKnownToolStatus(tool.status)
-              ? <Check size={12} className="shrink-0 text-[var(--success)]" />
-              : <AlertTriangle size={12} className="shrink-0 text-[var(--warning)]" />}
-        <span className="min-w-0 flex-1 truncate text-[length:var(--text-11-5)] text-[var(--text-secondary)]">
-          {label}
-          {tool.detail ? <span className="text-[var(--text-quaternary)]"> · {tool.detail}</span> : null}
-        </span>
-        <span
-          className={cn(
-            'shrink-0 text-[length:var(--text-10-5)]',
-            tool.status === 'error' ? 'text-[var(--danger)]'
-              : isKnownToolStatus(tool.status) ? 'text-[var(--text-quaternary)]'
-                : 'text-[var(--warning)]',
-          )}
+      <div className="flex items-center">
+        <button
+          type="button"
+          data-tool-chip={tool.name}
+          aria-expanded={open}
+          onClick={onToggle}
+          className="flex min-w-0 flex-1 items-center gap-2 px-2 py-1.5 text-left transition-colors duration-[var(--dur-fast)] ease-[var(--ease-out)] hover:bg-[var(--bg-hover)]"
         >
-          {t(toolStatusKey(tool.status))}
-        </span>
-        <ChevronDown size={11} className={cn('shrink-0 text-[var(--text-quaternary)] transition-transform duration-[var(--dur-fast)]', open && 'rotate-180')} />
-      </button>
+          {tool.status === 'running'
+            ? <Loader2 size={12} className="ink-chat-spin shrink-0 text-[var(--text-quaternary)]" />
+            : tool.status === 'error'
+              ? <XCircle size={12} className="shrink-0 text-[var(--danger)]" />
+              : isKnownToolStatus(tool.status)
+                ? <Check size={12} className="shrink-0 text-[var(--success)]" />
+                : <AlertTriangle size={12} className="shrink-0 text-[var(--warning)]" />}
+          <span className="min-w-0 flex-1 truncate text-[length:var(--text-11-5)] text-[var(--text-secondary)]">
+            {label}
+            {tool.detail ? <span className="text-[var(--text-quaternary)]"> · {tool.detail}</span> : null}
+          </span>
+          <span
+            className={cn(
+              'shrink-0 text-[length:var(--text-10-5)]',
+              tool.status === 'error' ? 'text-[var(--danger)]'
+                : isKnownToolStatus(tool.status) ? 'text-[var(--text-quaternary)]'
+                  : 'text-[var(--warning)]',
+            )}
+          >
+            {t(toolStatusKey(tool.status))}
+          </span>
+          <ChevronDown size={11} className={cn('shrink-0 text-[var(--text-quaternary)] transition-transform duration-[var(--dur-fast)]', open && 'rotate-180')} />
+        </button>
+        {artifactId && (
+          <Tooltip label={t('assistant.canvas.open')}>
+            <IconButton
+              label={t('assistant.canvas.open')}
+              size="sm"
+              className="mr-1 shrink-0"
+              onClick={() => {
+                useAssistant.getState().selectArtifact(artifactId)
+                useAssistant.getState().setCanvasOpen(true)
+              }}
+            >
+              <PanelRight size={13} />
+            </IconButton>
+          </Tooltip>
+        )}
+      </div>
       {/* Why a call failed, written on the row instead of parked in a `title`: a tooltip is only ever read
           with a hovering pointer, so the one fact a reader needs about a failed call was invisible to a
           keyboard and to a thumb. It stays out of the fold, because closing the fold does not take the

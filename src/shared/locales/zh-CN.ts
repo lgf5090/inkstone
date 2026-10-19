@@ -6114,6 +6114,7 @@ console.log(\`Hello, \${name}!\`)
     "assistant.canvas.drafts": "草稿",
     "assistant.canvas.empty": "这里还没有内容。在回复的菜单里选择「在侧栏打开」。",
     "assistant.canvas.untitled": "未命名草稿",
+    "assistant.canvas.updated": "草稿《{title}》已更新",
     "assistant.canvas.title_placeholder": "草稿名称",
     "assistant.canvas.write": "编辑",
     "assistant.canvas.preview": "预览",

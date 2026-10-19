@@ -457,6 +457,56 @@ describe('draft history', () => {
   })
 })
 
+describe('canvas tools in a turn', () => {
+  const toolCallFrames = (name: string, args: Record<string, unknown>, id: string) => [
+    openAiFrame({ choices: [{ index: 0, finish_reason: null, delta: { tool_calls: [{ index: 0, id, function: { name, arguments: JSON.stringify(args) } }] } }] }),
+    openAiFrame({ choices: [{ index: 0, finish_reason: 'tool_calls', delta: {} }] }),
+  ]
+
+  it('creates a draft, then rewrites the open draft by default', async () => {
+    await useExampleModel()
+    let calls = 0
+    vi.stubGlobal('fetch', vi.fn(async () => {
+      calls++
+      // The first turn is three calls: the tool step, the answer, and the naming pass that titles the
+      // new thread. The second turn has no naming pass, so its tool step is the fourth call.
+      const frames = calls === 1
+        ? toolCallFrames('create_artifact', { title: 'Plan', content: '# Plan\n\nFirst.' }, 'c-create')
+        : calls === 4
+          ? toolCallFrames('update_artifact', { content: '# Plan\n\nSecond.' }, 'c-update')
+          : FINAL_FRAMES
+      return new Response(sse(frames), { headers: { 'content-type': 'text/event-stream' } })
+    }))
+
+    const first = await chatEvents({ message: 'write a plan' })
+    await settleTurns()
+    const created = first.find((event) => event.type === 'artifact')
+    expect(created?.change).toBe('created')
+    expect(created?.artifact?.title).toBe('Plan')
+    expect(created?.artifact?.version).toBe(1)
+    expect(created?.artifact?.content).toBe('# Plan\n\nFirst.')
+    // The chip is streamed twice: running first, then the settled row that carries the draft id.
+    const createdChip = first.filter((event) => event.type === 'tool' && event.tool?.name === 'create_artifact').at(-1)
+    expect(createdChip?.tool?.artifactId).toBe(created?.artifact?.id)
+    const conversationId = first.find((event) => event.type === 'start')?.conversationId
+
+    const second = await chatEvents({
+      conversationId,
+      message: 'make the second line longer',
+      activeArtifactId: created?.artifact?.id,
+    })
+    await settleTurns()
+    const updated = second.find((event) => event.type === 'artifact')
+    expect(updated?.change).toBe('updated')
+    expect(updated?.artifact?.version).toBe(2)
+    expect(updated?.artifact?.content).toBe('# Plan\n\nSecond.')
+    const updatedChip = second.filter((event) => event.type === 'tool' && event.tool?.name === 'update_artifact').at(-1)
+    expect(updatedChip?.tool?.artifactId).toBe(created?.artifact?.id)
+    expect(second.some((event) => event.type === 'error')).toBe(false)
+    vi.unstubAllGlobals()
+  })
+})
+
 describe('re-taking a turn', () => {
   /**
    * A thread with two answers, written straight into the store.

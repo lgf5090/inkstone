@@ -2535,6 +2535,33 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
           threadId: event.conversationId ?? conversationId ?? null,
         })
       }
+      // A draft arrives whole rather than as deltas: the tool writes a row and the row is what the
+      // panel draws. It belongs to the turn that asked for it, so the same token check the other frames
+      // use applies here before anything touches the list.
+      if (event.type === 'artifact' && event.artifact) {
+        const incoming = event.artifact
+        const currentTurn = get().turn
+        if (!currentTurn || currentTurn.token !== token) return
+        if (incoming.conversationId !== (currentTurn.conversationId ?? get().activeId)) return
+        const wasOpen = get().canvasOpen && get().activeArtifactId === incoming.id
+        set((current) => {
+          const known = current.artifacts.some((entry) => entry.id === incoming.id)
+          const artifacts = known
+            ? current.artifacts.map((entry) => (entry.id === incoming.id ? incoming : entry))
+            : [incoming, ...current.artifacts]
+          return event.change === 'created'
+            ? { artifacts, artifactsReady: true, canvasOpen: true, activeArtifactId: incoming.id, canvasContextOn: true }
+            : { artifacts, artifactsReady: true }
+        })
+        // An update to a panel the reader is not looking at would otherwise land silently. Creating one
+        // opens the panel, because that is what the reader asked the model to do.
+        if (event.change !== 'created' && !wasOpen) {
+          useUi.getState().toast({
+            title: t('assistant.canvas.updated', { title: incoming.title || t('assistant.canvas.untitled') }),
+          })
+        }
+        return
+      }
       set((current) => {
         const turn = current.turn
         // An event belongs to the turn that asked for it. After the reader leaves the conversation and
@@ -2625,6 +2652,12 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
           })
         }
         void get().loadConversations()
+      }
+      // An approved artifact write runs outside the stream (the card replayed it), so no artifact frame
+      // arrived for it. Reading the list once the turn closes is the fallback that keeps a write made
+      // through an approval from being invisible until the next reload.
+      if (event.type === 'done' && get().turn?.tools.some((tool) => tool.artifactId)) {
+        void get().loadArtifacts()
       }
     }
 
@@ -3028,6 +3061,9 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
       if (view === 'memory') await get().loadMemories()
       if (view === 'automations') await get().loadAutomations()
       if (view === 'skills') await get().loadSkills()
+      // An approved write replayed outside the turn: there is no artifact frame to read, so the list is
+      // asked again rather than left showing the version before the approval.
+      if (approve) await get().loadArtifacts()
     } catch (error) {
       toast(error)
     }
