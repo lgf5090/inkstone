@@ -14,6 +14,12 @@ import {
   SUBSCRIPTIONS_REQUIRED_TABLES,
   SUBSCRIPTIONS_SCHEMA_STATEMENTS,
 } from '../subscriptions/schema'
+import {
+  TODOS_REQUIRED_COLUMNS,
+  TODOS_REQUIRED_INDEXES,
+  TODOS_REQUIRED_TABLES,
+  TODOS_SCHEMA_STATEMENTS,
+} from '../todos/schema'
 
 const BACKUP_ARCHIVES_TABLE = `CREATE TABLE IF NOT EXISTS backup_archives (
   user_id TEXT NOT NULL,
@@ -508,6 +514,7 @@ export const SCHEMA_STATEMENTS: readonly string[] = [
 
   ...RSS_LIBRARY_STATEMENTS,
   ...ASSISTANT_SCHEMA_STATEMENTS,
+  ...TODOS_SCHEMA_STATEMENTS,
   ...SUBSCRIPTIONS_SCHEMA_STATEMENTS,
 ]
 
@@ -1752,6 +1759,7 @@ export const REQUIRED_COLUMNS: Readonly<Record<string, readonly string[]>> = {
   rss_mark: ['user_id', 'kind', 'entry_id', 'value', 'at'],
   rss_state: ['user_id', 'last_channel', 'saved_at'],
   ...ASSISTANT_REQUIRED_COLUMNS,
+  ...TODOS_REQUIRED_COLUMNS,
   ...SUBSCRIPTIONS_REQUIRED_COLUMNS,
 } as const
 
@@ -1802,6 +1810,7 @@ export const REQUIRED_TABLES = [
   'rss_mark',
   'rss_state',
   ...ASSISTANT_REQUIRED_TABLES,
+  ...TODOS_REQUIRED_TABLES,
   ...SUBSCRIPTIONS_REQUIRED_TABLES,
 ] as const
 
@@ -1863,6 +1872,7 @@ export const REQUIRED_INDEXES = [
   'idx_rss_feed_shelf',
   'idx_rss_mark_recent',
   ...ASSISTANT_REQUIRED_INDEXES,
+  ...TODOS_REQUIRED_INDEXES,
   ...SUBSCRIPTIONS_REQUIRED_INDEXES,
 ] as const
 
