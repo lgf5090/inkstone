@@ -14,10 +14,18 @@ import type { AssistantProvider, AssistantProviderKey } from '@shared/assistant'
 import { initI18n, t } from '../../lib/i18n'
 import { installTestGlobals } from '../../lib/test-render'
 import { api } from '../../lib/api'
-import { ProviderKeys } from './ProviderKeys'
+import { ProviderKeys, type ProviderWallet } from './ProviderKeys'
 
 let root: Root
 let container: HTMLDivElement
+
+/**
+ * The card's wallet, emptied.
+ *
+ * These cases are about the ring — what it reads, what it sends, what it never echoes. The numbers the
+ * wallet carries are the card's own claim and are pinned in `wired-surfaces.test.ts`.
+ */
+const wallet = (): ProviderWallet => ({ balances: null, problem: null, busy: false, reload: async () => {} })
 
 function provider(over: Partial<AssistantProvider> = {}): AssistantProvider {
   return {
@@ -63,7 +71,7 @@ afterEach(() => {
 describe('the keys a provider rotates through', () => {
   it('reads the ring only once the section is opened, and never shows a key back', async () => {
     const list = vi.spyOn(api.assistant, 'providerKeys').mockResolvedValue({ keys: [key()] })
-    await act(async () => { root.render(createElement(ProviderKeys, { provider: provider() })) })
+    await act(async () => { root.render(createElement(ProviderKeys, { provider: provider(), wallet: wallet() })) })
     // The panel is closed, so the request has not been made and the row is not on screen.
     expect(list).not.toHaveBeenCalled()
     expect(document.body.textContent).not.toContain('second')
@@ -81,7 +89,7 @@ describe('the keys a provider rotates through', () => {
 
   it('still says a stored key exists when the store kept no last-four hint', async () => {
     vi.spyOn(api.assistant, 'providerKeys').mockResolvedValue({ keys: [] })
-    await act(async () => { root.render(createElement(ProviderKeys, { provider: provider({ keyHint: '' }) })) })
+    await act(async () => { root.render(createElement(ProviderKeys, { provider: provider({ keyHint: '' }), wallet: wallet() })) })
     await act(async () => { trigger()!.click() })
     // No mask is available, but the row must not read as a missing key.
     expect(document.body.textContent).toContain(t('assistant.settings.key_stored'))
@@ -91,7 +99,7 @@ describe('the keys a provider rotates through', () => {
   it('sends a new key with its label, and takes the secret back off the form', async () => {
     vi.spyOn(api.assistant, 'providerKeys').mockResolvedValue({ keys: [] })
     const created = vi.spyOn(api.assistant, 'createProviderKey').mockResolvedValue({ key: key() })
-    await act(async () => { root.render(createElement(ProviderKeys, { provider: provider() })) })
+    await act(async () => { root.render(createElement(ProviderKeys, { provider: provider(), wallet: wallet() })) })
     await act(async () => { trigger()!.click() })
     await act(async () => { byText(t('assistant.keys.add'))!.click() })
 
@@ -107,7 +115,7 @@ describe('the keys a provider rotates through', () => {
   it('switches a key off without touching the others', async () => {
     vi.spyOn(api.assistant, 'providerKeys').mockResolvedValue({ keys: [key()] })
     const patched = vi.spyOn(api.assistant, 'updateProviderKey').mockResolvedValue({ key: key({ enabled: false }) })
-    await act(async () => { root.render(createElement(ProviderKeys, { provider: provider() })) })
+    await act(async () => { root.render(createElement(ProviderKeys, { provider: provider(), wallet: wallet() })) })
     await act(async () => { trigger()!.click() })
 
     const toggle = document.querySelector<HTMLButtonElement>(`[role="switch"][aria-label="${t('assistant.keys.enabled', { label: 'second' })}"]`)
@@ -119,8 +127,28 @@ describe('the keys a provider rotates through', () => {
 
   it('says a provider with no key at all is missing one rather than showing a blank', async () => {
     vi.spyOn(api.assistant, 'providerKeys').mockResolvedValue({ keys: [] })
-    await act(async () => { root.render(createElement(ProviderKeys, { provider: provider({ hasKey: false, keyHint: '' }) })) })
+    await act(async () => { root.render(createElement(ProviderKeys, { provider: provider({ hasKey: false, keyHint: '' }), wallet: wallet() })) })
     await act(async () => { trigger()!.click() })
     expect(document.body.textContent).toContain(t('assistant.settings.key_missing'))
+  })
+
+  it('renames a key that is already stored, and sends nothing but the name', async () => {
+    vi.spyOn(api.assistant, 'providerKeys').mockResolvedValue({ keys: [key()] })
+    const patched = vi.spyOn(api.assistant, 'updateProviderKey').mockResolvedValue({ key: key({ label: 'laptop' }) })
+    await act(async () => { root.render(createElement(ProviderKeys, { provider: provider(), wallet: wallet() })) })
+    await act(async () => { trigger()!.click() })
+
+    const pencil = document.querySelector<HTMLButtonElement>(
+      `button[aria-label="${t('assistant.keys.rename', { label: 'second' })}"]`,
+    )
+    expect(pencil, 'the row offers no way to name it').toBeTruthy()
+    await act(async () => { pencil!.click() })
+    act(() => { type(box(t('assistant.keys.label'))!, 'laptop') })
+    await act(async () => { byText(t('assistant.model.save'))!.click() })
+
+    // One field in the body: renaming must not read as a chance to re-send or clear the secret.
+    expect(patched).toHaveBeenCalledWith('p1', 'k1', { label: 'laptop' })
+    // The row goes back to being a row once the name is in.
+    expect(box(t('assistant.keys.label'))).toBeNull()
   })
 })

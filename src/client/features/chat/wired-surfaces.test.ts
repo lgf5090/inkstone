@@ -11,7 +11,7 @@
  * jsdom lays nothing out, so every claim here is about structure, role and accessible name — never about
  * where a control would have been painted.
  */
-import { act, createElement } from 'react'
+import { act, createElement, Fragment } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
@@ -30,7 +30,7 @@ import { useUi } from '../../store/ui'
 import type { MenuCtx } from '../workspace/context-menu/types'
 import { buildTaskItems } from '../workspace/context-menu/items-inline'
 import { BehaviourTab } from './AssistantBehaviourTab'
-import { ProviderKeys } from './ProviderKeys'
+import { ProviderKeys, useProviderBalances, WalletChips } from './ProviderKeys'
 import { ChatComposer, UserBubble } from './ChatView'
 import { TurnPinRow } from './ComposerTriggers'
 import { useAssistant } from './assistant-store'
@@ -595,9 +595,22 @@ describe('what each key is owed', () => {
     await act(async () => { await Promise.resolve(); await Promise.resolve() })
   }
 
-  /** Open the ring, which is where the balance is asked — not with the tab, and not never. */
+  /**
+   * The card's own arrangement: the chips in its header and the ring below it, both reading one wallet.
+   *
+   * The wallet is asked when the card mounts, which is the whole point of the arrangement — the number is
+   * there before a reader decides to open anything.
+   */
+  const WalletRing = ({ provider }: { provider: AssistantProvider }) => {
+    const wallet = useProviderBalances(provider)
+    return createElement(Fragment, null,
+      createElement(WalletChips, { wallet }),
+      createElement(ProviderKeys, { provider, wallet }))
+  }
+
+  /** Open the ring, which is where a key is managed — the balance is already up by then. */
   const openRing = async (): Promise<void> => {
-    await act(async () => { root.render(createElement(ProviderKeys, { provider: provider('openai') })) })
+    await act(async () => { root.render(createElement(WalletRing, { provider: provider('openai') })) })
     await settle()
     const toggle = [...document.body.querySelectorAll<HTMLButtonElement>('button')]
       .find((button) => (button.textContent ?? '').includes(t('assistant.keys.title')))
@@ -653,6 +666,20 @@ describe('what each key is owed', () => {
     // A refusal is shown beside the key it happened to, rather than hidden: an absent number would read as
     // a balance of nothing, which is a different claim about a different key.
     expect(document.body.textContent).toContain(t('assistant.balance.unauthorized'))
+  })
+
+  it('wears what it is worth on the card, before the ring is opened', async () => {
+    await act(async () => { root.render(createElement(WalletRing, { provider: provider('openai') })) })
+    await settle()
+    // Nothing has been opened: the ring says so, and its rows are not in the document at all.
+    const toggle = [...document.body.querySelectorAll<HTMLButtonElement>('button')]
+      .find((button) => (button.textContent ?? '').includes(t('assistant.keys.title')))
+    expect(toggle!.getAttribute('aria-expanded')).toBe('false')
+    expect(document.body.textContent).not.toContain('Work')
+    // Two numbers, one per key that answered, drawn by the card itself. The refused one is left off rather
+    // than drawn as a zero, because a zero is a claim about a different key.
+    const chips = [...document.body.querySelectorAll<HTMLElement>('span.contents > span')]
+    expect(chips.map((node) => node.textContent)).toEqual([amount('12.5', 'CNY'), amount('3', 'CNY')])
   })
 
   it('says which key a balance belongs to when the pointer asks', async () => {

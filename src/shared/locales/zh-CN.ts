@@ -6449,6 +6449,7 @@ console.log(\`Hello, \${name}!\`)
     "assistant.keys.never_used": "尚未使用",
     "assistant.keys.errors": "{count} 次失败",
     "assistant.keys.enabled": "启用 {label}",
+    "assistant.keys.rename": "重命名 {label}",
     "assistant.keys.remove": "删除 {label}",
     "assistant.keys.remove_hint": "删除后这把密钥不再参与轮询，已经记在它名下的用量不受影响。",
     "assistant.balance.amount": "剩 {amount} {currency}",
