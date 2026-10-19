@@ -12,6 +12,7 @@ import { cn } from '../../lib/cn'
 import { t } from '../../lib/i18n'
 import { KanbanIconBadge } from '../../lib/markdown/kanban/ui/kanban-icon-badge'
 import { useTodos } from './store'
+import { Input } from '../../components/form'
 import { TaskCard } from './TaskCard'
 import { compareTasks } from './task-groups'
 import type { TodoTask } from '@shared/todos/model'
@@ -141,7 +142,7 @@ export function BoardView({ onOpenList }: { onOpenList: (listId: string) => void
 
               {adding === card.id ? (
                 <div className="px-1.5 pb-1.5">
-                  <input
+                  <Input
                     autoFocus
                     value={draft}
                     placeholder={t('todo.task.title_label')}
@@ -152,7 +153,7 @@ export function BoardView({ onOpenList }: { onOpenList: (listId: string) => void
                       if (event.key === 'Enter' && !event.nativeEvent.isComposing) { event.preventDefault(); void submit(card) }
                       if (event.key === 'Escape') { setAdding(null); setDraft('') }
                     }}
-                    className="h-9 w-full rounded-[var(--r-md)] border border-[var(--border-default)] bg-[var(--bg-inset)] px-2 text-[length:var(--text-12)] outline-none focus:border-[var(--accent)]"
+                    className="h-9 text-[length:var(--text-12)]"
                   />
                 </div>
               ) : (

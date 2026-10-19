@@ -47,10 +47,6 @@ const REQUIRED_IN_PATCH = new Map<string, string>([
     'A memory is a fact, and the store keys the review trail on its text: `A memory has to say something.` is what the route answers with, and `category` beside it accepts the empty case through `asCategory`.',
   ],
   [
-    'PATCH /tasks/:id # title',
-    'The title is how a task is read in the list and in the activity row recorded beside it; `description` beside it is optional and goes through `optionalText`.',
-  ],
-  [
     'PATCH /projects/:id # name',
     'A project is picked by name in every scope menu, and the create path keys the dedupe on it (`findProjectByName`), so an empty name would make two projects indistinguishable; `description` and `instructions` beside it are optional.',
   ],
