@@ -7206,6 +7206,7 @@ console.log(\`Hello, \${name}!\`)
     "assistant.chat.find.tip": "在这条对话里查找文字",
     "assistant.chat.find.close.tip": "关闭这条对话的查找栏",
     "assistant.canvas.show.tip": "在右侧展开画布",
+    "assistant.canvas.resize": "调整画布宽度",
     "assistant.chat.temporary_start.tip": "开始不留记录的临时对话",
     "assistant.chat.unlink_from_note.tip": "不再关联这篇笔记",
     "subscriptions.channel.telegram": "Telegram",

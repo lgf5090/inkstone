@@ -20,7 +20,7 @@
  * modes, and the writes between them.
  */
 
-import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react'
+import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type PointerEvent as ReactPointerEvent } from 'react'
 import { ArrowLeft, Check, Copy, FileText, Link2Off, NotebookPen, PanelRight, Plus, RefreshCw, Trash2, X } from 'lucide-react'
 import type { AssistantArtifact } from '@shared/assistant'
 import { DEBOUNCE } from '@shared/constants'
@@ -40,6 +40,7 @@ import { useSession } from '../../store/session'
 import { useUi } from '../../store/ui'
 import { ArtifactBody } from './ArtifactBody'
 import { ArtifactHistory, HistoryButton } from './ArtifactHistory'
+import { CANVAS_DEFAULT_WIDTH, CANVAS_MAX_DOCK_WIDTH, CANVAS_MIN_DOCK_WIDTH, CANVAS_WIDTH_KEY, clampCanvasWidth, stepCanvasWidth } from './canvas-width'
 import { useAssistant } from './assistant-store'
 import { LoadFailure } from './assistant-settings-shared'
 import { saveReplyAsNote } from './save-to-note'
@@ -66,6 +67,13 @@ const DOCK_QUERY = '(min-width: 768px)'
 /** The dock's own ceiling, reused as the drawer's width so neither is wider than the panel was. */
 const CANVAS_MAX_WIDTH = 420
 
+function storedCanvasWidth(): number {
+  const stored = Number(window.localStorage.getItem(CANVAS_WIDTH_KEY))
+  return Number.isFinite(stored) && stored > 0
+    ? clampCanvasWidth(stored, window.innerWidth)
+    : clampCanvasWidth(CANVAS_DEFAULT_WIDTH, window.innerWidth)
+}
+
 /** What the panel shows a draft as: the editor the reader types into, or the document they read. */
 type DraftMode = 'write' | 'preview'
 
@@ -80,6 +88,51 @@ export function CanvasPanel() {
   const createDraft = useAssistant((state) => state.createDraft)
   const docked = useMediaQuery(DOCK_QUERY)
   const active = useMemo(() => artifacts.find((entry) => entry.id === activeId) ?? null, [artifacts, activeId])
+  const [width, setWidth] = useState(storedCanvasWidth)
+  const widthRef = useRef(width)
+  widthRef.current = width
+  const drag = useRef<{ startX: number, startWidth: number } | null>(null)
+
+  const rememberWidth = (next: number): void => {
+    try {
+      window.localStorage.setItem(CANVAS_WIDTH_KEY, String(next))
+    } catch (error) {
+      // Storage can be unavailable (private mode, a blocked origin). The width still works for this
+      // session; losing it on reload is not worth a visible failure.
+      console.warn('[inkstone] could not remember the canvas width', error)
+    }
+  }
+
+  const onResizeStart = (event: ReactPointerEvent<HTMLDivElement>): void => {
+    drag.current = { startX: event.clientX, startWidth: widthRef.current }
+    event.currentTarget.setPointerCapture(event.pointerId)
+    event.preventDefault()
+  }
+
+  const onResizeMove = (event: ReactPointerEvent<HTMLDivElement>): void => {
+    const current = drag.current
+    if (!current) return
+    setWidth(clampCanvasWidth(current.startWidth + (current.startX - event.clientX), window.innerWidth))
+  }
+
+  const onResizeEnd = (event: ReactPointerEvent<HTMLDivElement>): void => {
+    if (!drag.current) return
+    drag.current = null
+    event.currentTarget.releasePointerCapture(event.pointerId)
+    rememberWidth(widthRef.current)
+  }
+
+  const onResizeKey = (event: KeyboardEvent<HTMLDivElement>): void => {
+    const delta = event.key === 'ArrowLeft' ? 16 : event.key === 'ArrowRight' ? -16 : 0
+    let next: number | null = null
+    if (delta) next = stepCanvasWidth(width, delta, window.innerWidth)
+    else if (event.key === 'Home') next = clampCanvasWidth(CANVAS_MIN_DOCK_WIDTH, window.innerWidth)
+    else if (event.key === 'End') next = clampCanvasWidth(CANVAS_MAX_DOCK_WIDTH, window.innerWidth)
+    if (next === null) return
+    event.preventDefault()
+    setWidth(next)
+    rememberWidth(next)
+  }
 
   const label = t('assistant.canvas.title')
   const body = (
@@ -125,8 +178,25 @@ export function CanvasPanel() {
   return (
     <aside
       aria-label={label}
-      className="flex h-full w-[min(420px,42vw)] shrink-0 flex-col border-l border-[var(--border-subtle)] bg-[var(--bg-sunken)]"
+      data-canvas-dock="1"
+      style={{ width }}
+      className="relative flex h-full shrink-0 flex-col border-l border-[var(--border-subtle)] bg-[var(--bg-sunken)]"
     >
+      <div
+        role="separator"
+        aria-orientation="vertical"
+        aria-label={t('assistant.canvas.resize')}
+        aria-valuenow={Math.round(width)}
+        aria-valuemin={CANVAS_MIN_DOCK_WIDTH}
+        aria-valuemax={CANVAS_MAX_DOCK_WIDTH}
+        tabIndex={0}
+        onPointerDown={onResizeStart}
+        onPointerMove={onResizeMove}
+        onPointerUp={onResizeEnd}
+        onPointerCancel={onResizeEnd}
+        onKeyDown={onResizeKey}
+        className="absolute inset-y-0 left-0 z-[var(--z-sticky)] w-1 cursor-col-resize touch-none transition-colors duration-[var(--dur-fast)] hover:bg-[var(--accent)] focus-visible:bg-[var(--accent)] focus-visible:outline-none"
+      />
       {body}
     </aside>
   )

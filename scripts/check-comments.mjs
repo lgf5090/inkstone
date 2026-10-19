@@ -1267,6 +1267,8 @@ const allowed = new Map([
     "/** Take the incoming version, discarding the local text — the reader's explicit choice in the banner. */",
     "/** Keep the local text over the incoming version; the incoming one stays restorable in history. */",
     "/** The one control an empty panel offers: start a document rather than explaining why there is none. */",
+    "// Storage can be unavailable (private mode, a blocked origin). The width still works for this",
+    "// session; losing it on reload is not worth a visible failure.",
   ]],
   ["src/client/features/chat/ChatApp.tsx", [
     "/**\n * The chat app: the assistant's own container behind the rail's Chat tab.\n *\n * It borrows the notebook's chrome vocabulary rather than the reference project's — the same 48px\n * icon rail, the same 44px header, the same tokens — so the reader moves between containers without\n * finding a second visual language. What the reference called its sidebar becomes a second rail one\n * step in from the app rail, because the app rail already owns the outermost column.\n *\n * The five surfaces share one store on purpose: a turn in the chat can write a memory, a task and a\n * schedule in the same breath, and the tab that shows them has to be current the moment it is opened.\n */",
@@ -3078,6 +3080,12 @@ const allowed = new Map([
     "// reach the worker, a 5xx, an expired session — is this read's failure and not the note's, so it is",
     "// reported with what it said, which is also what a retry has to show.",
     "/**\n * Read the linked note, which is also what makes it the baseline.\n *\n * A draft that has never been opened is not a conflict waiting to happen: whatever the note says now is\n * what the panel is showing, so the next write compares against that. A read that did not answer makes no\n * baseline — the panel has seen nothing, and its next write is rightly refused.\n */",
+  ]],
+  ["src/client/features/chat/canvas-width.test.ts", [
+    "// 900 * .6 = 540 is the ceiling on a window that is not wide enough for 720.",
+  ]],
+  ["src/client/features/chat/canvas-width.ts", [
+    "/**\n * How wide the canvas dock may be.\n *\n * The floor keeps the editor from becoming a column of one word per line, and the ceiling keeps the\n * thread usable on a small laptop: a panel may take at most sixty percent of the window. The arithmetic\n * is pure so the drag and the keyboard can share one answer.\n */",
   ]],
   ["src/client/features/chat/chat-embed-rendering.test.ts", [
     "/**\n * The embed an answer names, drawn inside the thread.\n *\n * A reply that says \"see ![[Roadmap]]\" is the same sentence the note preview writes, and the reader who\n * reads it in the thread expects the same thing to arrive. Nothing else about the row explains the box:\n * left with no document to resolve against, an embed sits at \"Loading\" for the whole life of the answer,\n * which reads as a reply still being delivered rather than as a surface that never asked the notebook.\n * So what is pinned here is the whole shape of the promise — the body comes in, a note the vault does not\n * have is *named* rather than left waiting, and the reader's own question is held to the same line.\n *\n * The real renderer is mounted for this on purpose. A stand-in would answer nothing about whether the\n * pass that fills the box is ever started, which is exactly the defect.\n */",

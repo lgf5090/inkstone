@@ -456,7 +456,7 @@ describe('the canvas beside the thread on a wide window', () => {
     await showAt('wide')
     await openDrawer(document.querySelector<HTMLElement>('[data-canvas-toggle]')!)
     expect(drawer(), 'a wide window should not get a drawer').toBeNull()
-    const dock = [...document.querySelectorAll<HTMLElement>('aside')].find((node) => node.className.includes('42vw'))
+    const dock = [...document.querySelectorAll<HTMLElement>('aside')].find((node) => node.hasAttribute('data-canvas-dock'))
     expect(dock, 'the panel no longer docks beside the thread').toBeTruthy()
   })
 })
@@ -471,7 +471,7 @@ describe('the canvas on a phone', () => {
     expect(panel!.getAttribute('aria-modal')).toBe('true')
     expect(panel!.getAttribute('aria-label')).toBe(t('assistant.canvas.title'))
     // The dock's viewport-relative width belongs to the wide layout only.
-    expect([...document.querySelectorAll<HTMLElement>('aside')].some((node) => node.className.includes('42vw'))).toBe(false)
+    expect([...document.querySelectorAll<HTMLElement>('aside')].some((node) => node.hasAttribute('data-canvas-dock'))).toBe(false)
     // And the thread's own toggle is not left holding the focus.
     expect(document.activeElement?.closest('[data-surface="drawer"]')).toBe(panel)
   })
