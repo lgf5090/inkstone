@@ -29,7 +29,7 @@ import { t } from '../../lib/i18n'
 import { useDebounced, useMediaQuery } from '../../lib/hooks'
 import { COPY_RESET_MS } from '../../lib/motion'
 import { relativeTime } from '../../lib/time'
-import { api } from '../../lib/api'
+import { api, ApiError } from '../../lib/api'
 import { copyText } from '../../lib/clipboard'
 import { Button, IconButton, Spinner } from '../../components/primitives'
 import { Input } from '../../components/form'
@@ -160,9 +160,16 @@ function ArtifactList({ artifacts, ready, onSelect }: {
   )
 }
 
+type SaveState = 'idle' | 'saving' | 'saved' | 'error'
+type SyncState = 'synced' | 'syncing' | 'diverged' | 'failed'
+
 function ArtifactEditor({ artifact, onSave, onRemove }: {
   artifact: AssistantArtifact
-  onSave: (id: string, patch: { title?: string, content?: string, noteId?: string | null }) => Promise<void>
+  onSave: (
+    id: string,
+    patch: { title?: string, content?: string, noteId?: string | null },
+    options?: { baseVersion?: number, source?: 'user' | 'assistant' },
+  ) => Promise<AssistantArtifact>
   onRemove: (id: string) => Promise<void>
 }) {
   const settings = useSession((state) => state.settings.editor)
@@ -170,6 +177,11 @@ function ArtifactEditor({ artifact, onSave, onRemove }: {
   const [content, setContent] = useState(artifact.content)
   const [mode, setMode] = useState<DraftMode>('write')
   const [copied, setCopied] = useState(false)
+  const [saveState, setSaveState] = useState<SaveState>('idle')
+  const [saveError, setSaveError] = useState<string | null>(null)
+  const [retryTick, setRetryTick] = useState(0)
+  const [conflict, setConflict] = useState(false)
+  const [syncState, setSyncState] = useState<SyncState>(artifact.noteId ? 'syncing' : 'synced')
   // The "Copied" countdown, held so that closing the panel takes the timer with the button it was drawn
   // on rather than leaving it to run against a surface the reader already walked away from.
   const copyTimer = useRef<number | null>(null)
@@ -182,10 +194,22 @@ function ArtifactEditor({ artifact, onSave, onRemove }: {
   // What the server already has. A settled value equal to it is the echo of our own write coming back
   // through the store, and committing it again would be a second request for the same bytes.
   const committed = useRef({ title: artifact.title, content: artifact.content })
+  // The version this editor's text is based on. Every write names it so the server can refuse a save
+  // that would replace a version the reader has not seen.
+  const baseVersion = useRef(artifact.version)
+  // The last version this editor wrote, so the store echoing it back is not mistaken for someone else's.
+  const ownVersion = useRef<number | null>(null)
   // Whether the reader has typed here. The note read below is in flight from the first paint, and its
   // answer is what the note said *before* they started — so it may say where the body came from, but it
   // must not become the body under their cursor.
   const edited = useRef(false)
+  // The version whose content the editor has already accounted for. Bumped on our own save and on an
+  // external version the editor adopted, so the adoption effect does not run twice for one row.
+  const seenVersion = useRef(artifact.version)
+  // One writer at a time. Two saves in the air would both carry the same base version, and the second
+  // would come back as a conflict created by this editor itself.
+  const inFlight = useRef(false)
+  const saveSeq = useRef(0)
   // The order the two writers of one document have to keep: nothing is committed until the linked note
   // has been read. A write that jumped the queue had no baseline to be checked against, so it either
   // reported a note that had not moved as a conflict or, when the note was open in the notebook,
@@ -198,31 +222,42 @@ function ArtifactEditor({ artifact, onSave, onRemove }: {
   const [readAttempt, setReadAttempt] = useState(0)
   const pending = useMemo(() => ({ title, content }), [title, content])
   const settled = useDebounced(pending, DEBOUNCE.persist)
+  // What the reader last typed, read after a save settles: the save in flight used an older snapshot,
+  // and if the text moved again while it was away the new snapshot is what has to go out next.
+  const latest = useRef(settled)
+  latest.current = settled
 
-  // A linked draft opens on the note, not on the copy it was last saved as: the notebook is where the
-  // document has been living, and the panel showing a stale copy would invite a write over the top of it.
+  // A linked draft no longer opens on the note. The draft may be an assistant edit written while the panel
+  // was closed, and the note may have moved in the notebook: copying either over the other would silently
+  // discard the other side's work. The read is still needed before the first write, and what it finds is
+  // said as a divergence the reader resolves.
   useEffect(() => {
     if (!linkedNoteId) {
       setNoteRead(true)
+      setSyncState('synced')
       return
     }
     let alive = true
     setNoteRead(false)
+    setSyncState('syncing')
     void loadLinkedNote(artifact.id, linkedNoteId).then((read) => {
       if (!alive) return
       if (read.status === 'ok') {
         setNoteReadFailed(null)
-        if (!edited.current) {
-          setContent(read.content)
-          committed.current = { title: committed.current.title, content: read.content }
-        }
+        // The reader's own edits will be pushed when the read clears the gate; only a clean editor can
+        // say the two documents have parted ways.
+        setSyncState(!edited.current && read.content !== committed.current.content ? 'diverged' : 'synced')
       }
       else if (read.status === 'missing') {
         useUi.getState().toast({ title: t('assistant.canvas.note_missing'), tone: 'warning' })
+        setSyncState('failed')
       }
       // No toast here: the panel keeps the reader's text on screen, and the failure has to stay where they
       // can act on it rather than vanish behind a toast they did not ask for.
-      else setNoteReadFailed(read.reason)
+      else {
+        setNoteReadFailed(read.reason)
+        setSyncState('failed')
+      }
       setNoteRead(true)
     })
     return () => {
@@ -230,26 +265,124 @@ function ArtifactEditor({ artifact, onSave, onRemove }: {
     }
   }, [artifact.id, linkedNoteId, readAttempt])
 
+  // An external version, or the echo of our own save. A clean editor adopts it; a dirty one keeps the
+  // reader's words and asks which side wins. This is the half of "the model writes the draft" that keeps
+  // a keystroke from silently overwriting what the model just wrote.
   useEffect(() => {
-    if (!noteRead) return
+    if (artifact.version === seenVersion.current) return
+    seenVersion.current = artifact.version
+    baseVersion.current = artifact.version
+    const ownEcho = artifact.version === ownVersion.current
+    const localMatchesIncoming = artifact.title === title && artifact.content === content
+    const clean = localMatchesIncoming || (title === committed.current.title && content === committed.current.content)
+    if (!clean) {
+      setConflict(true)
+      return
+    }
+    setTitle(artifact.title)
+    setContent(artifact.content)
+    edited.current = false
+    committed.current = { title: artifact.title, content: artifact.content }
+    setSaveState('saved')
+    setConflict(false)
+    if (!ownEcho && !localMatchesIncoming) {
+      if (linkedNoteId) setSyncState('diverged')
+      useUi.getState().toast({ title: t('assistant.canvas.loaded_new_version'), tone: 'success' })
+    }
+  }, [artifact.version, artifact.title, artifact.content, linkedNoteId, title, content])
+
+  useEffect(() => {
+    if (!noteRead || inFlight.current) return
     if (settled.title === committed.current.title && settled.content === committed.current.content) return
-    committed.current = settled
+    const seq = ++saveSeq.current
+    const snapshot = settled
+    let savedOk = false
+    inFlight.current = true
+    setSaveState('saving')
+    setSaveError(null)
     void (async () => {
-      // One writer after the other, draft first: the row is where the body survives a refresh, so a note
-      // write that lands before it would leave a conflict in the notebook and the reader's paragraph
-      // nowhere but on screen.
-      await onSave(artifact.id, settled)
-      if (!linkedNoteId) return
-      // The note takes the same body: one document, two surfaces. A conflict is reported and the panel
-      // keeps the reader's text — losing a paragraph to a silent overwrite is the one outcome to avoid.
-      const result = await pushToNote(artifact.id, linkedNoteId, settled.content)
-      if (result === 'ok') return
-      useUi.getState().toast({
-        title: t(result === 'conflict' ? 'assistant.canvas.sync_conflict' : 'assistant.canvas.note_missing'),
-        tone: 'warning',
-      })
+      try {
+        // Draft first: the row is where the body survives a refresh, so a note write that lands before it
+        // would leave a conflict in the notebook and the reader's paragraph nowhere but on screen.
+        const saved = await onSave(artifact.id, snapshot, { baseVersion: baseVersion.current, source: 'user' })
+        if (seq !== saveSeq.current) return
+        savedOk = true
+        ownVersion.current = saved.version
+        seenVersion.current = saved.version
+        baseVersion.current = saved.version
+        committed.current = snapshot
+        setSaveState('saved')
+        setConflict(false)
+        if (!linkedNoteId) return
+        // The note takes the same body: one document, two surfaces. A conflict is reported and the panel
+        // keeps the reader's text — losing a paragraph to a silent overwrite is the one outcome to avoid.
+        setSyncState('syncing')
+        const result = await pushToNote(artifact.id, linkedNoteId, snapshot.content)
+        if (seq !== saveSeq.current) return
+        if (result === 'ok') {
+          setSyncState('synced')
+          return
+        }
+        setSyncState('failed')
+        useUi.getState().toast({
+          title: t(result === 'conflict' ? 'assistant.canvas.sync_conflict' : 'assistant.canvas.note_missing'),
+          tone: 'warning',
+        })
+      } catch (error) {
+        if (seq !== saveSeq.current) return
+        setSaveState('error')
+        setSaveError(error instanceof Error ? error.message : String(error))
+        if (error instanceof ApiError && error.status === 409) {
+          setConflict(true)
+          void useAssistant.getState().loadArtifacts()
+        }
+      } finally {
+        inFlight.current = false
+        // The reader kept typing while the save was away. The next snapshot has to go out with the version
+        // that save just produced, so it waits for this one rather than racing it.
+        if (savedOk && (latest.current.title !== committed.current.title || latest.current.content !== committed.current.content)) {
+          setRetryTick((tick) => tick + 1)
+        }
+      }
     })()
-  }, [settled, artifact.id, onSave, linkedNoteId, noteRead])
+  }, [settled, artifact.id, onSave, linkedNoteId, noteRead, retryTick])
+
+  /**
+   * Save the editor's current text now, on the version it is based on.
+   *
+   * Used by the two explicit conflict choices: keeping the reader's text over an incoming version names
+   * the incoming version as the baseline; a retry names whatever the editor last knew. The incoming
+   * version is not deleted either way — it is still in history.
+   */
+  const commitLocal = async (base = baseVersion.current) => {
+    if (inFlight.current) return
+    inFlight.current = true
+    setSaveState('saving')
+    setSaveError(null)
+    try {
+      const saved = await onSave(artifact.id, { title, content }, { baseVersion: base, source: 'user' })
+      ownVersion.current = saved.version
+      seenVersion.current = saved.version
+      baseVersion.current = saved.version
+      committed.current = { title, content }
+      setSaveState('saved')
+      setConflict(false)
+      if (linkedNoteId) {
+        setSyncState('syncing')
+        const result = await pushToNote(artifact.id, linkedNoteId, content)
+        setSyncState(result === 'ok' ? 'synced' : 'failed')
+      }
+    } catch (error) {
+      setSaveState('error')
+      setSaveError(error instanceof Error ? error.message : String(error))
+      if (error instanceof ApiError && error.status === 409) {
+        setConflict(true)
+        void useAssistant.getState().loadArtifacts()
+      }
+    } finally {
+      inFlight.current = false
+    }
+  }
 
   // The editor completes `[[links]]` and `#tags` from the vault, the same two sources the notebook's own
   // editor is given. The upload handler drops a pasted file into the reader's library; a draft has no note
@@ -301,10 +434,28 @@ function ArtifactEditor({ artifact, onSave, onRemove }: {
     })
   }
 
+  const reportSaveError = (error: unknown) => {
+    setSaveState('error')
+    setSaveError(error instanceof Error ? error.message : String(error))
+    if (error instanceof ApiError && error.status === 409) {
+      setConflict(true)
+      void useAssistant.getState().loadArtifacts()
+    }
+  }
+
   /** File the draft, then remember which note it became — the two are one document from then on. */
   const saveAsNote = async () => {
     const noteId = await saveReplyAsNote(content)
-    if (noteId) await onSave(artifact.id, { noteId })
+    if (!noteId) return
+    try {
+      const saved = await onSave(artifact.id, { noteId }, { baseVersion: baseVersion.current })
+      ownVersion.current = saved.version
+      seenVersion.current = saved.version
+      baseVersion.current = saved.version
+      setSyncState('synced')
+    } catch (error) {
+      reportSaveError(error)
+    }
   }
 
   const pull = async () => {
@@ -312,27 +463,90 @@ function ArtifactEditor({ artifact, onSave, onRemove }: {
     const read = await pullFromNote(artifact.id, linkedNoteId)
     if (read.status === 'missing') {
       useUi.getState().toast({ title: t('assistant.canvas.note_missing'), tone: 'warning' })
+      setSyncState('failed')
       return
     }
     // The same sentence and the same retry as the read on open: a Load that did not answer is a request
     // worth pressing again, not a note the reader has lost.
     if (read.status === 'failed') {
       setNoteReadFailed(read.reason)
+      setSyncState('failed')
       return
     }
     setNoteReadFailed(null)
-    setContent(read.content)
-    committed.current = { title: committed.current.title, content: read.content }
-    useUi.getState().toast({ title: t('assistant.canvas.pulled'), tone: 'success' })
+    try {
+      const saved = await onSave(artifact.id, { content: read.content }, { baseVersion: baseVersion.current, source: 'user' })
+      ownVersion.current = saved.version
+      seenVersion.current = saved.version
+      baseVersion.current = saved.version
+      committed.current = { title: committed.current.title, content: read.content }
+      setContent(read.content)
+      setSaveState('saved')
+      setConflict(false)
+      setSyncState('synced')
+      useUi.getState().toast({ title: t('assistant.canvas.pulled'), tone: 'success' })
+    } catch (error) {
+      reportSaveError(error)
+    }
   }
 
   const push = async () => {
     if (!linkedNoteId) return
+    try {
+      // Save first, so the row the note is compared against and the words sent to it are the same.
+      const saved = await onSave(artifact.id, { title, content }, { baseVersion: baseVersion.current, source: 'user' })
+      ownVersion.current = saved.version
+      seenVersion.current = saved.version
+      baseVersion.current = saved.version
+      committed.current = { title, content }
+      setSaveState('saved')
+      setConflict(false)
+    } catch (error) {
+      reportSaveError(error)
+      return
+    }
+    setSyncState('syncing')
     const result = await pushToNote(artifact.id, linkedNoteId, content)
+    setSyncState(result === 'ok' ? 'synced' : 'failed')
     useUi.getState().toast({
       title: t(result === 'ok' ? 'assistant.canvas.synced' : result === 'conflict' ? 'assistant.canvas.sync_conflict' : 'assistant.canvas.note_missing'),
       tone: result === 'ok' ? 'success' : 'warning',
     })
+  }
+
+  const unlink = async () => {
+    try {
+      const saved = await onSave(artifact.id, { noteId: null }, { baseVersion: baseVersion.current })
+      ownVersion.current = saved.version
+      seenVersion.current = saved.version
+      baseVersion.current = saved.version
+      setSyncState('synced')
+    } catch (error) {
+      reportSaveError(error)
+    }
+  }
+
+  /** Take the incoming version, discarding the local text — the reader's explicit choice in the banner. */
+  const adoptNew = () => {
+    setTitle(artifact.title)
+    setContent(artifact.content)
+    edited.current = false
+    committed.current = { title: artifact.title, content: artifact.content }
+    baseVersion.current = artifact.version
+    seenVersion.current = artifact.version
+    setConflict(false)
+    setSaveState('saved')
+    setSyncState(linkedNoteId ? 'diverged' : 'synced')
+  }
+
+  /** Keep the local text over the incoming version; the incoming one stays restorable in history. */
+  const keepMine = () => {
+    void commitLocal(artifact.version)
+  }
+
+  const saveAsNew = () => {
+    void useAssistant.getState().createArtifactFromReply(content)
+    setConflict(false)
   }
 
   const removeDraft = () => {
@@ -357,21 +571,70 @@ function ArtifactEditor({ artifact, onSave, onRemove }: {
           className="h-8 text-[length:var(--text-12-5)]"
         />
         {linkedNoteId && (
-          <div className="flex items-center gap-1 text-[length:var(--text-11)] text-[var(--text-tertiary)]">
+          <div className="flex flex-wrap items-center gap-1 text-[length:var(--text-11)] text-[var(--text-tertiary)]">
             <FileText size={11} className="shrink-0 text-[var(--text-quaternary)]" />
             <span className="min-w-0 truncate">
               {t('assistant.canvas.linked', { title: linkedTitle || t('common.untitled_note') })}
             </span>
+            {syncState === 'syncing' && (
+              <span className="shrink-0 text-[var(--text-quaternary)]">{t('assistant.canvas.syncing')}</span>
+            )}
+            {syncState === 'failed' && (
+              <span className="shrink-0 text-[var(--warning)]">{t('assistant.canvas.sync_failed')}</span>
+            )}
             <Button size="sm" variant="ghost" className="ml-auto shrink-0" icon={<RefreshCw size={11} />} onClick={() => void pull()}>
               {t('assistant.canvas.pull_note')}
             </Button>
-            <IconButton label={t('assistant.canvas.unlink')} size="sm" onClick={() => void onSave(artifact.id, { noteId: null })}>
+            <IconButton label={t('assistant.canvas.unlink')} size="sm" onClick={() => void unlink()}>
               <Link2Off size={11} />
             </IconButton>
           </div>
         )}
-        <ModeTabs artifactId={artifact.id} mode={mode} onSelect={setMode} />
+        <div className="flex items-center gap-2">
+          <ModeTabs artifactId={artifact.id} mode={mode} onSelect={setMode} />
+          <span aria-live="polite" className="ml-auto text-[length:var(--text-10-5)] text-[var(--text-quaternary)]">
+            {saveState === 'saving'
+              ? t('assistant.canvas.saving')
+              : saveState === 'saved'
+                ? t('assistant.canvas.saved')
+                : saveState === 'error'
+                  ? t('assistant.canvas.unsaved')
+                  : null}
+          </span>
+          {saveState === 'error' && !conflict && (
+            <button
+              type="button"
+              onClick={() => setRetryTick((tick) => tick + 1)}
+              className="shrink-0 text-[length:var(--text-10-5)] font-medium text-[var(--accent-on-soft)] hover:underline"
+            >
+              {t('assistant.canvas.retry_save')}
+            </button>
+          )}
+        </div>
       </div>
+      {linkedNoteId && syncState === 'diverged' && (
+        <div role="status" className="shrink-0 border-b border-[var(--border-subtle)] bg-[color-mix(in_oklab,var(--warning)_12%,transparent)] px-2 py-1.5">
+          <p className="text-[length:var(--text-11-5)] font-medium text-[var(--text-primary)]">{t('assistant.canvas.diverged')}</p>
+          <p className="mt-0.5 text-[length:var(--text-11)] leading-relaxed text-[var(--text-tertiary)]">{t('assistant.canvas.diverged_hint')}</p>
+        </div>
+      )}
+      {conflict && (
+        <div role="alert" className="shrink-0 border-b border-[var(--border-subtle)] bg-[color-mix(in_oklab,var(--warning)_12%,transparent)] px-2 py-1.5">
+          <p className="text-[length:var(--text-11-5)] font-medium text-[var(--text-primary)]">{t('assistant.canvas.conflict_title')}</p>
+          <p className="mt-0.5 text-[length:var(--text-11)] leading-relaxed text-[var(--text-tertiary)]">{t('assistant.canvas.conflict_hint')}</p>
+          <div className="mt-1 flex flex-wrap gap-1">
+            <Button size="sm" variant="secondary" onClick={adoptNew}>{t('assistant.canvas.adopt')}</Button>
+            <Button size="sm" variant="secondary" onClick={keepMine}>{t('assistant.canvas.overwrite')}</Button>
+            <Button size="sm" variant="ghost" onClick={saveAsNew}>{t('assistant.canvas.save_as_new')}</Button>
+          </div>
+        </div>
+      )}
+      {saveState === 'error' && saveError && (
+        <div role="alert" className="shrink-0 border-b border-[var(--border-subtle)] px-2 py-1.5">
+          <p className="text-[length:var(--text-11)] text-[var(--danger)]">{t('assistant.canvas.save_failed')}</p>
+          <p className="mt-0.5 break-words text-[length:var(--text-10-5)] text-[var(--text-tertiary)]">{saveError}</p>
+        </div>
+      )}
       {noteReadFailed && (
         <div className="shrink-0 px-2 py-2">
           <LoadFailure

@@ -15,6 +15,7 @@ import { act, createElement, Fragment } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { DEBOUNCE } from '@shared/constants'
+import { ApiError } from '../../lib/api'
 import { initI18n, t } from '../../lib/i18n'
 import { installTestGlobals, stubBreakpoint } from '../../lib/test-render'
 import { useNotes } from '../../store/notes'
@@ -34,7 +35,7 @@ import { useAssistant } from './assistant-store'
  */
 const preview = vi.hoisted(() => ({ unrenderable: '[[[this draft cannot be rendered]]]', seen: { className: '' } }))
 
-const { DRAFT, LINKED, updateConversationArtifact, removeConversationArtifact, getNote, gate } = vi.hoisted(() => {
+const { DRAFT, LINKED, updateConversationArtifact, removeConversationArtifact, conversationArtifacts, getNote, gate } = vi.hoisted(() => {
   const noteId = '01hzzzzzzzzzzzzzzzzzzzzz20'
   const draft = {
     id: 'a1',
@@ -64,15 +65,30 @@ const { DRAFT, LINKED, updateConversationArtifact, removeConversationArtifact, g
       },
     })),
     removeConversationArtifact: vi.fn(async () => ({ ok: true })),
+    conversationArtifacts: vi.fn(async () => ({ artifacts: [draft] })),
   }
 })
 
 vi.mock('../../lib/api', () => ({
-  ApiError: class ApiError extends Error {},
+  // The shape the real class has: the status is what the panel reads to tell a version conflict from a
+  // network failure.
+  ApiError: class ApiError extends Error {
+    constructor(
+      readonly status: number,
+      readonly code: string,
+      message: string,
+      readonly details?: unknown,
+      readonly serverMessage?: string,
+    ) {
+      super(message)
+      this.name = 'ApiError'
+    }
+  },
   api: {
     assistant: {
       updateConversationArtifact,
       removeConversationArtifact,
+      conversationArtifacts,
     },
     notes: { get: getNote },
     files: { upload: vi.fn(async () => ({ url: '', filename: '', mime: '' })) },
@@ -163,6 +179,16 @@ afterEach(() => {
 })
 
 describe('the canvas panel', () => {
+  /** Types into the textarea the editor stands in for, the way a browser does. */
+  function typeIn(value: string): void {
+    const area = document.querySelector('textarea')!
+    const setter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value')!.set!
+    act(() => {
+      setter.call(area, value)
+      area.dispatchEvent(new window.Event('input', { bubbles: true }))
+    })
+  }
+
   it('says so when the conversation has no drafts', async () => {
     await show({ activeId: 'c1', artifacts: [], artifactsReady: true, activeArtifactId: null })
     expect(document.body.textContent).toContain(t('assistant.canvas.empty'))
@@ -188,7 +214,71 @@ describe('the canvas panel', () => {
     expect(updateConversationArtifact).not.toHaveBeenCalled()
     // The settled value commits, and the store's own write lands as a re-render of the panel.
     await act(async () => { vi.advanceTimersByTime(DEBOUNCE.persist) })
-    expect(updateConversationArtifact).toHaveBeenCalledWith('c1', 'a1', { title: 'A better plan', content: DRAFT.content })
+    expect(updateConversationArtifact).toHaveBeenCalledWith(
+      'c1', 'a1',
+      expect.objectContaining({ title: 'A better plan', content: DRAFT.content, baseVersion: 1, source: 'user' }),
+    )
+  })
+
+  it('keeps the text on screen when a save fails, and retries on demand', async () => {
+    vi.useFakeTimers()
+    updateConversationArtifact.mockRejectedValueOnce(new Error('offline'))
+    await show({ activeId: 'c1', artifacts: [DRAFT], artifactsReady: true, activeArtifactId: 'a1' })
+    typeIn('my paragraph')
+    await act(async () => { vi.advanceTimersByTime(DEBOUNCE.persist) })
+    expect(document.body.textContent).toContain(t('assistant.canvas.unsaved'))
+    expect(document.querySelector('textarea')?.value).toBe('my paragraph')
+    // Nothing retries behind the reader's back: a failing server would otherwise be hammered by the debounce.
+    expect(updateConversationArtifact).toHaveBeenCalledTimes(1)
+
+    const retry = buttons().find((node) => node.textContent?.includes(t('assistant.canvas.retry_save')))
+    expect(retry, 'a failed save offers no way to ask again').toBeTruthy()
+    await act(async () => {
+      retry!.click()
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+    expect(updateConversationArtifact).toHaveBeenCalledTimes(2)
+    expect(document.body.textContent).toContain(t('assistant.canvas.saved'))
+  })
+
+  it('keeps the reader\'s words when a new version arrives mid-edit, and offers the choice', async () => {
+    vi.useFakeTimers()
+    await show({ activeId: 'c1', artifacts: [DRAFT], artifactsReady: true, activeArtifactId: 'a1' })
+    typeIn('my paragraph')
+    await act(async () => {
+      useAssistant.setState({ artifacts: [{ ...DRAFT, content: 'Assistant rewrote this.', version: 2 }] })
+    })
+    expect(document.body.textContent).toContain(t('assistant.canvas.conflict_title'))
+    expect(document.querySelector('textarea')?.value).toBe('my paragraph')
+
+    const adopt = buttons().find((node) => node.textContent?.includes(t('assistant.canvas.adopt')))
+    expect(adopt, 'the conflict offers no way to take the new version').toBeTruthy()
+    act(() => { adopt!.click() })
+    expect(document.querySelector('textarea')?.value).toBe('Assistant rewrote this.')
+    expect(document.body.textContent).not.toContain(t('assistant.canvas.conflict_title'))
+  })
+
+  it('turns a version conflict into a choice rather than a dead save', async () => {
+    vi.useFakeTimers()
+    updateConversationArtifact.mockRejectedValueOnce(new ApiError(409, 'conflict', 'The draft changed while it was being edited.'))
+    await show({ activeId: 'c1', artifacts: [DRAFT], artifactsReady: true, activeArtifactId: 'a1' })
+    typeIn('my paragraph')
+    // The reload that follows the 409 sees the version that landed while this editor was typing.
+    conversationArtifacts.mockResolvedValueOnce({ artifacts: [{ ...DRAFT, content: 'Incoming body', version: 2 }] })
+    await act(async () => { vi.advanceTimersByTime(DEBOUNCE.persist) })
+    expect(document.body.textContent).toContain(t('assistant.canvas.conflict_title'))
+    expect(document.querySelector('textarea')?.value).toBe('my paragraph')
+
+    const keep = buttons().find((node) => node.textContent?.includes(t('assistant.canvas.overwrite')))
+    expect(keep, 'the conflict offers no way to keep the reader\'s text').toBeTruthy()
+    await act(async () => {
+      keep!.click()
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+    const last = updateConversationArtifact.mock.calls.at(-1)!
+    expect(last[2]).toMatchObject({ content: 'my paragraph', baseVersion: 2 })
   })
 
   it('drops a deleted draft, and falls back to the list', async () => {
@@ -274,10 +364,12 @@ describe('a draft linked to a note', () => {
       const retry = [...alert!.querySelectorAll('button')].find((node) => node.textContent?.includes(t('common.retry')))
       expect(retry, 'a failed read offers no way to ask again').toBeTruthy()
 
-      // The retry is the same read, and the note is still where it was.
+      // The retry is the same read, and the note is still where it was. The draft is not overwritten by
+      // it: the two documents differ, and the panel says so instead of choosing a side.
       await act(async () => { retry!.click() })
       await act(async () => { gate.resolve?.({ content: 'the note body' }) })
-      expect(document.querySelector('textarea')?.value).toBe('the note body')
+      expect(document.querySelector('textarea')?.value).toBe(LINKED.content)
+      expect(document.body.textContent).toContain(t('assistant.canvas.diverged'))
       expect(document.querySelector('[role="alert"]')).toBeNull()
     } finally {
       useNotes.setState(notesOriginal, true)
@@ -434,8 +526,13 @@ describe('the draft preview', () => {
       act(() => { tab.click() })
       expect(document.querySelector('[role="alert"]'), 'a draft that failed to render said nothing').toBeTruthy()
 
+      // A new version from elsewhere — an assistant write, or the same draft in another tab — replaces the
+      // body the preview failed on. The panel adopts it while the editor is clean, so the notice goes with
+      // the document it was about.
       await act(async () => {
-        gate.resolve?.({ content: DRAFT.content })
+        useAssistant.setState({
+          artifacts: [{ ...LINKED, content: DRAFT.content, version: 2 }],
+        })
         await Promise.resolve()
       })
       expect(preview.seen.className, 'the panel stayed on its notice over a body it never re-rendered').toContain('ink-chat-prose')

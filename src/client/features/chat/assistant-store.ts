@@ -637,7 +637,11 @@ interface AssistantState {
    */
   createArtifactFromReply: (text: string) => Promise<void>
   /** Rewrite a draft's name or body. The server stores what it is sent and keeps the rest. */
-  saveArtifact: (id: string, patch: { title?: string, content?: string, noteId?: string | null }) => Promise<void>
+  saveArtifact: (
+    id: string,
+    patch: { title?: string, content?: string, noteId?: string | null },
+    options?: { baseVersion?: number, source?: 'user' | 'assistant', messageId?: string | null },
+  ) => Promise<AssistantArtifact>
   removeArtifact: (id: string) => Promise<void>
   decideAction: (actionId: string, approve: boolean) => Promise<void>
 
@@ -3006,15 +3010,14 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
     }
   },
 
-  saveArtifact: async (id, patch) => {
+  saveArtifact: async (id, patch, options) => {
     const conversationId = get().activeId
-    if (!conversationId) return
-    try {
-      const { artifact } = await api.assistant.updateConversationArtifact(conversationId, id, patch)
-      set((current) => ({ artifacts: current.artifacts.map((entry) => (entry.id === id ? artifact : entry)) }))
-    } catch (error) {
-      toast(error)
-    }
+    if (!conversationId) throw new Error('No conversation is open.')
+    // The error is deliberately not toasted here: the panel owns the save line and the conflict banner,
+    // and a toast that said the same thing in a corner would outlive the text it is about.
+    const { artifact } = await api.assistant.updateConversationArtifact(conversationId, id, { ...patch, ...options })
+    set((current) => ({ artifacts: current.artifacts.map((entry) => (entry.id === id ? artifact : entry)) }))
+    return artifact
   },
 
   removeArtifact: async (id) => {
