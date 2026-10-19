@@ -856,10 +856,13 @@ const allowed = new Map([
   ["src/client/editor/paste-lint.test.ts", [
     "/**\n * The paste-time rules, as the editor sees them.\n *\n * The claim here is narrow: a paste the linter was asked to handle is rewritten before it lands, and\n * a paste it was not asked about is left for the editor's own handlers. The third case matters most —\n * an address is the one thing the linter must not touch, because the link features are waiting for it.\n */",
     "// the paste rules are behind a dynamic import, so the text lands a beat after the keystroke",
-    "// `paste.ts` reaches the rules through `await import('../lib/linter')`. Cold, that import waits on",
-    "// the bundler's transform queue, and a full-suite run is contended enough for the wait to outlast",
-    "// any timeout this file could reasonably carry — the paste then lands after the case has given up.",
-    "// Loading it once here puts it in the module graph, so the handler's own import resolves on a tick.",
+    "// `paste.ts` reaches the rules through `await import('../lib/linter')`, and that module reaches the",
+    "// runner and the registry through two more dynamic imports of its own. Cold, those wait on the",
+    "// bundler's transform queue, and a full-suite run is contended enough for the wait to outlast any",
+    "// timeout this file could reasonably carry — the paste then lands after the case has given up.",
+    "// Loading all three here puts them in the module graph, so the handler's own imports resolve on a",
+    "// tick. Warming only the index is what left this file failing in the full run: `lintPaste` never",
+    "// touches `./runner` until it is called.",
   ]],
   ["src/client/editor/paste.ts", [
     "// Two or more pictures pasted together become one layout block, each upload sitting on its own row line",
