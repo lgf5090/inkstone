@@ -21060,6 +21060,12 @@ const allowed = new Map([
     "// reader typed, and an empty one of those still means the tool is off.",
     "// Unreachable through the executor, which will not offer the tool without what its engine asks for; said",
     "// anyway because a scheduled run and an approval replay both reach `run` by other doors.",
+    "/** `array`: every entry is a string. A step list and a tag list are the two callers. */",
+    "/**\n   * An explicit `null` is a value the tool acts on, not a missing argument.\n   *\n   * Only the fields whose description says \"null clears it\" set this. Everywhere else a null is read\n   * as \"the model left this out\", because a model that sends null for a field it has nothing to say\n   * about must not be told its call was malformed.\n   */",
+    "/**\n * A task as the model sees it.\n *\n * Everything the reader set is named, because a model that cannot see a list or a step count will\n * happily rewrite the field it cannot see. The list travels as an id: names are the reader's, and\n * `list_task_lists` is the one call that knows them.\n */",
+    "/** The counts a listing answers with, so \"how many are left\" needs no second call. */",
+    "/**\n * The list a name or id points at.\n *\n * A name the reader does not have is refused with what they do have, rather than silently filing the\n * task in the inbox: the model said \"Work\", and a task that landed nowhere would read as a success.\n */",
+    "/** A note a task came from, checked against the turn's own note scope. */",
   ]],
   ["src/worker/assistant/upstream.ts", [
     "/** A JSON Schema object, built by `toolSchemaFor` from the tool's own declared parameters. */",
@@ -26033,6 +26039,10 @@ const allowed = new Map([
   ["tests/tag-pin-route.test.ts", [
     "// Typed as the context `app.fetch` actually declares, so every field the route may read has to be",
     "// there: the ambient Workers interface is wider than hono needs and cannot be faked outside a Worker.",
+  ]],
+  ["tests/tasks-tools.test.ts", [
+    "/**\r\n * What the chat tools do to the reader's tasks, against a real store.\r\n *\r\n * The store is real rather than mocked because the contract under test is a compound one: a task that\r\n * says it has a list, tags and steps is only true if the three tables agree. A spy would let a tool\r\n * \"succeed\" while the row it wrote carried none of it.\r\n *\r\n * The one thing deliberately not exercised is the model: every case calls the executor exactly as the\r\n * runner would, with the arguments a model would send, and reads the payload the model would see.\r\n */",
+    "// The finished row stays, so \"I did send that last week\" survives the next occurrence.",
   ]],
   ["tests/template-library-route.test.ts", [
     "// Every field hono's request handler declares, so the fake cannot hand the route less than the real",

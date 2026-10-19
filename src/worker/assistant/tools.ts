@@ -15,9 +15,21 @@
  * the vault while nobody is watching.
  */
 
-import type { AssistantSettings, Task } from '@shared/assistant'
+import type { AssistantSettings, Task, TaskPriority } from '@shared/assistant'
 import { ASSISTANT_TOOL_SPECS, MAX_TASK_TITLE_CHARS, TASK_PRIORITIES, TASK_STATUSES, WEB_SEARCH_TOOL_NAME, toolPayloadText, toolModeFor, webSearchConfigured, type AssistantMemory, type AssistantMemoryCategory, type AutomationKind } from '@shared/assistant'
 import { webSearchEngineFor } from '@shared/web-search-engines'
+import {
+  MAX_LIST_NAME_CHARS,
+  MAX_STEP_TEXT_CHARS,
+  MAX_TAGS_PER_TASK,
+  REMIND_OFFSETS,
+  REPEAT_FREQUENCIES,
+  parseRepeatRule,
+  remindAtFor,
+  type RemindOffset,
+  type TaskCounts,
+  type TodoTask,
+} from '@shared/todos/model'
 import { MEMORY_CATEGORIES_FOR_TOOLS } from './memory-service'
 import { parseLocalTime, toLocalMinute } from '@shared/assistant-time'
 import { hasHistoricalIntent } from '@shared/assistant-memory'
@@ -58,7 +70,7 @@ import { searchWeb } from './web-search'
 import { assertRelayableEndpoint } from '@shared/ai-proxy-guard'
 import { NO_REDIRECT, isRedirectResponse } from '../lib/no-redirect'
 
-export type FieldKind = 'string' | 'number' | 'integer' | 'boolean' | 'object'
+export type FieldKind = 'string' | 'number' | 'integer' | 'boolean' | 'object' | 'array'
 
 export interface FieldSpec {
   type: FieldKind
@@ -68,7 +80,18 @@ export interface FieldSpec {
   maxLength?: number
   minimum?: number
   maximum?: number
+  /** `array`: every entry is a string. A step list and a tag list are the two callers. */
+  items?: 'string'
+  maxItems?: number
   optional?: boolean
+  /**
+   * An explicit `null` is a value the tool acts on, not a missing argument.
+   *
+   * Only the fields whose description says "null clears it" set this. Everywhere else a null is read
+   * as "the model left this out", because a model that sends null for a field it has nothing to say
+   * about must not be told its call was malformed.
+   */
+  nullable?: boolean
 }
 
 export interface ToolContext {
@@ -189,11 +212,12 @@ function tool(definition: ToolDefinition): ToolDefinition {
   return definition
 }
 
-const localDateField = (description: string): FieldSpec => ({
+const localDateField = (description: string, nullable = false): FieldSpec => ({
   type: 'string',
   description: `${description} Local to the reader: YYYY-MM-DD, or YYYY-MM-DDTHH:MM for a time.`,
   maxLength: 32,
   optional: true,
+  ...(nullable ? { nullable } : {}),
 })
 
 function dueMillis(value: unknown, ctx: ToolContext): number | null | undefined {
@@ -205,15 +229,64 @@ function dueMillis(value: unknown, ctx: ToolContext): number | null | undefined 
   return parsed
 }
 
-function presentTask(task: Task): Record<string, unknown> {
+/**
+ * A task as the model sees it.
+ *
+ * Everything the reader set is named, because a model that cannot see a list or a step count will
+ * happily rewrite the field it cannot see. The list travels as an id: names are the reader's, and
+ * `list_task_lists` is the one call that knows them.
+ */
+function presentTask(task: TodoTask): Record<string, unknown> {
   return {
     id: task.id,
     title: task.title,
     status: task.status,
     priority: task.priority,
     due_at: task.dueAt,
+    starred: task.starred,
+    list_id: task.listId,
+    ...(task.tags.length ? { tags: task.tags.map((tag) => tag.name) } : {}),
+    ...(task.repeat ? { repeat: task.repeat.interval > 1 ? `${task.repeat.freq} x${task.repeat.interval}` : task.repeat.freq } : {}),
+    ...(task.remindAt !== null ? { remind_at: task.remindAt } : {}),
+    ...(task.stepTotal ? { steps: `${task.stepDone}/${task.stepTotal}` } : {}),
     ...(task.description ? { description: task.description.slice(0, 300) } : {}),
+    ...(task.noteId ? { note_id: task.noteId } : {}),
+    ...(task.conversationId ? { conversation_id: task.conversationId } : {}),
   }
+}
+
+/** The counts a listing answers with, so "how many are left" needs no second call. */
+function presentCounts(counts: TaskCounts): Record<string, number> {
+  return {
+    inbox: counts.inbox,
+    today: counts.today,
+    upcoming: counts.upcoming,
+    overdue: counts.overdue,
+    open: counts.all,
+    completed: counts.completed,
+    starred: counts.starred,
+  }
+}
+
+/**
+ * The list a name or id points at.
+ *
+ * A name the reader does not have is refused with what they do have, rather than silently filing the
+ * task in the inbox: the model said "Work", and a task that landed nowhere would read as a success.
+ */
+async function resolveListId(ref: unknown, ctx: ToolContext): Promise<string | null> {
+  if (ref === undefined || ref === null || ref === '') return null
+  if (typeof ref !== 'string') throw new ToolError('A list is named by its name or id.')
+  const found = await ctx.store.resolveTaskList(ref.trim().slice(0, 200))
+  if (!found) throw new ToolError(`No list matches "${ref.slice(0, 60)}". Call list_task_lists to see the lists.`)
+  return found.id
+}
+
+/** A note a task came from, checked against the turn's own note scope. */
+async function resolveNoteId(ref: string, ctx: ToolContext): Promise<string> {
+  const id = ref.trim()
+  await assertNoteReadable(ctx.env.DB, ctx.store.userId, id, await ctx.noteScope())
+  return id
 }
 
 /** A quoted fragment of user text for the approval card, shortened so the card stays readable. */
@@ -222,7 +295,7 @@ function quoted(text: string, max = 90): string {
   return clean.length > max ? `${clean.slice(0, max - 1)}…` : clean
 }
 
-async function resolveTaskOrThrow(ref: unknown, ctx: ToolContext): Promise<Task> {
+async function resolveTaskOrThrow(ref: unknown, ctx: ToolContext): Promise<TodoTask> {
   const task = await ctx.store.resolveTask(String(ref))
   if (!task) throw new ToolError(`No single task matches "${String(ref).slice(0, 80)}". List tasks to find the exact one.`)
   return task
@@ -294,21 +367,39 @@ export const TASK_TOOLS: ToolDefinition[] = [
     name: 'create_task',
     permission: 'write',
     maxCallsPerTurn: 5,
-    description: 'Create a to-do for the reader. Use for action items, not for facts.',
+    description: 'Create a to-do for the reader. Use for action items, not for facts. A list, tags and steps are optional; a task without a list lands in the inbox.',
     fields: {
       title: { type: 'string', description: 'What needs doing, in a few words.', minLength: 1, maxLength: MAX_TASK_TITLE_CHARS },
       description: { type: 'string', description: 'Optional longer note.', maxLength: 2000, optional: true },
       priority: { type: 'string', enum: TASK_PRIORITIES, description: 'Defaults to medium.', optional: true },
       due: localDateField('When it is due.'),
+      list: { type: 'string', description: 'List name or id. Call list_task_lists first if unsure what exists.', maxLength: 200, optional: true },
       project: { type: 'string', description: 'Project name or id.', maxLength: 200, optional: true },
+      tags: { type: 'array', items: 'string', maxItems: MAX_TAGS_PER_TASK, description: 'Tag names. One that does not exist yet is created.', optional: true },
+      steps: { type: 'array', items: 'string', maxItems: 20, maxLength: MAX_STEP_TEXT_CHARS, description: 'Sub-tasks, in order.', optional: true },
+      repeat: { type: 'string', enum: REPEAT_FREQUENCIES, description: 'How often it comes back. Leave it out for a one-off.', optional: true },
+      remind: { type: 'string', enum: REMIND_OFFSETS, description: 'When to remind the reader, relative to the due time. Defaults to none.', optional: true },
+      starred: { type: 'boolean', description: 'Mark it as one to keep in sight.', optional: true },
+      note: { type: 'string', description: 'The id of a note this task came from.', maxLength: 26, optional: true },
     },
     async run(args, ctx) {
+      const dueAt = dueMillis(args.due, ctx) ?? null
+      const listId = await resolveListId(args.list, ctx)
+      const noteId = typeof args.note === 'string' && args.note.trim() ? await resolveNoteId(args.note, ctx) : null
       const task = await ctx.store.createTask({
         title: String(args.title),
         description: typeof args.description === 'string' ? args.description : '',
-        priority: args.priority as Task['priority'] | undefined,
-        dueAt: dueMillis(args.due, ctx) ?? null,
+        priority: args.priority as TaskPriority | undefined,
+        dueAt,
         projectId: (await resolveProjectIdOrThrow(args.project, ctx)) ?? null,
+        listId,
+        starred: args.starred === true,
+        repeat: parseRepeatRule(args.repeat ? { freq: args.repeat, interval: 1 } : null),
+        remindAt: remindAtFor(dueAt, (args.remind as RemindOffset | undefined) ?? 'none'),
+        noteId,
+        conversationId: ctx.conversationId ?? null,
+        tags: Array.isArray(args.tags) ? args.tags as string[] : undefined,
+        steps: Array.isArray(args.steps) ? args.steps as string[] : undefined,
       })
       await ctx.store.recordActivity('task.created', task.title)
       return { created: presentTask(task) }
@@ -318,47 +409,91 @@ export const TASK_TOOLS: ToolDefinition[] = [
     name: 'list_tasks',
     permission: 'read',
     maxCallsPerTurn: 3,
-    description: 'List the reader\'s tasks. view: today (due today or overdue), upcoming, overdue, open, completed.',
+    description: 'List the reader\'s tasks. view: today (due today or overdue), upcoming, overdue, inbox (no list), starred, open, completed.',
     fields: {
-      view: { type: 'string', enum: ['today', 'upcoming', 'overdue', 'open', 'completed'], description: 'Defaults to open.', optional: true },
+      view: { type: 'string', enum: ['today', 'upcoming', 'overdue', 'inbox', 'starred', 'open', 'completed'], description: 'Defaults to open.', optional: true },
       query: { type: 'string', description: 'Substring of a title or note.', maxLength: 200, optional: true },
+      list: { type: 'string', description: 'Only tasks in this list (name or id).', maxLength: 200, optional: true },
+      tag: { type: 'string', description: 'Only tasks carrying this tag.', maxLength: 40, optional: true },
+      priority: { type: 'string', enum: TASK_PRIORITIES, optional: true },
       limit: { type: 'integer', minimum: 1, maximum: 50, optional: true },
     },
     async run(args, ctx) {
       const view = (args.view as string | undefined) ?? 'open'
+      const listId = await resolveListId(args.list, ctx)
+      const tagId = typeof args.tag === 'string' && args.tag.trim()
+        ? (await ctx.store.resolveTaskTag(args.tag.replace(/^#/, '').trim()))?.id
+        : undefined
       const tasks = await ctx.store.listTasks({
         status: view === 'open' ? 'open' : 'all',
-        view: view === 'open' ? 'all' : view as 'today' | 'upcoming' | 'overdue' | 'completed',
+        view: view === 'open' ? 'open' : view as 'today' | 'upcoming' | 'overdue' | 'inbox' | 'starred' | 'completed',
         query: typeof args.query === 'string' ? args.query : undefined,
+        listId,
+        tagId,
+        priority: args.priority as TaskPriority | undefined,
         limit: typeof args.limit === 'number' ? args.limit : 25,
         dayEnd: ctx.dayEnd,
       })
-      return { count: tasks.length, tasks: tasks.map(presentTask) }
+      const counts = await ctx.store.taskCounts(ctx.dayEnd)
+      return { count: tasks.length, tasks: tasks.map(presentTask), counts: presentCounts(counts) }
+    },
+  }),
+  tool({
+    name: 'get_task',
+    permission: 'read',
+    maxCallsPerTurn: 5,
+    description: 'Read one task with its steps, so you can tell which step is done before changing it.',
+    fields: {
+      task: { type: 'string', description: 'Task id, or a title that matches exactly one task.', minLength: 1, maxLength: 300 },
+    },
+    async run(args, ctx) {
+      const task = await resolveTaskOrThrow(args.task, ctx)
+      const steps = await ctx.store.listSteps(task.id)
+      return { task: presentTask(task), steps: steps.map((step) => ({ text: step.text, done: step.done })) }
     },
   }),
   tool({
     name: 'update_task',
     permission: 'write',
     maxCallsPerTurn: 5,
-    description: 'Change a task: title, note, status, priority, due date or project.',
+    description: 'Change a task: title, note, status, priority, due date, list, tags, star, repeat or reminder.',
     fields: {
       task: { type: 'string', description: 'Task id, or a title that matches exactly one task.', minLength: 1, maxLength: 300 },
       title: { type: 'string', minLength: 1, maxLength: MAX_TASK_TITLE_CHARS, optional: true },
       description: { type: 'string', maxLength: 2000, optional: true },
       status: { type: 'string', enum: TASK_STATUSES, optional: true },
       priority: { type: 'string', enum: TASK_PRIORITIES, optional: true },
-      due: localDateField('New due date; pass null to clear it.'),
-      project: { type: 'string', description: 'Project name or id; null clears it.', maxLength: 200, optional: true },
+      due: localDateField('New due date; pass null to clear it.', true),
+      list: { type: 'string', description: 'List name or id; null moves it to the inbox.', maxLength: 200, optional: true, nullable: true },
+      project: { type: 'string', description: 'Project name or id; null clears it.', maxLength: 200, optional: true, nullable: true },
+      tags: { type: 'array', items: 'string', maxItems: MAX_TAGS_PER_TASK, description: 'The task\'s tags, replacing the ones it has.', optional: true },
+      repeat: { type: 'string', enum: [...REPEAT_FREQUENCIES, 'none'], description: 'Set or clear how often it repeats.', optional: true },
+      remind: { type: 'string', enum: REMIND_OFFSETS, description: 'Set or clear the reminder.', optional: true },
+      starred: { type: 'boolean', optional: true },
+      note: { type: 'string', description: 'The id of a note this task came from; null clears it.', maxLength: 26, optional: true, nullable: true },
     },
     async run(args, ctx) {
       const task = await resolveTaskOrThrow(args.task, ctx)
+      const dueAt = dueMillis(args.due, ctx)
       const updated = await ctx.store.updateTask(task.id, {
         ...(args.title !== undefined ? { title: String(args.title) } : {}),
         ...(args.description !== undefined ? { description: String(args.description) } : {}),
         ...(args.status !== undefined ? { status: args.status as Task['status'] } : {}),
         ...(args.priority !== undefined ? { priority: args.priority as Task['priority'] } : {}),
-        ...(args.due !== undefined ? { dueAt: dueMillis(args.due, ctx) ?? null } : {}),
+        ...(dueAt !== undefined ? { dueAt } : {}),
+        ...(args.list !== undefined ? { listId: await resolveListId(args.list, ctx) } : {}),
         ...(args.project !== undefined ? { projectId: (await resolveProjectIdOrThrow(args.project, ctx)) ?? null } : {}),
+        ...(args.tags !== undefined ? { tags: args.tags as string[] } : {}),
+        ...(args.repeat !== undefined
+          ? { repeat: args.repeat === 'none' ? null : parseRepeatRule({ freq: args.repeat, interval: 1 }) }
+          : {}),
+        ...(args.remind !== undefined
+          ? { remindAt: remindAtFor(dueAt === undefined ? task.dueAt : dueAt, args.remind as RemindOffset) }
+          : {}),
+        ...(args.starred !== undefined ? { starred: args.starred === true } : {}),
+        ...(args.note !== undefined
+          ? { noteId: typeof args.note === 'string' && args.note.trim() ? await resolveNoteId(args.note, ctx) : null }
+          : {}),
       })
       return { updated: updated ? presentTask(updated) : null }
     },
@@ -367,15 +502,19 @@ export const TASK_TOOLS: ToolDefinition[] = [
     name: 'complete_task',
     permission: 'write',
     maxCallsPerTurn: 10,
-    description: 'Mark a task done.',
+    description: 'Mark a task done. A repeating task files the next occurrence and tells you its date; say that date in your reply.',
     fields: {
       task: { type: 'string', description: 'Task id, or a title that matches exactly one task.', minLength: 1, maxLength: 300 },
     },
     async run(args, ctx) {
       const task = await resolveTaskOrThrow(args.task, ctx)
-      const done = await ctx.store.updateTask(task.id, { status: 'done' })
-      if (done) await ctx.store.recordActivity('task.completed', done.title)
-      return { completed: done ? presentTask(done) : null }
+      const result = await ctx.store.completeTask(task.id, ctx.timezone)
+      if (!result) throw new ToolError('This task no longer exists.')
+      await ctx.store.recordActivity('task.completed', result.task.title)
+      return {
+        completed: presentTask(result.task),
+        ...(result.next ? { next: presentTask(result.next) } : {}),
+      }
     },
   }),
   tool({
@@ -395,6 +534,83 @@ export const TASK_TOOLS: ToolDefinition[] = [
       if (!task) throw new ToolError('This task no longer exists.')
       await ctx.store.deleteTask(task.id)
       await ctx.store.recordActivity('task.deleted', task.title)
+    },
+  }),
+  tool({
+    name: 'list_task_lists',
+    permission: 'read',
+    maxCallsPerTurn: 3,
+    description: 'List the reader\'s to-do lists, with how many tasks each still has open.',
+    fields: {},
+    async run(_args, ctx) {
+      const lists = await ctx.store.listTaskLists()
+      return {
+        lists: lists.map((list) => ({
+          id: list.id,
+          name: list.name,
+          open: list.openCount,
+          total: list.openCount + list.doneCount,
+        })),
+      }
+    },
+  }),
+  tool({
+    name: 'create_task_list',
+    permission: 'write',
+    maxCallsPerTurn: 3,
+    description: 'Create a to-do list. A list whose name already exists is returned instead of duplicated.',
+    fields: {
+      name: { type: 'string', minLength: 1, maxLength: MAX_LIST_NAME_CHARS },
+      color: { type: 'string', description: 'A hex colour from the app palette.', maxLength: 7, optional: true },
+    },
+    async run(args, ctx) {
+      const list = await ctx.store.createTaskList({
+        name: String(args.name),
+        color: typeof args.color === 'string' ? args.color : null,
+      })
+      return { list: { id: list.id, name: list.name, open: list.openCount, total: list.openCount + list.doneCount } }
+    },
+  }),
+  tool({
+    name: 'add_task_step',
+    permission: 'write',
+    maxCallsPerTurn: 8,
+    description: 'Add one step (sub-task) to a task, at the end of its list.',
+    fields: {
+      task: { type: 'string', description: 'Task id, or a title that matches exactly one task.', minLength: 1, maxLength: 300 },
+      text: { type: 'string', minLength: 1, maxLength: MAX_STEP_TEXT_CHARS },
+    },
+    async run(args, ctx) {
+      const task = await resolveTaskOrThrow(args.task, ctx)
+      const step = await ctx.store.addStep(task.id, String(args.text))
+      if (!step) throw new ToolError('This task already has the maximum number of steps.')
+      return { added: step.text, steps: (await ctx.store.listSteps(task.id)).length }
+    },
+  }),
+  tool({
+    name: 'check_task_step',
+    permission: 'write',
+    maxCallsPerTurn: 10,
+    description: 'Tick or untick one step of a task. The step is matched by its text.',
+    fields: {
+      task: { type: 'string', description: 'Task id, or a title that matches exactly one task.', minLength: 1, maxLength: 300 },
+      step: { type: 'string', description: 'The step\'s text, or enough of it to match exactly one step.', minLength: 1, maxLength: MAX_STEP_TEXT_CHARS },
+      done: { type: 'boolean', description: 'Defaults to true.', optional: true },
+    },
+    async run(args, ctx) {
+      const task = await resolveTaskOrThrow(args.task, ctx)
+      const steps = await ctx.store.listSteps(task.id)
+      const needle = String(args.step).trim().toLowerCase()
+      const matches = steps.filter((step) => step.text.toLowerCase().includes(needle))
+      if (matches.length !== 1) {
+        throw new ToolError(matches.length
+          ? `Several steps match "${quoted(String(args.step))}". Name the one you mean more fully.`
+          : `No step matches "${quoted(String(args.step))}". Read the task first to see its steps.`)
+      }
+      const step = matches[0]!
+      const done = args.done !== false
+      await ctx.store.updateStep(task.id, step.id, { done })
+      return { step: step.text, done }
     },
   }),
 ]
@@ -1265,6 +1481,10 @@ export function parametersSchema(fields: Record<string, FieldSpec>): Record<stri
     if (spec.maxLength !== undefined) schema.maxLength = spec.maxLength
     if (spec.minimum !== undefined) schema.minimum = spec.minimum
     if (spec.maximum !== undefined) schema.maximum = spec.maximum
+    if (spec.type === 'array') {
+      schema.items = { type: spec.items ?? 'string' }
+      if (spec.maxItems !== undefined) schema.maxItems = spec.maxItems
+    }
     if (spec.type === 'string') schema.additionalProperties = false
     properties[name] = schema
     if (!spec.optional) required.push(name)
@@ -1285,6 +1505,10 @@ export function validateArgs(fields: Record<string, FieldSpec>, raw: unknown): R
   for (const [name, spec] of Object.entries(fields)) {
     const value = source[name]
     if (value === undefined || value === null) {
+      if (value === null && spec.nullable) {
+        out[name] = null
+        continue
+      }
       if (spec.optional) continue
       throw new ToolError(`Missing required argument "${name}".`)
     }
@@ -1312,6 +1536,18 @@ export function validateArgs(fields: Record<string, FieldSpec>, raw: unknown): R
         if (typeof value !== 'object' || Array.isArray(value)) throw new ToolError(`"${name}" must be an object.`)
         out[name] = value
         continue
+      case 'array': {
+        if (!Array.isArray(value)) throw new ToolError(`"${name}" must be a list.`)
+        const items = value
+          .filter((entry): entry is string => typeof entry === 'string')
+          .map((entry) => {
+            const trimmed = entry.trim()
+            return spec.maxLength !== undefined ? trimmed.slice(0, spec.maxLength) : trimmed
+          })
+          .filter(Boolean)
+        out[name] = spec.maxItems !== undefined ? items.slice(0, spec.maxItems) : items
+        continue
+      }
       default:
         throw new ToolError(`"${name}" declares an unknown type.`)
     }
