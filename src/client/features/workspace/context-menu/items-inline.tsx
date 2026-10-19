@@ -1,7 +1,7 @@
 import { CaseUpper, CheckSquare, Copy, ExternalLink, FileText, Heading, Images, List, Maximize2, Network, Pencil, Plus, Sigma, SquarePen, Trash2 } from 'lucide-react'
 import { submenuFor, type MenuItem } from '../../../components/overlay'
 import { t } from '../../../lib/i18n'
-import { findNoteByTitle, noteById } from '../../../store/notes'
+import { findNoteByTitle } from '../../../store/notes'
 import { updateTaskAtSourceLine } from '../../../editor/commands'
 import { formatMenuItems } from '../../../editor/editorMenus'
 import { editLinkFromMenu } from '../../links/use-link-editor'
@@ -166,7 +166,7 @@ export function buildTaskItems(ctx: MenuCtx): MenuItem[] | null {
   // so the row is not offered.
   const sourceLine = line === null || line === undefined ? '' : (splitLines(ctx.content).lines[line] ?? '')
   const toAssistant = ctx.noteId
-    ? buildNoteTaskMenuItem({ line: sourceLine, noteId: ctx.noteId, noteTitle: noteById(ctx.noteId)?.title ?? '' })
+    ? buildNoteTaskMenuItem({ line: sourceLine, noteId: ctx.noteId })
     : null
   if (toAssistant) items.push(toAssistant)
   if (isSourceMenu(ctx)) {

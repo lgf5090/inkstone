@@ -61,6 +61,7 @@ import { useNotes } from '../../store/notes'
 import { MarkdownBody } from '../preview/MarkdownBody'
 import { attachmentTargetOf, compareChoices, MAX_LOADED_MESSAGES, modelLabelOf, PASTE_FILE_MIN_CHARS, streamInterruptedLine, useAssistant, type AssistantView, type CompareTurn } from './assistant-store'
 import { MessageMenu, useMessageMenu } from './MessageMenu'
+import { saveMessageAsTask } from './save-as-task'
 import { AssistantBubble, CHAT_MENTION_LINKS } from './MessageParts'
 import { CanvasPanel } from './CanvasPanel'
 import { openNote } from './note-links'
@@ -1258,6 +1259,7 @@ export function UserBubble({
           text,
           ...(removable ? { onEdit: () => setDraft(text), onDelete: askToDelete } : {}),
           ...(messageId ? { onFork: () => void useAssistant.getState().forkFrom(messageId) } : {}),
+          ...(messageId ? { onSaveAsTask: () => saveMessageAsTask(text, useAssistant.getState().activeId) } : {}),
           ...(messageId && onStartPicking ? { onSelect: () => onStartPicking(messageId) } : {}),
           ...(messageId && onShare ? { onShare: () => onShare(messageId) } : {}),
         }}

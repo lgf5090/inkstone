@@ -63,6 +63,28 @@ export function startChatAboutFolder(folderId: string): void {
 }
 
 /**
+ * Start a thread about one task.
+ *
+ * The task is not a scope chip the way a note is: there is no scope kind for it, and inventing one
+ * would mean teaching the worker's retrieval about a table it does not read. What the model needs is
+ * the id, which is the one thing it cannot guess from a title. So the composer is seeded with the
+ * title, the id and a clipped note — the reader finishes the sentence, and nothing is sent for them.
+ */
+export function startChatAboutTask(task: { id: string, title: string, description?: string }): void {
+  const assistant = useAssistant.getState()
+  const running = assistant.turn
+  if (running && !running.done) {
+    useUi.getState().toast({ title: t('assistant.edit.busy'), tone: 'warning' })
+    return
+  }
+  assistant.setView('chat')
+  assistant.newConversation()
+  const excerpt = (task.description ?? '').replace(/\s+/g, ' ').trim().slice(0, 400)
+  assistant.seedComposer(`${t('todo.chat.about_task', { title: task.title, id: task.id })}${excerpt}`)
+  surfaceAssistant()
+}
+
+/**
  * Open a stored conversation from wherever the reader is.
  *
  * A note can point at a thread (`![[chat:…]]`), and following that pointer is not a scope change — it

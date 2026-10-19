@@ -1851,6 +1851,9 @@ const allowed = new Map([
     "// The one row here that writes a mark on the turn rather than sending it somewhere: keeping is the reader",
     "// saying this answer is worth coming back to, so it sits above the two verdicts, which say the same thing",
     "// about the answer's quality instead of its place.",
+    "// Right after quoting, and for either role: \"turn this into something to do\" is the same thought",
+    "// whichever side of the conversation said it.",
+    "/**\n   * Present for a stored turn: keeps this message as a task.\n   *\n   * The first line becomes the title and the rest the note, so the row is offered on both roles — what\n   * the reader said (\"order water\") and what the assistant answered (\"here is how to ship it\") are both\n   * things to do.\n   * It opens the editor rather than writing a task, because only the reader knows the list and the date.\n   */",
   ]],
   ["src/client/features/chat/MessageParts.tsx", [
     "/**\n * The pieces of one assistant reply.\n *\n * Three things the reference project got wrong in ways only a reader notices:\n *  - it reused the note prose class, so a one-line answer filled a screen;\n *  - it stored the tool chip's words in English inside the message row, so a Chinese interface showed\n *    English pills that no translation could reach;\n *  - it kept the Approve button live after the reply was saved, because it read the approval out of the\n *    message rather than out of the pending-action table.\n *\n * So the chip's words come from the locale catalog by tool name, the prose is its own class, and the\n * approval card is driven by the action's current status.\n */",
@@ -2171,10 +2174,12 @@ const allowed = new Map([
     "/* An empty list is where the idea of a skill is least obvious, so the examples are offered\n                here as well as in the menu — this is the one place a reader has nothing else to press. */",
   ]],
   ["src/client/features/chat/TasksView.tsx", [
-    "/**\n * The assistant's task list.\n *\n * Three tabs rather than one long list, because the question a reader opens this for is \"what is on\n * me today\", and a completed task should leave the way without leaving the database.\n *\n * The Today tab's set is decided by the *server*: \"today\" is a span in the reader's timezone, and a\n * browser in another zone would otherwise disagree with the reminder engine about what is overdue.\n */",
-    "/** End of the reader's local day, in the same milliseconds the server compares against. */",
-    "// A column stretches its children; the filter is a row of its own size, as it is on the pages",
-    "// beside this one, rather than a bar the width of the list under it.",
+    "/**\n * The chat's view of the to-do list.\n *\n * Not a second task manager. The app owns creating, editing, listing and deleting, and a full copy of\n * that here would be two interfaces over one table — and the copy that drifts first is always the one\n * nobody is looking at. So this answers the one question a reader asks from inside a conversation —\n * \"what is on me today\" — and hands everything else to the app with one press.\n *\n * The set comes from the same store the app uses rather than from a fetch of its own: a task completed\n * here and a task completed there are the same row, and a second source would show one of them as open.\n */",
+    "/** How many rows the glance shows before it stops being a glance. */",
+    "// Due today or already late: both are \"on me today\", and the server's own `today` view counts them",
+    "// the same way, so the number here matches the badge in the app.",
+    "/** Today as the reader's own date, which is the form the server reads in their timezone. */",
+    "/** Today, or a date — a due date is read at a glance, so the day it is already on is left out. */",
   ]],
   ["src/client/features/chat/ThreadFinder.tsx", [
     "/** The scrolling element the thread lives in. */",
@@ -2342,7 +2347,6 @@ const allowed = new Map([
     "/**\n * The chat app's state.\n *\n * One store rather than one per surface, because the surfaces share more than they differ: the\n * settings decide how a chat turn is assembled, the memory list has to refresh after a turn that\n * called `remember`, and the unread badge is read from two places. Splitting it would mean keeping\n * three stores in step by hand, which is the kind of thing that shows up as a stale panel rather than\n * as an error.\n *\n * A streamed turn lives here and not in React state on purpose: the reader can navigate to another\n * surface mid-reply and come back to find it still arriving, because the generator keeps writing into\n * the same record the view reads.\n */",
     "/** What a reader has typed but the assistant has not answered yet. */",
     "/** A turn can have written memories, tasks and schedules, so the other surfaces re-read once. */",
-    "/**\n * The reader's own end of today, as the server reads a due date.\n *\n * A quick-add from the Today tab means \"by tonight\"; sending a bare date would land at 23:59 in the\n * *server's* zone, which is a different day for a reader in Shanghai or São Paulo.\n */",
     "/** 'all', 'none' (unfiled), or a folder id from the notebook's tree. */",
     "/** Conversations with no folder; the tree counts the rest. */",
     "/** The folder tree and the tag list, both counted for conversations. */",
@@ -3937,14 +3941,14 @@ const allowed = new Map([
     "// are then cut out of the title — a task's words should not carry the field markers they were parsed from.",
     "// Only the bracketed fields that live inside the text after the box, so nothing negative is spliced at.",
     "// The emoji dates are removed as whole tokens rather than by index (see EMOJI_DATE above).",
-    "/** The create-task payload for one checkbox, or null when the line is not a task or says nothing. */",
-    "// The way back to the page this came from. The task list shows `description` as plain text, so the",
-    "// note's own deep link is spelled out next to its title rather than left as an unclickable wikilink.",
     "/**\n * The \"turn into a task\" row for the note's task context menu.\n *\n * It lives here, next to the parsing it depends on, so the menu builder that shows it is a single spread\n * (`...buildNoteTaskMenuItem(...)`) rather than a second copy of this logic. Returns null when the line\n * the menu was opened on is not a task with something to say, so the caller just omits the row.\n */",
-    "// The note title is read at press time, not when the menu was built, so a rename while the menu sat",
-    "// open does not stamp the task with the page's older name.",
     "/**\n * A note's checkbox, offered to the assistant's task list — one way, and only one way.\n *\n * The notebook keeps its tasks as checkboxes in the body of a note; the assistant keeps its own task\n * list (`todos_tasks`). Those are two different things, and they are deliberately not kept in step: a\n * checkbox and a task row both own \"is this done\", and the moment both sides can move, a sync has to\n * pick a winner for every disagreement and loses the reader's intent either way.\n *\n * So this file does the one direction that has a clear answer — the reader looking at a checkbox and\n * deciding it belongs on their task list — and nothing else. It creates an assistant task that carries\n * the note back-reference as its description, so whoever picks the task up can get to the page it came\n * from. It never writes the checkbox: the note stays the authority for that box, and the task is a copy\n * with a thread to follow, not a mirror.\n *\n * The due date rides along when the checkbox line carries one. The Tasks-plugin convention the vault\n * already parses (`[due:: 2024-01-01]`, or a 📅 date) is reused rather than reinvented, so the day the\n * reader wrote is the day the task lands on.\n */",
-    "/**\n * Creates the assistant task. One-way by construction: it writes a `todos_tasks` row and reloads the list,\n * and it never touches the note's content, so the checkbox keeps being whatever the note says it is.\n */",
+    "/**\n * The create-task payload for one checkbox, or null when the line is not a task or says nothing.\n *\n * The note travels as `noteId` and nothing else. It used to be spelled out inside the description, which\n * put a sentence about where a task came from into the field the reader writes notes in; the app reads\n * the reference and shows its own way back, so the description is left for what the reader has to say.\n */",
+    "/**\n * Creates the task through the to-do app's own store, and never touches the note.\n *\n * One-way by construction: it writes a `todos_tasks` row and the checkbox keeps being whatever the note\n * says it is. Going through the store rather than the API is what puts the new row in the app's list\n * without a reload — the reader who made it here from a note should find it already there when they open\n * the tab.\n */",
+    "/** The longest title a task may take, matching what the server keeps. */",
+    "/** The longest note a selection carries; the editor's own field is where the reader may extend it. */",
+    "/**\n * The task a piece of a note becomes.\n *\n * The first line is the title and the whole selection is the note, because that is how a reader writes:\n * a line that names the thing, then the detail. Markdown is flattened — a title is drawn on one line of a\n * card, and a heading's `##` there reads as a typo. Nothing but whitespace yields no task at all.\n */",
+    "/**\n * Keeps the editor's current selection as a task.\n *\n * A selection, or the line the caret is on when nothing is selected: \"turn what I am looking at into\n * something to do\" is the same intention either way, and refusing the second case would make the button\n * look broken to a reader who simply had not dragged across the words first.\n */",
   ]],
   ["src/client/features/chat/pdf-text.ts", [
     "/**\n * A PDF's words, read in the browser.\n *\n * The worker cannot pull text out of a PDF — it has no parser and no DOM — so the browser reads it at\n * upload time, where PDF.js already runs for the reading app, and sends the words along with the bytes.\n * The library is imported lazily so an attachment that is not a PDF never pays for it, and the\n * extraction is bounded so a nine-hundred-page manual does not arrive as one enormous prompt.\n */",
@@ -4146,6 +4150,16 @@ const allowed = new Map([
     "// The transcript's rows are the server's: a fragment shown here has no row, and the store may not",
     "// manufacture one — filing it is the next claim's job, on the server, under the reader's own account.",
   ]],
+  ["src/client/features/chat/save-as-task.test.ts", [
+    "/**\n * What one message becomes when the reader keeps it as a task.\n *\n * The interesting cases are the ones a message actually has: a heading or a list item on its first\n * line, a wall of text that has to be cut to a title, and a message with no words at all — an image the\n * reader sent with nothing typed — which must not become a task called \"Untitled\".\n */",
+  ]],
+  ["src/client/features/chat/save-as-task.ts", [
+    "/** The longest title a task may take, matching what the server keeps. */",
+    "/** The longest note a draft carries; the editor's own field is what the reader sees and may extend. */",
+    "/**\n * The draft one message becomes.\n *\n * The text is flattened before it is split, so a message whose first line is a heading or a list item\n * yields a title without its markers. A message with no words in it — an image with no caption — yields\n * no draft at all rather than a task called \"Untitled\".\n */",
+    "/**\n * Open the to-do app with that draft in the editor.\n *\n * The reader lands on the app rather than a dialog floating over the chat: the task is about to exist in\n * a place they will look for it later, and seeing the board behind the panel is how they know where.\n */",
+    "/**\n * Turning something the reader said or was told into a task.\n *\n * The first line is the task's title and the rest is its note, because that is how the reader wrote it:\n * a message that opens with \"order water\" and goes on about which brand is a task called \"order water\"\n * with a note. Markdown is stripped rather than kept — a title is drawn in one line of a card, and `**`\n * in it reads as a typo.\n *\n * What comes out is a *draft*, not a task. Which list it belongs in, and whether it is due on Friday,\n * are questions only the reader can answer, so the editor opens on it and they press save.\n */",
+  ]],
   ["src/client/features/chat/save-provenance.test.ts", [
     "/**\n * The trail a saved answer keeps.\n *\n * A note made from a reply is a copy of something that was read in a thread, and the thread showed two\n * things the copy used to drop: the pages and notes the answer said it had read, and the files a turn\n * carried. Both are the difference between a note the reader can check and a claim they have to take on\n * faith, so both are pinned here — one saved reply, one whole conversation, and an attachments-only\n * thread that must not become an empty note.\n *\n * The other half is the channel the notebook's own commands answer through: busy, failed and empty used\n * to arrive as the same `null`, which left each caller guessing what to tell the reader.\n */",
     "// The pointer back at the thread is still the last thing in the note.",
@@ -4300,6 +4314,7 @@ const allowed = new Map([
     "/** Put the assistant in front of the reader: the notebook's dock where it exists, the chat tab otherwise. */",
     "/**\n * Open a stored conversation from wherever the reader is.\n *\n * A note can point at a thread (`![[chat:…]]`), and following that pointer is not a scope change — it\n * is \"show me what we said\". So the thread is opened as it is, and the tab switch is the same one every\n * other entry point uses. A turn named here is the one the reader was looking at when they left the note,\n * so the thread opens around it instead of at its newest page.\n */",
     "/**\n * Start the thread this command owns, then pin its scope.\n *\n * The order is the contract: the chip belongs to the conversation made here and nowhere else. While an\n * answer is on its way the store refuses a new conversation, so without the check below the pin would land\n * on the live thread — the reader would watch a menu entry quietly re-scope the conversation they were\n * reading an answer from, and the command itself would look as if it had done nothing. Refusing is the\n * honest half-answer, and it is what `summarizeFolder` already says for the one entry point that goes\n * through it; the list and the tree call these two directly.\n */",
+    "/**\n * Start a thread about one task.\n *\n * The task is not a scope chip the way a note is: there is no scope kind for it, and inventing one\n * would mean teaching the worker's retrieval about a table it does not read. What the model needs is\n * the id, which is the one thing it cannot guess from a title. So the composer is seeded with the\n * title, the id and a clipped note — the reader finishes the sentence, and nothing is sent for them.\n */",
   ]],
   ["src/client/features/chat/stored-reasoning.test.ts", [
     "/**\n * What a reopened thread shows of the thinking behind an answer.\n *\n * The fold used to exist only while a turn was streaming, because the trace was never filed with the\n * answer. Now it is a column on the row, and this pins the join between the two: a message read from the\n * server hands its own reasoning to the bubble, and one that never had any draws no fold at all.\n */",
@@ -4429,6 +4444,15 @@ const allowed = new Map([
   ["src/client/features/chat/tag-attach.test.ts", [
     "/**\n * A new tag has to reach the conversation it was made for, or say why it did not.\n *\n * `createTag` is optimistic — it validates the name, answers a duplicate with the tag that already\n * exists, seeds the local cache and posts the row without waiting — so its id is in hand before the\n * server has a row to point at, and the attach route refuses an unknown tag. The old path caught that\n * refusal and threw the answer away: the reader typed a name, nothing appeared, and no one said so.\n * What is pinned here is the two honest outcomes: the conversation is filed once the row is back, or a\n * danger toast says it was not.\n */",
     "// The row lands on the second read, which is what a POST still on the wire looks like from here.",
+  ]],
+  ["src/client/features/chat/task-refs.test.ts", [
+    "/**\n * The chips a tool result earns.\n *\n * Two things are pinned: a task row becomes a chip, and nothing else does. The second half is the one\n * that matters — a list answers with `{ id, name }`, and a chip drawn from it would navigate the reader\n * to a task id that is really a list, which opens an empty panel over nothing.\n */",
+  ]],
+  ["src/client/features/chat/task-refs.ts", [
+    "/**\n * The tasks a turn named, pulled out of what the tools answered.\n *\n * A task tool answers with JSON, and the rows in it are tasks the reader can open. Printing that as\n * text makes them copy a title into a search box; the ids are already in hand, so the row offers the\n * door instead of the address.\n *\n * Only the task tools are read. A note carries an id and a title too, and a chip that opened a note in\n * the to-do app would be a link to nothing — the same reasoning `note-refs` states from the other side.\n */",
+    "/** The tools whose payload describes tasks, by name. */",
+    "/** The shape every task id in this app has: a 26-character Crockford-ish ULID. */",
+    "/**\n * The task rows in one payload, in the order the payload named them.\n *\n * A task is recognised by carrying both an id of the right shape and a title; a list row carries a\n * name instead, so a list is never mistaken for a task. A result that is not the JSON this app wrote —\n * a provider's own text, or an error string — yields nothing rather than a guess: a chip is a promise\n * that pressing it opens something.\n */",
   ]],
   ["src/client/features/chat/template-fill.test.ts", [
     "/**\n * Filling a template's AI passages.\n *\n * Two properties are under test here, and both were missing before:\n *\n *  - a note is written once, at the end. A run that stopped on the second of two passages used to leave\n *    the first one's paragraph sitting in the note beside the hole the rest had left, so the reader had a\n *    document that looked finished in places and was not. These cases read the note *between* the answers.\n *  - the order of the writes is the order of the offsets. Each answer grows the note, so the passages are\n *    laid down from the end of the document backwards and the offsets recorded at render time stay true —\n *    a bug that only shows up with two slots, which is why two slots are what this file uses.\n *\n * The turns are driven by the channel that answers them, one promise per instruction, so a test can look\n * at the note and at the job in the middle of a run rather than only after it.\n */",
@@ -4626,7 +4650,6 @@ const allowed = new Map([
   ]],
   ["src/client/features/chat/wired-surfaces.test.ts", [
     "/**\n * Four surfaces that had their logic written and no way to be reached.\n *\n * Each case below is the seam, not the algorithm: the settings row that lets a reader point the built-in\n * search tool at their own engine, the composer chip that has to say whether that turn could search at\n * all, the note menu that turns a checkbox into a task, the scope chip and the answer provenance that make\n * a turn's limits readable without a mouse, and the delete toast that says how many turns the file it\n * removed was quoted by. The engines behind them are covered by their own files.\n *\n * jsdom lays nothing out, so every claim here is about structure, role and accessible name — never about\n * where a control would have been painted.\n */",
-    "/** What `api.assistant.createTask` was pointed at, in order. */",
     "/** Type into the box the way a keyboard does, so React's own value tracking sees the change. */",
     "/** A control's accessible description: the visually-hidden node a disabled chip points at. */",
     "/** The box a row's own title names, found through the `<label for>` the row writes. */",
@@ -4637,7 +4660,6 @@ const allowed = new Map([
     "// The names used to live only in a `title`, which a keyboard and a thumb never fire.",
     "// The preview's element is only read by the rows that need one; a task line does not.",
     "// Its place is after the rows that edit the box itself, before the ones that take the line away.",
-    "// A rename while the menu sat open has to be the name the task carries.",
     "// A note without an id has nowhere to point the task back at.",
     "/** The engine keys the fake route holds: the same shape the route answers with, and the same three fields. */",
     "/**\n * The engine key routes, faked as the worker behaves: the key is accepted, and only its last four characters\n * are ever handed back. Nothing here keeps a key a test can print, because a test that asserts on the\n * credential would be the leak.\n */",
@@ -4667,6 +4689,8 @@ const allowed = new Map([
     "// Nothing has been opened: the ring says so, and its rows are not in the document at all.",
     "// Two numbers, one per key that answered, drawn by the card itself. The refused one is left off rather",
     "// than drawn as a zero, because a zero is a claim about a different key.",
+    "/** What `api.todos.create` was pointed at, in order. */",
+    "// The way back is the id, not a sentence about the note in the reader's own notes field.",
   ]],
   ["src/client/features/command/CommandPalette.tsx", [
     "// The pointer already sits on its row; scrolling would move other rows under it and",
@@ -4735,6 +4759,8 @@ const allowed = new Map([
     "// The same switch the composer's chip draws, read back off the store on every press.",
     "// With nothing answering there is no picker to show, and that is the same way out the composer",
     "// takes: the settings screen, where the model is chosen.",
+    "// The line under the caret when nothing is selected, which is the case a command palette is",
+    "// usually opened from: the reader is looking at the sentence, not holding a selection.",
   ]],
   ["src/client/features/emoji/EmojiPicker.test.ts", [
     "/** huō-jiàn, rocket: the Han word the set carries for it. */",
@@ -10614,6 +10640,7 @@ const allowed = new Map([
   ]],
   ["src/client/features/todos/TaskEditor.tsx", [
     "/**\n * The task editor: one dialog for a new task and for an existing one.\n *\n * It is a `Modal`, which already renders as a bottom sheet on a phone and a centred dialog on a\n * desktop — the two shapes the reference app has, without a second component. Fields are saved\n * together rather than on every keystroke: a title is edited in one pass, and a save per character\n * would be a write per character.\n *\n * Steps are the exception, and only for a task that already exists: adding a step is its own request\n * because the row it produces has to come back with an id the panel can tick.\n */",
+    "/* Where the task came from, and the way back into a conversation about it. Both close the\n            panel first: the chat tab is a different container, and a dialog left open over it would\n            cover the composer the reader was just handed. */",
   ]],
   ["src/client/features/todos/TaskViews.tsx", [
     "/**\n * The four reading views: plan, starred, completed, and one list or tag.\n *\n * They share one grouped list because they differ only in how the page is split and what the group\n * headings say. Each view owns its own split — the plan groups by when, completed by the day it was\n * finished — and hands the result here.\n */",
@@ -10624,12 +10651,17 @@ const allowed = new Map([
   ["src/client/features/todos/TodosApp.tsx", [
     "/**\n * The to-do container: the rail's `/todo` address, and the frame every view sits in.\n *\n * Two layouts, one state. A desktop gets a fixed sidebar and a board with room for three columns; a\n * phone gets a large title, the same board in two columns, a floating bottom bar for the three\n * cross-cutting views, and a button that adds a task. The breakpoint is a `matchMedia` query rather\n * than CSS alone because the two layouts differ in structure, not only in spacing.\n */",
   ]],
+  ["src/client/features/todos/open-task.ts", [
+    "/**\n * Opening one task from somewhere that is not the to-do app.\n *\n * A chip in a tool result, a saved message, a note selection — each of them names a task by id and each\n * of them has to land the reader in the same place: the to-do tab, that task's panel open. Doing that\n * from three call sites is how the three of them drift, so the navigation lives here once.\n *\n * The tab switch comes first because it is instant and the load behind it is not: the reader sees the\n * app they asked for while the row is read, rather than a chat that appears to ignore the press. What\n * the store then does — read the row if the open page does not hold it, and open the panel on it — is\n * the half that can fail, and it says so with a toast instead of a panel over nothing.\n */",
+    "/** Show one task in the to-do tab, its panel open. */",
+  ]],
   ["src/client/features/todos/store.ts", [
     "/**\n * The to-do app's state, and the only place it is written.\n *\n * Three rules shape it. The open set is read once and the smart lists are derived from it, because\n * every one of them answers a question about the same tasks and a second fetch would let two panes\n * disagree. A write replaces the row with what the server returned rather than patching a guess, so a\n * repeat that rolled forward or a due date the server re-read shows up as it actually is. And the\n * counts are re-read after a write instead of being adjusted by hand: they are a timezone-aware\n * aggregate, and a second implementation in the browser is a second answer waiting to be wrong.\n */",
     "/** What the editor is open on: an existing task, or a draft for a new one. */",
     "/** An instant, or a local `YYYY-MM-DD[THH:MM]` the server reads in the reader's timezone. */",
     "/** Re-creates a deleted task from the snapshot the reader still has on screen. */",
     "/** Re-reads one task so its step counts match the rows the detail panel is showing. */",
+    "/**\n   * Open one task by id, wherever the reader came from.\n   *\n   * A chip in the chat names a task that may not be on the open page at all — it can be completed, or\n   * older than the page the board loaded. The row is read on its own in that case, because the panel\n   * edits from the store and an id it cannot find would open an empty form over a task that exists.\n   */",
   ]],
   ["src/client/features/todos/task-groups.ts", [
     "/**\n * The readings the views share: how a set of tasks splits into groups, and in what order.\n *\n * These are pure functions over a page the server already scoped, so the grouping rules are the only\n * thing here — no fetching, no state. The day boundaries come in from the server (`dayEnd` is the end\n * of the reader's own day), which is why nothing in this file calls `Date.now()` for \"today\".\n */",
@@ -10707,6 +10739,7 @@ const allowed = new Map([
     "/**\n     * One of the AI entries, run against whatever the caret is holding.\n     *\n     * The command reads the document itself rather than a copy captured when the menu opened: the\n     * selection is where the reader left it, and a note they kept typing in while the menu was up is a\n     * note whose offsets have moved. The whole document is the subject when nothing is selected, which is\n     * what makes \"summarise this note\" reachable from the same menu.\n     */",
     "// The one AI entry that is about the note rather than the selection: it reads the whole body",
     "// and writes to the front matter, so it sits apart from the five that rewrite a passage.",
+    "/* Beside the list control rather than in a menu: it acts on the line or selection the reader is\n          already looking at, and a menu would hide that it is about this text and not the whole note. */",
   ]],
   ["src/client/features/workspace/VersionsPanel.tsx", [
     "// The middle is only materialized when the LCS actually needs it; the unchanged head and",
@@ -18591,11 +18624,17 @@ const allowed = new Map([
   ["src/shared/locales/en-US-subscriptions-notify.ts", [
     "/**\n * The words a notification carries, in English.\n *\n * A separate catalog from the interface's because the worker writes these and the interface never\n * shows them: the scheduler has no request and therefore no reader to ask which language to use, and\n * shipping seven thousand interface keys into the worker to reach twenty sentences would be a cost\n * every deployment pays for a feature one of them uses. `tests/subscriptions-notify-copy.test.ts`\n * pins this file and its Chinese twin to the same keys and the same placeholders.\n */",
   ]],
+  ["src/shared/locales/en-US-todo-notify.ts", [
+    "/**\n * The words a task reminder carries, in English.\n *\n * A separate catalog from the interface's for the reason the subscription one states: the sweep runs on\n * a cron tick with no request behind it, and shipping seven thousand interface keys into the worker to\n * reach three sentences is a cost every deployment pays. `tests/todo-reminders.test.ts` proves this file\n * and its Chinese twin carry the same keys and the same placeholders.\n */",
+  ]],
   ["src/shared/locales/zh-CN-assistant-prompt.ts", [
     "/**\n * The assistant's system prompt, in Chinese. See `en-US-assistant-prompt.ts` for why the instructions\n * are a catalog of their own; the parity test keeps the two files telling the same story.\n */",
   ]],
   ["src/shared/locales/zh-CN-subscriptions-notify.ts", [
     "/**\n * The words a notification carries, in Chinese.\n *\n * The twin of `en-US-subscriptions-notify.ts`; the two are proven against each other by key and by\n * placeholder in `tests/subscriptions-notify-copy.test.ts`. This file is registered as a catalog in\n * `scripts/check-i18n.mjs`, which is what lets it hold Chinese at all — every other source file is\n * held to English.\n */",
+  ]],
+  ["src/shared/locales/zh-CN-todo-notify.ts", [
+    "/**\n * The twin of `en-US-todo-notify.ts`; the two are proven against each other by key and by placeholder\n * in `tests/todo-reminders.test.ts`.\n */",
   ]],
   ["src/shared/markdown-utils.test.ts", [
     "// Greek drops the tonos when a word is capitalised, so `ΑΘΗΝΑ` differs from `Αθήνα` by",
@@ -20969,6 +21008,21 @@ const allowed = new Map([
     "// The inbox is folded in under its own key: a card shows the same `done / total` line whether",
     "// the list is the reader's or the one every unfiled task lands in.",
   ]],
+  ["src/worker/assistant/tasks.ts", [
+    "/**\n * The minute sweep that delivers due task reminders.\n *\n * A reminder is a fact about a row (`remind_at`) and a fact about whether it has been said\n * (`reminded_at`), so the sweep needs no scheduler of its own: it asks the table what is due and marks\n * what it delivered. That is also what makes it safe to run on every cron fire — the claim is a\n * conditional UPDATE, so two overlapping ticks cannot both deliver the same reminder, and a fire that\n * arrives a minute late still delivers rather than skipping to the next hour.\n *\n * The delivery is a row in `chat_notifications`, which is the record the reader's notification list\n * shows; the Web Push nudge that follows is a courtesy, handed off so a push service that answers slowly\n * cannot hold up the tick. Neither can fail the tick: one account's broken settings must not stop the\n * others, so every row is swept inside its own try.\n */",
+    "/** How many reminders one fire will deliver, so a backlog cannot monopolise the tick. */",
+    "/** Reminders this fire found due. */",
+    "/** Rows it actually claimed and delivered — a second tick over the same reminder claims none. */",
+    "/** Rows another tick had already claimed. */",
+    "/** What the nudges cost, once they were sent. See `SweepResult.push` in `scheduler.ts`. */",
+    "/** The catalog for the account's own language; the sweep has no request to ask. */",
+    "/** The two placeholders these sentences carry, filled without pulling the interface's formatter in. */",
+    "/** A due time as the reader would read it, in their own zone. */",
+    "// One store per account, made once: a backlog of twenty reminders for the same reader is one settings",
+    "// read, not twenty.",
+    "// The claim is the delivery gate. `changes === 0` means another fire got here first, which is the",
+    "// ordinary case on a deployment whose cron overlaps, not an error.",
+  ]],
   ["src/worker/assistant/tools.ts", [
     "/**\n * The tools the assistant can reach, and the executor that runs them.\n *\n * Three things are enforced here rather than asked of the model, because a model that is confident and\n * wrong is the failure mode this app has to survive:\n *  - **budgets** — a per-turn call cap, a per-tool cap and a duplicate-call refusal, so a reasoning\n *    loop cannot spend the reader's AI quota or write a hundred tasks;\n *  - **validation** — arguments are checked against the same declaration that generates the JSON\n *    Schema the provider is given, so the two can never disagree;\n *  - **approval** — a destructive tool never runs during the turn. `prepare` resolves the exact target\n *    and writes a pending action; `commit` runs only when the reader presses Approve, once, on that\n *    target. The model can propose; it cannot delete.\n *\n * Scheduled runs get read-only tools plus `notify_reader`, so a routine that has drifted cannot edit\n * the vault while nobody is watching.\n */",
     "/** End of the reader's local day, so 'today' means the same thing in every tool. */",
@@ -21786,6 +21840,8 @@ const allowed = new Map([
     "// Subscription reminders share the every-fire cadence for the same reason the assistant's do: a",
     "// reminder is cheap, and the sweep deduplicates by the reader's own local hour, so the second and",
     "// third fires of an hour find their deliveries already claimed.",
+    "// Task reminders ride the same every-fire cadence, for the same reason: the claim on the row is",
+    "// what deduplicates them, so a second fire in the same minute finds nothing left to deliver.",
   ]],
   ["src/worker/lib/crypto.ts", [
     "/**\n * The chat assistant's provider key.\n *\n * A key is stored only as vault ciphertext, and the plaintext exists solely inside the worker call\n * that signs one upstream request — no assistant route returns it, and a backup never carries it. When\n * the vault binding is missing the write fails loudly rather than falling back to storing the key in\n * the clear: a reader who configured a key deserves to know it was not saved.\n */",
@@ -26076,6 +26132,11 @@ const allowed = new Map([
   ["tests/todo-model.test.ts", [
     "// The same wall time a week later, which is one hour short of seven times 24 hours because",
     "// the clock sprang forward in between. That hour is the point of the test.",
+  ]],
+  ["tests/todo-reminders.test.ts", [
+    "/**\n * The reminder sweep.\n *\n * What is pinned: a reminder that has come due is delivered once, a completed task is never announced,\n * one account's reminder never reaches another account's notification list, and a failure inside one\n * row does not stop the rest of the tick. The last one is the reason the sweep is written per-row rather\n * than as one statement: a cron that gives up at the first bad row would leave every reminder behind it\n * undelivered, and the reader would only find out by noticing silence.\n */",
+    "/** A task whose reminder is `offsetMs` from the sweep time. */",
+    "// The second fire of the same minute finds the row claimed and says nothing again.",
   ]],
   ["tests/todos-table-migration.test.ts", [
     "/**\n * The task table moved from `chat_tasks` to `todos_tasks`.\n *\n * A rename is the one schema change that can destroy data, because the old table has to be dropped\n * for the new name to be the only one. These tests pin the two properties that make it safe: every\n * row lands in the new table, and the old one is only dropped once that has happened.\n */",

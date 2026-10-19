@@ -11,7 +11,7 @@
  */
 
 import { useEffect, useMemo, useState } from 'react'
-import { Plus, Star, Trash2, X } from 'lucide-react'
+import { MessagesSquare, Plus, Sparkles, Star, Trash2, X } from 'lucide-react'
 import { t } from '../../lib/i18n'
 import { cn } from '../../lib/cn'
 import { Button, IconButton } from '../../components/primitives'
@@ -22,6 +22,7 @@ import { api } from '../../lib/api'
 import { useUi } from '../../store/ui'
 import { useTodos, type TaskDraft } from './store'
 import { dueValue } from './todo-ui'
+import { openConversationInChat, startChatAboutTask } from '../chat/start-chat'
 import { REPEAT_FREQUENCIES, REMIND_OFFSETS, type RemindOffset, type RepeatFrequency, type TaskStep } from '@shared/todos/model'
 
 const PRIORITIES = ['low', 'medium', 'high', 'urgent'] as const
@@ -203,6 +204,22 @@ export function TaskEditor() {
           aria-label={t('todo.task.notes_label')}
           onChange={(event) => setNotes(event.target.value)}
         />
+
+        {/* Where the task came from, and the way back into a conversation about it. Both close the
+            panel first: the chat tab is a different container, and a dialog left open over it would
+            cover the composer the reader was just handed. */}
+        {existing && (
+          <div className="flex flex-wrap items-center gap-2">
+            <Button variant="ghost" size="sm" onClick={() => { close(); startChatAboutTask(existing) }}>
+              <Sparkles size={13} />{t('todo.task.ask_ai')}
+            </Button>
+            {existing.conversationId && (
+              <Button variant="ghost" size="sm" onClick={() => { close(); openConversationInChat(existing.conversationId!) }}>
+                <MessagesSquare size={13} />{t('todo.task.from_chat')}
+              </Button>
+            )}
+          </div>
+        )}
 
         <div className="grid grid-cols-2 gap-2">
           <Field label={t('todo.task.priority_label')}>

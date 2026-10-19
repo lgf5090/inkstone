@@ -18,13 +18,13 @@
  */
 import { createElement } from 'react'
 import { CheckSquare } from 'lucide-react'
+import { toPlainText } from '@shared/markdown-utils'
 import type { MenuItem } from '../../components/overlay'
 import { t } from '../../lib/i18n'
-import { api } from '../../lib/api'
 import { extractDate, extractInlineFields } from '../../lib/dataview/metadata'
-import { useNotes } from '../../store/notes'
 import { useUi } from '../../store/ui'
-import { useAssistant } from './assistant-store'
+import { getActiveEditorView } from '../../editor/commands'
+import { useTodos } from '../todos/store'
 
 /** A task checkbox line: optional blockquote/list marker, a `[ ]`/`[x]` box, then the text. */
 const TASK_MARKER = /^((?:[ \t]*>[ \t]?)*[ \t]*(?:[-*+]|\d+[.)])[ \t]+\[)([ xX])\]/
@@ -73,45 +73,40 @@ export function parseNoteTaskCheckbox(line: string): NoteTaskCheckbox | null {
 export interface NoteTaskInput {
   line: string
   noteId: string
-  noteTitle: string
 }
 
-/** The create-task payload for one checkbox, or null when the line is not a task or says nothing. */
-export function buildNoteTaskPayload(input: NoteTaskInput): { title: string, description: string, dueAt: number | null } | null {
+/**
+ * The create-task payload for one checkbox, or null when the line is not a task or says nothing.
+ *
+ * The note travels as `noteId` and nothing else. It used to be spelled out inside the description, which
+ * put a sentence about where a task came from into the field the reader writes notes in; the app reads
+ * the reference and shows its own way back, so the description is left for what the reader has to say.
+ */
+export function buildNoteTaskPayload(input: NoteTaskInput): { title: string, dueAt: number | null, noteId: string } | null {
   const checkbox = parseNoteTaskCheckbox(input.line)
   if (!checkbox || !checkbox.title) return null
   return {
     title: checkbox.title,
-    // The way back to the page this came from. The task list shows `description` as plain text, so the
-    // note's own deep link is spelled out next to its title rather than left as an unclickable wikilink.
-    description: t('assistant.task.from_note', {
-      title: input.noteTitle || t('common.untitled_note'),
-      id: input.noteId,
-    }),
     dueAt: checkbox.dueAt,
+    noteId: input.noteId,
   }
 }
 
 /**
- * Creates the assistant task. One-way by construction: it writes a `todos_tasks` row and reloads the list,
- * and it never touches the note's content, so the checkbox keeps being whatever the note says it is.
+ * Creates the task through the to-do app's own store, and never touches the note.
+ *
+ * One-way by construction: it writes a `todos_tasks` row and the checkbox keeps being whatever the note
+ * says it is. Going through the store rather than the API is what puts the new row in the app's list
+ * without a reload — the reader who made it here from a note should find it already there when they open
+ * the tab.
  */
 export async function createTaskFromNoteCheckbox(input: NoteTaskInput): Promise<boolean> {
   const payload = buildNoteTaskPayload(input)
   if (!payload) return false
-  try {
-    await api.todos.create(payload)
-    await useAssistant.getState().loadTasks()
-    useUi.getState().toast({ title: t('assistant.task.made_from_note'), tone: 'success' })
-    return true
-  } catch (error) {
-    useUi.getState().toast({
-      title: t('assistant.toast.failed'),
-      description: error instanceof Error ? error.message : String(error),
-      tone: 'danger',
-    })
-    return false
-  }
+  const created = await useTodos.getState().createTask(payload)
+  if (!created) return false
+  useUi.getState().toast({ title: t('assistant.task.made_from_note'), tone: 'success' })
+  return true
 }
 
 /**
@@ -128,11 +123,53 @@ export function buildNoteTaskMenuItem(ctx: NoteTaskInput): MenuItem | null {
     id: 'task-to-assistant',
     label: t('contextmenu.task_to_assistant'),
     icon: createElement(CheckSquare, { size: 14 }),
-    onSelect: () => {
-      // The note title is read at press time, not when the menu was built, so a rename while the menu sat
-      // open does not stamp the task with the page's older name.
-      const note = useNotes.getState().notes[ctx.noteId]
-      void createTaskFromNoteCheckbox({ line: ctx.line, noteId: ctx.noteId, noteTitle: note?.title ?? ctx.noteTitle })
-    },
+    onSelect: () => { void createTaskFromNoteCheckbox({ line: ctx.line, noteId: ctx.noteId }) },
   }
+}
+
+/** The longest title a task may take, matching what the server keeps. */
+const MAX_SELECTION_TITLE = 80
+
+/** The longest note a selection carries; the editor's own field is where the reader may extend it. */
+const MAX_SELECTION_NOTE = 2000
+
+/**
+ * The task a piece of a note becomes.
+ *
+ * The first line is the title and the whole selection is the note, because that is how a reader writes:
+ * a line that names the thing, then the detail. Markdown is flattened — a title is drawn on one line of a
+ * card, and a heading's `##` there reads as a typo. Nothing but whitespace yields no task at all.
+ */
+export function buildSelectionTaskPayload(input: { text: string, noteId: string }): {
+  title: string
+  description: string
+  noteId: string
+} | null {
+  const plain = toPlainText(input.text).trim()
+  if (!plain) return null
+  const [first = ''] = plain.split('\n')
+  const title = first.trim().slice(0, MAX_SELECTION_TITLE)
+  if (!title) return null
+  return { title, description: plain.slice(0, MAX_SELECTION_NOTE), noteId: input.noteId }
+}
+
+/**
+ * Keeps the editor's current selection as a task.
+ *
+ * A selection, or the line the caret is on when nothing is selected: "turn what I am looking at into
+ * something to do" is the same intention either way, and refusing the second case would make the button
+ * look broken to a reader who simply had not dragged across the words first.
+ */
+export async function saveSelectionAsTask(): Promise<boolean> {
+  const view = getActiveEditorView()
+  const noteId = useUi.getState().activeNoteId
+  if (!view || !noteId) return false
+  const range = view.state.selection.main
+  const text = range.empty ? view.state.doc.lineAt(range.from).text : view.state.sliceDoc(range.from, range.to)
+  const payload = buildSelectionTaskPayload({ text, noteId })
+  if (!payload) return false
+  const created = await useTodos.getState().createTask(payload)
+  if (!created) return false
+  useUi.getState().toast({ title: t('assistant.task.made_from_note'), tone: 'success' })
+  return true
 }

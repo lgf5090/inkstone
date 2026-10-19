@@ -38,6 +38,7 @@ import { CHAT_SHORTCUTS } from '../chat/chat-shortcuts'
 import { requestChatIntent } from '../chat/chat-intents'
 import { startChatAboutFolder, startChatAboutNote } from '../chat/start-chat'
 import { useTodos } from '../todos/store'
+import { saveSelectionAsTask } from '../chat/note-task-link'
 import { summarizeFolder } from '../chat/folder-summary'
 import { suggestNoteMeta } from '../chat/note-suggestions'
 import { startDeepResearch } from '../chat/deep-research'
@@ -113,6 +114,16 @@ export function appCommands(): AppCommand[] {
             navigateToPath('/todo')
             useTodos.getState().openEditor({})
         },
+    },
+    {
+        id: 'cmd-selection-to-todo',
+        kind: 'command',
+        label: t("todo.chat.save_as_task"),
+        icon: ListChecks,
+        group: t("command.commands"),
+        // The line under the caret when nothing is selected, which is the case a command palette is
+        // usually opened from: the reader is looking at the sentence, not holding a selection.
+        run: () => void saveSelectionAsTask(),
     },
     {
         id: 'cmd-open-todo',

@@ -65,6 +65,7 @@ interface TodosState {
   select: (id: string | null) => void
   openEditor: (draft: TaskDraft) => void
   closeEditor: () => void
+  openTask: (id: string) => Promise<void>
 
   createTask: (input: TaskDraft) => Promise<TodoTask | null>
   updateTask: (id: string, patch: Record<string, unknown>) => Promise<TodoTask | null>
@@ -167,6 +168,30 @@ export const useTodos = create<TodosState>((set, get) => ({
 
   openEditor: (draft) => set({ editorOpen: true, draft }),
   closeEditor: () => set({ editorOpen: false, draft: null }),
+
+  /**
+   * Open one task by id, wherever the reader came from.
+   *
+   * A chip in the chat names a task that may not be on the open page at all — it can be completed, or
+   * older than the page the board loaded. The row is read on its own in that case, because the panel
+   * edits from the store and an id it cannot find would open an empty form over a task that exists.
+   */
+  openTask: async (id) => {
+    if (get().status !== 'ready') await get().load()
+    const found = get().tasks.find((task) => task.id === id) ?? get().completed.find((task) => task.id === id)
+    if (!found) {
+      try {
+        const { task } = await api.todos.get(id)
+        set((state) => (task.status === 'done'
+          ? { completed: [task, ...state.completed.filter((entry) => entry.id !== task.id)] }
+          : { tasks: [...state.tasks.filter((entry) => entry.id !== task.id), task] }))
+      } catch (error) {
+        toastError(error)
+        return
+      }
+    }
+    set({ selectedId: id, editorOpen: true, draft: { id } })
+  },
 
   createTask: async (input) => {
     set({ saving: true })

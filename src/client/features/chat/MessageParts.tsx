@@ -28,6 +28,7 @@ import {
   RotateCcw,
   ShieldAlert,
   Sparkles,
+  SquareCheck,
   Star,
   ThumbsDown,
   ThumbsUp,
@@ -57,6 +58,9 @@ import { CHAT_NOTE_LINKS, openCitedNote } from './note-links'
 import { MessageMenu, useMessageMenu } from './MessageMenu'
 import { SelectionTick, type MessageSelection } from './SelectionBar'
 import { noteMentionLinks, noteRefsFromToolResult } from './note-refs'
+import { taskRefsFromToolResult } from './task-refs'
+import { saveMessageAsTask } from './save-as-task'
+import { openTaskInTodo } from '../todos/open-task'
 import { LoadFailure } from './assistant-settings-shared'
 import { AnswerSelectionBar } from './answer-selection'
 import { FeedbackReasonPanel } from './feedback-reason'
@@ -219,6 +223,7 @@ function ToolCallRow({ tool, messageId, open, onToggle }: {
   // rather than as a toast, because the reason belongs to the row the reader is looking at.
   const [refused, setRefused] = useState<string | null>(null)
   const refs = useMemo(() => noteRefsFromToolResult(tool.name, tool.result), [tool.name, tool.result])
+  const taskRefs = useMemo(() => taskRefsFromToolResult(tool.name, tool.result), [tool.name, tool.result])
   const body = [
     tool.args ? { key: 'assistant.chat.tool_args' as const, text: tool.args } : null,
     tool.result ? { key: 'assistant.chat.tool_result' as const, text: tool.result } : null,
@@ -300,6 +305,21 @@ function ToolCallRow({ tool, messageId, open, onToggle }: {
                   className="inline-flex max-w-[220px] items-center gap-1 rounded-[var(--r-sm)] border border-[var(--border-subtle)] bg-[var(--bg-surface)] px-1.5 py-0.5 text-[length:var(--text-11)] text-[var(--text-secondary)] transition-colors duration-[var(--dur-fast)] hover:border-[var(--accent)] hover:text-[var(--accent)]"
                 >
                   <FileText size={11} className="shrink-0 text-[var(--text-quaternary)]" />
+                  <span className="min-w-0 truncate">{ref.title}</span>
+                </button>
+              ))}
+            </div>
+          )}
+          {taskRefs.length > 0 && (
+            <div className="flex flex-wrap items-center gap-1" role="group" aria-label={t('assistant.chat.tasks_in_result')}>
+              {taskRefs.map((ref) => (
+                <button
+                  key={ref.id}
+                  type="button"
+                  onClick={() => { void openTaskInTodo(ref.id) }}
+                  className="inline-flex max-w-[220px] items-center gap-1 rounded-[var(--r-sm)] border border-[var(--border-subtle)] bg-[var(--bg-surface)] px-1.5 py-0.5 text-[length:var(--text-11)] text-[var(--text-secondary)] transition-colors duration-[var(--dur-fast)] hover:border-[var(--accent)] hover:text-[var(--accent)]"
+                >
+                  <SquareCheck size={11} className="shrink-0 text-[var(--text-quaternary)]" />
                   <span className="min-w-0 truncate">{ref.title}</span>
                 </button>
               ))}
@@ -1292,6 +1312,9 @@ export function AssistantBubble({
           // The thread is the record and the note is the copy: the menu can keep the whole thing, or
           // write this one answer into the note already open beside it.
           ...(messageId && !streaming ? { onSaveConversation: () => void saveConversationAsNote() } : {}),
+          ...(messageId && !streaming
+            ? { onSaveAsTask: () => saveMessageAsTask(body, useAssistant.getState().activeId) }
+            : {}),
           // Only while a note is open: the rows write into that note, and one that cannot is a row the
           // reader has to try to find out about.
           ...(messageId && !streaming && noteIsOpen ? { onInsertIntoNote: () => insertReplyIntoNote(body) } : {}),

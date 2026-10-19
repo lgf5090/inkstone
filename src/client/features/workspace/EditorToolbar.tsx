@@ -1,6 +1,6 @@
 import { useRef, useState, type ReactNode, type RefObject } from 'react';
 import type { EditorView } from '@codemirror/view';
-import { Blocks, Bold, Braces, CaseUpper, ChevronDown, Code, FileText, Heading, Highlighter, Image as ImageIcon, Italic, Link2, List, ListOrdered, ListTodo, MoveVertical, Quote, Sigma, Smile, Sparkles, Strikethrough, Table, Type, Underline, Wand2, WandSparkles } from 'lucide-react';
+import { Blocks, Bold, Braces, CaseUpper, CheckSquare, ChevronDown, Code, FileText, Heading, Highlighter, Image as ImageIcon, Italic, Link2, List, ListOrdered, ListTodo, MoveVertical, Quote, Sigma, Smile, Sparkles, Strikethrough, Table, Type, Underline, Wand2, WandSparkles } from 'lucide-react';
 import { IconButton } from '../../components/primitives';
 import { Menu, Tooltip } from '../../components/overlay';
 import { cn } from '../../lib/cn';
@@ -19,6 +19,7 @@ import { APP_SHORTCUTS } from '../../lib/shortcuts';
 import { closeEmojiPicker, isEmojiPickerOpen, openEmojiPicker, useEmojiPicker } from '../../store/emoji-picker';
 import { EDITOR_AI_LABELS, runEditorAi, type EditorAiAction } from '../chat/editor-ai';
 import { suggestNoteMeta } from '../chat/note-suggestions';
+import { saveSelectionAsTask } from '../chat/note-task-link';
 
 type ToolbarMenu = 'heading' | 'reference' | 'image' | 'note' | 'code' | 'math' | 'block' | 'carry' | 'format' | 'text-color' | 'highlight-color' | 'ai';
 
@@ -193,6 +194,9 @@ export function EditorToolbar({ runCommand, view, onPickImage, mobile = false, s
       <ToolButton label={t('common.unordered_list')} combo={editorCombo('bullet-list')} onClick={() => run(toggleBulletList)}><List size={14}/></ToolButton>
       <ToolButton label={t('common.ordered_list')} combo={editorCombo('ordered-list')} onClick={() => run(toggleOrderedList)}><ListOrdered size={14}/></ToolButton>
       <ToolButton label={t('common.task_list')} combo={editorCombo('task-list')} onClick={() => run(toggleTaskList)}><ListTodo size={14}/></ToolButton>
+      {/* Beside the list control rather than in a menu: it acts on the line or selection the reader is
+          already looking at, and a menu would hide that it is about this text and not the whole note. */}
+      <ToolButton label={t('todo.chat.save_as_task')} onClick={() => { void saveSelectionAsTask() }}><CheckSquare size={14}/></ToolButton>
       <ToolButton label={t('common.quote')} combo={editorCombo('quote')} onClick={() => run(toggleQuote)}><Quote size={14}/></ToolButton>
       <Divider />
       {menuButton('reference', <Link2 size={14}/>, { label: t('workspace.link'), combo: editorCombo('link'), onClick: () => run(insertLink()) })}

@@ -37,7 +37,6 @@ import type {
   ChatStreamEvent,
   MemoryReview,
   Project,
-  Task as AssistantTask,
   ToolActivity,
   MessageFeedback,
 } from '@shared/assistant'
@@ -407,8 +406,6 @@ interface AssistantState {
   memoryCategory: string
   reviews: MemoryReview[]
 
-  tasks: AssistantTask[]
-  taskTab: 'today' | 'upcoming' | 'completed'
   projects: Project[]
 
   automations: AssistantAutomation[]
@@ -643,12 +640,6 @@ interface AssistantState {
   removeMemory: (id: string) => Promise<void>
   resolveReview: (id: string, action: string) => Promise<void>
 
-  loadTasks: () => Promise<void>
-  setTaskTab: (tab: 'today' | 'upcoming' | 'completed') => void
-  addTask: (title: string) => Promise<void>
-  updateTask: (id: string, patch: Record<string, unknown>) => Promise<void>
-  toggleTask: (task: AssistantTask) => Promise<void>
-  removeTask: (id: string) => Promise<void>
   loadProjects: () => Promise<void>
   addProject: (name: string) => Promise<void>
   removeProject: (id: string) => Promise<void>
@@ -1492,7 +1483,6 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
   reviews: [],
 
   tasks: [],
-  taskTab: 'today',
   projects: [],
 
   automations: [],
@@ -2847,7 +2837,6 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
   refreshAfterTurn: async () => {
     const state = get()
     if (state.view === 'memory') await state.loadMemories()
-    if (state.view === 'tasks') await state.loadTasks()
     if (state.view === 'automations') await state.loadAutomations()
   },
 
@@ -3007,7 +2996,6 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
           : current.turn,
       }))
       const view = get().view
-      if (view === 'tasks') await get().loadTasks()
       if (view === 'memory') await get().loadMemories()
       if (view === 'automations') await get().loadAutomations()
       if (view === 'skills') await get().loadSkills()
@@ -3130,54 +3118,6 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
     }
   },
 
-  loadTasks: async () => {
-    try {
-      const result = await api.todos.list({ limit: 500 })
-      set({ tasks: result.tasks })
-    } catch (error) {
-      toast(error)
-    }
-  },
-
-  setTaskTab: (tab) => set({ taskTab: tab }),
-
-  addTask: async (title) => {
-    try {
-      const today = get().taskTab === 'today'
-      await api.todos.create({ title, ...(today ? { dueAt: endOfTodayLocal() } : {}) })
-      await get().loadTasks()
-    } catch (error) {
-      toast(error)
-    }
-  },
-
-  updateTask: async (id, patch) => {
-    try {
-      await api.todos.update(id, patch)
-      await get().loadTasks()
-    } catch (error) {
-      toast(error)
-    }
-  },
-
-  toggleTask: async (task) => {
-    try {
-      await api.todos.update(task.id, { status: task.status === 'done' ? 'todo' : 'done' })
-      await get().loadTasks()
-    } catch (error) {
-      toast(error)
-    }
-  },
-
-  removeTask: async (id) => {
-    try {
-      await api.todos.remove(id)
-      await get().loadTasks()
-    } catch (error) {
-      toast(error)
-    }
-  },
-
   loadProjects: async () => {
     try {
       const result = await api.assistant.projects()
@@ -3200,7 +3140,6 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
     try {
       await api.assistant.deleteProject(id)
       await get().loadProjects()
-      await get().loadTasks()
     } catch (error) {
       toast(error)
     }
@@ -3456,18 +3395,6 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
 
 lastPersisted = persistedSlice(useAssistant.getState())
 useAssistant.subscribe(schedulePersist)
-
-/**
- * The reader's own end of today, as the server reads a due date.
- *
- * A quick-add from the Today tab means "by tonight"; sending a bare date would land at 23:59 in the
- * *server's* zone, which is a different day for a reader in Shanghai or São Paulo.
- */
-function endOfTodayLocal(): string {
-  const now = new Date()
-  const pad = (value: number) => String(value).padStart(2, '0')
-  return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}T23:59`
-}
 
 function describeMemoryWrite(result: { superseded: AssistantMemory[], reviews: number }): void {
   const parts = [t('assistant.toast.memory_saved')]
