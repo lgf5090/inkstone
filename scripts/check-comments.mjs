@@ -2222,6 +2222,11 @@ const allowed = new Map([
     "// Cleared before the read, so picking the same file twice in a row still fires a change.",
     "/* An empty list is where the idea of a skill is least obvious, so the examples are offered\n                here as well as in the menu — this is the one place a reader has nothing else to press. */",
   ]],
+  ["src/client/features/chat/SourcePanel.tsx", [
+    "/**\n * The pages and notes an answer was built on, as a readable list.\n *\n * The chips under the answer are the quick way to one source; this panel is what a reader opens when\n * they want to see what each source actually said. It only shows what the turn stored — no request is\n * made, and a source without an excerpt says so by simply having none.\n */",
+    "// The value is stored text; a source written by an older build may not parse. Showing the raw string",
+    "// is still more useful than hiding the row.",
+  ]],
   ["src/client/features/chat/TasksView.tsx", [
     "/**\n * The assistant's task list.\n *\n * Three tabs rather than one long list, because the question a reader opens this for is \"what is on\n * me today\", and a completed task should leave the way without leaving the database.\n *\n * The Today tab's set is decided by the *server*: \"today\" is a span in the reader's timezone, and a\n * browser in another zone would otherwise disagree with the reminder engine about what is overdue.\n */",
     "/** End of the reader's local day, in the same milliseconds the server compares against. */",
@@ -4389,6 +4394,10 @@ const allowed = new Map([
   ["src/client/features/chat/skill-examples.ts", [
     "/**\n * Four skills to start a library with.\n *\n * A skill is easiest to understand by using one, and an empty list teaches nothing — so the empty state\n * offers these instead of only explaining itself. They are the four shapes readers most often retype:\n * translate it, sum it up, write it out, review it. All four are words with no bindings, because a tool\n * set or a folder that the reader did not choose is an arrangement they would have to undo first.\n *\n * The titles and the words are catalog copy, read before they are edited like every other label. The\n * emoji is not: it is a glyph that reads the same in every language, so it stays out of the catalog.\n */",
     "/** The starter set, in the shape the import route reads. */",
+  ]],
+  ["src/client/features/chat/source-panel.test.ts", [
+    "/**\n * The readable list behind the source chips.\n *\n * It is a rendering of what the turn stored: a web source keeps its link and excerpt, a note source keeps\n * its note id and opens the notebook rather than a url. Nothing here fetches anything.\n */",
+    "// The note is a button, not a link: the notebook opens by id.",
   ]],
   ["src/client/features/chat/speech.ts", [
     "/**\n * Reading a reply aloud.\n *\n * The browser's own speech synthesis is the only engine available without a key and without shipping a\n * voice, so this is a thin wrapper rather than a feature: it strips the Markdown first, because a\n * screen reader that spells out `##` and `**` is worse than not offering the button, and it refuses\n * quietly where the API is missing instead of throwing inside a click handler.\n */",
@@ -23940,6 +23949,8 @@ const allowed = new Map([
     "// The first turn is three calls: the tool step, the answer, and the naming pass that titles the",
     "// new thread. The second turn has no naming pass, so its tool step is the fourth call.",
     "// The chip is streamed twice: running first, then the settled row that carries the draft id.",
+    "// The link publishes a transcript. A draft is the reader's working copy, and its history is every",
+    "// working copy before it; neither was ever part of what a visitor was invited to read.",
   ]],
   ["tests/assistant-routing.test.ts", [
     "/**\n * Which model answers a turn when the reader asked the assistant to choose.\n *\n * The rule is a policy, so it is tested as one: what may be picked at all (tools, a window that fits\n * with room to answer), and which of the eligible models wins (the smallest declared window, with an\n * undeclared one treated as the reader's default rather than as a small model).\n */",

@@ -21,6 +21,7 @@ import {
   Copy,
   ExternalLink,
   FileText,
+  List,
   Loader2,
   MoreHorizontal,
   NotebookPen,
@@ -54,6 +55,7 @@ import { useAssistant } from './assistant-store'
 import { canSpeak, stopSpeaking } from './speech'
 import { useUi } from '../../store/ui'
 import { MessageAttachments } from './ChatAttachments'
+import { SourcePanel } from './SourcePanel'
 import { CHAT_NOTE_LINKS, openCitedNote } from './note-links'
 import { MessageMenu, useMessageMenu } from './MessageMenu'
 import { SelectionTick, type MessageSelection } from './SelectionBar'
@@ -925,6 +927,7 @@ export function AssistantBubble({
   const fetchingHistory = useRef(false)
   const [awaitingHistory, setAwaitingHistory] = useState(false)
   const [historyError, setHistoryError] = useState<string | null>(null)
+  const [sourcesOpen, setSourcesOpen] = useState(false)
   const pages = (versions?.length ?? versionCount) + 1
   // The last page is the live answer; anything before it is one of the displaced ones, whose body has to
   // have arrived — and it has, because the list is fetched on the first arrow press.
@@ -1052,10 +1055,11 @@ export function AssistantBubble({
             to was built on pages this turn never saw, and listing them would credit it with a search it
             did not do. */}
         {!streaming && !viewing && sources.length > 0 && (
-          <ul
-            aria-label={t('assistant.chat.sources')}
-            className="flex max-w-[72ch] flex-wrap gap-1 pt-0.5"
-          >
+          <div className="flex max-w-[72ch] flex-wrap items-center gap-1 pt-0.5">
+            <ul
+              aria-label={t('assistant.chat.sources')}
+              className="flex min-w-0 flex-wrap gap-1"
+            >
             {sources.map((source, index) => (
               <li key={source.id ?? source.url}>
                 {/* A citation's hint is its excerpt, up to three hundred characters of it, and the app's own
@@ -1079,8 +1083,18 @@ export function AssistantBubble({
                     )}
               </li>
             ))}
-          </ul>
+            </ul>
+            <button
+              type="button"
+              onClick={() => setSourcesOpen(true)}
+              className="inline-flex shrink-0 items-center gap-1 rounded-[var(--r-sm)] px-1.5 py-0.5 text-[length:var(--text-11)] text-[var(--text-tertiary)] transition-colors duration-[var(--dur-fast)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-secondary)]"
+            >
+              <List size={10} />
+              {t('assistant.chat.sources_all')}
+            </button>
+          </div>
         )}
+        {sourcesOpen && <SourcePanel sources={sources} onClose={() => setSourcesOpen(false)} />}
         {!streaming && (body || pages > 1) && (
           <div className={cn(
             'flex flex-wrap items-center gap-x-2 gap-y-1 transition-opacity duration-[var(--dur-fast)]',

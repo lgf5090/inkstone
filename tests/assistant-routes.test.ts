@@ -341,6 +341,26 @@ describe('drafts', () => {
     expect(restored.artifacts[0]?.noteId).toBe('01hzzzzzzzzzzzzzzzzzzzzz02')
   })
 
+  it('keeps drafts and their history out of a published conversation', async () => {
+    const conversation = await newConversation('Published')
+    const marker = 'PRIVATE-DRAFT-MARKER-4f9c'
+    const made = await call<{ artifact: AssistantArtifact }>(
+      'POST', `/api/assistant/conversations/${conversation.id}/artifacts`,
+      { title: 'Secret plan', content: marker },
+    )
+    await call(
+      'PATCH', `/api/assistant/conversations/${conversation.id}/artifacts/${made.artifact.id}`,
+      { content: `${marker} revised`, source: 'assistant', baseVersion: 1 },
+    )
+    const shared = await call<{ share: { slug: string } }>('POST', `/api/assistant/conversations/${conversation.id}/share`, {})
+    const read = await call<unknown>('POST', `/api/public/conversation/${shared.share.slug}`, {})
+    const payload = JSON.stringify(read)
+    // The link publishes a transcript. A draft is the reader's working copy, and its history is every
+    // working copy before it; neither was ever part of what a visitor was invited to read.
+    expect(payload).not.toContain(marker)
+    expect(payload).not.toContain('chat_artifact')
+  })
+
   it('carries the history of a draft through a backup round-trip', async () => {
     const conversation = await newConversation('With history')
     const made = await call<{ artifact: AssistantArtifact }>(
