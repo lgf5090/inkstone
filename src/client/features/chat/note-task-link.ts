@@ -2,7 +2,7 @@
  * A note's checkbox, offered to the assistant's task list — one way, and only one way.
  *
  * The notebook keeps its tasks as checkboxes in the body of a note; the assistant keeps its own task
- * list (`chat_tasks`). Those are two different things, and they are deliberately not kept in step: a
+ * list (`todos_tasks`). Those are two different things, and they are deliberately not kept in step: a
  * checkbox and a task row both own "is this done", and the moment both sides can move, a sync has to
  * pick a winner for every disagreement and loses the reader's intent either way.
  *
@@ -93,7 +93,7 @@ export function buildNoteTaskPayload(input: NoteTaskInput): { title: string, des
 }
 
 /**
- * Creates the assistant task. One-way by construction: it writes a `chat_tasks` row and reloads the list,
+ * Creates the assistant task. One-way by construction: it writes a `todos_tasks` row and reloads the list,
  * and it never touches the note's content, so the checkbox keeps being whatever the note says it is.
  */
 export async function createTaskFromNoteCheckbox(input: NoteTaskInput): Promise<boolean> {

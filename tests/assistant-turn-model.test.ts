@@ -164,7 +164,7 @@ async function storedAnswer(conversationId: string): Promise<AssistantMessage | 
 }
 
 function taskCount(): number {
-  return (sqlite.prepare('SELECT COUNT(*) AS n FROM chat_tasks WHERE user_id = ?').get(USER) as { n: number }).n
+  return (sqlite.prepare('SELECT COUNT(*) AS n FROM todos_tasks WHERE user_id = ?').get(USER) as { n: number }).n
 }
 
 beforeEach(async () => {

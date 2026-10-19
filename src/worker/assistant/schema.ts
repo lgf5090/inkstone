@@ -403,24 +403,9 @@ export const ASSISTANT_SCHEMA_STATEMENTS: readonly string[] = [
   `CREATE INDEX IF NOT EXISTS idx_chat_reviews_other
      ON chat_memory_reviews(user_id, other_id)`,
 
-  `CREATE TABLE IF NOT EXISTS chat_tasks (
-    user_id TEXT NOT NULL,
-    id TEXT NOT NULL,
-    title TEXT NOT NULL,
-    description TEXT NOT NULL DEFAULT '',
-    status TEXT NOT NULL DEFAULT 'todo',
-    priority TEXT NOT NULL DEFAULT 'medium',
-    due_at INTEGER,
-    project_id TEXT,
-    created_at INTEGER NOT NULL,
-    updated_at INTEGER NOT NULL,
-    completed_at INTEGER,
-    PRIMARY KEY (user_id, id)
-  )`,
-  `CREATE INDEX IF NOT EXISTS idx_chat_tasks_user_status_due
-     ON chat_tasks(user_id, status, due_at)`,
-  `CREATE INDEX IF NOT EXISTS idx_chat_tasks_project
-     ON chat_tasks(user_id, project_id)`,
+  // The task list lives in `todos_tasks` (see `../todos/schema.ts`). It began here, when the chat was
+  // the only surface that could create one; the to-do app now owns the table, and `migrateTaskTable`
+  // moves an older database's rows across once.
 
   `CREATE TABLE IF NOT EXISTS chat_projects (
     user_id TEXT NOT NULL,
@@ -699,7 +684,6 @@ export const ASSISTANT_REQUIRED_TABLES: readonly string[] = [
   'chat_memories',
   'chat_memory_embeddings',
   'chat_memory_reviews',
-  'chat_tasks',
   'chat_projects',
   'chat_automations',
   'chat_runs',
@@ -736,8 +720,6 @@ export const ASSISTANT_REQUIRED_INDEXES: readonly string[] = [
   'idx_chat_memory_embeddings_user',
   'idx_chat_reviews_memory',
   'idx_chat_reviews_other',
-  'idx_chat_tasks_user_status_due',
-  'idx_chat_tasks_project',
   'idx_chat_projects_unique',
   'idx_chat_automations_due',
   'idx_chat_automations_user',
@@ -783,7 +765,6 @@ export const ASSISTANT_REQUIRED_COLUMNS: Readonly<Record<string, readonly string
   chat_memories: ['user_id', 'id', 'content', 'category', 'source', 'status', 'superseded_by', 'valid_from', 'valid_until', 'project_id', 'note_id', 'created_at', 'updated_at'],
   chat_memory_embeddings: ['user_id', 'memory_id', 'model', 'vector', 'norm', 'updated_at'],
   chat_memory_reviews: ['user_id', 'id', 'memory_id', 'other_id', 'relationship', 'reason', 'created_at'],
-  chat_tasks: ['user_id', 'id', 'title', 'description', 'status', 'priority', 'due_at', 'project_id', 'created_at', 'updated_at', 'completed_at'],
   chat_automations: ['user_id', 'id', 'name', 'kind', 'message', 'schedule', 'enabled', 'status', 'next_run', 'last_run', 'last_result', 'last_error', 'run_count', 'claimed_at', 'target_folder_id', 'target_note_id', 'created_at', 'updated_at'],
   chat_runs: ['user_id', 'id', 'automation_id', 'automation_name', 'started_at', 'finished_at', 'status', 'result', 'error', 'note_id'],
   chat_notifications: ['user_id', 'id', 'title', 'body', 'automation_id', 'read_at', 'created_at', 'pushed_at'],

@@ -3687,14 +3687,14 @@ export class AssistantStore {
       ? `completed_at DESC`
       : `CASE WHEN due_at IS NULL THEN 1 ELSE 0 END, due_at ASC, ${TASK_PRIORITY_ORDER}, created_at ASC`
     const list = await this.rows<TaskRow>(
-      `SELECT * FROM chat_tasks WHERE ${q.where} ORDER BY ${order} LIMIT ${limit}`,
+      `SELECT * FROM todos_tasks WHERE ${q.where} ORDER BY ${order} LIMIT ${limit}`,
       ...q.binds,
     )
     return list.map(toTask)
   }
 
   async getTask(id: string): Promise<Task | null> {
-    const r = await this.one<TaskRow>(`SELECT * FROM chat_tasks WHERE user_id = ?1 AND id = ?2`, this.userId, id)
+    const r = await this.one<TaskRow>(`SELECT * FROM todos_tasks WHERE user_id = ?1 AND id = ?2`, this.userId, id)
     return r ? toTask(r) : null
   }
 
@@ -3715,7 +3715,7 @@ export class AssistantStore {
       completedAt: status === 'done' ? at : null,
     }
     await this.write(
-      `INSERT INTO chat_tasks
+      `INSERT INTO todos_tasks
          (id, user_id, title, description, status, priority, due_at, project_id, created_at, updated_at, completed_at)
        VALUES (?2, ?1, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)`,
       id, task.title, task.description, task.status, task.priority, task.dueAt, task.projectId, at, at, task.completedAt,
@@ -3741,7 +3741,7 @@ export class AssistantStore {
       next.completedAt = patch.status === 'done' ? at : null
     }
     await this.write(
-      `UPDATE chat_tasks SET title = ?2, description = ?3, status = ?4, priority = ?5, due_at = ?6,
+      `UPDATE todos_tasks SET title = ?2, description = ?3, status = ?4, priority = ?5, due_at = ?6,
               project_id = ?7, updated_at = ?8, completed_at = ?9 WHERE user_id = ?1 AND id = ?10`,
       next.title, next.description, next.status, next.priority, next.dueAt, next.projectId, at, next.completedAt, id,
     )
@@ -3749,7 +3749,7 @@ export class AssistantStore {
   }
 
   async deleteTask(id: string): Promise<void> {
-    await this.write(`DELETE FROM chat_tasks WHERE user_id = ?1 AND id = ?2`, id)
+    await this.write(`DELETE FROM todos_tasks WHERE user_id = ?1 AND id = ?2`, id)
   }
 
   /** By id, or by a title match that is unambiguous: the assistant must not guess which task was meant. */
@@ -3757,7 +3757,7 @@ export class AssistantStore {
     const direct = await this.getTask(ref)
     if (direct) return direct
     const list = await this.rows<TaskRow>(
-      `SELECT * FROM chat_tasks WHERE user_id = ?1 AND title LIKE ?2 ESCAPE '\\'
+      `SELECT * FROM todos_tasks WHERE user_id = ?1 AND title LIKE ?2 ESCAPE '\\'
         ORDER BY status = 'done', updated_at DESC LIMIT 2`,
       this.userId, containsPattern(ref),
     )
@@ -3847,7 +3847,7 @@ export class AssistantStore {
     // The activity feed quoted each fact when it was learned; the fact is gone, so the quote goes too —
     // the same promise `deleteMemory` keeps, for the same reason.
     for (const memory of filed) await this.deleteActivityQuoting('memory.created', memory.content)
-    await this.write(`UPDATE chat_tasks SET project_id = NULL WHERE user_id = ?1 AND project_id = ?2`, id)
+    await this.write(`UPDATE todos_tasks SET project_id = NULL WHERE user_id = ?1 AND project_id = ?2`, id)
     await this.write(`DELETE FROM chat_projects WHERE user_id = ?1 AND id = ?2`, id)
   }
 
@@ -5297,7 +5297,7 @@ export class AssistantStore {
       messages: await select('chat_messages', `AND ${onlyKept}`),
       answer_versions: await select('chat_answer_versions', `AND ${onlyKept}`),
       memories: await select('chat_memories'),
-      tasks: await select('chat_tasks'),
+      tasks: await select('todos_tasks'),
       projects: await select('chat_projects'),
       automations: await select('chat_automations'),
       notifications: await select('chat_notifications'),
@@ -5349,7 +5349,7 @@ const EXPORT_COLUMNS: Readonly<Record<string, readonly string[]>> = {
   // `note_id` is the note a fact was written out as: a pointer the management screen shows, so it
   // travels with the fact it belongs to.
   chat_memories: ['id', 'content', 'category', 'source', 'status', 'superseded_by', 'valid_from', 'valid_until', 'project_id', 'note_id', 'created_at', 'updated_at'],
-  chat_tasks: ['id', 'title', 'description', 'status', 'priority', 'due_at', 'project_id', 'created_at', 'updated_at', 'completed_at'],
+  todos_tasks: ['id', 'title', 'description', 'status', 'priority', 'due_at', 'project_id', 'created_at', 'updated_at', 'completed_at'],
   // The brief and the folders a project reads are what make it a context rather than a folder; a
   // restored project without them is the same name over an empty brief. `note_ids` travels with them: a
   // project that named three pages and came back naming none would answer from the whole vault, which is

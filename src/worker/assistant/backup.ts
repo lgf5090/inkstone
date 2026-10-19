@@ -433,7 +433,7 @@ async function mergeBackup(store: AssistantStore, data: Record<string, unknown>,
   await store.importUpdates('chat_memories', memoryUpdates, (landed) => { summary.memories += landed })
   const taskEntries = rows(data.tasks)
   const localTaskAt = await store.storedUpdatedAts(
-    'chat_tasks',
+    'todos_tasks',
     taskEntries.map((entry) => idValue(entry.id)).filter((id): id is string => id !== null),
   )
   const taskInserts: Record<string, unknown>[] = []
@@ -463,8 +463,8 @@ async function mergeBackup(store: AssistantStore, data: Record<string, unknown>,
     if (localAt !== null) taskUpdates.push({ id, row })
     else taskInserts.push(row)
   }
-  await store.importRows('chat_tasks', taskInserts, (landed) => { summary.tasks += landed })
-  await store.importUpdates('chat_tasks', taskUpdates, (landed) => { summary.tasks += landed })
+  await store.importRows('todos_tasks', taskInserts, (landed) => { summary.tasks += landed })
+  await store.importUpdates('todos_tasks', taskUpdates, (landed) => { summary.tasks += landed })
   const notificationEntries = rows(data.notifications)
   const heldNotifications = await store.hasRows(
     'chat_notifications',

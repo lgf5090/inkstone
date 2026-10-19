@@ -1929,6 +1929,7 @@ async function createSchema(db: D1Database): Promise<DatabaseState> {
   }
   await applyMigrations(db)
   await repairReaderBookTenantKey(db)
+  await migrateTaskTable(db)
   if (initialized) {
     await runStatements(db, INDEX_SCHEMA_STATEMENTS)
   }
@@ -2006,6 +2007,38 @@ async function repairReaderBookTenantKey(db: D1Database): Promise<void> {
     db.prepare(READER_BOOK_INDEX),
   ])
   console.warn('[inkstone] Schema repair: rebuilt reader_books on a per-account primary key')
+}
+
+/**
+ * Moves an older database's tasks into the table the to-do app owns.
+ *
+ * The task list began as `chat_tasks` inside the assistant schema. Renaming it is not a migration:
+ * a migration would have to be written against a table name that either exists or does not, and the
+ * ledger cannot express "only when the old table is still here". A repair step can — and, more
+ * importantly, it can refuse to drop anything until every row has landed in the new table. A copy
+ * that silently lost a row would be worse than a boot that stops and says so.
+ */
+async function migrateTaskTable(db: D1Database): Promise<void> {
+  const legacy = await db
+    .prepare(`SELECT 1 AS present FROM sqlite_master WHERE type = 'table' AND name = 'chat_tasks'`)
+    .first<{ present: number }>()
+  if (!legacy) return
+  const columns = 'user_id, id, title, description, status, priority, due_at, project_id, created_at, updated_at, completed_at'
+  const before = await db.prepare(`SELECT COUNT(*) AS n FROM chat_tasks`).first<{ n: number }>()
+  await db
+    .prepare(`INSERT OR IGNORE INTO todos_tasks (${columns}) SELECT ${columns} FROM chat_tasks`)
+    .run()
+  const after = await db.prepare(`SELECT COUNT(*) AS n FROM todos_tasks`).first<{ n: number }>()
+  const copied = after?.n ?? 0
+  const original = before?.n ?? 0
+  if (copied < original) {
+    throw new Error(
+      `The task table could not be moved: ${copied} of ${original} rows reached todos_tasks. ` +
+      'chat_tasks has been left untouched, so no task was lost; the boot stops here rather than dropping it.',
+    )
+  }
+  await db.prepare(`DROP TABLE chat_tasks`).run()
+  console.warn('[inkstone] Schema repair: moved chat_tasks into todos_tasks')
 }
 
 async function applyMigrations(db: D1Database): Promise<void> {
