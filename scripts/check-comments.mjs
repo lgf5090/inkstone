@@ -17317,6 +17317,30 @@ const allowed = new Map([
   ["src/client/lib/tasks/dependency-contract.test.ts", [
     "/**\n * Upstream seeds `dtstart` with a moment that has been moved to local midnight and then re-tagged as\n * UTC, so the rule iterates over calendar days rather than instants. Reproduced with plain Dates.\n */",
   ]],
+  ["src/client/lib/tasks/model/on-completion.ts", [
+    "/**\n * What the reader asked to happen to a recurring task when it is completed.\n *\n * `Ignore` is the unwritten default and must stay invisible on the line: a task that serialises\n * `🏁 keep` for every reader who never asked for it would rewrite half of a vault on first tick.\n */",
+  ]],
+  ["src/client/lib/tasks/model/priority.ts", [
+    "/**\n * How badly a task wants to be done before something else.\n *\n * The values are strings that sort correctly: `Low` must land after `None`, so a vault with no\n * priority set on most of its tasks still puts the ones the reader did mark low underneath them.\n */",
+  ]],
+  ["src/client/lib/tasks/model/task-location.ts", [
+    "/**\n * Where a task lives, so a result can be written back to the exact line it came from.\n *\n * `lineNumber` alone is not enough: two notes can hold byte-identical task lines, and a reader who\n * ticks one must not have the other rewritten. `sectionStart` and `sectionIndex` are the fallback\n * the write path uses when the line has moved since the query last ran.\n */",
+    "/** The reader-facing path, used by `path includes` and by the backlink. */",
+    "/** Zero-based line within the note body. */",
+    "/** A task a script built rather than one read out of a note, which cannot be written back. */",
+  ]],
+  ["src/client/lib/tasks/model/task-regular-expressions.ts", [
+    "/**\n * The shapes a task line is made of.\n *\n * Kept apart from the serializer on purpose: these describe Markdown syntax, which is fixed, while\n * the emoji that follow the checkbox are a format the reader can swap out in settings.\n */",
+    "/** Indentation, including the `>` of a blockquote or a callout. */",
+    "/** Bullet or ordered markers, so `1.` and `2)` are both list items. */",
+    "/** A checkbox and the single status character inside it. */",
+    "/** Whatever follows the checkbox. */",
+    "/** A line that is a task: marker, checkbox, body. */",
+    "/** A line that may be made into a task, which is how \"create or edit task\" finds its anchor. */",
+    "/** A list item of any kind, task or not. */",
+    "/** A trailing block id, which survives a rewrite but is never part of the description. */",
+    "/**\n   * Hashtags. The leading `(^|\\s)` is what keeps `http://example.com/a#b` from reading as tagged,\n   * and the negated class is what keeps `#1.5`, `#tag)` and `#tag,` from over-reaching.\n   */",
+  ]],
   ["src/client/lib/tasks/status/registry.ts", [
     "/**\n * The statuses a vault recognises, and how one leads to the next.\n *\n * A checkbox character has no meaning on its own: `[-]` is \"cancelled\" only because something says\n * so. This registry is that something, and it is built from the reader's settings on every read so\n * no two callers can disagree about what a note says.\n */",
     "/** Never fails: an unregistered character still gets a type, so old notes keep reading. */",
