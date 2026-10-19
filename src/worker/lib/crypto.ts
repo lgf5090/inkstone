@@ -98,6 +98,30 @@ export async function decryptMcpOAuth<T>(env: Env, serverId: string, stored: str
   }
 }
 
+/**
+ * One subscription channel's configuration.
+ *
+ * A channel's settings are a bundle — a bot token beside a chat id, a webhook beside a parse mode — and
+ * none of them is ever queried, so the whole object is sealed as one ciphertext rather than spread over
+ * columns where a backup or a log line could pick a secret up. The scope is the row's own id, which is
+ * what keeps one channel's ciphertext from decrypting under another's.
+ */
+export async function encryptChannelConfig(env: Env, id: string, config: Record<string, unknown>): Promise<string> {
+  if (!isValidId(id)) throw new Error('invalid_channel_credential')
+  return encryptCredential(env, `channel:${id}`, config)
+}
+
+export async function decryptChannelConfig(
+  env: Env,
+  id: string,
+  stored: string,
+): Promise<Record<string, unknown> | null> {
+  if (!isValidId(id) || stored.length > 24 * 1024) return null
+  const value = await decryptCredential(env, `channel:${id}`, stored)
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null
+  return value as Record<string, unknown>
+}
+
 async function encryptCredential(env: Env, scope: string, value: unknown): Promise<string> {
   const response = await vaultRequest(env, '/encrypt', { scope, value })
   if (!response.ok) throw new CryptoUnavailableError()

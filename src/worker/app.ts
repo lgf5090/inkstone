@@ -29,6 +29,8 @@ import { readingRoutes } from './routes/reading'
 import { readerLibraryRoutes } from './routes/reader-library'
 import { readerDiscoveryRoutes } from './routes/reader-discovery'
 import { rssRoutes } from './routes/rss'
+import { subscriptionRoutes } from './routes/subscriptions'
+import { subscriptionInboundRoutes } from './routes/subscriptions-inbound'
 import type { AppBindings } from './env'
 import { selectAttachmentStorage } from './attachments/backend'
 
@@ -98,6 +100,7 @@ export function createApp() {
   app.route('/api/templates', templateLibraryRoutes)
   app.route('/api/quickadd', quickAddRoutes)
   app.route('/api/rss', rssRoutes)
+  app.route('/api/subscriptions', subscriptionRoutes)
   app.route('/api', searchRoutes)
   app.route('/api/sync', syncRoutes)
   app.route('/api/files', filesRoutes)
@@ -116,6 +119,10 @@ export function createApp() {
   app.route('/api/share', shareManageRoutes)
   app.route('/api/public', shareRoutes)
   app.route('/api', transferRoutes)
+
+  // Outside the API prefix on purpose: every API POST demands the browser's client header, which a
+  // third-party caller does not have and should not need. See the route's own comment.
+  app.route('/hooks/subscriptions', subscriptionInboundRoutes)
 
   app.all('/api/*', () => {
     throw ApiError.notFound('API endpoint not found')

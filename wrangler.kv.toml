@@ -33,6 +33,7 @@ run_worker_first = [
   "/reading",
   "/reading/*",
   "/rss",
+  "/hooks/*",
   "/music",
   "/tools",
 ]

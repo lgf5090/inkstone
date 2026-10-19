@@ -1,0 +1,66 @@
+/**
+ * The words a notification carries, in English.
+ *
+ * A separate catalog from the interface's because the worker writes these and the interface never
+ * shows them: the scheduler has no request and therefore no reader to ask which language to use, and
+ * shipping seven thousand interface keys into the worker to reach twenty sentences would be a cost
+ * every deployment pays for a feature one of them uses. `tests/subscriptions-notify-copy.test.ts`
+ * pins this file and its Chinese twin to the same keys and the same placeholders.
+ */
+export const EN_US_SUBSCRIPTIONS_NOTIFY = {
+  title: 'Subscription renewal reminder',
+  typeLabel: 'Type',
+  periodLabel: 'Cycle',
+  categoryLabel: 'Category',
+  amountLabel: 'Amount',
+  calendarLabel: 'Calendar',
+  expiryLabel: 'Expires',
+  lunarLabel: 'Lunar date',
+  autoRenewLabel: 'Auto-renew',
+  reminderLabel: 'Reminder',
+  statusLabel: 'Status',
+  notesLabel: 'Notes',
+  sentAt: 'Sent at',
+  timezoneLabel: 'Time zone',
+  solar: 'Solar',
+  lunarCalendar: 'Lunar',
+  yes: 'Yes',
+  no: 'No',
+  uncategorized: 'Uncategorized',
+  otherType: 'Other',
+  dueToday: 'Due today',
+  overdue: 'Overdue by {count} days',
+  remaining: 'Due in {count} days',
+  beforeDays: '{count} days before',
+  beforeHours: '{count} hours before',
+  afterEvery: 'every {count} hours after expiry',
+  onTheDay: 'on the day',
+  onlyOnExpiry: ' (on the day only)',
+  hourly: ' (hourly)',
+  perPeriod: '/cycle',
+  unitDay: 'day',
+  unitMonth: 'month',
+  unitYear: 'year',
+  testTitle: 'Subscription reminder test',
+  testContent: 'This is a test notification. Receiving it means the channel is configured correctly.',
+  zoneNames: {
+    UTC: 'Coordinated Universal Time',
+    'Asia/Shanghai': 'China Standard Time',
+    'Asia/Hong_Kong': 'Hong Kong Time',
+    'Asia/Taipei': 'Taipei Time',
+    'Asia/Singapore': 'Singapore Time',
+    'Asia/Tokyo': 'Japan Standard Time',
+    'Asia/Seoul': 'Korea Standard Time',
+    'America/New_York': 'Eastern Time',
+    'America/Chicago': 'Central Time',
+    'America/Denver': 'Mountain Time',
+    'America/Los_Angeles': 'Pacific Time',
+    'Europe/London': 'British Time',
+    'Europe/Paris': 'Central European Time',
+    'Europe/Berlin': 'Central European Time',
+    'Europe/Moscow': 'Moscow Time',
+    'Australia/Sydney': 'Sydney Time',
+    'Australia/Melbourne': 'Melbourne Time',
+    'Pacific/Auckland': 'New Zealand Time',
+  } as Record<string, string>,
+}

@@ -12,6 +12,8 @@ import { createOAuthProvider, providerForScheduled } from './mcp/oauth'
 import { purgeRevokedMcpApiKeys } from './mcp/api-keys'
 import { purgeExpiredMcpOperations } from './mcp/operations'
 import { purgeExpiredOperationalData } from './lib/maintenance'
+import { purgeExpiredSubscriptionData } from './subscriptions/logs'
+import { sweepSubscriptions } from './subscriptions/scheduler'
 import { ApiError } from './lib/errors'
 import { withSecurityHeaders } from './lib/security-headers'
 import { normalizeRepeatedOAuthResource } from './lib/oauth-request'
@@ -63,8 +65,12 @@ export default {
       // rows are the delivery, and a push service that answers slowly must not hold up the tick that wrote
       // them. What the sends cost comes back in the sweep result's `push` tally.
       const assistantTick = runDueAssistantAutomations(env, Date.now(), (task) => { ctx.waitUntil(task) })
+      // Subscription reminders share the every-fire cadence for the same reason the assistant's do: a
+      // reminder is cheap, and the sweep deduplicates by the reader's own local hour, so the second and
+      // third fires of an hour find their deliveries already claimed.
+      const subscriptionTick = sweepSubscriptions(env, event.scheduledTime)
       if (!isDrainFire(event.scheduledTime)) {
-        await assistantTick
+        await Promise.all([assistantTick, subscriptionTick])
         return
       }
       const drains: Promise<unknown>[] = [
@@ -85,10 +91,11 @@ export default {
             purgeExpiredOperationalData(env.DB),
             purgeRevokedMcpApiKeys(env.DB),
             purgeExpiredEphemeralConversations(env.DB, env),
+            purgeExpiredSubscriptionData(env.DB),
             providerForScheduled(env).purgeExpiredData(env, { batchSize: 100 }),
           ]
         : []
-      await Promise.all([...drains, ...heavy])
+      await Promise.all([...drains, ...heavy, subscriptionTick])
     })())
   },
 } satisfies ExportedHandler<Env>
