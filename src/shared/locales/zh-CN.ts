@@ -6812,6 +6812,7 @@ console.log(\`Hello, \${name}!\`)
     "assistant.context.title": "随本回合发送的上下文",
     "assistant.context.note": "当前笔记",
     "assistant.context.folder": "当前文件夹",
+    "assistant.context.canvas": "画布《{title}》",
     "assistant.context.remove": "不再发送「{name}」",
     "assistant.attach.add_folder": "添加文件夹",
     "assistant.attach.add_url": "从网址添加",

@@ -1902,14 +1902,27 @@ function ContextStrip() {
   const folderName = useNotes((state) => (folderId ? state.folders.find((folder) => folder.id === folderId)?.name : undefined))
   const noteOn = useAssistant((state) => state.noteContextOn)
   const folderOn = useAssistant((state) => state.folderContextOn)
+  const canvasOpen = useAssistant((state) => state.canvasOpen)
+  const canvasOn = useAssistant((state) => state.canvasContextOn)
+  const activeArtifactId = useAssistant((state) => state.activeArtifactId)
+  const artifactTitle = useAssistant((state) => state.artifacts.find((entry) => entry.id === state.activeArtifactId)?.title)
   const setNoteContext = useAssistant((state) => state.setNoteContext)
   const setFolderContext = useAssistant((state) => state.setFolderContext)
+  const setCanvasContext = useAssistant((state) => state.setCanvasContext)
   const chips: Array<{ id: string, icon: React.ReactNode, label: string, onRemove: () => void }> = []
   if (activeNoteId && noteOn) {
     chips.push({ id: 'note', icon: <FileText size={12} />, label: noteTitle || t('assistant.context.note'), onRemove: () => setNoteContext(false) })
   }
   if (folderId && folderOn) {
     chips.push({ id: 'folder', icon: <FolderOpen size={12} />, label: folderName || t('assistant.context.folder'), onRemove: () => setFolderContext(false) })
+  }
+  if (canvasOpen && canvasOn && activeArtifactId) {
+    chips.push({
+      id: 'canvas',
+      icon: <PanelRight size={12} />,
+      label: t('assistant.context.canvas', { title: artifactTitle || t('assistant.canvas.untitled') }),
+      onRemove: () => setCanvasContext(false),
+    })
   }
   if (!chips.length) return null
   return (

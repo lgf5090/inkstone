@@ -310,8 +310,17 @@ interface AssistantState {
    */
   noteContextOn: boolean
   folderContextOn: boolean
+  /**
+   * Whether the draft open in the canvas rides along with the next turn.
+   *
+   * The same rule as the note chip: a context the reader cannot see is one they cannot correct. The
+   * canvas being open is not enough; the chip is the visible promise, and taking it off leaves the
+   * draft on screen without sending it to the model.
+   */
+  canvasContextOn: boolean
   setNoteContext: (on: boolean) => void
   setFolderContext: (on: boolean) => void
+  setCanvasContext: (on: boolean) => void
   /**
    * Text the composer has been asked to start from — a quote of a turn.
    *
@@ -563,7 +572,7 @@ interface AssistantState {
    * formed — so the composer can hand the reader their words back instead of swallowing them. True
    * covers a turn that ran and a turn the reader stopped: either way the question itself was sent.
    */
-  send: (text: string, opts?: { retry?: boolean, messageId?: string, continue?: boolean }) => Promise<boolean>
+  send: (text: string, opts?: { retry?: boolean, messageId?: string, continue?: boolean, activeArtifactId?: string }) => Promise<boolean>
   /**
    * Queue files the reader picked, dragged or pasted, and send the ones a turn could read.
    *
@@ -1456,6 +1465,7 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
   compareTurn: null,
   noteContextOn: true,
   folderContextOn: true,
+  canvasContextOn: true,
   composerSeed: null,
   pending: [],
   skills: [],
@@ -2099,7 +2109,7 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
     // A comparison is this thread's choice: leaving it armed would spend a second model's tokens on the
     // next thread without anyone asking. The answer already on screen keeps its thread's id, so it is
     // simply not drawn here — the same rule the live turn follows when the reader walks away mid-reply.
-    set({ activeId: id, messages: [], messagesReady: false, messagesError: null, remoteStreaming: false, remotePartial: null, remotePartialTruncated: false, noteContextOn: true, folderContextOn: true, artifacts: [], artifactsReady: false, canvasOpen: false, activeArtifactId: null, ephemeral: false, compareOn: false, compareModelId: null, messagesBefore: null, messagesHasMore: false, messagesLoadingMore: false, messagesHasNewer: false, focusMessageId: focus })
+    set({ activeId: id, messages: [], messagesReady: false, messagesError: null, remoteStreaming: false, remotePartial: null, remotePartialTruncated: false, noteContextOn: true, folderContextOn: true, canvasContextOn: true, artifacts: [], artifactsReady: false, canvasOpen: false, activeArtifactId: null, ephemeral: false, compareOn: false, compareModelId: null, messagesBefore: null, messagesHasMore: false, messagesLoadingMore: false, messagesHasNewer: false, focusMessageId: focus })
     if (!id) {
       set({ messagesReady: true, messagesError: null, artifactsReady: true })
       return
@@ -2186,7 +2196,7 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
     // The pins go with the thread they were added to. They are "this turn's" by definition — the row the
     // composer draws is the record of what this question was asked about — so a new conversation that
     // inherited them would answer a question nobody asked, in a folder nobody named.
-    set({ activeId: null, messages: [], messagesReady: true, messagesError: null, remoteStreaming: false, remotePartial: null, remotePartialTruncated: false, turn: null, noteContextOn: true, folderContextOn: true, artifacts: [], artifactsReady: true, canvasOpen: false, activeArtifactId: null, ephemeral: false, compareOn: false, compareModelId: null, turnTools: [], turnScopes: [] })
+    set({ activeId: null, messages: [], messagesReady: true, messagesError: null, remoteStreaming: false, remotePartial: null, remotePartialTruncated: false, turn: null, noteContextOn: true, folderContextOn: true, canvasContextOn: true, artifacts: [], artifactsReady: true, canvasOpen: false, activeArtifactId: null, ephemeral: false, compareOn: false, compareModelId: null, turnTools: [], turnScopes: [] })
   },
 
   /**
@@ -2199,7 +2209,7 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
     const live = get().turn
     if (live && !live.done) return
     stopRemoteStreamWatch()
-    set({ activeId: null, messages: [], messagesReady: true, messagesError: null, remoteStreaming: false, remotePartial: null, remotePartialTruncated: false, turn: null, noteContextOn: true, folderContextOn: true, artifacts: [], artifactsReady: true, canvasOpen: false, activeArtifactId: null, ephemeral: true, compareOn: false, compareModelId: null })
+    set({ activeId: null, messages: [], messagesReady: true, messagesError: null, remoteStreaming: false, remotePartial: null, remotePartialTruncated: false, turn: null, noteContextOn: true, folderContextOn: true, canvasContextOn: true, artifacts: [], artifactsReady: true, canvasOpen: false, activeArtifactId: null, ephemeral: true, compareOn: false, compareModelId: null })
   },
 
   attachFiles: async (files) => {
@@ -2416,6 +2426,8 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
 
   setFolderContext: (on) => set({ folderContextOn: on }),
 
+  setCanvasContext: (on) => set({ canvasContextOn: on }),
+
   seedComposer: (text) => set({ composerSeed: text }),
 
   clearComposerSeed: () => set({ composerSeed: null }),
@@ -2631,6 +2643,10 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
           ...(retry || continuing ? {} : {
             ...(state.noteContextOn && ui.activeNoteId ? { contextNoteId: ui.activeNoteId } : {}),
             ...(state.folderContextOn && ui.folderId ? { contextFolderId: ui.folderId } : {}),
+            // The canvas chip is the visible half of this: a draft the reader can see on screen but
+            // cannot see in the context row is one they cannot take back off the next question.
+            ...(state.canvasOpen && state.canvasContextOn && state.activeArtifactId ? { activeArtifactId: state.activeArtifactId } : {}),
+            ...(opts?.activeArtifactId ? { activeArtifactId: opts.activeArtifactId } : {}),
             // Where this thread began. The worker records it once and never re-labels the thread, so a
             // later turn asked beside another note leaves the origin alone.
             //
@@ -2912,7 +2928,7 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
 
   setCanvasOpen: (open) => set({ canvasOpen: open }),
 
-  selectArtifact: (id) => set({ activeArtifactId: id }),
+  selectArtifact: (id) => set({ activeArtifactId: id, ...(id ? { canvasContextOn: true } : {}) }),
 
   loadArtifacts: async () => {
     const conversationId = get().activeId
@@ -2950,6 +2966,7 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
         artifactsReady: true,
         canvasOpen: true,
         activeArtifactId: artifact.id,
+        canvasContextOn: true,
       }))
     } catch (error) {
       toast(error)

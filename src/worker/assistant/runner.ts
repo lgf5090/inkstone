@@ -14,8 +14,8 @@
 
 import { MAX_MESSAGE_CHARS, SEARCH_NATIVE_PROTOCOLS, WEB_SEARCH_TOOL_NAME, looksLikeSearchTool, toolModeFor, toolPayloadText, webSearchConfigured } from '@shared/assistant'
 import { webSearchEngineFor } from '@shared/web-search-engines'
-import type { AssistantMessage, AssistantModel, AssistantModelModality, AssistantProtocol, AssistantSettings, AssistantSource, ChatStreamEvent, ToolActivity } from '@shared/assistant'
-import { contextBudgetFor, customParamBody, MAX_CHAT_ATTACHMENTS, MAX_CONVERSATION_TITLE_CHARS, MAX_TURN_SCOPES, MAX_TURN_TOOLS, clipSuggestionList, estimateTokens, titleFromMessage, type AssistantTurnScope } from '@shared/assistant'
+import type { AssistantArtifact, AssistantMessage, AssistantModel, AssistantModelModality, AssistantProtocol, AssistantSettings, AssistantSource, ChatStreamEvent, ToolActivity } from '@shared/assistant'
+import { ARTIFACT_CONTEXT_HEAD_CHARS, ARTIFACT_CONTEXT_TAIL_CHARS, contextBudgetFor, customParamBody, MAX_ARTIFACT_CONTEXT_CHARS, MAX_CHAT_ATTACHMENTS, MAX_CONVERSATION_TITLE_CHARS, MAX_TURN_SCOPES, MAX_TURN_TOOLS, clipSuggestionList, estimateTokens, titleFromMessage, type AssistantTurnScope } from '@shared/assistant'
 import { hasHistoricalIntent, memoryTokenBudget } from '@shared/assistant-memory'
 import { ATTACHMENT_MARKER, expandChatAttachments, type AttachmentPayload } from './attachments'
 import { resolveNoteMentions } from './note-mentions'
@@ -211,6 +211,14 @@ export interface TurnInput {
   contextNoteId?: string
   contextFolderId?: string
   /**
+   * The draft the reader has open in the canvas.
+   *
+   * It is a turn's working document rather than a note: the prompt carries its text, and the artifact
+   * tools are what change it. The id is validated against the conversation before the first frame, so a
+   * caller cannot point the model at another thread's draft.
+   */
+  activeArtifactId?: string
+  /**
    * The note this thread began beside.
    *
    * Separate from `contextNoteId`, which is per-turn: this one is written onto the conversation the first
@@ -362,6 +370,9 @@ export class AssistantRunner {
   private contextNoteId: string | null = null
   private contextFolderId: string | null = null
   private contextPromise: Promise<{ openNote: { id: string, title: string } | null, browsingFolder: string | null }> | null = null
+  /** The draft the reader has open, read once after the conversation it must belong to is known. */
+  private contextArtifactId: string | null = null
+  private contextArtifact: AssistantArtifact | null = null
   /** Set with the conversation, before anything asks for the scope or the prompt. */
   private conversationProjectId: string | null = null
   /** Set when a step's model call was cut off at the output cap instead of stopping by itself. */
@@ -432,6 +443,10 @@ export class AssistantRunner {
     this.contextNoteId = isValidId(input.contextNoteId ?? '') ? input.contextNoteId! : null
     this.originNoteId = isValidId(input.originNoteId ?? '') ? input.originNoteId! : null
     this.contextFolderId = isValidId(input.contextFolderId ?? '') ? input.contextFolderId! : null
+    // A malformed id is no draft at all. A well-formed one is checked against the conversation below,
+    // once the turn knows which conversation that is — including one this turn is about to create.
+    this.contextArtifactId = isValidId(input.activeArtifactId ?? '') ? input.activeArtifactId! : null
+    this.contextArtifact = null
     let conversation = input.conversationId ? await this.store.getConversation(input.conversationId) : null
     // The project comes from the row that was just read, so a conversation moved between projects is
     // answered under the one it is in now.
@@ -557,6 +572,13 @@ export class AssistantRunner {
       })
     }
     const conversationId = conversation.id
+    if (this.contextArtifactId) {
+      const artifact = await this.store.getArtifact(this.contextArtifactId)
+      // The draft has to be this thread's own. A caller that names another conversation's draft is not
+      // given a hint about whether it exists.
+      if (!artifact || artifact.conversationId !== conversationId) throw ApiError.badRequest('Draft not found.')
+      this.contextArtifact = artifact
+    }
     const assistantId = reuseId ?? newId()
     const startedAt = Date.now()
     // The label is only known once the model resolves, and a turn that never got that far stores an
@@ -743,6 +765,7 @@ export class AssistantRunner {
         turnTools: this.turnTools,
         openNote: context.openNote,
         browsingFolder: context.browsingFolder,
+        artifact: this.artifactPromptContext(),
         project: project?.instructions ? { name: project.name, instructions: project.instructions } : null,
         continuing: this.continueFrom !== null,
         customInstructions: this.settings.customInstructions,
@@ -1765,6 +1788,28 @@ export class AssistantRunner {
       })()
     }
     return this.projectPromise
+  }
+
+  /**
+   * The open draft, reduced to the part a prompt can afford.
+   *
+   * The head and tail keep the beginning and the current end of a long document — where a request like
+   * "continue this" needs the most — and the model is told to call `read_artifact` for the middle. The
+   * whole draft on every turn would spend the context on text nobody asked about.
+   */
+  private artifactPromptContext(): { title: string, version: number, content: string, truncated: boolean } | null {
+    const artifact = this.contextArtifact
+    if (!artifact) return null
+    const content = artifact.content
+    if (content.length <= MAX_ARTIFACT_CONTEXT_CHARS) {
+      return { title: artifact.title, version: artifact.version, content, truncated: false }
+    }
+    return {
+      title: artifact.title,
+      version: artifact.version,
+      content: `${content.slice(0, ARTIFACT_CONTEXT_HEAD_CHARS)}\n\n[…]\n\n${content.slice(-ARTIFACT_CONTEXT_TAIL_CHARS)}`,
+      truncated: true,
+    }
   }
 
   /**

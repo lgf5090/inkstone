@@ -51,6 +51,13 @@ export interface SystemPromptContext {
   turnTools?: string[]
   /** The note the reader had open when they asked, so "this note" has a referent. */
   openNote?: { id: string, title: string } | null
+  /**
+   * The draft in the canvas, when the reader has one open.
+   *
+   * `truncated` says the body was reduced to its head and tail; the prompt tells the model to read the
+   * rest with a tool rather than guess at what it cannot see.
+   */
+  artifact?: { title: string, version: number, content: string, truncated: boolean } | null
   /** The project this conversation belongs to, whose brief and knowledge it inherits. */
   project?: { name: string, instructions: string } | null
   /** The folder the notebook was filtered to, named as a path. */
@@ -98,6 +105,16 @@ export function buildSystemPrompt(context: SystemPromptContext): string {
     // turn is *allowed* to reach, and this is what it was *asked* about, so the permission reads first.
     context.project
       ? fill(catalog.project_brief, { name: context.project.name, instructions: context.project.instructions })
+      : '',
+    context.artifact
+      ? [
+        fill(catalog.canvas_draft, {
+          title: context.artifact.title || catalog.canvas_untitled,
+          version: context.artifact.version,
+          content: context.artifact.content,
+        }),
+        context.artifact.truncated ? catalog.canvas_draft_truncated : '',
+      ].filter(Boolean).join('\n')
       : '',
     context.openNote
       ? fill(catalog.open_note, { title: context.openNote.title, id: context.openNote.id })

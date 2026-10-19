@@ -25,6 +25,8 @@ export interface StreamTurnInput {
   contextNoteId?: string
   /** The folder the notebook was filtered to, as a hint about what they were looking at. */
   contextFolderId?: string
+  /** The draft open in the canvas, so the model can read and rewrite it. */
+  activeArtifactId?: string
   /** The note this thread is being started from, recorded on the conversation the first time. */
   noteId?: string
   retry?: boolean
@@ -97,6 +99,7 @@ export async function streamAssistantTurn(
         ...(input.scopes?.length ? { scopes: input.scopes } : {}),
         ...(input.contextNoteId ? { contextNoteId: input.contextNoteId } : {}),
         ...(input.contextFolderId ? { contextFolderId: input.contextFolderId } : {}),
+        ...(input.activeArtifactId ? { activeArtifactId: input.activeArtifactId } : {}),
         ...(input.noteId ? { noteId: input.noteId } : {}),
         ...(input.webSearch ? { webSearch: true } : {}),
         ...(input.modelId ? { modelId: input.modelId } : {}),
