@@ -24,9 +24,9 @@ const startBootScript = (): BootRecovery => {
   return (window as unknown as { __inkstoneBoot: BootRecovery }).__inkstoneBoot
 }
 
-const failScriptLoad = (src?: string): void => {
+const failScriptLoad = (src?: string, type = 'module'): void => {
   const script = document.createElement('script')
-  script.type = 'module'
+  script.type = type
   if (src) script.src = src
   document.head.appendChild(script)
   script.dispatchEvent(new Event('error'))
@@ -158,11 +158,25 @@ it('keeps a script the deployment did not emit out of the start-up decision', ()
   vi.stubGlobal('location', { reload })
   startBootScript()
 
-  // The shape Cloudflare's analytics beacon takes: appended at the edge, refused by this page's CSP.
+  // The shape Cloudflare's analytics beacon takes: appended at the edge, then killed by CSP, by a
+  // content blocker, or by the network — the reason it fails is none of the guard's business.
   failScriptLoad('https://static.cloudflareinsights.com/beacon.min.js/vce701823e78c4301a35b7e')
   expect(reload).not.toHaveBeenCalled()
   expect(document.querySelector('#boot .boot-failure')).toBeNull()
   expect(sessionStorage.getItem('inkstone.boot-recovery')).toBeNull()
+})
+
+it('keeps a same-origin file outside the build chunk list out of it too', () => {
+  document.body.innerHTML = '<div id="boot"></div>'
+  const reload = vi.fn()
+  vi.stubGlobal('location', { reload })
+  startBootScript()
+
+  // The drawing engine's own file tree is copied in beside the bundler's output, not emitted by it, and
+  // a classic script is never this document's entry point.
+  failScriptLoad('/vendor/excalidraw/excalidraw.production.min.js')
+  failScriptLoad('/assets/index-DEADBEEF.js', 'text/javascript')
+  expect(reload).not.toHaveBeenCalled()
 })
 
 it('spends a fresh guard on the reload the visitor asked for', () => {

@@ -46,6 +46,9 @@
   // answered. One reload hands the visitor the current document; the session flag stops a genuinely
   // broken deployment from reloading in a loop.
   var RECOVERY_KEY = 'inkstone.boot-recovery'
+  // Where the bundler emits this build's modules — Vite's `build.assetsDir`, which the build leaves at
+  // its default. A module outside it is not one of the app's chunks, whatever injected it.
+  var APP_ASSET_PATH = '/assets/'
   // The locale catalog cannot carry this copy: it is one of the files a stale document loses, and
   // the message has to be readable exactly when the catalog is not.
   var FAILURE_COPY = {
@@ -72,18 +75,21 @@
     }
   })()
 
-  // A script this deployment did not emit cannot be fetched back by reloading this document, so its
-  // failure is not a start-up failure. The class is anything from another origin: the analytics
-  // beacon Cloudflare's edge appends to the HTML, a browser extension's file, something a proxy
-  // injected. Each fires a script `error` on its own element exactly the way a chunk the server no
-  // longer has does, and read as a missing chunk it spent the reload guard before the app had a
-  // chance to boot — the load after it was answered with "this page came from an older version", a
-  // message no reload, soft or hard, could satisfy, because nothing was stale.
-  function isAppScript(src) {
-    // A script element with no `src` never fetches, so it can only be one the app itself wrote.
+  // Only a module this document asked for can be "the build that went away". Everything else that
+  // fires a script `error` — the analytics beacon Cloudflare's edge appends to the HTML, which a
+  // content blocker kills on its own before CSP is even consulted, an extension's file, something a
+  // proxy injected — is not fetched back by reloading this document. Read as a missing chunk it spent
+  // the reload guard before the app had a chance to boot, and the load after it was answered with
+  // "this page came from an older version", a message no reload, soft or hard, could satisfy, because
+  // nothing was stale.
+  function isAppChunk(element) {
+    if (element.type !== 'module') return false
+    var src = element.src
+    // A module element with no `src` never fetches, so it can only be one the app itself wrote.
     if (!src) return true
     try {
-      return new URL(src, document.baseURI).origin === appOrigin
+      var url = new URL(src, document.baseURI)
+      return url.origin === appOrigin && url.pathname.indexOf(APP_ASSET_PATH) === 0
     } catch (e) {
       return false
     }
@@ -184,7 +190,7 @@
     window.addEventListener('error', function (event) {
       var target = event.target
       if (!target || target.tagName !== 'SCRIPT') return
-      if (!isAppScript(target.src)) return
+      if (!isAppChunk(target)) return
       var recovery = window.__inkstoneBoot
       if (!recovery || recovery.booted()) return
       recovery.fail()

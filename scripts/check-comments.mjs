@@ -24415,7 +24415,10 @@ const allowed = new Map([
   ]],
   ["tests/boot-scripts.test.ts", [
     "// Declared with the two arguments `fetch` is called with, so reading the call's `init` is checked.",
-    "// The shape Cloudflare's analytics beacon takes: appended at the edge, refused by this page's CSP.",
+    "// The shape Cloudflare's analytics beacon takes: appended at the edge, then killed by CSP, by a",
+    "// content blocker, or by the network — the reason it fails is none of the guard's business.",
+    "// The drawing engine's own file tree is copied in beside the bundler's output, not emitted by it, and",
+    "// a classic script is never this document's entry point.",
   ]],
   ["tests/chat-commands.test.ts", [
     "/** Where the palette hands the reader off to, so a case can name it without repeating the address. */",
