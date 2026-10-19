@@ -33,6 +33,13 @@ import type { Heading } from '../lib/markdown/renderer';
 import { t } from "../lib/i18n";
 
 const externalValueUpdate = Annotation.define<boolean>();
+export interface EditorSelectionInfo {
+    from: number;
+    to: number;
+    text: string;
+    /** The selection's box in viewport coordinates, for a toolbar that has to sit above it. */
+    rect: { top: number; left: number; width: number; height: number };
+}
 export interface CodeEditorProps {
     value: string;
     live?: boolean;
@@ -46,6 +53,11 @@ export interface CodeEditorProps {
     onReady?: (view: EditorView | null) => void;
     onScroll?: (view: EditorView) => void;
     onCursorLine?: (line: number) => void;
+    /**
+     * The current selection, or null when it collapsed, the document changed, or the view lost the
+     * pointer. The host uses it to float an action bar over the words it can act on.
+     */
+    onSelectionChange?: (selection: EditorSelectionInfo | null) => void;
     /** Ask the host to open the note's context menu at a pointer position. */
     onRequestContextMenu?: (request: { x: number; y: number; editor: EditorContext }) => void;
     placeholder?: string;
@@ -59,7 +71,7 @@ export function DeferredCodeEditor({ visible, ...props }: CodeEditorProps & { vi
     // Preserve undo history across mode changes once editing has started.
     return visible || initialized ? <CodeEditor {...props}/> : null;
 }
-export function CodeEditor({ value, live = false, noteId, noteTitle = '', onHeadings, onChange, settings, sources, handlers, onReady, onScroll, onCursorLine, onRequestContextMenu, placeholder = t("editor.start_writing"), className, }: CodeEditorProps) {
+export function CodeEditor({ value, live = false, noteId, noteTitle = '', onHeadings, onChange, settings, sources, handlers, onReady, onScroll, onCursorLine, onSelectionChange, onRequestContextMenu, placeholder = t("editor.start_writing"), className, }: CodeEditorProps) {
     const hostRef = useRef<HTMLDivElement>(null);
     const [tagMenu, setTagMenu] = useState<TagMenuRequest | null>(null);
     const [blockMenu, setBlockMenu] = useState<DraggerBlockMenuRequest | null>(null);
@@ -67,8 +79,8 @@ export function CodeEditor({ value, live = false, noteId, noteTitle = '', onHead
     tagMenuRef.current = setTagMenu;
     const viewRef = useRef<EditorView | null>(null);
 
-    const cbRef = useRef({ onChange, onScroll, onCursorLine, sources, handlers, onHeadings, noteTitle, onRequestContextMenu });
-    cbRef.current = { onChange, onScroll, onCursorLine, sources, handlers, onHeadings, noteTitle, onRequestContextMenu };
+    const cbRef = useRef({ onChange, onScroll, onCursorLine, onSelectionChange, sources, handlers, onHeadings, noteTitle, onRequestContextMenu });
+    cbRef.current = { onChange, onScroll, onCursorLine, onSelectionChange, sources, handlers, onHeadings, noteTitle, onRequestContextMenu };
     const { hover, handlePin } = useLinkHoverHost(noteId ?? null);
     const longPress = useLongPress((point, target) => {
         // A long press on a handle is the phone's version of right-clicking it: the block's own menu,
@@ -208,15 +220,49 @@ export function CodeEditor({ value, live = false, noteId, noteTitle = '', onHead
                 const external = update.transactions.some((transaction) => transaction.annotation(externalValueUpdate));
                 if (update.docChanged && !external) {
                     cbRef.current.onChange(update.state.doc.toString());
+                    // The old range no longer describes the same words. Hiding the bar is more honest than
+                    // moving it over text the reader did not select.
+                    cbRef.current.onSelectionChange?.(null);
                 }
-                if (update.selectionSet && cbRef.current.onCursorLine) {
-                    const line = update.state.doc.lineAt(update.state.selection.main.head).number;
-                    cbRef.current.onCursorLine(line);
+                if (update.selectionSet) {
+                    if (cbRef.current.onCursorLine) {
+                        const line = update.state.doc.lineAt(update.state.selection.main.head).number;
+                        cbRef.current.onCursorLine(line);
+                    }
+                    const report = cbRef.current.onSelectionChange;
+                    if (report) {
+                        const range = update.state.selection.main;
+                        if (range.empty) {
+                            report(null);
+                        } else {
+                            const head = update.view.coordsAtPos(range.from);
+                            const tail = update.view.coordsAtPos(range.to);
+                            report(head && tail
+                                ? {
+                                    from: range.from,
+                                    to: range.to,
+                                    text: update.state.doc.sliceString(range.from, range.to),
+                                    rect: {
+                                        top: Math.min(head.top, tail.top),
+                                        left: Math.min(head.left, tail.left),
+                                        width: Math.max(head.right, tail.right) - Math.min(head.left, tail.left),
+                                        height: Math.max(head.bottom, tail.bottom) - Math.min(head.top, tail.top),
+                                    },
+                                }
+                                : null);
+                        }
+                    }
                 }
             }),
             EditorView.domEventHandlers({
                 scroll(_event, view) {
+                    // A bar pinned to a selection scrolls away from it; the reader selects again when they
+                    // stop moving.
+                    cbRef.current.onSelectionChange?.(null);
                     cbRef.current.onScroll?.(view);
+                },
+                blur() {
+                    cbRef.current.onSelectionChange?.(null);
                 },
                 contextmenu(event, view) {
                     return contextMenuRef.current(event, view);

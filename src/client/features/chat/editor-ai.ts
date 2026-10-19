@@ -28,15 +28,19 @@ export interface EditorAiAnchor {
   trail: string
 }
 
-export interface EditorAiRequest {
-  noteId: string
-  action: EditorAiAction
+/** The range-and-anchor half of a request, shared by the note editor and the canvas. */
+export interface WriteRange {
   /** The range the answer replaces. `from === to` means "nothing was selected, put it at the caret". */
   from: number
   to: number
   /** What that range said when the request was made. */
   source: string
   anchor: EditorAiAnchor
+}
+
+export interface EditorAiRequest extends WriteRange {
+  noteId: string
+  action: EditorAiAction
 }
 
 interface EditorAiState {
@@ -183,7 +187,7 @@ function occurrences(content: string, needle: string): number[] {
  * given. Otherwise the anchor goes looking, which is what lets an edit made in another part of the note
  * land without losing the answer waiting for it. Both readings end the same way when they fail: `stale`.
  */
-export function resolveWriteTarget(content: string, request: EditorAiRequest): EditorAiTarget {
+export function resolveWriteTarget(content: string, request: WriteRange): EditorAiTarget {
   const { lead, trail } = request.anchor
   const exact = content.slice(request.from, request.to) === request.source
     && content.slice(request.from - lead.length, request.from) === lead
@@ -215,7 +219,7 @@ export function writeEditorAiContent(content: string, target: { from: number; to
  * actually land in. Nothing here writes: it is the same {@link resolveWriteTarget} the commit uses, run
  * one keystroke earlier.
  */
-export function previewEditorAiWrite(content: string, request: EditorAiRequest, answer: string, mode: EditorAiWriteMode): EditorAiPreview {
+export function previewEditorAiWrite(content: string, request: WriteRange, answer: string, mode: EditorAiWriteMode): EditorAiPreview {
   const target = resolveWriteTarget(content, request)
   if (target.status === 'stale') return { status: 'stale' }
   const body = answer.trim()
@@ -292,7 +296,7 @@ interface TurnAnswer {
  * they are in. `failed` carries what the turn reported when it reported anything.
  */
 export type AnswerResult =
-  | { status: 'ok', text: string }
+  | { status: 'ok', text: string, messageId?: string | null }
   | { status: 'busy' }
   | { status: 'failed', error: string | null }
   | { status: 'empty' }
@@ -314,7 +318,10 @@ export type AnswerResult =
  * Says `busy` without sending when a turn is already running, so a caller can tell the reader to wait
  * rather than queue a second question behind their back.
  */
-export async function sendForAnswerDetailed(prompt: string): Promise<AnswerResult> {
+export async function sendForAnswerDetailed(
+  prompt: string,
+  options: { activeArtifactId?: string, modelId?: string | null, noTools?: boolean } = {},
+): Promise<AnswerResult> {
   const assistant = useAssistant.getState()
   if (assistant.turn && !assistant.turn.done) return { status: 'busy' }
   const previous = assistant.turn
@@ -328,7 +335,7 @@ export async function sendForAnswerDetailed(prompt: string): Promise<AnswerResul
     if (started.turn && turn.token !== undefined && started.turn.token !== undefined && turn.token !== started.turn.token) return
     started.turn = turn
   })
-  const accepted = await useAssistant.getState().send(prompt)
+  const accepted = await useAssistant.getState().send(prompt, options)
   watch()
   const turn = started.turn
   if (!accepted) return { status: 'failed', error: null }
@@ -342,7 +349,7 @@ export async function sendForAnswerDetailed(prompt: string): Promise<AnswerResul
     : undefined
   if (row && row.status !== 'complete') return { status: 'failed', error: row.error }
   if (!turn.text.trim()) return { status: 'empty' }
-  return { status: 'ok', text: turn.text }
+  return { status: 'ok', text: turn.text, messageId: turn.assistantId }
 }
 
 /**

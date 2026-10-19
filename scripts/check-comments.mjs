@@ -578,6 +578,12 @@ const allowed = new Map([
     "// While drag mode holds the finger, the dragger answers the press and the note's menu keeps",
     "// out of the way.",
     "// The grip box is painted from these settings, and no document change announces them.",
+    "/** The selection's box in viewport coordinates, for a toolbar that has to sit above it. */",
+    "/**\n     * The current selection, or null when it collapsed, the document changed, or the view lost the\n     * pointer. The host uses it to float an action bar over the words it can act on.\n     */",
+    "// The old range no longer describes the same words. Hiding the bar is more honest than",
+    "// moving it over text the reader did not select.",
+    "// A bar pinned to a selection scrolls away from it; the reader selects again when they",
+    "// stop moving.",
   ]],
   ["src/client/editor/codeLanguages.ts", [
     "// Highlighting removed: no code languages are loaded.",
@@ -1205,6 +1211,9 @@ const allowed = new Map([
     "/* A named region the keyboard can stop in: a scroll box nobody can focus is unreachable, and arrow\n          keys move it once it is. Each chip stays a button, so selecting a branch is never pointer-only. */",
     "/* The edge affordances: drawn only while something is actually out of reach, and stopped at each end\n          so a press never pretends to have moved the row. */",
   ]],
+  ["src/client/features/chat/CanvasAiPreview.tsx", [
+    "/**\n * The change a canvas rewrite would make, before it is made.\n *\n * The range is resolved again here rather than trusted from the moment the request was sent: the reader\n * may have typed while the model was thinking, and a replacement that landed a paragraph off would\n * overwrite words they wrote. The same refusal the note editor uses is enough.\n */",
+  ]],
   ["src/client/features/chat/CanvasPanel.tsx", [
     "/**\n * How many notes and tags the editor's completions may offer.\n *\n * The same ceiling the notebook's own editor uses: the completion list is filtered as the reader types, so\n * handing it the whole vault would only make the first keystroke slower to answer.\n */",
     "// What the server already has. A settled value equal to it is the echo of our own write coming back",
@@ -1269,6 +1278,15 @@ const allowed = new Map([
     "/** The one control an empty panel offers: start a document rather than explaining why there is none. */",
     "// Storage can be unavailable (private mode, a blocked origin). The width still works for this",
     "// session; losing it on reload is not worth a visible failure.",
+    "/**\n   * One action from the selection bar.\n   *\n   * `ask` is the one action whose question the reader writes, so it seeds the composer and stops there.\n   * The rest become a chat turn; the answer is not written back until the reader has seen the diff.\n   */",
+    "/**\n   * Write the previewed text into the draft.\n   *\n   * The content is updated before the request and `committed` moves with it, so the debounce does not\n   * fire a second, user-sourced save for the same words. A failed save puts the baseline back and lets\n   * the panel's error line own the retry.\n   */",
+  ]],
+  ["src/client/features/chat/CanvasSelectionBar.tsx", [
+    "/**\n * The action bar over a passage selected in the canvas.\n *\n * It floats in a portal because the editor scrolls; the parent handles the action and dismisses the bar.\n * The bar is icon-only so seven actions fit above a paragraph rather than wrapping into a menu the\n * reader has to open first. Every button keeps its name for a screen reader.\n */",
+    "/** The bar's own box, used for placement before the browser has laid it out. */",
+    "// A bar pinned to a range the reader scrolled away from is pointing at nothing.",
+    "// Keeping the pointer on the bar keeps the editor's selection: a button that focused itself would",
+    "// collapse the range before its own click handler ran.",
   ]],
   ["src/client/features/chat/ChatApp.tsx", [
     "/**\n * The chat app: the assistant's own container behind the rail's Chat tab.\n *\n * It borrows the notebook's chrome vocabulary rather than the reference project's — the same 48px\n * icon rail, the same 44px header, the same tokens — so the reader moves between containers without\n * finding a second visual language. What the reference called its sidebar becomes a second rail one\n * step in from the app rail, because the app rail already owns the outermost column.\n *\n * The five surfaces share one store on purpose: a turn in the chat can write a memory, a task and a\n * schedule in the same breath, and the tab that shows them has to be current the moment it is opened.\n */",
@@ -2781,6 +2799,7 @@ const allowed = new Map([
     "/** Bring an old snapshot back as a new head; returns the draft as it now stands. */",
     "// The head is new, so the list the history was showing is stale. It is read again when opened;",
     "// fetching it now would race the modal the reader is about to close.",
+    "/** A model named by a canvas action or a skill; absent uses the reader's standing pick. */",
   ]],
   ["src/client/features/chat/assistant-stream-isolation.test.ts", [
     "/** Every send's stream, in the order the store asked for them. */",
@@ -3007,6 +3026,16 @@ const allowed = new Map([
     "// The bar reads the tree after it mounts.",
     "// The one being read is marked and cannot be opened again.",
   ]],
+  ["src/client/features/chat/canvas-ai.test.ts", [
+    "/**\n * The canvas rewrite: what it sends, and where the answer lands.\n *\n * The anchor check is the part worth pinning. A draft can be edited by the reader and by the assistant\n * while the model is thinking; a replacement that trusted the offsets from the request would write over\n * a paragraph neither side selected.\n */",
+  ]],
+  ["src/client/features/chat/canvas-ai.ts", [
+    "/**\n * Asking the assistant about a passage in the canvas.\n *\n * The request is a chat turn like the note editor's: the selection rides in the prompt, the draft rides\n * in the turn's canvas context, and the answer comes back through the same stream, accounting and stop\n * button. Writing it back is the client's job, because only the client knows where the selection still\n * is; the anchor is checked against the text as it stands, and a moved passage is refused rather than\n * guessed at.\n */",
+    "/** What one canvas action is acting on. */",
+    "/**\n * The most a selection may carry.\n *\n * The composer refuses messages past sixteen thousand characters, and the instructions need room. A\n * selection longer than this is a whole section, not a passage; the reader is asked to take it in parts\n * rather than have a rewrite land on text the model only saw the start of.\n */",
+    "/** The request as a chat turn: the open draft is named so the canvas chip cannot switch it off. */",
+    "/**\n * The document as it would read with this answer replacing the selection.\n *\n * `resolveWriteTarget` is the same check the note editor uses: the passage's own words plus the words\n * around it, or a unique occurrence, or a refusal. A canvas is edited by the assistant too, so the\n * chance that the range moved while the model was thinking is higher here, not lower.\n */",
+  ]],
   ["src/client/features/chat/canvas-panel.test.ts", [
     "/**\n * The side panel: the drafts a conversation keeps.\n *\n * What is pinned here is the shape of the contract rather than the editor inside it. The panel is the\n * drive — an empty conversation says so, a draft can be picked out of the list, and a rename is committed\n * once the typing settles rather than once per keystroke — and the menu is the door: a reply offers the\n * canvas only where there is a row to hang a draft on, which is why the live turn and the reader's own\n * messages do not.\n *\n * The real editor is CodeMirror and is not what this file is about; a textarea stands in for it so the\n * panel's own wiring is what is exercised.\n */",
     "/** Types into a controlled input the way a browser does, which is the only way React sees a keystroke. */",
@@ -3046,6 +3075,9 @@ const allowed = new Map([
     "// A new version from elsewhere — an assistant write, or the same draft in another tab — replaces the",
     "// body the preview failed on. The panel adopts it while the editor is clean, so the notice goes with",
     "// the document it was about.",
+  ]],
+  ["src/client/features/chat/canvas-selection-bar.test.ts", [
+    "/**\n * The bar over a canvas selection.\n *\n * What it owns is the handover: the seven actions are buttons with names, the chosen one reaches the\n * parent, and Escape gives the editor its keyboard back. The position arithmetic is the same function\n * the answer bar already tests.\n */",
   ]],
   ["src/client/features/chat/canvas-sync.test.ts", [
     "/**\n * A draft that is also a note.\n *\n * The interesting case is the closed note: the panel is the only surface holding that document, so the\n * write has to be checked against what the panel last saw. A note that changed in the notebook meanwhile\n * is a conflict, and the test insists that the reader's text is kept and the note is left alone — the\n * one outcome this module exists to prevent is a silent overwrite in either direction.\n */",
@@ -3616,6 +3648,7 @@ const allowed = new Map([
     "/** How the note would read with this answer written into it at this place, one way or the other. */",
     "/**\n * The change the reader is being asked to confirm.\n *\n * Read from the note store rather than from the editor's view because the note on screen may not be the\n * note the request was made in, and because the answer has to be shown against the document it would\n * actually land in. Nothing here writes: it is the same {@link resolveWriteTarget} the commit uses, run\n * one keystroke earlier.\n */",
     "/**\n * Write an answer back into the note the request came from.\n *\n * The write goes through the note store rather than through the editor's view: the reader may have moved\n * to another note while the answer was being written, and the paragraph still belongs where they selected\n * it. The store is what the editor re-renders from, so the change lands in the document — and as one\n * transaction, which is what makes it one press of undo.\n *\n * The range is resolved again here rather than trusted from the preview: the note can move between the\n * two, and a change made while the dialog was open is exactly the change this refuses.\n *\n * Returns whether the note took the text, so the caller can keep the request open when it did not.\n */",
+    "/** The range-and-anchor half of a request, shared by the note editor and the canvas. */",
   ]],
   ["src/client/features/chat/feedback-reason.test.ts", [
     "/**\n * The grounds behind a thumbs-down.\n *\n * The card's shape is what a keyboard and a screen reader depend on, and jsdom draws none of it, so this\n * reads roles, names and the payload that left the client — the two halves worth pinning: that a verdict\n * can be taken back and explained, and that a reason never rides on an upvote.\n */",

@@ -573,7 +573,15 @@ interface AssistantState {
    * formed — so the composer can hand the reader their words back instead of swallowing them. True
    * covers a turn that ran and a turn the reader stopped: either way the question itself was sent.
    */
-  send: (text: string, opts?: { retry?: boolean, messageId?: string, continue?: boolean, activeArtifactId?: string }) => Promise<boolean>
+  send: (text: string, opts?: {
+    retry?: boolean
+    messageId?: string
+    continue?: boolean
+    activeArtifactId?: string
+    /** A model named by a canvas action or a skill; absent uses the reader's standing pick. */
+    modelId?: string | null
+    noTools?: boolean
+  }) => Promise<boolean>
   /**
    * Queue files the reader picked, dragged or pasted, and send the ones a turn could read.
    *
@@ -2716,6 +2724,8 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
             ...(originNoteId ? { noteId: originNoteId } : {}),
           }),
           webSearch: state.webSearch,
+          ...(opts?.modelId ? { modelId: opts.modelId } : {}),
+          ...(opts?.noTools ? { noTools: true } : {}),
           // Only when this turn is the one that makes the conversation: the flag is read at creation and
           // never again, because the promise is about the whole thread.
           ...(state.ephemeral && !conversationId ? { ephemeral: true } : {}),

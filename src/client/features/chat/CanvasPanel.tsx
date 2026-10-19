@@ -21,7 +21,7 @@
  */
 
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type PointerEvent as ReactPointerEvent } from 'react'
-import { ArrowLeft, Check, Copy, FileText, Link2Off, NotebookPen, PanelRight, Plus, RefreshCw, Trash2, X } from 'lucide-react'
+import { ArrowLeft, Check, Copy, FileText, Link2Off, Loader2, NotebookPen, PanelRight, Plus, RefreshCw, Trash2, X } from 'lucide-react'
 import type { AssistantArtifact } from '@shared/assistant'
 import { DEBOUNCE } from '@shared/constants'
 import { cn } from '../../lib/cn'
@@ -38,9 +38,14 @@ import { DeferredCodeEditor } from '../../editor/CodeEditor'
 import { useNotes } from '../../store/notes'
 import { useSession } from '../../store/session'
 import { useUi } from '../../store/ui'
+import type { EditorSelectionInfo } from '../../editor/CodeEditor'
 import { ArtifactBody } from './ArtifactBody'
 import { ArtifactHistory, HistoryButton } from './ArtifactHistory'
+import { CanvasAiPreview } from './CanvasAiPreview'
+import { CanvasSelectionBar } from './CanvasSelectionBar'
+import { runCanvasAi, type CanvasAiRequest } from './canvas-ai'
 import { CANVAS_DEFAULT_WIDTH, CANVAS_MAX_DOCK_WIDTH, CANVAS_MIN_DOCK_WIDTH, CANVAS_WIDTH_KEY, clampCanvasWidth, stepCanvasWidth } from './canvas-width'
+import { editorAiAnchor, quotePassage, type EditorAiAction } from './editor-ai'
 import { useAssistant } from './assistant-store'
 import { LoadFailure } from './assistant-settings-shared'
 import { saveReplyAsNote } from './save-to-note'
@@ -260,7 +265,7 @@ function ArtifactEditor({ artifact, onSave, onRemove }: {
   onSave: (
     id: string,
     patch: { title?: string, content?: string, noteId?: string | null },
-    options?: { baseVersion?: number, source?: 'user' | 'assistant' },
+    options?: { baseVersion?: number, source?: 'user' | 'assistant', messageId?: string | null },
   ) => Promise<AssistantArtifact>
   onRemove: (id: string) => Promise<void>
 }) {
@@ -272,6 +277,11 @@ function ArtifactEditor({ artifact, onSave, onRemove }: {
   const [saveState, setSaveState] = useState<SaveState>('idle')
   const [saveError, setSaveError] = useState<string | null>(null)
   const [historyOpen, setHistoryOpen] = useState(false)
+  const [selection, setSelection] = useState<EditorSelectionInfo | null>(null)
+  const [aiBusy, setAiBusy] = useState(false)
+  const [aiError, setAiError] = useState<string | null>(null)
+  const [aiResult, setAiResult] = useState<{ request: CanvasAiRequest, answer: string, messageId: string | null } | null>(null)
+  const stop = useAssistant((state) => state.stop)
   const [retryTick, setRetryTick] = useState(0)
   const [conflict, setConflict] = useState(false)
   const [syncState, setSyncState] = useState<SyncState>(artifact.noteId ? 'syncing' : 'synced')
@@ -527,6 +537,76 @@ function ArtifactEditor({ artifact, onSave, onRemove }: {
     })
   }
 
+  /**
+   * One action from the selection bar.
+   *
+   * `ask` is the one action whose question the reader writes, so it seeds the composer and stops there.
+   * The rest become a chat turn; the answer is not written back until the reader has seen the diff.
+   */
+  const onSelectionAction = (action: EditorAiAction): void => {
+    if (!selection) return
+    if (action === 'ask') {
+      useAssistant.getState().seedComposer(quotePassage(selection.text))
+      setSelection(null)
+      return
+    }
+    const request: CanvasAiRequest = {
+      artifactId: artifact.id,
+      version: artifact.version,
+      title,
+      action,
+      from: selection.from,
+      to: selection.to,
+      source: selection.text,
+      anchor: editorAiAnchor(content, selection.from, selection.to),
+    }
+    setSelection(null)
+    setAiBusy(true)
+    setAiError(null)
+    void runCanvasAi(request)
+      .then((result) => {
+        if (result.status === 'ok') {
+          setAiResult({ request, answer: result.text, messageId: result.messageId ?? null })
+          return
+        }
+        if (result.status === 'busy') setAiError(t('assistant.canvas.ai_busy_other'))
+        else if (result.status === 'failed') setAiError(result.error || t('assistant.canvas.ai_failed'))
+        else setAiError(t('assistant.canvas.ai_empty'))
+      })
+      .finally(() => setAiBusy(false))
+  }
+
+  /**
+   * Write the previewed text into the draft.
+   *
+   * The content is updated before the request and `committed` moves with it, so the debounce does not
+   * fire a second, user-sourced save for the same words. A failed save puts the baseline back and lets
+   * the panel's error line own the retry.
+   */
+  const applyAiResult = async (next: string, messageId: string | null): Promise<void> => {
+    const previous = committed.current
+    setAiResult(null)
+    setContent(next)
+    edited.current = true
+    committed.current = { title, content: next }
+    try {
+      const saved = await onSave(
+        artifact.id,
+        { content: next },
+        { baseVersion: artifact.version, source: 'assistant', messageId },
+      )
+      ownVersion.current = saved.version
+      seenVersion.current = saved.version
+      baseVersion.current = saved.version
+      setSaveState('saved')
+      setConflict(false)
+      useUi.getState().toast({ title: t('assistant.canvas.ai_applied'), tone: 'success' })
+    } catch (error) {
+      committed.current = previous
+      reportSaveError(error)
+    }
+  }
+
   const reportSaveError = (error: unknown) => {
     setSaveState('error')
     setSaveError(error instanceof Error ? error.message : String(error))
@@ -684,9 +764,16 @@ function ArtifactEditor({ artifact, onSave, onRemove }: {
           </div>
         )}
         <div className="flex items-center gap-2">
-          <ModeTabs artifactId={artifact.id} mode={mode} onSelect={setMode} />
+          <ModeTabs
+            artifactId={artifact.id}
+            mode={mode}
+            onSelect={(next) => {
+              setMode(next)
+              if (next !== 'write') setSelection(null)
+            }}
+          />
           <div className="ml-auto flex shrink-0 items-center gap-1">
-            <HistoryButton onOpen={() => setHistoryOpen(true)} />
+            <HistoryButton onOpen={() => { setSelection(null); setHistoryOpen(true) }} />
             <span aria-live="polite" className="text-[length:var(--text-10-5)] text-[var(--text-quaternary)]">
               {saveState === 'saving'
                 ? t('assistant.canvas.saving')
@@ -740,6 +827,33 @@ function ArtifactEditor({ artifact, onSave, onRemove }: {
           />
         </div>
       )}
+      {(aiBusy || aiError) && (
+        <div
+          role={aiError ? 'alert' : 'status'}
+          className="flex shrink-0 items-center gap-2 border-b border-[var(--border-subtle)] px-2 py-1.5"
+        >
+          {aiBusy ? (
+            <>
+              <Loader2 size={12} className="shrink-0 animate-spin text-[var(--text-quaternary)]" />
+              <span className="min-w-0 flex-1 text-[length:var(--text-11)] text-[var(--text-tertiary)]">{t('assistant.canvas.ai_busy')}</span>
+              <button
+                type="button"
+                onClick={stop}
+                className="shrink-0 text-[length:var(--text-11)] font-medium text-[var(--accent-on-soft)] hover:underline"
+              >
+                {t('assistant.canvas.ai_stop')}
+              </button>
+            </>
+          ) : (
+            <>
+              <span className="min-w-0 flex-1 text-[length:var(--text-11)] leading-relaxed text-[var(--warning)]">{aiError}</span>
+              <IconButton label={t('assistant.edit.dismiss')} size="sm" onClick={() => setAiError(null)}>
+                <X size={12} />
+              </IconButton>
+            </>
+          )}
+        </div>
+      )}
       <div
         role="tabpanel"
         id={modePanelId(artifact.id, mode)}
@@ -757,6 +871,7 @@ function ArtifactEditor({ artifact, onSave, onRemove }: {
             settings={settings}
             sources={sources}
             handlers={handlers}
+            onSelectionChange={setSelection}
             placeholder={t('assistant.canvas.placeholder')}
             className="h-full"
           />
@@ -781,6 +896,23 @@ function ArtifactEditor({ artifact, onSave, onRemove }: {
           <Trash2 size={13} />
         </IconButton>
       </div>
+      {mode === 'write' && selection && !historyOpen && !aiResult && (
+        <CanvasSelectionBar
+          selection={selection}
+          onAction={onSelectionAction}
+          onDismiss={() => setSelection(null)}
+        />
+      )}
+      {aiResult && (
+        <CanvasAiPreview
+          request={aiResult.request}
+          answer={aiResult.answer}
+          content={content}
+          saving={saveState === 'saving'}
+          onClose={() => setAiResult(null)}
+          onApply={(next) => void applyAiResult(next, aiResult.messageId)}
+        />
+      )}
       {historyOpen && <ArtifactHistory artifact={artifact} onClose={() => setHistoryOpen(false)} />}
     </>
   )
