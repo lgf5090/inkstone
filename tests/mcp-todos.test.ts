@@ -337,6 +337,65 @@ describe('the answers use the model, not a second copy of it', () => {
       { id: list.id, name: 'Home', open: 1, total: 1 },
     ])
   })
+
+  it('walks the page with limit and offset, and filters by the list and tag the reader named', async () => {
+    const list = await store.createTaskList({ name: 'Home' })
+    for (const title of ['Rake the leaves', 'Oil the hinge', 'Mend the fence']) {
+      await store.createTask({ title, listId: list.id, tags: ['weekend'] })
+    }
+
+    const firstPage = await callTool(READ, 'list_todos', { view: 'open', limit: 2, offset: 0 })
+    const secondPage = await callTool(READ, 'list_todos', { view: 'open', limit: 2, offset: 2 })
+    const ids = [
+      ...(firstPage.body as { tasks: Record<string, unknown>[] }).tasks,
+      ...(secondPage.body as { tasks: Record<string, unknown>[] }).tasks,
+    ].map((task) => task.id)
+    expect(ids).toHaveLength(3)
+    // Two pages of a stable order: the second carries what the first did not, and nothing twice.
+    expect(new Set(ids).size).toBe(3)
+
+    const byList = await callTool(READ, 'list_todos', { view: 'open', list: 'home' })
+    expect((byList.body as { tasks: Record<string, unknown>[] }).tasks).toHaveLength(3)
+    expect((byList.body as { tasks: Record<string, unknown>[] }).tasks[0]).toMatchObject({ list_id: list.id, tags: ['weekend'] })
+
+    const byTag = await callTool(READ, 'list_todos', { view: 'open', tag: '#Weekend' })
+    expect((byTag.body as { count: number }).count).toBe(3)
+
+    // A list the account does not have is refused rather than silently filed in the inbox.
+    const unknown = await failureOf(READ, 'list_todos', { list: 'Somewhere else' })
+    expect(unknown).toMatchObject({ code: 'bad_request', status: 400 })
+  })
+
+  it('files the next occurrence when the patch names done as the status', async () => {
+    const task = await store.createTask({
+      title: 'Monthly statement',
+      dueAt: Date.UTC(2026, 2, 5, 1, 0),
+      repeat: { freq: 'monthly', interval: 1 },
+    })
+    await switchPreferences(true, false)
+
+    const outcome = await callTool(WRITE, 'update_todo', {
+      operation_id: 'op-update-done-1',
+      task_id: task.id,
+      status: 'done',
+    })
+    expect(outcome.ok).toBe(true)
+    const body = outcome.body as { task: Record<string, unknown>; next: Record<string, unknown> }
+    expect(body.task.status).toBe('done')
+    expect(new Date(Number(body.next.due_at)).toISOString()).toBe('2026-04-05T01:00:00.000Z')
+  })
+
+  it('replays one operation_id as the task it first made, without writing a second', async () => {
+    await switchPreferences(true, false)
+    const args = { operation_id: 'op-create-retry-1', title: 'Book the dentist' }
+
+    const first = await callTool(WRITE, 'create_todo', args)
+    const again = await callTool(WRITE, 'create_todo', args)
+    expect(first.ok).toBe(true)
+    expect(again.ok).toBe(true)
+    expect(again.body).toEqual(first.body)
+    expect(await store.listTasks({ view: 'all' })).toHaveLength(1)
+  })
 })
 
 describe('a task may name a note, and nothing else about it', () => {
