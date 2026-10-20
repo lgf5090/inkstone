@@ -110,6 +110,10 @@ export function advanceStatus(task: Task, settings: ToggleSettings, now: Date): 
  * `not done` search — so the registry is asked for the first open status down that chain.
  */
 export function moveToStatus(task: Task, next: Status, settings: ToggleSettings, now: Date): ToggledLine {
+  // The same status is not a move: an edit form that saved without touching the box must not stamp a
+  // date, end the series, or birth the next occurrence.
+  if (next.symbol === task.status.symbol) return { tasks: [task], clicked: next }
+
   const finishing = !task.status.isDone
   const bornStatus = task.recurrence !== null && finishing
     ? settings.registry.getNextRecurrenceStatusOrCreate(task.status)

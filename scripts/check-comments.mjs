@@ -17389,6 +17389,8 @@ const allowed = new Map([
   ["src/client/lib/tasks/edit/task-editor.test.ts", [
     "// a Monday",
     "// From Monday the 19th, `friday` is the 23rd: a reader adding a due date does not mean a past one.",
+    "// The form is opened to fix a typo as often as to finish a task. Leaving the box on the status it",
+    "// already had must not stamp a date, end the series, or birth the next occurrence.",
   ]],
   ["src/client/lib/tasks/edit/task-editor.ts", [
     "/** The six dates a task carries, in the order the form shows them. */",
@@ -17666,6 +17668,8 @@ const allowed = new Map([
     "/**\n * The words a reader clicked, with every field format taken back off.\n *\n * The caller's serializer decides what this line is read as, and the text being compared against was\n * read by whatever parser built the row — so the two sides can be in different formats even before a\n * reader mixes them inside one line. Stripping both leaves the prose the reader actually clicked, and a\n * stale line still fails the guard because its words moved.\n */",
     "// Two formats, in either order on the line: each pass strips what it recognises until the text settles.",
     "/**\n * Move a task to a named status, and produce what that implies.\n *\n * A recurring task does not simply become done and leave its own series: the instance is finished\n * and a fresh one is born from the rule. The newborn's status is not the one being moved to — in a\n * vault whose `[x]` points back at `[x]` that would birth it already finished, invisible to every\n * `not done` search — so the registry is asked for the first open status down that chain.\n */",
+    "// The same status is not a move: an edit form that saved without touching the box must not stamp a",
+    "// date, end the series, or birth the next occurrence.",
   ]],
   ["src/client/lib/template-notes.ts", [
     "/**\n * Create a note from a gallery template and open it, returning the new id.\n *\n * The template's `{{cursor}}` is handed to the editor through `createNote`, so\n * the marker is stripped from the body and the caret lands where the author\n * pointed it rather than at the end of the front matter. Placement follows the\n * same rules as the `+` button — the open folder, else the inbox — because a\n * template note is still just a new note.\n */",

@@ -118,6 +118,19 @@ describe('saving a draft', () => {
     const out = edit('- [ ] buy milk', (draft) => ({ ...draft, description: 'buy the milk' }))
     expect(toMarkdownLine(out.tasks[0]!, new EmojiTaskSerializer())).toBe('- [ ] buy the milk')
   })
+
+  it('saves a recurring task untouched when the status did not change', () => {
+    // The form is opened to fix a typo as often as to finish a task. Leaving the box on the status it
+    // already had must not stamp a date, end the series, or birth the next occurrence.
+    const out = edit(
+      `- [ ] water ${RECUR} every week ${DUE} 2026-10-19`,
+      (draft) => ({ ...draft, description: 'water the plants' }),
+      ' ',
+    )
+    expect(out.tasks).toHaveLength(1)
+    expect(toMarkdownLine(out.tasks[0]!, new EmojiTaskSerializer()))
+      .toBe(`- [ ] water the plants ${RECUR} every week ${DUE} 2026-10-19`)
+  })
 })
 
 describe('the recurrence preview', () => {
