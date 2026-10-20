@@ -44,7 +44,7 @@ function alreadyHere(task: TodoTask, today: string, dayEnd: number): boolean {
  * the tab order, the field keeps its label, and a screen reader reads the title and the action
  * together. A match already on the screen is hidden — the search spans the shelf, the page does not.
  */
-function TaskPicker({ today, dayEnd }: { today: string; dayEnd: number }) {
+function TaskPicker({ timezone, dayEnd }: { timezone: string; dayEnd: number }) {
   const searchTasks = useTodos((state) => state.searchTasks)
   const planTask = useTodos((state) => state.planTask)
   const [query, setQuery] = useState('')
@@ -62,15 +62,20 @@ function TaskPicker({ today, dayEnd }: { today: string; dayEnd: number }) {
     const timer = setTimeout(() => {
       void searchTasks(text).then((rows) => {
         if (!alive) return
+        // The day is read when the matches land, not when the screen mounted: a page left open across
+        // midnight must not offer a row as "already here" for the day that just ended.
+        const today = localDate(Date.now(), timezone)
         setResults(rows.filter((task) => !alreadyHere(task, today, dayEnd)))
         setSearched(true)
       })
     }, PICKER_DEBOUNCE_MS)
     return () => { alive = false; clearTimeout(timer) }
-  }, [query, searchTasks, today, dayEnd])
+  }, [query, searchTasks, timezone, dayEnd])
 
   const pick = async (task: TodoTask): Promise<void> => {
-    const planned = await planTask(task.id, today)
+    // Read at the press rather than at the render: planning for the day the screen was opened on is
+    // exactly the bug the stored day exists to avoid, one midnight later.
+    const planned = await planTask(task.id, localDate(Date.now(), timezone))
     if (!planned) return
     // The row is on the page now, so the words and the match that produced it have done their job.
     setQuery('')
@@ -130,7 +135,7 @@ export function TodayView() {
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <div className="shrink-0 px-3 pt-2 md:px-5">
-        <TaskPicker today={today} dayEnd={dayEnd} />
+        <TaskPicker timezone={timezone} dayEnd={dayEnd} />
       </div>
       <div className="no-scrollbar min-h-0 flex-1 overflow-y-auto">
         <GroupedTaskList
