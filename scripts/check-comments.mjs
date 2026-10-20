@@ -18405,6 +18405,7 @@ const allowed = new Map([
     "/* The item path is a real editable field, and this rule suppressed the global\n   `:focus-visible` outline without replacing it. Border tint plus the 3px field\n   ring restores the keyboard signal. */",
     "/* An embedded conversation: a transcript, not a document. Roles are told apart by a left edge and a\n   label, because the note's own prose is what should stay the loudest thing on the page. */",
     "/* The label of a quoted turn opens that turn: a note arguing with one exchange should not land the\n   reader at the top of a long thread and leave them to find it. */",
+    "/*\n * WCAG 2.5.8 wants 24 by 24 CSS pixels of target, and a task box is painted at 1.05em (17 at the\n * default prose size) because a taller box would push every line of the list apart. So the drawn box\n * stays and the tappable area grows around it — the same invisible overlay `.ink-tap-pad` uses, here\n * on `::before` because `::after` is the check mark. It reaches into the first pixels of the label,\n * which is prose rather than a control, and a query row's own neighbour is 8px further out.\n */",
   ]],
   ["src/client/styles/reading.css", [
     "/**\n * The reading surface.\n *\n * Two things here are not decoration and are worth the comments, because both look like a bug in the\n * other direction when they are changed: the column geometry that turns flowing text into pages, and\n * the HUD's habit of floating over the page instead of reserving a row.\n */",
@@ -26469,6 +26470,11 @@ const allowed = new Map([
   ["tests/tag-pin-route.test.ts", [
     "// Typed as the context `app.fetch` actually declares, so every field the route may read has to be",
     "// there: the ambient Workers interface is wider than hono needs and cannot be faked outside a Worker.",
+  ]],
+  ["tests/task-checkbox-tap-area.test.ts", [
+    "/**\n * The task box keeps its drawn size and gains its target area from an overlay.\n *\n * Two ways to satisfy WCAG 2.5.8's 24 by 24 floor: paint a bigger box, or leave the box and widen\n * what a click can land on. The first is what a prose list must not do — a 24px box on every line of a\n * task list changes the leading of the note. So the rule is the second, and the thing worth guarding\n * is that nobody \"fixes\" the smallness by growing the box itself.\n */",
+    "// The overlay has to hang off the box it enlarges.",
+    "// `::after` is the check mark; a second overlay there would be drawn over it.",
   ]],
   ["tests/tasks-query-language.test.ts", [
     "/**\n * The acceptance list for the `tasks` query language, as one runnable gate.\n *\n * §4.3 of the port plan is the contract this engine was written against, and a contract nobody can\n * re-check drifts. Every family there appears here at least once, and the lines the plan says the\n * engine does *not* implement are pinned as refusals — an instruction that starts being accepted is\n * a change to the language, and so is one that stops being.\n */",
