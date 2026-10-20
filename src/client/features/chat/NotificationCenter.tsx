@@ -92,6 +92,12 @@ export function NotificationCenter({ open, onClose }: { open: boolean, onClose: 
                     notification={notification}
                     onRead={() => void markRead(notification.id)}
                     onDelete={() => void remove(notification.id)}
+                    onOpenSubscription={(id) => {
+                      // The reader pressed this to be taken somewhere else, and the centre covers the very
+                      // panel the plan opens in, so it has to get out of the way first.
+                      onClose()
+                      void import('../subscriptions/open-subscription').then((module) => module.openSubscriptionById(id))
+                    }}
                   />
                 ))}
               </ul>
@@ -107,10 +113,12 @@ function NotificationRow({
   notification,
   onRead,
   onDelete,
+  onOpenSubscription,
 }: {
   notification: AssistantNotification
   onRead: () => void
   onDelete: () => void
+  onOpenSubscription: (id: string) => void
 }) {
   const [expanded, setExpanded] = useState(false)
   const unread = notification.readAt === null
@@ -144,7 +152,7 @@ function NotificationRow({
             <IconButton
               label={t('assistant.notifications.open_subscription')}
               size="xs"
-              onClick={() => void import('../subscriptions/open-subscription').then((module) => module.openSubscriptionById(notification.subscriptionId!))}
+              onClick={() => { if (notification.subscriptionId) onOpenSubscription(notification.subscriptionId) }}
             >
               <Wallet size={12} />
             </IconButton>

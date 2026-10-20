@@ -83,13 +83,15 @@ async function showBell(patch: Partial<ReturnType<typeof useAssistant.getState>>
 }
 
 /** Mounts the centre the way the bell does — open, with the rows the endpoint is answering. */
-async function showRows(notifications: AssistantNotification[]): Promise<void> {
+async function showRows(notifications: AssistantNotification[]): Promise<() => void> {
   feed.rows = notifications
   feed.unread = notifications.filter((row) => row.readAt === null).length
+  const onClose = vi.fn()
   useAssistant.setState({ ...original, notifications, unread: feed.unread })
   await act(async () => {
-    root.render(createElement(NotificationCenter, { open: true, onClose: () => {} }))
+    root.render(createElement(NotificationCenter, { open: true, onClose }))
   })
+  return onClose
 }
 
 beforeEach(async () => {
@@ -171,12 +173,13 @@ describe('the bell a header wears', () => {
 })
 
 describe('a row the centre shows', () => {
-  it('offers to open the plan the delivery was about', async () => {
-    await showRows([PLAN_DELIVERY])
+  it('offers to open the plan the delivery was about, and steps aside when it does', async () => {
+    const onClose = await showRows([PLAN_DELIVERY])
     const action = named(t('assistant.notifications.open_subscription'))
     expect(action, 'a delivery about a plan drew no door back to it').toBeTruthy()
     await act(async () => { action!.click() })
     expect(opened).toHaveBeenCalledWith('sub-1')
+    expect(onClose, 'the centre stayed on top of the panel the reader asked to see').toHaveBeenCalledTimes(1)
   })
 
   it('offers no door when the delivery came from a routine', async () => {
