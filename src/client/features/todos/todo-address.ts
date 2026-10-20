@@ -11,6 +11,7 @@
  * Everything that reads or writes this address goes through here, so the store, the container and a link
  * pasted into a chat cannot drift into three spellings of the same screen.
  */
+import { TASK_SORTS, type TaskSort } from '@shared/todos/model'
 import { currentPathname, currentSearch, navigateToAddress, replaceAddress } from '../../lib/app-history'
 import type { TodoView } from './store'
 
@@ -54,12 +55,34 @@ export function taskIdFromNotificationLink(link: string | null | undefined): str
 /** The views the container draws, which is what a `view=` parameter can name. */
 export const TODO_VIEWS: readonly TodoView[] = ['board', 'plan', 'starred', 'completed', 'list', 'tag']
 
+/** The orders a `sort=` parameter may name, which are the ones the route reads. */
+export const TODO_SORTS: readonly TaskSort[] = TASK_SORTS
+
 /** The part of the screen the query carries. */
 export interface TodoViewSelection {
   view: TodoView
   listId: string | null
   tagId: string | null
   query: string
+  /** The order the reader picked, or null for the one the server uses for the view on screen. */
+  sort: TaskSort | null
+  /** The first local instant a task may be due at, in the same shape the route reads. */
+  dueFrom: string | null
+  /** The first local instant a task must be due before; the bound is exclusive, as on the route. */
+  dueTo: string | null
+}
+
+/** A due bound the address can mean: a local calendar day, or that day at a wall-clock minute. */
+const LOCAL_BOUND = /^\d{4}-\d{2}-\d{2}(T\d{2}:\d{2})?$/
+
+/**
+ * A due bound a pasted address names, or null for one this app never writes.
+ *
+ * The screen writes only local wall time, so a value of any other shape is somebody else's parameter
+ * rather than a filter this app can honour; the board is a better answer than a 400 on a cold load.
+ */
+function dueBound(value: string | null): string | null {
+  return value && LOCAL_BOUND.test(value) ? value : null
 }
 
 /** The whole screen, as the address states it: which view, and which task is open on it. */
@@ -90,19 +113,28 @@ function taskIdFromPathname(pathname: string): string | null {
 /** The state a pathname and a query name. Unrecognisable parts fall back rather than fail. */
 export function parseTodoAddress(pathname: string, search: string): TodoAddress {
   if (pathname !== TODO_PATH && !pathname.startsWith(`${TODO_PATH}/`)) {
-    return { view: 'board', listId: null, tagId: null, query: '', taskId: null }
+    return { view: 'board', listId: null, tagId: null, query: '', sort: null, dueFrom: null, dueTo: null, taskId: null }
   }
   const params = new URLSearchParams(search.startsWith('?') ? search.slice(1) : search)
   const listId = params.get('list')
   const tagId = params.get('tag')
   const named = params.get('view')
   const query = params.get('q') ?? ''
+  const namedSort = params.get('sort')
+  const sort = namedSort && (TODO_SORTS as readonly string[]).includes(namedSort) ? (namedSort as TaskSort) : null
+  const dueFrom = dueBound(params.get('dueFrom'))
+  const dueTo = dueBound(params.get('dueTo'))
+  const common = { query, sort, dueFrom, dueTo, taskId: taskIdFromPathname(pathname) }
+  // The completed view is the one screen a `list=` narrows rather than renames: there is no
+  // completed list view to confuse it with, and the dropdown there scopes finished work to one
+  // collection. Everywhere else the collection still names its own view and wins.
+  if (named === 'completed') return { ...common, view: 'completed', listId, tagId: null }
   // A collection names its own view, and it wins over a `view=` left beside it: the two spellings of the
   // same screen have to have one reading, and the narrower one is the one a reader can paste.
-  if (listId) return { view: 'list', listId, tagId: null, query, taskId: taskIdFromPathname(pathname) }
-  if (tagId) return { view: 'tag', listId: null, tagId, query, taskId: taskIdFromPathname(pathname) }
+  if (listId) return { ...common, view: 'list', listId, tagId: null }
+  if (tagId) return { ...common, view: 'tag', listId: null, tagId }
   const view: TodoView = TODO_VIEWS.includes(named as TodoView) ? (named as TodoView) : 'board'
-  return { view, listId: null, tagId: null, query, taskId: taskIdFromPathname(pathname) }
+  return { ...common, view, listId: null, tagId: null }
 }
 
 /** The query for one view state, in the one spelling this app writes. */
@@ -112,9 +144,15 @@ export function writeTodoSearch(selection: TodoViewSelection): string {
     if (selection.listId) params.set('list', selection.listId)
   } else if (selection.view === 'tag') {
     if (selection.tagId) params.set('tag', selection.tagId)
+  } else if (selection.view === 'completed') {
+    params.set('view', 'completed')
+    if (selection.listId) params.set('list', selection.listId)
   } else if (selection.view !== 'board') {
     params.set('view', selection.view)
   }
+  if (selection.sort) params.set('sort', selection.sort)
+  if (selection.dueFrom) params.set('dueFrom', selection.dueFrom)
+  if (selection.dueTo) params.set('dueTo', selection.dueTo)
   if (selection.query) params.set('q', selection.query)
   return params.toString()
 }
@@ -123,7 +161,7 @@ export function writeTodoSearch(selection: TodoViewSelection): string {
 export function readTodoAddress(): TodoAddress {
   // The store reads this once when it is created, which in a build without a window — none today, and
   // one guard rather than a crash if that changes — means the board.
-  if (typeof window === 'undefined') return { view: 'board', listId: null, tagId: null, query: '', taskId: null }
+  if (typeof window === 'undefined') return { view: 'board', listId: null, tagId: null, query: '', sort: null, dueFrom: null, dueTo: null, taskId: null }
   return parseTodoAddress(currentPathname(), currentSearch())
 }
 

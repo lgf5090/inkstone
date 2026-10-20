@@ -16,7 +16,6 @@ import { TodoPageFooter } from './TodoPageFooter'
 import { Input } from '../../components/form'
 import { listIconFor } from './todo-ui'
 import { TaskCard } from './TaskCard'
-import { compareTasks } from './task-groups'
 import type { TodoTask } from '@shared/todos/model'
 
 interface BoardCard {
@@ -45,6 +44,8 @@ export function BoardView({ onOpenList }: { onOpenList: (listId: string) => void
   const [draft, setDraft] = useState('')
 
   const bounds = { dayEnd, now: Date.now() }
+  // A card keeps the order the page arrived in: the server read it in the order the sort control
+  // states, and sorting each card again in the browser would quietly overrule that choice.
   const cards: BoardCard[] = [
     {
       id: INBOX_ID,
@@ -53,7 +54,7 @@ export function BoardView({ onOpenList }: { onOpenList: (listId: string) => void
       color: 'var(--text-tertiary)',
       open: counts?.inbox ?? 0,
       done: counts?.byList[INBOX_ID]?.done ?? 0,
-      tasks: tasks.filter((task) => task.listId === null).sort(compareTasks),
+      tasks: tasks.filter((task) => task.listId === null),
       listId: null,
     },
     ...lists.map((list) => ({
@@ -63,7 +64,7 @@ export function BoardView({ onOpenList }: { onOpenList: (listId: string) => void
       color: list.color ?? 'var(--accent)',
       open: list.openCount,
       done: list.doneCount,
-      tasks: tasks.filter((task) => task.listId === list.id).sort(compareTasks),
+      tasks: tasks.filter((task) => task.listId === list.id),
       listId: list.id,
     })),
   ]

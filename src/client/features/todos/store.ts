@@ -22,7 +22,7 @@ import { api } from '../../lib/api'
 import { t } from '../../lib/i18n'
 import { subscribeToAddress } from '../../lib/app-history'
 import { useUi } from '../../store/ui'
-import { toggledStatus, type TaskCounts, type TaskList, type TaskStep, type TaskTag, type TodoTask } from '@shared/todos/model'
+import { toggledStatus, type TaskCounts, type TaskList, type TaskSort, type TaskStep, type TaskTag, type TodoTask } from '@shared/todos/model'
 import {
   pushTodoAddress,
   pushTodoTaskAddress,
@@ -72,6 +72,11 @@ interface TodosState {
   listId: string | null
   tagId: string | null
   query: string
+  /** The order the reader picked; null leaves it to the server, which decides it per view. */
+  sort: TaskSort | null
+  /** Due bounds in local wall time, as `todo-address.ts` carries them. Both null is "any due date". */
+  dueFrom: string | null
+  dueTo: string | null
 
   selectedId: string | null
   editorOpen: boolean
@@ -84,6 +89,10 @@ interface TodosState {
 
   setView: (view: TodoView, target?: { listId?: string; tagId?: string }) => void
   setQuery: (query: string) => void
+  /** The order the listing is read in; the address carries it and the server applies it. */
+  setSort: (sort: TaskSort | null) => void
+  /** A due window in local wall time; both bounds null is the range cleared back to "any date". */
+  setDueRange: (range: { from: string | null; to: string | null }) => void
   /** Put the store where the address bar says the screen is — what a back button asks of it. */
   syncFromAddress: () => void
   select: (id: string | null) => void
@@ -120,8 +129,16 @@ function toastError(error: unknown): void {
 }
 
 /** The view part of the state, which is the part the query string carries. */
-function viewSelection(state: Pick<TodosState, 'view' | 'listId' | 'tagId' | 'query'>): TodoViewSelection {
-  return { view: state.view, listId: state.listId, tagId: state.tagId, query: state.query }
+function viewSelection(state: Pick<TodosState, 'view' | 'listId' | 'tagId' | 'query' | 'sort' | 'dueFrom' | 'dueTo'>): TodoViewSelection {
+  return {
+    view: state.view,
+    listId: state.listId,
+    tagId: state.tagId,
+    query: state.query,
+    sort: state.sort,
+    dueFrom: state.dueFrom,
+    dueTo: state.dueTo,
+  }
 }
 
 /** The screen the address bar names when the store is first asked for one — a reload opens where it left off. */
@@ -140,11 +157,10 @@ const PAGE_SIZE = 100
 const SEARCH_DEBOUNCE_MS = 250
 
 /** The server-side view each aggregate screen reads. A list or a tag names its own collection instead. */
-const SERVER_VIEWS: Record<'board' | 'plan' | 'starred' | 'completed', string> = {
+const SERVER_VIEWS: Record<'board' | 'plan' | 'starred', string> = {
   board: 'open',
   plan: 'today',
   starred: 'starred',
-  completed: 'completed',
 }
 
 type ListingParams = Parameters<typeof api.todos.list>[0]
@@ -156,13 +172,18 @@ type ListingParams = Parameters<typeof api.todos.list>[0]
  * groups what comes back and asks for the next page of it, and the database decides what matches.
  */
 function listingParams(
-  state: Pick<TodosState, 'view' | 'listId' | 'tagId' | 'query'>,
+  state: Pick<TodosState, 'view' | 'listId' | 'tagId' | 'query' | 'sort' | 'dueFrom' | 'dueTo'>,
   offset = 0,
 ): ListingParams {
   const params: ListingParams = { limit: PAGE_SIZE }
   const query = state.query.trim()
   if (query) params.q = query
   if (offset > 0) params.offset = offset
+  // The order is the reader's when they picked one, and otherwise absent: the route reads the order a
+  // view has always had, so the default here is the default there rather than a second answer.
+  if (state.sort) params.sort = state.sort
+  if (state.dueFrom) params.dueFrom = state.dueFrom
+  if (state.dueTo) params.dueTo = state.dueTo
   if (state.view === 'list') {
     // A list shows its finished rows under its open ones, so it asks for both rather than for the open
     // page and a guess about the rest. The inbox is a collection with no row behind it: `none`.
@@ -171,6 +192,11 @@ function listingParams(
   } else if (state.view === 'tag') {
     params.view = 'all'
     if (state.tagId) params.tag = state.tagId
+  } else if (state.view === 'completed') {
+    // Finished work is one bucket, optionally scoped to one collection. The dropdown is the same
+    // `list` parameter the list view uses, because the route already reads a collection there.
+    params.view = 'completed'
+    if (state.listId) params.list = state.listId === 'inbox' ? 'none' : state.listId
   } else {
     params.view = SERVER_VIEWS[state.view]
   }
@@ -231,6 +257,9 @@ export const useTodos = create<TodosState>((set, get) => ({
   listId: initialAddress.listId,
   tagId: initialAddress.tagId,
   query: initialAddress.query,
+  sort: initialAddress.sort,
+  dueFrom: initialAddress.dueFrom,
+  dueTo: initialAddress.dueTo,
 
   selectedId: null,
   editorOpen: false,
@@ -314,11 +343,38 @@ export const useTodos = create<TodosState>((set, get) => ({
     scheduleListing(get)
   },
 
+  // An order or a date window is a deliberate move, so it gets the same history entry a view change
+  // does, and the listing is asked for again rather than re-sliced from the order it was read in.
+  setSort: (sort) => {
+    if (get().sort === sort) return
+    set({ sort })
+    pushTodoAddress(viewSelection(get()))
+    void get().load()
+  },
+
+  setDueRange: ({ from, to }) => {
+    set({ dueFrom: from, dueTo: to })
+    pushTodoAddress(viewSelection(get()))
+    void get().load()
+  },
+
   syncFromAddress: () => {
     const address = readTodoAddress()
     const state = get()
-    if (address.view !== state.view || address.listId !== state.listId || address.tagId !== state.tagId || address.query !== state.query) {
-      set({ view: address.view, listId: address.listId, tagId: address.tagId, query: address.query })
+    if (
+      address.view !== state.view || address.listId !== state.listId || address.tagId !== state.tagId
+      || address.query !== state.query || address.sort !== state.sort
+      || address.dueFrom !== state.dueFrom || address.dueTo !== state.dueTo
+    ) {
+      set({
+        view: address.view,
+        listId: address.listId,
+        tagId: address.tagId,
+        query: address.query,
+        sort: address.sort,
+        dueFrom: address.dueFrom,
+        dueTo: address.dueTo,
+      })
       // The screen the address names has rows the store never asked for, so they are asked for now: this
       // is the back button, a forward, and an address read out of a chat.
       void get().load()

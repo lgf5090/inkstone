@@ -33,7 +33,7 @@ vi.mock('../../lib/api', () => ({
 describe('the to-do address grammar', () => {
   it('names the board by leaving the view out entirely', () => {
     expect(parseTodoAddress('/todo', '').view).toBe('board')
-    expect(writeTodoSearch({ view: 'board', listId: null, tagId: null, query: '' })).toBe('')
+    expect(writeTodoSearch({ view: 'board', listId: null, tagId: null, query: '', sort: null, dueFrom: null, dueTo: null })).toBe('')
   })
 
   it('names a smart view by the word the container answers to', () => {
@@ -45,13 +45,13 @@ describe('the to-do address grammar', () => {
   it('names a list or a tag by its own parameter, which is what makes the view implicit', () => {
     expect(parseTodoAddress('/todo', 'list=work')).toMatchObject({ view: 'list', listId: 'work', tagId: null })
     expect(parseTodoAddress('/todo', 'tag=errands')).toMatchObject({ view: 'tag', tagId: 'errands', listId: null })
-    expect(writeTodoSearch({ view: 'list', listId: 'work', tagId: null, query: '' })).toBe('list=work')
-    expect(writeTodoSearch({ view: 'tag', listId: null, tagId: 'errands', query: '' })).toBe('tag=errands')
+    expect(writeTodoSearch({ view: 'list', listId: 'work', tagId: null, query: '', sort: null, dueFrom: null, dueTo: null })).toBe('list=work')
+    expect(writeTodoSearch({ view: 'tag', listId: null, tagId: 'errands', query: '', sort: null, dueFrom: null, dueTo: null })).toBe('tag=errands')
   })
 
   it('carries the search text beside the view, and reads it back with its spaces', () => {
     expect(parseTodoAddress('/todo', 'view=plan&q=renew%20the%20lease')).toMatchObject({ view: 'plan', query: 'renew the lease' })
-    expect(writeTodoSearch({ view: 'plan', listId: null, tagId: null, query: 'renew the lease' })).toBe('view=plan&q=renew+the+lease')
+    expect(writeTodoSearch({ view: 'plan', listId: null, tagId: null, query: 'renew the lease', sort: null, dueFrom: null, dueTo: null })).toBe('view=plan&q=renew+the+lease')
   })
 
   it('reads a view it does not have as the board rather than as a broken screen', () => {
@@ -61,13 +61,22 @@ describe('the to-do address grammar', () => {
     expect(parseTodoAddress('/notes', 'view=plan').view).toBe('board')
   })
 
+  it('carries the order and the due window beside the view, and leaves them out when unset', () => {
+    expect(writeTodoSearch({
+      view: 'plan', listId: null, tagId: null, query: '', sort: 'priority', dueFrom: '2026-10-20T00:00', dueTo: '2026-10-21T00:00',
+    })).toBe('view=plan&sort=priority&dueFrom=2026-10-20T00%3A00&dueTo=2026-10-21T00%3A00')
+    // A word the route does not read is a pasted address, not a screen: it falls back to the default.
+    expect(parseTodoAddress('/todo', 'sort=nonsense').sort).toBeNull()
+    expect(parseTodoAddress('/todo', 'dueFrom=next%20week').dueFrom).toBeNull()
+  })
+
   it('round-trips: a shape written and read again is the shape it started as', () => {
     const shapes = [
-      { view: 'board' as const, listId: null, tagId: null, query: '' },
-      { view: 'plan' as const, listId: null, tagId: null, query: 'tax' },
-      { view: 'list' as const, listId: 'work', tagId: null, query: '' },
-      { view: 'tag' as const, listId: null, tagId: 'errands', query: 'a b' },
-      { view: 'completed' as const, listId: null, tagId: null, query: '' },
+      { view: 'board' as const, listId: null, tagId: null, query: '', sort: null, dueFrom: null, dueTo: null },
+      { view: 'plan' as const, listId: null, tagId: null, query: 'tax', sort: 'priority' as const, dueFrom: null, dueTo: null },
+      { view: 'list' as const, listId: 'work', tagId: null, query: '', sort: null, dueFrom: '2026-10-01T00:00', dueTo: '2026-10-31T00:00' },
+      { view: 'tag' as const, listId: null, tagId: 'errands', query: 'a b', sort: 'created' as const, dueFrom: null, dueTo: null },
+      { view: 'completed' as const, listId: null, tagId: null, query: '', sort: null, dueFrom: null, dueTo: null },
     ]
     for (const shape of shapes) {
       expect(parseTodoAddress('/todo', writeTodoSearch(shape))).toMatchObject(shape)
@@ -92,7 +101,10 @@ describe('the view state and the address bar', () => {
   })
 
   function reset(): void {
-    useTodos.setState({ view: 'board', listId: null, tagId: null, query: '', selectedId: null, editorOpen: false, draft: null })
+    useTodos.setState({
+      view: 'board', listId: null, tagId: null, query: '', sort: null, dueFrom: null, dueTo: null,
+      selectedId: null, editorOpen: false, draft: null,
+    })
     window.history.replaceState(null, '', '/todo')
   }
 

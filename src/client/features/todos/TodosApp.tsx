@@ -19,6 +19,7 @@ import { LoadingBlock } from '../../components/feedback'
 import { useTodos } from './store'
 import { TaskEditor } from './TaskEditor'
 import { useViewTitle } from './TaskViews'
+import { TodoFilters } from './TodoFilters'
 import { TodoContent, surfaceBadge, surfacesFor } from './views/registry'
 
 type Page = 'main' | 'lists'
@@ -245,6 +246,9 @@ export function TodosApp() {
       <div className="flex min-h-0 flex-1">
         {wide && sidebarOpen && sidebar}
         <div className="flex min-w-0 flex-1 flex-col">
+          {/* The order is a question about the tasks, not about one view: the bar stays above every
+              list, and the lists page is a different screen with no listing behind it. */}
+          {page === 'main' && <TodoFilters />}
           {status === 'loading' && !counts ? <LoadingBlock /> : content}
         </div>
       </div>
