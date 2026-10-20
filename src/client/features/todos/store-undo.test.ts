@@ -135,7 +135,7 @@ describe('undoing a completion', () => {
     // The forward write is one PATCH, and the store shows the next occurrence it answered with.
     expect(service.updates).toEqual([{ id: 't1', body: { status: 'done' } }])
     expect(useTodos.getState().tasks.map((entry) => entry.id)).toEqual(['t1-next'])
-    expect(useUi.getState().toasts.at(-1)?.action?.label).toBe(t('common.undo'))
+    expect(useUi.getState().toasts.at(-1)?.action?.label).toBe(t('todo.action.undo'))
 
     await useTodos.getState().undoLast()
 
@@ -158,7 +158,7 @@ describe('undoing a completion', () => {
 
     view = renderElement(createElement(Toaster))
     const button = [...document.querySelectorAll<HTMLButtonElement>('button')]
-      .find((entry) => (entry.textContent ?? '').trim() === t('common.undo'))
+      .find((entry) => (entry.textContent ?? '').trim() === t('todo.action.undo'))
     expect(button, 'the toast offered no undo button').toBeTruthy()
     button!.focus()
     expect(document.activeElement).toBe(button)
@@ -216,7 +216,7 @@ describe('undoing a delete', () => {
 
     expect(await useTodos.getState().removeTask('t1')).toBe(true)
     expect(useTodos.getState().tasks).toEqual([])
-    expect(useUi.getState().toasts.at(-1)?.action?.label).toBe(t('common.undo'))
+    expect(useUi.getState().toasts.at(-1)?.action?.label).toBe(t('todo.action.undo'))
 
     await useTodos.getState().undoLast()
 

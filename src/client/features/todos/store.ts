@@ -206,7 +206,7 @@ function offerUndo(
   set({ undo: { label, undo } })
   undoToastId = ui.toast({
     title: label,
-    action: { label: t('common.undo'), run: () => { void get().undoLast() } },
+    action: { label: t('todo.action.undo'), run: () => { void get().undoLast() } },
     duration: UNDO_WINDOW_MS,
   })
 }
