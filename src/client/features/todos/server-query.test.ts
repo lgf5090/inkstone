@@ -276,6 +276,27 @@ describe('reading past the first page', () => {
     await settle()
     expect(view!.container.querySelector('button[data-todo-more]')).toBeNull()
   })
+
+  it('pages the finished list the same way, into the bucket that screen reads', async () => {
+    stubBreakpoint(true)
+    service.rows = rows(130, { status: 'done', completedAt: Date.parse('2026-10-18T09:00:00Z') })
+    await mount('/todo?view=completed')
+    await settle()
+
+    expect(lastRequest().view).toBe('completed')
+    expect(useTodos.getState().completed).toHaveLength(100)
+    expect(useTodos.getState().tasks).toHaveLength(0)
+
+    const more = view!.container.querySelector<HTMLButtonElement>('button[data-todo-more]')
+    expect(more).not.toBeNull()
+    await act(async () => { more!.click() })
+    await settle()
+
+    expect(lastRequest().offset).toBe(100)
+    expect(useTodos.getState().completed).toHaveLength(130)
+    expect(useTodos.getState().completed[0]!.id).toBe('t0')
+    expect(useTodos.getState().completed[129]!.id).toBe('t129')
+  })
 })
 
 describe('a search a phone can reach', () => {
