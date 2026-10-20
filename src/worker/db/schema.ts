@@ -1817,6 +1817,22 @@ export const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
      ON todos_tasks(user_id, planned_for)`,
     ],
   },
+  {
+    // The task row's own version, so an edit cannot land on a row somebody else already changed.
+    //
+    // A task stays on screen for as long as the reader takes to edit it, and a route, the assistant and
+    // a second device can all save inside that window: the later write used to replace the other one
+    // without a word. `rev` is moved on by every write path — `updateTask`, `planTask`, `setTaskTags`
+    // and the row-touching ones beside them — and a guarded write names the revision it read, so a
+    // stale one is refused (409, zero writes) instead of overwriting a newer edit. NOT NULL with a
+    // default of 1 because every row written before this column existed is a first revision, and a
+    // nullable column would make "no version" indistinguishable from one. One column, one version.
+    version: 119,
+    skipIfColumnExists: { table: 'todos_tasks', column: 'rev' },
+    statements: [
+      `ALTER TABLE todos_tasks ADD COLUMN rev INTEGER NOT NULL DEFAULT 1`,
+    ],
+  },
 ]
 
 const FTS_STATEMENT = `CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(

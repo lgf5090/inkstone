@@ -42,6 +42,10 @@ export const TODOS_SCHEMA_STATEMENTS: readonly string[] = [
     conversation_id TEXT,
     created_at INTEGER NOT NULL,
     updated_at INTEGER NOT NULL,
+    -- The row's version, moved on by every write. A caller that read the task names the revision it
+    -- read, and a write naming an older one is refused instead of replacing an edit it never saw.
+    -- Migration 119 carries the column to databases built before this line existed.
+    rev INTEGER NOT NULL DEFAULT 1,
     PRIMARY KEY (user_id, id)
   )`,
   `CREATE INDEX IF NOT EXISTS idx_todos_tasks_status_due
@@ -200,7 +204,7 @@ export const TODOS_REQUIRED_COLUMNS: Readonly<Record<string, readonly string[]>>
     'user_id', 'id', 'title', 'description', 'status', 'priority', 'due_at', 'completed_at',
     'completed_on', 'created_on',
     'project_id', 'list_id', 'starred', 'repeat_rule', 'remind_at', 'reminded_at', 'planned_for', 'note_id',
-    'conversation_id', 'created_at', 'updated_at',
+    'conversation_id', 'created_at', 'updated_at', 'rev',
   ],
   todos_reminders: ['user_id', 'id', 'task_id', 'remind_at', 'fired_at', 'created_at'],
   todos_lists: ['user_id', 'id', 'name', 'icon', 'color', 'position', 'created_at', 'updated_at'],
