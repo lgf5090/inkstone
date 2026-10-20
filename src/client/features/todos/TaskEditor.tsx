@@ -24,7 +24,17 @@ import { useUi } from '../../store/ui'
 import { useTodos, remindOffsetOf, type TaskDraft } from './store'
 import { dueValue } from './todo-ui'
 import { openConversationInChat, startChatAboutTask } from '../chat/start-chat'
-import { REPEAT_FREQUENCIES, REMIND_OFFSETS, type RemindOffset, type RepeatFrequency, type TaskStep } from '@shared/todos/model'
+import { parseLocalTime } from '@shared/assistant-time'
+import {
+  MAX_REMINDERS_PER_TASK,
+  REPEAT_FREQUENCIES,
+  REMIND_OFFSETS,
+  normalizeReminderTimes,
+  remindAtFor,
+  type RemindOffset,
+  type RepeatFrequency,
+  type TaskStep,
+} from '@shared/todos/model'
 
 const PRIORITIES = ['low', 'medium', 'high', 'urgent'] as const
 
@@ -60,7 +70,14 @@ export function TaskEditor() {
   const [listId, setListId] = useState('')
   const [repeat, setRepeat] = useState<'none' | RepeatFrequency>('none')
   const [interval, setInterval] = useState(1)
+  /**
+   * The preset picker is an "add" control, not the value: the list on the right of it is what the task
+   * saves. The select stays in the form because it is the fastest way to add the common four, and its
+   * value is reset after each add so picking the same preset twice adds it twice rather than doing
+   * nothing.
+   */
   const [remind, setRemind] = useState<RemindOffset>('none')
+  const [reminders, setReminders] = useState<number[]>([])
   const [tagNames, setTagNames] = useState<string[]>([])
   const [tagInput, setTagInput] = useState('')
   const [steps, setSteps] = useState<TaskStep[]>([])
@@ -82,12 +99,14 @@ export function TaskEditor() {
     setListId(task?.listId ?? source.listId ?? '')
     setRepeat(task?.repeat?.freq ?? source.repeat?.freq ?? 'none')
     setInterval(task?.repeat?.interval ?? source.repeat?.interval ?? 1)
-    // A draft that names a reminder carries the instant, while the form asks in offsets from the due
-    // time — the same reading an existing task gets, so the panel shows what the line described.
-    setRemind(remindOffsetOf({
-      dueAt: sourceDueAt,
-      remindAt: task ? task.remindAt : source.remindAt ?? null,
-    }))
+    // An existing task brings its pending list; a quick-add draft brings one instant. The select shows
+    // the preset that instant equals, so a line typed as "15 minutes before" arrives with the same
+    // words in the panel, while the list below is what will actually be saved.
+    const initialReminders = task
+      ? task.reminders ?? []
+      : source.reminders ?? (typeof source.remindAt === 'number' ? [source.remindAt] : [])
+    setReminders(normalizeReminderTimes(initialReminders))
+    setRemind(remindOffsetOf({ dueAt: sourceDueAt, remindAt: initialReminders[0] ?? null }))
     setTagNames(task ? task.tags.map((tag) => tag.name) : source.tags ?? [])
     setStepInput('')
     setTagInput('')
@@ -117,7 +136,7 @@ export function TaskEditor() {
       dueAt: dueText ? dueText : null,
       listId: listId || null,
       repeat: repeat === 'none' ? null : { freq: repeat, interval: Math.max(1, Math.min(99, interval)) },
-      remind,
+      reminders,
       tags: tagNames,
     }
     if (!body.title) return
@@ -143,7 +162,7 @@ export function TaskEditor() {
       dueAt: existing.dueAt,
       listId: existing.listId,
       repeat: existing.repeat,
-      remindAt: existing.remindAt,
+      reminders: existing.reminders ?? [],
       tags: existing.tags.map((tag) => tag.name),
       noteId: existing.noteId,
       conversationId: existing.conversationId,
@@ -155,6 +174,20 @@ export function TaskEditor() {
       title: t('todo.toast.deleted'),
       action: { label: t('todo.action.undo'), run: () => { void restoreTask(snapshot) } },
     })
+  }
+
+  /**
+   * Adds one preset from the due date the form currently reads.
+   *
+   * The instant is computed now rather than at save: a reminder is an absolute time, and moving the
+   * due date afterwards must not drag it along. With no readable due date there is nothing to count
+   * back from, so the select simply returns to "off" — the add-row below still works.
+   */
+  const addPreset = (offset: RemindOffset): void => {
+    const dueAt = parseLocalTime(dueText, timezone)
+    const at = remindAtFor(dueAt, offset)
+    if (at !== null) setReminders((current) => normalizeReminderTimes([...current, at]))
+    setRemind('none')
   }
 
   const addTag = (): void => {
@@ -272,8 +305,10 @@ export function TaskEditor() {
           <Field label={t('todo.task.due_label')}>
             <DatePicker label={t('todo.task.due_label')} value={dueText} withTime onChange={setDueText} />
           </Field>
-          <Field label={t('todo.task.remind_label')}>
-            <Select value={remind} onChange={(event) => setRemind(event.target.value as RemindOffset)}>
+          {/* The select sits where the single-reminder field always did and adds one instant to the
+              list below; the list, not the select, is what the task saves. */}
+          <Field label={t('todo.task.reminder_preset')}>
+            <Select value={remind} onChange={(event) => addPreset(event.target.value as RemindOffset)}>
               {REMIND_OFFSETS.map((entry) => <option key={entry} value={entry}>{t(`todo.remind.${entry}`)}</option>)}
             </Select>
           </Field>
@@ -296,6 +331,56 @@ export function TaskEditor() {
               )}
             </div>
           </Field>
+        </div>
+
+        <div className="flex flex-col gap-1.5">
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-[length:var(--text-11)] font-medium text-[var(--text-secondary)]">{t('todo.task.reminders_label')}</span>
+            <span className="text-[length:var(--text-10-5)] tabular-nums text-[var(--text-quaternary)]">
+              {reminders.length}/{MAX_REMINDERS_PER_TASK}
+            </span>
+          </div>
+          {reminders.length === 0 && (
+            <span className="text-[length:var(--text-11-5)] text-[var(--text-quaternary)]">{t('todo.task.reminder_none')}</span>
+          )}
+          {reminders.map((at, index) => (
+            <div key={`${at}-${index}`} className="flex items-center gap-1.5">
+              <DatePicker
+                label={t('todo.task.reminder_add')}
+                value={dueValue(at, timezone)}
+                withTime
+                onChange={(value) => {
+                  const parsed = parseLocalTime(value, timezone)
+                  setReminders((current) => normalizeReminderTimes(parsed === null
+                    ? current.filter((_, position) => position !== index)
+                    : current.map((entry, position) => (position === index ? parsed : entry))))
+                }}
+              />
+              <IconButton
+                label={t('todo.task.reminder_remove')}
+                size="sm"
+                onClick={() => setReminders((current) => current.filter((_, position) => position !== index))}
+              >
+                <X size={12} />
+              </IconButton>
+            </div>
+          ))}
+          {reminders.length < MAX_REMINDERS_PER_TASK && (
+            <div>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => {
+                  // A row has to start somewhere: the due date when there is one, otherwise an hour
+                  // from now. The picker that appears is the reader's to change.
+                  const fallback = parseLocalTime(dueText, timezone) ?? Date.now() + 60 * 60_000
+                  setReminders((current) => normalizeReminderTimes([...current, fallback]))
+                }}
+              >
+                <Plus size={13} />{t('todo.task.reminder_add')}
+              </Button>
+            </div>
+          )}
         </div>
 
         <div className="flex flex-col gap-1.5">

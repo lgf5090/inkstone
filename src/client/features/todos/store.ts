@@ -60,8 +60,11 @@ export interface TaskDraft {
   starred?: boolean
   tags?: string[]
   repeat?: TodoTask['repeat']
+  /** The task's pending reminders as absolute instants; what the task endpoints accept. */
+  reminders?: number[]
+  /** One reminder from a quick-add line, as the instant the parser computed. */
   remindAt?: number | null
-  /** The reminder as the create/update routes carry it: an offset from the due instant. */
+  /** The quick-add offset; the API client converts it to `reminders` at the network boundary. */
   remind?: RemindOffset
   conversationId?: string | null
   noteId?: string | null
