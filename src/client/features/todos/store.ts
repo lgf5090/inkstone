@@ -211,6 +211,23 @@ function offerUndo(
   })
 }
 
+/** The fields a deleted row needs to be created again, read before the row leaves the store. */
+function removedSnapshot(task: TodoTask): TaskDraft {
+  return {
+    title: task.title,
+    description: task.description,
+    priority: task.priority,
+    starred: task.starred,
+    dueAt: task.dueAt,
+    listId: task.listId,
+    repeat: task.repeat,
+    reminders: task.reminders ?? [],
+    tags: task.tags.map((tag) => tag.name),
+    noteId: task.noteId,
+    conversationId: task.conversationId,
+  }
+}
+
 /** The list a typed name points at, or null. A name that matches nothing is not a list to create. */
 export function listNamed(lists: readonly TaskList[], name: string): TaskList | null {
   const wanted = name.trim().toLowerCase()
@@ -785,6 +802,10 @@ export const useTodos = create<TodosState>((set, get) => ({
   },
 
   removeTask: async (id) => {
+    // The snapshot has to be read before the row leaves the store; it is what the undo creates.
+    const removed = get().tasks.find((entry) => entry.id === id)
+      ?? get().completed.find((entry) => entry.id === id)
+      ?? null
     try {
       await api.todos.remove(id)
       set((state) => ({
@@ -793,6 +814,11 @@ export const useTodos = create<TodosState>((set, get) => ({
         selectedId: state.selectedId === id ? null : state.selectedId,
       }))
       void get().refreshCounts()
+      if (removed) {
+        offerUndo(set, get, t('todo.toast.deleted'), async () => {
+          await get().restoreTask(removedSnapshot(removed))
+        })
+      }
       return true
     } catch (error) {
       toastError(error)

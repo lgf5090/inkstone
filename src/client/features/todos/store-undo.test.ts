@@ -203,6 +203,40 @@ describe('undoing a priority change', () => {
   })
 })
 
+describe('undoing a delete', () => {
+  it('re-creates the row from the snapshot the store still holds', async () => {
+    const task = row('t1', 'File the return', {
+      description: 'Before the deadline',
+      listId: 'work',
+      priority: 'high',
+      starred: true,
+      tags: [{ id: 'tag-1', name: 'finance', color: null, createdAt: 0, updatedAt: 0, openCount: 0 }],
+    })
+    hydrate([task])
+
+    expect(await useTodos.getState().removeTask('t1')).toBe(true)
+    expect(useTodos.getState().tasks).toEqual([])
+    expect(useUi.getState().toasts.at(-1)?.action?.label).toBe(t('common.undo'))
+
+    await useTodos.getState().undoLast()
+
+    expect(service.creates).toEqual([{
+      title: 'File the return',
+      description: 'Before the deadline',
+      priority: 'high',
+      starred: true,
+      dueAt: null,
+      listId: 'work',
+      repeat: null,
+      reminders: [],
+      tags: ['finance'],
+      noteId: null,
+      conversationId: null,
+    }])
+    expect(useTodos.getState().tasks.map((entry) => entry.id)).toEqual(['restored-1'])
+  })
+})
+
 describe('the undo rail', () => {
   it('keeps only the latest step when two writes land', async () => {
     const first = row('a', 'First')

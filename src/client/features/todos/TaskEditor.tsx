@@ -20,8 +20,7 @@ import { renderMarkdown } from '../../lib/markdown/renderer'
 import { DatePicker } from '../../components/date-picker'
 import { Modal, confirm } from '../../components/overlay'
 import { api } from '../../lib/api'
-import { useUi } from '../../store/ui'
-import { useTodos, remindOffsetOf, type TaskDraft } from './store'
+import { useTodos, remindOffsetOf } from './store'
 import { dueValue } from './todo-ui'
 import { openConversationInChat, startChatAboutTask } from '../chat/start-chat'
 import { parseLocalTime } from '@shared/assistant-time'
@@ -51,7 +50,6 @@ export function TaskEditor() {
   const createTask = useTodos((state) => state.createTask)
   const updateTask = useTodos((state) => state.updateTask)
   const removeTask = useTodos((state) => state.removeTask)
-  const restoreTask = useTodos((state) => state.restoreTask)
   const addStep = useTodos((state) => state.addStep)
   const updateStep = useTodos((state) => state.updateStep)
   const removeStep = useTodos((state) => state.removeStep)
@@ -154,26 +152,9 @@ export function TaskEditor() {
       tone: 'danger',
     })
     if (!ok) return
-    const snapshot: TaskDraft = {
-      title: existing.title,
-      description: existing.description,
-      priority: existing.priority,
-      starred: existing.starred,
-      dueAt: existing.dueAt,
-      listId: existing.listId,
-      repeat: existing.repeat,
-      reminders: existing.reminders ?? [],
-      tags: existing.tags.map((tag) => tag.name),
-      noteId: existing.noteId,
-      conversationId: existing.conversationId,
-    }
-    const removed = await removeTask(existing.id)
+    // The store takes the snapshot before the row leaves and offers the rebuild on its toast.
+    await removeTask(existing.id)
     close()
-    if (!removed) return
-    useUi.getState().toast({
-      title: t('todo.toast.deleted'),
-      action: { label: t('todo.action.undo'), run: () => { void restoreTask(snapshot) } },
-    })
   }
 
   /**
