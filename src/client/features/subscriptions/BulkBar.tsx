@@ -17,7 +17,8 @@ import { confirm } from '../../components/overlay'
 import { useUi } from '../../store/ui'
 import { isImeComposing } from '../../lib/ime'
 import type { SubscriptionItem } from '@shared/subscriptions/model'
-import { csvFilename, parseCsv, rowToInput, toCsv } from './csv'
+import { CSV_BOM, csvFilename, parseCsv, rowToInput, toCsv } from './csv'
+import { downloadTextFile } from '../../lib/export-note'
 import { useSubscriptions } from './store'
 
 export function BulkBar({ items }: { items: readonly SubscriptionItem[] }): ReactElement | null {
@@ -58,22 +59,25 @@ export function BulkBar({ items }: { items: readonly SubscriptionItem[] }): Reac
   }
 
   const exportCsv = (): void => {
-    const blob = new Blob([`${toCsv(items)}`], { type: 'text/csv;charset=utf-8' })
-    const url = URL.createObjectURL(blob)
-    const link = document.createElement('a')
-    link.href = url
-    link.download = csvFilename()
-    link.click()
-    // The object URL outlives the click on some engines, and a leak of one spreadsheet-sized blob per
-    // export is the kind of thing a reader only notices after twenty of them.
-    setTimeout(() => URL.revokeObjectURL(url), 4000)
+    // Excel reads a UTF-8 file in the local codepage unless the document opens with a byte-order mark,
+    // which is how a plan named in Chinese comes back as mojibake; the importer strips the same mark.
+    downloadTextFile(csvFilename(), `${CSV_BOM}${toCsv(items)}`, 'text/csv;charset=utf-8')
   }
 
   const pickFile = async (file: File | undefined): Promise<void> => {
     if (!file) return
-    const text = await file.text()
-    const rows = parseCsv(text)
-    setPending({ rows, filename: file.name })
+    try {
+      const text = await file.text()
+      setPending({ rows: parseCsv(text), filename: file.name })
+    } catch (error) {
+      // A file the browser would not hand over is not an empty spreadsheet. Saying "0 rows" here would
+      // send the reader back to check the file rather than the disk, the selection or the permission.
+      useUi.getState().toast({
+        title: t('subscriptions.import.read_failed'),
+        description: error instanceof Error ? error.message : undefined,
+        tone: 'danger',
+      })
+    }
   }
 
   const confirmImport = async (): Promise<void> => {

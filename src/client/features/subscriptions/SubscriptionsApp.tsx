@@ -13,13 +13,14 @@ import { t } from '../../lib/i18n'
 import { IS_DEMO_MODE } from '../../lib/runtime'
 import { useSession } from '../../store/session'
 import { useUi } from '../../store/ui'
-import { useBreakpoint } from '../../lib/hooks'
+import { useBreakpoint, useMediaQuery } from '../../lib/hooks'
 import { AssistantDock } from '../chat/AssistantDock'
 import { NotificationsBell } from '../chat/NotificationCenter'
 import { Button, IconButton } from '../../components/primitives'
 import { Drawer, Modal, Tooltip, confirm } from '../../components/overlay'
 import { Input } from '../../components/form'
 import { formatAmount } from '@shared/subscriptions/format'
+import { NEW_RULE_DRAFT } from '@shared/subscriptions/model'
 import { useSubscriptions } from './store'
 import { countItems, visibleItems } from './list-view'
 import { FilterRail } from './FilterRail'
@@ -36,6 +37,10 @@ import { LabelManagerDialog } from './LabelManagerDialog'
 import { useLabelSuggestions } from './label-identity'
 import { SubscriptionSettings } from './SubscriptionSettings'
 import type { PaymentRecord, SubscriptionDetail as Detail, SubscriptionItem } from '@shared/subscriptions/model'
+
+/** Where the filter rail earns its column, and where the detail panel earns a third one. */
+const NEEDS_RAIL_QUERY = '(min-width: 1024px)'
+const NEEDS_PANEL_QUERY = '(min-width: 1280px)'
 
 export function SubscriptionsApp(): ReactElement {
   const userId = useSession((state) => state.user?.id ?? null)
@@ -59,9 +64,12 @@ export function SubscriptionsApp(): ReactElement {
   const saving = useSubscriptions((state) => state.saving)
   const loadLogs = useSubscriptions((state) => state.loadLogs)
 
-  const [railOpen, setRailOpen] = useState(() => typeof window !== 'undefined' && window.matchMedia('(min-width: 1024px)').matches)
-  const [wide, setWide] = useState(() => typeof window !== 'undefined' && window.matchMedia('(min-width: 1024px)').matches)
-  const [panelWide, setPanelWide] = useState(() => typeof window !== 'undefined' && window.matchMedia('(min-width: 1280px)').matches)
+  // The three-column decision the rail, the list and the detail panel share. The widths are this app's own
+  // because a third column needs more room than the notebook's two: 1024px is where the filter rail plus a
+  // list fits, 1280px is where a 380px detail panel joins them.
+  const wide = useMediaQuery(NEEDS_RAIL_QUERY)
+  const panelWide = useMediaQuery(NEEDS_PANEL_QUERY)
+  const [railOpen, setRailOpen] = useState(wide)
   const [formOpen, setFormOpen] = useState(false)
   const [renewTarget, setRenewTarget] = useState<Detail | null>(null)
   const [paymentTarget, setPaymentTarget] = useState<PaymentRecord | null>(null)
@@ -78,19 +86,6 @@ export function SubscriptionsApp(): ReactElement {
   useEffect(() => {
     void useSubscriptions.getState().load()
   }, [userId])
-
-  useEffect(() => {
-    const wideQuery = window.matchMedia('(min-width: 1024px)')
-    const panelQuery = window.matchMedia('(min-width: 1280px)')
-    const onWide = (): void => setWide(wideQuery.matches)
-    const onPanel = (): void => setPanelWide(panelQuery.matches)
-    wideQuery.addEventListener('change', onWide)
-    panelQuery.addEventListener('change', onPanel)
-    return () => {
-      wideQuery.removeEventListener('change', onWide)
-      panelQuery.removeEventListener('change', onPanel)
-    }
-  }, [])
 
   const visible = useMemo(() => visibleItems(items, filter), [items, filter])
   const counts = useMemo(() => countItems(items), [items])
@@ -286,7 +281,7 @@ export function SubscriptionsApp(): ReactElement {
         onTrash: () => { if (detail) void onTrash(detail.item) },
         onAddRule: () => {
           if (!detail) return
-          void useSubscriptions.getState().addRule(detail.item.id, { type: 'before_expiry', value: 3, unit: 'days' })
+          void useSubscriptions.getState().addRule(detail.item.id, { ...NEW_RULE_DRAFT })
         },
         onPresetRules: () => { if (detail) void useSubscriptions.getState().applyPreset(detail.item.id) },
         onUpdateRule: (rule, patch) => { if (detail) void useSubscriptions.getState().updateRule(detail.item.id, rule.id, patch) },
@@ -498,7 +493,7 @@ export function SubscriptionsApp(): ReactElement {
       )}
 
       {status === 'error' && (
-        <div className="flex items-center gap-2 border-t border-[var(--border-subtle)] bg-[var(--bg-sunken)] px-3 py-2">
+        <div role="alert" className="flex items-center gap-2 border-t border-[var(--border-subtle)] bg-[var(--bg-sunken)] px-3 py-2">
           <span className="min-w-0 flex-1 truncate text-[length:var(--text-12)] text-[var(--danger)]">{error ?? t('subscriptions.error.load')}</span>
           <Button size="sm" onClick={() => void useSubscriptions.getState().load()}>{t('subscriptions.error.retry')}</Button>
         </div>

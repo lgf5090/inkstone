@@ -210,6 +210,8 @@ function toScheduleLog(row: ScheduleLogRow): ScheduleLogEntry {
     const parsed = JSON.parse(row.hours) as unknown
     if (Array.isArray(parsed)) hours = parsed.map(String)
   } catch {
+    // A delivery log whose hour list cannot be read says nothing about the window; an empty one is the
+    // honest record of what this row knows, and the log is read-only history either way.
     hours = []
   }
   return {

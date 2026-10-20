@@ -13,21 +13,22 @@
 import { useEffect, useMemo, useRef, useState, type ReactElement } from 'react'
 import { Moon } from 'lucide-react'
 import {
-  ALMANAC_TEXT,
-  LUNAR_DAY_NAMES,
   LUNAR_MONTH_NAMES,
   LUNAR_RANGE_END,
   LUNAR_RANGE_START,
   leapDays,
   leapMonth,
   lunar2solar,
+  lunarDayLabel,
+  lunarLeapMonthLabel,
+  lunarMonthLabel,
   monthDays,
   solar2lunar,
 } from '@shared/subscriptions/lunar'
 import { Button, IconButton } from '../../components/primitives'
 import { Select } from '../../components/form'
 import { useClickOutside, useEscape } from '../../components/overlay'
-import { t } from '../../lib/i18n'
+import { getLocale, t } from '../../lib/i18n'
 import { Z_INDEX } from '../../lib/z-index'
 import { cn } from '../../lib/cn'
 
@@ -69,6 +70,9 @@ export function LunarDateButton({ value, onPick }: {
   onPick: (date: string) => void
 }): ReactElement {
   const [open, setOpen] = useState(false)
+  // The almanac's names are shown in the language the reader is reading the interface in, not in one
+  // language only.
+  const locale = getLocale()
   const wrapRef = useRef<HTMLDivElement>(null)
   const today = new Date()
   const [year, setYear] = useState(() => Number(value.slice(0, 4)) || today.getFullYear())
@@ -153,13 +157,13 @@ export function LunarDateButton({ value, onPick }: {
               }}
               className="h-7 text-[length:var(--text-11-5)]"
             >
-              {LUNAR_MONTH_NAMES.flatMap((name, index) => {
+              {LUNAR_MONTH_NAMES.flatMap((_, index) => {
                 const number = index + 1
-                const plain = <option key={number} value={number}>{name}{ALMANAC_TEXT.month}</option>
+                const plain = <option key={number} value={number}>{lunarMonthLabel(index, locale)}</option>
                 // The leap month is listed where it falls in the sequence rather than pinned to the top,
                 // so counting down the list lands on the month a reader is looking for.
                 return leap === number
-                  ? [plain, <option key={`leap-${number}`} value={monthOption(number, true)}>{ALMANAC_TEXT.leap}{name}{ALMANAC_TEXT.month}</option>]
+                  ? [plain, <option key={`leap-${number}`} value={monthOption(number, true)}>{lunarLeapMonthLabel(index, locale)}</option>]
                   : [plain]
               })}
             </Select>
@@ -169,7 +173,7 @@ export function LunarDateButton({ value, onPick }: {
               onChange={(event) => setDay(Number(event.target.value))}
               className="h-7 text-[length:var(--text-11-5)]"
             >
-              {days.map((option) => <option key={option} value={option}>{LUNAR_DAY_NAMES[option - 1]}</option>)}
+              {days.map((option) => <option key={option} value={option}>{lunarDayLabel(option, locale)}</option>)}
             </Select>
           </div>
           <p className={cn('mt-1.5 text-[length:var(--text-11)] tabular-nums', iso ? 'text-[var(--text-secondary)]' : 'text-[var(--danger)]')}>

@@ -68,6 +68,8 @@ function parseHours(raw: string): string[] {
     const value = JSON.parse(raw) as unknown
     return normalizeNotificationHours(value)
   } catch {
+    // Text that is not a list is a window nobody set, which is the same answer as an empty one: every hour
+    // stays open rather than the reader's reminders falling silent over one corrupt cell.
     return []
   }
 }

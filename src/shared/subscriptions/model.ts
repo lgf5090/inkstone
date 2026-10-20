@@ -125,6 +125,10 @@ export const NAME_MAX = 120
 export const LABEL_MAX = 40
 export const NOTES_MAX = 2000
 export const PERIOD_VALUE_MAX = 120
+/** How many periods one renewal may buy at once: four years of a monthly plan, and no more. */
+export const PERIOD_MULTIPLIER_MAX = 120
+/** What a reader may write against one receipt. */
+export const PAYMENT_NOTE_MAX = 200
 export const RULE_VALUE_MAX = 3650
 export const REPEAT_INTERVAL_MAX = 720
 
@@ -489,6 +493,14 @@ export const PRESET_RULE_DRAFTS: readonly ReminderRuleInput[] = [
   { type: 'before_expiry', value: 1, unit: 'days' },
   { type: 'on_expiry', value: 0, unit: 'days' },
 ]
+
+/**
+ * What "add a rule" starts a new row with.
+ *
+ * Three days ahead is the lead a reader means when they say "warn me before it renews", and both places
+ * that offer the button have to begin at the same day or the two screens teach different habits.
+ */
+export const NEW_RULE_DRAFT: ReminderRuleInput = { type: 'before_expiry', value: 3, unit: 'days', isEnabled: true }
 
 /**
  * The ids are made by the caller so this stays a pure function — a test can then assert the shape

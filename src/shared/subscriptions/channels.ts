@@ -16,6 +16,15 @@
 import type { MessageKey } from '../locales/en-US'
 import type { ChannelKind, NotifyLocale } from './model'
 
+/**
+ * Where an outside script posts a reminder.
+ *
+ * Named once because both ends have to agree: the worker mounts it outside `/api` — every API POST demands
+ * the browser's client header, which a cron job on somebody's server does not have — and the settings
+ * screen prints the address a reader is about to paste into that job.
+ */
+export const INBOUND_HOOK_PATH = '/hooks/subscriptions'
+
 export interface ChannelSelectOption {
   value: string
   labelKey: MessageKey

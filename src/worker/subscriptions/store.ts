@@ -21,6 +21,7 @@ import {
   normalizeRule,
   roundMoney,
   LABEL_MAX,
+  PERIOD_MULTIPLIER_MAX,
   RULES_LIMIT,
   type BulkAction,
 } from '@shared/subscriptions/model'
@@ -466,7 +467,7 @@ export class SubscriptionsStore {
     if (!existing) return null
 
     const paymentAt = toMs(options.paymentDate) ?? now
-    const multiplier = Math.min(120, Math.max(1, Math.trunc(options.periodMultiplier ?? 1)))
+    const multiplier = Math.min(PERIOD_MULTIPLIER_MAX, Math.max(1, Math.trunc(options.periodMultiplier ?? 1)))
     const amount = options.amount === undefined
       ? existing.amount ?? 0
       : roundMoney(options.amount)

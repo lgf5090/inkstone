@@ -27,6 +27,14 @@ function escape(value: string): string {
   return /[",\r\n]/.test(value) ? `"${value.replace(/"/g, '""')}"` : value
 }
 
+/**
+ * The byte-order mark Excel needs to read a UTF-8 file as UTF-8.
+ *
+ * Written on export and stripped on import: without it a plan named in Chinese opens as mojibake, and a
+ * file that came out of Excel arrives with the mark glued to the first column name.
+ */
+export const CSV_BOM = '\uFEFF'
+
 export function toCsv(items: readonly SubscriptionItem[]): string {
   const header = CSV_COLUMNS.join(',')
   const rows = items.map((item) => CSV_COLUMNS.map((column) => escape(csvValue(item, column))).join(','))
@@ -60,17 +68,21 @@ function csvValue(item: SubscriptionItem, column: CsvColumn): string {
  * column — which is what they asked for, and better than shifting every value one slot left.
  */
 export function parseCsv(text: string): CsvRow[] {
+  // Excel writes a byte-order mark ahead of the first header name, and a column called `\uFEFFname`
+  // matches no known column, so the whole first column used to vanish on import. Stripped once, here,
+  // because it can only ever be the first character of the document.
+  const source = text.startsWith(CSV_BOM) ? text.slice(CSV_BOM.length) : text
   const rows: string[][] = []
   let row: string[] = []
   let field = ''
   let quoted = false
   // A character loop rather than a split or a regex: a comma inside quotes, a quote inside a quoted
   // field and a newline inside a quoted field all have to be told apart by what came before them.
-  for (let index = 0; index < text.length; index++) {
-    const char = text[index]
+  for (let index = 0; index < source.length; index++) {
+    const char = source[index]
     if (quoted) {
       if (char === '"') {
-        if (text[index + 1] === '"') {
+        if (source[index + 1] === '"') {
           field += '"'
           index++
         } else {
@@ -87,7 +99,7 @@ export function parseCsv(text: string): CsvRow[] {
       row.push(field)
       field = ''
     } else if (char === '\n' || char === '\r') {
-      if (char === '\r' && text[index + 1] === '\n') index++
+      if (char === '\r' && source[index + 1] === '\n') index++
       row.push(field)
       rows.push(row)
       row = []
@@ -102,7 +114,7 @@ export function parseCsv(text: string): CsvRow[] {
   }
   const [header, ...body] = rows
   if (!header) return []
-  const names = header.map((name) => name.trim().replace(/^/, ''))
+  const names = header.map((name) => name.trim())
   const known = CSV_COLUMNS as readonly string[]
   return body
     .filter((cells) => cells.some((cell) => cell.trim() !== ''))

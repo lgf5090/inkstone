@@ -263,6 +263,8 @@ function safeParse(text: string): unknown {
   try {
     return JSON.parse(text)
   } catch {
+    // null is the caller's "this archive holds nothing readable", which it already has to answer: the
+    // whole document is checked before a single row is written.
     return null
   }
 }

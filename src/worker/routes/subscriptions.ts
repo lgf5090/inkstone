@@ -26,6 +26,11 @@ import {
   isPeriodUnit,
   isSubscriptionMode,
   LABEL_MAX,
+  NAME_MAX,
+  NOTES_MAX,
+  PAYMENT_NOTE_MAX,
+  PERIOD_MULTIPLIER_MAX,
+  PERIOD_VALUE_MAX,
   type SubscriptionInput,
   type SubscriptionSettings,
   type LabelKind,
@@ -125,7 +130,7 @@ function positiveInt(value: unknown, max: number): number | undefined {
 }
 
 function inputOf(raw: Record<string, unknown>): SubscriptionInput {
-  const name = text(raw.name, 120, 'Name')
+  const name = text(raw.name, NAME_MAX, 'Name')
   if (!name) throw ApiError.badRequest('A name is required')
   const currency = raw.currency
   if (currency !== undefined && !isCurrencyCode(currency)) throw ApiError.badRequest('That currency is not supported')
@@ -136,19 +141,19 @@ function inputOf(raw: Record<string, unknown>): SubscriptionInput {
 
   return {
     name,
-    customType: optionalText(raw.customType, 40, 'Type'),
-    category: optionalText(raw.category, 40, 'Category'),
+    customType: optionalText(raw.customType, LABEL_MAX, 'Type'),
+    category: optionalText(raw.category, LABEL_MAX, 'Category'),
     amount: amountOf(raw.amount),
     currency: currency as SubscriptionInput['currency'],
     startDate: optionalDate(raw.startDate, 'Start date'),
     expiryDate: requireDate(raw.expiryDate, 'Expiry date'),
-    periodValue: positiveInt(raw.periodValue, 120),
+    periodValue: positiveInt(raw.periodValue, PERIOD_VALUE_MAX),
     periodUnit: periodUnit as SubscriptionInput['periodUnit'],
     subscriptionMode: mode as SubscriptionInput['subscriptionMode'],
     useLunar: raw.useLunar === undefined ? undefined : raw.useLunar === true,
     isActive: raw.isActive === undefined ? undefined : raw.isActive === true,
     autoRenew: raw.autoRenew === undefined ? undefined : raw.autoRenew === true,
-    notes: optionalText(raw.notes, 2000, 'Notes'),
+    notes: optionalText(raw.notes, NOTES_MAX, 'Notes'),
     trialEndsAt: optionalDate(raw.trialEndsAt, 'Trial end date'),
     reminderRules: Array.isArray(raw.reminderRules) ? raw.reminderRules as SubscriptionInput['reminderRules'] : undefined,
   }
@@ -283,11 +288,14 @@ subscriptionRoutes.post('/bulk', async (c) => {
   const action = String(raw.action ?? '')
   if (!(BULK_ACTIONS as readonly string[]).includes(action)) throw ApiError.badRequest('That bulk action is not supported')
   if (!Array.isArray(raw.ids)) throw ApiError.badRequest('ids must be a list')
-  const ids = raw.ids.filter((id): id is string => typeof id === 'string').slice(0, BULK_LIMIT)
-  if (!ids.length) throw ApiError.badRequest('Name at least one subscription')
+  const listed = raw.ids.filter((id): id is string => typeof id === 'string')
+  // Refused rather than trimmed: a caller that named four hundred rows and had two hundred done would be
+  // told "200 changed" and never learn the rest were never even looked at.
+  if (listed.length > BULK_LIMIT) throw ApiError.badRequest(`A bulk action names at most ${BULK_LIMIT} subscriptions; this named ${listed.length}`)
+  if (!listed.length) throw ApiError.badRequest('Name at least one subscription')
   const category = action === 'set_category' ? text(raw.category, LABEL_MAX, 'Category') : undefined
   if (action === 'set_category' && !category) throw ApiError.badRequest('A category name is required')
-  const changed = await storeOf(c).bulk(ids, action as BulkAction, { category })
+  const changed = await storeOf(c).bulk(listed, action as BulkAction, { category })
   return c.json({ changed })
 })
 
@@ -453,8 +461,8 @@ subscriptionRoutes.post('/:id/renew', async (c) => {
   const detail = await store.renew(c.req.param('id'), {
     paymentDate: raw.paymentDate === undefined ? undefined : requireDate(raw.paymentDate, 'Payment date'),
     amount: amountOf(raw.amount) ?? undefined,
-    periodMultiplier: positiveInt(raw.periodMultiplier, 120),
-    note: optionalText(raw.note, 200, 'Note'),
+    periodMultiplier: positiveInt(raw.periodMultiplier, PERIOD_MULTIPLIER_MAX),
+    note: optionalText(raw.note, PAYMENT_NOTE_MAX, 'Note'),
   }, context)
   if (!detail) throw ApiError.notFound('That subscription does not exist')
   return c.json(detail)
@@ -502,7 +510,7 @@ subscriptionRoutes.put('/:id/payments/:paymentId', async (c) => {
     date: raw.date === undefined ? undefined : requireDate(raw.date, 'Payment date'),
     amount: amountOf(raw.amount) ?? undefined,
     currency: raw.currency as string | undefined,
-    note: optionalText(raw.note, 200, 'Note'),
+    note: optionalText(raw.note, PAYMENT_NOTE_MAX, 'Note'),
   }, context)
   if (!detail) throw ApiError.notFound('That payment record does not exist')
   return c.json(detail)

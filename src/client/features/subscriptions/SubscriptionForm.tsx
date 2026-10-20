@@ -21,6 +21,8 @@ import {
   CURRENCY_CODES,
   labelNamesOf,
   PERIOD_UNITS,
+  PERIOD_VALUE_MAX,
+  NEW_RULE_DRAFT,
   PRESET_RULE_DRAFTS,
   RULES_LIMIT,
   type CurrencyCode,
@@ -304,7 +306,7 @@ export function SubscriptionForm({
               <Input
                 type="number"
                 min={1}
-                max={120}
+                max={PERIOD_VALUE_MAX}
                 value={draft.periodValue}
                 onChange={(event) => set('periodValue', event.target.value)}
               />
@@ -375,7 +377,7 @@ export function SubscriptionForm({
                 variant="ghost"
                 icon={<Plus size={12} />}
                 disabled={draft.rules.length >= RULES_LIMIT}
-                onClick={() => set('rules', [...draft.rules, { type: 'before_expiry', value: 1, unit: 'days', isEnabled: true }])}
+                onClick={() => set('rules', [...draft.rules, { ...NEW_RULE_DRAFT }])}
               >
                 {t('subscriptions.rules.add')}
               </Button>

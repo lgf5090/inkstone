@@ -4,6 +4,9 @@ import {
   leapDays,
   leapMonth,
   lunar2solar,
+  lunarDayLabel,
+  lunarLeapMonthLabel,
+  lunarMonthLabel,
   lunarYearDays,
   monthDays,
   solar2lunar,
@@ -108,5 +111,19 @@ describe('advancing by a lunar period', () => {
   it('adds days through the solar calendar', () => {
     const start = { year: 2024, month: 1, day: 1, isLeap: false }
     expect(addLunarPeriod(start, 1, 'day')).toMatchObject({ year: 2024, month: 1, day: 2 })
+  })
+})
+
+describe('the names a lunar picker shows', () => {
+  it('keeps the almanac vocabulary for a Chinese interface', () => {
+    expect(lunarMonthLabel(0, 'zh-CN')).toBe('正月')
+    expect(lunarLeapMonthLabel(1, 'zh-CN')).toBe('闰二月')
+    expect(lunarDayLabel(12, 'zh-CN')).toBe('十二')
+  })
+
+  it('spells the same months and days for an English interface', () => {
+    expect(lunarMonthLabel(0, 'en-US')).toBe('Month 1')
+    expect(lunarLeapMonthLabel(1, 'en-US')).toBe('Leap month 2')
+    expect(lunarDayLabel(12, 'en-US')).toBe('Day 12')
   })
 })

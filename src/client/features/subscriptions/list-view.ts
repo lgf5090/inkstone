@@ -6,6 +6,7 @@
  * be the kind of disagreement that makes a reader stop trusting the numbers.
  */
 import { SOON_DAYS, type SubscriptionItem } from '@shared/subscriptions/model'
+import { matchesSubscriptionSearch } from '@shared/subscriptions/search'
 import type { ListFilter } from './store'
 
 export type ListGroup = 'expired' | 'week' | 'month' | 'later' | 'disabled'
@@ -27,10 +28,11 @@ export function matchesFilter(item: SubscriptionItem, filter: ListFilter): boole
   if (filter.status === 'expired' && !(item.isActive && item.daysRemaining < 0)) return false
   if (filter.status === 'disabled' && item.isActive) return false
   if (filter.category && !categoryList(item).includes(filter.category)) return false
-  const query = filter.query.trim().toLowerCase()
+  const query = filter.query.trim()
   if (!query) return true
-  return [item.name, item.customType, item.category, item.notes]
-    .some((field) => field.toLowerCase().includes(query))
+  // One vocabulary for "which plan does this text name": the chat tool and the global search read the same
+  // field list, and a third hand-written copy here is how typing finds a plan in one place and not another.
+  return matchesSubscriptionSearch(item, query)
 }
 
 /** The labels a subscription carries; the category field may name several. */

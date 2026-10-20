@@ -14,9 +14,11 @@ import { t } from '../../lib/i18n'
 import { Button, IconButton, SectionLabel } from '../../components/primitives'
 import { Field, Input, Segmented, Select, Switch, Textarea } from '../../components/form'
 import { Modal } from '../../components/overlay'
-import { CHANNEL_DEFINITIONS, channelLabelKey, type ChannelField } from '@shared/subscriptions/channels'
+import { CHANNEL_DEFINITIONS, channelLabelKey, INBOUND_HOOK_PATH, type ChannelField } from '@shared/subscriptions/channels'
+import { copyText } from '../../lib/clipboard'
+import { useUi } from '../../store/ui'
 import { FALLBACK_RATES } from '@shared/subscriptions/currency'
-import { CURRENCY_CODES, type ChannelKind, type ChannelState, type CurrencyCode, type NotifyLocale, type SubscriptionSettings } from '@shared/subscriptions/model'
+import { CURRENCY_CODES, PAYMENT_LIMIT_MAX, PAYMENT_LIMIT_MIN, type ChannelKind, type ChannelState, type CurrencyCode, type NotifyLocale, type SubscriptionSettings } from '@shared/subscriptions/model'
 
 /** Every price the app can be told, except the one it measures the others against. */
 const PINNABLE_CURRENCIES = CURRENCY_CODES.filter((code) => code !== 'CNY')
@@ -56,6 +58,9 @@ export function SubscriptionSettings({
   const [rates, setRates] = useState<Record<string, string>>(() =>
     Object.fromEntries(Object.entries(settings.rateOverrides).map(([code, value]) => [code, String(value)])))
   const [token, setToken] = useState<string | null>(null)
+  // Built once: the address the copy button puts on the clipboard and the line that shows it to the reader
+  // must not be two strings that can drift.
+  const inboundAddress = token ? `${location.origin}${INBOUND_HOOK_PATH}/${token}` : ''
 
   /**
    * Send the pins as one map, because the boxes above are the whole map.
@@ -110,8 +115,8 @@ export function SubscriptionSettings({
             <Field label={t('subscriptions.settings.history_limit')}>
               <Input
                 type="number"
-                min={10}
-                max={1000}
+                min={PAYMENT_LIMIT_MIN}
+                max={PAYMENT_LIMIT_MAX}
                 value={settings.paymentHistoryLimit}
                 onChange={(event) => void saveGeneral({ paymentHistoryLimit: Number(event.target.value) })}
               />
@@ -212,7 +217,9 @@ export function SubscriptionSettings({
                   size="sm"
                   variant="ghost"
                   icon={<Copy size={13} />}
-                  onClick={() => void navigator.clipboard?.writeText(`${location.origin}/hooks/subscriptions/${token}`)}
+                  onClick={() => void copyText(inboundAddress).then((taken) => {
+                    if (!taken) useUi.getState().toast({ title: t('subscriptions.settings.copy_failed'), tone: 'danger' })
+                  })}
                 >
                   {t('subscriptions.settings.inbound_copy')}
                 </Button>
@@ -220,7 +227,7 @@ export function SubscriptionSettings({
             </div>
             {token && (
               <p className="mt-1 break-all rounded-[var(--r-xs)] bg-[var(--bg-inset)] px-2 py-1 font-mono text-[length:var(--text-10-5)] text-[var(--warning)]">
-                {t('subscriptions.settings.inbound_once', { token: `${location.origin}/hooks/subscriptions/${token}` })}
+                {t('subscriptions.settings.inbound_once', { token: inboundAddress })}
               </p>
             )}
           </div>

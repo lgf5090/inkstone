@@ -10646,8 +10646,10 @@ const allowed = new Map([
   ]],
   ["src/client/features/subscriptions/BulkBar.tsx", [
     "/**\n * The row of things to do with a selection, and the two file operations that need no selection.\n *\n * Export and import live here rather than in the settings dialog because they act on the list the reader\n * is looking at, and because a settings screen is where a preference goes, not where a file goes.\n *\n * Import deliberately does not create anything until the reader has seen how many rows the file held:\n * a spreadsheet is the one input where a person can hand over four hundred lines without counting them,\n * and the number is the difference between reviewing an import and discovering one.\n */",
-    "// The object URL outlives the click on some engines, and a leak of one spreadsheet-sized blob per",
-    "// export is the kind of thing a reader only notices after twenty of them.",
+    "// Excel reads a UTF-8 file in the local codepage unless the document opens with a byte-order mark,",
+    "// which is how a plan named in Chinese comes back as mojibake; the importer strips the same mark.",
+    "// A file the browser would not hand over is not an empty spreadsheet. Saying \"0 rows\" here would",
+    "// send the reader back to check the file rather than the disk, the selection or the permission.",
   ]],
   ["src/client/features/subscriptions/FilterRail.tsx", [
     "/**\n * The rail: which slice of the list is showing, and what is in each slice.\n *\n * Counts come from the same rows the list draws, so a heading that says three and a list that shows two\n * cannot happen. The channel summary at the bottom is there because a reader whose reminders stopped\n * arriving looks first at the list and second at \"did anything send at all\" — this answers the second\n * before they have to open the settings.\n */",
@@ -10663,6 +10665,8 @@ const allowed = new Map([
   ]],
   ["src/client/features/subscriptions/LogsView.tsx", [
     "/**\n * What was sent, and what the sweep did.\n *\n * The two halves answer different questions and are deliberately on one screen: \"did this channel\n * deliver that message\" is the delivery log, and \"did the sweep run at all\" is the schedule log. A\n * reader whose reminders stopped needs the second the moment the first is empty — a page that only\n * listed deliveries would show nothing and explain nothing.\n */",
+    "/* The registry of kinds, not a copy of it: the hand-written list here had already fallen behind\n              and left the in-app channel unfilterable. */",
+    "/* The dot is the only visible difference between a delivery that worked and one that did not, and\n            a colour with no name behind it reads as nothing at all to a screen reader. */",
   ]],
   ["src/client/features/subscriptions/LunarDateButton.tsx", [
     "/**\n * Picking a date by its lunar calendar name.\n *\n * The form's date field is the browser's own, which is the right control for a Gregorian date — it is\n * keyboard accessible, it is what a phone gives you, and it localises itself. What it cannot do is let a\n * reader name a month by its lunar sequence, which is how a birthday or an anniversary is actually\n * remembered for half the accounts this app serves. So the native field stays and this sits beside it.\n *\n * The day list is rebuilt from the month, not fixed at thirty: a lunar month is 29 or 30 days depending\n * on the year, and the thirtieth of the last month does not exist in most of them. Offering a day that\n * cannot be converted is how a reader ends up with a date that silently means something else.\n */",
@@ -10676,6 +10680,8 @@ const allowed = new Map([
     "// moving the year is allowed to drop a choice, but not to leave one on screen that means nothing.",
     "// The leap month is listed where it falls in the sequence rather than pinned to the top,",
     "// so counting down the list lands on the month a reader is looking for.",
+    "// The almanac's names are shown in the language the reader is reading the interface in, not in one",
+    "// language only.",
   ]],
   ["src/client/features/subscriptions/OverviewView.tsx", [
     "/**\n * The dashboard: what this costs, what is about to renew, and whether the reminders are running.\n *\n * The four cards answer the questions a reader opens the app with, in the order they ask them. The bar\n * chart is six months of receipts rather than a projection, because a subscription app's whole value is\n * knowing what was actually charged. Every bar is a plain box with a height — a charting library would\n * be a second rendering stack for six rectangles, and it would draw on a canvas a screen reader cannot\n * read.\n */",
@@ -10742,6 +10748,8 @@ const allowed = new Map([
     "// seven, and a box they cleared has asked for the feed back.",
     "/**\n   * Send the pins as one map, because the boxes above are the whole map.\n   *\n   * A number field reports an empty string while it holds nonsense, so the only state a box can leave\n   * behind is the one the reader can see: empty means the feed again for that currency, and a number means\n   * that number.\n   */",
     "/* The feed answers once a day, for everybody. A reader billed in a currency that moves faster\n              than that — or at their bank's price rather than an index — had no way to say so, and every\n              total was quietly made with the number they disagree with. */",
+    "// Built once: the address the copy button puts on the clipboard and the line that shows it to the reader",
+    "// must not be two strings that can drift.",
   ]],
   ["src/client/features/subscriptions/SubscriptionsApp.tsx", [
     "/**\n * The subscription app: the frame the rail, the list, the dashboard and the detail panel share.\n *\n * It owns nothing but the wiring — every rule lives in the store or in a component — and it owns the\n * responsive decision the other containers make too: three panes when there is room, one pane and a\n * drawer when there is not. Loading is on mount rather than at boot, so a reader who never opens this\n * tab does not pay for a library they will not look at.\n */",
@@ -10755,6 +10763,10 @@ const allowed = new Map([
     "/* The same column the notebook mounts, under the same conditions: the assistant's thread is\n            global state, so opening it here and opening it there is one conversation rather than two.\n            Not on a phone, where chat already has a tab of its own. */",
     "/* The dock is mounted here, but nothing on this page could open it: the only callers of\n            `setAssistantDock` live in the notebook, so asking about a plan meant leaving for the chat tab\n            first. This is that door. */",
     "/* A reminder that fires while the reader is on this page has nowhere to show up otherwise: the\n            bell that carries it is mounted on the chat tab alone, and the schedules that write those rows\n            belong to these plans. One bell per surface, one unread count between them. */",
+    "/** Where the filter rail earns its column, and where the detail panel earns a third one. */",
+    "// The three-column decision the rail, the list and the detail panel share. The widths are this app's own",
+    "// because a third column needs more room than the notebook's two: 1024px is where the filter rail plus a",
+    "// list fits, 1280px is where a 380px detail panel joins them.",
   ]],
   ["src/client/features/subscriptions/TrashView.tsx", [
     "/**\n * The trash: what was deleted, and the two ways to deal with it.\n *\n * A separate view rather than another mode of the subscription list, because the list's whole organising\n * idea is *when does this expire* — the buckets, the countdown colour, the renew shortcut — and none of\n * that means anything for a row nobody is being reminded about. A trashed subscription is sorted by when\n * it was discarded and offers exactly two actions: put it back, or make it gone.\n *\n * Nothing else lives here. Editing, renewing or testing a trashed subscription would all have to decide\n * what happens when it is restored afterwards, and a trash that can be quietly modified is a trash whose\n * contents cannot be trusted.\n */",
@@ -10769,6 +10781,10 @@ const allowed = new Map([
     "/**\n * A parsed row as the shape the import endpoint wants.\n *\n * Booleans are the reader's problem to spell: anything that is not an obvious yes is a no, because a\n * column of blanks should not switch a hundred subscriptions onto auto-renew.\n */",
     "/**\n * What counts as \"yes\" in a boolean column.\n *\n * A spreadsheet's yes is whatever the reader or their spreadsheet software wrote, including the\n * affirmative of whatever language the file was made in — so this is input vocabulary, not interface\n * copy, and it must not come from the locale catalog: a file exported with the interface in English and\n * read back with it in Chinese still has to work.\n */",
     "/** A filename that says when the file was taken, so two exports do not overwrite each other silently. */",
+    "/**\n * The byte-order mark Excel needs to read a UTF-8 file as UTF-8.\n *\n * Written on export and stripped on import: without it a plan named in Chinese opens as mojibake, and a\n * file that came out of Excel arrives with the mark glued to the first column name.\n */",
+    "// Excel writes a byte-order mark ahead of the first header name, and a column called `\\uFEFFname`",
+    "// matches no known column, so the whole first column used to vanish on import. Stripped once, here,",
+    "// because it can only ever be the first character of the document.",
   ]],
   ["src/client/features/subscriptions/label-icons.ts", [
     "/**\n * The lucide components behind the icon names the subscription registry stores.\n *\n * The names live in `@shared/subscriptions/identity` because the worker has to validate what it is\n * being asked to save, and the components live here because the worker must not import a browser icon\n * set. That is two lists, which is the drift the guard test in `label-identity.test.tsx` exists to\n * close: a name offered without a component draws an empty tile, and a component without a name is\n * dead weight in the bundle.\n *\n * Kanban keeps both in one client list; it can, because nothing server-side ever has to decide whether\n * a board's icon is real. Here the route does, so the split is the price of validating on write.\n */",
@@ -10801,6 +10817,8 @@ const allowed = new Map([
     "/** What the rail prints beside each view, counted off the same rows the list draws. */",
     "/** How many subscriptions name each category, for the rail's category list. */",
     "/** Everything the list shows for one filter, in one call. */",
+    "// One vocabulary for \"which plan does this text name\": the chat tool and the global search read the same",
+    "// field list, and a third hand-written copy here is how typing finds a plan in one place and not another.",
   ]],
   ["src/client/features/subscriptions/lunar-date-button.test.ts", [
     "/**\n * The lunar date picker that sits beside the form's native date field.\n *\n * The almanac table behind it is proved on its own in `tests/subscriptions-lunar.test.ts`; what is proved\n * here is the promise the control makes on top of that table: it never offers a day the table refuses, and\n * what it writes back is the day it is showing.\n *\n * Two facts outside this codebase anchor the fixtures, because a test that only re-reads the table would\n * pass even if the table were wrong. 2024-02-10 is the first day of the lunar year that begins in 2024,\n * published anywhere, and that year's first month has 29 days — so a thirtieth does not exist to be\n * picked. 2023-03-22 is the first day of that year's leap second month, which is the one case where a\n * month number names two different solar dates.\n */",
@@ -10812,6 +10830,8 @@ const allowed = new Map([
     "// Two readings of \"month two\" are a month apart in the solar calendar, so they cannot share an option.",
     "// 2024 has no leap month. The choice has to go on its own; a picker stuck on an impossible combination",
     "// would show a date it can never write.",
+    "// The almanac's own vocabulary is correct Chinese, and an English screen that shows it names a month",
+    "// the reader has no way to read or say aloud.",
   ]],
   ["src/client/features/subscriptions/open-subscription.ts", [
     "/**\n * Landing on one subscription from somewhere outside its app.\n *\n * The global search and the notification bell both hold a subscription the reader wants in front of them,\n * and neither owns the tab bar. This is the one place that says how a row becomes a screen: go to the app,\n * ask for the list (the overview has nothing to show for a single plan), then select it, which is the same\n * action the row itself would have taken.\n */",
@@ -19370,6 +19390,7 @@ const allowed = new Map([
     "/**\n * The ten delivery channels, described once.\n *\n * A channel is three things: a kind the database stores, a set of fields a person fills in, and an\n * adapter that turns a message into one HTTP request. The first two live here so the settings screen\n * can draw a form it was not hand-written for, and so the worker can validate the same fields against\n * the same required flags. The third lives beside the worker, because it needs `fetch`.\n *\n * One channel has no request to make: the app's own notification inbox. It is still a channel, because\n * it is still a place a reader decides whether reminders reach them and a result the delivery log keeps.\n *\n * Secrets are marked as such. A `password` field is the only kind whose stored value is never sent back\n * to the browser, and the form treats an empty one as \"keep what is there\" — the reference project's\n * behaviour, and the only one that lets a reader edit a webhook URL without retyping a bot token.\n */",
     "// Nothing to fill in: this is the reader's own inbox, not a service holding a credential.",
     "/**\n   * Which plan this message is about, when there is exactly one.\n   *\n   * The in-app channel is the only reader that can use it — a webhook gets prose it may forward anywhere —\n   * and it is what lets the notification the reader taps open the row that caused it.\n   */",
+    "/**\n * Where an outside script posts a reminder.\n *\n * Named once because both ends have to agree: the worker mounts it outside `/api` — every API POST demands\n * the browser's client header, which a cron job on somebody's server does not have — and the settings\n * screen prints the address a reader is about to paste into that job.\n */",
   ]],
   ["src/shared/subscriptions/currency.ts", [
     "/** One payment as the aggregates need it: an instant, an amount, and which subscription it paid for. */",
@@ -19442,6 +19463,8 @@ const allowed = new Map([
     "/** Lunar date to solar calendar fields, or null when the date does not exist. */",
     "/**\n * Advance a lunar date by a period, clamping the day into the target month.\n *\n * A lunar month is 29 or 30 days, so \"the 30th, three months later\" may not exist; the reference\n * project walks the day down until the combination resolves, which is what a reader means by \"same\n * day next quarter\" when the day is missing.\n */",
     "/** The lunar date an instant falls on, read in the given calendar fields' zone. */",
+    "/**\n * The month and day names in the language the interface is actually wearing.\n *\n * The tables above are the almanac's own vocabulary and stay for a Chinese reader; an English interface\n * that renders those glyphs names a thing the reader cannot read, which is the same failure the rest of\n * this app has to avoid. The number is always there, because that is what a renewal date is counted in.\n */",
+    "/** The same month with the leap marker the calendar carries. */",
   ]],
   ["src/shared/subscriptions/mention.ts", [
     "/**\n * The mention syntax for a subscription, in one place both sides can read.\n *\n * The worker resolves `[[sub:Netflix]]` when it builds a turn's context, and the chat has to recognise the\n * same prefix before it treats a `[[…]]` target as a note title — a click that ends in \"create a note\n * called sub:Netflix\" is a junk document made out of a plan the reader already pays for. Client code may\n * not reach into the worker, so the prefix lives here.\n */",
@@ -19506,6 +19529,9 @@ const allowed = new Map([
     "/** How many decimals a pinned rate keeps: a won is worth fractions of a fen. */",
     "/**\n * A currency the reader stated a price for, or nothing when they did not.\n *\n * Anything unreadable is dropped rather than guessed at: a rate that cannot be parsed would convert every\n * total in the app by a factor nobody chose, which is worse than using the feed.\n */",
     "/** Whether a pinned rate is a number the app can convert with. */",
+    "/** How many periods one renewal may buy at once: four years of a monthly plan, and no more. */",
+    "/** What a reader may write against one receipt. */",
+    "/**\n * What \"add a rule\" starts a new row with.\n *\n * Three days ahead is the lead a reader means when they say \"warn me before it renews\", and both places\n * that offer the button have to begin at the same day or the two screens teach different habits.\n */",
   ]],
   ["src/shared/subscriptions/notify-copy.ts", [
     "/**\n * Which catalog a notification body is written from, and the two helpers that assemble one.\n *\n * The language is the account's, stored on its settings row: the scheduler runs on a cron tick with no\n * request behind it, so there is nobody to ask. `fill` is deliberately smaller than the interface's\n * formatter — two placeholders and no plural rules, because the only number these sentences carry is a\n * day count and both languages write that the same way.\n */",
@@ -19712,8 +19738,7 @@ const allowed = new Map([
   ["src/worker/app.ts", [
     "// A 1xx handshake response carries the socket, and Hono rebuilds the Response to",
     "// mutate its headers — which the Response constructor rejects below 200.",
-    "// Outside the API prefix on purpose: every API POST demands the browser's client header, which a",
-    "// third-party caller does not have and should not need. See the route's own comment.",
+    "// Outside the API prefix on purpose, and the path is shared with the settings screen that prints it.",
   ]],
   ["src/worker/assistant/attachments.ts", [
     "/**\n * The token each attachment line starts with.\n *\n * It is English on purpose: this block is model-facing prompt text, never the reader's UI, and the\n * reader's own labels come from the locale catalog the composer draws.\n */",
@@ -23373,6 +23398,8 @@ const allowed = new Map([
     "// A kind with no fields has no bundle to read, so its own switch is the whole configuration.",
     "/** To the trash, not gone: the receipts and rules stay, and a restore is one column wide. */",
     "/**\n * The rows a global search can name.\n *\n * Registered above `/:id`, because a literal segment after a parameter route would be swallowed by it and\n * answer with whatever subscription happens to be called `search`. Live rows only: the trash is reached\n * from the app's own rail, and a search that silently resurrects deleted plans in its results is worse\n * than one that omits them.\n */",
+    "// Refused rather than trimmed: a caller that named four hundred rows and had two hundred done would be",
+    "// told \"200 changed\" and never learn the rest were never even looked at.",
   ]],
   ["src/worker/routes/sync.ts", [
     "// A non-empty `after` key always means the caller is mid-way through a",
@@ -23501,6 +23528,8 @@ const allowed = new Map([
     "/** Everything the account has now, gone. The token columns go with it, which is the intent. */",
     "/** D1 refuses an oversized batch, and a five-thousand-row library is a plausible personal archive. */",
     "/**\n * A settings field the archive carries as the column's own text — an hour list, a rate map.\n *\n * The document is a dump of rows, so these arrive as the JSON string the column holds, not as the value\n * the app works with. Read straight, a window written as `[\"08\",\"20\"]` would be split on its commas and\n * become two hours that match nothing, and every reminder after a restore would fall silent.\n */",
+    "// null is the caller's \"this archive holds nothing readable\", which it already has to answer: the",
+    "// whole document is checked before a single row is written.",
   ]],
   ["src/worker/subscriptions/channels/adapters.ts", [
     "/**\n * The nine ways a reminder leaves the building.\n *\n * Each adapter is a small function with the same shape: read the configuration it was given, build one\n * request, ask `outbound` to send it, and decide from the far end's own vocabulary whether it worked.\n * The decision is the part that cannot be generalized — Telegram says `ok`, WeCom says `errcode: 0`,\n * Bark says `code: 200` — so each one states its own predicate rather than sharing a hopeful `res.ok`.\n *\n * All nine are deliberately tolerant of a missing field: `saveChannel` refuses to store a channel that\n * cannot send, so an adapter reaching a blank value means the row was edited outside this app, and the\n * honest answer is a failed delivery with a reason rather than a throw that takes the sweep down.\n */",
@@ -23528,6 +23557,8 @@ const allowed = new Map([
     "/**\n * What happened, in two grains.\n *\n * A notification log line answers \"did this channel deliver that message, and if not why\" — the\n * question a reader asks when nothing arrived. A schedule log line answers \"did the sweep run at all,\n * and what did it find\" — the question they ask when the first answer is \"no line at all\". Keeping\n * both is what makes the difference between a bug the reader can diagnose and one they can only report.\n *\n * Both are pruned by age rather than by count: a busy month should not push out last week, and an idle\n * month should not keep a year of nothing.\n */",
     "/** The delivery log, newest first, filtered by whatever the reader narrowed to. */",
     "/** Drop log lines past their window. Run on the hourly pass, where the other purges already live. */",
+    "// A delivery log whose hour list cannot be read says nothing about the window; an empty one is the",
+    "// honest record of what this row knows, and the log is read-only history either way.",
   ]],
   ["src/worker/subscriptions/notify-content.ts", [
     "/**\n * The message a sweep sends: one body for everything that came due this hour.\n *\n * One message rather than one per subscription, which is the reference project's choice and the right\n * one: a reader with eight services renewing in the same week wants one reminder they can read, not\n * eight notifications that each say a date. The price is that a delivery log row names the first\n * subscription in the batch — which is why the schedule log keeps the whole list beside it.\n *\n * The copy comes from the notification catalog rather than from the interface's, because this runs on a\n * cron tick with no request behind it and therefore no reader to ask.\n */",
@@ -23574,6 +23605,8 @@ const allowed = new Map([
     "// A pin the app cannot convert with is refused rather than dropped: the reader asked for their own",
     "// number, and totals quietly made from the feed instead would look exactly like the ones they asked for.",
     "// An empty object is a real answer — it clears every pin — so it is not the same as sending nothing.",
+    "// Text that is not a list is a window nobody set, which is the same answer as an empty one: every hour",
+    "// stays open rather than the reader's reminders falling silent over one corrupt cell.",
   ]],
   ["src/worker/subscriptions/store.ts", [
     "/**\n * Everything the subscription app writes, and the rules it writes by.\n *\n * The reference project kept this in three files: a repository that shuttled JSON through KV, a\n * business layer that knew when an expiry date should move, and handlers that glued the two together.\n * With a real database the repository has nothing left to do — the business layer *is* the data layer,\n * because \"advance the expiry date and write the receipt that explains it\" has to be one transaction\n * rather than two calls that can disagree.\n *\n * Two invariants run through every method here:\n *  - a row is only ever read or written under its own `user_id`, so a guessed id is a 404 rather than\n *    somebody else's subscription;\n *  - a payment record and the expiry date it bought are written together, because a receipt without\n *    its period (or a period without its receipt) is what makes a history untrustworthy.\n */",
@@ -26795,6 +26828,8 @@ const allowed = new Map([
   ["tests/subscriptions-csv.test.ts", [
     "/**\n * The reader's own spreadsheet, treated as an untrusted input.\n *\n * `parseCsv` is a character loop rather than a `split(',')`, which means every interesting case is a\n * case where a naive split would have produced a wrong answer quietly: a comma inside a note, a quote\n * doubled up, a newline inside a quoted cell. Those are what this pins, because the failure mode is\n * not an error message — it is a category landing in the amount column.\n */",
     "// Anything else is a no: a column of blanks must not switch a hundred plans onto lunar cycles.",
+    "// The mark is the character U+FEFF, one unit long: a shorter or wider stand-in would silently stop",
+    "// writing the signal Excel reads, and the importer would strip the wrong character from the header.",
   ]],
   ["tests/subscriptions-currency.test.ts", [
     "/**\n   * The direction is the whole test.\n   *\n   * `FALLBACK_RATES.USD` is 6.98, meaning \"one dollar costs 6.98 yuan\", and the conversion divided by\n   * it — so a ten-dollar subscription was reported as ¥1.43. The live feed was read the other way round\n   * and happened to work, which is why the bug survived: it only showed on the fallback path, and for\n   * the three currencies the feed does not publish at all.\n   */",

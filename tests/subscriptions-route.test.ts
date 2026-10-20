@@ -7,6 +7,7 @@ import { errorResponse } from '../src/worker/lib/errors'
 import type { AppBindings } from '../src/worker/env'
 import { subscriptionRoutes } from '../src/worker/routes/subscriptions'
 import { enabledChannels } from '../src/worker/subscriptions/settings'
+import { BULK_LIMIT } from '../src/shared/subscriptions/model'
 import { makeD1 } from './doubles/d1-sqlite'
 
 const ALICE = 'user-alice'
@@ -371,6 +372,23 @@ describe('channels', () => {
     // A row that was never saved is not a channel that can send, and an account's rows stay its own.
     const other = await enabledChannels(noVault, db, BOB)
     expect(other).toEqual([])
+  })
+})
+
+describe('bulk actions', () => {
+  it('changes every subscription the call names', async () => {
+    const first = await create({ name: 'First' })
+    const second = await create({ name: 'Second' })
+    const response = await send('POST', '/bulk', { action: 'deactivate', ids: [first.item.id, second.item.id] })
+    expect(response.status).toBe(200)
+    expect((await json<any>(response)).changed).toBe(2)
+  })
+
+  it('refuses a list past the cap instead of quietly doing the first two hundred', async () => {
+    const ids = Array.from({ length: BULK_LIMIT + 1 }, (_, index) => `sub-${index}`)
+    const response = await send('POST', '/bulk', { action: 'deactivate', ids })
+    expect(response.status).toBe(400)
+    expect((await json<any>(response)).error.message).toContain(String(BULK_LIMIT))
   })
 })
 

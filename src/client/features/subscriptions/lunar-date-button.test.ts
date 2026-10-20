@@ -101,6 +101,19 @@ describe('the lunar picker', () => {
     expect(values(field(MONTH)), 'a year with no leap month must not offer one').toHaveLength(12)
   })
 
+  it('names the months and days in the language the interface is wearing', async () => {
+    mount('2024-02-10')
+    await open()
+
+    const months = [...field(MONTH)!.options].map((option) => option.textContent)
+    const days = [...field(DAY)!.options].map((option) => option.textContent)
+    expect(months[0]).toBe('Month 1')
+    expect(days[0]).toBe('Day 1')
+    // The almanac's own vocabulary is correct Chinese, and an English screen that shows it names a month
+    // the reader has no way to read or say aloud.
+    expect(`${months} ${days}`).not.toMatch(/[\u3400-\u9FFF]/)
+  })
+
   it('names a leap month apart from the plain month of the same number', async () => {
     mount('2023-03-22')
     await open()
