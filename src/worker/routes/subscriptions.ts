@@ -39,7 +39,7 @@ import {
 import { buildNotificationBody, subjectOf } from '../subscriptions/notify-content'
 import { normalizeColor, normalizeIcon } from '@shared/subscriptions/identity'
 import { SUBSCRIPTION_SEARCH_LIMIT, SUBSCRIPTION_SEARCH_MAX, searchSubscriptions } from '@shared/subscriptions/search'
-import { buildOverview } from '../subscriptions/overview'
+import { buildOverview, refreshRates } from '../subscriptions/overview'
 import { dispatch, testChannel } from '../subscriptions/channels'
 import { queryNotifyLogs, recentScheduleLogs } from '../subscriptions/logs'
 import {
@@ -346,6 +346,18 @@ subscriptionRoutes.put('/settings', async (c) => {
   } catch (error) {
     fail(error)
   }
+})
+
+/**
+ * Forget the cached day of rates and take another.
+ *
+ * The feed publishes once a day, so this is not a button worth pressing twice in a minute; it is what a
+ * reader who was offline when the app last looked, or who has just pinned a rate and wants the rest of
+ * the picture beside it, presses to see the numbers move now rather than at the next TTL.
+ */
+subscriptionRoutes.post('/rates/refresh', async (c) => {
+  const rates = await refreshRates(c.env)
+  return c.json({ source: rates.source, at: rates.at })
 })
 
 subscriptionRoutes.post('/inbound-token', async (c) => {

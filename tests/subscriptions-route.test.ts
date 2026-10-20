@@ -392,6 +392,28 @@ describe('bulk actions', () => {
   })
 })
 
+describe('the rate table behind the dashboard', () => {
+  /**
+   * Which of the two ways the numbers came in is asserted as a set rather than a value because the suite
+   * does not stand between this test and the currency service: an account read with the network up answers
+   * `feed`, one read with it down answers `approximate`, and both are honest answers.
+   */
+  it('says where the totals got their rates, and which currency they are added up in', async () => {
+    const bundle = await json<any>(await send('GET', '/'))
+    expect(['feed', 'approximate']).toContain(bundle.overview.rates.source)
+    expect(bundle.overview.rates.base).toBe('CNY')
+    expect(bundle.overview.rates.basePriced).toBe(true)
+    expect(bundle.overview.rates.unpriced).toEqual([])
+  })
+
+  it('forgets the cached day when asked and answers with what it holds now', async () => {
+    const response = await send('POST', '/rates/refresh')
+    expect(response.status).toBe(200)
+    const body = await json<{ source: string, at: number | null }>(response)
+    expect(['feed', 'approximate']).toContain(body.source)
+  })
+})
+
 describe('one account cannot see another', () => {
   it('answers 404 for somebody else id', async () => {
     const created = await create()

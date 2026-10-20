@@ -6,32 +6,40 @@
  * blur, so a box left empty is the reader asking for the feed back for that currency rather than a pin of
  * zero, and a box with a number in it is that number. The panel is also the only place a pin can be read,
  * so the saved value has to come back out of the box it was written into.
+ *
+ * The boxes are the currencies this account actually meets — its own plans, what it already pinned, the
+ * currency the totals are added up in — rather than every currency the app knows, because the app now
+ * knows thirty and a wall of thirty empty boxes answers a question nobody asked. Anything else is one
+ * choice away, which is what the last two cases here pin.
  */
 import { act, createElement } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { CURRENCY_CODES, DEFAULT_SETTINGS, type ChannelState, type SubscriptionSettings } from '@shared/subscriptions/model'
+import { DEFAULT_SETTINGS, type ChannelState, type SubscriptionSettings } from '@shared/subscriptions/model'
 import { initI18n, t } from '../../lib/i18n'
 import { installTestGlobals } from '../../lib/test-render'
 import { SubscriptionSettings as Panel } from './SubscriptionSettings'
 
 const NO_CHANNELS: ChannelState[] = []
 
-/** The same list the panel draws its boxes from, so a currency added to the app cannot be missed here. */
-const RATE_ORDER: string[] = CURRENCY_CODES.filter((code) => code !== 'CNY')
+const rows = () => [...document.querySelectorAll<HTMLElement>('[data-rate-boxes] > *')]
+const rowText = (row: HTMLElement) => row.querySelector('label')?.textContent ?? ''
+const boxFor = (code: string): HTMLInputElement | undefined =>
+  rows().find((row) => rowText(row).includes(code))?.querySelector('input[type="number"]') ?? undefined
 
-const rateBoxes = () => [...document.querySelectorAll<HTMLInputElement>('[data-rate-boxes] input[type="number"]')]
-const boxFor = (code: string): HTMLInputElement | undefined => rateBoxes()[RATE_ORDER.indexOf(code)]
-const rowLabels = () => RATE_ORDER.map((code) => t('subscriptions.settings.rate_row', { currency: code }))
-
-async function show(settings: Partial<SubscriptionSettings>, onSaveSettings = vi.fn(async () => true)): Promise<void> {
-  const value = { ...DEFAULT_SETTINGS, ...settings }
+async function show(options: {
+  settings?: Partial<SubscriptionSettings>
+  currencies?: string[]
+  onSaveSettings?: (patch: Record<string, unknown>) => Promise<boolean>
+} = {}): Promise<void> {
+  const value = { ...DEFAULT_SETTINGS, ...options.settings }
   await act(async () => {
     root.render(createElement(Panel, {
       settings: value,
       channels: NO_CHANNELS,
+      currencies: options.currencies ?? [],
       onClose: () => {},
-      onSaveSettings: onSaveSettings as (patch: Record<string, unknown>) => Promise<boolean>,
+      onSaveSettings: options.onSaveSettings ?? (async () => true),
       onSaveChannel: async () => true,
       onClearChannel: async () => true,
       onTestChannel: async () => {},
@@ -54,6 +62,20 @@ async function typeInto(input: HTMLInputElement | undefined, text: string): Prom
   await act(async () => { input.dispatchEvent(new FocusEvent('focusout', { bubbles: true })) })
 }
 
+async function choose(code: string): Promise<void> {
+  // By the label's own `for`, which is what the panel's Field wires up: reaching for the select through
+  // the markup around it would break the day the field's wrapper changes shape.
+  const label = [...document.querySelectorAll<HTMLLabelElement>('label')]
+    .find((node) => (node.textContent ?? '').includes(t('subscriptions.settings.rate_add')))
+  const select = label?.htmlFor ? document.getElementById(label.htmlFor) as HTMLSelectElement | null : null
+  expect(select, 'the add-a-currency list is not rendered').toBeTruthy()
+  const setter = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value')!.set!
+  await act(async () => {
+    setter.call(select, code)
+    select!.dispatchEvent(new Event('change', { bubbles: true }))
+  })
+}
+
 beforeEach(async () => {
   installTestGlobals()
   await initI18n()
@@ -69,47 +91,67 @@ afterEach(() => {
 })
 
 describe('the rate boxes', () => {
-  it('offers one per currency the app converts, and no box for the anchor', async () => {
-    await show({})
-    // Nine codes, less the yuan every other rate is measured against. The count is written out rather
-    // than derived because a currency added to the app is a decision about this panel, not a detail.
-    expect(RATE_ORDER).toHaveLength(8)
-    expect(rateBoxes()).toHaveLength(RATE_ORDER.length)
+  it('offers one per currency the account meets, and no box for the anchor', async () => {
+    await show({ currencies: ['USD', 'JPY', 'CNY'], settings: { rateOverrides: { GBP: 9.1 } } })
+    expect(rows()).toHaveLength(3)
     const text = document.body.textContent ?? ''
-    for (const label of rowLabels()) expect(text).toContain(label)
+    for (const code of ['GBP', 'JPY', 'USD']) {
+      expect(text).toContain(t('subscriptions.settings.rate_row', { currency: code }))
+    }
     expect(text).not.toContain(t('subscriptions.settings.rate_row', { currency: 'CNY' }))
   })
 
   it('shows the pin the account already carries', async () => {
-    await show({ rateOverrides: { USD: 7.2 } })
+    await show({ settings: { rateOverrides: { USD: 7.2 } } })
     expect(boxFor('USD')!.value).toBe('7.2')
   })
 
   it('sends every pin the boxes hold, not only the one that was touched', async () => {
     const onSaveSettings = vi.fn(async () => true)
-    await show({ rateOverrides: { USD: 7.2, JPY: 0.045 } }, onSaveSettings)
+    await show({ currencies: ['GBP'], settings: { rateOverrides: { USD: 7.2, JPY: 0.045 } }, onSaveSettings })
     await typeInto(boxFor('GBP'), '9.4')
     expect(onSaveSettings).toHaveBeenLastCalledWith({ rateOverrides: { USD: 7.2, JPY: 0.045, GBP: 9.4 } })
   })
 
   it('takes the feed back when a box is emptied', async () => {
     const onSaveSettings = vi.fn(async () => true)
-    await show({ rateOverrides: { USD: 7.2, JPY: 0.045 } }, onSaveSettings)
+    await show({ settings: { rateOverrides: { USD: 7.2, JPY: 0.045 } }, onSaveSettings })
     await typeInto(boxFor('USD'), '')
     expect(onSaveSettings).toHaveBeenLastCalledWith({ rateOverrides: { JPY: 0.045 } })
   })
 
   it('offers one control that clears them all, and only when there is something to clear', async () => {
     const onSaveSettings = vi.fn(async () => true)
-    await show({ rateOverrides: { USD: 7.2 } }, onSaveSettings)
+    await show({ settings: { rateOverrides: { USD: 7.2 } }, onSaveSettings })
     const clear = [...document.querySelectorAll<HTMLButtonElement>('button')]
       .find((button) => button.textContent?.includes(t('subscriptions.settings.rates_clear')))
     expect(clear, 'a pinned account offers no way back to the feed').toBeTruthy()
     await act(async () => { clear!.click() })
     expect(onSaveSettings).toHaveBeenLastCalledWith({ rateOverrides: {} })
 
-    await show({ rateOverrides: {} })
+    await show({ settings: { rateOverrides: {} } })
     expect([...document.querySelectorAll<HTMLButtonElement>('button')]
       .some((button) => button.textContent?.includes(t('subscriptions.settings.rates_clear')))).toBe(false)
+  })
+
+  it('lets a currency the account does not use still be pinned', async () => {
+    const onSaveSettings = vi.fn(async () => true)
+    await show({ currencies: ['USD'], onSaveSettings })
+    expect(boxFor('SGD')).toBeUndefined()
+
+    await choose('SGD')
+    expect(boxFor('SGD'), 'choosing a currency drew no box').toBeTruthy()
+    await typeInto(boxFor('SGD'), '5.4')
+    expect(onSaveSettings).toHaveBeenLastCalledWith({ rateOverrides: { SGD: 5.4 } })
+  })
+
+  it('says so when a currency has no built-in reference to fall back on', async () => {
+    await show({ currencies: ['USD', 'SGD'] })
+    const text = (row: HTMLElement) => rowText(row) + (row.textContent ?? '')
+    const usd = rows().find((row) => text(row).includes('USD'))!
+    const sgd = rows().find((row) => text(row).includes('SGD'))!
+    expect(usd.textContent).toContain('6.98')
+    expect(sgd.textContent).toContain(t('subscriptions.settings.rate_no_fallback'))
+    expect(sgd.textContent).not.toContain('6.98')
   })
 })

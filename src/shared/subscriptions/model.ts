@@ -14,7 +14,23 @@ export type PeriodUnit = (typeof PERIOD_UNITS)[number]
 export const SUBSCRIPTION_MODES = ['cycle', 'reset'] as const
 export type SubscriptionMode = (typeof SUBSCRIPTION_MODES)[number]
 
-export const CURRENCY_CODES = ['CNY', 'USD', 'HKD', 'TWD', 'JPY', 'EUR', 'GBP', 'KRW', 'TRY'] as const
+/**
+ * What a reader may bill a plan in.
+ *
+ * The list is the set the daily rate service quotes, plus the one currency a reader asked for that it
+ * does not: the feed has no TWD, so that one runs on the built-in approximation and a pin. CNY leads
+ * because it is the anchor and the default; the rest are alphabetical so a thirty-option list can be
+ * scanned rather than read.
+ *
+ * A code here with no rate on a given day is not a reason to guess one — the dashboard says which
+ * currencies it could not price instead of adding them in at face value.
+ */
+export const CURRENCY_CODES = [
+  'CNY',
+  'AUD', 'BRL', 'CAD', 'CHF', 'CZK', 'DKK', 'EUR', 'GBP', 'HKD', 'HUF', 'IDR', 'ILS', 'INR', 'ISK',
+  'JPY', 'KRW', 'MXN', 'MYR', 'NOK', 'NZD', 'PHP', 'PLN', 'RON', 'SEK', 'SGD', 'THB', 'TRY', 'TWD',
+  'USD', 'ZAR',
+] as const
 export type CurrencyCode = (typeof CURRENCY_CODES)[number]
 
 /**
@@ -387,6 +403,27 @@ export interface SubscriptionOverview {
   trials: TrialEnding[]
   /** Plans whose last receipt differs from the one before it, most recent first. */
   priceChanges: PriceChange[]
+  /**
+   * How the money above was converted, and what could not be converted at all.
+   *
+   * Every total on the dashboard is one currency's number, so the dashboard has to say which one, where
+   * the exchange rate came from, and which of the account's currencies were left out for want of a rate.
+   * A reader asking "is this live?" has to be answerable from the screen, not from the code.
+   */
+  rates: {
+    /** `feed`: a real day's rates. `approximate`: the built-in table, because nothing could be fetched. */
+    source: 'feed' | 'approximate'
+    /** When those rates were taken, in epoch milliseconds; null for the built-in table. */
+    at: number | null
+    /** Which currency every total here is added up in. */
+    base: CurrencyCode
+    /** Whether that base currency itself has a rate. False means the totals are really in CNY. */
+    basePriced: boolean
+    /** Codes this account uses that no rate could be found for, so they sit in no total. */
+    unpriced: string[]
+    /** Codes this account pinned by hand, which beat the feed for that one currency. */
+    pinned: string[]
+  }
 }
 
 /** A running free trial, with the day it starts costing money. */

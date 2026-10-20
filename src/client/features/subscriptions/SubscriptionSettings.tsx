@@ -20,8 +20,18 @@ import { useUi } from '../../store/ui'
 import { FALLBACK_RATES } from '@shared/subscriptions/currency'
 import { CURRENCY_CODES, PAYMENT_LIMIT_MAX, PAYMENT_LIMIT_MIN, type ChannelKind, type ChannelState, type CurrencyCode, type NotifyLocale, type SubscriptionSettings } from '@shared/subscriptions/model'
 
-/** Every price the app can be told, except the one it measures the others against. */
-const PINNABLE_CURRENCIES = CURRENCY_CODES.filter((code) => code !== 'CNY')
+/**
+ * Which currencies get a box.
+ *
+ * Not every currency the app can be told in: thirty boxes is a wall, and a reader pins a rate because a
+ * number on their own dashboard is wrong, so the currencies they are actually billed in are the ones that
+ * belong here — plus anything they have already pinned, plus the currency the totals are added up in, in
+ * case that one is the number nobody can find. Anything else is one choice away in the add list.
+ */
+function pinnableCurrencies(rates: Record<string, string>, currencies: readonly string[], base: string): string[] {
+  const codes = new Set<string>([...Object.keys(rates), ...currencies, base])
+  return [...codes].filter((code) => code !== 'CNY').sort()
+}
 
 const TIMEZONES = [
   'Asia/Shanghai', 'Asia/Hong_Kong', 'Asia/Taipei', 'Asia/Singapore', 'Asia/Tokyo', 'Asia/Seoul',
@@ -33,6 +43,7 @@ const TIMEZONES = [
 export function SubscriptionSettings({
   settings,
   channels,
+  currencies,
   onClose,
   onSaveSettings,
   onSaveChannel,
@@ -43,6 +54,7 @@ export function SubscriptionSettings({
 }: {
   settings: SubscriptionSettings
   channels: readonly ChannelState[]
+  currencies: readonly string[]
   onClose: () => void
   onSaveSettings: (patch: Record<string, unknown>) => Promise<boolean>
   onSaveChannel: (kind: ChannelKind, input: { enabled?: boolean; config: Record<string, unknown> }) => Promise<boolean>
@@ -156,11 +168,13 @@ export function SubscriptionSettings({
               {t('subscriptions.settings.rates_hint')}
             </p>
             <div className="mt-2 grid gap-2 sm:grid-cols-2" data-rate-boxes="">
-              {PINNABLE_CURRENCIES.map((code) => (
+              {pinnableCurrencies(rates, currencies, settings.baseCurrency).map((code) => (
                 <Field
                   key={code}
                   label={t('subscriptions.settings.rate_row', { currency: code })}
-                  hint={t('subscriptions.settings.rate_fallback', { rate: String(FALLBACK_RATES[code] ?? '') })}
+                  hint={FALLBACK_RATES[code] === undefined
+                    ? t('subscriptions.settings.rate_no_fallback')
+                    : t('subscriptions.settings.rate_fallback', { rate: String(FALLBACK_RATES[code]) })}
                 >
                   <Input
                     type="number"
@@ -168,13 +182,31 @@ export function SubscriptionSettings({
                     step="any"
                     inputMode="decimal"
                     value={rates[code] ?? ''}
-                    placeholder={String(FALLBACK_RATES[code] ?? '')}
+                    placeholder={FALLBACK_RATES[code] === undefined ? '' : String(FALLBACK_RATES[code])}
                     onChange={(event) => setRates((current) => ({ ...current, [code]: event.target.value }))}
                     onBlur={() => void saveRates(rates)}
                   />
                 </Field>
               ))}
             </div>
+            {CURRENCY_CODES.filter((code) => code !== 'CNY' && !(code in rates)).length > 0 && (
+              <div className="mt-2 w-[140px]">
+                <Field label={t('subscriptions.settings.rate_add')}>
+                  <Select
+                    value=""
+                    onChange={(event) => {
+                      const picked = event.target.value
+                      if (picked) setRates((current) => ({ ...current, [picked]: '' }))
+                    }}
+                  >
+                    <option value="">{t('subscriptions.settings.rate_add_placeholder')}</option>
+                    {CURRENCY_CODES.filter((code) => code !== 'CNY' && !(code in rates)).map((code) => (
+                      <option key={code} value={code}>{code}</option>
+                    ))}
+                  </Select>
+                </Field>
+              </div>
+            )}
             {Object.keys(settings.rateOverrides).length > 0 && (
               <Button
                 size="sm"

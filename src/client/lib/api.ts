@@ -1492,6 +1492,14 @@ export const api = {
    */
   subscriptions: {
     bundle: () => request<SubscriptionBundle>('/api/subscriptions'),
+    /**
+     * Drop the cached day of exchange rates and read a fresh one.
+     *
+     * The answer is where the numbers now came from, not the numbers: the dashboard redraws from the
+     * bundle it already refetches, and a second copy of those totals here could only ever disagree.
+     */
+    refreshRates: () =>
+      request<{ source: 'feed' | 'approximate', at: number | null }>('/api/subscriptions/rates/refresh', { method: 'POST' }),
     create: (input: SubscriptionInput) =>
       request<SubscriptionDetail>('/api/subscriptions', { method: 'POST', body: input }),
     detail: (id: string) => request<SubscriptionDetail>(`/api/subscriptions/${encodeURIComponent(id)}`),

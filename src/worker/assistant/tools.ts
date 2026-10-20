@@ -1531,7 +1531,7 @@ export const SUBSCRIPTION_TOOLS: ToolDefinition[] = [
     name: 'subscription_summary',
     permission: 'read',
     maxCallsPerTurn: 2,
-    description: 'The account\'s money picture in one call: what this month and this year have cost in the reader\'s total currency, how that compares with last month, the ceiling the reader set for a month and whether this month is over it, what the current plans commit for a year, which rates the reader pinned over the daily feed, which trials are about to start charging, which plans changed price, what renews in the next week, where the spending goes by type and by category, and whether the reminder scheduler is still running.',
+    description: 'The account\'s money picture in one call: what this month and this year have cost in the reader\'s total currency, how that compares with last month, the ceiling the reader set for a month and whether this month is over it, what the current plans commit for a year, where the exchange rates came from and which currencies had none, which trials are about to start charging, which plans changed price, what renews in the next week, where the spending goes by type and by category, and whether the reminder scheduler is still running.',
     fields: {},
     async run(_args, ctx) {
       const settings = await loadSettings(ctx.env.DB, ctx.store.userId)
@@ -1545,14 +1545,31 @@ export const SUBSCRIPTION_TOOLS: ToolDefinition[] = [
         // different answer from "not over budget". Leaving it out made the tool unable to say either.
         budget: overview.budget,
         committedYearly: overview.committedYearly,
-        // Every amount above was converted from something, and a reader who pinned a rate chose that
-        // number on purpose. Asked "is any rate pinned?" without this field the model has no source to
-        // answer from — measured live, it said there were none while the account carried USD 7.2.
+        // Every amount above was converted from something: which day the rates came from, whether that day
+        // was published or merely our own approximation, and which currencies had no rate at all and so sit
+        // in no total. Asked live without these, a model promised the rates were current the morning the
+        // fetch had failed, and said nothing was pinned while the account carried a USD pin.
         rates: {
+          base: overview.rates.base,
+          source: overview.rates.source,
+          takenAt: overview.rates.at === null ? null : new Date(overview.rates.at).toISOString(),
           pinned: settings.rateOverrides,
-          note: Object.keys(settings.rateOverrides).length === 0
-            ? 'No rate is pinned, so every foreign amount above converted at the daily feed.'
-            : 'A pinned currency converted at the reader\'s own number rather than the feed.',
+          unpriced: overview.rates.unpriced,
+          basePriced: overview.rates.basePriced,
+          note: [
+            overview.rates.source === 'feed'
+              ? 'Foreign amounts converted at the published daily rates.'
+              : 'The rate feed could not be reached, so foreign amounts converted at the app\'s own built-in approximations, which can be a long way off.',
+            Object.keys(settings.rateOverrides).length === 0
+              ? 'No rate is pinned, so every foreign amount converted at the table above.'
+              : 'A pinned currency converted at the reader\'s own number rather than the feed.',
+            overview.rates.unpriced.length === 0
+              ? ''
+              : `${overview.rates.unpriced.join(', ')} had no rate to convert at, so their money is in none of the totals above. Say which, and offer to pin a rate for them with set_subscription_settings.`,
+            overview.rates.basePriced
+              ? ''
+              : `The total currency ${overview.rates.base} has no rate either, so the totals above are really CNY while the setting names ${overview.rates.base}.`,
+          ].filter(Boolean).join(' '),
         },
         trials: overview.trials,
         priceChanges: overview.priceChanges,

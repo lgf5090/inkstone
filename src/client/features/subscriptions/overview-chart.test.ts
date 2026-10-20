@@ -36,6 +36,7 @@ function overview(overrides: Partial<SubscriptionOverview> = {}): SubscriptionOv
     committedYearly: 3600,
     trials: [],
     priceChanges: [],
+    rates: { source: 'feed', at: Date.parse('2026-10-21T00:00:00Z'), base: 'CNY', basePriced: true, unpriced: [], pinned: [] },
     ...overrides,
   }
 }
@@ -69,15 +70,17 @@ function plotHeights(): string[] {
   return bars().map((bar) => (bar.parentElement as HTMLElement).style.height)
 }
 
-function mountChart(): void {
+function mountChart(overrides: Partial<SubscriptionOverview> = {}): void {
   const host = document.createElement('div')
   document.body.append(host)
   root = createRoot(host)
   act(() => {
     root?.render(createElement(OverviewView, {
-      overview: overview(),
+      overview: overview(overrides),
       loading: false,
       currency: 'CNY',
+      refreshingRates: false,
+      onRefreshRates: () => {},
       onOpenItem: () => {},
       onOpenLogs: () => {},
       onAdd: () => {},
@@ -113,5 +116,26 @@ describe('the month chart', () => {
     const block = chart()
     expect(block.getAttribute('aria-label')).toBeTruthy()
     expect(bars().every((bar) => bar.getAttribute('title'))).toBe(true)
+  })
+})
+
+describe('the rates strip', () => {
+  const words = () => (document.body.textContent || '').replace(/\s+/g, ' ')
+
+  it('says whose rates these are and which currency the totals are added up in', () => {
+    mountChart()
+    expect(words()).toContain('Rates from the daily currency service')
+    expect(words()).toContain('Totals in CNY')
+    // A table that priced everything has nothing to apologise for.
+    expect(words()).not.toContain('No rate for')
+  })
+
+  it('names the currencies left out of every total, and the base left out too', () => {
+    mountChart({
+      rates: { source: 'approximate', at: null, base: 'SGD', basePriced: false, unpriced: ['SGD', 'THB'], pinned: ['USD'] },
+    })
+    expect(words()).toContain('No rate for SGD, THB')
+    expect(words()).toContain('SGD has no rate either')
+    expect(words()).toContain('Pinned: USD')
   })
 })

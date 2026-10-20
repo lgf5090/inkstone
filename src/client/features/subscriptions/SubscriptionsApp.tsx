@@ -62,6 +62,7 @@ export function SubscriptionsApp(): ReactElement {
   const detailLoading = useSubscriptions((state) => state.detailLoading)
   const logs = useSubscriptions((state) => state.logs)
   const saving = useSubscriptions((state) => state.saving)
+  const refreshingRates = useSubscriptions((state) => state.refreshingRates)
   const loadLogs = useSubscriptions((state) => state.loadLogs)
 
   // The three-column decision the rail, the list and the detail panel share. The widths are this app's own
@@ -322,6 +323,8 @@ export function SubscriptionsApp(): ReactElement {
               overview={overview}
               loading={status === 'loading'}
               currency={overviewCurrency}
+              refreshingRates={refreshingRates}
+              onRefreshRates={() => { void useSubscriptions.getState().refreshRates() }}
               onOpenItem={openDetail}
               onOpenLogs={() => { useSubscriptions.getState().setView('logs') }}
               onAdd={() => setFormOpen(true)}
@@ -454,6 +457,7 @@ export function SubscriptionsApp(): ReactElement {
           <SubscriptionSettings
             settings={settings}
             channels={channels}
+            currencies={items.map((item) => item.currency)}
             onClose={() => setSettingsOpen(false)}
             onSaveSettings={(patch) => useSubscriptions.getState().saveSettings(patch)}
             onSaveChannel={(kind, input) => useSubscriptions.getState().saveChannel(kind, input)}

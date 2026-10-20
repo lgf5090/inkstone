@@ -69,6 +69,8 @@ interface SubscriptionsState {
   detailLoading: boolean
   logs: SubscriptionLogs
   saving: boolean
+  /** A refresh of the exchange rates is in flight, so the button does not start a second one. */
+  refreshingRates: boolean
 
   load: () => Promise<void>
   select: (id: string | null) => Promise<void>
@@ -115,6 +117,8 @@ interface SubscriptionsState {
 
   loadLogs: (filter?: NotifyLogFilter) => Promise<void>
   refresh: () => Promise<void>
+  /** Take a fresh day of rates from the feed, then redraw every number that used the old one. */
+  refreshRates: () => Promise<void>
 }
 
 function report(error: unknown, fallbackKey: Parameters<typeof t>[0]): void {
@@ -147,6 +151,7 @@ export const useSubscriptions = create<SubscriptionsState>()((set, get) => ({
   detailLoading: false,
   logs: { notify: [], schedule: [], loading: false, error: null },
   saving: false,
+  refreshingRates: false,
 
   async load() {
     if (get().status === 'loading') return
@@ -167,6 +172,27 @@ export const useSubscriptions = create<SubscriptionsState>()((set, get) => ({
       if (selectedId) await get().select(selectedId)
     } catch (error) {
       report(error, 'subscriptions.error.load')
+    }
+  },
+
+  async refreshRates() {
+    if (get().refreshingRates) return
+    set({ refreshingRates: true })
+    try {
+      await api.subscriptions.refreshRates()
+      // Every total on the dashboard was added with the old table, so the whole bundle is read again
+      // rather than the strip being patched with the answer — two sources for one number is how the
+      // headline and its own disclaimer start disagreeing.
+      await get().refresh()
+      useUi.getState().toast({ title: t('subscriptions.overview.rates_refreshed'), tone: 'success' })
+    } catch (error) {
+      useUi.getState().toast({
+        title: t('subscriptions.overview.rates_failed'),
+        description: error instanceof Error ? error.message : undefined,
+        tone: 'danger',
+      })
+    } finally {
+      set({ refreshingRates: false })
     }
   },
 

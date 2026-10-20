@@ -10,10 +10,12 @@ import {
   getExpenseByType,
   getRecentPayments,
   getUpcomingRenewals,
+  hasRate,
   mergeCnyRates,
   rateTableFor,
   renewalsPerYear,
   spendingByYear,
+  unpricedCurrencies,
   type PaymentSample,
 } from '../src/shared/subscriptions/currency'
 import type { SubscriptionItem } from '../src/shared/subscriptions/model'
@@ -81,8 +83,19 @@ describe('conversion', () => {
     expect(convertToBase(-5, 'USD', FALLBACK_RATES)).toBe(0)
   })
 
-  it('leaves an unknown code at face value rather than guessing a rate', () => {
-    expect(convertToBase(50, 'BRL', FALLBACK_RATES)).toBe(50)
+  it('counts nothing at all for a code the table cannot price', () => {
+    // Adding fifty of an unpriced currency into a yuan total is a made-up number. Leaving it out is only
+    // a smaller total, and the dashboard names what it left out — which is what `unpricedCurrencies` below
+    // is for.
+    expect(convertToBase(50, 'BRL', FALLBACK_RATES)).toBe(0)
+    expect(hasRate('BRL', FALLBACK_RATES)).toBe(false)
+    expect(hasRate('USD', FALLBACK_RATES)).toBe(true)
+    expect(hasRate(undefined, FALLBACK_RATES)).toBe(true)
+  })
+
+  it('names the currencies a total could not price, once each and in order', () => {
+    expect(unpricedCurrencies(['USD', 'BRL', 'VND', 'BRL', 'CNY'], FALLBACK_RATES)).toEqual(['BRL', 'VND'])
+    expect(unpricedCurrencies(['USD', 'CNY'], FALLBACK_RATES)).toEqual([])
   })
 
   it('inverts the feed, which answers per one yuan', () => {

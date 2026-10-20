@@ -46,14 +46,36 @@ export interface PaymentSample {
   note?: string
 }
 
+/** Whether this table can price one unit of `code` at all. */
+export function hasRate(code: string | undefined, rates: RateTable): boolean {
+  const rate = rates[code || 'CNY']
+  return Number.isFinite(rate) && (rate as number) > 0
+}
+
 export function convertToBase(amount: number, currency: string | undefined, rates: RateTable): number {
   if (!Number.isFinite(amount) || amount <= 0) return 0
   const rate = rates[currency || 'CNY']
-  // An unknown code is left at face value rather than guessed at: it was almost certainly entered as
-  // the base currency by somebody who has since added the code, and scaling it by a wrong factor would
-  // be a worse error than reporting it unchanged.
-  if (!rate || rate <= 0) return amount
+  // Nothing to multiply by is not a licence to add the money in unchanged: a hundred Singapore dollars
+  // counted as a hundred yuan is a made-up number, while leaving it out only makes the total small.
+  // The omission has to be seen, though, so every surface that prints one of these totals names the
+  // currencies `unpricedCurrencies` finds beside it.
+  if (!rate || rate <= 0) return 0
   return amount * rate
+}
+
+/**
+ * Which currencies this table cannot price, out of the ones an account actually uses.
+ *
+ * Computed from the same table the totals were added with, so a total and its disclaimer cannot disagree
+ * about what was left out.
+ */
+export function unpricedCurrencies(currencies: Iterable<string>, rates: RateTable): string[] {
+  const missing = new Set<string>()
+  for (const code of currencies) {
+    const normalized = String(code || 'CNY').toUpperCase()
+    if (!hasRate(normalized, rates)) missing.add(normalized)
+  }
+  return [...missing].sort()
 }
 
 /**

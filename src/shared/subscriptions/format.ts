@@ -9,17 +9,39 @@
 import type { MessageKey } from '../locales/en-US'
 import type { CurrencyCode, PeriodUnit, ReminderUnit } from './model'
 
-/** The symbol each currency is written with. JPY is prefixed on purpose: `¥` alone is ambiguous. */
+/**
+ * The symbol each currency is written with.
+ *
+ * A sign is given only where it names one currency: JPY is prefixed because `¥` alone is ambiguous, and
+ * the Scandinavian króna / krone currencies are left out because `kr 500` would not tell a reader which
+ * of four they were holding. Those print as `DKK 500` through the fallback in `currencySymbol`, which is
+ * a wider string but never a wrong one.
+ */
 const CURRENCY_SYMBOLS: Readonly<Record<string, string>> = {
   CNY: '¥',
-  USD: '$',
-  HKD: 'HK$',
-  TWD: 'NT$',
-  JPY: 'JP¥',
+  AUD: 'A$',
+  BRL: 'R$',
+  CAD: 'C$',
+  CZK: 'Kč',
   EUR: '€',
   GBP: '£',
+  HKD: 'HK$',
+  HUF: 'Ft',
+  IDR: 'Rp',
+  ILS: '₪',
+  INR: '₹',
+  JPY: 'JP¥',
   KRW: '₩',
+  MXN: 'MX$',
+  MYR: 'RM',
+  NZD: 'NZ$',
+  PHP: '₱',
+  PLN: 'zł',
+  SGD: 'S$',
+  THB: '฿',
   TRY: '₺',
+  TWD: 'NT$',
+  USD: '$',
 }
 
 export function currencySymbol(currency: string | undefined): string {

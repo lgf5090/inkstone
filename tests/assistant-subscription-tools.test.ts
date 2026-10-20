@@ -443,6 +443,23 @@ describe('the account behind the rows', () => {
     expect(cleared.rates.note).toMatch(/No rate is pinned/)
   })
 
+  /**
+   * A currency the day's table cannot price is in none of those totals, and the summary has to say so:
+   * "this month cost ¥300" read to a model as the whole account when a plan it could not convert was
+   * sitting right there. The stubbed feed above answers with nothing, so only the built-in nine codes can
+   * be priced here — which is what makes SGD the case.
+   */
+  it('names the currencies left out of the money summary', async () => {
+    await run('create_subscription', { name: 'LangAI', expiryDate: '2026-12-01', amount: 20, currency: 'SGD', periodValue: 1, periodUnit: 'month' })
+    const summary = await run('subscription_summary', {}) as {
+      rates: { source: string, at: string | null, unpriced: string[], basePriced: boolean, note: string }
+    }
+    expect(summary.rates.source).toBe('feed')
+    expect(summary.rates.unpriced).toContain('SGD')
+    expect(summary.rates.basePriced).toBe(true)
+    expect(summary.rates.note).toMatch(/SGD had no rate/)
+  })
+
   it('switches tracking off without touching the trash, and says so when nothing changed', async () => {
     await seedSubscription()
     const off = await run('set_subscription_active', { ref: 'Netflix', active: false }) as { updated: { isActive: boolean } }
