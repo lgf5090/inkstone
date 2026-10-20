@@ -10,11 +10,6 @@ import { EditorView } from '@codemirror/view'
  * question — is the caret past a checkbox on a task line — and the menu arrives a moment later.
  */
 
-/** How many characters must be typed before the menu narrows itself to them. */
-const MIN_MATCH = 0
-/** The ceiling on the whole menu, shared with the other completion sources. */
-const MAX_ITEMS = 6
-
 /** A task line: optional indent or quote, a marker, a checkbox, and the space after it. */
 const TASK_LINE = /^([\s\t>]*)?([-*+]|\d+[.)])[ \t]+\[(.)\][ \t]/u
 
@@ -29,9 +24,10 @@ export function taskFieldSource(context: CompletionContext): Promise<CompletionR
   if (!caretIsAfterTheCheckbox(line.text, cursorPos)) return null
 
   return import('../lib/tasks/suggest/suggestor').then(async ({ suggestFor, canSuggestForLine }) => {
-    const { toggleSettings } = await import('../lib/tasks/service')
+    const { toggleSettings, taskSettings } = await import('../lib/tasks/service')
     const settings = toggleSettings()
-    if (!canSuggestForLine(line.text, cursorPos, settings.registry, '')) return null
+    const reader = taskSettings()
+    if (!canSuggestForLine(line.text, cursorPos, settings.registry, reader.globalFilter)) return null
     const options = suggestFor({
       line: line.text,
       cursorPos,
@@ -41,7 +37,11 @@ export function taskFieldSource(context: CompletionContext): Promise<CompletionR
       // same line — and the bracketed menu would need a second symbol table for its few characters of
       // gain.
       dataviewMode: false,
-      settings: { autoSuggestMinMatch: MIN_MATCH, autoSuggestMaxItems: MAX_ITEMS, globalFilter: '' },
+      settings: {
+        autoSuggestMinMatch: reader.autoSuggestMinMatch,
+        autoSuggestMaxItems: reader.autoSuggestMaxItems,
+        globalFilter: reader.globalFilter,
+      },
       existingIds: idsInDocument(context.state.doc.toString()),
     })
     if (options.length === 0) return null

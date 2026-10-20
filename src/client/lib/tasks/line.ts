@@ -15,7 +15,7 @@ export { Priority, PRIORITY_NAMES, priorityFromName } from './model/priority'
 export { OnCompletion } from './model/on-completion'
 export { formatTaskDate, isInvalidTaskDate } from './date/date-tools'
 export { Status } from './status/status'
-export { StatusRegistry, DEFAULT_STATUS_CONFIGURATIONS } from './status/registry'
+export { StatusRegistry, DEFAULT_STATUS_CONFIGURATIONS, validateStatusConfigurations } from './status/registry'
 export type { StatusType, StatusConfiguration } from './status/status'
 /**
  * The statuses every reader gets whether they configured any or not.

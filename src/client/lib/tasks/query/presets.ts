@@ -7,6 +7,13 @@ export interface Preset {
 export interface PresetContext {
   /** Path of the note the block lives in, or null when it is being previewed outside a note. */
   currentPath: string | null
+  /**
+   * Fields every block hides unless its own query says `show`.
+   *
+   * The reader's setting, applied before the block's instructions, so `show due date` in a query still
+   * wins: the note the author wrote is more specific than a preference set somewhere else.
+   */
+  defaultHiddenFields?: string[]
 }
 
 function scoped(context: PresetContext, instruction: string): string[] {

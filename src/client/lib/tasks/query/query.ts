@@ -107,6 +107,10 @@ export function parseTasksQuery(source: string, now: Date, context: PresetContex
     filterInstructions: [],
   }
 
+  // The reader's defaults are applied first and the block's own instructions after them, so a note
+  // that says `show due date` still shows it in a vault that hides due dates everywhere.
+  for (const field of context.defaultHiddenFields ?? []) applyVisibility(parsed.layout, 'hide', field)
+
   // A queue rather than a loop, because `preset x` expands into instructions that must themselves
   // be parsed; a preset that names another preset still terminates, since each expansion is
   // recorded before it is re-entered and the guard below refuses a second pass.
@@ -256,9 +260,24 @@ export interface TaskGroup {
  * The order is the one that makes `limit` mean what a reader expects: it cuts the sorted list
  * before grouping, so `limit 10` is ten tasks and not ten of an unbounded set.
  */
-export function runTasksQuery(tasks: Task[], parsed: ParsedQuery, now: Date): { groups: TaskGroup[]; tasks: Task[]; countBeforeLimit: number } {
+/**
+ * Run a parsed query over the tasks the index can see.
+ *
+ * `globalFilter` is the vault's own rule about which lines count as tasks at all: it is applied here
+ * rather than in the scanner, because the scanner must still understand every checkbox in a note the
+ * reader is editing, while a list can be scoped. A block that says `ignore global query` opts out.
+ */
+export function runTasksQuery(
+  tasks: Task[],
+  parsed: ParsedQuery,
+  now: Date,
+  globalFilter = '',
+): { groups: TaskGroup[]; tasks: Task[]; countBeforeLimit: number } {
   const info: SearchInfo = { allTasks: tasks, now }
-  let filtered = tasks.filter((task) => parsed.filters.every((filter) => filter(task, info)))
+  const scoped = globalFilter !== '' && !parsed.ignoreGlobalQuery
+    ? tasks.filter((task) => task.fields.description.includes(globalFilter))
+    : tasks
+  let filtered = scoped.filter((task) => parsed.filters.every((filter) => filter(task, info)))
 
   const comparators = parsed.sorters.map((sorter) => ({ sorter, comparator: sorter.comparator }))
   filtered = filtered.slice().sort((a, b) => {

@@ -6,6 +6,7 @@ import { parseTasksQuery, runTasksQuery, stripSortPrefix, type TaskGroup } from 
 import type { ParsedQuery } from '../tasks/query/query'
 import type { Task } from '../tasks/model/task'
 import { unknownPosition, type TaskLocation } from '../tasks/model/task-location'
+import { taskSettings } from '../tasks/service'
 import { Occurrence } from '../tasks/model/occurrence'
 import { Recurrence } from '../tasks/model/recurrence'
 import type { ListItemData } from './metadata'
@@ -76,11 +77,15 @@ function recurrenceFor(fields: TaskFields): Recurrence | null {
 
 export function answerTasks(source: string, options: DataviewMountOptions): { ok: true; answer: TasksAnswer } | { ok: false; title: string; detail: string } {
     const now = new Date()
-    const parsed = parseTasksQuery(source, now, { currentPath: currentPathOf(options) })
+    const reader = taskSettings()
+    const parsed = parseTasksQuery(source, now, {
+        currentPath: currentPathOf(options),
+        defaultHiddenFields: reader.defaultHiddenFields,
+    })
     if (parsed.errors.length > 0) {
         return { ok: false, title: t('dataview.exec_failed'), detail: parsed.errors.join('\n') }
     }
-    const result = runTasksQuery(collectTasks(), parsed, now)
+    const result = runTasksQuery(collectTasks(), parsed, now, reader.globalFilter)
     return { ok: true, answer: { groups: result.groups, total: result.tasks.length, parsed } }
 }
 

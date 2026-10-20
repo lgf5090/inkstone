@@ -35,21 +35,24 @@ function statusRegistry(custom: StatusConfiguration[] | undefined): StatusRegist
  * recurrence silently stops.
  */
 export function toggleSettings(): ToggleSettings {
-  const dataview = useSession.getState().settings.dataview
+  const { dataview, tasks } = useSession.getState().settings
   const serializer: TaskSerializer = new CompatTaskSerializer(dataview.taskCompletionUseEmojiShorthand
     ? new EmojiTaskSerializer()
     : new DataviewTaskSerializer())
   return {
-    // The reader-defined status table and the two date stamps land with the settings screen;
-    // until then a tick uses the four statuses everyone gets and the defaults the reference plugin ships.
-    registry: statusRegistry(undefined),
+    registry: statusRegistry(tasks.statuses),
     serializer,
     setDoneDate: dataview.taskCompletionTracking,
-    setCancelledDate: true,
-    setCreatedDate: false,
-    recurrenceOnNextLine: false,
+    setCancelledDate: tasks.setCancelledDate,
+    setCreatedDate: tasks.setCreatedDate,
+    recurrenceOnNextLine: tasks.recurrenceOnNextLine,
     recursiveSubTaskCompletion: dataview.recursiveSubTaskCompletion,
   }
+}
+
+/** The reader's own settings, for the surfaces that are not a tick. */
+export function taskSettings() {
+  return useSession.getState().settings.tasks
 }
 
 export type TaskToggleResult = 'written' | 'conflict' | 'missing'
