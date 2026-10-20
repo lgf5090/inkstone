@@ -67,4 +67,4 @@ prerelease identifier.
 
 Describe the user-visible outcome, important compatibility effects, security implications, and the exact checks you ran. Include screenshots for interface changes and explain narrow-screen behavior when layout is affected.
 
-By contributing, you agree that your contribution is licensed under the repository's LGPL-3.0-only license.
+By contributing, you agree that your contribution is licensed under the repository's AGPL-3.0-only license, and you hold the rights to grant it. Do not open a pull request that copies source, tests or documentation text from an AGPL project (see [`NOTICE`](./NOTICE) for what is already derived) unless the change is reviewed and recorded there.

@@ -11,7 +11,7 @@
 <p align="center">
   <a href="./README_ZH.md">中文</a> ·
   <a href="./CONTRIBUTING.md">Contributing</a> ·
-  <a href="./LICENSE">LGPL-3.0-only</a> ·
+  <a href="./LICENSE">AGPL-3.0-only</a> ·
   <a href="https://inkstone-demo.pages.dev/">Demo</a>
 </p>
 
@@ -186,4 +186,6 @@ Read [`SECURITY.md`](./SECURITY.md) before reporting a vulnerability. Developmen
 
 ## License
 
-Inkstone is distributed under the [GNU Lesser General Public License v3.0 only](./LICENSE), using the SPDX identifier `LGPL-3.0-only`.
+Inkstone is distributed under the [GNU Affero General Public License v3.0 only](./LICENSE), using the SPDX identifier `AGPL-3.0-only`.
+
+Because Inkstone is offered as a network service, clause 13 of that license applies to anyone who interacts with it over a network: they must be able to obtain the corresponding source, including any modifications made for that deployment. The reference source is this repository; a self-hosted instance that changes the code has to expose its own corresponding source to its users. See [`NOTICE`](./NOTICE) for the parts of the codebase that are derived from other AGPL-3.0-only projects.

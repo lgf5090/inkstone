@@ -11,7 +11,7 @@
 <p align="center">
   <a href="./README.md">English</a> ·
   <a href="./CONTRIBUTING.md">参与开发</a> ·
-  <a href="./LICENSE">LGPL-3.0-only</a> ·
+  <a href="./LICENSE">AGPL-3.0-only</a> ·
   <a href="https://inkstone-demo.pages.dev/">在线体验</a>
 </p>
 
@@ -175,4 +175,6 @@ tests/        跨模块回归测试
 
 ## 许可证
 
-Inkstone 使用 [GNU Lesser General Public License v3.0 only](./LICENSE)，SPDX 标识为 `LGPL-3.0-only`。
+Inkstone 使用 [GNU Affero General Public License v3.0 only](./LICENSE)，SPDX 标识为 `AGPL-3.0-only`。
+
+Inkstone 以网络服务的形式提供，因此该许可证第 13 条适用于所有通过网络与其交互的使用者：他们必须能取得对应源码，包括为该部署所做的修改。参考源码即本仓库；自行改动代码的部署实例，必须向自己的用户暴露其对应源码。派生自其他 AGPL-3.0-only 项目的部分见 [`NOTICE`](./NOTICE)。
