@@ -50,7 +50,6 @@ const HIDEABLE_COMPONENTS = new Map<string, TaskLayoutComponent>([
   ['due date', TaskLayoutComponent.DueDate],
   ['cancelled date', TaskLayoutComponent.CancelledDate],
   ['done date', TaskLayoutComponent.DoneDate],
-  ['tags', TaskLayoutComponent.Description],
 ])
 
 /**
@@ -221,6 +220,12 @@ function createGrouperFromLine(rest: string): Grouper | null {
 
 function applyVisibility(layout: QueryLayout, verb: string, option: string): void {
   const show = verb === 'show'
+  // Tags are not one of the line's ordered components — they ride inside the words — so they get their
+  // own switch rather than pretending to be a field the serializer writes.
+  if (option.startsWith('tags')) {
+    layout.taskLayout.setTagsVisibility(show)
+    return
+  }
   for (const [key, component] of HIDEABLE_COMPONENTS) {
     if (option.startsWith(key)) {
       layout.taskLayout.setVisibility(component, show)

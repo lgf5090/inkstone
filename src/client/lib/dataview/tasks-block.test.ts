@@ -43,6 +43,13 @@ vi.mock('./blocks', () => ({
 
 import { answerTasks, collectTasks, renderTasks } from './tasks-block'
 import { parseTasksQuery } from '../tasks/query/query'
+import { parseTaskLine } from '../tasks/model/task'
+import { unknownPosition } from '../tasks/model/task-location'
+import { EmojiTaskSerializer } from '../tasks/serializer/emoji'
+import { defaultStatusRegistry } from '../tasks/line'
+import { TaskLayoutComponent } from '../tasks/layout/task-layout'
+
+const cp = (...codes: number[]): string => String.fromCodePoint(...codes)
 
 const NOW = new Date(2026, 9, 19)
 
@@ -146,6 +153,69 @@ describe('rendering a tasks block', () => {
     it('takes the postpone button away on its own', () => {
         expect(render('hide postpone button\nnot done').querySelector('.dataview-task-postpone')).toBeNull()
         expect(render('hide postpone button\nnot done').querySelector('.dataview-task-edit')).not.toBeNull()
+    })
+})
+
+/**
+ * One row drawn from one line, so a layout switch is read off the row it is supposed to change rather
+ * than off a fixture whose counts several other case also asserts on.
+ */
+describe('what a row shows, field by field', () => {
+    const RICH = `- [ ] ship it #work #now ${cp(0x1F4C5)} 2026-10-05 ${cp(0x23F3)} 2026-10-06 ${cp(0x1F6EB)} 2026-10-04 `
+        + `${cp(0x2795)} 2026-10-01 ${cp(0x23EB)} ${cp(0x1F501)} every week ${cp(0x1F3C1)} delete ${cp(0x1F194)} abc ${cp(0x26D4)} def`
+
+    function row(source: string, line = RICH): HTMLElement {
+        const task = parseTaskLine(line, { ...unknownPosition('n1', 'Home/Chores.md'), lineNumber: 3 }, {
+            registry: defaultStatusRegistry,
+            serializer: new EmojiTaskSerializer(),
+            now: NOW,
+        })
+        if (task === null) throw new Error(`test fixture is not a task line: ${line}`)
+        return renderTasks({
+            groups: [{ path: [], tasks: [task] }],
+            total: 1,
+            parsed: parseTasksQuery(source, NOW),
+        })
+    }
+
+    function fields(root: HTMLElement): string[] {
+        return [...root.querySelectorAll<HTMLElement>('.dataview-task-chip')].map((chip) => chip.dataset.field!)
+    }
+
+    it('draws every field the line carries', () => {
+        expect(fields(row(''))).toEqual(['due', 'scheduled', 'start', 'created', 'priority', 'recurrence', 'on completion', 'id', 'depends on'])
+    })
+
+    it('takes one date away and leaves its neighbours', () => {
+        expect(fields(row('hide due date'))).not.toContain('due')
+        expect(fields(row('hide due date'))).toContain('scheduled')
+    })
+
+    it('lets a note ask back what the reader hid everywhere', () => {
+        const parsed = parseTasksQuery('hide due date\nshow due date', NOW)
+        expect(parsed.layout.taskLayout.isShown(TaskLayoutComponent.DueDate)).toBe(true)
+    })
+
+    it('answers with the words alone in short mode', () => {
+        const root = row('short mode')
+        expect(root.querySelectorAll('.dataview-task-chip').length).toBeGreaterThan(0)
+        expect(root.querySelectorAll('.dataview-task-chip-value')).toHaveLength(0)
+    })
+
+    it('names the priority it hides', () => {
+        const full = row('')
+        expect(full.querySelector('.dataview-task-chip[data-field=priority]')?.textContent).toBe('priorityhigh')
+        expect(fields(row('hide priority'))).not.toContain('priority')
+    })
+
+    it('cuts the tags out of the words when they are hidden', () => {
+        expect(row('').querySelector('.dataview-task-text')?.textContent).toBe('ship it #work #now')
+        expect(row('hide tags').querySelector('.dataview-task-text')?.textContent).toBe('ship it')
+    })
+
+    it('drops the count line on request', () => {
+        expect(row('').querySelector('.tasks-count')).not.toBeNull()
+        expect(row('hide task count').querySelector('.tasks-count')).toBeNull()
     })
 })
 

@@ -11642,6 +11642,9 @@ const allowed = new Map([
     "/**\n * The task's fields as Dataview fields, so `WHERE due < today` and `TABLE priority` answer for a\n * task line the same way they do for a frontmatter property.\n *\n * `completion` is kept beside `done`: it is the name this project's Dataview port published, and\n * readers have queries written against it. Keys the note already set by hand are skipped, because\n * an explicit `[due:: …]` states what the author meant more directly than a symbol does.\n */",
     "/**\n * What a checkbox character means, as two flat fields.\n *\n * `completed` answers \"is the box ticked\", which is what a Dataview task table has always shown.\n * `statusType` answers \"is this task finished\", which is the question a `[-]` cancelled task asks\n * and `completed` cannot answer. Both stay on the page so a reader can filter either way.\n */",
   ]],
+  ["src/client/lib/dataview/tasks-block.test.ts", [
+    "/**\n * One row drawn from one line, so a layout switch is read off the row it is supposed to change rather\n * than off a fixture whose counts several other case also asserts on.\n */",
+  ]],
   ["src/client/lib/dataview/tasks-block.ts", [
     "/**\n * Every task the index can see right now.\n *\n * Read off the scanned pages rather than re-parsing note bodies: the scanner already found the list\n * items, their line numbers and their sections, and a second parse would be a second opinion about\n * what a note says — the thing the single-source rule exists to prevent.\n */",
     "/** Draw a `tasks` answer: group headings, then one row per task. */",
@@ -11651,6 +11654,8 @@ const allowed = new Map([
     "// it opens, so a result that has gone stale is caught there rather than written over here.",
     "// The row already holds the parsed task, so the menu is built from it rather than from a",
     "// re-read: the dates a reader picks are the dates the row was drawn with.",
+    "// A priority of \"none\" is the absence of a marker rather than a value worth a column of its own.",
+    "/**\n * The words of the line as this query wants them.\n *\n * Tags ride inside the description rather than being a field the serializer writes, so `hide tags`\n * cuts them out of the same string the row is drawn from.\n */",
   ]],
   ["src/client/lib/dataview/value.ts", [
     "/**\n * The value model every Dataview expression speaks.\n *\n * A `Literal` is deliberately a closed union rather than `unknown`: the comparison order, the\n * truthiness rule and the rendering rule are all defined by *which* member of the union a value is,\n * and a query must give the same answer whether it ran in a table cell, a `WHERE` clause or a sort\n * key. Dates are plain `Date`s so they survive a structured clone into the DML worker; durations are\n * a class because `2 months` and `60 days` are not the same quantity.\n */",
@@ -17612,6 +17617,8 @@ const allowed = new Map([
     "// The reader's defaults are applied first and the block's own instructions after them, so a note",
     "// that says `show due date` still shows it in a vault that hides due dates everywhere.",
     "/**\n * Run a parsed query over the tasks the index can see.\n *\n * `globalFilter` is the vault's own rule about which lines count as tasks at all: it is applied here\n * rather than in the scanner, because the scanner must still understand every checkbox in a note the\n * reader is editing, while a list can be scoped. A block that says `ignore global query` opts out.\n */",
+    "// Tags are not one of the line's ordered components — they ride inside the words — so they get their",
+    "// own switch rather than pretending to be a field the serializer writes.",
   ]],
   ["src/client/lib/tasks/query/status-fields.ts", [
     "/** Ordered: `status.name` and `status.type` must be tried before the bare `status`. */",

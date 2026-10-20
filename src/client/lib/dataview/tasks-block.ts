@@ -8,6 +8,9 @@ import type { Task } from '../tasks/model/task'
 import { unknownPosition, type TaskLocation } from '../tasks/model/task-location'
 import { taskSettings } from '../tasks/service'
 import { shouldShowPostponeButton } from '../tasks/date/postpone'
+import { TaskLayoutComponent } from '../tasks/layout/task-layout'
+import { OnCompletion } from '../tasks/model/on-completion'
+import { Priority, PRIORITY_NAMES } from '../tasks/model/priority'
 import { Occurrence } from '../tasks/model/occurrence'
 import { Recurrence } from '../tasks/model/recurrence'
 import type { ListItemData } from './metadata'
@@ -115,7 +118,7 @@ export function renderTasks(answer: TasksAnswer): HTMLElement {
     const count = document.createElement('p')
     count.className = 'tasks-count'
     count.textContent = t('tasks.result_count', { value0: answer.total })
-    wrap.append(count)
+    if (!answer.parsed.layout.hiddenQueryParts.has('task count')) wrap.append(count)
     if (answer.parsed.explain) wrap.append(renderExplanation(answer.parsed))
     return wrap
 }
@@ -157,7 +160,7 @@ function renderTaskRow(task: Task, parsed: ParsedQuery): HTMLElement {
 
     const text = document.createElement('span')
     text.className = `dataview-task-text${completed ? ' is-done' : ''}`
-    text.textContent = task.fields.description
+    text.textContent = rowText(task, parsed)
 
     row.append(box, text, ...renderChips(task, parsed))
     if (!parsed.layout.hiddenQueryParts.has('backlink')) {
@@ -213,6 +216,7 @@ function renderTaskRow(task: Task, parsed: ParsedQuery): HTMLElement {
 function renderChips(task: Task, parsed: ParsedQuery): HTMLElement[] {
     const out: HTMLElement[] = []
     const short = parsed.layout.shortMode === true
+    const layout = parsed.layout.taskLayout
     const add = (key: string, value: string): void => {
         const chip = document.createElement('span')
         chip.className = 'dataview-task-chip'
@@ -230,21 +234,45 @@ function renderChips(task: Task, parsed: ParsedQuery): HTMLElement[] {
         out.push(chip)
     }
 
-    const dates: Array<[string, Date | null]> = [
-        ['due', task.fields.dueDate],
-        ['scheduled', task.fields.scheduledDate],
-        ['start', task.fields.startDate],
-        ['created', task.fields.createdDate],
-        ['done', task.fields.doneDate],
-        ['cancelled', task.fields.cancelledDate],
+    const dates: Array<[string, TaskLayoutComponent, Date | null]> = [
+        ['due', TaskLayoutComponent.DueDate, task.fields.dueDate],
+        ['scheduled', TaskLayoutComponent.ScheduledDate, task.fields.scheduledDate],
+        ['start', TaskLayoutComponent.StartDate, task.fields.startDate],
+        ['created', TaskLayoutComponent.CreatedDate, task.fields.createdDate],
+        ['done', TaskLayoutComponent.DoneDate, task.fields.doneDate],
+        ['cancelled', TaskLayoutComponent.CancelledDate, task.fields.cancelledDate],
     ]
-    for (const [key, date] of dates) {
-        if (date === null) continue
+    for (const [key, component, date] of dates) {
+        if (date === null || !layout.isShown(component)) continue
         add(key, Number.isFinite(date.getTime()) ? isoDay(date) : '—')
     }
-    if (task.fields.recurrenceRuleText !== '') add('recurrence', task.fields.recurrenceRuleText)
-    if (task.fields.id !== '') add('id', task.fields.id)
+    // A priority of "none" is the absence of a marker rather than a value worth a column of its own.
+    if (task.fields.priority !== Priority.None && layout.isShown(TaskLayoutComponent.Priority)) {
+        add('priority', PRIORITY_NAMES[task.fields.priority])
+    }
+    if (task.fields.recurrenceRuleText !== '' && layout.isShown(TaskLayoutComponent.RecurrenceRule)) {
+        add('recurrence', task.fields.recurrenceRuleText)
+    }
+    if (task.fields.onCompletion !== OnCompletion.Ignore && layout.isShown(TaskLayoutComponent.OnCompletion)) {
+        add('on completion', task.fields.onCompletion)
+    }
+    if (task.fields.id !== '' && layout.isShown(TaskLayoutComponent.Id)) add('id', task.fields.id)
+    if (task.fields.dependsOn.length > 0 && layout.isShown(TaskLayoutComponent.DependsOn)) {
+        add('depends on', task.fields.dependsOn.join(' '))
+    }
     return out
+}
+
+/**
+ * The words of the line as this query wants them.
+ *
+ * Tags ride inside the description rather than being a field the serializer writes, so `hide tags`
+ * cuts them out of the same string the row is drawn from.
+ */
+function rowText(task: Task, parsed: ParsedQuery): string {
+    if (parsed.layout.taskLayout.areTagsShown()) return task.fields.description
+    const bare = task.fields.tags.reduce((text, tag) => text.split(tag).join(''), task.fields.description)
+    return bare.replace(/\s{2,}/gu, ' ').trim()
 }
 
 function isoDay(date: Date): string {
