@@ -61,6 +61,7 @@ export type CapabilityProfile = 'local' | 'community' | 'preview' | 'dynamic' | 
  * handed to the interpreter would be a hole in it.
  */
 export interface TemplateRunContext {
+  /** Which run this is, carried into the interpreter so a host call can be answered to the right run. */
   runId: string
   mode: RunMode
   capabilities: CapabilityProfile
@@ -305,7 +306,7 @@ export interface ProgramSource {
   template: string
   /** What line of `template` each command came from, so an error can name one instead of "somewhere". */
   lineMap: ProgramLine[]
-  /** Byte length, which is what the output cap is checked against before anything is written. */
+  /** How many commands were compiled, which is what the per-run command cap is checked against. */
   commandCount: number
 }
 
@@ -318,16 +319,23 @@ export interface ProgramLine {
 
 /** A cursor placeholder the parser found, before the note is written. */
 export interface CursorMarker {
-  /** The order the template asked for; `0` when the command took no argument. */
-  order: number
+  /**
+   * The order the template asked for, or `null` when the command took no argument.
+   *
+   * `null` is not `0`. Upstream keeps the bare form in a group of its own — `CursorJumper.ts` says so in
+   * a comment: "An omitted order is its own group, so that tp.file.cursor() never groups with
+   * tp.file.cursor(0)" — so a plain `number` cannot represent the marker set faithfully, and a caller
+   * that folded the two together would jump a reader past markers they wrote on purpose.
+   */
+  order: number | null
   /** Where the marker text sits in the rendered output. */
   start: number
   end: number
 }
 
-/** Every marker sharing an order, which is what one jump moves to. */
+/** Every marker sharing an order, which is what one jump moves to. `order: null` is its own group. */
 export interface CursorGroup {
-  order: number
+  order: number | null
   markers: CursorMarker[]
 }
 
@@ -335,9 +343,14 @@ export interface CursorGroup {
 export interface ParserOutput {
   /** Text and commands in source order; whitespace control has already been applied. */
   segments: ParserSegment[]
-  /** Where the command began in the original text. */
+  /**
+   * Where the first command began in the original text, or `0` when the template has none.
+   *
+   * Each segment carries its own position; this pair is the template-level anchor a caller shows when it
+   * wants to point at "the first thing the reader wrote that looks like a command" without walking segments.
+   */
   origin: number
-  /** Line the command began on, 1-based. */
+  /** The 1-based line of that same first command, or `1` for a command-free template. */
   line: number
 }
 
