@@ -1053,8 +1053,9 @@ export const api = {
       request<{ tasks: TodoTask[], counts: TaskCounts, dayEnd: number, timezone: string }>(`/api/todos${toQuery(params)}`),
     get: (id: string) => request<{ task: TodoTask, steps: TaskStep[] }>(`/api/todos/${id}`),
     create: (body: Record<string, unknown>) => request<{ task: TodoTask }>('/api/todos', { method: 'POST', body }),
+    /** `next` is present when the patch finished a repeating task and it filed the next occurrence. */
     update: (id: string, body: Record<string, unknown>) =>
-      request<{ task: TodoTask }>(`/api/todos/${id}`, { method: 'PATCH', body }),
+      request<{ task: TodoTask, next?: TodoTask }>(`/api/todos/${id}`, { method: 'PATCH', body }),
     remove: (id: string) => request<{ deleted: true }>(`/api/todos/${id}`, { method: 'DELETE' }),
 
     addStep: (id: string, text: string) =>

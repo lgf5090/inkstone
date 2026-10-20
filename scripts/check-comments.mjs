@@ -10638,6 +10638,9 @@ const allowed = new Map([
   ["src/client/features/todos/TaskCard.tsx", [
     "/**\n * One task, as a card.\n *\n * The same component draws a board card, a row in the plan view and a line inside a list, because\n * those are the same object seen at three densities — a second implementation would drift the moment\n * one of them learned about steps or tags. The checkbox is a real `role=\"checkbox\"` button with a\n * 44px hit area; the visible circle is 20px, which is what the reference app shows.\n */",
     "// A star that only appears on hover is a star a thumb never finds.",
+    "// The row a reader taps to open the task is the whole card body, and on a phone it has to be",
+    "// a finger's height: the title alone was 22px once the card got its width back.",
+    "/* A board card carries no star of its own. Two cards across a phone leave about 150px, and a\n          36px column on the right took so much of it that a four-character title wrapped one character\n          per line; the reference card has an icon, a name and the rows, and the star is toggled where\n          the task is read in full — the list rows and the editor. */",
   ]],
   ["src/client/features/todos/TaskEditor.tsx", [
     "/**\n * The task editor: one dialog for a new task and for an existing one.\n *\n * It is a `Modal`, which already renders as a bottom sheet on a phone and a centred dialog on a\n * desktop — the two shapes the reference app has, without a second component. Fields are saved\n * together rather than on every keystroke: a title is edited in one pass, and a save per character\n * would be a write per character.\n *\n * Steps are the exception, and only for a task that already exists: adding a step is its own request\n * because the row it produces has to come back with an id the panel can tick.\n */",
@@ -10651,6 +10654,7 @@ const allowed = new Map([
   ]],
   ["src/client/features/todos/TodosApp.tsx", [
     "/**\n * The to-do container: the rail's `/todo` address, and the frame every view sits in.\n *\n * Two layouts, one state. A desktop gets a fixed sidebar and a board with room for three columns; a\n * phone gets a large title, the same board in two columns, a floating bottom bar for the three\n * cross-cutting views, and a button that adds a task. The breakpoint is a `matchMedia` query rather\n * than CSS alone because the two layouts differ in structure, not only in spacing.\n */",
+    "/* A finger's height on a phone even though the glyph stays small: these two are the only way\n            to reach the lists page and to add a task from the header. */",
   ]],
   ["src/client/features/todos/open-task.ts", [
     "/**\n * Opening one task from somewhere that is not the to-do app.\n *\n * A chip in a tool result, a saved message, a note selection — each of them names a task by id and each\n * of them has to land the reader in the same place: the to-do tab, that task's panel open. Doing that\n * from three call sites is how the three of them drift, so the navigation lives here once.\n *\n * The tab switch comes first because it is instant and the load behind it is not: the reader sees the\n * app they asked for while the row is read, rather than a chat that appears to ignore the press. What\n * the store then does — read the row if the open page does not hold it, and open the panel on it — is\n * the half that can fail, and it says so with a toast instead of a panel over nothing.\n */",
@@ -10663,6 +10667,8 @@ const allowed = new Map([
     "/** Re-creates a deleted task from the snapshot the reader still has on screen. */",
     "/** Re-reads one task so its step counts match the rows the detail panel is showing. */",
     "/**\n   * Open one task by id, wherever the reader came from.\n   *\n   * A chip in the chat names a task that may not be on the open page at all — it can be completed, or\n   * older than the page the board loaded. The row is read on its own in that case, because the panel\n   * edits from the store and an id it cannot find would open an empty form over a task that exists.\n   */",
+    "// The next occurrence of a repeating task arrives with the completion, so the reader who ticked",
+    "// the box sees the following one on the list instead of finding out about it on the next reload.",
   ]],
   ["src/client/features/todos/task-groups.ts", [
     "/**\n * The readings the views share: how a set of tasks splits into groups, and in what order.\n *\n * These are pure functions over a page the server already scoped, so the grouping rules are the only\n * thing here — no fetching, no state. The day boundaries come in from the server (`dayEnd` is the end\n * of the reader's own day), which is why nothing in this file calls `Date.now()` for \"today\".\n */",
@@ -10673,12 +10679,17 @@ const allowed = new Map([
     "/** The search box and the two id filters, applied to a page the server already scoped. */",
     "/** How many of a list's tasks are open, for the card's progress line. */",
   ]],
+  ["src/client/features/todos/todo-ui.test.ts", [
+    "/**\n * What a list icon may be, before it reaches the badge.\n *\n * The badge draws an unknown value as text clipped to three graphemes — right for a kanban fence, whose\n * author typed the value and should see the misspelling, and wrong for a list card, where \"Bri\" beside\n * a list named Work reads as a typo. So the to-do screens ask this first.\n */",
+  ]],
   ["src/client/features/todos/todo-ui.ts", [
     "/**\n * The small readings the to-do screens share: how a due date reads, how a priority looks, and the\n * words a repeat rule is described with.\n *\n * Kept out of the components because three of them need the same answer, and because a date that\n * reads one way on a card and another in the editor is the kind of difference a reader notices.\n */",
     "/** The class a priority dot is painted with. The label always rides along, so colour is never alone. */",
     "/**\n * A due date as a card shows it: the time when it is today, the day otherwise.\n *\n * A date with no time is stored as the end of that day, so it is shown as a day and never as\n * \"23:59\" — the minute is an implementation detail of \"due by then\", not something the reader wrote.\n */",
     "/** The words a repeat rule is described with, or null when the task does not repeat. */",
     "/** A due date as the date picker wants it: local wall time, or an empty string. */",
+    "/** The longest a freeform icon may be and still be one a reader picked — an emoji, not a word. */",
+    "/**\n * The list icon a badge can actually draw, or null.\n *\n * The picker writes `lucide:<Name>` for the thirteen icons it offers and the emoji itself for the\n * rest, so those are the two shapes a list icon has. A bare word — which only the API can let in, since\n * nothing in the app writes one — is neither: the badge would draw its first three letters as text, and\n * \"Bri\" beside a list named Work reads as a typo rather than as a missing icon. Returning null lets the\n * caller draw its own default, which is the honest answer for a value this app cannot render.\n */",
   ]],
   ["src/client/features/todos/todos-app.test.ts", [
     "/**\n * The two layouts the container promises.\n *\n * A phone gets the cross-cutting views as a bottom bar and a button that adds a task; a wide window\n * gets a sidebar with every list and no bottom bar. The store is stubbed at the API boundary so the\n * case is about structure rather than about a fetch that never lands.\n */",
@@ -11036,6 +11047,7 @@ const allowed = new Map([
     "/** The fields of a payment a reader may correct; the period is the receipt's, not theirs to edit. */",
     "/** The settings a save may carry. Anything left out keeps what the account already had. */",
     "/**\n   * The subscription app.\n   *\n   * One bundle call and then per-entity writes: the app is opened rarely and read all at once, while\n   * every change afterwards is one row. `bundle()` is the only request that carries the overview with\n   * it, because recomputing a year of spending after every edit would make a toggle feel like a reload.\n   */",
+    "/** `next` is present when the patch finished a repeating task and it filed the next occurrence. */",
   ]],
   ["src/client/lib/app-history.ts", [
     "/**\n * The address bar as the one source of truth for which app tab is up.\n *\n * The tab is a path rather than a store field so that a rail button is an ordinary link: the\n * address a reader copies is the screen they are looking at, the back button walks the tabs they\n * visited, and a cold load of `/calendar` needs nothing but the document the server already sends.\n * `history.pushState` fires no event of its own, so the writers here announce their own changes and\n * `popstate` covers everything the browser does by itself.\n */",
@@ -22835,6 +22847,9 @@ const allowed = new Map([
     "// A reminder given as an offset is measured from the due date the patch is asking for, falling back",
     "// to the one already stored: moving a task and its reminder in one request is the common case.",
     "// ------------------------------------------------------------------- steps",
+    "/**\n   * Whether this request is the reader finishing the task.\n   *\n   * Finishing is not just a column: a repeating task files its next occurrence, and that has to happen\n   * exactly once, in `completeTask`. Writing `status = 'done'` through the general patch would move the\n   * row and drop the occurrence — which is what the checkbox did until this branch existed, so the same\n   * press meant different things depending on whether it came from the app or from the chat.\n   */",
+    "// Every other column lands first, so the row being completed already carries the new title, due date",
+    "// and tags — `completeTask` copies those into the next occurrence.",
   ]],
   ["src/worker/routes/transfer.ts", [
     "// sha256/size were computed at persist time; re-downloading every matching",
@@ -26138,6 +26153,10 @@ const allowed = new Map([
     "/**\n * The reminder sweep.\n *\n * What is pinned: a reminder that has come due is delivered once, a completed task is never announced,\n * one account's reminder never reaches another account's notification list, and a failure inside one\n * row does not stop the rest of the tick. The last one is the reason the sweep is written per-row rather\n * than as one statement: a cron that gives up at the first bad row would leave every reminder behind it\n * undelivered, and the reader would only find out by noticing silence.\n */",
     "/** A task whose reminder is `offsetMs` from the sweep time. */",
     "// The second fire of the same minute finds the row claimed and says nothing again.",
+  ]],
+  ["tests/todos-route.test.ts", [
+    "// The same press means the same thing here as it does in the chat: finishing a repeating task files",
+    "// the next one, and the answer carries it so the list can show it without a reload.",
   ]],
   ["tests/todos-table-migration.test.ts", [
     "/**\n * The task table moved from `chat_tasks` to `todos_tasks`.\n *\n * A rename is the one schema change that can destroy data, because the old table has to be dropped\n * for the new name to be the only one. These tests pin the two properties that make it safe: every\n * row lands in the new table, and the old one is only dropped once that has happened.\n */",

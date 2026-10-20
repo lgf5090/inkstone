@@ -10,6 +10,7 @@ import { useState } from 'react'
 import { ChevronRight, Pencil, Plus } from 'lucide-react'
 import { t } from '../../lib/i18n'
 import { KanbanIconBadge } from '../../lib/markdown/kanban/ui/kanban-icon-badge'
+import { listIconFor } from './todo-ui'
 import { useTodos } from './store'
 import { ListEditor, TagEditor } from './OrganizerEditors'
 import type { TaskList, TaskTag } from '@shared/todos/model'
@@ -125,7 +126,7 @@ function Row({ label, count, color, icon, onOpen, onEdit }: {
   return (
     <div className="flex min-h-11 items-center gap-2 pl-3 pr-1">
       <span className="flex size-6 shrink-0 items-center justify-center">
-        {icon ? <KanbanIconBadge icon={icon} size={15} /> : <span className="size-2.5 rounded-full" style={{ backgroundColor: color }} />}
+        {listIconFor(icon) ? <KanbanIconBadge icon={listIconFor(icon)} size={15} /> : <span className="size-2.5 rounded-full" style={{ backgroundColor: color }} />}
       </span>
       <button type="button" onClick={onOpen} className="min-w-0 flex-1 truncate text-left text-[length:var(--text-13)] text-[var(--text-primary)]">
         {label}

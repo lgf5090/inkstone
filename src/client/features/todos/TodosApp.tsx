@@ -108,10 +108,12 @@ export function TodosApp() {
             className="h-8 w-40 md:w-56"
           />
         </div>
-        <IconButton label={t('todo.action.lists')} size="sm" active={page === 'lists'} onClick={() => setPage(page === 'lists' ? 'main' : 'lists')}>
+        {/* A finger's height on a phone even though the glyph stays small: these two are the only way
+            to reach the lists page and to add a task from the header. */}
+        <IconButton label={t('todo.action.lists')} size="sm" className="size-11 md:size-6" active={page === 'lists'} onClick={() => setPage(page === 'lists' ? 'main' : 'lists')}>
           <ListChecks size={15} />
         </IconButton>
-        <IconButton label={t('todo.action.new_task')} size="sm" onClick={newTask}>
+        <IconButton label={t('todo.action.new_task')} size="sm" className="size-11 md:size-6" onClick={newTask}>
           <Plus size={15} />
         </IconButton>
       </div>

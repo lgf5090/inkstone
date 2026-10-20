@@ -13,6 +13,7 @@ import { t } from '../../lib/i18n'
 import { KanbanIconBadge } from '../../lib/markdown/kanban/ui/kanban-icon-badge'
 import { useTodos } from './store'
 import { Input } from '../../components/form'
+import { listIconFor } from './todo-ui'
 import { TaskCard } from './TaskCard'
 import { compareTasks } from './task-groups'
 import type { TodoTask } from '@shared/todos/model'
@@ -83,12 +84,12 @@ export function BoardView({ onOpenList }: { onOpenList: (listId: string) => void
             type="button"
             onClick={() => onOpenList(card.id)}
             className={cn(
-              'inline-flex shrink-0 items-center gap-1.5 rounded-full border px-2.5 py-1 text-[length:var(--text-12)]',
+              'inline-flex min-h-11 shrink-0 items-center gap-1.5 rounded-full border px-2.5 py-1 text-[length:var(--text-12)] md:min-h-0',
               'border-[var(--border-subtle)] bg-[var(--bg-surface)] text-[var(--text-secondary)]',
               'hover:border-[var(--border-strong)] hover:text-[var(--text-primary)]',
             )}
           >
-            {card.icon ? <KanbanIconBadge icon={card.icon} size={12} /> : <ListChecks size={12} style={{ color: card.color }} />}
+            {listIconFor(card.icon) ? <KanbanIconBadge icon={listIconFor(card.icon)} size={12} /> : <ListChecks size={12} style={{ color: card.color }} />}
             <span className="max-w-[140px] truncate">{card.name}</span>
           </button>
         ))}
@@ -111,11 +112,11 @@ export function BoardView({ onOpenList }: { onOpenList: (listId: string) => void
               <button
                 type="button"
                 onClick={() => onOpenList(card.id)}
-                className="flex items-center gap-1.5 px-2.5 py-2 text-left"
+                className="flex min-h-11 items-center gap-1.5 px-2.5 py-2 text-left"
                 style={{ backgroundColor: `color-mix(in oklab, ${card.color} 10%, transparent)` }}
               >
-                {card.icon
-                  ? <KanbanIconBadge icon={card.icon} size={14} />
+                {listIconFor(card.icon)
+                  ? <KanbanIconBadge icon={listIconFor(card.icon)} size={14} />
                   : <ListChecks size={14} style={{ color: card.color }} />}
                 <span className="min-w-0 flex-1 truncate text-[length:var(--text-12-5)] font-medium text-[var(--text-primary)]">{card.name}</span>
                 <span className="shrink-0 text-[length:var(--text-10-5)] tabular-nums text-[var(--text-tertiary)]">{card.done}/{card.open + card.done}</span>
@@ -160,7 +161,7 @@ export function BoardView({ onOpenList }: { onOpenList: (listId: string) => void
                 <button
                   type="button"
                   onClick={() => { setAdding(card.id); setDraft('') }}
-                  className="m-1.5 mt-0 flex min-h-9 items-center justify-center gap-1 rounded-[var(--r-md)] text-[length:var(--text-11-5)] text-[var(--text-tertiary)] transition-colors hover:text-[var(--text-primary)]"
+                  className="m-1.5 mt-0 flex min-h-11 items-center justify-center gap-1 rounded-[var(--r-md)] text-[length:var(--text-11-5)] text-[var(--text-tertiary)] transition-colors hover:text-[var(--text-primary)] md:min-h-9"
                   style={{ backgroundColor: `color-mix(in oklab, ${card.color} 8%, transparent)` }}
                 >
                   <Plus size={12} />{t('todo.action.add_task')}

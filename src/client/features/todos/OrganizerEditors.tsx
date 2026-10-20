@@ -12,6 +12,7 @@ import { cn } from '../../lib/cn'
 import { t } from '../../lib/i18n'
 import { ORGANIZER_COLORS, organizerColorLabel } from '@shared/organizer-colors'
 import { KANBAN_ICONS, KanbanIconBadge } from '../../lib/markdown/kanban/ui/kanban-icon-badge'
+import { listIconFor } from './todo-ui'
 import { KANBAN_COMMON_EMOJIS } from '../../lib/markdown/kanban/ui/kanban-icon-picker'
 import { Button, IconButton } from '../../components/primitives'
 import { Input } from '../../components/form'
@@ -158,7 +159,7 @@ export function ListEditor({ open, list, onClose }: { open: boolean; list: TaskL
       <div className="flex flex-col gap-4">
         <div className="flex items-center gap-2">
           <span className="flex size-9 items-center justify-center rounded-[var(--r-md)] bg-[var(--bg-inset)]">
-            {icon ? <KanbanIconBadge icon={icon} size={18} /> : <span className="size-2 rounded-full" style={{ backgroundColor: color ?? 'var(--accent)' }} />}
+            {listIconFor(icon) ? <KanbanIconBadge icon={listIconFor(icon)} size={18} /> : <span className="size-2 rounded-full" style={{ backgroundColor: color ?? 'var(--accent)' }} />}
           </span>
           <Input
             autoFocus

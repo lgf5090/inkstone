@@ -332,10 +332,21 @@ todoRoutes.patch('/:id', async (c) => {
   const remindAt = body.remind === undefined
     ? undefined
     : remindAtFor(dueAt === undefined ? existing.dueAt : dueAt, asRemind(body.remind))
-  const task = await s.updateTask(id, {
+  const nextStatus = body.status !== undefined ? asStatus(body.status) : undefined
+  /**
+   * Whether this request is the reader finishing the task.
+   *
+   * Finishing is not just a column: a repeating task files its next occurrence, and that has to happen
+   * exactly once, in `completeTask`. Writing `status = 'done'` through the general patch would move the
+   * row and drop the occurrence — which is what the checkbox did until this branch existed, so the same
+   * press meant different things depending on whether it came from the app or from the chat.
+   */
+  const completing = nextStatus === 'done' && existing.status !== 'done'
+  // Every other column lands first, so the row being completed already carries the new title, due date
+  // and tags — `completeTask` copies those into the next occurrence.
+  const patch = {
     ...(body.title !== undefined ? { title: text(body.title, TITLE_MAX, 'A task title') } : {}),
     ...(body.description !== undefined ? { description: optionalText(body.description, DESCRIPTION_MAX, 'A task note') ?? '' } : {}),
-    ...(body.status !== undefined ? { status: asStatus(body.status) } : {}),
     ...(body.priority !== undefined ? { priority: asPriority(body.priority) } : {}),
     ...(dueAt !== undefined ? { dueAt } : {}),
     ...(body.projectId !== undefined ? { projectId: await projectRef(s, body.projectId) } : {}),
@@ -346,9 +357,20 @@ todoRoutes.patch('/:id', async (c) => {
     ...(body.noteId !== undefined ? { noteId: optionalId(body.noteId, 'noteId') } : {}),
     ...(body.conversationId !== undefined ? { conversationId: optionalId(body.conversationId, 'conversationId') } : {}),
     ...(body.tags !== undefined ? { tags: tagNames(body.tags) ?? [] } : {}),
-  })
+  }
+  let task = Object.keys(patch).length ? await s.updateTask(id, patch) : existing
   if (!task) throw ApiError.notFound('Task not found')
-  return c.json({ task })
+  let next = null
+  if (completing) {
+    const done = await s.completeTask(id, settings.timezone)
+    if (!done) throw ApiError.notFound('Task not found')
+    task = done.task
+    next = done.next
+    await s.recordActivity('task.completed', task.title)
+  } else if (nextStatus !== undefined && nextStatus !== task.status) {
+    task = (await s.updateTask(id, { status: nextStatus })) ?? task
+  }
+  return c.json({ task, ...(next ? { next } : {}) })
 })
 
 todoRoutes.delete('/:id', async (c) => {

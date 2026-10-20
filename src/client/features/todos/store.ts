@@ -211,11 +211,14 @@ export const useTodos = create<TodosState>((set, get) => ({
   updateTask: async (id, patch) => {
     set({ saving: true })
     try {
-      const { task } = await api.todos.update(id, patch)
+      const { task, next } = await api.todos.update(id, patch)
       set((state) => ({
-        tasks: task.status === 'done' ? state.tasks.filter((entry) => entry.id !== id) : [
-          ...state.tasks.filter((entry) => entry.id !== id),
-          task,
+        // The next occurrence of a repeating task arrives with the completion, so the reader who ticked
+        // the box sees the following one on the list instead of finding out about it on the next reload.
+        tasks: [
+          ...state.tasks.filter((entry) => entry.id !== id && entry.id !== next?.id),
+          ...(task.status === 'done' ? [] : [task]),
+          ...(next ? [next] : []),
         ],
         completed: task.status === 'done'
           ? [task, ...state.completed.filter((entry) => entry.id !== id)]

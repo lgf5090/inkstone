@@ -81,6 +81,34 @@ describe('the task endpoints', () => {
     expect(done.tasks.map((entry) => entry.id)).toContain(task.id)
   })
 
+  it('files the next occurrence when a repeating task is finished from the app', async () => {
+    const due = Date.parse('2026-10-21T02:00:00Z')
+    const task = await create({ title: 'Weekly report', dueAt: due, repeat: { freq: 'weekly', interval: 1 }, steps: ['Draft'] })
+
+    const patched = await json<{ task: TodoTask, next?: TodoTask }>(await send('PATCH', `/${task.id}`, { status: 'done' }))
+
+    expect(patched.task.status).toBe('done')
+    // The same press means the same thing here as it does in the chat: finishing a repeating task files
+    // the next one, and the answer carries it so the list can show it without a reload.
+    expect(patched.next).toBeDefined()
+    expect(patched.next!.status).toBe('todo')
+    expect(patched.next!.dueAt).toBe(due + 7 * 24 * 60 * 60 * 1000)
+    expect(patched.next!.stepTotal).toBe(1)
+    expect(patched.next!.stepDone).toBe(0)
+
+    const open = await json<{ tasks: TodoTask[] }>(await send('GET', '?status=open'))
+    expect(open.tasks.map((entry) => entry.id)).toEqual([patched.next!.id])
+  })
+
+  it('does not file a second occurrence when the finished task is finished again', async () => {
+    const task = await create({ title: 'Weekly report', dueAt: Date.now(), repeat: { freq: 'weekly', interval: 1 } })
+    await send('PATCH', `/${task.id}`, { status: 'done' })
+
+    const again = await json<{ task: TodoTask, next?: TodoTask }>(await send('PATCH', `/${task.id}`, { status: 'done' }))
+    expect(again.next).toBeUndefined()
+    expect((await json<{ tasks: TodoTask[] }>(await send('GET', '?status=open'))).tasks).toHaveLength(1)
+  })
+
   it('returns the task, its steps and the counts in one read', async () => {
     const task = await create({ title: 'Ship it', steps: ['Write', 'Review'] })
     const detail = await json<{ task: TodoTask, steps: TaskStep[] }>(await send('GET', `/${task.id}`))

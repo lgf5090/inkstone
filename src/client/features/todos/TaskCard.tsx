@@ -63,7 +63,12 @@ export function TaskCard({ task, lists, bounds, timezone, onOpen, onStar, compac
         type="button"
         data-todo-open={task.id}
         onClick={onOpen}
-        className="min-w-0 flex-1 text-left focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--accent)]"
+        className={cn(
+          'min-w-0 flex-1 text-left focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--accent)]',
+          // The row a reader taps to open the task is the whole card body, and on a phone it has to be
+          // a finger's height: the title alone was 22px once the card got its width back.
+          compact && 'flex min-h-11 flex-col justify-center',
+        )}
       >
         <span
           className={cn(
@@ -118,26 +123,32 @@ export function TaskCard({ task, lists, bounds, timezone, onOpen, onStar, compac
         </span>
       </button>
 
-      <span className="flex shrink-0 flex-col items-end gap-1">
-        <button
-          type="button"
-          aria-label={task.starred ? t('todo.task.unstar') : t('todo.task.star')}
-          aria-pressed={task.starred}
-          onClick={onStar}
-          className={cn(
-            'flex size-9 items-center justify-center rounded-full transition-colors md:size-7',
-            'focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--accent)]',
-            task.starred ? 'text-[var(--warning)]' : 'text-[var(--text-quaternary)] hover:text-[var(--text-secondary)]',
-            // A star that only appears on hover is a star a thumb never finds.
-            task.starred ? 'opacity-100' : 'opacity-100 md:opacity-0 md:group-hover:opacity-100 md:focus-visible:opacity-100',
+      {/* A board card carries no star of its own. Two cards across a phone leave about 150px, and a
+          36px column on the right took so much of it that a four-character title wrapped one character
+          per line; the reference card has an icon, a name and the rows, and the star is toggled where
+          the task is read in full — the list rows and the editor. */}
+      {!compact && (
+        <span className="flex shrink-0 flex-col items-end gap-1">
+          <button
+            type="button"
+            aria-label={task.starred ? t('todo.task.unstar') : t('todo.task.star')}
+            aria-pressed={task.starred}
+            onClick={onStar}
+            className={cn(
+              'flex size-9 items-center justify-center rounded-full transition-colors md:size-7',
+              'focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--accent)]',
+              task.starred ? 'text-[var(--warning)]' : 'text-[var(--text-quaternary)] hover:text-[var(--text-secondary)]',
+              // A star that only appears on hover is a star a thumb never finds.
+              task.starred ? 'opacity-100' : 'opacity-100 md:opacity-0 md:group-hover:opacity-100 md:focus-visible:opacity-100',
+            )}
+          >
+            <Star size={14} fill={task.starred ? 'currentColor' : 'none'} />
+          </button>
+          {list && (
+            <span className="max-w-[84px] truncate pr-1 text-[length:var(--text-10-5)] text-[var(--text-quaternary)]">{list.name}</span>
           )}
-        >
-          <Star size={14} fill={task.starred ? 'currentColor' : 'none'} />
-        </button>
-        {list && (
-          <span className="max-w-[84px] truncate pr-1 text-[length:var(--text-10-5)] text-[var(--text-quaternary)]">{list.name}</span>
-        )}
-      </span>
+        </span>
+      )}
     </article>
   )
 }
