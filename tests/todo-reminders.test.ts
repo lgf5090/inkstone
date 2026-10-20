@@ -12,7 +12,9 @@ import { DatabaseSync } from 'node:sqlite'
 import { beforeEach, describe, expect, it } from 'vitest'
 import { SCHEMA_STATEMENTS } from '../src/worker/db/schema'
 import { normalizeAssistantSettings } from '../src/shared/assistant'
+import { localDayBounds } from '../src/shared/assistant-time'
 import { AssistantStore } from '../src/worker/assistant/store'
+import { runDueAssistantAutomations } from '../src/worker/assistant/scheduler'
 import { sweepTaskReminders } from '../src/worker/assistant/tasks'
 import worker from '../src/worker/index'
 import { EN_US_TODO_NOTIFY } from '../src/shared/locales/en-US-todo-notify'
@@ -154,6 +156,49 @@ describe('the cron fire that carries a reminder', () => {
 
     expect((await notificationsOf(ALICE)).map((row) => row.title))
       .toEqual([expect.stringContaining('Pick up the prescription')])
+  })
+})
+
+describe('the daily plan digest', () => {
+  /** One daily `task_digest`, the row the settings page creates and the sweep fires. */
+  async function digestAutomation(userId: string): Promise<void> {
+    const store = new AssistantStore(env.DB as D1Database, userId, env)
+    await store.saveSettings(normalizeAssistantSettings({ language: 'zh-CN', timezone: 'UTC' }))
+    await store.insertAutomation({
+      name: '每日计划',
+      kind: 'task_digest',
+      message: '',
+      schedule: { type: 'daily', time: '09:00' },
+      enabled: true,
+      status: 'scheduled',
+      nextRun: Date.now() - 1000,
+      targetFolderId: null,
+      targetNoteId: null,
+    })
+  }
+
+  it('leads with today and overdue counts in the reader\'s language, then lists them', async () => {
+    const store = new AssistantStore(env.DB as D1Database, ALICE, env)
+    const bounds = localDayBounds('UTC')
+    const now = Date.now()
+    // Today's task sits just inside the day's end, so the same numbers hold whichever side of midnight
+    // the suite happens to run on.
+    await store.createTask({ title: 'Late report', dueAt: bounds.start - 60_000 })
+    await store.createTask({ title: 'Today call', dueAt: Math.min(now + 60_000, bounds.end - 1) })
+    await store.createTask({ title: 'No date yet' })
+    await digestAutomation(ALICE)
+
+    const result = await runDueAssistantAutomations(env)
+    expect(result).toMatchObject({ started: 1, failed: 0 })
+
+    const [notice] = await notificationsOf(ALICE)
+    expect(notice?.title).toBe('每日计划')
+    expect(notice?.body).toContain('今天 1 条，逾期 1 条')
+    expect(notice?.body).toContain('**逾期**')
+    expect(notice?.body).toContain('**今天**')
+    expect(notice?.body).toContain('- Late report')
+    expect(notice?.body).toContain('- Today call')
+    expect(notice?.body).toContain('另有 1 条待办')
   })
 })
 

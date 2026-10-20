@@ -14,12 +14,14 @@
  * refuses cannot make a run fail.
  */
 
-import type { Automation } from '@shared/assistant'
+import type { AssistantSettings, Automation } from '@shared/assistant'
 import { promptCatalog } from '@shared/assistant-prompt'
 import { localDayBounds } from '@shared/assistant-time'
 import { LIMITS } from '@shared/constants'
 import { countText, deriveExcerpt } from '@shared/markdown-utils'
 import { truncateText } from '@shared/text-utils'
+import { EN_US_TODO_NOTIFY } from '../../shared/locales/en-US-todo-notify'
+import { ZH_CN_TODO_NOTIFY } from '../../shared/locales/zh-CN-todo-notify'
 import type { Env } from '../env'
 import { normalizeAssistantSettings } from '@shared/assistant'
 import { initializeDatabase } from '../db/schema'
@@ -141,7 +143,7 @@ async function runOne(env: Env, userId: string, automation: Automation, fanout: 
         return { status: 'success' as const, result: 'delivered' }
       }
       case 'task_digest': {
-        const body = await digestBody(store, settings, catalog.digest_overdue, catalog.digest_today, catalog.digest_open, catalog.digest_none)
+        const body = await digestBody(store, settings)
         await deliver({ title: entry.name, body })
         if (entry.message) {
           // A digest can carry the reader's own note as well as the computed list.
@@ -352,26 +354,39 @@ async function fileAnswer(
  *
  * A summary of what is due needs the reader's own task rows, and asking a model to list them costs a
  * request, can miss one, and can invent one. The reference project got this right and the shape is
- * kept: overdue first, then today, then the open count.
+ * kept: today and overdue first, then the open count that is neither.
+ *
+ * The words are the to-do app's, not the model's: they live in the same small notification catalog the
+ * reminder sweep reads, because this runs on a cron tick with no request and therefore no interface
+ * catalog to borrow. The first line is the sentence the reader asked for — today's count, then the
+ * overdue count — and the lists underneath are its evidence.
  */
+function digestCopyFor(language: AssistantSettings['language']) {
+  return language === 'en-US' ? EN_US_TODO_NOTIFY : ZH_CN_TODO_NOTIFY
+}
+
+/** Sit the counts into a catalog sentence without pulling the interface's formatter in. */
+function fill(template: string, params: Record<string, string>): string {
+  return template.replace(/\{(\w+)\}/g, (whole, name: string) => params[name] ?? whole)
+}
+
 export async function digestBody(
   store: AssistantStore,
-  settings: { timezone: string },
-  overdueLabel: string,
-  todayLabel: string,
-  openLabel: string,
-  noneLabel: string,
+  settings: { timezone: string, language: AssistantSettings['language'] },
 ): Promise<string> {
+  const copy = digestCopyFor(settings.language)
   const bounds = localDayBounds(settings.timezone)
   const now = Date.now()
   const open = await store.listTasks({ status: 'open', limit: 200 })
   const overdue = open.filter((task) => task.dueAt !== null && task.dueAt < now)
   const today = open.filter((task) => task.dueAt !== null && task.dueAt >= now && task.dueAt < bounds.end)
   const rest = open.length - overdue.length - today.length
-  const parts: string[] = []
-  if (overdue.length) parts.push(`**${overdueLabel} (${overdue.length})**\n${overdue.map((task) => `- ${task.title}`).join('\n')}`)
-  if (today.length) parts.push(`**${todayLabel} (${today.length})**\n${today.map((task) => `- ${task.title}`).join('\n')}`)
-  if (!parts.length) parts.push(noneLabel)
-  parts.push(`${rest} ${openLabel}`)
+  const parts: string[] = [
+    fill(copy.digestSummary, { today: String(today.length), overdue: String(overdue.length) }),
+  ]
+  if (overdue.length) parts.push(`**${copy.digestOverdue}**\n${overdue.map((task) => `- ${task.title}`).join('\n')}`)
+  if (today.length) parts.push(`**${copy.digestToday}**\n${today.map((task) => `- ${task.title}`).join('\n')}`)
+  if (!overdue.length && !today.length) parts.push(copy.digestNone)
+  if (rest > 0) parts.push(fill(copy.digestRest, { count: String(rest) }))
   return parts.join('\n\n')
 }
