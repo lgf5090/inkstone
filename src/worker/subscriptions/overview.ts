@@ -13,6 +13,7 @@ import { getMeta, setMeta } from '../db/metadata'
 import type { Env } from '../env'
 import {
   annualisedCost,
+  applyRateOverrides,
   calculateMonthlyExpense,
   calculateYearlyExpense,
   expenseByMonth,
@@ -89,8 +90,8 @@ export async function buildOverview(
     loadRates(env, now),
     recentScheduleLogs(db, userId, 10),
   ])
-  // The feed is one answer for everybody; the base is this account's, so it is applied afterwards.
-  const rates = rateTableFor(cnyRates, settings.baseCurrency)
+  // The feed is one answer for everybody; the pins are this account's, and the base is applied last.
+  const rates = rateTableFor(applyRateOverrides(cnyRates, settings.rateOverrides), settings.baseCurrency)
 
   const samples: PaymentSample[] = payments.map((payment) => ({
     subscriptionId: payment.subscriptionId,

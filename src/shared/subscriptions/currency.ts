@@ -10,7 +10,7 @@
  * per-currency amount stays beside each row for the reader who wants it.
  */
 import { MS_PER_DAY, formatLocalDate, getDaysBetween, getNowInTimezone, getTimezoneDateParts } from './time'
-import { labelNamesOf, roundMoney, type CurrencyCode, type ExpenseShare, type MonthExpense, type PriceChange, type SubscriptionItem, type TrialEnding, type UpcomingRenewal, type YearSpend } from './model'
+import { labelNamesOf, roundMoney, type CurrencyCode, type ExpenseShare, type MonthExpense, type PriceChange, type RateOverrides, type SubscriptionItem, type TrialEnding, type UpcomingRenewal, type YearSpend } from './model'
 
 /**
  * `1 unit of the currency = N CNY`, with CNY itself as the base. Used when the rate service is down.
@@ -89,6 +89,20 @@ export function rateTableFor(cnyRates: RateTable, base: string): RateTable {
   const out: Record<string, number> = {}
   for (const [code, perCny] of Object.entries(cnyRates)) out[code] = perCny / perBase
   return out
+}
+
+/**
+ * The rates the reader pinned, laid over the day's table before the base is applied.
+ *
+ * A pin beats the feed for that one currency and changes nothing else: a reader billing in a currency
+ * that moves faster than the daily cache does not have to accept yesterday's number, and one whose bank
+ * quotes differently from the index does not either. The value means what the table means — `1 unit = N
+ * CNY` — so the same pin survives a change of total currency.
+ */
+export function applyRateOverrides(cnyRates: RateTable, overrides: RateOverrides): RateTable {
+  const pinned = Object.entries(overrides).filter(([, value]) => Number.isFinite(value) && (value as number) > 0)
+  if (pinned.length === 0) return cnyRates
+  return { ...cnyRates, ...Object.fromEntries(pinned) }
 }
 
 export interface MonthlyExpense {

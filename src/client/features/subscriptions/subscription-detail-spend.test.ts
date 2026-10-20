@@ -15,8 +15,8 @@ import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import {
   type PaymentRecord,
-  type SubscriptionDetail as Detail,
   type SubscriptionItem,
+  type SubscriptionDetail as Detail,
   type YearSpend,
 } from '@shared/subscriptions/model'
 import { initI18n, t } from '../../lib/i18n'
@@ -59,21 +59,6 @@ function item(overrides: Partial<SubscriptionItem> = {}): SubscriptionItem {
     nextReminderAt: null,
     paymentCount: 0,
     paidTotal: 0,
-    ...overrides,
-  }
-}
-
-function payment(overrides: Partial<PaymentRecord> = {}): PaymentRecord {
-  return {
-    id: 'p1',
-    subscriptionId: 'sub-1',
-    paidAt: '2026-05-10T00:00:00.000Z',
-    amount: 60,
-    currency: 'CNY',
-    kind: 'auto',
-    note: '',
-    periodStart: null,
-    periodEnd: null,
     ...overrides,
   }
 }

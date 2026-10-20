@@ -17,6 +17,13 @@ export type SubscriptionMode = (typeof SUBSCRIPTION_MODES)[number]
 export const CURRENCY_CODES = ['CNY', 'USD', 'HKD', 'TWD', 'JPY', 'EUR', 'GBP', 'KRW', 'TRY'] as const
 export type CurrencyCode = (typeof CURRENCY_CODES)[number]
 
+/**
+ * `1 unit of the currency = N CNY`, for the currencies the reader stated a price for themselves.
+ *
+ * CNY has no key: it is the anchor every other number is measured against.
+ */
+export type RateOverrides = { [K in Exclude<CurrencyCode, 'CNY'>]?: number }
+
 export const REMINDER_KINDS = ['before_expiry', 'on_expiry', 'after_expiry'] as const
 export type ReminderKind = (typeof REMINDER_KINDS)[number]
 
@@ -236,8 +243,50 @@ export interface SubscriptionSettings {
   baseCurrency: CurrencyCode
   /** What a month of subscriptions is allowed to cost, in the total currency. Null means no budget. */
   budgetMonthly: number | null
+  /**
+   * Rates the reader pinned, as `1 unit of the currency = N CNY`, used wherever the app converts.
+   *
+   * Anchored on CNY because that is the direction the feed is asked in and the direction the built-in
+   * table is written in; the account's total currency is a separate choice applied afterwards. CNY itself
+   * is never pinned — it is the anchor, and pinning it would rescale every other number by a factor the
+   * reader would then have to undo by hand.
+   */
+  rateOverrides: RateOverrides
   /** The last four characters of the inbound token, or empty when none was ever made. */
   inboundTokenHint: string
+}
+
+/** How many decimals a pinned rate keeps: a won is worth fractions of a fen. */
+export const RATE_DECIMALS = 6
+
+/**
+ * A currency the reader stated a price for, or nothing when they did not.
+ *
+ * Anything unreadable is dropped rather than guessed at: a rate that cannot be parsed would convert every
+ * total in the app by a factor nobody chose, which is worse than using the feed.
+ */
+export function normalizeRateOverrides(input: unknown): RateOverrides {
+  if (!input || typeof input !== 'object') return {}
+  const out: Record<string, number> = {}
+  for (const [code, value] of Object.entries(input as Record<string, unknown>)) {
+    const upper = code.toUpperCase()
+    if (!isCurrencyCode(upper) || upper === 'CNY') continue
+    const numeric = Number(value)
+    if (!Number.isFinite(numeric) || numeric <= 0) continue
+    out[upper] = roundRate(numeric)
+  }
+  return out as RateOverrides
+}
+
+/** Whether a pinned rate is a number the app can convert with. */
+export function isRateValue(value: unknown): value is number {
+  const numeric = Number(value)
+  return Number.isFinite(numeric) && numeric > 0
+}
+
+export function roundRate(value: number): number {
+  const factor = 10 ** RATE_DECIMALS
+  return Math.round(value * factor) / factor
 }
 
 /** One channel as the settings screen sees it: whether it may send, never what it holds. */
@@ -557,6 +606,7 @@ export const DEFAULT_SETTINGS: SubscriptionSettings = {
   locale: 'zh-CN',
   baseCurrency: 'CNY',
   budgetMonthly: null,
+  rateOverrides: {},
   inboundTokenHint: '',
 }
 

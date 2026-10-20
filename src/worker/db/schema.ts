@@ -1896,6 +1896,19 @@ export const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
       `ALTER TABLE chat_notifications ADD COLUMN subscription_id TEXT`,
     ],
   },
+  {
+    // The rates an account pinned for itself, as `1 unit = N CNY`.
+    //
+    // The feed answers once a day for everybody; a reader billing in a currency that moves faster than
+    // that, or at their bank's price rather than an index, had no way to say so and got totals that looked
+    // authoritative. A JSON map rather than one column per currency because the currencies are a set the
+    // app already enumerates, and a column each would mean a migration every time one is added.
+    version: 125,
+    skipIfColumnExists: { table: 'sub_settings', column: 'rate_overrides' },
+    statements: [
+      `ALTER TABLE sub_settings ADD COLUMN rate_overrides TEXT NOT NULL DEFAULT '{}'`,
+    ],
+  },
 ]
 
 const FTS_STATEMENT = `CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(

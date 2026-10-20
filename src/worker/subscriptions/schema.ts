@@ -139,7 +139,8 @@ export const SUBSCRIPTIONS_SCHEMA_STATEMENTS: readonly string[] = [
     budget_monthly REAL,
     inbound_token_hash TEXT NOT NULL DEFAULT '',
     inbound_token_hint TEXT NOT NULL DEFAULT '',
-    updated_at INTEGER NOT NULL
+    updated_at INTEGER NOT NULL,
+    rate_overrides TEXT NOT NULL DEFAULT '{}'
   )`,
 
   `CREATE TABLE IF NOT EXISTS sub_notify_log (
@@ -241,6 +242,7 @@ export const SUBSCRIPTIONS_REQUIRED_COLUMNS: Readonly<Record<string, readonly st
   sub_settings: [
     'user_id', 'timezone', 'notification_hours', 'show_lunar', 'payment_history_limit',
     'locale', 'base_currency', 'budget_monthly', 'inbound_token_hash', 'inbound_token_hint', 'updated_at',
+    'rate_overrides',
   ],
   sub_notify_log: [
     'user_id', 'id', 'subscription_id', 'rule_id', 'channel', 'status', 'title', 'body',

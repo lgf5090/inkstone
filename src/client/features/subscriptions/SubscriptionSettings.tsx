@@ -15,7 +15,11 @@ import { Button, IconButton, SectionLabel } from '../../components/primitives'
 import { Field, Input, Segmented, Select, Switch, Textarea } from '../../components/form'
 import { Modal } from '../../components/overlay'
 import { CHANNEL_DEFINITIONS, channelLabelKey, type ChannelField } from '@shared/subscriptions/channels'
+import { FALLBACK_RATES } from '@shared/subscriptions/currency'
 import { CURRENCY_CODES, type ChannelKind, type ChannelState, type CurrencyCode, type NotifyLocale, type SubscriptionSettings } from '@shared/subscriptions/model'
+
+/** Every price the app can be told, except the one it measures the others against. */
+const PINNABLE_CURRENCIES = CURRENCY_CODES.filter((code) => code !== 'CNY')
 
 const TIMEZONES = [
   'Asia/Shanghai', 'Asia/Hong_Kong', 'Asia/Taipei', 'Asia/Singapore', 'Asia/Tokyo', 'Asia/Seoul',
@@ -47,7 +51,29 @@ export function SubscriptionSettings({
 }): ReactElement {
   const [tab, setTab] = useState<'general' | 'channels'>('general')
   const [hours, setHours] = useState(settings.notificationHours.join(', '))
+  // The boxes hold text, not numbers: a reader mid-way through typing `7.` has not asked for a rate of
+  // seven, and a box they cleared has asked for the feed back.
+  const [rates, setRates] = useState<Record<string, string>>(() =>
+    Object.fromEntries(Object.entries(settings.rateOverrides).map(([code, value]) => [code, String(value)])))
   const [token, setToken] = useState<string | null>(null)
+
+  /**
+   * Send the pins as one map, because the boxes above are the whole map.
+   *
+   * A number field reports an empty string while it holds nonsense, so the only state a box can leave
+   * behind is the one the reader can see: empty means the feed again for that currency, and a number means
+   * that number.
+   */
+  const saveRates = async (next: Record<string, string>): Promise<void> => {
+    const patch: Record<string, number> = {}
+    for (const [code, text] of Object.entries(next)) {
+      const trimmed = text.trim()
+      if (!trimmed) continue
+      const numeric = Number(trimmed)
+      if (Number.isFinite(numeric) && numeric > 0) patch[code] = numeric
+    }
+    await onSaveSettings({ rateOverrides: patch })
+  }
 
   const saveGeneral = async (patch: Record<string, unknown>): Promise<void> => {
     await onSaveSettings(patch)
@@ -114,6 +140,46 @@ export function SubscriptionSettings({
                 onChange={(event) => void saveGeneral({ budgetMonthly: event.target.value === '' ? null : Number(event.target.value) })}
               />
             </Field>
+          </div>
+
+          {/* The feed answers once a day, for everybody. A reader billed in a currency that moves faster
+              than that — or at their bank's price rather than an index — had no way to say so, and every
+              total was quietly made with the number they disagree with. */}
+          <div className="rounded-[var(--r-md)] border border-[var(--border-subtle)] px-2.5 py-2">
+            <SectionLabel>{t('subscriptions.settings.rates')}</SectionLabel>
+            <p className="mt-1 text-[length:var(--text-11)] leading-relaxed text-[var(--text-quaternary)]">
+              {t('subscriptions.settings.rates_hint')}
+            </p>
+            <div className="mt-2 grid gap-2 sm:grid-cols-2" data-rate-boxes="">
+              {PINNABLE_CURRENCIES.map((code) => (
+                <Field
+                  key={code}
+                  label={t('subscriptions.settings.rate_row', { currency: code })}
+                  hint={t('subscriptions.settings.rate_fallback', { rate: String(FALLBACK_RATES[code] ?? '') })}
+                >
+                  <Input
+                    type="number"
+                    min={0}
+                    step="any"
+                    inputMode="decimal"
+                    value={rates[code] ?? ''}
+                    placeholder={String(FALLBACK_RATES[code] ?? '')}
+                    onChange={(event) => setRates((current) => ({ ...current, [code]: event.target.value }))}
+                    onBlur={() => void saveRates(rates)}
+                  />
+                </Field>
+              ))}
+            </div>
+            {Object.keys(settings.rateOverrides).length > 0 && (
+              <Button
+                size="sm"
+                variant="ghost"
+                className="mt-2"
+                onClick={() => { setRates({}); void saveRates({}) }}
+              >
+                {t('subscriptions.settings.rates_clear')}
+              </Button>
+            )}
           </div>
 
           <label className="flex items-center justify-between gap-3 rounded-[var(--r-md)] border border-[var(--border-subtle)] px-2.5 py-2">

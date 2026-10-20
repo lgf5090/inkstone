@@ -10733,6 +10733,11 @@ const allowed = new Map([
     "// switched on, so gating its switch on `configured` would ask the reader to configure nothing.",
     "// The hint says *which* server or token is stored; with nothing to name, the bare fact is the whole line.",
     "/* Clearing forgets a credential bundle. A channel with no fields never had one, so the only\n                honest way to stop it is the switch, and offering a press that changes nothing is a trap. */",
+    "/** Every price the app can be told, except the one it measures the others against. */",
+    "// The boxes hold text, not numbers: a reader mid-way through typing `7.` has not asked for a rate of",
+    "// seven, and a box they cleared has asked for the feed back.",
+    "/**\n   * Send the pins as one map, because the boxes above are the whole map.\n   *\n   * A number field reports an empty string while it holds nonsense, so the only state a box can leave\n   * behind is the one the reader can see: empty means the feed again for that currency, and a number means\n   * that number.\n   */",
+    "/* The feed answers once a day, for everybody. A reader billed in a currency that moves faster\n              than that — or at their bank's price rather than an index — had no way to say so, and every\n              total was quietly made with the number they disagree with. */",
   ]],
   ["src/client/features/subscriptions/SubscriptionsApp.tsx", [
     "/**\n * The subscription app: the frame the rail, the list, the dashboard and the detail panel share.\n *\n * It owns nothing but the wiring — every rule lives in the store or in a component — and it owns the\n * responsive decision the other containers make too: three panes when there is room, one pane and a\n * drawer when there is not. Loading is on mount rather than at boot, so a reader who never opens this\n * tab does not pay for a library they will not look at.\n */",
@@ -10830,6 +10835,12 @@ const allowed = new Map([
   ["src/client/features/subscriptions/subscription-list.test.ts", [
     "/**\n * The row's two states: reading, and selecting.\n *\n * These four assertions exist because the app once shipped a list whose selection boxes could never\n * appear: the row derived \"am I selecting\" from \"is anything already checked\", so the box needed a check\n * before it could make one. The toolbar still flipped to its exit label, so nothing looked wrong from the\n * outside, and the batch actions under it were unreachable. Deriving the mode from the selection is the\n * exact bug this file forbids, which is why `selectMode` is a prop and is passed straight to the row.\n *\n * What the browser measured and jsdom cannot: the box's hit area, and the colour it paints.\n */",
     "/** The part of each row that opens the detail panel — not the actions menu, not the selection box. */",
+  ]],
+  ["src/client/features/subscriptions/subscription-settings-rates.test.ts", [
+    "/**\n * The rate boxes in the settings panel.\n *\n * What is pinned is the meaning of a box, not its position: the account's pins travel as one map on every\n * blur, so a box left empty is the reader asking for the feed back for that currency rather than a pin of\n * zero, and a box with a number in it is that number. The panel is also the only place a pin can be read,\n * so the saved value has to come back out of the box it was written into.\n */",
+    "/** The same list the panel draws its boxes from, so a currency added to the app cannot be missed here. */",
+    "// Nine codes, less the yuan every other rate is measured against. The count is written out rather",
+    "// than derived because a currency added to the app is a decision about this panel, not a detail.",
   ]],
   ["src/client/features/tags/SidebarTags.tsx", [
     "// Expansion is keyed by path, so a rename or a move would otherwise collapse the branch the",
@@ -19381,6 +19392,7 @@ const allowed = new Map([
     "/** How many times a plan charges inside twelve months: a 3-month plan bills four times, an 18-month one twice. */",
     "/** A receipt as the yearly grouping needs it: when it was paid, how much, in what. */",
     "/**\n * What the receipts added up to, year by year.\n *\n * The year is the account's own, read in its zone: a payment stamped an hour past midnight in Shanghai is\n * last year for a reader who counts in UTC, and the app already dates everything else by the account.\n *\n * Split by currency instead of converted, because this runs where the exchange table is not — the store\n * calls it while building one subscription's detail. A total that mixed yuan and dollars would be a\n * number with no unit, so it is not attempted; each line names its own.\n */",
+    "/**\n * The rates the reader pinned, laid over the day's table before the base is applied.\n *\n * A pin beats the feed for that one currency and changes nothing else: a reader billing in a currency\n * that moves faster than the daily cache does not have to accept yesterday's number, and one whose bank\n * quotes differently from the index does not either. The value means what the table means — `1 unit = N\n * CNY` — so the same pin survives a change of total currency.\n */",
   ]],
   ["src/shared/subscriptions/format.ts", [
     "/**\n * Display arithmetic that has one right answer, kept out of the components.\n *\n * Nothing here holds copy. A unit's name, a countdown's sentence and a status pill's word are interface\n * strings and belong to the locale catalogs; what this module decides is the *shape* — which symbol a\n * currency wears, which of three countdown states a number of days means, how much of a billing period\n * has elapsed. That split is what lets the same rules be tested without a language.\n */",
@@ -19482,6 +19494,11 @@ const allowed = new Map([
     "/**\n * The ids are made by the caller so this stays a pure function — a test can then assert the shape\n * without stubbing a random source, and the worker keeps one id generator for every table.\n */",
     "/** What the receipts actually added up to, one entry per year and currency. */",
     "/**\n * One calendar year of receipts for one plan.\n *\n * Kept in the currency each receipt was paid in rather than merged into one total: a year that mixes two\n * currencies needs an exchange table, and this number is read next to the price the plan quotes.\n */",
+    "/**\n * `1 unit of the currency = N CNY`, for the currencies the reader stated a price for themselves.\n *\n * CNY has no key: it is the anchor every other number is measured against.\n */",
+    "/**\n   * Rates the reader pinned, as `1 unit of the currency = N CNY`, used wherever the app converts.\n   *\n   * Anchored on CNY because that is the direction the feed is asked in and the direction the built-in\n   * table is written in; the account's total currency is a separate choice applied afterwards. CNY itself\n   * is never pinned — it is the anchor, and pinning it would rescale every other number by a factor the\n   * reader would then have to undo by hand.\n   */",
+    "/** How many decimals a pinned rate keeps: a won is worth fractions of a fen. */",
+    "/**\n * A currency the reader stated a price for, or nothing when they did not.\n *\n * Anything unreadable is dropped rather than guessed at: a rate that cannot be parsed would convert every\n * total in the app by a factor nobody chose, which is worse than using the feed.\n */",
+    "/** Whether a pinned rate is a number the app can convert with. */",
   ]],
   ["src/shared/subscriptions/notify-copy.ts", [
     "/**\n * Which catalog a notification body is written from, and the two helpers that assemble one.\n *\n * The language is the account's, stored on its settings row: the scheduler runs on a cron tick with no\n * request behind it, so there is nobody to ask. `fill` is deliberately smaller than the interface's\n * formatter — two placeholders and no plural rules, because the only number these sentences carry is a\n * day count and both languages write that the same way.\n */",
@@ -21558,6 +21575,9 @@ const allowed = new Map([
     "// The two fields that turn \"failed\" into something the reader can act on.",
     "// Every receipt the plan has, counted rather than listed: the slice above is the recent history,",
     "// and \"what did 2025 cost\" is a question about all of it.",
+    "// A pin is stated one currency at a time in a conversation — \"and use 7.2 for the dollar\" — so the",
+    "// currencies named are merged into what the account already pinned. Only `clearRates` answers \"drop",
+    "// them all\", because a merge cannot express that and an empty string would be read as either.",
   ]],
   ["src/worker/assistant/upstream.ts", [
     "/** A JSON Schema object, built by `toolSchemaFor` from the tool's own declared parameters. */",
@@ -22263,6 +22283,11 @@ const allowed = new Map([
     "// to the subscription it was written for, so the reader had to go find it in the list. Nullable rather",
     "// than defaulted, because a notification from a routine or an automation names no plan and keeps",
     "// arriving exactly as it did before this column existed.",
+    "// The rates an account pinned for itself, as `1 unit = N CNY`.",
+    "// The feed answers once a day for everybody; a reader billing in a currency that moves faster than",
+    "// that, or at their bank's price rather than an index, had no way to say so and got totals that looked",
+    "// authoritative. A JSON map rather than one column per currency because the currencies are a set the",
+    "// app already enumerates, and a column each would mean a migration every time one is added.",
   ]],
   ["src/worker/db/writes.ts", [
     "/** Keeps tags, backlinks, full-text indexes, and change records consistent with note writes. */",
@@ -23462,6 +23487,7 @@ const allowed = new Map([
     "// subscription. It is dropped, and the summary reports how many were.",
     "/** Everything the account has now, gone. The token columns go with it, which is the intent. */",
     "/** D1 refuses an oversized batch, and a five-thousand-row library is a plausible personal archive. */",
+    "/**\n * A settings field the archive carries as the column's own text — an hour list, a rate map.\n *\n * The document is a dump of rows, so these arrive as the JSON string the column holds, not as the value\n * the app works with. Read straight, a window written as `[\"08\",\"20\"]` would be split on its commas and\n * become two hours that match nothing, and every reminder after a restore would fall silent.\n */",
   ]],
   ["src/worker/subscriptions/channels/adapters.ts", [
     "/**\n * The nine ways a reminder leaves the building.\n *\n * Each adapter is a small function with the same shape: read the configuration it was given, build one\n * request, ask `outbound` to send it, and decide from the far end's own vocabulary whether it worked.\n * The decision is the part that cannot be generalized — Telegram says `ok`, WeCom says `errcode: 0`,\n * Bark says `code: 200` — so each one states its own predicate rather than sharing a hopeful `res.ok`.\n *\n * All nine are deliberately tolerant of a missing field: `saveChannel` refuses to store a channel that\n * cannot send, so an adapter reaching a blank value means the row was edited outside this app, and the\n * honest answer is a failed delivery with a reason rather than a throw that takes the sweep down.\n */",
@@ -23500,10 +23526,10 @@ const allowed = new Map([
     "/**\n * The dashboard, as one answer.\n *\n * Every number here is derived rather than stored: a total that was written down would be wrong the\n * moment a receipt was edited, and a subscription app is exactly the place where a reader goes back and\n * fixes a typo in last month's amount.\n *\n * The exchange rates are the one thing fetched from outside. They are cached in `app_meta` for a day\n * because they move slowly, and a failed fetch falls back to a table rather than failing the dashboard\n * — a reader opening the app on a plane should still see what they spent.\n */",
     "// A cache that cannot be read is a cache miss; the fetch below is the answer either way.",
     "/**\n * The day's rates against CNY, or the built-in table when they cannot be had.\n *\n * The host is fixed, so there is nothing here for a caller to steer; the timeout is what keeps a slow\n * currency service from holding up a dashboard that only wanted a number.\n *\n * Cached in this app's own convention (`1 unit = N CNY`) rather than the feed's, so a cache hit is a\n * read rather than a second translation. The key carries a version because the entry written before\n * this inversion was fixed is the wrong way round, and a twenty-four-hour TTL is the only migration a\n * cache gets.\n */",
-    "// The feed is one answer for everybody; the base is this account's, so it is applied afterwards.",
     "// Read once and shared with the budget: the headline and the ceiling have to be the same number, and",
     "// computing the month twice would let them disagree if the clock ticked over between the two.",
     "// Only an over-budget month is worth a colour, and a limit of 0 is a real one, not an absence.",
+    "// The feed is one answer for everybody; the pins are this account's, and the base is applied last.",
   ]],
   ["src/worker/subscriptions/scheduler.ts", [
     "/**\n * The hourly sweep: who is due, who has already been told, and what actually went out.\n *\n * It runs on every cron fire rather than once an hour, because this deployment fires at :00, :15 and\n * :45 and a reminder that waits for the next hour is a reminder that arrives up to forty-five minutes\n * late. Repeating the sweep is safe for one reason only: a delivery is recorded against the reader's own\n * local hour before it is sent, so the second and third fires of an hour find it already claimed and do\n * nothing. That claim is also what gives an \"every N hours after expiry\" rule its interval — the last\n * claim is the last delivery, and a rule that asked for twelve hours is not due after one.\n *\n * Each account is swept inside its own try, so one broken configuration cannot stop the others, and the\n * per-account log row is written even when the sweep throws: a reader whose reminders stopped needs to\n * find a line saying why.\n */",
@@ -23531,6 +23557,10 @@ const allowed = new Map([
     "// a ceiling of zero and has to survive the round trip as null.",
     "// A field-less kind is configured by the row existing: there is no bundle to have left unwritten.",
     "/**\n * Whether a kind has anything to keep secret.\n *\n * The in-app channel has no fields, so it holds no credential — and a channel that stores nothing must not\n * need the vault to be reachable before a reader can turn their own reminders on. The nine that do hold\n * credentials keep the ciphertext requirement, including in `enabledChannels`: a channel whose secret bundle\n * cannot be read is a channel that cannot send, and saying so is what the empty ciphertext already means.\n */",
+    "/** A cache-shaped field that could not be read is an empty one: the feed answers, and nothing is guessed. */",
+    "// A pin the app cannot convert with is refused rather than dropped: the reader asked for their own",
+    "// number, and totals quietly made from the feed instead would look exactly like the ones they asked for.",
+    "// An empty object is a real answer — it clears every pin — so it is not the same as sending nothing.",
   ]],
   ["src/worker/subscriptions/store.ts", [
     "/**\n * Everything the subscription app writes, and the rules it writes by.\n *\n * The reference project kept this in three files: a repository that shuttled JSON through KV, a\n * business layer that knew when an expiry date should move, and handlers that glued the two together.\n * With a real database the repository has nothing left to do — the business layer *is* the data layer,\n * because \"advance the expiry date and write the receipt that explains it\" has to be one transaction\n * rather than two calls that can disagree.\n *\n * Two invariants run through every method here:\n *  - a row is only ever read or written under its own `user_id`, so a guessed id is a 404 rather than\n *    somebody else's subscription;\n *  - a payment record and the expiry date it bought are written together, because a receipt without\n *    its period (or a period without its receipt) is what makes a history untrustworthy.\n */",
@@ -24795,6 +24825,8 @@ const allowed = new Map([
     "/**\n   * \"Did the app tell me?\" is a question the reader asks out loud, and until now a conversation could not\n   * answer it: the schedule and the delivery attempts were on screen in the app and nowhere in the tool\n   * surface. An empty log has to read differently from \"nothing was due\", or the model reports a quiet\n   * month as a working one.\n   */",
     "/**\n   * The two verbs the app has no way back from, and the guard rail between them and a conversation.\n   *\n   * `purge_subscription` refuses a plan that is still live: the reader who says \"delete Netflix\" means the\n   * trash, and an assistant that erased the receipts on the first request could not be blamed.\n   */",
     "/**\n   * \"How much has this one actually cost me\" is asked about one plan, and the receipts behind it are older\n   * than the payment list the detail carries. The count is therefore made from every receipt, and the tool\n   * surface has to answer with the same numbers the panel draws — otherwise the reader hears one figure on\n   * screen and another in the thread.\n   */",
+    "/**\n   * A rate the reader disagreed with was previously not something a conversation could fix: the number is\n   * on the dashboard, and the only way to change it was the settings panel. Pinning one currency must not\n   * lose the pins already set — \"and use 7.2 for the dollar\" is one sentence, not a request to restate the\n   * account — and a currency the app does not convert has to be named back rather than dropped.\n   */",
+    "// Refused rather than half-applied: the pin that was there is still the one the account carries.",
   ]],
   ["tests/assistant-tag-search-shape.test.ts", [
     "/**\n * A pinned `#tag` has to narrow the keyword half of a note search, not empty it.\n *\n * A turn's scope keeps tags as *ids* — the shape the folder pins and the permission check use — while the\n * retriever filters both of its lists by tag *name*: the keyword half turns `tags` into `tag:\"…\"` terms,\n * and both halves then run the app's one tag-subtree rule (`tagScopePredicate()`, which `semanticWhere` in\n * `mcp/ai-search.ts` calls for the vector list too). Handing the ids over was therefore a filter no note\n * can satisfy: a reader pinning `#meeting` got a keyword half that was always empty, and on an index that\n * is switched on the only hits left came from the vector list, which is the \"it matched but nothing says\n * why\" answer.\n *\n * The vector half is switched off in every case below, so any hit at all can only have come from keywords.\n */",
@@ -26732,6 +26764,7 @@ const allowed = new Map([
     "// Wipe through the public path so the restore is not measured against a database it half-wrote.",
     "// The reader reconnects it. What must not happen is a restore that quietly re-arms a channel from",
     "// a file that should never have held the key in the first place.",
+    "/**\n   * The settings row is a dump of columns, so the fields the database stores as text arrive as text.\n   *\n   * Read straight, a window written as `[\"08\",\"20\"]` splits on its own commas and comes back as two hour\n   * names that match nothing — which silences every reminder after a restore, the one thing a reader has\n   * no way to see. The pinned rates are the same shape one field over, so both are named here.\n   */",
   ]],
   ["tests/subscriptions-channel-vault.test.ts", [
     "/**\n * Whether the credential vault would actually accept what the channel forms produce.\n *\n * Every notification channel's configuration is stored as one ciphertext, so the vault's own field policy\n * is on the save path of all ten of them. The channel routes' tests cannot see a mismatch, because they\n * run against a vault double that encrypts anything — which is exactly how `channel:` came to be missing\n * from the accepted scopes while every other scope was listed, and how the field whitelist that guards\n * *backup* credentials was the one judging channel bundles. Both rejections surfaced as \"the vault binding\n * is missing\", which is a sentence that points at the deployment rather than at this file.\n *\n * So this builds a configuration for every declared channel out of the channel definition itself and asks\n * the real predicate. Adding a channel with a field name the vault would refuse fails here, not on a\n * reader's save press.\n */",
@@ -26786,6 +26819,14 @@ const allowed = new Map([
     "// Empty, not a guessed default: \"nobody chose\" has to stay distinguishable from \"chose the default\",",
     "// or a preset change could never reach the accounts that never picked.",
     "// NULL means live. A default of `0` would have put every existing subscription in the trash.",
+  ]],
+  ["tests/subscriptions-rate-overrides.test.ts", [
+    "/**\n * The rates an account states for itself.\n *\n * The feed answers once a day for everybody, which is the right default and the wrong answer for a reader\n * whose currency moves faster than that or whose bank quotes elsewhere. What this file pins is the whole\n * promise: a pin is stored, a pin survives a change of total currency, a pin reaches the money the\n * dashboard prints, and a request the app cannot honour is refused by name rather than quietly ignored.\n */",
+    "/** What the feed answers for the day, as Frankfurter does: foreign units per one yuan. */",
+    "// The refusal is not a half write: what was already pinned is still there.",
+    "/**\n   * Text that is not a rate map reads as \"nothing pinned\".\n   *\n   * The column is written by one statement today, but it outlives this file: a hand-restored row, or an\n   * archive that carried something else in its place, must not become a dashboard that throws. Dropping the\n   * pins is also the right answer rather than guessing at a rate nobody chose.\n   */",
+    "/**\n   * The order matters and is the whole reason the pin is stored per yuan rather than per total currency.\n   *\n   * A reader who pins the dollar and then moves the dashboard to dollars still means 7.2 yuan: re-basing\n   * afterwards makes their own currency exactly 1, which is what a total in it has to be worth.\n   */",
+    "// 15 a month, twelve times, at 6.993 yuan to the dollar.",
   ]],
   ["tests/subscriptions-reminder-engine.test.ts", [
     "/**\n * `repeat_until` was stored from the first version and consulted by nothing — the reference project had\n * the same dropdown and the same dead field, and its engine header claimed the scheduler filtered on it\n * when the scheduler never did. These are the tests that make the control mean what it says.\n */",

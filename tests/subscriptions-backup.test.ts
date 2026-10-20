@@ -6,7 +6,7 @@ import {
   applyBackupSubscriptions,
   readBackupSubscriptions,
 } from '../src/worker/subscriptions/backup'
-import { saveSettings } from '../src/worker/subscriptions/settings'
+import { loadSettings, saveSettings } from '../src/worker/subscriptions/settings'
 import { SubscriptionsStore } from '../src/worker/subscriptions/store'
 import type { Env } from '../src/worker/env'
 import { makeD1 } from './doubles/d1-sqlite'
@@ -152,6 +152,25 @@ describe('restore', () => {
     expect(rows('sub_payment')).toHaveLength(before.payments.length)
     expect(rows('sub_reminder_rule')).toHaveLength(6)
     expect(rows('sub_type')).toEqual(before.types)
+  })
+
+  /**
+   * The settings row is a dump of columns, so the fields the database stores as text arrive as text.
+   *
+   * Read straight, a window written as `["08","20"]` splits on its own commas and comes back as two hour
+   * names that match nothing — which silences every reminder after a restore, the one thing a reader has
+   * no way to see. The pinned rates are the same shape one field over, so both are named here.
+   */
+  it('round-trips the notification window and the pinned rates as the values they hold', async () => {
+    await seed()
+    await saveSettings(env.DB, USER, { rateOverrides: { USD: 7.2 } })
+    const text = await readBackupSubscriptions(env.DB, USER)!
+    expect(JSON.parse(text!).settings.notification_hours).toBeTypeOf('string')
+
+    await applyBackupSubscriptions(env.DB, USER, text)
+    const restored = await loadSettings(env.DB, USER)
+    expect(restored.notificationHours).toEqual(['08', '20'])
+    expect(restored.rateOverrides).toEqual({ USD: 7.2 })
   })
 
   it('replaces the current library rather than adding to it', async () => {

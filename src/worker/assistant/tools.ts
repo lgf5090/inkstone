@@ -36,6 +36,7 @@ import { SubscriptionsStore, storeContext, type StoreContext } from '../subscrip
 import {
   BULK_LIMIT,
   CURRENCY_CODES,
+  isRateValue,
   labelNamesOf,
   PERIOD_UNITS,
   RULES_LIMIT,
@@ -1746,7 +1747,7 @@ export const SUBSCRIPTION_TOOLS: ToolDefinition[] = [
     name: 'get_subscription_settings',
     permission: 'read',
     maxCallsPerTurn: 2,
-    description: 'How the subscriptions app is configured for this reader: the time zone reminders are judged in, the hours it may send them in, whether dates are shown by the lunar calendar, how many receipts a row carries, the currency the dashboard totals in, and the monthly ceiling they set. Carrying no answer for one of these is a real fact about the account, so name it rather than guessing.',
+    description: 'How the subscriptions app is configured for this reader: the time zone reminders are judged in, the hours it may send them in, whether dates are shown by the lunar calendar, how many receipts a row carries, the currency the dashboard totals in, the monthly ceiling they set, and any exchange rate they pinned over the daily feed. Carrying no answer for one of these is a real fact about the account, so name it rather than guessing.',
     fields: {},
     async run(_args, ctx) {
       const settings = await loadSettings(ctx.env.DB, ctx.store.userId)
@@ -1763,6 +1764,10 @@ export const SUBSCRIPTION_TOOLS: ToolDefinition[] = [
         budgetNote: settings.budgetMonthly === null
           ? 'No monthly ceiling is set, so the dashboard never calls a month over budget.'
           : undefined,
+        rateOverrides: settings.rateOverrides,
+        ratesNote: Object.keys(settings.rateOverrides).length === 0
+          ? 'No rate is pinned, so every total converts at the daily exchange feed.'
+          : undefined,
       }
     },
   }),
@@ -1770,7 +1775,7 @@ export const SUBSCRIPTION_TOOLS: ToolDefinition[] = [
     name: 'set_subscription_settings',
     permission: 'write',
     maxCallsPerTurn: 2,
-    description: 'Change how the subscriptions app behaves for this reader. Only what is named is touched. `timezone` must be a real IANA zone such as Asia/Shanghai, and `notificationHours` is which hours of the reader\'s own day reminders may arrive in.',
+    description: 'Change how the subscriptions app behaves for this reader. Only what is named is touched. `timezone` must be a real IANA zone such as Asia/Shanghai, and `notificationHours` is which hours of the reader\'s own day reminders may arrive in. `rateOverrides` is how the reader wants a currency valued, in yuan per unit, instead of the daily feed.',
     fields: {
       timezone: { type: 'string', maxLength: 40, optional: true, description: 'An IANA zone name, for example Asia/Shanghai or Europe/Berlin.' },
       notificationHours: { type: 'string', maxLength: 80, optional: true, description: 'Comma-separated hours of the day the reader may be woken with a reminder, such as "9,10,19,20". Send "all" for no window, or "none" to stay quiet.' },
@@ -1779,6 +1784,13 @@ export const SUBSCRIPTION_TOOLS: ToolDefinition[] = [
       baseCurrency: { type: 'string', enum: [...CURRENCY_CODES], optional: true },
       budgetMonthly: { type: 'number', minimum: 0, maximum: 1e9, optional: true },
       clearBudget: { type: 'boolean', optional: true, description: 'True removes the monthly ceiling altogether. Leave it out to keep or set one.' },
+      rateOverrides: {
+        type: 'string',
+        maxLength: 160,
+        optional: true,
+        description: 'Rates the reader stated for themselves, as "USD:7.2, JPY:0.045", each meaning 1 of that currency = so many yuan. Named currencies are added to the pins already set; "USD:none" lets one follow the feed again. Every total the app adds up converts with these.',
+      },
+      clearRates: { type: 'boolean', optional: true, description: 'True removes every pinned rate, so the account converts at the daily feed again.' },
     },
     async run(args, ctx) {
       const patch: Record<string, unknown> = {}
@@ -1802,6 +1814,34 @@ export const SUBSCRIPTION_TOOLS: ToolDefinition[] = [
       // field cannot carry that, so clearing it is its own verb rather than a zero.
       if (args.clearBudget === true) patch.budgetMonthly = null
       else if (args.budgetMonthly !== undefined) patch.budgetMonthly = Number(args.budgetMonthly)
+      // A pin is stated one currency at a time in a conversation — "and use 7.2 for the dollar" — so the
+      // currencies named are merged into what the account already pinned. Only `clearRates` answers "drop
+      // them all", because a merge cannot express that and an empty string would be read as either.
+      if (args.clearRates === true) patch.rateOverrides = {}
+      else if (typeof args.rateOverrides === 'string') {
+        const tokens = args.rateOverrides.split(',').map((token) => token.trim()).filter(Boolean)
+        if (!tokens.length) throw new ToolError('Name a currency to pin, such as "USD:7.2", or ask to clear the pinned rates.')
+        const pinned: Record<string, number> = { ...(await loadSettings(ctx.env.DB, ctx.store.userId)).rateOverrides }
+        for (const token of tokens) {
+          const [rawCode = '', rawValue] = token.split(/[:=]/)
+          const code = rawCode.trim().toUpperCase()
+          if (!(CURRENCY_CODES as readonly string[]).includes(code)) {
+            throw new ToolError(`"${code}" is not a currency this app converts. It knows ${CURRENCY_CODES.join(', ')}.`)
+          }
+          if (code === 'CNY') throw new ToolError('The yuan is what every other rate is measured against, so it has no rate of its own to pin.')
+          const value = (rawValue ?? '').trim()
+          if (value.toLowerCase() === 'none') {
+            delete pinned[code]
+            continue
+          }
+          const numeric = Number(value)
+          if (!isRateValue(numeric)) {
+            throw new ToolError(`"${token}" is not a rate. Write 1 <currency> = <number>, such as "USD:7.2", or "USD:none" to let it follow the feed.`)
+          }
+          pinned[code] = numeric
+        }
+        patch.rateOverrides = pinned
+      }
       if (!Object.keys(patch).length) throw new ToolError('Name at least one setting to change.')
       let settings
       try {
@@ -1821,6 +1861,10 @@ export const SUBSCRIPTION_TOOLS: ToolDefinition[] = [
         budgetMonthly: settings.budgetMonthly,
         budgetNote: settings.budgetMonthly === null
           ? 'No monthly ceiling is set, so the dashboard never calls a month over budget.'
+          : undefined,
+        rateOverrides: settings.rateOverrides,
+        ratesNote: Object.keys(settings.rateOverrides).length === 0
+          ? 'No rate is pinned, so every total converts at the daily exchange feed.'
           : undefined,
       }
     },

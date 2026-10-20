@@ -68,7 +68,7 @@ async function seedSubscription(overrides: Record<string, unknown> = {}, userId 
 }
 
 function store(userId = ALICE) {
-  return { store: new SubscriptionsStore(env.DB, userId), context: storeContext({ timezone: 'Asia/Shanghai', paymentHistoryLimit: 100, locale: 'zh-CN', notificationHours: [], showLunar: false, baseCurrency: 'CNY', budgetMonthly: null, inboundTokenHint: '' }, NOW) }
+  return { store: new SubscriptionsStore(env.DB, userId), context: storeContext({ timezone: 'Asia/Shanghai', paymentHistoryLimit: 100, locale: 'zh-CN', notificationHours: [], showLunar: false, baseCurrency: 'CNY', budgetMonthly: null, rateOverrides: {}, inboundTokenHint: '' }, NOW) }
 }
 
 beforeEach(() => {
@@ -376,6 +376,45 @@ describe('the account behind the rows', () => {
     await expect(run('set_subscription_settings', { notificationHours: '8,25' }))
       .rejects.toThrow(/0 to 23/)
     await expect(run('set_subscription_settings', {})).rejects.toThrow(/at least one setting/)
+  })
+
+  /**
+   * A rate the reader disagreed with was previously not something a conversation could fix: the number is
+   * on the dashboard, and the only way to change it was the settings panel. Pinning one currency must not
+   * lose the pins already set — "and use 7.2 for the dollar" is one sentence, not a request to restate the
+   * account — and a currency the app does not convert has to be named back rather than dropped.
+   */
+  it('pins a rate, merges it with the ones already pinned, and unpins by name', async () => {
+    const first = await run('set_subscription_settings', { rateOverrides: 'USD:7.2' }) as { rateOverrides: Record<string, number> }
+    expect(first.rateOverrides).toEqual({ USD: 7.2 })
+
+    const second = await run('set_subscription_settings', { rateOverrides: 'JPY:0.045' }) as { rateOverrides: Record<string, number> }
+    expect(second.rateOverrides).toEqual({ USD: 7.2, JPY: 0.045 })
+
+    const read = await run('get_subscription_settings', {}) as { rateOverrides: Record<string, number>, ratesNote?: string }
+    expect(read.rateOverrides).toEqual({ USD: 7.2, JPY: 0.045 })
+    expect(read.ratesNote, 'a pinned account is not told it follows the feed').toBeUndefined()
+
+    const unpinned = await run('set_subscription_settings', { rateOverrides: 'USD:none' }) as { rateOverrides: Record<string, number> }
+    expect(unpinned.rateOverrides).toEqual({ JPY: 0.045 })
+
+    const cleared = await run('set_subscription_settings', { clearRates: true }) as { rateOverrides: Record<string, number>, ratesNote?: string }
+    expect(cleared.rateOverrides).toEqual({})
+    expect(cleared.ratesNote).toMatch(/daily exchange feed/)
+
+    await expect(run('set_subscription_settings', { rateOverrides: '  ' }))
+      .rejects.toThrow(/Name a currency/)
+
+    // Refused rather than half-applied: the pin that was there is still the one the account carries.
+    await run('set_subscription_settings', { rateOverrides: 'USD:7.2' })
+    await expect(run('set_subscription_settings', { rateOverrides: 'XYZ:1' }))
+      .rejects.toThrow(/is not a currency/)
+    await expect(run('set_subscription_settings', { rateOverrides: 'CNY:1' }))
+      .rejects.toThrow(/measured against/)
+    await expect(run('set_subscription_settings', { rateOverrides: 'USD:seven' }))
+      .rejects.toThrow(/USD:none/)
+    expect((await run('get_subscription_settings', {})) as { rateOverrides: Record<string, number> })
+      .toMatchObject({ rateOverrides: { USD: 7.2 } })
   })
 
   it('switches tracking off without touching the trash, and says so when nothing changed', async () => {
