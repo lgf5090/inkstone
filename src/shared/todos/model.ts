@@ -183,6 +183,11 @@ export interface TodoTask extends Task {
   plannedFor: string | null
   noteId: string | null
   conversationId: string | null
+  /**
+   * The row's version, moved on by every write. A caller editing a task names the revision it read;
+   * a write naming an older one is refused with a 409 rather than replacing an edit it never saw.
+   */
+  rev?: number
   stepTotal: number
   stepDone: number
 }

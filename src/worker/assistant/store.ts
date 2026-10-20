@@ -91,6 +91,7 @@ import { likePattern } from '@shared/markdown-utils'
 import type { Env } from '../env'
 import { tagScopePredicate } from '../db/rows'
 import { MAX_BATCH_STATEMENTS } from '../db/writes'
+import { ApiError } from '../lib/errors'
 import { newId } from '../lib/id'
 import { parseStoredJson } from '../lib/json'
 import { decryptAssistantKey, decryptMcpOAuth, encryptAssistantKey, encryptMcpOAuth } from '../lib/crypto'
@@ -3976,6 +3977,41 @@ export class AssistantStore {
     return localDate(at, timeZone ?? (await this.getSettings()).timezone)
   }
 
+  /**
+   * Writes one task's named columns and moves its revision on.
+   *
+   * The bump rides in the same statement as the edit, so a revision can never describe a row that did
+   * not move with it. With `expectedRev` the statement also matches that revision: a stale caller
+   * changes no row, and the caller above turns the empty result into a conflict.
+   */
+  private async updateTaskRow(
+    id: string,
+    fields: readonly (readonly [column: string, value: unknown])[],
+    expectedRev?: number,
+  ): Promise<number> {
+    const sets = fields.map(([column], index) => `${column} = ?${index + 2}`)
+    sets.push('rev = rev + 1')
+    const guard = expectedRev === undefined ? '' : ` AND rev = ?${fields.length + 3}`
+    return await this.write(
+      `UPDATE todos_tasks SET ${sets.join(', ')}
+        WHERE user_id = ?1 AND id = ?${fields.length + 2}${guard}`,
+      ...fields.map(([, value]) => value), id, ...(expectedRev === undefined ? [] : [expectedRev]),
+    )
+  }
+
+  /**
+   * The refusal a guarded task write answers with: the row moved since the caller read it.
+   *
+   * The revision that actually stands rides in `details`, so a client can offer "reload and reapply"
+   * without a second read, and the shape is the one every 409 in this repo already has.
+   */
+  private taskConflict(id: string, current: TodoTask): ApiError {
+    return ApiError.conflict(
+      'The task changed since it was read. Reload it and try again.',
+      { id, rev: current.rev },
+    )
+  }
+
   async createTask(input: NewTask, timeZone?: string): Promise<TodoTask> {
     const id = newId()
     const at = Date.now()
@@ -3994,7 +4030,7 @@ export class AssistantStore {
       input.conversationId ?? null, at, at, status === 'done' ? at : null,
       createdOn, status === 'done' ? createdOn : null,
     )
-    if (input.tags?.length) await this.setTaskTags(id, input.tags)
+    if (input.tags?.length) await this.replaceTaskTags(id, input.tags)
     for (const text of input.steps ?? []) await this.addStep(id, text)
     const reminders = input.reminders ?? (input.remindAt != null ? [input.remindAt] : [])
     if (reminders.length) await this.replaceTaskReminders(id, reminders)
@@ -4039,7 +4075,7 @@ export class AssistantStore {
         `INSERT INTO todos_reminders (user_id, id, task_id, remind_at, fired_at, created_at)
          VALUES (?1, ?2, ?3, ?4, NULL, ?5)`,
       ).bind(this.userId, newId(), id, Math.trunc(remindAt), Date.now()),
-      this.db.prepare(`UPDATE todos_tasks SET updated_at = ?3 WHERE user_id = ?1 AND id = ?2`)
+      this.db.prepare(`UPDATE todos_tasks SET updated_at = ?3, rev = rev + 1 WHERE user_id = ?1 AND id = ?2`)
         .bind(this.userId, id, Date.now()),
     ])
     return await this.getTask(id)
@@ -4060,10 +4096,20 @@ export class AssistantStore {
    *
    * Writing the whole row back from a snapshot read a moment earlier is how two edits made at once
    * lose one of themselves, and it is how a column this method does not know about gets cleared.
+   *
+   * `expectedRev` is the revision the caller read: the statement matches only that one, so a stale
+   * edit is refused with a conflict and writes nothing at all. The revision it needs back is in the
+   * error's `details`.
    */
-  async updateTask(id: string, patch: Partial<NewTask>, timeZone?: string): Promise<TodoTask | null> {
+  async updateTask(
+    id: string,
+    patch: Partial<NewTask>,
+    timeZone?: string,
+    expectedRev?: number,
+  ): Promise<TodoTask | null> {
     const existing = await this.getTask(id)
     if (!existing) return null
+    if (expectedRev !== undefined && existing.rev !== expectedRev) throw this.taskConflict(id, existing)
     const at = Date.now()
     const fields: (readonly [string, unknown])[] = []
     if (patch.title !== undefined) fields.push(['title', patch.title.trim().slice(0, 300)])
@@ -4091,8 +4137,15 @@ export class AssistantStore {
       }
     }
     fields.push(['updated_at', at])
-    await this.partialUpdate('todos_tasks', id, fields)
-    if (patch.tags !== undefined) await this.setTaskTags(id, patch.tags)
+    const changes = await this.updateTaskRow(id, fields, expectedRev)
+    if (!changes) {
+      // The row was gone, or (with a guard) moved between the read and the write. Re-read so the
+      // conflict names the revision that actually stands; the guarded statement wrote nothing.
+      const current = await this.getTask(id)
+      if (!current) return null
+      throw this.taskConflict(id, current)
+    }
+    if (patch.tags !== undefined) await this.replaceTaskTags(id, patch.tags)
     // Reminders follow their due date unless the caller named a list (or the single instant the
     // assistant's tools speak). `reminders` wins: it is the whole pending list, not an addition.
     const named = patch.reminders ?? (patch.remindAt !== undefined
@@ -4123,7 +4176,7 @@ export class AssistantStore {
    * record, it simply is not today. Does not touch the due date, the reminder or the status.
    */
   async planTask(id: string, date: string | null): Promise<TodoTask | null> {
-    const changed = await this.partialUpdate('todos_tasks', id, [
+    const changed = await this.updateTaskRow(id, [
       ['planned_for', date],
       ['updated_at', Date.now()],
     ])
@@ -4337,7 +4390,7 @@ export class AssistantStore {
 
   /** Deletes a list. Its tasks are not deleted with it: they move to the inbox, where nothing is lost. */
   async deleteTaskList(id: string): Promise<void> {
-    await this.write(`UPDATE todos_tasks SET list_id = NULL, updated_at = ?3 WHERE user_id = ?1 AND list_id = ?2`, id, Date.now())
+    await this.write(`UPDATE todos_tasks SET list_id = NULL, updated_at = ?3, rev = rev + 1 WHERE user_id = ?1 AND list_id = ?2`, id, Date.now())
     await this.write(`DELETE FROM todos_lists WHERE user_id = ?1 AND id = ?2`, id)
   }
 
@@ -4420,9 +4473,23 @@ export class AssistantStore {
    * Replaces a task's tags with the names given, creating the ones this account does not have.
    *
    * Names rather than ids because that is what the model and the reader type; the tag list is the
-   * account's own vocabulary, and a name it has not used yet is a new word, not an error.
+   * account's own vocabulary, and a name it has not used yet is a new word, not an error. A tag edit
+   * is a task edit, so the row's revision moves on with it.
    */
   async setTaskTags(taskId: string, names: readonly string[]): Promise<TaskTag[]> {
+    const wanted = await this.replaceTaskTags(taskId, names)
+    await this.updateTaskRow(taskId, [])
+    return wanted
+  }
+
+  /**
+   * The link replacement both tag writers share.
+   *
+   * It deliberately leaves the revision alone: `createTask` and `updateTask` call it as part of a
+   * write that has already moved (or, at creation, is about to settle on) the row's version, and a
+   * second bump there would make one edit count as two.
+   */
+  private async replaceTaskTags(taskId: string, names: readonly string[]): Promise<TaskTag[]> {
     const wanted: TaskTag[] = []
     for (const name of normalizeTagNames(names)) wanted.push(await this.createTaskTag({ name }))
     await this.write(`DELETE FROM todos_tag_links WHERE user_id = ?1 AND task_id = ?2`, taskId)
@@ -4574,7 +4641,7 @@ export class AssistantStore {
     // The activity feed quoted each fact when it was learned; the fact is gone, so the quote goes too —
     // the same promise `deleteMemory` keeps, for the same reason.
     for (const memory of filed) await this.deleteActivityQuoting('memory.created', memory.content)
-    await this.write(`UPDATE todos_tasks SET project_id = NULL WHERE user_id = ?1 AND project_id = ?2`, id)
+    await this.write(`UPDATE todos_tasks SET project_id = NULL, rev = rev + 1 WHERE user_id = ?1 AND project_id = ?2`, id)
     await this.write(`DELETE FROM chat_projects WHERE user_id = ?1 AND id = ?2`, id)
   }
 
@@ -6740,6 +6807,8 @@ interface TaskRow {
   created_at: number
   updated_at: number
   completed_at: number | null
+  /** The row's version: 1 when written, moved on by every write path. */
+  rev: number
 }
 
 interface TaskListRow {
@@ -6798,6 +6867,7 @@ function toTask(
     createdAt: r.created_at,
     updatedAt: r.updated_at,
     completedAt: num(r.completed_at),
+    rev: r.rev,
   }
 }
 
