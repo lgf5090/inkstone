@@ -21,7 +21,8 @@ import { CheckSquare } from 'lucide-react'
 import type { MenuItem } from '../../components/overlay'
 import { t } from '../../lib/i18n'
 import { api } from '../../lib/api'
-import { extractDate, extractInlineFields } from '../../lib/dataview/metadata'
+import { extractInlineFields } from '../../lib/dataview/metadata'
+import { readTaskFields } from '../../lib/dataview/task-fields'
 import { useNotes } from '../../store/notes'
 import { useUi } from '../../store/ui'
 import { useAssistant } from './assistant-store'
@@ -50,12 +51,12 @@ export function parseNoteTaskCheckbox(line: string): NoteTaskCheckbox | null {
   const markerEnd = marker[0].length
   const content = line.slice(markerEnd)
 
-  // One scan covers both spellings the vault reads (`[due:: …]` and the emoji dates), and the same ranges
-  // are then cut out of the title — a task's words should not carry the field markers they were parsed from.
-  const fields = extractInlineFields(line, true)
-  const due = fields.find((hit) => hit.key.toLowerCase() === 'due')
-  const dueDate = due ? extractDate(due.value) : null
-  const dueAt = dueDate
+  // One scan covers the bracketed spellings the vault reads, and the same ranges are then cut out of
+  // the title — a task's words should not carry the field markers they were parsed from. The due date
+  // itself comes from the task parser, so `📅`, `📆` and `[due:: …]` all answer the same question.
+  const fields = extractInlineFields(line)
+  const dueDate = readTaskFields(content).dueDate
+  const dueAt = dueDate !== null && Number.isFinite(dueDate.getTime())
     ? new Date(dueDate.getFullYear(), dueDate.getMonth(), dueDate.getDate(), 23, 59, 59, 999).getTime()
     : null
 

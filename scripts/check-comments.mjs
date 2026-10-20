@@ -3934,8 +3934,6 @@ const allowed = new Map([
     "/** The checkbox's own words, with the marker and any inline date fields stripped. */",
     "/** The due date written on the line, as the same end-of-day-local milliseconds the task list sorts by, or null. */",
     "/** Whether the line is a task checkbox at all, and if so its title and any due date. */",
-    "// One scan covers both spellings the vault reads (`[due:: …]` and the emoji dates), and the same ranges",
-    "// are then cut out of the title — a task's words should not carry the field markers they were parsed from.",
     "// Only the bracketed fields that live inside the text after the box, so nothing negative is spliced at.",
     "// The emoji dates are removed as whole tokens rather than by index (see EMOJI_DATE above).",
     "/** The create-task payload for one checkbox, or null when the line is not a task or says nothing. */",
@@ -3945,6 +3943,9 @@ const allowed = new Map([
     "/**\n * The \"turn into a task\" row for the note's task context menu.\n *\n * It lives here, next to the parsing it depends on, so the menu builder that shows it is a single spread\n * (`...buildNoteTaskMenuItem(...)`) rather than a second copy of this logic. Returns null when the line\n * the menu was opened on is not a task with something to say, so the caller just omits the row.\n */",
     "// The note title is read at press time, not when the menu was built, so a rename while the menu sat",
     "// open does not stamp the task with the page's older name.",
+    "// One scan covers the bracketed spellings the vault reads, and the same ranges are then cut out of",
+    "// the title — a task's words should not carry the field markers they were parsed from. The due date",
+    "// itself comes from the task parser, so `📅`, `📆` and `[due:: …]` all answer the same question.",
   ]],
   ["src/client/features/chat/pdf-text.ts", [
     "/**\n * A PDF's words, read in the browser.\n *\n * The worker cannot pull text out of a PDF — it has no parser and no DOM — so the browser reads it at\n * upload time, where PDF.js already runs for the reading app, and sends the words along with the bytes.\n * The library is imported lazily so an attachment that is not a PDF never pays for it, and the\n * extraction is bounded so a nine-hundred-page manual does not arrive as one enormous prompt.\n */",
@@ -11475,8 +11476,6 @@ const allowed = new Map([
     "/** The heading-linked section, or the file when the item is above the first heading. */",
     "/** `^block-id` when the author wrote one, which is what a task link points at. */",
     "/** Everything the index knows about one note. */",
-    "/**\n * Emoji shorthand dates on a task line (the Tasks-plugin convention Dataview reads), which become\n * fields the same way `[due:: …]` does. Written as escapes so the source stays free of Han/punctuation\n * surprises and the i18n gate has nothing to flag.\n */",
-    "/**\n * Inline fields of the form `[key:: value]` or `(key:: value)`, plus the special task emoji dates.\n * Scanning is positional rather than one regex: the wrapper body may contain nested brackets, links\n * and escaped characters, and Markdown around the field is not balanced.\n */",
     "/**\n * A `Key:: Value` line that consumes the whole line. The key drops the Markdown that introduced it\n * (`**Daily**:: x` is `Daily`) and must survive as a word, or a table row `| a | b |` would read as a\n * field named `| a | b |`.\n */",
     "/** `Some  Key` and `Some*Key*` address the same field as `Some Key`. */",
     "/** A tag name is stored without its `#` in this app, and written with one in a note. */",
@@ -11495,6 +11494,7 @@ const allowed = new Map([
     "/** Inline fields in prose: every line outside a list item that carries a `::`. */",
     "/** The day a note is *about*: an explicit `day`/`date` field, else a date in its title. */",
     "/**\n * The object a query sees for this page: `file.*` for the note itself, then every inline field at the\n * top level. A field never displaces `file`, matching the reference.\n */",
+    "/**\n * Inline fields of the form `[key:: value]` or `(key:: value)`.\n * Scanning is positional rather than one regex: the wrapper body may contain nested brackets, links\n * and escaped characters, and Markdown around the field is not balanced.\n *\n * Task emoji are not read here. They belong to the task parser, so a line means the same thing\n * to a table, a task list and a `tasks` query instead of one thing to each of them.\n */",
   ]],
   ["src/client/lib/dataview/regex.ts", [
     "/** Compiled and cached, because a table cell reuses its pattern across every row. */",
@@ -11541,6 +11541,10 @@ const allowed = new Map([
     "/** Fold one note's newest content in immediately, so a saved edit refreshes blocks without a debounce. */",
     "/** Whether a tick landed, was refused because the note moved, or could not be read at all. */",
     "/**\n * Tick a task the reader sees in a result, in the note it came from.\n *\n * The target note is usually closed, so the write goes through the store's remote-content path: anything\n * still unsaved in that note's editor is flushed first, and the rewrite runs against the copy the server\n * holds now. Refusing a line whose text no longer matches is what makes a stale result a no-op rather\n * than an edit to somebody else's task.\n */",
+  ]],
+  ["src/client/lib/dataview/task-fields.ts", [
+    "/**\n * Read a task line into the one shape every view agrees on.\n *\n * Both formats are tried because Inkstone notes already mix them: a vault where half the tasks say\n * `📅 2026-10-04` and half say `[due:: 2026-10-04]` should not have to pick an engine. The emoji\n * format wins where both found the same field, since it is the one that carries the rest of them.\n */",
+    "/**\n * The task's fields as Dataview fields, so `WHERE due < today` and `TABLE priority` answer for a\n * task line the same way they do for a frontmatter property.\n *\n * `completion` is kept beside `done`: it is the name this project's Dataview port published, and\n * readers have queries written against it. Keys the note already set by hand are skipped, because\n * an explicit `[due:: …]` states what the author meant more directly than a symbol does.\n */",
   ]],
   ["src/client/lib/dataview/tasks.test.ts", [
     "/**\n * The task rewrite: what a tick in a query result is allowed to do to another note's line. The refusals\n * matter as much as the edits, because the line the reader sees may no longer be the line in the file.\n */",
@@ -17322,6 +17326,9 @@ const allowed = new Map([
   ]],
   ["src/client/lib/tasks/dependency-contract.test.ts", [
     "/**\n * Upstream seeds `dtstart` with a moment that has been moved to local midnight and then re-tagged as\n * UTC, so the rule iterates over calendar days rather than instants. Reproduced with plain Dates.\n */",
+  ]],
+  ["src/client/lib/tasks/index.ts", [
+    "/**\n * Public surface of the task layer.\n *\n * The query module reads tasks through here and nothing else: it needs the line parser and the\n * status registry, not the query engine, so the two modules stay separable and the dependency only\n * ever points in this direction.\n */",
   ]],
   ["src/client/lib/tasks/layout/task-layout.ts", [
     "/**\n * The parts a task line is made of.\n *\n * **This declaration order is the on-disk order.** Writing `📅` before `✅` and then reading the\n * line back works either way, but a stable order is what lets a rewrite change one field without\n * reshuffling its neighbours into a diff the reader has to re-learn.\n */",
