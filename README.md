@@ -36,6 +36,47 @@ Every new account automatically receives two standard starter notes, one in Chin
 | Sharing | Public note links with optional access passwords and expiration dates |
 | Portability | JSON and ZIP exports, directly readable **Markdown**, attachment export, and **manual or scheduled WebDAV/S3 backups** |
 | Interface | **Desktop and mobile layouts**, **dark/light themes**, accent colors, Simplified Chinese, English, and owner-only update notifications |
+| Queries | **Dataview** `dataview` / `dataviewjs` blocks with DQL and inline fields, and **Tasks** `tasks` blocks that query every checkbox in the vault, group and sort the results, and tick or edit them from the list |
+
+## Task queries
+
+A `tasks` fence asks the same question of every checkbox in the vault, and the answer is live: ticking
+a row writes the note it came from.
+
+````markdown
+```tasks
+not done
+due before 2026-11-01
+group by folder
+sort by urgency
+hide edit button
+```
+````
+
+**Fields are written after the description**, in one fixed order — id, depends on, priority, recurrence,
+on completion, created, start, scheduled, due, cancelled, done — and a line that puts them anywhere else
+is still read, then rewritten in that order. The same order is what lets a tick change one field without
+reshuffling its neighbours.
+
+Each field has one symbol, and Inkstone reads every spelling it has ever accepted while writing only the
+one you chose in **Settings → Queries → completion marker**:
+
+| Field | Written as | Also read as |
+| --- | --- | --- |
+| Priority | `🔺` `⏫` `🔼` `🔽` `⏬` | none, and `[priority:: high]` |
+| Created | `➕` | `✕`, `[created:: …]` |
+| Start | `🛫` | `[start:: …]` |
+| Scheduled | `⏳` | `⌛` `🕐`, `[scheduled:: …]` |
+| Due | `📅` | `📆` `🗓`, `[due:: …]` |
+| Cancelled | `❌` | `[cancelled:: …]` |
+| Done | `✅` | `[done:: …]` |
+| Recurrence | `🔁 every week` | `[repeat:: …]` |
+| On completion | `🏁 keep` / `🏁 delete` | `[onCompletion:: …]` |
+| Id / depends on | `🆔 abc` `⛔ def` | `[id:: …]` `[dependsOn:: …]` |
+
+A `#task` word that **Settings → Tasks → global filter** names is what makes a checkbox count as a task
+at all; a block that should see every box says `ignore global query`. Ticking a recurring task retires
+this occurrence and writes the next one, stamped with the dates the rule produced.
 
 ## Data storage
 
