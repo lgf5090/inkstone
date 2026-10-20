@@ -17,6 +17,7 @@ import { IconButton } from '../../components/primitives'
 import { Input } from '../../components/form'
 import { LoadingBlock } from '../../components/feedback'
 import { useTodos } from './store'
+import { BatchBar } from './BatchBar'
 import { TaskEditor } from './TaskEditor'
 import { useViewTitle } from './TaskViews'
 import { TodoFilters } from './TodoFilters'
@@ -46,6 +47,8 @@ export function TodosApp() {
   const query = useTodos((state) => state.query)
   const setQuery = useTodos((state) => state.setQuery)
   const openEditor = useTodos((state) => state.openEditor)
+  const selecting = useTodos((state) => state.selectedIds.size > 0)
+  const clearSelection = useTodos((state) => state.clearSelection)
   const counts = useTodos((state) => state.counts)
   const lists = useTodos((state) => state.lists)
   const tags = useTodos((state) => state.tags)
@@ -81,6 +84,9 @@ export function TodosApp() {
     const onKey = (event: KeyboardEvent): void => {
       if (event.defaultPrevented || event.metaKey || event.ctrlKey || event.altKey) return
       if (isEditableTarget(event.target)) return
+      // Selection is a mode, so Escape is the way out of it before it is the way out of a search or a
+      // page: the reader is looking at the bar, and leaving it is what they asked for.
+      if (event.key === 'Escape' && selecting) { event.preventDefault(); clearSelection(); return }
       if (event.key === 'n') { event.preventDefault(); newTask(); return }
       if (event.key === '/') {
         event.preventDefault()
@@ -282,16 +288,22 @@ export function TodosApp() {
         </div>
       </div>
 
+      {/* Above the phone tabs and below the listing, so the bar is the last thing the thumb passes on
+          its way to navigation — and the heading it names stays readable while the mode is on. */}
+      <BatchBar />
+
       {!wide && (
         <>
-          <button
+          {/* Adding a task is not what a selection is for, and the floating button would sit on top of
+              the bar; it stands down until the selection does. */}
+          {!selecting && <button
             type="button"
             onClick={newTask}
             aria-label={t('todo.action.new_task')}
             className="fixed bottom-[calc(76px+env(safe-area-inset-bottom))] right-4 z-10 flex size-14 items-center justify-center rounded-full bg-[var(--accent)] text-[var(--accent-contrast)] shadow-[var(--shadow-modal)] active:scale-95"
           >
             <Plus size={24} />
-          </button>
+          </button>}
           <nav
             aria-label={t('todo.app.navigation')}
             className="flex h-[calc(64px+env(safe-area-inset-bottom))] shrink-0 items-stretch justify-around border-t border-[var(--border-subtle)] bg-[var(--bg-surface)] pb-[env(safe-area-inset-bottom)]"

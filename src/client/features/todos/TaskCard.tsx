@@ -7,7 +7,7 @@
  * 44px hit area; the visible circle is 20px, which is what the reference app shows.
  */
 
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { CalendarMinus, Check, MoreHorizontal, Star } from 'lucide-react'
 import { cn } from '../../lib/cn'
 import { t } from '../../lib/i18n'
@@ -15,6 +15,9 @@ import { Menu, type MenuItem } from '../../components/overlay'
 import { useTodos, snoozeLabel } from './store'
 import { dueLabel, priorityDot, priorityLabel } from './todo-ui'
 import { SNOOZE_MINUTES, type TaskList, type TodoTask } from '@shared/todos/model'
+
+/** How long a finger has to stay down before the row joins a selection instead of opening. */
+const LONG_PRESS_MS = 500
 
 export function TaskCard({ task, lists, bounds, timezone, onOpen, onStar, onUnplan, compact = false }: {
   task: TodoTask
@@ -33,6 +36,9 @@ export function TaskCard({ task, lists, bounds, timezone, onOpen, onStar, onUnpl
 }) {
   const toggle = useTodos((state) => state.toggleTask)
   const snooze = useTodos((state) => state.snoozeTask)
+  const selectionMode = useTodos((state) => state.selectedIds.size > 0)
+  const selected = useTodos((state) => state.selectedIds.has(task.id))
+  const toggleSelected = useTodos((state) => state.toggleSelected)
   const list = task.listId ? lists.find((entry) => entry.id === task.listId) ?? null : null
   const colour = list?.color ?? 'var(--accent)'
   const due = dueLabel(task.dueAt, bounds, timezone)
@@ -40,6 +46,46 @@ export function TaskCard({ task, lists, bounds, timezone, onOpen, onStar, onUnpl
   const progress = task.stepTotal > 0 ? t('todo.steps.progress', { done: task.stepDone, total: task.stepTotal }) : null
   const menuRef = useRef<HTMLButtonElement>(null)
   const [menuOpen, setMenuOpen] = useState(false)
+  /**
+   * The long press a phone uses to enter selection mode.
+   *
+   * The timer lives beside the row rather than in the store: it belongs to the pointer that started it,
+   * and a row scrolled away has nobody to finish the gesture. `suppressOpen` consumes the click that
+   * follows the release, because without it the long press would select the row and then open it.
+   */
+  const pressTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const suppressOpen = useRef(false)
+
+  useEffect(() => () => {
+    if (pressTimer.current) clearTimeout(pressTimer.current)
+  }, [])
+
+  const cancelLongPress = (): void => {
+    if (!pressTimer.current) return
+    clearTimeout(pressTimer.current)
+    pressTimer.current = null
+  }
+
+  const startLongPress = (event: React.PointerEvent<HTMLButtonElement>): void => {
+    // A mouse uses Command/Ctrl-click; its pointer-down must not arm a timer that a slow click would
+    // turn into a selection.
+    if (event.pointerType === 'mouse') return
+    suppressOpen.current = false
+    cancelLongPress()
+    pressTimer.current = setTimeout(() => {
+      pressTimer.current = null
+      suppressOpen.current = true
+      toggleSelected(task.id)
+    }, LONG_PRESS_MS)
+  }
+
+  const openRow = (event: React.MouseEvent<HTMLButtonElement>): void => {
+    // The click that ends a long press is the selection's own, not a second press on the row.
+    if (suppressOpen.current) { suppressOpen.current = false; return }
+    if (selectionMode) { event.preventDefault(); toggleSelected(task.id); return }
+    if (event.metaKey || event.ctrlKey) { event.preventDefault(); toggleSelected(task.id); return }
+    onOpen()
+  }
   // The same four durations the editor and the notification row offer, so "10 minutes" means one
   // thing wherever the reader reads it.
   const snoozeItems: MenuItem[] = SNOOZE_MINUTES.map((minutes) => ({
@@ -53,37 +99,70 @@ export function TaskCard({ task, lists, bounds, timezone, onOpen, onStar, onUnpl
 
   return (
     <article
+      data-todo-selected={selected ? '' : undefined}
       className={cn(
         'group flex min-w-0 items-start gap-2 rounded-[var(--r-md)] px-2 py-1.5 transition-colors duration-[var(--dur-fast)]',
         'hover:bg-[var(--bg-hover)]',
+        selected ? 'bg-[var(--accent-soft)]' : '',
         compact ? 'py-1' : 'py-1.5',
       )}
     >
-      <button
-        type="button"
-        role="checkbox"
-        aria-checked={done}
-        aria-label={done
-          ? t('todo.a11y.mark_open', { title: task.title })
-          : t('todo.a11y.mark_done', { title: task.title })}
-        onClick={() => { void toggle(task) }}
-        className="mt-0.5 flex size-11 shrink-0 items-center justify-center rounded-full focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--accent)] md:size-7"
-      >
-        <span
-          className={cn(
-            'flex size-5 items-center justify-center rounded-full border-2 transition-colors',
-            done ? 'border-transparent text-[var(--accent-contrast)]' : 'bg-transparent',
-          )}
-          style={{ borderColor: colour, backgroundColor: done ? colour : undefined }}
+      {selectionMode ? (
+        // The selection tick takes the completion box's place rather than sitting beside it: while the
+        // mode is on, a press on the left of a row means "pick this row", never "finish it".
+        <button
+          type="button"
+          role="checkbox"
+          aria-checked={selected}
+          aria-label={selected
+            ? t('todo.a11y.deselect_task', { title: task.title })
+            : t('todo.a11y.select_task', { title: task.title })}
+          onClick={() => toggleSelected(task.id)}
+          className="mt-0.5 flex size-11 shrink-0 items-center justify-center rounded-full focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--accent)] md:size-7"
         >
-          {done && <Check size={12} strokeWidth={3} />}
-        </span>
-      </button>
+          <span
+            className={cn(
+              'flex size-5 items-center justify-center rounded-full border-2 transition-colors',
+              selected
+                ? 'border-transparent bg-[var(--accent)] text-[var(--accent-contrast)]'
+                : 'border-[var(--border-strong)] bg-transparent',
+            )}
+          >
+            {selected && <Check size={12} strokeWidth={3} />}
+          </span>
+        </button>
+      ) : (
+        <button
+          type="button"
+          role="checkbox"
+          aria-checked={done}
+          aria-label={done
+            ? t('todo.a11y.mark_open', { title: task.title })
+            : t('todo.a11y.mark_done', { title: task.title })}
+          onClick={() => { void toggle(task) }}
+          className="mt-0.5 flex size-11 shrink-0 items-center justify-center rounded-full focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--accent)] md:size-7"
+        >
+          <span
+            className={cn(
+              'flex size-5 items-center justify-center rounded-full border-2 transition-colors',
+              done ? 'border-transparent text-[var(--accent-contrast)]' : 'bg-transparent',
+            )}
+            style={{ borderColor: colour, backgroundColor: done ? colour : undefined }}
+          >
+            {done && <Check size={12} strokeWidth={3} />}
+          </span>
+        </button>
+      )}
 
       <button
         type="button"
         data-todo-open={task.id}
-        onClick={onOpen}
+        onClick={openRow}
+        onPointerDown={startLongPress}
+        onPointerUp={cancelLongPress}
+        onPointerCancel={cancelLongPress}
+        onPointerLeave={cancelLongPress}
+        onContextMenu={(event) => { if (selectionMode) event.preventDefault() }}
         className={cn(
           'min-w-0 flex-1 text-left focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--accent)]',
           // The row a reader taps to open the task is the whole card body, and on a phone it has to be
@@ -149,7 +228,9 @@ export function TaskCard({ task, lists, bounds, timezone, onOpen, onStar, onUnpl
           per line; the reference card has an icon, a name and the rows, and the star is toggled where
           the task is read in full — the list rows and the editor. */}
       <span className="flex shrink-0 flex-col items-end gap-1">
-        {!compact && (
+        {/* A row being picked for a batch offers no single-row writes: the star, the unplan and the
+            snooze menu would each act on one task while the bar acts on all of them. */}
+        {!selectionMode && !compact && (
           <button
             type="button"
             aria-label={task.starred ? t('todo.task.unstar') : t('todo.task.star')}
@@ -169,7 +250,7 @@ export function TaskCard({ task, lists, bounds, timezone, onOpen, onStar, onUnpl
         {!compact && list && (
           <span className="max-w-[84px] truncate pr-1 text-[length:var(--text-10-5)] text-[var(--text-quaternary)]">{list.name}</span>
         )}
-        {!compact && onUnplan && (
+        {!selectionMode && !compact && onUnplan && (
           <button
             type="button"
             aria-label={t('todo.today.remove', { title: task.title })}
@@ -182,7 +263,7 @@ export function TaskCard({ task, lists, bounds, timezone, onOpen, onStar, onUnpl
         )}
         {/* A finished task has nothing left to be reminded about; every other card offers the same
             four durations the editor does. */}
-        {!done && (
+        {!selectionMode && !done && (
           <button
             ref={menuRef}
             type="button"

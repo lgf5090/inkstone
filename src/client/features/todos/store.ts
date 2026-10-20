@@ -28,6 +28,8 @@ import {
   toggledStatus,
   type RemindOffset,
   type SnoozeMinutes,
+  type TaskBatchOp,
+  type TaskBatchResult,
   type TaskCounts,
   type TaskList,
   type TaskSort,
@@ -115,6 +117,14 @@ interface TodosState {
   statsBucket: TaskStatsBucket | null
 
   selectedId: string | null
+  /**
+   * The rows picked for a batch write.
+   *
+   * Separate from `selectedId`, which is the one task the editor is open on: a reader can be editing
+   * one task and have a selection of others, and a selection must not change what the panel shows.
+   * An empty set is not selection mode.
+   */
+  selectedIds: Set<string>
   editorOpen: boolean
   draft: TaskDraft | null
   saving: boolean
@@ -142,6 +152,10 @@ interface TodosState {
   /** Put the store where the address bar says the screen is — what a back button asks of it. */
   syncFromAddress: () => void
   select: (id: string | null) => void
+  /** Add or remove one row from the batch selection; selection mode is "at least one row". */
+  toggleSelected: (id: string) => void
+  /** Leave selection mode; the bar disappears with the last row. */
+  clearSelection: () => void
   openEditor: (draft: TaskDraft) => void
   closeEditor: () => void
   openTask: (id: string) => Promise<void>
@@ -151,6 +165,14 @@ interface TodosState {
   toggleTask: (task: TodoTask) => Promise<void>
   removeTask: (id: string) => Promise<boolean>
   restoreTask: (snapshot: TaskDraft) => Promise<void>
+  /**
+   * Apply one change to every selected row and re-read the listing.
+   *
+   * Answers with the server's own done/failed split so a caller can say what happened to each half; a
+   * partial answer is surfaced rather than hidden. A delete offers one undo that rebuilds every row it
+   * removed, because the rail holds one step and a batch is one step.
+   */
+  batchTasks: (op: TaskBatchOp, value?: string | string[] | null) => Promise<TaskBatchResult | null>
   /** Pick a task into an account-zone day, or clear the pick with `null`; re-reads the listing after. */
   planTask: (id: string, date: string | null) => Promise<TodoTask | null>
   /** Append one reminder `minutes` from now; the task's existing reminders stay. */
@@ -240,6 +262,16 @@ const SNOOZE_KEYS: Record<SnoozeMinutes, MessageKey> = {
   60: 'todo.snooze.1h',
   540: 'todo.snooze.tonight',
   1440: 'todo.snooze.tomorrow',
+}
+
+/** What a landed batch announces, per operation. The count is always the server's `done` length. */
+const BATCH_TOAST_KEYS: Record<TaskBatchOp, MessageKey> = {
+  complete: 'todo.toast.batch_completed',
+  delete: 'todo.toast.batch_deleted',
+  move: 'todo.toast.batch_moved',
+  priority: 'todo.toast.batch_priority',
+  star: 'todo.toast.batch_starred',
+  tag: 'todo.toast.batch_tagged',
 }
 
 /** What one snooze duration reads as, shared by the card menu and the notification row. */
@@ -458,6 +490,7 @@ export const useTodos = create<TodosState>((set, get) => ({
   statsBucket: initialAddress.statsBucket ?? null,
 
   selectedId: null,
+  selectedIds: new Set<string>(),
   editorOpen: false,
   draft: null,
   saving: false,
@@ -548,6 +581,9 @@ export const useTodos = create<TodosState>((set, get) => ({
       listId: target?.listId ?? null,
       tagId: target?.tagId ?? null,
       selectedId: null,
+      // A selection belongs to the listing it was made on: carrying it to another screen would leave a
+      // bar acting on rows the reader can no longer see.
+      selectedIds: new Set<string>(),
       // Opening the finished view is a deliberate move, and the completion window is chosen on that
       // screen: it starts over at "all years". A back button or a reload restores one from the address
       // through `syncFromAddress`, which writes the state directly rather than coming through here.
@@ -661,6 +697,9 @@ export const useTodos = create<TodosState>((set, get) => ({
         statsFrom,
         statsTo,
         statsBucket,
+        // The back button moved the reader to another listing, so the rows picked on the old one are no
+        // longer the rows on screen.
+        selectedIds: new Set<string>(),
       })
       // The screen the address names has rows the store never asked for, so they are asked for now: this
       // is the back button, a forward, and an address read out of a chat.
@@ -679,6 +718,15 @@ export const useTodos = create<TodosState>((set, get) => ({
   },
 
   select: (id) => set({ selectedId: id }),
+
+  toggleSelected: (id) => set((state) => {
+    const next = new Set(state.selectedIds)
+    if (next.has(id)) next.delete(id)
+    else next.add(id)
+    return { selectedIds: next }
+  }),
+
+  clearSelection: () => set({ selectedIds: new Set<string>() }),
 
   openEditor: (draft) => {
     set({ editorOpen: true, draft })
@@ -815,6 +863,9 @@ export const useTodos = create<TodosState>((set, get) => ({
         tasks: state.tasks.filter((entry) => entry.id !== id),
         completed: state.completed.filter((entry) => entry.id !== id),
         selectedId: state.selectedId === id ? null : state.selectedId,
+        selectedIds: state.selectedIds.has(id)
+          ? new Set([...state.selectedIds].filter((entry) => entry !== id))
+          : state.selectedIds,
       }))
       void get().refreshCounts()
       if (removed) {
@@ -833,6 +884,61 @@ export const useTodos = create<TodosState>((set, get) => ({
   restoreTask: async (snapshot) => {
     const restored = await get().createTask(snapshot)
     if (restored) useUi.getState().toast({ title: t('todo.toast.restored'), tone: 'success' })
+  },
+
+  /**
+   * One change over the selection, then one read of the listing.
+   *
+   * The listing is asked for again rather than patched row by row: a completed row may leave the
+   * filter, a moved one may leave the list, and a repeating task's completion files a row the client
+   * has never seen. The server already answers which rows it changed and which it did not, and both
+   * halves are reported: a toast that said "done" over a partly failed batch would be a lie.
+   *
+   * A delete leaves one undo on the rail. It rebuilds every removed row in the order it was picked,
+   * because the rail holds one step; the batch is that step. The recreated rows get new ids and carry
+   * no steps, exactly like the single-delete undo, which is the limit of what a `TodoTask` snapshot
+   * holds.
+   */
+  batchTasks: async (op, value) => {
+    const state = get()
+    const ids = [...state.selectedIds]
+    if (!ids.length) return null
+    // Read before the request; after a delete the rows are no longer anywhere in the store.
+    const removed = op === 'delete'
+      ? ids
+        .map((id) => state.tasks.find((entry) => entry.id === id) ?? state.completed.find((entry) => entry.id === id))
+        .filter((task): task is TodoTask => task !== undefined)
+        .map(removedSnapshot)
+      : []
+    try {
+      const result = await api.todos.batch({ ids, op, ...(value !== undefined ? { value } : {}) })
+      set({ selectedIds: new Set<string>() })
+      await get().load()
+      if (result.failed.length) {
+        const reasons = [...new Set(result.failed.map((entry) => entry.reason))].slice(0, 3).join(' · ')
+        useUi.getState().toast({
+          title: t('todo.toast.batch_partial', { failed: result.failed.length, total: ids.length }),
+          description: reasons,
+          tone: 'danger',
+        })
+      } else {
+        useUi.getState().toast({ title: t(BATCH_TOAST_KEYS[op], { count: result.done.length }), tone: 'success' })
+      }
+      if (op === 'delete' && removed.length && result.done.length === removed.length) {
+        offerUndo(set, get, t('todo.toast.batch_deleted', { count: removed.length }), async () => {
+          for (const snapshot of removed) {
+            if (!(await get().createTask(snapshot))) {
+              throw new Error('A deleted task could not be restored.')
+            }
+          }
+          await get().load()
+        })
+      }
+      return result
+    } catch (error) {
+      toastError(error)
+      return null
+    }
   },
 
   /**

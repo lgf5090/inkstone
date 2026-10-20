@@ -109,6 +109,8 @@ import type {
 import type {
   RemindOffset,
   SnoozeMinutes,
+  TaskBatchOp,
+  TaskBatchResult,
   TaskList,
   TaskPage,
   TaskStatsBucket,
@@ -1121,6 +1123,16 @@ export const api = {
     snooze: (id: string, minutes: SnoozeMinutes) =>
       request<{ task: TodoTask, reminders: number[] }>(`/api/todos/${id}/snooze`, { method: 'POST', body: { minutes } }),
     remove: (id: string) => request<{ deleted: true }>(`/api/todos/${id}`, { method: 'DELETE' }),
+
+    /**
+     * One change applied to a set of tasks.
+     *
+     * The answer is always 200 and names both halves: the ids that changed and the ids that did not,
+     * with the reason. A row from another account is `not found`, exactly as it would be on its own
+     * route, so a partial answer never tells the caller which ids exist elsewhere.
+     */
+    batch: (body: { ids: string[], op: TaskBatchOp, value?: string | string[] | null }) =>
+      request<TaskBatchResult>('/api/todos/batch', { method: 'POST', body }),
 
     /**
      * One range of the account's statistics.
