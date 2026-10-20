@@ -3894,20 +3894,35 @@ export class AssistantStore {
     return task ?? null
   }
 
-  async createTask(input: NewTask): Promise<TodoTask> {
+  /**
+   * The reader's calendar day for a task's day column.
+   *
+   * `created_on` and `completed_on` hold `YYYY-MM-DD` in the account's zone, because a day derived at
+   * query time drifts across DST and files work under the wrong date. The zone is the one every due
+   * date and every "today" is already read in; a caller that has just resolved it (`completeTask`)
+   * passes it on, so the two rows one completion writes cannot land on different days.
+   */
+  private async taskDay(at: number, timeZone?: string): Promise<string> {
+    return localDate(at, timeZone ?? (await this.getSettings()).timezone)
+  }
+
+  async createTask(input: NewTask, timeZone?: string): Promise<TodoTask> {
     const id = newId()
     const at = Date.now()
     const status = input.status ?? 'todo'
     const repeat = input.repeat ?? null
+    const createdOn = await this.taskDay(at, timeZone)
     await this.write(
       `INSERT INTO todos_tasks
          (id, user_id, title, description, status, priority, due_at, project_id, list_id, starred,
-          repeat_rule, remind_at, note_id, conversation_id, created_at, updated_at, completed_at)
-       VALUES (?2, ?1, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17)`,
+          repeat_rule, remind_at, note_id, conversation_id, created_at, updated_at, completed_at,
+          created_on, completed_on)
+       VALUES (?2, ?1, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19)`,
       id, input.title.trim().slice(0, 300), input.description ?? '', status, input.priority ?? 'medium',
       input.dueAt ?? null, input.projectId ?? null, input.listId ?? null, input.starred ? 1 : 0,
       repeat ? JSON.stringify(repeat) : null, input.remindAt ?? null, input.noteId ?? null,
       input.conversationId ?? null, at, at, status === 'done' ? at : null,
+      createdOn, status === 'done' ? createdOn : null,
     )
     if (input.tags?.length) await this.setTaskTags(id, input.tags)
     for (const text of input.steps ?? []) await this.addStep(id, text)
@@ -3922,7 +3937,7 @@ export class AssistantStore {
    * Writing the whole row back from a snapshot read a moment earlier is how two edits made at once
    * lose one of themselves, and it is how a column this method does not know about gets cleared.
    */
-  async updateTask(id: string, patch: Partial<NewTask>): Promise<TodoTask | null> {
+  async updateTask(id: string, patch: Partial<NewTask>, timeZone?: string): Promise<TodoTask | null> {
     const existing = await this.getTask(id)
     if (!existing) return null
     const at = Date.now()
@@ -3938,8 +3953,18 @@ export class AssistantStore {
     if (patch.noteId !== undefined) fields.push(['note_id', patch.noteId])
     if (patch.conversationId !== undefined) fields.push(['conversation_id', patch.conversationId])
     if (patch.status !== undefined) {
+      const completedAt = patch.status === 'done' ? (existing.completedAt ?? at) : null
       fields.push(['status', patch.status])
-      fields.push(['completed_at', patch.status === 'done' ? (existing.completedAt ?? at) : null])
+      fields.push(['completed_at', completedAt])
+      // The day column follows the same transition: reopened clears it, finished files it under the
+      // reader's day. Left untouched when the status did not change, so a zone edit never rewrites a
+      // day that was already recorded.
+      if (patch.status !== existing.status) {
+        fields.push([
+          'completed_on',
+          completedAt === null ? null : await this.taskDay(completedAt, timeZone),
+        ])
+      }
     }
     // A reminder follows its due date unless the caller set one explicitly, and either way the task
     // has not been announced at its new time yet.
@@ -3971,7 +3996,7 @@ export class AssistantStore {
     const existing = await this.getTask(id)
     if (!existing) return null
     if (existing.status === 'done') return { task: existing, next: null }
-    const task = await this.updateTask(id, { status: 'done' })
+    const task = await this.updateTask(id, { status: 'done' }, timeZone)
     if (!task) return null
     if (!existing.repeat) return { task, next: null }
     const anchor = existing.dueAt ?? Date.now()
@@ -3992,7 +4017,7 @@ export class AssistantStore {
       conversationId: existing.conversationId,
       tags: existing.tags.map((tag) => tag.name),
       steps: steps.map((step) => step.text),
-    })
+    }, timeZone)
     return { task, next }
   }
 

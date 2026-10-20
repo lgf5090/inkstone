@@ -1,6 +1,9 @@
 /** Defines the idempotent final D1 schema initialized by every Worker isolate. */
+import { isValidTimeZone } from '@shared/assistant-schedule'
+import { localDate } from '@shared/assistant-time'
 import type { DatabaseState, Env } from '../env'
 import { getMeta, setMeta } from './metadata'
+import { storedObject } from '../lib/json'
 import { READER_BOOK_INDEX, READER_BOOK_TABLE, READER_GROUP_INDEX, READER_GROUP_TABLE, READER_SCHEMA_STATEMENTS } from './reader-schema'
 import {
   ASSISTANT_REQUIRED_COLUMNS,
@@ -1748,6 +1751,45 @@ export const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
      ON todos_tasks(user_id, completed_at)`,
     ],
   },
+  {
+    // The day the reader finished the task, in the account's own zone.
+    //
+    // The statistics group finished work by day, and a day computed from `completed_at` at query time
+    // is wrong twice a year: a fixed offset shifts by an hour across a DST boundary, and a per-row
+    // conversion in the database grows with the shelf. The stored day is the one fact the group needs,
+    // and a streak then costs one index walk. Nullable with no default because an unfinished task has
+    // no completion day — an honest absence, filled in by `migrateTodoDayColumns` for rows that
+    // finished before this column existed.
+    version: 113,
+    skipIfColumnExists: { table: 'todos_tasks', column: 'completed_on' },
+    statements: [
+      `ALTER TABLE todos_tasks ADD COLUMN completed_on TEXT`,
+    ],
+  },
+  {
+    // The day the task was written, in the account's own zone, for the same reason as 113.
+    //
+    // Created-versus-completed is the pair the daily trend compares, and both sides have to be read
+    // in one calendar. Nullable because rows written before the column existed have no day until the
+    // backfill computes one from `created_at`.
+    version: 114,
+    skipIfColumnExists: { table: 'todos_tasks', column: 'created_on' },
+    statements: [
+      `ALTER TABLE todos_tasks ADD COLUMN created_on TEXT`,
+    ],
+  },
+  {
+    // What the statistics read: one account's finished tasks by the day they were finished.
+    //
+    // Keyed on the account first for the reason every index here is — the walk never crosses into
+    // another reader's rows — and on the day second so a streak or a daily trend is one ordered
+    // range instead of a full scan of the shelf. One index, one version.
+    version: 115,
+    statements: [
+      `CREATE INDEX IF NOT EXISTS idx_todos_tasks_completed_on
+     ON todos_tasks(user_id, completed_on)`,
+    ],
+  },
 ]
 
 const FTS_STATEMENT = `CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(
@@ -1976,6 +2018,7 @@ async function createSchema(db: D1Database): Promise<DatabaseState> {
   await applyMigrations(db)
   await repairReaderBookTenantKey(db)
   await migrateTaskTable(db)
+  await migrateTodoDayColumns(db)
   if (initialized) {
     await runStatements(db, INDEX_SCHEMA_STATEMENTS)
   }
@@ -2085,6 +2128,123 @@ async function migrateTaskTable(db: D1Database): Promise<void> {
   }
   await db.prepare(`DROP TABLE chat_tasks`).run()
   console.warn('[inkstone] Schema repair: moved chat_tasks into todos_tasks')
+}
+
+/**
+ * Files every task that predates the day columns under its account's calendar day.
+ *
+ * `created_on` / `completed_on` (versions 113 and 114) hold the day the reader wrote or finished a
+ * task, because a day derived at query time drifts across DST and files work under the wrong date.
+ * Rows that existed before the columns did have no day, so this one-shot repair computes one from
+ * `created_at` / `completed_at` in the account's stored zone — the same `chat_settings` value every
+ * due date and every "today" is already read in — falling back to UTC when the row or the zone is
+ * missing or unrecognised. `isValidTimeZone` is the check rather than a hand-written parser.
+ *
+ * Two properties make it safe to run on every boot:
+ *  - it only fills columns that are NULL (`COALESCE`), so a reader who changes zones later never has
+ *    yesterday's task re-filed, and a second boot has nothing left to do;
+ *  - every day is computed before the first write, and the filled counts are compared with what was
+ *    missing afterwards. A row that cannot be dated, or a write that did not land, stops the boot
+ *    with the reason instead of leaving a table whose statistics would silently undercount.
+ */
+async function migrateTodoDayColumns(db: D1Database): Promise<void> {
+  const before = await todoDayCounts(db)
+  if (!before.createdMissing && !before.completedMissing) return
+
+  const { results: accounts } = await db.prepare(
+    `SELECT DISTINCT user_id FROM todos_tasks
+      WHERE created_on IS NULL OR (completed_on IS NULL AND completed_at IS NOT NULL)`,
+  ).all<{ user_id: string }>()
+
+  // Computed first, written afterwards: a row whose timestamp is not a date has to stop the boot
+  // before any account's days have landed, or the table would be half filled.
+  const updates: D1PreparedStatement[] = []
+  for (const account of accounts ?? []) {
+    const zone = await accountTimeZone(db, account.user_id)
+    const { results: rows } = await db.prepare(
+      `SELECT id, created_at, completed_at FROM todos_tasks
+        WHERE user_id = ?1 AND (created_on IS NULL OR (completed_on IS NULL AND completed_at IS NOT NULL))`,
+    ).bind(account.user_id).all<{ id: string; created_at: number; completed_at: number | null }>()
+    for (const row of rows ?? []) {
+      let createdOn: string
+      let completedOn: string | null
+      try {
+        createdOn = todoDayColumn(row.created_at, zone)
+        completedOn = row.completed_at === null ? null : todoDayColumn(row.completed_at, zone)
+      } catch (cause) {
+        throw new Error(
+          `The task day columns could not be filled: task ${row.id} of account ${account.user_id} ` +
+          `has a timestamp that is not a date (${String(row.created_at)} / ${String(row.completed_at)}). ` +
+          'No day was written, and the boot stops here rather than leaving a half-filled table.',
+          { cause },
+        )
+      }
+      updates.push(db.prepare(
+        `UPDATE todos_tasks SET created_on = COALESCE(created_on, ?3), completed_on = COALESCE(completed_on, ?4)
+          WHERE user_id = ?1 AND id = ?2`,
+      ).bind(account.user_id, row.id, createdOn, completedOn))
+    }
+  }
+
+  for (const group of chunkStatements(updates, SCHEMA_BATCH_STATEMENTS)) await db.batch(group)
+
+  const after = await todoDayCounts(db)
+  const createdFilled = after.createdFilled - before.createdFilled
+  const completedFilled = after.completedFilled - before.completedFilled
+  if (createdFilled !== before.createdMissing || completedFilled !== before.completedMissing) {
+    throw new Error(
+      `The task day columns could not be filled: ${createdFilled} of ${before.createdMissing} created ` +
+      `days and ${completedFilled} of ${before.completedMissing} completed days landed. The columns are ` +
+      'left as they are, and the boot stops here rather than serving statistics that would undercount.',
+    )
+  }
+  console.warn(
+    `[inkstone] Schema repair: filed ${createdFilled} created and ${completedFilled} completed task day(s)`,
+  )
+}
+
+/** The day counts the backfill compares before and after its writes: what is missing and what is filled. */
+async function todoDayCounts(db: D1Database): Promise<{
+  createdMissing: number
+  createdFilled: number
+  completedMissing: number
+  completedFilled: number
+}> {
+  const row = await db.prepare(
+    `SELECT
+       COALESCE(SUM(CASE WHEN created_on IS NULL THEN 1 ELSE 0 END), 0) AS created_missing,
+       COALESCE(SUM(CASE WHEN created_on IS NOT NULL THEN 1 ELSE 0 END), 0) AS created_filled,
+       COALESCE(SUM(CASE WHEN completed_on IS NULL AND completed_at IS NOT NULL THEN 1 ELSE 0 END), 0) AS completed_missing,
+       COALESCE(SUM(CASE WHEN completed_on IS NOT NULL THEN 1 ELSE 0 END), 0) AS completed_filled
+     FROM todos_tasks`,
+  ).first<{
+    created_missing: number
+    created_filled: number
+    completed_missing: number
+    completed_filled: number
+  }>()
+  return {
+    createdMissing: Number(row?.created_missing ?? 0),
+    createdFilled: Number(row?.created_filled ?? 0),
+    completedMissing: Number(row?.completed_missing ?? 0),
+    completedFilled: Number(row?.completed_filled ?? 0),
+  }
+}
+
+/** The account's scheduling zone: the one `getSettings()` reads, or UTC when absent or unrecognised. */
+async function accountTimeZone(db: D1Database, userId: string): Promise<string> {
+  const row = await db.prepare(`SELECT config FROM chat_settings WHERE user_id = ?1`)
+    .bind(userId).first<{ config: string }>()
+  const stored = storedObject(row?.config ?? '{}').timezone
+  return typeof stored === 'string' && isValidTimeZone(stored) ? stored : 'UTC'
+}
+
+/** A stored instant as the account's `YYYY-MM-DD`, refusing text or an out-of-range number. */
+function todoDayColumn(instant: number, zone: string): string {
+  if (typeof instant !== 'number' || !Number.isFinite(instant) || Number.isNaN(new Date(instant).getTime())) {
+    throw new TypeError(`${String(instant)} is not a millisecond timestamp`)
+  }
+  return localDate(instant, zone)
 }
 
 async function applyMigrations(db: D1Database): Promise<void> {

@@ -20,6 +20,11 @@ export const TODOS_SCHEMA_STATEMENTS: readonly string[] = [
     priority TEXT NOT NULL DEFAULT 'medium',
     due_at INTEGER,
     completed_at INTEGER,
+    -- The account's calendar day (YYYY-MM-DD) of the two instants beside them. Stored rather than
+    -- derived at query time: a day computed from an offset drifts across DST and files a task under
+    -- the wrong day, which is exactly what a streak or a daily trend must not do.
+    completed_on TEXT,
+    created_on TEXT,
     project_id TEXT,
     list_id TEXT,
     starred INTEGER NOT NULL DEFAULT 0,
@@ -50,6 +55,11 @@ export const TODOS_SCHEMA_STATEMENTS: readonly string[] = [
      ON todos_tasks(user_id, created_at)`,
   `CREATE INDEX IF NOT EXISTS idx_todos_tasks_completed
      ON todos_tasks(user_id, completed_at)`,
+  // What the statistics group by: a streak or a daily trend walks one account's finished tasks in
+  // the reader's own days, so the day column has to lead after the account or every read scans the
+  // whole shelf. Migration 115 carries it to databases built before this line existed.
+  `CREATE INDEX IF NOT EXISTS idx_todos_tasks_completed_on
+     ON todos_tasks(user_id, completed_on)`,
 
   `CREATE TABLE IF NOT EXISTS todos_lists (
     user_id TEXT NOT NULL,
@@ -136,6 +146,7 @@ export const TODOS_REQUIRED_INDEXES: readonly string[] = [
   'idx_todos_tasks_remind',
   'idx_todos_tasks_created',
   'idx_todos_tasks_completed',
+  'idx_todos_tasks_completed_on',
   'idx_todos_lists_unique',
   'idx_todos_steps_task',
   'idx_todos_tags_unique',
@@ -147,6 +158,7 @@ export const TODOS_REQUIRED_INDEXES: readonly string[] = [
 export const TODOS_REQUIRED_COLUMNS: Readonly<Record<string, readonly string[]>> = {
   todos_tasks: [
     'user_id', 'id', 'title', 'description', 'status', 'priority', 'due_at', 'completed_at',
+    'completed_on', 'created_on',
     'project_id', 'list_id', 'starred', 'repeat_rule', 'remind_at', 'reminded_at', 'note_id',
     'conversation_id', 'created_at', 'updated_at',
   ],

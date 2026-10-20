@@ -271,6 +271,23 @@ describe('a boot onto a database whose ledger lies', () => {
       .toEqual([{ version: 111 }, { version: 112 }])
   })
 
+  it('gives an older database the day columns and their index even when its ledger claims both', async () => {
+    const sqlite = await installed()
+    sqlite.exec('DROP INDEX idx_todos_tasks_completed_on')
+    sqlite.exec('ALTER TABLE todos_tasks DROP COLUMN created_on')
+    sqlite.exec('ALTER TABLE todos_tasks DROP COLUMN completed_on')
+    expect(columnsOf(sqlite, 'todos_tasks')).not.toContain('created_on')
+    // The numbers stay spent: a branch that used 113/114/115 for other work is exactly the situation
+    // the shape repair exists for, and a column cannot be hidden behind a ledger note.
+    expect(sqlite.prepare(`SELECT version FROM schema_migrations WHERE version IN (113, 114, 115) ORDER BY version`).all())
+      .toEqual([{ version: 113 }, { version: 114 }, { version: 115 }])
+
+    await reboot(sqlite)
+
+    expect(columnsOf(sqlite, 'todos_tasks')).toEqual(expect.arrayContaining(['created_on', 'completed_on']))
+    expect(indexesOf(sqlite)).toContain('idx_todos_tasks_completed_on')
+  })
+
   it('is a no-op on a database that already matches', async () => {
     const sqlite = await installed()
     const before = tablesOf(sqlite).join(',')

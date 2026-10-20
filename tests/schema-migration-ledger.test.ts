@@ -98,3 +98,33 @@ describe('the task sort indexes spend a number each', () => {
     ])
   })
 })
+
+/**
+ * The statistics' two day columns and the index they group by.
+ *
+ * The columns store the reader's calendar day rather than a UTC date derived at query time, and each
+ * one arrives under its own number so a ledger that already spent one cannot hide the other. The
+ * index reads `completed_on`, so it has to be numbered after both columns exist.
+ */
+describe('the task day columns spend a number each', () => {
+  function migrationAt(version: number) {
+    return SCHEMA_MIGRATIONS.find((migration) => migration.version === version)
+  }
+
+  it('adds one column per version, guarded so a fresh install can replay them', () => {
+    expect(migrationAt(113)).toMatchObject({
+      skipIfColumnExists: { table: 'todos_tasks', column: 'completed_on' },
+      statements: [`ALTER TABLE todos_tasks ADD COLUMN completed_on TEXT`],
+    })
+    expect(migrationAt(114)).toMatchObject({
+      skipIfColumnExists: { table: 'todos_tasks', column: 'created_on' },
+      statements: [`ALTER TABLE todos_tasks ADD COLUMN created_on TEXT`],
+    })
+  })
+
+  it('gives the completed day its own index under its own number', () => {
+    expect(migrationAt(115)?.statements).toEqual([
+      expect.stringMatching(/CREATE INDEX IF NOT EXISTS idx_todos_tasks_completed_on\s+ON todos_tasks\(user_id, completed_on\)/),
+    ])
+  })
+})
