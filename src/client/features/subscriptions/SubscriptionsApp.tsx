@@ -354,7 +354,7 @@ export function SubscriptionsApp(): ReactElement {
         {/* The same column the notebook mounts, under the same conditions: the assistant's thread is
             global state, so opening it here and opening it there is one conversation rather than two.
             Not on a phone, where chat already has a tab of its own. */}
-        {assistantDockOpen && !isMobile && <AssistantDock />}
+        {assistantDockOpen && !isMobile && <AssistantDock surface="subscriptions" />}
       </div>
 
       {!panelWide && (

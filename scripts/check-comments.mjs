@@ -1043,7 +1043,6 @@ const allowed = new Map([
   ]],
   ["src/client/features/chat/AssistantDock.tsx", [
     "/**\n * The assistant, docked beside the note.\n *\n * Asking about what you are writing used to mean leaving the page: the chat tab replaces the notebook,\n * so \"is this paragraph clear?\" cost a reader the paragraph. The dock is the same conversation in a\n * column of the notebook's own frame — same store, same composer, same replies — so the thread that\n * answers a question about this note is the thread they can come back to later.\n *\n * It is deliberately not a second assistant. There is one active conversation, and the chat tab and this\n * panel are two windows onto it: switching between them keeps the answer that is streaming, because the\n * turn lives in the store rather than in either surface.\n *\n * The note on screen is the context by default. That is the whole point of the panel, so it is switched\n * on when the panel opens rather than inherited from whatever the chat tab was last set to — and it is\n * drawn as a chip the reader can take off, because a context they cannot see is one they cannot correct.\n */",
-    "// The panel exists to ask about this page, so opening it points the next turn at the page.",
     "// The answer a selection-request is waiting for. Read only once the turn is over: a paragraph still",
     "// being written is not something to paste into a note.",
     "// A column beside the note on a wide screen, and a bottom sheet on a phone: the same panel, but a",
@@ -1056,6 +1055,11 @@ const allowed = new Map([
     "/**\n * The change, shown before it is made.\n *\n * A dialog rather than a strip inside the dock: the note is the thing at stake and the panel is 380 pixels\n * wide, so the reader gets the room to actually read what the model wrote. `Modal` is the app's one focus\n * discipline — the tab order stays inside the diff, Escape and the backdrop both mean the same thing the\n * Cancel button says, and the focus goes back where it came from — and the change is only made by the\n * press that follows the reading of it.\n *\n * The preview is live: the note is subscribed from the store, so an edit that lands while the dialog is\n * open moves the diff and the Apply button with it, rather than leaving the reader confirming a change\n * that is no longer the change.\n */",
     "/* The same reading the chat header wears: one thread, one ring, whichever window it is read from. */",
     "/* Deliberately bare rows: the dock offers no retry and no continue either, because its thread is\n                not the one the store's send path writes to. A follow-up chip here would press a question into\n                the chat window's conversation — a different model, a different scope, a different thread — so\n                the affordance is left out rather than pointed at the wrong place. */",
+    "/** Which app the dock is sitting beside: it decides what \"this page\" can honestly mean. */",
+    "// The panel exists to ask about the page it is on. In the notebook that means the note under the",
+    "// reader's eyes; in the money app the same pointer still names a note they are not looking at, and a",
+    "// turn answered from it reads as \"summarise this\" about the wrong thing. So the notebook's pointers",
+    "// are switched off there rather than borrowed.",
   ]],
   ["src/client/features/chat/AssistantHeader.tsx", [
     "/**\n * The title block every assistant page opens with.\n *\n * The surfaces behind the rail are one page with different contents, and each of them had written this\n * pair out for itself: a serif title at one size, and a line under it saying what the page is for. Three\n * copies drifted — one of them put its action beside the title and the others did not — so the shape\n * lives here. The action rides the title line, which is where a page's primary button belongs on a page\n * that also has a list under it.\n */",

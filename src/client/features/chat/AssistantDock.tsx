@@ -39,7 +39,10 @@ import {
 import { buildWriteDiff, WriteDiffSummary, WriteDiffView } from './editor-ai-diff'
 import { saveReplyAsNote } from './save-to-note'
 
-export function AssistantDock() {
+/** Which app the dock is sitting beside: it decides what "this page" can honestly mean. */
+export type AssistantDockSurface = 'notebook' | 'subscriptions'
+
+export function AssistantDock({ surface = 'notebook' }: { surface?: AssistantDockSurface } = {}) {
   const bootstrap = useAssistant((state) => state.bootstrap)
   const loaded = useAssistant((state) => state.loaded)
   const agentName = useAssistant((state) => state.settings?.agentName)
@@ -52,6 +55,7 @@ export function AssistantDock() {
   const stop = useAssistant((state) => state.stop)
   const newConversation = useAssistant((state) => state.newConversation)
   const setNoteContext = useAssistant((state) => state.setNoteContext)
+  const setFolderContext = useAssistant((state) => state.setFolderContext)
   const sendOnEnter = useAssistant((state) => state.settings?.sendOnEnter ?? true)
   const blocked = useAssistant((state) => !state.settings?.activeModelId && !state.settings?.offlineMode)
   const fileIndex = useAssistant((state) => state.fileIndex)
@@ -65,9 +69,17 @@ export function AssistantDock() {
   }, [bootstrap])
 
   useEffect(() => {
-    // The panel exists to ask about this page, so opening it points the next turn at the page.
-    setNoteContext(true)
-  }, [setNoteContext])
+    // The panel exists to ask about the page it is on. In the notebook that means the note under the
+    // reader's eyes; in the money app the same pointer still names a note they are not looking at, and a
+    // turn answered from it reads as "summarise this" about the wrong thing. So the notebook's pointers
+    // are switched off there rather than borrowed.
+    if (surface === 'notebook') {
+      setNoteContext(true)
+      return
+    }
+    setNoteContext(false)
+    setFolderContext(false)
+  }, [surface, setNoteContext, setFolderContext])
 
   const streaming = (!!turn && !turn.done) || remoteStreaming
   const turnHere = turn && turn.conversationId === (activeId ?? null) ? turn : null
