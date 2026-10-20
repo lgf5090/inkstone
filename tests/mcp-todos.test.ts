@@ -398,6 +398,27 @@ describe('the answers use the model, not a second copy of it', () => {
   })
 })
 
+describe('a pending operation names no particular object', () => {
+  it('asks for the affected item, not a note, when the earlier call may still be completing', async () => {
+    await switchPreferences(true, false)
+    const args = { operation_id: 'op-pending-neutral-1', title: 'Water the fern' }
+    expect((await callTool(WRITE, 'create_todo', args)).ok).toBe(true)
+
+    // Leave the row looking like a call that committed but never stored its answer: the retry has nothing
+    // to recover from, which is the branch that tells the caller what to read before trying again.
+    sqlite.prepare(
+      `UPDATE mcp_operations SET response_json = ?1 WHERE user_id = ?2 AND operation_id = ?3`,
+    ).run(JSON.stringify({ pending: true }), USER, args.operation_id)
+
+    const refused = await failureOf(WRITE, 'create_todo', args)
+    expect(refused).toMatchObject({ code: 'conflict', status: 409 })
+    // The same sentence answers a note write and a task write, so it must not name either one.
+    expect(refused.message.toLowerCase()).not.toContain('note')
+    expect(refused.message).toContain('affected item')
+    expect(await store.listTasks({ view: 'all' })).toHaveLength(1)
+  })
+})
+
 describe('a task may name a note, and nothing else about it', () => {
   it('keeps the note body out of a to-do answer, and the reference out of a key that may not read notes', async () => {
     const noteId = '0123456789abcdefghjkmnpqr2'
