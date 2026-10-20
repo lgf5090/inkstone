@@ -3239,6 +3239,26 @@ describe('model editor fields', () => {
     expect(await status('PATCH', `/api/assistant/models/${before.id}`, { priceCurrency: 7 })).toBe(400)
   })
 
+  it('saves price windows and refuses one that has no length', async () => {
+    await useExampleModel()
+    const listed = await call<{ models: AssistantModel[] }>('GET', '/api/assistant/settings')
+    const id = listed.models[0]!.id
+    const saved = await call<{ model: AssistantModel }>('PATCH', `/api/assistant/models/${id}`, {
+      pricePeriods: [
+        { id: 'peak', label: 'Peak', days: [1, 2, 3, 4, 5], start: '09:00', end: '12:00', inputPrice: 2, outputPrice: 4 },
+        { id: 'night', label: 'Night', days: [], start: '22:00', end: '02:00', inputPrice: 1, outputPrice: null },
+      ],
+    })
+    expect(saved.model.pricePeriods).toEqual([
+      { id: 'peak', label: 'Peak', days: [1, 2, 3, 4, 5], start: '09:00', end: '12:00', inputPrice: 2, outputPrice: 4 },
+      { id: 'night', label: 'Night', days: [], start: '22:00', end: '02:00', inputPrice: 1, outputPrice: null },
+    ])
+    expect(await status('PATCH', `/api/assistant/models/${id}`, {
+      pricePeriods: [{ id: 'same', days: [], start: '09:00', end: '09:00', inputPrice: 1, outputPrice: 1 }],
+    })).toBe(400)
+    expect(await status('PATCH', `/api/assistant/models/${id}`, { pricePeriods: 'not a list' })).toBe(400)
+  })
+
   it('sends the reader\u2019s sampling and extra fields, and never lets a parameter take over the request', async () => {
     await useExampleModel()
     const listed = await call<{ models: AssistantModel[] }>('GET', '/api/assistant/settings')

@@ -142,7 +142,7 @@ function model(over: Partial<AssistantModel> = {}): AssistantModel {
     fallbackModelId: null,
     inputPrice: null,
     outputPrice: null,
-    priceCurrency: '',
+    priceCurrency: '', pricePeriods: [],
     ...over,
   }
 }

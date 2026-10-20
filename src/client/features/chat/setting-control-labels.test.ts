@@ -55,7 +55,7 @@ const MODEL: AssistantModel = {
   id: 'm1', providerId: 'p1', model: 'deepseek-flash', label: 'DeepSeek Flash', temperature: 0.7,
   maxOutputTokens: 8192, enabled: true, reasoning: 'auto', contextTokens: null, vision: true, purpose: 'chat',
   kind: 'text', supportsTools: true, maxInputTokens: null, modalities: [], topP: null, customParams: [],
-  protocol: null, fallbackModelId: null, inputPrice: null, outputPrice: null, priceCurrency: '',
+  protocol: null, fallbackModelId: null, inputPrice: null, outputPrice: null, priceCurrency: '', pricePeriods: [],
 }
 const PROVIDER: AssistantProvider = {
   id: 'p1', label: 'DeepSeek', protocol: 'openai', baseUrl: 'https://api.deepseek.com', endpoints: {},
@@ -235,6 +235,7 @@ describe('the model editor’s token fields', () => {
       provider: PROVIDER,
       models: [],
       limits: DEFAULT_ASSISTANT_SETTINGS.limits,
+      timezone: 'UTC',
       onClose: () => undefined,
       onSave: async () => true,
     }))

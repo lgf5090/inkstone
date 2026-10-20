@@ -38,6 +38,7 @@ import {
   ASSISTANT_PROTOCOLS,
   ASSISTANT_TOOL_SPECS,
   parseCustomParams,
+  MAX_PRICE_PERIODS,
   MAX_PROJECT_NOTES,
   MAX_TURN_SCOPES,
   MAX_TURN_TOOLS,
@@ -73,6 +74,7 @@ import {
   type AssistantMessage,
   type AssistantProtocol,
   type AssistantSettings,
+  type AssistantPricePeriod,
   type AssistantTurnScope,
   type MemoryReviewAction,
   type TaskPriority,
@@ -86,6 +88,7 @@ import {
   type UsageFilter,
 } from '@shared/assistant'
 import { assertRelayableEndpoint } from '@shared/ai-proxy-guard'
+import { parsePricePeriods } from '@shared/price-periods'
 import { localDayBounds, parseLocalTime } from '@shared/assistant-time'
 import type { AppBindings } from '../env'
 import { ApiError } from '../lib/errors'
@@ -3089,6 +3092,26 @@ function price(value: unknown): number | null {
 }
 
 /**
+ * A model's pricing windows, validated before they reach the column.
+ *
+ * The read side is forgiving because a stored row may predate this field or have been hand-edited; an
+ * edit is not, and a window silently disappearing from the saved model is worse than being told which
+ * one was wrong. Ids are the usage buckets' only handle on a window, so a duplicate is resolved here
+ * rather than left for two windows to share a price row.
+ */
+function pricePeriodsValue(value: unknown): AssistantPricePeriod[] {
+  if (!Array.isArray(value)) throw ApiError.badRequest('Price periods have to be a list.')
+  if (value.length > MAX_PRICE_PERIODS) {
+    throw ApiError.badRequest(`A model can have at most ${MAX_PRICE_PERIODS} price periods.`)
+  }
+  const periods = parsePricePeriods(value)
+  if (periods.length !== value.length) {
+    throw ApiError.badRequest('A price period needs a valid start and end time, and they cannot be the same.')
+  }
+  return periods
+}
+
+/**
  * The model a reader named as this one's spare, or null for none.
  *
  * A self-reference is refused because it is a chain of one that can never answer; an id that is not one of
@@ -3142,6 +3165,7 @@ assistantRoutes.patch('/models/:id', async (c) => {
     ...(body.inputPrice !== undefined ? { inputPrice: price(body.inputPrice) } : {}),
     ...(body.outputPrice !== undefined ? { outputPrice: price(body.outputPrice) } : {}),
     ...(body.priceCurrency !== undefined ? { priceCurrency: currencyValue(body.priceCurrency) } : {}),
+    ...(body.pricePeriods !== undefined ? { pricePeriods: pricePeriodsValue(body.pricePeriods) } : {}),
   })
   if (!updated) throw ApiError.notFound('Model not found')
   return c.json({ model: updated })
@@ -3409,18 +3433,20 @@ assistantRoutes.get('/stats', async (c) => {
   }
   // Only the dimension table can answer a filtered question: the plain day table has no model or key.
   const narrowed = Boolean(filter.model || filter.providerId)
-  const [total, days, modelRows, keyRows, seriesRows, conversations, models, optionRows] = await Promise.all([
+  const [total, days, modelRows, keyRows, seriesRows, periodRows, conversations, models, optionRows] = await Promise.all([
     narrowed ? s.usageRangeIn(from, day, filter) : s.usageRange(from, day),
     narrowed ? s.usageDaysIn(from, day, filter) : s.usageDays(from, day),
     narrowed ? s.modelUsageRangeIn(from, day, filter) : s.modelUsageRange(from, day),
     s.keyUsageRange(from, day),
     s.usageSeries(from, day, filter),
+    s.periodUsageRange(from, day),
     s.usageByConversation(from, day),
     s.listModels(),
     // The model picker keeps offering every model in the window even while the window is filtered by
     // one: a list narrowed to the choice already made would strand the reader with no way back.
     narrowed ? s.modelUsageRange(from, day) : Promise.resolve([]),
   ])
+  const periods = collectPeriods(periodRows)
   const spend = new Map<string, number>()
   let unpriced = 0
   const byModel = modelRows.map((row) => {
@@ -3432,7 +3458,7 @@ assistantRoutes.get('/stats', async (c) => {
       toolCalls: row.toolCalls,
       errors: row.errors,
     }
-    const price = priceUsage(models, row.modelLabel, row.inputTokens, row.outputTokens, row.modelId)
+    const price = priceUsage(models, row.modelLabel, row.inputTokens, row.outputTokens, row.modelId, periods.model.get(row.modelLabel))
     if (!price) {
       unpriced++
       return { ...base, currency: '', cost: null }
@@ -3447,8 +3473,8 @@ assistantRoutes.get('/stats', async (c) => {
     total,
     days,
     models: byModel,
-    keys: foldKeyUsage(keyRows, models),
-    series: buildUsageSeries(seriesRows, models),
+    keys: foldKeyUsage(keyRows, models, periods.key),
+    series: buildUsageSeries(seriesRows, models, periods.dayModel, periods.dayKey),
     // Built from the key rows, which the filter never narrows, so picking one filter cannot empty the
     // other picker.
     modelOptions: [...new Set([
@@ -3480,15 +3506,70 @@ function priceUsage(
   inputTokens: number,
   outputTokens: number,
   modelId?: string,
+  periods?: PeriodBuckets,
 ): { currency: string, amount: number } | null {
   const model = (modelId ? models.find((entry) => entry.id === modelId) : undefined)
     ?? models.find((entry) => entry.label === label || entry.model === label)
-  if (!model || (model.inputPrice === null && model.outputPrice === null)) return null
+  if (!model) return null
+  const buckets = [...(periods ?? [])]
+  const pricedBuckets = buckets.filter(([id]) => {
+    const period = model.pricePeriods.find((entry) => entry.id === id)
+    return period && (period.inputPrice !== null || period.outputPrice !== null)
+  })
+  if (model.inputPrice === null && model.outputPrice === null && pricedBuckets.length === 0) return null
   if (!model.priceCurrency) return null
-  return {
-    currency: model.priceCurrency,
-    amount: ((model.inputPrice ?? 0) * inputTokens + (model.outputPrice ?? 0) * outputTokens) / 1_000_000,
+  let amount = 0
+  let baseInput = inputTokens
+  let baseOutput = outputTokens
+  for (const [id, tokens] of buckets) {
+    const period = model.pricePeriods.find((entry) => entry.id === id)
+    const inputPrice = period?.inputPrice ?? model.inputPrice
+    const outputPrice = period?.outputPrice ?? model.outputPrice
+    amount += ((inputPrice ?? 0) * tokens.inputTokens + (outputPrice ?? 0) * tokens.outputTokens) / 1_000_000
+    baseInput -= tokens.inputTokens
+    baseOutput -= tokens.outputTokens
   }
+  amount += ((model.inputPrice ?? 0) * Math.max(0, baseInput) + (model.outputPrice ?? 0) * Math.max(0, baseOutput)) / 1_000_000
+  return { currency: model.priceCurrency, amount }
+}
+
+type PeriodBuckets = ReadonlyMap<string, { inputTokens: number, outputTokens: number }>
+interface CollectedPeriods {
+  /** Whole-window buckets for the by-model totals. */
+  model: Map<string, Map<string, { inputTokens: number, outputTokens: number }>>
+  /** Whole-window buckets for the by-key totals; a row with no key belongs to no key. */
+  key: Map<string, Map<string, { inputTokens: number, outputTokens: number }>>
+  /** Per-day buckets for the chart, where each day is priced on its own. */
+  dayModel: Map<string, Map<string, { inputTokens: number, outputTokens: number }>>
+  /** The same day buckets narrowed to a key, so a key slice is priced on its own tokens. */
+  dayKey: Map<string, Map<string, { inputTokens: number, outputTokens: number }>>
+}
+
+const PERIOD_KEY = '\u0000'
+
+function collectPeriods(rows: Awaited<ReturnType<ReturnType<typeof store>['periodUsageRange']>>): CollectedPeriods {
+  const collected: CollectedPeriods = { model: new Map(), key: new Map(), dayModel: new Map(), dayKey: new Map() }
+  const add = (
+    into: Map<string, Map<string, { inputTokens: number, outputTokens: number }>>,
+    key: string,
+    row: { periodId: string, inputTokens: number, outputTokens: number },
+  ) => {
+    const buckets = into.get(key) ?? new Map<string, { inputTokens: number, outputTokens: number }>()
+    const bucket = buckets.get(row.periodId) ?? { inputTokens: 0, outputTokens: 0 }
+    bucket.inputTokens += row.inputTokens
+    bucket.outputTokens += row.outputTokens
+    buckets.set(row.periodId, bucket)
+    into.set(key, buckets)
+  }
+  for (const row of rows) {
+    add(collected.model, row.modelLabel, row)
+    add(collected.dayModel, `${row.day}${PERIOD_KEY}${row.modelLabel}`, row)
+    if (row.providerId) {
+      add(collected.key, `${row.providerId}${PERIOD_KEY}${row.keyId}${PERIOD_KEY}${row.modelLabel}`, row)
+      add(collected.dayKey, `${row.day}${PERIOD_KEY}${row.providerId}${PERIOD_KEY}${row.keyId}${PERIOD_KEY}${row.modelLabel}`, row)
+    }
+  }
+  return collected
 }
 
 /** One bar's worth of a day, while the rows are still being folded into it. */
@@ -3520,6 +3601,8 @@ interface DayTally {
 function buildUsageSeries(
   rows: Awaited<ReturnType<ReturnType<typeof store>['usageSeries']>>,
   models: AssistantModel[],
+  dayPeriods: Map<string, Map<string, { inputTokens: number, outputTokens: number }>>,
+  dayKeyPeriods: Map<string, Map<string, { inputTokens: number, outputTokens: number }>>,
 ): AssistantUsageDay[] {
   const byDay = new Map<string, DayTally>()
   const weight = new Map<string, number>()
@@ -3529,13 +3612,21 @@ function buildUsageSeries(
     tally.requests += row.requests
     tally.inputTokens += row.inputTokens
     tally.outputTokens += row.outputTokens
-    const price = priceUsage(models, row.modelLabel, row.inputTokens, row.outputTokens, row.modelId)
-    // The day is split by model and by key over the same rows, so one unpriced row marks both of its slices.
-    foldSlice('m', weight, tally.models, row.modelLabel || '', row.modelLabel, row, price)
+    const modelPrice = priceUsage(models, row.modelLabel, row.inputTokens, row.outputTokens, row.modelId,
+      dayPeriods.get(`${row.day}${PERIOD_KEY}${row.modelLabel}`))
+    // The day is split by model and by key over the same rows, so one unpriced row marks both of its
+    // slices.
+    foldSlice('m', weight, tally.models, row.modelLabel || '', row.modelLabel, row, modelPrice)
     // A rebuilt history row carries no provider or key, so it belongs to the model split and not to a
     // nameless bar in the key split: the key it was paid with was never recorded, which is the honest
     // reading and not a key called ''.
-    if (row.providerId) foldSlice('k', weight, tally.keys, `${row.providerId}:${row.keyId}`, keySliceLabel(row), row, price)
+    if (row.providerId) {
+      // The key slice is priced from this key's own buckets. The model buckets include turns that never
+      // resolved a key, and charging those to this key would make its bar larger than its tokens.
+      const keyPrice = priceUsage(models, row.modelLabel, row.inputTokens, row.outputTokens, row.modelId,
+        dayKeyPeriods.get(`${row.day}${PERIOD_KEY}${row.providerId}${PERIOD_KEY}${row.keyId}${PERIOD_KEY}${row.modelLabel}`))
+      foldSlice('k', weight, tally.keys, `${row.providerId}:${row.keyId}`, keySliceLabel(row), row, keyPrice)
+    }
   }
   const order = (prefix: 'm' | 'k') => (left: SliceTally, right: SliceTally) =>
     (weight.get(`${prefix}:${right.id}`) ?? 0) - (weight.get(`${prefix}:${left.id}`) ?? 0) || left.label.localeCompare(right.label)
@@ -3607,6 +3698,7 @@ function keySliceLabel(row: { providerLabel: string, keyId: string, keyLabel: st
 function foldKeyUsage(
   rows: Awaited<ReturnType<ReturnType<typeof store>['keyUsageRange']>>,
   models: AssistantModel[],
+  periods: Map<string, Map<string, { inputTokens: number, outputTokens: number }>>,
 ): AssistantKeyUsage[] {
   const byKey = new Map<string, AssistantKeyUsage>()
   const spend = new Map<string, Map<string, number>>()
@@ -3631,24 +3723,18 @@ function foldKeyUsage(
     entry.toolCalls += row.toolCalls
     entry.errors += row.errors
     byKey.set(id, entry)
-    const model = models.find((candidate) => candidate.label === row.modelLabel || candidate.model === row.modelLabel)
-    if (!model || (model.inputPrice === null && model.outputPrice === null)) {
+    // The key dimension matches models by label — only the model table carries an id — which is the
+    // rename limit of this view. A model with no price at all is reported as unpriced rather than free.
+    const price = priceUsage(models, row.modelLabel, row.inputTokens, row.outputTokens, undefined,
+      periods.get(`${row.providerId}${PERIOD_KEY}${row.keyId}${PERIOD_KEY}${row.modelLabel}`))
+    if (!price) {
       // Only a row that names a model can be unpriced. A bare request charge carries no model and
       // prices nothing, so it must not mark the whole key as unpriced.
       if (row.modelLabel) entry.unpriced = true
       continue
     }
-    const currency = model.priceCurrency
-    // A price with no currency has no unit to be summed in: the same rule the model rows follow, so a key
-    // is reported unpriced rather than given a dollar total nobody chose. (The key dimension still matches
-    // by label — only `chat_usage_daily_model` carries an id — so this is the rename limit of that view.)
-    if (!currency) {
-      if (row.modelLabel) entry.unpriced = true
-      continue
-    }
-    const cost = ((model.inputPrice ?? 0) * row.inputTokens + (model.outputPrice ?? 0) * row.outputTokens) / 1_000_000
     const perCurrency = spend.get(id) ?? new Map<string, number>()
-    perCurrency.set(currency, (perCurrency.get(currency) ?? 0) + cost)
+    perCurrency.set(price.currency, (perCurrency.get(price.currency) ?? 0) + price.amount)
     spend.set(id, perCurrency)
   }
   for (const [id, perCurrency] of spend) {

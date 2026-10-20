@@ -42,7 +42,7 @@ function model(over: Partial<AssistantModel> = {}): AssistantModel {
         fallbackModelId: null,
         inputPrice: null,
         outputPrice: null,
-        priceCurrency: '',
+        priceCurrency: '', pricePeriods: [],
         ...over,
     }
 }
@@ -114,6 +114,7 @@ function open(over: Partial<AssistantModel> = {}, limits = DEFAULT_LIMITS, provi
             provider: provider(providerOver),
             models: [],
             limits: limits,
+            timezone: 'UTC',
             onClose: () => undefined,
             onSave: saved,
         }))

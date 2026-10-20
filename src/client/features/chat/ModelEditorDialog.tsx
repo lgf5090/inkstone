@@ -8,7 +8,7 @@
  * switch, because it would be believed.
  */
 import { useState, type ReactNode } from 'react'
-import { Check, ChevronDown, Copy, Save, X } from 'lucide-react'
+import { Check, ChevronDown, Copy, Plus, Save, X } from 'lucide-react'
 import type {
   AssistantCustomParam,
   AssistantLimits,
@@ -16,10 +16,11 @@ import type {
   AssistantModelKind,
   AssistantModelPurpose,
   AssistantParamType,
+  AssistantPricePeriod,
   AssistantProvider,
   AssistantReasoning,
 } from '@shared/assistant'
-import { ASSISTANT_MODEL_KINDS, ASSISTANT_MODEL_MODALITIES, ASSISTANT_MODEL_PURPOSES, ASSISTANT_PROTOCOLS, TOKEN_STEPS, effectiveModelLimits, formatTokenStep, modelWire, protocolCarriesAudio } from '@shared/assistant'
+import { ASSISTANT_MODEL_KINDS, ASSISTANT_MODEL_MODALITIES, ASSISTANT_MODEL_PURPOSES, ASSISTANT_PROTOCOLS, MAX_PRICE_PERIODS, MAX_PRICE_PERIOD_LABEL_CHARS, TOKEN_STEPS, effectiveModelLimits, formatTokenStep, modelWire, protocolCarriesAudio } from '@shared/assistant'
 import type { AssistantModelModality, AssistantProtocol } from '@shared/assistant'
 import { REASONING_LABELS } from './ComposerControls'
 import { modelReasoning, reasoningOptions } from './model-reasoning'
@@ -29,7 +30,7 @@ import { cn } from '../../lib/cn'
 import { COPY_RESET_MS } from '../../lib/motion'
 import { t } from '../../lib/i18n'
 import { Field, Input, Segmented, Select, SettingRow, Slider, Switch } from '../../components/form'
-import { Button } from '../../components/primitives'
+import { Button, IconButton } from '../../components/primitives'
 import { Modal } from '../../components/overlay'
 import { useUi } from '../../store/ui'
 
@@ -87,6 +88,8 @@ export interface ModelDraft {
   inputPrice: number | null
   outputPrice: number | null
   priceCurrency: string
+  /** The windows that override the base price; an empty list leaves the base rates as the whole story. */
+  pricePeriods: AssistantPricePeriod[]
 }
 
 export function draftFromModel(model: AssistantModel): ModelDraft {
@@ -110,6 +113,7 @@ export function draftFromModel(model: AssistantModel): ModelDraft {
     inputPrice: model.inputPrice,
     outputPrice: model.outputPrice,
     priceCurrency: model.priceCurrency,
+    pricePeriods: model.pricePeriods.map((period) => ({ ...period, days: [...period.days] })),
   }
 }
 
@@ -118,6 +122,19 @@ function priceValue(raw: string): number | null {
   if (!raw.trim()) return null
   const numeric = Number(raw)
   return Number.isFinite(numeric) && numeric >= 0 ? numeric : null
+}
+
+const WEEKDAYS = [1, 2, 3, 4, 5, 6, 7] as const
+
+/** A stable handle for a new window; usage rows keep pointing at it after the list is reordered. */
+function newPricePeriodId(): string {
+  const random = globalThis.crypto?.randomUUID?.()
+    ?? `${Date.now().toString(36)}${Math.random().toString(36).slice(2)}`
+  return `p${random.replace(/[^a-z0-9]/gi, '').slice(0, 20)}`
+}
+
+function periodPricePlaceholder(base: number | null): string {
+  return base === null ? t('assistant.model.price_period_inherit') : String(base)
 }
 
 const MODALITY_KEYS: Record<AssistantModelModality, Parameters<typeof t>[0]> = {
@@ -189,6 +206,7 @@ export function ModelEditorDialog({
   provider,
   models,
   limits,
+  timezone,
   onClose,
   onSave,
 }: {
@@ -199,6 +217,8 @@ export function ModelEditorDialog({
   models: readonly AssistantModel[]
   /** The account's ceilings, which are what an emptied field inherits — named beside each field. */
   limits: AssistantLimits
+  /** The clock time-of-day prices are judged by, shown so the reader knows which clock a window means. */
+  timezone: string
   onClose: () => void
   /**
    * The write behind Save, awaited. It answers whether the model was saved, and takes the reason a
@@ -252,6 +272,39 @@ export function ModelEditorDialog({
     setFailure(null)
     setDraft((current) => ({ ...current, ...part }))
   }
+  // A window with no length cannot be priced and would be dropped by the route; saying so at the box
+  // keeps the reader's edit from disappearing in a save that looked like it worked.
+  const periodsInvalid = draft.pricePeriods.some((period) => !period.start || !period.end || period.start === period.end)
+  const addPeriod = () => {
+    if (draft.pricePeriods.length >= MAX_PRICE_PERIODS) return
+    patch({
+      pricePeriods: [...draft.pricePeriods, {
+        id: newPricePeriodId(),
+        label: '',
+        days: [1, 2, 3, 4, 5],
+        start: '09:00',
+        end: '18:00',
+        inputPrice: null,
+        outputPrice: null,
+      }],
+    })
+  }
+  const updatePeriod = (index: number, part: Partial<AssistantPricePeriod>) => {
+    patch({
+      pricePeriods: draft.pricePeriods.map((period, at) => (at === index ? { ...period, ...part } : period)),
+    })
+  }
+  const removePeriod = (index: number) => {
+    patch({ pricePeriods: draft.pricePeriods.filter((_, at) => at !== index) })
+  }
+  const togglePeriodDay = (index: number, day: number) => {
+    const period = draft.pricePeriods[index]
+    if (!period) return
+    const days = period.days.includes(day)
+      ? period.days.filter((entry) => entry !== day)
+      : [...period.days, day].sort((left, right) => left - right)
+    updatePeriod(index, { days })
+  }
 
   // Which wire this model will be called on, read off the one rule the worker builds its request from —
   // the model's own pick when it has one, the provider's when it follows. Null is a model with no provider
@@ -264,7 +317,7 @@ export function ModelEditorDialog({
   const honouredModalities = audioOnThisWire ? draft.modalities : []
 
   const submit = async () => {
-    if (saving || nameMissing) return
+    if (saving || nameMissing || periodsInvalid) return
     setSaving(true)
     // The store hands the refusal here instead of toasting it, so one failure is told in one place.
     //
@@ -316,7 +369,7 @@ export function ModelEditorDialog({
             variant="primary"
             icon={<Save size={14} />}
             loading={saving}
-            disabled={nameMissing}
+            disabled={nameMissing || periodsInvalid}
             onClick={() => void submit()}
           >
             {t('assistant.model.save')}
@@ -547,6 +600,130 @@ export function ModelEditorDialog({
                   onChange={(event) => patch({ priceCurrency: event.target.value.toUpperCase() })}
                   className="w-20"
                 />
+              </div>
+            </SettingRow>
+
+            <SettingRow
+              title={t('assistant.model.price_periods')}
+              description={t('assistant.model.price_periods_hint', { zone: timezone })}
+              className="md:flex-col md:items-stretch md:gap-2"
+            >
+              <div className="flex flex-col gap-2">
+                {draft.pricePeriods.map((period, index) => (
+                  <div
+                    key={period.id}
+                    className="flex flex-col gap-2 rounded-[var(--r-md)] border border-[var(--border-subtle)] bg-[var(--bg-inset)] p-2"
+                  >
+                    <div className="flex items-center gap-1.5">
+                      <Input
+                        value={period.label}
+                        maxLength={MAX_PRICE_PERIOD_LABEL_CHARS}
+                        aria-label={t('assistant.model.price_period_name')}
+                        placeholder={t('assistant.model.price_period_name')}
+                        onChange={(event) => updatePeriod(index, { label: event.target.value })}
+                        className="min-w-0 flex-1"
+                      />
+                      <IconButton
+                        label={t('assistant.model.price_period_remove')}
+                        size="sm"
+                        onClick={() => removePeriod(index)}
+                      >
+                        <X size={13} />
+                      </IconButton>
+                    </div>
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      <div role="group" aria-label={t('assistant.model.price_period_days')} className="flex gap-0.5">
+                        {WEEKDAYS.map((day) => {
+                          const on = period.days.includes(day)
+                          return (
+                            <button
+                              key={day}
+                              type="button"
+                              aria-pressed={on}
+                              aria-label={t(`assistant.weekday.${day}`)}
+                              onClick={() => togglePeriodDay(index, day)}
+                              className={cn(
+                                'size-7 rounded-[var(--r-sm)] border text-[length:var(--text-10-5)] transition-colors duration-[var(--dur-fast)]',
+                                on
+                                  ? 'border-[var(--accent)] bg-[var(--accent-soft)] text-[var(--accent-on-soft)]'
+                                  : 'border-[var(--border-subtle)] text-[var(--text-tertiary)] hover:bg-[var(--bg-hover)]',
+                              )}
+                            >
+                              {t(`assistant.weekday.${day}`)}
+                            </button>
+                          )
+                        })}
+                      </div>
+                      <Input
+                        type="time"
+                        step={60}
+                        value={period.start}
+                        aria-label={t('assistant.model.price_period_start')}
+                        onChange={(event) => updatePeriod(index, { start: event.target.value })}
+                        className="w-[98px]"
+                      />
+                      <span aria-hidden className="text-[var(--text-quaternary)]">–</span>
+                      <Input
+                        type="time"
+                        step={60}
+                        value={period.end}
+                        aria-label={t('assistant.model.price_period_end')}
+                        onChange={(event) => updatePeriod(index, { end: event.target.value })}
+                        className="w-[98px]"
+                      />
+                    </div>
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      <label className="flex items-center gap-1 text-[length:var(--text-10-5)] text-[var(--text-tertiary)]">
+                        {t('assistant.model.price_period_in')}
+                        <Input
+                          type="number"
+                          min={0}
+                          step="0.01"
+                          value={period.inputPrice ?? ''}
+                          placeholder={periodPricePlaceholder(draft.inputPrice)}
+                          aria-label={`${t('assistant.model.price_period_in')} · ${t('assistant.stats.tokens_in')}`}
+                          onChange={(event) => updatePeriod(index, { inputPrice: priceValue(event.target.value) })}
+                          className="w-24"
+                        />
+                      </label>
+                      <label className="flex items-center gap-1 text-[length:var(--text-10-5)] text-[var(--text-tertiary)]">
+                        {t('assistant.model.price_period_out')}
+                        <Input
+                          type="number"
+                          min={0}
+                          step="0.01"
+                          value={period.outputPrice ?? ''}
+                          placeholder={periodPricePlaceholder(draft.outputPrice)}
+                          aria-label={`${t('assistant.model.price_period_out')} · ${t('assistant.stats.tokens_out')}`}
+                          onChange={(event) => updatePeriod(index, { outputPrice: priceValue(event.target.value) })}
+                          className="w-24"
+                        />
+                      </label>
+                      <span className="text-[length:var(--text-10-5)] text-[var(--text-quaternary)]">
+                        {draft.priceCurrency || t('assistant.stats.model_currency')}
+                      </span>
+                    </div>
+                  </div>
+                ))}
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <span className="text-[length:var(--text-10-5)] leading-relaxed text-[var(--text-quaternary)]">
+                    {t('assistant.model.price_period_all_days')}
+                  </span>
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    icon={<Plus size={12} />}
+                    disabled={draft.pricePeriods.length >= MAX_PRICE_PERIODS}
+                    onClick={addPeriod}
+                  >
+                    {t('assistant.model.price_period_add')}
+                  </Button>
+                </div>
+                {periodsInvalid && (
+                  <p role="alert" className="text-[length:var(--text-10-5)] text-[var(--danger)]">
+                    {t('assistant.model.price_period_error')}
+                  </p>
+                )}
               </div>
             </SettingRow>
 

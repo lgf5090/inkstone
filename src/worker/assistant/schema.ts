@@ -147,6 +147,7 @@ export const ASSISTANT_SCHEMA_STATEMENTS: readonly string[] = [
     input_price REAL,
     output_price REAL,
     price_currency TEXT NOT NULL DEFAULT '',
+    price_periods TEXT NOT NULL DEFAULT '[]',
     enabled INTEGER NOT NULL DEFAULT 1,
     position REAL NOT NULL DEFAULT 0,
     PRIMARY KEY (user_id, id)
@@ -649,6 +650,30 @@ export const ASSISTANT_SCHEMA_STATEMENTS: readonly string[] = [
   `CREATE INDEX IF NOT EXISTS idx_chat_usage_key_user
      ON chat_usage_daily_key(user_id, day DESC)`,
 
+  // The tokens a time-of-day price applies to, filed under the window that was in force when the turn
+  // was recorded. It is a sidecar rather than a dimension on the two tables above: their primary keys
+  // predate pricing windows, and a table with the same day and model split by a window keeps the
+  // existing totals — and every quota read — exactly as they were. Tokens written before this table
+  // existed, or outside every window, have no row here and are priced at the base rate.
+  //
+  // The provider and key ride along so the key dimension stays priced too; an empty pair is a turn that
+  // never resolved a key, which counts toward its model and toward no key, the same reading the key
+  // table itself makes. Labels are absent because the key row already carries them.
+  `CREATE TABLE IF NOT EXISTS chat_usage_daily_period (
+    user_id TEXT NOT NULL,
+    day TEXT NOT NULL,
+    model_label TEXT NOT NULL,
+    model_id TEXT,
+    period_id TEXT NOT NULL,
+    provider_id TEXT NOT NULL DEFAULT '',
+    key_id TEXT NOT NULL DEFAULT '',
+    input_tokens INTEGER NOT NULL DEFAULT 0,
+    output_tokens INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (user_id, day, model_label, period_id, provider_id, key_id)
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_chat_usage_period_user
+     ON chat_usage_daily_period(user_id, day DESC)`,
+
   // One published conversation behind an unguessable slug. Its own table rather than a row in the notes
   // app's `shares`: that one is keyed by note and joined to `notes` everywhere, and a shared thread has
   // neither a note id nor a note title. The passcode hash, the expiry and the view count mean the same
@@ -738,6 +763,7 @@ export const ASSISTANT_REQUIRED_TABLES: readonly string[] = [
   'chat_usage_daily',
   'chat_usage_daily_model',
   'chat_usage_daily_key',
+  'chat_usage_daily_period',
   'chat_provider_keys',
   'chat_search_keys',
   'chat_share_links',
@@ -781,6 +807,7 @@ export const ASSISTANT_REQUIRED_INDEXES: readonly string[] = [
   'idx_chat_actions_pending',
   'idx_chat_usage_model_user',
   'idx_chat_usage_key_user',
+  'idx_chat_usage_period_user',
   'idx_chat_provider_keys_provider',
   'idx_chat_share_links_scope',
   'idx_chat_activity_user',
@@ -795,6 +822,7 @@ export const ASSISTANT_REQUIRED_COLUMNS: Readonly<Record<string, readonly string
   chat_projects: ['user_id', 'id', 'name', 'description', 'instructions', 'note_scope', 'note_ids', 'model_id', 'created_at', 'updated_at'],
   chat_usage_daily_model: ['user_id', 'day', 'model_label', 'model_id', 'requests', 'input_tokens', 'output_tokens', 'tool_calls', 'errors'],
   chat_usage_daily_key: ['user_id', 'day', 'model_label', 'provider_id', 'provider_label', 'key_id', 'key_label', 'requests', 'input_tokens', 'output_tokens', 'tool_calls', 'errors'],
+  chat_usage_daily_period: ['user_id', 'day', 'model_label', 'model_id', 'period_id', 'provider_id', 'key_id', 'input_tokens', 'output_tokens'],
   chat_share_links: ['slug', 'conversation_id', 'user_id', 'scope', 'password_hash', 'expires_at', 'views', 'created_at'],
   chat_providers: ['user_id', 'id', 'label', 'protocol', 'base_url', 'endpoints', 'reasoning_dialect', 'key_ciphertext', 'key_hint', 'key_last_used_at', 'created_at', 'updated_at'],
   chat_provider_keys: ['user_id', 'id', 'provider_id', 'label', 'key_ciphertext', 'key_hint', 'enabled', 'last_used_at', 'error_count', 'last_error', 'created_at', 'updated_at'],
@@ -802,7 +830,7 @@ export const ASSISTANT_REQUIRED_COLUMNS: Readonly<Record<string, readonly string
   chat_models: ['user_id', 'id', 'provider_id', 'model', 'label', 'temperature', 'max_output_tokens', 'reasoning', 'context_tokens',
     'vendor_context_tokens', 'vendor_max_output_tokens', 'vision',
     'purpose', 'kind', 'supports_tools', 'no_tools', 'max_input_tokens', 'modalities', 'top_p', 'custom_params', 'protocol', 'fallback_model_id',
-    'input_price', 'output_price', 'price_currency', 'enabled', 'position'],
+    'input_price', 'output_price', 'price_currency', 'price_periods', 'enabled', 'position'],
   chat_conversations: ['user_id', 'id', 'title', 'summary', 'summary_upto', 'pinned', 'starred', 'archived', 'ephemeral', 'parent_id', 'folder_id', 'project_id', 'note_id', 'created_at', 'updated_at'],
   chat_artifacts: ['user_id', 'id', 'conversation_id', 'title', 'content', 'note_id', 'version', 'created_at', 'updated_at'],
   chat_artifact_versions: ['user_id', 'id', 'artifact_id', 'conversation_id', 'version', 'title', 'content', 'source', 'message_id', 'created_at'],

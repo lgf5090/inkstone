@@ -66,7 +66,7 @@ function model(over: Partial<AssistantModel> = {}): AssistantModel {
     id: 'm1', providerId: 'p1', model: 'deepseek-flash', label: 'DeepSeek Flash',
     temperature: 0.7, maxOutputTokens: 8_192, enabled: true, reasoning: 'auto', contextTokens: 65_536, vision: true,
     purpose: 'chat', kind: 'text', supportsTools: true, maxInputTokens: 57_344, modalities: [], topP: null,
-    customParams: [], protocol: null, fallbackModelId: null, inputPrice: null, outputPrice: null, priceCurrency: '',
+    customParams: [], protocol: null, fallbackModelId: null, inputPrice: null, outputPrice: null, priceCurrency: '', pricePeriods: [],
     ...over,
   }
 }

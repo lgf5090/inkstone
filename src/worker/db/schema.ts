@@ -1741,6 +1741,39 @@ export const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
          FROM chat_artifacts`,
     ],
   },
+  {
+    // A pricing page with peak and off-peak hours, stored as one JSON array on the model. The usage side
+    // records only which window was in force, so a rate change stays a read-time estimate like the base
+    // price already is, and a deleted window falls back to that base.
+    version: 113,
+    skipIfColumnExists: { table: 'chat_models', column: 'price_periods' },
+    statements: [
+      `ALTER TABLE chat_models ADD COLUMN price_periods TEXT NOT NULL DEFAULT '[]'`,
+    ],
+  },
+  {
+    // Tokens split by the pricing window that was active when the turn was recorded. The daily model and
+    // key tables keep their totals; this sidecar is what lets a cost be computed per window without
+    // rebuilding either table's primary key. Tokens written before it, or outside every window, have no
+    // row here and are priced at the base rate.
+    version: 114,
+    statements: [
+      `CREATE TABLE IF NOT EXISTS chat_usage_daily_period (
+        user_id TEXT NOT NULL,
+        day TEXT NOT NULL,
+        model_label TEXT NOT NULL,
+        model_id TEXT,
+        period_id TEXT NOT NULL,
+        provider_id TEXT NOT NULL DEFAULT '',
+        key_id TEXT NOT NULL DEFAULT '',
+        input_tokens INTEGER NOT NULL DEFAULT 0,
+        output_tokens INTEGER NOT NULL DEFAULT 0,
+        PRIMARY KEY (user_id, day, model_label, period_id, provider_id, key_id)
+      )`,
+      `CREATE INDEX IF NOT EXISTS idx_chat_usage_period_user
+         ON chat_usage_daily_period(user_id, day DESC)`,
+    ],
+  },
 ]
 
 const FTS_STATEMENT = `CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(

@@ -45,7 +45,7 @@ function model(id: string, vendorId: string): AssistantModel {
     enabled: true, reasoning: 'auto', contextTokens: null, vision: true, purpose: 'chat', kind: 'text',
     supportsTools: true, maxInputTokens: null, modalities: [], topP: null, customParams: [], protocol: null,
     fallbackModelId: null,
-    inputPrice: null, outputPrice: null, priceCurrency: '',
+    inputPrice: null, outputPrice: null, priceCurrency: '', pricePeriods: [],
   }
 }
 

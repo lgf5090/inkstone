@@ -10,6 +10,7 @@
  */
 
 import { ASSISTANT_MODEL_KINDS, ASSISTANT_MODEL_PURPOSES, MAX_ARTIFACT_VERSIONS, MAX_TURN_SCOPES, SAVED_MESSAGE_EXCERPT_CHARS, clipSuggestionList, clipToolPayload, parseCustomParams, isNoteSourceId, isSourceUrl } from '@shared/assistant'
+import { activePricePeriod, parsePricePeriods } from '@shared/price-periods'
 import type {
   AssistantArtifact,
   AssistantArtifactVersion,
@@ -21,6 +22,7 @@ import type {
   AssistantMemoryStatus,
   AssistantMessage,
   AssistantModel,
+  AssistantPricePeriod,
   AssistantSource,
   AssistantTurnScope,
   AssistantSkill,
@@ -922,6 +924,7 @@ type ModelPatch = {
   inputPrice?: number | null
   outputPrice?: number | null
   priceCurrency?: string
+  pricePeriods?: AssistantPricePeriod[]
 }
 
 /**
@@ -959,6 +962,7 @@ const MODEL_UPDATES: readonly {
   { key: 'inputPrice', column: 'input_price', bind: (patch) => patch.inputPrice },
   { key: 'outputPrice', column: 'output_price', bind: (patch) => patch.outputPrice },
   { key: 'priceCurrency', column: 'price_currency', bind: (patch) => patch.priceCurrency },
+  { key: 'pricePeriods', column: 'price_periods', bind: (patch) => JSON.stringify(parsePricePeriods(patch.pricePeriods ?? [])) },
 ]
 
 export class AssistantStore {
@@ -1471,6 +1475,7 @@ export class AssistantStore {
       protocol: input.protocol ?? null,
       fallbackModelId: null,
       inputPrice: null, outputPrice: null, priceCurrency: '',
+      pricePeriods: [],
     }
   }
 
@@ -4502,6 +4507,7 @@ export class AssistantStore {
     modelLabel = '',
     keyRef?: { providerId: string, providerLabel: string, keyId?: string, keyLabel?: string },
     chargeDay = true,
+    at = new Date(),
   ): Promise<void> {
     const today = day ?? await this.currentUsageDay()
     await this.write(`INSERT INTO chat_usage_daily (user_id, day) VALUES (?1, ?2) ON CONFLICT(user_id, day) DO NOTHING`, today)
@@ -4537,6 +4543,38 @@ export class AssistantStore {
         today, modelLabel.slice(0, 120), keyRef.providerId.slice(0, 60), keyRef.providerLabel.slice(0, 120),
         (keyRef.keyId ?? '').slice(0, 60), (keyRef.keyLabel ?? '').slice(0, 120),
       )
+    }
+    const periodTokens = {
+      input: Math.max(0, Math.round(counters.inputTokens ?? 0)),
+      output: Math.max(0, Math.round(counters.outputTokens ?? 0)),
+    }
+    if (modelLabel && (periodTokens.input || periodTokens.output)) {
+      // One model per label is the same condition the model row uses to claim an id. A label shared by
+      // two rows has no single price schedule, so its tokens stay at the base rate instead of being
+      // billed against whichever row happened to come back first.
+      const priced = await this.db.prepare(
+        `SELECT CASE WHEN COUNT(*) = 1 THEN MAX(id) END AS id,
+                CASE WHEN COUNT(*) = 1 THEN MAX(price_periods) END AS periods
+           FROM chat_models WHERE user_id = ?1 AND label = ?2`,
+      ).bind(this.userId, modelLabel.slice(0, 120)).first<{ id: string | null, periods: string | null }>()
+      const period = activePricePeriod(parsePricePeriods(parseJson(priced?.periods)), at, await this.usageZone())
+      if (period && (period.inputPrice !== null || period.outputPrice !== null)) {
+        const providerId = (keyRef?.providerId ?? '').slice(0, 60)
+        const keyId = (keyRef?.keyId ?? '').slice(0, 60)
+        await this.write(
+          `INSERT INTO chat_usage_daily_period
+             (user_id, day, model_label, model_id, period_id, provider_id, key_id)
+           VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
+           ON CONFLICT(user_id, day, model_label, period_id, provider_id, key_id) DO NOTHING`,
+          today, modelLabel.slice(0, 120), priced?.id ?? null, period.id, providerId, keyId,
+        )
+        await this.db.prepare(
+          `UPDATE chat_usage_daily_period
+              SET input_tokens = input_tokens + ?7, output_tokens = output_tokens + ?8
+            WHERE user_id = ?1 AND day = ?2 AND model_label = ?3 AND period_id = ?4
+              AND provider_id = ?5 AND key_id = ?6`,
+        ).bind(this.userId, today, modelLabel.slice(0, 120), period.id, providerId, keyId, periodTokens.input, periodTokens.output).run()
+      }
     }
     const targets: Array<{ table: string, guard: string, extra: unknown[] }> = []
     if (chargeDay) targets.push({ table: 'chat_usage_daily', guard: 'user_id = ?1 AND day = ?2', extra: [] })
@@ -4698,6 +4736,42 @@ export class AssistantStore {
       scheduledRuns: 0,
       embeddings: 0,
       errors: Number(row.errors ?? 0),
+    }))
+  }
+
+  /**
+   * Tokens filed under a pricing window, one row per day, model, window and key.
+   *
+   * The daily totals already carry these tokens; this is the split that says which rate they were under.
+   * A day with no row for a model's tokens is not missing data — it is the base-rate remainder.
+   */
+  async periodUsageRange(from: string, to: string): Promise<Array<{
+    day: string
+    modelLabel: string
+    modelId: string | null
+    periodId: string
+    providerId: string
+    keyId: string
+    inputTokens: number
+    outputTokens: number
+  }>> {
+    const { results } = await this.db.prepare(
+      `SELECT day, model_label, MAX(model_id) AS model_id, period_id, provider_id, key_id,
+              SUM(input_tokens) AS input_tokens, SUM(output_tokens) AS output_tokens
+         FROM chat_usage_daily_period
+        WHERE user_id = ?1 AND day >= ?2 AND day <= ?3
+        GROUP BY day, model_label, period_id, provider_id, key_id
+        ORDER BY day ASC, model_label ASC`,
+    ).bind(this.userId, from, to).all<Record<string, number | string | null>>()
+    return (results ?? []).map((row) => ({
+      day: String(row.day ?? ''),
+      modelLabel: String(row.model_label ?? ''),
+      modelId: typeof row.model_id === 'string' ? row.model_id : null,
+      periodId: String(row.period_id ?? ''),
+      providerId: String(row.provider_id ?? ''),
+      keyId: String(row.key_id ?? ''),
+      inputTokens: Number(row.input_tokens ?? 0),
+      outputTokens: Number(row.output_tokens ?? 0),
     }))
   }
 
@@ -5831,7 +5905,7 @@ function toSearchKeyPresence(r: { engine: string, has_key?: unknown, key_hint?: 
  */
 export const MODEL_SELECT_COLUMNS = `id, provider_id, model, label, temperature, max_output_tokens,
   reasoning, context_tokens, vendor_context_tokens, vendor_max_output_tokens, vision, purpose, kind, supports_tools, no_tools, max_input_tokens, modalities, top_p,
-  custom_params, protocol, fallback_model_id, input_price, output_price, price_currency, enabled, position`
+  custom_params, protocol, fallback_model_id, input_price, output_price, price_currency, price_periods, enabled, position`
 
 /**
  * The columns a skill row is read with. One list, because two hand-copied ones are how a new column ends
@@ -5898,6 +5972,7 @@ interface ModelRow {
   input_price: number | null
   output_price: number | null
   price_currency: string | null
+  price_periods: string | null
   enabled: number
   position: number
 }
@@ -5940,6 +6015,7 @@ function toModel(r: ModelRow): AssistantModel {
     inputPrice: num(r.input_price),
     outputPrice: num(r.output_price),
     priceCurrency: r.price_currency ?? '',
+    pricePeriods: parsePricePeriods(parseJson(r.price_periods)),
     enabled: bool(r.enabled),
   }
 }

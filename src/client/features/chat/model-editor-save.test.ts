@@ -41,7 +41,7 @@ function model(over: Partial<AssistantModel> = {}): AssistantModel {
     fallbackModelId: null,
     inputPrice: null,
     outputPrice: null,
-    priceCurrency: '',
+    priceCurrency: '', pricePeriods: [],
     ...over,
   }
 }
@@ -94,6 +94,7 @@ function render(onSave: (draft: ModelDraft, report: ReportFailure) => Promise<bo
       provider: PROVIDER,
       models: [],
       limits: DEFAULT_LIMITS,
+      timezone: 'UTC',
       onClose: closed,
       onSave,
     }))
@@ -114,6 +115,46 @@ afterEach(() => {
   host.remove()
   document.body.innerHTML = ''
   vi.restoreAllMocks()
+})
+
+describe('time-of-day price windows', () => {
+  const addWindow = () => buttons().find((node) => node.textContent?.trim() === t('assistant.model.price_period_add'))
+  const startBox = () => document.body.querySelector<HTMLInputElement>(`input[aria-label="${t('assistant.model.price_period_start')}"]`)
+  const endBox = () => document.body.querySelector<HTMLInputElement>(`input[aria-label="${t('assistant.model.price_period_end')}"]`)
+  const periodInputPrice = () => document.body.querySelector<HTMLInputElement>(
+    `input[aria-label="${t('assistant.model.price_period_in')} · ${t('assistant.stats.tokens_in')}"]`,
+  )
+  const openMore = () => press(buttons().find((node) => node.textContent?.includes(t('assistant.model.more'))), 'more settings')
+
+  it('adds a window and sends it with the draft', async () => {
+    let saved: ModelDraft | null = null
+    render(async (draft) => { saved = draft; return true })
+    await openMore()
+    await press(addWindow(), 'add a price window')
+    await act(async () => { type(periodInputPrice()!, '3') })
+    await press(saveButton(), 'the save button')
+
+    const period = saved!.pricePeriods[0]!
+    expect(period.id).toBeTruthy()
+    expect(period.days).toEqual([1, 2, 3, 4, 5])
+    expect(period.start).toBe('09:00')
+    expect(period.end).toBe('18:00')
+    expect(period.inputPrice).toBe(3)
+    expect(period.outputPrice).toBeNull()
+    expect(closed).toHaveBeenCalled()
+  })
+
+  it('will not save a window whose start and end are the same', async () => {
+    let saved: ModelDraft | null = null
+    render(async (draft) => { saved = draft; return true })
+    await openMore()
+    await press(addWindow(), 'add a price window')
+    await act(async () => { type(startBox()!, endBox()!.value) })
+
+    expect(saveButton()?.disabled).toBe(true)
+    expect(document.body.textContent).toContain(t('assistant.model.price_period_error'))
+    expect(saved).toBeNull()
+  })
 })
 
 describe('saving a model', () => {

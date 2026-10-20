@@ -408,6 +408,36 @@ export function customParamBody(params: readonly AssistantCustomParam[]): Record
   return out
 }
 
+/**
+ * One window of a model's time-of-day pricing.
+ *
+ * A provider that charges by the clock publishes windows instead of one rate: DeepSeek's peak hours are
+ * a different price from the rest of the day. A window overrides the model's base price for the tokens
+ * recorded while it is in force; a null side inherits that side's base price, which is what lets a peak
+ * window change only its output rate.
+ *
+ * `start` and `end` are local wall-clock times in the assistant's timezone. `end < start` is one window
+ * that crosses midnight, and its weekdays belong to the day it starts on. Empty `days` means every day.
+ */
+export interface AssistantPricePeriod {
+  id: string
+  label: string
+  /** ISO weekdays, 1 = Monday … 7 = Sunday. Empty means every day. */
+  days: number[]
+  /** `HH:MM`, local to the assistant's timezone. */
+  start: string
+  /** `HH:MM`, local to the assistant's timezone; earlier than `start` crosses midnight. */
+  end: string
+  inputPrice: number | null
+  outputPrice: number | null
+}
+
+/** How many windows one model may carry; a pricing page with more than this is a table, not a model. */
+export const MAX_PRICE_PERIODS = 12
+
+/** The long edge of a period's name in the editor. */
+export const MAX_PRICE_PERIOD_LABEL_CHARS = 40
+
 export interface AssistantModel {
   id: string
   providerId: string
@@ -479,12 +509,21 @@ export interface AssistantModel {
    *
    * Null is "not priced" rather than free — a local model and an unpriced one look the same in a total,
    * and the statistics say which models they could not price instead of counting them as zero. Prices
-   * are per million of the side they name, which is the unit every provider quotes in.
+   * are per million of the side they name, which is the unit every provider quotes in. These are the
+   * base rates: a window in `pricePeriods` stamps the tokens it was in force for and overrides them.
    */
   inputPrice: number | null
   outputPrice: number | null
   /** The currency those two numbers are in, free text: `USD`, `CNY`, whatever the bill is in. */
   priceCurrency: string
+  /**
+   * Time-of-day rates. Empty means the base prices above are the whole story.
+   *
+   * The usage record files a turn's tokens under the window that was in force when it was written, and
+   * the statistics price each bucket at that window's rate. A window whose price is null inherits the
+   * matching base rate, so a provider that only changes its output rate needs one number.
+   */
+  pricePeriods: AssistantPricePeriod[]
 }
 
 /**

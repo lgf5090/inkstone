@@ -34,7 +34,7 @@ function model(over: Partial<AssistantModel> = {}): AssistantModel {
     id: 'm1', providerId: 'p1', model: 'deepseek-chat', label: 'DeepSeek Chat', temperature: 0.4,
     maxOutputTokens: 8192, enabled: true, reasoning: 'auto', contextTokens: null, vision: true, purpose: 'chat',
     kind: 'text', supportsTools: true, maxInputTokens: null, modalities: [], topP: null, customParams: [],
-    protocol: null, fallbackModelId: null, inputPrice: null, outputPrice: null, priceCurrency: '', ...over,
+    protocol: null, fallbackModelId: null, inputPrice: null, outputPrice: null, priceCurrency: '', pricePeriods: [], ...over,
   }
 }
 

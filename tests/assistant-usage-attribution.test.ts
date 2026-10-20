@@ -17,7 +17,7 @@ import { newId } from '../src/worker/lib/id'
 import { assistantRoutes } from '../src/worker/routes/assistant'
 import { AssistantStore } from '../src/worker/assistant/store'
 import type { AppBindings, Env } from '../src/worker/env'
-import type { AssistantModel, AssistantModelUsage, AssistantStats } from '../src/shared/assistant'
+import type { AssistantModel, AssistantModelUsage, AssistantPricePeriod, AssistantStats } from '../src/shared/assistant'
 import { makeD1 } from './doubles/d1-sqlite'
 import { testBindings } from './doubles/bindings'
 
@@ -136,6 +136,93 @@ describe('cost attributed by model id', () => {
     expect(rows.find((entry) => entry.model_label === 'Solo')?.model_id).toBe('solo')
     expect(rows.find((entry) => entry.model_label === 'Twin')?.model_id).toBeNull()
     expect(rows.find((entry) => entry.model_label === 'Gone')?.model_id).toBeNull()
+  })
+})
+
+describe('time-of-day prices', () => {
+  const peak: AssistantPricePeriod = {
+    id: 'peak',
+    label: 'Peak',
+    days: [1, 2, 3, 4, 5],
+    start: '09:00',
+    end: '12:00',
+    inputPrice: 10,
+    outputPrice: 20,
+  }
+
+  async function priceModel(periods: AssistantPricePeriod[], patch: Partial<AssistantModel> = {}): Promise<AssistantModel> {
+    const listed = await call<{ models: AssistantModel[] }>('GET', '/api/assistant/models')
+    const target = listed.models[0]!
+    const updated = await store.updateModel(target.id, {
+      inputPrice: 1,
+      outputPrice: 2,
+      priceCurrency: 'USD',
+      pricePeriods: periods,
+      ...patch,
+    })
+    return updated!
+  }
+
+  /** Charges one turn at a fixed clock, with a key so both dimensions can be checked. */
+  async function charge(at: string, withKey = true): Promise<void> {
+    await store.incrementUsage(
+      { requests: 1, inputTokens: 20, outputTokens: 6 },
+      '2026-10-19',
+      'Example one',
+      withKey ? { providerId: 'prov', providerLabel: 'Provider', keyId: 'key', keyLabel: 'Key' } : undefined,
+      true,
+      new Date(at),
+    )
+  }
+
+  it('prices a key slice on its own windows, not on a turn that never resolved a key', async () => {
+    await priceModel([peak])
+    await charge('2026-10-19T09:30:00Z', true)
+    await charge('2026-10-19T09:35:00Z', false)
+
+    const stats = await call<AssistantStats>('GET', '/api/assistant/stats?range=all')
+    const modelCost = (40 * 10 + 12 * 20) / 1_000_000
+    const keyCost = (20 * 10 + 6 * 20) / 1_000_000
+    expect(stats.models.find((row) => row.label === 'Example one')?.cost).toBeCloseTo(modelCost, 12)
+    expect(stats.keys[0]?.costs).toEqual([{ currency: 'USD', amount: expect.closeTo(keyCost, 12) }])
+    const day = stats.series.find((entry) => entry.day === '2026-10-19')!
+    expect(day.costs).toEqual([{ currency: 'USD', amount: expect.closeTo(modelCost, 12) }])
+    expect(day.keys[0]?.costs).toEqual([{ currency: 'USD', amount: expect.closeTo(keyCost, 12) }])
+  })
+
+  it('files a turn under the window in force and prices that bucket at its rate', async () => {
+    await priceModel([peak])
+    await charge('2026-10-19T09:30:00Z') // Monday, inside the window
+    await charge('2026-10-19T13:00:00Z') // Monday, outside it, base rate
+
+    const bucket = sqlite.prepare(
+      `SELECT period_id, input_tokens, output_tokens FROM chat_usage_daily_period`,
+    ).get() as { period_id: string, input_tokens: number, output_tokens: number }
+    expect(bucket).toEqual({ period_id: 'peak', input_tokens: 20, output_tokens: 6 })
+
+    const stats = await call<AssistantStats>('GET', '/api/assistant/stats?range=all')
+    // Outside: base 20*1 + 6*2. Inside: peak 20*10 + 6*20.
+    const expected = (32 + 320) / 1_000_000
+    expect(stats.models.find((row) => row.label === 'Example one')?.cost).toBeCloseTo(expected, 12)
+    expect(stats.keys[0]?.costs).toEqual([{ currency: 'USD', amount: expect.closeTo(expected, 12) }])
+    expect(stats.series.find((day) => day.day === '2026-10-19')?.costs)
+      .toEqual([{ currency: 'USD', amount: expect.closeTo(expected, 12) }])
+  })
+
+  it('lets a window override one side and inherit the other', async () => {
+    await priceModel([{ ...peak, inputPrice: null, outputPrice: 20 }])
+    await charge('2026-10-19T09:30:00Z')
+    const stats = await call<AssistantStats>('GET', '/api/assistant/stats?range=all')
+    // Input inherits the base 1; output uses the window's 20.
+    expect(stats.models.find((row) => row.label === 'Example one')?.cost).toBeCloseTo((20 + 120) / 1_000_000, 12)
+  })
+
+  it('leaves a turn outside every window at the base rate with no bucket', async () => {
+    await priceModel([peak])
+    await charge('2026-10-19T13:00:00Z')
+    expect(sqlite.prepare(`SELECT COUNT(*) AS n FROM chat_usage_daily_period`).get()).toEqual({ n: 0 })
+    const stats = await call<AssistantStats>('GET', '/api/assistant/stats?range=all')
+    expect(stats.models.find((row) => row.label === 'Example one')?.cost).toBeCloseTo(32 / 1_000_000, 12)
   })
 })
 

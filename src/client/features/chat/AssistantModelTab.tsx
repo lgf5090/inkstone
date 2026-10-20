@@ -326,6 +326,7 @@ export function ModelTab({ settings }: { settings: AssistantSettings }) {
                   provider={providers.find((entry) => entry.id === editing.providerId) ?? null}
                   models={models}
                   limits={settings.limits}
+                  timezone={settings.timezone}
                   onClose={() => setEditing(null)}
                   onSave={(draft, report) => updateModel(editing.id, draft, report)}
                 />

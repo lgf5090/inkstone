@@ -21,7 +21,7 @@ function model(overrides: Partial<AssistantModel> = {}): AssistantModel {
     temperature: 0.7, maxOutputTokens: 8192, enabled: true, reasoning: 'auto', contextTokens: null, vision: true,
     purpose: 'chat', kind: 'text', supportsTools: true, maxInputTokens: null, modalities: [], topP: null,
     customParams: [], protocol: null, fallbackModelId: null, inputPrice: null, outputPrice: null,
-    priceCurrency: '', ...overrides,
+    priceCurrency: '', pricePeriods: [], ...overrides,
   }
 }
 
