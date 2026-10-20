@@ -17416,6 +17416,13 @@ const allowed = new Map([
     "/** `happens` asks of any of the three forward-looking dates, and never of the record dates. */",
     "/**\n   * Three word orders, because a reader types the question differently for each.\n   *\n   * `has due date` and `due before x` start with different words, and `due date is invalid` shares a\n   * prefix with both. They are matched separately rather than folded into one alternation so that a\n   * malformed relation reports the relation it could not read instead of claiming the field name is\n   * unknown.\n   */",
   ]],
+  ["src/client/lib/tasks/query/explain.ts", [
+    "/** One line of the explanation tree. */",
+    "/** Nesting depth, so the renderer can indent rather than guess. */",
+    "/** Stable identifier for what this line is, chosen by the code rather than by translation. */",
+    "/** The instruction exactly as the reader wrote it, which is the thing being explained. */",
+    "/**\n * What a parsed query will actually do, as data.\n *\n * Deliberately not prose. The reader's own instruction text is echoed, but every word that describes\n * it — \"Sorting\", \"Grouping\" — belongs to the renderer, where it can be translated and where the\n * i18n gate can see it. A string built here would be English forever.\n */",
+  ]],
   ["src/client/lib/tasks/query/field.ts", [
     "/** How a text instruction compares a field against what the reader typed. */",
     "/**\n * Compile a reader-supplied pattern, or refuse it.\n *\n * A query is data the reader wrote, but it is executed against every note they can open, so a\n * pattern with catastrophic backtracking would hang the tab on somebody else's text. The same gate\n * the Dataview engine uses, so the two cannot disagree about what is safe.\n */",
@@ -17430,6 +17437,11 @@ const allowed = new Map([
     "/**\n * Every field that answers a question about a single task.\n *\n * Order is the parser's semantics, not a listing: `status.name` and `status.type` before the bare\n * `status`, `has id` before `id includes`, and so on. A looser instruction placed first would\n * swallow the specific one behind it and the query would answer a different question than written.\n */",
     "/**\n * Parse one instruction that is not a boolean combination.\n *\n * The boolean field calls this for its leaves, and this module deliberately does not know about the\n * boolean field: the two would otherwise import each other, and a nested expression would have no\n * bottom to stop at.\n */",
   ]],
+  ["src/client/lib/tasks/query/presets.ts", [
+    "/** A named bundle of instructions a reader can expand instead of typing. */",
+    "/** Path of the note the block lives in, or null when it is being previewed outside a note. */",
+    "/** The instructions a preset stands for, or null when the name is not one. */",
+  ]],
   ["src/client/lib/tasks/query/query.test.ts", [
     "/**\n * Built from code points rather than literals.\n *\n * An emoji pasted into source may or may not carry U+FE0F, and an escape can lose its backslash on\n * the way to disk; either way the fixture silently stops containing a date and every assertion\n * about dates fails for a reason that looks like a parser bug.\n */",
     "/**\n * Sorted, because a query answers a set and the engine applies its default sort chain.\n * Order-specific assertions use `ordered` so a sorting change cannot hide behind a set match.\n */",
@@ -17443,6 +17455,11 @@ const allowed = new Map([
     "/**\n * Filter, sort, truncate and group.\n *\n * The order is the one that makes `limit` mean what a reader expects: it cuts the sorted list\n * before grouping, so `limit 10` is ten tasks and not ten of an unbounded set.\n */",
     "/** Remove the `%%n%%` sort hint a grouper prefixed for ordering, leaving the visible name. */",
     "/** The sort hint a heading carries, or null when it sorts by its own text. */",
+    "/** Every non-comment line the reader wrote, in order. */",
+    "/** Only the lines that became filters, so an explanation can label them as such. */",
+    "// A queue rather than a loop, because `preset x` expands into instructions that must themselves",
+    "// be parsed; a preset that names another preset still terminates, since each expansion is",
+    "// recorded before it is re-entered and the guard below refuses a second pass.",
   ]],
   ["src/client/lib/tasks/query/status-fields.ts", [
     "/**\n * `done` and `not done`, the two instructions almost every task query opens with.\n *\n * `not done` means \"not of type DONE\", which includes a cancelled task. That is deliberate and it\n * surprises readers: `[x]` and `[-]` are both finished to the eye, but upstream treats only `DONE`\n * as done, and a reader who moved a task to cancelled still wants it out of the way of their list,\n * which is what `status.type is not CANCELLED` and the `cancelled` date are for.\n */",

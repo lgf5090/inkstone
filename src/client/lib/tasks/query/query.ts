@@ -1,4 +1,5 @@
 import { TaskLayoutComponent, TaskLayoutOptions } from '../layout/task-layout'
+import { expandPreset, type PresetContext } from './presets'
 import { booleanField } from './boolean-field'
 import { SIMPLE_FIELDS, parseSimpleFilterInstruction } from './instructions'
 import { compareGroupKeys, type Comparator, type Grouper, type SearchInfo, type Sorter } from './values'
@@ -26,7 +27,10 @@ export interface ParsedQuery {
   explain: boolean
   ignoreGlobalQuery: boolean
   errors: string[]
+  /** Every non-comment line the reader wrote, in order. */
   instructions: string[]
+  /** Only the lines that became filters, so an explanation can label them as such. */
+  filterInstructions: string[]
 }
 
 const QUERY_PARTS = [
@@ -88,7 +92,7 @@ function emptyLayout(): QueryLayout {
  * its author is typing, and the block has to keep showing the lines that did parse alongside the one
  * that did not.
  */
-export function parseTasksQuery(source: string, now: Date): ParsedQuery {
+export function parseTasksQuery(source: string, now: Date, context: PresetContext = { currentPath: null }): ParsedQuery {
   const parsed: ParsedQuery = {
     filters: [],
     sorters: [],
@@ -100,12 +104,27 @@ export function parseTasksQuery(source: string, now: Date): ParsedQuery {
     ignoreGlobalQuery: false,
     errors: [],
     instructions: [],
+    filterInstructions: [],
   }
 
-  for (const statement of scanStatements(source)) {
-    const line = statement.instruction
-    if (line === '') continue
-    if (/^#/.test(line)) continue
+  // A queue rather than a loop, because `preset x` expands into instructions that must themselves
+  // be parsed; a preset that names another preset still terminates, since each expansion is
+  // recorded before it is re-entered and the guard below refuses a second pass.
+  const queue = scanStatements(source).map((statement) => statement.instruction)
+  const expanded = new Set<string>()
+  while (queue.length > 0) {
+    const line = queue.shift()!
+    if (line === '' || /^#/.test(line)) continue
+    const preset = /^preset +(.*)$/i.exec(line)
+    if (preset !== null) {
+      const name = preset[1]!.trim().toLowerCase()
+      if (expanded.has(name)) continue
+      expanded.add(name)
+      const lines = expandPreset(name, context)
+      if (lines === null) parsed.errors.push(`unknown preset: ${name}`)
+      else queue.unshift(...lines)
+      continue
+    }
     parsed.instructions.push(line)
     applyLine(parsed, line, now)
   }
@@ -170,6 +189,7 @@ function applyLine(parsed: ParsedQuery, line: string, now: Date): void {
     return
   }
   parsed.filters.push(filter.filter!)
+  parsed.filterInstructions.push(line)
 }
 
 function parseFilterLine(line: string, now: Date) {
