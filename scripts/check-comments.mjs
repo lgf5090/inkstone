@@ -2152,6 +2152,7 @@ const allowed = new Map([
     "/**\n * The notification centre: what the schedules delivered.\n *\n * It is a drawer rather than a page because a reminder is read on the way past, not navigated to.\n * The bodies arrive as Markdown from the digest and from an AI routine, so they are rendered through\n * the same sanitized pipeline as a reply rather than as raw text.\n */",
     "// A collapsed row shows one line; expanding it must not re-parse the body on every keystroke.",
     "/* The rows are one card rather than a stack of floating boxes: at 380px the per-row border\n                doubled the visible edges and made a short list read as three unrelated things. */",
+    "/* A delivery about a plan can be opened; one from a routine cannot, and the control is not\n              offered when there is nothing behind it. */",
   ]],
   ["src/client/features/chat/ProjectsView.tsx", [
     "/**\n * The projects screen: standing briefs the assistant answers under.\n *\n * A project is not another place to file things — conversations already live in the notebook's folders.\n * It is a brief and a knowledge selection that every conversation inside it inherits, which is what makes\n * it different from a folder: the folder says where a thread sits, the project says what it is about.\n *\n * Kept lean on purpose: the list, the editor, and which project the current conversation belongs to. The\n * editor is where the real content is — instructions and the folders whose notes the assistant may read —\n * so it gets the room and the list does not.\n */",
@@ -10776,6 +10777,7 @@ const allowed = new Map([
   ]],
   ["src/client/features/subscriptions/open-subscription.ts", [
     "/**\n * Landing on one subscription from somewhere outside its app.\n *\n * The global search and the notification bell both hold a subscription the reader wants in front of them,\n * and neither owns the tab bar. This is the one place that says how a row becomes a screen: go to the app,\n * ask for the list (the overview has nothing to show for a single plan), then select it, which is the same\n * action the row itself would have taken.\n */",
+    "/** Opens a plan the caller only has an id for — a notification stores the id, not the row. */",
   ]],
   ["src/client/features/subscriptions/overview-chart.test.ts", [
     "/**\n * The six-month bar chart, as boxes with heights.\n *\n * The chart once rendered six month labels and no bars at all: each bar's height was a percentage of its\n * column, and the column also carries the label, so it was sized by its content — and a percentage height\n * against a content-sized parent is zero. Nothing threw, nothing warned, and the dashboard simply had no\n * chart in it. These assert the shape that fixed it: pixel heights, scaled against the plot.\n */",
@@ -18822,6 +18824,7 @@ const allowed = new Map([
     "/**\n   * Time-of-day rates. Empty means the base prices above are the whole story.\n   *\n   * The usage record files a turn's tokens under the window that was in force when it was written, and\n   * the statistics price each bucket at that window's rate. A window whose price is null inherits the\n   * matching base rate, so a provider that only changes its output rate needs one number.\n   */",
     "/** A stored mark (`brand:…`, `emoji:…`, `lucide:…`, or an uploaded data URL), or '' to infer one. */",
     "/** Overrides the mark inferred from the model id or provider; '' means infer. */",
+    "/** The plan this delivery was about, when it was about one. See the in-app channel. */",
   ]],
   ["src/shared/backup-format.ts", [
     "/** The account's own template library, absent from a backup taken before it was worth keeping. */",
@@ -19316,6 +19319,7 @@ const allowed = new Map([
     "/** Strip the light markdown the body uses, for the channels that take plain text. */",
     "/**\n * The ten delivery channels, described once.\n *\n * A channel is three things: a kind the database stores, a set of fields a person fills in, and an\n * adapter that turns a message into one HTTP request. The first two live here so the settings screen\n * can draw a form it was not hand-written for, and so the worker can validate the same fields against\n * the same required flags. The third lives beside the worker, because it needs `fetch`.\n *\n * One channel has no request to make: the app's own notification inbox. It is still a channel, because\n * it is still a place a reader decides whether reminders reach them and a result the delivery log keeps.\n *\n * Secrets are marked as such. A `password` field is the only kind whose stored value is never sent back\n * to the browser, and the form treats an empty one as \"keep what is there\" — the reference project's\n * behaviour, and the only one that lets a reader edit a webhook URL without retyping a bot token.\n */",
     "// Nothing to fill in: this is the reader's own inbox, not a service holding a credential.",
+    "/**\n   * Which plan this message is about, when there is exactly one.\n   *\n   * The in-app channel is the only reader that can use it — a webhook gets prose it may forward anywhere —\n   * and it is what lets the notification the reader taps open the row that caused it.\n   */",
   ]],
   ["src/shared/subscriptions/currency.ts", [
     "/** One payment as the aggregates need it: an instant, an amount, and which subscription it paid for. */",
@@ -22216,6 +22220,10 @@ const allowed = new Map([
     "// The dashboard already says what was spent; the question a reader actually asks is whether that is",
     "// too much, and that needs a number they supply rather than one the app invents. NULL is \"no budget",
     "// set\", which is different from a budget of zero and must stay distinguishable in the column.",
+    "// An in-app notification about a plan said what was due and nothing else: the row had no pointer back",
+    "// to the subscription it was written for, so the reader had to go find it in the list. Nullable rather",
+    "// than defaulted, because a notification from a routine or an automation names no plan and keeps",
+    "// arriving exactly as it did before this column existed.",
   ]],
   ["src/worker/db/writes.ts", [
     "/** Keeps tags, backlinks, full-text indexes, and change records consistent with note writes. */",
@@ -26716,6 +26724,7 @@ const allowed = new Map([
     "/** What the reader is being told about, spelled loudly so that a leak cannot pass as an accident. */",
     "/** One fake push service that remembers every body it was handed. */",
     "// The refusal is still a number the reader can act on, which is what keeps it from being a silence.",
+    "/**\n   * The pointer that makes a delivery openable.\n   *\n   * A row that says \"Netflix renews in 3 days\" and cannot be tapped is a message the reader has to go look\n   * up. The id rides on the payload from the sweep, and a delivery that names no plan — a channel test, a\n   * routine — must keep arriving with nothing attached rather than a pointer to whatever was last on hand.\n   */",
   ]],
   ["tests/subscriptions-label-icons.test.ts", [
     "/**\n * The guard that keeps the two icon lists honest.\n *\n * The names the worker validates against live in `@shared/subscriptions/identity`; the components that\n * draw them live in the browser, because a Worker has no business importing an icon set. Two lists is a\n * drift hazard, and the failure is silent in both directions: a name with no component draws an empty\n * tile and reads as a corrupt choice, and a component with no name is bytes in the bundle that nothing\n * can ever select.\n */",

@@ -217,6 +217,7 @@ async function sweepAccount(env: Env, userId: string, now: number): Promise<Acco
     {
       title: body.title,
       content: body.content,
+      subscriptionId: primary.item.id,
       metadata: {
         tags: ready.map((candidate) => candidate.item.name),
         daysRemaining: primary.daysRemaining,

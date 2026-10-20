@@ -2511,6 +2511,8 @@ export interface AssistantNotification {
   title: string
   body: string
   automationId: string | null
+  /** The plan this delivery was about, when it was about one. See the in-app channel. */
+  subscriptionId: string | null
   readAt: number | null
   createdAt: number
 }

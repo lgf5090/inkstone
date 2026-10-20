@@ -29,6 +29,7 @@ import { makeD1 } from './doubles/d1-sqlite'
 import { testBindings } from './doubles/bindings'
 
 const USER = '0123456789abcdefghjkmnpqrs'
+const SUB_ID = '01subscribptionid0000000000'
 const OTHER = '0123456789abcdefghjkmnpqrt'
 const LAPTOP = 'https://updates.push.services.mozilla.com/wpush/v2/gAAAAABx0197tPQY0kq0Y1sQ7Q9rUxF7Vh1sQYb1W1pZ9YQ3s6zXw1oQ2m7cPv8rJn0kLm3n'
 const P256DH = 'BKwRvYJ0mMVaDBHn8lPMZ3wqZ3xq0Y1sQ7Q9rUxF7Vh1sQYb1W1pZ9YQ3s6zXw1oQ2m7cPv8rJn0kLm3nPo'
@@ -68,10 +69,10 @@ function stubFetch(respond: () => Response): void {
   }))
 }
 
-function rows(userId: string): { id: string, title: string, body: string, pushedAt: number | null }[] {
+function rows(userId: string): { id: string, title: string, body: string, pushedAt: number | null, subscriptionId: string | null }[] {
   return sqlite.prepare(
-    `SELECT id, title, body, pushed_at AS pushedAt FROM chat_notifications WHERE user_id = ?1 ORDER BY created_at`,
-  ).all(userId) as { id: string, title: string, body: string, pushedAt: number | null }[]
+    `SELECT id, title, body, pushed_at AS pushedAt, subscription_id AS subscriptionId FROM chat_notifications WHERE user_id = ?1 ORDER BY created_at`,
+  ).all(userId ) as { id: string, title: string, body: string, pushedAt: number | null, subscriptionId: string | null }[]
 }
 
 async function subscribe(userId: string, endpoint: string): Promise<void> {
@@ -162,3 +163,23 @@ describe('the in-app channel', () => {
     expect(result.results[0]!.detail).toMatch(/No device is registered/)
   })
 })
+
+  /**
+   * The pointer that makes a delivery openable.
+   *
+   * A row that says "Netflix renews in 3 days" and cannot be tapped is a message the reader has to go look
+   * up. The id rides on the payload from the sweep, and a delivery that names no plan — a channel test, a
+   * routine — must keep arriving with nothing attached rather than a pointer to whatever was last on hand.
+   */
+  it('keeps the plan it was about, so the reader can open it', async () => {
+    stubFetch(() => new Response(null, { status: 201 }))
+    await dispatch({ title: TITLE, content: BODY, subscriptionId: SUB_ID }, TARGETS, CONTEXT, account)
+    const landed = rows(USER)
+    expect(landed[0]!.subscriptionId).toBe(SUB_ID)
+  })
+
+  it('attaches nothing when the message names no plan', async () => {
+    stubFetch(() => new Response(null, { status: 201 }))
+    await dispatch({ title: TITLE, content: BODY }, TARGETS, CONTEXT, account)
+    expect(rows(USER)[0]!.subscriptionId).toBeNull()
+  })

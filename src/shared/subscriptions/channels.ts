@@ -193,6 +193,13 @@ export function channelHint(kind: ChannelKind, config: Record<string, unknown>):
 export interface ChannelPayload {
   title: string
   content: string
+  /**
+   * Which plan this message is about, when there is exactly one.
+   *
+   * The in-app channel is the only reader that can use it — a webhook gets prose it may forward anywhere —
+   * and it is what lets the notification the reader taps open the row that caused it.
+   */
+  subscriptionId?: string
   metadata?: {
     tags?: string[]
     daysRemaining?: number

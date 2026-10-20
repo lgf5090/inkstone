@@ -6889,6 +6889,7 @@ console.log(\`Hello, \${name}!\`)
     "assistant.push.revoke_hint": "移除之后，那台设备要重新在这里打开推送开关才会再收到提醒。",
     "assistant.push.failures": "{count} 次发送失败",
     "assistant.push.last_error": "最近一次发送错误",
+    "assistant.notifications.open_subscription": "打开这条订阅",
     "assistant.notifications.title": "通知",
     "assistant.notifications.unread": "{count} 条未读",
     "assistant.notifications.all_read": "全部已读",

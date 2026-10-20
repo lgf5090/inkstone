@@ -7,7 +7,7 @@
  */
 import { Z_INDEX } from '../../lib/z-index'
 import { useEffect, useMemo, useState } from 'react'
-import { Check, Trash2 } from 'lucide-react'
+import { Check, Trash2, Wallet } from 'lucide-react'
 import type { AssistantNotification } from '@shared/assistant'
 import { cn } from '../../lib/cn'
 import { t } from '../../lib/i18n'
@@ -102,6 +102,17 @@ function NotificationRow({
             </p>
             <p className="mt-0.5 text-[length:var(--text-10-5)] text-[var(--text-quaternary)]">{relativeTime(notification.createdAt)}</p>
           </button>
+          {/* A delivery about a plan can be opened; one from a routine cannot, and the control is not
+              offered when there is nothing behind it. */}
+          {notification.subscriptionId && (
+            <IconButton
+              label={t('assistant.notifications.open_subscription')}
+              size="xs"
+              onClick={() => void import('../subscriptions/open-subscription').then((module) => module.openSubscriptionById(notification.subscriptionId!))}
+            >
+              <Wallet size={12} />
+            </IconButton>
+          )}
           <IconButton label={t('assistant.notifications.delete')} size="xs" onClick={onDelete}>
             <Trash2 size={12} />
           </IconButton>

@@ -4193,17 +4193,17 @@ export class AssistantStore {
     return list.map(toNotification)
   }
 
-  async createNotification(input: { title: string, body: string, automationId?: string | null }): Promise<AssistantNotification> {
+  async createNotification(input: { title: string, body: string, automationId?: string | null, subscriptionId?: string | null }): Promise<AssistantNotification> {
     const id = newId()
     const at = Date.now()
     const title = input.title.slice(0, 200)
     const body = input.body.slice(0, 8000)
     await this.write(
-      `INSERT INTO chat_notifications (id, user_id, title, body, automation_id, created_at)
-       VALUES (?2, ?1, ?3, ?4, ?5, ?6)`,
-      id, title, body, input.automationId ?? null, at,
+      `INSERT INTO chat_notifications (id, user_id, title, body, automation_id, created_at, subscription_id)
+       VALUES (?2, ?1, ?3, ?4, ?5, ?6, ?7)`,
+      id, title, body, input.automationId ?? null, at, input.subscriptionId ?? null,
     )
-    return { id, title, body, automationId: input.automationId ?? null, readAt: null, createdAt: at }
+    return { id, title, body, automationId: input.automationId ?? null, subscriptionId: input.subscriptionId ?? null, readAt: null, createdAt: at }
   }
 
   async unreadCount(): Promise<number> {
@@ -6330,6 +6330,7 @@ interface NotificationRow {
   automation_id: string | null
   read_at: number | null
   created_at: number
+  subscription_id: string | null
 }
 
 function toNotification(r: NotificationRow): AssistantNotification {
@@ -6338,6 +6339,7 @@ function toNotification(r: NotificationRow): AssistantNotification {
     title: r.title,
     body: r.body ?? '',
     automationId: r.automation_id,
+    subscriptionId: r.subscription_id,
     readAt: num(r.read_at),
     createdAt: r.created_at,
   }

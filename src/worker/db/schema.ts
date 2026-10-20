@@ -1885,6 +1885,17 @@ export const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
       `ALTER TABLE sub_settings ADD COLUMN budget_monthly REAL`,
     ],
   },
+  {
+    // An in-app notification about a plan said what was due and nothing else: the row had no pointer back
+    // to the subscription it was written for, so the reader had to go find it in the list. Nullable rather
+    // than defaulted, because a notification from a routine or an automation names no plan and keeps
+    // arriving exactly as it did before this column existed.
+    version: 124,
+    skipIfColumnExists: { table: 'chat_notifications', column: 'subscription_id' },
+    statements: [
+      `ALTER TABLE chat_notifications ADD COLUMN subscription_id TEXT`,
+    ],
+  },
 ]
 
 const FTS_STATEMENT = `CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(

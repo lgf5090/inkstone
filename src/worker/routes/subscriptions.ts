@@ -479,7 +479,7 @@ subscriptionRoutes.post('/:id/test-notify', async (c) => {
 
   return c.json({
     result: await dispatch(
-      { title: body.title, content: body.content, metadata: { tags: [detail.item.name] } },
+      { title: body.title, content: body.content, subscriptionId: detail.item.id, metadata: { tags: [detail.item.name] } },
       channels,
       { timezone: settings.timezone, locale: settings.locale, now: context.now },
       { env: c.env, userId: c.get('userId')! },

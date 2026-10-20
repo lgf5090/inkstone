@@ -510,6 +510,7 @@ async function mergeBackup(store: AssistantStore, data: Record<string, unknown>,
       title: textValue(notification.title, 200) || 'Reminder',
       body: textValue(notification.body, 8000),
       automation_id: idValue(notification.automation_id),
+      subscription_id: idValue(notification.subscription_id),
       read_at: numberOrNull(notification.read_at),
       created_at: numberValue(notification.created_at, Date.now()),
     })
