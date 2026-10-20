@@ -2364,6 +2364,15 @@ export interface AssistantNotification {
   title: string
   body: string
   automationId: string | null
+  /**
+   * Where the notice is about, as `<app>:<id>` — `todo:<task id>` first.
+   *
+   * Not a URL, and not the caller's to shape: the client resolves the pair inside its own origin, so a
+   * writer cannot aim a reader's press somewhere this deployment never chose. Null is a notice that
+   * points nowhere — a digest, a finished run — which the notification centre expands instead of
+   * navigating on.
+   */
+  link: string | null
   readAt: number | null
   createdAt: number
 }

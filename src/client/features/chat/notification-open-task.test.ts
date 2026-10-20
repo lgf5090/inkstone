@@ -29,7 +29,7 @@ vi.mock('../todos/open-task', () => ({
   openTaskInTodo: async (taskId: string) => { harness.opened.push(taskId) },
 }))
 
-function notice(over: Partial<AssistantNotification> & { link?: string | null } = {}): AssistantNotification & { link?: string | null } {
+function notice(over: Partial<AssistantNotification> = {}): AssistantNotification {
   return {
     id: 'notice-1',
     title: 'Water the plants',
@@ -47,7 +47,7 @@ let host: HTMLElement
 let onClose: () => void
 let original: ReturnType<typeof useAssistant.getState>
 
-function mount(notifications: Array<AssistantNotification & { link?: string | null }>): void {
+function mount(notifications: AssistantNotification[]): void {
   useAssistant.setState({
     notifications,
     unread: notifications.filter((each) => each.readAt === null).length,

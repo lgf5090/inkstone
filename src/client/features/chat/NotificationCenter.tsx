@@ -23,15 +23,6 @@ import { snoozeLabel, useTodos } from '../todos/store'
 import { SNOOZE_MINUTES } from '@shared/todos/model'
 import { useAssistant } from './assistant-store'
 
-/**
- * The pointer a delivered notice carries is read off the row in {@link NotificationRow}.
- *
- * `chat_notifications.link` travels on the response — the store's own row mapper writes it — while the
- * shared `AssistantNotification` the client's store is typed against does not name the column yet, so the
- * row names the field it looks at instead of pretending the interface always had it. Narrowing to
- * "a string or nothing" is what makes the value safe to act on: `taskIdFromNotificationLink` then decides
- * whether it names a task this app may open, and everything else is a notice without a destination.
- */
 export function NotificationCenter({ open, onClose }: { open: boolean, onClose: () => void }) {
   const notifications = useAssistant((state) => state.notifications)
   const unread = useAssistant((state) => state.unread)
@@ -100,8 +91,8 @@ function NotificationRow({
   onDelete,
   onOpenTask,
 }: {
-  /** A delivered notice, with the `chat_notifications.link` column its row carries. */
-  notification: AssistantNotification & { link?: string | null }
+  /** A delivered notice; its `link` is what decides whether a press opens a task. */
+  notification: AssistantNotification
   onRead: () => void
   onDelete: () => void
   onOpenTask: (taskId: string) => void

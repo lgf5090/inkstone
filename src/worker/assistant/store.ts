@@ -4734,7 +4734,7 @@ export class AssistantStore {
 
   // ----------------------------------------------------------- notifications
 
-  async listNotifications(opts: { unreadOnly?: boolean, limit?: number } = {}): Promise<AssistantNotificationWithLink[]> {
+  async listNotifications(opts: { unreadOnly?: boolean, limit?: number } = {}): Promise<AssistantNotification[]> {
     const q = new Query(this.userId)
     if (opts.unreadOnly) q.raw(`read_at IS NULL`)
     const limit = q.add(opts.limit ?? 50)
@@ -4758,7 +4758,7 @@ export class AssistantStore {
      * navigating on. Clamped like the title, because the column is a pointer and not a place to park text.
      */
     link?: string | null
-  }): Promise<AssistantNotificationWithLink> {
+  }): Promise<AssistantNotification> {
     const id = newId()
     const at = Date.now()
     const title = input.title.slice(0, 200)
@@ -6943,17 +6943,7 @@ interface NotificationRow {
   created_at: number
 }
 
-/**
- * A delivered notice, with the pointer it carries.
- *
- * `AssistantNotification` in `@shared/assistant` is the shape the client is typed against and does not name
- * `link` yet, so the field is widened here rather than passed as an untyped extra the reader of a list cannot
- * see. It is a local truth: every consumer of these two methods gets the pointer, and the shared interface
- * catching up is what retires this name.
- */
-type AssistantNotificationWithLink = AssistantNotification & { link: string | null }
-
-function toNotification(r: NotificationRow): AssistantNotificationWithLink {
+function toNotification(r: NotificationRow): AssistantNotification {
   return {
     id: r.id,
     title: r.title,
