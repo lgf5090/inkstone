@@ -20,6 +20,9 @@ export const MAX_TODO_CSV_ROWS = 5000
 /** The most bytes one import may carry, before any multipart framing is counted. */
 export const MAX_TODO_CSV_BYTES = 2 * 1024 * 1024
 
+/** The title ceiling the task table and the task editor share. */
+export const MAX_TODO_TITLE_CHARS = 300
+
 /** A file-level problem: no title column, or nothing at all. A row-level problem is an `errors` entry. */
 export class TodoCsvError extends Error {
   constructor(message: string) {
@@ -200,7 +203,9 @@ export function parseTodoCsv(text: string, timeZone: string): TodoCsvParseResult
       const index = columns.get(column)
       return index === undefined ? '' : record.fields[index] ?? ''
     }
-    const title = cell('title').trim()
+    // Trimmed and cut to the same ceiling the store writes, so a re-import recognises the row it
+    // created even when the file's title was longer than a task title may be.
+    const title = cell('title').trim().slice(0, MAX_TODO_TITLE_CHARS)
     if (!title) {
       errors.push({ line: record.line, reason: 'title is required' })
       continue
