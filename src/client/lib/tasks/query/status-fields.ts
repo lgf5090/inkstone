@@ -8,10 +8,10 @@ const STATUS_TYPES: StatusType[] = ['TODO', 'DONE', 'IN_PROGRESS', 'ON_HOLD', 'C
 /**
  * `done` and `not done`, the two instructions almost every task query opens with.
  *
- * `not done` means "not of type DONE", which includes a cancelled task. That is deliberate and it
- * surprises readers: `[x]` and `[-]` are both finished to the eye, but upstream treats only `DONE`
- * as done, and a reader who moved a task to cancelled still wants it out of the way of their list,
- * which is what `status.type is not CANCELLED` and the `cancelled` date are for.
+ * `not done` is the complement of the status's own "finished" answer, so a cancelled task is *not*
+ * listed: the two are finished to a reader's eye, and the list a `not done` query feeds is the one of
+ * things still to act on. A reader who wants cancelled work back asks for it directly with
+ * `status.type is not CANCELLED`, or filters on the `cancelled` date.
  */
 class DoneField extends Field {
   fieldName(): string {
@@ -26,7 +26,7 @@ class DoneField extends Field {
     const matched = this.filterRegExp().exec(line.trim())
     if (matched === null) return invalidFilter(`unable to parse: ${line}`)
     const wantDone = matched[1]!.toLowerCase() === 'done'
-    return { filter: (task) => (task.status.type === 'DONE') === wantDone, error: null }
+    return { filter: (task) => task.status.isDone === wantDone, error: null }
   }
 
   override supportsSorting(): boolean {

@@ -57,12 +57,16 @@ export class Status {
     return this.configuration.type
   }
 
+  /**
+   * Whether a query counts this status as finished.
+   *
+   * Cancelled and non-task are included, not just `DONE`: the reference plugin's `done` / `not done`
+   * answer with this same set, so `not done` is the list of things still to act on rather than the
+   * complement of a ticked box. A reader who wants cancelled tasks back in a list asks for that by
+   * name (`status.type is not CANCELLED`), which is also what the `cancelled` date is for.
+   */
   get isDone(): boolean {
-    return this.type === 'DONE'
-  }
-
-  get isCompletedType(): boolean {
-    return this.type === 'DONE' || this.type === 'CANCELLED'
+    return this.type === 'DONE' || this.type === 'CANCELLED' || this.type === 'NON_TASK'
   }
 
   /**

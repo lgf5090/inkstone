@@ -95,7 +95,7 @@ function advanceLine(line: string, settings: ToggleSettings, now: Date, expect?:
  * every `not done` search — so the registry is asked for the first open status down that chain.
  */
 export function advanceStatus(task: Task, settings: ToggleSettings, now: Date): ToggledLine {
-  const finishing = !task.status.isCompletedType
+  const finishing = !task.status.isDone
   // The box the reader just clicked moves one step along the cycle, whatever else happens. The
   // recurrence status is a different question — it names the status the *next* instance is born
   // with — and applying it to the finished line would leave the tick having changed nothing.

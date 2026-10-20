@@ -198,11 +198,14 @@ const linkHandler = {
 function build(host: HTMLElement, source: string, options: DataviewMountOptions): void {
     host.classList.add('dataview-block')
     host.replaceChildren()
+    const mode = readMode(host.dataset.dataviewMode)
     const head = document.createElement('div')
     head.className = 'dataview-block-head'
     const title = document.createElement('span')
     title.className = 'dataview-block-title'
-    title.textContent = t('dataview.block_title')
+    // A `tasks` block says so: the shell is shared with the query block, but the two answer different
+    // questions, and a head that calls both "Query" leaves the reader guessing which fence they wrote.
+    title.textContent = t(mode === 'tasks' ? 'tasks.query_block' : 'dataview.block_title')
     head.append(title)
 
     const actions = document.createElement('span')
@@ -217,7 +220,6 @@ function build(host: HTMLElement, source: string, options: DataviewMountOptions)
     body.className = 'dataview-block-body'
     host.append(head, body)
 
-    const mode = readMode(host.dataset.dataviewMode)
     const mount: Mount = { body, head, source, mode, showSource: false, token: 0, runningToken: null, bootLoads: 0, indexVersion: dataviewIndex.currentVersion }
     mounts.set(host, mount)
     if (!host.dataset.dataviewWired) {
@@ -393,20 +395,28 @@ function readMode(value: string | undefined): DataviewMode {
  */
 function drawTasks(host: HTMLElement, mount: Mount, source: string, options: DataviewMountOptions): void {
     if (!dataviewSettings().enabled) {
+        host.classList.remove('loading')
         mount.body.append(renderNotice('warning', t('dataview.disabled'), undefined))
         mount.body.append(renderSource(source))
         return
     }
     if (!source.trim()) {
+        host.classList.remove('loading')
         mount.body.append(renderNotice('warning', t('dataview.empty_query')))
         return
     }
+    // The answer lives behind a dynamic import, so the block is genuinely still being filled here —
+    // and every path below has to say the opposite once it is not, or the dashed "loading" border the
+    // stylesheet gives a waiting block never goes away.
+    host.classList.add('loading')
     void import('./tasks-block').then(({ answerTasks, renderTasks }) => {
         if (!host.isConnected || mounts.get(host) !== mount) return
+        host.classList.remove('loading')
         mount.body.textContent = ''
         const answer = answerTasks(source, options)
         if (!answer.ok) {
             host.classList.add('is-error')
+            pending.delete(host)
             mount.body.append(renderNotice('error', answer.title, dataviewSettings().showErrorDetails ? answer.detail : undefined))
             return
         }
@@ -415,6 +425,7 @@ function drawTasks(host: HTMLElement, mount: Mount, source: string, options: Dat
         mount.body.append(renderTasks(answer.answer))
     }).catch(() => {
         if (!host.isConnected) return
+        host.classList.remove('loading')
         mount.body.append(renderNotice('error', t('dataview.exec_failed')))
     })
 }

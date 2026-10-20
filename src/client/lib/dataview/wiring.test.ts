@@ -385,6 +385,19 @@ describe('the mount pass', () => {
         expect(box.checked).toBe(false)
     })
 
+    it('finishes loading and names itself once a tasks block has answered', async () => {
+        const { mountDataview } = await import('./blocks')
+        const root = await host(renderMarkdown('```tasks\nnot done\n```').html)
+        mountDataview(root, { originNoteId: null, editable: false })
+        const block = root.querySelector('[data-dataview]') as HTMLElement
+        expect(block.dataset.dataviewMode).toBe('tasks')
+        // The answer sits behind a dynamic import, so waiting for the loading state to clear is the
+        // assertion; a block that never cleared it would keep the dashed border a waiting block wears.
+        await vi.waitFor(() => expect(block.classList.contains('loading')).toBe(false), { timeout: 20_000, interval: 20 })
+        expect(block.querySelector('.dataview-block-title')?.textContent).toBe('tasks.query_block')
+        expect(block.querySelector('.tasks-empty')?.textContent).toBe('tasks.no_results')
+    })
+
     it('draws a static mark where the surface cannot write', async () => {
         const { renderResult } = await import('./render')
         const statics = renderResult({ kind: 'task', tasks: [{ task: { text: 'x', line: 1, path: 'A.md', completed: true } as never, source: null as never }] }, { settings: { ...DEFAULT_QUERY_SETTINGS, renderNullAs: '', dateFormat: 'yyyy-MM-dd', datetimeFormat: '', durationFormat: 'long', locale: 'en-US' }, originPath: null })

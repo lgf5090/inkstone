@@ -93,8 +93,8 @@ describe('filters', () => {
 
 
   it('separates done, not done and the status types', () => {
-    expect(names(ask('done', SAMPLE))).toEqual(['done ship it'])
-    expect(ask('not done', SAMPLE)).toHaveLength(8)
+    expect(names(ask('done', SAMPLE))).toEqual(['done ship it', 'dropped old'])
+    expect(ask('not done', SAMPLE)).toHaveLength(7)
     expect(names(ask('status.type is IN_PROGRESS', SAMPLE))).toEqual(['mid draft #writing'])
     expect(ask('status.type is not DONE', SAMPLE)).toHaveLength(8)
     expect(names(ask('status.name includes Cancelled', SAMPLE))).toEqual(['dropped old'])
@@ -154,7 +154,7 @@ describe('sorting, grouping and limits', () => {
 
   it('groups and hides the sort hint from the heading', () => {
     const result = runTasksQuery(SAMPLE, parseTasksQuery('group by status.type\nnot done', NOW), NOW)
-    expect(result.groups.map((group) => stripSortPrefix(group.path[0]!))).toEqual(['IN_PROGRESS', 'TODO', 'CANCELLED'])
+    expect(result.groups.map((group) => stripSortPrefix(group.path[0]!))).toEqual(['IN_PROGRESS', 'TODO'])
   })
 
   it('groups by a path and keeps tasks in order', () => {
@@ -223,7 +223,7 @@ describe('boolean combinations, reconciled', () => {
   it('works across all four delimiter pairs', () => {
     expect(names(ask('(due before 2026-10-19) AND (priority is high)', SAMPLE))).toEqual(['overdue pay rent'])
     expect(names(ask('(heading includes Plants) OR (status.type is CANCELLED)', SAMPLE))).toHaveLength(2)
-    expect(names(ask('[due on 2026-10-19] XOR [done]', SAMPLE))).toEqual(['done ship it', 'today standup'])
+    expect(names(ask('[due on 2026-10-19] XOR [done]', SAMPLE))).toEqual(['done ship it', 'dropped old', 'today standup'])
     expect(names(ask('NOT (path includes Work)', SAMPLE))).toHaveLength(4)
     expect(names(ask('{not done} AND (priority is high)', SAMPLE))).toHaveLength(1)
   })
@@ -250,8 +250,8 @@ describe('ordering, reconciled', () => {
   })
 
   it('honours an explicit sort and its reverse', () => {
-    expect(ordered(ask('sort by path\nnot done', SAMPLE))[0]).toBe('dropped old')
-    expect(ordered(ask('sort by path reverse\nnot done', SAMPLE)).at(-1)).toBe('dropped old')
+    expect(ordered(ask('sort by path\nnot done', SAMPLE))[0]).toBe('mid draft #writing')
+    expect(ordered(ask('sort by path reverse\nnot done', SAMPLE)).at(-1)).toBe('mid draft #writing')
   })
 
   it('sorts by urgency monotonically', () => {
@@ -262,6 +262,6 @@ describe('ordering, reconciled', () => {
 
   it('orders groups by their hidden sort key', () => {
     const result = runTasksQuery(SAMPLE, parseTasksQuery('group by status.type\nnot done', NOW), NOW)
-    expect(result.groups.map((group) => stripSortPrefix(group.path[0]!))).toEqual(['IN_PROGRESS', 'TODO', 'CANCELLED'])
+    expect(result.groups.map((group) => stripSortPrefix(group.path[0]!))).toEqual(['IN_PROGRESS', 'TODO'])
   })
 })

@@ -11191,6 +11191,11 @@ const allowed = new Map([
     "/**\n * Draw a `tasks` block.\n *\n * The engine arrives by dynamic import on purpose: it pulls `rrule` and the date parser, and a note\n * that only ever uses `dataview` blocks must not pay for either. Everything the answer needs from the\n * host — the body element, the source text — is already in hand by the time the module lands.\n */",
     "// A tick is a step along the reader's status cycle, not a flip to checked. `[/]` still reads as",
     "// open, so the box is set from what the registry says comes next rather than from the click.",
+    "// A `tasks` block says so: the shell is shared with the query block, but the two answer different",
+    "// questions, and a head that calls both \"Query\" leaves the reader guessing which fence they wrote.",
+    "// The answer lives behind a dynamic import, so the block is genuinely still being filled here —",
+    "// and every path below has to say the opposite once it is not, or the dashed \"loading\" border the",
+    "// stylesheet gives a waiting block never goes away.",
   ]],
   ["src/client/lib/dataview/body.ts", [
     "/**\n * The fence-side half of a query block: what the Markdown renderer emits and how the block's own text\n * is found again in the note.\n *\n * The renderer's job here is deliberately small — an empty host that carries the query text — because\n * the answer depends on other notes, and those are behind a store and a throttled endpoint. Everything\n * that can be decided without them is decided here, in a string builder that runs inside the sanitizer\n * pass, so the host survives with its attributes intact and `blocks.ts` fills it in afterwards.\n */",
@@ -11607,6 +11612,8 @@ const allowed = new Map([
     "// A notification that did not move the version must not spawn another run.",
     "// The tick writer is a lazy chunk, and loading it inside a click costs seconds in a unit run, so",
     "// it is loaded here and the click's own round-trips are what the assertions wait on.",
+    "// The answer sits behind a dynamic import, so waiting for the loading state to clear is the",
+    "// assertion; a block that never cleared it would keep the dashed border a waiting block wears.",
   ]],
   ["src/client/lib/db.ts", [
     "/** The store slices a shell snapshot is built from; identities decide whether to re-write. */",
@@ -17472,8 +17479,8 @@ const allowed = new Map([
     "// recorded before it is re-entered and the guard below refuses a second pass.",
   ]],
   ["src/client/lib/tasks/query/status-fields.ts", [
-    "/**\n * `done` and `not done`, the two instructions almost every task query opens with.\n *\n * `not done` means \"not of type DONE\", which includes a cancelled task. That is deliberate and it\n * surprises readers: `[x]` and `[-]` are both finished to the eye, but upstream treats only `DONE`\n * as done, and a reader who moved a task to cancelled still wants it out of the way of their list,\n * which is what `status.type is not CANCELLED` and the `cancelled` date are for.\n */",
     "/** Ordered: `status.name` and `status.type` must be tried before the bare `status`. */",
+    "/**\n * `done` and `not done`, the two instructions almost every task query opens with.\n *\n * `not done` is the complement of the status's own \"finished\" answer, so a cancelled task is *not*\n * listed: the two are finished to a reader's eye, and the list a `not done` query feeds is the one of\n * things still to act on. A reader who wants cancelled work back asks for it directly with\n * `status.type is not CANCELLED`, or filters on the `cancelled` date.\n */",
   ]],
   ["src/client/lib/tasks/query/text-fields.ts", [
     "/** `has tag(s)` / `no tag(s)`, which the four text comparisons cannot express. */",
@@ -17559,6 +17566,7 @@ const allowed = new Map([
     "/**\n   * A group heading that sorts in a meaningful order.\n   *\n   * The `%%n%%` prefix orders the groups and is stripped again by the renderer; without it,\n   * `CANCELLED` would lead the list purely because of its spelling.\n   */",
     "/** How this status reads in a checkbox the reader is looking at. */",
     "/** The type a symbol carries when the reader never registered it, so old notes still read. */",
+    "/**\n   * Whether a query counts this status as finished.\n   *\n   * Cancelled and non-task are included, not just `DONE`: the reference plugin's `done` / `not done`\n   * answer with this same set, so `not done` is the list of things still to act on rather than the\n   * complement of a ticked box. A reader who wants cancelled tasks back in a list asks for that by\n   * name (`status.type is not CANCELLED`), which is also what the `cancelled` date is for.\n   */",
   ]],
   ["src/client/lib/tasks/toggle.test.ts", [
     "/** The serializer a reader picks for their ticks decides what the line is read as, not what is kept. */",
