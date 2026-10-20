@@ -29,7 +29,7 @@ export const TODOS_SCHEMA_STATEMENTS: readonly string[] = [
     list_id TEXT,
     starred INTEGER NOT NULL DEFAULT 0,
     repeat_rule TEXT,
-    -- Superseded by todos_reminders (待删). The pair is emptied by migrateTaskReminders and no code
+    -- Superseded by todos_reminders (pending removal). The pair is emptied by migrateTaskReminders and no code
     -- reads or writes it after that; it stays only because dropping a column needs a migration number
     -- this change deliberately does not spend.
     remind_at INTEGER,
@@ -75,7 +75,7 @@ export const TODOS_SCHEMA_STATEMENTS: readonly string[] = [
   // The reminders a task carries, one row each. The todos_tasks columns remind_at / reminded_at held
   // the same idea as a single pair and are no longer read or written: the one-shot repair
   // migrateTaskReminders moved their rows here, and they stay on the table only until a later
-  // migration drops them (待删). A row is claimed by stamping fired_at, so the sweep needs no
+  // migration drops them (pending removal). A row is claimed by stamping fired_at, so the sweep needs no
   // scheduler of its own and two overlapping ticks cannot both deliver the same reminder.
   `CREATE TABLE IF NOT EXISTS todos_reminders (
     user_id TEXT NOT NULL,
@@ -195,7 +195,7 @@ export const TODOS_REQUIRED_INDEXES: readonly string[] = [
 export const TODOS_REQUIRED_COLUMNS: Readonly<Record<string, readonly string[]>> = {
   // `remind_at` / `reminded_at` stay listed because a database that predates the reminders table
   // still carries them and the boot guard compares the declared shape with the real one; nothing
-  // reads or writes them any more, and `migrateTaskReminders` is what empties them (待删).
+  // reads or writes them any more, and `migrateTaskReminders` is what empties them (pending removal).
   todos_tasks: [
     'user_id', 'id', 'title', 'description', 'status', 'priority', 'due_at', 'completed_at',
     'completed_on', 'created_on',

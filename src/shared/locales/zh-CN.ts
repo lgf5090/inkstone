@@ -7463,7 +7463,6 @@ console.log(\`Hello, \${name}!\`)
     "todo.task.list_label": "清单",
     "todo.task.tags_label": "标签",
     "todo.task.repeat_label": "重复",
-    "todo.task.remind_label": "提醒",
     "todo.task.reminders_label": "提醒",
     "todo.task.reminder_add": "添加提醒",
     "todo.task.reminder_remove": "删除提醒",
