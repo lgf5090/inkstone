@@ -350,15 +350,23 @@ describe('the account behind the rows', () => {
    * The two things a conversation could previously not ask about at all: which names the reader already
    * uses, and how the app is configured. Both are on screen in the app itself, so a model that could not
    * read them had to either refuse the question or invent an answer.
+   *
+   * One call answers both registries: measured against a live model, a `kind` argument it had to guess was
+   * sent empty first, refused, and asked again — so the registry is read whole.
    */
-  it('reads the registered label names, and says when the registry is empty', async () => {
-    await seedSubscription()
-    const types = await run('list_subscription_labels', { kind: 'type' }) as { labels: Array<{ name: string }>, note?: string }
-    expect(types.labels.map((label) => label.name)).toContain('流媒体')
-    expect(types.note, 'a populated registry gets no empty-state note').toBeUndefined()
+  it('reads both label registries in one call, and says when one is empty', async () => {
+    const empty = await run('list_subscription_labels', {}) as {
+      types: { total: number, labels: Array<{ name: string }>, note?: string }
+      categories: { total: number, labels: Array<{ name: string }>, note?: string }
+    }
+    expect(empty.types.total, 'nothing was registered yet').toBe(0)
+    expect(empty.types.note).toMatch(/built-in suggestions/)
 
-    const categories = await run('list_subscription_labels', { kind: 'category' }) as { labels: Array<{ name: string }> }
-    expect(categories.labels.map((label) => label.name)).toContain('娱乐')
+    await seedSubscription()
+    const filled = await run('list_subscription_labels', {}) as typeof empty
+    expect(filled.types.labels.map((label) => label.name)).toContain('流媒体')
+    expect(filled.types.note, 'a populated registry gets no empty-state note').toBeUndefined()
+    expect(filled.categories.labels.map((label) => label.name)).toContain('娱乐')
   })
 
   it('sets the ceiling and the total currency, and refuses a zone that is not one', async () => {
@@ -415,6 +423,24 @@ describe('the account behind the rows', () => {
       .rejects.toThrow(/USD:none/)
     expect((await run('get_subscription_settings', {})) as { rateOverrides: Record<string, number> })
       .toMatchObject({ rateOverrides: { USD: 7.2 } })
+  })
+
+  /**
+   * The money summary is the call a model reaches for first when the question is about the account, and
+   * until now it carried no word about the rates its own totals were converted with. Measured against a
+   * live model on 2026-10-21: asked "is any rate pinned?" it called the summary, found nothing, and
+   * answered that there were none — while the account carried USD 7.2.
+   */
+  it('states the pinned rates inside the money summary, not only in the settings tool', async () => {
+    await run('set_subscription_settings', { rateOverrides: 'USD:7.2' })
+    const pinned = await run('subscription_summary', {}) as { rates: { pinned: Record<string, number>, note: string } }
+    expect(pinned.rates.pinned).toEqual({ USD: 7.2 })
+    expect(pinned.rates.note).toMatch(/reader's own number/)
+
+    await run('set_subscription_settings', { clearRates: true })
+    const cleared = await run('subscription_summary', {}) as { rates: { pinned: Record<string, number>, note: string } }
+    expect(cleared.rates.pinned).toEqual({})
+    expect(cleared.rates.note).toMatch(/No rate is pinned/)
   })
 
   it('switches tracking off without touching the trash, and says so when nothing changed', async () => {

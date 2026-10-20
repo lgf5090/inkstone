@@ -1531,7 +1531,7 @@ export const SUBSCRIPTION_TOOLS: ToolDefinition[] = [
     name: 'subscription_summary',
     permission: 'read',
     maxCallsPerTurn: 2,
-    description: 'The account\'s money picture in one call: what this month and this year have cost in the reader\'s total currency, how that compares with last month, the ceiling the reader set for a month and whether this month is over it, what the current plans commit for a year, which trials are about to start charging, which plans changed price, what renews in the next week, where the spending goes by type and by category, and whether the reminder scheduler is still running.',
+    description: 'The account\'s money picture in one call: what this month and this year have cost in the reader\'s total currency, how that compares with last month, the ceiling the reader set for a month and whether this month is over it, what the current plans commit for a year, which rates the reader pinned over the daily feed, which trials are about to start charging, which plans changed price, what renews in the next week, where the spending goes by type and by category, and whether the reminder scheduler is still running.',
     fields: {},
     async run(_args, ctx) {
       const settings = await loadSettings(ctx.env.DB, ctx.store.userId)
@@ -1545,6 +1545,15 @@ export const SUBSCRIPTION_TOOLS: ToolDefinition[] = [
         // different answer from "not over budget". Leaving it out made the tool unable to say either.
         budget: overview.budget,
         committedYearly: overview.committedYearly,
+        // Every amount above was converted from something, and a reader who pinned a rate chose that
+        // number on purpose. Asked "is any rate pinned?" without this field the model has no source to
+        // answer from — measured live, it said there were none while the account carried USD 7.2.
+        rates: {
+          pinned: settings.rateOverrides,
+          note: Object.keys(settings.rateOverrides).length === 0
+            ? 'No rate is pinned, so every foreign amount above converted at the daily feed.'
+            : 'A pinned currency converted at the reader\'s own number rather than the feed.',
+        },
         trials: overview.trials,
         priceChanges: overview.priceChanges,
         active: overview.active,
@@ -1723,24 +1732,23 @@ export const SUBSCRIPTION_TOOLS: ToolDefinition[] = [
     name: 'list_subscription_labels',
     permission: 'read',
     maxCallsPerTurn: 2,
-    description: 'The type or category names the reader has registered, each with the icon and colour the app draws for it. Read this before naming a label in another tool: a type the reader already has, spelled differently, becomes a second identity for the same service.',
-    fields: {
-      kind: { type: 'string', enum: ['type', 'category'], description: 'Which list to read. A subscription has one type and may carry several categories.' },
-    },
-    async run(args, ctx) {
+    description: 'The type and category names the reader has registered, each with the icon and colour the app draws for it, in one answer. Read this before naming a label in another tool: a type the reader already has, spelled differently, becomes a second identity for the same service.',
+    fields: {},
+    async run(_args, ctx) {
       const { store } = await subscriptionAccess(ctx)
-      const kind = args.kind === 'category' ? 'category' : 'type'
-      const labels = await store.listLabels(kind)
-      return {
+      // Both registries at once: the question is always "what do I already call these", and a tool that
+      // demands a `kind` first was measured live making the model send an empty call, get refused, and ask
+      // again — two wasted round trips to say one sentence.
+      const [types, categories] = await Promise.all([store.listLabels('type'), store.listLabels('category')])
+      const list = (kind: LabelKind, labels: Awaited<ReturnType<typeof store.listLabels>>) => ({
         kind,
         total: labels.length,
         // A reader who registered nothing gets the built-in presets instead, and saying so keeps the
         // model from reporting an empty registry to somebody who has forty types on screen.
-        note: labels.length === 0
-          ? 'Nothing is registered under this kind yet; the app is drawing its built-in suggestions.'
-          : undefined,
+        note: labels.length === 0 ? `Nothing is registered under ${kind} yet; the app is drawing its built-in suggestions.` : undefined,
         labels: labels.map((entry) => ({ name: entry.name, icon: entry.icon || null, color: entry.color || null })),
-      }
+      })
+      return { types: list('type', types), categories: list('category', categories) }
     },
   }),
   tool({
