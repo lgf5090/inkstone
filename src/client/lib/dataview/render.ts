@@ -147,7 +147,15 @@ function renderTasks(result: TaskResult, context: RenderContext): HTMLElement {
             input.type = 'checkbox'
             input.checked = completed
             input.setAttribute('aria-label', taskAriaLabel(task))
-            input.dataset.dataviewTask = encodeDataValue(JSON.stringify({ path, line, text: taskText, completed }))
+            input.dataset.dataviewTask = encodeDataValue(JSON.stringify({
+                path,
+                line,
+                text: taskText,
+                completed,
+                // The status character, so a click can show the right box before the note comes
+                // back: a cycle moves [ ] to [/], which is still unchecked.
+                status: typeof task.status === 'string' ? task.status : null,
+            }))
         } else {
             checkbox.setAttribute('role', 'img')
             checkbox.setAttribute('aria-label', completed ? t('dataview.task_done') : t('dataview.task_open'))
@@ -176,12 +184,33 @@ function renderTasks(result: TaskResult, context: RenderContext): HTMLElement {
     return wrapper
 }
 
+/**
+ * The task fields shown as pills, in the order a reader scans them.
+ *
+ * Driven by a list rather than a fixed five because the task parser now supplies more than dates:
+ * `priority` and `recurrence` are the two a reader wants next to a due date. `completion` is left
+ * out on purpose — it is the same value as `done`, kept only so existing queries keep answering.
+ */
+const TASK_CHIP_FIELDS: Array<{ key: string; kind: 'date' | 'text' }> = [
+    { key: 'due', kind: 'date' },
+    { key: 'scheduled', kind: 'date' },
+    { key: 'start', kind: 'date' },
+    { key: 'created', kind: 'date' },
+    { key: 'done', kind: 'date' },
+    { key: 'cancelled', kind: 'date' },
+    { key: 'priority', kind: 'text' },
+    { key: 'recurrence', kind: 'text' },
+]
+
 /** The `due 2024-05-06` pills a task carries, kept out of the sentence so they stay scannable. */
 function taskChips(task: DataObject): HTMLElement[] {
     const out: HTMLElement[] = []
-    for (const key of ['due', 'completion', 'scheduled', 'start', 'created']) {
+    for (const { key, kind } of TASK_CHIP_FIELDS) {
         const value = task[key]
-        if (!Values.isDate(value)) continue
+        const shown = kind === 'date'
+            ? (Values.isDate(value) ? Values.toString(value, { ...noopSettings(), dateFormat: 'MM-dd' }) : null)
+            : (Values.isString(value) && value !== '' ? value : null)
+        if (shown === null) continue
         const chip = document.createElement('span')
         chip.className = 'dataview-task-chip'
         chip.dataset.field = key
@@ -190,7 +219,7 @@ function taskChips(task: DataObject): HTMLElement[] {
         label.textContent = key
         const date = document.createElement('span')
         date.className = 'dataview-task-chip-value'
-        date.textContent = Values.toString(value, { ...noopSettings(), dateFormat: 'MM-dd' })
+        date.textContent = shown
         chip.append(label, date)
         out.push(chip)
     }

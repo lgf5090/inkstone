@@ -124,6 +124,114 @@ export function dayOfYear(date: Date): number {
 }
 
 /**
+ * Calendar spans, as local civil days rather than instants.
+ *
+ * A task's due date names a day, not a moment, so every comparison the task layer makes is a
+ * comparison of these spans. The `endOf*` bounds carry the clock to the last millisecond of the day
+ * because they are used as inclusive filters, and `addUnits` steps months and years by calendar
+ * fields rather than by a fixed day count so a month is not silently rounded to thirty days.
+ */
+export type CalendarUnit = 'day' | 'week' | 'month' | 'quarter' | 'year'
+
+/** True for a real instant only: an `Invalid Date` fails here rather than comparing as `NaN`. */
+export function isValidDay(date: Date | null | undefined): date is Date {
+  return date instanceof Date && Number.isFinite(date.getTime())
+}
+
+/** The quarter, 1-based, that a civil day sits in. */
+export function quarterOf(date: Date): number {
+  return Math.floor(date.getMonth() / 3) + 1
+}
+
+export function startOfDay(date: Date): Date {
+  return new Date(date.getFullYear(), date.getMonth(), date.getDate())
+}
+
+export function endOfDay(date: Date): Date {
+  return new Date(date.getFullYear(), date.getMonth(), date.getDate(), 23, 59, 59, 999)
+}
+
+export function startOfMonth(date: Date): Date {
+  return new Date(date.getFullYear(), date.getMonth(), 1)
+}
+
+export function endOfMonth(date: Date): Date {
+  return new Date(date.getFullYear(), date.getMonth() + 1, 0, 23, 59, 59, 999)
+}
+
+export function startOfQuarter(date: Date): Date {
+  return new Date(date.getFullYear(), Math.floor(date.getMonth() / 3) * 3, 1)
+}
+
+export function endOfQuarter(date: Date): Date {
+  return new Date(date.getFullYear(), Math.floor(date.getMonth() / 3) * 3 + 3, 0, 23, 59, 59, 999)
+}
+
+export function startOfYear(date: Date): Date {
+  return new Date(date.getFullYear(), 0, 1)
+}
+
+export function endOfYear(date: Date): Date {
+  return new Date(date.getFullYear(), 11, 31, 23, 59, 59, 999)
+}
+
+export function endOfWeek(date: Date, weekStart: WeekStartDay): Date {
+  return endOfDay(addUnits(startOfWeek(date, weekStart), 6, 'day'))
+}
+
+/** The first day of the ISO-8601 week that opens `year`, given its 1-based `week`. */
+export function startOfIsoWeek(year: number, week: number): Date {
+  const jan4 = new Date(year, 0, 4)
+  const week1 = startOfWeek(jan4, 1)
+  const out = new Date(week1)
+  out.setDate(week1.getDate() + (week - 1) * 7)
+  return out
+}
+
+/** Calendar-field arithmetic on a copy. */
+export function addUnits(date: Date, amount: number, unit: CalendarUnit): Date {
+  const out = new Date(date)
+  switch (unit) {
+    case 'day':
+      out.setDate(out.getDate() + amount)
+      return out
+    case 'week':
+      out.setDate(out.getDate() + amount * 7)
+      return out
+    case 'month':
+      return shiftMonths(out, amount)
+    case 'quarter':
+      return shiftMonths(out, amount * 3)
+    case 'year':
+      return shiftMonths(out, amount * 12)
+  }
+}
+
+/**
+ * Month-field arithmetic that clamps rather than overflowing.
+ *
+ * `Date` rolls a day that the target month does not have into the next month, so stepping the last
+ * day of October back one month answers the first of October and a "last month" range silently
+ * grows to two months. Clamping to that month's final day is what a reader means by "the 31st of a
+ * month that has thirty days", and it is what every other date library here already does.
+ */
+function shiftMonths(date: Date, months: number): Date {
+  const out = new Date(date)
+  const day = out.getDate()
+  const target = out.getFullYear() * 12 + out.getMonth() + months
+  const year = Math.floor(target / 12)
+  const month = target - year * 12
+  out.setFullYear(year, month, 1)
+  out.setDate(Math.min(day, endOfMonth(out).getDate()))
+  return out
+}
+
+/** Whole civil days from `a` to `b`, negative when `b` is earlier, counted in UTC days to stay DST-safe. */
+export function daysBetween(a: Date, b: Date): number {
+  return Math.round((civilUtc(b) - civilUtc(a)) / 86_400_000)
+}
+
+/**
  * Which weekday opens a reader's calendar is locale data, so it is read off `Intl` rather than off
  * the languages this app ships. `firstDay` is ISO-numbered (Monday = 1 … Sunday = 7) while the
  * grids index JS `getDay()`, where Sunday is 0 — hence the modulo. Runtimes without `getWeekInfo`
@@ -158,14 +266,13 @@ export function narrowWeekdayLabels(locale: string, weekStart: WeekStartDay): st
   )
 }
 
-function isSameDay(a: Date, b: Date): boolean {
+export function isSameDay(a: Date, b: Date): boolean {
   return (
     a.getFullYear() === b.getFullYear() &&
     a.getMonth() === b.getMonth() &&
     a.getDate() === b.getDate()
   )
 }
-
 function previousDay(date: Date): Date {
   const previous = new Date(date)
   previous.setDate(previous.getDate() - 1)

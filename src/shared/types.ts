@@ -537,6 +537,7 @@ export interface UserSettings {
   notes: NotesSettings
   search: SearchSettings
   dataview: DataviewSettings
+  tasks: TasksSettings
   rss: RssSettings
 }
 
@@ -667,6 +668,45 @@ export interface DataviewSettings {
   /** `dv.markdownTable` may put HTML in a cell; off keeps every exported cell plain text. */
   allowHtmlInExports: boolean
   savedQueries: SavedDataviewQuery[]
+}
+
+/** One row of the reader's own status table, in the shape the reference plugin stores it. */
+export interface TaskStatusSetting {
+  /** The single character between the brackets. */
+  symbol: string
+  name: string
+  /** What the next click moves to, which is how a cycle of more than two states is expressed. */
+  nextStatusSymbol: string
+  /** What this state means to a query: done, cancelled, in progress, and so on. */
+  type: 'TODO' | 'DONE' | 'IN_PROGRESS' | 'ON_HOLD' | 'CANCELLED' | 'NON_TASK'
+  /** Offered by the "change status" command, which is how a state stays reachable by keyboard. */
+  availableAsCommand: boolean
+}
+
+/**
+ * The task feature's own settings.
+ *
+ * Deliberately small: the completion marker a tick writes belongs to the query module's panel
+ * (`dataview.taskCompletion*`), and the two are joined at the point of use rather than copied here,
+ * so a reader never finds the same switch in two places with different answers.
+ */
+export interface TasksSettings {
+  /** The reader's status characters, on top of the four everyone gets. */
+  statuses: TaskStatusSetting[]
+  /** Stamp the cancelled date when a task moves to a cancelled state. */
+  setCancelledDate: boolean
+  /** Stamp the creation date the first time a task is moved at all. */
+  setCreatedDate: boolean
+  /** Put the next occurrence below the finished one rather than above it. */
+  recurrenceOnNextLine: boolean
+  /** The word a task line must carry to be a task at all. Empty means every checkbox is one. */
+  globalFilter: string
+  /** Fields a `tasks` block hides unless the query asks for them with `show`. */
+  defaultHiddenFields: string[]
+  /** Characters the editor's field menu waits for before it narrows to them. */
+  autoSuggestMinMatch: number
+  /** The ceiling on that menu. */
+  autoSuggestMaxItems: number
 }
 
 

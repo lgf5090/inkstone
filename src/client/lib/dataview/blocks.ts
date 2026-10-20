@@ -19,7 +19,7 @@ import { ParseFailure } from './grammar'
 import { Context } from './context'
 import { executeQuery, type QueryResult } from './engine'
 import { renderNotice, renderResult, renderTruncation } from './render'
-import { querySettings, dataviewIndex, dataviewSettings, startDataview, toggleTask } from './service'
+import { querySettings, dataviewIndex, dataviewSettings, startDataview } from './service'
 import { renderDataviewInline, rerunInlineQueries, takeInlineJsLines, type InlineContext } from './inline'
 import type { DataObject } from './value'
 import { decodeDataValue, encodeDataValue } from '../markdown/data-attr'
@@ -198,11 +198,14 @@ const linkHandler = {
 function build(host: HTMLElement, source: string, options: DataviewMountOptions): void {
     host.classList.add('dataview-block')
     host.replaceChildren()
+    const mode = readMode(host.dataset.dataviewMode)
     const head = document.createElement('div')
     head.className = 'dataview-block-head'
     const title = document.createElement('span')
     title.className = 'dataview-block-title'
-    title.textContent = t('dataview.block_title')
+    // A `tasks` block says so: the shell is shared with the query block, but the two answer different
+    // questions, and a head that calls both "Query" leaves the reader guessing which fence they wrote.
+    title.textContent = t(mode === 'tasks' ? 'tasks.query_block' : 'dataview.block_title')
     head.append(title)
 
     const actions = document.createElement('span')
@@ -217,7 +220,7 @@ function build(host: HTMLElement, source: string, options: DataviewMountOptions)
     body.className = 'dataview-block-body'
     host.append(head, body)
 
-    const mount: Mount = { body, head, source, mode: host.dataset.dataviewMode === 'js' ? 'js' : 'query', showSource: false, token: 0, runningToken: null, bootLoads: 0, indexVersion: dataviewIndex.currentVersion }
+    const mount: Mount = { body, head, source, mode, showSource: false, token: 0, runningToken: null, bootLoads: 0, indexVersion: dataviewIndex.currentVersion }
     mounts.set(host, mount)
     if (!host.dataset.dataviewWired) {
         host.dataset.dataviewWired = '1'
@@ -337,6 +340,10 @@ function draw(host: HTMLElement, mount: Mount, source: string, options: Dataview
         drawJs(host, mount, source, options, settings.jsBlocks)
         return
     }
+    if (mount.mode === 'tasks') {
+        drawTasks(host, mount, source, options)
+        return
+    }
     if (!settings.enabled) {
         mount.body.append(renderNotice('warning', t('dataview.disabled'), undefined))
         mount.body.append(renderSource(source))
@@ -371,6 +378,56 @@ function draw(host: HTMLElement, mount: Mount, source: string, options: Dataview
     if (answer.truncatedRows || answer.truncatedBodies) {
         mount.body.append(renderTruncation(answer.shown, answer.matched, answer.truncatedBodies))
     }
+}
+
+function readMode(value: string | undefined): DataviewMode {
+    if (value === 'js') return 'js'
+    if (value === 'tasks') return 'tasks'
+    return 'query'
+}
+
+/**
+ * Draw a `tasks` block.
+ *
+ * The engine arrives by dynamic import on purpose: it pulls `rrule` and the date parser, and a note
+ * that only ever uses `dataview` blocks must not pay for either. Everything the answer needs from the
+ * host — the body element, the source text — is already in hand by the time the module lands.
+ */
+function drawTasks(host: HTMLElement, mount: Mount, source: string, options: DataviewMountOptions): void {
+    if (!dataviewSettings().enabled) {
+        host.classList.remove('loading')
+        mount.body.append(renderNotice('warning', t('dataview.disabled'), undefined))
+        mount.body.append(renderSource(source))
+        return
+    }
+    if (!source.trim()) {
+        host.classList.remove('loading')
+        mount.body.append(renderNotice('warning', t('dataview.empty_query')))
+        return
+    }
+    // The answer lives behind a dynamic import, so the block is genuinely still being filled here —
+    // and every path below has to say the opposite once it is not, or the dashed "loading" border the
+    // stylesheet gives a waiting block never goes away.
+    host.classList.add('loading')
+    void import('./tasks-block').then(({ answerTasks, renderTasks }) => {
+        if (!host.isConnected || mounts.get(host) !== mount) return
+        host.classList.remove('loading')
+        mount.body.textContent = ''
+        const answer = answerTasks(source, options)
+        if (!answer.ok) {
+            host.classList.add('is-error')
+            pending.delete(host)
+            mount.body.append(renderNotice('error', answer.title, dataviewSettings().showErrorDetails ? answer.detail : undefined))
+            return
+        }
+        host.classList.remove('is-error')
+        pending.add(host)
+        mount.body.append(renderTasks(answer.answer))
+    }).catch(() => {
+        if (!host.isConnected) return
+        host.classList.remove('loading')
+        mount.body.append(renderNotice('error', t('dataview.exec_failed')))
+    })
 }
 
 /**
@@ -620,7 +677,7 @@ async function openNote(noteId: string): Promise<void> {
  */
 async function toggleTaskRow(box: HTMLInputElement): Promise<void> {
     if (box.dataset.dataviewBusy === '1') return
-    let payload: { path?: unknown; line?: unknown; text?: unknown; completed?: unknown }
+    let payload: { path?: unknown; line?: unknown; text?: unknown; completed?: unknown; status?: unknown }
     try {
         payload = JSON.parse(decodeDataValue(box.dataset.dataviewTask ?? '')) as typeof payload
     } catch {
@@ -636,12 +693,19 @@ async function toggleTaskRow(box: HTMLInputElement): Promise<void> {
         return
     }
     box.dataset.dataviewBusy = '1'
-    const result = await toggleTask(noteId, line, text, payload.completed !== true)
+    const { toggleSettings, toggleTaskLine } = await import('../tasks/service')
+    const result = await toggleTaskLine(noteId, line, text)
     delete box.dataset.dataviewBusy
     if (result !== 'written') {
         box.checked = payload.completed === true
         await notice(result === 'conflict' ? 'dataview.task_moved' : 'dataview.task_unavailable')
+        return
     }
+    // A tick is a step along the reader's status cycle, not a flip to checked. `[/]` still reads as
+    // open, so the box is set from what the registry says comes next rather than from the click.
+    const registry = toggleSettings().registry
+    const symbol = typeof payload.status === 'string' ? payload.status : ' '
+    box.checked = registry.getNextStatusOrCreate(registry.bySymbolOrCreate(symbol)).isTicked
 }
 
 async function notice(key: Parameters<typeof t>[0]): Promise<void> {

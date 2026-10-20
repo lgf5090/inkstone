@@ -1,8 +1,7 @@
 import type {
   AccentName,
   CodeFormatKeywordCase,
-  DraggerBlockStyle,
-  DraggerColorMode,
+  DraggerBlockStyle,  DraggerColorMode,
   DraggerGutterSide,
   DraggerHandleIcon,
   DraggerHandleVisibility,
@@ -23,6 +22,8 @@ import type {
   SavedDataviewQuery,
   SidebarTab,
   SkinTone,
+  TaskStatusSetting,
+  TasksSettings,
   UserSettings,
   ViewKind,
 } from './types'
@@ -455,6 +456,16 @@ export const DEFAULT_SETTINGS: UserSettings = {
     allowHtmlInExports: false,
     savedQueries: [],
   },
+  tasks: {
+    statuses: [],
+    setCancelledDate: true,
+    setCreatedDate: false,
+    recurrenceOnNextLine: false,
+    globalFilter: '',
+    defaultHiddenFields: [],
+    autoSuggestMinMatch: 0,
+    autoSuggestMaxItems: 6,
+  },
   rss: {
     refreshIntervalMinutes: 0,
     defaultFilter: 'all',
@@ -558,6 +569,60 @@ function propertyNameList(value: unknown, max: number, budget?: SizeBudget): str
     out.push(name)
     if (out.length === max)
       break
+  }
+  return out
+}
+
+/** The status types the registry knows, and the only ones a stored row may claim. */
+const TASK_STATUS_TYPES = ['TODO', 'DONE', 'IN_PROGRESS', 'ON_HOLD', 'CANCELLED', 'NON_TASK'] as const
+
+/**
+ * The field names a `tasks` block knows how to hide, shared with the query parser's own list.
+ *
+ * Kept here rather than imported from the client because the server has to be able to say whether a
+ * stored setting is a name at all: an unknown one would hide nothing and read as a broken switch.
+ */
+export const TASK_HIDEABLE_FIELDS = [
+  'id', 'depends on', 'priority', 'recurrence rule', 'on completion',
+  'created date', 'start date', 'scheduled date', 'due date', 'cancelled date', 'done date', 'tags',
+] as const
+
+/**
+ * The reader's own status characters, kept to the shape the registry accepts.
+ *
+ * A row whose symbol is two characters, or whose type is a word no status means, would decide what a
+ * click does in a way nobody can see in the panel — so it is dropped. Duplicate symbols go too: the
+ * first one wins, because that is the one the registry would have used anyway.
+ */
+function taskStatusList(value: unknown): TaskStatusSetting[] {
+  if (!Array.isArray(value)) return []
+  const out: TaskStatusSetting[] = []
+  const seen = new Set<string>()
+  for (const item of value) {
+    if (typeof item !== 'object' || item === null) continue
+    const row = item as Partial<TaskStatusSetting>
+    const symbol = typeof row.symbol === 'string' ? row.symbol : ''
+    const type = typeof row.type === 'string' ? row.type : ''
+    const name = typeof row.name === 'string' ? row.name.trim().slice(0, 40) : ''
+    if (symbol.length !== 1 || symbol === ']' || seen.has(symbol) || name === '') continue
+    if (!(TASK_STATUS_TYPES as readonly string[]).includes(type)) continue
+    const nextSymbol = typeof row.nextStatusSymbol === 'string' && row.nextStatusSymbol.length === 1 ? row.nextStatusSymbol : ' '
+    out.push({ symbol, name, nextStatusSymbol: nextSymbol, type: type as TaskStatusSetting['type'], availableAsCommand: row.availableAsCommand === true })
+    seen.add(symbol)
+    if (out.length === 40) break
+  }
+  return out
+}
+
+/** Which fields a `tasks` block hides by default, limited to the names the block understands. */
+function taskFieldList(value: unknown): string[] {
+  if (!Array.isArray(value)) return []
+  const out: string[] = []
+  for (const item of value) {
+    if (typeof item !== 'string') continue
+    const name = item.trim().toLowerCase()
+    if ((TASK_HIDEABLE_FIELDS as readonly string[]).includes(name) && !out.includes(name)) out.push(name)
+    if (out.length === TASK_HIDEABLE_FIELDS.length) break
   }
   return out
 }
@@ -1218,6 +1283,20 @@ export function mergeSettings(partial: unknown): UserSettings {
   base.dataview.taskCompletionText = trimmedText(dataview.taskCompletionText, 40) || DEFAULT_SETTINGS.dataview.taskCompletionText
   base.dataview.taskCompletionDateFormat = trimmedText(dataview.taskCompletionDateFormat, 40) || DEFAULT_SETTINGS.dataview.taskCompletionDateFormat
 
+  // The task section is the one place a reader describes characters that then get written into every
+  // note they tick, so each row is checked to the shape the status registry accepts: one character for
+  // the symbol and its successor, a type from the fixed list, and no symbol twice. Anything else is
+  // dropped rather than repaired, because a half-valid status row would decide what a click does.
+  const tasks = (src.tasks ?? {}) as Partial<TasksSettings>
+  base.tasks.statuses = taskStatusList(tasks.statuses)
+  base.tasks.setCancelledDate = booleanValue(tasks.setCancelledDate, base.tasks.setCancelledDate)
+  base.tasks.setCreatedDate = booleanValue(tasks.setCreatedDate, base.tasks.setCreatedDate)
+  base.tasks.recurrenceOnNextLine = booleanValue(tasks.recurrenceOnNextLine, base.tasks.recurrenceOnNextLine)
+  base.tasks.globalFilter = trimmedText(tasks.globalFilter, 40)
+  base.tasks.defaultHiddenFields = taskFieldList(tasks.defaultHiddenFields)
+  base.tasks.autoSuggestMinMatch = integerInRange(tasks.autoSuggestMinMatch, 0, 10, DEFAULT_SETTINGS.tasks.autoSuggestMinMatch)
+  base.tasks.autoSuggestMaxItems = integerInRange(tasks.autoSuggestMaxItems, 1, 20, DEFAULT_SETTINGS.tasks.autoSuggestMaxItems)
+
   // The reading section is small and every one of its values is a choice the panel offers, so an
   // out-of-range or unknown spelling falls back rather than being clamped into a setting the
   // reader cannot name. A refresh interval of 0 is a real answer ("only when I ask"), which is
@@ -1436,7 +1515,13 @@ function draggerKnownStyleOrder(value: unknown, styleIds: readonly string[]): st
   return [...kept, ...styleIds.filter((id) => !seen.has(id))]
 }
 
-const SETTINGS_SECTIONS = ['appearance', 'editor', 'preview', 'properties', 'backup', 'sync', 'notes', 'search', 'dataview', 'linter', 'rss'] as const
+/**
+ * Every group a settings patch may carry.
+ *
+ * Read off the defaults rather than written out by hand: a group named here and not there is a panel
+ * whose switches move and never save, which is exactly how `tasks` was lost the first time.
+ */
+const SETTINGS_SECTIONS = Object.keys(DEFAULT_SETTINGS) as (keyof UserSettings)[]
 
 export function normalizeTodoTags(value: unknown): string {
   if (typeof value !== 'string')
@@ -1520,6 +1605,11 @@ function cloneDefaultSettings(): UserSettings {
     dataview: {
       ...DEFAULT_SETTINGS.dataview,
       savedQueries: [],
+    },
+    tasks: {
+      ...DEFAULT_SETTINGS.tasks,
+      statuses: [],
+      defaultHiddenFields: [],
     },
     rss: { ...DEFAULT_SETTINGS.rss },
   }

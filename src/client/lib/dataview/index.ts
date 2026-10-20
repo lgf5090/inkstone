@@ -19,7 +19,7 @@ import { normalizeLinkKey } from '@shared/markdown-utils'
 import type { Source } from './ast'
 import { DvLink, type DataObject } from './value'
 import { parseNote, pathOfNote, serializePage, extractSubtags, type PageMetadata } from './metadata'
-import { stripTime } from './expression'
+import { startOfDay } from '../time'
 import type { DataRail } from './engine'
 
 /** The per-note facts the store already keeps, plus its body when one is loaded. */
@@ -465,9 +465,9 @@ export class DataviewIndex {
                 lists: [],
                 tasks: [],
                 ctime: new Date(note.createdAt),
-                cday: stripTime(new Date(note.createdAt)),
+                cday: startOfDay(new Date(note.createdAt)),
                 mtime: new Date(note.updatedAt),
-                mday: stripTime(new Date(note.updatedAt)),
+                mday: startOfDay(new Date(note.updatedAt)),
                 size: note.charCount,
                 starred: note.starred,
                 pinned: note.pinned,

@@ -1,0 +1,98 @@
+/* The `tasks` block. Row, chip and checkbox styling is inherited from dataview.css; only the
+   parts with no Dataview equivalent are here. */
+
+.ink-prose .tasks-results {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1);
+}
+
+.ink-prose .tasks-group-heading {
+  margin: var(--sp-3) 0 0;
+  font-size: var(--text-12);
+  font-weight: 600;
+  color: var(--text-secondary);
+  letter-spacing: 0.01em;
+}
+
+.ink-prose .tasks-group-heading[data-depth='1'] {
+  margin-left: var(--sp-3);
+  font-size: var(--text-11);
+}
+
+.ink-prose .tasks-group-heading[data-depth='2'] {
+  margin-left: calc(var(--sp-3) * 2);
+  font-size: var(--text-11);
+}
+
+.ink-prose .tasks-empty {
+  margin: 0;
+  color: var(--text-tertiary);
+  font-style: italic;
+}
+
+.ink-prose .tasks-count {
+  margin: var(--sp-1) 0 0;
+  color: var(--text-quaternary);
+  font-size: var(--text-11);
+}
+
+.ink-prose .dataview-task-edit,
+.ink-prose .dataview-task-postpone {
+  margin-left: var(--sp-2);
+  padding: 0 var(--sp-2);
+  min-height: 24px;
+  border: 0;
+  border-radius: var(--r-sm);
+  background: none;
+  color: var(--text-tertiary);
+  font-size: var(--text-11);
+  cursor: pointer;
+}
+
+.ink-prose .dataview-task-edit:hover,
+.ink-prose .dataview-task-postpone:hover {
+  color: var(--text-primary);
+}
+
+.ink-prose .dataview-task-edit:focus-visible,
+.ink-prose .dataview-task-postpone:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.ink-prose .tasks-explain {
+  margin-top: var(--sp-2);
+  padding: var(--sp-1) var(--sp-2);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--r-md);
+  background: var(--bg-inset);
+  font-size: var(--text-11);
+}
+
+.ink-prose .tasks-explain > summary {
+  cursor: pointer;
+  color: var(--text-secondary);
+  font-weight: 600;
+}
+
+.ink-prose .tasks-explain ul {
+  margin: var(--sp-1) 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.ink-prose .tasks-explain li {
+  color: var(--text-tertiary);
+  font-family: var(--font-mono);
+  font-size: var(--code-size);
+  overflow-wrap: anywhere;
+}
+
+.ink-prose .tasks-explain li[data-kind='sort'],
+.ink-prose .tasks-explain li[data-kind='group'],
+.ink-prose .tasks-explain li[data-kind='limit'],
+.ink-prose .tasks-explain li[data-kind='mode'],
+.ink-prose .tasks-explain li[data-kind='layout'] {
+  color: var(--text-secondary);
+}

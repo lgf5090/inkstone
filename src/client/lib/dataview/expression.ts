@@ -16,6 +16,10 @@ import {
     type BinaryOp, type Field, type NamedField, type Query, type QueryHeader, type QueryOperation, type QuerySortBy, type Source,
 } from './ast'
 import { DvDuration, DvLink, type Literal } from './value'
+import {
+  addUnits, endOfMonth, endOfWeek, endOfYear, startOfDay, startOfMonth, startOfWeek, startOfYear,
+  type WeekStartDay,
+} from '../time'
 
 const KEYWORDS = ['FROM', 'WHERE', 'LIMIT', 'GROUP', 'FLATTEN']
 
@@ -42,50 +46,29 @@ const DURATION_UNITS: Record<string, DurationUnits> = {
 
 const DURATION_UNIT_KEYS = Object.keys(DURATION_UNITS).sort((a, b) => b.length - a.length)
 
+/** Dataview's week rules open on Monday, which is also what this app's calendar view draws. */
+const WEEK_START: WeekStartDay = 1
+
 export const DATE_SHORTHANDS: Record<string, (now: Date) => Date> = {
     now: (now) => new Date(now.getTime()),
     today: (now) => startOfDay(now),
-    yesterday: (now) => new Date(startOfDay(now).getTime() - 86_400_000),
-    tomorrow: (now) => new Date(startOfDay(now).getTime() + 86_400_000),
-    sow: (now) => startOfWeek(now),
-    'start-of-week': (now) => startOfWeek(now),
-    eow: (now) => endOfWeek(now),
-    'end-of-week': (now) => endOfWeek(now),
-    soy: (now) => new Date(now.getFullYear(), 0, 1),
-    'start-of-year': (now) => new Date(now.getFullYear(), 0, 1),
-    eoy: (now) => new Date(now.getFullYear(), 11, 31, 23, 59, 59, 999),
-    'end-of-year': (now) => new Date(now.getFullYear(), 11, 31, 23, 59, 59, 999),
-    som: (now) => new Date(now.getFullYear(), now.getMonth(), 1),
-    'start-of-month': (now) => new Date(now.getFullYear(), now.getMonth(), 1),
+    yesterday: (now) => addUnits(startOfDay(now), -1, 'day'),
+    tomorrow: (now) => addUnits(startOfDay(now), 1, 'day'),
+    sow: (now) => startOfWeek(now, WEEK_START),
+    'start-of-week': (now) => startOfWeek(now, WEEK_START),
+    eow: (now) => endOfWeek(now, WEEK_START),
+    'end-of-week': (now) => endOfWeek(now, WEEK_START),
+    soy: (now) => startOfYear(now),
+    'start-of-year': (now) => startOfYear(now),
+    eoy: (now) => endOfYear(now),
+    'end-of-year': (now) => endOfYear(now),
+    som: (now) => startOfMonth(now),
+    'start-of-month': (now) => startOfMonth(now),
     eom: (now) => endOfMonth(now),
     'end-of-month': (now) => endOfMonth(now),
 }
 
 const DATE_SHORTHAND_KEYS = Object.keys(DATE_SHORTHANDS).sort((a, b) => b.length - a.length)
-
-function startOfDay(date: Date): Date {
-    return new Date(date.getFullYear(), date.getMonth(), date.getDate())
-}
-
-/** Weeks start on Monday, matching the calendar view and most readers' expectation. */
-function startOfWeek(date: Date): Date {
-    const day = startOfDay(date)
-    day.setDate(day.getDate() - ((day.getDay() + 6) % 7))
-    return day
-}
-
-function endOfWeek(date: Date): Date {
-    const start = startOfWeek(date)
-    return new Date(start.getFullYear(), start.getMonth(), start.getDate() + 6, 23, 59, 59, 999)
-}
-
-function endOfMonth(date: Date): Date {
-    return new Date(date.getFullYear(), date.getMonth() + 1, 0, 23, 59, 59, 999)
-}
-
-export function stripTime(date: Date): Date {
-    return startOfDay(date)
-}
 
 /** Fold `13 months` into `1 year 1 month` the way `dur()` promises. */
 export function normalizeDuration(duration: DvDuration): DvDuration {

@@ -13,8 +13,12 @@
  */
 
 import { extractTags, parseFrontMatter } from '@shared/markdown-utils'
+import type { TaskFields } from '../tasks'
+import { readEitherFormat } from '../tasks/line'
 import { DvLink, Values, type DataObject, type Literal } from './value'
-import { buildDate, normalizeDuration, parseInlineValue, stripTime } from './expression'
+import { buildDate, normalizeDuration, parseInlineValue } from './expression'
+import { startOfDay } from '../time'
+import { describeStatus, taskFieldEntries } from './task-fields'
 
 /** One `- [ ]` / `1. ` / `* ` line, with its children, its fields and the section it sits under. */
 export interface ListItemData {
@@ -34,7 +38,14 @@ export interface ListItemData {
     link: DvLink
     children: number[]
     parent: number | null
-    task: { status: string; completed: boolean; fullyCompleted: boolean } | null
+    task: {
+        status: string
+        completed: boolean
+        fullyCompleted: boolean
+        statusType: string
+        statusName: string
+        fields: TaskFields
+    } | null
     fields: Map<string, Literal[]>
 }
 
@@ -74,19 +85,6 @@ const FENCE_RE = /^[ \t]{0,3}(?:```|~~~)/
 const WIKI_RE = /(!?)\[\[([^[\]|\n]{1,400})(?:\|([^[\]\n]{0,200}))?\]\]/g
 const MARKDOWN_LINK_RE = /(?<!!)\[([^\]]*)\]\(([^)\s]+)[^)]*\)/g
 
-/**
- * Emoji shorthand dates on a task line (the Tasks-plugin convention Dataview reads), which become
- * fields the same way `[due:: …]` does. Written as escapes so the source stays free of Han/punctuation
- * surprises and the i18n gate has nothing to flag.
- */
-const TASK_EMOJI_FIELDS: Array<{ regex: RegExp; key: string }> = [
-    { regex: /✕\s*(\d{4}-\d{2}-\d{2})/, key: 'created' },
-    { regex: /🛫\s*(\d{4}-\d{2}-\d{2})/, key: 'start' },
-    { regex: /[⌛⌚]\s*(\d{4}-\d{2}-\d{2})/, key: 'scheduled' },
-    { regex: /[📅📆🗓]️?\s*(\d{4}-\d{2}-\d{2})/, key: 'due' },
-    { regex: /✅\s*(\d{4}-\d{2}-\d{2})/, key: 'completion' },
-]
-
 export interface InlineFieldHit {
     key: string
     value: string
@@ -98,11 +96,14 @@ export interface InlineFieldHit {
 const WRAPPERS: Record<string, string> = { '[': ']', '(': ')' }
 
 /**
- * Inline fields of the form `[key:: value]` or `(key:: value)`, plus the special task emoji dates.
+ * Inline fields of the form `[key:: value]` or `(key:: value)`.
  * Scanning is positional rather than one regex: the wrapper body may contain nested brackets, links
  * and escaped characters, and Markdown around the field is not balanced.
+ *
+ * Task emoji are not read here. They belong to the task parser, so a line means the same thing
+ * to a table, a task list and a `tasks` query instead of one thing to each of them.
  */
-export function extractInlineFields(line: string, includeTaskEmoji = false): InlineFieldHit[] {
+export function extractInlineFields(line: string): InlineFieldHit[] {
     const found: InlineFieldHit[] = []
     for (const open of Object.keys(WRAPPERS)) {
         let cursor = line.indexOf(open)
@@ -114,13 +115,6 @@ export function extractInlineFields(line: string, includeTaskEmoji = false): Inl
             }
             found.push(hit)
             cursor = line.indexOf(open, hit.end)
-        }
-    }
-    if (includeTaskEmoji) {
-        for (const { regex, key } of TASK_EMOJI_FIELDS) {
-            const match = regex.exec(line)
-            if (!match || match.index < 0) continue
-            found.push({ key, value: match[1]!, start: match.index, end: match.index + match[0].length, wrapping: 'emoji-shorthand' })
         }
     }
     found.sort((one, other) => one.start - other.start)
@@ -463,11 +457,20 @@ function scanLists(
             link: blockId ? DvLink.block(path, blockId) : section,
             children: [],
             parent: null,
-            task: status === null ? null : { status, completed: status !== ' ', fullyCompleted: status === 'x' || status === 'X' },
+            task: status === null ? null : {
+                status,
+                completed: status !== ' ',
+                fullyCompleted: status === 'x' || status === 'X',
+                ...describeStatus(status),
+                fields: readEitherFormat(match[5] ?? ''),
+            },
             fields: new Map(),
         }
 
-        for (const hit of extractInlineFields(flat, true)) addField(item.fields, hit.key, parseInlineValue(hit.value))
+        for (const hit of extractInlineFields(flat)) addField(item.fields, hit.key, parseInlineValue(hit.value))
+        if (item.task !== null) {
+            for (const [key, value] of taskFieldEntries(item.task.fields, item.fields)) addField(item.fields, key, value)
+        }
         if (item.task === null && item.fields.size === 0) {
             const fullLine = extractFullLineField(flat)
             if (fullLine) addField(item.fields, fullLine.key, parseInlineValue(fullLine.value))
@@ -573,6 +576,8 @@ function serializeListItem(item: ListItemData, page: PageMetadata, cache: Map<nu
         status: item.task?.status ?? item.symbol,
         completed: item.task?.completed ?? false,
         fullyCompleted: item.task?.fullyCompleted ?? false,
+        statusType: item.task?.statusType ?? 'NON_TASK',
+        statusName: item.task?.statusName ?? '',
         link: item.link,
         line: item.line,
         lineCount: item.lineCount,
@@ -611,9 +616,9 @@ export function serializePage(page: PageMetadata, inLinks: DvLink[] = []): DataO
         lists,
         tasks,
         ctime: page.ctime,
-        cday: stripTime(page.ctime),
+        cday: startOfDay(page.ctime),
         mtime: page.mtime,
-        mday: stripTime(page.mtime),
+        mday: startOfDay(page.mtime),
         size: page.size,
         starred: page.starred,
         pinned: page.pinned,

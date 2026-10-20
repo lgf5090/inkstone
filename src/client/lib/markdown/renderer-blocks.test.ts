@@ -135,6 +135,39 @@ describe('renderMarkdownBlocks matches the whole-document preview', () => {
     expect(separated.map((b) => [...b.html.matchAll(/data-task-line="(\d+)"/g)].map((m) => m[1]))).toEqual([['0', '0'], [], ['4', '4']])
   })
 
+  it('gives every status character a checkbox, not just the two markdown-it knows', () => {
+    const html = renderMarkdownBlocks('- [/] mid\n- [-] dropped\n- [>] later\n- [x] done\n').blocks[0]!.html
+    const frame = document.createElement('template')
+    frame.innerHTML = html
+    const boxes = [...frame.content.querySelectorAll<HTMLInputElement>('input[data-task-line]')]
+    expect(boxes.map((box) => box.dataset.taskLine)).toEqual(['0', '1', '2', '3'])
+    // A mark is a ticked box; only a finished one is struck through, or `[/]` would look done.
+    expect(boxes.every((box) => box.checked)).toBe(true)
+    expect([...frame.content.querySelectorAll('li')].filter((li) => li.classList.contains('done'))).toHaveLength(1)
+    expect([...frame.content.querySelectorAll('.task-label')].map((label) => label.textContent?.trim())).toEqual(['mid', 'dropped', 'later', 'done'])
+  })
+
+  /**
+   * The list shapes a task can be written in, measured rather than assumed.
+   *
+   * An ordered item, a nested one, and a list inside a blockquote all reach the same rule, because
+   * markdown-it hands every one of them a `list_item_open` — which is what the placeholder needs. A
+   * bare `> [ ] x` does not: it is a paragraph that starts with brackets, and boxing it would put a
+   * control on a line no task plugin, and not Obsidian either, treats as a task.
+   */
+  it('boxes a task in every list shape, and in no non-list one', () => {
+    const boxes = (source: string) => {
+      const html = renderMarkdownBlocks(source).blocks.map((block) => block.html).join('')
+      return [...html.matchAll(/<input[^>]*data-task-line="(\d+)"/g)].map((matched) => matched[1])
+    }
+    expect(boxes('1. [ ] ordered\n')).toEqual(['0'])
+    expect(boxes('1. [/] ordered mid\n')).toEqual(['0'])
+    expect(boxes('- 1. [ ] nested\n')).toEqual(['0'])
+    expect(boxes('> - [ ] quoted list\n')).toEqual(['0'])
+    expect(boxes('> [ ] quoted bare\n')).toEqual([])
+    expect(boxes('- 1. no marker at all\n')).toEqual([])
+  })
+
   it('keeps hostile markup removed for every corpus document', () => {
     for (const [name, source] of CORPUS) {
       const html = renderMarkdownBlocks(source).blocks.map((b) => b.html).join('\n')

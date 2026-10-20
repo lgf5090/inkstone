@@ -17,11 +17,15 @@ export const DATAVIEW_LANGUAGES = ['dataview', 'dv'] as const
 /** A DML block, whose body is JavaScript run against the same index inside the worker sandbox. */
 export const DATAVIEW_JS_LANGUAGES = ['dataviewjs', 'dvjs', 'dv-js'] as const
 
-export type DataviewMode = 'query' | 'js'
+/** A Tasks block: its own instruction language, answered over the same scanned index. */
+export const TASKS_LANGUAGES = ['tasks', 'task'] as const
+
+export type DataviewMode = 'query' | 'js' | 'tasks'
 
 export function dataviewModeOf(language: string): DataviewMode | null {
     if ((DATAVIEW_LANGUAGES as readonly string[]).includes(language)) return 'query'
     if ((DATAVIEW_JS_LANGUAGES as readonly string[]).includes(language)) return 'js'
+    if ((TASKS_LANGUAGES as readonly string[]).includes(language)) return 'tasks'
     return null
 }
 
@@ -56,7 +60,8 @@ export function showDataviewSource(root: ParentNode): void {
  * quotes would otherwise be read back out of markup the sanitizer has already rewritten.
  */
 export function dataviewHostMarkup(mode: DataviewMode, line: string, body: string): string {
-    const label = t(mode === 'js' ? 'dataview.js_block' : 'dataview.query_block')
+    const labelKey = mode === 'js' ? 'dataview.js_block' : mode === 'tasks' ? 'tasks.query_block' : 'dataview.query_block'
+    const label = t(labelKey)
     return [
         `<div class="dataview-block loading"${line} data-dataview="${escapeAttr(encodeDataValue(body))}" data-dataview-mode="${mode}" aria-busy="true">`,
         `<div class="dataview-block-body" data-dataview-body>${escapeHtml(label)}</div>`,

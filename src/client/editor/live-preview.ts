@@ -7,6 +7,7 @@ import { registerFenceBodies, type FenceBodies } from '../lib/markdown/fence-bod
 import { enhancePreview, renderPendingCharts, renderPendingMermaid, toggleCodeBlockCollapse } from '../lib/markdown/enhance';
 import { mountDataview } from '../lib/dataview/blocks';
 import { resolveNoteEmbeds } from '../lib/markdown/embeds';
+import { tickTaskLines } from './task-tick';
 import { useSession } from '../store/session';
 import { buildPropertyRenderOptions } from '../lib/property-view';
 import { t } from '../lib/i18n';
@@ -106,15 +107,8 @@ class RenderedBlock extends WidgetType {
             const checkbox = target.closest<HTMLInputElement>('input[data-task-line]');
             if (checkbox) {
                 if (checkbox.disabled || checkbox.closest('.note-embed-body')) return;
-                const n = Number(checkbox.dataset.taskLine) + 1;
-                if (n > 0 && n <= view.state.doc.lines) {
-                    const line = view.state.doc.line(n);
-                    const match = /^(?:\s*>\s*)*\s*(?:[-+*]|\d+[.)])\s+\[([ xX])\]/.exec(line.text);
-                    if (match) {
-                        const pos = line.from + match[0].length - 2;
-                        view.dispatch({ changes: { from: pos, to: pos + 1, insert: match[1] === ' ' ? 'x' : ' ' }, userEvent: 'input' });
-                    }
-                }
+                void tickTaskLines(view, [Number(checkbox.dataset.taskLine)], 'input')
+                    .then((written) => { if (!written) checkbox.checked = !checkbox.checked; });
                 return;
             }
             const collapse = target.closest<HTMLButtonElement>('[data-code-collapse]');

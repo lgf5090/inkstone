@@ -1,0 +1,295 @@
+import { describe, expect, it } from 'vitest'
+import { DataviewTaskSerializer } from './serializer/dataview-format'
+import { EmojiTaskSerializer } from './serializer/emoji'
+import { StatusRegistry } from './status/registry'
+import { applyTaskToggle, type ToggleSettings } from './toggle'
+
+const NOW = new Date(2026, 9, 19)
+
+function settings(overrides: Partial<ToggleSettings> = {}): ToggleSettings {
+  return {
+    registry: new StatusRegistry(),
+    serializer: new EmojiTaskSerializer(),
+    setDoneDate: true,
+    setCancelledDate: true,
+    setCreatedDate: false,
+    recurrenceOnNextLine: false,
+    recursiveSubTaskCompletion: false,
+    ...overrides,
+  }
+}
+
+const cp = (...codes: number[]): string => String.fromCodePoint(...codes)
+const DUE = cp(0x1F4C5)
+const RECUR = cp(0x1F501)
+const DONE_MARK = cp(0x2705)
+const CANCEL_MARK = cp(0x274C)
+
+function toggle(source: string, line: number, text: string, config = settings()): string | null {
+  return applyTaskToggle(source, { line, text }, config, NOW)
+}
+
+/** The serializer a reader picks for their ticks decides what the line is read as, not what is kept. */
+function brackets(overrides: Partial<ToggleSettings> = {}): ToggleSettings {
+  return settings({ serializer: new DataviewTaskSerializer(), ...overrides })
+}
+
+describe('the guard across formats', () => {
+  it('ticks an emoji line for a reader who writes inline fields', () => {
+    const out = toggle(`- [ ] buy milk ${DUE} 2026-10-05`, 0, 'buy milk', brackets())
+    expect(out).not.toBeNull()
+    expect(out).toContain('[x]')
+    // The date the reader's own format cannot read stays in the line as prose rather than vanishing.
+    expect(out).toContain(`${DUE} 2026-10-05`)
+  })
+
+  it('ticks an inline-field line for a reader who writes emoji', () => {
+    const out = toggle('- [ ] buy milk [due:: 2026-10-05]', 0, 'buy milk')
+    expect(out).not.toBeNull()
+    expect(out).toContain('[x]')
+    expect(out).toContain('[due:: 2026-10-05]')
+  })
+
+  it('reads a row that stripped both formats off the same line', () => {
+    const out = toggle(`- [ ] buy milk [priority:: high] ${DUE} 2026-10-05`, 0, 'buy milk', brackets())
+    expect(out).not.toBeNull()
+    expect(out).toContain('[x]')
+  })
+
+  it('still refuses a line whose words moved, whatever the formats', () => {
+    expect(toggle(`- [ ] buy milk ${DUE} 2026-10-05`, 0, 'sell milk', brackets())).toBeNull()
+  })
+})
+
+describe('the status cycle', () => {
+  it('ticks an open task to done and stamps the completion date', () => {
+    const out = toggle('- [ ] pay rent', 0, 'pay rent')
+    expect(out).toBe(`- [x] pay rent ${DONE_MARK} 2026-10-19`)
+  })
+
+  it('un-ticks a done task and takes the stamp away', () => {
+    const out = toggle(`- [x] pay rent ${DONE_MARK} 2026-10-10`, 0, 'pay rent')
+    expect(out).toBe('- [ ] pay rent')
+  })
+
+  it('walks the whole registered cycle, so [/] and [-] are clickable', () => {
+    expect(toggle('- [ ] work', 0, 'work')).toContain('[x]')
+    expect(toggle('- [/] work', 0, 'work')).toContain('[x]')
+    expect(toggle('- [-] work', 0, 'work')).toContain('[ ]')
+    expect(toggle(`- [-] work ${CANCEL_MARK} 2026-10-01`, 0, 'work')).toContain('[ ]')
+  })
+
+  it('gives a finished recurring instance a done stamp while the newborn stays open', () => {
+    const out = applyTaskToggle(
+      `- [ ] water ${RECUR} every week ${DUE} 2026-10-19`,
+      { line: 0, text: 'water' },
+      settings(),
+      NOW,
+    )!
+    const lines = out.split('\n')
+    expect(lines.find((l) => l.includes('[x]'))).toContain(DONE_MARK)
+    const born = lines.find((l) => l.includes('[ ]'))!
+    expect(born).not.toContain(DONE_MARK)
+    expect(born).toContain(`${DUE} 2026-10-26`)
+  })
+})
+
+describe('what a tick must not touch', () => {
+  it('keeps indentation, blockquote prefix and ordered markers', () => {
+    expect(toggle('  > - [ ] nested', 0, 'nested')).toContain('  > - [x]')
+    expect(toggle('3. [ ] ordered', 0, 'ordered')).toContain('3. [x]')
+    expect(toggle('\t- [ ] tabbed', 0, 'tabbed')).toContain('\t- [x]')
+  })
+
+  it('keeps a block id at the end and a hard break after it', () => {
+    expect(toggle('- [ ] anchored ^my-id', 0, 'anchored')).toBe(`- [x] anchored ${DONE_MARK} 2026-10-19 ^my-id`)
+    const broken = toggle('- [ ] hard  ', 0, 'hard')
+    expect(broken?.endsWith('  ')).toBe(true)
+  })
+
+  it('keeps every other field of the line exactly as written', () => {
+    const line = `- [ ] ship ${RECUR} every week ${DUE} 2026-10-20`
+    const out = toggle(line, 0, 'ship')
+    expect(out).toContain(`${RECUR} every week`)
+    expect(out).toContain(`${DUE} 2026-10-20`)
+  })
+
+  it('preserves CRLF endings', () => {
+    const out = toggle('- [ ] a\r\n- [ ] b', 1, 'b')
+    expect(out).toBe(`- [ ] a\r\n- [x] b ${DONE_MARK} 2026-10-19`)
+  })
+})
+
+describe('the staleness guard', () => {
+  it('refuses a line whose text no longer matches', () => {
+    expect(toggle('- [ ] renamed elsewhere', 0, 'pay rent')).toBeNull()
+  })
+
+  it('refuses a line that is not a task at all', () => {
+    expect(toggle('just prose', 0, 'just prose')).toBeNull()
+  })
+
+  it('refuses a line index past the end', () => {
+    expect(toggle('- [ ] only', 5, 'only')).toBeNull()
+  })
+
+  it('compares ignoring the whitespace a wrapped item accumulated', () => {
+    expect(toggle('- [ ]   two   words', 0, 'two words')).toContain('[x]')
+  })
+})
+
+describe('recurrence', () => {
+  it('finishes the instance and births the next one from the rule', () => {
+    const source = `- [ ] water plants ${RECUR} every week ${DUE} 2026-10-19`
+    const out = toggle(source, 0, 'water plants')!
+    const lines = out.split('\n')
+    expect(lines).toHaveLength(2)
+    expect(lines.some((l) => l.includes('[x]') && l.includes(DONE_MARK))).toBe(true)
+    const born = lines.find((l) => l.includes('[ ]'))!
+    expect(born).toContain(`${DUE} 2026-10-26`)
+  })
+
+  it('puts the newborn below when the reader asked for that order', () => {
+    const source = `- [ ] standup ${RECUR} every day ${DUE} 2026-10-19`
+    const below = applyTaskToggle(source, { line: 0, text: 'standup' }, settings({ recurrenceOnNextLine: true }), NOW)!
+    const above = applyTaskToggle(source, { line: 0, text: 'standup' }, settings({ recurrenceOnNextLine: false }), NOW)!
+    expect(below.split('\n')[0]).toContain('[x]')
+    expect(above.split('\n')[0]).toContain('[ ]')
+  })
+
+  it('clears identity and history on the newborn', () => {
+    const source = `- [ ] job ${RECUR} every week ${DUE} 2026-10-19 ${cp(0x1F194)} abc`
+    const out = applyTaskToggle(source, { line: 0, text: 'job' }, settings(), NOW)!
+    const born = out.split('\n').find((line) => line.includes('[ ]'))!
+    expect(born).not.toContain(cp(0x1F194))
+  })
+
+  it('deletes the finished instance when the rule says on completion delete', () => {
+    const source = `- [ ] temp ${RECUR} every week ${DUE} 2026-10-19 ${cp(0x1F3C1)} delete`
+    const out = applyTaskToggle(source, { line: 0, text: 'temp' }, settings(), NOW)!
+    expect(out).not.toContain('[x]')
+    expect(out).toContain(`${DUE} 2026-10-26`)
+  })
+})
+
+describe('sub-task cascade', () => {
+  it('leaves children alone unless the reader turned it on', () => {
+    const source = ['- [ ] parent', '    - [ ] child'].join('\n')
+    expect(applyTaskToggle(source, { line: 0, text: 'parent' }, settings(), NOW))
+      .toBe(`- [x] parent ${DONE_MARK} 2026-10-19
+    - [ ] child`)
+    const recursive = applyTaskToggle(source, { line: 0, text: 'parent' }, settings({ recursiveSubTaskCompletion: true }), NOW)!
+    expect(recursive).toContain('- [x] parent')
+    expect(recursive).toContain('- [x] child')
+  })
+
+  it('stops at the first line that is not a child', () => {
+    const source = ['- [ ] parent', '    - [ ] child', '- [ ] sibling'].join('\n')
+    const out = applyTaskToggle(source, { line: 0, text: 'parent' }, settings({ recursiveSubTaskCompletion: true }), NOW)!
+    expect(out.split('\n')[2]).toBe('- [ ] sibling')
+  })
+
+  it('leaves a child that already shows the new state alone', () => {
+    const source = ['- [ ] parent', `    - [x] child ${DONE_MARK} 2026-10-11`].join('\n')
+    const out = applyTaskToggle(source, { line: 0, text: 'parent' }, settings({ recursiveSubTaskCompletion: true }), NOW)!
+    expect(out).toContain(`- [x] child ${DONE_MARK} 2026-10-11`)
+  })
+
+  it('carries the parent down to the open children when the parent is un-ticked', () => {
+    const source = [`- [x] parent ${DONE_MARK} 2026-10-11`, `    - [x] child ${DONE_MARK} 2026-10-11`].join('\n')
+    const out = applyTaskToggle(source, { line: 0, text: 'parent' }, settings({ recursiveSubTaskCompletion: true }), NOW)!
+    expect(out).toBe('- [ ] parent\n    - [ ] child')
+  })
+
+  it('gives a child the state the reader clicked into, not the one the rule produced', () => {
+    const source = [`- [ ] chores ${RECUR} every week ${DUE} 2026-10-19`, '    - [ ] put the bins out'].join('\n')
+    const out = applyTaskToggle(
+      source,
+      { line: 0, text: 'chores' },
+      settings({ recursiveSubTaskCompletion: true, recurrenceOnNextLine: true }),
+      NOW,
+    )!
+    const child = out.split('\n').find((line) => line.includes('put the bins out'))!
+    expect(child).toContain('[x]')
+  })
+})
+
+/**
+ * The three note bodies the reference plugin keeps as its toggle regression fixtures
+ * (`MockDataForTogglingTasks`: issues 1680 and 688, plus the two-tasks case), carried over as source
+ * text. They pin the three ways a rewrite can edit the wrong words: a line number that no longer
+ * exists, a line found by searching instead of by position, and a task whose block id must survive.
+ */
+describe('the upstream toggle fixtures', () => {
+  const oneSixEighty = [
+    '## Test Data',
+    '',
+    '### Tasks Section 1',
+    '- [ ] #task Section 1/Task 1',
+    '- [ ] #task Section 1/Task 2',
+    '',
+    '### Tasks Section 2',
+    '',
+    '- [ ] #task Section 2/Task 1',
+    '- [ ] #task Section 2/Task 2',
+    '',
+  ].join('\n')
+
+  const sixEightyEight = [
+    '## Category 1',
+    '',
+    '- [ ] #task task1a',
+    '- [ ] #task task1b',
+    '',
+    '## Category 2',
+    '',
+    '- [ ] #task task2a',
+    '- [ ] #task task2b ^ca47c7',
+    '',
+    '- ref task2 ![[#^ca47c7]]',
+    '',
+  ].join('\n')
+
+  const twoTasks = [
+    '# Toggle 2nd of two tasks',
+    '',
+    '## Heading 2',
+    '',
+    '- [ ] #task task 1',
+    '- [ ] #task task 2',
+    '',
+  ].join('\n')
+
+  it('refuses a row whose line number is past the end of the note', () => {
+    expect(applyTaskToggle(oneSixEighty, { line: 14, text: '#task Section 2/Task 2' }, settings(), NOW)).toBeNull()
+    expect(applyTaskToggle(oneSixEighty, { line: 9, text: '#task Section 2/Task 2' }, settings(), NOW))
+      .toBe(oneSixEighty.replace(
+        '- [ ] #task Section 2/Task 2',
+        `- [x] #task Section 2/Task 2 ${DONE_MARK} 2026-10-19`,
+      ))
+  })
+
+  it('edits the line the row was read from, not the first line that says the same thing', () => {
+    const out = applyTaskToggle(sixEightyEight, { line: 8, text: '#task task2b' }, settings(), NOW)!
+    const lines = out.split('\n')
+    expect(lines[8]).toBe(`- [x] #task task2b ${DONE_MARK} 2026-10-19 ^ca47c7`)
+    expect(lines[7]).toBe('- [ ] #task task2a')
+    expect(lines[10]).toBe('- ref task2 ![[#^ca47c7]]')
+  })
+
+  it('moves only the addressed one of two identical lines', () => {
+    const source = ['- [ ] #task twice', '- [ ] #task twice'].join('\n')
+    const out = applyTaskToggle(source, { line: 1, text: '#task twice' }, settings(), NOW)!
+    const lines = out.split('\n')
+    expect(lines[0]).toBe('- [ ] #task twice')
+    expect(lines[1]).toBe(`- [x] #task twice ${DONE_MARK} 2026-10-19`)
+  })
+
+  it('toggles the second of two tasks and leaves the heading and the first alone', () => {
+    const out = applyTaskToggle(twoTasks, { line: 5, text: '#task task 2' }, settings(), NOW)!
+    const lines = out.split('\n')
+    expect(lines[0]).toBe('# Toggle 2nd of two tasks')
+    expect(lines[4]).toBe('- [ ] #task task 1')
+    expect(lines[5]).toBe(`- [x] #task task 2 ${DONE_MARK} 2026-10-19`)
+  })
+})

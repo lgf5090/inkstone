@@ -2,7 +2,6 @@ import { CaseUpper, CheckSquare, Copy, ExternalLink, FileText, Heading, Images, 
 import { submenuFor, type MenuItem } from '../../../components/overlay'
 import { t } from '../../../lib/i18n'
 import { findNoteByTitle, noteById } from '../../../store/notes'
-import { updateTaskAtSourceLine } from '../../../editor/commands'
 import { formatMenuItems } from '../../../editor/editorMenus'
 import { editLinkFromMenu } from '../../links/use-link-editor'
 import { buildNoteTaskMenuItem } from '../../chat/note-task-link'
@@ -137,14 +136,26 @@ export function buildTaskItems(ctx: MenuCtx): MenuItem[] | null {
       id: 'toggle-task',
       label: t(task.checked ? 'contextmenu.task_mark_open' : 'contextmenu.task_mark_done'),
       icon: <CheckSquare size={14} />,
-      onSelect: () => {
+      onSelect: async () => {
         if (line === null || line === undefined) return
-        const next = updateTaskAtSourceLine(ctx.content, line, !task.checked)
+        const { toggleTaskLinesInSource } = await import('../../../lib/tasks/service')
+        const next = toggleTaskLinesInSource(ctx.content, [line])
         if (next === null) ctx.onToast({ title: t('contextmenu.line_changed'), tone: 'warning' })
         else ctx.onEditContent(next)
       },
     },
   ]
+  if (ctx.noteId && line !== null && line !== undefined) {
+    items.push({
+      id: 'edit-task',
+      label: t('contextmenu.task_edit'),
+      icon: <Pencil size={14} />,
+      onSelect: async () => {
+        const { openTaskEditor } = await import('../../tasks/store')
+        openTaskEditor({ noteId: ctx.noteId!, line: line!, text: null })
+      },
+    })
+  }
   if (isSourceMenu(ctx)) {
     items.push({
       id: 'task-to-bullet',

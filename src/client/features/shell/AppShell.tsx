@@ -18,6 +18,8 @@ import { useSession } from '../../store/session';
 import { useUpdate } from '../../store/update';
 import { openEmojiPicker, useEmojiPicker } from '../../store/emoji-picker';
 import { useLinkEditor } from '../links/store';
+import { useTaskEditor } from '../tasks/store';
+import { usePostponeMenu } from '../tasks/postpone-store';
 import { isOmnisearchOpen, openOmnisearch, useOmnisearch } from '../omnisearch/store';
 import { omnisearchIndexer } from '../omnisearch/indexer';
 import { useQuickAddBridge } from '../quickadd/bridge';
@@ -44,6 +46,8 @@ const VersionsPanel = lazy(() => import('../workspace/VersionsPanel').then((m) =
 const UpdateDialog = lazy(() => import('../update/UpdateDialog').then((m) => ({ default: m.UpdateDialog })));
 const EmojiPickerHost = lazy(() => import('../emoji/EmojiPickerHost').then((m) => ({ default: m.EmojiPickerHost })));
 const LinkEditorPopover = lazy(() => import('../links/LinkEditorPopover').then((m) => ({ default: m.LinkEditorPopover })));
+const TaskEditorHost = lazy(() => import('../tasks/TaskEditorHost').then((m) => ({ default: m.TaskEditorHost })));
+const PostponeMenuHost = lazy(() => import('../tasks/PostponeMenuHost').then((m) => ({ default: m.PostponeMenuHost })));
 const QuickAddLauncher = lazy(() => import('../quickadd/launcher').then((m) => ({ default: m.default })));
 /** The account the outline's opening was seeded from, which outlives a mount because the shell does. */
 let outlineSeededFor: string | null | undefined;
@@ -268,6 +272,8 @@ function OverlayHost() {
     const panel = useUi((s) => s.panel);
     const emojiOpen = useEmojiPicker((s) => s.open);
     const linkEditOpen = useLinkEditor((s) => s.request !== null);
+    const taskEditOpen = useTaskEditor((s) => s.request !== null);
+    const postponeOpen = usePostponeMenu((s) => s.request !== null);
     const omnisearch = useOmnisearch();
     const closePanel = useUi((s) => s.closePanel);
     const role = useSession((s) => s.user?.role);
@@ -285,6 +291,8 @@ function OverlayHost() {
         {omnisearch.open && <OmnisearchPrompt mode={omnisearch.mode} seed={omnisearch.seed} noteId={omnisearch.noteId}/>}
         {emojiOpen && <EmojiPickerHost />}
         {linkEditOpen && <LinkEditorPopover />}
+        {taskEditOpen && <TaskEditorHost />}
+        {postponeOpen && <PostponeMenuHost />}
       {panel === 'quickadd' && <QuickAddLauncher onClose={closePanel}/>}
       </Suspense>
       {role === 'owner' && updateDialogOpen && (<Suspense fallback={null}>

@@ -374,6 +374,29 @@ export const DATAVIEW_TEMPLATES: DiagramTemplate[] = [
 ]
 
 /** The DML starter: the shortest program that shows the `dv` object is working. */
+/**
+ * The starter queries behind the toolbar's Tasks submenu. Each body is an instruction set the
+ * engine accepts and that answers with an empty list rather than an error while nothing is indexed,
+ * because a template that inserts a block reporting itself broken is worse than no template.
+ */
+export const TASKS_TEMPLATES: DiagramTemplate[] = [
+    {
+        id: 'open',
+        labelKey: 'workspace.tasks_open',
+        body: 'not done\ndue before next month\nsort by urgency',
+    },
+    {
+        id: 'overdue',
+        labelKey: 'workspace.tasks_overdue',
+        body: 'not done\ndue before today\nsort by due',
+    },
+    {
+        id: 'grouped',
+        labelKey: 'workspace.tasks_by_folder',
+        body: 'not done\ngroup by folder\nsort by due',
+    },
+]
+
 export const DATAVIEW_JS_BODY = [
     'const pages = dv.pages("")',
     'dv.header(3, `Notes: ${pages.length}`)',

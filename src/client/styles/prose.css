@@ -181,6 +181,23 @@
 .ink-prose input[type='checkbox']:hover {
   border-color: var(--accent);
 }
+
+/*
+ * WCAG 2.5.8 wants 24 by 24 CSS pixels of target, and a task box is painted at 1.05em (17 at the
+ * default prose size) because a taller box would push every line of the list apart. So the drawn box
+ * stays and the tappable area grows around it — the same invisible overlay `.ink-tap-pad` uses, here
+ * on `::before` because `::after` is the check mark. It reaches into the first pixels of the label,
+ * which is prose rather than a control, and a query row's own neighbour is 8px further out.
+ */
+.ink-prose input[type='checkbox']::before {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: max(100%, var(--tap-min));
+  height: max(100%, var(--tap-min));
+  translate: -50% -50%;
+}
 .ink-prose input[type='checkbox']:disabled {
   opacity: 0.72;
   cursor: default;

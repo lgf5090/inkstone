@@ -8,7 +8,7 @@
  * to the reader.
  */
 import { describe, expect, it } from 'vitest'
-import { buildDate, parseField, parseInlineValue, parseQuery, parseSource } from './expression'
+import { DATE_SHORTHANDS, buildDate, parseField, parseInlineValue, parseQuery, parseSource } from './expression'
 import { DvDuration, Values } from './value'
 
 const parses = (text: string) => {
@@ -95,6 +95,32 @@ describe('date literals', () => {
         for (const name of ['now', 'today', 'yesterday', 'tomorrow', 'sow', 'start-of-week', 'eow', 'end-of-week', 'som', 'start-of-month', 'eom', 'end-of-month', 'soy', 'start-of-year', 'eoy', 'end-of-year']) {
             expect(parseField(`date(${name})`).type).toBe('literal')
         }
+    })
+
+    /**
+     * The same table's answers, not just its names.
+     *
+     * Parsing `date(sow)` proves nothing about which day it lands on, and the week rule, the month ends
+     * and the ±1 day are exactly where a hand-rolled date helper and a shared one can disagree.
+     * Wednesday 2026-10-21 is a fixed Wednesday in a month that ends on a Sunday.
+     */
+    it('answers every date shorthand with the day the reference means', () => {
+        const now = new Date(2026, 9, 21, 14, 30)
+        const day = (name: string) => {
+            const value = DATE_SHORTHANDS[name]!(now)
+            return `${value.getFullYear()}-${String(value.getMonth() + 1).padStart(2, '0')}-${String(value.getDate()).padStart(2, '0')} ${value.toTimeString().slice(0, 8)}`
+        }
+        expect(day('today')).toBe('2026-10-21 00:00:00')
+        expect(day('yesterday')).toBe('2026-10-20 00:00:00')
+        expect(day('tomorrow')).toBe('2026-10-22 00:00:00')
+        expect(day('sow')).toBe('2026-10-19 00:00:00')
+        expect(day('start-of-week')).toBe(day('sow'))
+        expect(day('eow')).toBe('2026-10-25 23:59:59')
+        expect(day('end-of-week')).toBe(day('eow'))
+        expect(day('som')).toBe('2026-10-01 00:00:00')
+        expect(day('eom')).toBe('2026-10-31 23:59:59')
+        expect(day('soy')).toBe('2026-01-01 00:00:00')
+        expect(day('eoy')).toBe('2026-12-31 23:59:59')
     })
 })
 

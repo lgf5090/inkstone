@@ -32,7 +32,6 @@ import { kanbanIndex } from '../../lib/markdown/kanban/view'
 import { fenceBody, registerFenceBodies, sameFenceBodies, type FenceBodies } from '../../lib/markdown/fence-bodies'
 import { useKanbanBlocks } from './use-kanban-blocks'
 import { mountDataview } from '../../lib/dataview/blocks'
-import { updateTaskAtSourceLine } from '../../editor/commands'
 import { useUi } from '../../store/ui'
 import { useNotes, findNoteByTitle } from '../../store/notes'
 import { useSession } from '../../store/session'
@@ -584,13 +583,18 @@ export const Preview = memo(function Preview({
           toast({ title: t("preview.the_preview_is_updating_try_again_in_a_moment"), tone: 'warning' })
           return
         }
-        const next = updateTaskAtSourceLine(committedSource, line, checked)
-        if (next == null || !sourceNoteId) {
-          checkbox.checked = !checked
-          toast({ title: t("preview.could_not_update_this_task"), tone: 'warning' })
-          return
-        }
-        editContent(sourceNoteId, next)
+        // The same primitive the editor and the query results use, so a tick here advances the
+        // reader's status cycle rather than forcing the box to `x` regardless of what it was.
+        // Only the module import is async; the rewrite itself is a pure string function.
+        void import('../../lib/tasks/service').then(({ toggleTaskLinesInSource }) => {
+          const next = toggleTaskLinesInSource(committedSource, [line])
+          if (next === null || !sourceNoteId) {
+            checkbox.checked = !checked
+            toast({ title: t("preview.could_not_update_this_task"), tone: 'warning' })
+            return
+          }
+          editContent(sourceNoteId, next)
+        })
       }
       return
     }

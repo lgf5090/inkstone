@@ -70,10 +70,14 @@ vi.mock('./service', () => ({
         },
     },
     startDataview: () => {},
-    toggleTask: async (id: string, line: number, text: string, completed: boolean) => {
-        state.toggles.push(`${id}:${line}:${text}:${completed}`)
-        return state.toggleResult
-        },
+}))
+
+vi.mock('../tasks/service', async (importOriginal) => ({
+    ...(await importOriginal<typeof import('../tasks/service')>()),
+    toggleTaskLine: async (id: string, line: number, text: string) => {
+        state.toggles.push(`${id}:${line}:${text}`)
+        return state.toggleResult as 'written' | 'conflict' | 'missing'
+    },
 }))
 
 vi.mock('./js', () => ({
@@ -361,6 +365,9 @@ describe('the mount pass', () => {
 
     it('writes a tick back through the service, and says so when the note moved', async () => {
         const { mountDataview } = await import('./blocks')
+        // The tick writer is a lazy chunk, and loading it inside a click costs seconds in a unit run, so
+        // it is loaded here and the click's own round-trips are what the assertions wait on.
+        await import('../tasks/service')
         state.toggles = []
         const root = await host(renderMarkdown('```dataview\nTASK\n```').html)
         mountDataview(root, { originNoteId: null, editable: false })
@@ -369,13 +376,26 @@ describe('the mount pass', () => {
         expect(box.checked).toBe(false)
         box.click()
         await settle()
-        expect(state.toggles).toEqual(['a:3:buy milk:true'])
+        expect(state.toggles).toEqual(['a:3:buy milk'])
         expect(box.checked).toBe(true)
         state.toggleResult = 'conflict'
         box.click()
         await settle()
         expect(state.toggles.length).toBe(2)
         expect(box.checked).toBe(false)
+    })
+
+    it('finishes loading and names itself once a tasks block has answered', async () => {
+        const { mountDataview } = await import('./blocks')
+        const root = await host(renderMarkdown('```tasks\nnot done\n```').html)
+        mountDataview(root, { originNoteId: null, editable: false })
+        const block = root.querySelector('[data-dataview]') as HTMLElement
+        expect(block.dataset.dataviewMode).toBe('tasks')
+        // The answer sits behind a dynamic import, so waiting for the loading state to clear is the
+        // assertion; a block that never cleared it would keep the dashed border a waiting block wears.
+        await vi.waitFor(() => expect(block.classList.contains('loading')).toBe(false), { timeout: 20_000, interval: 20 })
+        expect(block.querySelector('.dataview-block-title')?.textContent).toBe('tasks.query_block')
+        expect(block.querySelector('.tasks-empty')?.textContent).toBe('tasks.no_results')
     })
 
     it('draws a static mark where the surface cannot write', async () => {

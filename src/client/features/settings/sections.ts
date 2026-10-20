@@ -2,7 +2,7 @@ import { backupRunsResource, backupTargetsResource, mcpResource, sharesResource,
 import { useSession } from '../../store/session'
 import type { MessageKey } from '../../lib/i18n'
 
-export type SettingsSection = 'appearance' | 'editor' | 'properties' | 'notes' | 'search' | 'backup' | 'sync' | 'mcp' | 'account' | 'data' | 'shares' | 'automation' | 'queries' | 'linter' | 'excalidraw' | 'mindmap' | 'reading' | 'rss' | 'about'
+export type SettingsSection = 'appearance' | 'editor' | 'properties' | 'notes' | 'search' | 'backup' | 'sync' | 'mcp' | 'account' | 'data' | 'shares' | 'automation' | 'queries' | 'tasks' | 'linter' | 'excalidraw' | 'mindmap' | 'reading' | 'rss' | 'about'
 
 export const SECTION_LABEL_KEYS: Record<SettingsSection, MessageKey> = {
   rss: 'settings.rss',
@@ -16,6 +16,7 @@ export const SECTION_LABEL_KEYS: Record<SettingsSection, MessageKey> = {
   mcp: 'settings.mcp',
   automation: 'settings.automation',
   queries: 'settings.dataview',
+  tasks: 'settings.tasks',
   linter: 'settings.markdown_linter',
   excalidraw: 'settings.excalidraw',
   mindmap: 'settings.mindmap_title',
@@ -40,6 +41,7 @@ export const settingsLoaders = {
   shares: () => import('./SharedNotes').then((m) => ({ default: m.SharedNotes })),
   automation: () => import('./QuickAddSettings').then((m) => ({ default: m.QuickAddSettings })),
   queries: () => import('./DataviewSettings').then((m) => ({ default: m.DataviewSettings })),
+  tasks: () => import('./TasksSettings').then((m) => ({ default: m.TasksSettings })),
   linter: () => import('./LinterSettings').then((m) => ({ default: m.LinterSettings })),
   excalidraw: () => import('./ExcalidrawSettings').then((m) => ({ default: m.ExcalidrawSettings })),
   mindmap: () => import('./MindmapSettings').then((m) => ({ default: m.MindmapSettings })),
