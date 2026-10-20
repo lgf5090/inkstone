@@ -48,7 +48,11 @@ export interface SecurityHeaderOptions {
 export function securityHeaders(url: string, options: SecurityHeaderOptions = {}): Record<string, string> {
   const isHttps = new URL(url).protocol === 'https:'
   const imageSchemes = isHttps ? 'https:' : 'https: http:'
-  const scriptSrc = `script-src 'self' ${CLOUDFLARE_INSIGHTS_SCRIPT_SOURCE}${options.allowDevInlineScripts ? " 'unsafe-inline'" : ''}; `
+  // The note templates run inside QuickJS, which is WebAssembly, so the browser has to be allowed to
+  // compile a wasm module. `'wasm-unsafe-eval'` is the narrow form of that permission: it covers
+  // `WebAssembly.instantiate` and nothing else, so `new Function` and `eval` stay refused and the
+  // template sandbox keeps needing the interpreter rather than a hole in this header.
+  const scriptSrc = `script-src 'self' 'wasm-unsafe-eval' ${CLOUDFLARE_INSIGHTS_SCRIPT_SOURCE}${options.allowDevInlineScripts ? " 'unsafe-inline'" : ''}; `
   const aiConnectSources = resolveAiConnectHosts(options.aiConnectHosts)
     .map((host) => `https://${host}`)
     .join(' ')

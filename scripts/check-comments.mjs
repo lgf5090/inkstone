@@ -22862,6 +22862,10 @@ const allowed = new Map([
     "// which our own `script-src` refuses — and without that bootstrap the SPA",
     "// The assistant's dictation and voice mode need the reader's microphone; the page itself is the",
     "// only frame allowed to ask for it. Camera and location remain shut.",
+    "// The note templates run inside QuickJS, which is WebAssembly, so the browser has to be allowed to",
+    "// compile a wasm module. `'wasm-unsafe-eval'` is the narrow form of that permission: it covers",
+    "// `WebAssembly.instantiate` and nothing else, so `new Function` and `eval` stay refused and the",
+    "// template sandbox keeps needing the interpreter rather than a hole in this header.",
   ]],
   ["src/worker/lib/throttle.ts", [
     "/**\n * Runs a throttled step — spending an attempt budget, checking a lock, or both — and answers the\n * `429` the API promises once the throttle rejects it.\n *\n * Every throttled route funnels through here so the status, error code, `Retry-After` hint and\n * response shape cannot drift apart. `message` is the human prefix a route shows; the retry count is\n * appended here. The step is a thunk so a route that checks a lock before spending work keeps its\n * exact ordering.\n */",
@@ -24148,6 +24152,7 @@ const allowed = new Map([
   ["tests/app-csp.test.ts", [
     "/**\n * Every base URL a built-in provider preset hands the reader has to be reachable from the browser,\n * because the key stays in the reader's own browser and the request goes straight to the provider.\n * A preset added to the settings table without a matching `connect-src` host is a feature that\n * silently never works for whoever picks it, so the guard reads the table rather than a copy of it.\n */",
     "/** The beacon Cloudflare's edge appends to every HTML response either loads or errors on every visit. */",
+    "/**\n * The note templates execute inside QuickJS, a WebAssembly module, so the served policy has to let the\n * browser compile wasm — and must still refuse to let a page execute a string as code. Asserting both\n * halves matters: `'wasm-unsafe-eval'` is the narrow permission, and a later edit that reaches for\n * `'unsafe-eval'` instead would open `new Function` to every note while keeping the templates working.\n */",
   ]],
   ["tests/app-tab-routes.test.ts", [
     "// An address missing from this list is still served — by the asset layer's SPA fallback,",
@@ -26605,6 +26610,8 @@ const allowed = new Map([
     "// the relaxation touches that one source expression and no other directive",
     "// opting in requires a Vite dev build *and* an HTML response, so /api/* stays strict",
     "// the provider/MCP edge responses build their own headers and never opt in",
+    "// The template engine is WebAssembly, so compiling a .wasm has to be allowed; executing a string",
+    "// as code is the thing that stays refused, and `'wasm-unsafe-eval'` is what draws that line.",
   ]],
   ["tests/policy-single-source.test.ts", [
     "// A re-forked floor would reintroduce a hard-coded length comparison.",

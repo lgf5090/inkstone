@@ -144,12 +144,19 @@ entry here before it merges.
   Cloudflare edge injects and clients cannot spoof there. Behind any non-Cloudflare
   proxy all users collapse into one bucket; deploy on Cloudflare or accept
   shared-bucket throttling.
-- **CSP.** `script-src 'self' https://static.cloudflareinsights.com` (no inline
+- **CSP.** `script-src 'self' 'wasm-unsafe-eval' https://static.cloudflareinsights.com` (no inline
   scripts) and `form-action 'self'`. The Insights host is named because a zone with
   Web Analytics switched on gets the beacon `<script>` appended to every HTML
   response by Cloudflare's own edge, and `connect-src` names
   `https://cloudflareinsights.com` for the report it posts when the injected config
-  carries no version. If you add inline scripts to `index.html`, you must update the
+  carries no version. `'wasm-unsafe-eval'` is there for one reason: note templates
+  execute inside QuickJS, which is a WebAssembly module, and the browser refuses to
+  compile one without it. It authorises compiling wasm and nothing else — `eval` and
+  `new Function` remain refused, so template code still cannot reach the page's
+  interpreter. Do not widen this to `'unsafe-eval'`: that would hand every note the
+  ability to run arbitrary code in the page origin while the templates would keep
+  working, so nothing downstream would notice. If you add inline scripts to
+  `index.html`, you must update the
   policy. The only exception is a development build (`npm run dev`), which adds
   `'unsafe-inline'` to `script-src` for the HTML document so Vite's React refresh
   bootstrap can run; the flag folds to `false` in every deployed bundle, and API

@@ -119,13 +119,18 @@ it('lets the page itself ask for a microphone, and keeps the camera and location
   expect(policy).toContain('geolocation=()')
 })
 
-it('relaxes script-src for nothing but a dev HTML document', () => {
+it('relaxes script-src for the wasm interpreter and for nothing else at runtime', () => {
   const strict = securityHeaders('https://note.test/')['Content-Security-Policy']
   const dev = securityHeaders('https://note.test/', { allowDevInlineScripts: true })['Content-Security-Policy']
-  const scriptSrc = "script-src 'self' https://static.cloudflareinsights.com"
+  const scriptSrc = "script-src 'self' 'wasm-unsafe-eval' https://static.cloudflareinsights.com"
 
   expect(strict).toContain(`${scriptSrc};`)
-  expect(/script-src([^;]*)/.exec(strict)?.[1] ?? '').not.toContain("'unsafe-inline'")
+  const strictScriptSrc = /script-src([^;]*)/.exec(strict)?.[1] ?? ''
+  expect(strictScriptSrc).not.toContain("'unsafe-inline'")
+  // The template engine is WebAssembly, so compiling a .wasm has to be allowed; executing a string
+  // as code is the thing that stays refused, and `'wasm-unsafe-eval'` is what draws that line.
+  expect(strictScriptSrc).toContain("'wasm-unsafe-eval'")
+  expect(strictScriptSrc).not.toContain("'unsafe-eval'")
   // the relaxation touches that one source expression and no other directive
   expect(dev).toContain(`${scriptSrc} 'unsafe-inline';`)
   expect(dev.replace(`${scriptSrc} 'unsafe-inline'; `, `${scriptSrc}; `)).toBe(strict)
