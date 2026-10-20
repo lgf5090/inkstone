@@ -63,7 +63,6 @@ async function mountThread(messagesError: string | null): Promise<void> {
     messagesHasNewer: false,
     messagesBefore: null,
     turn: null,
-    compareTurn: null,
     remoteStreaming: false,
     pending: [],
     turnTools: [],

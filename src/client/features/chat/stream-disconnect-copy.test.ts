@@ -208,8 +208,6 @@ function resetState(over: Partial<AssistantState> = {}): void {
     ephemeral: false,
     canvasOpen: false,
     focusMessageId: null,
-    compareOn: false,
-    compareTurn: null,
     // The after-turn refreshes reach for routes these cases do not exercise.
     loadConversations: vi.fn(async () => undefined),
     refreshAfterTurn: vi.fn(async () => undefined),

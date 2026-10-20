@@ -375,7 +375,7 @@ assistantRoutes.get('/tags', async (c) => {
 })
 
 assistantRoutes.post('/conversations', async (c) => {
-  const body = await readJson<{ title?: unknown, folderId?: unknown }>(c, JSON_BODY_LIMITS.small)
+  const body = await readJson<{ title?: unknown, folderId?: unknown, ephemeral?: unknown }>(c, JSON_BODY_LIMITS.small)
   // An untitled thread is a real state the reader returns to, not a missing value: '' is what the row
   // stores for it, so an explicitly empty title must not 400 the whole create.
   const title = optionalTextAllowEmpty(body.title, MAX_CONVERSATION_TITLE_CHARS)
@@ -385,7 +385,10 @@ assistantRoutes.post('/conversations', async (c) => {
     if (!isValidId(body.folderId) || !(await s.knownFolder(body.folderId))) throw ApiError.badRequest('Unknown folder.')
     folderId = body.folderId
   }
-  return c.json({ conversation: await s.createConversation(title, folderId) }, 201)
+  // A pane of a multi-model workspace is a real thread with real rows, but it is not a
+  // conversation the reader starts or keeps: `ephemeral` is what keeps it out of the listings,
+  // search and backup, the same promise a temporary chat already makes.
+  return c.json({ conversation: await s.createConversation(title, folderId, body.ephemeral === true) }, 201)
 })
 
 // ------------------------------------------------------------------ external MCP servers
@@ -1161,7 +1164,7 @@ assistantRoutes.delete('/conversations/:id/share', async (c) => {
 assistantRoutes.post('/conversations/:id/fork', async (c) => {
   const s = store(c)
   const conversationId = requiredId(c.req.param('id'))
-  const body = await readJson<{ messageId?: unknown, title?: unknown }>(c, JSON_BODY_LIMITS.small)
+  const body = await readJson<{ messageId?: unknown, title?: unknown, ephemeral?: unknown }>(c, JSON_BODY_LIMITS.small)
   const messageId = requiredId(body.messageId)
   // The title is the client's, because a name is interface copy and the worker carries no catalog. It is
   // clamped here the way every other stored title is, and the source's own name is the fallback.
@@ -1169,7 +1172,7 @@ assistantRoutes.post('/conversations/:id/fork', async (c) => {
   if (!source) throw ApiError.notFound('Conversation not found')
   const asked = typeof body.title === 'string' ? body.title.trim() : ''
   const title = (asked || source.title || 'Untitled').slice(0, MAX_CONVERSATION_TITLE_CHARS)
-  const fork = await s.forkConversation(conversationId, messageId, title)
+  const fork = await s.forkConversation(conversationId, messageId, title, body.ephemeral === true)
   if (!fork) throw ApiError.notFound('Message not found')
   await s.recordActivity('conversation.forked', fork.title)
   return c.json({ conversation: fork, messages: await s.messages(fork.id) })

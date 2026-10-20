@@ -201,6 +201,18 @@ describe('conversations', () => {
     expect(renamed.conversation.title).toBe('Renamed')
   })
 
+  it('creates an ephemeral pane thread that the list does not show', async () => {
+    const created = await call<{ conversation: AssistantConversation }>('POST', '/api/assistant/conversations', {
+      title: 'Pane',
+      ephemeral: true,
+    })
+    expect(created.conversation.ephemeral).toBe(true)
+    const listed = await call<{ conversations: AssistantConversation[] }>('GET', '/api/assistant/conversations')
+    expect(listed.conversations.some((entry) => entry.id === created.conversation.id)).toBe(false)
+    const fetched = await call<{ conversation: AssistantConversation }>('GET', `/api/assistant/conversations/${created.conversation.id}`)
+    expect(fetched.conversation.id).toBe(created.conversation.id)
+  })
+
   it('refuses to delete another account\'s conversation', async () => {
     const created = await call<{ conversation: AssistantConversation }>('POST', '/api/assistant/conversations', { title: 'Mine' })
     asUser(OTHER)
@@ -941,6 +953,19 @@ describe('re-taking a turn', () => {
     )
     expect(rootBranches.parent).toBeNull()
     expect(rootBranches.siblings).toEqual([])
+  })
+
+  it('forks an ephemeral pane with the source history, out of the list', async () => {
+    const { conversation, first, firstAnswer } = await thread()
+    const result = await call<{ conversation: AssistantConversation, messages: AssistantMessage[] }>(
+      'POST', `/api/assistant/conversations/${conversation.id}/fork`,
+      { messageId: firstAnswer.id, title: 'Pane', ephemeral: true },
+    )
+    expect(result.conversation.ephemeral).toBe(true)
+    expect(result.conversation.parentId).toBe(conversation.id)
+    expect(result.messages.map((entry) => entry.content)).toEqual([first.content, firstAnswer.content])
+    const listed = await call<{ conversations: AssistantConversation[] }>('GET', '/api/assistant/conversations')
+    expect(listed.conversations.some((entry) => entry.id === result.conversation.id)).toBe(false)
   })
 })
 

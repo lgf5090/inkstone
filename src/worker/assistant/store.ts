@@ -2204,7 +2204,7 @@ export class AssistantStore {
    * The summary is deliberately not copied. It describes a conversation that ended somewhere else, and
    * carrying it would have the fork summarised by a rollup of turns it does not have.
    */
-  async forkConversation(from: string, uptoMessageId: string, title: string): Promise<AssistantConversation | null> {
+  async forkConversation(from: string, uptoMessageId: string, title: string, ephemeral = false): Promise<AssistantConversation | null> {
     const source = await this.getConversation(from)
     if (!source) return null
     // Every turn of the source, because the cut can be anywhere in it: a fork made from one page would
@@ -2212,7 +2212,7 @@ export class AssistantStore {
     const rows = await this.allMessages(from)
     const cut = rows.findIndex((row) => row.id === uptoMessageId)
     if (cut < 0) return null
-    const fork = await this.createConversation(title, source.folderId, false, from, source.noteId)
+    const fork = await this.createConversation(title, source.folderId, ephemeral, from, source.noteId)
     const base = Date.now()
     for (const [index, row] of rows.slice(0, cut + 1).entries()) {
       await this.addMessage({

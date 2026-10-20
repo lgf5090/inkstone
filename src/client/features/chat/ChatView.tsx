@@ -9,9 +9,9 @@
  * `styles/chat.css` keeps the typography and drops the page furniture.
  */
 import { Z_INDEX } from '../../lib/z-index'
-import { type ClipboardEvent as ReactClipboardEvent, type DragEvent as ReactDragEvent, type KeyboardEvent, type ReactNode, Fragment, memo, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import { Archive, ArrowUp, ArrowUpRight, AudioLines, Check, Columns2, Copy, FileText, FolderOpen, Ghost, History, Link2Off, ListChecks, ListTree, MoreHorizontal, NotebookPen, PanelRight, Paperclip, Pencil, Plus, Search, Settings2, Square, Sparkles, Star, Trash2, X } from 'lucide-react'
-import type { AssistantConversation, AssistantMessage, AssistantModel, AssistantTurnScope, ChatAttachment } from '@shared/assistant'
+import { type ClipboardEvent as ReactClipboardEvent, type DragEvent as ReactDragEvent, type KeyboardEvent, Fragment, memo, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { Archive, ArrowUp, ArrowUpRight, AudioLines, Check, Copy, FileText, FolderOpen, Ghost, History, Link2Off, ListChecks, ListTree, MoreHorizontal, NotebookPen, PanelRight, Paperclip, Pencil, Plus, Search, Settings2, Square, Sparkles, Star, Trash2, X } from 'lucide-react'
+import type { AssistantConversation, AssistantMessage, AssistantTurnScope, ChatAttachment } from '@shared/assistant'
 import { EPHEMERAL_CONVERSATION_RETENTION_DAYS, RUN_PARTIAL_MAX_CHARS, SEARCH_NATIVE_PROTOCOLS, looksLikeSearchTool, mcpToolModeFor, webSearchConfigured } from '@shared/assistant'
 import { webSearchEngineFor } from '@shared/web-search-engines'
 import { DEBOUNCE } from '@shared/constants'
@@ -59,10 +59,12 @@ import { useUi } from '../../store/ui'
 import { copyText } from '../../lib/clipboard'
 import { useNotes } from '../../store/notes'
 import { MarkdownBody } from '../preview/MarkdownBody'
-import { attachmentTargetOf, compareChoices, MAX_LOADED_MESSAGES, modelLabelOf, PASTE_FILE_MIN_CHARS, streamInterruptedLine, useAssistant, type AssistantView, type CompareTurn } from './assistant-store'
+import { attachmentTargetOf, chatModels, MAX_LOADED_MESSAGES, PASTE_FILE_MIN_CHARS, streamInterruptedLine, useAssistant, type AssistantView } from './assistant-store'
 import { MessageMenu, useMessageMenu } from './MessageMenu'
 import { AssistantBubble, CHAT_MENTION_LINKS } from './MessageParts'
 import { CanvasPanel } from './CanvasPanel'
+import { MultiModelMenu, MultiModelView } from './MultiModelView'
+import { useMultiModel } from './multi-model-store'
 import { SessionResourcesPanel } from './SessionResourcesPanel'
 import { VoiceMode } from './VoiceMode'
 import { openNote } from './note-links'
@@ -237,20 +239,27 @@ export function ChatView() {
 
   // A live reply belongs to its own conversation; only show it in the thread that owns it.
   const turnHere = turn && turn.conversationId === (activeId ?? null) ? turn : null
-  // A comparison belongs to the thread that paid for it, and to no other: it is never part of a
-  // transcript, so the one thing that decides whether it is drawn is which thread asked.
-  const compareTurn = useAssistant((state) => state.compareTurn)
-  const compareHere = compareTurn && activeId && compareTurn.threadId === activeId ? compareTurn : null
-  // The model the thread's own answer came from, named in the column that shows it beside the other one.
-  const activeModelLabel = useAssistant((state) => {
-    const active = state.settings?.activeModelId
-    const model = state.models.find((entry) => entry.id === active)
-    return model ? modelLabelOf(model) : ''
-  })
+  // The workspace's layout is this thread's: switching conversations puts the previous thread's panes
+  // away and brings the new thread's own arrangement back.
+  const multiLayout = useMultiModel((state) => state.layout)
+  const multiRunning = useMultiModel((state) => state.running)
+  const sendAll = useMultiModel((state) => state.sendAll)
+  const stopAll = useMultiModel((state) => state.stopAll)
+  useEffect(() => {
+    useMultiModel.getState().syncConversation(activeId)
+  }, [activeId])
+  const sendMessage = useCallback(
+    (text: string) => (multiLayout > 1 ? sendAll(text) : send(text)),
+    [multiLayout, sendAll, send],
+  )
+  const stopMessage = useCallback(() => {
+    if (multiLayout > 1) stopAll()
+    else stop()
+  }, [multiLayout, stopAll, stop])
   // Streaming is about the thread on screen. A reply still arriving for a conversation the reader left
   // must not disable the composer of the one they are in — that was how a background turn locked a
   // fresh thread — while a reply another device is writing is shown but not stoppable from here.
-  const streaming = (!!turnHere && !turnHere.done) || remoteStreaming
+  const streaming = (!!turnHere && !turnHere.done) || remoteStreaming || multiRunning > 0
   const showEmpty = !activeId && !turnHere
   // What the refused thread's banner says beneath its own headline.
   //
@@ -642,7 +651,23 @@ export function ChatView() {
           }}
           className="no-scrollbar min-h-0 flex-1 overflow-y-auto"
         >
-          {showEmpty ? (
+          {multiLayout > 1 ? (
+            <MultiModelView
+              messages={messages}
+              fileIndex={fileIndexForTurn}
+              live={turnHere ? {
+                userText: turnHere.userText,
+                attachments: turnHere.attachments,
+                text: turnHere.text,
+                reasoning: turnHere.reasoning,
+                tools: turnHere.tools,
+                sources: turnHere.sources ?? [],
+                error: turnError,
+                done: turnHere.done,
+                usage: turnHere.usage,
+              } : null}
+            />
+          ) : showEmpty ? (
             <EmptyChat
               onPick={(text) => {
                 void send(text)
@@ -745,45 +770,17 @@ export function ChatView() {
                       fileIndex={fileIndexForTurn}
                     />
                   )}
-                  {compareHere ? (
-                    // Two answers, two columns: side by side where there is room and stacked where there
-                    // is not. Each one says which model wrote it and what it spent, because the whole
-                    // point of paying twice is to be able to tell them apart afterwards.
-                    <div role="group" aria-label={t('assistant.compare.columns')} className="grid grid-cols-1 items-start gap-4 md:grid-cols-2">
-                      <AnswerColumn
-                        heading={t('assistant.compare.primary_column')}
-                        modelLabel={activeModelLabel}
-                        usage={turnHere.usage ?? null}
-                        seconds={answerSeconds(turnHere.startedAt, turnHere.finishedAt)}
-                      >
-                        <AssistantBubble
-                          text={turnHere.text}
-                          reasoning={turnHere.reasoning}
-                          tools={turnHere.tools}
-                          error={turnError}
-                          streaming={!turnHere.done}
-                          stage={turnHere.stage}
-                          sources={turnHere.sources}
-                        />
-                      </AnswerColumn>
-                      <ComparisonColumn turn={compareHere} />
-                    </div>
-                  ) : (
-                    <AssistantBubble
-                      text={turnHere.text}
-                      reasoning={turnHere.reasoning}
-                      tools={turnHere.tools}
-                      error={turnError}
-                      streaming={!turnHere.done}
-                      stage={turnHere.stage}
-                      sources={turnHere.sources}
-                    />
-                  )}
+                  <AssistantBubble
+                    text={turnHere.text}
+                    reasoning={turnHere.reasoning}
+                    tools={turnHere.tools}
+                    error={turnError}
+                    streaming={!turnHere.done}
+                    stage={turnHere.stage}
+                    sources={turnHere.sources}
+                  />
                 </>
               )}
-              {/* The thread's own answer has settled into its row, so only the comparison is left on
-                  screen — still a column of its own, still not one of the rows above it. */}
-              {compareHere && !turnHere && <ComparisonColumn turn={compareHere} />}
               {remoteStreaming && !turnHere && (
                 <div className="flex flex-col gap-1.5">
                   <AssistantBubble text="" reasoning="" tools={[]} error={null} streaming stage={undefined} />
@@ -861,13 +858,13 @@ export function ChatView() {
         <ChatComposer
           streaming={streaming}
           sendOnEnter={useAssistant((state) => state.settings?.sendOnEnter ?? true)}
-          onSend={send}
-          onStop={stop}
+          onSend={sendMessage}
+          onStop={stopMessage}
           disabled={blocked}
           modelPickerRequest={modelPickerRequest}
         />
-        <ChatOutline anchors={anchors} scrollerRef={scrollRef} />
-        {finding && (
+        {multiLayout <= 1 && <ChatOutline anchors={anchors} scrollerRef={scrollRef} />}
+        {finding && multiLayout <= 1 && (
           <ThreadFinder
             scroller={scrollRef}
             // The stored rows plus a finished answer that is not adopted into them yet. A stream still
@@ -1071,97 +1068,6 @@ export const MessageRow = memo(function MessageRow({ message, onRetry, canContin
   // The selection object is rebuilt by the list on every render; what a row draws from it is these two.
   && (previous.selection?.active ?? false) === (next.selection?.active ?? false)
   && (previous.selection?.checked ?? false) === (next.selection?.checked ?? false))
-
-/** How long an answer took, in seconds to one decimal, or null while the send that asked for it has no clock. */
-function answerSeconds(startedAt: number | null | undefined, finishedAt: number | null | undefined): number | null {
-  if (!startedAt) return null
-  return Math.max(0, Math.round(((finishedAt ?? Date.now()) - startedAt) / 100) / 10)
-}
-
-/** What one answer cost, in the two numbers the reader is comparing it on. */
-function answerStats(usage: { inputTokens: number, outputTokens: number } | null, seconds: number | null): string {
-  const parts: string[] = []
-  if (usage) parts.push(t('assistant.compare.tokens', { count: usage.inputTokens + usage.outputTokens }))
-  if (seconds !== null) parts.push(t('assistant.compare.seconds', { seconds }))
-  // A turn still writing has neither yet, and an empty line under a bubble reads as a broken one.
-  return parts.length ? parts.join(' · ') : t('assistant.compare.stats_pending')
-}
-
-/**
- * One answer's column: the model that wrote it, what it spent, and the answer.
- *
- * The header is the whole reason a comparison is legible. Two bubbles in a row say nothing about which
- * voice belongs to which model, and the reader who paid for the second one is the one who has to be able
- * to tell them apart — so the name and the numbers are in the group's own accessible name and text, not
- * left for the pointer to find in a tooltip.
- */
-function AnswerColumn({ heading, modelLabel, usage, seconds, actions, children }: {
-  heading: string
-  modelLabel: string
-  usage: { inputTokens: number, outputTokens: number } | null
-  seconds: number | null
-  actions?: ReactNode
-  children: ReactNode
-}) {
-  return (
-    <section
-      role="group"
-      aria-label={`${heading}: ${modelLabel}`}
-      className="min-w-0 rounded-[var(--r-lg)] border border-[var(--border-subtle)] bg-[var(--bg-surface)] p-2"
-    >
-      <div className="mb-1 flex min-w-0 items-center gap-1">
-        <h3 className="min-w-0 flex-1 truncate text-[length:var(--text-11)] font-medium text-[var(--text-secondary)]">
-          {modelLabel || heading}
-        </h3>
-        {actions}
-      </div>
-      {children}
-      <p className="mt-1 text-[length:var(--text-10-5)] text-[var(--text-quaternary)]">
-        {answerStats(usage, seconds)}
-      </p>
-    </section>
-  )
-}
-
-/**
- * The comparison's own column, with the controls that belong to it and to nothing else.
- *
- * Stop ends this answer only — the thread's own reply is a separate stream with a separate handle — and
- * remove takes the column away, along with the throwaway thread its rows were filed in.
- */
-function ComparisonColumn({ turn }: { turn: CompareTurn }) {
-  const stopComparison = useAssistant((state) => state.stopComparison)
-  const dismissComparison = useAssistant((state) => state.dismissComparison)
-  return (
-    <AnswerColumn
-      heading={t('assistant.compare.compare_column')}
-      modelLabel={turn.modelLabel}
-      usage={turn.usage}
-      seconds={answerSeconds(turn.startedAt, turn.finishedAt)}
-      actions={
-        <>
-          {turn.done ? undefined : (
-            <IconButton label={t('assistant.compare.stop')} size="sm" variant="ghost" onClick={stopComparison}>
-              <Square size={11} className="fill-current" />
-            </IconButton>
-          )}
-          <IconButton label={t('assistant.compare.dismiss')} size="sm" variant="ghost" onClick={dismissComparison}>
-            <X size={12} />
-          </IconButton>
-        </>
-      }
-    >
-      <AssistantBubble
-        text={turn.text}
-        reasoning={turn.reasoning}
-        tools={[]}
-        error={turn.error}
-        streaming={!turn.done}
-        stage={turn.done ? undefined : 'generating'}
-      />
-    </AnswerColumn>
-  )
-}
 
 /**
  * One of the reader's own messages, and what they may do with it.
@@ -2016,84 +1922,6 @@ function ContextStrip() {
  * The two things that cannot be shared are the surfaces the "manage" entries open — the dock has no
  * assistant tabs of its own, so it is handed a way out instead.
  */
-/** A chip that is a switch needs no anchor of its own; the prop exists for the menus that do. */
-const COMPARE_REF: React.RefObject<HTMLButtonElement | null> = { current: null }
-
-/**
- * The comparison switch.
- *
- * Off is the default and off is the whole feature: nothing about today's turn changes until the reader
- * presses this. A second model costs a second call, so the switch is drawn dead — with the reason in its
- * hint — for an account that has only one chat model to compare against.
- */
-export function CompareMenu({ on, candidates, onToggle }: {
-  on: boolean
-  /** The reader's own models that could answer second: enabled, for chat, and not the one already doing it. */
-  candidates: AssistantModel[]
-  onToggle: (next: boolean) => void
-}) {
-  const reason = candidates.length ? t('assistant.compare.hint') : t('assistant.compare.no_second_model')
-  return (
-    <ControlChip
-      refObject={COMPARE_REF}
-      label={t('assistant.compare.toggle')}
-      value={on ? t('assistant.compare.on') : t('assistant.compare.off')}
-      icon={<Columns2 size={12} />}
-      active={on}
-      pressed={on}
-      disabled={!candidates.length}
-      hint={reason}
-      onClick={() => onToggle(!on)}
-    />
-  )
-}
-
-/**
- * The second model's picker, drawn only while the comparison is on.
- *
- * It lists the reader's own enabled chat models with the answering one taken out of the list — the same
- * model twice is a second bill and no comparison — and the choice is this thread's, cleared the moment the
- * reader moves to another one.
- */
-export function CompareModelMenu({ models, value, onPick }: {
-  models: AssistantModel[]
-  value: string | null
-  onPick: (id: string) => void
-}) {
-  const anchor = useRef<HTMLButtonElement>(null)
-  const [open, setOpen] = useState(false)
-  const chosen = models.find((model) => model.id === value) ?? null
-  const items: MenuItem[] = models.map((model) => ({
-    id: model.id,
-    label: modelLabelOf(model),
-    icon: model.id === value ? <Check size={13} /> : undefined,
-    checked: model.id === value,
-    onSelect: () => onPick(model.id),
-  }))
-  return (
-    <>
-      <ControlChip
-        refObject={anchor}
-        label={t('assistant.compare.model')}
-        value={chosen ? modelLabelOf(chosen) : t('assistant.compare.model_none')}
-        icon={<Sparkles size={12} />}
-        active={open}
-        hint={chosen ? undefined : t('assistant.compare.need_model')}
-        onClick={() => setOpen((current) => !current)}
-      />
-      <Menu
-        anchor={anchor}
-        open={open}
-        onClose={() => setOpen(false)}
-        items={items}
-        width={230}
-        align="end"
-        label={t('assistant.compare.model')}
-      />
-    </>
-  )
-}
-
 export function ChatComposer({
   streaming,
   sendOnEnter,
@@ -2255,16 +2083,9 @@ ${current}` : seed))
 
   const webSearch = useAssistant((state) => state.webSearch)
   const setWebSearch = useAssistant((state) => state.setWebSearch)
-  // The comparison the reader may arm for this thread, and the model they arm it with. Both are the
-  // thread's, and both go away with it — see the store's `compareOn`.
-  const compareOn = useAssistant((state) => state.compareOn)
-  const setCompareOn = useAssistant((state) => state.setCompareOn)
-  const compareModelId = useAssistant((state) => state.compareModelId)
-  const setCompareModelId = useAssistant((state) => state.setCompareModelId)
-  const compareCandidates = useMemo(
-    () => compareChoices(models, settings?.activeModelId ?? null),
-    [models, settings?.activeModelId],
-  )
+  const multiLayout = useMultiModel((state) => state.layout)
+  const multiModels = useMemo(() => chatModels(models), [models])
+  const multiHint = multiModels.length ? t('assistant.panes.hint') : t('assistant.panes.need_model')
   const mcpCatalog = useAssistant((state) => state.mcpCatalog)
   const mcpServers = useAssistant((state) => state.mcpServers)
   const loadMcp = useAssistant((state) => state.loadMcp)
@@ -2585,16 +2406,11 @@ ${current}` : seed))
                     onPick={(tokens) => void updateModel(active.id, { contextTokens: tokens })}
                   />
                   <WebSearchMenu value={webSearch} onChange={setWebSearch} available={webSearchChannel !== null} reason={webSearchReason} />
-                  <CompareMenu on={compareOn} candidates={compareCandidates} onToggle={setCompareOn} />
-                  {/* The second model is only asked for once the reader has said they want a second
-                      answer. With the switch off there is nothing here to pick, and nothing to pay for. */}
-                  {compareOn && (
-                    <CompareModelMenu
-                      models={compareCandidates}
-                      value={compareModelId}
-                      onPick={(id) => setCompareModelId(id)}
-                    />
-                  )}
+                  <MultiModelMenu
+                    layout={multiLayout}
+                    disabled={!multiModels.length || streaming}
+                    hint={multiHint}
+                  />
                 </>
               )}
               {active ? (

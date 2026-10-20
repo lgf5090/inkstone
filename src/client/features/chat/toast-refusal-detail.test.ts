@@ -66,13 +66,11 @@ beforeEach(async () => {
     messages: [],
     messagesReady: true,
     turn: null,
-    compareTurn: null,
     remoteStreaming: false,
     pending: [],
     turnTools: [],
     turnScopes: [],
     fileIndex: {},
-    compareOn: false,
     // The reads a write chains behind it are not this file's subject; the real ones would ask for a server.
     loadSettings: vi.fn(async () => undefined),
     loadMcp: vi.fn(async () => undefined),

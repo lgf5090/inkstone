@@ -1061,10 +1061,10 @@ export const api = {
       request<{ ok: true }>('/api/assistant/note-writes', { method: 'POST', body: { noteId, conversationId } }),
     conversations: (params: { q?: string, folder?: string, project?: string, tag?: string, noteId?: string, starred?: string, pinned?: string, archived?: string, limit?: string, cursor?: string } = {}, signal?: AbortSignal) =>
       request<{ conversations: AssistantConversation[], nextCursor: string | null }>(`/api/assistant/conversations${toQuery(params)}`, { signal }),
-    createConversation: (title?: string, folderId?: string | null) =>
+    createConversation: (title?: string, folderId?: string | null, ephemeral = false) =>
       request<{ conversation: AssistantConversation }>('/api/assistant/conversations', {
         method: 'POST',
-        body: folderId === undefined ? { title } : { title, folderId },
+        body: { title, ...(folderId === undefined ? {} : { folderId }), ...(ephemeral ? { ephemeral: true } : {}) },
       }),
     /** A folder from the notebook's tree; null files the conversation back to unfiled. */
     setConversationProject: (id: string, projectId: string | null) =>
@@ -1231,10 +1231,10 @@ export const api = {
         { method: 'POST', body: { ids } },
       ),
     /** A new conversation carrying this one up to and including one message. */
-    forkConversation: (conversationId: string, messageId: string, title: string) =>
+    forkConversation: (conversationId: string, messageId: string, title: string, ephemeral = false) =>
       request<{ conversation: AssistantConversation, messages: AssistantMessage[] }>(
         `/api/assistant/conversations/${conversationId}/fork`,
-        { method: 'POST', body: { messageId, title } },
+        { method: 'POST', body: { messageId, title, ...(ephemeral ? { ephemeral: true } : {}) } },
       ),
     /** The reader's verdict on one answer, or null to take it back. Grounds travel with a downvote only. */
     rateAnswer: (conversationId: string, messageId: string, feedback: MessageFeedback | null, reason?: string) =>

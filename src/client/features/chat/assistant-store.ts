@@ -47,7 +47,6 @@ import { DEBOUNCE } from '@shared/constants'
 import { formatBytes } from '@shared/byte-format'
 import { MAX_ARTIFACT_CONTENT_CHARS, MAX_ARTIFACT_TITLE_CHARS, MAX_CHAT_ATTACHMENTS, AUDIO_SEND_MAX_BYTES, MAX_TURN_SCOPES, MAX_TURN_TOOLS, CONVERSATION_PAGE_SIZE, MESSAGE_PAGE_SIZE, attachmentModality, audioFormatFor, modelWire, protocolCarriesAudio, type AssistantModelModality, type AttachmentSense, type AssistantTurnScope, type ChatAttachment, type AssistantSkillInput, type SkillImportResult, type AssistantMcpToolMode } from '@shared/assistant'
 import { api, ApiError } from '../../lib/api'
-import { confirm } from '../../components/overlay'
 import { t } from '../../lib/i18n'
 import { IS_DEMO_MODE } from '../../lib/runtime'
 import { streamAssistantTurn } from './stream'
@@ -161,45 +160,9 @@ interface LiveTurn {
   finishedAt?: number | null
 }
 
-/**
- * The second model's answer to one question, kept beside the thread rather than inside it.
- *
- * A comparison is a side result of the turn that asked for it: it is not a reply to anything in the
- * transcript, and filing it there would make the thread disagree with itself. So it has a record of its
- * own, keyed by the token of the stream that fills it, exactly like `LiveTurn` — and a `threadId` saying
- * which conversation it was asked from, because it is drawn only there.
- */
-export interface CompareTurn {
-  token: number
-  threadId: string | null
-  /** The throwaway thread the worker filed this answer in; never the reader's own. */
-  conversationId: string | null
-  modelId: string
-  modelLabel: string
-  text: string
-  reasoning: string
-  error: string | null
-  usage: { inputTokens: number, outputTokens: number } | null
-  startedAt: number
-  finishedAt: number | null
-  done: boolean
-  /** The lease of the comparison's own thread, which is what a stop has to name. */
-  runToken?: number
-}
-
-/** The models the composer can be asked to compare: the reader's own, enabled, and able to chat. */
+/** The reader's own models that can answer a chat turn: enabled, and for conversation. */
 export function chatModels(models: readonly AssistantModel[]): AssistantModel[] {
   return models.filter((model) => model.enabled && model.purpose === 'chat')
-}
-
-/**
- * Which models are offered as the second one.
- *
- * The answer's own model is excluded: the same model called twice is the cost of a comparison with none
- * of the information, and the reader would only have paid to see the same words arrive twice.
- */
-export function compareChoices(models: readonly AssistantModel[], activeModelId: string | null): AssistantModel[] {
-  return chatModels(models).filter((model) => model.id !== activeModelId)
 }
 
 /** A model as a reader names it in a sentence. */
@@ -272,36 +235,6 @@ interface AssistantState {
   /** The composer's live-web-search switch, kept between turns like the other per-composer settings. */
   webSearch: boolean
   setWebSearch: (value: boolean) => void
-  /**
-   * The opt-in comparison of one question across two models, and which model answers the second time.
-   *
-   * Per conversation, not global, and not persisted: a second model armed for one thread must not be
-   * quietly answering an unrelated one after a switch, which is why both fields go back to off the moment
-   * the reader moves to another thread. The cost is the reason the reader has to say yes to it turn by
-   * turn — see `send`.
-   */
-  compareOn: boolean
-  compareModelId: string | null
-  setCompareOn: (value: boolean) => void
-  setCompareModelId: (value: string | null) => void
-  /**
-   * The comparison answer for the turn that asked for it, or null.
-   *
-   * Not part of `messages` and never adopted into them: it is a second opinion on one question, filed in
-   * its own throwaway thread, shown for as long as the reader keeps it on screen.
-   */
-  compareTurn: CompareTurn | null
-  /**
-   * Ask the second model the same question, off the record.
-   *
-   * Started by `send` once the thread's own turn has been taken. The request names its model and asks for
-   * no tools; see `runComparison` for why both of those are the shape of this call rather than a detail.
-   */
-  runComparison: (input: { message: string, model: AssistantModel, threadId: string | null }) => Promise<void>
-  /** Stop the comparison only, leaving the thread's own answer running — and the other way round. */
-  stopComparison: () => void
-  /** Take the comparison off the screen, and the throwaway thread it was stored in out with it. */
-  dismissComparison: () => void
   /**
    * Whether the note the reader has open rides along as context with the next turn.
    *
@@ -861,21 +794,6 @@ function turnFailureLine(error: unknown): string {
   return isStreamDisconnected(error) ? t('assistant.chat.stream_interrupted') : failureLine(error)
 }
 
-/**
- * What the comparison's own column says when its bytes stopped arriving.
- *
- * Not the sentence the thread's answer gets: the promising one of `streamInterruptedLine` tells the reader to
- * press the continue control and pick the answer up where it stopped, and the comparison column has no such
- * control — it is a second model's answer to one question, filed in a throwaway thread no other device is
- * looking at, and the only thing a reader can do with a half of it is ask for the whole thing again. So the
- * column states its own three facts: this column did not finish, the thread's own answer is untouched, and
- * the comparison can be run again. The same `name` test as above, for the same reason — `./stream` is mocked
- * in eight files, and a value import of the class would fail them on assertions that are not about it.
- */
-function comparisonFailureLine(error: unknown): string {
-  return isStreamDisconnected(error) ? t('assistant.compare.stream_incomplete') : failureLine(error)
-}
-
 /** One failure, one surface: the form that was handed the refusal is the one that says it. */
 function reportFailure(error: unknown, report?: ReportFailure): void {
   if (report) report(describeFailure(error))
@@ -1318,13 +1236,9 @@ export interface AttachmentTarget {
  * for a disabled row: the question is which model *would* pick these bytes up, and one that is switched off
  * answers nothing.
  *
- * One target, not two — and the armed comparison is not the missing one. A turn hands its files to the model
- * that answers it and to nobody else: `runComparison` names no `attachments`, `./stream` drops an absent
- * list, the route resolves an absent list to none, and the comparison runs in a fresh ephemeral thread whose
- * history holds no attachment rows either. So the second column is never given these bytes, whatever it can
- * read, and there is no worker line waiting to disagree with what is said here. Widening this to the
- * comparison model would refuse recordings on a fact about a model that could not have seen them;
- * `model-compare.test.ts` pins the request shape this rests on.
+ * The gate judges the model that answers the main pane. Side panes are asked with the same attachment ids
+ * and the worker decides what each side model can actually be shown, so one composer never promises a file
+ * to a model it has not checked.
  */
 export function attachmentTargetOf(
   models: readonly AssistantModel[],
@@ -1493,9 +1407,6 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
   unfiledProjectCount: 0,
   tagNodes: [],
   webSearch: false,
-  compareOn: false,
-  compareModelId: null,
-  compareTurn: null,
   noteContextOn: true,
   folderContextOn: true,
   canvasContextOn: true,
@@ -2140,10 +2051,7 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
     const focus = options?.focusMessageId ?? null
     // A muted chip is this thread's correction, not a setting: the next thread starts from the pointer.
     // The panel starts closed on every thread and shows no draft until that thread's own read lands.
-    // A comparison is this thread's choice: leaving it armed would spend a second model's tokens on the
-    // next thread without anyone asking. The answer already on screen keeps its thread's id, so it is
-    // simply not drawn here — the same rule the live turn follows when the reader walks away mid-reply.
-    set({ activeId: id, messages: [], messagesReady: false, messagesError: null, remoteStreaming: false, remotePartial: null, remotePartialTruncated: false, noteContextOn: true, folderContextOn: true, canvasContextOn: true, artifacts: [], artifactsReady: false, artifactVersions: {}, canvasOpen: false, activeArtifactId: null, ephemeral: false, compareOn: false, compareModelId: null, messagesBefore: null, messagesHasMore: false, messagesLoadingMore: false, messagesHasNewer: false, focusMessageId: focus })
+    set({ activeId: id, messages: [], messagesReady: false, messagesError: null, remoteStreaming: false, remotePartial: null, remotePartialTruncated: false, noteContextOn: true, folderContextOn: true, canvasContextOn: true, artifacts: [], artifactsReady: false, artifactVersions: {}, canvasOpen: false, activeArtifactId: null, ephemeral: false, messagesBefore: null, messagesHasMore: false, messagesLoadingMore: false, messagesHasNewer: false, focusMessageId: focus })
     if (!id) {
       set({ messagesReady: true, messagesError: null, artifactsReady: true })
       return
@@ -2230,7 +2138,7 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
     // The pins go with the thread they were added to. They are "this turn's" by definition — the row the
     // composer draws is the record of what this question was asked about — so a new conversation that
     // inherited them would answer a question nobody asked, in a folder nobody named.
-    set({ activeId: null, messages: [], messagesReady: true, messagesError: null, remoteStreaming: false, remotePartial: null, remotePartialTruncated: false, turn: null, noteContextOn: true, folderContextOn: true, canvasContextOn: true, artifacts: [], artifactsReady: true, artifactVersions: {}, canvasOpen: false, activeArtifactId: null, ephemeral: false, compareOn: false, compareModelId: null, turnTools: [], turnScopes: [] })
+    set({ activeId: null, messages: [], messagesReady: true, messagesError: null, remoteStreaming: false, remotePartial: null, remotePartialTruncated: false, turn: null, noteContextOn: true, folderContextOn: true, canvasContextOn: true, artifacts: [], artifactsReady: true, artifactVersions: {}, canvasOpen: false, activeArtifactId: null, ephemeral: false, turnTools: [], turnScopes: [] })
   },
 
   /**
@@ -2243,7 +2151,7 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
     const live = get().turn
     if (live && !live.done) return
     stopRemoteStreamWatch()
-    set({ activeId: null, messages: [], messagesReady: true, messagesError: null, remoteStreaming: false, remotePartial: null, remotePartialTruncated: false, turn: null, noteContextOn: true, folderContextOn: true, canvasContextOn: true, artifacts: [], artifactsReady: true, artifactVersions: {}, canvasOpen: false, activeArtifactId: null, ephemeral: true, compareOn: false, compareModelId: null })
+    set({ activeId: null, messages: [], messagesReady: true, messagesError: null, remoteStreaming: false, remotePartial: null, remotePartialTruncated: false, turn: null, noteContextOn: true, folderContextOn: true, canvasContextOn: true, artifacts: [], artifactsReady: true, artifactVersions: {}, canvasOpen: false, activeArtifactId: null, ephemeral: true })
   },
 
   attachFiles: async (files) => {
@@ -2452,10 +2360,6 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
    * Switching it off drops the second model too: the pair is one decision, and a remembered half of it
    * would be there waiting for the next time the reader turns the switch on.
    */
-  setCompareOn: (value) => set(value ? { compareOn: true } : { compareOn: false, compareModelId: null }),
-
-  setCompareModelId: (value) => set({ compareModelId: value }),
-
   setNoteContext: (on) => set({ noteContextOn: on }),
 
   setFolderContext: (on) => set({ folderContextOn: on }),
@@ -2479,37 +2383,6 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
     if (!retry && !continuing && state.pending.some((entry) => entry.status === 'uploading')) {
       useUi.getState().toast({ title: t('assistant.attach.waiting'), tone: 'danger' })
       return false
-    }
-    // ── The opt-in second model ──────────────────────────────────────────────────────────────
-    // Nothing here runs unless the reader armed comparison in this thread's composer, and it never runs
-    // on a retry or a continuation: those re-answer a turn the thread already has, and a second call
-    // nobody chose to look at again is exactly the silent doubling this feature is built to avoid.
-    //
-    // The cost is confirmed per turn rather than per arming, because the cost is per turn. Declining here
-    // returns before a turn exists and before the draft is taken, so a refusal sends nothing at all — the
-    // composer's own recovery path puts the words back, which is what it does for any false.
-    let compareModel: AssistantModel | null = null
-    if (state.compareOn && !retry && !continuing) {
-      const primary = state.models.find((model) => model.id === state.settings?.activeModelId)
-      const chosen = compareChoices(state.models, state.settings?.activeModelId ?? null)
-        .find((model) => model.id === state.compareModelId)
-      // An armed comparison with no second model — or with one that is the first model under a new name —
-      // is refused out loud. Sending it quietly as a single turn would be a comparison the reader believes
-      // they paid for and did not get.
-      if (!primary || !chosen) {
-        useUi.getState().toast({ title: t('assistant.compare.need_model'), tone: 'danger' })
-        return false
-      }
-      const agreed = await confirm({
-        title: t('assistant.compare.confirm_title'),
-        description: t('assistant.compare.confirm_hint', {
-          primary: modelLabelOf(primary),
-          compare: modelLabelOf(chosen),
-        }),
-        confirmLabel: t('assistant.compare.confirm_action'),
-      })
-      if (!agreed) return false
-      compareModel = chosen
     }
     const token = ++turnSeq
     const controller = new AbortController()
@@ -2552,23 +2425,9 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
     // False until a frame arrives. A stream that threw before its first frame is a request the worker
     // never took, which is the one case where the draft is still the reader's.
     let accepted = false
-    // Whether this turn's second call has been let go. One comparison per turn, whatever the stream says
-    // afterwards.
-    let comparisonStarted = false
     const apply = (event: ChatStreamEvent) => {
       if (event.type !== 'title') accepted = true
       if (event.type === 'start' && event.conversationId) filedConversationId = event.conversationId
-      // A frame is the proof that the worker took this turn, so the second question is asked once the
-      // reader's own answer is under way rather than before it exists. Both turns name their own model on
-      // the request, so neither waits on the other and nothing is pointed at through the settings row.
-      if (event.type === 'start' && compareModel && !comparisonStarted) {
-        comparisonStarted = true
-        void get().runComparison({
-          message: text,
-          model: compareModel,
-          threadId: event.conversationId ?? conversationId ?? null,
-        })
-      }
       // A draft arrives whole rather than as deltas: the tool writes a row and the row is what the
       // panel draws. It belongs to the turn that asked for it, so the same token check the other frames
       // use applies here before anything touches the list.
@@ -2788,152 +2647,6 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
     return accepted
   },
 
-  /**
-   * Ask the same question of the second model, into a thread of its own.
-   *
-   * Four facts decide the shape of this, and none of them is a preference:
-   *
-   *  1. The turn names the model it wants on the request, and the worker answers on that model or refuses
-   *     the request. It is not pointed at through the account's settings: which model answers is read from
-   *     that row once per request, so writing it for the length of one turn would let every other request
-   *     in the window resolve the comparison model as the reader's own pick, let a settings patch
-   *     interleave with the write back, and leave a reader who closed the tab on the wrong model.
-   *  2. It is asked without tools. The thread's own answer already ran whatever tools it ran, and a second
-   *     model that reaches for a write tool on its own authority would perform that write a second time,
-   *     from a column the reader opened only to compare two answers.
-   *  3. The comparison is not a reply to anything in the thread, so it must not be filed there. It asks
-   *     for its own conversation and sends `ephemeral: true`, which is the app's existing promise for a
-   *     thread the reader did not ask to keep: the row is written, and then it is kept out of every
-   *     listing, out of search and out of a backup, and the hourly sweep in `purgeExpiredEphemeralConversations`
-   *     deletes it once it has gone untouched for `EPHEMERAL_CONVERSATION_RETENTION_DAYS`. Its stored
-   *     rows therefore need no cleanup of their own and no second mechanism — `dismissComparison` is the
-   *     early door on the same rows, and the sweep is the one that always closes.
-   *  4. It is asked without the turn's files. The thread's own answer is the one the reader attached them
-   *     to, and a second model asked to compare two answers has no claim on bytes it was never shown — so
-   *     no `attachments` is named, and the worker expands none: they come from the conversation's own
-   *     message rows, and this thread has just been made. The composer's attachment gate therefore judges
-   *     one model and tells no lie about the other; `model-compare.test.ts` pins both halves of that.
-   *
-   * Because it is a different conversation, it is a different run lease: `claimRun` is keyed by
-   * conversation, so the comparison can neither take the thread's claim nor release it, and its stop names
-   * only its own `runToken`. Its events are written by token into `compareTurn`, never into `turn`, and it
-   * touches neither `activeId` nor `messages`.
-   */
-  runComparison: async ({ message, model, threadId }) => {
-    const previous = get().compareTurn
-    // One comparison at a time. A second turn's answer replacing the first is the reader's own doing, but
-    // a first one still arriving underneath it would keep spending after its column was gone.
-    if (previous && !previous.done) inflight.get(previous.token)?.abort()
-    const token = ++turnSeq
-    const controller = new AbortController()
-    inflight.set(token, controller)
-    set({
-      compareTurn: {
-        token,
-        threadId,
-        conversationId: null,
-        modelId: model.id,
-        modelLabel: modelLabelOf(model),
-        text: '',
-        reasoning: '',
-        error: null,
-        usage: null,
-        startedAt: Date.now(),
-        finishedAt: null,
-        done: false,
-      },
-    })
-
-    const apply = (event: ChatStreamEvent) => {
-      set((current) => {
-        const turn = current.compareTurn
-        // The same rule that keeps two threads' sentences out of one bubble: an event belongs to the send
-        // that asked for it, and a newer comparison owns the column now.
-        if (!turn || turn.token !== token) return current
-        switch (event.type) {
-          case 'start':
-            return { compareTurn: { ...turn, conversationId: event.conversationId ?? null, runToken: event.runToken ?? turn.runToken } }
-          case 'text':
-            return { compareTurn: { ...turn, text: turn.text + (event.delta ?? '') } }
-          case 'reasoning':
-            return { compareTurn: { ...turn, reasoning: turn.reasoning + (event.delta ?? '') } }
-          case 'usage':
-            return { compareTurn: { ...turn, usage: event.usage ?? turn.usage } }
-          case 'error':
-            return { compareTurn: { ...turn, error: event.message ?? null } }
-          case 'done':
-            return {
-              compareTurn: {
-                ...turn,
-                done: true,
-                finishedAt: Date.now(),
-                text: event.finalMessage?.role === 'assistant' && event.finalMessage.content
-                  ? event.finalMessage.content
-                  : turn.text,
-                usage: event.finalMessage?.usage ?? turn.usage,
-              },
-            }
-          default:
-            return current
-        }
-      })
-    }
-
-    try {
-      await streamAssistantTurn(
-        { message, ephemeral: true, modelId: model.id, noTools: true },
-        apply,
-        controller.signal,
-      )
-    } catch (error) {
-      // An abort is the reader's own stop and leaves the fragment they watched arrive on the column.
-      // Anything else is the comparison failing for a reason, and the column says that reason — including
-      // the worker's refusal of a model this account cannot answer with, which is the honest answer and
-      // not a second column written by the reader's own model. A stream that only lost its bytes has no
-      // reason, and gets the column's own line: see `comparisonFailureLine`.
-      if (!controller.signal.aborted) {
-        set((current) => (current.compareTurn?.token === token
-          ? { compareTurn: { ...current.compareTurn, error: comparisonFailureLine(error), done: true, finishedAt: Date.now() } }
-          : current))
-      }
-    } finally {
-      inflight.delete(token)
-      set((current) => (current.compareTurn?.token === token && !current.compareTurn.done
-        ? { compareTurn: { ...current.compareTurn, done: true, finishedAt: Date.now() } }
-        : current))
-    }
-  },
-
-  stopComparison: () => {
-    const turn = get().compareTurn
-    const token = turn?.token
-    // Only the comparison's own request: the thread's answer is a separate stream with a separate handle,
-    // and this press says nothing about it.
-    if (token !== undefined) inflight.get(token)?.abort()
-    set((current) => (current.compareTurn && current.compareTurn.token === token
-      ? { compareTurn: { ...current.compareTurn, done: true, finishedAt: Date.now() } }
-      : current))
-    // No cancel is sent, and that is the difference from the thread's own stop rather than an oversight:
-    // aborting the request is itself the signal the worker ends a run on, and the lease this leaves behind
-    // belongs to a throwaway thread no other device is looking at, so there is nothing here to unlock for
-    // anybody. The reader's conversation keeps its explicit release because a second tab is waiting on it.
-  },
-
-  /**
-   * Take the comparison away, and the thread it was stored in with it.
-   *
-   * Only a settled one is deleted: a stream still being written is not finished filing its rows, and a
-   * conversation removed underneath it would leave the answer the worker writes next pointing at a thread
-   * that is gone. The sweep catches whatever this does not.
-   */
-  dismissComparison: () => {
-    const turn = get().compareTurn
-    if (!turn) return
-    if (!turn.done) get().stopComparison()
-    set({ compareTurn: null })
-    if (turn.done && turn.conversationId) void get().deleteConversation(turn.conversationId)
-  },
-
   refreshAfterTurn: async () => {
     const state = get()
     if (state.view === 'memory') await state.loadMemories()
@@ -2992,7 +2705,7 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
       await api.assistant.deleteConversation(id)
       if (get().activeId === id) {
         stopRemoteStreamWatch()
-        set({ activeId: null, messages: [], turn: null, artifacts: [], artifactsReady: true, artifactVersions: {}, canvasOpen: false, activeArtifactId: null, ephemeral: false, compareOn: false, compareModelId: null })
+        set({ activeId: null, messages: [], turn: null, artifacts: [], artifactsReady: true, artifactVersions: {}, canvasOpen: false, activeArtifactId: null, ephemeral: false })
       }
       await get().loadConversations()
     } catch (error) {
@@ -3585,12 +3298,9 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
   },
 
   activateModel: async (id) => {
-    // The reader's own pick moved. A second model that is now the first one is not a comparison, so the
-    // choice goes back to "pick one" rather than being left armed against the model it just became.
-    const sameAsComparison = get().compareModelId === id
     try {
       const result = await api.assistant.saveSettings({ activeModelId: id })
-      set(sameAsComparison ? { settings: result.settings, compareModelId: null } : { settings: result.settings })
+      set({ settings: result.settings })
     } catch (error) {
       toast(error)
     }
