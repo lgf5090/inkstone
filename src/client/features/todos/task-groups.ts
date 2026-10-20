@@ -88,8 +88,3 @@ export function groupCompleted(tasks: readonly TodoTask[], timezone: string): Ta
       tasks: entries.sort((a, b) => (b.completedAt ?? 0) - (a.completedAt ?? 0)),
     }))
 }
-
-/** How many of a list's tasks are open, for the card's progress line. */
-export function openCountOf(tasks: readonly TodoTask[], listId: string): number {
-  return tasks.filter((task) => task.listId === listId && task.status !== 'done').length
-}

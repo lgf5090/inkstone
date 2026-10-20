@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { TodoTask } from '../src/shared/todos/model'
-import { compareTasks, groupByPlan, groupCompleted, groupByList, openCountOf } from '../src/client/features/todos/task-groups'
+import { compareTasks, groupByPlan, groupCompleted, groupByList } from '../src/client/features/todos/task-groups'
 
 const DAY = 24 * 60 * 60 * 1000
 const NOW = Date.parse('2026-10-19T10:00:00Z')
@@ -70,10 +70,6 @@ describe('a list', () => {
       ['open', ['sooner', 'later']],
       ['done', ['done']],
     ])
-  })
-
-  it('counts only the open ones for a card', () => {
-    expect(openCountOf([task('a', { listId: 'l1' }), task('b', { listId: 'l1', status: 'done' }), task('c')], 'l1')).toBe(1)
   })
 })
 
