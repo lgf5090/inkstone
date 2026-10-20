@@ -17632,6 +17632,7 @@ const allowed = new Map([
   ["src/client/lib/tasks/service.test.ts", [
     "// The default stamps a date as `[completion:: …]`, which cannot read `🔁`; a tick that honoured",
     "// only the stamp format would finish a weekly task and never produce its next instance.",
+    "/** The draft the host would build for this line, which is the half of the round trip the form owns. */",
   ]],
   ["src/client/lib/tasks/service.ts", [
     "/**\n * The statuses this reader defined, or the four everyone gets.\n *\n * Rebuilt only when the stored table changes, because the registry is consulted for every checkbox\n * in every rendered result and rebuilding it per click would parse the settings on each one.\n */",
@@ -17644,6 +17645,9 @@ const allowed = new Map([
     "/** Why an edit did not land, so the form can say which field to look at. */",
     "/** The draft as the model reads it, for a form that must say which field failed before saving. */",
     "/** The reader's own settings, for the surfaces that are not a tick. */",
+    "// The form shows the description with the reader's global filter taken out, so writing it back has to",
+    "// put the word in again — otherwise saving a task that was found by the filter would quietly stop it",
+    "// from matching, and the row would vanish from the very list the reader was looking at.",
   ]],
   ["src/client/lib/tasks/status/registry.ts", [
     "/**\n * The statuses a vault recognises, and how one leads to the next.\n *\n * A checkbox character has no meaning on its own: `[-]` is \"cancelled\" only because something says\n * so. This registry is that something, and it is built from the reader's settings on every read so\n * no two callers can disagree about what a note says.\n */",

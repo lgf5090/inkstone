@@ -187,6 +187,29 @@ describe('layout switches', () => {
   })
 })
 
+describe("the reader's global filter", () => {
+  it('keeps only the lines that carry the word', () => {
+    const scoped = runTasksQuery(SAMPLE, parseTasksQuery('not done', NOW), NOW, '#writing')
+    expect(ordered(scoped.tasks)).toEqual(['mid draft #writing'])
+  })
+
+  it('lets one block step outside it', () => {
+    const opted = runTasksQuery(SAMPLE, parseTasksQuery('not done\nignore global query', NOW), NOW, '#writing')
+    expect(opted.tasks).toHaveLength(7)
+  })
+
+  it('scopes before the limit, so a limit counts the tasks the reader can see', () => {
+    const capped = runTasksQuery(SAMPLE, parseTasksQuery('limit 1', NOW), NOW, 'er')
+    expect(capped.countBeforeLimit).toBe(3)
+    expect(capped.tasks).toHaveLength(1)
+    expect(capped.tasks[0]!.fields.description).toContain('er')
+  })
+
+  it('leaves every line alone when the word is empty', () => {
+    expect(runTasksQuery(SAMPLE, parseTasksQuery('not done', NOW), NOW, '').tasks).toHaveLength(7)
+  })
+})
+
 describe('statement scanner, reconciled', () => {
   it('joins a continuation with one space and keeps a literal backslash', () => {
     expect(scanStatements('due before 2026-10-20 \\\n  and not done').map((item) => item.instruction))

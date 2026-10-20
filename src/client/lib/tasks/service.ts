@@ -131,7 +131,10 @@ export function editTaskInSource(
     return { ok: false, reason: 'missing', source }
   }
   const status = settings.registry.bySymbolOrCreate(edit.statusSymbol)
-  const applied = applyDraft(task, edit.draft, status, settings, now)
+  // The form shows the description with the reader's global filter taken out, so writing it back has to
+  // put the word in again — otherwise saving a task that was found by the filter would quietly stop it
+  // from matching, and the row would vanish from the very list the reader was looking at.
+  const applied = applyDraft(task, edit.draft, status, settings, now, { globalFilter: taskSettings().globalFilter })
   if (applied.errors.recurrence !== 'none' || Object.keys(applied.errors.dates).length > 0) {
     return { ok: false, reason: 'invalid', errors: applied.errors, source }
   }

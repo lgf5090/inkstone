@@ -10,7 +10,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { t } from '../../lib/i18n'
 import { api } from '../../lib/api'
 import { useUi } from '../../store/ui'
-import { editTaskInNote, editTaskInSource, toggleSettings, type TaskEdit } from '../../lib/tasks/service'
+import { editTaskInNote, editTaskInSource, taskSettings, toggleSettings, type TaskEdit } from '../../lib/tasks/service'
 import { draftFromTask, type DraftErrors, type TaskDraft } from '../../lib/tasks/edit/task-editor'
 import { parseTaskLine } from '../../lib/tasks/model/task'
 import { unknownPosition } from '../../lib/tasks/model/task-location'
@@ -58,7 +58,7 @@ function TaskEditorForm({ request, source }: FormProps) {
     unknownPosition('', ''),
     { registry: settings.registry, serializer: settings.serializer, now: new Date() },
   ), [source, request.line, settings])
-  const draft = useMemo(() => (task === null ? null : draftFromTask(task)), [task])
+  const draft = useMemo(() => (task === null ? null : draftFromTask(task, taskSettings().globalFilter)), [task])
 
   useEffect(() => {
     if (task !== null) return
