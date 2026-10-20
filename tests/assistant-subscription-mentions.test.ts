@@ -137,7 +137,7 @@ describe("the plan on the reader's screen", () => {
   it("carries nothing for a plan that is gone, trashed, or somebody else's", async () => {
     const created = await seed("Netflix")
     expect(await subscriptionContextById(db, USER, "01missingmissingmissingmissing", NOW)).toBe("")
-    await store.trash(created.item.id, context as never)
+    await store.trash(created.item.id, context)
     expect(await subscriptionContextById(db, USER, created.item.id, NOW), "the trash is not on screen").toBe("")
     expect(await subscriptionContextById(db, "user-other", created.item.id, NOW)).toBe("")
     expect(await subscriptionContextById(db, USER, "", NOW)).toBe("")
