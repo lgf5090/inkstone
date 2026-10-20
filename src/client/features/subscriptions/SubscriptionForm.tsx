@@ -9,9 +9,9 @@
  * calendar when that is switched on.
  */
 import { useMemo, useState, type ReactElement } from 'react'
-import { Calculator } from 'lucide-react'
+import { Calculator, Plus, Sparkles, X } from 'lucide-react'
 import { t } from '../../lib/i18n'
-import { Button } from '../../components/primitives'
+import { Button, IconButton } from '../../components/primitives'
 import { Field, Input, Select, Switch, Textarea } from '../../components/form'
 import { Modal } from '../../components/overlay'
 import { formatAmount } from '@shared/subscriptions/format'
@@ -19,13 +19,21 @@ import { addLunarPeriod, lunar2solar, solar2lunar } from '@shared/subscriptions/
 import { addCalendarPeriodInTimezone, formatDateInputInTimezone, getTimezoneDateParts, getTimestampForTimezoneParts } from '@shared/subscriptions/time'
 import {
   CURRENCY_CODES,
+  labelNamesOf,
   PERIOD_UNITS,
+  PRESET_RULE_DRAFTS,
+  RULES_LIMIT,
   type CurrencyCode,
   type PeriodUnit,
+  type ReminderRuleInput,
   type SubscriptionDetail,
   type SubscriptionInput,
   type SubscriptionMode,
 } from '@shared/subscriptions/model'
+import { LabelGlyph, LabelStylePicker, useLabelIdentity } from './label-identity'
+import { LunarDateButton } from './LunarDateButton'
+import { ReminderRuleRow } from './ReminderRuleRow'
+import { useSubscriptions } from './store'
 
 interface Draft {
   name: string
@@ -42,6 +50,8 @@ interface Draft {
   isActive: boolean
   autoRenew: boolean
   notes: string
+  trialEndsAt: string
+  rules: ReminderRuleInput[]
 }
 
 function draftOf(detail: SubscriptionDetail | null, timezone: string): Draft {
@@ -62,6 +72,8 @@ function draftOf(detail: SubscriptionDetail | null, timezone: string): Draft {
       isActive: true,
       autoRenew: true,
       notes: '',
+      trialEndsAt: '',
+      rules: PRESET_RULE_DRAFTS.map((rule) => ({ ...rule })),
     }
   }
   const { item } = detail
@@ -80,6 +92,9 @@ function draftOf(detail: SubscriptionDetail | null, timezone: string): Draft {
     isActive: item.isActive,
     autoRenew: item.autoRenew,
     notes: item.notes,
+    trialEndsAt: item.trialEndsAt ? item.trialEndsAt.slice(0, 10) : '',
+    // Carried with their ids so the worker replaces this set rather than appending a second copy of it.
+    rules: detail.rules.map((rule) => ({ ...rule })),
   }
 }
 
@@ -157,6 +172,8 @@ export function SubscriptionForm({
       isActive: draft.isActive,
       autoRenew: draft.autoRenew,
       notes: draft.notes.trim(),
+      trialEndsAt: draft.trialEndsAt || null,
+      reminderRules: draft.rules,
     })
     if (ok) onClose()
   }
@@ -201,12 +218,21 @@ export function SubscriptionForm({
           </Field>
           <div className="grid grid-cols-2 gap-2.5">
             <Field label={t('subscriptions.form.type')}>
-              <Input
-                value={draft.customType}
-                list="subscriptions-type-options"
-                placeholder={t('subscriptions.form.type_placeholder')}
-                onChange={(event) => set('customType', event.target.value)}
-              />
+              <div className="flex items-center gap-1.5">
+                <Input
+                  className="min-w-0 flex-1"
+                  value={draft.customType}
+                  list="subscriptions-type-options"
+                  aria-label={t('subscriptions.form.type')}
+                  placeholder={t('subscriptions.form.type_placeholder')}
+                  onChange={(event) => set('customType', event.target.value)}
+                />
+                <LabelStylePicker
+                  kind="type"
+                  name={draft.customType}
+                  onPick={(style) => void useSubscriptions.getState().setLabelStyle('type', draft.customType, style)}
+                />
+              </div>
             </Field>
             <Field label={t('subscriptions.detail.category')}>
               <Input
@@ -217,6 +243,10 @@ export function SubscriptionForm({
               />
             </Field>
           </div>
+          {/* A category is a pile of tags, so the face of "video / music" is two faces and one picker cannot
+              answer which it is editing. The type — always one label — gets its picker inline; here the
+              reader sees what each tag will look like and sets it from the manager. */}
+          <LabelTokenRow value={draft.category} />
           {/* The suggestions live outside the fields: a `Field` holding two children becomes a group, and a
               group names itself instead of naming the input inside it. */}
           <datalist id="subscriptions-type-options">
@@ -247,6 +277,24 @@ export function SubscriptionForm({
               </Select>
             </Field>
           </div>
+          {/* A trial is the one subscription that quietly becomes a bill, so the date it turns is worth a
+              field of its own rather than a note the reminder engine cannot read. */}
+          <Field label={t('subscriptions.form.trial_ends')} hint={t('subscriptions.form.trial_ends_hint')}>
+            <div className="flex items-center gap-1.5">
+              <Input
+                className="min-w-0 flex-1"
+                type="date"
+                aria-label={t('subscriptions.form.trial_ends')}
+                value={draft.trialEndsAt}
+                onChange={(event) => set('trialEndsAt', event.target.value)}
+              />
+              {draft.trialEndsAt && (
+                <IconButton label={t('subscriptions.form.trial_ends_clear')} size="sm" onClick={() => set('trialEndsAt', '')}>
+                  <X size={13} />
+                </IconButton>
+              )}
+            </div>
+          </Field>
         </section>
 
         <section className="space-y-2.5">
@@ -278,7 +326,19 @@ export function SubscriptionForm({
               <Input type="date" value={draft.startDate} onChange={(event) => set('startDate', event.target.value)} />
             </Field>
             <Field label={t('subscriptions.detail.expiry')} required hint={expiryInvalid ? t('subscriptions.form.required') : hint}>
-              <Input type="date" value={draft.expiryDate} invalid={expiryInvalid} onChange={(event) => set('expiryDate', event.target.value)} />
+              <div className="flex items-center gap-1.5">
+                <Input
+                  className="min-w-0 flex-1"
+                  aria-label={t('subscriptions.detail.expiry')}
+                  type="date"
+                  value={draft.expiryDate}
+                  invalid={expiryInvalid}
+                  onChange={(event) => set('expiryDate', event.target.value)}
+                />
+                {/* The native field cannot be pointed at a lunar calendar, and a birthday or an
+                    anniversary is remembered by its lunar date for half the accounts this serves. */}
+                <LunarDateButton value={draft.expiryDate} onPick={(date) => set('expiryDate', date)} />
+              </div>
             </Field>
           </div>
           <div className="flex items-center gap-2">
@@ -297,10 +357,85 @@ export function SubscriptionForm({
           </div>
         </section>
 
+        <section className="space-y-1.5">
+          <div className="flex items-center justify-between gap-2">
+            <h3 className="text-[length:var(--text-11)] font-medium uppercase tracking-wide text-[var(--text-quaternary)]">{t('subscriptions.rules.title')}</h3>
+            <div className="flex items-center gap-1">
+              <Button
+                size="sm"
+                variant="ghost"
+                icon={<Sparkles size={12} />}
+                title={t('subscriptions.rules.preset_hint')}
+                onClick={() => set('rules', PRESET_RULE_DRAFTS.map((rule) => ({ ...rule })))}
+              >
+                {t('subscriptions.rules.preset')}
+              </Button>
+              <Button
+                size="sm"
+                variant="ghost"
+                icon={<Plus size={12} />}
+                disabled={draft.rules.length >= RULES_LIMIT}
+                onClick={() => set('rules', [...draft.rules, { type: 'before_expiry', value: 1, unit: 'days', isEnabled: true }])}
+              >
+                {t('subscriptions.rules.add')}
+              </Button>
+            </div>
+          </div>
+          {/* The plan is edited here rather than only afterwards: a reader who knows a service wants a
+              week's notice should not have to save it, open it, and then fix the four rules the app
+              guessed for them. */}
+          {draft.rules.length === 0 ? (
+            <p className="px-1 py-1 text-[length:var(--text-11-5)] text-[var(--text-quaternary)]">{t('subscriptions.rules.empty')}</p>
+          ) : (
+            <ul className="space-y-0.5">
+              {draft.rules.map((rule, index) => (
+                <ReminderRuleRow
+                  key={rule.id ?? index}
+                  rule={rule}
+                  onPatch={(patch) => set('rules', draft.rules.map((entry, position) => position === index ? { ...entry, ...patch } : entry))}
+                  onRemove={() => set('rules', draft.rules.filter((_, position) => position !== index))}
+                />
+              ))}
+            </ul>
+          )}
+          {draft.rules.length >= RULES_LIMIT && (
+            <p className="px-1 text-[length:var(--text-10-5)] text-[var(--text-quaternary)]">{t('subscriptions.rules.limit', { max: RULES_LIMIT })}</p>
+          )}
+        </section>
+
         <Field label={t('subscriptions.form.notes')}>
           <Textarea rows={3} value={draft.notes} placeholder={t('subscriptions.form.notes_placeholder')} onChange={(event) => set('notes', event.target.value)} />
         </Field>
       </div>
     </Modal>
+  )
+}
+
+/**
+ * What the typed categories will look like, one chip per tag.
+ *
+ * Quiet when there is nothing to show: this is a confirmation that a two-tag value landed as
+ * two tags rather than one name with a slash in it, which is the mistake the registry used to bake in.
+ */
+function LabelTokenRow({ value }: { value: string }): ReactElement | null {
+  const identityOf = useLabelIdentity()
+  const tokens = labelNamesOf(value, 'category')
+  if (!tokens.length) return null
+  return (
+    <div className="flex flex-wrap items-center gap-1.5 pt-0.5">
+      {tokens.map((token) => {
+        const identity = identityOf('category', token)
+        return (
+          <span
+            key={token}
+            className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[length:var(--text-11)]"
+            style={{ color: identity.color, background: `color-mix(in oklab, ${identity.color} 14%, transparent)` }}
+          >
+            <LabelGlyph identity={identity} label={token} size={10} />
+            {token}
+          </span>
+        )
+      })}
+    </div>
   )
 }
