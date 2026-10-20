@@ -25,7 +25,14 @@ interface StatsCall {
 const service = vi.hoisted(() => ({
   calls: [] as StatsCall[],
   failNext: false,
+  /** Ranges (as `from..to`) whose answer rejects, e.g. only the previous-period read. */
+  failRanges: [] as string[],
+  /** When set, every answer waits until the test releases it, so parallel requests can be observed. */
+  hold: false,
+  waiting: [] as Array<() => void>,
   payload: null as TodoStats | null,
+  /** Answers keyed by `from..to`; anything absent falls back to `payload`. */
+  byRange: {} as Record<string, TodoStats>,
 }))
 
 vi.mock('../../lib/api', () => ({
@@ -43,11 +50,14 @@ vi.mock('../../lib/api', () => ({
       get: async () => ({ task: null, steps: [] }),
       stats: async (params: StatsCall = {}) => {
         service.calls.push(params)
+        if (service.hold) await new Promise<void>((resolve) => service.waiting.push(resolve))
+        const key = `${params.from ?? ''}..${params.to ?? ''}`
+        if (service.failRanges.includes(key)) throw new Error('stats unavailable')
         if (service.failNext) {
           service.failNext = false
           throw new Error('stats unavailable')
         }
-        const payload = service.payload
+        const payload = service.byRange[key] ?? service.payload
         // The real route echoes the range it measured. A stand-in that always answered the same days
         // would let a client that forgot its own request look right for one press.
         if (!payload || !params.from || !params.to) return payload
@@ -72,6 +82,23 @@ const original = useTodos.getState()
 let view: RenderedElement | null = null
 
 const RANGE = { from: '2026-10-01', to: '2026-10-30', bucket: 'week' as const }
+
+const DAY_MS = 86_400_000
+
+/** The key the fake service indexes an answer by. */
+function rangeKey(range: { from?: string; to?: string }): string {
+  return `${range.from ?? ''}..${range.to ?? ''}`
+}
+
+/**
+ * The equal-length window before a range, spelled here rather than by importing the view's helper:
+ * a test that asked the implementation what to expect would agree with it by construction.
+ */
+function previousKey(range: { from: string; to: string }): string {
+  const days = Math.round((Date.parse(`${range.to}T00:00:00Z`) - Date.parse(`${range.from}T00:00:00Z`)) / DAY_MS) + 1
+  const to = shiftDay(range.from, -1)
+  return `${shiftDay(to, -(days - 1))}..${to}`
+}
 
 /** The response the server sends for the fixture account, with every section populated. */
 function fullStats(): TodoStats {
@@ -175,14 +202,30 @@ async function mount(address: string): Promise<HTMLElement> {
   return view!.container
 }
 
-function clickControl(container: HTMLElement, label: string): void {
+function buttonFor(container: HTMLElement, label: string): HTMLButtonElement {
   const button = [...container.querySelectorAll('button')].find((node) => node.textContent?.trim() === label)
   expect(button, `no control labelled ${label}`).not.toBeNull()
-  act(() => { button!.click() })
+  return button as HTMLButtonElement
+}
+
+function clickControl(container: HTMLElement, label: string): void {
+  const button = buttonFor(container, label)
+  act(() => { button.click() })
 }
 
 function kpi(container: HTMLElement, id: string): string {
   return container.querySelector(`[data-stats-kpi="${id}"]`)?.textContent ?? ''
+}
+
+function delta(container: HTMLElement, id: string): string {
+  return container.querySelector(`[data-stats-delta="${id}"]`)?.textContent?.trim() ?? ''
+}
+
+/** Let the requests held by `service.hold` answer, inside an act so their state lands in the render. */
+function releaseHeld(): void {
+  const waiting = service.waiting.splice(0)
+  service.hold = false
+  act(() => { for (const resolve of waiting) resolve() })
 }
 
 beforeEach(async () => {
@@ -190,7 +233,11 @@ beforeEach(async () => {
   await initI18n()
   service.calls.length = 0
   service.failNext = false
+  service.failRanges = []
+  service.hold = false
+  service.waiting.length = 0
   service.payload = fullStats()
+  service.byRange = {}
   useTodos.setState(original, true)
   window.history.replaceState(null, '', '/todo')
 })
@@ -209,15 +256,18 @@ describe('the statistics range', () => {
     stubBreakpoint(true)
     const container = await mount(`/todo?view=stats&from=${RANGE.from}&to=${RANGE.to}&bucket=${RANGE.bucket}`)
 
-    expect(service.calls[0], 'the shared address was not sent as the request').toEqual(RANGE)
+    expect(service.calls, 'the shared address was not sent as the request').toContainEqual(RANGE)
 
     clickControl(container, t('todo.stats.range.7'))
     await settle()
 
     const today = localDate(Date.now(), 'UTC')
-    const picked = service.calls.at(-1)!
+    const pickedRange = { from: shiftDay(today, -6), to: today }
+    // The comparison asks for another window at the same time, so the current answer is picked by its
+    // days rather than by being the last call on the wire.
+    const picked = service.calls.filter((call) => rangeKey(call) === rangeKey(pickedRange)).at(-1)!
     // The label changed in the first implementation bug this pins: the request has to change too.
-    expect(picked.from, 'seven days were chosen but the old start was sent').toBe(shiftDay(today, -6))
+    expect(picked.from, 'seven days were chosen but the old start was sent').toBe(pickedRange.from)
     expect(picked.to).toBe(today)
     expect(picked.bucket, 'a week-wide range should default to daily buckets').toBe('day')
     expect(window.location.search).toContain(`from=${shiftDay(today, -6)}`)
@@ -225,7 +275,7 @@ describe('the statistics range', () => {
 
     clickControl(container, t('todo.stats.bucket.month'))
     await settle()
-    const regrouped = service.calls.at(-1)!
+    const regrouped = service.calls.filter((call) => rangeKey(call) === rangeKey(pickedRange)).at(-1)!
     expect(regrouped.from).toBe(picked.from)
     expect(regrouped.to).toBe(picked.to)
     expect(regrouped.bucket).toBe('month')
@@ -290,6 +340,58 @@ describe('the numbers on the screen', () => {
     expect(table!.textContent).toContain('2026-10-05')
     expect(table!.textContent).toContain('2026-10-12')
     expect(table!.querySelectorAll('tbody tr')).toHaveLength(2)
+  })
+})
+
+describe('the previous period', () => {
+  it('reports every change as a dash when the previous period held nothing', async () => {
+    service.byRange[previousKey(RANGE)] = emptyStats()
+    const container = await mount(`/todo?view=stats&from=${RANGE.from}&to=${RANGE.to}&bucket=${RANGE.bucket}`)
+
+    const values = [...container.querySelectorAll('[data-stats-delta]')].map((node) => node.textContent?.trim())
+    expect(values, 'a zero denominator must not become a percentage').toEqual(['—', '—', '—', '—'])
+    expect(container.textContent, 'an infinite or undefined change reached the screen').not.toMatch(/∞|Infinity|NaN/)
+  })
+
+  it('rounds counts as percentages and rates as percentage points', async () => {
+    const prior = fullStats()
+    prior.summary = {
+      ...prior.summary,
+      completed: 9,
+      created: 6,
+      completionRate: 0.6,
+      onTime: 3,
+      onTimeDue: 6,
+      onTimeRate: 0.5,
+    }
+    service.byRange[previousKey(RANGE)] = prior
+    const container = await mount(`/todo?view=stats&from=${RANGE.from}&to=${RANGE.to}&bucket=${RANGE.bucket}`)
+
+    // 12 against 9 is +33.33%, rounded to a whole percent; 9 against 6 is +50%.
+    expect(delta(container, 'completed')).toBe('+33%')
+    expect(delta(container, 'created')).toBe('+50%')
+    // A rate is compared in points: 75% against 60% is +15 points, not +25%.
+    expect(delta(container, 'completion_rate')).toBe(t('todo.stats.compare.points', { value: '+15' }))
+    expect(delta(container, 'on_time')).toBe(t('todo.stats.compare.points', { value: '+10' }))
+  })
+
+  it('sends both reads together and keeps the KPIs when the previous one fails', async () => {
+    service.hold = true
+    service.failRanges = [previousKey(RANGE)]
+    const container = await mount(`/todo?view=stats&from=${RANGE.from}&to=${RANGE.to}&bucket=${RANGE.bucket}`)
+
+    // Both requests left before either answered, so the comparison is not waiting on the first page.
+    expect(service.calls.map(rangeKey), 'the two reads were not issued in parallel').toEqual(
+      expect.arrayContaining([rangeKey(RANGE), previousKey(RANGE)]),
+    )
+    expect(service.calls).toHaveLength(2)
+
+    releaseHeld()
+    await settle()
+
+    expect(kpi(container, 'completed'), 'a failed comparison took the KPIs down with it').toContain('12')
+    expect(container.textContent).toContain(t('todo.stats.compare.unavailable'))
+    expect(delta(container, 'completed')).toBe('—')
   })
 })
 

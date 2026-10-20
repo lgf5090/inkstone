@@ -15,15 +15,22 @@
 import { useEffect } from 'react'
 import { localDate } from '@shared/assistant-time'
 import type {
-  TaskPriority,
   TaskStatsBucket,
   TodoStats,
 } from '@shared/todos/model'
 import { Button } from '../../components/primitives'
 import { Empty, LoadingBlock } from '../../components/feedback'
 import { Segmented } from '../../components/form'
-import { localeTag, t, type MessageKey } from '../../lib/i18n'
+import { localeTag, t } from '../../lib/i18n'
 import { shiftDay } from './due-range'
+import {
+  countDeltaPercent,
+  previousRange,
+  rateDeltaPoints,
+  usePreviousStats,
+  type PreviousStats,
+} from './stats-compare'
+import { PRIORITIES, listName, priorityLabel, tagName, weekdayName } from './stats-format'
 import { useTodos } from './store'
 
 const RANGE_CHOICES = [
@@ -42,14 +49,6 @@ const BUCKET_LABELS: Record<TaskStatsBucket, MessageKey> = {
   day: 'todo.stats.bucket.day',
   week: 'todo.stats.bucket.week',
   month: 'todo.stats.bucket.month',
-}
-
-const PRIORITIES: readonly TaskPriority[] = ['low', 'medium', 'high', 'urgent']
-const PRIORITY_LABELS: Record<TaskPriority, MessageKey> = {
-  low: 'todo.priority.low',
-  medium: 'todo.priority.medium',
-  high: 'todo.priority.high',
-  urgent: 'todo.priority.urgent',
 }
 
 const MINUTE_MS = 60_000
@@ -99,13 +98,6 @@ function duration(ms: number | null): string {
 function widthOf(share: number): string {
   if (!Number.isFinite(share) || share <= 0) return '0'
   return String(Math.min(100, Math.round(share * 100)))
-}
-
-function weekdayName(weekday: number): string {
-  // 2023-01-01 is a Sunday, so the index is the weekday the server counts. The formatter is pinned to
-  // UTC because a midnight instant in a western zone is the previous day.
-  const date = new Date(Date.UTC(2023, 0, 1 + weekday))
-  return new Intl.DateTimeFormat(localeTag(), { weekday: 'short', timeZone: 'UTC' }).format(date)
 }
 
 interface BarRow {
@@ -326,7 +318,7 @@ function Distributions({ stats }: { stats: TodoStats }) {
             label={t('todo.stats.by_list')}
             rows={distributions.byList.map((entry) => ({
               key: entry.id ?? 'inbox',
-              label: entry.name ?? (entry.id === null ? t('todo.smart.inbox') : t('todo.stats.unknown_list')),
+              label: listName(entry),
               value: entry.completed,
               share: entry.share,
               width: entry.share,
@@ -338,7 +330,7 @@ function Distributions({ stats }: { stats: TodoStats }) {
             label={t('todo.stats.by_tag')}
             rows={distributions.byTag.map((entry) => ({
               key: entry.id ?? entry.name ?? 'tag',
-              label: entry.name ?? t('todo.view.tag'),
+              label: tagName(entry),
               value: entry.completed,
               share: entry.share,
               width: entry.share,
@@ -352,7 +344,7 @@ function Distributions({ stats }: { stats: TodoStats }) {
               const entry = distributions.byPriority.find((row) => row.priority === priority)
               return {
                 key: priority,
-                label: t(PRIORITY_LABELS[priority]),
+                label: priorityLabel(priority),
                 value: entry?.completed ?? 0,
                 share: entry?.share ?? 0,
                 width: entry?.share ?? 0,
@@ -421,10 +413,120 @@ function Backlog({ stats }: { stats: TodoStats }) {
   )
 }
 
-function StatsBody({ stats }: { stats: TodoStats }) {
+/** A signed number in the reader's digits: `+33`, `-5`, `0`; the formatter picks the unit. */
+function signed(value: number, format: (magnitude: number) => string): string {
+  if (value > 0) return `+${format(value)}`
+  if (value < 0) return `-${format(-value)}`
+  return format(0)
+}
+
+/** A count's change as a whole percent; a dash when the earlier window held nothing to divide by. */
+function countChange(current: number, previous: number): string {
+  const change = countDeltaPercent(current, previous)
+  if (change === null) return '—'
+  return signed(Math.round(change), (magnitude) => `${integer(magnitude)}%`)
+}
+
+/** A rate's change in percentage points, one decimal at most; a dash without an earlier denominator. */
+function pointsChange(currentRate: number, previousRate: number, previousDenominator: number): string {
+  const change = rateDeltaPoints(currentRate, previousRate, previousDenominator)
+  if (change === null) return '—'
+  return t('todo.stats.compare.points', { value: signed(Math.round(change * 10) / 10, decimal) })
+}
+
+function Delta({ id, label, value }: { id: string; label: string; value: string }) {
+  return (
+    <div className="rounded-[var(--r-lg)] border border-[var(--border-subtle)] bg-[var(--bg-surface)] p-3">
+      <dt className="text-[length:var(--text-11)] text-[var(--text-tertiary)]">{label}</dt>
+      <dd
+        data-stats-delta={id}
+        className="mt-0.5 text-[length:var(--text-16)] font-semibold tabular-nums text-[var(--text-primary)]"
+      >
+        {value}
+      </dd>
+    </div>
+  )
+}
+
+/**
+ * The same four headline numbers against the equally long window before this one.
+ *
+ * A failure is contained here: the current range's KPIs are not the comparison's to take down. And a
+ * window that held nothing prints a dash for the count it cannot divide and for the rate it cannot
+ * place — never an infinity dressed up as a percentage.
+ */
+function Comparison({ stats, comparison }: { stats: TodoStats; comparison: PreviousStats }) {
+  const { summary } = stats
+  const previous = comparison.status === 'ready' ? comparison.stats : null
+  const window = comparison.range ?? previousRange(stats.range)
+  const rows = [
+    {
+      id: 'completed',
+      label: t('todo.stats.completed'),
+      value: previous ? countChange(summary.completed, previous.summary.completed) : '—',
+    },
+    {
+      id: 'created',
+      label: t('todo.stats.created'),
+      value: previous ? countChange(summary.created, previous.summary.created) : '—',
+    },
+    {
+      id: 'completion_rate',
+      label: t('todo.stats.completion_rate'),
+      // The open count behind a completion rate is a snapshot taken now, not a count of the earlier
+      // window, so a period with no completions of its own offers no rate to compare against: it is a
+      // dash, not a jump from a borrowed zero.
+      value: previous && previous.summary.completed > 0
+        ? pointsChange(
+          summary.completionRate,
+          previous.summary.completionRate,
+          previous.summary.completed + previous.summary.open,
+        )
+        : '—',
+    },
+    {
+      id: 'on_time',
+      label: t('todo.stats.on_time'),
+      value: previous
+        ? pointsChange(summary.onTimeRate, previous.summary.onTimeRate, previous.summary.onTimeDue)
+        : '—',
+    },
+  ]
+  return (
+    <section aria-labelledby="todo-stats-compare" data-stats-compare={comparison.status}>
+      <div className="flex flex-wrap items-baseline justify-between gap-x-2 gap-y-1">
+        <h2 id="todo-stats-compare" className="text-[length:var(--text-12)] font-semibold text-[var(--text-secondary)]">
+          {t('todo.stats.compare.title')}
+        </h2>
+        <p className="text-[length:var(--text-11)] tabular-nums text-[var(--text-quaternary)]">
+          {window.from} – {window.to}
+        </p>
+      </div>
+      {comparison.status === 'loading' && (
+        <p role="status" className="mt-1 text-[length:var(--text-11)] text-[var(--text-quaternary)]">
+          {t('todo.stats.compare.loading')}
+        </p>
+      )}
+      {comparison.status === 'unavailable' && (
+        <p role="status" className="mt-1 text-[length:var(--text-11)] leading-relaxed text-[var(--text-tertiary)]">
+          {t('todo.stats.compare.unavailable')}
+          {comparison.error ? ` · ${comparison.error}` : ''}
+          {' · '}
+          {t('todo.stats.compare.unavailable_hint')}
+        </p>
+      )}
+      <dl className="mt-2 grid grid-cols-2 gap-2 md:grid-cols-4">
+        {rows.map((row) => <Delta key={row.id} {...row} />)}
+      </dl>
+    </section>
+  )
+}
+
+function StatsBody({ stats, comparison }: { stats: TodoStats; comparison: PreviousStats }) {
   return (
     <div className="flex flex-col gap-5">
       <Kpis stats={stats} />
+      <Comparison stats={stats} comparison={comparison} />
       <TrendChart stats={stats} />
       <Distributions stats={stats} />
       <Backlog stats={stats} />
@@ -483,8 +585,20 @@ export function StatsView() {
   const stats = useTodos((state) => state.stats)
   const status = useTodos((state) => state.statsStatus)
   const error = useTodos((state) => state.statsError)
+  const statsFrom = useTodos((state) => state.statsFrom)
+  const statsTo = useTodos((state) => state.statsTo)
+  const statsBucket = useTodos((state) => state.statsBucket)
   const loadStats = useTodos((state) => state.loadStats)
   const setStatsRange = useTodos((state) => state.setStatsRange)
+
+  // The comparison reads the range the address names, not the range the last answer described: on a
+  // move it must leave together with the new request, not wait for it to echo the days back. A shared
+  // address that names no bucket waits for the first answer, which is the only place the bucket is
+  // known until the reader picks one.
+  const bucket = statsBucket ?? stats?.range.bucket ?? null
+  const comparison = usePreviousStats(
+    statsFrom && statsTo && bucket ? { from: statsFrom, to: statsTo, bucket } : null,
+  )
 
   useEffect(() => {
     // The container reads the listing on every mount, but not the statistics: this screen asks for
@@ -517,7 +631,7 @@ export function StatsView() {
       ) : stats.summary.completed === 0 && stats.summary.created === 0 ? (
         <Empty title={t('todo.stats.empty')} description={t('todo.stats.empty_hint')} />
       ) : (
-        <StatsBody stats={stats} />
+        <StatsBody stats={stats} comparison={comparison} />
       )}
     </div>
   )
