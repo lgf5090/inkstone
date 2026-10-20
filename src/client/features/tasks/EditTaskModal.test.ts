@@ -152,7 +152,7 @@ describe('saving', () => {
     render({
       onSave,
       validate: (draft) => (draft.dates.dueDate.includes('13') ? {
-        dates: { dueDate: true },
+        dates: { dueDate: 'unreadable' },
         recurrence: 'none',
       } satisfies DraftErrors : emptyErrors()),
     })
@@ -162,6 +162,24 @@ describe('saving', () => {
     expect(panel().textContent).toContain('That does not name a day.')
     expect(fieldByLabel('Due')?.getAttribute('aria-invalid')).toBe('true')
     expect(fieldByLabel('Due')?.value).toBe('2026-13-45')
+  })
+
+  it('names a date that cannot be taken out because the note supplied it', async () => {
+    const onSave = vi.fn(async () => undefined)
+    render({
+      onSave,
+      validate: (draft) => (draft.dates.scheduledDate === '' ? {
+        dates: { scheduledDate: 'from-note-name' },
+        recurrence: 'none',
+      } satisfies DraftErrors : emptyErrors()),
+    })
+    type(fieldByLabel('Scheduled')!, '')
+    await act(async () => { saveButton().click() })
+    expect(onSave).not.toHaveBeenCalled()
+    // The two date problems need two sentences: "that does not name a day" would send the reader off
+    // to retype a date they were trying to get rid of.
+    expect(panel().textContent).toContain("That date comes from the note's own name")
+    expect(fieldByLabel('Scheduled')?.getAttribute('aria-invalid')).toBe('true')
   })
 
   it('will not save an empty description', () => {

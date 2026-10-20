@@ -4814,6 +4814,7 @@ console.log(\`Hello, \${name}!\`)
     "tasks.edit_done": "完成",
     "tasks.edit_date_placeholder": "2026-10-24，或者下周五",
     "tasks.edit_date_invalid": "这没有指出一天。",
+    "tasks.edit_date_inferred": "这个日期来自笔记文件名，这里删不掉。",
     "tasks.edit_recurrence": "重复",
     "tasks.edit_recurrence_placeholder": "每周一",
     "tasks.edit_recurrence_hint": "只发生一次就留空。",

@@ -78,7 +78,7 @@ describe('saving a draft', () => {
       dates: { ...draft.dates, dueDate: 'the 32nd of what' },
     }))
     expect(out.tasks).toEqual([])
-    expect(out.errors.dates.dueDate).toBe(true)
+    expect(out.errors.dates.dueDate).toBe('unreadable')
   })
 
   it('reads a natural-language date, and only ever a coming one', () => {
@@ -164,6 +164,17 @@ describe('a scheduled date the note itself supplied', () => {
     const out = applyDraft(task, draftFromTask(task), task.status, settings(), NOW)
     expect(out.tasks[0]?.scheduledDateIsInferred).toBe(true)
     expect(toMarkdownLine(out.tasks[0]!, settings().serializer)).toBe('- [ ] water the plants')
+  })
+
+  it('refuses to clear a scheduled date the note name supplies, and says why', () => {
+    // The date is not in the line, so there is nothing in the line to take it out of: a save that
+    // looked like it worked would answer with the same date the next time the note is read.
+    const task = inferredTask()
+    const base = draftFromTask(task)
+    const draft = { ...base, dates: { ...base.dates, scheduledDate: '' } }
+    const out = applyDraft(task, draft, task.status, settings(), NOW)
+    expect(out.errors.dates.scheduledDate).toBe('from-note-name')
+    expect(out.tasks).toEqual([])
   })
 
   it('is written down once the reader moves it to another day', () => {

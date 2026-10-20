@@ -46,8 +46,16 @@ export interface TaskDraft {
 /** Why a recurrence rule cannot be used, so the form can say it in words rather than HTML. */
 export type RecurrenceProblem = 'none' | 'invalid' | 'needs-a-date'
 
+/**
+ * Why one date field cannot be saved.
+ *
+ * Two different mistakes, and a form that says only "wrong" sends the reader to fix the wrong thing:
+ * one day they typed and the other is a day the line does not hold at all.
+ */
+export type DateProblem = 'unreadable' | 'from-note-name'
+
 export interface DraftErrors {
-  dates: Partial<Record<EditDateField, true>>
+  dates: Partial<Record<EditDateField, DateProblem>>
   recurrence: RecurrenceProblem
 }
 
@@ -117,13 +125,20 @@ export function applyDraft(
   for (const field of EDIT_DATE_FIELDS) {
     const text = draft.dates[field].trim()
     if (text === '') {
+      // A scheduled date the note's own name supplies is not in the line, so there is nothing in the
+      // line to take it out of: the save would answer with the same date the next time it is read, and
+      // a switch that appears to work is worse than one that says it cannot.
+      if (field === 'scheduledDate' && task.scheduledDateIsInferred && task.fields.scheduledDate !== null) {
+        errors.dates[field] = 'from-note-name'
+        continue
+      }
       fields[field] = null
       delete fields.invalidDates[field]
       continue
     }
     const parsed = parseDay(text, now, forwardOnly)
     if (parsed === null) {
-      errors.dates[field] = true
+      errors.dates[field] = 'unreadable'
       continue
     }
     fields[field] = parsed

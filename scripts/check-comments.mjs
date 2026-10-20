@@ -10565,6 +10565,8 @@ const allowed = new Map([
   ["src/client/features/tasks/EditTaskModal.test.ts", [
     "/**\n * The task edit form.\n *\n * What is pinned is the two things a form like this gets wrong: a field the reader cannot reach or\n * return to once the dialog is up, and a Save that quietly drops what it could not read. The dialog\n * chrome itself is the shared `Modal`'s business; the claim here is that this form is built on it in\n * a way that keeps those guarantees.\n */",
     "/** The model path the form's `validate` is expected to be wired to, pinned so the two cannot drift. */",
+    "// The two date problems need two sentences: \"that does not name a day\" would send the reader off",
+    "// to retype a date they were trying to get rid of.",
   ]],
   ["src/client/features/tasks/EditTaskModal.tsx", [
     "/**\n * The task edit form.\n *\n * One field per thing a task line says, and nothing the reader did not ask for: the dependency and\n * identity fields are shown because a task that waits on another is confusing without saying so, but\n * they are read only — an id is minted when something starts depending on this task, not typed here.\n *\n * The form holds text, not dates. A half-typed `2026-13` is something a reader types on the way to a\n * real date, so the answer is to say which box is wrong and leave the words in place, rather than\n * blanking the field or refusing the whole form.\n */",
@@ -17459,6 +17461,8 @@ const allowed = new Map([
     "// already had must not stamp a date, end the series, or birth the next occurrence.",
     "// Without this the save reproduces the line it started from: the serializer leaves an inferred date",
     "// out, so a postponement or a typed day would land nowhere and the reader would see nothing happen.",
+    "// The date is not in the line, so there is nothing in the line to take it out of: a save that",
+    "// looked like it worked would answer with the same date the next time the note is read.",
   ]],
   ["src/client/lib/tasks/edit/task-editor.ts", [
     "/** The six dates a task carries, in the order the form shows them. */",
@@ -17481,6 +17485,10 @@ const allowed = new Map([
     "// moving it to another day has to stop being inferred — otherwise the save produces exactly the line",
     "// it started with and the reader's click does nothing at all.",
     "/** Whether the draft moved a scheduled date that the note's own name had supplied. */",
+    "/**\n * Why one date field cannot be saved.\n *\n * Two different mistakes, and a form that says only \"wrong\" sends the reader to fix the wrong thing:\n * one day they typed and the other is a day the line does not hold at all.\n */",
+    "// A scheduled date the note's own name supplies is not in the line, so there is nothing in the",
+    "// line to take it out of: the save would answer with the same date the next time it is read, and",
+    "// a switch that appears to work is worse than one that says it cannot.",
   ]],
   ["src/client/lib/tasks/index.ts", [
     "/**\n * Public surface of the task layer.\n *\n * The query module reads tasks through here and nothing else: it needs the line parser and the\n * status registry, not the query engine, so the two modules stay separable and the dependency only\n * ever points in this direction.\n */",

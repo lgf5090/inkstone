@@ -141,13 +141,15 @@ export function EditTaskModal({ draft: first, statuses, validate, onClose, onSav
 
         <div className="grid gap-3 md:grid-cols-2">
           {EDIT_DATE_FIELDS.map((field) => {
-            const bad = errors?.dates[field] === true
+            const problem = errors?.dates[field]
+            const hint = problem === undefined ? undefined
+              : t(problem === 'from-note-name' ? 'tasks.edit_date_inferred' : 'tasks.edit_date_invalid')
             return (
-              <Field key={field} label={t(DATE_KEYS[field])} hint={bad ? t('tasks.edit_date_invalid') : undefined}>
+              <Field key={field} label={t(DATE_KEYS[field])} hint={hint}>
                 <Input
                   value={draft.dates[field]}
                   placeholder={t('tasks.edit_date_placeholder')}
-                  aria-invalid={bad || undefined}
+                  aria-invalid={problem !== undefined || undefined}
                   onChange={(event) => setDraft((current) => ({
                     ...current,
                     dates: { ...current.dates, [field]: event.target.value },
