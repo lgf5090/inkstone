@@ -48,7 +48,7 @@ import {
   type TodoViewSelection,
 } from './todo-address'
 
-export type TodoView = 'board' | 'today' | 'plan' | 'starred' | 'completed' | 'list' | 'tag' | 'stats'
+export type TodoView = 'board' | 'today' | 'plan' | 'calendar' | 'starred' | 'completed' | 'list' | 'tag' | 'stats'
 
 /** One step back: what the toast calls it, and the inverse writes that take it. */
 export interface TodoUndoEntry {
@@ -387,9 +387,9 @@ function listingParams(
   offset = 0,
 ): ListingParams {
   const params: ListingParams = { limit: PAGE_SIZE }
-  // The statistics screen has no listing behind it, so it asks for nothing more than the counts and
-  // the lists that its own frame still needs.
-  if (state.view === 'stats') return { ...params, limit: 1 }
+  // The statistics and calendar screens have no listing of their own, so they ask for nothing more than
+  // the counts and the lists that their own frame still needs.
+  if (state.view === 'stats' || state.view === 'calendar') return { ...params, limit: 1 }
   const query = state.query.trim()
   if (query) params.q = query
   if (offset > 0) params.offset = offset

@@ -14,13 +14,14 @@
  * number for both "picked for today" and "due by today", and the plan row beside it carries none.
  */
 import type { ComponentType, ReactNode } from 'react'
-import { CalendarDays, ChartNoAxesColumn, CheckCircle2, LayoutGrid, Star, Sun } from 'lucide-react'
+import { CalendarDays, CalendarRange, ChartNoAxesColumn, CheckCircle2, LayoutGrid, Star, Sun } from 'lucide-react'
 import type { TaskCounts } from '@shared/todos/model'
 import type { MessageKey } from '../../../lib/i18n'
 import { useTodos, type TodoView } from '../store'
 import { BoardView } from '../BoardView'
 import { CompletedView, ListTaskView, PlanView, StarredView } from '../TaskViews'
 import { TodayView } from '../TodayView'
+import { CalendarView } from '../CalendarView'
 import { ListsView } from '../ListsView'
 import { StatsView } from '../StatsView'
 
@@ -56,7 +57,7 @@ export const TODO_SURFACES: readonly TodoSurface[] = [
   {
     view: 'board',
     icon: LayoutGrid,
-    sidebar: { order: 4, labelKey: 'todo.smart.all', badge: (counts) => counts?.all ?? 0 },
+    sidebar: { order: 5, labelKey: 'todo.smart.all', badge: (counts) => counts?.all ?? 0 },
     phone: { order: 1, labelKey: 'todo.view.board' },
     render: ({ onOpenList }) => <BoardView onOpenList={onOpenList} />,
   },
@@ -76,9 +77,16 @@ export const TODO_SURFACES: readonly TodoSurface[] = [
     render: () => <div className="no-scrollbar min-h-0 flex-1 overflow-y-auto"><PlanView /></div>,
   },
   {
+    view: 'calendar',
+    icon: CalendarRange,
+    // A calendar is read on a wide window; a phone reaches it from the header instead of a fifth tab.
+    sidebar: { order: 4, labelKey: 'todo.view.calendar' },
+    render: () => <CalendarView />,
+  },
+  {
     view: 'completed',
     icon: CheckCircle2,
-    sidebar: { order: 5, labelKey: 'todo.smart.completed', badge: (counts) => counts?.completed ?? 0 },
+    sidebar: { order: 6, labelKey: 'todo.smart.completed', badge: (counts) => counts?.completed ?? 0 },
     phone: { order: 4, labelKey: 'todo.view.completed' },
     render: () => <CompletedView />,
   },
@@ -87,7 +95,7 @@ export const TODO_SURFACES: readonly TodoSurface[] = [
     icon: ChartNoAxesColumn,
     // A wide window has room for a fifth row. A phone's bottom bar does not: four tabs are what a
     // thumb can reach, so the phone reaches this screen from the header instead.
-    sidebar: { order: 6, labelKey: 'todo.view.stats' },
+    sidebar: { order: 7, labelKey: 'todo.view.stats' },
     render: () => <div className="no-scrollbar min-h-0 flex-1 overflow-y-auto"><StatsView /></div>,
   },
 ]

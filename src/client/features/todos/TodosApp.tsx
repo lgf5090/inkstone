@@ -8,7 +8,7 @@
  */
 
 import { useEffect, useRef, useState } from 'react'
-import { ChartNoAxesColumn, ListChecks, Plus, Search, Settings2, Sun } from 'lucide-react'
+import { CalendarRange, ChartNoAxesColumn, ListChecks, Plus, Search, Settings2, Sun } from 'lucide-react'
 import { cn } from '../../lib/cn'
 import { t } from '../../lib/i18n'
 import { IS_DEMO_MODE } from '../../lib/runtime'
@@ -180,6 +180,18 @@ export function TodosApp() {
             <ChartNoAxesColumn size={15} />
           </IconButton>
         )}
+        {!wide && (
+          <IconButton
+            label={t('todo.view.calendar')}
+            size="sm"
+            className="size-11"
+            active={view === 'calendar'}
+            data-calendar-entry=""
+            onClick={() => { setPage('main'); setView('calendar') }}
+          >
+            <CalendarRange size={15} />
+          </IconButton>
+        )}
         {/* A finger's height on a phone even though the glyph stays small: these two are the only way
             to reach the lists page and to add a task from the header. */}
         <IconButton label={t('todo.action.lists')} size="sm" className="size-11 md:size-6" active={page === 'lists'} onClick={() => setPage(page === 'lists' ? 'main' : 'lists')}>
@@ -283,7 +295,7 @@ export function TodosApp() {
           {/* The order is a question about the tasks, not about one view: the bar stays above every
               list, and the lists page is a different screen with no listing behind it. Statistics has
               no listing either, so its own range controls replace this bar rather than join it. */}
-          {page === 'main' && view !== 'stats' && <TodoFilters />}
+          {page === 'main' && view !== 'stats' && view !== 'calendar' && <TodoFilters />}
           {status === 'loading' && !counts ? <LoadingBlock /> : content}
         </div>
       </div>

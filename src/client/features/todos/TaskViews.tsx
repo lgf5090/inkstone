@@ -249,6 +249,7 @@ export function useViewTitle(): string {
   if (view === 'tag') return tags.find((tag) => tag.id === tagId)?.name ?? t('todo.view.tag')
   if (view === 'today') return t('todo.view.today')
   if (view === 'plan') return t('todo.view.plan')
+  if (view === 'calendar') return t('todo.view.calendar')
   if (view === 'starred') return t('todo.view.starred')
   if (view === 'completed') return t('todo.view.completed')
   if (view === 'stats') return t('todo.view.stats')

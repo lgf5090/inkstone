@@ -38,7 +38,7 @@ beforeEach(async () => {
   localStorage.clear()
   // The store outlives a render, so a case that expects a fresh load has to hand it back the idle state;
   // without this the first case's counts answer for every case after it.
-  useTodos.setState({ status: 'idle', counts: null, tasks: [], completed: [], lists: [], tags: [] })
+  useTodos.setState({ status: 'idle', counts: null, tasks: [], completed: [], lists: [], tags: [], view: 'board', listId: null, tagId: null })
   await initI18n()
 })
 
@@ -103,5 +103,42 @@ describe('the to-do container', () => {
     // Today's work is the only number the phone's bar carries: three badges on four tabs is noise.
     const badged = tabs.filter((tab) => /\d/.test(tab.textContent ?? ''))
     expect(badged.map((tab) => tab.getAttribute('aria-label'))).toEqual([t('todo.view.plan')])
+  })
+
+  it('reaches the calendar from the sidebar and names it in the address', async () => {
+    stubBreakpoint(true)
+    await render()
+
+    const sidebar = view.container.querySelector(`nav[aria-label="${t('todo.a11y.lists')}"]`)
+    const entry = [...(sidebar?.querySelectorAll('button') ?? [])]
+      .find((button) => (button.textContent ?? '').includes(t('todo.view.calendar')))
+    expect(entry, 'the calendar never reached the sidebar').toBeDefined()
+
+    await act(async () => {
+      entry!.click()
+      await Promise.resolve()
+    })
+    await act(async () => { await Promise.resolve() })
+
+    expect(window.location.search).toContain('view=calendar')
+    expect(view.container.querySelector('[data-todo-calendar]')).not.toBeNull()
+  })
+
+  it('puts the calendar in a phone header rather than a fifth tab', async () => {
+    stubBreakpoint(false)
+    await render()
+
+    const entry = view.container.querySelector<HTMLButtonElement>('button[data-calendar-entry]')
+    expect(entry, 'a phone has no way to reach the calendar').not.toBeNull()
+    expect(entry!.getAttribute('aria-label')).toBe(t('todo.view.calendar'))
+
+    await act(async () => {
+      entry!.click()
+      await Promise.resolve()
+    })
+    await act(async () => { await Promise.resolve() })
+
+    expect(window.location.search).toContain('view=calendar')
+    expect(view.container.querySelector('[data-todo-calendar]')).not.toBeNull()
   })
 })

@@ -104,6 +104,7 @@ describe('the to-do address grammar', () => {
       { view: 'board' as const, listId: null, tagId: null, query: '', sort: null, dueFrom: null, dueTo: null },
       { view: 'today' as const, listId: null, tagId: null, query: '', sort: null, dueFrom: null, dueTo: null },
       { view: 'plan' as const, listId: null, tagId: null, query: 'tax', sort: 'priority' as const, dueFrom: null, dueTo: null },
+      { view: 'calendar' as const, listId: null, tagId: null, query: '', sort: null, dueFrom: null, dueTo: null },
       { view: 'list' as const, listId: 'work', tagId: null, query: '', sort: null, dueFrom: '2026-10-01T00:00', dueTo: '2026-10-31T00:00' },
       { view: 'tag' as const, listId: null, tagId: 'errands', query: 'a b', sort: 'created' as const, dueFrom: null, dueTo: null },
       { view: 'completed' as const, listId: null, tagId: null, query: '', sort: null, dueFrom: null, dueTo: null },
