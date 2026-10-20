@@ -8,7 +8,7 @@
  */
 
 import { useEffect, useRef, useState } from 'react'
-import { CalendarDays, CheckCircle2, LayoutGrid, ListChecks, Plus, Search, Settings2, Star } from 'lucide-react'
+import { ListChecks, Plus, Search, Settings2 } from 'lucide-react'
 import { cn } from '../../lib/cn'
 import { t } from '../../lib/i18n'
 import { IS_DEMO_MODE } from '../../lib/runtime'
@@ -17,10 +17,9 @@ import { IconButton } from '../../components/primitives'
 import { Input } from '../../components/form'
 import { LoadingBlock } from '../../components/feedback'
 import { useTodos } from './store'
-import { BoardView } from './BoardView'
-import { ListsView } from './ListsView'
 import { TaskEditor } from './TaskEditor'
-import { CompletedView, ListTaskView, PlanView, StarredView, useViewTitle } from './TaskViews'
+import { useViewTitle } from './TaskViews'
+import { TodoContent, surfaceBadge, surfacesFor } from './views/registry'
 
 type Page = 'main' | 'lists'
 
@@ -175,10 +174,19 @@ export function TodosApp() {
   const sidebar = (
     <nav aria-label={t('todo.a11y.lists')} className="flex h-full w-[240px] shrink-0 flex-col gap-4 overflow-y-auto border-r border-[var(--border-subtle)] bg-[var(--bg-sunken)] px-2 py-3">
       <div className="flex flex-col gap-0.5">
-        <SidebarRow icon={<Star size={14} />} label={t('todo.view.starred')} count={counts?.starred ?? 0} active={view === 'starred'} onClick={() => { setPage('main'); setView('starred') }} />
-        <SidebarRow icon={<CalendarDays size={14} />} label={t('todo.view.plan')} count={counts?.today ?? 0} active={view === 'plan'} onClick={() => { setPage('main'); setView('plan') }} />
-        <SidebarRow icon={<ListChecks size={14} />} label={t('todo.smart.all')} count={counts?.all ?? 0} active={view === 'board'} onClick={() => { setPage('main'); setView('board') }} />
-        <SidebarRow icon={<CheckCircle2 size={14} />} label={t('todo.smart.completed')} count={counts?.completed ?? 0} active={view === 'completed'} onClick={() => { setPage('main'); setView('completed') }} />
+        {surfacesFor('sidebar').map((surface) => {
+          const Icon = surface.icon
+          return (
+            <SidebarRow
+              key={surface.view}
+              icon={<Icon size={14} />}
+              label={t(surface.sidebar!.labelKey)}
+              count={surfaceBadge(surface, 'sidebar', counts)}
+              active={view === surface.view}
+              onClick={() => { setPage('main'); setView(surface.view) }}
+            />
+          )
+        })}
       </div>
 
       <div className="flex flex-col gap-0.5">
@@ -227,17 +235,7 @@ export function TodosApp() {
 
   const content = (
     <div ref={contentRef} className="flex min-h-0 flex-1 flex-col">
-      {page === 'lists'
-        ? <ListsView onOpen={openList} />
-        : view === 'board'
-          ? <BoardView onOpenList={(id) => openList({ listId: id })} />
-          : view === 'plan'
-            ? <div className="no-scrollbar min-h-0 flex-1 overflow-y-auto"><PlanView /></div>
-            : view === 'starred'
-              ? <div className="no-scrollbar min-h-0 flex-1 overflow-y-auto"><StarredView /></div>
-              : view === 'completed'
-                ? <CompletedView />
-                : <ListTaskView />}
+      <TodoContent page={page} onOpen={openList} />
     </div>
   )
 
@@ -265,12 +263,21 @@ export function TodosApp() {
             aria-label={t('todo.app.navigation')}
             className="flex h-[calc(64px+env(safe-area-inset-bottom))] shrink-0 items-stretch justify-around border-t border-[var(--border-subtle)] bg-[var(--bg-surface)] pb-[env(safe-area-inset-bottom)]"
           >
-            {/* The board is the home view, and on a phone it is the only one the three aggregate views do
-                not lead back to: without this tab, a reader who opened the plan had no way home at all. */}
-            <MobileTab icon={<LayoutGrid size={18} />} label={t('todo.view.board')} active={view === 'board'} badge={0} onClick={() => { setPage('main'); setView('board') }} />
-            <MobileTab icon={<Star size={18} />} label={t('todo.view.starred')} active={view === 'starred'} badge={0} onClick={() => { setPage('main'); setView('starred') }} />
-            <MobileTab icon={<CalendarDays size={18} />} label={t('todo.view.plan')} active={view === 'plan'} badge={counts?.today ?? 0} onClick={() => { setPage('main'); setView('plan') }} />
-            <MobileTab icon={<CheckCircle2 size={18} />} label={t('todo.view.completed')} active={view === 'completed'} badge={0} onClick={() => { setPage('main'); setView('completed') }} />
+            {/* Order, glyphs, labels and the one badge all come from the surface table, so a view that
+                earns a tab on the phone is added there rather than here. */}
+            {surfacesFor('phone').map((surface) => {
+              const Icon = surface.icon
+              return (
+                <MobileTab
+                  key={surface.view}
+                  icon={<Icon size={18} />}
+                  label={t(surface.phone!.labelKey)}
+                  active={view === surface.view}
+                  badge={surfaceBadge(surface, 'phone', counts)}
+                  onClick={() => { setPage('main'); setView(surface.view) }}
+                />
+              )
+            })}
           </nav>
         </>
       )}
