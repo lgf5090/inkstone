@@ -8,7 +8,7 @@
  */
 
 import { useEffect, useRef, useState } from 'react'
-import { CalendarDays, CheckCircle2, ListChecks, Plus, Search, Settings2, Star } from 'lucide-react'
+import { CalendarDays, CheckCircle2, LayoutGrid, ListChecks, Plus, Search, Settings2, Star } from 'lucide-react'
 import { cn } from '../../lib/cn'
 import { t } from '../../lib/i18n'
 import { IS_DEMO_MODE } from '../../lib/runtime'
@@ -227,6 +227,9 @@ export function TodosApp() {
             aria-label={t('todo.app.navigation')}
             className="flex h-[calc(64px+env(safe-area-inset-bottom))] shrink-0 items-stretch justify-around border-t border-[var(--border-subtle)] bg-[var(--bg-surface)] pb-[env(safe-area-inset-bottom)]"
           >
+            {/* The board is the home view, and on a phone it is the only one the three aggregate views do
+                not lead back to: without this tab, a reader who opened the plan had no way home at all. */}
+            <MobileTab icon={<LayoutGrid size={18} />} label={t('todo.view.board')} active={view === 'board'} badge={0} onClick={() => { setPage('main'); setView('board') }} />
             <MobileTab icon={<Star size={18} />} label={t('todo.view.starred')} active={view === 'starred'} badge={0} onClick={() => { setPage('main'); setView('starred') }} />
             <MobileTab icon={<CalendarDays size={18} />} label={t('todo.view.plan')} active={view === 'plan'} badge={counts?.today ?? 0} onClick={() => { setPage('main'); setView('plan') }} />
             <MobileTab icon={<CheckCircle2 size={18} />} label={t('todo.view.completed')} active={view === 'completed'} badge={0} onClick={() => { setPage('main'); setView('completed') }} />
