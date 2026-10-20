@@ -21,6 +21,7 @@ function task(id: string, patch: Partial<TodoTask> = {}): TodoTask {
     repeat: null,
     remindAt: null,
     remindedAt: null,
+    plannedFor: null,
     noteId: null,
     conversationId: null,
     stepTotal: 0,

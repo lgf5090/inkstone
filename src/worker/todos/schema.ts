@@ -31,6 +31,10 @@ export const TODOS_SCHEMA_STATEMENTS: readonly string[] = [
     repeat_rule TEXT,
     remind_at INTEGER,
     reminded_at INTEGER,
+    -- The account's calendar day (YYYY-MM-DD) the reader picked this task into "today", or NULL when
+    -- it was never picked. A day rather than a boolean: a row planned for yesterday stops equalling
+    -- today when the calendar moves, so the membership needs no midnight sweep to clear itself.
+    planned_for TEXT,
     note_id TEXT,
     conversation_id TEXT,
     created_at INTEGER NOT NULL,
@@ -60,6 +64,10 @@ export const TODOS_SCHEMA_STATEMENTS: readonly string[] = [
   // whole shelf. Migration 115 carries it to databases built before this line existed.
   `CREATE INDEX IF NOT EXISTS idx_todos_tasks_completed_on
      ON todos_tasks(user_id, completed_on)`,
+  // What the today view and its badge read beyond due dates: one account's rows by the day they were
+  // picked for. Migration 118 carries it to databases built before the column existed.
+  `CREATE INDEX IF NOT EXISTS idx_todos_tasks_planned
+     ON todos_tasks(user_id, planned_for)`,
 
   `CREATE TABLE IF NOT EXISTS todos_lists (
     user_id TEXT NOT NULL,
@@ -147,6 +155,7 @@ export const TODOS_REQUIRED_INDEXES: readonly string[] = [
   'idx_todos_tasks_created',
   'idx_todos_tasks_completed',
   'idx_todos_tasks_completed_on',
+  'idx_todos_tasks_planned',
   'idx_todos_lists_unique',
   'idx_todos_steps_task',
   'idx_todos_tags_unique',
@@ -159,7 +168,7 @@ export const TODOS_REQUIRED_COLUMNS: Readonly<Record<string, readonly string[]>>
   todos_tasks: [
     'user_id', 'id', 'title', 'description', 'status', 'priority', 'due_at', 'completed_at',
     'completed_on', 'created_on',
-    'project_id', 'list_id', 'starred', 'repeat_rule', 'remind_at', 'reminded_at', 'note_id',
+    'project_id', 'list_id', 'starred', 'repeat_rule', 'remind_at', 'reminded_at', 'planned_for', 'note_id',
     'conversation_id', 'created_at', 'updated_at',
   ],
   todos_lists: ['user_id', 'id', 'name', 'icon', 'color', 'position', 'created_at', 'updated_at'],

@@ -949,6 +949,14 @@ export interface TaskQuery {
   offset?: number
   /** End of the reader's local day, in UTC milliseconds. */
   dayEnd?: number
+  /**
+   * The account-zone day (`YYYY-MM-DD`) `view=today` is read against in its "picked for today" half.
+   *
+   * The route passes the same string it hands `taskCounts`, so the page and the badge answer one
+   * question. Left out, the store resolves it from the account's own zone — the shape the MCP and
+   * assistant callers use, which have a `dayEnd` but no reason to compute a day themselves.
+   */
+  today?: string
 }
 
 /** One day-and-model slice of the usage series, whichever dimension table answered it. */
@@ -3748,8 +3756,13 @@ export class AssistantStore {
    * copy of "what is due today" is how the app and the reminder sweep start disagreeing. Both the page
    * of rows and its count go through here, which is the only reason the two can be trusted to be about
    * the same tasks.
+   *
+   * Async only because the today view's second half is a stored calendar day: a caller that did not
+   * name one gets it from the account's zone, read here rather than re-derived by every caller. The
+   * route names it, so the page and the badge below share one string even when the request lands on
+   * midnight.
    */
-  private taskFilter(query: TaskQuery = {}): Query {
+  private async taskFilter(query: TaskQuery = {}): Promise<Query> {
     const q = new Query(this.userId)
     const status = query.status ?? 'all'
     if (Array.isArray(status)) q.inList(`status`, status)
@@ -3758,13 +3771,20 @@ export class AssistantStore {
     const now = Date.now()
     const dayEnd = query.dayEnd ?? now
     const upcomingEnd = dayEnd + UPCOMING_DAYS * 24 * 60 * 60 * 1000
+    const today = query.view === 'today'
+      ? query.today ?? localDate(now, (await this.getSettings()).timezone)
+      : null
     switch (query.view) {
       case 'inbox':
         q.raw(`status != 'done' AND list_id IS NULL`)
         break
       case 'today':
+        // Today is two questions with one badge: what is owed by the end of the day, and what the
+        // reader picked for it. A plan from an earlier day is not cleared — it simply stops equalling
+        // today's string — which is what makes the rollover need no sweep.
         q.raw(`status != 'done' AND ((due_at IS NOT NULL AND due_at < ${q.add(dayEnd)})
-          OR (due_at IS NULL AND status = 'in_progress'))`)
+          OR (due_at IS NULL AND status = 'in_progress')
+          ${today === null ? '' : `OR planned_for = ${q.add(today)}`})`)
         break
       case 'upcoming':
         q.raw(`status != 'done' AND due_at IS NOT NULL AND due_at >= ${q.add(dayEnd)} AND due_at < ${q.add(upcomingEnd)}`)
@@ -3827,7 +3847,7 @@ export class AssistantStore {
    * for the next rows, not asking for a bigger copy of the same answer.
    */
   private async taskRows(query: TaskQuery = {}): Promise<TaskRow[]> {
-    const q = this.taskFilter(query)
+    const q = await this.taskFilter(query)
     const pageSize = query.view === 'completed' ? COMPLETED_PAGE_SIZE : MAX_TASKS_PER_QUERY
     const limit = q.add(Math.min(query.limit ?? pageSize, MAX_TASKS_PER_QUERY))
     const offset = query.offset && query.offset > 0 ? ` OFFSET ${q.add(Math.trunc(query.offset))}` : ''
@@ -3845,7 +3865,7 @@ export class AssistantStore {
    * "there is more" instead of leaving the reader to guess whether the screen is the whole answer.
    */
   async countTasks(query: TaskQuery = {}): Promise<number> {
-    const q = this.taskFilter(query)
+    const q = await this.taskFilter(query)
     const row = await this.one<{ n: number | null }>(
       `SELECT COUNT(*) AS n FROM todos_tasks WHERE ${q.where}`,
       ...q.binds,
@@ -4000,6 +4020,23 @@ export class AssistantStore {
   }
 
   /**
+   * Picks a task into a day, or clears the pick with `null`.
+   *
+   * The day is a plain `YYYY-MM-DD` in the account's zone and the route is what decides it is a real
+   * calendar day: the store's boundary is the account, not the shape of the text. Planning twice is
+   * one row either way, and a day in the past is kept as written — a backfilled record is still a
+   * record, it simply is not today. Does not touch the due date, the reminder or the status.
+   */
+  async planTask(id: string, date: string | null): Promise<TodoTask | null> {
+    const changed = await this.partialUpdate('todos_tasks', id, [
+      ['planned_for', date],
+      ['updated_at', Date.now()],
+    ])
+    if (!changed) return null
+    return await this.getTask(id)
+  }
+
+  /**
    * Completes a task, and returns the next occurrence when it repeats.
    *
    * The finished row stays: "I did write that report last week" is a fact worth keeping, and a task
@@ -4056,9 +4093,14 @@ export class AssistantStore {
    * two implementations would disagree for exactly the hours around midnight. A list and a tag each
    * carry an open and a finished number, because a collection's own view shows both groups and one
    * number cannot be checked against either of them.
+   *
+   * `today` is the account-zone day the today view adds its picked rows by; the route passes the one
+   * it listed with, so the badge and the page cannot land on different sides of midnight. Callers
+   * that do not name it (the MCP and assistant surfaces) get the account's own day, read here.
    */
-  async taskCounts(dayEnd: number): Promise<TaskCounts> {
+  async taskCounts(dayEnd: number, today?: string): Promise<TaskCounts> {
     const now = Date.now()
+    const pickedFor = today ?? localDate(now, (await this.getSettings()).timezone)
     const upcomingEnd = dayEnd + UPCOMING_DAYS * 24 * 60 * 60 * 1000
     const totals = await this.one<{
       inbox: number | null; today: number | null; upcoming: number | null; overdue: number | null
@@ -4067,14 +4109,15 @@ export class AssistantStore {
       `SELECT
          SUM(CASE WHEN status != 'done' AND list_id IS NULL THEN 1 ELSE 0 END) AS inbox,
          SUM(CASE WHEN status != 'done' AND ((due_at IS NOT NULL AND due_at < ?2)
-              OR (due_at IS NULL AND status = 'in_progress')) THEN 1 ELSE 0 END) AS today,
+              OR (due_at IS NULL AND status = 'in_progress')
+              OR planned_for = ?5) THEN 1 ELSE 0 END) AS today,
          SUM(CASE WHEN status != 'done' AND due_at IS NOT NULL AND due_at >= ?2 AND due_at < ?3 THEN 1 ELSE 0 END) AS upcoming,
          SUM(CASE WHEN status != 'done' AND due_at IS NOT NULL AND due_at < ?4 THEN 1 ELSE 0 END) AS overdue,
          SUM(CASE WHEN status != 'done' THEN 1 ELSE 0 END) AS open,
          SUM(CASE WHEN status = 'done' THEN 1 ELSE 0 END) AS completed,
          SUM(CASE WHEN status != 'done' AND starred = 1 THEN 1 ELSE 0 END) AS starred
        FROM todos_tasks WHERE user_id = ?1`,
-      this.userId, dayEnd, upcomingEnd, now,
+      this.userId, dayEnd, upcomingEnd, now, pickedFor,
     )
     // The inbox is folded in under its own key: a card shows the same `done / total` line whether
     // the list is the reader's or the one every unfiled task lands in.
@@ -6535,6 +6578,7 @@ interface TaskRow {
   repeat_rule: string | null
   remind_at: number | null
   reminded_at: number | null
+  planned_for: string | null
   note_id: string | null
   conversation_id: string | null
   created_at: number
@@ -6587,6 +6631,7 @@ function toTask(
     repeat: parseRepeatRule(parseJson(r.repeat_rule)),
     remindAt: num(r.remind_at),
     remindedAt: num(r.reminded_at),
+    plannedFor: r.planned_for ?? null,
     noteId: r.note_id,
     conversationId: r.conversation_id,
     stepTotal: extras.stepTotal,

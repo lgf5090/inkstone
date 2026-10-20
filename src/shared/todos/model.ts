@@ -107,6 +107,13 @@ export interface TodoTask extends Task {
   repeat: RepeatRule | null
   remindAt: number | null
   remindedAt: number | null
+  /**
+   * The account-zone day (`YYYY-MM-DD`) the reader picked this task into "today", or null when it
+   * was never picked. Orthogonal to `dueAt`: a task can be planned for today while being due next
+   * week, and a task due today is in today without a plan. A stored day rather than a flag is what
+   * lets yesterday's plan lapse at midnight with no sweep.
+   */
+  plannedFor: string | null
   noteId: string | null
   conversationId: string | null
   stepTotal: number

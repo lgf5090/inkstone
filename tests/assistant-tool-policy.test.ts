@@ -24,6 +24,7 @@ const TASK: TodoTask = {
   id: 't1', title: '买牛奶', description: '', status: 'todo', priority: 'medium',
   dueAt: null, projectId: null, createdAt: 1, updatedAt: 1, completedAt: null,
   listId: null, tags: [], starred: false, repeat: null, remindAt: null, remindedAt: null,
+  plannedFor: null,
   noteId: null, conversationId: null, stepTotal: 0, stepDone: 0,
 }
 

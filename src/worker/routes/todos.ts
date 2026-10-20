@@ -150,6 +150,22 @@ function asRepeat(value: unknown): RepeatRule | null {
 
 const REMIND_VALUES: readonly RemindOffset[] = ['none', 'due', '15m', '1h', '1d']
 
+/**
+ * The day a plan names: one calendar date, or `null` for "not today".
+ *
+ * A day in the past is deliberately allowed. Picking a task into a day that has already happened is a
+ * backfilled record — it is not shown in today, because today is compared as a string — and refusing
+ * it would lose the fact rather than the membership. What is refused is text that is not a day at all,
+ * including a date that does not exist on the calendar.
+ */
+function plannedDay(value: unknown): string | null {
+  if (value === null) return null
+  if (typeof value !== 'string' || !isStatsDay(value)) {
+    throw ApiError.badRequest('A planned day must be a date like 2026-01-31, or null.')
+  }
+  return value
+}
+
 function asRemind(value: unknown): RemindOffset {
   if (typeof value !== 'string' || !(REMIND_VALUES as readonly string[]).includes(value)) {
     throw ApiError.badRequest('A reminder must be one of none, due, 15m, 1h or 1d.')
@@ -234,7 +250,7 @@ function iconValue(value: unknown): string | null | undefined {
  * (answering the unfiltered question) or empty the page (every open row has no completion day), so it is
  * refused there instead.
  */
-function listingQuery(c: Ctx, timezone: string, dayEnd: number): TaskQuery {
+function listingQuery(c: Ctx, timezone: string, dayEnd: number, today: string): TaskQuery {
   const list = c.req.query('list')
   const tag = c.req.query('tag')
   const priority = c.req.query('priority')
@@ -265,6 +281,9 @@ function listingQuery(c: Ctx, timezone: string, dayEnd: number): TaskQuery {
     limit: Number.isFinite(limit) ? Math.max(1, Math.min(MAX_TASKS_PER_QUERY, Math.trunc(limit))) : undefined,
     offset: Number.isFinite(offset) ? Math.max(0, Math.trunc(offset)) : undefined,
     dayEnd,
+    // The one day the today view adds its picked rows by. Handed to the listing and the counts from
+    // the same request, so the badge cannot be a day ahead of the page it opens.
+    today,
   }
 }
 
@@ -293,11 +312,16 @@ todoRoutes.get('/', async (c) => {
   const s = store(c)
   const settings = await s.getSettings()
   const dayEnd = readerDayEnd(settings.timezone)
-  const query = listingQuery(c, settings.timezone, dayEnd)
+  const today = localDate(Date.now(), settings.timezone)
+  const query = listingQuery(c, settings.timezone, dayEnd, today)
   // The page, its count and the sidebar numbers are three reads of the same account and no shared
   // transaction: a listing is allowed to be one write behind, and saying so is better than a fourth
   // round trip made while the reader waits.
-  const [tasks, total, counts] = await Promise.all([s.listTasks(query), s.countTasks(query), s.taskCounts(dayEnd)])
+  const [tasks, total, counts] = await Promise.all([
+    s.listTasks(query),
+    s.countTasks(query),
+    s.taskCounts(dayEnd, today),
+  ])
   return c.json({ tasks, total, counts, dayEnd, timezone: settings.timezone })
 })
 
@@ -343,6 +367,22 @@ todoRoutes.post('/', async (c) => {
   })
   await s.recordActivity('task.created', task.title)
   return c.json({ task }, 201)
+})
+
+/**
+ * Picks one task into a day, or takes it back out with `null`.
+ *
+ * A separate endpoint rather than a `plannedFor` field on PATCH: the pick is its own gesture with its
+ * own body shape (`{date}`), and the old client's PATCH never has to learn about a column it does not
+ * send. The task id is scoped by the store, so another account's id is a 404 like every other id here.
+ */
+todoRoutes.post('/:id/plan', async (c) => {
+  const s = store(c)
+  const id = requiredId(c.req.param('id'))
+  const body = await readJson<Record<string, unknown>>(c, BODY_LIMIT)
+  const task = await s.planTask(id, plannedDay(body.date))
+  if (!task) throw ApiError.notFound('Task not found')
+  return c.json({ task })
 })
 
 // ------------------------------------------------------------------- lists

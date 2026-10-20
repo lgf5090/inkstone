@@ -1790,6 +1790,33 @@ export const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
      ON todos_tasks(user_id, completed_on)`,
     ],
   },
+  {
+    // The day a reader picked a task into "today" — "My Day", which is not the same question as
+    // "what is due today".
+    //
+    // The value is the account's calendar day (`YYYY-MM-DD`), the same shape `completed_on` uses and
+    // for the same reason: a day derived from an offset drifts across DST. It is a day rather than a
+    // boolean because the membership has to lapse at midnight without a sweep — yesterday's string
+    // simply stops equalling today's, so no cron and no state drift. Nullable with no default because
+    // a task nobody picked is an honest absence, not a different kind of plan. 116 is reserved for the
+    // `todos:read` account switch, so the to-do column takes the next number after it.
+    version: 117,
+    skipIfColumnExists: { table: 'todos_tasks', column: 'planned_for' },
+    statements: [
+      `ALTER TABLE todos_tasks ADD COLUMN planned_for TEXT`,
+    ],
+  },
+  {
+    // The today view now reads two predicates — due by the end of the day, or picked for it — and the
+    // second had no index: every listing and every badge walked the account's whole shelf. Keyed on
+    // the account first for the reason every index here is, and on the picked day second so the
+    // membership is one range. One index, one version.
+    version: 118,
+    statements: [
+      `CREATE INDEX IF NOT EXISTS idx_todos_tasks_planned
+     ON todos_tasks(user_id, planned_for)`,
+    ],
+  },
 ]
 
 const FTS_STATEMENT = `CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(
