@@ -7531,4 +7531,6 @@ console.log(\`Hello, \${name}!\`)
     "todo.chat.due_today": "今天",
     "todo.task.ask_ai": "问 AI",
     "todo.task.from_chat": "来自对话",
+    "todo.quickadd.preview": "已识别",
+    "todo.quickadd.list_missing": "清单不存在",
 } as const satisfies Record<BaseMessageKey, string>;

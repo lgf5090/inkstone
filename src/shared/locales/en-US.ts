@@ -7531,6 +7531,8 @@ Press \`Ctrl + ,\` to change the interface language, theme, typography, editor, 
     "todo.chat.due_today": "Today",
     "todo.task.ask_ai": "Ask AI",
     "todo.task.from_chat": "From a conversation",
+    "todo.quickadd.preview": "Recognized",
+    "todo.quickadd.list_missing": "No such list",
 } as const;
 export type BaseMessageKey = keyof typeof EN_US_MESSAGES;
 export type MessageKey = BaseMessageKey | NoteTemplateContentKey;
