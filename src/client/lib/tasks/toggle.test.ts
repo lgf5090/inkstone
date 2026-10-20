@@ -213,3 +213,83 @@ describe('sub-task cascade', () => {
     expect(child).toContain('[x]')
   })
 })
+
+/**
+ * The three note bodies the reference plugin keeps as its toggle regression fixtures
+ * (`MockDataForTogglingTasks`: issues 1680 and 688, plus the two-tasks case), carried over as source
+ * text. They pin the three ways a rewrite can edit the wrong words: a line number that no longer
+ * exists, a line found by searching instead of by position, and a task whose block id must survive.
+ */
+describe('the upstream toggle fixtures', () => {
+  const oneSixEighty = [
+    '## Test Data',
+    '',
+    '### Tasks Section 1',
+    '- [ ] #task Section 1/Task 1',
+    '- [ ] #task Section 1/Task 2',
+    '',
+    '### Tasks Section 2',
+    '',
+    '- [ ] #task Section 2/Task 1',
+    '- [ ] #task Section 2/Task 2',
+    '',
+  ].join('\n')
+
+  const sixEightyEight = [
+    '## Category 1',
+    '',
+    '- [ ] #task task1a',
+    '- [ ] #task task1b',
+    '',
+    '## Category 2',
+    '',
+    '- [ ] #task task2a',
+    '- [ ] #task task2b ^ca47c7',
+    '',
+    '- ref task2 ![[#^ca47c7]]',
+    '',
+  ].join('\n')
+
+  const twoTasks = [
+    '# Toggle 2nd of two tasks',
+    '',
+    '## Heading 2',
+    '',
+    '- [ ] #task task 1',
+    '- [ ] #task task 2',
+    '',
+  ].join('\n')
+
+  it('refuses a row whose line number is past the end of the note', () => {
+    expect(applyTaskToggle(oneSixEighty, { line: 14, text: '#task Section 2/Task 2' }, settings(), NOW)).toBeNull()
+    expect(applyTaskToggle(oneSixEighty, { line: 9, text: '#task Section 2/Task 2' }, settings(), NOW))
+      .toBe(oneSixEighty.replace(
+        '- [ ] #task Section 2/Task 2',
+        `- [x] #task Section 2/Task 2 ${DONE_MARK} 2026-10-19`,
+      ))
+  })
+
+  it('edits the line the row was read from, not the first line that says the same thing', () => {
+    const out = applyTaskToggle(sixEightyEight, { line: 8, text: '#task task2b' }, settings(), NOW)!
+    const lines = out.split('\n')
+    expect(lines[8]).toBe(`- [x] #task task2b ${DONE_MARK} 2026-10-19 ^ca47c7`)
+    expect(lines[7]).toBe('- [ ] #task task2a')
+    expect(lines[10]).toBe('- ref task2 ![[#^ca47c7]]')
+  })
+
+  it('moves only the addressed one of two identical lines', () => {
+    const source = ['- [ ] #task twice', '- [ ] #task twice'].join('\n')
+    const out = applyTaskToggle(source, { line: 1, text: '#task twice' }, settings(), NOW)!
+    const lines = out.split('\n')
+    expect(lines[0]).toBe('- [ ] #task twice')
+    expect(lines[1]).toBe(`- [x] #task twice ${DONE_MARK} 2026-10-19`)
+  })
+
+  it('toggles the second of two tasks and leaves the heading and the first alone', () => {
+    const out = applyTaskToggle(twoTasks, { line: 5, text: '#task task 2' }, settings(), NOW)!
+    const lines = out.split('\n')
+    expect(lines[0]).toBe('# Toggle 2nd of two tasks')
+    expect(lines[4]).toBe('- [ ] #task task 1')
+    expect(lines[5]).toBe(`- [x] #task task 2 ${DONE_MARK} 2026-10-19`)
+  })
+})

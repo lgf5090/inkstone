@@ -1,4 +1,6 @@
 import { EditorView } from '@codemirror/view'
+import { t } from '../lib/i18n'
+import { useUi } from '../store/ui'
 
 /**
  * Move the checkboxes a reader selected, through the one primitive every other surface uses.
@@ -7,15 +9,22 @@ import { EditorView } from '@codemirror/view'
  * lines to hand it and how to put the result back into the document without rewriting the lines that
  * did not change. The task module is loaded on demand because a note that holds no recurring task has
  * no reason to download a recurrence library.
+ *
+ * False means nothing was written, which is the moment a caller has to put a box back the way it was.
  */
-export async function tickTaskLines(view: EditorView, lineIndexes: number[], userEvent: string): Promise<void> {
+export async function tickTaskLines(view: EditorView, lineIndexes: number[], userEvent: string): Promise<boolean> {
   const { toggleTaskLinesInSource } = await import('../lib/tasks/service')
   const source = view.state.doc.toString()
   const next = toggleTaskLinesInSource(source, lineIndexes)
-  if (next === null) return
-  const change = minimalLineChange(source, next)
-  if (change === null) return
+  const change = next === null ? null : minimalLineChange(source, next)
+  if (change === null) {
+    // The box was drawn from a line that parsed, so the only way to get nothing back is a note that
+    // moved underneath the render. A silent no-op is what makes a checkbox look broken.
+    useUi.getState().toast({ title: t('editor.task_line_changed'), tone: 'warning' })
+    return false
+  }
   view.dispatch({ changes: change, userEvent })
+  return true
 }
 
 /**

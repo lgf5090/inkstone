@@ -786,6 +786,7 @@ export const EN_US_MESSAGES = {
     "editor.clipboard_read_failed": "The clipboard could not be read.",
     "editor.column_1": "Column 1",
     "editor.column_2": "Column 2",
+    "editor.task_line_changed": "This task's line changed before the tick landed, so nothing was written.",
     "feedback.dismiss": "Dismiss",
     "graph.building_graph": "Building graph…",
     "graph.all_folders": "All folders",

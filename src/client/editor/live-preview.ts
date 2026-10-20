@@ -107,7 +107,8 @@ class RenderedBlock extends WidgetType {
             const checkbox = target.closest<HTMLInputElement>('input[data-task-line]');
             if (checkbox) {
                 if (checkbox.disabled || checkbox.closest('.note-embed-body')) return;
-                void tickTaskLines(view, [Number(checkbox.dataset.taskLine)], 'input');
+                void tickTaskLines(view, [Number(checkbox.dataset.taskLine)], 'input')
+                    .then((written) => { if (!written) checkbox.checked = !checkbox.checked; });
                 return;
             }
             const collapse = target.closest<HTMLButtonElement>('[data-code-collapse]');

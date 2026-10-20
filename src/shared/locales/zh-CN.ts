@@ -786,6 +786,7 @@ export const ZH_CN_MESSAGES = {
     "editor.clipboard_read_failed": "读不到剪贴板内容。",
     "editor.column_1": "第一栏",
     "editor.column_2": "第二栏",
+    "editor.task_line_changed": "这项任务所在的行在勾选落地前已经变化，未做修改。",
     "feedback.dismiss": "关闭提示",
     "graph.building_graph": "正在计算关系…",
     "graph.all_folders": "全部文件夹",

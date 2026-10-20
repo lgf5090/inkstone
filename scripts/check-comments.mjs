@@ -904,9 +904,15 @@ const allowed = new Map([
     "// reader sees in the note. Letting this rejection out would leave the placeholder sitting there",
     "// instead, and every sibling upload in the same paste would lose its replacement too.",
   ]],
+  ["src/client/editor/task-tick.test.ts", [
+    "// The writer is a lazy chunk holding the recurrence and natural-language date libraries, and loading",
+    "// it is most of this file's runtime in a source-transform run.",
+  ]],
   ["src/client/editor/task-tick.ts", [
-    "/**\n * Move the checkboxes a reader selected, through the one primitive every other surface uses.\n *\n * The writer knows status cycles, recurrence and sub-task cascades; this module only decides which\n * lines to hand it and how to put the result back into the document without rewriting the lines that\n * did not change. The task module is loaded on demand because a note that holds no recurring task has\n * no reason to download a recurrence library.\n */",
     "/**\n * Replace only the lines a rewrite actually changed.\n *\n * Dispatching the whole new document would touch every line the reader can see and coarsen the undo\n * granularity of a single tick. For a plain tick that is one line; for a recurring task, two.\n */",
+    "/**\n * Move the checkboxes a reader selected, through the one primitive every other surface uses.\n *\n * The writer knows status cycles, recurrence and sub-task cascades; this module only decides which\n * lines to hand it and how to put the result back into the document without rewriting the lines that\n * did not change. The task module is loaded on demand because a note that holds no recurring task has\n * no reason to download a recurrence library.\n *\n * False means nothing was written, which is the moment a caller has to put a box back the way it was.\n */",
+    "// The box was drawn from a line that parsed, so the only way to get nothing back is a note that",
+    "// moved underneath the render. A silent no-op is what makes a checkbox look broken.",
   ]],
   ["src/client/editor/text-format.test.ts", [
     "/** Every case below reads as \"select the whole note, press the button\". */",
@@ -17557,6 +17563,7 @@ const allowed = new Map([
   ["src/client/lib/tasks/toggle.test.ts", [
     "/** The serializer a reader picks for their ticks decides what the line is read as, not what is kept. */",
     "// The date the reader's own format cannot read stays in the line as prose rather than vanishing.",
+    "/**\n * The three note bodies the reference plugin keeps as its toggle regression fixtures\n * (`MockDataForTogglingTasks`: issues 1680 and 688, plus the two-tasks case), carried over as source\n * text. They pin the three ways a rewrite can edit the wrong words: a line number that no longer\n * exists, a line found by searching instead of by position, and a task whose block id must survive.\n */",
   ]],
   ["src/client/lib/tasks/toggle.ts", [
     "/** Stamp today onto `done` when a task reaches a done-type status. */",
