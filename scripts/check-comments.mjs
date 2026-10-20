@@ -16663,6 +16663,7 @@ const allowed = new Map([
   ]],
   ["src/client/lib/markdown/renderer-blocks.test.ts", [
     "// A mark is a ticked box; only a finished one is struck through, or `[/]` would look done.",
+    "/**\n   * The list shapes a task can be written in, measured rather than assumed.\n   *\n   * An ordered item, a nested one, and a list inside a blockquote all reach the same rule, because\n   * markdown-it hands every one of them a `list_item_open` — which is what the placeholder needs. A\n   * bare `> [ ] x` does not: it is a paragraph that starts with brackets, and boxing it would put a\n   * control on a line no task plugin, and not Obsidian either, treats as a task.\n   */",
   ]],
   ["src/client/lib/markdown/renderer-chart.test.ts", [
     "/** markdown-it hands a fence body with its closing newline attached, so the attribute carries it too. */",
