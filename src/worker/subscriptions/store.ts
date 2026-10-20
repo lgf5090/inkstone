@@ -13,17 +13,25 @@
  *  - a payment record and the expiry date it bought are written together, because a receipt without
  *    its period (or a period without its receipt) is what makes a history untrustworthy.
  */
-import type { SubscriptionDetail, SubscriptionItem, SubscriptionInput, SubscriptionSettings, PaymentRecord, ReminderRule, ReminderRuleInput, RenewOptions } from '@shared/subscriptions/model'
+import type { LabelEntry, LabelKind, SubscriptionDetail, SubscriptionItem, SubscriptionInput, SubscriptionSettings, PaymentRecord, ReminderRule, ReminderRuleInput, RenewOptions } from '@shared/subscriptions/model'
 import {
+  BULK_LIMIT,
   defaultPresetRules,
+  labelNamesOf,
   normalizeRule,
   roundMoney,
+  LABEL_MAX,
   RULES_LIMIT,
+  type BulkAction,
 } from '@shared/subscriptions/model'
+import { normalizeColor, normalizeIcon } from '@shared/subscriptions/identity'
 import { addLunarPeriod, lunar2solar, solar2lunar } from '@shared/subscriptions/lunar'
 import { addCalendarPeriodInTimezone, getTimezoneDateParts, getTimezoneMidnightTimestamp, getTimestampForTimezoneParts } from '@shared/subscriptions/time'
 import { getNextFireTime, soonestFire } from '@shared/subscriptions/reminder-engine'
 import { newId } from '../lib/id'
+
+/** Statements per `batch` call when emptying the trash: four per row, kept well under D1's ceiling. */
+const PURGE_CHUNK = 80
 
 /** The account's own context, which every date calculation needs and no row carries. */
 export interface StoreContext {
@@ -50,6 +58,8 @@ interface ItemRow {
   auto_renew: number
   notes: string
   last_payment_date: number | null
+  trial_ends_at: number | null
+  deleted_at: number | null
   created_at: number
   updated_at: number
 }
@@ -77,19 +87,20 @@ interface RuleRow {
   unit: string
   repeat_interval: number | null
   repeat_until: string
+  acknowledged_at: number | null
   enabled: number
   created_at: number
 }
 
 const ITEM_COLUMNS = `user_id, id, name, custom_type, category, amount, currency, start_date, expiry_date,
   period_value, period_unit, subscription_mode, use_lunar, is_active, auto_renew, notes,
-  last_payment_date, created_at, updated_at`
+  last_payment_date, trial_ends_at, deleted_at, created_at, updated_at`
 
 const PAYMENT_COLUMNS = `user_id, id, subscription_id, paid_at, amount, currency, kind, note,
   period_start, period_end, created_at`
 
 const RULE_COLUMNS = `user_id, id, subscription_id, kind, value, unit, repeat_interval, repeat_until,
-  enabled, created_at`
+  acknowledged_at, enabled, created_at`
 
 function toIso(ms: number | null | undefined): string | null {
   return ms === null || ms === undefined ? null : new Date(ms).toISOString()
@@ -123,6 +134,7 @@ function toRule(row: RuleRow): ReminderRule {
     unit: row.unit as ReminderRule['unit'],
     repeatInterval: row.repeat_interval,
     repeatUntil: row.repeat_until as ReminderRule['repeatUntil'],
+    acknowledgedAt: row.acknowledged_at === null ? null : new Date(row.acknowledged_at).toISOString(),
     isEnabled: row.enabled === 1,
     createdAt: new Date(row.created_at).toISOString(),
   }
@@ -134,10 +146,19 @@ export class SubscriptionsStore {
     readonly userId: string,
   ) {}
 
-  async list(context: StoreContext): Promise<SubscriptionItem[]> {
+  /**
+   * One shelf of subscriptions.
+   *
+   * `live` is the default and the only thing the scheduler, the overview and the app's first paint ask
+   * for, which is what keeps a trashed subscription from renewing itself or sending reminders while
+   * nobody is looking at it.
+   */
+  async list(context: StoreContext, view: 'live' | 'trash' = 'live'): Promise<SubscriptionItem[]> {
     const now = context.now ?? Date.now()
+    const shelf = view === 'trash' ? 'deleted_at IS NOT NULL' : 'deleted_at IS NULL'
+    const order = view === 'trash' ? 'deleted_at DESC' : 'expiry_date'
     const [items, payments, rules] = await Promise.all([
-      this.db.prepare(`SELECT ${ITEM_COLUMNS} FROM sub_item WHERE user_id = ?1 ORDER BY expiry_date`)
+      this.db.prepare(`SELECT ${ITEM_COLUMNS} FROM sub_item WHERE user_id = ?1 AND ${shelf} ORDER BY ${order}`)
         .bind(this.userId).all<ItemRow>(),
       this.db.prepare(
         `SELECT subscription_id, COUNT(*) AS count, SUM(amount) AS total
@@ -206,7 +227,7 @@ export class SubscriptionsStore {
 
     const statements = [
       this.db.prepare(
-        `INSERT INTO sub_item (${ITEM_COLUMNS}) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19)`,
+        `INSERT INTO sub_item (${ITEM_COLUMNS}) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, NULL, ?19, ?20)`,
       ).bind(
         this.userId,
         id,
@@ -225,6 +246,7 @@ export class SubscriptionsStore {
         input.autoRenew === false ? 0 : 1,
         input.notes ?? '',
         startDate ?? createdAt,
+        toMs(input.trialEndsAt ?? null),
         createdAt,
         createdAt,
       ),
@@ -254,7 +276,8 @@ export class SubscriptionsStore {
     for (const rule of rules) statements.push(this.insertRuleStatement(id, rule))
 
     await this.db.batch(statements)
-    await this.addCategory((input.category ?? '').trim())
+    await this.registerLabels('type', input.customType)
+    await this.registerLabels('category', input.category)
     return (await this.get(id, context))!
   }
 
@@ -281,7 +304,7 @@ export class SubscriptionsStore {
       `UPDATE sub_item SET name = ?3, custom_type = ?4, category = ?5, amount = ?6, currency = ?7,
          start_date = ?8, expiry_date = ?9, period_value = ?10, period_unit = ?11,
          subscription_mode = ?12, use_lunar = ?13, is_active = ?14, auto_renew = ?15, notes = ?16,
-         last_payment_date = ?17, updated_at = ?18
+         last_payment_date = ?17, trial_ends_at = ?19, updated_at = ?18
        WHERE user_id = ?1 AND id = ?2`,
     ).bind(
       this.userId,
@@ -302,22 +325,117 @@ export class SubscriptionsStore {
       input.notes ?? existing.notes,
       existing.last_payment_date,
       now,
+      input.trialEndsAt === undefined
+        ? existing.trial_ends_at
+        : toMs(input.trialEndsAt),
     ).run()
 
     await this.syncInitialPayment(id, existing, amount, currency, startDate, expiry, now)
-    await this.addCategory(category)
+    // An absent `reminderRules` means "not what this edit is about"; an empty array means "no rules",
+    // which is a thing a reader can genuinely decide and must be able to say.
+    if (input.reminderRules) await this.replaceRules(id, input.reminderRules)
+    await this.registerLabels('type', input.customType ?? existing.custom_type)
+    await this.registerLabels('category', category)
     return this.get(id, context)
   }
 
-  async remove(id: string): Promise<boolean> {
+  /**
+   * Move a subscription to the trash.
+   *
+   * Only the row's own timestamp changes: the receipts and the rules stay, because they are the reason
+   * the row is worth keeping. A trashed subscription is excluded from `list('live')`, so it stops
+   * renewing, reminding and counting towards a total the moment it lands here — no other bookkeeping.
+   */
+  async trash(id: string, context: StoreContext): Promise<boolean> {
+    const result = await this.db.prepare(
+      `UPDATE sub_item SET deleted_at = ?3, updated_at = ?3 WHERE user_id = ?1 AND id = ?2 AND deleted_at IS NULL`,
+    ).bind(this.userId, id, context.now ?? Date.now()).run()
+    return (result.meta.changes ?? 0) > 0
+  }
+
+  async restore(id: string, context: StoreContext): Promise<SubscriptionDetail | null> {
+    const result = await this.db.prepare(
+      `UPDATE sub_item SET deleted_at = NULL, updated_at = ?3 WHERE user_id = ?1 AND id = ?2 AND deleted_at IS NOT NULL`,
+    ).bind(this.userId, id, context.now ?? Date.now()).run()
+    if (!(result.meta.changes ?? 0)) return null
+    return this.get(id, context)
+  }
+
+  /** Erase a subscription and everything under it. This is the one that cannot be undone. */
+  async purge(id: string): Promise<boolean> {
     const existing = await this.itemRow(id)
     if (!existing) return false
     await this.db.batch([
       this.db.prepare(`DELETE FROM sub_payment WHERE user_id = ?1 AND subscription_id = ?2`).bind(this.userId, id),
       this.db.prepare(`DELETE FROM sub_reminder_rule WHERE user_id = ?1 AND subscription_id = ?2`).bind(this.userId, id),
+      this.db.prepare(`DELETE FROM sub_notify_log WHERE user_id = ?1 AND subscription_id = ?2`).bind(this.userId, id),
       this.db.prepare(`DELETE FROM sub_item WHERE user_id = ?1 AND id = ?2`).bind(this.userId, id),
     ])
     return true
+  }
+
+  /** Every trashed row, gone for good. Returns how many went. */
+  async emptyTrash(): Promise<number> {
+    const trashed = await this.db.prepare(
+      `SELECT id FROM sub_item WHERE user_id = ?1 AND deleted_at IS NOT NULL`,
+    ).bind(this.userId).all<{ id: string }>()
+    const ids = trashed.results.map((row) => row.id)
+    if (!ids.length) return 0
+    const statements = ids.flatMap((id) => [
+      this.db.prepare(`DELETE FROM sub_payment WHERE user_id = ?1 AND subscription_id = ?2`).bind(this.userId, id),
+      this.db.prepare(`DELETE FROM sub_reminder_rule WHERE user_id = ?1 AND subscription_id = ?2`).bind(this.userId, id),
+      this.db.prepare(`DELETE FROM sub_notify_log WHERE user_id = ?1 AND subscription_id = ?2`).bind(this.userId, id),
+      this.db.prepare(`DELETE FROM sub_item WHERE user_id = ?1 AND id = ?2`).bind(this.userId, id),
+    ])
+    // D1 caps a batch well below a thousand statements, and four per row means a reader with 300
+    // trashed subscriptions would have had it fail halfway through the emptying.
+    for (let offset = 0; offset < statements.length; offset += PURGE_CHUNK) {
+      await this.db.batch(statements.slice(offset, offset + PURGE_CHUNK))
+    }
+    return ids.length
+  }
+
+  /**
+   * Apply one action to a named set of subscriptions.
+   *
+   * Ids that are not the account's, or no longer exist, are skipped rather than failing the whole call —
+   * a reader who selected twelve and had one restored elsewhere should not have the other eleven refuse.
+   * The count that comes back is what actually changed, so the toast can be true.
+   */
+  async bulk(ids: readonly string[], action: BulkAction, options: { category?: string } = {}): Promise<number> {
+    const unique = [...new Set(ids)].filter(Boolean).slice(0, BULK_LIMIT)
+    if (!unique.length) return 0
+    if (action === 'trash') {
+      let changed = 0
+      for (const id of unique) {
+        const result = await this.db.prepare(
+          `UPDATE sub_item SET deleted_at = ?3, updated_at = ?3 WHERE user_id = ?1 AND id = ?2 AND deleted_at IS NULL`,
+        ).bind(this.userId, id, Date.now()).run()
+        changed += (result.meta.changes ?? 0) > 0 ? 1 : 0
+      }
+      return changed
+    }
+    const set = action === 'activate' ? 'is_active = 1'
+      : action === 'deactivate' ? 'is_active = 0'
+        : 'category = ?3'
+    let changed = 0
+    for (const id of unique) {
+      const result = action === 'set_category'
+        ? await this.db.prepare(`UPDATE sub_item SET ${set}, updated_at = ?4 WHERE user_id = ?1 AND id = ?2 AND deleted_at IS NULL`)
+          .bind(this.userId, id, (options.category ?? '').trim(), Date.now()).run()
+        : await this.db.prepare(`UPDATE sub_item SET ${set}, updated_at = ?3 WHERE user_id = ?1 AND id = ?2 AND deleted_at IS NULL`)
+          .bind(this.userId, id, Date.now()).run()
+      changed += (result.meta.changes ?? 0) > 0 ? 1 : 0
+    }
+    if (action === 'set_category') await this.registerLabels('category', options.category ?? '')
+    return changed
+  }
+
+  async trashCount(): Promise<number> {
+    const row = await this.db.prepare(
+      `SELECT COUNT(*) AS count FROM sub_item WHERE user_id = ?1 AND deleted_at IS NOT NULL`,
+    ).bind(this.userId).first<{ count: number }>()
+    return row?.count ?? 0
   }
 
   async setActive(id: string, isActive: boolean, context: StoreContext): Promise<SubscriptionDetail | null> {
@@ -385,6 +503,7 @@ export class SubscriptionsStore {
         `UPDATE sub_item SET start_date = ?3, expiry_date = ?4, last_payment_date = ?5, updated_at = ?6
           WHERE user_id = ?1 AND id = ?2`,
       ).bind(this.userId, id, startAt, expiry, paymentAt, now),
+      this.clearAcknowledgementsStatement(id),
     ])
     await this.trimPayments(id, context.paymentLimit)
     return this.get(id, context)
@@ -444,6 +563,7 @@ export class SubscriptionsStore {
         `UPDATE sub_item SET start_date = ?3, expiry_date = ?4, last_payment_date = ?5, updated_at = ?6
           WHERE user_id = ?1 AND id = ?2`,
       ).bind(this.userId, id, startAt, expiry, now, now),
+      this.clearAcknowledgementsStatement(id),
     ])
     await this.trimPayments(id, context.paymentLimit)
     const detail = await this.get(id, context)
@@ -567,7 +687,7 @@ export class SubscriptionsStore {
     const merged = normalizeRule({ ...toRule(current), ...patch, id: ruleId }, newId)
     await this.db.prepare(
       `UPDATE sub_reminder_rule SET kind = ?4, value = ?5, unit = ?6, repeat_interval = ?7,
-         repeat_until = ?8, enabled = ?9
+         repeat_until = ?8, acknowledged_at = ?9, enabled = ?10
        WHERE user_id = ?1 AND subscription_id = ?2 AND id = ?3`,
     ).bind(
       this.userId,
@@ -578,9 +698,34 @@ export class SubscriptionsStore {
       merged.unit,
       merged.repeatInterval,
       merged.repeatUntil,
+      merged.acknowledgedAt ? Date.parse(merged.acknowledgedAt) : null,
       merged.isEnabled ? 1 : 0,
     ).run()
     return merged
+  }
+
+  /**
+   * Mark a rule as seen, which is what makes `repeat_until: acknowledged` mean anything.
+   *
+   * Scoped to one rule rather than the subscription: a reader who has dealt with a lapse does not always
+   * mean "and also stop the three-days-before rule I set for next term", and a blanket mute would have
+   * to be un-muted by hand before the next cycle.
+   */
+  async acknowledgeRule(id: string, ruleId: string, context: StoreContext): Promise<ReminderRule | null> {
+    const current = await this.db.prepare(
+      `SELECT ${RULE_COLUMNS} FROM sub_reminder_rule WHERE user_id = ?1 AND subscription_id = ?2 AND id = ?3`,
+    ).bind(this.userId, id, ruleId).first<RuleRow>()
+    if (!current) return null
+    await this.db.prepare(`UPDATE sub_reminder_rule SET acknowledged_at = ?4 WHERE user_id = ?1 AND subscription_id = ?2 AND id = ?3`)
+      .bind(this.userId, id, ruleId, context.now ?? Date.now())
+      .run()
+    return { ...toRule(current), acknowledgedAt: new Date(context.now ?? Date.now()).toISOString() }
+  }
+
+  /** A new term means the reader has not seen this one's expiry, so a mute must not carry into it. */
+  private clearAcknowledgementsStatement(subscriptionId: string): D1PreparedStatement {
+    return this.db.prepare(`UPDATE sub_reminder_rule SET acknowledged_at = NULL WHERE user_id = ?1 AND subscription_id = ?2`)
+      .bind(this.userId, subscriptionId)
   }
 
   async deleteRule(id: string, ruleId: string): Promise<boolean> {
@@ -590,19 +735,127 @@ export class SubscriptionsStore {
     return (result.meta.changes ?? 0) > 0
   }
 
-  async listCategories(): Promise<string[]> {
-    const { results } = await this.db.prepare(
-      `SELECT name FROM sub_category WHERE user_id = ?1 ORDER BY name`,
-    ).bind(this.userId).all<{ name: string }>()
-    return results.map((row) => row.name)
+  /**
+   * The registry behind one kind of label.
+   *
+   * Interpolated into SQL rather than bound, because the value is one of two literals derived from a
+   * validated union — a table name cannot be a parameter — and a caller that slips past
+   * `isLabelKind` is refused at the route before it reaches here.
+   */
+  private static labelTable(kind: LabelKind): 'sub_type' | 'sub_category' {
+    return kind === 'type' ? 'sub_type' : 'sub_category'
   }
 
-  async addCategory(name: string): Promise<void> {
-    const trimmed = name.trim()
-    if (!trimmed) return
+  async listLabels(kind: LabelKind): Promise<LabelEntry[]> {
+    const { results } = await this.db.prepare(
+      `SELECT name, icon, color FROM ${SubscriptionsStore.labelTable(kind)} WHERE user_id = ?1 ORDER BY name`,
+    ).bind(this.userId).all<{ name: string; icon: string; color: string }>()
+    return results.map((row) => ({ name: row.name, icon: row.icon, color: row.color }))
+  }
+
+  /**
+   * Learn every label one raw field names, keeping any face the reader already gave them.
+   *
+   * This is where the reference project's bug is fixed: it stored the whole composite string, so
+   * a two-tag value came back as one suggestion while the filter rail showed its two tags separately.
+   * Splitting on write means the suggestion list and the rail are built from the same rows.
+   *
+   * `ON CONFLICT DO NOTHING` rather than a upsert that blanks `icon`/`color`: a label the reader
+   * decorated must keep its face when another subscription starts using it.
+   */
+  async registerLabels(kind: LabelKind, raw: string | null | undefined): Promise<void> {
+    const names = labelNamesOf(raw, kind)
+    if (!names.length) return
+    const table = SubscriptionsStore.labelTable(kind)
+    const statements = names.map((name) => this.db.prepare(
+      `INSERT INTO ${table} (user_id, name, icon, color, created_at) VALUES (?1, ?2, '', '', ?3)
+       ON CONFLICT DO NOTHING`,
+    ).bind(this.userId, name.slice(0, LABEL_MAX), Date.now()))
+    await this.db.batch(statements)
+  }
+
+  /**
+   * Rename a label and move every subscription that carried the old one.
+   *
+   * A rename that only touched the registry would leave twelve rows saying the old word while the rail
+   * showed the new one — the face and the name would disagree, which is worse than no rename at all.
+   *
+   * Categories are composite strings, so their rewrite goes through TypeScript: split, substitute the
+   * one token, rejoin. Types are a single label and go straight through SQL.
+   */
+  async renameLabel(kind: LabelKind, from: string, to: string): Promise<boolean> {
+    const target = to.trim().slice(0, LABEL_MAX)
+    const source = from.trim()
+    if (!source || !target || source === target) return false
+    const table = SubscriptionsStore.labelTable(kind)
+    const clash = await this.db.prepare(
+      `SELECT 1 AS hit FROM ${table} WHERE user_id = ?1 AND name = ?2`,
+    ).bind(this.userId, target).first()
+    if (clash) return false
+
+    const statements = [
+      this.db.prepare(`UPDATE ${table} SET name = ?2 WHERE user_id = ?1 AND name = ?3`).bind(this.userId, target, source),
+    ]
+    if (kind === 'type') {
+      statements.push(this.db.prepare(
+        `UPDATE sub_item SET custom_type = ?2, updated_at = ?3 WHERE user_id = ?1 AND custom_type = ?4`,
+      ).bind(this.userId, target, Date.now(), source))
+    } else {
+      const { results } = await this.db.prepare(
+        `SELECT id, category FROM sub_item WHERE user_id = ?1 AND category LIKE ?2`,
+      ).bind(this.userId, `%${source}%`).all<{ id: string; category: string }>()
+      const now = Date.now()
+      for (const row of results) {
+        const tokens = labelNamesOf(row.category, 'category')
+        if (!tokens.includes(source)) continue
+        const rebuilt = tokens.map((token) => token === source ? target : token).join('/')
+        statements.push(this.db.prepare(
+          `UPDATE sub_item SET category = ?2, updated_at = ?3 WHERE user_id = ?1 AND id = ?4`,
+        ).bind(this.userId, rebuilt, now, row.id))
+      }
+    }
+    await this.db.batch(statements)
+    return true
+  }
+
+  /**
+   * Set a label's face.
+   *
+   * Only the axes the caller names are written: a reader who changes a colour has not asked to lose the
+   * icon they picked last week, and a picker that sent the *resolved* icon alongside it would quietly
+   * promote a default into a choice — after which a preset change could never reach that label again.
+   * An explicit null is still a clearing, which is what the "reset" swatch means.
+   */
+  async setLabelStyle(kind: LabelKind, name: string, style: { icon?: string | null; color?: string | null }): Promise<LabelEntry | null> {
+    const label = name.trim().slice(0, LABEL_MAX)
+    if (!label) return null
+    const table = SubscriptionsStore.labelTable(kind)
+    const existing = await this.db.prepare(`SELECT icon, color FROM ${table} WHERE user_id = ?1 AND name = ?2`)
+      .bind(this.userId, label)
+      .first<{ icon: string; color: string }>()
+    const icon = 'icon' in style ? (normalizeIcon(style.icon) ?? '') : existing?.icon ?? ''
+    const color = 'color' in style ? (normalizeColor(style.color) ?? '') : existing?.color ?? ''
     await this.db.prepare(
-      `INSERT INTO sub_category (user_id, name, created_at) VALUES (?1, ?2, ?3) ON CONFLICT DO NOTHING`,
-    ).bind(this.userId, trimmed, Date.now()).run()
+      `INSERT INTO ${table} (user_id, name, icon, color, created_at) VALUES (?1, ?2, ?3, ?4, ?5)
+       ON CONFLICT(user_id, name) DO UPDATE SET icon = excluded.icon, color = excluded.color`,
+    ).bind(this.userId, label, icon, color, Date.now()).run()
+    return { name: label, icon, color }
+  }
+
+  /**
+   * Forget a label.
+   *
+   * Only the registry row goes: the subscriptions that still carry the word keep it, because deleting a
+   * suggestion is not the same act as editing twelve records, and a reader who changes their mind about
+   * the second one can undo it while they cannot undo the first.
+   */
+  async removeLabel(kind: LabelKind, name: string): Promise<boolean> {
+    const label = name.trim()
+    if (!label) return false
+    const result = await this.db.prepare(
+      `DELETE FROM ${SubscriptionsStore.labelTable(kind)} WHERE user_id = ?1 AND name = ?2`,
+    ).bind(this.userId, label).run()
+    return (result.meta.changes ?? 0) > 0
   }
 
   /** Every payment the account has, newest first, for the dashboard's aggregates. */
@@ -642,7 +895,7 @@ export class SubscriptionsStore {
 
   private insertRuleStatement(subscriptionId: string, rule: ReminderRule): D1PreparedStatement {
     return this.db.prepare(
-      `INSERT INTO sub_reminder_rule (${RULE_COLUMNS}) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)`,
+      `INSERT INTO sub_reminder_rule (${RULE_COLUMNS}) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)`,
     ).bind(
       this.userId,
       rule.id,
@@ -652,6 +905,7 @@ export class SubscriptionsStore {
       rule.unit,
       rule.repeatInterval,
       rule.repeatUntil,
+      rule.acknowledgedAt ? Date.parse(rule.acknowledgedAt) : null,
       rule.isEnabled ? 1 : 0,
       Date.parse(rule.createdAt),
     )
@@ -688,10 +942,17 @@ export class SubscriptionsStore {
       autoRenew: row.auto_renew === 1,
       notes: row.notes,
       lastPaymentDate: toIso(row.last_payment_date),
+      trialEndsAt: toIso(row.trial_ends_at),
+      deletedAt: toIso(row.deleted_at),
       createdAt: new Date(row.created_at).toISOString(),
       updatedAt: new Date(row.updated_at).toISOString(),
       daysRemaining,
       hoursRemaining: Math.round((expiry - now) / 3_600_000),
+      trialDaysRemaining: row.trial_ends_at === null
+        ? null
+        : Math.round(
+          (getTimezoneMidnightTimestamp(row.trial_ends_at, context.timezone) - getTimezoneMidnightTimestamp(now, context.timezone)) / 86_400_000,
+        ),
       nextReminderAt: next?.nextFireTime ?? null,
       paymentCount: paid?.count ?? 0,
       paidTotal: roundMoney(paid?.total ?? 0),

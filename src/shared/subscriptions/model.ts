@@ -27,6 +27,7 @@ export const REPEAT_UNTIL = ['renewed', 'acknowledged', 'never'] as const
 export type RepeatUntil = (typeof REPEAT_UNTIL)[number]
 
 export const CHANNEL_KINDS = [
+  'inapp',
   'telegram',
   'notifyx',
   'webhook',
@@ -42,7 +43,58 @@ export type ChannelKind = (typeof CHANNEL_KINDS)[number]
 export const PAYMENT_KINDS = ['initial', 'manual', 'auto'] as const
 export type PaymentKind = (typeof PAYMENT_KINDS)[number]
 
-/** Where a subscription sits relative to its own expiry date, as the list and the detail panel say it. */
+/**
+ * Where one category tag ends and the next begins.
+ *
+ * A category is a slash-separated pile of tags — the reference project's own form hint said so — so
+ * every consumer that counts, filters or suggests by category has to split it the same way. One
+ * definition lives here because the day it differs between the rail and the aggregate is the day a
+ * reader sees a category in one place and not the other.
+ */
+export const CATEGORY_SEPARATOR = /[/\uFF0C,\s]+/
+
+/**
+ * A type or a category, as the registry holds it.
+ *
+ * The name is what a subscription stores; the icon and colour are what the app draws for it. They are
+ * separate rows on purpose — a subscription carries a free-text label so renaming one is a single
+ * edit, and the label carries its own face so that edit does not have to visit every row.
+ */
+export interface LabelEntry {
+  name: string
+  /** `lucide:<ComponentName>`, or empty when nobody chose one. See `identity.ts`. */
+  icon: string
+  /** A palette hex, or empty when nobody chose one. */
+  color: string
+}
+
+export const LABEL_KINDS = ['type', 'category'] as const
+export type LabelKind = (typeof LABEL_KINDS)[number]
+
+export function isLabelKind(value: unknown): value is LabelKind {
+  return value === 'type' || value === 'category'
+}
+
+/**
+ * The labels a raw field actually names.
+ *
+ * A category is a slash-separated pile of tags — the reference project's own hint said so — so the
+ * registry must learn `video` and `music`, not one row literally called `video/music`. A type is a single
+ * label, and splitting it would invent two where the reader meant one.
+ */
+export function labelNamesOf(raw: string | null | undefined, kind: LabelKind): string[] {
+  const value = (raw ?? '').trim()
+  if (!value) return []
+  const parts = kind === 'category' ? value.split(CATEGORY_SEPARATOR) : [value]
+  const out: string[] = []
+  for (const part of parts) {
+    const name = part.trim()
+    if (name && !out.includes(name)) out.push(name)
+  }
+  return out
+}
+
+/** Where a subscription stands relative to its own expiry date, as the list and the detail panel say it. */
 export type SubscriptionStatus = 'active' | 'soon' | 'today' | 'expired' | 'disabled'
 
 /** How many days ahead the list calls something "soon" and the overview counts as expiring. */
@@ -50,6 +102,11 @@ export const SOON_DAYS = 7
 
 /** The most rules one subscription may carry. Ten is already more than a person reads. */
 export const RULES_LIMIT = 10
+
+/** What a bulk action may do, and how many rows one may name. */
+export const BULK_ACTIONS = ['activate', 'deactivate', 'trash', 'set_category'] as const
+export type BulkAction = (typeof BULK_ACTIONS)[number]
+export const BULK_LIMIT = 200
 
 /** The payment history ceiling, matching the reference project's own bounds. */
 export const PAYMENT_LIMIT_MIN = 10
@@ -96,11 +153,17 @@ export interface SubscriptionItem {
   autoRenew: boolean
   notes: string
   lastPaymentDate: string | null
+  /** When a free trial stops being free, or null when this is not a trial. */
+  trialEndsAt: string | null
+  /** When this went to the trash, or null while it is live. A trashed row is never in the list. */
+  deletedAt: string | null
   createdAt: string
   updatedAt: string
 
   daysRemaining: number
   hoursRemaining: number
+  /** Whole days until a trial starts charging, in the account's own zone. Null when not a trial. */
+  trialDaysRemaining: number | null
   nextReminderAt: string | null
   paymentCount: number
   paidTotal: number
@@ -122,6 +185,7 @@ export interface SubscriptionInput {
   isActive?: boolean
   autoRenew?: boolean
   notes?: string
+  trialEndsAt?: string | null
   reminderRules?: ReminderRuleInput[]
 }
 
@@ -144,6 +208,8 @@ export interface ReminderRule {
   unit: ReminderUnit
   repeatInterval: number | null
   repeatUntil: RepeatUntil
+  /** When the reader acknowledged this rule for an already-expired subscription, if they ever did. */
+  acknowledgedAt: string | null
   isEnabled: boolean
   createdAt: string
 }
@@ -155,6 +221,7 @@ export interface ReminderRuleInput {
   unit?: ReminderUnit
   repeatInterval?: number | null
   repeatUntil?: RepeatUntil
+  acknowledgedAt?: string | null
   isEnabled?: boolean
   createdAt?: string
 }
@@ -165,6 +232,10 @@ export interface SubscriptionSettings {
   showLunar: boolean
   paymentHistoryLimit: number
   locale: NotifyLocale
+  /** Which currency the dashboard totals are expressed in. Each row still shows its own. */
+  baseCurrency: CurrencyCode
+  /** What a month of subscriptions is allowed to cost, in the total currency. Null means no budget. */
+  budgetMonthly: number | null
   /** The last four characters of the inbound token, or empty when none was ever made. */
   inboundTokenHint: string
 }
@@ -255,15 +326,57 @@ export interface SubscriptionOverview {
   timezone: string
   scheduler: ScheduleLogEntry | null
   history: ScheduleLogEntry[]
+  /** What this month has cost against the ceiling the reader set. `limit` null means no budget. */
+  budget: { limit: number | null; amount: number; over: boolean }
+  /** What the current plans would cost across a full year if nothing were cancelled. */
+  committedYearly: number
+  /** Trials still running, soonest first — the ones that turn into a charge. */
+  trials: TrialEnding[]
+  /** Plans whose last receipt differs from the one before it, most recent first. */
+  priceChanges: PriceChange[]
+}
+
+/** A running free trial, with the day it starts costing money. */
+export interface TrialEnding {
+  id: string
+  name: string
+  endsAt: string
+  daysRemaining: number
+  /** What it will cost per period once the trial ends, in its own currency. */
+  amount: number | null
+  currency: CurrencyCode
+}
+
+/**
+ * A price change, read out of the receipt history rather than stored.
+ *
+ * The subscription's `amount` is what it costs now; the history is what was actually charged. A plan
+ * that went up in March should not rewrite January, and the only way to see the rise at all is to
+ * compare the two most recent receipts against each other.
+ */
+export interface PriceChange {
+  id: string
+  name: string
+  currency: CurrencyCode
+  previous: number
+  current: number
+  /** Percentage, signed. Positive is a rise. */
+  change: number
+  /** The day the newer receipt was written. */
+  at: string
 }
 
 /** Everything the app needs on first paint, in one response. */
 export interface SubscriptionBundle {
   items: SubscriptionItem[]
-  categories: string[]
+  /** Both registries, so a label's face resolves without a second round trip per subscription. */
+  types: LabelEntry[]
+  categories: LabelEntry[]
   settings: SubscriptionSettings
   channels: ChannelState[]
   overview: SubscriptionOverview
+  /** How many rows are waiting in the trash, so the rail can show a count without fetching them. */
+  trashCount: number
 }
 
 /** One subscription with the rows that belong to it. */
@@ -302,22 +415,23 @@ export interface NotifyLogFilter {
 /**
  * The four rules a new subscription starts with: 7, 3 and 1 days before, and the day itself.
  *
+ * Declared as inputs, without ids, because two callers want them and only one of them is writing to a
+ * database: the worker seeds a created subscription, and the create form shows them in its draft so a
+ * reader can change the plan before the first reminder ever goes out rather than after.
+ */
+export const PRESET_RULE_DRAFTS: readonly ReminderRuleInput[] = [
+  { type: 'before_expiry', value: 7, unit: 'days' },
+  { type: 'before_expiry', value: 3, unit: 'days' },
+  { type: 'before_expiry', value: 1, unit: 'days' },
+  { type: 'on_expiry', value: 0, unit: 'days' },
+]
+
+/**
  * The ids are made by the caller so this stays a pure function — a test can then assert the shape
  * without stubbing a random source, and the worker keeps one id generator for every table.
  */
 export function defaultPresetRules(idOf: () => string, now = Date.now()): ReminderRule[] {
-  const createdAt = new Date(now).toISOString()
-  const rule = (value: number, type: ReminderKind): ReminderRule => ({
-    id: idOf(),
-    type,
-    value,
-    unit: 'days',
-    repeatInterval: null,
-    repeatUntil: 'renewed',
-    isEnabled: true,
-    createdAt,
-  })
-  return [rule(7, 'before_expiry'), rule(3, 'before_expiry'), rule(1, 'before_expiry'), rule(0, 'on_expiry')]
+  return PRESET_RULE_DRAFTS.map((draft) => normalizeRule(draft, idOf, now))
 }
 
 /**
@@ -349,6 +463,9 @@ export function normalizeRule(raw: ReminderRuleInput | null | undefined, idOf: (
     unit,
     repeatInterval,
     repeatUntil,
+    acknowledgedAt: typeof source.acknowledgedAt === 'string' && Number.isFinite(Date.parse(source.acknowledgedAt))
+      ? source.acknowledgedAt
+      : null,
     isEnabled: source.isEnabled !== false,
     createdAt: typeof source.createdAt === 'string' ? source.createdAt : new Date(now).toISOString(),
   }
@@ -423,6 +540,8 @@ export const DEFAULT_SETTINGS: SubscriptionSettings = {
   showLunar: false,
   paymentHistoryLimit: PAYMENT_LIMIT_DEFAULT,
   locale: 'zh-CN',
+  baseCurrency: 'CNY',
+  budgetMonthly: null,
   inboundTokenHint: '',
 }
 

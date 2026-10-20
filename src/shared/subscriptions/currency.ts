@@ -5,14 +5,19 @@
  * prices, because a subscription's price is what it costs *now* while its history is what was actually
  * charged — a plan that went up in March should not rewrite January.
  *
- * Everything is converted to CNY for the totals. That is the reference project's choice and it is the
- * right one for a single-number headline: a total that mixed currencies would be a number with no unit.
- * The per-currency amount stays beside each row for the reader who wants it.
+ * Everything is converted to one base currency for the totals — the account picks it, and CNY is where
+ * the rate feed is anchored. A total that mixed currencies would be a number with no unit. The
+ * per-currency amount stays beside each row for the reader who wants it.
  */
 import { MS_PER_DAY, formatLocalDate, getDaysBetween, getNowInTimezone, getTimezoneDateParts } from './time'
-import { roundMoney, type CurrencyCode, type ExpenseShare, type MonthExpense, type SubscriptionItem, type UpcomingRenewal } from './model'
+import { labelNamesOf, roundMoney, type CurrencyCode, type ExpenseShare, type MonthExpense, type PriceChange, type SubscriptionItem, type TrialEnding, type UpcomingRenewal } from './model'
 
-/** `1 unit of the currency = N CNY`, with CNY itself as the base. Used when the rate service is down. */
+/**
+ * `1 unit of the currency = N CNY`, with CNY itself as the base. Used when the rate service is down.
+ *
+ * The direction matters and is the whole reason this table is written out: a reader's 100 USD is ¥698,
+ * not ¥14.30.
+ */
 export const FALLBACK_RATES: Readonly<Record<string, number>> = {
   CNY: 1,
   USD: 6.98,
@@ -25,6 +30,11 @@ export const FALLBACK_RATES: Readonly<Record<string, number>> = {
   TRY: 0.16,
 }
 
+/**
+ * `1 unit of the currency = N base units`, so the base itself is always exactly 1.
+ *
+ * Everything that adds money up works in one currency, and this is the only shape it may read.
+ */
 export type RateTable = Readonly<Record<string, number>>
 
 /** One payment as the aggregates need it: an instant, an amount, and which subscription it paid for. */
@@ -36,29 +46,49 @@ export interface PaymentSample {
   note?: string
 }
 
-/** The category field may name several labels; the reference project split on any of these. */
-export const CATEGORY_SEPARATOR = /[/\uFF0C,\s]+/
-
-export function convertToCNY(amount: number, currency: string | undefined, rates: RateTable): number {
+export function convertToBase(amount: number, currency: string | undefined, rates: RateTable): number {
   if (!Number.isFinite(amount) || amount <= 0) return 0
-  const code = currency || 'CNY'
-  if (code === 'CNY') return amount
-  const rate = rates[code]
+  const rate = rates[currency || 'CNY']
+  // An unknown code is left at face value rather than guessed at: it was almost certainly entered as
+  // the base currency by somebody who has since added the code, and scaling it by a wrong factor would
+  // be a worse error than reporting it unchanged.
   if (!rate || rate <= 0) return amount
-  return amount / rate
+  return amount * rate
 }
 
-/** Merge a live rate table over the built-in one, keeping CNY pinned at 1. */
-export function mergeRates(live: unknown): RateTable {
+/**
+ * The live feed merged over the built-in table, still expressed per CNY.
+ *
+ * Frankfurter is asked with `base=CNY`, so each value it returns is *foreign units per one yuan* — the
+ * reciprocal of how this app stores rates. Inverting here is what lets the fallback table and the live
+ * one mean the same thing, which they previously did not: the fallback was read as though it were
+ * already inverted, so every currency it covered — and every hour the service was down — was converted
+ * the wrong way round, off by the square of the rate.
+ */
+export function mergeCnyRates(live: unknown): RateTable {
   const merged: Record<string, number> = { ...FALLBACK_RATES }
   if (live && typeof live === 'object') {
     for (const [code, value] of Object.entries(live as Record<string, unknown>)) {
       const numeric = Number(value)
-      if (Number.isFinite(numeric) && numeric > 0) merged[code.toUpperCase()] = numeric
+      if (Number.isFinite(numeric) && numeric > 0) merged[code.toUpperCase()] = 1 / numeric
     }
   }
   merged.CNY = 1
   return merged
+}
+
+/**
+ * Re-express a per-CNY table against whichever currency the account counts in.
+ *
+ * Done per request rather than in the cache: the base is a setting, and a table baked to one base would
+ * go stale the moment a reader changes it.
+ */
+export function rateTableFor(cnyRates: RateTable, base: string): RateTable {
+  const perBase = cnyRates[base]
+  if (!perBase || perBase <= 0) return cnyRates
+  const out: Record<string, number> = {}
+  for (const [code, perCny] of Object.entries(cnyRates)) out[code] = perCny / perBase
+  return out
 }
 
 export interface MonthlyExpense {
@@ -90,9 +120,9 @@ export function calculateMonthlyExpense(
     if (!(payment.amount > 0)) continue
     const parts = getTimezoneDateParts(payment.paidAt, timezone)
     if (parts.year === current.year && parts.month === current.month) {
-      amount += convertToCNY(payment.amount, payment.currency, rates)
+      amount += convertToBase(payment.amount, payment.currency, rates)
     } else if (parts.year === previousYear && parts.month === previousMonth) {
-      lastAmount += convertToCNY(payment.amount, payment.currency, rates)
+      lastAmount += convertToBase(payment.amount, payment.currency, rates)
     }
   }
 
@@ -126,7 +156,7 @@ export function calculateYearlyExpense(
   for (const payment of payments) {
     if (!(payment.amount > 0)) continue
     const parts = getTimezoneDateParts(payment.paidAt, timezone)
-    if (parts.year === current.year) amount += convertToCNY(payment.amount, payment.currency, rates)
+    if (parts.year === current.year) amount += convertToBase(payment.amount, payment.currency, rates)
   }
   return { amount: roundMoney(amount), monthlyAverage: roundMoney(amount / Math.max(1, current.month)) }
 }
@@ -202,7 +232,7 @@ export function getExpenseByType(
     if (parts.year !== current.year) continue
     const label = byId.get(payment.subscriptionId)?.customType?.trim() || ''
     const key = label || 'other'
-    const amount = convertToCNY(payment.amount, payment.currency, rates)
+    const amount = convertToBase(payment.amount, payment.currency, rates)
     totals.set(key, (totals.get(key) ?? 0) + amount)
     total += amount
   }
@@ -238,15 +268,15 @@ export function getExpenseByCategory(
     const parts = getTimezoneDateParts(payment.paidAt, timezone)
     if (parts.year !== current.year) continue
     const item = byId.get(payment.subscriptionId)
-    const labels = (item?.category ?? '')
-      .split(CATEGORY_SEPARATOR)
-      .map((label) => label.trim())
-      .filter(Boolean)
-    const share = labels.length ? labels : ['']
-    const amount = convertToCNY(payment.amount, payment.currency, rates)
+    const share = labelNamesOf(item?.category, 'category')
+    const amount = convertToBase(payment.amount, payment.currency, rates)
+    if (!share.length) {
+      totals.set('uncategorized', (totals.get('uncategorized') ?? 0) + amount)
+      total += amount
+      continue
+    }
     for (const label of share) {
-      const key = label || 'uncategorized'
-      totals.set(key, (totals.get(key) ?? 0) + amount / share.length)
+      totals.set(label, (totals.get(label) ?? 0) + amount / share.length)
     }
     total += amount
   }
@@ -287,12 +317,101 @@ export function expenseByMonth(
     const key = `${parts.year}-${String(parts.month).padStart(2, '0')}`
     const slot = index.get(key)
     if (slot === undefined) continue
-    buckets[slot]!.amount += convertToCNY(payment.amount, payment.currency, rates)
+    buckets[slot]!.amount += convertToBase(payment.amount, payment.currency, rates)
   }
   return buckets.map((bucket) => ({ month: bucket.month, amount: roundMoney(bucket.amount) }))
 }
 
 /** Today, in the account's zone, as the dashboard's own clock reads it. */
+/**
+ * What a plan would cost across a full year at its current price.
+ *
+ * Deliberately a projection rather than a sum of receipts: "what have I actually spent this year" and
+ * "what have I committed to" are different questions, and the second one is what a reader weighs a new
+ * subscription against. A cancelled plan drops out immediately because it stops being active, which is
+ * the point — the number is meant to move when they act.
+ */
+export function annualisedCost(
+  items: readonly SubscriptionItem[],
+  rates: RateTable,
+): number {
+  let total = 0
+  for (const item of items) {
+    if (!item.isActive || item.amount === null || item.amount <= 0) continue
+    const perYear = item.periodUnit === 'day'
+      ? 365 / Math.max(1, item.periodValue)
+      : item.periodUnit === 'month'
+        ? 12 / Math.max(1, item.periodValue)
+        : 1 / Math.max(1, item.periodValue)
+    total += convertToBase(item.amount * perYear, item.currency, rates)
+  }
+  return roundMoney(total)
+}
+
+/**
+ * The price rises hiding in the receipt history.
+ *
+ * A subscription's `amount` is what it costs now, so a plan that went up silently looks exactly as it
+ * did the day it was added. The two most recent receipts with different amounts are the evidence, and
+ * the older one is the price the reader remembers agreeing to.
+ *
+ * Only the last two are compared: a plan that went up then back down is not a rise, and reconstructing
+ * a full price series would be a chart, not an answer.
+ */
+export function findPriceChanges(
+  items: readonly SubscriptionItem[],
+  payments: readonly PaymentSample[],
+): PriceChange[] {
+  const bySubscription = new Map<string, PaymentSample[]>()
+  for (const payment of payments) {
+    if (!(payment.amount > 0)) continue
+    const list = bySubscription.get(payment.subscriptionId) ?? []
+    list.push(payment)
+    bySubscription.set(payment.subscriptionId, list)
+  }
+  const out: PriceChange[] = []
+  for (const item of items) {
+    const history = (bySubscription.get(item.id) ?? []).sort((left, right) => right.paidAt - left.paidAt)
+    if (history.length < 2) continue
+    const [latest, previous] = history
+    if (!latest || !previous || latest.amount === previous.amount) continue
+    // A renewal that bought several periods costs more without the plan being dearer, so the comparison
+    // is only honest per period.
+    const latestPerPeriod = latest.amount
+    const previousPerPeriod = previous.amount
+    if (previousPerPeriod <= 0) continue
+    out.push({
+      id: item.id,
+      name: item.name,
+      currency: item.currency,
+      previous: roundMoney(previousPerPeriod),
+      current: roundMoney(latestPerPeriod),
+      change: Math.round(((latestPerPeriod - previousPerPeriod) / previousPerPeriod) * 100),
+      at: new Date(latest.paidAt).toISOString(),
+    })
+  }
+  return out.sort((left, right) => Date.parse(right.at) - Date.parse(left.at))
+}
+
+/** Trials still running, soonest to start charging first. */
+export function trialsEnding(
+  items: readonly SubscriptionItem[],
+  timezone: string,
+  now: Date = new Date(),
+): TrialEnding[] {
+  return items
+    .filter((item) => item.isActive && item.trialEndsAt)
+    .map((item) => ({
+      id: item.id,
+      name: item.name,
+      endsAt: item.trialEndsAt as string,
+      daysRemaining: getDaysBetween(now, Date.parse(item.trialEndsAt as string), timezone),
+      amount: item.amount,
+      currency: item.currency,
+    }))
+    .sort((left, right) => left.daysRemaining - right.daysRemaining)
+}
+
 export function todayLabel(timezone: string, now: Date = new Date()): string {
   return getNowInTimezone(timezone, now).isoLocal.slice(0, 10)
 }

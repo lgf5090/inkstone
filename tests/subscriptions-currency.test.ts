@@ -3,13 +3,14 @@ import {
   FALLBACK_RATES,
   calculateMonthlyExpense,
   calculateYearlyExpense,
-  convertToCNY,
+  convertToBase,
   expenseByMonth,
   getExpenseByCategory,
   getExpenseByType,
   getRecentPayments,
   getUpcomingRenewals,
-  mergeRates,
+  mergeCnyRates,
+  rateTableFor,
   type PaymentSample,
 } from '../src/shared/subscriptions/currency'
 import type { SubscriptionItem } from '../src/shared/subscriptions/model'
@@ -35,6 +36,9 @@ function item(overrides: Partial<SubscriptionItem> = {}): SubscriptionItem {
     autoRenew: true,
     notes: '',
     lastPaymentDate: null,
+    trialEndsAt: null,
+    trialDaysRemaining: null,
+    deletedAt: null,
     createdAt: '2026-01-01T00:00:00.000Z',
     updatedAt: '2026-01-01T00:00:00.000Z',
     daysRemaining: 8,
@@ -58,17 +62,49 @@ function payment(overrides: Partial<PaymentSample> = {}): PaymentSample {
 }
 
 describe('conversion', () => {
-  it('converts through the CNY base', () => {
-    expect(convertToCNY(100, 'CNY', FALLBACK_RATES)).toBe(100)
-    expect(convertToCNY(10, 'USD', FALLBACK_RATES)).toBeCloseTo(10 / 6.98, 6)
-    expect(convertToCNY(0, 'USD', FALLBACK_RATES)).toBe(0)
+  /**
+   * The direction is the whole test.
+   *
+   * `FALLBACK_RATES.USD` is 6.98, meaning "one dollar costs 6.98 yuan", and the conversion divided by
+   * it — so a ten-dollar subscription was reported as ¥1.43. The live feed was read the other way round
+   * and happened to work, which is why the bug survived: it only showed on the fallback path, and for
+   * the three currencies the feed does not publish at all.
+   */
+  it('multiplies by a "one unit costs N CNY" rate', () => {
+    expect(convertToBase(100, 'CNY', FALLBACK_RATES)).toBe(100)
+    expect(convertToBase(10, 'USD', FALLBACK_RATES)).toBeCloseTo(69.8, 6)
+    expect(convertToBase(100, 'JPY', FALLBACK_RATES)).toBeCloseTo(4.4, 6)
+    expect(convertToBase(0, 'USD', FALLBACK_RATES)).toBe(0)
+    expect(convertToBase(-5, 'USD', FALLBACK_RATES)).toBe(0)
   })
 
-  it('keeps a live table over the fallback and pins CNY', () => {
-    const merged = mergeRates({ USD: 7.2, CNY: 9, XXX: 'nope' })
-    expect(merged.USD).toBe(7.2)
+  it('leaves an unknown code at face value rather than guessing a rate', () => {
+    expect(convertToBase(50, 'BRL', FALLBACK_RATES)).toBe(50)
+  })
+
+  it('inverts the feed, which answers per one yuan', () => {
+    // Frankfurter with base=CNY says 1 yuan buys 0.14 dollars, i.e. 1 dollar costs 7.14 yuan.
+    const merged = mergeCnyRates({ USD: 0.139, JPY: 20.5 })
+    expect(merged.USD).toBeCloseTo(1 / 0.139, 6)
+    expect(merged.JPY).toBeCloseTo(1 / 20.5, 6)
+    expect(merged.CNY).toBe(1)
+  })
+
+  it('keeps the fallback for a code the feed does not carry, and pins CNY', () => {
+    const merged = mergeCnyRates({ USD: 0.2, CNY: 9, XXX: 'nope' })
+    expect(merged.USD).toBeCloseTo(5, 6)
+    expect(merged.TWD).toBe(0.22)
     expect(merged.CNY).toBe(1)
     expect(merged.XXX).toBeUndefined()
+  })
+
+  it('re-expresses a table against the account base, with the base itself at one', () => {
+    const usd = rateTableFor(FALLBACK_RATES, 'USD')
+    expect(usd.USD).toBeCloseTo(1, 10)
+    expect(usd.CNY).toBeCloseTo(1 / 6.98, 10)
+    expect(convertToBase(100, 'CNY', usd)).toBeCloseTo(100 / 6.98, 6)
+    // An unknown base leaves the table alone rather than dividing by zero.
+    expect(rateTableFor(FALLBACK_RATES, 'BRL')).toBe(FALLBACK_RATES)
   })
 })
 

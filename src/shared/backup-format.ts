@@ -9,6 +9,14 @@ export const BACKUP_MANIFEST_NAME = 'manifest.json'
 export const BACKUP_COMPLETE_NAME = 'COMPLETE'
 export const BACKUP_TEMPLATES_NAME = 'templates.json'
 export const BACKUP_AUTOMATION_NAME = 'automation.json'
+/**
+ * The subscription app's own data.
+ *
+ * A separate file rather than rows folded into the note tree, because a subscription is not a document:
+ * it has no Markdown, no folder and no attachment, and a reader who unzips a backup should be able to
+ * open this one in a spreadsheet and read their spending.
+ */
+export const BACKUP_SUBSCRIPTIONS_NAME = 'subscriptions.json'
 
 export type MarkdownBackupNoteState = 'notes' | 'archived' | 'trash'
 
@@ -48,6 +56,12 @@ export interface MarkdownBackupAutomationEntry {
   sha256: string
 }
 
+export interface MarkdownBackupSubscriptionsEntry {
+  path: string
+  bytes: number
+  sha256: string
+}
+
 export interface MarkdownBackupManifest {
   format: typeof MARKDOWN_BACKUP_FORMAT
   version: MarkdownBackupVersion
@@ -60,6 +74,8 @@ export interface MarkdownBackupManifest {
   templates?: MarkdownBackupTemplatesEntry
   /** The account's QuickAdd library, kept beside the templates it can call. */
   automation?: MarkdownBackupAutomationEntry
+  /** The subscription app's plans, receipts and reminder rules. */
+  subscriptions?: MarkdownBackupSubscriptionsEntry
 }
 
 const HASH_RE = /^[0-9a-f]{64}$/
@@ -105,6 +121,15 @@ export function backupAutomationPath(
   if (version === 2) return `${backupSnapshotDir(stamp)}/${BACKUP_AUTOMATION_NAME}`
   if (!STAMP_RE.test(stamp)) throw new Error('Invalid backup snapshot name')
   return BACKUP_AUTOMATION_NAME
+}
+
+export function backupSubscriptionsPath(
+  stamp: string,
+  version: MarkdownBackupVersion = MARKDOWN_BACKUP_VERSION,
+): string {
+  if (version === 2) return `${backupSnapshotDir(stamp)}/${BACKUP_SUBSCRIPTIONS_NAME}`
+  if (!STAMP_RE.test(stamp)) throw new Error('Invalid backup snapshot name')
+  return BACKUP_SUBSCRIPTIONS_NAME
 }
 
 export function backupAttachmentPath(sha256: string, filename: string): string {
@@ -248,6 +273,20 @@ export function parseMarkdownBackupManifest(value: unknown): MarkdownBackupManif
     automation = { path: expectedPath, bytes: value.automation.bytes, sha256: value.automation.sha256 }
   }
 
+  let subscriptions: MarkdownBackupSubscriptionsEntry | undefined
+  if (value.subscriptions !== undefined) {
+    if (!isRecord(value.subscriptions)) return null
+    const expectedPath = backupSubscriptionsPath(value.snapshot, value.version)
+    if (
+      value.subscriptions.path !== expectedPath ||
+      !isSafeSize(value.subscriptions.bytes) ||
+      value.subscriptions.bytes > LIMITS.importUploadMaxBytes ||
+      typeof value.subscriptions.sha256 !== 'string' ||
+      !HASH_RE.test(value.subscriptions.sha256)
+    ) return null
+    subscriptions = { path: expectedPath, bytes: value.subscriptions.bytes, sha256: value.subscriptions.sha256 }
+  }
+
   return {
     format: MARKDOWN_BACKUP_FORMAT,
     version: value.version,
@@ -258,6 +297,7 @@ export function parseMarkdownBackupManifest(value: unknown): MarkdownBackupManif
     attachments,
     templates,
     automation,
+    subscriptions,
   }
 }
 

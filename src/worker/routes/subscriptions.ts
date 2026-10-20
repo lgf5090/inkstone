@@ -17,19 +17,27 @@ import { readJson } from '../lib/request'
 import { newId } from '../lib/id'
 import { requireAuth } from '../middleware/auth'
 import {
+  BULK_ACTIONS,
+  BULK_LIMIT,
   defaultPresetRules,
   isChannelKind,
   isCurrencyCode,
+  isLabelKind,
   isPeriodUnit,
   isSubscriptionMode,
+  LABEL_MAX,
   type SubscriptionInput,
   type SubscriptionSettings,
+  type LabelKind,
+  type BulkAction,
 } from '@shared/subscriptions/model'
 import { buildNotificationBody, subjectOf } from '../subscriptions/notify-content'
+import { normalizeColor, normalizeIcon } from '@shared/subscriptions/identity'
 import { buildOverview } from '../subscriptions/overview'
 import { dispatch, testChannel } from '../subscriptions/channels'
 import { queryNotifyLogs, recentScheduleLogs } from '../subscriptions/logs'
 import {
+  channelHasSecrets,
   clearChannel,
   enabledChannels,
   listChannels,
@@ -43,6 +51,8 @@ import {
 import { SubscriptionsStore, storeContext, type StoreContext } from '../subscriptions/store'
 
 const BODY_LIMIT = 32 * 1024
+/** Rows one import may carry. Above this a reader is syncing, not migrating, and needs a real tool. */
+const IMPORT_LIMIT = 500
 
 type Ctx = Context<AppBindings>
 
@@ -68,6 +78,7 @@ function fail(error: unknown): never {
   if (message === 'invalid_expiry') throw ApiError.badRequest('An expiry date is required')
   if (message === 'lunar_out_of_range') throw ApiError.badRequest('That lunar date is outside 1900-2100')
   if (message === 'invalid_timezone') throw ApiError.badRequest('That time zone is not recognised')
+  if (message === 'invalid_base_currency') throw ApiError.badRequest('That currency is not supported')
   throw error
 }
 
@@ -137,19 +148,32 @@ function inputOf(raw: Record<string, unknown>): SubscriptionInput {
     isActive: raw.isActive === undefined ? undefined : raw.isActive === true,
     autoRenew: raw.autoRenew === undefined ? undefined : raw.autoRenew === true,
     notes: optionalText(raw.notes, 2000, 'Notes'),
+    trialEndsAt: optionalDate(raw.trialEndsAt, 'Trial end date'),
     reminderRules: Array.isArray(raw.reminderRules) ? raw.reminderRules as SubscriptionInput['reminderRules'] : undefined,
   }
 }
 
 subscriptionRoutes.get('/', async (c) => {
   const { store, context, settings } = await contextOf(c)
-  const [items, categories, channels, overview] = await Promise.all([
+  const [items, types, categories, channels, overview, trashCount] = await Promise.all([
     store.list(context),
-    store.listCategories(),
+    store.listLabels('type'),
+    store.listLabels('category'),
     listChannels(c.env.DB, c.get('userId')!),
     buildOverview(c.env, c.env.DB, c.get('userId')!, settings, context.now),
+    store.trashCount(),
   ])
-  return c.json({ items, categories, settings, channels, overview })
+  return c.json({ items, types, categories, settings, channels, overview, trashCount })
+})
+
+subscriptionRoutes.get('/trash', async (c) => {
+  const { store, context } = await contextOf(c)
+  return c.json({ items: await store.list(context, 'trash') })
+})
+
+subscriptionRoutes.post('/trash/empty', async (c) => {
+  const { store } = await contextOf(c)
+  return c.json({ purged: await store.emptyTrash() })
 })
 
 subscriptionRoutes.post('/', async (c) => {
@@ -163,17 +187,126 @@ subscriptionRoutes.post('/', async (c) => {
   }
 })
 
-subscriptionRoutes.get('/categories', async (c) => {
-  return c.json({ categories: await storeOf(c).listCategories() })
+/**
+ * The label registry: types and categories, which are the same resource wearing two names.
+ *
+ * `kind` is an enum and so is safe as a path segment. A label *name* is free text — it may hold a
+ * space, a comma, CJK, and after a rename anything the reader typed — so it travels in the body or a
+ * query parameter rather than a path segment, where a slash would silently become a route that does
+ * not exist. Category names can never contain a slash, because the separator splits on it, but a route
+ * that depends on that being true is one bad validation away from a 404 that looks like a missing label.
+ */
+function kindOf(value: string | undefined): LabelKind {
+  if (!isLabelKind(value)) throw ApiError.badRequest('Unknown label kind')
+  return value
+}
+
+subscriptionRoutes.get('/labels/:kind', async (c) => {
+  const kind = kindOf(c.req.param('kind'))
+  return c.json({ labels: await storeOf(c).listLabels(kind) })
 })
 
-subscriptionRoutes.post('/categories', async (c) => {
+subscriptionRoutes.post('/labels/:kind', async (c) => {
+  const kind = kindOf(c.req.param('kind'))
   const raw = await readJson<{ name?: unknown }>(c, 4096)
-  const name = text(raw.name, 40, 'Name')
-  if (!name) throw ApiError.badRequest('A category name is required')
+  const name = text(raw.name, LABEL_MAX, 'Name')
+  if (!name) throw ApiError.badRequest('A label name is required')
   const store = storeOf(c)
-  await store.addCategory(name)
-  return c.json({ categories: await store.listCategories() })
+  await store.registerLabels(kind, name)
+  return c.json({ labels: await store.listLabels(kind) })
+})
+
+subscriptionRoutes.put('/labels/:kind/style', async (c) => {
+  const kind = kindOf(c.req.param('kind'))
+  const raw = await readJson<{ name?: unknown; icon?: unknown; color?: unknown }>(c, 4096)
+  const name = text(raw.name, LABEL_MAX, 'Name')
+  if (!name) throw ApiError.badRequest('A label name is required')
+  // Only the axes the request actually names are passed on. Sending `color: null` because the caller
+  // said nothing about colour would clear it, and a colour change would quietly cost the reader an icon.
+  const patch: { icon?: string | null; color?: string | null } = {}
+  if ('icon' in raw) patch.icon = typeof raw.icon === 'string' ? raw.icon : null
+  if ('color' in raw) patch.color = typeof raw.color === 'string' ? raw.color : null
+  if (!('icon' in patch) && !('color' in patch)) throw ApiError.badRequest('Say which part of the face to change')
+  if (patch.icon && !normalizeIcon(patch.icon)) throw ApiError.badRequest('That icon is not one the app offers')
+  if (patch.color && !normalizeColor(patch.color)) throw ApiError.badRequest('That colour is not one the app offers')
+  const label = await storeOf(c).setLabelStyle(kind, name, patch)
+  if (!label) throw ApiError.badRequest('The label could not be saved')
+  return c.json({ label })
+})
+
+subscriptionRoutes.put('/labels/:kind/rename', async (c) => {
+  const kind = kindOf(c.req.param('kind'))
+  const raw = await readJson<{ name?: unknown; to?: unknown }>(c, 4096)
+  const name = text(raw.name, LABEL_MAX, 'Name')
+  const to = text(raw.to, LABEL_MAX, 'Name')
+  if (!name || !to) throw ApiError.badRequest('A label name is required')
+  const store = storeOf(c)
+  const renamed = await store.renameLabel(kind, name, to)
+  if (!renamed) throw ApiError.badRequest('That label was not renamed — the new name may already be taken')
+  return c.json({ labels: await store.listLabels(kind) })
+})
+
+subscriptionRoutes.delete('/labels/:kind', async (c) => {
+  const kind = kindOf(c.req.param('kind'))
+  const name = c.req.query('name') ?? ''
+  if (!name.trim()) throw ApiError.badRequest('A label name is required')
+  const store = storeOf(c)
+  await store.removeLabel(kind, name)
+  return c.json({ labels: await store.listLabels(kind) })
+})
+
+/**
+ * One action over a named set.
+ *
+ * `trash` rather than purge: a bulk operation is the one place where a wrong choice is multiplied by
+ * however many rows were selected, so the recoverable verb is the only one offered.
+ */
+subscriptionRoutes.post('/bulk', async (c) => {
+  const raw = await readJson<{ ids?: unknown; action?: unknown; category?: unknown }>(c, BODY_LIMIT)
+  const action = String(raw.action ?? '')
+  if (!(BULK_ACTIONS as readonly string[]).includes(action)) throw ApiError.badRequest('That bulk action is not supported')
+  if (!Array.isArray(raw.ids)) throw ApiError.badRequest('ids must be a list')
+  const ids = raw.ids.filter((id): id is string => typeof id === 'string').slice(0, BULK_LIMIT)
+  if (!ids.length) throw ApiError.badRequest('Name at least one subscription')
+  const category = action === 'set_category' ? text(raw.category, LABEL_MAX, 'Category') : undefined
+  if (action === 'set_category' && !category) throw ApiError.badRequest('A category name is required')
+  const changed = await storeOf(c).bulk(ids, action as BulkAction, { category })
+  return c.json({ changed })
+})
+
+/**
+ * Rows from a CSV the browser parsed.
+ *
+ * The file is read on the client and the rows arrive as JSON so that every value goes through the same
+ * `inputOf` guard a hand-typed form does — a spreadsheet is an untrusted input surface like any other,
+ * and a bad row is reported rather than half-written.
+ */
+subscriptionRoutes.post('/import', async (c) => {
+  const raw = await readJson<{ rows?: unknown }>(c, 512 * 1024)
+  if (!Array.isArray(raw.rows)) throw ApiError.badRequest('rows must be a list')
+  if (raw.rows.length > IMPORT_LIMIT) throw ApiError.badRequest(`A single import is limited to ${IMPORT_LIMIT} rows`)
+  const store = storeOf(c)
+  const { context } = await contextOf(c)
+  const skipped: Array<{ row: number; reason: string }> = []
+  let created = 0
+  for (const [index, entry] of raw.rows.entries()) {
+    if (!entry || typeof entry !== 'object') {
+      skipped.push({ row: index + 1, reason: 'Not a row' })
+      continue
+    }
+    try {
+      await store.create(inputOf(entry as Record<string, unknown>), context)
+      created++
+    } catch (error) {
+      // One bad line should not cost the reader the other two hundred, but it must not be swallowed
+      // either: the reason comes back so the import result can say what was not written.
+      skipped.push({
+        row: index + 1,
+        reason: error instanceof Error ? error.message.slice(0, 200) : 'Rejected',
+      })
+    }
+  }
+  return c.json({ created, skipped })
 })
 
 subscriptionRoutes.get('/settings', async (c) => {
@@ -220,9 +353,12 @@ subscriptionRoutes.post('/channels/:kind/test', async (c) => {
   const kind = c.req.param('kind')
   if (!isChannelKind(kind)) throw ApiError.notFound('Unknown channel')
   const settings = await loadSettings(c.env.DB, c.get('userId')!)
-  const stored = await readChannelConfig(c.env, c.env.DB, c.get('userId')!, kind)
+  // A kind with no fields has no bundle to read, so its own switch is the whole configuration.
+  const stored = channelHasSecrets(kind)
+    ? await readChannelConfig(c.env, c.env.DB, c.get('userId')!, kind)
+    : { config: {} as Record<string, unknown> }
   if (!stored) throw ApiError.badRequest('That channel has not been configured yet')
-  const result = await testChannel(kind, stored.config, { timezone: settings.timezone, locale: settings.locale })
+  const result = await testChannel(kind, stored.config, { timezone: settings.timezone, locale: settings.locale }, { env: c.env, userId: c.get('userId')! })
   await recordChannelTest(c.env.DB, c.get('userId')!, kind, result.success ? 'success' : 'failed', result.error ?? '')
   return c.json({ result })
 })
@@ -266,8 +402,23 @@ subscriptionRoutes.put('/:id', async (c) => {
   }
 })
 
+/** To the trash, not gone: the receipts and rules stay, and a restore is one column wide. */
 subscriptionRoutes.delete('/:id', async (c) => {
-  if (!await storeOf(c).remove(c.req.param('id'))) throw ApiError.notFound('That subscription does not exist')
+  const { store, context } = await contextOf(c)
+  if (!await store.trash(c.req.param('id'), context)) throw ApiError.notFound('That subscription does not exist')
+  return c.json({ ok: true })
+})
+
+subscriptionRoutes.post('/:id/restore', async (c) => {
+  const { store, context } = await contextOf(c)
+  const detail = await store.restore(c.req.param('id'), context)
+  if (!detail) throw ApiError.notFound('That subscription is not in the trash')
+  return c.json(detail)
+})
+
+subscriptionRoutes.delete('/:id/purge', async (c) => {
+  const { store } = await contextOf(c)
+  if (!await store.purge(c.req.param('id'))) throw ApiError.notFound('That subscription does not exist')
   return c.json({ ok: true })
 })
 
@@ -314,6 +465,7 @@ subscriptionRoutes.post('/:id/test-notify', async (c) => {
       { title: body.title, content: body.content, metadata: { tags: [detail.item.name] } },
       channels,
       { timezone: settings.timezone, locale: settings.locale, now: context.now },
+      { env: c.env, userId: c.get('userId')! },
     ),
   })
 })
@@ -387,6 +539,13 @@ subscriptionRoutes.delete('/:id/reminders/:ruleId', async (c) => {
     throw ApiError.notFound('That rule does not exist')
   }
   return c.json({ ok: true })
+})
+
+subscriptionRoutes.post('/:id/reminders/:ruleId/acknowledge', async (c) => {
+  const { store, context } = await contextOf(c)
+  const rule = await store.acknowledgeRule(c.req.param('id'), c.req.param('ruleId'), context)
+  if (!rule) throw ApiError.notFound('That rule does not exist')
+  return c.json({ rule })
 })
 
 subscriptionRoutes.get('/:id/next-reminder', async (c) => {

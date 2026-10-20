@@ -51,6 +51,8 @@ async function seed(userId: string, options: { name?: string; days: number; hour
     showLunar: false,
     paymentHistoryLimit: 100,
     locale: 'zh-CN' as const,
+    baseCurrency: 'CNY' as const,
+    budgetMonthly: null,
     inboundTokenHint: '',
   }
   const store = new SubscriptionsStore(db, userId)
@@ -194,5 +196,40 @@ describe('the sweep', () => {
     expect(result.failed).toBe(1)
     const log = schedules('u1')[0]!
     expect(log.status).toBe('error')
+  })
+})
+
+describe('the trash', () => {
+  /**
+   * The scheduler reads through `store.list`, which is live-only, so this passes by construction — and
+   * that is exactly why it is worth pinning. A trashed subscription that kept renewing itself would
+   * silently spend money on the reader's behalf while they were deciding whether to restore it, and one
+   * that kept notifying would make the trash the noisiest place in the app.
+   */
+  it('leaves a trashed subscription alone', async () => {
+    await saveSettings(db, 'u1', { timezone: 'Asia/Shanghai', notificationHours: [], locale: 'zh-CN' })
+    const store = new SubscriptionsStore(db, 'u1')
+    const context = { timezone: 'Asia/Shanghai', paymentLimit: 100, now: NOW }
+    const created = await store.create({
+      name: 'Gone',
+      amount: 60,
+      expiryDate: new Date(NOW - 5 * DAY).toISOString(),
+      periodValue: 1,
+      periodUnit: 'month',
+      autoRenew: true,
+    }, context)
+    await store.trash(created.item.id, context)
+    await enableGotify('u1')
+
+    const result = await sweepSubscriptions(env(), NOW)
+    expect(result.renewed).toBe(0)
+    expect(result.matched).toBe(0)
+    expect(result.sent).toBe(0)
+    expect(deliveries).toHaveLength(0)
+
+    // Still where it was left, not rolled forward an hour later by a sweep that could not see it.
+    const detail = await store.get(created.item.id, context)
+    expect(detail?.item.expiryDate).toBe(created.item.expiryDate)
+    expect(detail?.item.deletedAt).toBeTruthy()
   })
 })

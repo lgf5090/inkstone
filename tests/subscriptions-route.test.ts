@@ -6,6 +6,7 @@ import { SCHEMA_STATEMENTS } from '../src/worker/db/schema'
 import { errorResponse } from '../src/worker/lib/errors'
 import type { AppBindings } from '../src/worker/env'
 import { subscriptionRoutes } from '../src/worker/routes/subscriptions'
+import { enabledChannels } from '../src/worker/subscriptions/settings'
 import { makeD1 } from './doubles/d1-sqlite'
 
 const ALICE = 'user-alice'
@@ -140,13 +141,18 @@ describe('creating a subscription', () => {
 })
 
 describe('the bundle', () => {
-  it('answers with items, categories, settings, channels and the overview', async () => {
+  it('answers with items, labels, settings, channels and the overview', async () => {
     await create()
     const bundle = await json<any>(await send('GET', '/'))
     expect(bundle.items).toHaveLength(1)
-    expect(bundle.categories).toEqual(['family'])
+    expect(bundle.categories).toEqual([{ name: 'family', icon: '', color: '' }])
+    expect(bundle.types).toEqual([{ name: 'streaming', icon: '', color: '' }])
     expect(bundle.settings.timezone).toBe('Asia/Shanghai')
-    expect(bundle.channels).toHaveLength(9)
+    // Named rather than counted: a settings screen that lost a row, or gained one the sweep cannot send
+    // to, is the thing a reader notices, and a count answers neither.
+    expect(bundle.channels.map((channel: { kind: string }) => channel.kind)).toEqual([
+      'inapp', 'telegram', 'notifyx', 'webhook', 'wechatbot', 'email', 'bark', 'gotify', 'serverchan', 'pushplus',
+    ])
     expect(bundle.channels.every((channel: any) => channel.configured === false)).toBe(true)
     expect(bundle.overview.active.total).toBe(1)
     expect(bundle.overview.months).toHaveLength(6)
@@ -181,12 +187,22 @@ describe('updating', () => {
     expect(detail.item.expiryDate).toBe(created.item.expiryDate)
   })
 
-  it('removes the subscription and everything under it', async () => {
-    const created = await create()
+  /**
+   * Deletion is two steps now, and this is the test that says which one destroys what.
+   *
+   * It used to assert that one `DELETE` cleared `sub_payment` too — which is precisely the behaviour the
+   * trash exists to remove, since a mis-tap was erasing years of receipts with the row.
+   */
+  it('trashes the subscription, and only a purge takes the receipts with it', async () => {
+    const created = await create({ amount: 60 })
     expect((await send('DELETE', `/${created.item.id}`)).status).toBe(200)
+    const before = sqlite.prepare(`SELECT COUNT(*) AS count FROM sub_payment`).get() as { count: number }
+    expect(before.count).toBe(1)
+
+    expect((await send('DELETE', `/${created.item.id}/purge`)).status).toBe(200)
     expect((await send('GET', `/${created.item.id}`)).status).toBe(404)
-    const rows = sqlite.prepare(`SELECT COUNT(*) AS count FROM sub_payment`).get() as { count: number }
-    expect(rows.count).toBe(0)
+    const after = sqlite.prepare(`SELECT COUNT(*) AS count FROM sub_payment`).get() as { count: number }
+    expect(after.count).toBe(0)
   })
 })
 
@@ -322,6 +338,40 @@ describe('channels', () => {
     const after = await json<any>(await send('DELETE', '/channels/telegram'))
     expect(after.channels.find((channel: any) => channel.kind === 'telegram').configured).toBe(false)
   })
+
+  it('turns the in-app channel on when there is no vault to ask', async () => {
+    // Nothing about this channel is a credential, so a deployment that cannot encrypt must still be able to
+    // deliver into the reader's own inbox. A kind that does hold a token must still refuse — that is the
+    // other half of the same rule, and the reason this is not simply "skip the vault".
+    const noVault = { DB: db } as unknown as AppBindings['Bindings']
+    const response = await app.request('/api/subscriptions/channels/inapp', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ enabled: true }),
+    }, noVault)
+    expect(response.status).toBe(200)
+    const saved = await json<{ channel: { enabled: boolean, configured: boolean, hint: string } }>(response)
+    expect(saved.channel.enabled).toBe(true)
+    expect(saved.channel.configured).toBe(true)
+    expect(saved.channel.hint).toBe('')
+
+    const telegram = await app.request('/api/subscriptions/channels/telegram', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ enabled: true, config: { botToken: 'x'.repeat(12), chatId: '42' } }),
+    }, noVault)
+    expect(telegram.status).not.toBe(200)
+  })
+
+  it('hands the sweep an in-app channel that has nothing to decrypt', async () => {
+    await send('PUT', '/channels/inapp', { enabled: true })
+    const noVault = { DB: db } as unknown as AppBindings['Bindings']
+    const channels = await enabledChannels(noVault, db, mocks.userId)
+    expect(channels.map((channel) => channel.kind)).toContain('inapp')
+    // A row that was never saved is not a channel that can send, and an account's rows stay its own.
+    const other = await enabledChannels(noVault, db, BOB)
+    expect(other).toEqual([])
+  })
 })
 
 describe('one account cannot see another', () => {
@@ -349,5 +399,175 @@ describe('logs', () => {
     expect(notify.logs).toEqual([])
     const schedule = await json<any>(await send('GET', '/logs/schedule?limit=5'))
     expect(schedule.logs).toEqual([])
+  })
+})
+
+describe('the label registry', () => {
+  /**
+   * The bug this exists for: the reference project stored the whole composite string as one category,
+   * so a two-tag value came back as a single suggestion while the filter rail had split it into two rows.
+   * The registry has to learn the tokens, because that is what every consumer matches on.
+   */
+  it('registers each category token rather than the whole string', async () => {
+    await create({ category: 'video / music' })
+    const bundle = await json<any>(await send('GET', '/'))
+    expect(bundle.categories.map((entry: any) => entry.name)).toEqual(['music', 'video'])
+  })
+
+  it('never splits a type, which is one label and not a pile of tags', async () => {
+    await create({ customType: 'video/music' })
+    const bundle = await json<any>(await send('GET', '/'))
+    expect(bundle.types.map((entry: any) => entry.name)).toEqual(['video/music'])
+  })
+
+  it('keeps a face the reader chose', async () => {
+    await create()
+    const styled = await json<any>(await send('PUT', '/labels/category/style', {
+      name: 'family',
+      icon: 'lucide:Home',
+      color: '#059669',
+    }))
+    expect(styled.label).toEqual({ name: 'family', icon: 'lucide:Home', color: '#059669' })
+    const bundle = await json<any>(await send('GET', '/'))
+    expect(bundle.categories).toEqual([{ name: 'family', icon: 'lucide:Home', color: '#059669' }])
+  })
+
+  it('refuses an icon outside the offered set and a colour outside the palette', async () => {
+    await create()
+    expect((await send('PUT', '/labels/category/style', { name: 'family', icon: 'lucide:NotAnIcon' })).status).toBe(400)
+    expect((await send('PUT', '/labels/category/style', { name: 'family', color: '#123456' })).status).toBe(400)
+    expect((await send('PUT', '/labels/category/style', { name: 'family', icon: 'Home' })).status).toBe(400)
+    expect((await send('PUT', '/labels/category/style', { name: 'family' })).status).toBe(400)
+  })
+
+  /**
+   * The axis nobody mentions is the axis nobody wants touched.
+   *
+   * A picker that sent the *resolved* icon alongside a colour change would store the default as a
+   * decision, and from that moment a preset change could never reach the label again — the reader would
+   * be stuck with whatever the app guessed on the day they only wanted a different colour.
+   */
+  it('changes one axis without disturbing the other', async () => {
+    await create()
+    await send('PUT', '/labels/category/style', { name: 'family', icon: 'lucide:Home' })
+    const recoloured = await json<any>(await send('PUT', '/labels/category/style', { name: 'family', color: '#059669' }))
+    expect(recoloured.label).toEqual({ name: 'family', icon: 'lucide:Home', color: '#059669' })
+    const repainted = await json<any>(await send('PUT', '/labels/category/style', { name: 'family', icon: 'lucide:User' }))
+    expect(repainted.label).toEqual({ name: 'family', icon: 'lucide:User', color: '#059669' })
+  })
+
+  it('clears one axis on request without clearing the other', async () => {
+    await create()
+    await send('PUT', '/labels/category/style', { name: 'family', icon: 'lucide:Home', color: '#059669' })
+    const cleared = await json<any>(await send('PUT', '/labels/category/style', { name: 'family', icon: null }))
+    expect(cleared.label).toEqual({ name: 'family', icon: '', color: '#059669' })
+  })
+
+  it('carries a rename into the subscriptions that used the old name', async () => {
+    const created = await create({ category: 'video / music' })
+    const after = await json<any>(await send('PUT', '/labels/category/rename', { name: 'video', to: 'film' }))
+    expect(after.labels.map((entry: any) => entry.name)).toEqual(['film', 'music'])
+    const detail = await json<any>(await send('GET', `/${created.item.id}`))
+    expect(detail.item.category).toBe('film/music')
+  })
+
+  it('leaves the subscription text alone when a name is removed', async () => {
+    const created = await create()
+    const after = await json<any>(await send('DELETE', '/labels/category?name=family'))
+    expect(after.labels).toEqual([])
+    const detail = await json<any>(await send('GET', `/${created.item.id}`))
+    expect(detail.item.category).toBe('family')
+  })
+
+  it('refuses a rename onto a name already taken', async () => {
+    await create({ category: 'family' })
+    await send('POST', '/labels/category', { name: 'work' })
+    const response = await send('PUT', '/labels/category/rename', { name: 'work', to: 'family' })
+    expect(response.status).toBe(400)
+  })
+
+  it('is nobody else\'s registry', async () => {
+    await create()
+    mocks.userId = BOB
+    expect((await json<any>(await send('GET', '/labels/category'))).labels).toEqual([])
+    expect((await send('DELETE', '/labels/category?name=family')).status).toBe(200)
+    mocks.userId = ALICE
+    const bundle = await json<any>(await send('GET', '/'))
+    expect(bundle.categories.map((entry: any) => entry.name)).toEqual(['family'])
+  })
+})
+
+describe('the trash', () => {
+  it('moves a subscription out of the list without losing its history', async () => {
+    const created = await create({ amount: 60 })
+    expect((await send('DELETE', `/${created.item.id}`)).status).toBe(200)
+
+    const bundle = await json<any>(await send('GET', '/'))
+    expect(bundle.items).toHaveLength(0)
+    expect(bundle.trashCount).toBe(1)
+    expect(bundle.overview.active.total).toBe(0)
+    // The headline is the reason the row is worth keeping: six months of receipts, still there.
+    expect(bundle.overview.monthly.amount).toBeGreaterThan(0)
+
+    const trashed = await json<any>(await send('GET', '/trash'))
+    expect(trashed.items).toHaveLength(1)
+    expect(trashed.items[0].deletedAt).toBeTruthy()
+    const detail = await json<any>(await send('GET', `/${created.item.id}`))
+    expect(detail.payments).toHaveLength(1)
+    expect(detail.rules.length).toBeGreaterThan(0)
+  })
+
+  it('restores a subscription with its receipts intact', async () => {
+    const created = await create({ amount: 60 })
+    await send('DELETE', `/${created.item.id}`)
+    const restored = await json<any>(await send('POST', `/${created.item.id}/restore`))
+    expect(restored.item.deletedAt).toBeNull()
+    expect(restored.payments).toHaveLength(1)
+
+    const bundle = await json<any>(await send('GET', '/'))
+    expect(bundle.items).toHaveLength(1)
+    expect(bundle.trashCount).toBe(0)
+  })
+
+  it('refuses to restore something that is not in the trash', async () => {
+    const created = await create()
+    expect((await send('POST', `/${created.item.id}/restore`)).status).toBe(404)
+  })
+
+  it('erases a subscription and everything under it only when told to', async () => {
+    const created = await create({ amount: 60 })
+    await send('DELETE', `/${created.item.id}`)
+    expect((await send('DELETE', `/${created.item.id}/purge`)).status).toBe(200)
+
+    const trashed = await json<any>(await send('GET', '/trash'))
+    expect(trashed.items).toHaveLength(0)
+    // The receipts went with it, so the money total went too.
+    const bundle = await json<any>(await send('GET', '/'))
+    expect(bundle.overview.monthly.amount).toBe(0)
+    expect((await send('GET', `/${created.item.id}`)).status).toBe(404)
+  })
+
+  it('empties the trash in one go', async () => {
+    const first = await create({ name: 'One' })
+    const second = await create({ name: 'Two' })
+    await send('DELETE', `/${first.item.id}`)
+    await send('DELETE', `/${second.item.id}`)
+    const emptied = await json<any>(await send('POST', '/trash/empty'))
+    expect(emptied.purged).toBe(2)
+    const bundle = await json<any>(await send('GET', '/'))
+    expect(bundle.trashCount).toBe(0)
+    expect(bundle.items).toHaveLength(0)
+  })
+
+  it('keeps another account out of the trash', async () => {
+    const created = await create()
+    await send('DELETE', `/${created.item.id}`)
+    mocks.userId = BOB
+    expect((await json<any>(await send('GET', '/trash'))).items).toEqual([])
+    expect((await send('POST', `/${created.item.id}/restore`)).status).toBe(404)
+    expect((await send('DELETE', `/${created.item.id}/purge`)).status).toBe(404)
+    mocks.userId = ALICE
+    const bundle = await json<any>(await send('GET', '/'))
+    expect(bundle.trashCount).toBe(1)
   })
 })
