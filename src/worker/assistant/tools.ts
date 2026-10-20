@@ -34,6 +34,7 @@ import { queryNotifyLogs, recentScheduleLogs } from '../subscriptions/logs'
 import { formatAmount } from '@shared/subscriptions/format'
 import { SubscriptionsStore, storeContext, type StoreContext } from '../subscriptions/store'
 import {
+  BULK_LIMIT,
   CURRENCY_CODES,
   labelNamesOf,
   PERIOD_UNITS,
@@ -1967,6 +1968,113 @@ export const SUBSCRIPTION_TOOLS: ToolDefinition[] = [
         subscription: presentSubscription(updated.item),
         payments: updated.payments.length,
         note: 'The receipt is erased; the subscription and its remaining history are untouched.',
+      }
+    },
+  }),
+  tool({
+    name: 'bulk_update_subscriptions',
+    permission: 'write',
+    maxCallsPerTurn: 2,
+    description: 'Switch tracking on or off, or set the category, for several subscriptions at once. Name them in `refs`, separated by commas. Trashing is deliberately not a bulk verb: one wrong name would multiply a deletion, so `delete_subscription` handles that one plan at a time and asks first.',
+    fields: {
+      refs: { type: 'string', minLength: 1, maxLength: 2000, description: 'Names or ids, comma-separated. Up to 200.' },
+      action: { type: 'string', enum: ['activate', 'deactivate', 'set_category'] },
+      category: { type: 'string', maxLength: 40, optional: true, description: 'Required for set_category, ignored otherwise.' },
+    },
+    async run(args, ctx) {
+      const { store, context } = await subscriptionAccess(ctx)
+      const action = String(args.action)
+      if (action === 'set_category' && !(typeof args.category === 'string' && args.category.trim())) {
+        throw new ToolError('set_category needs a `category` to set. Name it, or send several labels separated by "/" to replace the whole set.')
+      }
+      const wanted = String(args.refs).split(',').map((entry) => entry.trim()).filter(Boolean)
+      if (!wanted.length) throw new ToolError('Name at least one subscription.')
+      const live = await store.list(context)
+      const folded = new Map<string, typeof live[number][]>()
+      for (const item of live) {
+        const key = item.name.toLocaleLowerCase()
+        folded.set(key, [...(folded.get(key) ?? []), item])
+      }
+      const ids: string[] = []
+      const skipped: string[] = []
+      for (const name of wanted.slice(0, BULK_LIMIT)) {
+        const exact = folded.get(name.toLocaleLowerCase())
+        if (exact && exact.length === 1) { ids.push(exact[0]!.id); continue }
+        const byId = live.find((item) => item.id === name)
+        if (byId) { ids.push(byId.id); continue }
+        skipped.push(exact && exact.length > 1 ? `${name} (matches ${exact.length} plans)` : `${name} (no live plan of that name)`)
+      }
+      if (!ids.length) throw new ToolError(`Nothing was changed. ${skipped.join('; ')}.`)
+      const changed = await store.bulk(ids, action as 'activate' | 'deactivate' | 'set_category', { category: typeof args.category === 'string' ? args.category : undefined })
+      return {
+        action,
+        asked: wanted.length,
+        matched: ids.length,
+        changed,
+        skipped,
+        more: wanted.length > BULK_LIMIT,
+      }
+    },
+  }),
+  tool({
+    name: 'add_subscription_label',
+    permission: 'write',
+    maxCallsPerTurn: 3,
+    description: 'Register a type or category name so it is offered when the reader types it, without attaching it to any subscription yet. A plan that already uses the name registers it on save, so this is for the list itself.',
+    fields: {
+      kind: { type: 'string', enum: ['type', 'category'] },
+      name: { type: 'string', minLength: 1, maxLength: 40 },
+    },
+    async run(args, ctx) {
+      const { store } = await subscriptionAccess(ctx)
+      const kind = args.kind === 'category' ? 'category' : 'type'
+      await store.registerLabels(kind, String(args.name))
+      const labels = await store.listLabels(kind)
+      const named = labels.find((entry) => entry.name.toLocaleLowerCase() === String(args.name).trim().toLocaleLowerCase())
+      if (!named) throw new ToolError(`"${String(args.name).slice(0, 40)}" was not registered — the app rejects names that are empty or too long.`)
+      return { kind, label: named, total: labels.length }
+    },
+  }),
+  tool({
+    name: 'rename_subscription_label',
+    permission: 'write',
+    maxCallsPerTurn: 2,
+    description: 'Rename a type or category everywhere it is used: the registry entry and every subscription carrying it. Refused when the new name is already taken, because merging two names is a different decision than renaming one.',
+    fields: {
+      kind: { type: 'string', enum: ['type', 'category'] },
+      name: { type: 'string', minLength: 1, maxLength: 40 },
+      to: { type: 'string', minLength: 1, maxLength: 40 },
+    },
+    async run(args, ctx) {
+      const { store } = await subscriptionAccess(ctx)
+      const kind = args.kind === 'category' ? 'category' : 'type'
+      const renamed = await store.renameLabel(kind, String(args.name), String(args.to))
+      if (!renamed) {
+        throw new ToolError(`"${String(args.name).slice(0, 40)}" was not renamed to "${String(args.to).slice(0, 40)}". The target name may already exist, or the two names are the same.`)
+      }
+      const labels = await store.listLabels(kind)
+      return { kind, total: labels.length, labels: labels.map((entry) => entry.name) }
+    },
+  }),
+  tool({
+    name: 'remove_subscription_label',
+    permission: 'write',
+    maxCallsPerTurn: 2,
+    description: 'Take a type or category out of the registry, so it stops being suggested. Subscriptions that were using it keep the word they hold — this does not edit any plan — and re-registering the name brings its icon and colour back.',
+    fields: {
+      kind: { type: 'string', enum: ['type', 'category'] },
+      name: { type: 'string', minLength: 1, maxLength: 40 },
+    },
+    async run(args, ctx) {
+      const { store } = await subscriptionAccess(ctx)
+      const kind = args.kind === 'category' ? 'category' : 'type'
+      const removed = await store.removeLabel(kind, String(args.name))
+      const labels = await store.listLabels(kind)
+      return {
+        kind,
+        removed,
+        total: labels.length,
+        note: removed ? undefined : `Nothing registered is called "${String(args.name).slice(0, 40)}".`,
       }
     },
   }),

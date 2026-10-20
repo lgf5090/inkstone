@@ -366,3 +366,48 @@ describe('the account behind the rows', () => {
     expect(on.updated.isActive).toBe(true)
   })
 })
+
+describe('several plans and the name registry', () => {
+  it('changes the ones it can name and says which it could not', async () => {
+    await seedSubscription({ name: 'Netflix' })
+    await seedSubscription({ name: 'Figma', amount: 15 })
+    const answer = await run('bulk_update_subscriptions', { refs: 'netflix, Figma, Ghost', action: 'deactivate' }) as {
+      matched: number, changed: number, skipped: string[]
+    }
+    expect(answer).toMatchObject({ matched: 2, changed: 2 })
+    expect(answer.skipped.join(' ')).toMatch(/Ghost/)
+    expect(answer.skipped.join(' ')).toMatch(/no live plan/)
+
+    const { store: subStore, context: ctx } = store()
+    expect((await subStore.list(ctx)).filter((item) => item.isActive)).toHaveLength(0)
+  })
+
+  it('refuses the bulk verbs it cannot honour rather than doing half of them', async () => {
+    await seedSubscription()
+    await expect(run('bulk_update_subscriptions', { refs: 'Netflix', action: 'set_category' }))
+      .rejects.toThrow(/needs a .category/)
+    await expect(run('bulk_update_subscriptions', { refs: 'Netflix', action: 'trash' }))
+      .rejects.toThrow(/must be one of/)
+  })
+
+  it('registers, renames and unregisters a name without editing any plan', async () => {
+    await seedSubscription()
+    const added = await run('add_subscription_label', { kind: 'type', name: '工具' }) as { label: { name: string }, total: number }
+    expect(added.label.name).toBe('工具')
+
+    const renamed = await run('rename_subscription_label', { kind: 'type', name: '工具', to: '软件' }) as { labels: string[] }
+    expect(renamed.labels).toContain('软件')
+    await expect(run('rename_subscription_label', { kind: 'type', name: '软件', to: '流媒体' }))
+      .rejects.toThrow(/already exist|same/)
+
+    const removed = await run('remove_subscription_label', { kind: 'type', name: '软件' }) as { removed: boolean, total: number }
+    expect(removed.removed).toBe(true)
+    const again = await run('remove_subscription_label', { kind: 'type', name: '软件' }) as { removed: boolean, note?: string }
+    expect(again.removed).toBe(false)
+    expect(again.note).toMatch(/Nothing registered/)
+
+    const { store: subStore, context: ctx } = store()
+    const held = await subStore.list(ctx)
+    expect(held[0]!.customType, 'unregistering a name leaves the plans that carry it alone').toBe('流媒体')
+  })
+})
