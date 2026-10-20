@@ -1,11 +1,13 @@
 /**
  * Quick-add parsing: one line of prose in, a task draft out.
  *
- * `明天下午3点 交周报 #工作 !2 @自媒体 提前15分钟提醒` answers with the words that are left as the
- * title plus the fields those words named. It is deterministic and dependency-free on purpose: a to-do
- * app that resolves dates through a network call writes a wrong date with confidence and stops working
- * on a train, while this is readable, testable, and offline. Anything it does not recognise stays in the
- * title — a phrase the reader can still see is recoverable, an invented date is not.
+ * A line like `ming-tian xia-wu 3 dian  jiao zhou-bao  #gong-zuo  !2  @zi-mei-ti  ti-qian 15 fen-zhong ti-xing`
+ * (tomorrow 3 p.m., file the weekly report, tag work, priority two, list self-media, remind 15 minutes
+ * before) answers with the words that are left as the title plus the fields those words named. It is
+ * deterministic and dependency-free on purpose: a to-do app that resolves dates through a network call
+ * writes a wrong date with confidence and stops working on a train, while this is readable, testable, and
+ * offline. Anything it does not recognise stays in the title — a phrase the reader can still see is
+ * recoverable, an invented date is not.
  *
  * Chinese words are written as `\uXXXX` escapes because `scripts/check-i18n.mjs` admits Han characters
  * only into the locale catalog, and these are parsing patterns rather than interface copy. Each one
