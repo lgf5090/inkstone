@@ -68,6 +68,7 @@ export function TaskEditor() {
     if (!open) return
     const source = draft ?? {}
     const task = source.id ? tasks.find((entry) => entry.id === source.id) ?? completed.find((entry) => entry.id === source.id) : null
+    const sourceDueAt = task ? task.dueAt : typeof source.dueAt === 'number' ? source.dueAt : null
     setTitle(task?.title ?? source.title ?? '')
     setNotes(task?.description ?? source.description ?? '')
     setPriority(task?.priority ?? source.priority ?? 'medium')
@@ -78,7 +79,12 @@ export function TaskEditor() {
     setListId(task?.listId ?? source.listId ?? '')
     setRepeat(task?.repeat?.freq ?? source.repeat?.freq ?? 'none')
     setInterval(task?.repeat?.interval ?? source.repeat?.interval ?? 1)
-    setRemind(task ? remindOffsetOf(task) : 'none')
+    // A draft that names a reminder carries the instant, while the form asks in offsets from the due
+    // time — the same reading an existing task gets, so the panel shows what the line described.
+    setRemind(remindOffsetOf({
+      dueAt: sourceDueAt,
+      remindAt: task ? task.remindAt : source.remindAt ?? null,
+    }))
     setTagNames(task ? task.tags.map((tag) => tag.name) : source.tags ?? [])
     setStepInput('')
     setTagInput('')
