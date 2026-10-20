@@ -90,6 +90,14 @@ describe('choosing a vendor from the preset list', () => {
 })
 
 describe('saving a provider', () => {
+  it('sends the mark the chosen preset seeded', async () => {
+    await act(async () => { submit()!.click() })
+    expect(vi.mocked(useAssistant.getState().addProvider)).toHaveBeenCalledWith(
+      expect.objectContaining({ icon: 'brand:deepseek' }),
+      expect.any(Function),
+    )
+  })
+
   it('hands the created row back so its model listing can be opened', async () => {
     const created = {
       id: 'p1', label: 'DeepSeek', protocol: 'openai', baseUrl: 'https://api.deepseek.com', hasKey: true, endpoints: {},
@@ -187,7 +195,7 @@ describe('the thinking dialect a provider is pinned to', () => {
   it('reads back the pin a saved provider carries', async () => {
     const provider = {
       id: 'p1', label: 'Gateway', protocol: 'openai', baseUrl: 'https://gw.internal.example/v1',
-      endpoints: {}, hasKey: true, keyHint: '1234', reasoningDialect: 'qwen', createdAt: 1, updatedAt: 1,
+      endpoints: {}, hasKey: true, icon: '', keyHint: '1234', reasoningDialect: 'qwen', createdAt: 1, updatedAt: 1,
     } as unknown as AssistantProvider
     await act(async () => { root.render(createElement(ProviderForm, { open: true, provider, onClose: () => undefined })) })
     expect(dialectSelect()?.value).toBe('qwen')
@@ -243,7 +251,7 @@ describe('an address box that got something else typed into it', () => {
 describe('the key box of a provider that already has one', () => {
   const saved = {
     id: 'p1', label: 'Gateway', protocol: 'openai', baseUrl: 'https://gw.internal.example/v1',
-    endpoints: {}, hasKey: true, keyHint: '1234', reasoningDialect: null, createdAt: 1, updatedAt: 1,
+    endpoints: {}, hasKey: true, icon: '', keyHint: '1234', reasoningDialect: null, createdAt: 1, updatedAt: 1,
   } as unknown as AssistantProvider
   const editButton = () => buttons().find((node) => node.textContent?.trim() === t('assistant.settings.edit_provider'))
   /** The note a field declares it is described by, reached through the association alone. */
@@ -283,13 +291,13 @@ describe('the key box of a provider that already has one', () => {
   })
 
   it('falls back to a mask-free claim when the store kept no last-four hint', async () => {
-    await openEditor({ ...saved, keyHint: '' } as AssistantProvider)
+    await openEditor({ ...saved, icon: '', keyHint: '' } as AssistantProvider)
     expect(keyBox()!.placeholder).toBe(t('assistant.settings.api_key_saved_placeholder_nohint'))
     expect(describedBy(keyBox()!)).toContain(t('assistant.settings.api_key_edit_hint_nohint'))
   })
 
   it('offers a paste prompt when the provider has no key yet', async () => {
-    await openEditor({ ...saved, hasKey: false, keyHint: '' } as AssistantProvider)
+    await openEditor({ ...saved, hasKey: false, icon: '', keyHint: '' } as AssistantProvider)
     expect(keyBox()!.placeholder).toBe(t('assistant.settings.api_key_placeholder'))
     expect(describedBy(keyBox()!)).toContain(t('assistant.settings.api_key_hint'))
   })
@@ -342,7 +350,7 @@ describe('a save the route refuses', () => {
     })
     const provider = {
       id: 'p1', label: 'Gateway', protocol: 'openai', baseUrl: 'https://gw.internal.example/v1',
-      endpoints: {}, hasKey: true, keyHint: '1234', reasoningDialect: null, createdAt: 1, updatedAt: 1,
+      endpoints: {}, hasKey: true, icon: '', keyHint: '1234', reasoningDialect: null, createdAt: 1, updatedAt: 1,
     } as unknown as AssistantProvider
     await act(async () => { root.render(createElement(ProviderForm, { open: true, provider, onClose: onCloseSpy })) })
     await press(editButton(), 'the save button')

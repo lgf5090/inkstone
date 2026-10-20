@@ -1297,21 +1297,21 @@ describe('providers', () => {
     // which key is held without the ciphertext ever being decrypted for a listing.
     expect(created.provider.keyHint).toBe('3456')
     const listed = await call<{ providers: AssistantProvider[] }>('GET', '/api/assistant/providers')
-    expect(listed.providers[0]).toMatchObject({ hasKey: true, keyHint: '3456' })
+    expect(listed.providers[0]).toMatchObject({ hasKey: true, icon: '', keyHint: '3456' })
 
     // An edit that does not mention the key keeps both the key and its hint.
     const renamed = await call<{ provider: AssistantProvider }>('PATCH', `/api/assistant/providers/${created.provider.id}`, { label: 'Renamed' })
-    expect(renamed.provider).toMatchObject({ hasKey: true, keyHint: '3456' })
+    expect(renamed.provider).toMatchObject({ hasKey: true, icon: '', keyHint: '3456' })
     const afterRename = await call<{ providers: AssistantProvider[] }>('GET', '/api/assistant/providers')
-    expect(afterRename.providers[0]).toMatchObject({ hasKey: true, keyHint: '3456' })
+    expect(afterRename.providers[0]).toMatchObject({ hasKey: true, icon: '', keyHint: '3456' })
 
     // A replacement recomputes the hint; clearing the key clears both facts.
     const rotated = await call<{ provider: AssistantProvider }>('PATCH', `/api/assistant/providers/${created.provider.id}`, { apiKey: 'sk-other-value-0000' })
-    expect(rotated.provider).toMatchObject({ hasKey: true, keyHint: '0000' })
+    expect(rotated.provider).toMatchObject({ hasKey: true, icon: '', keyHint: '0000' })
     const cleared = await call<{ provider: AssistantProvider }>('PATCH', `/api/assistant/providers/${created.provider.id}`, { apiKey: null })
-    expect(cleared.provider).toMatchObject({ hasKey: false, keyHint: '' })
+    expect(cleared.provider).toMatchObject({ hasKey: false, icon: '', keyHint: '' })
     const afterClear = await call<{ providers: AssistantProvider[] }>('GET', '/api/assistant/providers')
-    expect(afterClear.providers[0]).toMatchObject({ hasKey: false, keyHint: '' })
+    expect(afterClear.providers[0]).toMatchObject({ hasKey: false, icon: '', keyHint: '' })
   })
 
   it('refuses a private provider address', async () => {
@@ -3257,6 +3257,30 @@ describe('model editor fields', () => {
       pricePeriods: [{ id: 'same', days: [], start: '09:00', end: '09:00', inputPrice: 1, outputPrice: 1 }],
     })).toBe(400)
     expect(await status('PATCH', `/api/assistant/models/${id}`, { pricePeriods: 'not a list' })).toBe(400)
+  })
+
+  it('stores provider and model marks, and refuses one it cannot draw', async () => {
+    const { provider } = await call<{ provider: AssistantProvider }>('POST', '/api/assistant/providers', {
+      label: 'Branded',
+      icon: 'brand:qwen',
+      protocol: 'openai',
+      baseUrl: 'https://api.example.org/v1',
+      apiKey: 'sk-branded-test',
+      models: ['branded-model'],
+    })
+    expect(provider.icon).toBe('brand:qwen')
+    expect(await status('POST', '/api/assistant/providers', {
+      label: 'Bad mark', icon: 'brand:not-a-vendor', protocol: 'openai', baseUrl: 'https://api.example.org/v1', apiKey: 'sk-x', models: [],
+    })).toBe(400)
+
+    const listed = await call<{ models: AssistantModel[] }>('GET', '/api/assistant/settings')
+    const model = listed.models.find((entry) => entry.providerId === provider.id)!
+    const patched = await call<{ model: AssistantModel }>('PATCH', `/api/assistant/models/${model.id}`, { icon: 'emoji:🦊' })
+    expect(patched.model.icon).toBe('emoji:🦊')
+    expect(await status('PATCH', `/api/assistant/models/${model.id}`, { icon: 'lucide:NotARealIcon' })).toBe(400)
+    const png = 'data:image/png;base64,iVBORw0KGgo='
+    expect((await call<{ model: AssistantModel }>('PATCH', `/api/assistant/models/${model.id}`, { icon: png })).model.icon).toBe(png)
+    expect(await status('PATCH', `/api/assistant/models/${model.id}`, { icon: 'data:image/svg+xml;base64,PHN2Zz4=' })).toBe(400)
   })
 
   it('sends the reader\u2019s sampling and extra fields, and never lets a parameter take over the request', async () => {

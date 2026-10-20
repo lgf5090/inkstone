@@ -131,6 +131,8 @@ export const EPHEMERAL_CONVERSATION_RETENTION_DAYS = 30
 export interface AssistantProvider {
   id: string
   label: string
+  /** A stored mark (`brand:…`, `emoji:…`, `lucide:…`, or an uploaded data URL), or '' to infer one. */
+  icon: string
   protocol: AssistantProtocol
   baseUrl: string
   /**
@@ -443,6 +445,8 @@ export interface AssistantModel {
   providerId: string
   model: string
   label: string
+  /** Overrides the mark inferred from the model id or provider; '' means infer. */
+  icon: string
   /** Null leaves the vendor default alone: the composer temperature switch off means exactly that. */
   temperature: number | null
   /**
@@ -2531,17 +2535,17 @@ export const EMPTY_USAGE: UsageCounters = {
  * Provider presets the settings form offers. A preset is only a starting point: the base URL and the
  * key are editable, and any other OpenAI-compatible endpoint works by picking that protocol.
  */
-export const PROVIDER_PRESETS: readonly { id: string, label: string, protocol: AssistantProtocol, baseUrl: string, models: readonly string[] }[] = [
-  { id: 'deepseek', label: 'DeepSeek', protocol: 'openai', baseUrl: 'https://api.deepseek.com', models: ['deepseek-chat', 'deepseek-reasoner'] },
-  { id: 'openai', label: 'OpenAI', protocol: 'openai', baseUrl: 'https://api.openai.com/v1', models: ['gpt-4o-mini', 'gpt-4.1-mini'] },
-  { id: 'anthropic', label: 'Anthropic', protocol: 'anthropic', baseUrl: 'https://api.anthropic.com/v1', models: ['claude-sonnet-4-5', 'claude-haiku-4-5'] },
-  { id: 'gemini', label: 'Google Gemini', protocol: 'gemini', baseUrl: 'https://generativelanguage.googleapis.com/v1beta', models: ['gemini-2.5-flash', 'gemini-2.5-pro'] },
-  { id: 'groq', label: 'Groq', protocol: 'openai', baseUrl: 'https://api.groq.com/openai/v1', models: ['llama-3.3-70b-versatile', 'openai/gpt-oss-120b'] },
-  { id: 'mistral', label: 'Mistral AI', protocol: 'openai', baseUrl: 'https://api.mistral.ai/v1', models: ['mistral-large-latest', 'mistral-small-latest'] },
-  { id: 'xai', label: 'xAI', protocol: 'openai', baseUrl: 'https://api.x.ai/v1', models: ['grok-4.7', 'grok-4.6'] },
-  { id: 'kimi', label: 'Kimi (Moonshot)', protocol: 'openai', baseUrl: 'https://api.moonshot.cn/v1', models: ['moonshot-v1-8k', 'kimi-latest'] },
-  { id: 'qwen', label: 'Qwen (DashScope)', protocol: 'openai', baseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1', models: ['qwen-plus', 'qwen-turbo'] },
-  { id: 'openrouter', label: 'OpenRouter', protocol: 'openai', baseUrl: 'https://openrouter.ai/api/v1', models: ['deepseek/deepseek-chat'] },
+export const PROVIDER_PRESETS: readonly { id: string, label: string, icon: string, protocol: AssistantProtocol, baseUrl: string, models: readonly string[] }[] = [
+  { id: 'deepseek', label: 'DeepSeek', icon: 'brand:deepseek', protocol: 'openai', baseUrl: 'https://api.deepseek.com', models: ['deepseek-chat', 'deepseek-reasoner'] },
+  { id: 'openai', label: 'OpenAI', icon: 'brand:openai', protocol: 'openai', baseUrl: 'https://api.openai.com/v1', models: ['gpt-4o-mini', 'gpt-4.1-mini'] },
+  { id: 'anthropic', label: 'Anthropic', icon: 'brand:anthropic', protocol: 'anthropic', baseUrl: 'https://api.anthropic.com/v1', models: ['claude-sonnet-4-5', 'claude-haiku-4-5'] },
+  { id: 'gemini', label: 'Google Gemini', icon: 'brand:gemini', protocol: 'gemini', baseUrl: 'https://generativelanguage.googleapis.com/v1beta', models: ['gemini-2.5-flash', 'gemini-2.5-pro'] },
+  { id: 'groq', label: 'Groq', icon: 'brand:groq', protocol: 'openai', baseUrl: 'https://api.groq.com/openai/v1', models: ['llama-3.3-70b-versatile', 'openai/gpt-oss-120b'] },
+  { id: 'mistral', label: 'Mistral AI', icon: 'brand:mistral', protocol: 'openai', baseUrl: 'https://api.mistral.ai/v1', models: ['mistral-large-latest', 'mistral-small-latest'] },
+  { id: 'xai', label: 'xAI', icon: 'brand:xai', protocol: 'openai', baseUrl: 'https://api.x.ai/v1', models: ['grok-4.7', 'grok-4.6'] },
+  { id: 'kimi', label: 'Kimi (Moonshot)', icon: 'brand:kimi', protocol: 'openai', baseUrl: 'https://api.moonshot.cn/v1', models: ['moonshot-v1-8k', 'kimi-latest'] },
+  { id: 'qwen', label: 'Qwen (DashScope)', icon: 'brand:qwen', protocol: 'openai', baseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1', models: ['qwen-plus', 'qwen-turbo'] },
+  { id: 'openrouter', label: 'OpenRouter', icon: 'brand:openrouter', protocol: 'openai', baseUrl: 'https://openrouter.ai/api/v1', models: ['deepseek/deepseek-chat'] },
   // The eight below were added after checking each vendor's own documentation for the address and the
   // ids; a preset whose address was guessed is worse than no preset, because the reader has no reason to
   // doubt it.
@@ -2554,15 +2558,15 @@ export const PROVIDER_PRESETS: readonly { id: string, label: string, protocol: A
   // listings rather than from a page this machine could read. The address is the half a preset has to get
   // right — the listing, which the add form can ask for before anything is saved, is what replaces the
   // ids — so a wrong address is the one mistake worth refusing to guess at.
-  { id: 'siliconflow', label: 'SiliconFlow', protocol: 'openai', baseUrl: 'https://api.siliconflow.com/v1', models: ['Qwen/Qwen3-32B', 'deepseek-ai/DeepSeek-V4-Flash'] },
-  { id: 'zhipu', label: 'Zhipu GLM', protocol: 'openai', baseUrl: 'https://open.bigmodel.cn/api/paas/v4', models: ['glm-5.3'] },
-  { id: 'minimax', label: 'MiniMax', protocol: 'openai', baseUrl: 'https://api.minimax.io/v1', models: ['MiniMax-M3', 'MiniMax-M2.7'] },
-  { id: 'together', label: 'Together AI', protocol: 'openai', baseUrl: 'https://api.together.xyz/v1', models: ['zai-org/GLM-5.3', 'deepseek-ai/DeepSeek-V4-Pro-0813'] },
-  { id: 'cerebras', label: 'Cerebras', protocol: 'openai', baseUrl: 'https://api.cerebras.ai/v1', models: ['gpt-oss-120b', 'qwen-3.8-27b'] },
-  { id: 'fireworks', label: 'Fireworks AI', protocol: 'openai', baseUrl: 'https://api.fireworks.ai/inference/v1', models: ['accounts/fireworks/models/kimi-k2p5', 'accounts/fireworks/models/deepseek-v3p2'] },
-  { id: 'deepinfra', label: 'DeepInfra', protocol: 'openai', baseUrl: 'https://api.deepinfra.com/v1/openai', models: ['deepseek-ai/DeepSeek-V4-Flash-0731'] },
-  { id: 'ollama-cloud', label: 'Ollama Cloud', protocol: 'openai', baseUrl: 'https://ollama.com/v1', models: ['gemma4:31b'] },
-  { id: 'other', label: 'Gateway / other (https)', protocol: 'openai', baseUrl: 'https://', models: [''] },
+  { id: 'siliconflow', label: 'SiliconFlow', icon: 'brand:siliconflow', protocol: 'openai', baseUrl: 'https://api.siliconflow.com/v1', models: ['Qwen/Qwen3-32B', 'deepseek-ai/DeepSeek-V4-Flash'] },
+  { id: 'zhipu', label: 'Zhipu GLM', icon: 'brand:zhipu', protocol: 'openai', baseUrl: 'https://open.bigmodel.cn/api/paas/v4', models: ['glm-5.3'] },
+  { id: 'minimax', label: 'MiniMax', icon: 'brand:minimax', protocol: 'openai', baseUrl: 'https://api.minimax.io/v1', models: ['MiniMax-M3', 'MiniMax-M2.7'] },
+  { id: 'together', label: 'Together AI', icon: 'brand:together', protocol: 'openai', baseUrl: 'https://api.together.xyz/v1', models: ['zai-org/GLM-5.3', 'deepseek-ai/DeepSeek-V4-Pro-0813'] },
+  { id: 'cerebras', label: 'Cerebras', icon: 'brand:cerebras', protocol: 'openai', baseUrl: 'https://api.cerebras.ai/v1', models: ['gpt-oss-120b', 'qwen-3.8-27b'] },
+  { id: 'fireworks', label: 'Fireworks AI', icon: 'brand:fireworks', protocol: 'openai', baseUrl: 'https://api.fireworks.ai/inference/v1', models: ['accounts/fireworks/models/kimi-k2p5', 'accounts/fireworks/models/deepseek-v3p2'] },
+  { id: 'deepinfra', label: 'DeepInfra', icon: 'brand:deepinfra', protocol: 'openai', baseUrl: 'https://api.deepinfra.com/v1/openai', models: ['deepseek-ai/DeepSeek-V4-Flash-0731'] },
+  { id: 'ollama-cloud', label: 'Ollama Cloud', icon: 'brand:ollama', protocol: 'openai', baseUrl: 'https://ollama.com/v1', models: ['gemma4:31b'] },
+  { id: 'other', label: 'Gateway / other (https)', icon: '', protocol: 'openai', baseUrl: 'https://', models: [''] },
 ]
 
 /**

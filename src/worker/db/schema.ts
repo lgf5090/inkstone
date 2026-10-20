@@ -1774,6 +1774,24 @@ export const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
          ON chat_usage_daily_period(user_id, day DESC)`,
     ],
   },
+  {
+    // The mark a provider wears. The picker stores a short encoded value; the listing that reads a row
+    // written before this column existed gets '' and infers the brand from the name and address.
+    version: 115,
+    skipIfColumnExists: { table: 'chat_providers', column: 'icon' },
+    statements: [
+      `ALTER TABLE chat_providers ADD COLUMN icon TEXT NOT NULL DEFAULT ''`,
+    ],
+  },
+  {
+    // A model's own mark, overriding the one inferred from its family and provider. The same encoding
+    // as the provider column: brand, emoji, Lucide name, or a small uploaded image.
+    version: 116,
+    skipIfColumnExists: { table: 'chat_models', column: 'icon' },
+    statements: [
+      `ALTER TABLE chat_models ADD COLUMN icon TEXT NOT NULL DEFAULT ''`,
+    ],
+  },
 ]
 
 const FTS_STATEMENT = `CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(

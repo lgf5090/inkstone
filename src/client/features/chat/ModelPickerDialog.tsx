@@ -16,6 +16,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { Check, RefreshCw, Search } from 'lucide-react'
 import type { AssistantModel, AssistantProvider, AssistantVendorModel } from '@shared/assistant'
 import { MAX_PROVIDER_MODELS } from '@shared/assistant'
+import { iconForModel } from '@shared/assistant-icons'
 import { t } from '../../lib/i18n'
 import { matchesQuery } from '../../lib/fuzzy'
 import { usePinyinVersion } from '../../lib/pinyin'
@@ -23,6 +24,7 @@ import { cn } from '../../lib/cn'
 import { Input } from '../../components/form'
 import { Button } from '../../components/primitives'
 import { Modal } from '../../components/overlay'
+import { AssistantIcon } from './AssistantIcon'
 import { useAssistant } from './assistant-store'
 
 export interface PickerRow {
@@ -112,6 +114,7 @@ export function ModelPickerDialog({ provider, draft, existing, onSynced, onPicke
     [listed, owned, query, family, onlyNew, pinyinVersion],
   )
   const families = useMemo(() => vendorFamilies(listed), [listed])
+  const providerHint = provider ?? (draft ? { icon: '', label: draft.label, baseUrl: draft.baseUrl } : null)
   const adds = picked.filter((id) => !held.includes(id)).length
   const removes = held.filter((id) => !picked.includes(id)).length
   // Ticking past the cap is refused where the reader does it, rather than dropped by the route afterwards.
@@ -218,7 +221,10 @@ export function ModelPickerDialog({ provider, draft, existing, onSynced, onPicke
                     {pickedHere && <Check size={12} strokeWidth={3} />}
                   </span>
                   <span className="flex min-w-0 flex-1 flex-col">
-                    <span className={cn('truncate text-[length:var(--text-12-5)]', pickedHere ? 'font-medium text-[var(--accent-on-soft)]' : 'text-[var(--text-primary)]')}>{model.label}</span>
+                    <span className="flex min-w-0 items-center gap-1.5">
+                      <AssistantIcon value={iconForModel({ icon: '', model: model.id, label: model.label }, providerHint)} size={18} />
+                      <span className={cn('truncate text-[length:var(--text-12-5)]', pickedHere ? 'font-medium text-[var(--accent-on-soft)]' : 'text-[var(--text-primary)]')}>{model.label}</span>
+                    </span>
                     <span className="truncate font-mono text-[length:var(--text-10-5)] text-[var(--text-quaternary)]">{model.id}</span>
                   </span>
                   {added && (

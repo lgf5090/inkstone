@@ -30,7 +30,7 @@ const wallet = (): ProviderWallet => ({ balances: null, problem: null, busy: fal
 function provider(over: Partial<AssistantProvider> = {}): AssistantProvider {
   return {
     id: 'p1', label: 'Example', protocol: 'openai', baseUrl: 'https://api.example.com', endpoints: {},
-    hasKey: true, keyHint: '9876', reasoningDialect: null, createdAt: 1, updatedAt: 1, ...over,
+    hasKey: true, icon: '', keyHint: '9876', reasoningDialect: null, createdAt: 1, updatedAt: 1, ...over,
   }
 }
 
@@ -89,7 +89,7 @@ describe('the keys a provider rotates through', () => {
 
   it('still says a stored key exists when the store kept no last-four hint', async () => {
     vi.spyOn(api.assistant, 'providerKeys').mockResolvedValue({ keys: [] })
-    await act(async () => { root.render(createElement(ProviderKeys, { provider: provider({ keyHint: '' }), wallet: wallet() })) })
+    await act(async () => { root.render(createElement(ProviderKeys, { provider: provider({ icon: '', keyHint: '' }), wallet: wallet() })) })
     await act(async () => { trigger()!.click() })
     // No mask is available, but the row must not read as a missing key.
     expect(document.body.textContent).toContain(t('assistant.settings.key_stored'))
@@ -127,7 +127,7 @@ describe('the keys a provider rotates through', () => {
 
   it('says a provider with no key at all is missing one rather than showing a blank', async () => {
     vi.spyOn(api.assistant, 'providerKeys').mockResolvedValue({ keys: [] })
-    await act(async () => { root.render(createElement(ProviderKeys, { provider: provider({ hasKey: false, keyHint: '' }), wallet: wallet() })) })
+    await act(async () => { root.render(createElement(ProviderKeys, { provider: provider({ hasKey: false, icon: '', keyHint: '' }), wallet: wallet() })) })
     await act(async () => { trigger()!.click() })
     expect(document.body.textContent).toContain(t('assistant.settings.key_missing'))
   })

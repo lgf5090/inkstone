@@ -42,7 +42,7 @@ function model(over: Partial<AssistantModel> = {}): AssistantModel {
   return {
     id: 'm1', providerId: 'p1', model: 'deepseek-flash', label: 'DeepSeek Flash',
     temperature: 0.7, maxOutputTokens: 8192, enabled: true, reasoning: 'auto', contextTokens: null, vision: true,
-    purpose: 'chat', kind: 'text', supportsTools: true, maxInputTokens: null, modalities: [], topP: null, customParams: [], protocol: null, fallbackModelId: null, inputPrice: null, outputPrice: null, priceCurrency: '', pricePeriods: [], ...over,
+    purpose: 'chat', kind: 'text', supportsTools: true, maxInputTokens: null, modalities: [], topP: null, customParams: [], protocol: null, fallbackModelId: null, inputPrice: null, outputPrice: null, priceCurrency: '', pricePeriods: [], icon: '', ...over,
   }
 }
 

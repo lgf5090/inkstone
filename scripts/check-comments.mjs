@@ -1058,6 +1058,16 @@ const allowed = new Map([
     "/**\n * The title block every assistant page opens with.\n *\n * The surfaces behind the rail are one page with different contents, and each of them had written this\n * pair out for itself: a serif title at one size, and a line under it saying what the page is for. Three\n * copies drifted — one of them put its action beside the title and the others did not — so the shape\n * lives here. The action rides the title line, which is where a page's primary button belongs on a page\n * that also has a list under it.\n */",
     "/** Drawn on the title line, right-aligned; the page's primary action when it has one. */",
   ]],
+  ["src/client/features/chat/AssistantIcon.tsx", [
+    "/**\n * One row's mark: a brand, an emoji, a Lucide glyph, or an uploaded image.\n *\n * Every list draws this component instead of its own dot or generic chip, so a provider's mark and the\n * model's mark cannot disagree about which vendor they belong to. The value is decoded by the shared\n * parser first; an empty or unreadable value falls through to the caller's inferred default and then to\n * a neutral bot, which is the one mark that says \"no vendor known\" without inventing one.\n */",
+    "/** The inferred mark to use when `value` is empty or no longer readable. */",
+    "/** An accessible name for a mark that stands alone; omitted when a row already names it beside the mark. */",
+  ]],
+  ["src/client/features/chat/AssistantIconPicker.tsx", [
+    "/**\n * The one place a provider or model gets its mark.\n *\n * Four sources sit behind a tab each: the built-in brands, emoji, Lucide, and an uploaded image. Choosing\n * an item closes the dialog because the choice is the whole task; \"Use default\" returns the row to the\n * inferred brand. The upload runs through a local canvas, so what leaves the browser is a 96 px mark, not\n * the reader's original photograph.\n */",
+    "/** The inferred mark shown while `value` is empty, so the preview is the mark the row actually wears. */",
+    "/** The labelled block both editors use; a group rather than a `<label>`, because its control is a button. */",
+  ]],
   ["src/client/features/chat/AssistantMcpTab.tsx", [
     "// A Chinese name is matched through the dictionary, and a listing filtered before it lands is a",
     "// listing that goes on missing what the reader typed.",
@@ -1139,11 +1149,11 @@ const allowed = new Map([
     "/**\n * One provider's models, as the choice between them that it is.\n *\n * Activating a model picks exactly one of the row, and every row already says so with `role=\"radio\"`. What\n * was missing is the group those radios belong to: its name, one stop in the tab order instead of one per\n * model, and the arrows that move the choice. `useRovingRadio` is the helper the segmented control already\n * uses, so the keys mean the same thing here as they do everywhere else in the app.\n */",
     "/* One line of controls, no words: a phone-width card had two selects and two\n                switches stacked under every model, which pushed the list itself off the screen.\n                What a model can do is now the icons themselves — they are the switches — and the\n                level behind each one (how much thinking, whose context window) is a fact the\n                editor dialog holds. */",
     "/**\n * One provider's card: its own row, the keys it rotates through, and the models switched on under it.\n *\n * The card is the smallest thing that can answer \"what is this provider worth to me\", which is why the\n * balance lives here rather than in the tab: one read of the wallet feeds the chips in the header and the\n * rows in the ring below, so the two can never show two different numbers for the same key.\n */",
-    "/* The key state is the one fact about a provider that costs a round trip to learn, so it is\n            drawn as the row's own mark rather than as a word at the end of a sentence. */",
     "/**\n * Which vendor a new provider is, as a list that can be searched rather than a `<select>` that can only be\n * scrolled. Eight presets over two alphabets is already past the point where the reader knows the name they\n * want and would rather type it: the label, the id and the address are all searched, so a reader who\n * remembers \"openrouter\" or \"api.moonshot.cn\" but not the display name still finds the row.\n *\n * The panel is drawn in the dialog beside its trigger instead of being portalled over it: a menu on the\n * document body sits outside the focus trap the dialog installs, so its rows would be reachable by pointer\n * and unreachable by keyboard.\n */",
     "/* An edit opens with an empty password box because the plaintext is not ours to show again. The\n            field still has to say that a key is stored, or the reader reads the empty box as \"my key is\n            gone\" — the placeholder carries the last four characters, and the hint says blank keeps it. */",
     "/* The preset's ids are a guess about this account. This is the question that replaces the\n                guess, asked of the address and key the reader has already typed, before anything is\n                saved — and the reason the button names what it is waiting for rather than sitting\n                disabled without explanation. */",
     "/* Which provider the id will be filed under is the one thing the reader can get wrong here, and\n          the dialog's own title only says what is being added. */",
+    "/* The brand says who answers; the small key badge keeps the one fact about this provider that\n            costs a round trip to learn without taking the vendor's mark away. */",
   ]],
   ["src/client/features/chat/AssistantSettingsView.tsx", [
     "/**\n * Assistant settings: the model it answers from, how it behaves, what it may spend, and what it keeps.\n *\n * The provider key is write-only from here. The form sends it once and never reads it back — the row\n * shows only whether a key is stored — because a key that comes back to the browser can be read by any\n * extension, any XSS, and any screenshot, and the assistant has no need of it on this side.\n */",
@@ -2108,6 +2118,7 @@ const allowed = new Map([
     "/** The clock time-of-day prices are judged by, shown so the reader knows which clock a window means. */",
     "// A window with no length cannot be priced and would be dropped by the route; saying so at the box",
     "// keeps the reader's edit from disappearing in a save that looked like it worked.",
+    "/** A stored mark, or '' to infer one from the model id and provider. */",
   ]],
   ["src/client/features/chat/ModelPickerDialog.tsx", [
     "/** The vendor families in the list, so the chips are the account's own, not a list of brands. */",
@@ -2392,6 +2403,16 @@ const allowed = new Map([
     "// The change is shown first, and the note is only written by the press that follows the reading.",
     "// The dock is where a searched answer is most often read, so the citation has to be there from the",
     "// moment the words land — a claim that came from outside the vault cannot wait for a reload.",
+  ]],
+  ["src/client/features/chat/assistant-icon-picker.test.ts", [
+    "/**\n * The picker's contract: one press chooses a brand, the default clears an override, and an upload hands\n * back the mark the helper produced rather than the file itself.\n */",
+    "// The choice is the whole task, so the dialog is gone.",
+  ]],
+  ["src/client/features/chat/assistant-icon-upload.ts", [
+    "/**\n * Turning a reader's picture into a mark a row can carry.\n *\n * The file is cropped to a square and scaled to 96 px in the browser, then encoded as WebP (or PNG when\n * the browser cannot write WebP). That keeps the row small enough for D1 and avoids storing a whole\n * photograph for a 20 px icon. SVG is deliberately not accepted: it is a document that can carry script,\n * and this path only needs pixels.\n */",
+  ]],
+  ["src/client/features/chat/assistant-icon.test.ts", [
+    "/**\n * What one row's mark renders as.\n *\n * A brand is an image, an emoji is text, a Lucide name is a glyph, and an upload is an image with the\n * reader's own bytes. The fallback is the neutral bot, never a blank tile: a row with no vendor known\n * should still say so rather than look broken.\n */",
   ]],
   ["src/client/features/chat/assistant-load-failure.test.ts", [
     "/**\n * Three screens whose request was refused.\n *\n * Each of these used to answer a failure with the shape of a different state: the settings shell kept its\n * spinner, the budget tab kept the spinner the usage request itself renders while in flight, and a memory's\n * history dialog answered \"no earlier versions\" — a sentence that teaches the reader their history is gone.\n * What is pinned here is that a refusal is now named as one, that the named refusal offers the retry, and\n * that the retry actually asks again. The wording of the success path is only checked where the fixture can\n * reach it without a whole tab's worth of wiring.\n */",
@@ -3049,6 +3070,9 @@ const allowed = new Map([
     "/**\n * The branch bar.\n *\n * A fork copies its turns, so nothing else on screen connects the two threads. What is pinned is that the\n * bar appears exactly when there is something to say — a thread with a parent, or one of several threads\n * forked off the same point — and that each chip is a way into the other thread rather than a label.\n */",
     "// The bar reads the tree after it mounts.",
     "// The one being read is marked and cannot be opened again.",
+  ]],
+  ["src/client/features/chat/brand-icon-assets.ts", [
+    "/**\n * The SVG files the brand picker draws, emitted as URLs rather than inlined.\n *\n * The files are vendored in `src/client/assets/brands` from `@lobehub/icons-static-svg` (MIT); the\n * README beside them records the source. A brand with no file here is drawn as its monogram, so adding a\n * vendor to the catalogue never requires an asset to exist first.\n */",
   ]],
   ["src/client/features/chat/canvas-ai.test.ts", [
     "/**\n * The canvas rewrite: what it sends, and where the answer lands.\n *\n * The anchor check is the part worth pinning. A draft can be edited by the reader and by the assistant\n * while the model is thinking; a replacement that trusted the offsets from the request would write over\n * a paragraph neither side selected.\n */",
@@ -18204,6 +18228,20 @@ const allowed = new Map([
     "// Text with a colon is written as an address, so a reading that fails is not a name anyone owns.",
     "/**\n * A label written as a number: decimal, `0x` hexadecimal, or decimal with leading zeros, which is octal.\n *\n * This shape test is deliberately looser than `ipv4Label`, the one that decides what a number means: a\n * label like `018` or `999` is still somebody writing an address, and a host whose every label is a number\n * cannot end in a zone name, so judging the whole thing as an address costs no real provider anything.\n */",
   ]],
+  ["src/shared/assistant-icons.ts", [
+    "/**\n * What a provider or a model wears in a list.\n *\n * Four kinds of mark share one string so a row can carry exactly one answer: a built-in brand, an emoji,\n * a Lucide name, or an uploaded image as a data URL. `brand:` and `lucide:` are closed sets — the picker\n * can only choose what this file names, and the server validates against the same list. An emoji is\n * whatever the reader picked. An upload is a small image the browser has already cropped and scaled, so\n * the server only has to check that the string is one of the three image types and short enough to be a\n * row rather than a file store.\n */",
+    "/** The colour of the mark's tile when no SVG is available, and of the picker's selection ring. */",
+    "/** The letters a vendor with no SVG is drawn as. */",
+    "/** Lower-case fragments that identify this brand in a provider name, address or model id. */",
+    "/**\n * The brands the app knows by name.\n *\n * The order is the inference order: a more specific family comes before the company that owns it, so\n * `gemma` is read before `gemini`, `hunyuan` before `tencent`, and a gateways's model id such as\n * `deepseek/deepseek-chat` still wears DeepSeek rather than the gateway's mark.\n */",
+    "/**\n * The Lucide names the picker offers and the server accepts.\n *\n * A closed list rather than \"whatever lucide has\": an icon name is stored in a row and read by a later\n * build, and a name that build no longer ships would render as a blank tile with nothing to explain it.\n */",
+    "/** A small, recognisable set for a model or provider that is not really about a vendor mark. */",
+    "/** The most a stored icon may be: a 96 px WebP is far under this, and a whole image file is far over it. */",
+    "/**\n * A stored icon, or the empty string for \"use the inferred default\".\n *\n * The read side is forgiving: a value written by an older build, a removed brand key or a hand-edited\n * row reads as no icon rather than as a broken row. The route turns a non-empty value this function\n * cannot read into a refusal, so an edit never silently loses the reader's choice.\n */",
+    "// A bare brand key is what earlier rows and hand-written values tend to carry; reading it is free.",
+    "/**\n * The mark a provider wears: its own choice first, then the brand its name or address names.\n *\n * A custom provider called \"DeepSeek\" and a stored preset both land on the same mark; a gateway keeps\n * its own name because no vendor fragment matched, and the reader can still choose one by hand.\n */",
+    "/**\n * The mark a model wears: its own choice, then the family its id names, then its provider's mark.\n *\n * The family wins over the provider because a gateway's own logo says nothing about which model answered;\n * a model id that names no family is still identified by the provider it runs on.\n */",
+  ]],
   ["src/shared/assistant-memory.ts", [
     "/**\n * Whether a new memory replaces, refines or contradicts an older one.\n *\n * The reference project's rules are English-only: it looked for the words \"no longer\", \"moved\",\n * \"sold\", and it split statements into words at spaces. Both assumptions fail silently on Chinese,\n * which is the language most of this app's readers write in — a Han statement has no spaces, so its\n * word sets came back as one long token and nothing ever overlapped with anything. The Han markers\n * here are what make the same judgement work in the reader's own language, and the tokeniser splits\n * Han runs into characters and adjacent pairs, which is how this app's own note index segments them.\n *\n * Every Han phrase is written as escapes because the i18n gate keeps interface copy out of `src/`.\n * These are not copy: they are the words a memory is *written with*, so they cannot come from the\n * locale catalog — a memory saved in Chinese must be recognised the same whatever language the\n * interface is currently in. Each constant is named in pinyin so the escapes stay reviewable.\n */",
     "/** A stable code, translated at render time; the reason is never stored prose. */",
@@ -18688,6 +18726,8 @@ const allowed = new Map([
     "/** The long edge of a period's name in the editor. */",
     "/**\n   * What a million tokens of this model costs, as the provider publishes it.\n   *\n   * Null is \"not priced\" rather than free — a local model and an unpriced one look the same in a total,\n   * and the statistics say which models they could not price instead of counting them as zero. Prices\n   * are per million of the side they name, which is the unit every provider quotes in. These are the\n   * base rates: a window in `pricePeriods` stamps the tokens it was in force for and overrides them.\n   */",
     "/**\n   * Time-of-day rates. Empty means the base prices above are the whole story.\n   *\n   * The usage record files a turn's tokens under the window that was in force when it was written, and\n   * the statistics price each bucket at that window's rate. A window whose price is null inherits the\n   * matching base rate, so a provider that only changes its output rate needs one number.\n   */",
+    "/** A stored mark (`brand:…`, `emoji:…`, `lucide:…`, or an uploaded data URL), or '' to infer one. */",
+    "/** Overrides the mark inferred from the model id or provider; '' means infer. */",
   ]],
   ["src/shared/backup-format.ts", [
     "/** The account's own template library, absent from a backup taken before it was worth keeping. */",
@@ -21922,6 +21962,10 @@ const allowed = new Map([
     "// key tables keep their totals; this sidecar is what lets a cost be computed per window without",
     "// rebuilding either table's primary key. Tokens written before it, or outside every window, have no",
     "// row here and are priced at the base rate.",
+    "// The mark a provider wears. The picker stores a short encoded value; the listing that reads a row",
+    "// written before this column existed gets '' and infers the brand from the name and address.",
+    "// A model's own mark, overriding the one inferred from its family and provider. The same encoding",
+    "// as the provider column: brand, emoji, Lucide name, or a small uploaded image.",
   ]],
   ["src/worker/db/writes.ts", [
     "/** Keeps tags, backlinks, full-text indexes, and change records consistent with note writes. */",
@@ -22777,6 +22821,7 @@ const allowed = new Map([
     "// resolved a key, and charging those to this key would make its bar larger than its tokens.",
     "// The key dimension matches models by label — only the model table carries an id — which is the",
     "// rename limit of this view. A model with no price at all is reported as unpriced rather than free.",
+    "/**\n * A provider or model mark from an edit, or the empty string for \"infer one\".\n *\n * Unlike the read side, an edit is refused rather than silently cleared: a mark the picker offered but\n * this build no longer knows, or an upload over the ceiling, is something the reader can fix, and a save\n * that dropped it would look like it worked.\n */",
   ]],
   ["src/worker/routes/auth.ts", [
     "// Account-wide cap so a distributed botnet cannot retry one account",
@@ -23500,6 +23545,9 @@ const allowed = new Map([
   ["tests/assistant-fetch-url.test.ts", [
     "/**\n * `fetch_url`: the one tool that reaches the open web on the reader's behalf.\n *\n * Three things are pinned, and each of them is a way the tool could be dangerous rather than merely\n * wrong. It must not read a private address, it must not follow a redirect (which is how a public\n * address becomes a private one), and it must not hand back a page whose type it cannot read. What it\n * does return is the words, with the markup and the scripts stripped, because that is what the model\n * can use and what a reader would recognise as the page.\n */",
     "// Neither the script nor the stylesheet leaks into the text the model reads.",
+  ]],
+  ["tests/assistant-icons.test.ts", [
+    "/**\n * The icon vocabulary: what may be stored, and which mark a row gets when it has not chosen one.\n *\n * The parser is the boundary between a row and a renderer, so the cases that matter are the ones that\n * must not become markup: an unknown brand, a Lucide name this build does not ship, an oversized upload,\n * and a URL that is not an image at all. The inference cases pin the ordering — a gateway's model id still\n * wears the model family, and gemma is not swallowed by gemini.\n */",
   ]],
   ["tests/assistant-image-tool.test.ts", [
     "/**\n * The picture the assistant draws, as the turn sees it.\n *\n * Two things are pinned. First, that a call really goes out to the reader's own image model — the model\n * picked by its purpose, the key taken from the same ring a chat turn uses — and that what comes back is\n * stored as a chat attachment of kind `image` rather than handed to the model as text. Second, that the\n * attachment is announced to the turn: the reader sees the picture on the answer, so a tool that drew one\n * and said nothing would leave them with a chip and no image.\n *\n * The store is stood up rather than opened, because what is under test is the shape of the call; the\n * object store is the real double, because that is where the bytes actually go.\n */",

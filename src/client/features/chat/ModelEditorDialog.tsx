@@ -21,10 +21,12 @@ import type {
   AssistantReasoning,
 } from '@shared/assistant'
 import { ASSISTANT_MODEL_KINDS, ASSISTANT_MODEL_MODALITIES, ASSISTANT_MODEL_PURPOSES, ASSISTANT_PROTOCOLS, MAX_PRICE_PERIODS, MAX_PRICE_PERIOD_LABEL_CHARS, TOKEN_STEPS, effectiveModelLimits, formatTokenStep, modelWire, protocolCarriesAudio } from '@shared/assistant'
+import { iconForModel } from '@shared/assistant-icons'
 import type { AssistantModelModality, AssistantProtocol } from '@shared/assistant'
 import { REASONING_LABELS } from './ComposerControls'
 import { modelReasoning, reasoningOptions } from './model-reasoning'
 import { ChipRow, SaveFailure, refusalFor } from './assistant-settings-shared'
+import { AssistantIconField } from './AssistantIconPicker'
 import type { ReportFailure, WriteFailure } from './assistant-store'
 import { cn } from '../../lib/cn'
 import { COPY_RESET_MS } from '../../lib/motion'
@@ -62,6 +64,8 @@ const PARAM_TYPE_KEYS: Record<AssistantParamType, Parameters<typeof t>[0]> = {
 
 export interface ModelDraft {
   label: string
+  /** A stored mark, or '' to infer one from the model id and provider. */
+  icon: string
   purpose: AssistantModelPurpose
   kind: AssistantModelKind
   supportsTools: boolean
@@ -95,6 +99,7 @@ export interface ModelDraft {
 export function draftFromModel(model: AssistantModel): ModelDraft {
   return {
     label: model.label,
+    icon: model.icon,
     purpose: model.purpose,
     kind: model.kind,
     supportsTools: model.supportsTools,
@@ -408,6 +413,12 @@ export function ModelEditorDialog({
             onChange={(event) => patch({ label: event.target.value })}
           />
         </Field>
+
+        <AssistantIconField
+          value={draft.icon}
+          fallback={iconForModel({ icon: '', model: model.model, label: draft.label }, provider)}
+          onChange={(icon) => patch({ icon })}
+        />
 
         <Field label={t('assistant.model.purpose')}>
           <Segmented

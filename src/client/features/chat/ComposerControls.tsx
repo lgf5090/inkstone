@@ -14,7 +14,6 @@ import { useEffect, useId, useRef, useState } from 'react'
 import {
   Brain,
   Check,
-  Cpu,
   Eye,
   FilePlus2,
   FileText,
@@ -37,12 +36,14 @@ import {
 } from 'lucide-react'
 import type { AssistantModel, AssistantReasoning, AssistantSkill, AssistantToolMode, AssistantTurnScope } from '@shared/assistant'
 import { ASSISTANT_TOOL_MODES, TOKEN_STEPS } from '@shared/assistant'
+import { iconForModel } from '@shared/assistant-icons'
 import { cn } from '../../lib/cn'
 import { t, type MessageKey } from '../../lib/i18n'
 import { Menu, Modal, Tooltip, submenuFor, type MenuItem } from '../../components/overlay'
 import { Input } from '../../components/form'
 import { IconButton } from '../../components/primitives'
 import { useAssistant } from './assistant-store'
+import { AssistantIcon } from './AssistantIcon'
 import { speechRecognitionCtor, voiceBlocker, voiceBlockerReason, voiceRefusal, type SpeechEngine } from './voice-engine'
 
 export function ControlChip({
@@ -142,12 +143,15 @@ export function ModelMenu({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [openRequest])
   const active = models.find((model) => model.id === activeId)
+  const providers = useAssistant((state) => state.providers)
+  const providerFor = (model: AssistantModel) => providers.find((entry) => entry.id === model.providerId) ?? null
   // Automatic routing is decided by the worker, per turn, out of this same catalogue: while it is on, the
   // standing pick is the fallback and not the answer. Naming the standing pick anyway would credit one model
   // with every turn in the thread — the reader would have no way to notice that a different one answered,
   // which is the whole fact a turn's cost and a turn's quality turn on.
   const autoRoute = useAssistant((state) => state.settings?.autoRoute === true)
   const standing = active ? active.label || active.model : t('assistant.composer.model_none')
+  const activeIcon = active ? iconForModel(active, providerFor(active)) : ''
   const items: MenuItem[] = [
     ...models.map((model) => {
       const name = model.label || model.model
@@ -157,7 +161,18 @@ export function ModelMenu({
         // not the model answering. The row has to say so in words: a bare name under a tick keeps the claim
         // the chip above just gave up, which is the exact contradiction automatic routing creates.
         label: autoRoute && model.id === activeId ? t('assistant.composer.model_auto_default', { model: name }) : name,
-        icon: model.id === activeId ? <Check size={13} /> : <Cpu size={13} />,
+        icon: (
+          <span className="relative flex size-4 items-center justify-center">
+            <AssistantIcon value={iconForModel(model, providerFor(model))} size={16} />
+            {model.id === activeId && (
+              <Check
+                size={9}
+                strokeWidth={3}
+                className="absolute -bottom-0.5 -right-0.5 rounded-full bg-[var(--bg-surface)] text-[var(--accent)]"
+              />
+            )}
+          </span>
+        ),
         onSelect: () => onPick(model.id),
       }
     }),
@@ -182,7 +197,7 @@ export function ModelMenu({
         // and the standing pick moves down into the sentence that explains the rule (the hint below).
         value={autoRoute ? t('assistant.composer.model_auto') : standing}
         hint={autoRoute ? t('assistant.composer.model_auto_hint', { count: models.length, model: standing }) : undefined}
-        icon={<Sparkles size={12} />}
+        icon={autoRoute ? <Sparkles size={12} /> : <AssistantIcon value={activeIcon} size={14} />}
         active={anchor.open}
         onClick={anchor.toggle}
       />

@@ -42,7 +42,7 @@ function model(over: Partial<AssistantModel> = {}): AssistantModel {
         fallbackModelId: null,
         inputPrice: null,
         outputPrice: null,
-        priceCurrency: '', pricePeriods: [],
+        priceCurrency: '', pricePeriods: [], icon: '',
         ...over,
     }
 }
@@ -55,7 +55,7 @@ function provider(over: Partial<AssistantProvider> = {}): AssistantProvider {
         baseUrl: 'https://api.deepseek.com',
         endpoints: {},
         hasKey: true,
-        keyHint: 'abcd',
+        icon: '', keyHint: 'abcd',
         reasoningDialect: null,
         createdAt: 1,
         updatedAt: 1,

@@ -6,10 +6,13 @@
  * the ones that key can really call rather than a preset's guess.
  */
 import { useEffect, useId, useMemo, useRef, useState } from 'react'
-import { AudioLines, Brain, Check, ChevronDown, Download, Eye, GalleryVerticalEnd, Image, KeyRound, Plus, Power, Search, Server, Settings2, Trash2, Wand2, Wrench } from 'lucide-react'
+import { AudioLines, Brain, Check, ChevronDown, Download, Eye, GalleryVerticalEnd, Image, KeyRound, Plus, Power, Search, Settings2, Trash2, Wand2, Wrench } from 'lucide-react'
 import { type AssistantModel, type AssistantModelKind, type AssistantModelPurpose, type AssistantProtocol, type AssistantProvider, type AssistantSettings, type ReasoningDialect } from '@shared/assistant'
 import { ASSISTANT_PROTOCOLS, PROVIDER_PRESETS, endpointFieldState } from '@shared/assistant'
+import { iconForModel, iconForProvider } from '@shared/assistant-icons'
 import { dialectsForProtocol } from '@shared/reasoning'
+import { AssistantIcon } from './AssistantIcon'
+import { AssistantIconField } from './AssistantIconPicker'
 import { ModelEditorDialog } from './ModelEditorDialog'
 import { ModelPickerDialog } from './ModelPickerDialog'
 import { ProviderKeys, useProviderBalances, WalletChips } from './ProviderKeys'
@@ -89,7 +92,8 @@ const providerLabelId = (providerId: string): string => `assistant-provider-${pr
  * model, and the arrows that move the choice. `useRovingRadio` is the helper the segmented control already
  * uses, so the keys mean the same thing here as they do everywhere else in the app.
  */
-function ModelList({ models, activeModelId, labelId, onEdit }: {
+function ModelList({ provider, models, activeModelId, labelId, onEdit }: {
+  provider: AssistantProvider
   models: readonly AssistantModel[]
   activeModelId: string | null
   /** The id of the provider's own name, which is what labels this group. */
@@ -137,7 +141,11 @@ function ModelList({ models, activeModelId, labelId, onEdit }: {
                     : 'text-[var(--text-secondary)]',
                 )}
               >
-                <span aria-hidden className={cn('size-2 shrink-0 rounded-full border', active ? 'border-[var(--accent)] bg-[var(--accent)]' : 'border-[var(--border-strong)]')} />
+                <AssistantIcon
+                  value={iconForModel(model, provider)}
+                  size={20}
+                  className={active ? 'ring-1 ring-[var(--accent)]' : undefined}
+                />
                 {mark && (
                   <Tooltip label={t(mark.key)}>
                     <span aria-hidden className="shrink-0 text-[var(--text-quaternary)]">{mark.icon}</span>
@@ -221,18 +229,19 @@ function ProviderCard({ provider, models, activeModelId, onEditProvider, onPickM
   return (
     <div className="flex flex-col gap-1.5 py-3">
       <div className="flex items-center gap-2.5">
-        {/* The key state is the one fact about a provider that costs a round trip to learn, so it is
-            drawn as the row's own mark rather than as a word at the end of a sentence. */}
-        <span
-          aria-hidden
-          className={cn(
-            'flex size-7 shrink-0 items-center justify-center rounded-[var(--r-md)] border',
-            provider.hasKey
-              ? 'border-[var(--accent)] bg-[var(--accent-soft)] text-[var(--accent-on-soft)]'
-              : 'border-[var(--border-default)] text-[var(--text-quaternary)]',
-          )}
-        >
-          <KeyRound size={13} />
+        {/* The brand says who answers; the small key badge keeps the one fact about this provider that
+            costs a round trip to learn without taking the vendor's mark away. */}
+        <span className="relative shrink-0">
+          <AssistantIcon value={iconForProvider(provider)} size={28} />
+          <span
+            aria-hidden
+            className={cn(
+              'absolute -bottom-1 -right-1 flex size-3.5 items-center justify-center rounded-full border border-[var(--border-subtle)] bg-[var(--bg-surface)]',
+              provider.hasKey ? 'text-[var(--accent)]' : 'text-[var(--text-quaternary)]',
+            )}
+          >
+            <KeyRound size={9} />
+          </span>
         </span>
         <div className="min-w-0 flex-1">
           <p id={providerLabelId(provider.id)} className="truncate text-[length:var(--text-13)] font-medium text-[var(--text-primary)]">{provider.label}</p>
@@ -274,6 +283,7 @@ function ProviderCard({ provider, models, activeModelId, onEditProvider, onPickM
         <p className="pl-9 text-[length:var(--text-11)] text-[var(--text-quaternary)]">{t('assistant.settings.no_models')}</p>
       ) : (
         <ModelList
+          provider={provider}
           models={models}
           activeModelId={activeModelId}
           labelId={providerLabelId(provider.id)}
@@ -414,7 +424,7 @@ function PresetPicker({ value, onPick }: { value: string, onPick: (id: string) =
           )}
         >
           <span className="flex min-w-0 items-center gap-1.5">
-            <Server size={13} className="shrink-0 text-[var(--text-tertiary)]" />
+            <AssistantIcon value={chosen.icon} size={16} />
             <span className="truncate text-[length:var(--text-13)] text-[var(--text-primary)]">{chosen.label}</span>
           </span>
           <ChevronDown size={14} className={cn('shrink-0 text-[var(--text-tertiary)] transition-transform duration-[var(--dur-fast)]', open && 'rotate-180')} />
@@ -453,6 +463,7 @@ function PresetPicker({ value, onPick }: { value: string, onPick: (id: string) =
                         : 'text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]',
                     )}
                   >
+                    <AssistantIcon value={entry.icon} size={18} />
                     <span className="min-w-0 flex-1 truncate">{entry.label}</span>
                     {entry.id === value && <Check size={13} className="shrink-0" />}
                   </button>
@@ -478,6 +489,7 @@ export function ProviderForm({ open, provider, onClose, onCreated }: {
   const editing = provider ?? null
   const [preset, setPreset] = useState(PROVIDER_PRESETS[0]!.id)
   const [label, setLabel] = useState('')
+  const [icon, setIcon] = useState(PROVIDER_PRESETS[0]!.icon)
   const [baseUrl, setBaseUrl] = useState(PROVIDER_PRESETS[0]!.baseUrl)
   const [protocol, setProtocol] = useState<AssistantProtocol>(PROVIDER_PRESETS[0]!.protocol)
   const [apiKey, setApiKey] = useState('')
@@ -518,6 +530,7 @@ export function ProviderForm({ open, provider, onClose, onCreated }: {
     if (editing) {
       // An edit starts from what is stored, not from a preset that would overwrite the reader's address.
       setLabel(editing.label)
+      setIcon(editing.icon)
       setBaseUrl(editing.baseUrl)
       setProtocol(editing.protocol)
       setExtra(editing.endpoints as Record<string, string>)
@@ -527,6 +540,7 @@ export function ProviderForm({ open, provider, onClose, onCreated }: {
       return
     }
     setLabel(chosen.label)
+    setIcon(chosen.icon)
     setBaseUrl(chosen.baseUrl)
     setProtocol(chosen.protocol)
     setModels(chosen.models.join(', '))
@@ -560,6 +574,7 @@ export function ProviderForm({ open, provider, onClose, onCreated }: {
     if (editing) {
       const ok = await updateProvider(editing.id, {
         label: label.trim(),
+        icon,
         protocol,
         baseUrl: baseUrl.trim(),
         endpoints: sendable,
@@ -577,6 +592,7 @@ export function ProviderForm({ open, provider, onClose, onCreated }: {
     // created row back and the caller opens the listing on it.
     const created = await addProvider({
       label: label.trim(),
+      icon,
       protocol,
       baseUrl: baseUrl.trim(),
       apiKey: apiKey.trim(),
@@ -621,6 +637,11 @@ export function ProviderForm({ open, provider, onClose, onCreated }: {
         <Field label={t('assistant.settings.provider_name')}>
           <Input value={label} maxLength={60} autoComplete="off" onChange={(event) => setLabel(event.target.value)} />
         </Field>
+        <AssistantIconField
+          value={icon}
+          fallback={iconForProvider({ icon: '', label, baseUrl })}
+          onChange={setIcon}
+        />
         <Field label={t('assistant.settings.protocol')}>
           <Select value={protocol} onChange={(event) => setProtocol(event.target.value as AssistantProtocol)}>
             {ASSISTANT_PROTOCOLS.map((entry) => <option key={entry} value={entry}>{PROTOCOL_LABELS[entry]?.()}</option>)}
@@ -728,10 +749,12 @@ function ModelForm({ provider, onClose, onAdd }: {
   onAdd: (body: Record<string, unknown>, report: ReportFailure) => Promise<boolean>
 }) {
   const [model, setModel] = useState('')
+  const [icon, setIcon] = useState('')
   const [saving, setSaving] = useState(false)
   const [failure, setFailure] = useState<WriteFailure | null>(null)
   useEffect(() => {
     setModel('')
+    setIcon('')
     setFailure(null)
   }, [provider])
 
@@ -739,7 +762,7 @@ function ModelForm({ provider, onClose, onAdd }: {
     if (!provider || saving) return
     setSaving(true)
     setFailure(null)
-    const ok = await onAdd({ providerId: provider.id, model: model.trim() }, setFailure)
+    const ok = await onAdd({ providerId: provider.id, model: model.trim(), icon }, setFailure)
     setSaving(false)
     if (!ok) {
       setFailure(refusalFor)
@@ -780,6 +803,11 @@ function ModelForm({ provider, onClose, onAdd }: {
       <Field label={t('assistant.settings.model_id')} hint={provider?.baseUrl}>
         <Input value={model} maxLength={120} autoFocus onChange={(event) => setModel(event.target.value)} className="font-mono text-[length:var(--text-12)]" />
       </Field>
+      <AssistantIconField
+        value={icon}
+        fallback={provider ? iconForModel({ icon: '', model, label: model }, provider) : ''}
+        onChange={setIcon}
+      />
       {failure && <div className="mt-3"><SaveFailure failure={failure} /></div>}
     </Modal>
   )

@@ -11,6 +11,7 @@
 
 import { ASSISTANT_MODEL_KINDS, ASSISTANT_MODEL_PURPOSES, MAX_ARTIFACT_VERSIONS, MAX_TURN_SCOPES, SAVED_MESSAGE_EXCERPT_CHARS, clipSuggestionList, clipToolPayload, parseCustomParams, isNoteSourceId, isSourceUrl } from '@shared/assistant'
 import { activePricePeriod, parsePricePeriods } from '@shared/price-periods'
+import { parseAssistantIcon } from '@shared/assistant-icons'
 import type {
   AssistantArtifact,
   AssistantArtifactVersion,
@@ -912,7 +913,7 @@ const MESSAGE_READ_PAGE = 500
 
 /** Every field a model PATCH may name; anything absent leaves its column exactly as the row has it. */
 type ModelPatch = {
-  label?: string, model?: string, temperature?: number | null, maxOutputTokens?: number | null,
+  label?: string, model?: string, icon?: string, temperature?: number | null, maxOutputTokens?: number | null,
   reasoning?: AssistantReasoning, contextTokens?: number | null, vision?: boolean, enabled?: boolean,
   purpose?: AssistantModelPurpose, kind?: AssistantModelKind, supportsTools?: boolean,
   noTools?: boolean,
@@ -940,6 +941,7 @@ const MODEL_UPDATES: readonly {
 }[] = [
   { key: 'label', column: 'label', bind: (patch) => patch.label },
   { key: 'model', column: 'model', bind: (patch) => patch.model },
+  { key: 'icon', column: 'icon', bind: (patch) => parseAssistantIcon(patch.icon) },
   // Null is a value in each field below rather than an absent patch: it is the reader emptying the box,
   // which for temperature and `maxOutputTokens` hands the model back to the account's own setting.
   { key: 'temperature', column: 'temperature', bind: (patch) => patch.temperature },
@@ -1074,27 +1076,29 @@ export class AssistantStore {
   }
 
   async createProvider(input: {
-    label: string, protocol: AssistantProtocol, baseUrl: string, apiKey: string,
+    label: string, icon?: string, protocol: AssistantProtocol, baseUrl: string, apiKey: string,
     endpoints?: Partial<Record<AssistantProtocol, string>>,
     reasoningDialect?: ReasoningDialect | null,
   }): Promise<AssistantProvider> {
     const id = newId()
     const at = Date.now()
     const key = input.apiKey.trim()
+    const icon = parseAssistantIcon(input.icon)
     const ciphertext = key ? await encryptAssistantKey(this.env, this.userId, key) : ''
     const dialect = compatibleDialect(input.protocol, input.reasoningDialect)
     // The hint is stored rather than recomputed later: a listing never decrypts a key, so its last four
     // characters have to travel with the row the way an extra key's already do.
     const hint = key ? key.slice(-4) : ''
     await this.write(
-      `INSERT INTO chat_providers (id, user_id, label, protocol, base_url, endpoints, reasoning_dialect, key_ciphertext, key_hint, created_at, updated_at)
-       VALUES (?2, ?1, ?3, ?4, ?5, ?9, ?10, ?6, ?11, ?7, ?8)`,
+      `INSERT INTO chat_providers (id, user_id, label, icon, protocol, base_url, endpoints, reasoning_dialect, key_ciphertext, key_hint, created_at, updated_at)
+       VALUES (?2, ?1, ?3, ?12, ?4, ?5, ?9, ?10, ?6, ?11, ?7, ?8)`,
       id, input.label, input.protocol, input.baseUrl, ciphertext, at, at,
-      JSON.stringify(input.endpoints ?? {}), dialect, hint,
+      JSON.stringify(input.endpoints ?? {}), dialect, hint, icon,
     )
     return {
       id,
       label: input.label,
+      icon,
       protocol: input.protocol,
       baseUrl: input.baseUrl,
       endpoints: input.endpoints ?? {},
@@ -1109,7 +1113,7 @@ export class AssistantStore {
   async updateProvider(
     id: string,
     patch: {
-      label?: string, protocol?: AssistantProtocol, baseUrl?: string, apiKey?: string | null,
+      label?: string, icon?: string, protocol?: AssistantProtocol, baseUrl?: string, apiKey?: string | null,
       endpoints?: Partial<Record<AssistantProtocol, string>>,
       reasoningDialect?: ReasoningDialect | null,
     },
@@ -1123,6 +1127,7 @@ export class AssistantStore {
     // the stored one.
     const label = patch.label?.trim().slice(0, 60)
     if (label) set('label', label)
+    if (patch.icon !== undefined) set('icon', parseAssistantIcon(patch.icon))
     const protocol = patch.protocol ?? pickEnum(existing.protocol, ASSISTANT_PROTOCOLS, 'openai')
     if (patch.protocol !== undefined) set('protocol', patch.protocol)
     const baseUrl = patch.baseUrl?.trim()
@@ -1428,6 +1433,7 @@ export class AssistantStore {
     providerId: string
     model: string
     label?: string
+    icon?: string
     temperature?: number | null
     maxOutputTokens?: number | null
     reasoning?: AssistantReasoning
@@ -1448,6 +1454,7 @@ export class AssistantStore {
     // this model had a number of its own, and a later raise of the account's ceiling would not reach it.
     const maxOutputTokens = input.maxOutputTokens ?? null
     const label = input.label ?? input.model
+    const icon = parseAssistantIcon(input.icon)
     const reasoning = input.reasoning ?? 'auto'
     const contextTokens = input.contextTokens ?? null
     const vision = input.vision ?? true
@@ -1460,15 +1467,15 @@ export class AssistantStore {
     const vendorContextTokens = input.vendorContextTokens ?? published.contextTokens
     const vendorMaxOutputTokens = input.vendorMaxOutputTokens ?? published.maxOutputTokens
     await this.write(
-      `INSERT INTO chat_models (id, user_id, provider_id, model, label, temperature, max_output_tokens, reasoning, context_tokens, vendor_context_tokens, vendor_max_output_tokens, vision, enabled, position, protocol)
-       VALUES (?2, ?1, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, 1, ?13, ?14)`,
+      `INSERT INTO chat_models (id, user_id, provider_id, model, label, icon, temperature, max_output_tokens, reasoning, context_tokens, vendor_context_tokens, vendor_max_output_tokens, vision, enabled, position, protocol)
+       VALUES (?2, ?1, ?3, ?4, ?5, ?15, ?6, ?7, ?8, ?9, ?10, ?11, ?12, 1, ?13, ?14)`,
       id, input.providerId, input.model, label, temperature, maxOutputTokens, reasoning, contextTokens,
       vendorContextTokens, vendorMaxOutputTokens, vision ? 1 : 0, positionRow?.n ?? 1,
-      input.protocol ?? null,
+      input.protocol ?? null, icon,
     )
     // The columns keep their defaults, so the object handed back says the same thing the row does.
     return {
-      id, providerId: input.providerId, model: input.model, label, temperature, maxOutputTokens,
+      id, providerId: input.providerId, model: input.model, label, icon, temperature, maxOutputTokens,
       reasoning, contextTokens, vision, enabled: true,
       vendorContextTokens, vendorMaxOutputTokens,
       purpose: 'chat', kind: 'text', supportsTools: true, noTools: false, maxInputTokens: null, modalities: [], topP: null, customParams: [],
@@ -5803,6 +5810,7 @@ export interface ActivityRow {
 export interface ProviderRow {
   id: string
   label: string
+  icon?: string | null
   protocol: AssistantProtocol
   base_url: string
   endpoints?: string | null
@@ -5833,6 +5841,7 @@ function toProvider(r: ProviderRow): AssistantProvider {
   return {
     id: r.id,
     label: r.label,
+    icon: parseAssistantIcon(r.icon),
     protocol: pickEnum(r.protocol, ASSISTANT_PROTOCOLS, 'openai'),
     baseUrl: r.base_url,
     endpoints: parseProviderEndpoints(r.endpoints),
@@ -5903,7 +5912,7 @@ function toSearchKeyPresence(r: { engine: string, has_key?: unknown, key_hint?: 
  * The columns a model row is read with. One list, because two hand-copied ones are how a new column
  * ends up written but never read back: the editor saved `purpose` and the reader saw the old value.
  */
-export const MODEL_SELECT_COLUMNS = `id, provider_id, model, label, temperature, max_output_tokens,
+export const MODEL_SELECT_COLUMNS = `id, provider_id, model, label, icon, temperature, max_output_tokens,
   reasoning, context_tokens, vendor_context_tokens, vendor_max_output_tokens, vision, purpose, kind, supports_tools, no_tools, max_input_tokens, modalities, top_p,
   custom_params, protocol, fallback_model_id, input_price, output_price, price_currency, price_periods, enabled, position`
 
@@ -5952,6 +5961,7 @@ interface ModelRow {
   provider_id: string
   model: string
   label: string
+  icon?: string | null
   temperature: number | null
   max_output_tokens: number | null
   reasoning: string | null
@@ -5983,6 +5993,7 @@ function toModel(r: ModelRow): AssistantModel {
     providerId: r.provider_id,
     model: r.model,
     label: r.label || r.model,
+    icon: parseAssistantIcon(r.icon),
     // Null is the reader's own choice — "leave the vendor default alone" — so it must not be turned
     // back into a number on the way out.
     temperature: num(r.temperature),

@@ -34,13 +34,13 @@ function model(over: Partial<AssistantModel> = {}): AssistantModel {
     id: 'm1', providerId: 'p1', model: 'deepseek-chat', label: 'DeepSeek Chat', temperature: 0.4,
     maxOutputTokens: 8192, enabled: true, reasoning: 'auto', contextTokens: null, vision: true, purpose: 'chat',
     kind: 'text', supportsTools: true, maxInputTokens: null, modalities: [], topP: null, customParams: [],
-    protocol: null, fallbackModelId: null, inputPrice: null, outputPrice: null, priceCurrency: '', pricePeriods: [], ...over,
+    protocol: null, fallbackModelId: null, inputPrice: null, outputPrice: null, priceCurrency: '', pricePeriods: [], icon: '', ...over,
   }
 }
 
 const GATEWAY: AssistantProvider = {
   id: 'p1', label: 'Gateway', protocol: 'openai', baseUrl: 'https://gateway.example.org/v1', endpoints: {},
-  hasKey: true, keyHint: 'abcd', reasoningDialect: null, createdAt: 1, updatedAt: 1,
+  hasKey: true, icon: '', keyHint: 'abcd', reasoningDialect: null, createdAt: 1, updatedAt: 1,
 }
 
 const CLIP: ChatAttachment = {

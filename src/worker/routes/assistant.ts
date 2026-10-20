@@ -89,6 +89,7 @@ import {
 } from '@shared/assistant'
 import { assertRelayableEndpoint } from '@shared/ai-proxy-guard'
 import { parsePricePeriods } from '@shared/price-periods'
+import { parseAssistantIcon } from '@shared/assistant-icons'
 import { localDayBounds, parseLocalTime } from '@shared/assistant-time'
 import type { AppBindings } from '../env'
 import { ApiError } from '../lib/errors'
@@ -2819,14 +2820,14 @@ assistantRoutes.get('/providers', async (c) => c.json({ providers: await store(c
 
 assistantRoutes.post('/providers', async (c) => {
   const s = store(c)
-  const body = await readJson<Record<string, unknown>>(c, JSON_BODY_LIMITS.small)
+  const body = await readJson<Record<string, unknown>>(c, JSON_BODY_LIMITS.profile)
   const protocol = asProtocol(body.protocol)
   const baseUrl = vetBaseUrl(body.baseUrl)
   const label = text(body.label, 60)
   const apiKey = typeof body.apiKey === 'string' ? body.apiKey.trim() : ''
   if (apiKey.length > 4096) throw ApiError.badRequest('That API key is too long to store.')
   const provider = await s.createProvider({
-    label, protocol, baseUrl, apiKey, endpoints: vetEndpoints(body.endpoints),
+    label, icon: assistantIconValue(body.icon), protocol, baseUrl, apiKey, endpoints: vetEndpoints(body.endpoints),
     reasoningDialect: reasoningDialectValue(body.reasoningDialect),
   })
   const models = Array.isArray(body.models) ? body.models : []
@@ -2844,9 +2845,10 @@ assistantRoutes.post('/providers', async (c) => {
 assistantRoutes.patch('/providers/:id', async (c) => {
   const s = store(c)
   const id = requiredId(c.req.param('id'))
-  const body = await readJson<Record<string, unknown>>(c, JSON_BODY_LIMITS.small)
+  const body = await readJson<Record<string, unknown>>(c, JSON_BODY_LIMITS.profile)
   const provider = await s.updateProvider(id, {
     ...(body.label !== undefined ? { label: text(body.label, 60, 'A provider name is required.') } : {}),
+    ...(body.icon !== undefined ? { icon: assistantIconValue(body.icon) } : {}),
     ...(body.protocol !== undefined ? { protocol: asProtocol(body.protocol) } : {}),
     ...(body.baseUrl !== undefined ? { baseUrl: vetBaseUrl(body.baseUrl) } : {}),
     ...(body.apiKey === null ? { apiKey: null } : typeof body.apiKey === 'string' ? { apiKey: body.apiKey } : {}),
@@ -3030,7 +3032,7 @@ assistantRoutes.get('/models', async (c) => c.json({ models: await store(c).list
 
 assistantRoutes.post('/models', async (c) => {
   const s = store(c)
-  const body = await readJson<Record<string, unknown>>(c, JSON_BODY_LIMITS.small)
+  const body = await readJson<Record<string, unknown>>(c, JSON_BODY_LIMITS.profile)
   const providerId = requiredId(body.providerId)
   if (!(await s.getProvider(providerId))) throw ApiError.badRequest('That provider does not exist.')
   const model = text(body.model, 120).replace(/\s+/g, '')
@@ -3038,6 +3040,7 @@ assistantRoutes.post('/models', async (c) => {
     providerId,
     model,
     label: optionalText(body.label, 60) ?? model,
+    icon: assistantIconValue(body.icon),
     // Absent or null is "no per-model sampling setting"; anything else has to be a number the field can
     // hold, because a model created without one must not be refused.
     temperature: body.temperature === undefined || body.temperature === null
@@ -3112,6 +3115,21 @@ function pricePeriodsValue(value: unknown): AssistantPricePeriod[] {
 }
 
 /**
+ * A provider or model mark from an edit, or the empty string for "infer one".
+ *
+ * Unlike the read side, an edit is refused rather than silently cleared: a mark the picker offered but
+ * this build no longer knows, or an upload over the ceiling, is something the reader can fix, and a save
+ * that dropped it would look like it worked.
+ */
+function assistantIconValue(value: unknown): string {
+  if (value === undefined || value === null || value === '') return ''
+  if (typeof value !== 'string') throw ApiError.badRequest('An icon has to be text.')
+  const parsed = parseAssistantIcon(value)
+  if (!parsed) throw ApiError.badRequest('That icon could not be used.')
+  return parsed
+}
+
+/**
  * The model a reader named as this one's spare, or null for none.
  *
  * A self-reference is refused because it is a chain of one that can never answer; an id that is not one of
@@ -3129,9 +3147,10 @@ async function spareModelFor(s: AssistantStore, selfId: string, value: unknown):
 assistantRoutes.patch('/models/:id', async (c) => {
   const s = store(c)
   const id = requiredId(c.req.param('id'))
-  const body = await readJson<Record<string, unknown>>(c, JSON_BODY_LIMITS.small)
+  const body = await readJson<Record<string, unknown>>(c, JSON_BODY_LIMITS.profile)
   const updated = await s.updateModel(id, {
     ...(body.label !== undefined ? { label: text(body.label, 60, 'A model name is required.') } : {}),
+    ...(body.icon !== undefined ? { icon: assistantIconValue(body.icon) } : {}),
     ...(body.model !== undefined ? { model: text(body.model, 120).replace(/\s+/g, '') } : {}),
     ...(body.temperature !== undefined
       ? { temperature: body.temperature === null ? null : numberInRange(body.temperature, 0, 1.5) }
