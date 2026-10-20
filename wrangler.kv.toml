@@ -66,8 +66,6 @@ type = "durable-object"
 storage = "sqlite"
 
 [triggers]
-# Same cadence as wrangler.toml: the reminder sweeps need a fire every minute, while the drains and
-# maintenance stay gated to the minutes `isDrainFire` accepts. See wrangler.toml's [triggers] block.
 crons = ["* * * * *"]
 
 [vars]
