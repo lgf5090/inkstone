@@ -22,7 +22,17 @@ import { api } from '../../lib/api'
 import { t } from '../../lib/i18n'
 import { subscribeToAddress } from '../../lib/app-history'
 import { useUi } from '../../store/ui'
-import { toggledStatus, type TaskCounts, type TaskList, type TaskSort, type TaskStep, type TaskTag, type TodoTask } from '@shared/todos/model'
+import { parseQuickAdd } from '@shared/todos/quick-parse'
+import {
+  toggledStatus,
+  type RemindOffset,
+  type TaskCounts,
+  type TaskList,
+  type TaskSort,
+  type TaskStep,
+  type TaskTag,
+  type TodoTask,
+} from '@shared/todos/model'
 import {
   pushTodoAddress,
   pushTodoTaskAddress,
@@ -47,6 +57,8 @@ export interface TaskDraft {
   tags?: string[]
   repeat?: TodoTask['repeat']
   remindAt?: number | null
+  /** The reminder as the create/update routes carry it: an offset from the due instant. */
+  remind?: RemindOffset
   conversationId?: string | null
   noteId?: string | null
   steps?: string[]
@@ -126,6 +138,55 @@ function toastError(error: unknown): void {
     description: error instanceof Error ? error.message : String(error),
     tone: 'danger',
   })
+}
+
+/** The list a typed name points at, or null. A name that matches nothing is not a list to create. */
+export function listNamed(lists: readonly TaskList[], name: string): TaskList | null {
+  const wanted = name.trim().toLowerCase()
+  if (!wanted) return null
+  return lists.find((list) => list.name.trim().toLowerCase() === wanted) ?? null
+}
+
+/** The offset a stored reminder stands for, as the forms and the create route speak it. */
+export function remindOffsetOf(task: { remindAt: number | null; dueAt: number | null }): RemindOffset {
+  if (task.remindAt === null || task.dueAt === null) return 'none'
+  const delta = task.dueAt - task.remindAt
+  if (delta <= 0) return 'due'
+  if (delta === 15 * 60_000) return '15m'
+  if (delta === 60 * 60_000) return '1h'
+  if (delta === 24 * 60 * 60_000) return '1d'
+  return 'none'
+}
+
+/**
+ * One quick-add line as the draft a panel opens on.
+ *
+ * The parser decides what the words meant; this only decides which of them the account can honour.
+ * A list is used only when its name is one the account already has, and a line typed under a card
+ * keeps that card's list when it names nothing new. Only fields the line actually carried are set,
+ * so a draft is a diff against the form's own defaults rather than a second set of them.
+ */
+export function quickAddDraft(
+  input: string,
+  now: number,
+  timezone: string,
+  lists: readonly TaskList[],
+  baseListId: string | null = null,
+): TaskDraft | null {
+  const text = input.trim()
+  if (!text) return null
+  const parsed = parseQuickAdd(text, now, timezone)
+  const named = parsed.listName ? listNamed(lists, parsed.listName) : null
+  const listId = named?.id ?? baseListId
+  return {
+    title: parsed.title,
+    ...(listId !== null ? { listId } : {}),
+    ...(parsed.dueAt !== null ? { dueAt: parsed.dueAt } : {}),
+    ...(parsed.remindAt !== null ? { remindAt: parsed.remindAt } : {}),
+    ...(parsed.priority ? { priority: parsed.priority } : {}),
+    ...(parsed.tags.length ? { tags: parsed.tags } : {}),
+    ...(parsed.repeat ? { repeat: parsed.repeat } : {}),
+  }
 }
 
 /** The view part of the state, which is the part the query string carries. */

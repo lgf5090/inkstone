@@ -20,22 +20,12 @@ import { DatePicker } from '../../components/date-picker'
 import { Modal, confirm } from '../../components/overlay'
 import { api } from '../../lib/api'
 import { useUi } from '../../store/ui'
-import { useTodos, type TaskDraft } from './store'
+import { useTodos, remindOffsetOf, type TaskDraft } from './store'
 import { dueValue } from './todo-ui'
 import { openConversationInChat, startChatAboutTask } from '../chat/start-chat'
 import { REPEAT_FREQUENCIES, REMIND_OFFSETS, type RemindOffset, type RepeatFrequency, type TaskStep } from '@shared/todos/model'
 
 const PRIORITIES = ['low', 'medium', 'high', 'urgent'] as const
-
-function remindOffsetOf(task: { remindAt: number | null; dueAt: number | null }): RemindOffset {
-  if (task.remindAt === null || task.dueAt === null) return 'none'
-  const delta = task.dueAt - task.remindAt
-  if (delta <= 0) return 'due'
-  if (delta === 15 * 60_000) return '15m'
-  if (delta === 60 * 60_000) return '1h'
-  if (delta === 24 * 60 * 60_000) return '1d'
-  return 'none'
-}
 
 export function TaskEditor() {
   const open = useTodos((state) => state.editorOpen)

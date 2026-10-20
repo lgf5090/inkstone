@@ -6,17 +6,20 @@
  * the board is two columns wide and a list that is not on screen needs a way to be reached.
  */
 
-import { useState } from 'react'
+import { useState, type ReactNode } from 'react'
 import { ChevronRight, ListChecks, Plus } from 'lucide-react'
 import { cn } from '../../lib/cn'
-import { t } from '../../lib/i18n'
+import { getLocale, t } from '../../lib/i18n'
 import { KanbanIconBadge } from '../../lib/markdown/kanban/ui/kanban-icon-badge'
-import { useTodos } from './store'
+import { useTodos, listNamed, quickAddDraft, remindOffsetOf } from './store'
 import { TodoPageFooter } from './TodoPageFooter'
 import { Input } from '../../components/form'
-import { listIconFor } from './todo-ui'
+import { listIconFor, priorityLabel, repeatLabel } from './todo-ui'
 import { TaskCard } from './TaskCard'
-import type { TodoTask } from '@shared/todos/model'
+import { parseQuickAdd, type QuickAddParse } from '@shared/todos/quick-parse'
+import { toLocalMinute } from '@shared/assistant-time'
+import type { MessageKey } from '@shared/locales/en-US'
+import type { TaskList, TodoTask } from '@shared/todos/model'
 
 interface BoardCard {
   id: string
@@ -30,6 +33,82 @@ interface BoardCard {
 }
 
 const INBOX_ID = 'inbox'
+
+interface QuickAddChip {
+  kind: 'date' | 'time' | 'repeat' | 'remind' | 'priority' | 'list' | 'tag'
+  /** What the reader reads; every chip carries its own answer, never a colour alone. */
+  label: string
+  /** A list name the account does not have: shown, but not written anywhere. */
+  unresolved?: boolean
+}
+
+/** A day as the account's own calendar reads it, not the machine's. */
+function zonedDay(instant: number, timezone: string): string {
+  return new Intl.DateTimeFormat(getLocale(), { month: 'short', day: 'numeric', timeZone: timezone }).format(new Date(instant))
+}
+
+/**
+ * The preview row above the Enter key.
+ *
+ * It is built from the parser's answer rather than from the raw words, so it says what the task will
+ * actually carry. A list name the account does not have stays visible with the reason attached: the
+ * alternative is to drop a word the reader typed without ever saying so.
+ */
+function quickAddChips(parsed: QuickAddParse, timezone: string, lists: readonly TaskList[]): QuickAddChip[] {
+  const chips: QuickAddChip[] = []
+  if (parsed.dueAt !== null) {
+    const minute = toLocalMinute(parsed.dueAt, timezone)
+    chips.push({ kind: 'date', label: zonedDay(parsed.dueAt, timezone) })
+    // A day written without a clock is stored as the end of that day; showing "23:59" would report
+    // the implementation instead of the words.
+    if (!minute.endsWith('T23:59')) chips.push({ kind: 'time', label: minute.slice(11) })
+  }
+  if (parsed.repeat) chips.push({ kind: 'repeat', label: repeatLabel(parsed.repeat)! })
+  if (parsed.remindAt !== null) {
+    const offset = remindOffsetOf({ dueAt: parsed.dueAt, remindAt: parsed.remindAt })
+    if (offset !== 'none') chips.push({ kind: 'remind', label: t(`todo.remind.${offset}` as MessageKey) })
+  }
+  if (parsed.priority) chips.push({ kind: 'priority', label: priorityLabel(parsed.priority) })
+  if (parsed.listName) {
+    const list = listNamed(lists, parsed.listName)
+    chips.push({ kind: 'list', label: `@${list?.name ?? parsed.listName}`, unresolved: !list })
+  }
+  for (const name of parsed.tags) chips.push({ kind: 'tag', label: `#${name}` })
+  return chips
+}
+
+/** The live preview under an inline field: nothing until at least one word was understood. */
+function QuickAddPreview({ input, timezone, lists }: {
+  input: string
+  timezone: string
+  lists: readonly TaskList[]
+}): ReactNode {
+  if (!input.trim()) return null
+  const chips = quickAddChips(parseQuickAdd(input, Date.now(), timezone), timezone, lists)
+  if (chips.length === 0) return null
+  return (
+    <ul
+      data-todo-quickadd-chips=""
+      aria-label={t('todo.quickadd.preview')}
+      className="mt-1 flex flex-wrap gap-1"
+    >
+      {chips.map((chip, index) => (
+        <li
+          key={`${chip.kind}-${index}`}
+          className={cn(
+            'rounded-full border px-1.5 py-0.5 text-[length:var(--text-10-5)]',
+            chip.unresolved
+              ? 'border-[var(--warning)] text-[var(--warning)]'
+              : 'border-[var(--border-subtle)] text-[var(--text-secondary)]',
+          )}
+        >
+          {chip.label}
+          {chip.unresolved && <span> · {t('todo.quickadd.list_missing')}</span>}
+        </li>
+      ))}
+    </ul>
+  )
+}
 
 export function BoardView({ onOpenList }: { onOpenList: (listId: string) => void }) {
   const tasks = useTodos((state) => state.tasks)
@@ -70,11 +149,26 @@ export function BoardView({ onOpenList }: { onOpenList: (listId: string) => void
   ]
 
   const submit = async (card: BoardCard): Promise<void> => {
-    const title = draft.trim()
+    // The parser answers what the line meant; the card is the list unless the line named another one
+    // the account actually has. A title it did not find is not a task, and the row stays open on the
+    // words so the reader can add one instead of losing what they typed.
+    const quick = quickAddDraft(draft, Date.now(), timezone, lists, card.listId)
+    const title = quick?.title?.trim() ?? ''
+    if (!quick || !title) {
+      if (!draft.trim()) { setDraft(''); setAdding(null) }
+      return
+    }
+    const { remindAt, ...body } = quick
+    const remind = remindAt != null && typeof body.dueAt === 'number'
+      ? remindOffsetOf({ dueAt: body.dueAt, remindAt })
+      : 'none'
     setDraft('')
     setAdding(null)
-    if (!title) return
-    await createTask({ title, listId: card.listId })
+    await createTask({
+      ...body,
+      title,
+      ...(remind !== 'none' ? { remind } : {}),
+    })
   }
 
   return (
@@ -160,6 +254,7 @@ export function BoardView({ onOpenList }: { onOpenList: (listId: string) => void
                     }}
                     className="h-9 text-[length:var(--text-12)]"
                   />
+                  <QuickAddPreview input={draft} timezone={timezone} lists={lists} />
                 </div>
               ) : (
                 <button
