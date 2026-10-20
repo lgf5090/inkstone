@@ -89,6 +89,9 @@ const allowed = new Map([
     "// then. It lives in the script that runs before any module, so the copy ships with it.",
     "// The subscription notifications are a catalog of their own because the worker writes them and must",
     "// not carry the interface's seven thousand keys to reach twenty sentences.",
+    "// What a CSV boolean column accepts as \"yes\". A file is the reader's artefact, not the interface's:",
+    "// the vocabulary has to hold whatever they or their spreadsheet wrote, whatever language the app",
+    "// happens to be in when the file is read back.",
   ]],
   ["scripts/excalidraw-patch.mjs", [
     "/**\n * The vendored engine build is a minified IIFE that was written for Obsidian, so six of its teardown\n * and asset paths throw when it is hosted by this app instead. The only way in is exact-string\n * replacement on minified text, which fails silently: rename one local and the `.replace()` becomes a\n * no-op that ships an unpatched bundle, and every gate still passes because nothing reads the result.\n *\n * This module is the single source for those edits (they used to be duplicated verbatim in\n * `vite.config.ts` and `scripts/patch-excalidraw.mjs`), and it reports every patch as applied,\n * already-present or unmatched so the caller can refuse to build on a miss.\n */",
@@ -10417,6 +10420,11 @@ const allowed = new Map([
     "// at `depth: 0` and so render at the same `treeIndent(0)` column and `aria-level: 1`. The `+1` is",
     "// not an off-by-one to remove — dropping it would push the folder tree's root one step left.",
   ]],
+  ["src/client/features/subscriptions/BulkBar.tsx", [
+    "/**\n * The row of things to do with a selection, and the two file operations that need no selection.\n *\n * Export and import live here rather than in the settings dialog because they act on the list the reader\n * is looking at, and because a settings screen is where a preference goes, not where a file goes.\n *\n * Import deliberately does not create anything until the reader has seen how many rows the file held:\n * a spreadsheet is the one input where a person can hand over four hundred lines without counting them,\n * and the number is the difference between reviewing an import and discovering one.\n */",
+    "// The object URL outlives the click on some engines, and a leak of one spreadsheet-sized blob per",
+    "// export is the kind of thing a reader only notices after twenty of them.",
+  ]],
   ["src/client/features/subscriptions/FilterRail.tsx", [
     "/**\n * The rail: which slice of the list is showing, and what is in each slice.\n *\n * Counts come from the same rows the list draws, so a heading that says three and a list that shows two\n * cannot happen. The channel summary at the bottom is there because a reader whose reminders stopped\n * arriving looks first at the list and second at \"did anything send at all\" — this answers the second\n * before they have to open the settings.\n */",
     "/* Offered only once there is something in it: a permanent \"trash, 0\" row would be a dead end that\n          also implies the app might lose a subscription at any moment. */",
@@ -10489,6 +10497,10 @@ const allowed = new Map([
   ["src/client/features/subscriptions/SubscriptionList.tsx", [
     "/**\n * The subscriptions, under the headings their dates put them in.\n *\n * A row is two siblings rather than one: the part that opens the detail panel is a real button, and the\n * actions menu is its own button beside it. Nesting the second inside the first would be a button in a\n * button, which is the one thing a screen reader cannot describe.\n *\n * The row shows the amount and the countdown on the right and the identity on the left, because those\n * are the two questions a reader opens this app with: what does it cost, and how long have I got.\n */",
     "/* Always drawn on touch screens, where there is no hover to reveal it; the desktop keeps the quiet row. */",
+    "// Not `danger`: this is the recoverable one, and reserving red for the row that cannot be undone",
+    "// is what makes the trash's own \"delete forever\" read as the serious choice it is.",
+    "/* The box is only in the tab order while a selection is being made, so a reader moving through\n          the list one row at a time is not asked to answer a question they never opened. */",
+    "/**\n * The row's face.\n *\n * A subscription with a type wears that type's icon in that type's colour, which is what lets a reader\n * scan twelve rows and find the streaming ones without reading; a subscription with no type keeps the\n * neutral initial tile rather than being assigned a colour by hash, because a colour that means\n * \"nothing was chosen\" teaches the reader nothing and is indistinguishable from a choice they did make.\n */",
   ]],
   ["src/client/features/subscriptions/SubscriptionSettings.tsx", [
     "/**\n * Settings, in two halves: how this app behaves, and where its reminders may go.\n *\n * The channel half is drawn from the shared field table rather than from nine hand-written forms, so a\n * field added to an adapter appears here without this file knowing what a bot token is. What it does own\n * is the shape of the interaction: a secret that is already stored is never shown, and leaving the box\n * empty keeps it — the only arrangement that lets a reader change a webhook address without retyping a\n * token they cannot see.\n */",
@@ -10503,6 +10515,26 @@ const allowed = new Map([
     "/**\n * The subscription app: the frame the rail, the list, the dashboard and the detail panel share.\n *\n * It owns nothing but the wiring — every rule lives in the store or in a component — and it owns the\n * responsive decision the other containers make too: three panes when there is room, one pane and a\n * drawer when there is not. Loading is on mount rather than at boot, so a reader who never opens this\n * tab does not pay for a library they will not look at.\n */",
     "/* A touch screen has no keys to press, so the card is offered only where it can be used. */",
     "/**\n * The time-zone diagnostic the reference project served at `/debug`.\n *\n * Computed in the browser because that is where the question is asked: a reader whose reminders arrive\n * at the wrong hour wants to know what this deployment thinks the hour is, and the answer is the same\n * arithmetic the scheduler runs, shown rather than described.\n */",
+    "// The account's own total currency. This used to be a literal, so an account billed entirely in",
+    "// dollars was shown a yuan headline converted at a rate it never chose.",
+    "// The bundle carries only the trash's count, so the rows are fetched when they are first looked at.",
+    "/** The one action in this app that cannot be undone, so it says so and asks for its own yes. */",
+    "/* The same column the notebook mounts, under the same conditions: the assistant's thread is\n            global state, so opening it here and opening it there is one conversation rather than two.\n            Not on a phone, where chat already has a tab of its own. */",
+    "/* Selecting applies to the list rows, so the press only exists where a box can appear. Offered in\n            the trash or the logs it would flip to \"exit selecting\" and change nothing on screen. */",
+  ]],
+  ["src/client/features/subscriptions/TrashView.tsx", [
+    "/**\n * The trash: what was deleted, and the two ways to deal with it.\n *\n * A separate view rather than another mode of the subscription list, because the list's whole organising\n * idea is *when does this expire* — the buckets, the countdown colour, the renew shortcut — and none of\n * that means anything for a row nobody is being reminded about. A trashed subscription is sorted by when\n * it was discarded and offers exactly two actions: put it back, or make it gone.\n *\n * Nothing else lives here. Editing, renewing or testing a trashed subscription would all have to decide\n * what happens when it is restored afterwards, and a trash that can be quietly modified is a trash whose\n * contents cannot be trusted.\n */",
+  ]],
+  ["src/client/features/subscriptions/csv.ts", [
+    "/**\n * Reading and writing the subscription list as a spreadsheet.\n *\n * Export is a serialisation, not a report: the point is that a reader can open their own data in\n * something that is not this app, edit two hundred rows, and hand it back. That only works if the two\n * directions agree on the same column set, so the header row is derived from one list rather than typed\n * twice.\n *\n * Quoting follows RFC 4180 — a field containing a comma, a quote or a newline is wrapped in quotes and\n * its quotes doubled. Getting this wrong is invisible until the first note that happens to contain a\n * comma, at which point the import splits one column into two and the reader loses a category.\n */",
+    "/** One parsed row: the columns it named, and nothing else. */",
+    "// The plain number, not the formatted one: `¥1,234.00` would come back as three fields.",
+    "/**\n * A CSV's text, parsed.\n *\n * The header row names the columns rather than their position being assumed, so a reader who reorders\n * or drops a column in Excel still imports correctly and one who renames a column simply loses that\n * column — which is what they asked for, and better than shifting every value one slot left.\n */",
+    "// A character loop rather than a split or a regex: a comma inside quotes, a quote inside a quoted",
+    "// field and a newline inside a quoted field all have to be told apart by what came before them.",
+    "/**\n * A parsed row as the shape the import endpoint wants.\n *\n * Booleans are the reader's problem to spell: anything that is not an obvious yes is a no, because a\n * column of blanks should not switch a hundred subscriptions onto auto-renew.\n */",
+    "/**\n * What counts as \"yes\" in a boolean column.\n *\n * A spreadsheet's yes is whatever the reader or their spreadsheet software wrote, including the\n * affirmative of whatever language the file was made in — so this is input vocabulary, not interface\n * copy, and it must not come from the locale catalog: a file exported with the interface in English and\n * read back with it in Chinese still has to work.\n */",
+    "/** A filename that says when the file was taken, so two exports do not overwrite each other silently. */",
   ]],
   ["src/client/features/subscriptions/label-icons.ts", [
     "/**\n * The lucide components behind the icon names the subscription registry stores.\n *\n * The names live in `@shared/subscriptions/identity` because the worker has to validate what it is\n * being asked to save, and the components live here because the worker must not import a browser icon\n * set. That is two lists, which is the drift the guard test in `label-identity.test.tsx` exists to\n * close: a name offered without a component draws an empty tile, and a component without a name is\n * dead weight in the bundle.\n *\n * Kanban keeps both in one client list; it can, because nothing server-side ever has to decide whether\n * a board's icon is real. Here the route does, so the split is the price of validating on write.\n */",
@@ -10562,6 +10594,10 @@ const allowed = new Map([
     "/**\n   * Rename a label, and reload.\n   *\n   * The server rewrites every subscription that carried the old word, so the rows the browser is\n   * holding are stale the moment this succeeds — unlike a style change, this one has to refetch.\n   */",
     "/**\n   * One action over the selected rows, then a full reload.\n   *\n   * The reload is not laziness: `deactivate` changes every countdown colour and `set_category` moves\n   * rows between the rail's counts, and patching all of that locally would be a second implementation\n   * of the summary that can disagree with the first.\n   */",
     "/** Swap one registry list after the server hands back the whole thing it just changed. */",
+  ]],
+  ["src/client/features/subscriptions/subscription-list.test.ts", [
+    "/**\n * The row's two states: reading, and selecting.\n *\n * These four assertions exist because the app once shipped a list whose selection boxes could never\n * appear: the row derived \"am I selecting\" from \"is anything already checked\", so the box needed a check\n * before it could make one. The toolbar still flipped to its exit label, so nothing looked wrong from the\n * outside, and the batch actions under it were unreachable. Deriving the mode from the selection is the\n * exact bug this file forbids, which is why `selectMode` is a prop and is passed straight to the row.\n *\n * What the browser measured and jsdom cannot: the box's hit area, and the colour it paints.\n */",
+    "/** The part of each row that opens the detail panel — not the actions menu, not the selection box. */",
   ]],
   ["src/client/features/tags/SidebarTags.tsx", [
     "// Expansion is keyed by path, so a rename or a move would otherwise collapse the branch the",
@@ -26153,6 +26189,10 @@ const allowed = new Map([
     "// send that failed rather than as a channel nobody implemented. The shape is asserted where it is cheap.",
     "// `enabledChannels` skips a kind the stored order does not name, so a missing entry there is a channel",
     "// that can be switched on in the interface and never switched on in the sweep.",
+  ]],
+  ["tests/subscriptions-csv.test.ts", [
+    "/**\n * The reader's own spreadsheet, treated as an untrusted input.\n *\n * `parseCsv` is a character loop rather than a `split(',')`, which means every interesting case is a\n * case where a naive split would have produced a wrong answer quietly: a comma inside a note, a quote\n * doubled up, a newline inside a quoted cell. Those are what this pins, because the failure mode is\n * not an error message — it is a category landing in the amount column.\n */",
+    "// Anything else is a no: a column of blanks must not switch a hundred plans onto lunar cycles.",
   ]],
   ["tests/subscriptions-currency.test.ts", [
     "/**\n   * The direction is the whole test.\n   *\n   * `FALLBACK_RATES.USD` is 6.98, meaning \"one dollar costs 6.98 yuan\", and the conversion divided by\n   * it — so a ten-dollar subscription was reported as ¥1.43. The live feed was read the other way round\n   * and happened to work, which is why the bug survived: it only showed on the fallback path, and for\n   * the three currencies the feed does not publish at all.\n   */",
