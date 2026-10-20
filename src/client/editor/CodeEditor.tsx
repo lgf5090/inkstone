@@ -12,6 +12,7 @@ import { useThemeDark } from '../lib/hooks';
 import { editorTheme } from './theme';
 import { focusModePlugin, markdownDecorations, setFocusMode, typewriterPlugin } from './decorations';
 import { codeFenceSource, emojiSource, containerDirectiveSource, tagSource, wikiLinkSource, type CompletionSources } from './completion';
+import { taskFieldSource } from './task-completion';
 import { pasteExtension, type PasteHandlers } from './paste';
 import { completeCodeFenceOnEnter, completeColonFenceOnEnter, getActiveEditorView, setActiveEditorView, smartEnter, tableTab } from './commands';
 import { outlinerChrome, outlinerEnter, outlinerFoldSupport, outlinerNoteLine, outlinerOptionsChanged, outlinerOptionsFrom, outlinerShiftTab, outlinerTab } from './outliner';
@@ -170,6 +171,7 @@ export function CodeEditor({ value, live = false, noteId, noteTitle = '', onHead
                     codeFenceSource,
                     containerDirectiveSource,
                     emojiSource,
+                    taskFieldSource,
                 ],
                 activateOnTyping: true,
                 closeOnBlur: true,
