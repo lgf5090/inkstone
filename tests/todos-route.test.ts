@@ -1,7 +1,7 @@
 // @vitest-environment node
 import { DatabaseSync } from 'node:sqlite'
 import { Hono } from 'hono'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { SCHEMA_STATEMENTS } from '../src/worker/db/schema'
 import { errorResponse } from '../src/worker/lib/errors'
 import type { AppBindings, Env } from '../src/worker/env'
@@ -227,6 +227,12 @@ describe('the write budget', () => {
   // instead of adding up request numbers by hand.
   let caller = 0
   let spent = 0
+
+  // The bucket rolls with the wall clock, and a 60-write fill takes a fraction of a second — enough for
+  // a slow machine to cross a minute boundary in the middle of one case and watch the budget reset under
+  // it. Holding the clock still for these cases makes "the write past the budget" the same fact every run.
+  beforeEach(() => { vi.useFakeTimers() })
+  afterEach(() => { vi.useRealTimers() })
 
   function freshCaller(): string {
     caller += 1
