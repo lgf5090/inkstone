@@ -91,6 +91,24 @@ export const TODOS_SCHEMA_STATEMENTS: readonly string[] = [
   )`,
   `CREATE INDEX IF NOT EXISTS idx_todos_tag_links_tag
      ON todos_tag_links(user_id, tag_id)`,
+
+  // The read-only calendar subscription the to-do app publishes. Keyed on `user_id, slug` — the
+  // opposite of `shares`, which keys on `slug` alone — because the schema guard refuses an
+  // account-scoped table led by a global key; the unique index below is what lets the public reader
+  // resolve a slug without knowing its owner, so it stays addressed by the link and not by an account.
+  `CREATE TABLE IF NOT EXISTS todos_feeds (
+    slug TEXT NOT NULL,
+    user_id TEXT NOT NULL,
+    password_hash TEXT,
+    expires_at INTEGER,
+    revoked_at INTEGER,
+    created_at INTEGER NOT NULL,
+    PRIMARY KEY (user_id, slug)
+  )`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS idx_todos_feeds_slug
+     ON todos_feeds(slug)`,
+  `CREATE INDEX IF NOT EXISTS idx_todos_feeds_user
+     ON todos_feeds(user_id, created_at DESC, slug DESC)`,
 ]
 
 export const TODOS_REQUIRED_TABLES: readonly string[] = [
@@ -99,6 +117,7 @@ export const TODOS_REQUIRED_TABLES: readonly string[] = [
   'todos_steps',
   'todos_tags',
   'todos_tag_links',
+  'todos_feeds',
 ]
 
 export const TODOS_REQUIRED_INDEXES: readonly string[] = [
@@ -111,6 +130,8 @@ export const TODOS_REQUIRED_INDEXES: readonly string[] = [
   'idx_todos_steps_task',
   'idx_todos_tags_unique',
   'idx_todos_tag_links_tag',
+  'idx_todos_feeds_slug',
+  'idx_todos_feeds_user',
 ]
 
 export const TODOS_REQUIRED_COLUMNS: Readonly<Record<string, readonly string[]>> = {
@@ -123,4 +144,5 @@ export const TODOS_REQUIRED_COLUMNS: Readonly<Record<string, readonly string[]>>
   todos_steps: ['user_id', 'id', 'task_id', 'text', 'done', 'position', 'created_at'],
   todos_tags: ['user_id', 'id', 'name', 'color', 'created_at', 'updated_at'],
   todos_tag_links: ['user_id', 'task_id', 'tag_id', 'created_at'],
+  todos_feeds: ['slug', 'user_id', 'password_hash', 'expires_at', 'revoked_at', 'created_at'],
 }
