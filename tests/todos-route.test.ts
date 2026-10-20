@@ -5,7 +5,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { SCHEMA_STATEMENTS } from '../src/worker/db/schema'
 import { errorResponse } from '../src/worker/lib/errors'
 import type { AppBindings, Env } from '../src/worker/env'
-import { todoRoutes } from '../src/worker/routes/todos'
+import { todoRoutes, WRITE_BUDGET_PER_MINUTE } from '../src/worker/routes/todos'
 import { AssistantStore } from '../src/worker/assistant/store'
 import type { TaskCounts, TaskList, TaskStep, TaskTag, TodoTask } from '../src/shared/todos/model'
 import { makeD1 } from './doubles/d1-sqlite'
@@ -217,5 +217,97 @@ describe('another account', () => {
     expect((await send('DELETE', `/${task.id}`)).status).toBe(404)
     const page = await json<{ tasks: TodoTask[] }>(await send('GET', ''))
     expect(page.tasks).toEqual([])
+  })
+})
+
+describe('the write budget', () => {
+  // The budget is held in the route module, keyed by caller, and it rolls with the wall clock rather
+  // than with a test — so a case that burns a minute of writes would answer 429 for every later case
+  // that shares the caller. Each case takes a caller nobody else uses, and counts its own writes
+  // instead of adding up request numbers by hand.
+  let caller = 0
+  let spent = 0
+
+  function freshCaller(): string {
+    caller += 1
+    spent = 0
+    mocks.userId = `budgetrate${String(caller).padStart(16, '0')}`
+    return mocks.userId
+  }
+
+  /** Sends as the current caller, remembering that a write was spent. */
+  async function write(method: string, path: string, body?: unknown): Promise<Response> {
+    spent += 1
+    return await send(method, path, body)
+  }
+
+  async function createTask(title: string): Promise<TodoTask> {
+    const response = await write('POST', '', { title })
+    expect(response.status).toBe(201)
+    return (await json<{ task: TodoTask }>(response)).task
+  }
+
+  /** Fills the rest of the caller's minute with task creates, each of which has to be let through. */
+  async function fillBudget(): Promise<void> {
+    while (spent < WRITE_BUDGET_PER_MINUTE) {
+      // A guard against a threshold someone raises past the point this fill is cheap, not a test of its own.
+      expect(spent, 'the fill is not running away').toBeLessThan(1_000)
+      expect((await write('POST', '', { title: `Filler ${spent + 1}` })).status).toBe(201)
+    }
+  }
+
+  it('answers the write past the minute with the shape every other rejection uses', async () => {
+    freshCaller()
+    // A rejection from the validators, taken while the budget still has room: once the caller is
+    // blocked nothing but a 429 comes back, and this is the body the 429 has to look like.
+    const rejected = await json<{ error: Record<string, unknown> }>(await write('POST', '', {}))
+    const task = await createTask('One')
+    const list = (await json<{ list: TaskList }>(await write('POST', '/lists', { name: 'Work' }))).list
+    expect((await write('PATCH', `/lists/${list.id}`, { name: 'Job' })).status).toBe(200)
+    expect((await write('POST', '/tags', { name: 'Focus' })).status).toBe(201)
+    const step = (await json<{ step: TaskStep }>(await write('POST', `/${task.id}/steps`, { text: 'Collect' }))).step
+    expect((await write('PATCH', `/${task.id}/steps/${step.id}`, { done: true })).status).toBe(200)
+    // Those writes went through tasks, lists, tags and steps and still came off one budget: the tier is
+    // about how fast a client pushes, not about which endpoint it pushes through.
+    await fillBudget()
+
+    const blocked = await write('DELETE', `/${task.id}`)
+    expect(blocked.status).toBe(429)
+    const payload = await json<{ error: Record<string, unknown> }>(blocked)
+    expect(Object.keys(payload)).toEqual(['error'])
+    expect(Object.keys(payload.error).sort()).toEqual(Object.keys(rejected.error).sort())
+    expect(payload.error.code).toBe('too_many_attempts')
+    expect(String(payload.error.message)).toMatch(/minute/i)
+  })
+
+  it('leaves the reads running after the writes are spent', async () => {
+    freshCaller()
+    const task = await createTask('One')
+    const list = (await json<{ list: TaskList }>(await write('POST', '/lists', { name: 'Work' }))).list
+    const tag = (await json<{ tag: TaskTag }>(await write('POST', '/tags', { name: 'Focus' }))).tag
+    await fillBudget()
+    expect((await write('POST', '', { title: 'One write too many' })).status).toBe(429)
+
+    expect((await send('GET', '')).status).toBe(200)
+    expect((await send('GET', `/${task.id}`)).status).toBe(200)
+    expect((await send('GET', '/lists')).status).toBe(200)
+    expect((await send('GET', '/tags')).status).toBe(200)
+    expect((await send('GET', `?list=${list.id}`)).status).toBe(200)
+    expect((await send('GET', `?tag=${tag.id}`)).status).toBe(200)
+  })
+
+  it('counts one caller’s burst against no one else', async () => {
+    const burst = freshCaller()
+    await fillBudget()
+    expect((await write('POST', '', { title: 'One write too many' })).status).toBe(429)
+
+    const other = freshCaller()
+    expect(other).not.toBe(burst)
+    expect((await write('POST', '', { title: 'A different account' })).status).toBe(201)
+    expect((await write('POST', '/lists', { name: 'Unblocked' })).status).toBe(201)
+
+    // The block belongs to whoever burst, and it stands for the rest of that minute.
+    mocks.userId = burst
+    expect((await send('POST', '', { title: 'Still blocked' })).status).toBe(429)
   })
 })

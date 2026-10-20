@@ -3,9 +3,9 @@
  *
  * Static paths are registered before `/:id`, because Hono matches in registration order and `/lists`
  * would otherwise be read as the id of a task called "lists". Everything below `use` requires a
- * session, and every query goes through the store, which scopes by the account the session named — an
- * id from another account is a 404 rather than a 403, because a refusal that confirms an id exists is
- * still a leak.
+ * session, every mutating method spends the caller's write budget, and every query goes through the
+ * store, which scopes by the account the session named — an id from another account is a 404 rather
+ * than a 403, because a refusal that confirms an id exists is still a leak.
  *
  * Validation lives here rather than in the store: the store's job is the rules that must hold whatever
  * the caller sent, while "a title is required and at most 300 characters" is a property of the request.
@@ -16,6 +16,7 @@ import { Hono, type Context } from 'hono'
 import type { AppBindings } from '../env'
 import { ApiError } from '../lib/errors'
 import { isValidId } from '../lib/id'
+import { createMinuteBudget } from '../lib/rate-limit'
 import { JSON_BODY_LIMITS, readJson } from '../lib/request'
 import { requireAuth } from '../middleware/auth'
 import { localDayBounds, parseLocalTime } from '@shared/assistant-time'
@@ -40,11 +41,42 @@ const BODY_LIMIT = JSON_BODY_LIMITS.settings
 const TITLE_MAX = 300
 const DESCRIPTION_MAX = 10_000
 
+/**
+ * How many writes one account may land in a minute, shared by every mutating route in this file.
+ *
+ * The bucket is the isolate's own: `lib/rate-limit.ts` keeps it in memory, so a cold isolate starts
+ * counting again and two warm isolates each hold a full budget. That makes this a brake on a runaway
+ * client — a retry loop, a scripted burst — and not a defence against abuse spread across regions. The
+ * D1-backed `lib/throttle.ts` would be that defence, at the price of a database write in front of every
+ * checkbox, so it stays on the paths where an attempt is genuinely expensive.
+ *
+ * 60 is someone working fast: ticking tasks off, retitling, moving one between lists and creating a
+ * couple, all within a minute of tapping, lands well under it. A client that cannot stay under it is not
+ * a person. Reads are unmetered because the app reloads the list whenever it comes back to the
+ * foreground, and a limit there would only break the reader's own view.
+ */
+export const WRITE_BUDGET_PER_MINUTE = 60
+
+const writeBudget = createMinuteBudget(WRITE_BUDGET_PER_MINUTE, 'Too many changes at once. Try again in a minute.')
+
 type Ctx = Context<AppBindings>
 
 export const todoRoutes = new Hono<AppBindings>()
 
 todoRoutes.use('*', requireAuth)
+
+/**
+ * Spends the caller's write budget before any mutation runs.
+ *
+ * Mounted after `requireAuth` so the caller is known by the time a bucket is picked, and it spends even
+ * when the handler then rejects the body — a client hammering invalid writes is exactly what this is
+ * for. Ordered before every route, so a task, a list, a tag and a step come off the same budget.
+ */
+todoRoutes.use('*', async (c, next) => {
+  const method = c.req.method.toUpperCase()
+  if (method !== 'GET' && method !== 'HEAD' && method !== 'OPTIONS') writeBudget(c.get('userId'))
+  await next()
+})
 
 function store(c: Ctx): AssistantStore {
   return new AssistantStore(c.env.DB, c.get('userId'), c.env)
