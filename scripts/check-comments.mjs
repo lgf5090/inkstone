@@ -1719,6 +1719,9 @@ const allowed = new Map([
     "// Voice is a surface of its own: it does not need the side panel, and it holds the microphone only",
     "// while this panel is mounted.",
     "/* Voice is not the composer's microphone: this door opens a conversation, and the icon\n                says so where a reader already looks for surfaces beside the thread. */",
+    "// One right-hand slot: the canvas and the resource monitor are both full-height panels, and two of",
+    "// them would leave a phone thread with nothing. Opening either puts the other away.",
+    "/* The conversation's resources — links, files, tools and drafts — in the slot beside the\n                thread. It follows the calendar of the open conversation, not the account. */",
   ]],
   ["src/client/features/chat/ComposerControls.tsx", [
     "/** The token count, spelled the way the reference's slider spells it: 32K, 128K, 262K. */",
@@ -2216,6 +2219,13 @@ const allowed = new Map([
     "// The box stays 14px because that is what the row can spare; the label is what a reader aims at, so it",
     "// carries the 24px floor as an overlay. A press on a label's own box reaches its control, which is why",
     "// the tick needs no wrapper button to be tappable.",
+  ]],
+  ["src/client/features/chat/SessionResourcesPanel.tsx", [
+    "/**\n * The conversation's resources, in one panel.\n *\n * A thread accumulates more than its words: files the reader attached, links it mentioned, notes the\n * tools opened, the tools and MCP servers that answered, the drafts it produced, and the pages a search\n * cited. The transcript shows each beside the turn it belongs to; this panel answers the other question —\n * \"what is in this conversation?\" — without scrolling.\n *\n * The whole thread is read when the panel opens, not only the page on screen, because a monitor that\n * quietly omitted older turns would be trusted and wrong. The live turn is merged from the store until\n * its row lands, with tool ids deduplicating the two views.\n */",
+    "// A refresh of the same thread keeps the old list on screen; a different thread must not, or the",
+    "// monitor would name the previous conversation's files for as long as the read takes.",
+    "// The store follows the active thread, and a switch can land here a beat before its own load clears",
+    "// the rows: only this conversation's messages may join the fetched thread.",
   ]],
   ["src/client/features/chat/SkillsView.tsx", [
     "/**\n * The reader's own skills.\n *\n * A skill is a piece of the reader's work, not a setting: it is written once and used in many\n * conversations, so it gets its own view, its own search, and a delete that asks first. The composer\n * reads the same list through the store, which is why nothing here keeps a copy.\n *\n * What separates a skill from a saved snippet is the arrangement around its words — the tools it wants,\n * the folders it reads, the model that answers — because a phrase the reader types twice a week is\n * rarely only a phrase: half of what they retype each time is \"and look in my work folder with the big\n * model\". Those three travel with the text and are applied together when the skill is picked. An emoji\n * is the fourth, smaller part: a dozen skills in a list are easier to tell apart by sight than by\n * reading every title.\n */",
@@ -3521,6 +3531,18 @@ const allowed = new Map([
     "/** The conversation being dragged, or null for a drag that is not a conversation's. */",
     "/** True while a conversation is over the target, which is what says the drop is accepted. */",
   ]],
+  ["src/client/features/chat/conversation-resources.test.ts", [
+    "/**\n * The resource index behind the session panel.\n *\n * The cases that matter are the boundaries between sections: a cited URL is a source, not a second link;\n * a note named by a tool or a mention is a note the reader can open; a file the messages never reference\n * is not this conversation's file; and a live tool is not counted twice once its row lands.\n */",
+  ]],
+  ["src/client/features/chat/conversation-resources.ts", [
+    "/**\n * What one conversation has accumulated, as lists a monitor can draw.\n *\n * The transcript is the source of truth: links are read from the words, notes from the tools that named\n * them, sources from the citations stored on answers, and attachments from the files the messages carry.\n * A resource that cannot be opened is left out — a link the reader cannot follow and a note id that does\n * not resolve are worse than an empty section.\n */",
+    "// A shape that is not an address is not a link; the words remain as they were written.",
+    "/** The whole thread's resources, or an empty index when there is nothing to show. */",
+    "// A live turn is not a message yet. Its calls share ids with the row that will replace them, so the",
+    "// set above is what keeps a settled call from being counted twice while the transcript catches up.",
+    "// A URL that an answer also cited is a source rather than a second row in the links list, whichever",
+    "// order the answer and its citation arrived in.",
+  ]],
   ["src/client/features/chat/conversation-search.test.ts", [
     "/**\n * The conversation list's search box is the app's shared filter box, not a bare input.\n *\n * The notes rails and the assistant rail asked the same question with two different controls: one drew\n * a search icon, a clear button and an Escape that takes the text back out, and the other drew a text\n * field with none of them, so the same action looked different and cost different keystrokes depending\n * on which sidebar the reader was in. What is pinned here is the chrome the shared box owes every\n * listing, and the one thing a listing with a server behind it must not claim: the settled text is\n * handed to the store verbatim, because the endpoint answers a `LIKE` and not the compiled query.\n */",
     "// The real setter writes the settled text back into the store, which is what keeps the box's own",
@@ -4399,6 +4421,9 @@ const allowed = new Map([
     "// is the route's own sentence, and it is the only part of a refusal the row prints as a detail.",
     "// The number and the way down come from the server, and a row that hid them would leave the reader to",
     "// guess which file to go split.",
+  ]],
+  ["src/client/features/chat/session-resources-panel.test.ts", [
+    "/**\n * The session resource panel: what a conversation accumulated, in one place.\n *\n * The whole thread is read rather than the newest page, so the cases set a fetched thread beside the\n * store's own messages — the two must merge without duplicating a turn. The panel's sections are the\n * contract a reader scans: files, links, notes, tools, drafts, sources, and the doors that open them.\n */",
   ]],
   ["src/client/features/chat/setting-control-labels.test.ts", [
     "/**\n * The name a reader hears for one control in settings (UI2-16).\n *\n * A settings row's title is the only words belonging to the number box or the select beside it. Until the\n * title was tied to the control by association, a screen reader announced \"combo box\" or \"edit text\" with\n * nothing to say which setting it was holding — eleven controls across the assistant's own tabs, and a\n * `label for` that pointed at a wrapper div, or at no element at all, in every `Field` drawn around a box\n * rather than a bare input.\n *\n * What is pinned is the name as a reader gets it: `aria-labelledby`, else `aria-label`, else the `<label>`\n * whose `for` names the control — computed here rather than read off one attribute, because the point is the\n * association and not where the words were written.\n */",

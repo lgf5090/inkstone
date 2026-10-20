@@ -273,6 +273,8 @@ describe('the header says what its icons mean', () => {
   const pairs = (): Array<{ name: string, tip: string, byPrefix?: boolean }> => [
     { name: t('assistant.chat.history'), tip: t('assistant.chat.history.tip') },
     { name: t('assistant.chat.temporary_start'), tip: t('assistant.chat.temporary_start.tip') },
+    { name: t('assistant.voice.open'), tip: t('assistant.voice.open') },
+    { name: t('assistant.resources.open'), tip: t('assistant.resources.open') },
     { name: t('assistant.canvas.title'), tip: t('assistant.canvas.show.tip') },
     { name: t('assistant.chat.find'), tip: t('assistant.chat.find.tip') },
     { name: t('assistant.chat.unlink_from_note'), tip: t('assistant.chat.unlink_from_note.tip'), byPrefix: true },
@@ -283,7 +285,7 @@ describe('the header says what its icons mean', () => {
     await mountView()
     const told = iconControls().map((node) => hover(node, node.getAttribute('aria-label') ?? 'an icon'))
     // The origin chip's cross and the mobile history door are drawn, so the header owes each one a sentence.
-    expect(told, 'a header icon answers no pointer').toHaveLength(6)
+    expect(told, 'a header icon answers no pointer').toHaveLength(8)
     expect(told.every((line) => line !== null)).toBe(true)
   })
 

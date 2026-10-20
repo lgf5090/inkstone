@@ -10,7 +10,7 @@
  */
 import { Z_INDEX } from '../../lib/z-index'
 import { type ClipboardEvent as ReactClipboardEvent, type DragEvent as ReactDragEvent, type KeyboardEvent, type ReactNode, Fragment, memo, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import { Archive, ArrowUp, ArrowUpRight, AudioLines, Check, Columns2, Copy, FileText, FolderOpen, Ghost, History, Link2Off, ListChecks, MoreHorizontal, NotebookPen, PanelRight, Paperclip, Pencil, Plus, Search, Settings2, Square, Sparkles, Star, Trash2, X } from 'lucide-react'
+import { Archive, ArrowUp, ArrowUpRight, AudioLines, Check, Columns2, Copy, FileText, FolderOpen, Ghost, History, Link2Off, ListChecks, ListTree, MoreHorizontal, NotebookPen, PanelRight, Paperclip, Pencil, Plus, Search, Settings2, Square, Sparkles, Star, Trash2, X } from 'lucide-react'
 import type { AssistantConversation, AssistantMessage, AssistantModel, AssistantTurnScope, ChatAttachment } from '@shared/assistant'
 import { EPHEMERAL_CONVERSATION_RETENTION_DAYS, RUN_PARTIAL_MAX_CHARS, SEARCH_NATIVE_PROTOCOLS, looksLikeSearchTool, mcpToolModeFor, webSearchConfigured } from '@shared/assistant'
 import { webSearchEngineFor } from '@shared/web-search-engines'
@@ -63,6 +63,7 @@ import { attachmentTargetOf, compareChoices, MAX_LOADED_MESSAGES, modelLabelOf, 
 import { MessageMenu, useMessageMenu } from './MessageMenu'
 import { AssistantBubble, CHAT_MENTION_LINKS } from './MessageParts'
 import { CanvasPanel } from './CanvasPanel'
+import { SessionResourcesPanel } from './SessionResourcesPanel'
 import { VoiceMode } from './VoiceMode'
 import { openNote } from './note-links'
 import { formatNoteMention } from './note-refs'
@@ -366,6 +367,13 @@ export function ChatView() {
   // while this panel is mounted.
   const [voiceOpen, setVoiceOpen] = useState(false)
 
+  // One right-hand slot: the canvas and the resource monitor are both full-height panels, and two of
+  // them would leave a phone thread with nothing. Opening either puts the other away.
+  const [resourcesOpen, setResourcesOpen] = useState(false)
+  useEffect(() => {
+    if (canvasOpen && resourcesOpen) setResourcesOpen(false)
+  }, [canvasOpen, resourcesOpen])
+
   // A temporary thread has to say so where the reader is looking, or the one promise the feature makes is
   // the one thing about it they cannot see.
   const ephemeral = useAssistant((state) => state.ephemeral)
@@ -578,6 +586,23 @@ export function ChatView() {
                 <AudioLines size={15} />
               </IconButton>
             </Tooltip>
+            {/* The conversation's resources — links, files, tools and drafts — in the slot beside the
+                thread. It follows the calendar of the open conversation, not the account. */}
+            <Tooltip label={t('assistant.resources.open')} side="bottom">
+              <IconButton
+                label={t('assistant.resources.open')}
+                size="sm"
+                active={resourcesOpen}
+                disabled={!activeId}
+                onClick={() => {
+                  const next = !resourcesOpen
+                  setResourcesOpen(next)
+                  if (next) setCanvasOpen(false)
+                }}
+              >
+                <ListTree size={15} />
+              </IconButton>
+            </Tooltip>
             {/* A toggle owes the reader which way it is about to go: naming the panel says only what the
                 button belongs to, and the button already looks pressed when the panel is up. */}
             <Tooltip label={canvasOpen ? t('assistant.canvas.close') : t('assistant.canvas.show.tip')} side="bottom">
@@ -585,7 +610,11 @@ export function ChatView() {
                 label={t('assistant.canvas.title')}
                 size="sm"
                 active={canvasOpen}
-                onClick={() => setCanvasOpen(!canvasOpen)}
+                onClick={() => {
+                  const next = !canvasOpen
+                  setCanvasOpen(next)
+                  if (next) setResourcesOpen(false)
+                }}
               >
                 <PanelRight size={15} />
               </IconButton>
@@ -860,6 +889,20 @@ export function ChatView() {
       </section>
 
       {canvasOpen && <CanvasPanel />}
+
+      {resourcesOpen && activeId && (
+        <SessionResourcesPanel
+          conversationId={activeId}
+          title={title}
+          ephemeral={ephemeral}
+          onClose={() => setResourcesOpen(false)}
+          onOpenArtifact={(id) => {
+            useAssistant.getState().selectArtifact(id)
+            setCanvasOpen(true)
+            setResourcesOpen(false)
+          }}
+        />
+      )}
 
       {voiceOpen && <VoiceMode onClose={() => setVoiceOpen(false)} />}
 

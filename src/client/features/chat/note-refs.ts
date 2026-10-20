@@ -29,7 +29,7 @@ const MAX_REFS = 8
  * The worker only trusts an id shaped like this, so the composer must not write one that the resolver
  * would then read back as a note title.
  */
-function isNoteId(value: string): boolean {
+export function isNoteId(value: string): boolean {
   return NOTE_ID.test(value)
 }
 
