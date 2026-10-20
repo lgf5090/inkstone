@@ -13,13 +13,14 @@
  * numbers the reader did not ask for.
  */
 import type { ComponentType, ReactNode } from 'react'
-import { CalendarDays, CheckCircle2, LayoutGrid, Star } from 'lucide-react'
+import { CalendarDays, ChartNoAxesColumn, CheckCircle2, LayoutGrid, Star } from 'lucide-react'
 import type { TaskCounts } from '@shared/todos/model'
 import type { MessageKey } from '../../../lib/i18n'
 import { useTodos, type TodoView } from '../store'
 import { BoardView } from '../BoardView'
 import { CompletedView, ListTaskView, PlanView, StarredView } from '../TaskViews'
 import { ListsView } from '../ListsView'
+import { StatsView } from '../StatsView'
 
 /** What every glyph in this table accepts; lucide icons all match it. */
 type Glyph = ComponentType<{ size?: number }>
@@ -71,6 +72,14 @@ export const TODO_SURFACES: readonly TodoSurface[] = [
     sidebar: { order: 4, labelKey: 'todo.smart.completed', badge: (counts) => counts?.completed ?? 0 },
     phone: { order: 4, labelKey: 'todo.view.completed' },
     render: () => <CompletedView />,
+  },
+  {
+    view: 'stats',
+    icon: ChartNoAxesColumn,
+    // A wide window has room for a fifth row. A phone's bottom bar does not: four tabs are what a
+    // thumb can reach, so the phone reaches this screen from the header instead.
+    sidebar: { order: 5, labelKey: 'todo.view.stats' },
+    render: () => <div className="no-scrollbar min-h-0 flex-1 overflow-y-auto"><StatsView /></div>,
   },
 ]
 

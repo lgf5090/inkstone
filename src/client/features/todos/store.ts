@@ -29,8 +29,10 @@ import {
   type TaskCounts,
   type TaskList,
   type TaskSort,
+  type TaskStatsBucket,
   type TaskStep,
   type TaskTag,
+  type TodoStats,
   type TodoTask,
 } from '@shared/todos/model'
 import {
@@ -42,7 +44,7 @@ import {
   type TodoViewSelection,
 } from './todo-address'
 
-export type TodoView = 'board' | 'plan' | 'starred' | 'completed' | 'list' | 'tag'
+export type TodoView = 'board' | 'plan' | 'starred' | 'completed' | 'list' | 'tag' | 'stats'
 
 /** What the editor is open on: an existing task, or a draft for a new one. */
 export interface TaskDraft {
@@ -90,6 +92,14 @@ interface TodosState {
   dueFrom: string | null
   dueTo: string | null
 
+  /** The statistics screen's last answer, and the range the address currently names. */
+  stats: TodoStats | null
+  statsStatus: 'idle' | 'loading' | 'ready' | 'error'
+  statsError: string | null
+  statsFrom: string | null
+  statsTo: string | null
+  statsBucket: TaskStatsBucket | null
+
   selectedId: string | null
   editorOpen: boolean
   draft: TaskDraft | null
@@ -105,6 +115,10 @@ interface TodosState {
   setSort: (sort: TaskSort | null) => void
   /** A due window in local wall time; both bounds null is the range cleared back to "any date". */
   setDueRange: (range: { from: string | null; to: string | null }) => void
+  /** Read the statistics for the range the store and the address now name. */
+  loadStats: () => Promise<void>
+  /** Move the statistics to another range, writing the move into the address and asking again. */
+  setStatsRange: (range: { from: string; to: string; bucket: TaskStatsBucket }) => void
   /** Put the store where the address bar says the screen is — what a back button asks of it. */
   syncFromAddress: () => void
   select: (id: string | null) => void
@@ -190,7 +204,10 @@ export function quickAddDraft(
 }
 
 /** The view part of the state, which is the part the query string carries. */
-function viewSelection(state: Pick<TodosState, 'view' | 'listId' | 'tagId' | 'query' | 'sort' | 'dueFrom' | 'dueTo'>): TodoViewSelection {
+function viewSelection(
+  state: Pick<TodosState, 'view' | 'listId' | 'tagId' | 'query' | 'sort' | 'dueFrom' | 'dueTo'
+    | 'statsFrom' | 'statsTo' | 'statsBucket'>,
+): TodoViewSelection {
   return {
     view: state.view,
     listId: state.listId,
@@ -199,6 +216,9 @@ function viewSelection(state: Pick<TodosState, 'view' | 'listId' | 'tagId' | 'qu
     sort: state.sort,
     dueFrom: state.dueFrom,
     dueTo: state.dueTo,
+    statsFrom: state.statsFrom,
+    statsTo: state.statsTo,
+    statsBucket: state.statsBucket,
   }
 }
 
@@ -237,6 +257,9 @@ function listingParams(
   offset = 0,
 ): ListingParams {
   const params: ListingParams = { limit: PAGE_SIZE }
+  // The statistics screen has no listing behind it, so it asks for nothing more than the counts and
+  // the lists that its own frame still needs.
+  if (state.view === 'stats') return { ...params, limit: 1 }
   const query = state.query.trim()
   if (query) params.q = query
   if (offset > 0) params.offset = offset
@@ -292,6 +315,8 @@ export function remainingCount(state: TodoPageInfo): number {
  * answer to come back is not necessarily the one that was asked for last.
  */
 let listingSeq = 0
+/** The statistics read in flight: a range the reader moved off must not land on the next one. */
+let statsSeq = 0
 let searchTimer: ReturnType<typeof setTimeout> | null = null
 
 /** Ask for the listing a beat after the last keystroke, so typing is not one query per character. */
@@ -321,6 +346,13 @@ export const useTodos = create<TodosState>((set, get) => ({
   sort: initialAddress.sort,
   dueFrom: initialAddress.dueFrom,
   dueTo: initialAddress.dueTo,
+
+  stats: null,
+  statsStatus: 'idle',
+  statsError: null,
+  statsFrom: initialAddress.statsFrom ?? null,
+  statsTo: initialAddress.statsTo ?? null,
+  statsBucket: initialAddress.statsBucket ?? null,
 
   selectedId: null,
   editorOpen: false,
@@ -394,7 +426,8 @@ export const useTodos = create<TodosState>((set, get) => ({
     // walks the views they stood in instead of dumping them on the board.
     pushTodoAddress(viewSelection(get()))
     // Every view is a different question, so it is asked rather than cut out of the answer to the last.
-    void get().load()
+    if (view === 'stats') void get().loadStats()
+    else void get().load()
   },
 
   // Typing is not a move: the address follows the text, but no extra back button is left behind for it.
@@ -419,13 +452,58 @@ export const useTodos = create<TodosState>((set, get) => ({
     void get().load()
   },
 
+  loadStats: async () => {
+    const state = get()
+    const seq = ++statsSeq
+    const params: { from?: string; to?: string; bucket?: TaskStatsBucket } = {}
+    // An address that names both bounds is the question; one that names neither asks the route for its
+    // own default, and the echoed range is then written back so a reload opens the same days.
+    const explicit = Boolean(state.statsFrom && state.statsTo)
+    if (explicit) {
+      params.from = state.statsFrom!
+      params.to = state.statsTo!
+    }
+    if (state.statsBucket) params.bucket = state.statsBucket
+    set({ statsStatus: 'loading', statsError: null })
+    try {
+      const stats = await api.todos.stats(params)
+      // A reader who picked another range while this was in flight must not see the old answer land.
+      if (seq !== statsSeq) return
+      set({
+        stats,
+        statsStatus: 'ready',
+        statsError: null,
+        statsFrom: stats.range.from,
+        statsTo: stats.range.to,
+        statsBucket: stats.range.bucket,
+      })
+      if (!explicit && get().view === 'stats') {
+        // No back button for the range the server chose: the reader did not pick those days.
+        replaceTodoAddress(viewSelection(get()))
+      }
+    } catch (error) {
+      if (seq !== statsSeq) return
+      set({ statsStatus: 'error', statsError: error instanceof Error ? error.message : String(error) })
+    }
+  },
+
+  setStatsRange: (range) => {
+    set({ statsFrom: range.from, statsTo: range.to, statsBucket: range.bucket })
+    pushTodoAddress(viewSelection(get()))
+    void get().loadStats()
+  },
+
   syncFromAddress: () => {
     const address = readTodoAddress()
     const state = get()
+    const statsFrom = address.statsFrom ?? null
+    const statsTo = address.statsTo ?? null
+    const statsBucket = address.statsBucket ?? null
     if (
       address.view !== state.view || address.listId !== state.listId || address.tagId !== state.tagId
       || address.query !== state.query || address.sort !== state.sort
       || address.dueFrom !== state.dueFrom || address.dueTo !== state.dueTo
+      || statsFrom !== state.statsFrom || statsTo !== state.statsTo || statsBucket !== state.statsBucket
     ) {
       set({
         view: address.view,
@@ -435,10 +513,14 @@ export const useTodos = create<TodosState>((set, get) => ({
         sort: address.sort,
         dueFrom: address.dueFrom,
         dueTo: address.dueTo,
+        statsFrom,
+        statsTo,
+        statsBucket,
       })
       // The screen the address names has rows the store never asked for, so they are asked for now: this
       // is the back button, a forward, and an address read out of a chat.
-      void get().load()
+      if (address.view === 'stats') void get().loadStats()
+      else void get().load()
     }
     if (address.taskId) {
       // The panel is either already on that task or on its way there; anything else is a screen the

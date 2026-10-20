@@ -11,7 +11,7 @@
  * Everything that reads or writes this address goes through here, so the store, the container and a link
  * pasted into a chat cannot drift into three spellings of the same screen.
  */
-import { TASK_SORTS, type TaskSort } from '@shared/todos/model'
+import { isTaskStatsBucket, TASK_SORTS, type TaskSort, type TaskStatsBucket } from '@shared/todos/model'
 import { currentPathname, currentSearch, navigateToAddress, replaceAddress } from '../../lib/app-history'
 import type { TodoView } from './store'
 
@@ -53,7 +53,7 @@ export function taskIdFromNotificationLink(link: string | null | undefined): str
 }
 
 /** The views the container draws, which is what a `view=` parameter can name. */
-export const TODO_VIEWS: readonly TodoView[] = ['board', 'plan', 'starred', 'completed', 'list', 'tag']
+export const TODO_VIEWS: readonly TodoView[] = ['board', 'plan', 'starred', 'completed', 'list', 'tag', 'stats']
 
 /** The orders a `sort=` parameter may name, which are the ones the route reads. */
 export const TODO_SORTS: readonly TaskSort[] = TASK_SORTS
@@ -70,10 +70,20 @@ export interface TodoViewSelection {
   dueFrom: string | null
   /** The first local instant a task must be due before; the bound is exclusive, as on the route. */
   dueTo: string | null
+  /**
+   * The statistics range, in the account-zone days the stats route reads. Only the stats view writes
+   * these, and they are optional so every older selection shape keeps naming the same screen.
+   */
+  statsFrom?: string | null
+  statsTo?: string | null
+  statsBucket?: TaskStatsBucket | null
 }
 
 /** A due bound the address can mean: a local calendar day, or that day at a wall-clock minute. */
 const LOCAL_BOUND = /^\d{4}-\d{2}-\d{2}(T\d{2}:\d{2})?$/
+
+/** A statistics bound: a calendar day, which is the only shape the stats route accepts. */
+const STATS_DAY = /^\d{4}-\d{2}-\d{2}$/
 
 /**
  * A due bound a pasted address names, or null for one this app never writes.
@@ -113,7 +123,10 @@ function taskIdFromPathname(pathname: string): string | null {
 /** The state a pathname and a query name. Unrecognisable parts fall back rather than fail. */
 export function parseTodoAddress(pathname: string, search: string): TodoAddress {
   if (pathname !== TODO_PATH && !pathname.startsWith(`${TODO_PATH}/`)) {
-    return { view: 'board', listId: null, tagId: null, query: '', sort: null, dueFrom: null, dueTo: null, taskId: null }
+    return {
+      view: 'board', listId: null, tagId: null, query: '', sort: null, dueFrom: null, dueTo: null,
+      statsFrom: null, statsTo: null, statsBucket: null, taskId: null,
+    }
   }
   const params = new URLSearchParams(search.startsWith('?') ? search.slice(1) : search)
   const listId = params.get('list')
@@ -124,7 +137,13 @@ export function parseTodoAddress(pathname: string, search: string): TodoAddress 
   const sort = namedSort && (TODO_SORTS as readonly string[]).includes(namedSort) ? (namedSort as TaskSort) : null
   const dueFrom = dueBound(params.get('dueFrom'))
   const dueTo = dueBound(params.get('dueTo'))
-  const common = { query, sort, dueFrom, dueTo, taskId: taskIdFromPathname(pathname) }
+  const rawFrom = params.get('from')
+  const rawTo = params.get('to')
+  const statsFrom = rawFrom && STATS_DAY.test(rawFrom) ? rawFrom : null
+  const statsTo = rawTo && STATS_DAY.test(rawTo) ? rawTo : null
+  const rawBucket = params.get('bucket')
+  const statsBucket = isTaskStatsBucket(rawBucket) ? rawBucket : null
+  const common = { query, sort, dueFrom, dueTo, statsFrom, statsTo, statsBucket, taskId: taskIdFromPathname(pathname) }
   // The completed view is the one screen a `list=` narrows rather than renames: there is no
   // completed list view to confuse it with, and the dropdown there scopes finished work to one
   // collection. Everywhere else the collection still names its own view and wins.
@@ -153,6 +172,13 @@ export function writeTodoSearch(selection: TodoViewSelection): string {
   if (selection.sort) params.set('sort', selection.sort)
   if (selection.dueFrom) params.set('dueFrom', selection.dueFrom)
   if (selection.dueTo) params.set('dueTo', selection.dueTo)
+  if (selection.view === 'stats') {
+    if (selection.statsFrom && selection.statsTo) {
+      params.set('from', selection.statsFrom)
+      params.set('to', selection.statsTo)
+    }
+    if (selection.statsBucket) params.set('bucket', selection.statsBucket)
+  }
   if (selection.query) params.set('q', selection.query)
   return params.toString()
 }
@@ -161,7 +187,12 @@ export function writeTodoSearch(selection: TodoViewSelection): string {
 export function readTodoAddress(): TodoAddress {
   // The store reads this once when it is created, which in a build without a window — none today, and
   // one guard rather than a crash if that changes — means the board.
-  if (typeof window === 'undefined') return { view: 'board', listId: null, tagId: null, query: '', sort: null, dueFrom: null, dueTo: null, taskId: null }
+  if (typeof window === 'undefined') {
+    return {
+      view: 'board', listId: null, tagId: null, query: '', sort: null, dueFrom: null, dueTo: null,
+      statsFrom: null, statsTo: null, statsBucket: null, taskId: null,
+    }
+  }
   return parseTodoAddress(currentPathname(), currentSearch())
 }
 
