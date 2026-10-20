@@ -11,9 +11,10 @@ import { localDate } from '@shared/assistant-time'
 import { t } from '../../lib/i18n'
 import { Empty } from '../../components/feedback'
 import { Select } from '../../components/form'
+import { TodoPageFooter } from './TodoPageFooter'
 import { useTodos } from './store'
 import { TaskCard } from './TaskCard'
-import { compareTasks, filterTasks, groupByPlan, groupCompleted, groupByList, type TaskGroup, type PlanGroupKey } from './task-groups'
+import { groupByPlan, groupCompleted, groupByList, type TaskGroup, type PlanGroupKey } from './task-groups'
 import type { MessageKey } from '@shared/locales/en-US'
 
 function GroupedTaskList({ groups, label, empty }: {
@@ -41,29 +42,35 @@ function GroupedTaskList({ groups, label, empty }: {
   }
 
   return (
-    <div className="flex flex-col gap-4 px-3 pb-24 pt-2 md:px-5 md:pb-6" role="list" aria-label={t('todo.a11y.task_list')}>
-      {groups.map((group) => (
-        <section key={group.key} aria-label={label(group.key)}>
-          <div className="mb-1.5 flex items-baseline justify-between px-1">
-            <h2 className="text-[length:var(--text-12)] font-semibold text-[var(--text-secondary)]">{label(group.key)}</h2>
-            <span className="text-[length:var(--text-11)] tabular-nums text-[var(--text-quaternary)]">{group.tasks.length}</span>
-          </div>
-          <div className="overflow-hidden rounded-[var(--r-lg)] border border-[var(--border-subtle)] bg-[var(--bg-surface)] px-0.5 py-1">
-            {group.tasks.map((task) => (
-              <TaskCard
-                key={task.id}
-                task={task}
-                lists={lists}
-                bounds={bounds}
-                timezone={timezone}
-                onOpen={() => openEditor({ id: task.id })}
-                onStar={() => { void updateTask(task.id, { starred: !task.starred }) }}
-              />
-            ))}
-          </div>
-        </section>
-      ))}
-    </div>
+    <>
+      <div className="flex flex-col gap-4 px-3 pb-6 pt-2 md:px-5" role="list" aria-label={t('todo.a11y.task_list')}>
+        {groups.map((group) => (
+          <section key={group.key} aria-label={label(group.key)}>
+            <div className="mb-1.5 flex items-baseline justify-between px-1">
+              <h2 className="text-[length:var(--text-12)] font-semibold text-[var(--text-secondary)]">{label(group.key)}</h2>
+              <span className="text-[length:var(--text-11)] tabular-nums text-[var(--text-quaternary)]">{group.tasks.length}</span>
+            </div>
+            <div className="overflow-hidden rounded-[var(--r-lg)] border border-[var(--border-subtle)] bg-[var(--bg-surface)] px-0.5 py-1">
+              {group.tasks.map((task) => (
+                <TaskCard
+                  key={task.id}
+                  task={task}
+                  lists={lists}
+                  bounds={bounds}
+                  timezone={timezone}
+                  onOpen={() => openEditor({ id: task.id })}
+                  onStar={() => { void updateTask(task.id, { starred: !task.starred }) }}
+                />
+              ))}
+            </div>
+          </section>
+        ))}
+      </div>
+      {/* Outside the list, because the rows a page still owes is not itself one of the rows. */}
+      <div className="px-3 pb-16 md:px-5 md:pb-2">
+        <TodoPageFooter />
+      </div>
+    </>
   )
 }
 
@@ -90,10 +97,11 @@ export function PlanView() {
 
 export function StarredView() {
   const tasks = useTodos((state) => state.tasks)
-  const starred = useMemo(() => tasks.filter((task) => task.starred).sort(compareTasks), [tasks])
+  // The server was asked for the starred rows, in the order it reads a starred list: nothing here picks
+  // them out again, which is the only way this view can show a task the page it used to hold missed.
   return (
     <GroupedTaskList
-      groups={starred.length ? [{ key: 'starred', tasks: starred }] : []}
+      groups={tasks.length ? [{ key: 'starred', tasks }] : []}
       label={() => t('todo.smart.starred')}
       empty={{ title: t('todo.empty.starred'), description: t('todo.empty.starred_hint') }}
     />
@@ -151,17 +159,10 @@ export function CompletedView() {
   )
 }
 
-/** One list, or one tag: the same rows with the open ones first. */
-export function ListTaskView({ listId, tagId }: { listId: string | null; tagId: string | null }) {
+/** One list, or one tag: the rows the server scoped for it, with the open ones first. */
+export function ListTaskView() {
   const tasks = useTodos((state) => state.tasks)
-  const query = useTodos((state) => state.query)
-  const groups = useMemo(() => {
-    // The inbox is "no list at all", which is a value rather than the absence of a filter.
-    const rows = listId === 'inbox'
-      ? filterTasks(tasks, { query, tagId }).filter((task) => task.listId === null)
-      : filterTasks(tasks, { query, listId: listId ?? undefined, tagId })
-    return groupByList(rows)
-  }, [tasks, query, listId, tagId])
+  const groups = useMemo(() => groupByList(tasks), [tasks])
 
   const label = (key: string): string => (key === 'done' ? t('todo.group.done') : t('todo.group.open'))
 

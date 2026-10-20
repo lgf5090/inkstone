@@ -52,6 +52,9 @@ export function TodosApp() {
   const title = useViewTitle()
   const [page, setPage] = useState<Page>('main')
   const [sidebarOpen, setSidebarOpen] = useState(true)
+  // On a phone the header has no room for a box that is only sometimes used, so the search is one tap
+  // away rather than absent: the toggle opens the same field a wide window keeps on screen.
+  const [searchOpen, setSearchOpen] = useState(false)
   const searchRef = useRef<HTMLInputElement>(null)
   const contentRef = useRef<HTMLDivElement>(null)
 
@@ -79,9 +82,20 @@ export function TodosApp() {
       if (event.defaultPrevented || event.metaKey || event.ctrlKey || event.altKey) return
       if (isEditableTarget(event.target)) return
       if (event.key === 'n') { event.preventDefault(); newTask(); return }
-      if (event.key === '/') { event.preventDefault(); searchRef.current?.focus(); return }
+      if (event.key === '/') {
+        event.preventDefault()
+        if (wide) searchRef.current?.focus()
+        else setSearchOpen(true)
+        return
+      }
       if (event.key === '[') { event.preventDefault(); setSidebarOpen((open) => !open); return }
-      if (event.key === 'Escape') { setPage('main'); return }
+      if (event.key === 'Escape') {
+        // Out of the field, Escape is the way back out of a search a phone opened full-width; inside it,
+        // the field's own handler answers first.
+        if (searchOpen) { setSearchOpen(false); return }
+        setPage('main')
+        return
+      }
       if (event.key === 'j' || event.key === 'k') {
         const nodes = [...(contentRef.current?.querySelectorAll<HTMLElement>('[data-todo-open]') ?? [])]
         if (!nodes.length) return
@@ -95,23 +109,43 @@ export function TodosApp() {
     return () => document.removeEventListener('keydown', onKey)
   })
 
+  /** Escape in the box is the reader taking the words back out — and, on a phone, the box with them. */
+  const clearSearch = (event: React.KeyboardEvent<HTMLInputElement>): void => {
+    if (event.key !== 'Escape') return
+    if (query) setQuery('')
+    else if (!wide) setSearchOpen(false)
+  }
+
+  const searchField = (
+    <Input
+      ref={searchRef}
+      autoFocus={!wide}
+      value={query}
+      onChange={(event) => setQuery(event.target.value)}
+      onKeyDown={clearSearch}
+      placeholder={t('todo.search_placeholder')}
+      aria-label={t('todo.action.search')}
+      leading={<Search size={12} />}
+      className={wide ? 'h-8 w-40 md:w-56' : 'h-11 w-full'}
+    />
+  )
+
   const header = (
     <header data-print="hide" className="flex h-11 shrink-0 items-center gap-2 border-b border-[var(--border-subtle)] bg-[var(--bg-sunken)] px-3 pt-[env(safe-area-inset-top)]">
       <span className="min-w-0 shrink truncate text-[length:var(--text-13-5)] font-semibold text-[var(--text-primary)]">
         {page === 'lists' ? t('todo.action.lists') : title}
       </span>
       <div className="ml-auto flex min-w-0 items-center gap-1">
-        <div className="relative hidden min-w-0 sm:block">
-          <Input
-            ref={searchRef}
-            value={query}
-            onChange={(event) => setQuery(event.target.value)}
-            placeholder={t('todo.search_placeholder')}
-            aria-label={t('todo.action.search')}
-            leading={<Search size={12} />}
-            className="h-8 w-40 md:w-56"
-          />
-        </div>
+        {wide ? (
+          <div className="relative min-w-0">{searchField}</div>
+        ) : searchOpen ? (
+          <div className="relative flex min-w-0 flex-1">{searchField}</div>
+        ) : (
+          /* A finger's height: on a phone this is the only way to reach a search at all. */
+          <IconButton label={t('todo.action.search')} size="sm" className="size-11" onClick={() => setSearchOpen(true)}>
+            <Search size={15} />
+          </IconButton>
+        )}
         {/* A finger's height on a phone even though the glyph stays small: these two are the only way
             to reach the lists page and to add a task from the header. */}
         <IconButton label={t('todo.action.lists')} size="sm" className="size-11 md:size-6" active={page === 'lists'} onClick={() => setPage(page === 'lists' ? 'main' : 'lists')}>
@@ -203,7 +237,7 @@ export function TodosApp() {
               ? <div className="no-scrollbar min-h-0 flex-1 overflow-y-auto"><StarredView /></div>
               : view === 'completed'
                 ? <CompletedView />
-                : <ListTaskView listId={listId} tagId={tagId} />}
+                : <ListTaskView />}
     </div>
   )
 

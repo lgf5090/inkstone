@@ -12,6 +12,7 @@ import { cn } from '../../lib/cn'
 import { t } from '../../lib/i18n'
 import { KanbanIconBadge } from '../../lib/markdown/kanban/ui/kanban-icon-badge'
 import { useTodos } from './store'
+import { TodoPageFooter } from './TodoPageFooter'
 import { Input } from '../../components/form'
 import { listIconFor } from './todo-ui'
 import { TaskCard } from './TaskCard'
@@ -136,7 +137,9 @@ export function BoardView({ onOpenList }: { onOpenList: (listId: string) => void
                     onStar={() => { void updateTask(task.id, { starred: !task.starred }) }}
                   />
                 ))}
-                {card.tasks.length === 0 && (
+                {card.open + card.done === 0 && (
+                  // The page on hand can miss rows a card still has, so an empty card is one the server's
+                  // own count says is empty rather than one this page happens to hold nothing of.
                   <p className="px-2.5 py-2 text-[length:var(--text-11-5)] text-[var(--text-quaternary)]">{t('todo.empty.list')}</p>
                 )}
               </div>
@@ -170,6 +173,8 @@ export function BoardView({ onOpenList }: { onOpenList: (listId: string) => void
             </section>
           ))}
         </div>
+        {/* A board is a page of the open set too: it says what it left out rather than reading as whole. */}
+        <TodoPageFooter />
       </div>
     </div>
   )

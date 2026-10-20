@@ -1,12 +1,14 @@
 /**
  * The to-do app's state, and the only place it is written.
  *
- * Three rules shape it. The open set is read once and the smart lists are derived from it, because
- * every one of them answers a question about the same tasks and a second fetch would let two panes
- * disagree. A write replaces the row with what the server returned rather than patching a guess, so a
- * repeat that rolled forward or a due date the server re-read shows up as it actually is. And the
- * counts are re-read after a write instead of being adjusted by hand: they are a timezone-aware
- * aggregate, and a second implementation in the browser is a second answer waiting to be wrong.
+ * Three rules shape it. Which tasks belong on screen is a question for the server and not for the
+ * browser: the view, the list, the tag, the search text and the offset go out as query parameters, and the
+ * store keeps one page of the answer plus the count of what the same filter matches — a page cannot be
+ * filtered into news about the rows it never received. A write replaces the row with what the server
+ * returned rather than patching a guess, so a repeat that rolled forward or a due date the server re-read
+ * shows up as it actually is. And the counts are re-read after a write instead of being adjusted by hand:
+ * they are a timezone-aware aggregate, and a second implementation in the browser is a second answer
+ * waiting to be wrong.
  *
  * A fourth governs the view: which view is up, what it is filtered to, what is being searched for and
  * which task the panel is open on are the address bar's, not the store's private business. The store
@@ -54,7 +56,12 @@ interface TodosState {
   status: 'idle' | 'loading' | 'ready' | 'error'
   error: string | null
   tasks: TodoTask[]
+  /** How many tasks the filter on screen matches, whether or not this page holds all of them. */
+  total: number
   completed: TodoTask[]
+  /** The same count for the finished page, which is the rows the completed view pages through. */
+  completedTotal: number
+  loadingMore: boolean
   lists: TaskList[]
   tags: TaskTag[]
   counts: TaskCounts | null
@@ -72,7 +79,7 @@ interface TodosState {
   saving: boolean
 
   load: () => Promise<void>
-  loadCompleted: () => Promise<void>
+  loadMore: () => Promise<void>
   refreshCounts: () => Promise<void>
 
   setView: (view: TodoView, target?: { listId?: string; tagId?: string }) => void
@@ -120,11 +127,100 @@ function viewSelection(state: Pick<TodosState, 'view' | 'listId' | 'tagId' | 'qu
 /** The screen the address bar names when the store is first asked for one — a reload opens where it left off. */
 const initialAddress = readTodoAddress()
 
+/** How many rows one page of a list carries, in every view that pages. */
+const PAGE_SIZE = 100
+
+/**
+ * How long the store waits after the last keystroke before asking for a search.
+ *
+ * A search box is typed into one character at a time, and each character would otherwise be a query. A
+ * quarter of a second is shorter than the pause a reader makes between words and longer than a round trip,
+ * so the answer lands while the next keystroke is still on its way.
+ */
+const SEARCH_DEBOUNCE_MS = 250
+
+/** The server-side view each aggregate screen reads. A list or a tag names its own collection instead. */
+const SERVER_VIEWS: Record<'board' | 'plan' | 'starred' | 'completed', string> = {
+  board: 'open',
+  plan: 'today',
+  starred: 'starred',
+  completed: 'completed',
+}
+
+type ListingParams = Parameters<typeof api.todos.list>[0]
+
+/**
+ * The listing the screen states, as the route reads it.
+ *
+ * Every condition that decides *which* tasks are on screen is here, and nothing else is: the browser
+ * groups what comes back and asks for the next page of it, and the database decides what matches.
+ */
+function listingParams(
+  state: Pick<TodosState, 'view' | 'listId' | 'tagId' | 'query'>,
+  offset = 0,
+): ListingParams {
+  const params: ListingParams = { limit: PAGE_SIZE }
+  const query = state.query.trim()
+  if (query) params.q = query
+  if (offset > 0) params.offset = offset
+  if (state.view === 'list') {
+    // A list shows its finished rows under its open ones, so it asks for both rather than for the open
+    // page and a guess about the rest. The inbox is a collection with no row behind it: `none`.
+    params.view = 'all'
+    params.list = state.listId && state.listId !== 'inbox' ? state.listId : 'none'
+  } else if (state.view === 'tag') {
+    params.view = 'all'
+    if (state.tagId) params.tag = state.tagId
+  } else {
+    params.view = SERVER_VIEWS[state.view]
+  }
+  return params
+}
+
+/** The completed view pages through its own bucket, because its rows are a different question. */
+function isCompletedPage(view: TodoView): boolean {
+  return view === 'completed'
+}
+
+/** The part of the screen a page footer reads: which bucket is on show, and how full the page is. */
+export interface TodoPageInfo {
+  view: TodoView
+  tasks: TodoTask[]
+  completed: TodoTask[]
+  total: number
+  completedTotal: number
+}
+
+/** How many rows the filter on screen still has behind the page the reader is looking at. */
+export function remainingCount(state: TodoPageInfo): number {
+  return Math.max(0, isCompletedPage(state.view)
+    ? state.completedTotal - state.completed.length
+    : state.total - state.tasks.length)
+}
+
+/**
+ * The listing in flight, by number.
+ *
+ * A reader who moves on while a page is on the wire must not be shown the screen they left, and the last
+ * answer to come back is not necessarily the one that was asked for last.
+ */
+let listingSeq = 0
+let searchTimer: ReturnType<typeof setTimeout> | null = null
+
+/** Ask for the listing a beat after the last keystroke, so typing is not one query per character. */
+function scheduleListing(get: () => TodosState): void {
+  if (searchTimer) clearTimeout(searchTimer)
+  searchTimer = setTimeout(() => { void get().load() }, SEARCH_DEBOUNCE_MS)
+}
+
 export const useTodos = create<TodosState>((set, get) => ({
   status: 'idle',
   error: null,
   tasks: [],
+  total: 0,
   completed: [],
+  completedTotal: 0,
+  loadingMore: false,
   lists: [],
   tags: [],
   counts: null,
@@ -143,33 +239,52 @@ export const useTodos = create<TodosState>((set, get) => ({
 
   load: async () => {
     if (get().status === 'idle') set({ status: 'loading' })
+    const seq = ++listingSeq
+    const params = listingParams(get())
     try {
       const [page, lists, tags] = await Promise.all([
-        api.todos.list({ view: 'open', limit: 500 }),
+        api.todos.list(params),
         api.todos.lists(),
         api.todos.tags(),
       ])
-      set({
-        tasks: page.tasks,
+      // A reader who moved on while this was in flight must not be shown the screen they left.
+      if (seq !== listingSeq) return
+      const shared = {
         counts: page.counts,
         dayEnd: page.dayEnd,
         timezone: page.timezone,
         lists: lists.lists,
         tags: tags.tags,
-        status: 'ready',
+        status: 'ready' as const,
         error: null,
-      })
+      }
+      // A new listing starts its own first page: what the reader had scrolled to belongs to the filter
+      // that produced it, and keeping it would show the old screen under the new heading.
+      set(isCompletedPage(get().view)
+        ? { ...shared, completed: page.tasks, completedTotal: page.total }
+        : { ...shared, tasks: page.tasks, total: page.total })
     } catch (error) {
+      if (seq !== listingSeq) return
       set({ status: 'error', error: error instanceof Error ? error.message : String(error) })
       toastError(error)
     }
   },
 
-  loadCompleted: async () => {
+  loadMore: async () => {
+    const state = get()
+    const completed = isCompletedPage(state.view)
+    const loaded = completed ? state.completed.length : state.tasks.length
+    const total = completed ? state.completedTotal : state.total
+    if (state.loadingMore || loaded >= total) return
+    set({ loadingMore: true })
     try {
-      const page = await api.todos.list({ view: 'completed', limit: 200 })
-      set({ completed: page.tasks })
+      const page = await api.todos.list(listingParams(state, loaded))
+      // Appended, not replaced: the rows already on screen were read for the same filter, and swapping
+      // them out would move what the reader is in the middle of looking at.
+      if (completed) set({ completed: [...state.completed, ...page.tasks], completedTotal: page.total, loadingMore: false })
+      else set({ tasks: [...state.tasks, ...page.tasks], total: page.total, loadingMore: false })
     } catch (error) {
+      set({ loadingMore: false })
       toastError(error)
     }
   },
@@ -188,13 +303,15 @@ export const useTodos = create<TodosState>((set, get) => ({
     // Opening a view is a move the reader made on purpose, so it gets a history entry: the back button
     // walks the views they stood in instead of dumping them on the board.
     pushTodoAddress(viewSelection(get()))
-    if (view === 'completed' && !get().completed.length) void get().loadCompleted()
+    // Every view is a different question, so it is asked rather than cut out of the answer to the last.
+    void get().load()
   },
 
   // Typing is not a move: the address follows the text, but no extra back button is left behind for it.
   setQuery: (query) => {
     set({ query })
     replaceTodoAddress(viewSelection(get()))
+    scheduleListing(get)
   },
 
   syncFromAddress: () => {
@@ -202,6 +319,9 @@ export const useTodos = create<TodosState>((set, get) => ({
     const state = get()
     if (address.view !== state.view || address.listId !== state.listId || address.tagId !== state.tagId || address.query !== state.query) {
       set({ view: address.view, listId: address.listId, tagId: address.tagId, query: address.query })
+      // The screen the address names has rows the store never asked for, so they are asked for now: this
+      // is the back button, a forward, and an address read out of a chat.
+      void get().load()
     }
     if (address.taskId) {
       // The panel is either already on that task or on its way there; anything else is a screen the

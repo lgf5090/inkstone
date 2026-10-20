@@ -17,6 +17,7 @@ vi.mock('../../lib/api', () => ({
     todos: {
       list: async () => ({
         tasks: [],
+        total: 0,
         counts: { inbox: 0, today: 0, upcoming: 0, overdue: 0, all: 0, completed: 0, starred: 0, byList: {}, byTag: {} },
         dayEnd: Date.now() + 3_600_000,
         timezone: 'UTC',

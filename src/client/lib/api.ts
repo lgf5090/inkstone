@@ -106,7 +106,7 @@ import type {
   Project as AssistantProject,
   SavedMessage,
 } from '@shared/assistant'
-import type { TaskCounts, TaskList, TaskStep, TaskTag, TodoTask } from '@shared/todos/model'
+import type { TaskList, TaskPage, TaskStep, TaskTag, TodoTask } from '@shared/todos/model'
 import { publishBroadcast } from './db'
 import { randomLocalId } from './random-id'
 import { getLocale, t, translateApiError } from './i18n'
@@ -1049,8 +1049,17 @@ export const api = {
    * these routes, and nothing in the notebook calls them.
    */
   todos: {
-    list: (params: { status?: string, view?: string, list?: string, tag?: string, priority?: string, starred?: string, q?: string, limit?: number, offset?: number } = {}) =>
-      request<{ tasks: TodoTask[], counts: TaskCounts, dayEnd: number, timezone: string }>(`/api/todos${toQuery(params)}`),
+    /**
+     * One page of the listing the to-do screen states.
+     *
+     * Every filter is a parameter and the answer is the server's: the view, the collection, the search
+     * text and the offset are decided in SQL, and `total` says how many rows match beside the page.
+     */
+    list: (params: {
+      status?: string, view?: string, list?: string, tag?: string, priority?: string, starred?: string,
+      q?: string, dueFrom?: string, dueTo?: string, sort?: string, limit?: number, offset?: number
+    } = {}) =>
+      request<TaskPage>(`/api/todos${toQuery(params)}`),
     get: (id: string) => request<{ task: TodoTask, steps: TaskStep[] }>(`/api/todos/${id}`),
     create: (body: Record<string, unknown>) => request<{ task: TodoTask }>('/api/todos', { method: 'POST', body }),
     /** `next` is present when the patch finished a repeating task and it filed the next occurrence. */

@@ -89,22 +89,6 @@ export function groupCompleted(tasks: readonly TodoTask[], timezone: string): Ta
     }))
 }
 
-/** The search box and the two id filters, applied to a page the server already scoped. */
-export function filterTasks(
-  tasks: readonly TodoTask[],
-  filter: { query?: string; listId?: string | null; tagId?: string | null },
-): TodoTask[] {
-  const needle = filter.query?.trim().toLowerCase() ?? ''
-  return tasks.filter((task) => {
-    if (filter.listId !== undefined && filter.listId !== null && task.listId !== filter.listId) return false
-    if (filter.tagId && !task.tags.some((tag) => tag.id === filter.tagId)) return false
-    if (!needle) return true
-    return task.title.toLowerCase().includes(needle)
-      || task.description.toLowerCase().includes(needle)
-      || task.tags.some((tag) => tag.name.toLowerCase().includes(needle))
-  })
-}
-
 /** How many of a list's tasks are open, for the card's progress line. */
 export function openCountOf(tasks: readonly TodoTask[], listId: string): number {
   return tasks.filter((task) => task.listId === listId && task.status !== 'done').length

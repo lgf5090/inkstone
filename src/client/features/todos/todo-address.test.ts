@@ -21,7 +21,7 @@ const EMPTY_COUNTS = { inbox: 0, today: 0, upcoming: 0, overdue: 0, all: 0, comp
 vi.mock('../../lib/api', () => ({
   api: {
     todos: {
-      list: async () => ({ tasks: [], counts: EMPTY_COUNTS, dayEnd: Date.now() + 3_600_000, timezone: 'UTC' }),
+      list: async () => ({ tasks: [], total: 0, counts: EMPTY_COUNTS, dayEnd: Date.now() + 3_600_000, timezone: 'UTC' }),
       lists: async () => ({ lists: [] }),
       tags: async () => ({ tags: [] }),
       get: async () => ({ task: null }),

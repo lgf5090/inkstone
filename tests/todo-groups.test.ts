@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { TodoTask } from '../src/shared/todos/model'
-import { compareTasks, filterTasks, groupByPlan, groupCompleted, groupByList, openCountOf } from '../src/client/features/todos/task-groups'
+import { compareTasks, groupByPlan, groupCompleted, groupByList, openCountOf } from '../src/client/features/todos/task-groups'
 
 const DAY = 24 * 60 * 60 * 1000
 const NOW = Date.parse('2026-10-19T10:00:00Z')
@@ -98,7 +98,7 @@ describe('the completed view', () => {
   })
 })
 
-describe('ordering and filtering', () => {
+describe('ordering', () => {
   it('puts the earliest due date first and undated tasks last', () => {
     const sorted = [
       task('none'),
@@ -111,18 +111,5 @@ describe('ordering and filtering', () => {
   it('breaks a tie by priority', () => {
     const sorted = [task('low', { dueAt: NOW, priority: 'low' }), task('urgent', { dueAt: NOW, priority: 'urgent' })].sort(compareTasks)
     expect(sorted.map((entry) => entry.id)).toEqual(['urgent', 'low'])
-  })
-
-  it('searches titles, notes and tag names', () => {
-    const rows = [
-      task('one', { title: 'File the return', tags: [{ id: 't1', name: 'Tax', color: null, openCount: 0, createdAt: 1, updatedAt: 1 }] }),
-      task('two', { description: 'before the deadline' }),
-      task('three'),
-    ]
-    expect(filterTasks(rows, { query: 'return' }).map((entry) => entry.id)).toEqual(['one'])
-    expect(filterTasks(rows, { query: 'deadline' }).map((entry) => entry.id)).toEqual(['two'])
-    expect(filterTasks(rows, { query: 'tax' }).map((entry) => entry.id)).toEqual(['one'])
-    expect(filterTasks(rows, { tagId: 't1' }).map((entry) => entry.id)).toEqual(['one'])
-    expect(filterTasks(rows, { listId: 'l1' })).toEqual([])
   })
 })

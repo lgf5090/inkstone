@@ -34,6 +34,7 @@ vi.mock('../../lib/api', () => ({
       // The board's open page holds one task, `on-board`. The deep-linked rows are deliberately not on it.
       list: async () => ({
         tasks: [...harness.tasks.values()].filter((task) => (task as { id: string }).id === 'on-board'),
+        total: 1,
         counts: EMPTY_COUNTS,
         dayEnd: Date.now() + 3_600_000,
         timezone: 'UTC',
