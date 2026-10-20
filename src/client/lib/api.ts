@@ -1065,7 +1065,8 @@ export const api = {
      */
     list: (params: {
       status?: string, view?: string, list?: string, tag?: string, priority?: string, starred?: string,
-      q?: string, dueFrom?: string, dueTo?: string, sort?: string, limit?: number, offset?: number
+      q?: string, dueFrom?: string, dueTo?: string, completedFrom?: string, completedTo?: string,
+      sort?: string, limit?: number, offset?: number
     } = {}) =>
       request<TaskPage>(`/api/todos${toQuery(params)}`),
     get: (id: string) => request<{ task: TodoTask, steps: TaskStep[] }>(`/api/todos/${id}`),

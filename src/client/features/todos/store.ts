@@ -91,6 +91,9 @@ interface TodosState {
   /** Due bounds in local wall time, as `todo-address.ts` carries them. Both null is "any due date". */
   dueFrom: string | null
   dueTo: string | null
+  /** The completion window of the finished view, as account-zone days; the upper bound is exclusive. */
+  completedFrom: string | null
+  completedTo: string | null
 
   /** The statistics screen's last answer, and the range the address currently names. */
   stats: TodoStats | null
@@ -115,6 +118,8 @@ interface TodosState {
   setSort: (sort: TaskSort | null) => void
   /** A due window in local wall time; both bounds null is the range cleared back to "any date". */
   setDueRange: (range: { from: string | null; to: string | null }) => void
+  /** The finished view's completion window, as account-zone days; `from` is included, `to` is not. */
+  setCompletedRange: (range: { from: string | null; to: string | null }) => void
   /** Read the statistics for the range the store and the address now name. */
   loadStats: () => Promise<void>
   /** Move the statistics to another range, writing the move into the address and asking again. */
@@ -206,7 +211,7 @@ export function quickAddDraft(
 /** The view part of the state, which is the part the query string carries. */
 function viewSelection(
   state: Pick<TodosState, 'view' | 'listId' | 'tagId' | 'query' | 'sort' | 'dueFrom' | 'dueTo'
-    | 'statsFrom' | 'statsTo' | 'statsBucket'>,
+    | 'completedFrom' | 'completedTo' | 'statsFrom' | 'statsTo' | 'statsBucket'>,
 ): TodoViewSelection {
   return {
     view: state.view,
@@ -216,6 +221,8 @@ function viewSelection(
     sort: state.sort,
     dueFrom: state.dueFrom,
     dueTo: state.dueTo,
+    completedFrom: state.completedFrom,
+    completedTo: state.completedTo,
     statsFrom: state.statsFrom,
     statsTo: state.statsTo,
     statsBucket: state.statsBucket,
@@ -253,7 +260,8 @@ type ListingParams = Parameters<typeof api.todos.list>[0]
  * groups what comes back and asks for the next page of it, and the database decides what matches.
  */
 function listingParams(
-  state: Pick<TodosState, 'view' | 'listId' | 'tagId' | 'query' | 'sort' | 'dueFrom' | 'dueTo'>,
+  state: Pick<TodosState, 'view' | 'listId' | 'tagId' | 'query' | 'sort' | 'dueFrom' | 'dueTo'
+    | 'completedFrom' | 'completedTo'>,
   offset = 0,
 ): ListingParams {
   const params: ListingParams = { limit: PAGE_SIZE }
@@ -277,10 +285,13 @@ function listingParams(
     params.view = 'all'
     if (state.tagId) params.tag = state.tagId
   } else if (state.view === 'completed') {
-    // Finished work is one bucket, optionally scoped to one collection. The dropdown is the same
-    // `list` parameter the list view uses, because the route already reads a collection there.
+    // Finished work is one bucket, optionally scoped to one collection and to a completion window. The
+    // dropdown is the same `list` parameter the list view uses, because the route already reads a
+    // collection there; the window is the route's half-open pair of account-zone days.
     params.view = 'completed'
     if (state.listId) params.list = state.listId === 'inbox' ? 'none' : state.listId
+    if (state.completedFrom) params.completedFrom = state.completedFrom
+    if (state.completedTo) params.completedTo = state.completedTo
   } else {
     params.view = SERVER_VIEWS[state.view]
   }
@@ -346,6 +357,8 @@ export const useTodos = create<TodosState>((set, get) => ({
   sort: initialAddress.sort,
   dueFrom: initialAddress.dueFrom,
   dueTo: initialAddress.dueTo,
+  completedFrom: initialAddress.completedFrom ?? null,
+  completedTo: initialAddress.completedTo ?? null,
 
   stats: null,
   statsStatus: 'idle',
@@ -421,7 +434,16 @@ export const useTodos = create<TodosState>((set, get) => ({
   },
 
   setView: (view, target) => {
-    set({ view, listId: target?.listId ?? null, tagId: target?.tagId ?? null, selectedId: null })
+    set({
+      view,
+      listId: target?.listId ?? null,
+      tagId: target?.tagId ?? null,
+      selectedId: null,
+      // Opening the finished view is a deliberate move, and the completion window is chosen on that
+      // screen: it starts over at "all years". A back button or a reload restores one from the address
+      // through `syncFromAddress`, which writes the state directly rather than coming through here.
+      ...(view === 'completed' ? { completedFrom: null, completedTo: null } : {}),
+    })
     // Opening a view is a move the reader made on purpose, so it gets a history entry: the back button
     // walks the views they stood in instead of dumping them on the board.
     pushTodoAddress(viewSelection(get()))
@@ -448,6 +470,15 @@ export const useTodos = create<TodosState>((set, get) => ({
 
   setDueRange: ({ from, to }) => {
     set({ dueFrom: from, dueTo: to })
+    pushTodoAddress(viewSelection(get()))
+    void get().load()
+  },
+
+  // The completion window is a question about finished work, so it is only asked from that view and
+  // takes the same history entry a date window does.
+  setCompletedRange: ({ from, to }) => {
+    if (get().completedFrom === from && get().completedTo === to) return
+    set({ completedFrom: from, completedTo: to })
     pushTodoAddress(viewSelection(get()))
     void get().load()
   },
@@ -496,6 +527,8 @@ export const useTodos = create<TodosState>((set, get) => ({
   syncFromAddress: () => {
     const address = readTodoAddress()
     const state = get()
+    const completedFrom = address.completedFrom ?? null
+    const completedTo = address.completedTo ?? null
     const statsFrom = address.statsFrom ?? null
     const statsTo = address.statsTo ?? null
     const statsBucket = address.statsBucket ?? null
@@ -503,6 +536,7 @@ export const useTodos = create<TodosState>((set, get) => ({
       address.view !== state.view || address.listId !== state.listId || address.tagId !== state.tagId
       || address.query !== state.query || address.sort !== state.sort
       || address.dueFrom !== state.dueFrom || address.dueTo !== state.dueTo
+      || completedFrom !== state.completedFrom || completedTo !== state.completedTo
       || statsFrom !== state.statsFrom || statsTo !== state.statsTo || statsBucket !== state.statsBucket
     ) {
       set({
@@ -513,6 +547,8 @@ export const useTodos = create<TodosState>((set, get) => ({
         sort: address.sort,
         dueFrom: address.dueFrom,
         dueTo: address.dueTo,
+        completedFrom,
+        completedTo,
         statsFrom,
         statsTo,
         statsBucket,

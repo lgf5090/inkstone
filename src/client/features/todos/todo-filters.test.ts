@@ -29,6 +29,17 @@ const service = vi.hoisted(() => ({
     if (typeof params.list === 'string') {
       matched = matched.filter((task) => (params.list === 'none' ? task.listId === null : task.listId === params.list))
     }
+    // The completion window is the server's too. The stub answers in UTC, which is the zone it reports,
+    // and applies the same half-open comparison the route does.
+    if (typeof params.completedFrom === 'string' || typeof params.completedTo === 'string') {
+      const from = params.completedFrom as string | undefined
+      const to = params.completedTo as string | undefined
+      matched = matched.filter((task) => {
+        if (task.completedAt === null) return false
+        const day = new Date(task.completedAt).toISOString().slice(0, 10)
+        return (!from || day >= from) && (!to || day < to)
+      })
+    }
     const limit = Number(params.limit ?? 0)
     const offset = Number(params.offset ?? 0)
     return {
@@ -191,6 +202,52 @@ describe('the order a listing is read in', () => {
     expect(select?.value).toBe('created')
   })
 
+  it('sends the order from the plan and keeps the answer’s own order inside a group', async () => {
+    stubBreakpoint(true)
+    const future = Date.now() + 40 * 24 * 60 * 60 * 1000
+    // The server answered in priority order, while the plan's default would read the same two rows by
+    // due time. The second row is due first, so a group sorted in the browser is recognisably different.
+    service.rows = [
+      task('urgent-later', 'Urgent later', { priority: 'urgent', dueAt: future + 60_000 }),
+      task('medium-first', 'Medium first', { priority: 'medium', dueAt: future }),
+    ]
+    const container = await mount('/todo?view=plan')
+
+    expect(openIds(container)).toEqual(['medium-first', 'urgent-later'])
+
+    choose(selectByLabel(container, t('todo.filter.sort'))!, 'priority')
+    await settle()
+
+    expect(lastRequest().sort, 'the plan’s order never left the browser').toBe('priority')
+    expect(window.location.search).toContain('sort=priority')
+    // The answer's order is what the reader asked for; sorting the group again would overrule it.
+    expect(openIds(container)).toEqual(['urgent-later', 'medium-first'])
+  })
+
+  it('does the same for a list and for the tag view that shares its grouping', async () => {
+    stubBreakpoint(true)
+    const now = Date.now()
+    service.rows = [
+      task('open-later', 'Open later', { dueAt: now + 2 * 60 * 60_000 }),
+      task('open-sooner', 'Open sooner', { dueAt: now + 60 * 60_000 }),
+    ]
+    const container = await mount('/todo?list=L1')
+    // Without a chosen order the list reads soonest first, whatever order the page arrived in.
+    expect(openIds(container)).toEqual(['open-sooner', 'open-later'])
+
+    choose(selectByLabel(container, t('todo.filter.sort'))!, 'priority')
+    await settle()
+    expect(lastRequest().sort, 'the list’s order never left the browser').toBe('priority')
+    expect(openIds(container)).toEqual(['open-later', 'open-sooner'])
+
+    await act(async () => { useTodos.getState().setView('tag', { tagId: 'T1' }) })
+    await settle()
+    choose(selectByLabel(container, t('todo.filter.sort'))!, 'created')
+    await settle()
+    expect(lastRequest().tag).toBe('T1')
+    expect(lastRequest().sort, 'the tag view’s order never left the browser').toBe('created')
+  })
+
   it('shows the completed list’s own default rather than a sort the server would not use', async () => {
     stubBreakpoint(true)
     service.rows = rows(3, { status: 'done', completedAt: Date.parse('2026-10-18T09:00:00Z') })
@@ -333,7 +390,7 @@ describe('the finished list’s own two filters', () => {
     expect(openIds(container)).toEqual(['inbox-1'])
   })
 
-  it('keeps the year a page filter, because the route has no completion bound to carry it', async () => {
+  it('asks the server for the completion year as a half-open day window', async () => {
     stubBreakpoint(true)
     service.rows = [
       done('a', '2025-05-01'),
@@ -346,14 +403,36 @@ describe('the finished list’s own two filters', () => {
 
     const yearSelect = selectByLabel(container, t('todo.view.completed'))
     expect(yearSelect, 'the finished list has no year filter').not.toBeNull()
-    const before = service.requests.length
-
     choose(yearSelect!, '2025')
     await settle()
 
-    // No request: `dueFrom`/`dueTo` bound a task's due date, not the day it was finished, so a year
-    // sent through them would drop every finished task with no due date and answer a different question.
-    expect(service.requests.length, 'a completion year was sent through a due-date bound').toBe(before)
+    // A year is a half-open day window on the day each task was finished: 1 January included, the next
+    // 1 January not. It goes out as the route's own parameters, not as a filter over the loaded page.
+    expect(lastRequest().view).toBe('completed')
+    expect(lastRequest().completedFrom, 'the completion year never left the browser').toBe('2025-01-01')
+    expect(lastRequest().completedTo).toBe('2026-01-01')
+    expect(window.location.search).toContain('completedFrom=2025-01-01')
+    expect(window.location.search).toContain('completedTo=2026-01-01')
     expect(openIds(container).sort()).toEqual(['a', 'b'])
+    expect(useTodos.getState().completedTotal).toBe(2)
+    // The year the filter excluded is still offered: the page it would have come from is not loaded.
+    expect([...(yearSelect!.querySelectorAll('option') ?? [])].map((option) => option.value)).toContain('2026')
+
+    choose(yearSelect!, 'all')
+    await settle()
+    expect(lastRequest().completedFrom, 'clearing the year left the bound behind').toBeUndefined()
+    expect(lastRequest().completedTo).toBeUndefined()
+    expect(openIds(container).sort()).toEqual(['a', 'b', 'c', 'd'])
+  })
+
+  it('reads a completion year back out of a shared address', async () => {
+    stubBreakpoint(true)
+    service.rows = [done('a', '2025-05-01'), done('c', '2026-01-01')]
+    const container = await mount('/todo?view=completed&completedFrom=2025-01-01&completedTo=2026-01-01')
+
+    expect(lastRequest().completedFrom).toBe('2025-01-01')
+    expect(lastRequest().completedTo).toBe('2026-01-01')
+    expect(selectByLabel(container, t('todo.view.completed'))?.value).toBe('2025')
+    expect(openIds(container)).toEqual(['a'])
   })
 })

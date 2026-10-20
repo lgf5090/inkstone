@@ -71,6 +71,12 @@ export interface TodoViewSelection {
   /** The first local instant a task must be due before; the bound is exclusive, as on the route. */
   dueTo: string | null
   /**
+   * The completion window the finished view is read through, as account-zone days. The route accepts
+   * these on `view=completed` alone, which is also the only view this address writes them for.
+   */
+  completedFrom?: string | null
+  completedTo?: string | null
+  /**
    * The statistics range, in the account-zone days the stats route reads. Only the stats view writes
    * these, and they are optional so every older selection shape keeps naming the same screen.
    */
@@ -93,6 +99,11 @@ const STATS_DAY = /^\d{4}-\d{2}-\d{2}$/
  */
 function dueBound(value: string | null): string | null {
   return value && LOCAL_BOUND.test(value) ? value : null
+}
+
+/** A completion bound: one calendar day, the only shape the route accepts for a completion window. */
+function completionDay(value: string | null): string | null {
+  return value && STATS_DAY.test(value) ? value : null
 }
 
 /** The whole screen, as the address states it: which view, and which task is open on it. */
@@ -125,7 +136,7 @@ export function parseTodoAddress(pathname: string, search: string): TodoAddress 
   if (pathname !== TODO_PATH && !pathname.startsWith(`${TODO_PATH}/`)) {
     return {
       view: 'board', listId: null, tagId: null, query: '', sort: null, dueFrom: null, dueTo: null,
-      statsFrom: null, statsTo: null, statsBucket: null, taskId: null,
+      completedFrom: null, completedTo: null, statsFrom: null, statsTo: null, statsBucket: null, taskId: null,
     }
   }
   const params = new URLSearchParams(search.startsWith('?') ? search.slice(1) : search)
@@ -137,13 +148,20 @@ export function parseTodoAddress(pathname: string, search: string): TodoAddress 
   const sort = namedSort && (TODO_SORTS as readonly string[]).includes(namedSort) ? (namedSort as TaskSort) : null
   const dueFrom = dueBound(params.get('dueFrom'))
   const dueTo = dueBound(params.get('dueTo'))
+  // A completion window belongs to the finished view; the other views are not narrowed by one, and a
+  // pasted address that pairs them is the view its own parameters name.
+  const completedFrom = named === 'completed' ? completionDay(params.get('completedFrom')) : null
+  const completedTo = named === 'completed' ? completionDay(params.get('completedTo')) : null
   const rawFrom = params.get('from')
   const rawTo = params.get('to')
   const statsFrom = rawFrom && STATS_DAY.test(rawFrom) ? rawFrom : null
   const statsTo = rawTo && STATS_DAY.test(rawTo) ? rawTo : null
   const rawBucket = params.get('bucket')
   const statsBucket = isTaskStatsBucket(rawBucket) ? rawBucket : null
-  const common = { query, sort, dueFrom, dueTo, statsFrom, statsTo, statsBucket, taskId: taskIdFromPathname(pathname) }
+  const common = {
+    query, sort, dueFrom, dueTo, completedFrom, completedTo,
+    statsFrom, statsTo, statsBucket, taskId: taskIdFromPathname(pathname),
+  }
   // The completed view is the one screen a `list=` narrows rather than renames: there is no
   // completed list view to confuse it with, and the dropdown there scopes finished work to one
   // collection. Everywhere else the collection still names its own view and wins.
@@ -166,6 +184,10 @@ export function writeTodoSearch(selection: TodoViewSelection): string {
   } else if (selection.view === 'completed') {
     params.set('view', 'completed')
     if (selection.listId) params.set('list', selection.listId)
+    // The year control is a half-open day window on when each task was finished. It is written only
+    // beside `view=completed`, because that is the only listing the route applies it to.
+    if (selection.completedFrom) params.set('completedFrom', selection.completedFrom)
+    if (selection.completedTo) params.set('completedTo', selection.completedTo)
   } else if (selection.view !== 'board') {
     params.set('view', selection.view)
   }
@@ -190,7 +212,7 @@ export function readTodoAddress(): TodoAddress {
   if (typeof window === 'undefined') {
     return {
       view: 'board', listId: null, tagId: null, query: '', sort: null, dueFrom: null, dueTo: null,
-      statsFrom: null, statsTo: null, statsBucket: null, taskId: null,
+      completedFrom: null, completedTo: null, statsFrom: null, statsTo: null, statsBucket: null, taskId: null,
     }
   }
   return parseTodoAddress(currentPathname(), currentSearch())

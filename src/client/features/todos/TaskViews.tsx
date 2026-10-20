@@ -6,7 +6,7 @@
  * finished — and hands the result here.
  */
 
-import { useMemo, useState } from 'react'
+import { useMemo, useRef } from 'react'
 import { localDate } from '@shared/assistant-time'
 import { t } from '../../lib/i18n'
 import { Empty } from '../../components/feedback'
@@ -16,6 +16,21 @@ import { useTodos } from './store'
 import { TaskCard } from './TaskCard'
 import { groupByPlan, groupCompleted, groupByList, type TaskGroup, type PlanGroupKey } from './task-groups'
 import type { MessageKey } from '@shared/locales/en-US'
+import type { TodoTask } from '@shared/todos/model'
+
+/**
+ * Re-read grouped rows in the order the answer carried them.
+ *
+ * A view still decides which group a row belongs to, but when the reader chose an order the order
+ * inside a group is that choice; sorting the group again here would quietly overrule it.
+ */
+function inServerOrder(groups: TaskGroup[], tasks: readonly TodoTask[]): TaskGroup[] {
+  const position = new Map(tasks.map((task, index) => [task.id, index]))
+  return groups.map((group) => ({
+    key: group.key,
+    tasks: [...group.tasks].sort((a, b) => (position.get(a.id) ?? 0) - (position.get(b.id) ?? 0)),
+  }))
+}
 
 function GroupedTaskList({ groups, label, empty }: {
   groups: TaskGroup[]
@@ -85,7 +100,11 @@ const PLAN_LABELS: Record<PlanGroupKey, MessageKey> = {
 export function PlanView() {
   const tasks = useTodos((state) => state.tasks)
   const dayEnd = useTodos((state) => state.dayEnd)
-  const groups = useMemo(() => groupByPlan(tasks, { dayEnd, now: Date.now() }), [tasks, dayEnd])
+  const sort = useTodos((state) => state.sort)
+  const groups = useMemo(() => {
+    const grouped = groupByPlan(tasks, { dayEnd, now: Date.now() })
+    return sort ? inServerOrder(grouped, tasks) : grouped
+  }, [tasks, dayEnd, sort])
   return (
     <GroupedTaskList
       groups={groups}
@@ -113,28 +132,27 @@ export function CompletedView() {
   const lists = useTodos((state) => state.lists)
   const timezone = useTodos((state) => state.timezone)
   const listId = useTodos((state) => state.listId)
+  const sort = useTodos((state) => state.sort)
+  const completedFrom = useTodos((state) => state.completedFrom)
+  const setCompletedRange = useTodos((state) => state.setCompletedRange)
   const setView = useTodos((state) => state.setView)
-  const [year, setYear] = useState('all')
 
-  const years = useMemo(() => {
-    const found = new Set<string>()
-    for (const task of completed) found.add(localDate(task.completedAt ?? task.updatedAt, timezone).slice(0, 4))
-    return [...found].sort((a, b) => (a < b ? 1 : -1))
-  }, [completed, timezone])
-
-  // The year stays a filter over the loaded pages. The route has no bound on when a task was
-  // finished — `dueFrom`/`dueTo` describe when it was owed, and a finished task with no due date is in
-  // no due window at all — so sending a completion year through them would silently drop rows and
-  // answer a different question. Until the route grows a completion bound, this one stays here, and
-  // the years it offers are the ones the pages on hand carry. The list and the paging are the server's.
-  const activeYear = year === 'all' || years.includes(year) ? year : 'all'
+  const activeYear = completedFrom ? completedFrom.slice(0, 4) : 'all'
+  // Every year this screen has seen, not only the ones on the current page: once a year is chosen the
+  // answer no longer carries the years it excluded, and a select that lost them could not go back.
+  const seenYears = useRef(new Set<string>())
+  for (const task of completed) {
+    seenYears.current.add(localDate(task.completedAt ?? task.updatedAt, timezone).slice(0, 4))
+  }
+  if (completedFrom) seenYears.current.add(completedFrom.slice(0, 4))
+  const years = [...seenYears.current].sort((a, b) => (a < b ? 1 : -1))
 
   const groups = useMemo(() => {
-    const rows = completed.filter((task) => (
-      activeYear === 'all' || localDate(task.completedAt ?? task.updatedAt, timezone).slice(0, 4) === activeYear
-    ))
-    return groupCompleted(rows, timezone)
-  }, [completed, activeYear, timezone])
+    const grouped = groupCompleted(completed, timezone)
+    // The day a task was filed under is the grouping; within it, an order the reader chose is the
+    // server's answer and is not sorted again here.
+    return sort ? inServerOrder(grouped, completed) : grouped
+  }, [completed, sort, timezone])
 
   const label = (key: string): string => {
     const [y, m, d] = key.split('-')
@@ -144,7 +162,19 @@ export function CompletedView() {
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <div className="flex shrink-0 flex-wrap items-center gap-2 px-3 pb-1 pt-2 md:px-5">
-        <Select value={activeYear} onChange={(event) => setYear(event.target.value)} aria-label={t('todo.view.completed')} className="w-auto">
+        <Select
+          value={activeYear}
+          onChange={(event) => {
+            const year = event.target.value
+            // A year is the half-open window 1 January → next 1 January on the day the task was
+            // finished, which is what the route bounds; it is asked again rather than filtered here.
+            setCompletedRange(year === 'all'
+              ? { from: null, to: null }
+              : { from: `${year}-01-01`, to: `${Number(year) + 1}-01-01` })
+          }}
+          aria-label={t('todo.view.completed')}
+          className="w-auto"
+        >
           <option value="all">{t('todo.completed.year_all')}</option>
           {years.map((entry) => <option key={entry} value={entry}>{entry}</option>)}
         </Select>
@@ -153,9 +183,7 @@ export function CompletedView() {
         <Select
           value={listId ?? 'all'}
           onChange={(event) => {
-            // A year from the previous collection need not exist in this one, so the drop-down starts
-            // over rather than naming a year with no option behind it.
-            setYear('all')
+            // Moving to another collection starts over at all years; `setView` clears the window.
             setView('completed', { listId: event.target.value === 'all' ? undefined : event.target.value })
           }}
           aria-label={t('todo.task.list_label')}
@@ -180,7 +208,11 @@ export function CompletedView() {
 /** One list, or one tag: the rows the server scoped for it, with the open ones first. */
 export function ListTaskView() {
   const tasks = useTodos((state) => state.tasks)
-  const groups = useMemo(() => groupByList(tasks), [tasks])
+  const sort = useTodos((state) => state.sort)
+  const groups = useMemo(() => {
+    const grouped = groupByList(tasks)
+    return sort ? inServerOrder(grouped, tasks) : grouped
+  }, [tasks, sort])
 
   const label = (key: string): string => (key === 'done' ? t('todo.group.done') : t('todo.group.open'))
 

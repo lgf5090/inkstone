@@ -81,6 +81,20 @@ describe('the to-do address grammar', () => {
     })).toBe('view=completed&list=work')
   })
 
+  it('carries the completion window on the finished view, and only there', () => {
+    expect(writeTodoSearch({
+      view: 'completed', listId: null, tagId: null, query: '', sort: null, dueFrom: null, dueTo: null,
+      completedFrom: '2025-01-01', completedTo: '2026-01-01',
+    })).toBe('view=completed&completedFrom=2025-01-01&completedTo=2026-01-01')
+    expect(parseTodoAddress('/todo', 'view=completed&completedFrom=2025-01-01&completedTo=2026-01-01'))
+      .toMatchObject({ view: 'completed', completedFrom: '2025-01-01', completedTo: '2026-01-01' })
+    // A bound that is not a calendar day is somebody else's parameter: it is dropped rather than
+    // narrowing the page to a question the screen never asked.
+    expect(parseTodoAddress('/todo', 'view=completed&completedFrom=last%20year').completedFrom).toBeNull()
+    // The window belongs to the finished view; a list address that carries one is the list screen.
+    expect(parseTodoAddress('/todo', 'list=work&completedFrom=2025-01-01').completedFrom).toBeNull()
+  })
+
   it('round-trips: a shape written and read again is the shape it started as', () => {
     const shapes = [
       { view: 'board' as const, listId: null, tagId: null, query: '', sort: null, dueFrom: null, dueTo: null },
@@ -89,6 +103,10 @@ describe('the to-do address grammar', () => {
       { view: 'tag' as const, listId: null, tagId: 'errands', query: 'a b', sort: 'created' as const, dueFrom: null, dueTo: null },
       { view: 'completed' as const, listId: null, tagId: null, query: '', sort: null, dueFrom: null, dueTo: null },
       { view: 'completed' as const, listId: 'work', tagId: null, query: '', sort: null, dueFrom: null, dueTo: null },
+      {
+        view: 'completed' as const, listId: null, tagId: null, query: '', sort: 'priority' as const,
+        dueFrom: null, dueTo: null, completedFrom: '2025-01-01', completedTo: '2026-01-01',
+      },
     ]
     for (const shape of shapes) {
       expect(parseTodoAddress('/todo', writeTodoSearch(shape))).toMatchObject(shape)
@@ -191,5 +209,15 @@ describe('the view state and the address bar', () => {
     useTodos.getState().syncFromAddress()
     expect(useTodos.getState().view).toBe('plan')
     expect(useTodos.getState().query).toBe('tax')
+  })
+
+  it('follows a completion window a back button brings back', () => {
+    reset()
+    useTodos.getState().setView('completed')
+    window.history.replaceState(null, '', '/todo?view=completed&completedFrom=2025-01-01&completedTo=2026-01-01')
+    useTodos.getState().syncFromAddress()
+    expect(useTodos.getState().view).toBe('completed')
+    expect(useTodos.getState().completedFrom).toBe('2025-01-01')
+    expect(useTodos.getState().completedTo).toBe('2026-01-01')
   })
 })
