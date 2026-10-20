@@ -5957,6 +5957,36 @@ export class AssistantStore {
     if (!rows.length) return
     const columns = this.importColumns(table)
     await this.runImportBatch(rows.map((row) => this.importInsert(table, columns, row)), onLanded)
+    // A task row names its reminder in the `remind_at` field the backup format has always carried;
+    // the column itself is no longer written (see `EXPORT_COLUMNS`), this turns the field into the
+    // row that now owns the instants. They are written after the tasks they belong to, and only when
+    // the same instant is not already pending here: importing one file twice must not double its
+    // alarms.
+    if (table === 'todos_tasks') await this.importTaskReminders(rows)
+  }
+
+  /** The `remind_at` fields a backup attached to its task rows, as rows of `todos_reminders`. */
+  private async importTaskReminders(rows: readonly Record<string, unknown>[]): Promise<void> {
+    const at = Date.now()
+    const statements: D1PreparedStatement[] = []
+    for (const row of rows) {
+      const taskId = typeof row.id === 'string' ? row.id : ''
+      if (!taskId) continue
+      const times = Array.isArray(row.reminders)
+        ? row.reminders as number[]
+        : typeof row.remind_at === 'number' ? [row.remind_at] : []
+      for (const remindAt of normalizeReminderTimes(times)) {
+        statements.push(this.db.prepare(
+          `INSERT INTO todos_reminders (user_id, id, task_id, remind_at, fired_at, created_at)
+           SELECT ?1, ?2, ?3, ?4, NULL, ?5
+            WHERE NOT EXISTS (
+              SELECT 1 FROM todos_reminders
+               WHERE user_id = ?1 AND task_id = ?3 AND remind_at = ?4 AND fired_at IS NULL
+            )`,
+        ).bind(this.userId, newId(), taskId, remindAt, at))
+      }
+    }
+    await this.runImportBatch(statements)
   }
 
   /** The same, for the rows this account already holds and the file is allowed to rewrite. */
@@ -5967,6 +5997,9 @@ export class AssistantStore {
       .map((patch) => this.importPatch(table, columns, patch.id, patch.row))
       .filter((statement): statement is D1PreparedStatement => statement !== null)
     await this.runImportBatch(statements, onLanded)
+    // The reminder named by a newer file joins the local task's pending list; the task's own edit
+    // still wins for every column above, and a duplicate instant is not added twice.
+    if (table === 'todos_tasks') await this.importTaskReminders(patches.map((patch) => patch.row))
   }
 
   private async runImportBatch(statements: readonly D1PreparedStatement[], onLanded?: (landed: number) => void): Promise<void> {
@@ -6035,6 +6068,27 @@ export class AssistantStore {
     const onlyKept = 'conversation_id IN (SELECT id FROM chat_conversations WHERE user_id = ?1 AND ephemeral = 0)'
     const select = (table: string, extra = '') => this.db.prepare(`SELECT * FROM ${table} WHERE user_id = ?1 ${extra} ORDER BY created_at`)
       .bind(this.userId).all<Record<string, unknown>>().then((r) => r.results ?? [])
+    const tasks = await select('todos_tasks')
+    // A reminder travels on its task. The backup format has one row per task and no table for these,
+    // so the first pending instant is written into the `remind_at` field the format already had; the
+    // import reads it back as a row of `todos_reminders`. Fired rows stay behind: a restore is not a
+    // delivery, and history the file does not need is not a reason to write it into another account.
+    // The task row's own `remind_at` column is not read — it is superseded and this value is derived
+    // from the reminder rows, then overwritten either way.
+    const pending = await select('todos_reminders', 'AND fired_at IS NULL')
+    const byTask = new Map<string, number[]>()
+    for (const row of pending) {
+      const taskId = typeof row.task_id === 'string' ? row.task_id : ''
+      const remindAt = typeof row.remind_at === 'number' ? row.remind_at : null
+      if (!taskId || remindAt === null) continue
+      const bucket = byTask.get(taskId) ?? []
+      bucket.push(remindAt)
+      byTask.set(taskId, bucket)
+    }
+    for (const task of tasks) {
+      const list = typeof task.id === 'string' ? byTask.get(task.id) : undefined
+      task.remind_at = list?.length ? normalizeReminderTimes(list)[0]! : null
+    }
     return {
       conversations: await select('chat_conversations', 'AND ephemeral = 0'),
       artifacts: await select('chat_artifacts', `AND ${onlyKept}`),
@@ -6042,7 +6096,7 @@ export class AssistantStore {
       messages: await select('chat_messages', `AND ${onlyKept}`),
       answer_versions: await select('chat_answer_versions', `AND ${onlyKept}`),
       memories: await select('chat_memories'),
-      tasks: await select('todos_tasks'),
+      tasks,
       task_lists: await select('todos_lists'),
       task_steps: await select('todos_steps'),
       task_tags: await select('todos_tags'),
@@ -6105,7 +6159,10 @@ const EXPORT_COLUMNS: Readonly<Record<string, readonly string[]>> = {
   // would leave every restored task with no day until a boot backfilled it, and the fingerprint note
   // means a boot after a restore does not come back through the repair. They are nullable, so an old
   // backup without the keys still lands.
-  todos_tasks: ['id', 'title', 'description', 'status', 'priority', 'due_at', 'project_id', 'list_id', 'starred', 'repeat_rule', 'remind_at', 'note_id', 'conversation_id', 'created_at', 'updated_at', 'completed_at', 'created_on', 'completed_on'],
+  // `remind_at` is deliberately absent: the single reminder column is superseded by `todos_reminders`,
+  // and a restore turns the backup's `remind_at` field into a row of that table instead of writing a
+  // column nothing reads. The field still travels in the file, because that is the format's shape.
+  todos_tasks: ['id', 'title', 'description', 'status', 'priority', 'due_at', 'project_id', 'list_id', 'starred', 'repeat_rule', 'note_id', 'conversation_id', 'created_at', 'updated_at', 'completed_at', 'created_on', 'completed_on'],
   todos_lists: ['id', 'name', 'icon', 'color', 'position', 'created_at', 'updated_at'],
   todos_steps: ['id', 'task_id', 'text', 'done', 'position', 'created_at'],
   todos_tags: ['id', 'name', 'color', 'created_at', 'updated_at'],
