@@ -2122,6 +2122,58 @@ export const SUBSCRIPTION_TOOLS: ToolDefinition[] = [
     },
   }),
   tool({
+    name: 'purge_subscription',
+    permission: 'destructive',
+    maxCallsPerTurn: 2,
+    description: 'Erase one subscription that is already in the trash, together with its whole payment history. This cannot be undone, so it only accepts a plan the reader has already trashed — `delete_subscription` is the verb that puts one there.',
+    fields: { ref: { type: 'string', minLength: 1, maxLength: 120 } },
+    async prepare(args, ctx) {
+      const { store, context } = await subscriptionAccess(ctx)
+      const wanted = String(args.ref).trim()
+      const folded = wanted.toLocaleLowerCase()
+      const trashed = await store.list(context, 'trash')
+      const match = trashed.find((item) => item.id === wanted) ?? trashed.find((item) => item.name.toLocaleLowerCase() === folded)
+      if (!match) {
+        throw new ToolError(trashed.length === 0
+          ? 'The trash is empty, so there is nothing to erase. Moving a plan to the trash is `delete_subscription`.'
+          : `Nothing in the trash matches "${wanted.slice(0, 80)}". The trash holds ${trashed.length}: ${trashed.slice(0, 10).map((item) => item.name).join(', ')}.`)
+      }
+      return { targetId: match.id, targetLabel: quoted(match.name) }
+    },
+    async commit(targetId, ctx) {
+      const { store } = await subscriptionAccess(ctx)
+      const erased = await store.purge(targetId)
+      if (!erased) throw new ToolError('That subscription is no longer in the trash, so nothing was erased.')
+      return { purged: true, note: 'The plan and its receipts are gone for good.' }
+    },
+  }),
+  tool({
+    name: 'empty_subscription_trash',
+    permission: 'destructive',
+    maxCallsPerTurn: 1,
+    description: 'Erase every subscription in the trash at once, with their payment histories. The approval card names how many are about to go, because this is the one deletion in the app that no longer has a way back.',
+    fields: {},
+    async prepare(_args, ctx) {
+      const { store, context } = await subscriptionAccess(ctx)
+      const trashed = await store.list(context, 'trash')
+      if (!trashed.length) throw new ToolError('The trash is already empty.')
+      const names = trashed.slice(0, 5).map((item) => item.name).join(', ')
+      return {
+        targetId: String(trashed.length),
+        targetLabel: `${trashed.length} subscription${trashed.length === 1 ? '' : 's'}: ${names}${trashed.length > 5 ? ', …' : ''}`,
+      }
+    },
+    async commit(targetId, ctx) {
+      const { store } = await subscriptionAccess(ctx)
+      const purged = await store.emptyTrash()
+      if (purged === 0) return { purged: 0, note: 'Nothing was erased — the trash was emptied first.' }
+      if (String(purged) !== targetId) {
+        return { purged, note: `${targetId} were on the card the reader approved; ${purged} went. The list changed in between.` }
+      }
+      return { purged, note: 'Every trashed plan and its receipts are gone for good.' }
+    },
+  }),
+  tool({
     name: 'subscription_channels',
     permission: 'read',
     maxCallsPerTurn: 2,

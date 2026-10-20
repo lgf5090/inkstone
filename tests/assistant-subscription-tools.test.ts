@@ -411,3 +411,44 @@ describe('several plans and the name registry', () => {
     expect(held[0]!.customType, 'unregistering a name leaves the plans that carry it alone').toBe('流媒体')
   })
 })
+
+describe('erasing beyond recovery', () => {
+  const autoExecutor = () => new ToolExecutor(
+    { ...context(ALICE), conversationId: 'conv-erase', settings: { ...DEFAULT_ASSISTANT_SETTINGS, toolModes: { read: 'auto', write: 'auto', destructive: 'auto' } } },
+    { maxToolCalls: 8 },
+  )
+
+  /**
+   * The two verbs the app has no way back from, and the guard rail between them and a conversation.
+   *
+   * `purge_subscription` refuses a plan that is still live: the reader who says "delete Netflix" means the
+   * trash, and an assistant that erased the receipts on the first request could not be blamed.
+   */
+  it('erases only what is already trashed, and says so when the name is a live plan', async () => {
+    const created = await seedSubscription()
+    await expect(autoExecutor().execute('purge_subscription', { ref: 'Netflix' }, 'call-live'))
+      .rejects.toThrow(/trash is empty/)
+
+    const { store: subStore, context: ctx } = store()
+    await subStore.trash(created.item.id, ctx)
+    const erased = await autoExecutor().execute('purge_subscription', { ref: 'Netflix' }, 'call-purge') as { purged: boolean }
+    expect(erased.purged).toBe(true)
+    expect(await subStore.list(ctx, 'trash')).toHaveLength(0)
+    expect(await subStore.get(created.item.id, ctx)).toBeNull()
+  })
+
+  it('names how many plans are about to go, and reports the number that actually went', async () => {
+    await expect(autoExecutor().execute('empty_subscription_trash', {}, 'call-empty'))
+      .rejects.toThrow(/already empty/)
+
+    const first = await seedSubscription({ name: 'Netflix' })
+    const second = await seedSubscription({ name: 'Figma', amount: 15 })
+    const { store: subStore, context: ctx } = store()
+    await subStore.trash(first.item.id, ctx)
+    await subStore.trash(second.item.id, ctx)
+    const answer = await autoExecutor().execute('empty_subscription_trash', {}, 'call-empty-2') as { purged: number, note: string }
+    expect(answer.purged).toBe(2)
+    expect(await subStore.list(ctx, 'trash')).toHaveLength(0)
+    expect(await subStore.trashCount()).toBe(0)
+  })
+})
