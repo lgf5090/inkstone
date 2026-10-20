@@ -1843,6 +1843,17 @@ export const ASSISTANT_TOOL_SPECS: readonly AssistantToolSpec[] = [
   { name: 'code_execute', labelKey: 'assistant.tool.code_execute', permission: 'write' },
   { name: 'fetch_url', labelKey: 'assistant.tool.fetch_url', permission: 'read' },
   { name: 'web_search', labelKey: 'assistant.tool.web_search', permission: 'read' },
+  { name: 'list_subscriptions', labelKey: 'assistant.tool.list_subscriptions', permission: 'read' },
+  { name: 'get_subscription', labelKey: 'assistant.tool.get_subscription', permission: 'read' },
+  { name: 'subscription_summary', labelKey: 'assistant.tool.subscription_summary', permission: 'read' },
+  { name: 'create_subscription', labelKey: 'assistant.tool.create_subscription', permission: 'write' },
+  { name: 'update_subscription', labelKey: 'assistant.tool.update_subscription', permission: 'write' },
+  { name: 'renew_subscription', labelKey: 'assistant.tool.renew_subscription', permission: 'write' },
+  { name: 'set_subscription_reminders', labelKey: 'assistant.tool.set_subscription_reminders', permission: 'write' },
+  { name: 'set_subscription_style', labelKey: 'assistant.tool.set_subscription_style', permission: 'write' },
+  { name: 'restore_subscription', labelKey: 'assistant.tool.restore_subscription', permission: 'write' },
+  { name: 'delete_subscription', labelKey: 'assistant.tool.delete_subscription', approvalKey: 'assistant.approval.delete_subscription', permission: 'destructive' },
+  { name: 'subscription_channels', labelKey: 'assistant.tool.subscription_channels', permission: 'read' },
 ]
 
 /** A page the model actually consulted, as the vendor reported it. */

@@ -19,6 +19,7 @@ import { contextBudgetFor, customParamBody, MAX_CHAT_ATTACHMENTS, MAX_CONVERSATI
 import { hasHistoricalIntent, memoryTokenBudget } from '@shared/assistant-memory'
 import { ATTACHMENT_MARKER, expandChatAttachments, type AttachmentPayload } from './attachments'
 import { resolveNoteMentions } from './note-mentions'
+import { resolveSubscriptionMentions } from './subscription-mentions'
 import { loadExternalTools, type ExternalToolsResult } from './mcp-tools'
 import { buildSystemPrompt, namingPrompt, offlineAnswer, promptCatalog, summarizerPrompt } from '@shared/assistant-prompt'
 import { describeLocalTime, localDayBounds } from '@shared/assistant-time'
@@ -1589,7 +1590,9 @@ export class AssistantRunner {
     }
     if (lastUser) {
       const block = await resolveNoteMentions(this.deps.env.DB, this.store.userId, lastUser.content, await this.noteScope())
-      if (block) lastUser.content = `${lastUser.content}\n\n${block}`
+      const subscriptionBlock = await resolveSubscriptionMentions(this.deps.env.DB, this.store.userId, lastUser.content)
+      const carried = [block, subscriptionBlock].filter(Boolean).join('\n\n')
+      if (carried) lastUser.content = `${lastUser.content}\n\n${carried}`
     }
     return entries
   }
@@ -2046,7 +2049,7 @@ export class AssistantRunner {
 /** The fragment a tool acted on, taken from its own arguments rather than invented. */
 function detailFor(args: unknown): string | undefined {
   const record = (args ?? {}) as Record<string, unknown>
-  const candidate = record.title ?? record.task ?? record.query ?? record.message ?? record.name ?? record.content
+  const candidate = record.title ?? record.task ?? record.query ?? record.message ?? record.name ?? record.ref ?? record.content
   if (typeof candidate !== 'string') return undefined
   return candidate.replace(/\s+/g, ' ').trim().slice(0, 90) || undefined
 }
