@@ -23,7 +23,6 @@
 
 import { Hono, type Context } from 'hono'
 import { LIMITS } from '@shared/constants'
-import { MAX_TASKS_PER_QUERY, parseRepeatRule } from '@shared/todos/model'
 import type { AppBindings } from '../env'
 import { ApiError } from '../lib/errors'
 import { isValidSlug } from '../lib/id'
@@ -37,27 +36,12 @@ import {
   recordLoginFailure,
 } from '../lib/throttle'
 import { AssistantStore } from '../assistant/store'
-import { buildIcsCalendar, type IcsTask } from '../todos/ics'
+import { buildIcsCalendar } from '../todos/ics'
+import { findFeed, loadFeedTasks } from '../todos/feeds'
 
 const DAY_MS = 24 * 60 * 60 * 1000
 /** How far ahead a subscription reaches; overdue items are always included, so the floor is the past. */
 export const FEED_WINDOW_DAYS = 90
-
-type FeedRow = {
-  user_id: string
-  password_hash: string | null
-  expires_at: number | null
-  revoked_at: number | null
-}
-
-type TaskRow = {
-  id: string
-  title: string
-  description: string
-  priority: string
-  due_at: number
-  repeat_rule: string | null
-}
 
 /** The two attempt budgets a public feed guards itself with, both keyed by slug and visitor. */
 export function feedThrottleTargets(slug: string, ip: string) {
@@ -75,52 +59,6 @@ export function feedThrottleTargets(slug: string, ip: string) {
 export function stripIcsSuffix(value: string | undefined): string {
   if (!value) return ''
   return value.toLowerCase().endsWith('.ics') ? value.slice(0, -4) : value
-}
-
-async function findFeed(db: D1Database, slug: string): Promise<FeedRow | null> {
-  return (
-    (await db
-      .prepare(
-        `SELECT user_id, password_hash, expires_at, revoked_at FROM todos_feeds WHERE slug = ?1`,
-      )
-      .bind(slug)
-      .first<FeedRow>()) ?? null
-  )
-}
-
-async function loadFeedTasks(db: D1Database, userId: string, horizonEnd: number): Promise<IcsTask[]> {
-  const { results } = await db
-    .prepare(
-      `SELECT id, title, description, priority, due_at, repeat_rule
-         FROM todos_tasks
-        WHERE user_id = ?1 AND status != 'done' AND due_at IS NOT NULL AND due_at <= ?2
-        ORDER BY due_at ASC, id ASC
-        LIMIT ?3`,
-    )
-    .bind(userId, horizonEnd, MAX_TASKS_PER_QUERY)
-    .all<TaskRow>()
-  return (results ?? []).map((row) => ({
-    id: row.id,
-    title: row.title,
-    description: row.description,
-    priority: toPriority(row.priority),
-    dueAt: Number(row.due_at),
-    repeat: parseRepeatRule(parseStoredRepeat(row.repeat_rule)),
-  }))
-}
-
-function toPriority(value: string): IcsTask['priority'] {
-  return value === 'low' || value === 'high' || value === 'urgent' ? value : 'medium'
-}
-
-/** A stored `repeat_rule` is JSON text; a malformed one simply means "does not repeat", never a 500. */
-function parseStoredRepeat(raw: string | null): unknown {
-  if (!raw) return null
-  try {
-    return JSON.parse(raw)
-  } catch {
-    return null
-  }
 }
 
 /** Whether the passcode on this feed's URL is correct; a feed with no passcode needs nothing. */
