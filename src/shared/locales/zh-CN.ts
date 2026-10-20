@@ -6705,6 +6705,7 @@ console.log(\`Hello, \${name}!\`)
     "assistant.notifications.all_read": "全部已读",
     "assistant.notifications.mark_all": "全部标为已读",
     "assistant.notifications.delete": "删除通知",
+    "assistant.notifications.open_task": "打开这条待办",
     "assistant.notifications.empty": "暂无通知",
     "assistant.notifications.empty_hint": "提醒与例行任务的结果会出现在这里。",
     "assistant.toast.failed": "操作未成功，请重试。",

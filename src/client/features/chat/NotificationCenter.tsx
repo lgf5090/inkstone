@@ -1,9 +1,10 @@
 /**
  * The notification centre: what the schedules delivered.
  *
- * It is a drawer rather than a page because a reminder is read on the way past, not navigated to.
- * The bodies arrive as Markdown from the digest and from an AI routine, so they are rendered through
- * the same sanitized pipeline as a reply rather than as raw text.
+ * It is a drawer rather than a page because a reminder is read on the way past, not navigated to — unless
+ * it names where it came from, which is the other thing a row can be. The bodies arrive as Markdown from
+ * the digest and from an AI routine, so they are rendered through the same sanitized pipeline as a reply
+ * rather than as raw text.
  */
 import { Z_INDEX } from '../../lib/z-index'
 import { useEffect, useMemo, useState } from 'react'
@@ -16,8 +17,19 @@ import { renderMarkdown } from '../../lib/markdown/renderer'
 import { Button, IconButton } from '../../components/primitives'
 import { Drawer } from '../../components/overlay'
 import { Empty } from '../../components/feedback'
+import { taskIdFromNotificationLink } from '../todos/todo-address'
+import { openTaskInTodo } from '../todos/open-task'
 import { useAssistant } from './assistant-store'
 
+/**
+ * The pointer a delivered notice carries is read off the row in {@link NotificationRow}.
+ *
+ * `chat_notifications.link` travels on the response — the store's own row mapper writes it — while the
+ * shared `AssistantNotification` the client's store is typed against does not name the column yet, so the
+ * row names the field it looks at instead of pretending the interface always had it. Narrowing to
+ * "a string or nothing" is what makes the value safe to act on: `taskIdFromNotificationLink` then decides
+ * whether it names a task this app may open, and everything else is a notice without a destination.
+ */
 export function NotificationCenter({ open, onClose }: { open: boolean, onClose: () => void }) {
   const notifications = useAssistant((state) => state.notifications)
   const unread = useAssistant((state) => state.unread)
@@ -28,6 +40,18 @@ export function NotificationCenter({ open, onClose }: { open: boolean, onClose: 
   useEffect(() => {
     if (open) void loadNotifications()
   }, [open, loadNotifications])
+
+  /**
+   * Put the drawer away before the screen changes.
+   *
+   * It is a visitor over whatever tab it was opened from, so leaving it up would cover the very task the
+   * reader pressed for — and a drawer holding focus on a screen they have moved off is not a thing they can
+   * get back to without pressing the notice a second time.
+   */
+  const openTask = (taskId: string): void => {
+    onClose()
+    void openTaskInTodo(taskId)
+  }
 
   return (
     <Drawer open={open} onClose={onClose} side="right" width={380} title={t('assistant.notifications.title')} zIndex={Z_INDEX.pinnedMenu}>
@@ -56,6 +80,7 @@ export function NotificationCenter({ open, onClose }: { open: boolean, onClose: 
                     notification={notification}
                     onRead={() => void markRead(notification.id)}
                     onDelete={() => void remove(notification.id)}
+                    onOpenTask={openTask}
                   />
                 ))}
               </ul>
@@ -71,13 +96,20 @@ function NotificationRow({
   notification,
   onRead,
   onDelete,
+  onOpenTask,
 }: {
-  notification: AssistantNotification
+  /** A delivered notice, with the `chat_notifications.link` column its row carries. */
+  notification: AssistantNotification & { link?: string | null }
   onRead: () => void
   onDelete: () => void
+  onOpenTask: (taskId: string) => void
 }) {
   const [expanded, setExpanded] = useState(false)
   const unread = notification.readAt === null
+  // Either the notice names a screen this app can open, or it is a message and pressing it reads the rest
+  // of it here. A pointer this app cannot read — another app's prefix, a tail that is not one id — is the
+  // second case, which is the honest answer rather than a press that goes nowhere.
+  const taskId = taskIdFromNotificationLink(notification.link)
   const html = useMemo(() => ({ __html: renderMarkdown(notification.body).html }), [notification.body])
   // A collapsed row shows one line; expanding it must not re-parse the body on every keystroke.
   return (
@@ -87,10 +119,11 @@ function NotificationRow({
           <button
             type="button"
             onClick={() => {
-              setExpanded((value) => !value)
               if (unread) onRead()
+              if (taskId) { onOpenTask(taskId); return }
+              setExpanded((value) => !value)
             }}
-            aria-expanded={expanded}
+            aria-expanded={taskId ? undefined : expanded}
             className="min-w-0 flex-1 text-left"
           >
             <p className={cn(
@@ -101,6 +134,11 @@ function NotificationRow({
               <span className="min-w-0 truncate">{notification.title}</span>
             </p>
             <p className="mt-0.5 text-[length:var(--text-10-5)] text-[var(--text-quaternary)]">{relativeTime(notification.createdAt)}</p>
+            {/* Saying what the press does, rather than leaving the reader to find out by pressing it: a row
+                that navigates and a row that expands are different gestures and must not look the same. */}
+            {taskId && (
+              <p className="mt-0.5 text-[length:var(--text-10-5)] font-medium text-[var(--accent)]">{t('assistant.notifications.open_task')}</p>
+            )}
           </button>
           <IconButton label={t('assistant.notifications.delete')} size="xs" onClick={onDelete}>
             <Trash2 size={12} />

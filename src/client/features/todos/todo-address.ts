@@ -17,6 +17,40 @@ import type { TodoView } from './store'
 /** The app's own address, and the prefix every screen under it hangs off. */
 export const TODO_PATH = '/todo'
 
+/**
+ * Whether an address is one of the to-do app's screens.
+ *
+ * The container says this about itself because it is the only thing that knows the shape: the host asks it
+ * before falling back to the table of tab paths, so `/todo/<task id>` is the to-do app rather than whatever
+ * an unrecognised address answers with.
+ */
+export function isTodoPath(pathname: string): boolean {
+  return pathname === TODO_PATH || (pathname.startsWith(`${TODO_PATH}/`) && pathname.slice(TODO_PATH.length + 1).replace(/\/$/, '') !== '')
+}
+
+/**
+ * The prefix a notification carries before a task id.
+ *
+ * A notice names its subject as `<app>:<id>` rather than as an address, and the client is the only thing that
+ * knows what an `app` means: `todo:` is read here, in the app that owns the tasks, and the writer that stored
+ * the string never decided where it would be opened.
+ */
+export const TODO_TASK_LINK_PREFIX = 'todo:'
+
+/**
+ * The task a stored pointer names, or null for a notice that points elsewhere or nowhere.
+ *
+ * The id has to be the whole rest of the string and nothing but an id: a link that carries a slash, a query,
+ * a scheme or an empty tail is not this app's shape, and reading it anyway would mean opening whatever the
+ * writer chose rather than the task the reader was told about. Callers treat null as "no destination" — the
+ * notice stays a message — rather than as a failure to report.
+ */
+export function taskIdFromNotificationLink(link: string | null | undefined): string | null {
+  if (!link || !link.startsWith(TODO_TASK_LINK_PREFIX)) return null
+  const id = link.slice(TODO_TASK_LINK_PREFIX.length)
+  return /^[A-Za-z0-9_-]{1,64}$/.test(id) ? id : null
+}
+
 /** The views the container draws, which is what a `view=` parameter can name. */
 export const TODO_VIEWS: readonly TodoView[] = ['board', 'plan', 'starred', 'completed', 'list', 'tag']
 

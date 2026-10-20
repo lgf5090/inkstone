@@ -9,6 +9,7 @@ import { Suspense, lazy, type ComponentType } from 'react'
 import { useSyncEngine } from '../../lib/sync'
 import { usePathname } from '../../lib/app-history'
 import { tabIdForPath, type AppTabId } from './app-tabs'
+import { isTodoPath } from '../todos/todo-address'
 import { AppRail } from './AppRail'
 import { AppTabPlaceholder } from './AppTabPlaceholder'
 import { AppShell } from './AppShell'
@@ -40,7 +41,10 @@ const CONTAINERS: Partial<Record<AppTabId, ComponentType>> = {
 
 export function AppTabHost() {
   useSyncEngine()
-  const tabId = tabIdForPath(usePathname())
+  const pathname = usePathname()
+  // A task's own screen is still the to-do app: the container that owns an address says so itself, because
+  // the shape of `/todo/<task id>` belongs to it and not to the table of tab paths.
+  const tabId = isTodoPath(pathname) ? 'todo' : tabIdForPath(pathname)
   const Container = CONTAINERS[tabId]
   return (
     <div className="flex h-full min-h-0 overflow-hidden bg-[var(--bg-base)]">
