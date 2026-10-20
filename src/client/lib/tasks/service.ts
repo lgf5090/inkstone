@@ -1,8 +1,9 @@
 import { useSession } from '../../store/session'
 import { useNotes } from '../../store/notes'
-import { applyTaskToggle, type ToggleSettings } from './toggle'
-import { parseTaskLine } from './model/task'
+import { applyTaskToggle, taskWords, type ToggleSettings } from './toggle'
+import { parseTaskLine, toMarkdownLine } from './model/task'
 import { unknownPosition } from './model/task-location'
+import { applyDraft, type DraftErrors, type TaskDraft } from './edit/task-editor'
 import { CompatTaskSerializer, DataviewTaskSerializer, defaultStatusRegistry, EmojiTaskSerializer, StatusRegistry } from './line'
 import type { StatusConfiguration, TaskSerializer } from './line'
 
@@ -91,4 +92,90 @@ export function toggleTaskLinesInSource(source: string, lineIndexes: number[], n
     if (next !== null) out = next
   }
   return out === source ? null : out
+}
+
+/** What the edit form sent: the draft, and which status character the reader chose. */
+export interface TaskEdit {
+  draft: TaskDraft
+  statusSymbol: string
+}
+
+/**
+ * Replace one task line with what the edit form produced.
+ *
+ * The same two-anchor contract as a tick: the line is found by index and confirmed by its words, so a
+ * note that moved since the form opened is refused rather than overwritten. A recurring task can come
+ * back as two lines, so the replacement is a list.
+ */
+export function editTaskInSource(
+  source: string,
+  lineIndex: number,
+  edit: TaskEdit,
+  now: Date = new Date(),
+  expect?: string,
+): EditOutcome {
+  const settings = toggleSettings()
+  const lines = source.split(/\r?\n/u)
+  const line = lines[lineIndex]
+  if (line === undefined) return { ok: false, reason: 'missing', source }
+  const task = parseTaskLine(line, unknownPosition('', ''), {
+    registry: settings.registry,
+    serializer: settings.serializer,
+    now,
+  })
+  if (task === null) return { ok: false, reason: 'missing', source }
+  if (expect !== undefined && taskWords(task.fields.description) !== taskWords(expect)) {
+    return { ok: false, reason: 'missing', source }
+  }
+  const status = settings.registry.bySymbolOrCreate(edit.statusSymbol)
+  const applied = applyDraft(task, edit.draft, status, settings, now)
+  if (applied.errors.recurrence !== 'none' || Object.keys(applied.errors.dates).length > 0) {
+    return { ok: false, reason: 'invalid', errors: applied.errors, source }
+  }
+  const replacement = applied.tasks.map((item) => toMarkdownLine(item, settings.serializer))
+  const out = [...lines]
+  out.splice(lineIndex, 1, ...replacement)
+  const eol = source.includes('\r\n') ? '\r\n' : '\n'
+  return { ok: true, source: out.join(eol) }
+}
+
+/**
+ * Edit a task in a note the reader may not be editing.
+ *
+ * The same remote-write path a tick uses, so a form that was opened from a query result cannot
+ * overwrite a newer copy of the note: the words the row showed are confirmed against the line the
+ * server holds now.
+ */
+export async function editTaskInNote(
+  noteId: string,
+  line: number,
+  text: string | null,
+  edit: TaskEdit,
+  now: Date = new Date(),
+): Promise<TaskToggleResult> {
+  return useNotes.getState().editRemoteContent(noteId, (content) => {
+    const outcome = editTaskInSource(content, line, edit, now, text ?? undefined)
+    return outcome.ok ? outcome.source : null
+  })
+}
+
+/** Why an edit did not land, so the form can say which field to look at. */
+export type EditReason = 'missing' | 'invalid'
+
+export interface EditOutcome {
+  ok: boolean
+  reason?: EditReason
+  errors?: DraftErrors
+  source: string
+}
+
+/** The draft as the model reads it, for a form that must say which field failed before saving. */
+export function validateTaskDraft(
+  source: string,
+  lineIndex: number,
+  edit: TaskEdit,
+  now: Date = new Date(),
+): DraftErrors | null {
+  const outcome = editTaskInSource(source, lineIndex, edit, now)
+  return outcome.ok ? null : (outcome.errors ?? null)
 }

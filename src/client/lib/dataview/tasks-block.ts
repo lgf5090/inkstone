@@ -160,6 +160,25 @@ function renderTaskRow(task: Task, parsed: ParsedQuery): HTMLElement {
         source.textContent = task.location.path.split('/').pop() ?? task.location.path
         row.append(source)
     }
+    if (!parsed.layout.hiddenQueryParts.has('edit button') && task.location.noteId !== '') {
+        const edit = document.createElement('button')
+        edit.type = 'button'
+        edit.className = 'dataview-task-edit'
+        edit.textContent = t('tasks.edit_action')
+        // The row says which line of which note it was drawn from; the form reads that line again when
+        // it opens, so a result that has gone stale is caught there rather than written over here.
+        edit.addEventListener('click', (event) => {
+            event.stopPropagation()
+            void import('../../features/tasks/store').then(({ openTaskEditor }) => {
+                openTaskEditor({
+                    noteId: task.location.noteId,
+                    line: task.location.lineNumber,
+                    text: task.fields.description,
+                })
+            })
+        })
+        row.append(edit)
+    }
     return row
 }
 

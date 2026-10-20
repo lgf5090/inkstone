@@ -81,7 +81,7 @@ function advanceLine(line: string, settings: ToggleSettings, now: Date, expect?:
     now,
   })
   if (task === null) return null
-  if (expect !== undefined && prose(task.fields.description) !== prose(expect)) return null
+  if (expect !== undefined && taskWords(task.fields.description) !== taskWords(expect)) return null
 
   return advanceStatus(task, settings, now)
 }
@@ -95,23 +95,34 @@ function advanceLine(line: string, settings: ToggleSettings, now: Date, expect?:
  * every `not done` search — so the registry is asked for the first open status down that chain.
  */
 export function advanceStatus(task: Task, settings: ToggleSettings, now: Date): ToggledLine {
-  const finishing = !task.status.isDone
   // The box the reader just clicked moves one step along the cycle, whatever else happens. The
   // recurrence status is a different question — it names the status the *next* instance is born
   // with — and applying it to the finished line would leave the tick having changed nothing.
-  const clicked = settings.registry.getNextStatusOrCreate(task.status)
+  return moveToStatus(task, settings.registry.getNextStatusOrCreate(task.status), settings, now)
+}
+
+/**
+ * Move a task to a named status, and produce what that implies.
+ *
+ * A recurring task does not simply become done and leave its own series: the instance is finished
+ * and a fresh one is born from the rule. The newborn's status is not the one being moved to — in a
+ * vault whose `[x]` points back at `[x]` that would birth it already finished, invisible to every
+ * `not done` search — so the registry is asked for the first open status down that chain.
+ */
+export function moveToStatus(task: Task, next: Status, settings: ToggleSettings, now: Date): ToggledLine {
+  const finishing = !task.status.isDone
   const bornStatus = task.recurrence !== null && finishing
     ? settings.registry.getNextRecurrenceStatusOrCreate(task.status)
-    : clicked
+    : next
 
   const finished: Task = {
     ...task,
-    status: clicked,
-    fields: stampDates(task.fields, task.status.type, clicked.type, settings, now),
+    status: next,
+    fields: stampDates(task.fields, task.status.type, next.type, settings, now),
   }
 
   if (!finishing || task.recurrence === null) {
-    return { tasks: keepOrDrop(task, [finished]), clicked }
+    return { tasks: keepOrDrop(task, [finished]), clicked: next }
   }
 
   const occurrence = task.recurrence.next(now)
@@ -123,7 +134,7 @@ export function advanceStatus(task: Task, settings: ToggleSettings, now: Date): 
     scheduledDateIsInferred: false,
   }
   const ordered = settings.recurrenceOnNextLine ? [finished, born] : [born, finished]
-  return { tasks: keepOrDrop(task, ordered), clicked }
+  return { tasks: keepOrDrop(task, ordered), clicked: next }
 }
 
 /** `on completion: delete` removes the finished instance, leaving only what the rule produced. */
@@ -210,7 +221,7 @@ const bracketFormat = new DataviewTaskSerializer()
  * reader mixes them inside one line. Stripping both leaves the prose the reader actually clicked, and a
  * stale line still fails the guard because its words moved.
  */
-function prose(text: string): string {
+export function taskWords(text: string): string {
   let out = text
   // Two formats, in either order on the line: each pass strips what it recognises until the text settles.
   for (let pass = 0; pass < 3; pass++) {

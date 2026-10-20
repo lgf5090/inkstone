@@ -145,6 +145,17 @@ export function buildTaskItems(ctx: MenuCtx): MenuItem[] | null {
       },
     },
   ]
+  if (ctx.noteId && line !== null && line !== undefined) {
+    items.push({
+      id: 'edit-task',
+      label: t('contextmenu.task_edit'),
+      icon: <Pencil size={14} />,
+      onSelect: async () => {
+        const { openTaskEditor } = await import('../../tasks/store')
+        openTaskEditor({ noteId: ctx.noteId!, line: line!, text: null })
+      },
+    })
+  }
   if (isSourceMenu(ctx)) {
     items.push({
       id: 'task-to-bullet',

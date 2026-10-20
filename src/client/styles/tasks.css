@@ -37,6 +37,27 @@
   font-size: var(--text-11);
 }
 
+.ink-prose .dataview-task-edit {
+  margin-left: var(--sp-2);
+  padding: 0 var(--sp-2);
+  min-height: 24px;
+  border: 0;
+  border-radius: var(--r-sm);
+  background: none;
+  color: var(--text-tertiary);
+  font-size: var(--text-11);
+  cursor: pointer;
+}
+
+.ink-prose .dataview-task-edit:hover {
+  color: var(--text-primary);
+}
+
+.ink-prose .dataview-task-edit:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
 .ink-prose .tasks-explain {
   margin-top: var(--sp-2);
   padding: var(--sp-1) var(--sp-2);

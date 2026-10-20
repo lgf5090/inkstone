@@ -10538,6 +10538,32 @@ const allowed = new Map([
   ["src/client/features/tags/useTagMenuItems.tsx", [
     "/**\n * One tag menu, four entrances: the sidebar row, an inline `#tag` in the preview, a hashtag in the\n * editor, and a pill in the properties panel. A name that is not in the facet list yet (a tag typed\n * into a note that has not been saved) still gets the read-only half, so nothing here can be clicked\n * against a row that no longer exists.\n */",
   ]],
+  ["src/client/features/tasks/EditTaskModal.test.ts", [
+    "/**\n * The task edit form.\n *\n * What is pinned is the two things a form like this gets wrong: a field the reader cannot reach or\n * return to once the dialog is up, and a Save that quietly drops what it could not read. The dialog\n * chrome itself is the shared `Modal`'s business; the claim here is that this form is built on it in\n * a way that keeps those guarantees.\n */",
+    "/** The model path the form's `validate` is expected to be wired to, pinned so the two cannot drift. */",
+  ]],
+  ["src/client/features/tasks/EditTaskModal.tsx", [
+    "/**\n * The task edit form.\n *\n * One field per thing a task line says, and nothing the reader did not ask for: the dependency and\n * identity fields are shown because a task that waits on another is confusing without saying so, but\n * they are read only — an id is minted when something starts depending on this task, not typed here.\n *\n * The form holds text, not dates. A half-typed `2026-13` is something a reader types on the way to a\n * real date, so the answer is to say which box is wrong and leave the words in place, rather than\n * blanking the field or refusing the whole form.\n */",
+    "/** The draft the form opens with, read off the line by whoever opened it. */",
+    "/** Every status this reader can move the task to, in their own order. */",
+    "/** What the model makes of the draft, so the form can name the field that failed. */",
+    "/** Writes the line. Resolves once the note has the new text; rejects if it refused. */",
+    "// The caller has already said what it could not do — a note that moved, a write that was",
+    "// refused. The form stays open with the reader's words in it, which is the whole point.",
+    "// The empty symbol is a real option — an unticked box — and two statuses can share a",
+    "// name while not sharing a character, so the character is the key.",
+  ]],
+  ["src/client/features/tasks/TaskEditorHost.tsx", [
+    "/**\n * The one place the task edit form is mounted.\n *\n * A row in a query block, a line in the editor and a task in the reading preview all ask for the same\n * dialog, and none of them should have to own reading the note. The host takes the line, fetches the\n * text it needs, and writes back through the same remote-content path a tick uses — which is what lets\n * it flush unsaved edits in that note instead of racing them.\n */",
+    "/**\n * The form for one request.\n *\n * Split from the host so the line is parsed and the draft built once per open rather than on every\n * keystroke — and so a note that turned out not to hold a task at that line is reported from an\n * effect, where leaving is allowed to happen, rather than in the middle of a render.\n */",
+    "// The line the row pointed at is no longer a task: say so, rather than opening an empty form.",
+    "// Rejecting keeps the form open with what the reader typed still in it.",
+  ]],
+  ["src/client/features/tasks/store.ts", [
+    "/**\n * The task the edit form was asked to open.\n *\n * `line` and `text` are the same two anchors a tick uses: the line says where to write and the words\n * say which line the reader was looking at, so a note that changed between opening the form and\n * saving it is refused rather than overwritten. Everything else — the current text, the parsed\n * fields — is read when the form opens, because a row can point into a note that is closed.\n */",
+    "/** Zero-based line the task sits on. */",
+    "/**\n   * The words the reader saw on that line, or null when the caller already holds the note's text —\n   * the editor, the reading preview and the context menu all do. The words are what refuses a note\n   * that moved since the row was drawn; where there is no row, only the live text, the question is\n   * already answered.\n   */",
+  ]],
   ["src/client/features/templates/gallery-actions.ts", [
     "/**\n * Deleting stays reversible for as long as the toast is on screen, which is the only\n * window an undo button printed on it can honestly promise.\n */",
     "/**\n * The two directions a note and the library can move in: this note becomes a\n * template, or a template becomes text at the caret of this note. Both need the note\n * that is open behind the panel, so both say so when there is none.\n */",
@@ -11578,6 +11604,8 @@ const allowed = new Map([
     "/** Draw a `tasks` answer: group headings, then one row per task. */",
     "/**\n * One task row, built to the shape the query module already owns.\n *\n * The `data-dataview-task` payload is the existing toggle contract, so a tick in a `tasks` block\n * writes back through the same handler as a tick in a DQL `TASK` result. Reusing it is what keeps\n * one write path rather than two that can disagree.\n */",
     "/**\n * The date and identity pills, in the order a reader scans a task.\n *\n * Short mode keeps the field and drops its value: a dense list still shows that something is due,\n * just not on which day.\n */",
+    "// The row says which line of which note it was drawn from; the form reads that line again when",
+    "// it opens, so a result that has gone stale is caught there rather than written over here.",
   ]],
   ["src/client/lib/dataview/value.ts", [
     "/**\n * The value model every Dataview expression speaks.\n *\n * A `Literal` is deliberately a closed union rather than `unknown`: the comparison order, the\n * truthiness rule and the rendering rule are all defined by *which* member of the union a value is,\n * and a query must give the same answer whether it ran in a table cell, a `WHERE` clause or a sort\n * key. Dates are plain `Date`s so they survive a structured clone into the DML worker; durations are\n * a class because `2 months` and `60 days` are not the same quantity.\n */",
@@ -17358,6 +17386,28 @@ const allowed = new Map([
   ["src/client/lib/tasks/dependency-contract.test.ts", [
     "/**\n * Upstream seeds `dtstart` with a moment that has been moved to local midnight and then re-tagged as\n * UTC, so the rule iterates over calendar days rather than instants. Reproduced with plain Dates.\n */",
   ]],
+  ["src/client/lib/tasks/edit/task-editor.test.ts", [
+    "// a Monday",
+    "// From Monday the 19th, `friday` is the 23rd: a reader adding a due date does not mean a past one.",
+  ]],
+  ["src/client/lib/tasks/edit/task-editor.ts", [
+    "/** The six dates a task carries, in the order the form shows them. */",
+    "/**\n * What the edit form holds: every field as text, because that is what a reader types into.\n *\n * The task itself is a record of `Date`s and a status object, which is the wrong shape for a form —\n * a half-typed date is not a `Date`, and a status is chosen from a registry the form should not have\n * to consult per keystroke. Keeping the two shapes apart is what lets validation say *which* field\n * is wrong instead of refusing the whole draft.\n */",
+    "/** The ids this task waits on, as the reader left them. */",
+    "/** Read-only in the form: an id is minted by the plugin, not typed. */",
+    "/** Why a recurrence rule cannot be used, so the form can say it in words rather than HTML. */",
+    "/** The draft a task opens with. `globalFilter` is stripped from the shown description, if it has one. */",
+    "/**\n * Read the draft back into the model, and report what could not be read.\n *\n * A date the reader typed but that names no day is an error on that field rather than a silent\n * blank: the alternative is a Save that deletes what they wrote. Dates only move forward while\n * `forwardOnly` is on, which is how `next friday` means next Friday and not the one just past.\n */",
+    "/** Read dates that are not in the past, which is what a reader typing `friday` expects. */",
+    "/** The vault's global filter, which the form showed stripped and the save puts back. */",
+    "// The rule is rebuilt from the dates as edited: the one the task arrived with was anchored to the",
+    "// dates before the reader changed them, and ticking on would schedule from a day they undid.",
+    "// A date the reader typed for `done` or `cancelled` is the day the status change should stamp,",
+    "// rather than today: editing a finished task must not silently move its finish date to now.",
+    "/**\n * Put the global filter back on the saved description.\n *\n * The form shows the description without it, because the filter is a convention rather than something\n * a reader means to type — so a save that took the stripped words literally would quietly unsubscribe\n * the task from every query that finds it. Anything the reader typed themselves already carries it.\n */",
+    "/** What `moveToStatus` should treat as \"today\" for this status change. */",
+    "/** The rule as the model would write it back, or why it cannot. */",
+  ]],
   ["src/client/lib/tasks/index.ts", [
     "/**\n * Public surface of the task layer.\n *\n * The query module reads tasks through here and nothing else: it needs the line parser and the\n * status registry, not the query engine, so the two modules stay separable and the dependency only\n * ever points in this direction.\n */",
   ]],
@@ -17560,6 +17610,11 @@ const allowed = new Map([
     "// until then a tick uses the four statuses everyone gets and the defaults the reference plugin ships.",
     "/**\n * Advance one checkbox in a note the reader may not be editing.\n *\n * The rewrite runs against the copy the server holds now, inside the store's queued write, so a\n * result drawn from an older read cannot overwrite a newer edit. Refusing a line whose text no\n * longer matches is what makes a stale result a no-op rather than an edit to somebody else's task.\n */",
     "/**\n * Advance the checkboxes on the given lines of a source the caller already holds.\n *\n * The editor and the reading preview both have the whole text in hand and know which lines their boxes\n * came from, so the staleness guard a query result needs is meaningless here — the lines they are\n * looking at are the lines they are about to write. Bottom-up, because a recurring task inserts a line\n * and `on completion: delete` removes one: working from the end means no edit can move a line that is\n * still to come. And a tick is a step along the reader's own cycle, so a `[/]` or `[-]` moves here just\n * as it does in the preview.\n */",
+    "/** What the edit form sent: the draft, and which status character the reader chose. */",
+    "/**\n * Replace one task line with what the edit form produced.\n *\n * The same two-anchor contract as a tick: the line is found by index and confirmed by its words, so a\n * note that moved since the form opened is refused rather than overwritten. A recurring task can come\n * back as two lines, so the replacement is a list.\n */",
+    "/**\n * Edit a task in a note the reader may not be editing.\n *\n * The same remote-write path a tick uses, so a form that was opened from a query result cannot\n * overwrite a newer copy of the note: the words the row showed are confirmed against the line the\n * server holds now.\n */",
+    "/** Why an edit did not land, so the form can say which field to look at. */",
+    "/** The draft as the model reads it, for a form that must say which field failed before saving. */",
   ]],
   ["src/client/lib/tasks/status/registry.ts", [
     "/**\n * The statuses a vault recognises, and how one leads to the next.\n *\n * A checkbox character has no meaning on its own: `[-]` is \"cancelled\" only because something says\n * so. This registry is that something, and it is built from the reader's settings on every read so\n * no two callers can disagree about what a note says.\n */",
@@ -17610,6 +17665,7 @@ const allowed = new Map([
     "/**\n * Carry the clicked line's new state down to the lines that belong to it.\n *\n * A descendant is moved only when it does not already show that state, so ticking a parent twice\n * cannot walk its children down the status cycle twice over — which matters the moment one command\n * ticks a whole selection, where a child would otherwise be advanced by itself and again by its parent.\n */",
     "/**\n * The words a reader clicked, with every field format taken back off.\n *\n * The caller's serializer decides what this line is read as, and the text being compared against was\n * read by whatever parser built the row — so the two sides can be in different formats even before a\n * reader mixes them inside one line. Stripping both leaves the prose the reader actually clicked, and a\n * stale line still fails the guard because its words moved.\n */",
     "// Two formats, in either order on the line: each pass strips what it recognises until the text settles.",
+    "/**\n * Move a task to a named status, and produce what that implies.\n *\n * A recurring task does not simply become done and leave its own series: the instance is finished\n * and a fresh one is born from the rule. The newborn's status is not the one being moved to — in a\n * vault whose `[x]` points back at `[x]` that would birth it already finished, invisible to every\n * `not done` search — so the registry is asked for the first open status down that chain.\n */",
   ]],
   ["src/client/lib/template-notes.ts", [
     "/**\n * Create a note from a gallery template and open it, returning the new id.\n *\n * The template's `{{cursor}}` is handed to the editor through `createNote`, so\n * the marker is stripped from the body and the caret lands where the author\n * pointed it rather than at the end of the front matter. Placement follows the\n * same rules as the `+` button — the open folder, else the inbox — because a\n * template note is still just a new note.\n */",
