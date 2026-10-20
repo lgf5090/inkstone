@@ -13,9 +13,11 @@
  */
 
 import { Hono, type Context } from 'hono'
+import { sharePasscodeProblem } from '@shared/share-passcode'
 import type { AppBindings } from '../env'
 import { ApiError } from '../lib/errors'
-import { isValidId } from '../lib/id'
+import { isValidId, isValidSlug, newSlug } from '../lib/id'
+import { hashPassword } from '../lib/password'
 import { storedObject } from '../lib/json'
 import { createMinuteBudget } from '../lib/rate-limit'
 import { JSON_BODY_LIMITS, readJson } from '../lib/request'
@@ -48,11 +50,14 @@ import {
 } from '@shared/todos/model'
 import type { TaskPriority, TaskStatus } from '@shared/assistant'
 import { AssistantStore, type TaskQuery } from '../assistant/store'
+import { insertFeed, listFeeds, revokeFeed, type OwnFeedRow } from '../todos/feeds'
 import { addDays, isStatsDay, loadTodoStats } from '../todos/stats'
 
 const BODY_LIMIT = JSON_BODY_LIMITS.settings
 const TITLE_MAX = 300
 const DESCRIPTION_MAX = 10_000
+/** The longest a published calendar address may live; the same ceiling a note share carries. */
+const FEED_MAX_AGE_MS = 365 * 24 * 60 * 60 * 1000
 
 /**
  * How many writes one account may land in a minute, shared by every mutating route in this file.
@@ -424,6 +429,98 @@ todoRoutes.get('/stats', async (c) => {
     now: Date.now(),
   })
   return c.json(stats)
+})
+
+// ------------------------------------------------------------------- feed
+
+/**
+ * The owner's half of the calendar subscription: mint, list and revoke.
+ *
+ * E02's public reader (`routes/todo-feeds.ts`) already serves a slug; these are the three calls that
+ * produce and retire one. They sit on this router rather than beside the reader because they are the
+ * account's own writes and must inherit its session, its write budget and its account scoping — the
+ * reader deliberately has none of those. Static `/feed` is registered above `/:id`, or "feed" would be
+ * read as a task id.
+ *
+ * The address a calendar subscribes to is `<origin>/feeds/<slug>.ics`, and a protected feed's passcode
+ * is never part of it: the key travels as `?key=`, which the reader verifies, so an address copied out
+ * of a screen or a log is a capability plus a marker, not the capability plus its secret.
+ */
+
+/** The shape the settings screen lists and the create answer returns — never a passcode hash. */
+function feedInfo(row: OwnFeedRow, origin: string) {
+  return {
+    slug: row.slug,
+    url: `${origin}/feeds/${row.slug}.ics`,
+    hasPassword: row.has_password !== 0,
+    expiresAt: row.expires_at,
+    createdAt: row.created_at,
+  }
+}
+
+/**
+ * The expiry a request asked for, measured from now; `null`, `0` or an absent value mean "no expiry".
+ *
+ * Same arithmetic and the same 365-day ceiling as a note share: an address that can be revoked is
+ * allowed to live long, but not forever by accident. A negative, non-finite or non-numeric value is a
+ * 400 rather than a silently dropped condition — the caller would otherwise believe they set one.
+ */
+function feedExpiry(value: unknown): number | null {
+  if (value === undefined || value === null) return null
+  if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) {
+    throw ApiError.badRequest('expiresIn must be a non-negative number or null')
+  }
+  return value > 0 ? Date.now() + Math.min(value, FEED_MAX_AGE_MS) : null
+}
+
+todoRoutes.get('/feed', async (c) => {
+  const rows = await listFeeds(c.env.DB, c.get('userId'))
+  const origin = new URL(c.req.url).origin
+  return c.json({ feeds: rows.map((row) => feedInfo(row, origin)) })
+})
+
+/**
+ * Mints one feed under a new slug.
+ *
+ * The passcode is validated with the shares' own rule and stored through `hashPassword`, so there is
+ * one passcode scheme across the product and this route never sees the hash again. The plaintext is
+ * not echoed anywhere: the answer carries `hasPassword`, and the address stays key-free.
+ */
+todoRoutes.post('/feed', async (c) => {
+  const body = await readJson<{ password?: unknown, expiresIn?: unknown }>(c, BODY_LIMIT)
+  if (body.password !== undefined && body.password !== null && typeof body.password !== 'string') {
+    throw ApiError.badRequest('password must be a string or null')
+  }
+  const passcodeProblem = sharePasscodeProblem(body.password)
+  if (passcodeProblem) throw ApiError.badRequest(passcodeProblem)
+  const expiresAt = feedExpiry(body.expiresIn)
+  const passwordHash = typeof body.password === 'string' && body.password
+    ? await hashPassword(body.password)
+    : null
+  const now = Date.now()
+  const slug = newSlug()
+  await insertFeed(c.env.DB, { slug, userId: c.get('userId'), passwordHash, expiresAt, now })
+  const feed = feedInfo(
+    { slug, has_password: passwordHash ? 1 : 0, expires_at: expiresAt, created_at: now },
+    new URL(c.req.url).origin,
+  )
+  return c.json({ feed }, 201)
+})
+
+/**
+ * Retires one feed by stamping `revoked_at`.
+ *
+ * The slug is validated before the update, and the account is part of the predicate: a value that
+ * belongs to somebody else is the same 404 as one that never existed. An already revoked feed answers
+ * 404 too — "it is not live" is the whole truth, and a 200 would suggest the address still works.
+ */
+todoRoutes.delete('/feed/:slug', async (c) => {
+  const slug = c.req.param('slug')
+  if (!isValidSlug(slug)) throw ApiError.notFound('The subscription does not exist')
+  if (!(await revokeFeed(c.env.DB, c.get('userId'), slug, Date.now()))) {
+    throw ApiError.notFound('The subscription does not exist')
+  }
+  return c.json({ ok: true })
 })
 
 /**

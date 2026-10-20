@@ -9,6 +9,7 @@ import { isValidSlug, newSlug } from '../src/worker/lib/id'
 import { hashPassword } from '../src/worker/lib/password'
 import type { AppBindings } from '../src/worker/env'
 import { todoFeedRoutes } from '../src/worker/routes/todo-feeds'
+import { todoRoutes } from '../src/worker/routes/todos'
 import { buildIcsCalendar, rruleFor, type IcsCalendarOptions, type IcsTask } from '../src/worker/todos/ics'
 import { makeD1 } from './doubles/d1-sqlite'
 import { testBindings } from './doubles/bindings'
@@ -330,6 +331,32 @@ describe('GET /feeds/:slug.ics', () => {
     expect(generated.every((candidate) => /^[0-9a-hjkmnp-tv-z]{20}$/.test(candidate))).toBe(true)
     expect(generated.every((candidate) => isValidSlug(candidate))).toBe(true)
     expect(Math.log2(32 ** 20)).toBe(100)
+  })
+})
+
+describe('the owner’s feed endpoints', () => {
+  it('answer 401 without a session and write nothing', async () => {
+    const manage = new Hono<AppBindings>()
+    manage.onError((err, c) => errorResponse(c, err))
+    manage.route('/api/todos', todoRoutes)
+
+    const calls: Array<{ method: string; path: string; body?: string }> = [
+      { method: 'GET', path: '/api/todos/feed' },
+      { method: 'POST', path: '/api/todos/feed', body: '{}' },
+      { method: 'DELETE', path: '/api/todos/feed/abcdefghjkmnpqrstvwz' },
+    ]
+    for (const call of calls) {
+      const response = await manage.request(
+        `http://localhost${call.path}`,
+        {
+          method: call.method,
+          ...(call.body === undefined ? {} : { headers: { 'Content-Type': 'application/json' }, body: call.body }),
+        },
+        env,
+      )
+      expect(response.status).toBe(401)
+    }
+    expect((sqlite.prepare('SELECT COUNT(*) AS n FROM todos_feeds').get() as { n: number }).n).toBe(0)
   })
 })
 

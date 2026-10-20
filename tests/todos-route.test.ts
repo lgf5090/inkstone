@@ -6,6 +6,8 @@ import { SCHEMA_STATEMENTS } from '../src/worker/db/schema'
 import { errorResponse } from '../src/worker/lib/errors'
 import type { AppBindings, Env } from '../src/worker/env'
 import { todoRoutes, WRITE_BUDGET_PER_MINUTE } from '../src/worker/routes/todos'
+import { todoFeedRoutes } from '../src/worker/routes/todo-feeds'
+import { LIMITS } from '../src/shared/constants'
 import { AssistantStore } from '../src/worker/assistant/store'
 import {
   MAX_BATCH_TASKS,
@@ -51,6 +53,7 @@ function app(): Hono<AppBindings> {
   const instance = new Hono<AppBindings>()
   instance.onError((err, c) => errorResponse(c, err))
   instance.route('/api/todos', todoRoutes)
+  instance.route('/feeds', todoFeedRoutes)
   return instance
 }
 
@@ -61,6 +64,19 @@ async function send(method: string, path: string, body?: unknown): Promise<Respo
     init.body = JSON.stringify(body)
   }
   return app().request(`/api/todos${path}`, init, env)
+}
+
+/** The public half: what a calendar polls after the owner copied the address. */
+async function fetchFeed(path: string): Promise<Response> {
+  return app().request(`http://localhost/feeds${path}`, { method: 'GET' }, env)
+}
+
+interface FeedAnswer {
+  slug: string
+  url: string
+  hasPassword: boolean
+  expiresAt: number | null
+  createdAt: number
 }
 
 async function json<T>(response: Response): Promise<T> {
@@ -438,6 +454,103 @@ describe('snooze', () => {
     const task = await create({ title: 'Mine' })
     mocks.userId = OTHER
     expect((await send('POST', `/${task.id}/snooze`, { minutes: 10 })).status).toBe(404)
+  })
+})
+
+describe('calendar subscriptions', () => {
+  const DAY = 24 * 60 * 60 * 1000
+  // Each case spends a caller of its own: the write budget is module-wide and keyed by whoever is
+  // signed in, and these cases must not eat into what the task cases above already spent.
+  let caller = 0
+
+  beforeEach(() => {
+    caller += 1
+    mocks.userId = `feedroute${String(caller).padStart(14, '0')}`
+  })
+
+  async function createFeed(body: Record<string, unknown> = {}): Promise<FeedAnswer> {
+    const response = await send('POST', '/feed', body)
+    expect(response.status).toBe(201)
+    return (await json<{ feed: FeedAnswer }>(response)).feed
+  }
+
+  it('mints, lists, serves and soft-revokes one feed without reusing its slug', async () => {
+    const before = Date.now()
+    const feed = await createFeed({ expiresIn: 7 * DAY })
+
+    expect(feed.slug).toMatch(/^[0-9a-hjkmnp-tv-z]{20}$/)
+    expect(feed.url).toBe(`http://localhost/feeds/${feed.slug}.ics`)
+    expect(feed.hasPassword).toBe(false)
+    expect(feed.expiresAt).toBeGreaterThanOrEqual(before + 7 * DAY - 1_000)
+    expect(feed.expiresAt).toBeLessThanOrEqual(Date.now() + 7 * DAY)
+    expect(feed.createdAt).toBeGreaterThanOrEqual(before)
+
+    const listed = await json<{ feeds: FeedAnswer[] }>(await send('GET', '/feed'))
+    expect(listed.feeds).toEqual([feed])
+    expect((await fetchFeed(`/${feed.slug}.ics`)).status).toBe(200)
+
+    expect(await json<{ ok: true }>(await send('DELETE', `/feed/${feed.slug}`))).toEqual({ ok: true })
+    // Revocation is a stamp, not a deletion: the row survives so the address can never be minted again.
+    const row = sqlite.prepare('SELECT revoked_at FROM todos_feeds WHERE slug = ?').get(feed.slug) as {
+      revoked_at: number | null
+    }
+    expect(row.revoked_at).toBeGreaterThan(0)
+
+    expect((await json<{ feeds: FeedAnswer[] }>(await send('GET', '/feed'))).feeds).toEqual([])
+    expect((await fetchFeed(`/${feed.slug}.ics`)).status).toBe(404)
+    // Deleting a dead address again is a 404 rather than a success the caller could read as "still live".
+    expect((await send('DELETE', `/feed/${feed.slug}`)).status).toBe(404)
+  })
+
+  it('stores a passcode hash, returns only the marker, and never puts the passcode in the URL', async () => {
+    const password = 'correct horse battery'
+    const feed = await createFeed({ password })
+
+    expect(feed.hasPassword).toBe(true)
+    expect(feed.url).not.toContain(password)
+    expect(feed.url).not.toContain('key=')
+    const created = JSON.stringify(feed)
+    expect(created).not.toContain(password)
+    expect(created).not.toContain('scrypt')
+
+    const stored = sqlite.prepare('SELECT password_hash FROM todos_feeds WHERE slug = ?').get(feed.slug) as {
+      password_hash: string
+    }
+    expect(stored.password_hash).toMatch(/^scrypt\$/)
+    expect(stored.password_hash).not.toContain(password)
+
+    const listText = await (await send('GET', '/feed')).text()
+    expect(listText).not.toContain(password)
+    expect(listText).not.toContain('scrypt')
+
+    expect((await fetchFeed(`/${feed.slug}.ics`)).status).toBe(401)
+    expect((await fetchFeed(`/${feed.slug}.ics?key=${encodeURIComponent(password)}`)).status).toBe(200)
+  })
+
+  it('keeps one account’s feeds out of another account’s list and revoke', async () => {
+    const owner = mocks.userId
+    const feed = await createFeed()
+    const intruder = `${owner}other`
+
+    mocks.userId = intruder
+    expect((await json<{ feeds: FeedAnswer[] }>(await send('GET', '/feed'))).feeds).toEqual([])
+    expect((await send('DELETE', `/feed/${feed.slug}`)).status).toBe(404)
+
+    mocks.userId = owner
+    expect((await json<{ feeds: FeedAnswer[] }>(await send('GET', '/feed'))).feeds.map((entry) => entry.slug)).toEqual([feed.slug])
+    expect((await fetchFeed(`/${feed.slug}.ics`)).status).toBe(200)
+  })
+
+  it('refuses an expiry or a passcode it cannot honour, and writes nothing', async () => {
+    for (const expiresIn of [-1, 'week', true]) {
+      expect((await send('POST', '/feed', { expiresIn })).status).toBe(400)
+    }
+    for (const password of ['short', 'x'.repeat(LIMITS.passwordMaxLength + 1), 42]) {
+      expect((await send('POST', '/feed', { password })).status).toBe(400)
+    }
+    expect((await send('DELETE', '/feed/short')).status).toBe(404)
+    const count = sqlite.prepare('SELECT COUNT(*) AS n FROM todos_feeds').get() as { n: number }
+    expect(count.n).toBe(0)
   })
 })
 
