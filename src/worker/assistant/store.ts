@@ -3789,7 +3789,19 @@ export class AssistantStore {
     if (query.dueTo !== undefined) q.raw(`due_at IS NOT NULL AND due_at < ${q.add(query.dueTo)}`)
     if (query.query) {
       const pattern = q.add(containsPattern(query.query))
-      q.or([`title LIKE ${pattern} ESCAPE '\\'`, `description LIKE ${pattern} ESCAPE '\\'`])
+      // A tag's name is part of what a reader sees on the row, so it is part of what a search for
+      // those words should find. The subquery is correlated and tenant-filtered: one statement for
+      // the whole page, not one per tag, and no link from another account can answer it.
+      const byTag = `EXISTS (
+        SELECT 1 FROM todos_tag_links l
+          JOIN todos_tags tag ON tag.user_id = l.user_id AND tag.id = l.tag_id
+         WHERE l.user_id = ?1 AND l.task_id = todos_tasks.id AND tag.name LIKE ${pattern} ESCAPE '\\'
+      )`
+      q.or([
+        `title LIKE ${pattern} ESCAPE '\\'`,
+        `description LIKE ${pattern} ESCAPE '\\'`,
+        byTag,
+      ])
     }
     return q
   }

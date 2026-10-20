@@ -35,6 +35,8 @@ const BULK_TASKS = MAX_TASKS_PER_QUERY + 100
 const BASE = Date.parse('2026-06-01T00:00:00Z')
 /** A term no title carries except the three tasks this fixture files at the end of the due order. */
 const NEEDLE = 'zebrafish'
+/** The word only a tag carries: nothing in the fixture's titles or descriptions says it. */
+const TAG_WORD = 'Focus'
 
 const mocks = vi.hoisted(() => ({ userId: '' }))
 
@@ -62,6 +64,43 @@ interface Listing {
   timezone: string
 }
 
+/**
+ * Every statement prepared while recording is on.
+ *
+ * A tag-word search is still one query with an `EXISTS` in it; if it were answered by looking the
+ * tags up one at a time, the statement count would grow with the page. The fixture is seeded before
+ * any test switches recording on, so only the request under measurement is counted.
+ */
+const statements: string[] = []
+let recording = false
+
+function countedD1(inner: D1Database): D1Database {
+  return new Proxy(inner, {
+    get(target, property, receiver) {
+      if (property === 'prepare') {
+        return (sql: string) => {
+          if (recording) statements.push(sql)
+          return target.prepare(sql)
+        }
+      }
+      const value = Reflect.get(target, property, receiver)
+      return typeof value === 'function' ? value.bind(target) : value
+    },
+  })
+}
+
+/** How many statements one request prepares. */
+async function statementsFor(query: string): Promise<number> {
+  statements.length = 0
+  recording = true
+  try {
+    await page<Listing>(query)
+  } finally {
+    recording = false
+  }
+  return statements.length
+}
+
 async function page<T>(query: string): Promise<T> {
   const response = await app().request(`/api/todos${query}`, {}, env)
   expect(response.status).toBe(200)
@@ -80,12 +119,12 @@ beforeAll(async () => {
   const sqlite = new DatabaseSync(':memory:')
   sqlite.exec('PRAGMA journal_mode = OFF')
   sqlite.exec(SCHEMA_STATEMENTS.join(';'))
-  env = testBindings(makeD1(sqlite), { PUBLIC_URL: 'http://localhost' })
+  env = testBindings(countedD1(makeD1(sqlite)), { PUBLIC_URL: 'http://localhost' })
   // Pinned so a bare local date in a query means the same instant as the fixture's due times.
   const store = new AssistantStore(env.DB as D1Database, USER, env)
   await store.saveSettings({ ...(await store.getSettings()), timezone: 'UTC' })
   workList = await store.createTaskList({ name: 'Work' })
-  focusTag = await store.createTaskTag({ name: 'Focus' })
+  focusTag = await store.createTaskTag({ name: TAG_WORD })
   // Every bulk row carries its own due time, so "the first 500" is a fixed set of rows rather than a race
   // between tasks written inside the same millisecond.
   for (let index = 0; index < BULK_TASKS; index += 1) {
@@ -96,7 +135,7 @@ beforeAll(async () => {
       title: `Feed the ${NEEDLE}`,
       dueAt: BASE + (BULK_TASKS + index) * MINUTE,
       priority: index === 0 ? 'urgent' : index === 1 ? 'high' : 'low',
-      tags: ['Focus'],
+      tags: [TAG_WORD],
     })
     needles.push(task.id)
   }
@@ -178,6 +217,52 @@ describe('what total is measured over', () => {
     expect(unfiled.total).toBe(2)
     expect(unfiled.total).toBe(counts.byList.inbox!.open)
     expect(unfiled.tasks.map((task) => task.id).sort()).toEqual([needles[0], needles[1]].sort())
+  })
+})
+
+describe('a search that names a tag', () => {
+  it('finds a task by the name of its tag, not only by its own words', async () => {
+    // Nothing the fixture filed carries this word in its title or description; three rows carry it as
+    // a tag, and the search the app sends has to reach them the way the old in-browser filter did.
+    const found = await page<Listing>(`?q=${TAG_WORD}&sort=due`)
+    expect(found.tasks.map((task) => task.id)).toEqual(needles)
+    expect(found.total).toBe(found.tasks.length)
+
+    // The tag filter and the status filter narrow the same rows: the count follows the page.
+    const open = await page<Listing>(`?q=${TAG_WORD}&status=open&sort=due`)
+    expect(open.tasks.map((task) => task.id)).toEqual([needles[0], needles[1]])
+    expect(open.total).toBe(open.tasks.length)
+    expect(open.total).toBe(2)
+
+    const done = await page<Listing>(`?q=${TAG_WORD}&status=done`)
+    expect(done.tasks.map((task) => task.id)).toEqual([needleDone])
+    expect(done.total).toBe(done.tasks.length)
+  })
+
+  it('does not match a tag another account gave the same name', async () => {
+    // The same word is a tag in both accounts. A search that joins tags without asking whose they
+    // are would hand one reader the other's rows.
+    const foreignStore = new AssistantStore(env.DB as D1Database, FOREIGN, env)
+    await foreignStore.createTaskTag({ name: TAG_WORD })
+    const foreignTask = await foreignStore.createTask({ title: 'Foreign filing', tags: [TAG_WORD] })
+
+    const mine = await page<Listing>(`?q=${TAG_WORD}`)
+    expect(mine.tasks.map((task) => task.id)).toEqual(needles)
+    expect(mine.total).toBe(needles.length)
+
+    mocks.userId = FOREIGN
+    const theirs = await page<Listing>(`?q=${TAG_WORD}`)
+    expect(theirs.tasks.map((task) => task.id)).toEqual([foreignTask.id])
+    expect(theirs.total).toBe(1)
+  })
+
+  it('answers a tag-word search in the same number of statements as any other page', async () => {
+    // The settings row, the page, its steps, its tags, the count and the three sidebar numbers. A
+    // tag name looked up per row would make this number follow the page or the tags on it.
+    const found = await statementsFor(`?q=${TAG_WORD}`)
+    expect(found).toBe(8)
+    expect(await statementsFor(`?q=${TAG_WORD}&limit=1`)).toBe(found)
+    expect(await statementsFor('?limit=100')).toBe(found)
   })
 })
 
