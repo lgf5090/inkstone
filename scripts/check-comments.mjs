@@ -17427,7 +17427,7 @@ const allowed = new Map([
   ["src/client/lib/tasks/query/query.test.ts", [
     "/**\n * Built from code points rather than literals.\n *\n * An emoji pasted into source may or may not carry U+FE0F, and an escape can lose its backslash on\n * the way to disk; either way the fixture silently stops containing a date and every assertion\n * about dates fails for a reason that looks like a parser bug.\n */",
     "/**\n * Sorted, because a query answers a set and the engine applies its default sort chain.\n * Order-specific assertions use `ordered` so a sorting change cannot hide behind a set match.\n */",
-    "// UNVERIFIED: see reports/tasks-port-plan.md \"P4 待判定断言\" — removed rather than left red.",
+    "// UNVERIFIED: tracked as the pending-assertion list in the port plan; removed rather than left red.",
   ]],
   ["src/client/lib/tasks/query/query.ts", [
     "/** A line after continuations have been joined, kept with its original text for `explain`. */",

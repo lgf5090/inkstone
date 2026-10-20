@@ -68,7 +68,7 @@ const SAMPLE: Task[] = [
 ]
 
 describe('statement scanner', () => {
-  // UNVERIFIED: see reports/tasks-port-plan.md "P4 待判定断言" — removed rather than left red.
+  // UNVERIFIED: tracked as the pending-assertion list in the port plan; removed rather than left red.
 
   it('drops blank lines', () => {
     expect(scanStatements('\n not done \n\n done \n')).toHaveLength(2)
@@ -76,7 +76,7 @@ describe('statement scanner', () => {
 })
 
 describe('filters', () => {
-  // UNVERIFIED: see reports/tasks-port-plan.md "P4 待判定断言" — removed rather than left red.
+  // UNVERIFIED: tracked as the pending-assertion list in the port plan; removed rather than left red.
 
   it('asks about presence rather than value', () => {
     expect(ask('has due date', SAMPLE)).toHaveLength(6)
@@ -88,7 +88,7 @@ describe('filters', () => {
     expect(ask('starts before 2026-01-01', SAMPLE)).toHaveLength(SAMPLE.length)
   })
 
-  // UNVERIFIED: see reports/tasks-port-plan.md "P4 待判定断言" — removed rather than left red.
+  // UNVERIFIED: tracked as the pending-assertion list in the port plan; removed rather than left red.
 
   it('separates done, not done and the status types', () => {
     expect(names(ask('done', SAMPLE))).toEqual(['done ship it'])
@@ -98,7 +98,7 @@ describe('filters', () => {
     expect(names(ask('status.name includes Cancelled', SAMPLE))).toEqual(['dropped old'])
   })
 
-  // UNVERIFIED: see reports/tasks-port-plan.md "P4 待判定断言" — removed rather than left red.
+  // UNVERIFIED: tracked as the pending-assertion list in the port plan; removed rather than left red.
 
   it('finds recurring tasks and text in the four ways', () => {
     expect(names(ask('is recurring', SAMPLE))).toEqual(['recurring water'])
@@ -140,9 +140,9 @@ describe('filters', () => {
 })
 
 describe('boolean combinations', () => {
-  // UNVERIFIED: see reports/tasks-port-plan.md "P4 待判定断言" — removed rather than left red.
+  // UNVERIFIED: tracked as the pending-assertion list in the port plan; removed rather than left red.
 
-  // UNVERIFIED: see reports/tasks-port-plan.md "P4 待判定断言" — removed rather than left red.
+  // UNVERIFIED: tracked as the pending-assertion list in the port plan; removed rather than left red.
 
   it('reports an unbalanced expression', () => {
     expect(errors('(not done AND (done)')).toHaveLength(1)
@@ -150,11 +150,11 @@ describe('boolean combinations', () => {
 })
 
 describe('sorting, grouping and limits', () => {
-  // UNVERIFIED: see reports/tasks-port-plan.md "P4 待判定断言" — removed rather than left red.
+  // UNVERIFIED: tracked as the pending-assertion list in the port plan; removed rather than left red.
 
-  // UNVERIFIED: see reports/tasks-port-plan.md "P4 待判定断言" — removed rather than left red.
+  // UNVERIFIED: tracked as the pending-assertion list in the port plan; removed rather than left red.
 
-  // UNVERIFIED: see reports/tasks-port-plan.md "P4 待判定断言" — removed rather than left red.
+  // UNVERIFIED: tracked as the pending-assertion list in the port plan; removed rather than left red.
 
   it('groups and hides the sort hint from the heading', () => {
     const result = runTasksQuery(SAMPLE, parseTasksQuery('group by status.type\nnot done', NOW), NOW)
