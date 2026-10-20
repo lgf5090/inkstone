@@ -705,7 +705,7 @@ async function toggleTaskRow(box: HTMLInputElement): Promise<void> {
     // open, so the box is set from what the registry says comes next rather than from the click.
     const registry = toggleSettings().registry
     const symbol = typeof payload.status === 'string' ? payload.status : ' '
-    box.checked = registry.getNextStatusOrCreate(registry.bySymbolOrCreate(symbol)).isDone
+    box.checked = registry.getNextStatusOrCreate(registry.bySymbolOrCreate(symbol)).isTicked
 }
 
 async function notice(key: Parameters<typeof t>[0]): Promise<void> {

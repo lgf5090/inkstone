@@ -16580,6 +16580,9 @@ const allowed = new Map([
   ["src/client/lib/markdown/render-parity.test.ts", [
     "/**\n * The two entry points differ in one legitimate way: each render mints a document id, and the blocks\n * that wire a label to a control embed it in `id`/`href`/`aria-*`. Everything around that id has to be\n * the same markup, because the live editor shows a note the reading pane also shows.\n */",
   ]],
+  ["src/client/lib/markdown/renderer-blocks.test.ts", [
+    "// A mark is a ticked box; only a finished one is struck through, or `[/]` would look done.",
+  ]],
   ["src/client/lib/markdown/renderer-chart.test.ts", [
     "/** markdown-it hands a fence body with its closing newline attached, so the attribute carries it too. */",
   ]],
@@ -16671,6 +16674,11 @@ const allowed = new Map([
     "// The scene travels in the render's fence set, not in an attribute: a busy drawing is hundreds of",
     "// kilobytes of JSON, and an attribute would re-encode it, re-parse it and walk it through the",
     "// sanitizer on every keystroke of the note beside it.",
+    "// `checked` is what the box shows; `struck` is the finished styling. They are the same thing for",
+    "// the two characters markdown-it knows, and different for the rest of a reader's cycle.",
+    "// markdown-it's own rule only recognises `[ ]`, `[x]` and `[X]`, so every other status",
+    "// character — `[/]`, `[-]`, `[>]` — arrived as plain text and lost its box: a task the",
+    "// reading preview lets you tick had nothing to tick in the editor.",
   ]],
   ["src/client/lib/markdown/table-editor.ts", [
     "/**\n * The pipe table as an editable object: where the block the cursor sits in begins, which row and\n * column that cursor is on, and the row/column/alignment edits a menu asks for.\n *\n * Geometry stays on the table the caller passed in. Every edit below returns a table whose\n * `startLine`/`endLine` still describe the block *in the note*, because the caller replaces exactly\n * those lines with `formatMarkdownTable`'s output — an edit that moved its own bounds would make the\n * next edit in the same menu cut a different block out of the note.\n */",
@@ -17567,6 +17575,7 @@ const allowed = new Map([
     "/** How this status reads in a checkbox the reader is looking at. */",
     "/** The type a symbol carries when the reader never registered it, so old notes still read. */",
     "/**\n   * Whether a query counts this status as finished.\n   *\n   * Cancelled and non-task are included, not just `DONE`: the reference plugin's `done` / `not done`\n   * answer with this same set, so `not done` is the list of things still to act on rather than the\n   * complement of a ticked box. A reader who wants cancelled tasks back in a list asks for that by\n   * name (`status.type is not CANCELLED`), which is also what the `cancelled` date is for.\n   */",
+    "/**\n   * Whether the box carries a mark, which is the question a checkbox answers rather than the one a\n   * query does: `[/]` and `[-]` are both visibly ticked, and only an empty box is not.\n   */",
   ]],
   ["src/client/lib/tasks/toggle.test.ts", [
     "/** The serializer a reader picks for their ticks decides what the line is read as, not what is kept. */",

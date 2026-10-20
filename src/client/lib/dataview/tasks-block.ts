@@ -134,7 +134,7 @@ function groupHeadings(path: string[]): HTMLElement[] {
 function renderTaskRow(task: Task, parsed: ParsedQuery): HTMLElement {
     const row = document.createElement('div')
     row.className = 'dataview-task'
-    const completed = task.status.isDone
+    const completed = task.status.isTicked
 
     const box = document.createElement('input')
     box.type = 'checkbox'

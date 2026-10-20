@@ -738,22 +738,50 @@ md.core.ruler.after('github-task-lists', 'trusted_task_placeholders', (state) =>
             continue;
         }
         const checkboxIndex = inline.children.findIndex((child) => child.type === 'html_inline' && /task-list-item-checkbox/.test(child.content));
-        if (checkboxIndex < 0)
-            continue;
-        const checkbox = inline.children[checkboxIndex]!;
-        const checked = /\schecked(?:=|\s|>)/.test(checkbox.content);
         const sourceLine = item.map?.[0];
         if (sourceLine == null)
             continue;
-        checkbox.content = `<span class="task-checkbox-placeholder" data-task-placeholder="${env.taskNonce}" data-task-line="${sourceLine}" data-task-checked="${checked ? '1' : '0'}"></span>`;
+        // `checked` is what the box shows; `struck` is the finished styling. They are the same thing for
+        // the two characters markdown-it knows, and different for the rest of a reader's cycle.
+        let checked: boolean;
+        let struck: boolean;
+        if (checkboxIndex >= 0) {
+            checked = /\schecked(?:=|\s|>)/.test(inline.children[checkboxIndex]!.content);
+            struck = checked;
+        }
+        else {
+            // markdown-it's own rule only recognises `[ ]`, `[x]` and `[X]`, so every other status
+            // character — `[/]`, `[-]`, `[>]` — arrived as plain text and lost its box: a task the
+            // reading preview lets you tick had nothing to tick in the editor.
+            const first = inline.children[0]!;
+            const marker = first.type === 'text' ? /^\[(.)\] ?/u.exec(first.content) : null;
+            if (marker === null)
+                continue;
+            checked = marker[1] !== ' ';
+            struck = marker[1] === 'x' || marker[1] === 'X';
+            first.content = first.content.slice(marker[0].length);
+            if (!first.content)
+                inline.children.shift();
+        }
+        const placeholder = `<span class="task-checkbox-placeholder" data-task-placeholder="${env.taskNonce}" data-task-line="${sourceLine}" data-task-checked="${checked ? '1' : '0'}"></span>`;
+        let boxAt = checkboxIndex;
+        if (checkboxIndex >= 0) {
+            inline.children[checkboxIndex]!.content = placeholder;
+        }
+        else {
+            const box = new state.Token('html_inline', '', 0);
+            box.content = placeholder;
+            inline.children.unshift(box);
+            boxAt = 0;
+        }
         const labelOpen = new state.Token('html_inline', '', 0);
         labelOpen.content = '<span class="task-label">';
         const labelClose = new state.Token('html_inline', '', 0);
         labelClose.content = '</span>';
-        inline.children.splice(checkboxIndex + 1, 0, labelOpen);
+        inline.children.splice(boxAt + 1, 0, labelOpen);
         inline.children.push(labelClose);
         setTokenAttribute(item, 'data-task-line', String(sourceLine));
-        if (checked)
+        if (struck)
             appendTokenClass(item, 'done');
     }
     return true;

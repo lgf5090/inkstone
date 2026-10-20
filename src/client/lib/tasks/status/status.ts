@@ -70,6 +70,14 @@ export class Status {
   }
 
   /**
+   * Whether the box carries a mark, which is the question a checkbox answers rather than the one a
+   * query does: `[/]` and `[-]` are both visibly ticked, and only an empty box is not.
+   */
+  get isTicked(): boolean {
+    return this.symbol !== ' '
+  }
+
+  /**
    * A group heading that sorts in a meaningful order.
    *
    * The `%%n%%` prefix orders the groups and is stripped again by the renderer; without it,
