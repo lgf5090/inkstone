@@ -10,6 +10,7 @@
 import { act, createElement } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { initI18n, t } from '../../lib/i18n'
+import { localDate } from '@shared/assistant-time'
 import { renderElement, stubBreakpoint, type RenderedElement } from '../../lib/test-render'
 import type { TodoTask } from '@shared/todos/model'
 
@@ -115,6 +116,31 @@ function choose(select: HTMLSelectElement, value: string): void {
   })
 }
 
+function typeInto(input: HTMLInputElement, value: string): void {
+  const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set
+  act(() => {
+    input.focus()
+    setter?.call(input, value)
+    input.dispatchEvent(new Event('input', { bubbles: true }))
+  })
+}
+
+function inputByLabel(container: HTMLElement, label: string): HTMLInputElement | null {
+  return [...container.querySelectorAll('input')].find((node) => node.getAttribute('aria-label') === label) ?? null
+}
+
+/** Calendar arithmetic on the local day strings the presets are made of, with no timezone in it. */
+function shift(day: string, delta: number): string {
+  const date = new Date(`${day}T00:00:00Z`)
+  date.setUTCDate(date.getUTCDate() + delta)
+  return date.toISOString().slice(0, 10)
+}
+
+function mondayOf(day: string): string {
+  const dow = new Date(`${day}T00:00:00Z`).getUTCDay()
+  return shift(day, -((dow + 6) % 7))
+}
+
 beforeEach(async () => {
   localStorage.clear()
   await initI18n()
@@ -177,5 +203,71 @@ describe('the order a listing is read in', () => {
     expect(select, 'the order is unreachable on a phone').not.toBeNull()
     act(() => { select!.focus() })
     expect(document.activeElement).toBe(select)
+  })
+})
+
+describe('the due window a listing is read through', () => {
+  it('sends each preset as the half-open window it means, and clears back to any date', async () => {
+    stubBreakpoint(true)
+    const container = await mount()
+    const today = localDate(Date.now(), 'UTC')
+    const due = selectByLabel(container, t('todo.filter.due'))
+    expect(due, 'a due window cannot be chosen at all').not.toBeNull()
+    expect(due!.value).toBe('any')
+
+    choose(due!, 'today')
+    await settle()
+    expect(lastRequest().dueFrom, 'today’s window never left the browser').toBe(`${today}T00:00`)
+    expect(lastRequest().dueTo).toBe(`${shift(today, 1)}T00:00`)
+    expect(window.location.search).toContain('dueFrom=')
+
+    choose(due!, 'week')
+    await settle()
+    const monday = mondayOf(today)
+    expect(lastRequest().dueFrom).toBe(`${monday}T00:00`)
+    expect(lastRequest().dueTo).toBe(`${shift(monday, 7)}T00:00`)
+
+    choose(due!, 'next30')
+    await settle()
+    expect(lastRequest().dueFrom).toBe(`${today}T00:00`)
+    expect(lastRequest().dueTo).toBe(`${shift(today, 30)}T00:00`)
+
+    choose(due!, 'any')
+    await settle()
+    expect(lastRequest().dueFrom, 'clearing the window left the bound behind').toBeUndefined()
+    expect(lastRequest().dueTo).toBeUndefined()
+    expect(window.location.search).not.toContain('dueFrom=')
+  })
+
+  it('takes a custom start and end, with the end day included', async () => {
+    stubBreakpoint(true)
+    const container = await mount()
+    choose(selectByLabel(container, t('todo.filter.due'))!, 'custom')
+    await settle()
+
+    const from = inputByLabel(container, t('todo.due.from'))
+    const to = inputByLabel(container, t('todo.due.to'))
+    expect(from, 'a custom range opens no start field').not.toBeNull()
+    expect(to, 'a custom range opens no end field').not.toBeNull()
+
+    typeInto(from!, '2026-10-05')
+    await settle()
+    typeInto(to!, '2026-10-09')
+    await settle()
+
+    expect(lastRequest().dueFrom).toBe('2026-10-05T00:00')
+    // The bound is exclusive on the route, so the day the reader picked ends at the next midnight.
+    expect(lastRequest().dueTo).toBe('2026-10-10T00:00')
+  })
+
+  it('reads a custom window back out of a shared address', async () => {
+    stubBreakpoint(true)
+    const container = await mount('/todo?dueFrom=2026-10-05T00:00&dueTo=2026-10-10T00:00')
+
+    expect(lastRequest().dueFrom).toBe('2026-10-05T00:00')
+    expect(lastRequest().dueTo).toBe('2026-10-10T00:00')
+    expect(selectByLabel(container, t('todo.filter.due'))?.value).toBe('custom')
+    expect(inputByLabel(container, t('todo.due.from'))?.value).toBe('2026-10-05')
+    expect(inputByLabel(container, t('todo.due.to'))?.value).toBe('2026-10-09')
   })
 })
