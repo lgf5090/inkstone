@@ -320,6 +320,29 @@ describe('the money history and the deliveries', () => {
     expect(detail?.payments).toHaveLength(0)
     expect(detail?.item.name, 'the subscription itself is untouched').toBe('Netflix')
   })
+
+  /**
+   * "How much has this one actually cost me" is asked about one plan, and the receipts behind it are older
+   * than the payment list the detail carries. The count is therefore made from every receipt, and the tool
+   * surface has to answer with the same numbers the panel draws — otherwise the reader hears one figure on
+   * screen and another in the thread.
+   */
+  it('counts what a plan cost by year, on screen and in the answer', async () => {
+    const created = await seedSubscription({ amount: 60 })
+    const { store: subStore, context: ctx } = store()
+    await subStore.renew(created.item.id, { paymentDate: '2025-12-20', amount: 60 }, ctx)
+
+    const detail = await subStore.get(created.item.id, ctx)
+    expect(detail?.yearlySpend).toEqual([
+      { year: 2026, currency: 'CNY', amount: 60, receipts: 1 },
+      { year: 2025, currency: 'CNY', amount: 60, receipts: 1 },
+    ])
+
+    const answer = await run('get_subscription', { ref: 'Netflix' }) as {
+      yearlySpend: Array<{ year: number, currency: string, amount: number, receipts: number }>
+    }
+    expect(answer.yearlySpend).toEqual(detail?.yearlySpend)
+  })
 })
 
 describe('the account behind the rows', () => {

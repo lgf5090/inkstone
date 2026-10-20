@@ -25,6 +25,7 @@ import {
   type BulkAction,
 } from '@shared/subscriptions/model'
 import { normalizeColor, normalizeIcon } from '@shared/subscriptions/identity'
+import { spendingByYear, type SpendingInput } from '@shared/subscriptions/currency'
 import { addLunarPeriod, lunar2solar, solar2lunar } from '@shared/subscriptions/lunar'
 import { addCalendarPeriodInTimezone, getTimezoneDateParts, getTimezoneMidnightTimestamp, getTimestampForTimezoneParts } from '@shared/subscriptions/time'
 import { getNextFireTime, soonestFire } from '@shared/subscriptions/reminder-engine'
@@ -201,6 +202,11 @@ export class SubscriptionsStore {
       item: this.toItem(row, context, now, paid, mapped),
       payments: payments.map(toPayment),
       rules: mapped,
+      yearlySpend: spendingByYear(payments.map((payment) => ({
+        paidAt: payment.paid_at,
+        amount: payment.amount,
+        currency: payment.currency as SpendingInput['currency'],
+      })), context.timezone),
       nextReminder: soonestFire(mapped, expiryIso, nowIso),
       upcoming: mapped
         .map((rule) => ({ rule, at: getNextFireTime(rule, expiryIso, nowIso) }))

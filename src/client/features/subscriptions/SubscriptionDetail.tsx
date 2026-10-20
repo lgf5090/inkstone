@@ -14,7 +14,8 @@ import { Button, IconButton, SectionLabel } from '../../components/primitives'
 import { Tooltip } from '../../components/overlay'
 import { LoadingBlock } from '../../components/feedback'
 import { daysState, daysStateKey, formatAmount, periodProgress, periodUnitKey } from '@shared/subscriptions/format'
-import { labelNamesOf, subscriptionStatus, type PaymentRecord, type ReminderRule, type SubscriptionDetail } from '@shared/subscriptions/model'
+import { renewalsPerYear } from '@shared/subscriptions/currency'
+import { labelNamesOf, roundMoney, subscriptionStatus, type PaymentRecord, type ReminderRule, type SubscriptionDetail } from '@shared/subscriptions/model'
 import { StatusPill } from './StatusPill'
 import { ReminderRuleRow } from './ReminderRuleRow'
 import { LabelChip } from './label-identity'
@@ -58,6 +59,12 @@ export function SubscriptionDetail({
   const countdown = daysState(item.daysRemaining)
   const progress = periodProgress(item.startDate ? Date.parse(item.startDate) : null, Date.parse(item.expiryDate))
   const amount = formatAmount(item.amount, item.currency)
+  // What the plan commits across twelve months at the price it quotes now. The dashboard prints the same
+  // projection for the whole account; a reader weighing one plan wants it for that plan alone, in the
+  // currency the plan itself is billed in.
+  const committedYear = item.amount !== null && item.amount > 0
+    ? formatAmount(roundMoney(item.amount * renewalsPerYear(item)), item.currency)
+    : ''
 
   return (
     <div className="no-scrollbar flex h-full min-h-0 flex-col overflow-y-auto">
@@ -108,6 +115,7 @@ export function SubscriptionDetail({
           <Fact label={t('subscriptions.detail.calendar')} value={item.useLunar ? t('subscriptions.detail.calendar_lunar') : t('subscriptions.detail.calendar_solar')} />
           <Fact label={t('subscriptions.detail.auto_renew')} value={item.autoRenew ? t('subscriptions.detail.yes') : t('subscriptions.detail.no')} />
           <Fact label={t('subscriptions.detail.paid_total')} value={formatAmount(item.paidTotal, item.currency)} />
+          {committedYear && <Fact label={t('subscriptions.detail.cost_per_year')} value={committedYear} />}
           {item.trialEndsAt && (
             <Fact
               label={t('subscriptions.detail.trial_ends')}
@@ -182,6 +190,20 @@ export function SubscriptionDetail({
           <SectionLabel>{t('subscriptions.payments.title')}</SectionLabel>
           <span className="text-[length:var(--text-11)] tabular-nums text-[var(--text-quaternary)]">{item.paymentCount}</span>
         </div>
+        {detail.yearlySpend.length > 0 && (
+          <ul className="mt-2 flex flex-wrap gap-x-1.5 gap-y-1" data-yearly-spend="">
+            {detail.yearlySpend.map((entry) => (
+              <li
+                key={`${entry.year}-${entry.currency}`}
+                className="flex items-baseline gap-1 rounded-[var(--r-sm)] bg-[var(--bg-inset)] px-1.5 py-0.5 text-[length:var(--text-10-5)] tabular-nums"
+              >
+                <span className="text-[var(--text-tertiary)]">{entry.year}</span>
+                <span className="text-[var(--text-primary)]">{formatAmount(entry.amount, entry.currency)}</span>
+                <span className="text-[var(--text-quaternary)]">{t('subscriptions.payments.receipts', { count: entry.receipts })}</span>
+              </li>
+            ))}
+          </ul>
+        )}
         {detail.payments.length === 0
           ? <p className="mt-1.5 text-[length:var(--text-11-5)] text-[var(--text-quaternary)]">{t('subscriptions.payments.empty')}</p>
           : (

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   FALLBACK_RATES,
+  annualisedCost,
   calculateMonthlyExpense,
   calculateYearlyExpense,
   convertToBase,
@@ -11,6 +12,8 @@ import {
   getUpcomingRenewals,
   mergeCnyRates,
   rateTableFor,
+  renewalsPerYear,
+  spendingByYear,
   type PaymentSample,
 } from '../src/shared/subscriptions/currency'
 import type { SubscriptionItem } from '../src/shared/subscriptions/model'
@@ -199,5 +202,56 @@ describe('the six-month series', () => {
       '2025-12', '2026-01', '2026-02', '2026-03', '2026-04', '2026-05',
     ])
     expect(series.map((entry) => entry.amount)).toEqual([0, 30, 0, 0, 0, 60])
+  })
+})
+
+describe('what one plan costs across a year', () => {
+  it('counts how many times a period charges inside twelve months', () => {
+    expect(renewalsPerYear({ periodUnit: 'month', periodValue: 1 })).toBe(12)
+    expect(renewalsPerYear({ periodUnit: 'month', periodValue: 3 })).toBe(4)
+    expect(renewalsPerYear({ periodUnit: 'year', periodValue: 2 })).toBe(0.5)
+    expect(renewalsPerYear({ periodUnit: 'day', periodValue: 7 })).toBeCloseTo(365 / 7, 6)
+    // A period of zero is a typo, not a division by nothing.
+    expect(renewalsPerYear({ periodUnit: 'day', periodValue: 0 })).toBe(365)
+  })
+
+  it('keeps the account projection at the same number the factor implies', () => {
+    expect(annualisedCost([item({ amount: 60, periodUnit: 'month', periodValue: 1 })], FALLBACK_RATES)).toBe(720)
+    expect(annualisedCost([item({ amount: 15, currency: 'USD', periodUnit: 'month', periodValue: 1 })], FALLBACK_RATES)).toBe(1_256.4)
+    expect(annualisedCost([item({ amount: 60, isActive: false })], FALLBACK_RATES)).toBe(0)
+  })
+
+  it('counts a receipt in the year the account lives in', () => {
+    expect(spendingByYear([
+      payment({ paidAt: Date.parse('2025-12-31T16:30:00Z'), amount: 60 }),
+      payment({ paidAt: Date.parse('2026-01-10T00:00:00Z'), amount: 40 }),
+      payment({ paidAt: Date.parse('2026-06-10T00:00:00Z'), amount: 20 }),
+    ], SHANGHAI)).toEqual([
+      // Half past four on the last UTC day of 2025 is already 2026 in Shanghai.
+      { year: 2026, currency: 'CNY', amount: 120, receipts: 3 },
+    ])
+  })
+
+  it('keeps two currencies apart instead of adding them together', () => {
+    expect(spendingByYear([
+      payment({ paidAt: Date.parse('2026-02-01T00:00:00Z'), amount: 15, currency: 'USD' }),
+      payment({ paidAt: Date.parse('2026-03-01T00:00:00Z'), amount: 100, currency: 'CNY' }),
+      payment({ paidAt: Date.parse('2025-03-01T00:00:00Z'), amount: 90, currency: 'CNY' }),
+    ], SHANGHAI)).toEqual([
+      { year: 2026, currency: 'CNY', amount: 100, receipts: 1 },
+      { year: 2026, currency: 'USD', amount: 15, receipts: 1 },
+      { year: 2025, currency: 'CNY', amount: 90, receipts: 1 },
+    ])
+  })
+
+  it('rounds the year rather than each receipt', () => {
+    expect(spendingByYear([
+      payment({ paidAt: Date.parse('2026-01-05T00:00:00Z'), amount: 0.005 }),
+      payment({ paidAt: Date.parse('2026-02-05T00:00:00Z'), amount: 0.005 }),
+    ], SHANGHAI)).toEqual([{ year: 2026, currency: 'CNY', amount: 0.01, receipts: 2 }])
+  })
+
+  it('says nothing when nothing was paid', () => {
+    expect(spendingByYear([], SHANGHAI)).toEqual([])
   })
 })

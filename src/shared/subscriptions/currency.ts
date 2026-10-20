@@ -10,7 +10,7 @@
  * per-currency amount stays beside each row for the reader who wants it.
  */
 import { MS_PER_DAY, formatLocalDate, getDaysBetween, getNowInTimezone, getTimezoneDateParts } from './time'
-import { labelNamesOf, roundMoney, type CurrencyCode, type ExpenseShare, type MonthExpense, type PriceChange, type SubscriptionItem, type TrialEnding, type UpcomingRenewal } from './model'
+import { labelNamesOf, roundMoney, type CurrencyCode, type ExpenseShare, type MonthExpense, type PriceChange, type SubscriptionItem, type TrialEnding, type UpcomingRenewal, type YearSpend } from './model'
 
 /**
  * `1 unit of the currency = N CNY`, with CNY itself as the base. Used when the rate service is down.
@@ -322,7 +322,14 @@ export function expenseByMonth(
   return buckets.map((bucket) => ({ month: bucket.month, amount: roundMoney(bucket.amount) }))
 }
 
-/** Today, in the account's zone, as the dashboard's own clock reads it. */
+/** How many times a plan charges inside twelve months: a 3-month plan bills four times, an 18-month one twice. */
+export function renewalsPerYear(item: Pick<SubscriptionItem, 'periodUnit' | 'periodValue'>): number {
+  const periods = Math.max(1, item.periodValue)
+  if (item.periodUnit === 'day') return 365 / periods
+  if (item.periodUnit === 'month') return 12 / periods
+  return 1 / periods
+}
+
 /**
  * What a plan would cost across a full year at its current price.
  *
@@ -338,14 +345,42 @@ export function annualisedCost(
   let total = 0
   for (const item of items) {
     if (!item.isActive || item.amount === null || item.amount <= 0) continue
-    const perYear = item.periodUnit === 'day'
-      ? 365 / Math.max(1, item.periodValue)
-      : item.periodUnit === 'month'
-        ? 12 / Math.max(1, item.periodValue)
-        : 1 / Math.max(1, item.periodValue)
-    total += convertToBase(item.amount * perYear, item.currency, rates)
+    total += convertToBase(item.amount * renewalsPerYear(item), item.currency, rates)
   }
   return roundMoney(total)
+}
+
+/** A receipt as the yearly grouping needs it: when it was paid, how much, in what. */
+export interface SpendingInput {
+  paidAt: number
+  amount: number
+  currency: CurrencyCode
+}
+
+/**
+ * What the receipts added up to, year by year.
+ *
+ * The year is the account's own, read in its zone: a payment stamped an hour past midnight in Shanghai is
+ * last year for a reader who counts in UTC, and the app already dates everything else by the account.
+ *
+ * Split by currency instead of converted, because this runs where the exchange table is not — the store
+ * calls it while building one subscription's detail. A total that mixed yuan and dollars would be a
+ * number with no unit, so it is not attempted; each line names its own.
+ */
+export function spendingByYear(payments: readonly SpendingInput[], timezone: string): YearSpend[] {
+  const byYear = new Map<string, YearSpend>()
+  for (const payment of payments) {
+    if (!Number.isFinite(payment.amount)) continue
+    const { year } = getTimezoneDateParts(payment.paidAt, timezone)
+    const key = `${year}|${payment.currency}`
+    const entry = byYear.get(key) ?? { year, currency: payment.currency, amount: 0, receipts: 0 }
+    entry.amount += payment.amount
+    entry.receipts += 1
+    byYear.set(key, entry)
+  }
+  return [...byYear.values()]
+    .map((entry) => ({ ...entry, amount: roundMoney(entry.amount) }))
+    .sort((left, right) => right.year - left.year || left.currency.localeCompare(right.currency))
 }
 
 /**
@@ -412,6 +447,7 @@ export function trialsEnding(
     .sort((left, right) => left.daysRemaining - right.daysRemaining)
 }
 
+/** Today, in the account's zone, as the dashboard's own clock reads it. */
 export function todayLabel(timezone: string, now: Date = new Date()): string {
   return getNowInTimezone(timezone, now).isoLocal.slice(0, 10)
 }

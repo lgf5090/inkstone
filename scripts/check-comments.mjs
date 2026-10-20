@@ -10703,6 +10703,9 @@ const allowed = new Map([
   ["src/client/features/subscriptions/SubscriptionDetail.tsx", [
     "/**\n * One subscription, in full: what it is, how far through its term it is, when it will remind, what it\n * has cost, and the rules that decide when it speaks.\n *\n * The period bar is the one number the reference project never showed and a reader wants most — \"12 days\n * left\" means something different on a monthly plan than on a three-year one. It is derived from the\n * subscription's own start and expiry, so a plan with no start date simply does not draw one.\n */",
     "/**\n * One rule, editable in place.\n *\n * The row itself is shared with the create form — the two differ only in what a change costs. Here it\n * goes straight to the server, because the detail panel is looking at a saved subscription and a rule\n * that changed on screen but not on the worker would be a lie the next reload corrects.\n */",
+    "// What the plan commits across twelve months at the price it quotes now. The dashboard prints the same",
+    "// projection for the whole account; a reader weighing one plan wants it for that plan alone, in the",
+    "// currency the plan itself is billed in.",
   ]],
   ["src/client/features/subscriptions/SubscriptionForm.tsx", [
     "/**\n * The form a subscription is created or corrected with.\n *\n * The order is the order a reader thinks in — what it is, what it costs, when it ends — and the expiry\n * field is the only one that is required, because a subscription whose date is unknown is not a\n * subscription this app can do anything with. The two derived affordances are what make the form worth\n * having over a JSON editor: \"compute the expiry from the cycle\" fills the date the reader would have\n * counted on their fingers, and the line under it says what that date means in days and in the lunar\n * calendar when that is switched on.\n */",
@@ -10820,6 +10823,9 @@ const allowed = new Map([
     "/**\n   * Rename a label, and reload.\n   *\n   * The server rewrites every subscription that carried the old word, so the rows the browser is\n   * holding are stale the moment this succeeds — unlike a style change, this one has to refetch.\n   */",
     "/**\n   * One action over the selected rows, then a full reload.\n   *\n   * The reload is not laziness: `deactivate` changes every countdown colour and `set_category` moves\n   * rows between the rail's counts, and patching all of that locally would be a second implementation\n   * of the summary that can disagree with the first.\n   */",
     "/** Swap one registry list after the server hands back the whole thing it just changed. */",
+  ]],
+  ["src/client/features/subscriptions/subscription-detail-spend.test.ts", [
+    "/**\n * The money one plan has cost, drawn where the plan is read.\n *\n * The dashboard counts the account; this panel counts a single row, and the two are only trustworthy while\n * they mean the same thing. Pinned here: the receipts are counted per year and per currency rather than\n * merged into a number with no unit, and the yearly projection is the price the plan quotes times the times\n * it charges — not a sum of what happened to arrive.\n *\n * What jsdom cannot tell anyone: how wide the strip gets when four years of history wrap, and whether the\n * chips stay legible against the panel's background.\n */",
   ]],
   ["src/client/features/subscriptions/subscription-list.test.ts", [
     "/**\n * The row's two states: reading, and selecting.\n *\n * These four assertions exist because the app once shipped a list whose selection boxes could never\n * appear: the row derived \"am I selecting\" from \"is anything already checked\", so the box needed a check\n * before it could make one. The toolbar still flipped to its exit label, so nothing looked wrong from the\n * outside, and the batch actions under it were unreachable. Deriving the mode from the selection is the\n * exact bug this file forbids, which is why `selectMode` is a prop and is passed straight to the row.\n *\n * What the browser measured and jsdom cannot: the box's hit area, and the colour it paints.\n */",
@@ -19372,6 +19378,9 @@ const allowed = new Map([
     "// A renewal that bought several periods costs more without the plan being dearer, so the comparison",
     "// is only honest per period.",
     "/** Trials still running, soonest to start charging first. */",
+    "/** How many times a plan charges inside twelve months: a 3-month plan bills four times, an 18-month one twice. */",
+    "/** A receipt as the yearly grouping needs it: when it was paid, how much, in what. */",
+    "/**\n * What the receipts added up to, year by year.\n *\n * The year is the account's own, read in its zone: a payment stamped an hour past midnight in Shanghai is\n * last year for a reader who counts in UTC, and the app already dates everything else by the account.\n *\n * Split by currency instead of converted, because this runs where the exchange table is not — the store\n * calls it while building one subscription's detail. A total that mixed yuan and dollars would be a\n * number with no unit, so it is not attempted; each line names its own.\n */",
   ]],
   ["src/shared/subscriptions/format.ts", [
     "/**\n * Display arithmetic that has one right answer, kept out of the components.\n *\n * Nothing here holds copy. A unit's name, a countdown's sentence and a status pill's word are interface\n * strings and belong to the locale catalogs; what this module decides is the *shape* — which symbol a\n * currency wears, which of three countdown states a number of days means, how much of a billing period\n * has elapsed. That split is what lets the same rules be tested without a language.\n */",
@@ -19471,6 +19480,8 @@ const allowed = new Map([
     "/** How many rows are waiting in the trash, so the rail can show a count without fetching them. */",
     "/**\n * The four rules a new subscription starts with: 7, 3 and 1 days before, and the day itself.\n *\n * Declared as inputs, without ids, because two callers want them and only one of them is writing to a\n * database: the worker seeds a created subscription, and the create form shows them in its draft so a\n * reader can change the plan before the first reminder ever goes out rather than after.\n */",
     "/**\n * The ids are made by the caller so this stays a pure function — a test can then assert the shape\n * without stubbing a random source, and the worker keeps one id generator for every table.\n */",
+    "/** What the receipts actually added up to, one entry per year and currency. */",
+    "/**\n * One calendar year of receipts for one plan.\n *\n * Kept in the currency each receipt was paid in rather than merged into one total: a year that mixes two\n * currencies needs an exchange table, and this number is read next to the price the plan quotes.\n */",
   ]],
   ["src/shared/subscriptions/notify-copy.ts", [
     "/**\n * Which catalog a notification body is written from, and the two helpers that assemble one.\n *\n * The language is the account's, stored on its settings row: the scheduler runs on a cron tick with no\n * request behind it, so there is nobody to ask. `fill` is deliberately smaller than the interface's\n * formatter — two placeholders and no plural rules, because the only number these sentences carry is a\n * day count and both languages write that the same way.\n */",
@@ -21545,6 +21556,8 @@ const allowed = new Map([
     "// The bulk write reports the rows it touched, not the rows whose state moved, so a repeat of the",
     "// same switch would answer \"done\" while changing nothing. The refusal is read off the row first.",
     "// The two fields that turn \"failed\" into something the reader can act on.",
+    "// Every receipt the plan has, counted rather than listed: the slice above is the recent history,",
+    "// and \"what did 2025 cost\" is a question about all of it.",
   ]],
   ["src/worker/assistant/upstream.ts", [
     "/** A JSON Schema object, built by `toolSchemaFor` from the tool's own declared parameters. */",
@@ -24781,6 +24794,7 @@ const allowed = new Map([
     "/**\n   * The two things a conversation could previously not ask about at all: which names the reader already\n   * uses, and how the app is configured. Both are on screen in the app itself, so a model that could not\n   * read them had to either refuse the question or invent an answer.\n   */",
     "/**\n   * \"Did the app tell me?\" is a question the reader asks out loud, and until now a conversation could not\n   * answer it: the schedule and the delivery attempts were on screen in the app and nowhere in the tool\n   * surface. An empty log has to read differently from \"nothing was due\", or the model reports a quiet\n   * month as a working one.\n   */",
     "/**\n   * The two verbs the app has no way back from, and the guard rail between them and a conversation.\n   *\n   * `purge_subscription` refuses a plan that is still live: the reader who says \"delete Netflix\" means the\n   * trash, and an assistant that erased the receipts on the first request could not be blamed.\n   */",
+    "/**\n   * \"How much has this one actually cost me\" is asked about one plan, and the receipts behind it are older\n   * than the payment list the detail carries. The count is therefore made from every receipt, and the tool\n   * surface has to answer with the same numbers the panel draws — otherwise the reader hears one figure on\n   * screen and another in the thread.\n   */",
   ]],
   ["tests/assistant-tag-search-shape.test.ts", [
     "/**\n * A pinned `#tag` has to narrow the keyword half of a note search, not empty it.\n *\n * A turn's scope keeps tags as *ids* — the shape the folder pins and the permission check use — while the\n * retriever filters both of its lists by tag *name*: the keyword half turns `tags` into `tag:\"…\"` terms,\n * and both halves then run the app's one tag-subtree rule (`tagScopePredicate()`, which `semanticWhere` in\n * `mcp/ai-search.ts` calls for the vector list too). Handing the ids over was therefore a filter no note\n * can satisfy: a reader pinning `#meeting` got a keyword half that was always empty, and on an index that\n * is switched on the only hits left came from the vector list, which is the \"it matched but nothing says\n * why\" answer.\n *\n * The vector half is switched off in every case below, so any hit at all can only have come from keywords.\n */",
@@ -26739,6 +26753,8 @@ const allowed = new Map([
     "/**\n   * The direction is the whole test.\n   *\n   * `FALLBACK_RATES.USD` is 6.98, meaning \"one dollar costs 6.98 yuan\", and the conversion divided by\n   * it — so a ten-dollar subscription was reported as ¥1.43. The live feed was read the other way round\n   * and happened to work, which is why the bug survived: it only showed on the fallback path, and for\n   * the three currencies the feed does not publish at all.\n   */",
     "// Frankfurter with base=CNY says 1 yuan buys 0.14 dollars, i.e. 1 dollar costs 7.14 yuan.",
     "// An unknown base leaves the table alone rather than dividing by zero.",
+    "// A period of zero is a typo, not a division by nothing.",
+    "// Half past four on the last UTC day of 2025 is already 2026 in Shanghai.",
   ]],
   ["tests/subscriptions-identity.test.ts", [
     "/**\n * The rules that decide what a label looks like, and the split that decides what a label is.\n *\n * Both are pure and both are load-bearing in ways a route test cannot see: the split is what the rail,\n * the aggregate and the registry must agree on, and the tier order is what makes a reader's own choice\n * outrank a default without the default having to be written down first.\n */",

@@ -1493,7 +1493,7 @@ export const SUBSCRIPTION_TOOLS: ToolDefinition[] = [
     name: 'get_subscription',
     permission: 'read',
     maxCallsPerTurn: 3,
-    description: 'Read one subscription in full: its reminder rules, when the next one fires, and its payment history with what each receipt bought.',
+    description: 'Read one subscription in full: its reminder rules, when the next one fires, its payment history with what each receipt bought, and what that history adds up to per calendar year and per currency.',
     fields: { ref: { type: 'string', minLength: 1, maxLength: 120, description: 'The id, or the name the reader used.' } },
     async run(args, ctx) {
       const { detail } = await resolveSubscriptionOrThrow(args.ref, ctx)
@@ -1520,6 +1520,9 @@ export const SUBSCRIPTION_TOOLS: ToolDefinition[] = [
           note: payment.note,
         })),
         paymentCount: detail.payments.length,
+        // Every receipt the plan has, counted rather than listed: the slice above is the recent history,
+        // and "what did 2025 cost" is a question about all of it.
+        yearlySpend: detail.yearlySpend,
       }
     },
   }),

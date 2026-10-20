@@ -386,6 +386,21 @@ export interface SubscriptionDetail {
   rules: ReminderRule[]
   nextReminder: NextReminder | null
   upcoming: NextReminder[]
+  /** What the receipts actually added up to, one entry per year and currency. */
+  yearlySpend: YearSpend[]
+}
+
+/**
+ * One calendar year of receipts for one plan.
+ *
+ * Kept in the currency each receipt was paid in rather than merged into one total: a year that mixes two
+ * currencies needs an exchange table, and this number is read next to the price the plan quotes.
+ */
+export interface YearSpend {
+  year: number
+  currency: CurrencyCode
+  amount: number
+  receipts: number
 }
 
 export interface NextReminder {
