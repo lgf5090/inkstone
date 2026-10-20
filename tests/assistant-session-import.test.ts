@@ -285,6 +285,8 @@ describe('a file that is not what it claims to be', () => {
     expect(count('chat_messages', READER)).toBe(0)
   })
 
+  // Six thousand inserts against the in-memory D1: alone the case finishes in seconds, but a full-suite
+  // run is contended enough for it to cross the 30 s default.
   it('cuts a thread to the turns one thread may hold, and a file to the messages one import writes', async () => {
     const turns = (count: number) => Array.from({ length: count }, (_, index) => ({
       role: index % 2 === 0 ? 'user' : 'assistant',
@@ -307,7 +309,7 @@ describe('a file that is not what it claims to be', () => {
     expect(summary.messages).toBe(MAX_SESSION_IMPORT_MESSAGES)
     expect(summary.skipped.join(' ')).toMatch(/more than the 5000 messages one import writes/)
     account(READER)
-  })
+  }, 60_000)
 
   it('cuts one turn past the ceiling a stored message may hold, and names the thread', async () => {
     const text = JSON.stringify({

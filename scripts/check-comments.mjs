@@ -16586,6 +16586,10 @@ const allowed = new Map([
   ["src/client/lib/markdown/renderer-chart.test.ts", [
     "/** markdown-it hands a fence body with its closing newline attached, so the attribute carries it too. */",
   ]],
+  ["src/client/lib/markdown/renderer-excalidraw.test.ts", [
+    "// The case pulls in the whole preview module to reach `patchChildren`, and a full-suite run is",
+    "// contended enough for that transform to cross the 30 s default it would otherwise inherit.",
+  ]],
   ["src/client/lib/markdown/renderer-mindmap.test.ts", [
     "// The nested render numbers its own maps, and the outer document resumes after it.",
   ]],
@@ -24277,6 +24281,8 @@ const allowed = new Map([
     "// The thread itself is already there — one batch of one row — and it was not written twice.",
     "// The positive control for the shape itself: an id from an alphabet the app does not use is refused by",
     "// the same validator, so the two checks above are not both answered by a permissive test.",
+    "// Six thousand inserts against the in-memory D1: alone the case finishes in seconds, but a full-suite",
+    "// run is contended enough for it to cross the 30 s default.",
   ]],
   ["tests/assistant-store-partial-update.test.ts", [
     "/**\n * A PATCH that writes a row it did not mention, and a thread that stops at one page.\n *\n * `updateModel` read the whole row, merged the patch into it and wrote all twenty columns back. Two\n * toggles pressed a moment apart — the four on a model list row, the three in the composer, an editor\n * saving its draft, a second tab — each read the row before the other had written it, so whichever\n * landed second restamped the field it never mentioned with whatever it had read at the start. One\n * switch silently went back.\n *\n * The other half is `messages`, which answers with the newest 500 rows. Routes that treat that page as\n * the thread 404 on an older turn and export a conversation whose beginning is missing, in a file that\n * looks complete. The window is right for a transcript on screen and for the context a model is sent;\n * it was wrong underneath a reader acting on one named row.\n */",
