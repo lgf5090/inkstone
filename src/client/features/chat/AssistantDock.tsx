@@ -49,7 +49,7 @@ export function AssistantDock({ surface = 'notebook', subscription = null }: {
 }) {
   const subscriptionId = subscription?.id ?? null
   const subscriptionName = subscription?.name ?? null
-  // The chip draws what is attached, not what the page offered: after the reader takes it off it must stay
+  // The strip draws what is attached, not what the page offered: once the reader takes it off it must stay
   // off until they move, or the control lies about the turn it is sending.
   const attached = useAssistant((state) => state.subscriptionContext)
   const bootstrap = useAssistant((state) => state.bootstrap)
@@ -81,7 +81,10 @@ export function AssistantDock({ surface = 'notebook', subscription = null }: {
     // The panel exists to ask about the page it is on. In the notebook that means the note under the
     // reader's eyes; in the money app the same pointer still names a note they are not looking at, and a
     // turn answered from it reads as "summarise this" about the wrong thing. So the notebook's pointers
-    // are switched off there rather than borrowed.
+    // are switched off there rather than borrowed. The surface also lands in the store, because the strip
+    // and the outgoing turn read it there — a mount effect alone loses to the conversation paths that put
+    // noteContextOn back to true.
+    useAssistant.getState().setDockSurface(surface)
     if (surface === 'notebook') {
       setNoteContext(true)
       return

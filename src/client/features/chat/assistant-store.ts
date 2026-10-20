@@ -245,6 +245,15 @@ interface AssistantState {
   noteContextOn: boolean
   /** The plan the money app has on screen, pushed by the dock that sits beside it. Null means nothing is attached. */
   subscriptionContext: { id: string, name: string } | null
+  /**
+   * Which app the assistant is docked beside right now.
+   *
+   * A mount effect that switches the notebook's pointers off is a race: opening, switching or starting a
+   * conversation puts noteContextOn back to true, and the reader is left with a note chip for a page
+   * that has no note on it. The surface is therefore checked where the chips are drawn and where the turn
+   * is sent, not only when the dock appears.
+   */
+  dockSurface: 'notebook' | 'subscriptions'
   folderContextOn: boolean
   /**
    * Whether the draft open in the canvas rides along with the next turn.
@@ -256,6 +265,7 @@ interface AssistantState {
   canvasContextOn: boolean
   setNoteContext: (on: boolean) => void
   setSubscriptionContext: (value: { id: string, name: string } | null) => void
+  setDockSurface: (surface: 'notebook' | 'subscriptions') => void
   setFolderContext: (on: boolean) => void
   setCanvasContext: (on: boolean) => void
   /**
@@ -1412,6 +1422,7 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
   webSearch: false,
   noteContextOn: true,
   subscriptionContext: null,
+  dockSurface: 'notebook',
   folderContextOn: true,
   canvasContextOn: true,
   composerSeed: null,
@@ -2366,6 +2377,7 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
    */
   setNoteContext: (on) => set({ noteContextOn: on }),
   setSubscriptionContext: (value) => set({ subscriptionContext: value }),
+  setDockSurface: (surface) => set({ dockSurface: surface }),
 
   setFolderContext: (on) => set({ folderContextOn: on }),
 
@@ -2577,8 +2589,8 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
           tools: state.turnTools,
           scopes: state.turnScopes,
           ...(retry || continuing ? {} : {
-            ...(state.noteContextOn && ui.activeNoteId ? { contextNoteId: ui.activeNoteId } : {}),
-            ...(state.folderContextOn && ui.folderId ? { contextFolderId: ui.folderId } : {}),
+            ...(state.dockSurface === 'notebook' && state.noteContextOn && ui.activeNoteId ? { contextNoteId: ui.activeNoteId } : {}),
+            ...(state.dockSurface === 'notebook' && state.folderContextOn && ui.folderId ? { contextFolderId: ui.folderId } : {}),
             // Named by id, not by title: two plans can share a name, and the reader pointed at one of them.
             ...(state.subscriptionContext ? { contextSubscriptionId: state.subscriptionContext.id } : {}),
             // The canvas chip is the visible half of this: a draft the reader can see on screen but
