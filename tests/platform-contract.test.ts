@@ -112,6 +112,13 @@ it('the only client IP rule set is the one that checks for cf', () => {
   expect(read('../src/worker/mcp/oauth.ts')).toContain('requestClientIp(request)')
 })
 
+it('lets the page itself ask for a microphone, and keeps the camera and location shut', () => {
+  const policy = securityHeaders('https://note.test/')['Permissions-Policy']
+  expect(policy).toContain('microphone=(self)')
+  expect(policy).toContain('camera=()')
+  expect(policy).toContain('geolocation=()')
+})
+
 it('relaxes script-src for nothing but a dev HTML document', () => {
   const strict = securityHeaders('https://note.test/')['Content-Security-Policy']
   const dev = securityHeaders('https://note.test/', { allowDevInlineScripts: true })['Content-Security-Policy']

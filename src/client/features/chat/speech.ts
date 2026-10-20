@@ -24,11 +24,20 @@ export function stopSpeaking(): void {
  * Replacing rather than queueing: a reader who presses read on a second reply wants that one, and two
  * voices talking over each other is the failure this avoids.
  */
-export function speak(text: string, language: string): boolean {
+export interface SpeakHandlers {
+  /** The voice finished the whole utterance. A cancelled utterance may not call this. */
+  onDone?: () => void
+  /** The engine refused or stopped with an error. */
+  onError?: () => void
+}
+
+export function speak(text: string, language: string, handlers: SpeakHandlers = {}): boolean {
   if (!canSpeak() || !text.trim()) return false
   window.speechSynthesis.cancel()
   const utterance = new window.SpeechSynthesisUtterance(text)
   utterance.lang = language
+  utterance.onend = () => handlers.onDone?.()
+  utterance.onerror = () => handlers.onError?.()
   window.speechSynthesis.speak(utterance)
   return true
 }

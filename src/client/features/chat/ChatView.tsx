@@ -10,7 +10,7 @@
  */
 import { Z_INDEX } from '../../lib/z-index'
 import { type ClipboardEvent as ReactClipboardEvent, type DragEvent as ReactDragEvent, type KeyboardEvent, type ReactNode, Fragment, memo, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import { Archive, ArrowUp, ArrowUpRight, Check, Columns2, Copy, FileText, FolderOpen, Ghost, History, Link2Off, ListChecks, MoreHorizontal, NotebookPen, PanelRight, Paperclip, Pencil, Plus, Search, Settings2, Square, Sparkles, Star, Trash2, X } from 'lucide-react'
+import { Archive, ArrowUp, ArrowUpRight, AudioLines, Check, Columns2, Copy, FileText, FolderOpen, Ghost, History, Link2Off, ListChecks, MoreHorizontal, NotebookPen, PanelRight, Paperclip, Pencil, Plus, Search, Settings2, Square, Sparkles, Star, Trash2, X } from 'lucide-react'
 import type { AssistantConversation, AssistantMessage, AssistantModel, AssistantTurnScope, ChatAttachment } from '@shared/assistant'
 import { EPHEMERAL_CONVERSATION_RETENTION_DAYS, RUN_PARTIAL_MAX_CHARS, SEARCH_NATIVE_PROTOCOLS, looksLikeSearchTool, mcpToolModeFor, webSearchConfigured } from '@shared/assistant'
 import { webSearchEngineFor } from '@shared/web-search-engines'
@@ -63,6 +63,7 @@ import { attachmentTargetOf, compareChoices, MAX_LOADED_MESSAGES, modelLabelOf, 
 import { MessageMenu, useMessageMenu } from './MessageMenu'
 import { AssistantBubble, CHAT_MENTION_LINKS } from './MessageParts'
 import { CanvasPanel } from './CanvasPanel'
+import { VoiceMode } from './VoiceMode'
 import { openNote } from './note-links'
 import { formatNoteMention } from './note-refs'
 import { SelectionBar, SelectionTick, selectedMessages, type MessageSelection } from './SelectionBar'
@@ -361,6 +362,10 @@ export function ChatView() {
   const canvasOpen = useAssistant((state) => state.canvasOpen)
   const setCanvasOpen = useAssistant((state) => state.setCanvasOpen)
 
+  // Voice is a surface of its own: it does not need the side panel, and it holds the microphone only
+  // while this panel is mounted.
+  const [voiceOpen, setVoiceOpen] = useState(false)
+
   // A temporary thread has to say so where the reader is looking, or the one promise the feature makes is
   // the one thing about it they cannot see.
   const ephemeral = useAssistant((state) => state.ephemeral)
@@ -560,6 +565,17 @@ export function ChatView() {
                 }}
               >
                 <Ghost size={15} />
+              </IconButton>
+            </Tooltip>
+            {/* Voice is not the composer's microphone: this door opens a conversation, and the icon
+                says so where a reader already looks for surfaces beside the thread. */}
+            <Tooltip label={t('assistant.voice.open')} side="bottom">
+              <IconButton
+                label={t('assistant.voice.open')}
+                size="sm"
+                onClick={() => setVoiceOpen(true)}
+              >
+                <AudioLines size={15} />
               </IconButton>
             </Tooltip>
             {/* A toggle owes the reader which way it is about to go: naming the panel says only what the
@@ -844,6 +860,8 @@ export function ChatView() {
       </section>
 
       {canvasOpen && <CanvasPanel />}
+
+      {voiceOpen && <VoiceMode onClose={() => setVoiceOpen(false)} />}
 
       {activeId && shareScope && (
         <ConversationSharePanel

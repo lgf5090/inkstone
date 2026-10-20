@@ -56,7 +56,9 @@ export function securityHeaders(url: string, options: SecurityHeaderOptions = {}
     'X-Content-Type-Options': 'nosniff',
     'X-Frame-Options': 'DENY',
     'Referrer-Policy': 'strict-origin-when-cross-origin',
-    'Permissions-Policy': 'camera=(), microphone=(), geolocation=()',
+    // The assistant's dictation and voice mode need the reader's microphone; the page itself is the
+    // only frame allowed to ask for it. Camera and location remain shut.
+    'Permissions-Policy': 'camera=(), microphone=(self), geolocation=()',
     'Content-Security-Policy': [
       `default-src 'self'; base-uri 'self'; ${scriptSrc}style-src 'self' 'unsafe-inline'; `,
       `img-src 'self' data: blob: ${imageSchemes}; font-src 'self' data: https://esm.sh; connect-src 'self' data: blob: ${CLOUDFLARE_INSIGHTS_REPORT_SOURCE} ${aiConnectSources}; worker-src 'self' blob:; `,

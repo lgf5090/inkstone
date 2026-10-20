@@ -101,6 +101,7 @@ import { ArtifactVersionConflictError, AssistantStore, dayBefore, type Conversat
 import { MemoryHistoryService } from '../assistant/memory-service'
 import { AutomationService } from '../assistant/automations'
 import { AssistantRunner } from '../assistant/runner'
+import { mintRealtimeSession, RealtimeSessionError } from '../assistant/realtime'
 import { cancelApprovedAction, runApprovedAction } from '../assistant/tools'
 import { exportAssistant, importAssistant } from '../assistant/backup'
 import { describeSubscription, pushConfigStatus, pushEndpointProblem, pushKeyProblem, vapidProblem, type PushSubscriptionView } from '../assistant/push'
@@ -3150,6 +3151,67 @@ assistantRoutes.delete('/models/:id', async (c) => {
 })
 
 // --------------------------------------------------------------------- usage
+
+/**
+ * What a realtime voice session is told about the reader.
+ *
+ * This mode speaks through the provider's own realtime model, outside the runner, so it has no note
+ * tools, no memories and no ability to write. Saying that plainly in the instructions is better than
+ * letting the model promise to read a note it cannot see.
+ */
+function realtimeVoiceInstructions(settings: AssistantSettings): string {
+  const language = settings.language === 'zh-CN' ? 'Simplified Chinese' : 'English'
+  return [
+    `You are ${settings.agentName}, a voice assistant inside the reader's private Inkstone notebook.`,
+    `Speak ${language}. Keep replies short, natural and suitable for speech; avoid Markdown tables and long code.`,
+    settings.customInstructions.trim() ? `The reader's standing instructions: ${settings.customInstructions.trim()}` : '',
+    'This realtime voice session cannot read or change notes and cannot use the notebook tools. Say so when asked; suggest the text assistant for that work.',
+  ].filter(Boolean).join('\n')
+}
+
+/**
+ * A short-lived credential for a voice session.
+ *
+ * The response carries the provider's ephemeral secret, never the long-lived key this account stored.
+ * The browser uses the secret for the WebRTC handshake and speaks audio directly to the provider; this
+ * Worker does not proxy the call.
+ */
+assistantRoutes.post('/realtime/session', async (c) => {
+  const s = store(c)
+  const settings = await s.getSettings()
+  const body = await readJson<{ modelId?: unknown }>(c, JSON_BODY_LIMITS.small)
+  const models = (await s.listModels()).filter((model) => model.enabled && model.purpose === 'realtime')
+  const requested = body.modelId === undefined || body.modelId === null
+    ? settings.realtimeModelId
+    : requiredId(body.modelId)
+  if (requested && !models.some((model) => model.id === requested)) {
+    throw ApiError.badRequest('That model is not an enabled realtime voice model.')
+  }
+  const model = requested ? models.find((entry) => entry.id === requested) : models[0]
+  if (!model) throw ApiError.badRequest('No enabled realtime voice model is configured.')
+  const provider = await s.providerRecord(model.providerId)
+  if (!provider) throw ApiError.badRequest('The voice model has no provider.')
+  if (provider.protocol !== 'openai') {
+    throw ApiError.badRequest('Realtime voice currently needs an OpenAI-compatible provider.')
+  }
+  const key = await s.pickProviderKey(provider)
+  if (!key) throw ApiError.badRequest('The voice provider has no API key.')
+  try {
+    const session = await mintRealtimeSession({
+      baseUrl: provider.base_url,
+      apiKey: key.key,
+      model: model.model,
+      instructions: realtimeVoiceInstructions(settings),
+    })
+    await s.markProviderKeyUsed(provider.id, key.keyId)
+    return c.json({ session })
+  } catch (error) {
+    if (error instanceof RealtimeSessionError) {
+      throw new ApiError(error.status >= 500 ? 502 : 400, 'realtime_refused', error.message)
+    }
+    throw error
+  }
+})
 
 assistantRoutes.get('/usage', async (c) => {
   const s = store(c)

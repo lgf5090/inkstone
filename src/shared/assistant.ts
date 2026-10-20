@@ -244,7 +244,7 @@ export interface AssistantVendorModel {
 }
 
 /** What a model is asked to do, so the picker only offers the ones that answer. */
-export const ASSISTANT_MODEL_PURPOSES = ['chat', 'image_generate', 'image_edit'] as const
+export const ASSISTANT_MODEL_PURPOSES = ['chat', 'image_generate', 'image_edit', 'realtime'] as const
 export type AssistantModelPurpose = (typeof ASSISTANT_MODEL_PURPOSES)[number]
 
 /** The kind of endpoint behind the id: only `text` models can hold a conversation. */
@@ -630,6 +630,14 @@ export interface AssistantSettings {
   language: 'en-US' | 'zh-CN'
   timezone: string
   activeModelId: string | null
+  /**
+   * The model a realtime voice session is opened with.
+   *
+   * Kept apart from `activeModelId` because a realtime model cannot answer a text turn: it speaks
+   * audio, has no note tools, and is billed by audio tokens. Null means the voice screen picks the
+   * first enabled realtime model, so adding one is enough to make the entry usable.
+   */
+  realtimeModelId: string | null
   temperature: number
   limits: AssistantLimits
   /** Recall memories by vector as well as by shared words; needs the deployment's AI binding. */
@@ -709,6 +717,7 @@ export const DEFAULT_ASSISTANT_SETTINGS: AssistantSettings = {
   language: 'en-US',
   timezone: 'UTC',
   activeModelId: null,
+  realtimeModelId: null,
   temperature: 0.4,
   limits: { ...DEFAULT_LIMITS },
   semanticMemory: true,
@@ -820,6 +829,7 @@ export function normalizeAssistantSettings(value: unknown): AssistantSettings {
       ? (raw.timezone as string)
       : DEFAULT_ASSISTANT_SETTINGS.timezone,
     activeModelId: typeof raw.activeModelId === 'string' && raw.activeModelId ? raw.activeModelId.slice(0, 26) : null,
+    realtimeModelId: typeof raw.realtimeModelId === 'string' && raw.realtimeModelId ? raw.realtimeModelId.slice(0, 26) : null,
     temperature: numberInRange(raw.temperature, 0, 1.5, DEFAULT_ASSISTANT_SETTINGS.temperature),
     limits,
     semanticMemory: booleanValue(raw.semanticMemory, DEFAULT_ASSISTANT_SETTINGS.semanticMemory),

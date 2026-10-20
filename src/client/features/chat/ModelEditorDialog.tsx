@@ -37,6 +37,7 @@ const PURPOSE_KEYS: Record<AssistantModelPurpose, Parameters<typeof t>[0]> = {
   chat: 'assistant.model.purpose.chat',
   image_generate: 'assistant.model.purpose.image_generate',
   image_edit: 'assistant.model.purpose.image_edit',
+  realtime: 'assistant.model.purpose.realtime',
 }
 
 const PROTOCOL_NAMES: Record<AssistantProtocol, string> = {

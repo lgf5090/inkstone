@@ -2,7 +2,7 @@
 import { DatabaseSync } from 'node:sqlite'
 import type { SQLInputValue } from 'node:sqlite'
 import { Hono } from 'hono'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { SCHEMA_STATEMENTS } from '../src/worker/db/schema'
 import { errorResponse } from '../src/worker/lib/errors'
 import { assistantRoutes } from '../src/worker/routes/assistant'
@@ -538,6 +538,117 @@ describe('canvas tools in a turn', () => {
     expect(updatedChip?.tool?.artifactId).toBe(created?.artifact?.id)
     expect(second.some((event) => event.type === 'error')).toBe(false)
     vi.unstubAllGlobals()
+  })
+})
+
+describe('realtime voice sessions', () => {
+  async function useRealtimeModel(protocol: 'openai' | 'anthropic' = 'openai') {
+    const { provider } = await call<{ provider: AssistantProvider }>('POST', '/api/assistant/providers', {
+      label: 'Voice',
+      protocol,
+      baseUrl: 'https://api.example.com',
+      apiKey: 'sk-realtime-test-1234',
+      models: ['realtime-model'],
+    })
+    const { models } = await call<{ models: AssistantModel[] }>('GET', '/api/assistant/models')
+    const model = models.find((entry) => entry.providerId === provider.id && entry.model === 'realtime-model')
+    expect(model, 'the realtime model was not created').toBeTruthy()
+    await call('PATCH', `/api/assistant/models/${model!.id}`, { purpose: 'realtime' })
+    return { provider, model: { ...model!, purpose: 'realtime' as const } }
+  }
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it('mints a short-lived secret and never returns the provider key', async () => {
+    await useRealtimeModel()
+    const seen: Array<{ url: string, auth: string | null, body: Record<string, unknown> }> = []
+    vi.stubGlobal('fetch', vi.fn(async (input: string | URL, init?: RequestInit) => {
+      seen.push({
+        url: String(input),
+        auth: new Headers(init?.headers).get('authorization'),
+        body: JSON.parse(String(init?.body ?? '{}')) as Record<string, unknown>,
+      })
+      return new Response(JSON.stringify({ client_secret: { value: 'ek-test-secret', expires_at: 123 } }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      })
+    }))
+
+    const result = await call<{ session: { clientSecret: string, model: string, baseUrl: string, transport: string, expiresAt: number | null } }>(
+      'POST', '/api/assistant/realtime/session', {},
+    )
+    expect(result.session).toMatchObject({
+      clientSecret: 'ek-test-secret',
+      model: 'realtime-model',
+      baseUrl: 'https://api.example.com',
+      transport: 'calls',
+      expiresAt: 123,
+    })
+    expect(JSON.stringify(result)).not.toContain('sk-realtime-test-1234')
+    expect(seen[0]?.url).toBe('https://api.example.com/realtime/client_secrets')
+    expect(seen[0]?.auth).toBe('Bearer sk-realtime-test-1234')
+    expect(seen[0]?.body).toMatchObject({ session: { type: 'realtime', model: 'realtime-model' } })
+  })
+
+  it('falls back to the older sessions endpoint when client secrets are not there', async () => {
+    await useRealtimeModel()
+    const urls: string[] = []
+    vi.stubGlobal('fetch', vi.fn(async (input: string | URL) => {
+      urls.push(String(input))
+      return urls.length === 1
+        ? new Response('not found', { status: 404 })
+        : new Response(JSON.stringify({ client_secret: { value: 'ek-legacy' } }), { status: 200, headers: { 'content-type': 'application/json' } })
+    }))
+    const result = await call<{ session: { clientSecret: string, transport: string } }>('POST', '/api/assistant/realtime/session', {})
+    expect(result.session.clientSecret).toBe('ek-legacy')
+    // The older door exchanges SDP at `realtime`, not `realtime/calls`; the browser is told which.
+    expect(result.session.transport).toBe('legacy')
+    expect(urls).toEqual([
+      'https://api.example.com/realtime/client_secrets',
+      'https://api.example.com/realtime/sessions',
+    ])
+  })
+
+  it('refuses when no realtime model is configured', async () => {
+    expect(await status('POST', '/api/assistant/realtime/session', {})).toBe(400)
+  })
+
+  it('refuses a provider that does not speak the OpenAI realtime protocol', async () => {
+    await useRealtimeModel('anthropic')
+    expect(await status('POST', '/api/assistant/realtime/session', {})).toBe(400)
+  })
+
+  it('does not echo the key when the provider refuses the session', async () => {
+    await useRealtimeModel()
+    vi.stubGlobal('fetch', vi.fn(async () => new Response('denied', { status: 401 })))
+    const response = await app.fetch(new Request('http://localhost/api/assistant/realtime/session', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: '{}',
+    }), env, ctx)
+    const text = await response.text()
+    expect(response.status).toBe(400)
+    expect(text).not.toContain('sk-realtime-test-1234')
+    expect(text).toContain('refused the voice session')
+    // A refused voice session is its own kind of failure: the panel can say what to check instead of
+    // falling back to "the server had an internal error".
+    expect(JSON.parse(text).error.code).toBe('realtime_refused')
+  })
+
+  it('names an unreachable provider rather than a generic server failure', async () => {
+    await useRealtimeModel()
+    vi.stubGlobal('fetch', vi.fn(async () => { throw new TypeError('Failed to fetch') }))
+    const response = await app.fetch(new Request('http://localhost/api/assistant/realtime/session', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: '{}',
+    }), env, ctx)
+    expect(response.status).toBe(502)
+    const body = await response.json() as { error: { code: string, message: string } }
+    expect(body.error.code).toBe('realtime_refused')
+    expect(body.error.message).toContain('could not be reached')
   })
 })
 

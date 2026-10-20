@@ -6,7 +6,7 @@
  * the ones that key can really call rather than a preset's guess.
  */
 import { useEffect, useId, useMemo, useRef, useState } from 'react'
-import { Brain, Check, ChevronDown, Download, Eye, GalleryVerticalEnd, Image, KeyRound, Plus, Power, Search, Server, Settings2, Trash2, Wand2, Wrench } from 'lucide-react'
+import { AudioLines, Brain, Check, ChevronDown, Download, Eye, GalleryVerticalEnd, Image, KeyRound, Plus, Power, Search, Server, Settings2, Trash2, Wand2, Wrench } from 'lucide-react'
 import { type AssistantModel, type AssistantModelKind, type AssistantModelPurpose, type AssistantProtocol, type AssistantProvider, type AssistantSettings, type ReasoningDialect } from '@shared/assistant'
 import { ASSISTANT_PROTOCOLS, PROVIDER_PRESETS, endpointFieldState } from '@shared/assistant'
 import { dialectsForProtocol } from '@shared/reasoning'
@@ -64,6 +64,7 @@ function specialMark(model: AssistantModel): { key: MessageKey, icon: React.Reac
   const purpose: Partial<Record<AssistantModelPurpose, { key: MessageKey, icon: React.ReactNode }>> = {
     image_generate: { key: 'assistant.model.purpose.image_generate', icon: <Image size={12} /> },
     image_edit: { key: 'assistant.model.purpose.image_edit', icon: <Wand2 size={12} /> },
+    realtime: { key: 'assistant.model.purpose.realtime', icon: <AudioLines size={12} /> },
   }
   const kind: Partial<Record<AssistantModelKind, { key: MessageKey, icon: React.ReactNode }>> = {
     embedding: { key: 'assistant.model.kind.embedding', icon: <GalleryVerticalEnd size={12} /> },

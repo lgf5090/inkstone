@@ -1207,6 +1207,7 @@ export type ApiErrorCode =
   | 'reader_space_exceeded'
   | 'reader_book_too_large'
   | 'reader_fetch_failed'
+  | 'realtime_refused'
   | 'server_misconfigured'
   | 'two_factor_already_enabled'
   | 'two_factor_challenge_expired'
