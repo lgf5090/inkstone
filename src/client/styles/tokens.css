@@ -138,9 +138,13 @@
   --code-spacing: -0.012em;
 
 
-  --success: oklch(70% 0.14 155);
-  --warning: oklch(76% 0.145 80);
-  --danger: oklch(64% 0.19 22);
+  /* Carried as small text — counts, warnings, the over-budget figure — on the darkest light surface
+     (#f1efe9), where these three measured 2.19 / 1.90 / 3.21. Each is now the lightest value in its own
+     hue and chroma that clears 5:1, which leaves a point of margin over the AA floor of 4.5:1. The dark
+     theme already passed and is untouched. See tests/contrast-light-semantic-colors.test.ts. */
+  --success: oklch(48% 0.14 155);
+  --warning: oklch(51% 0.145 80);
+  --danger: oklch(53% 0.19 22);
   --brand-accent: #bb4430;
 
   --empty-h-md: 192px;
