@@ -7442,6 +7442,8 @@ console.log(\`Hello, \${name}!\`)
     "todo.action.view_list": "打开清单",
     "todo.action.lists": "清单与标签",
     "todo.search_placeholder": "搜索待办",
+    "todo.load_more": "加载更多",
+    "todo.remaining": "还有 {count} 条",
     "todo.task.title_label": "标题",
     "todo.task.notes_label": "备注",
     "todo.task.due_label": "截止",
