@@ -7402,6 +7402,7 @@ console.log(\`Hello, \${name}!\`)
     "assistant.canvas.resize": "调整画布宽度",
     "assistant.chat.temporary_start.tip": "开始不留记录的临时对话",
     "assistant.chat.unlink_from_note.tip": "不再关联这篇笔记",
+    "subscriptions.ask_assistant": "就这一页问助手",
     "subscriptions.channel.inapp": "应用内通知",
     "subscriptions.channel.telegram": "Telegram",
     "subscriptions.channel.notifyx": "NotifyX",

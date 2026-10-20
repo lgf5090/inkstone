@@ -7,7 +7,7 @@
  * tab does not pay for a library they will not look at.
  */
 import { useEffect, useMemo, useState, type ReactElement } from 'react'
-import { CheckSquare, CircleHelp, PanelLeftClose, PanelLeftOpen, Plus, Search, Settings2, Tags, Wallet } from 'lucide-react'
+import { CheckSquare, CircleHelp, PanelLeftClose, PanelLeftOpen, Plus, Search, Settings2, Sparkles, Tags, Wallet } from 'lucide-react'
 import { cn } from '../../lib/cn'
 import { t } from '../../lib/i18n'
 import { IS_DEMO_MODE } from '../../lib/runtime'
@@ -206,6 +206,19 @@ export function SubscriptionsApp(): ReactElement {
         <Tooltip label={t('subscriptions.keys.title')} side="bottom">
           {/* A touch screen has no keys to press, so the card is offered only where it can be used. */}
           <IconButton label={t('subscriptions.keys.title')} size="sm" className="hidden sm:inline-flex" onClick={() => setKeysOpen(true)}><CircleHelp size={15} /></IconButton>
+        </Tooltip>
+        {/* The dock is mounted here, but nothing on this page could open it: the only callers of
+            `setAssistantDock` live in the notebook, so asking about a plan meant leaving for the chat tab
+            first. This is that door. */}
+        <Tooltip label={t('subscriptions.ask_assistant')} side="bottom">
+          <IconButton
+            label={t('subscriptions.ask_assistant')}
+            size="sm"
+            active={assistantDockOpen}
+            onClick={() => useUi.getState().setAssistantDock(!assistantDockOpen)}
+          >
+            <Sparkles size={15} />
+          </IconButton>
         </Tooltip>
         {/* Selecting applies to the list rows, so the press only exists where a box can appear. Offered in
             the trash or the logs it would flip to "exit selecting" and change nothing on screen. */}

@@ -9,7 +9,7 @@
  * The composer's own wiring is covered where it lives; a stub stands in for it here so a mount does not
  * pull in the model picker, the trigger panel and their fetches.
  */
-import { act, createElement } from 'react'
+import { act, createElement, type ComponentProps } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { AssistantMessage } from '@shared/assistant'
@@ -66,9 +66,12 @@ let uiOriginal = useUi.getState()
 let root: Root
 let host: HTMLElement
 
-async function show(patch: Partial<ReturnType<typeof useAssistant.getState>>): Promise<void> {
+async function show(
+  patch: Partial<ReturnType<typeof useAssistant.getState>>,
+  props: ComponentProps<typeof AssistantDock> = {},
+): Promise<void> {
   useAssistant.setState({ ...assistantOriginal, ...patch })
-  await act(async () => { root.render(createElement(AssistantDock)) })
+  await act(async () => { root.render(createElement(AssistantDock, props)) })
 }
 
 beforeEach(async () => {
@@ -194,3 +197,73 @@ describe('the docked assistant', () => {
     expect(link!.textContent).toContain('A page')
   })
 })
+
+/**
+ * What the dock claims about the page beside it.
+ *
+ * The dock is mounted by the notebook and by the money app alike, and the notebook's pointer — "the note
+ * you have open" — is simply untrue while the reader is looking at their plans. These cases pin the two
+ * halves of that: the notebook's pointers are not carried into the other app, and the plan the reader
+ * actually opened is shown as something they can take back off.
+ */
+describe('the dock beside the subscriptions app', () => {
+  it('does not claim the open note when it is docked in the money app', async () => {
+    useUi.setState({ activeNoteId: 'n1' })
+    await show({ loaded: true, activeId: null, messages: [], messagesReady: true }, { surface: 'subscriptions', subscription: null })
+    expect(useAssistant.getState().noteContextOn).toBe(false)
+    expect(useAssistant.getState().folderContextOn).toBe(false)
+  })
+
+  it('still points at the note on the notebook surface', async () => {
+    useAssistant.setState({ noteContextOn: false })
+    await show({ loaded: true, activeId: null, messages: [], messagesReady: true })
+    expect(useAssistant.getState().noteContextOn).toBe(true)
+  })
+
+  it('carries the opened plan and shows it as removable', async () => {
+    await show(
+      { loaded: true, activeId: null, messages: [], messagesReady: true },
+      { surface: 'subscriptions', subscription: { id: 'sub-1', name: 'Netflix' } },
+    )
+    expect(useAssistant.getState().subscriptionContext).toEqual({ id: 'sub-1', name: 'Netflix' })
+    const remove = [...document.body.querySelectorAll('button')]
+      .find((node) => node.getAttribute('aria-label') === t('assistant.context.remove', { name: 'Netflix' }))
+    expect(remove, 'the context the reader cannot see is context they cannot remove').toBeTruthy()
+    act(() => { remove!.click() })
+    expect(useAssistant.getState().subscriptionContext).toBeNull()
+  })
+
+  it('drops the plan from context when the reader closes it, and never offers the chip on the notebook', async () => {
+    await show({ loaded: true, activeId: null, messages: [], messagesReady: true }, { surface: 'subscriptions', subscription: { id: 'sub-1', name: 'Netflix' } })
+    await show({ loaded: true, activeId: null, messages: [], messagesReady: true }, { surface: 'subscriptions', subscription: null })
+    expect(useAssistant.getState().subscriptionContext).toBeNull()
+    await show({ loaded: true, activeId: null, messages: [], messagesReady: true }, { subscription: { id: 'sub-1', name: 'Netflix' } })
+    expect(document.body.textContent).not.toContain('Netflix')
+  })
+})
+
+  /**
+   * The bug a fixed test object hides.
+   *
+   * The caller builds `{ id, name }` inline, so every render hands the dock a new object that says the same
+   * thing. An effect that depends on that object re-runs on every render and re-attaches what the reader
+   * just took off — the chip becomes impossible to remove. Mounting once with a literal cannot show it.
+   */
+  it('keeps the plan off after the reader removes it, even when the page re-renders', async () => {
+    await show(
+      { loaded: true, activeId: null, messages: [], messagesReady: true },
+      { surface: 'subscriptions', subscription: { id: 'sub-1', name: 'Netflix' } },
+    )
+    const remove = [...document.body.querySelectorAll('button')]
+      .find((node) => node.getAttribute('aria-label') === t('assistant.context.remove', { name: 'Netflix' }))
+    expect(remove, 'the chip is offered').toBeTruthy()
+    act(() => { remove!.click() })
+    expect(useAssistant.getState().subscriptionContext).toBeNull()
+
+    // Same words, a different object, which is what a re-render from the page produces.
+    await act(async () => {
+      root.render(createElement(AssistantDock, { surface: 'subscriptions', subscription: { id: 'sub-1', name: 'Netflix' } }))
+    })
+    expect(useAssistant.getState().subscriptionContext, 'a re-render must not undo a removal').toBeNull()
+    expect(document.body.textContent, 'and the chip stays off').not.toContain('Netflix')
+  })

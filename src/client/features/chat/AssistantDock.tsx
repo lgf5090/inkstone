@@ -46,7 +46,12 @@ export function AssistantDock({ surface = 'notebook', subscription = null }: {
   surface?: AssistantDockSurface
   /** The plan the money app has open, so "what will this cost me this year" has an answer. */
   subscription?: { id: string, name: string } | null
-} = {}) {
+}) {
+  const subscriptionId = subscription?.id ?? null
+  const subscriptionName = subscription?.name ?? null
+  // The chip draws what is attached, not what the page offered: after the reader takes it off it must stay
+  // off until they move, or the control lies about the turn it is sending.
+  const attached = useAssistant((state) => state.subscriptionContext)
   const bootstrap = useAssistant((state) => state.bootstrap)
   const loaded = useAssistant((state) => state.loaded)
   const agentName = useAssistant((state) => state.settings?.agentName)
@@ -87,10 +92,13 @@ export function AssistantDock({ surface = 'notebook', subscription = null }: {
 
   // The dock hands the plan over and takes it back as the reader moves through the list; the chip below is
   // what makes that visible, because context the reader cannot see is context they cannot remove.
+  // The dependencies are the primitives, not the object: a caller that builds `{ id, name }` inline gives
+  // this a new identity on every render, and re-attaching after the reader pressed "remove" is how the
+  // chip would become impossible to take off.
   useEffect(() => {
     if (surface !== 'subscriptions') return
-    useAssistant.getState().setSubscriptionContext(subscription)
-  }, [surface, subscription])
+    useAssistant.getState().setSubscriptionContext(subscriptionId ? { id: subscriptionId, name: subscriptionName ?? '' } : null)
+  }, [surface, subscriptionId, subscriptionName])
 
   const streaming = (!!turn && !turn.done) || remoteStreaming
   const turnHere = turn && turn.conversationId === (activeId ?? null) ? turn : null
@@ -224,14 +232,14 @@ export function AssistantDock({ surface = 'notebook', subscription = null }: {
         )}
       </div>
 
-      {surface === 'subscriptions' && subscription && (
+      {surface === 'subscriptions' && attached && (
         <div role="group" aria-label={t('assistant.context.title')} className="flex flex-wrap items-center gap-1 px-3 pt-1.5">
           <span className="inline-flex min-w-0 items-center gap-1 rounded-[var(--r-sm)] bg-[var(--bg-inset)] px-1.5 py-0.5 text-[length:var(--text-11)] text-[var(--text-tertiary)]">
             <span aria-hidden className="shrink-0 text-[var(--text-quaternary)]"><Wallet size={12} /></span>
-            <span className="max-w-[180px] truncate">{subscription.name}</span>
+            <span className="max-w-[180px] truncate">{attached.name}</span>
             <button
               type="button"
-              aria-label={t('assistant.context.remove', { name: subscription.name })}
+              aria-label={t('assistant.context.remove', { name: attached.name })}
               onClick={() => useAssistant.getState().setSubscriptionContext(null)}
               className="ink-tap-pad relative shrink-0 text-[var(--text-quaternary)] transition-colors hover:text-[var(--text-secondary)]"
             >

@@ -1063,6 +1063,11 @@ const allowed = new Map([
     "/** The plan the money app has open, so \"what will this cost me this year\" has an answer. */",
     "// The dock hands the plan over and takes it back as the reader moves through the list; the chip below is",
     "// what makes that visible, because context the reader cannot see is context they cannot remove.",
+    "// The chip draws what is attached, not what the page offered: after the reader takes it off it must stay",
+    "// off until they move, or the control lies about the turn it is sending.",
+    "// The dependencies are the primitives, not the object: a caller that builds `{ id, name }` inline gives",
+    "// this a new identity on every render, and re-attaching after the reader pressed \"remove\" is how the",
+    "// chip would become impossible to take off.",
   ]],
   ["src/client/features/chat/AssistantHeader.tsx", [
     "/**\n * The title block every assistant page opens with.\n *\n * The surfaces behind the rail are one page with different contents, and each of them had written this\n * pair out for itself: a serif title at one size, and a line under it saying what the page is for. Three\n * copies drifted — one of them put its action beside the title and the others did not — so the shape\n * lives here. The action rides the title line, which is where a page's primary button belongs on a page\n * that also has a list under it.\n */",
@@ -2409,6 +2414,9 @@ const allowed = new Map([
     "// The change is shown first, and the note is only written by the press that follows the reading.",
     "// The dock is where a searched answer is most often read, so the citation has to be there from the",
     "// moment the words land — a claim that came from outside the vault cannot wait for a reload.",
+    "/**\n * What the dock claims about the page beside it.\n *\n * The dock is mounted by the notebook and by the money app alike, and the notebook's pointer — \"the note\n * you have open\" — is simply untrue while the reader is looking at their plans. These cases pin the two\n * halves of that: the notebook's pointers are not carried into the other app, and the plan the reader\n * actually opened is shown as something they can take back off.\n */",
+    "/**\n   * The bug a fixed test object hides.\n   *\n   * The caller builds `{ id, name }` inline, so every render hands the dock a new object that says the same\n   * thing. An effect that depends on that object re-runs on every render and re-attaches what the reader\n   * just took off — the chip becomes impossible to remove. Mounting once with a literal cannot show it.\n   */",
+    "// Same words, a different object, which is what a re-render from the page produces.",
   ]],
   ["src/client/features/chat/assistant-icon-picker.test.ts", [
     "/**\n * The picker's contract: one press chooses a brand, the default clears an override, and an upload hands\n * back the mark the helper produced rather than the file itself.\n */",
@@ -10707,6 +10715,7 @@ const allowed = new Map([
     "/** The one action in this app that cannot be undone, so it says so and asks for its own yes. */",
     "/* Selecting applies to the list rows, so the press only exists where a box can appear. Offered in\n            the trash or the logs it would flip to \"exit selecting\" and change nothing on screen. */",
     "/* The same column the notebook mounts, under the same conditions: the assistant's thread is\n            global state, so opening it here and opening it there is one conversation rather than two.\n            Not on a phone, where chat already has a tab of its own. */",
+    "/* The dock is mounted here, but nothing on this page could open it: the only callers of\n            `setAssistantDock` live in the notebook, so asking about a plan meant leaving for the chat tab\n            first. This is that door. */",
   ]],
   ["src/client/features/subscriptions/TrashView.tsx", [
     "/**\n * The trash: what was deleted, and the two ways to deal with it.\n *\n * A separate view rather than another mode of the subscription list, because the list's whole organising\n * idea is *when does this expire* — the buckets, the countdown colour, the renew shortcut — and none of\n * that means anything for a row nobody is being reminded about. A trashed subscription is sorted by when\n * it was discarded and offers exactly two actions: put it back, or make it gone.\n *\n * Nothing else lives here. Editing, renewing or testing a trashed subscription would all have to decide\n * what happens when it is restored afterwards, and a trash that can be quietly modified is a trash whose\n * contents cannot be trusted.\n */",
