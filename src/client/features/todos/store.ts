@@ -765,6 +765,11 @@ export const useTodos = create<TodosState>((set, get) => ({
         offerUndo(set, get, t('todo.toast.moved'), async () => {
           await get().updateTask(id, { listId })
         })
+      } else if (!undoing && before && 'priority' in patch && patch.priority !== before.priority) {
+        const priority = before.priority
+        offerUndo(set, get, t('todo.toast.priority'), async () => {
+          await get().updateTask(id, { priority })
+        })
       }
       void get().refreshCounts()
       return task

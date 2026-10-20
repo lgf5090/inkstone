@@ -185,6 +185,24 @@ describe('undoing a move', () => {
   })
 })
 
+describe('undoing a priority change', () => {
+  it('sends the row back to the priority it had', async () => {
+    const task = row('t1', 'File the return', { priority: 'high' })
+    hydrate([task])
+
+    await useTodos.getState().updateTask('t1', { priority: 'urgent' })
+    expect(useTodos.getState().tasks[0]?.priority).toBe('urgent')
+
+    await useTodos.getState().undoLast()
+
+    expect(service.updates).toEqual([
+      { id: 't1', body: { priority: 'urgent' } },
+      { id: 't1', body: { priority: 'high' } },
+    ])
+    expect(useTodos.getState().tasks[0]?.priority).toBe('high')
+  })
+})
+
 describe('the undo rail', () => {
   it('keeps only the latest step when two writes land', async () => {
     const first = row('a', 'First')
