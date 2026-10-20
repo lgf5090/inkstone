@@ -119,8 +119,11 @@ afterEach(() => {
 
 describe('time-of-day price windows', () => {
   const addWindow = () => buttons().find((node) => node.textContent?.trim() === t('assistant.model.price_period_add'))
-  const startBox = () => document.body.querySelector<HTMLInputElement>(`input[aria-label="${t('assistant.model.price_period_start')}"]`)
-  const endBox = () => document.body.querySelector<HTMLInputElement>(`input[aria-label="${t('assistant.model.price_period_end')}"]`)
+  /** The app's own clock fields, which open a dialog rather than the operating system's time box. */
+  const timeFields = () => [...document.body.querySelectorAll<HTMLButtonElement>('button[aria-haspopup="dialog"]')]
+  const hourIncrease = () => document.body.querySelector<HTMLButtonElement>(
+    `button[aria-label="${t('common.time_increase', { unit: t('common.time_hour') })}"]`,
+  ) ?? undefined
   const periodInputPrice = () => document.body.querySelector<HTMLInputElement>(
     `input[aria-label="${t('assistant.model.price_period_in')} · ${t('assistant.stats.tokens_in')}"]`,
   )
@@ -149,7 +152,9 @@ describe('time-of-day price windows', () => {
     render(async (draft) => { saved = draft; return true })
     await openMore()
     await press(addWindow(), 'add a price window')
-    await act(async () => { type(startBox()!, endBox()!.value) })
+    await press(timeFields()[0], 'the start time')
+    // The default window is 09:00–18:00; nine hours forward lands the start on the end.
+    for (let step = 0; step < 9; step += 1) await press(hourIncrease(), 'a later start hour')
 
     expect(saveButton()?.disabled).toBe(true)
     expect(document.body.textContent).toContain(t('assistant.model.price_period_error'))

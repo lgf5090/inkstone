@@ -32,6 +32,7 @@ import { cn } from '../../lib/cn'
 import { COPY_RESET_MS } from '../../lib/motion'
 import { t } from '../../lib/i18n'
 import { Field, Input, Segmented, Select, SettingRow, Slider, Switch } from '../../components/form'
+import { TimeField } from '../../components/date-picker'
 import { Button, IconButton } from '../../components/primitives'
 import { Modal } from '../../components/overlay'
 import { useUi } from '../../store/ui'
@@ -665,23 +666,21 @@ export function ModelEditorDialog({
                           )
                         })}
                       </div>
-                      <Input
-                        type="time"
-                        step={60}
-                        value={period.start}
-                        aria-label={t('assistant.model.price_period_start')}
-                        onChange={(event) => updatePeriod(index, { start: event.target.value })}
-                        className="w-[98px]"
-                      />
+                      <div className="w-[104px] shrink-0">
+                        <TimeField
+                          label={t('assistant.model.price_period_start')}
+                          value={period.start}
+                          onChange={(value) => updatePeriod(index, { start: value })}
+                        />
+                      </div>
                       <span aria-hidden className="text-[var(--text-quaternary)]">–</span>
-                      <Input
-                        type="time"
-                        step={60}
-                        value={period.end}
-                        aria-label={t('assistant.model.price_period_end')}
-                        onChange={(event) => updatePeriod(index, { end: event.target.value })}
-                        className="w-[98px]"
-                      />
+                      <div className="w-[104px] shrink-0">
+                        <TimeField
+                          label={t('assistant.model.price_period_end')}
+                          value={period.end}
+                          onChange={(value) => updatePeriod(index, { end: value })}
+                        />
+                      </div>
                     </div>
                     <div className="flex flex-wrap items-center gap-1.5">
                       <label className="flex items-center gap-1 text-[length:var(--text-10-5)] text-[var(--text-tertiary)]">

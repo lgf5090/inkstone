@@ -13,14 +13,15 @@ const MAX_FILE_BYTES = 4 * 1024 * 1024
 const ICON_SIZE = 96
 const ACCEPTED = new Set(['image/png', 'image/jpeg', 'image/webp'])
 
-function loadImage(file: File): Promise<{ width: number, height: number, draw: CanvasImageSource, close?: () => void }> {
+async function loadImage(file: File): Promise<{ width: number, height: number, draw: CanvasImageSource, close?: () => void }> {
   if (typeof createImageBitmap === 'function') {
-    return createImageBitmap(file).then((bitmap) => ({
+    const bitmap = await createImageBitmap(file)
+    return {
       width: bitmap.width,
       height: bitmap.height,
       draw: bitmap,
       close: () => bitmap.close(),
-    }))
+    }
   }
   const url = URL.createObjectURL(file)
   return new Promise((resolve, reject) => {

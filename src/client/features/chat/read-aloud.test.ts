@@ -99,7 +99,6 @@ const read = () => buttons().find((node) => {
   return name === t('assistant.chat.read_aloud') || name === t('assistant.chat.read_stop')
 })
 const pressed = () => read()?.getAttribute('aria-pressed')
-const drawnWords = () => document.body.textContent ?? ''
 
 function descriptionOf(node: Element | null | undefined): string {
   const ids = (node?.getAttribute('aria-describedby') ?? '').split(/\s+/).filter(Boolean)
@@ -150,7 +149,8 @@ describe('the control', () => {
     expect(control!.getAttribute('type')).toBe('button')
     expect(control!.getAttribute('aria-label')).toBe(t('assistant.chat.read_aloud'))
     expect(pressed()).toBe('false')
-    expect(drawnWords()).toContain(t('assistant.chat.read_aloud'))
+    // The reply toolbar is icons only; the words live in the tooltip and the accessible name.
+    expect(control!.textContent?.trim(), 'the icon-only control drew a word beside it').toBe('')
   })
 
   it('is drawn on a settled answer, next to the copy button', () => {

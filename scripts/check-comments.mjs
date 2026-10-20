@@ -3901,6 +3901,8 @@ const allowed = new Map([
     "// The name stays on the control, which is what a screen reader reads; the panel is the pointer's",
     "// convenience, so wiring it up as a description as well would say the same words twice.",
     "// The thumb beside it holds nothing, so it names its own verdict rather than a cancellation.",
+    "// The toolbar offers read-aloud only where the browser can speak; jsdom has no engine, so the control",
+    "// would carry the \"this browser cannot read\" description instead of the tooltip under test.",
   ]],
   ["src/client/features/chat/messages-error-reason.test.ts", [
     "/**\n * What the store leaves behind when reading a thread was refused.\n *\n * The banner a refused thread shows is built from a single string, `messagesError`, and the view prints that\n * string as a detail line only when it differs from the headline the catalog already supplies. So storing the\n * headline here was self-cancelling: the route's sentence about the field it refused was dropped at the store,\n * and the reader saw one identical line for a missing thread, a refused conversation id and a validator that\n * rejected one field — the toast that carried the reason having expired long before the banner was read.\n *\n * Both halves are pinned because the second is how this kind of fix usually goes wrong: with a reason the\n * field holds exactly that reason, and with nothing to say it holds the generic sentence, so the banner stays\n * the one-line block it has always been instead of growing an empty second line.\n */",
@@ -3996,6 +3998,8 @@ const allowed = new Map([
     "/**\n * What the model editor does with the answer to its own save.\n *\n * The dialog used to close the instant Save was pressed, because the write behind it answered the same way\n * whether it worked or was refused — so a refusal looked exactly like a saved model, and the draft the\n * reader had just typed was gone with the dialog. What is pinned here is the other contract: the dialog\n * waits for the answer, closes only on a yes, keeps the draft on a no, says the no above its own buttons,\n * and cannot be dismissed out from under a write that is still in flight.\n */",
     "/** The route's answer to a model whose name came back empty, as the store hands it to a form. */",
     "/** A press whose answer arrives a tick later, so the dialog's waiting state is the one being measured. */",
+    "/** The app's own clock fields, which open a dialog rather than the operating system's time box. */",
+    "// The default window is 09:00–18:00; nine hours forward lands the start on the end.",
   ]],
   ["src/client/features/chat/model-list-radiogroup.test.ts", [
     "/**\n * The model list is one choice between several, and it has to say so (UI2-17).\n *\n * Every row already carried `role=\"radio\"`, but with no group around them a reader heard a row of radios\n * belonging to nothing — no name for the set, no \"1 of 3\", and one Tab stop per model, so walking ten models\n * took ten presses. The group, its name, the single tab stop and the arrows that move the choice are what a\n * `radiogroup` promises, and `useRovingRadio` is the helper the segmented control already uses for them.\n */",
@@ -4296,6 +4300,7 @@ const allowed = new Map([
     "// Not a dead control with a reason: a browser that can speak is fine, there is simply nothing here to",
     "// hear, and a press that could only apologise for itself is the thing this app refuses to draw.",
     "// One channel, one owner: the row that lost it has to stop saying it is reading.",
+    "// The reply toolbar is icons only; the words live in the tooltip and the accessible name.",
     "// And it has to stop saying so without calling the hand-over a failure: another answer taking the",
     "// voice is the reader choosing, not a voice dying.",
     "// The pieces are the answer: concatenated they are exactly what the words-only reading of it is, so",

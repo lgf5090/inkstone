@@ -218,7 +218,7 @@ function IconPickerModal({
               ref={fileRef}
               type="file"
               accept="image/png,image/jpeg,image/webp"
-              className="sr-only"
+              hidden
               aria-label={t('assistant.icon.upload_choose')}
               onChange={(event) => void upload(event.target.files?.[0])}
             />

@@ -148,6 +148,10 @@ const originalUi = useUi.getState()
 beforeEach(async () => {
   installTestGlobals()
   await initI18n()
+  // The toolbar offers read-aloud only where the browser can speak; jsdom has no engine, so the control
+  // would carry the "this browser cannot read" description instead of the tooltip under test.
+  Object.defineProperty(window, 'speechSynthesis', { configurable: true, value: {} })
+  Object.defineProperty(window, 'SpeechSynthesisUtterance', { configurable: true, value: class {} })
   menuItems = []
   useAssistant.setState({ ...originalAssistant, activeId: 'c1' })
   useUi.setState({ ...originalUi, activeNoteId: null })
@@ -157,6 +161,8 @@ afterEach(() => {
   act(() => root.unmount())
   host.remove()
   document.body.innerHTML = ''
+  delete (window as unknown as Record<string, unknown>).speechSynthesis
+  delete (window as unknown as Record<string, unknown>).SpeechSynthesisUtterance
   useAssistant.setState(originalAssistant, true)
   useUi.setState(originalUi, true)
   vi.restoreAllMocks()
@@ -252,14 +258,18 @@ describe('what an answer says about itself', () => {
 
 describe('what a pointer is told about the icon-only controls', () => {
   const ICON_ONLY = [
+    'assistant.chat.copy',
     'assistant.chat.keep',
     'assistant.chat.rate_up',
     'assistant.chat.rate_down',
+    'assistant.chat.read_aloud',
+    'assistant.chat.save_to_note',
+    'assistant.chat.regenerate',
     'assistant.chat.message_actions',
   ] as const
 
   it('names every control that carries no word, in the app tooltip and nowhere else', () => {
-    mount(bubble({ onRate: () => {} }))
+    mount(bubble({ onRate: () => {}, onRetry: () => {}, retryLabel: 'assistant.chat.regenerate' }))
     for (const key of ICON_ONLY) {
       const control = byName(t(key))
       expect(control, `${key} is not drawn`).toBeTruthy()
@@ -269,13 +279,6 @@ describe('what a pointer is told about the icon-only controls', () => {
       expect(control!.getAttribute('aria-label'), `${key} lost its name`).toBe(t(key))
       expect(control!.getAttribute('aria-describedby'), `${key} would be read twice`).toBeNull()
       expect(control!.getAttribute('title'), `${key} still carries the browser's own hint`).toBeNull()
-    }
-  })
-
-  it('leaves the controls that carry their own word unhinted', () => {
-    mount(bubble({ onRate: () => {}, onRetry: () => {}, retryLabel: 'assistant.chat.regenerate' }))
-    for (const key of ['assistant.chat.copy', 'assistant.chat.regenerate', 'assistant.chat.save_to_note', 'assistant.chat.read_aloud'] as const) {
-      expect(toldBy(byName(t(key))), `${key} says it in words and drew a tooltip anyway`).toEqual([])
     }
   })
 
