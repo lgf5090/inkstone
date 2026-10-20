@@ -1,6 +1,6 @@
 import { lazy, memo, Suspense, useDeferredValue, useEffect, useId, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { BookOpen, Braces, BrainCircuit, Brush, Cloud, Database, FilePlus2, Info, Keyboard, Link2, Network, Palette, RefreshCw, Rss, ScanSearch, Search, TableProperties, Type, UserRound, X, WandSparkles, Zap } from 'lucide-react';
+import { BookOpen, Braces, BrainCircuit, Brush, Cloud, Database, FilePlus2, Info, Keyboard, Link2, ListChecks, Network, Palette, RefreshCw, Rss, ScanSearch, Search, TableProperties, Type, UserRound, X, WandSparkles, Zap } from 'lucide-react';
 import { ACCENTS } from '@shared/constants';
 import { cn } from '../../lib/cn';
 import { splitByRanges } from '../../lib/fuzzy';
@@ -54,6 +54,7 @@ export const SECTIONS: {
     { id: 'mindmap', label: () => t("settings.mindmap_title"), icon: <Network size={14}/> },
     { id: 'reading', label: () => t("settings.reading_title"), icon: <BookOpen size={14}/> },
     { id: 'rss', label: () => t("settings.rss"), icon: <Rss size={14}/> },
+    { id: 'todo', label: () => t("todo.title"), icon: <ListChecks size={14}/> },
     { id: 'about', label: () => t("settings.about"), icon: <Info size={14}/> },
 ];
 function HitTitle({ hit }: {

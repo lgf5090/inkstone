@@ -470,6 +470,7 @@ export const SETTINGS_SEARCH_INDEX: SettingsSearchEntry[] = [
   { section: 'excalidraw', titleKey: 'settings.excalidraw_compatibility_mode', detailKey: 'settings.excalidraw_compatibility_mode_desc' },
   { section: 'excalidraw', titleKey: 'settings.excalidraw_embed_md_comments', detailKey: 'settings.excalidraw_embed_md_comments_desc' },
   { section: 'excalidraw', titleKey: 'settings.excalidraw_sync_excalidraw', detailKey: 'settings.excalidraw_sync_excalidraw_desc' },
+  { section: 'todo', titleKey: 'assistant.settings.timezone', detailKey: 'assistant.settings.timezone_hint' },
 ]
 
 const MAX_HITS = 80
