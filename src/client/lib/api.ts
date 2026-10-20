@@ -1500,6 +1500,10 @@ export const api = {
     remove: (id: string) =>
       request<{ ok: true }>(`/api/subscriptions/${encodeURIComponent(id)}`, { method: 'DELETE' }),
     trashList: () => request<{ items: SubscriptionItem[] }>('/api/subscriptions/trash'),
+    search: (query: string, limit?: number) =>
+      request<{ items: SubscriptionItem[] }>(
+        `/api/subscriptions/search?q=${encodeURIComponent(query)}${limit ? `&limit=${limit}` : ''}`,
+      ),
     restore: (id: string) =>
       request<SubscriptionDetail>(`/api/subscriptions/${encodeURIComponent(id)}/restore`, { method: 'POST' }),
     purge: (id: string) =>

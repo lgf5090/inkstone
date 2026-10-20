@@ -5494,7 +5494,6 @@ const allowed = new Map([
     "// `data-owns-escape`. `escapeWhenEmpty: 'release'` says the same thing from the field's side, for",
     "// the keys the capture listener stands down on.",
     "// The same heading the in-file scope already draws over its rows, so a category reads as a category.",
-    "/**\n * One row of the vault search. The index's notes come first and the server's conversations after them,\n * and the cursor counts the two together — so an arrow key walks into a thread the same way it walks\n * into a note, and `Enter` only has to ask which of the two it landed on.\n */",
     "/**\n * A conversation the reader already had, as a row.\n *\n * It carries the category on itself as well as under its heading, because landing in a different app is\n * the surprise worth spending eight characters on; a row with no title is the state the chat's own list\n * calls a new conversation, and it says so rather than drawing an empty line.\n */",
     "// The threads the note index cannot see, asked of the one endpoint the chat's own list already uses.",
     "// An in-file search is about one note, so that is the only scope with nothing for it to add.",
@@ -5507,6 +5506,13 @@ const allowed = new Map([
     "// A thread has no second pane to be pushed into: `mod+o` opens it behind as it would a",
     "// note, and the chat app owns where it lands.",
     "// The thread half of a vault search is only asked for once there is something to ask it with.",
+    "/**\n * One row of the vault search. The index's notes come first, then the server's conversations, then the\n * subscriptions the money app keeps, and the cursor counts all three together — so an arrow key walks into\n * a thread or a plan the same way it walks into a note, and `Enter` only has to ask which it landed on.\n */",
+    "/**\n * A subscription the reader pays for, as a row.\n *\n * The countdown and the price are the two facts that tell the reader whether this is the plan they meant,\n * and both are said in the words the money app already uses — a search that invented its own phrasing for\n * \"3 days left\" would be a second vocabulary for one state.\n */",
+    "// The plans the reader pays for, asked of the money app's own search rather than the note index.",
+    "// A plan lives in another app, so the module that knows how to land there is pulled only for the",
+    "// results that need it — the same reason a conversation loads `start-chat` on demand.",
+    "// Same reason here: a subscription is not a document the editor can link into by title, and a",
+    "// `[[sub:…]]` written into a note is a broken note link rather than a reference to the plan.",
   ]],
   ["src/client/features/omnisearch/cache.ts", [
     "/**\n * The persisted index cache. Everything read back from IndexedDB is validated before it is handed to\n * MiniSearch, because a record written by an older build — or a half-written one after the tab was\n * killed — must degrade into a rebuild rather than a wrong result set or a throw.\n */",
@@ -5628,6 +5634,11 @@ const allowed = new Map([
   ["src/client/features/omnisearch/store.ts", [
     "/**\n * The prompt's open/close state. It is a store rather than a `PanelName` because the reference plugin\n * stacks the in-file search over the vault search, and because a note can be opened from a keyboard\n * chord while another panel is already up.\n */",
     "/** The note an in-file search runs against; the active note when it is missing. */",
+  ]],
+  ["src/client/features/omnisearch/subscription-results.ts", [
+    "/**\n * Subscriptions as a category of the global search.\n *\n * The prompt's index is built from notes and attachment files, so the money a reader tracks is invisible\n * to it even though it answers the same question — \"where did I write down Netflix\". Nothing is copied\n * into the index for this: one call to the app's own search endpoint, which matches a name, a type, a\n * category or a note against the live rows, is the whole mechanism.\n *\n * A deleted plan is deliberately absent. The trash is reachable from the app's rail, and a search result\n * that opens an erased subscription reads like the app lost it.\n */",
+    "/** Why the last answer is missing, in the reader's language. A refusal is never an empty result. */",
+    "/**\n * The server's subscription matches for `text`, for as long as the prompt is open.\n *\n * Independent of the conversation half: two categories answering out of order must not overwrite each\n * other, and each side only has to guard against being overtaken by its own newer query.\n */",
   ]],
   ["src/client/features/omnisearch/tokenizer.ts", [
     "/**\n * Tokenization for the local index.\n *\n * Indexing deliberately produces more tokens than the text has words: a hyphenated, camel-cased,\n * dotted, or Han-run token is searchable by each of its parts, which is what makes the reference\n * plugin feel effortless. A search builds those same groups into OR-of-AND combinations, so a token\n * only has to match in one of its readings — and one group failing does not lose the document.\n */",
@@ -10730,6 +10741,9 @@ const allowed = new Map([
     "// Two readings of \"month two\" are a month apart in the solar calendar, so they cannot share an option.",
     "// 2024 has no leap month. The choice has to go on its own; a picker stuck on an impossible combination",
     "// would show a date it can never write.",
+  ]],
+  ["src/client/features/subscriptions/open-subscription.ts", [
+    "/**\n * Landing on one subscription from somewhere outside its app.\n *\n * The global search and the notification bell both hold a subscription the reader wants in front of them,\n * and neither owns the tab bar. This is the one place that says how a row becomes a screen: go to the app,\n * ask for the list (the overview has nothing to show for a single plan), then select it, which is the same\n * action the row itself would have taken.\n */",
   ]],
   ["src/client/features/subscriptions/overview-chart.test.ts", [
     "/**\n * The six-month bar chart, as boxes with heights.\n *\n * The chart once rendered six month labels and no bars at all: each bar's height was a percentage of its\n * column, and the column also carries the label, so it was sized by its content — and a percentage height\n * against a content-sized parent is zero. Nothing threw, nothing warned, and the dashboard simply had no\n * chart in it. These assert the shape that fixed it: pixel heights, scaled against the plot.\n */",
@@ -19407,6 +19421,14 @@ const allowed = new Map([
     "// Nothing is coming if the reader already said they had seen it — the detail panel would otherwise",
     "// promise a next reminder that the scheduler has been told not to send.",
   ]],
+  ["src/shared/subscriptions/search.ts", [
+    "/**\n * One spelling of \"which subscription does this text name\".\n *\n * The chat tool filters a listing and the global search filters the same rows over HTTP. Two hand-written\n * haystacks drift — one grows the notes field, the other keeps ignoring it — and then a reader can find a\n * subscription by typing in one place and not the other. So the fields and the folding live here.\n */",
+    "/** How many rows a global search shows before the reader has to narrow the text. */",
+    "/** The longest query the app will match, in characters of whatever the reader typed. */",
+    "/** What a search box and a conversation both mean by the same words, ignoring case and accents' order. */",
+    "/**\n * Whether `query` names this subscription.\n *\n * An empty query matches nothing rather than everything: every caller asks in the middle of a search, and\n * \"the reader typed nothing\" must not read as \"all forty of their plans matched\".\n */",
+    "/**\n * The nearest rows for a search box, soonest-expiring first.\n *\n * Sorting by what is about to run out is the order the app already uses for a filtered list, so a hit from\n * the global search lands in a list that looks the same rather than a differently ordered one.\n */",
+  ]],
   ["src/shared/subscriptions/time.ts", [
     "/**\n * Time zones, done once.\n *\n * Three rules, and every caller in this app follows them:\n *  - stored times are epoch milliseconds, so a comparison is a comparison and never a string parse;\n *  - \"what day is it for this reader\" is answered by resolving the instant into the account's zone and\n *    reading the calendar fields back, never by `Date.getDate()` on the server's own clock;\n *  - a bare `YYYY-MM-DD` input means midnight *in the reader's zone*, which is why\n *    `parseDateInputInTimezone` exists — `new Date('2026-05-24')` is UTC midnight, and a reader eight\n *    hours east would see the day before.\n *\n * The reference project learned the last one the hard way (its issue #166: a subscription created\n * between midnight and 08:00 got yesterday's default date). The implementation below is a port of the\n * module that fixed it, minus the compatibility shims nobody calls.\n */",
     "/** The instant itself. A `Date` is always an absolute moment; the zone only changes how it reads. */",
@@ -23218,6 +23240,7 @@ const allowed = new Map([
     "// either: the reason comes back so the import result can say what was not written.",
     "// A kind with no fields has no bundle to read, so its own switch is the whole configuration.",
     "/** To the trash, not gone: the receipts and rules stay, and a restore is one column wide. */",
+    "/**\n * The rows a global search can name.\n *\n * Registered above `/:id`, because a literal segment after a parameter route would be swallowed by it and\n * answer with whatever subscription happens to be called `search`. Live rows only: the trash is reached\n * from the app's own rail, and a search that silently resurrects deleted plans in its results is worse\n * than one that omits them.\n */",
   ]],
   ["src/worker/routes/sync.ts", [
     "// A non-empty `after` key always means the caller is mid-way through a",

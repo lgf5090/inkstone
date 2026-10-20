@@ -571,3 +571,34 @@ describe('the trash', () => {
     expect(bundle.trashCount).toBe(1)
   })
 })
+
+describe('the global search over subscriptions', () => {
+  it('finds a plan by name, type, category or note, whatever case it was typed in', async () => {
+    await create({ name: 'Netflix', customType: 'streaming', category: 'family', notes: 'shared with 弟弟' })
+    for (const q of ['netfl', 'STREAMING', 'FAMILY', '弟弟']) {
+      const answer = await json<any>(await send('GET', `/search?q=${encodeURIComponent(q)}`))
+      expect(answer.items.map((item: any) => item.name), `"${q}" should have matched`).toEqual(['Netflix'])
+    }
+  })
+
+  it('answers nothing for an empty query, because the reader has not asked yet', async () => {
+    await create()
+    const answer = await json<any>(await send('GET', '/search?q='))
+    expect(answer.items).toEqual([])
+  })
+
+  it('keeps a trashed plan out of the results', async () => {
+    const created = await create({ name: 'Figma' })
+    await send('DELETE', `/${created.item.id}`)
+    const answer = await json<any>(await send('GET', '/search?q=figma'))
+    expect(answer.items).toEqual([])
+  })
+
+  it('orders soonest first and stops at the limit, under a path that the id route would otherwise take', async () => {
+    await create({ name: 'Far Plan', expiryDate: inDays(200) })
+    await create({ name: 'Soon Plan', expiryDate: inDays(2) })
+    await create({ name: 'Middle Plan', expiryDate: inDays(30) })
+    const answer = await json<any>(await send('GET', '/search?q=plan&limit=2'))
+    expect(answer.items.map((item: any) => item.name)).toEqual(['Soon Plan', 'Middle Plan'])
+  })
+})

@@ -33,6 +33,7 @@ import {
 } from '@shared/subscriptions/model'
 import { buildNotificationBody, subjectOf } from '../subscriptions/notify-content'
 import { normalizeColor, normalizeIcon } from '@shared/subscriptions/identity'
+import { SUBSCRIPTION_SEARCH_LIMIT, SUBSCRIPTION_SEARCH_MAX, searchSubscriptions } from '@shared/subscriptions/search'
 import { buildOverview } from '../subscriptions/overview'
 import { dispatch, testChannel } from '../subscriptions/channels'
 import { queryNotifyLogs, recentScheduleLogs } from '../subscriptions/logs'
@@ -169,6 +170,22 @@ subscriptionRoutes.get('/', async (c) => {
 subscriptionRoutes.get('/trash', async (c) => {
   const { store, context } = await contextOf(c)
   return c.json({ items: await store.list(context, 'trash') })
+})
+
+/**
+ * The rows a global search can name.
+ *
+ * Registered above `/:id`, because a literal segment after a parameter route would be swallowed by it and
+ * answer with whatever subscription happens to be called `search`. Live rows only: the trash is reached
+ * from the app's own rail, and a search that silently resurrects deleted plans in its results is worse
+ * than one that omits them.
+ */
+subscriptionRoutes.get('/search', async (c) => {
+  const { store, context } = await contextOf(c)
+  const query = (c.req.query('q') ?? '').slice(0, SUBSCRIPTION_SEARCH_MAX)
+  const limit = Number(c.req.query('limit') ?? SUBSCRIPTION_SEARCH_LIMIT)
+  const items = searchSubscriptions(await store.list(context), query, Number.isFinite(limit) ? limit : SUBSCRIPTION_SEARCH_LIMIT)
+  return c.json({ items })
 })
 
 subscriptionRoutes.post('/trash/empty', async (c) => {

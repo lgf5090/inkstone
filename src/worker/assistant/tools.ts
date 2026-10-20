@@ -28,6 +28,7 @@ import { createMcpNote, editMcpNote, trashMcpNote } from '../mcp/writes'
 import { readMcpNote, searchMcpNotes } from '../mcp/retrieval'
 import { buildOverview } from '../subscriptions/overview'
 import { normalizeColor, normalizeIcon } from '@shared/subscriptions/identity'
+import { matchesSubscriptionSearch } from '@shared/subscriptions/search'
 import { listChannels, loadSettings, saveSettings } from '../subscriptions/settings'
 import { SubscriptionsStore, storeContext, type StoreContext } from '../subscriptions/store'
 import {
@@ -1470,10 +1471,7 @@ export const SUBSCRIPTION_TOOLS: ToolDefinition[] = [
         if (status === 'active' && (item.daysRemaining < 0 || !item.isActive)) return false
         if (status === 'disabled' && item.isActive) return false
         if (category && !labelNamesOf(item.category, 'category').some((token) => token.toLocaleLowerCase() === category)) return false
-        if (query) {
-          const haystack = `${item.name} ${item.customType} ${item.category} ${item.notes}`.toLocaleLowerCase()
-          if (!haystack.includes(query)) return false
-        }
+        if (query && !matchesSubscriptionSearch(item, query)) return false
         return true
       }).sort((left, right) => left.daysRemaining - right.daysRemaining)
       const limit = Number(args.limit ?? 15)
