@@ -44,12 +44,12 @@ beforeAll(async () => {
   // `paste.ts` reaches the rules through `await import('../lib/linter')`, and that module reaches the
   // runner and the registry through two more dynamic imports of its own. Cold, those wait on the
   // bundler's transform queue, and a full-suite run is contended enough for the wait to outlast any
-  // timeout this file could reasonably carry — the paste then lands after the case has given up.
-  // Loading all three here puts them in the module graph, so the handler's own imports resolve on a
-  // tick. Warming only the index is what left this file failing in the full run: `lintPaste` never
+  // bundler's transform queue, and a full-suite run is contended enough for the wait to cross the
+  // global 10 s hook budget it would otherwise inherit — the paste then lands after the case has
+  // given up. The file carries its own budget for the same reason the other heavy-import suites do.
   // touches `./runner` until it is called.
   await Promise.all([import('../lib/linter'), import('../lib/linter/runner'), import('../lib/linter/registry')]);
-});
+}, 30_000);
 
 beforeEach(() => {
   localStorage.clear();
