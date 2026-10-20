@@ -19,6 +19,7 @@ import { beforeEach, describe, expect, it } from 'vitest'
 import { initializeDatabase, REQUIRED_COLUMNS, SCHEMA_MIGRATIONS } from '../src/worker/db/schema'
 import { ASSISTANT_REQUIRED_COLUMNS, ASSISTANT_SCHEMA_STATEMENTS } from '../src/worker/assistant/schema'
 import { AssistantStore } from '../src/worker/assistant/store'
+import { exportAssistant, importAssistant, type AssistantBackup } from '../src/worker/assistant/backup'
 import { makeD1 } from './doubles/d1-sqlite'
 import { testBindings } from './doubles/bindings'
 
@@ -145,26 +146,60 @@ describe('what the writer keeps', () => {
 })
 
 describe('the pointer through a backup', () => {
-  it('is exported, and lands back on the row when the same allowlist writes it', async () => {
+  /** The notification rows a file carries, the way the export writes them. */
+  function notificationsOf(backup: AssistantBackup): Record<string, unknown>[] {
+    const entries = backup.data.notifications
+    return Array.isArray(entries) ? entries as Record<string, unknown>[] : []
+  }
+
+  it('is exported, and lands back on the row a restore writes', async () => {
     const { env } = await installed()
     const store = new AssistantStore(env.DB as D1Database, USER, env)
     const written = await store.createNotification({ title: 'Renew the lease', body: 'Due today', link: 'todo:task-42' })
 
-    const exported = (await store.exportTables()).notifications.find((row) => row.id === written.id)!
-    expect(exported.link).toBe('todo:task-42')
+    const backup = await exportAssistant(store)
+    expect(notificationsOf(backup).find((row) => row.id === written.id)!.link).toBe('todo:task-42')
 
     const restored = new AssistantStore(env.DB as D1Database, OTHER, env)
-    await restored.importRows('chat_notifications', [exported])
-    expect((await restored.listNotifications()).find((entry) => entry.id === written.id)!.link).toBe('todo:task-42')
+    await importAssistant(restored, JSON.parse(JSON.stringify(backup)) as Record<string, unknown>)
+    const landed = (await restored.listNotifications()).find((entry) => entry.id === written.id)
+    expect(landed, 'a restore that loses the notice is not a restore').toBeDefined()
+    expect(landed!.link, 'a restored reminder that cannot be opened from lost its last step').toBe('todo:task-42')
+  })
 
-    // A file written before the column exists still lands its rows: the pointer is absent, not unknown,
-    // and a NOT-NULL-shaped mistake here is a notification silently thrown away.
-    const stripped: Record<string, unknown> = { ...exported }
-    delete stripped.link
-    const older = new AssistantStore(env.DB as D1Database, 'bbbbbbbbbbbbbbbbbbbbbbbbbb', env)
-    await older.importRows('chat_notifications', [stripped])
-    const landed = await older.listNotifications()
-    expect(landed.map((entry) => entry.id)).toContain(written.id)
-    expect(landed.find((entry) => entry.id === written.id)!.link).toBeNull()
+  it('lands an older file without the key as a notice with no pointer, not no notice', async () => {
+    const { env } = await installed()
+    const store = new AssistantStore(env.DB as D1Database, USER, env)
+    const written = await store.createNotification({ title: 'Renew the lease', body: 'Due today', link: 'todo:task-42' })
+
+    const backup = await exportAssistant(store)
+    // A file written before the column existed names no `link` key at all.
+    for (const row of notificationsOf(backup)) delete row.link
+
+    const restored = new AssistantStore(env.DB as D1Database, OTHER, env)
+    await importAssistant(restored, JSON.parse(JSON.stringify(backup)) as Record<string, unknown>)
+    const landed = (await restored.listNotifications()).find((entry) => entry.id === written.id)
+    expect(landed, 'an absent pointer must not make the whole row vanish').toBeDefined()
+    expect(landed!.link).toBeNull()
+  })
+
+  it('does not move one account\'s pointer onto another account\'s row', async () => {
+    const { env, sqlite } = await installed()
+    const store = new AssistantStore(env.DB as D1Database, USER, env)
+    const written = await store.createNotification({ title: 'Mine', body: 'x', link: 'todo:mine' })
+    const backup = await exportAssistant(store)
+
+    // The account receiving the file already knows this id, and the notice it holds is its own.
+    sqlite.prepare(
+      `INSERT INTO chat_notifications (user_id, id, title, body, link, created_at) VALUES (?, ?, ?, ?, ?, ?)`,
+    ).run(OTHER, written.id, 'Theirs', 'y', 'todo:theirs', 1)
+
+    const target = new AssistantStore(env.DB as D1Database, OTHER, env)
+    await importAssistant(target, JSON.parse(JSON.stringify(backup)) as Record<string, unknown>)
+
+    const theirs = (await target.listNotifications()).find((entry) => entry.id === written.id)!
+    expect(theirs.link, 'the file must not re-point a notice the reader already had').toBe('todo:theirs')
+    expect(await target.listNotifications(), 'the held id must not be doubled by the file').toHaveLength(1)
+    expect((await store.listNotifications()).find((entry) => entry.id === written.id)!.link).toBe('todo:mine')
   })
 })

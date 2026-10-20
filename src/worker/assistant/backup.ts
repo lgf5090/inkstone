@@ -92,6 +92,23 @@ function targetIdValue(value: unknown): string | null {
   return id && id.length <= MAX_AUTOMATION_TARGET_ID_CHARS ? id : null
 }
 
+/** The bound the notification writer puts on its pointer; a file must not be able to widen it. */
+const NOTIFICATION_LINK_MAX_CHARS = 200
+
+/**
+ * Where a restored notice points, kept as the opaque `<app>:<id>` pair it is.
+ *
+ * Deliberately not `idValue`: the pair is not a key of any row this restore writes — the client is what
+ * reads `todo:` and knows what to do with a task it cannot open — so a shape this build does not read is
+ * still the notice's own statement of what it was about, and dropping it would bring back a notice that
+ * looks the same and does less. Missing and blank both answer null, which is the writer's answer too: a
+ * file that predates the column says its notice points nowhere, rather than failing to say anything.
+ */
+function notificationLinkValue(value: unknown): string | null {
+  if (typeof value !== 'string') return null
+  return value.trim().slice(0, NOTIFICATION_LINK_MAX_CHARS) || null
+}
+
 export async function importAssistant(store: AssistantStore, raw: Record<string, unknown>): Promise<ImportSummary> {
   if (raw.format !== ASSISTANT_BACKUP_FORMAT) throw ApiError.badRequest('That is not an Inkstone assistant backup.')
   const version = numberValue(raw.version, 1)
@@ -569,6 +586,11 @@ async function mergeBackup(store: AssistantStore, data: Record<string, unknown>,
       title: textValue(notification.title, 200) || 'Reminder',
       body: textValue(notification.body, 8000),
       automation_id: idValue(notification.automation_id),
+      // The pointer travels with the notice, and it is named here rather than left to what the row does
+      // not say: `importRows` writes the columns the row names and nothing else, so an import that omits
+      // this one restores a reminder whose press opens a list instead of the task it was about — the
+      // quiet half of the loss, because the row itself still lands.
+      link: notificationLinkValue(notification.link),
       read_at: numberOrNull(notification.read_at),
       created_at: numberValue(notification.created_at, Date.now()),
     })
