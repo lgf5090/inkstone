@@ -11531,6 +11531,7 @@ const allowed = new Map([
     "// The boundary character is not part of the tag, so it goes back as text and the tag follows.",
     "/** The line a block prints under its answer when the reader asked for the tally. */",
     "/** The footer a list carries when the settings ceiling clipped it, or the body ceiling did. */",
+    "/**\n * The task fields shown as pills, in the order a reader scans them.\n *\n * Driven by a list rather than a fixed five because the task parser now supplies more than dates:\n * `priority` and `recurrence` are the two a reader wants next to a due date. `completion` is left\n * out on purpose — it is the same value as `done`, kept only so existing queries keep answering.\n */",
   ]],
   ["src/client/lib/dataview/service.ts", [
     "/**\n * The Dataview service: the index, wired to this app's note store and its three body sources.\n *\n * A note's summary is already in memory for every note the reader has, so the snapshot is built from\n * it and no request is made until a query actually needs a body. Bodies then come from the editor's\n * copy first (the only place an uncommitted edit exists), the search index's on-disk bodies second, and\n * the batched note endpoint last — in chunks of forty, which is what that endpoint will hand over in\n * one call, and with the response's own `missing` list remembered so a note the backend will not\n * supply is not asked for again on every keystroke.\n *\n * The store's tag list is written by the server from the note's own content, so a `FROM #tag` clause is\n * answered from the summary alone.\n */",
@@ -11545,6 +11546,7 @@ const allowed = new Map([
   ["src/client/lib/dataview/task-fields.ts", [
     "/**\n * Read a task line into the one shape every view agrees on.\n *\n * Both formats are tried because Inkstone notes already mix them: a vault where half the tasks say\n * `📅 2026-10-04` and half say `[due:: 2026-10-04]` should not have to pick an engine. The emoji\n * format wins where both found the same field, since it is the one that carries the rest of them.\n */",
     "/**\n * The task's fields as Dataview fields, so `WHERE due < today` and `TABLE priority` answer for a\n * task line the same way they do for a frontmatter property.\n *\n * `completion` is kept beside `done`: it is the name this project's Dataview port published, and\n * readers have queries written against it. Keys the note already set by hand are skipped, because\n * an explicit `[due:: …]` states what the author meant more directly than a symbol does.\n */",
+    "/**\n * What a checkbox character means, as two flat fields.\n *\n * `completed` answers \"is the box ticked\", which is what a Dataview task table has always shown.\n * `statusType` answers \"is this task finished\", which is the question a `[-]` cancelled task asks\n * and `completed` cannot answer. Both stay on the page so a reader can filter either way.\n */",
   ]],
   ["src/client/lib/dataview/tasks.test.ts", [
     "/**\n * The task rewrite: what a tick in a query result is allowed to do to another note's line. The refusals\n * matter as much as the edits, because the line the reader sees may no longer be the line in the file.\n */",
@@ -17337,6 +17339,7 @@ const allowed = new Map([
   ]],
   ["src/client/lib/tasks/line.ts", [
     "/**\n * The narrow seam for \"what does this task line say\".\n *\n * `index.ts` is the module's full surface and reaches the query engine, the recurrence rules and the\n * natural-language date parser. A caller that only reads a line must not pay for any of that: this\n * file is the second, deliberate entry point for that reader, and it pulls in neither `rrule` nor\n * `chrono-node`. It is a declared entry of the task module, not a deep path into its internals.\n */",
+    "/**\n * The statuses every reader gets whether they configured any or not.\n *\n * A single instance, because the four defaults are the same for everybody; the settings screen\n * swaps in its own once a reader defines more characters. Rebuilding it is cheap and the scan\n * re-reads it, so a note never disagrees with the registry that produced it.\n */",
   ]],
   ["src/client/lib/tasks/model/occurrence.ts", [
     "/**\n * The three dates a recurrence rule moves together.\n *\n * Only these three: `created`, `done` and `cancelled` describe what already happened to an\n * instance, so carrying them into the next occurrence would be rewriting history.\n */",

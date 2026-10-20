@@ -16,7 +16,7 @@ import { extractTags, parseFrontMatter } from '@shared/markdown-utils'
 import type { TaskFields } from '../tasks'
 import { DvLink, Values, type DataObject, type Literal } from './value'
 import { buildDate, normalizeDuration, parseInlineValue, stripTime } from './expression'
-import { readTaskFields, taskFieldEntries } from './task-fields'
+import { describeStatus, readTaskFields, taskFieldEntries } from './task-fields'
 
 /** One `- [ ]` / `1. ` / `* ` line, with its children, its fields and the section it sits under. */
 export interface ListItemData {
@@ -36,7 +36,14 @@ export interface ListItemData {
     link: DvLink
     children: number[]
     parent: number | null
-    task: { status: string; completed: boolean; fullyCompleted: boolean; fields: TaskFields } | null
+    task: {
+        status: string
+        completed: boolean
+        fullyCompleted: boolean
+        statusType: string
+        statusName: string
+        fields: TaskFields
+    } | null
     fields: Map<string, Literal[]>
 }
 
@@ -452,6 +459,7 @@ function scanLists(
                 status,
                 completed: status !== ' ',
                 fullyCompleted: status === 'x' || status === 'X',
+                ...describeStatus(status),
                 fields: readTaskFields(match[5] ?? ''),
             },
             fields: new Map(),
@@ -566,6 +574,8 @@ function serializeListItem(item: ListItemData, page: PageMetadata, cache: Map<nu
         status: item.task?.status ?? item.symbol,
         completed: item.task?.completed ?? false,
         fullyCompleted: item.task?.fullyCompleted ?? false,
+        statusType: item.task?.statusType ?? 'NON_TASK',
+        statusName: item.task?.statusName ?? '',
         link: item.link,
         line: item.line,
         lineCount: item.lineCount,

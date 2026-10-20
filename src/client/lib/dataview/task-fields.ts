@@ -1,4 +1,4 @@
-import { DataviewTaskSerializer, EmojiTaskSerializer, PRIORITY_NAMES, Priority, type TaskDateField, type TaskFields } from '../tasks/line'
+import { DataviewTaskSerializer, defaultStatusRegistry, EmojiTaskSerializer, PRIORITY_NAMES, Priority, type TaskDateField, type TaskFields } from '../tasks/line'
 import type { Literal } from './value'
 
 const emoji = new EmojiTaskSerializer()
@@ -58,4 +58,16 @@ export function taskFieldEntries(fields: TaskFields, taken: Map<string, Literal[
     if (fields.onCompletion !== '') add('onCompletion', fields.onCompletion)
 
     return entries.filter(([key]) => !taken.has(key))
+}
+
+/**
+ * What a checkbox character means, as two flat fields.
+ *
+ * `completed` answers "is the box ticked", which is what a Dataview task table has always shown.
+ * `statusType` answers "is this task finished", which is the question a `[-]` cancelled task asks
+ * and `completed` cannot answer. Both stay on the page so a reader can filter either way.
+ */
+export function describeStatus(symbol: string): { statusType: string; statusName: string } {
+    const status = defaultStatusRegistry.bySymbolOrCreate(symbol)
+    return { statusType: status.type, statusName: status.name }
 }
