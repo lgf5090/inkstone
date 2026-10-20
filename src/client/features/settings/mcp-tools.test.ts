@@ -60,9 +60,9 @@ const toolSwitch = (title: string) => document.body.querySelector<HTMLButtonElem
   `[role="switch"][aria-label="${t('settings.mcp_tool_enabled', { name: title })}"]`,
 )
 
-async function open(disabledTools: string[] = []) {
+async function open(disabledTools: string[] = [], preferences?: McpSettingsInfo['preferences']) {
   mounted = true
-  mocks.get.mockResolvedValue(info(disabledTools))
+  mocks.get.mockResolvedValue(preferences ? { ...info(disabledTools), preferences } : info(disabledTools))
   mocks.save.mockResolvedValue({
     enabled: true,
     preferences: { writeEnabled: true, trashEnabled: false, disabledTools, updatedAt: 2 },
@@ -125,7 +125,7 @@ describe('the MCP tool switches', () => {
 })
 
 /** The switches that decide what the next API key may do, by the permission they name. */
-const keyScopeSwitch = (scopeKey: 'settings.mcp_scope_write' | 'settings.mcp_scope_trash') =>
+const keyScopeSwitch = (scopeKey: 'settings.mcp_scope_write' | 'settings.mcp_scope_trash' | 'settings.mcp_scope_todo_read' | 'settings.mcp_scope_todo_write' | 'settings.mcp_scope_todo_danger') =>
   document.body.querySelector<HTMLButtonElement>(
     `[role="switch"][aria-label="${t('settings.mcp_api_key_scope_toggle', { scope: t(scopeKey) })}"]`,
   )
@@ -149,6 +149,8 @@ describe('the scope switches for a new API key', () => {
       token: 'ink_test',
     })
     await act(async () => { keyScopeSwitch('settings.mcp_scope_write')?.click() })
+    await act(async () => { keyScopeSwitch('settings.mcp_scope_todo_read')?.click() })
+    await act(async () => { keyScopeSwitch('settings.mcp_scope_todo_write')?.click() })
     const name = document.body.querySelector<HTMLInputElement>(`input[aria-label="${t('settings.mcp_api_key_name')}"]`)
     await act(async () => {
       Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value')?.set?.call(name, 'Automation')
@@ -177,5 +179,52 @@ describe('the scope switches for a new API key', () => {
     // Undefined, not a list: "the reader never touched these" has to stay distinguishable from "the reader
     // switched everything off", or a default would quietly become a decision.
     expect(mocks.createKey).toHaveBeenCalledWith('Automation', undefined)
+  })
+})
+
+describe('the permissions a key may be given', () => {
+  it('offers the to-do family beside the note one, gated the same way', async () => {
+    // The fixture's own preferences: writes on, trash off.
+    await open()
+
+    expect(keyScopeSwitch('settings.mcp_scope_write'), 'notes:write vanished').toBeTruthy()
+    expect(keyScopeSwitch('settings.mcp_scope_todo_read'), 'a key can never be given to-do reads').toBeTruthy()
+    expect(keyScopeSwitch('settings.mcp_scope_todo_write'), 'a key can never be given to-do writes').toBeTruthy()
+    expect(keyScopeSwitch('settings.mcp_scope_trash'), 'trash was offered with the account switch off').toBeNull()
+    expect(keyScopeSwitch('settings.mcp_scope_todo_danger'), 'hard delete was offered with the account switch off').toBeNull()
+  })
+
+  it('opens the delete family together for both domains and closes together', async () => {
+    await open([], { writeEnabled: false, trashEnabled: true, disabledTools: [], updatedAt: 1 })
+
+    expect(keyScopeSwitch('settings.mcp_scope_write'), 'notes:write stayed with the switch off').toBeNull()
+    expect(keyScopeSwitch('settings.mcp_scope_todo_write'), 'todos:write stayed with the switch off').toBeNull()
+    expect(keyScopeSwitch('settings.mcp_scope_trash'), 'notes:trash is missing').toBeTruthy()
+    expect(keyScopeSwitch('settings.mcp_scope_todo_danger'), 'todos:danger is missing').toBeTruthy()
+    // A to-do read costs nothing to the account's own switches — it is a different domain, not a stronger
+    // one — so it is offered whether or not writing is on.
+    expect(keyScopeSwitch('settings.mcp_scope_todo_read'), 'todos:read rides the account switch it does not need').toBeTruthy()
+  })
+
+  it('leaves a denied to-do permission out of the minted key', async () => {
+    await open()
+    mocks.createKey.mockResolvedValue({
+      key: { id: 'k1', name: 'Calendar', scopes: ['notes:read'], createdAt: 1, lastUsedAt: null },
+      token: 'ink_test',
+    })
+
+    // Every offered permission starts on, so the reader's decision is what to withhold — and what is
+    // withheld has to be what the mint leaves out, not merely what the screen stopped showing.
+    await act(async () => { keyScopeSwitch('settings.mcp_scope_todo_read')?.click() })
+
+    const name = document.body.querySelector<HTMLInputElement>(`input[aria-label="${t('settings.mcp_api_key_name')}"]`)
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value')?.set?.call(name, 'Calendar')
+      name!.dispatchEvent(new Event('input', { bubbles: true }))
+    })
+    await act(async () => { byText(t('settings.mcp_api_key_create'))?.click() })
+    await act(async () => { await Promise.resolve() })
+
+    expect(mocks.createKey).toHaveBeenCalledWith('Calendar', ['notes:write', 'todos:write'])
   })
 })

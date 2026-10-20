@@ -314,8 +314,9 @@ export function McpSettings() {
   const preferences = info.preferences
   const aiSearch = info.aiSearch
   const disabledTools = new Set(preferences.disabledTools)
-  // Reads are always allowed and are the floor every key stands on, so only the two permissions that can be
-  // withheld are offered — and only the ones this account has actually switched on.
+  // Notes reads are the floor every key stands on, so they are never offered; everything else — the two
+  // note permissions that can be withheld and the three to-do ones — is offered only when this account has
+  // actually switched it on.
   const allowedKeyScopes = KEY_SCOPE_CHOICES.filter((scope) => scopeAllowed(scope, preferences))
   const nextKeyScopes = keyScopes ?? allowedKeyScopes
 
@@ -738,12 +739,18 @@ function clientSnippets(info: McpSettingsInfo): Array<{ id: string; name: string
   ]
 }
 
-/** The permissions a key may be denied. Reads are the floor every key stands on, so they are not a choice. */
-const KEY_SCOPE_CHOICES = ['notes:write', 'notes:trash'] as const
+/**
+ * The permissions a key may be denied.
+ *
+ * `notes:read` is the floor every key stands on, so it is not offered. `todos:read` is not a floor but a
+ * second data domain, and this is the only place a reader can ask for it: a key minted with "whatever this
+ * account allows" stays on notes, and the server refuses a to-do scope that was never named by name.
+ */
+const KEY_SCOPE_CHOICES = ['notes:write', 'notes:trash', 'todos:read', 'todos:write', 'todos:danger'] as const
 
 function scopeAllowed(scope: string, preferences: McpSettingsInfo['preferences']): boolean {
-  if (scope === 'notes:write') return preferences.writeEnabled
-  if (scope === 'notes:trash') return preferences.trashEnabled
+  if (scope === 'notes:write' || scope === 'todos:write') return preferences.writeEnabled
+  if (scope === 'notes:trash' || scope === 'todos:danger') return preferences.trashEnabled
   return true
 }
 
@@ -752,6 +759,9 @@ function scopeSummary(scopes: string[]): string {
     if (scope === 'notes:read') return t('settings.mcp_scope_read')
     if (scope === 'notes:write') return t('settings.mcp_scope_write')
     if (scope === 'notes:trash') return t('settings.mcp_scope_trash')
+    if (scope === 'todos:read') return t('settings.mcp_scope_todo_read')
+    if (scope === 'todos:write') return t('settings.mcp_scope_todo_write')
+    if (scope === 'todos:danger') return t('settings.mcp_scope_todo_danger')
     return scope
   }).join(' · ')
 }
