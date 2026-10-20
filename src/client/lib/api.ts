@@ -107,6 +107,7 @@ import type {
   SavedMessage,
 } from '@shared/assistant'
 import type {
+  RemindOffset,
   TaskList,
   TaskPage,
   TaskStatsBucket,
@@ -665,6 +666,35 @@ export interface PushSubscriptionPayload {
   keys: { p256dh: string, auth: string }
 }
 
+/** How far before the due time each quick-add preset sits; "none" removes the reminder. */
+const REMINDER_DELAYS: Readonly<Record<Exclude<RemindOffset, 'none'>, number>> = {
+  due: 0,
+  '15m': 15 * 60_000,
+  '1h': 60 * 60_000,
+  '1d': 24 * 60 * 60_000,
+}
+
+/**
+ * Reads the quick-add offset into the absolute reminder list the route accepts.
+ *
+ * The inline quick-add still speaks "15 minutes before" because that is what a person types, and the
+ * editor speaks absolute instants because that is what a reminder is. The conversion happens here,
+ * at the network boundary, so the offset never reaches the worker — the route has one shape to
+ * validate and the stored row has one meaning. An explicit `reminders` list wins over the offset; a
+ * body carrying neither is sent untouched.
+ */
+function withReminderList(body: Record<string, unknown>): Record<string, unknown> {
+  if (!('remind' in body)) return body
+  const { remind, ...rest } = body
+  if (Array.isArray(rest.reminders)) return rest
+  const dueAt = rest.dueAt
+  if (typeof dueAt !== 'number' || typeof remind !== 'string') return rest
+  if (remind === 'none') return { ...rest, reminders: [] }
+  const delay = REMINDER_DELAYS[remind as Exclude<RemindOffset, 'none'>]
+  if (delay === undefined) return rest
+  return { ...rest, reminders: [dueAt - delay] }
+}
+
 export const api = {
   session: () => request<SessionInfo>('/api/auth/session'),
   logout: () => request<{ ok: true }>('/api/auth/logout', { method: 'POST' }),
@@ -1070,10 +1100,11 @@ export const api = {
     } = {}) =>
       request<TaskPage>(`/api/todos${toQuery(params)}`),
     get: (id: string) => request<{ task: TodoTask, steps: TaskStep[] }>(`/api/todos/${id}`),
-    create: (body: Record<string, unknown>) => request<{ task: TodoTask }>('/api/todos', { method: 'POST', body }),
+    create: (body: Record<string, unknown>) =>
+      request<{ task: TodoTask }>('/api/todos', { method: 'POST', body: withReminderList(body) }),
     /** `next` is present when the patch finished a repeating task and it filed the next occurrence. */
     update: (id: string, body: Record<string, unknown>) =>
-      request<{ task: TodoTask, next?: TodoTask }>(`/api/todos/${id}`, { method: 'PATCH', body }),
+      request<{ task: TodoTask, next?: TodoTask }>(`/api/todos/${id}`, { method: 'PATCH', body: withReminderList(body) }),
     /**
      * Picks a task into a day, or takes it back out with `null`.
      *

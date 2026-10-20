@@ -42,13 +42,19 @@ async function reminderTask(userId: string, over: { title?: string, offsetMs?: n
   return await store.createTask({
     title: over.title ?? 'File the return',
     dueAt: due,
-    remindAt: NOW + (over.offsetMs ?? -60_000),
+    reminders: [NOW + (over.offsetMs ?? -60_000)],
     status: over.status ?? 'todo',
   })
 }
 
 async function notificationsOf(userId: string) {
   return await new AssistantStore(env.DB as D1Database, userId, env).listNotifications()
+}
+
+/** The delivered-row count straight from the table the sweep writes, not through a store read. */
+function notificationCount(userId: string): number {
+  return Number((sqlite.prepare(`SELECT COUNT(*) AS n FROM chat_notifications WHERE user_id = ?1`)
+    .get(userId) as { n: number }).n)
 }
 
 describe('sweepTaskReminders', () => {
@@ -66,6 +72,37 @@ describe('sweepTaskReminders', () => {
     const second = await sweepTaskReminders(env, NOW)
     expect(second).toMatchObject({ due: 0, sent: 0 })
     expect(await notificationsOf(ALICE)).toHaveLength(1)
+  })
+
+  it('delivers each of a task\'s five reminders once, and only once', async () => {
+    const store = new AssistantStore(env.DB as D1Database, ALICE, env)
+    const times = [
+      NOW - 5 * 60_000,
+      NOW - 4 * 60_000,
+      NOW - 3 * 60_000,
+      NOW - 2 * 60_000,
+      NOW - 60_000,
+    ]
+    const task = await store.createTask({ title: 'Stand-up', reminders: times })
+    expect(task.reminders).toEqual(times)
+
+    expect(await sweepTaskReminders(env, NOW)).toMatchObject({ due: 5, sent: 5, claimed: 0, failed: 0 })
+    // Every row was claimed by the first fire, so an overlapping tick has nothing to deliver.
+    expect(await sweepTaskReminders(env, NOW)).toMatchObject({ due: 0, sent: 0 })
+    expect(notificationCount(ALICE)).toBe(5)
+
+    const link = sqlite.prepare(`SELECT link FROM chat_notifications WHERE user_id = ?1 LIMIT 1`)
+      .get(ALICE) as { link: string | null }
+    expect(link.link).toBe(`todo:${task.id}`)
+  })
+
+  it('delivers nothing for a task finished after its reminders were set', async () => {
+    const store = new AssistantStore(env.DB as D1Database, ALICE, env)
+    const task = await store.createTask({ title: 'Already done', reminders: [NOW - 60_000] })
+    await store.completeTask(task.id, 'UTC')
+
+    expect(await sweepTaskReminders(env, NOW)).toMatchObject({ due: 0, sent: 0 })
+    expect(notificationCount(ALICE)).toBe(0)
   })
 
   it('leaves a reminder that is not due yet alone', async () => {

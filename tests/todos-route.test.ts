@@ -207,6 +207,39 @@ describe('steps', () => {
   })
 })
 
+describe('reminders', () => {
+  const AT = Date.parse('2026-10-20T09:00:00Z')
+
+  it('stores up to five absolute instants, ascending and deduplicated', async () => {
+    const task = await create({
+      title: 'Five alarms',
+      reminders: [AT + 4 * 60_000, AT, AT + 2 * 60_000, AT, AT + 60_000, AT + 3 * 60_000],
+    })
+    expect(task.reminders).toEqual([AT, AT + 60_000, AT + 2 * 60_000, AT + 3 * 60_000, AT + 4 * 60_000])
+
+    const patched = await json<{ task: TodoTask }>(await send('PATCH', `/${task.id}`, {
+      reminders: [AT + 9 * 60_000],
+    }))
+    expect(patched.task.reminders).toEqual([AT + 9 * 60_000])
+  })
+
+  it('refuses a sixth reminder and any value that is not a timestamp', async () => {
+    const six = Array.from({ length: 6 }, (_, index) => AT + index * 60_000)
+    expect((await send('POST', '', { title: 'Too many', reminders: six })).status).toBe(400)
+    expect((await send('POST', '', { title: 'Wrong shape', reminders: 'later' })).status).toBe(400)
+    expect((await send('POST', '', { title: 'Not a number', reminders: [AT, 'soon'] })).status).toBe(400)
+
+    const task = await create({ title: 'One' })
+    expect((await send('PATCH', `/${task.id}`, { reminders: six })).status).toBe(400)
+  })
+
+  it('clears the list with an empty array', async () => {
+    const task = await create({ title: 'One', reminders: [AT] })
+    const cleared = await json<{ task: TodoTask }>(await send('PATCH', `/${task.id}`, { reminders: [] }))
+    expect(cleared.task.reminders).toEqual([])
+  })
+})
+
 describe('another account', () => {
   it('cannot read or write a task by its id', async () => {
     const task = await create({ title: 'Mine' })

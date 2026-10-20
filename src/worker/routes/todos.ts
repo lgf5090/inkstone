@@ -23,6 +23,7 @@ import { localDate, localDayBounds, parseLocalTime } from '@shared/assistant-tim
 import { organizerColorOrNull } from '@shared/organizer-colors'
 import {
   MAX_LIST_NAME_CHARS,
+  MAX_REMINDERS_PER_TASK,
   MAX_STEP_TEXT_CHARS,
   MAX_TAGS_PER_TASK,
   MAX_TAG_NAME_CHARS,
@@ -30,10 +31,9 @@ import {
   isTaskSort,
   isTaskStatsBucket,
   isTaskView,
+  normalizeReminderTimes,
   normalizeTagNames,
   parseRepeatRule,
-  remindAtFor,
-  type RemindOffset,
   type RepeatRule,
   type TaskSort,
   type TaskStatsBucket,
@@ -148,8 +148,6 @@ function asRepeat(value: unknown): RepeatRule | null {
   return parsed
 }
 
-const REMIND_VALUES: readonly RemindOffset[] = ['none', 'due', '15m', '1h', '1d']
-
 /**
  * The day a plan names: one calendar date, or `null` for "not today".
  *
@@ -166,11 +164,28 @@ function plannedDay(value: unknown): string | null {
   return value
 }
 
-function asRemind(value: unknown): RemindOffset {
-  if (typeof value !== 'string' || !(REMIND_VALUES as readonly string[]).includes(value)) {
-    throw ApiError.badRequest('A reminder must be one of none, due, 15m, 1h or 1d.')
+/**
+ * The reminders a task request names: absolute instants, at most five, ascending and deduplicated.
+ *
+ * Absolute times rather than offsets from the due date, because a reminder is a fact about when to
+ * speak and not about what the due date happens to be: moving the date later must not silently move
+ * every reminder the reader set. The presets in the editor are a form shortcut that computes these
+ * instants before saving. A list longer than the ceiling is refused rather than trimmed — silently
+ * dropping the sixth would tell the reader it was saved.
+ */
+function reminderTimes(value: unknown): number[] | undefined {
+  if (value === undefined) return undefined
+  if (!Array.isArray(value)) throw ApiError.badRequest('Reminders must be a list of instants.')
+  for (const entry of value) {
+    if (typeof entry !== 'number' || !Number.isFinite(entry)) {
+      throw ApiError.badRequest('Each reminder must be a millisecond timestamp.')
+    }
   }
-  return value as RemindOffset
+  const unique = new Set(value.map((entry) => Math.trunc(entry)))
+  if (unique.size > MAX_REMINDERS_PER_TASK) {
+    throw ApiError.badRequest(`A task can carry at most ${MAX_REMINDERS_PER_TASK} reminders.`)
+  }
+  return normalizeReminderTimes(value)
 }
 
 async function listRef(s: AssistantStore, value: unknown): Promise<string | null> {
@@ -348,7 +363,6 @@ todoRoutes.post('/', async (c) => {
   const settings = await s.getSettings()
   const body = await readJson<Record<string, unknown>>(c, BODY_LIMIT)
   const dueAt = parseDue(body.dueAt, settings.timezone)
-  const remind = body.remind === undefined ? 'none' : asRemind(body.remind)
   const task = await s.createTask({
     title: text(body.title, TITLE_MAX, 'A task title'),
     description: optionalText(body.description, DESCRIPTION_MAX, 'A task note') ?? '',
@@ -359,7 +373,7 @@ todoRoutes.post('/', async (c) => {
     listId: await listRef(s, body.listId),
     starred: body.starred === undefined ? undefined : asBoolean(body.starred, 'starred'),
     repeat: asRepeat(body.repeat),
-    remindAt: remindAtFor(dueAt, remind),
+    reminders: reminderTimes(body.reminders),
     noteId: optionalId(body.noteId, 'noteId') ?? null,
     conversationId: optionalId(body.conversationId, 'conversationId') ?? null,
     tags: tagNames(body.tags),
@@ -475,11 +489,6 @@ todoRoutes.patch('/:id', async (c) => {
   const existing = await s.getTask(id)
   if (!existing) throw ApiError.notFound('Task not found')
   const dueAt = body.dueAt === undefined ? undefined : parseDue(body.dueAt, settings.timezone)
-  // A reminder given as an offset is measured from the due date the patch is asking for, falling back
-  // to the one already stored: moving a task and its reminder in one request is the common case.
-  const remindAt = body.remind === undefined
-    ? undefined
-    : remindAtFor(dueAt === undefined ? existing.dueAt : dueAt, asRemind(body.remind))
   const nextStatus = body.status !== undefined ? asStatus(body.status) : undefined
   /**
    * Whether this request is the reader finishing the task.
@@ -501,7 +510,7 @@ todoRoutes.patch('/:id', async (c) => {
     ...(body.listId !== undefined ? { listId: await listRef(s, body.listId) } : {}),
     ...(body.starred !== undefined ? { starred: asBoolean(body.starred, 'starred') } : {}),
     ...(body.repeat !== undefined ? { repeat: asRepeat(body.repeat) } : {}),
-    ...(remindAt !== undefined ? { remindAt } : {}),
+    ...(body.reminders !== undefined ? { reminders: reminderTimes(body.reminders) } : {}),
     ...(body.noteId !== undefined ? { noteId: optionalId(body.noteId, 'noteId') } : {}),
     ...(body.conversationId !== undefined ? { conversationId: optionalId(body.conversationId, 'conversationId') } : {}),
     ...(body.tags !== undefined ? { tags: tagNames(body.tags) ?? [] } : {}),

@@ -51,9 +51,24 @@ export const UPCOMING_DAYS = 7
 export const TASK_SORTS = ['due', 'priority', 'created', 'completed'] as const
 export type TaskSort = (typeof TASK_SORTS)[number]
 
-/** How long a reminder may be set before the due time. */
+/** How long a reminder may be set before the due time. Presets are a form shortcut, not a stored unit. */
 export const REMIND_OFFSETS = ['none', 'due', '15m', '1h', '1d'] as const
 export type RemindOffset = (typeof REMIND_OFFSETS)[number]
+
+/** The most reminders one task may carry. Five is what the reference app's paid tier offers. */
+export const MAX_REMINDERS_PER_TASK = 5
+
+/**
+ * The durations a "remind me again" press offers, in minutes: ten minutes, an hour, nine hours
+ * ("tonight") and a day ("tomorrow morning"). Deliberately durations rather than wall-clock times:
+ * a snooze must work the same whatever zone the account is in or however close to midnight it is.
+ */
+export const SNOOZE_MINUTES = [10, 60, 540, 1440] as const
+export type SnoozeMinutes = (typeof SNOOZE_MINUTES)[number]
+
+export function isSnoozeMinutes(value: unknown): value is SnoozeMinutes {
+  return typeof value === 'number' && (SNOOZE_MINUTES as readonly number[]).includes(value)
+}
 
 export const MAX_LIST_NAME_CHARS = 60
 export const MAX_TAG_NAME_CHARS = 40
@@ -105,7 +120,21 @@ export interface TodoTask extends Task {
   tags: TaskTag[]
   starred: boolean
   repeat: RepeatRule | null
+  /**
+   * The task's pending reminders, as absolute instants in ascending order. Up to
+   * `MAX_REMINDERS_PER_TASK`; fired ones are delivery history and are not listed.
+   */
+  reminders?: number[]
+  /**
+   * The earliest pending reminder, derived from {@link reminders}. Kept as its own field because the
+   * quick-add preview and the assistant's task output speak one instant, not a list.
+   */
   remindAt: number | null
+  /**
+   * @deprecated A delivery fact now lives on each `todos_reminders` row (`fired_at`) and is not part of
+   * the task. Always null; kept until the old `todos_tasks` columns are dropped so older clients and
+   * fixtures keep one shape to read.
+   */
   remindedAt: number | null
   /**
    * The account-zone day (`YYYY-MM-DD`) the reader picked this task into "today", or null when it
@@ -358,6 +387,23 @@ export function remindAtFor(dueAt: number | null, offset: RemindOffset): number 
     case '1d': return dueAt - 24 * 60 * 60_000
     default: return null
   }
+}
+
+/**
+ * The reminder instants a caller asked for, as this app stores them.
+ *
+ * Absolute UTC milliseconds, ascending and deduplicated, and never more than five: two form rows that
+ * name the same minute are one reminder, and a caller that sends six is held to the same ceiling the
+ * route states. A value that is not a finite number is dropped rather than turned into `NaN`, which
+ * would make every comparison false and park the row outside every sweep.
+ */
+export function normalizeReminderTimes(values: readonly number[]): number[] {
+  const unique = new Set<number>()
+  for (const value of values) {
+    if (typeof value !== 'number' || !Number.isFinite(value)) continue
+    unique.add(Math.trunc(value))
+  }
+  return [...unique].sort((a, b) => a - b).slice(0, MAX_REMINDERS_PER_TASK)
 }
 
 /**

@@ -60,6 +60,7 @@ import {
   UPCOMING_DAYS,
   defaultColorFor,
   nextOccurrence,
+  normalizeReminderTimes,
   normalizeTagNames,
   parseRepeatRule,
   type RepeatRule,
@@ -910,6 +911,15 @@ export interface NewTask {
   listId?: string | null
   starred?: boolean
   repeat?: RepeatRule | null
+  /** The task's reminders as absolute instants. Replaces the pending list when given to `updateTask`. */
+  reminders?: number[]
+  /**
+   * One reminder as an absolute instant.
+   *
+   * The assistant's tool and the MCP surface still speak a single instant, so the store accepts it and
+   * writes a `todos_reminders` row; the old `todos_tasks.remind_at` column is never written. A caller
+   * that names `reminders` wins over this field.
+   */
   remindAt?: number | null
   noteId?: string | null
   conversationId?: string | null
@@ -3906,14 +3916,44 @@ export class AssistantStore {
     return out
   }
 
+  /**
+   * The pending reminders of many tasks in one query, keyed by task and ascending.
+   *
+   * Fired rows are history: the reader's panel shows what will happen next, and the sweep is the only
+   * reader of what already happened. One query for the page, like tags and step counts, so a list of
+   * a hundred tasks is not a hundred reminder reads.
+   */
+  private async remindersForTasks(ids: readonly string[]): Promise<Map<string, number[]>> {
+    if (!ids.length) return new Map()
+    const marks = ids.map((_, index) => `?${index + 2}`).join(', ')
+    const list = await this.rows<{ task_id: string; remind_at: number }>(
+      `SELECT task_id, remind_at FROM todos_reminders
+        WHERE user_id = ?1 AND fired_at IS NULL AND task_id IN (${marks})
+        ORDER BY remind_at ASC, id ASC`,
+      this.userId, ...ids,
+    )
+    const out = new Map<string, number[]>()
+    for (const row of list) {
+      const bucket = out.get(row.task_id) ?? []
+      bucket.push(row.remind_at)
+      out.set(row.task_id, bucket)
+    }
+    return out
+  }
+
   private async tasksWithDetails(rows: TaskRow[]): Promise<TodoTask[]> {
     if (!rows.length) return []
     const ids = rows.map((row) => row.id)
-    const [steps, tags] = await Promise.all([this.stepCounts(ids), this.tagsForTasks(ids)])
+    const [steps, tags, reminders] = await Promise.all([
+      this.stepCounts(ids),
+      this.tagsForTasks(ids),
+      this.remindersForTasks(ids),
+    ])
     return rows.map((row) => toTask(row, {
       tags: tags.get(row.id) ?? [],
       stepTotal: steps.get(row.id)?.total ?? 0,
       stepDone: steps.get(row.id)?.done ?? 0,
+      reminders: reminders.get(row.id) ?? [],
     }))
   }
 
@@ -3949,20 +3989,53 @@ export class AssistantStore {
     await this.write(
       `INSERT INTO todos_tasks
          (id, user_id, title, description, status, priority, due_at, project_id, list_id, starred,
-          repeat_rule, remind_at, note_id, conversation_id, created_at, updated_at, completed_at,
+          repeat_rule, note_id, conversation_id, created_at, updated_at, completed_at,
           created_on, completed_on)
-       VALUES (?2, ?1, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19)`,
+       VALUES (?2, ?1, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18)`,
       id, input.title.trim().slice(0, 300), input.description ?? '', status, input.priority ?? 'medium',
       input.dueAt ?? null, input.projectId ?? null, input.listId ?? null, input.starred ? 1 : 0,
-      repeat ? JSON.stringify(repeat) : null, input.remindAt ?? null, input.noteId ?? null,
+      repeat ? JSON.stringify(repeat) : null, input.noteId ?? null,
       input.conversationId ?? null, at, at, status === 'done' ? at : null,
       createdOn, status === 'done' ? createdOn : null,
     )
     if (input.tags?.length) await this.setTaskTags(id, input.tags)
     for (const text of input.steps ?? []) await this.addStep(id, text)
+    const reminders = input.reminders ?? (input.remindAt != null ? [input.remindAt] : [])
+    if (reminders.length) await this.replaceTaskReminders(id, reminders)
     const created = await this.getTask(id)
     if (!created) throw new Error(`The task ${id} was written but could not be read back.`)
     return created
+  }
+
+  /**
+   * Writes one task's pending reminders, replacing whatever was still to fire.
+   *
+   * One batch, so a list is either the list the reader saved or the one they had before — never half
+   * of each. Fired rows are left alone: they are the record that a reminder was delivered, and
+   * deleting them would erase history the notification list still refers to.
+   */
+  private async replaceTaskReminders(taskId: string, times: readonly number[]): Promise<void> {
+    const at = Date.now()
+    const statements = [
+      this.db.prepare(
+        `DELETE FROM todos_reminders WHERE user_id = ?1 AND task_id = ?2 AND fired_at IS NULL`,
+      ).bind(this.userId, taskId),
+      ...normalizeReminderTimes(times).map((remindAt) => this.db.prepare(
+        `INSERT INTO todos_reminders (user_id, id, task_id, remind_at, fired_at, created_at)
+         VALUES (?1, ?2, ?3, ?4, NULL, ?5)`,
+      ).bind(this.userId, newId(), taskId, remindAt, at)),
+    ]
+    await this.db.batch(statements)
+  }
+
+  /** Moves every pending reminder with its due date, which is what editing the date used to do. */
+  private async shiftTaskReminders(taskId: string, delta: number): Promise<void> {
+    if (!delta) return
+    await this.write(
+      `UPDATE todos_reminders SET remind_at = remind_at + ?3
+        WHERE user_id = ?1 AND task_id = ?2 AND fired_at IS NULL`,
+      taskId, delta,
+    )
   }
 
   /**
@@ -4000,22 +4073,27 @@ export class AssistantStore {
         ])
       }
     }
-    // A reminder follows its due date unless the caller set one explicitly, and either way the task
-    // has not been announced at its new time yet.
-    if (patch.remindAt !== undefined) fields.push(['remind_at', patch.remindAt])
-    else if (patch.dueAt !== undefined && patch.dueAt !== null && existing.remindAt !== null && existing.dueAt !== null) {
-      fields.push(['remind_at', existing.remindAt + (patch.dueAt - existing.dueAt)])
-    }
-    if (patch.dueAt !== undefined || patch.remindAt !== undefined) fields.push(['reminded_at', null])
     fields.push(['updated_at', at])
     await this.partialUpdate('todos_tasks', id, fields)
     if (patch.tags !== undefined) await this.setTaskTags(id, patch.tags)
+    // Reminders follow their due date unless the caller named a list (or the single instant the
+    // assistant's tools speak). `reminders` wins: it is the whole pending list, not an addition.
+    const named = patch.reminders ?? (patch.remindAt !== undefined
+      ? patch.remindAt === null ? [] : [patch.remindAt]
+      : undefined)
+    if (named !== undefined) await this.replaceTaskReminders(id, named)
+    else if (patch.dueAt !== undefined && patch.dueAt !== null && existing.dueAt !== null) {
+      await this.shiftTaskReminders(id, patch.dueAt - existing.dueAt)
+    }
     return await this.getTask(id)
   }
 
   async deleteTask(id: string): Promise<void> {
     await this.write(`DELETE FROM todos_steps WHERE user_id = ?1 AND task_id = ?2`, id)
     await this.write(`DELETE FROM todos_tag_links WHERE user_id = ?1 AND task_id = ?2`, id)
+    // The reminders go with the task: a row left behind would be swept, find no task to join, and sit
+    // in the table forever. Fired rows are deleted too — there is no task left for one to point at.
+    await this.write(`DELETE FROM todos_reminders WHERE user_id = ?1 AND task_id = ?2`, id)
     await this.write(`DELETE FROM todos_tasks WHERE user_id = ?1 AND id = ?2`, id)
   }
 
@@ -4052,7 +4130,11 @@ export class AssistantStore {
     if (!existing.repeat) return { task, next: null }
     const anchor = existing.dueAt ?? Date.now()
     const dueAt = nextOccurrence(anchor, existing.repeat, timeZone)
-    const delta = existing.remindAt !== null && existing.dueAt !== null ? existing.remindAt - existing.dueAt : null
+    // Every pending reminder keeps its distance from the due date on the next occurrence, the way the
+    // single reminder used to. A task with no due date has no distance to keep, so its next copy
+    // carries none: a reminder anchored to nothing is not a reminder.
+    const anchorDue = existing.dueAt
+    const offsets = anchorDue === null ? [] : (existing.reminders ?? []).map((remindAt) => remindAt - anchorDue)
     const steps = await this.listSteps(id)
     const next = await this.createTask({
       title: existing.title,
@@ -4063,7 +4145,7 @@ export class AssistantStore {
       listId: existing.listId,
       starred: existing.starred,
       repeat: existing.repeat,
-      remindAt: delta === null ? null : dueAt + delta,
+      reminders: offsets.map((offset) => dueAt + offset),
       noteId: existing.noteId,
       conversationId: existing.conversationId,
       tags: existing.tags.map((tag) => tag.name),
@@ -6576,8 +6658,6 @@ interface TaskRow {
   list_id: string | null
   starred: number | null
   repeat_rule: string | null
-  remind_at: number | null
-  reminded_at: number | null
   planned_for: string | null
   note_id: string | null
   conversation_id: string | null
@@ -6615,7 +6695,7 @@ interface TaskStepRow {
 
 function toTask(
   r: TaskRow,
-  extras: { tags: TaskTag[]; stepTotal: number; stepDone: number },
+  extras: { tags: TaskTag[]; stepTotal: number; stepDone: number; reminders: number[] },
 ): TodoTask {
   return {
     id: r.id,
@@ -6629,8 +6709,11 @@ function toTask(
     tags: extras.tags,
     starred: (r.starred ?? 0) === 1,
     repeat: parseRepeatRule(parseJson(r.repeat_rule)),
-    remindAt: num(r.remind_at),
-    remindedAt: num(r.reminded_at),
+    reminders: extras.reminders,
+    // The single reminder the quick-add preview and the assistant's task tool read: the next one to
+    // fire, or none. `remindedAt` is always null now — delivery lives on the reminder row itself.
+    remindAt: extras.reminders[0] ?? null,
+    remindedAt: null,
     plannedFor: r.planned_for ?? null,
     noteId: r.note_id,
     conversationId: r.conversation_id,

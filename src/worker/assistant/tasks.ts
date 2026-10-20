@@ -1,11 +1,12 @@
 /**
  * The minute sweep that delivers due task reminders.
  *
- * A reminder is a fact about a row (`remind_at`) and a fact about whether it has been said
- * (`reminded_at`), so the sweep needs no scheduler of its own: it asks the table what is due and marks
- * what it delivered. That is also what makes it safe to run on every cron fire — the claim is a
- * conditional UPDATE, so two overlapping ticks cannot both deliver the same reminder, and a fire that
- * arrives a minute late still delivers rather than skipping to the next hour.
+ * A reminder is a row of `todos_reminders` with an instant (`remind_at`) and a fact about whether it
+ * has been said (`fired_at`), so the sweep needs no scheduler of its own: it asks the table what is due
+ * and claims what it delivers. That is also what makes it safe to run on every cron fire — the claim is
+ * a conditional UPDATE on `fired_at`, so two overlapping ticks cannot both deliver the same reminder,
+ * and a fire that arrives a minute late still delivers rather than skipping to the next hour. A task
+ * that has been finished is joined and skipped: a reminder is about work still owed.
  *
  * The delivery is a row in `chat_notifications`, which is the record the reader's notification list
  * shows; the Web Push nudge that follows is a courtesy, handed off so a push service that answers slowly
@@ -39,7 +40,9 @@ type WaitUntil = (task: Promise<unknown>) => void
 
 interface DueReminder {
   user_id: string
+  /** The `todos_reminders` row this fire may claim. */
   id: string
+  task_id: string
   title: string
   due_at: number | null
 }
@@ -72,9 +75,11 @@ export async function sweepTaskReminders(
   waitUntil?: WaitUntil,
 ): Promise<TaskReminderSweepResult> {
   const { results } = await env.DB.prepare(
-    `SELECT user_id, id, title, due_at FROM todos_tasks
-      WHERE reminded_at IS NULL AND remind_at IS NOT NULL AND remind_at <= ?1 AND status != 'done'
-      ORDER BY remind_at ASC LIMIT ?2`,
+    `SELECT r.user_id, r.id, r.task_id, t.title, t.due_at
+       FROM todos_reminders r
+       JOIN todos_tasks t ON t.user_id = r.user_id AND t.id = r.task_id
+      WHERE r.fired_at IS NULL AND r.remind_at <= ?1 AND t.status != 'done'
+      ORDER BY r.remind_at ASC, r.id ASC LIMIT ?2`,
   ).bind(now, REMINDER_SWEEP_LIMIT).all<DueReminder>()
 
   const fanout = new NotificationPushFanout(env)
@@ -88,10 +93,15 @@ export async function sweepTaskReminders(
   for (const row of results) {
     try {
       // The claim is the delivery gate. `changes === 0` means another fire got here first, which is the
-      // ordinary case on a deployment whose cron overlaps, not an error.
+      // ordinary case on a deployment whose cron overlaps, not an error. The EXISTS re-checks the task
+      // inside the same statement: a task finished between the read and the claim is not announced.
       const claim = await env.DB.prepare(
-        `UPDATE todos_tasks SET reminded_at = ?3
-          WHERE user_id = ?1 AND id = ?2 AND reminded_at IS NULL AND remind_at IS NOT NULL AND status != 'done'`,
+        `UPDATE todos_reminders SET fired_at = ?3
+          WHERE user_id = ?1 AND id = ?2 AND fired_at IS NULL
+            AND EXISTS (
+              SELECT 1 FROM todos_tasks t
+               WHERE t.user_id = ?1 AND t.id = todos_reminders.task_id AND t.status != 'done'
+            )`,
       ).bind(row.user_id, row.id, now).run()
       if ((claim.meta.changes ?? 0) === 0) {
         claimed++
@@ -105,7 +115,13 @@ export async function sweepTaskReminders(
       const settings = normalizeAssistantSettings(await store.getSettings())
       const copy = copyFor(settings.language)
       const body = row.due_at === null ? copy.noDue : fill(copy.due, { when: whenText(row.due_at, settings.timezone) })
-      const notification = await store.createNotification({ title: `${copy.title} · ${row.title}`, body })
+      const notification = await store.createNotification({
+        title: `${copy.title} · ${row.title}`,
+        body,
+        // The shape every task pointer has: the app's name, a colon, the id. The notification centre
+        // reads it as "this is a task of ours" and opens it; anything else stays an expandable notice.
+        link: `todo:${row.task_id}`,
+      })
       fanout.track(row.user_id, notification.id)
       sent++
     } catch (error) {
