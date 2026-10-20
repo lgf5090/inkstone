@@ -6100,6 +6100,7 @@ console.log(\`Hello, \${name}!\`)
     "assistant.note.answer_empty": "助手的回答是空的，所以没有写入任何内容。",
     "assistant.chat.notes_in_result": "这次调用涉及的笔记",
     "assistant.chat.note_gone": "这篇笔记已经不在了",
+    "assistant.chat.subscription_gone": "这条订阅已不在列表里",
     "assistant.chat.note_created": "已新建笔记「{title}」",
     "assistant.chat.disclaimer": "由你自己的 AI 账号驱动。助手可能出错，重要内容请自行核对。",
     "assistant.chat.prompt": "想做点什么？",

@@ -8,6 +8,7 @@ import anchor from 'markdown-it-anchor';
 import mark from 'markdown-it-mark';
 import DOMPurify from 'dompurify';
 import { parseFrontMatter, slugifyHeading } from '@shared/markdown-utils';
+import { isSubscriptionMention, subscriptionMentionName } from '@shared/subscriptions/mention';
 import { coverWidthFor, readNoteDecorations } from '@shared/property-decorations';
 import type { DecorationDefaults, NotePropertyNames, PropertyImageValue } from '@shared/property-decorations';
 import { ACCENT_COLOR_TOKEN, propertyColorCss, propertyPillCss, resolveProperties } from '@shared/property-style';
@@ -626,7 +627,9 @@ md.renderer.rules.note_embed = (tokens, index) => {
 };
 md.renderer.rules.wikilink = (tokens, index) => {
     const parsed = parseWikiTarget(tokens[index]!.content);
-    const label = parsed.alias || parsed.raw;
+    // `sub:` is syntax, not part of the reader's name for the plan, so it is dropped from the label the
+    // same way a bare note id is — the target attribute keeps the prefix, the click needs it.
+    const label = parsed.alias || (isSubscriptionMention(parsed.raw) ? subscriptionMentionName(parsed.raw) : parsed.raw);
     return `<a class="wikilink" data-wikilink="${escapeAttr(encodeDataValue(parsed.raw))}" href="#">${escapeHtml(label)}</a>`;
 };
 md.renderer.rules.block_reference = (tokens, index) => {

@@ -13,13 +13,11 @@
 import { SubscriptionsStore, storeContext } from '../subscriptions/store'
 import { loadSettings } from '../subscriptions/settings'
 import { formatAmount } from '@shared/subscriptions/format'
+import { SUBSCRIPTION_MENTION_PREFIX } from '@shared/subscriptions/mention'
 
 /** How many mentions one turn may resolve, and how many receipts each one carries. */
 export const MAX_SUBSCRIPTION_MENTIONS = 8
 const RECEIPTS_PER_MENTION = 5
-
-/** The prefix that keeps a subscription target out of the note resolver's way. */
-export const SUBSCRIPTION_MENTION_PREFIX = 'sub:'
 
 interface SubscriptionMention {
   id: string | null

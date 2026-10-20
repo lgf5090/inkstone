@@ -3934,6 +3934,7 @@ const allowed = new Map([
     "/**\n * Whether the note is still there to be read.\n *\n * The id can outlive the page: a thread names a note the reader has since deleted, and a press that did\n * nothing would look like a broken control rather than a missing document.\n */",
     "/**\n * The pane a citation lands in: the one behind what the reader is already reading.\n *\n * A citation is asked for the page a claim came from, and the page the reader has open is the one they will\n * want back — so a two-pane workspace reveals it in the column that is not focused and leaves the reader\n * where they were. A single-pane workspace has no column behind: the note takes the only pane it can have.\n */",
     "/**\n * Follows a citation into the notebook without moving the reader's own page.\n *\n * The same door as {@link openNote} — address change plus the store's open, so the pane, revision and\n * scroll stay handled in one place — with one difference: it names the pane the answer is read beside.\n */",
+    "/**\n * Follows a `[[sub:…]]` mention into the money app.\n *\n * The mention carries a name, not an id — that is what makes it readable in the sentence it was written\n * into — so the name is looked up the same way the global search looks one up. A plan the reader has since\n * deleted answers with a word rather than silence: a control that does nothing reads as a broken app, and\n * the reader did nothing wrong.\n */",
   ]],
   ["src/client/features/chat/note-memories.test.ts", [
     "/**\n * What the note's backlink panel asks the memory route for.\n *\n * `chat_memories.note_id` names the page a fact was written out as, and the route has always narrowed on it —\n * an id that is not an id narrows to nothing rather than to the reader's whole library. What the client's\n * public signature did not carry for a while was that fourth key: the note panel widened the query type\n * locally instead, which is a second, unreviewed copy of a contract that lives in one place.\n *\n * So this pins the one thing that has to stay true after the widening goes away: the filter is asked for over\n * the wire by the note's own read, and a read that does not name a note does not invent one.\n */",
@@ -7814,6 +7815,9 @@ const allowed = new Map([
     "/**\n * How far outside the room the reader is looking a held body starts drawing.\n *\n * The margin is what keeps the deferral invisible: a body two screens away draws while it is still\n * coming into view rather than as it lands, so the reader never watches a fence turn into a highlighted\n * one under their own scroll.\n */",
     "/**\n   * Hold the drawing passes back until this body has been near the viewport, once.\n   *\n   * A transcript of four hundred turns is four hundred prism runs and four hundred katex passes for the\n   * bubbles nobody is looking at, and the cost lands before the reader has scrolled anywhere. The flag\n   * defers the first draw of a body that starts off screen; it does not defer the markup.\n   *\n   * That distinction is load-bearing, because four contracts in this app read the transcript through the\n   * DOM that is already mounted, and all four break the moment a body that scrolls away is taken back\n   * out: `thread-find.ts` marks hits inside rendered nodes (`ThreadFinder` promises the reader there are\n   * turns still unloaded), `ChatView`'s `focusMessageId` finds its turn by\n   * `querySelectorAll('[data-chat-anchor]')`, the scroll anchoring after \"load earlier\" assumes the nodes\n   * above the reader stay where they are, and `ChatOutline` measures each anchor's rectangle. So this\n   * gate is one-way — flip it on arrival and never off — and the element, its text and its anchor are\n   * rendered by React either way. A surface that hands out bodies one at a time (a note, a draft, a\n   * slide) passes nothing and draws as it always did.\n   */",
     "/**\n   * Reads `![[note]]` embeds standing in this document. A surface whose readers have no vault passes\n   * nothing, and its own markup transform is what tells those placeholders so.\n   */",
+    "/**\n   * A `[[sub:…]]` target. Without a handler of its own a subscription mention would be answered as a note\n   * title, which is how a click on a plan the reader pays for creates a junk document called `sub:Netflix`.\n   */",
+    "// A subscription is not a note with an odd name: it has its own app and its own resolver, so it is",
+    "// handed over before anything tries to look the title up in the vault.",
   ]],
   ["src/client/features/preview/NoteProperties.tsx", [
     "// Read the live buffer rather than taking the rendered text as a prop: a debounced or",
@@ -8475,6 +8479,11 @@ const allowed = new Map([
     "/** The words a source-editor span shows, with whichever markdown shape it was written in taken off. */",
     "/**\n * The link a hovered span carries, or null when the span is not a link. The editor's marks announce\n * themselves with `data-mdlink` because their text is the markdown source; the rendered preview needs\n * no such hint since it holds a real anchor or image.\n */",
     "/** The card header: the words the reader sees, falling back to the host, then to the address. */",
+  ]],
+  ["src/client/features/preview/markdown-body-mention.test.ts", [
+    "/**\n * A `[[sub:…]]` mention in a surface that has both a vault and a money app.\n *\n * The renderer resolves a wiki link by title, so before the prefix meant anything a click on a plan the\n * reader already pays for was answered with \"create a note called `sub:Netflix`\" — a junk document made out\n * of one click, and the label in the bubble showed the syntax rather than the name. Both halves are pinned\n * here: what the reader reads, and what the click is allowed to do.\n */",
+    "// The attribute is stored encoded, so the test reads it back with the same decoder the click uses.",
+    "// The notebook's preview passes no links, so a mention there is a word rather than a broken door.",
   ]],
   ["src/client/features/preview/markdown-body-offscreen.test.ts", [
     "/**\n * The one-way hold on a Markdown body that starts off screen.\n *\n * A read-only surface that draws four hundred turns draws four hundred prism runs and four hundred katex\n * passes before the reader has scrolled anywhere, and every one of them is work inside a bubble two\n * screens away. The numbers below are the whole subject: what one mount costs with the hold and what it\n * cost without it, counted rather than \"looks snappier\".\n *\n * The other half is what the hold is forbidden to touch. Four contracts in this app read the transcript\n * through DOM that is already mounted — find marks rendered text, `focusMessageId` looks an anchor up\n * with `querySelectorAll('[data-chat-anchor]')`, the scroll correction after \"load earlier\" assumes the\n * nodes above the reader stay put, and the outline measures their rectangles — so a deferred body keeps\n * its markup, its text and its place in the tree, and arriving is the only thing the observer is\n * watching for. Cases here assert that holding is not unmounting, in both directions.\n */",
@@ -16944,6 +16953,8 @@ const allowed = new Map([
     "// The scene travels in the render's fence set, not in an attribute: a busy drawing is hundreds of",
     "// kilobytes of JSON, and an attribute would re-encode it, re-parse it and walk it through the",
     "// sanitizer on every keystroke of the note beside it.",
+    "// `sub:` is syntax, not part of the reader's name for the plan, so it is dropped from the label the",
+    "// same way a bare note id is — the target attribute keeps the prefix, the click needs it.",
   ]],
   ["src/client/lib/markdown/table-editor.ts", [
     "/**\n * The pipe table as an editable object: where the block the cursor sits in begins, which row and\n * column that cursor is on, and the row/column/alignment edits a menu asks for.\n *\n * Geometry stays on the table the caller passed in. Every edit below returns a table whose\n * `startLine`/`endLine` still describe the block *in the note*, because the caller replaces exactly\n * those lines with `formatMarkdownTable`'s output — an edit that moved its own bounds would make the\n * next edit in the same menu cut a different block out of the note.\n */",
@@ -19351,6 +19362,12 @@ const allowed = new Map([
     "/**\n * Advance a lunar date by a period, clamping the day into the target month.\n *\n * A lunar month is 29 or 30 days, so \"the 30th, three months later\" may not exist; the reference\n * project walks the day down until the combination resolves, which is what a reader means by \"same\n * day next quarter\" when the day is missing.\n */",
     "/** The lunar date an instant falls on, read in the given calendar fields' zone. */",
   ]],
+  ["src/shared/subscriptions/mention.ts", [
+    "/**\n * The mention syntax for a subscription, in one place both sides can read.\n *\n * The worker resolves `[[sub:Netflix]]` when it builds a turn's context, and the chat has to recognise the\n * same prefix before it treats a `[[…]]` target as a note title — a click that ends in \"create a note\n * called sub:Netflix\" is a junk document made out of a plan the reader already pays for. Client code may\n * not reach into the worker, so the prefix lives here.\n */",
+    "/** Whether a wiki-link target names a subscription rather than a note. */",
+    "/** What the reader called it, with the prefix and any surrounding space gone. Empty means no name at all. */",
+    "/** The text a mention is drawn as: the name, because the prefix is syntax, not part of the label. */",
+  ]],
   ["src/shared/subscriptions/model.ts", [
     "/**\n * The subscription app's vocabulary: what a subscription is, what a payment is, and what a reminder\n * rule means — shared by the worker that stores them and the browser that draws them.\n *\n * Times cross the wire as ISO 8601 and are stored as epoch milliseconds. The reference project kept\n * ISO strings in KV; D1 sorts and compares integers, so the conversion happens at the repository\n * boundary and nowhere else. Every function here is pure, which is what lets the scheduler, the route\n * and a component agree about a subscription without any of them owning the rules.\n */",
     "/** How many days ahead the list calls something \"soon\" and the overview counts as expiring. */",
@@ -21337,7 +21354,6 @@ const allowed = new Map([
   ["src/worker/assistant/subscription-mentions.ts", [
     "/**\n * `[[sub:…]]` mentions resolved into the subscription's own facts.\n *\n * A subscription id is the same 26-character shape as a note id, so letting both resolvers claim a bare\n * `[[<id>]]` would mean whichever ran first could report the other's target as missing. The `sub:` prefix\n * is what keeps the two apart, and `note-mentions` skips anything carrying it rather than reporting it\n * as a note that has been deleted.\n *\n * What is quoted is the row's own fields — price, cycle, dates, what has been paid — never the notes\n * field, which is free text a reader may have used for anything. A note is the thing a mention exists to\n * bring words from; a subscription is a row, and the row is what the question is about.\n */",
     "/** How many mentions one turn may resolve, and how many receipts each one carries. */",
-    "/** The prefix that keeps a subscription target out of the note resolver's way. */",
     "/** Every `[[sub:…]]` in the text, in order and deduplicated. */",
     "// A 26-character target is an id, which cannot point at the wrong row; anything else is a name the",
     "// reader typed, which can.",
@@ -26669,6 +26685,11 @@ const allowed = new Map([
   ]],
   ["tests/subscriptions-label-icons.test.ts", [
     "/**\n * The guard that keeps the two icon lists honest.\n *\n * The names the worker validates against live in `@shared/subscriptions/identity`; the components that\n * draw them live in the browser, because a Worker has no business importing an icon set. Two lists is a\n * drift hazard, and the failure is silent in both directions: a name with no component draws an empty\n * tile and reads as a corrupt choice, and a component with no name is bytes in the bundle that nothing\n * can ever select.\n */",
+  ]],
+  ["tests/subscriptions-mention.test.ts", [
+    "/**\n * The prefix that keeps a subscription mention out of the note resolver's way.\n *\n * Both sides read the same syntax — the worker to build a turn's context, the chat to decide what a click\n * on a `[[…]]` means — and the failure mode of getting it wrong is not an error message but a junk note\n * called `sub:Netflix` appearing in the vault because a click was answered as a title.\n */",
+    "// One string for two resolvers: if the client's copy ever drifts, a mention the worker understands",
+    "// would stop being a door in the transcript.",
   ]],
   ["tests/subscriptions-migrations.test.ts", [
     "/**\n * What a deploy does to the subscriptions database that is already on the server.\n *\n * Four columns arrived after these tables first shipped: `sub_category.icon`, `sub_category.color`,\n * `sub_settings.base_currency` and `sub_item.deleted_at`. A fresh boot gets them from the `CREATE TABLE`\n * and never exercises the `ALTER`s, so the suite that builds an empty database proves nothing about the\n * one case that matters — an account with real subscriptions whose ledger says it is already up to date.\n *\n * So this file builds the *older* shape by hand, puts a row in it, and requires the boot to arrive at\n * the current shape without disturbing that row. A default that silently differs from what the reader\n * had been seeing is a bug these tests can actually catch, which is more than \"the column exists\" does.\n */",

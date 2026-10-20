@@ -9,6 +9,7 @@
  */
 import { appTab } from '../shell/app-tabs'
 import { navigateToPath } from '../../lib/app-history'
+import { api } from '../../lib/api'
 import { t } from '../../lib/i18n'
 import { findNoteByTitle, useNotes } from '../../store/notes'
 import { useUi, type WorkspacePane } from '../../store/ui'
@@ -72,4 +73,33 @@ function createMissingNote(title: string): void {
 }
 
 /** One object for every reply on screen: a fresh literal per message would be a new identity per render. */
-export const CHAT_NOTE_LINKS: MarkdownLinks = { openNote, createNote: createMissingNote }
+export const CHAT_NOTE_LINKS: MarkdownLinks = { openNote, createNote: createMissingNote, openSubscription: openSubscriptionMention }
+
+/**
+ * Follows a `[[sub:…]]` mention into the money app.
+ *
+ * The mention carries a name, not an id — that is what makes it readable in the sentence it was written
+ * into — so the name is looked up the same way the global search looks one up. A plan the reader has since
+ * deleted answers with a word rather than silence: a control that does nothing reads as a broken app, and
+ * the reader did nothing wrong.
+ */
+function openSubscriptionMention(name: string): void {
+  const wanted = name.trim()
+  if (!wanted) {
+    useUi.getState().toast({ title: t('assistant.chat.subscription_gone'), tone: 'warning' })
+    return
+  }
+  void api.subscriptions.search(wanted)
+    .then((answer) => {
+      const folded = wanted.toLocaleLowerCase()
+      const item = answer.items.find((entry) => entry.name.toLocaleLowerCase() === folded) ?? answer.items[0]
+      if (!item) {
+        useUi.getState().toast({ title: t('assistant.chat.subscription_gone'), tone: 'warning' })
+        return
+      }
+      void import('../subscriptions/open-subscription').then((module) => module.openSubscriptionInApp(item))
+    })
+    .catch(() => {
+      useUi.getState().toast({ title: t('omnisearch.subscriptions_failed'), tone: 'warning' })
+    })
+}
