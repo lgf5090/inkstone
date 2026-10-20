@@ -1087,7 +1087,7 @@ export function AssistantBubble({
             <button
               type="button"
               onClick={() => setSourcesOpen(true)}
-              className="inline-flex shrink-0 items-center gap-1 rounded-[var(--r-sm)] px-1.5 py-0.5 text-[length:var(--text-11)] text-[var(--text-tertiary)] transition-colors duration-[var(--dur-fast)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-secondary)]"
+              className="ink-tap-pad relative inline-flex shrink-0 items-center gap-1 rounded-[var(--r-sm)] px-1.5 py-0.5 text-[length:var(--text-11)] text-[var(--text-tertiary)] transition-colors duration-[var(--dur-fast)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-secondary)]"
             >
               <List size={10} />
               {t('assistant.chat.sources_all')}

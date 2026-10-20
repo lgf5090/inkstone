@@ -962,6 +962,8 @@ const allowed = new Map([
     "// The current version is the one most readers want to see first; a history that opens on a blank pane",
     "// makes them pick a row to find out what they were already looking at.",
     "/** The header control that opens the history; the editor owns the open state. */",
+    "// A click on another row while the first body is in flight must not land the first answer under the",
+    "// second row's heading.",
   ]],
   ["src/client/features/chat/AssistantBehaviourTab.tsx", [
     "/**\n * The behaviour tab: what the assistant calls itself, and how it answers.\n */",
@@ -1288,8 +1290,8 @@ const allowed = new Map([
     "/**\n * The action bar over a passage selected in the canvas.\n *\n * It floats in a portal because the editor scrolls; the parent handles the action and dismisses the bar.\n * The bar is icon-only so seven actions fit above a paragraph rather than wrapping into a menu the\n * reader has to open first. Every button keeps its name for a screen reader.\n */",
     "/** The bar's own box, used for placement before the browser has laid it out. */",
     "// A bar pinned to a range the reader scrolled away from is pointing at nothing.",
-    "// Keeping the pointer on the bar keeps the editor's selection: a button that focused itself would",
-    "// collapse the range before its own click handler ran.",
+    "// Keeping the mouse press on the bar keeps the editor's selection: a button that focused itself",
+    "// would collapse the range before its own click handler ran.",
   ]],
   ["src/client/features/chat/ChatApp.tsx", [
     "/**\n * The chat app: the assistant's own container behind the rail's Chat tab.\n *\n * It borrows the notebook's chrome vocabulary rather than the reference project's — the same 48px\n * icon rail, the same 44px header, the same tokens — so the reader moves between containers without\n * finding a second visual language. What the reference called its sidebar becomes a second rail one\n * step in from the app rail, because the app rail already owns the outermost column.\n *\n * The five surfaces share one store on purpose: a turn in the chat can write a memory, a task and a\n * schedule in the same breath, and the tab that shows them has to be current the moment it is opened.\n */",
@@ -2796,7 +2798,6 @@ const allowed = new Map([
     "// opens the panel, because that is what the reader asked the model to do.",
     "// An approved artifact write runs outside the stream (the card replayed it), so no artifact frame",
     "// arrived for it. Reading the list once the turn closes is the fallback that keeps a write made",
-    "// through an approval from being invisible until the next reload.",
     "// An approved write replayed outside the turn: there is no artifact frame to read, so the list is",
     "// asked again rather than left showing the version before the approval.",
     "// The error is deliberately not toasted here: the panel owns the save line and the conflict banner,",
@@ -2808,6 +2809,9 @@ const allowed = new Map([
     "// The head is new, so the list the history was showing is stale. It is read again when opened;",
     "// fetching it now would race the modal the reader is about to close.",
     "/** A model named by a canvas action or a skill; absent uses the reader's standing pick. */",
+    "// through an approval from being invisible until the next reload. A cancelled run can also have",
+    "// written a draft after its chip was shown but before it could be settled, so the tool name is",
+    "// enough to ask again.",
   ]],
   ["src/client/features/chat/assistant-stream-isolation.test.ts", [
     "/** Every send's stream, in the order the store asked for them. */",
@@ -18253,6 +18257,8 @@ const allowed = new Map([
     "// the house style, not a way to grant the assistant powers the rules above withheld.",
     "/**\n * The naming pass: one cheap call that turns a conversation's first exchange into a title and three\n * follow-up questions.\n *\n * Both halves arrive from one request, because the two are the same act of reading — \"what is this thread\n * about, and what would the reader want to ask next\" — and paying for a second call to split them would burn\n * the reader's key for nothing. The prompt asks for bare JSON, the same way the conflict judge does, so a\n * vendor that honours the `structured` field returns an object and one that ignores it returns an object in\n * prose the caller can still brace-match. The question and answer are bounded here: the naming pass has no\n * business reading a forty-thousand-character reply, and what it needs to name a thread fits in a few hundred.\n */",
     "/**\n   * The draft in the canvas, when the reader has one open.\n   *\n   * `truncated` says the body was reduced to its head and tail; the prompt tells the model to read the\n   * rest with a tool rather than guess at what it cannot see.\n   */",
+    "// A draft may contain the tag's own closing form in a code block. Escaping it keeps the data",
+    "// inside the fence the prompt says it is in, rather than letting text close the wrapper.",
   ]],
   ["src/shared/assistant-routing.ts", [
     "/**\n * Choosing the model for one turn, when the reader asked the assistant to choose.\n *\n * The rule is deliberately narrow: among the models that *can* answer this turn, take the one with the\n * smallest declared window that still holds it. A window is the only cost signal every provider gives\n * without the reader filling in prices, and a small window is what the fast, cheap members of a family\n * have. Nothing is chosen that could not do the job — a turn with tools only sees models marked for\n * tools, and a turn that fits none of them is answered by the reader's own model instead.\n */",
@@ -21018,6 +21024,10 @@ const allowed = new Map([
     "// Every snapshot travels: a restore onto another device that kept only the head would turn a document",
     "// with history into one that has never been edited, which is the opposite of what the panel promises.",
     "/**\n * The draft changed since the caller read it.\n *\n * The store throws this rather than returning a conflict value because every caller has to answer it and\n * an ignored return value would silently overwrite the newer text. The route turns it into a 409; the\n * tools turn it into an error the model can read and retry after `read_artifact`.\n */",
+    "// The id has to be the one the row was written with: the list is the handle the history view uses to",
+    "// read the body, and a synthetic empty id would make the first click on an old draft fail.",
+    "// Read the row back rather than trusting the generated id: a concurrent first read may have won the",
+    "// insert, and the id it wrote is the only one that exists.",
   ]],
   ["src/worker/assistant/tools.ts", [
     "/**\n * The tools the assistant can reach, and the executor that runs them.\n *\n * Three things are enforced here rather than asked of the model, because a model that is confident and\n * wrong is the failure mode this app has to survive:\n *  - **budgets** — a per-turn call cap, a per-tool cap and a duplicate-call refusal, so a reasoning\n *    loop cannot spend the reader's AI quota or write a hundred tasks;\n *  - **validation** — arguments are checked against the same declaration that generates the JSON\n *    Schema the provider is given, so the two can never disagree;\n *  - **approval** — a destructive tool never runs during the turn. `prepare` resolves the exact target\n *    and writes a pending action; `commit` runs only when the reader presses Approve, once, on that\n *    target. The model can propose; it cannot delete.\n *\n * Scheduled runs get read-only tools plus `notify_reader`, so a routine that has drifted cannot edit\n * the vault while nobody is watching.\n */",
@@ -23951,6 +23961,7 @@ const allowed = new Map([
     "// The chip is streamed twice: running first, then the settled row that carries the draft id.",
     "// The link publishes a transcript. A draft is the reader's working copy, and its history is every",
     "// working copy before it; neither was ever part of what a visitor was invited to read.",
+    "// The shape a backup restored without the version table leaves behind.",
   ]],
   ["tests/assistant-routing.test.ts", [
     "/**\n * Which model answers a turn when the reader asked the assistant to choose.\n *\n * The rule is a policy, so it is tested as one: what may be picked at all (tools, a window that fits\n * with room to answer), and which of the eligible models wins (the smallest declared window, with an\n * undeclared one treated as the reader's default rather than as a small model).\n */",

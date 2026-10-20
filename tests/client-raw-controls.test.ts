@@ -398,6 +398,13 @@ const CLICK_CONTAINER_EXCEPTIONS = new Map<string, { sites: number; reason: stri
       reason: 'The person panel stops a click from reaching the field that opened it, so typing a name into its search box does not reselect that field. The panel is not an affordance of its own: the search box and the teammate rows inside it are.',
     },
   ],
+  [
+    'src/client/features/chat/CanvasSelectionBar.tsx',
+    {
+      sites: 1,
+      reason: 'The selection toolbar is a role="toolbar" whose children are the action buttons. Its mouse-down handler only stops the press from collapsing the editor selection before a button can act; it is not an affordance of its own.',
+    },
+  ],
 ])
 
 const SCAN = scan()

@@ -309,6 +309,49 @@ describe('two turns at once', () => {
   })
 })
 
+describe('a turn that writes a draft', () => {
+  const draft = {
+    id: 'a1',
+    conversationId: 'c1',
+    title: 'Plan',
+    content: 'Body',
+    noteId: null,
+    version: 1,
+    createdAt: 1,
+    updatedAt: 1,
+  }
+
+  it('opens the canvas when the turn creates one', async () => {
+    reset({ artifacts: [], canvasOpen: false, activeArtifactId: null })
+    const pending = useAssistant.getState().send('write a plan')
+    const run = await nextRun()
+    run.apply({ type: 'start', conversationId: 'c1', assistantMessageId: 'm-answer' })
+    run.apply({ type: 'artifact', change: 'created', artifact: draft })
+    expect(useAssistant.getState().canvasOpen).toBe(true)
+    expect(useAssistant.getState().activeArtifactId).toBe('a1')
+    expect(useAssistant.getState().artifacts[0]?.title).toBe('Plan')
+
+    run.apply({ type: 'done' })
+    run.resolve()
+    await pending
+    expect(useAssistant.getState().activeArtifactId).toBe('a1')
+  })
+
+  it('drops a draft frame that belongs to another thread', async () => {
+    reset({ activeId: 'a', artifacts: [], canvasOpen: false, activeArtifactId: null })
+    const pending = useAssistant.getState().send('ask')
+    const run = await nextRun()
+    run.apply({ type: 'start', conversationId: 'a', assistantMessageId: 'm-a' })
+    run.apply({ type: 'artifact', change: 'created', artifact: { ...draft, conversationId: 'b' } })
+    expect(useAssistant.getState().artifacts).toHaveLength(0)
+    expect(useAssistant.getState().canvasOpen).toBe(false)
+
+    run.apply({ type: 'done' })
+    run.resolve()
+    await pending
+  })
+})
+
 describe('a stopped answer', () => {
   it('keeps the words the reader watched arrive when the stored row is blank', async () => {
     reset({ activeId: 'c1' })

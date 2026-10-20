@@ -249,6 +249,7 @@ function denseSites(): DenseSite[] {
     { name: NOTE_CHIP_TITLE, padded: false },
     { name: t('assistant.chat.copy'), padded: true },
     { name: CITATION_TITLE, padded: false },
+    { name: t('assistant.chat.sources_all'), padded: true },
     ...FOOTER_CONTROLS.map((key) => ({ name: t(key), padded: true })),
   ]
 }

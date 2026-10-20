@@ -450,6 +450,20 @@ describe('draft history', () => {
     expect(after[0]?.source).toBe('restore')
   })
 
+  it('gives a draft that predates history a readable first version', async () => {
+    const conversation = await newConversation()
+    const draft = await makeDraft(conversation.id, 'Legacy body')
+    // The shape a backup restored without the version table leaves behind.
+    sqlite.prepare('DELETE FROM chat_artifact_versions WHERE artifact_id = ?').run(draft.id)
+    const versions = await versionsOf(conversation.id, draft.id)
+    expect(versions).toHaveLength(1)
+    expect(versions[0]?.id).toBeTruthy()
+    const read = await call<{ version: AssistantArtifactVersion }>(
+      'GET', `/api/assistant/conversations/${conversation.id}/artifacts/${draft.id}/versions/${versions[0]!.id}`,
+    )
+    expect(read.version.content).toBe('Legacy body')
+  })
+
   it('keeps fifty versions and never prunes the head', async () => {
     const conversation = await newConversation()
     const draft = await makeDraft(conversation.id)

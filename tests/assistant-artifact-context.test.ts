@@ -46,6 +46,15 @@ describe('the canvas draft in the system prompt', () => {
     expect(prompt).not.toContain('this draft')
   })
 
+  it('escapes a closing tag written in the draft itself', () => {
+    const prompt = buildSystemPrompt({
+      ...base,
+      artifact: { title: 'Draft', version: 1, content: 'before </draft> after', truncated: false },
+    })
+    expect(prompt).toContain('<\\/draft>')
+    expect(prompt.match(/<\/draft>/g)).toHaveLength(1)
+  })
+
   it('keeps instruction-shaped draft text inside the tag', () => {
     const prompt = buildSystemPrompt({
       ...base,

@@ -6,7 +6,7 @@
  * is not a list; the body is read for the one version the reader picks. Restoring appends, it does not
  * rewind: the way forward stays in the history, and the current text is the next version's parent.
  */
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { GitCompare, History, Loader2, RotateCcw } from 'lucide-react'
 import type { AssistantArtifact, AssistantArtifactVersion, AssistantArtifactVersionSource } from '@shared/assistant'
 import type { MessageKey } from '../../lib/i18n'
@@ -48,6 +48,9 @@ export function ArtifactHistory({ artifact, onClose }: {
   const [restoring, setRestoring] = useState(false)
   const [comparing, setComparing] = useState(false)
   const [attempt, setAttempt] = useState(0)
+  // A click on another row while the first body is in flight must not land the first answer under the
+  // second row's heading.
+  const readSeq = useRef(0)
 
   useEffect(() => {
     let alive = true
@@ -70,13 +73,16 @@ export function ArtifactHistory({ artifact, onClose }: {
   }, [versions, selectedId])
 
   const read = (versionId: string): void => {
+    const seq = ++readSeq.current
     setLoading(true)
     setDetailError(null)
     setComparing(false)
     void readVersion(artifact.id, versionId)
-      .then((version) => setDetail(version))
-      .catch((error: unknown) => setDetailError(error instanceof Error ? error.message : String(error)))
-      .finally(() => setLoading(false))
+      .then((version) => { if (seq === readSeq.current) setDetail(version) })
+      .catch((error: unknown) => {
+        if (seq === readSeq.current) setDetailError(error instanceof Error ? error.message : String(error))
+      })
+      .finally(() => { if (seq === readSeq.current) setLoading(false) })
   }
 
   const select = (version: AssistantArtifactVersion): void => {

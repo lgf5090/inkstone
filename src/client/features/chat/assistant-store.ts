@@ -2689,9 +2689,14 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
       }
       // An approved artifact write runs outside the stream (the card replayed it), so no artifact frame
       // arrived for it. Reading the list once the turn closes is the fallback that keeps a write made
-      // through an approval from being invisible until the next reload.
-      if (event.type === 'done' && get().turn?.tools.some((tool) => tool.artifactId)) {
-        void get().loadArtifacts()
+      // through an approval from being invisible until the next reload. A cancelled run can also have
+      // written a draft after its chip was shown but before it could be settled, so the tool name is
+      // enough to ask again.
+      if (event.type === 'done') {
+        const tools = get().turn?.tools ?? []
+        if (tools.some((tool) => tool.artifactId) || tools.some((tool) => tool.name === 'create_artifact' || tool.name === 'update_artifact')) {
+          void get().loadArtifacts()
+        }
       }
     }
 

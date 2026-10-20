@@ -57,9 +57,9 @@ export function CanvasSelectionBar({ selection, onAction, onDismiss }: {
       role="toolbar"
       aria-label={t('assistant.canvas.selection_actions')}
       data-canvas-selection-bar="1"
-      // Keeping the pointer on the bar keeps the editor's selection: a button that focused itself would
-      // collapse the range before its own click handler ran.
-      onPointerDown={(event) => event.preventDefault()}
+      // Keeping the mouse press on the bar keeps the editor's selection: a button that focused itself
+      // would collapse the range before its own click handler ran.
+      onMouseDown={(event) => event.preventDefault()}
       className="fixed z-[var(--z-pop)] flex items-center gap-0.5 rounded-[var(--r-md)] border border-[var(--border-default)] bg-[var(--bg-raised)] p-1 shadow-[var(--shadow-pop)]"
       style={{ top: placed.top, left: placed.left }}
     >

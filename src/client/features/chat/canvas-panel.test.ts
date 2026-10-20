@@ -379,7 +379,7 @@ describe('the canvas panel', () => {
     })
     expect(canvasAi.runCanvasQuickAction).toHaveBeenCalledWith(
       expect.objectContaining({ artifactId: 'a1', whole: DRAFT.content }),
-      { instructions: 'Use short sentences.', modelId: 'm-skill' },
+      { instructions: 'Use short sentences.', modelId: 'm-skill', insert: false },
     )
   })
 

@@ -2596,21 +2596,23 @@ export class AssistantStore {
     if (rows.length) return rows.map((row) => toArtifactVersion(row, false))
     const artifact = await this.getArtifact(artifactId)
     if (!artifact) return []
+    // The id has to be the one the row was written with: the list is the handle the history view uses to
+    // read the body, and a synthetic empty id would make the first click on an old draft fail.
+    const id = newId()
     await this.db.prepare(
       `INSERT OR IGNORE INTO chat_artifact_versions
          (id, user_id, artifact_id, conversation_id, version, title, content, source, message_id, created_at)
        VALUES (?2, ?1, ?3, ?4, ?5, ?6, ?7, 'import', NULL, ?8)`,
-    ).bind(this.userId, newId(), artifact.id, artifact.conversationId, artifact.version, artifact.title, artifact.content, artifact.updatedAt).run()
-    return [{
-      id: '',
-      artifactId: artifact.id,
-      conversationId: artifact.conversationId,
-      version: artifact.version,
-      title: artifact.title,
-      source: 'import',
-      messageId: null,
-      createdAt: artifact.updatedAt,
-    }]
+    ).bind(this.userId, id, artifact.id, artifact.conversationId, artifact.version, artifact.title, artifact.content, artifact.updatedAt).run()
+    // Read the row back rather than trusting the generated id: a concurrent first read may have won the
+    // insert, and the id it wrote is the only one that exists.
+    const row = await this.one<ArtifactVersionRow>(
+      `SELECT id, artifact_id, conversation_id, version, title, '' AS content, source, message_id, created_at
+         FROM chat_artifact_versions
+        WHERE user_id = ?1 AND artifact_id = ?2 AND version = ?3`,
+      this.userId, artifactId, artifact.version,
+    )
+    return row ? [toArtifactVersion(row, false)] : []
   }
 
   async getArtifactVersion(artifactId: string, versionId: string): Promise<AssistantArtifactVersion | null> {

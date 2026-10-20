@@ -111,7 +111,9 @@ export function buildSystemPrompt(context: SystemPromptContext): string {
         fill(catalog.canvas_draft, {
           title: context.artifact.title || catalog.canvas_untitled,
           version: context.artifact.version,
-          content: context.artifact.content,
+          // A draft may contain the tag's own closing form in a code block. Escaping it keeps the data
+          // inside the fence the prompt says it is in, rather than letting text close the wrapper.
+          content: context.artifact.content.replace(/<\/draft>/gi, '<\\/draft>'),
         }),
         context.artifact.truncated ? catalog.canvas_draft_truncated : '',
       ].filter(Boolean).join('\n')
