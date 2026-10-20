@@ -775,22 +775,23 @@ export function ReadAloudButton({ text }: { text: string }) {
 
   return (
     <>
-      <button
-        type="button"
-        disabled={!available}
-        {...(available ? { 'aria-pressed': reading } : {})}
-        aria-label={reading ? t('assistant.chat.read_stop') : t('assistant.chat.read_aloud')}
-        {...(!available ? { 'aria-describedby': hintId } : {})}
-        onClick={() => (reading ? stop() : start())}
-        className={cn(
-          'ink-tap-pad relative inline-flex shrink-0 items-center gap-1 rounded-[var(--r-sm)] px-1 py-0.5 text-[length:var(--text-11)]',
-          'text-[var(--text-quaternary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-secondary)]',
-          !available && 'cursor-not-allowed opacity-40 hover:bg-transparent hover:text-[var(--text-quaternary)]',
-        )}
-      >
-        {reading ? <VolumeX size={11} aria-hidden /> : <Volume2 size={11} aria-hidden />}
-        {reading ? t('assistant.chat.read_stop') : t('assistant.chat.read_aloud')}
-      </button>
+      <Tooltip label={reading ? t('assistant.chat.read_stop') : t('assistant.chat.read_aloud')}>
+        <button
+          type="button"
+          disabled={!available}
+          {...(available ? { 'aria-pressed': reading } : {})}
+          aria-label={reading ? t('assistant.chat.read_stop') : t('assistant.chat.read_aloud')}
+          {...(!available ? { 'aria-describedby': hintId } : {})}
+          onClick={() => (reading ? stop() : start())}
+          className={cn(
+            'ink-tap-pad relative inline-flex shrink-0 items-center rounded-[var(--r-sm)] px-1 py-0.5 text-[length:var(--text-11)]',
+            'text-[var(--text-quaternary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-secondary)]',
+            !available && 'cursor-not-allowed opacity-40 hover:bg-transparent hover:text-[var(--text-quaternary)]',
+          )}
+        >
+          {reading ? <VolumeX size={11} aria-hidden /> : <Volume2 size={11} aria-hidden />}
+        </button>
+      </Tooltip>
       {!available && <span id={hintId} className="sr-only">{t('assistant.chat.read_unavailable')}</span>}
       {failed && (
         // `basis-full` asks for the whole width instead of splitting the chips around it: the row is icons
@@ -1103,24 +1104,25 @@ export function AssistantBubble({
             !viewing && 'opacity-100 md:opacity-0 md:group-hover:opacity-100 md:group-focus-within:opacity-100',
           )}>
             {body && (
-              <button
-                type="button"
-                onClick={() => {
-                  void copyText(body).then((ok) => {
-                    if (!ok) {
-                      useUi.getState().toast({ title: t('preview.could_not_copy'), tone: 'danger' })
-                      return
-                    }
-                    setCopied(true)
-                    window.setTimeout(() => setCopied(false), COPY_RESET_MS)
-                  })
-                }}
-                aria-label={t('assistant.chat.copy')}
-                className="ink-tap-pad relative inline-flex items-center gap-1 rounded-[var(--r-sm)] px-1 py-0.5 text-[length:var(--text-11)] text-[var(--text-quaternary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-secondary)]"
-              >
-                {copied ? <Check size={11} /> : <Copy size={11} />}
-                {copied ? t('assistant.chat.copied') : t('assistant.chat.copy')}
-              </button>
+              <Tooltip label={copied ? t('assistant.chat.copied') : t('assistant.chat.copy')}>
+                <button
+                  type="button"
+                  onClick={() => {
+                    void copyText(body).then((ok) => {
+                      if (!ok) {
+                        useUi.getState().toast({ title: t('preview.could_not_copy'), tone: 'danger' })
+                        return
+                      }
+                      setCopied(true)
+                      window.setTimeout(() => setCopied(false), COPY_RESET_MS)
+                    })
+                  }}
+                  aria-label={copied ? t('assistant.chat.copied') : t('assistant.chat.copy')}
+                  className="ink-tap-pad relative inline-flex items-center rounded-[var(--r-sm)] px-1 py-0.5 text-[length:var(--text-11)] text-[var(--text-quaternary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-secondary)]"
+                >
+                  {copied ? <Check size={11} /> : <Copy size={11} />}
+                </button>
+              </Tooltip>
             )}
             {/* Hearing it belongs beside copying it: a reader who wants the answer read out should not have to
                 find it in a context menu, and a switch that can be put back down is the part a menu row
@@ -1129,15 +1131,16 @@ export function AssistantBubble({
             {/* A finished answer can be asked again from the same footer; the error card above carries
                 its own retry, so the two never appear on one message. */}
             {!error && body && onRetry && !viewing && (
-              <button
-                type="button"
-                onClick={onRetry}
-                aria-label={t(retryLabel)}
-                className="ink-tap-pad relative inline-flex shrink-0 items-center gap-1 rounded-[var(--r-sm)] px-1 py-0.5 text-[length:var(--text-11)] text-[var(--text-quaternary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-secondary)]"
-              >
-                <RotateCcw size={11} />
-                {t(retryLabel)}
-              </button>
+              <Tooltip label={t(retryLabel)}>
+                <button
+                  type="button"
+                  onClick={onRetry}
+                  aria-label={t(retryLabel)}
+                  className="ink-tap-pad relative inline-flex shrink-0 items-center rounded-[var(--r-sm)] px-1 py-0.5 text-[length:var(--text-11)] text-[var(--text-quaternary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-secondary)]"
+                >
+                  <RotateCcw size={11} />
+                </button>
+              </Tooltip>
             )}
             {/* The way back from a cut-off answer: a stopped or truncated reply is finished here rather
                 than asked for again, which would spend the same tokens twice and lose what was written.
@@ -1145,28 +1148,30 @@ export function AssistantBubble({
                 `body` — so this one affordance is deliberately not gated on `!error` the way the
                 copy/save actions below are: there is something to carry on from. */}
             {body && !streaming && !viewing && canContinue && (
-              <button
-                type="button"
-                onClick={() => void useAssistant.getState().send('', { continue: true })}
-                aria-label={t('assistant.chat.continue')}
-                className="ink-tap-pad relative inline-flex shrink-0 items-center gap-1 rounded-[var(--r-sm)] px-1 py-0.5 text-[length:var(--text-11)] text-[var(--text-quaternary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-secondary)]"
-              >
-                <Play size={11} />
-                {t('assistant.chat.continue')}
-              </button>
+              <Tooltip label={t('assistant.chat.continue')}>
+                <button
+                  type="button"
+                  onClick={() => void useAssistant.getState().send('', { continue: true })}
+                  aria-label={t('assistant.chat.continue')}
+                  className="ink-tap-pad relative inline-flex shrink-0 items-center rounded-[var(--r-sm)] px-1 py-0.5 text-[length:var(--text-11)] text-[var(--text-quaternary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-secondary)]"
+                >
+                  <Play size={11} />
+                </button>
+              </Tooltip>
             )}
             {/* Only a settled answer is offered: a half-written reply saved twice is two notes, and the
                 one worth keeping is the one the model finished. */}
             {!error && body && !streaming && !viewing && (
-              <button
-                type="button"
-                onClick={() => saveReplyAsNote(body)}
-                aria-label={t('assistant.chat.save_to_note')}
-                className="ink-tap-pad relative inline-flex shrink-0 items-center gap-1 rounded-[var(--r-sm)] px-1 py-0.5 text-[length:var(--text-11)] text-[var(--text-quaternary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-secondary)]"
-              >
-                <NotebookPen size={11} />
-                {t('assistant.chat.save_to_note')}
-              </button>
+              <Tooltip label={t('assistant.chat.save_to_note')}>
+                <button
+                  type="button"
+                  onClick={() => saveReplyAsNote(body)}
+                  aria-label={t('assistant.chat.save_to_note')}
+                  className="ink-tap-pad relative inline-flex shrink-0 items-center rounded-[var(--r-sm)] px-1 py-0.5 text-[length:var(--text-11)] text-[var(--text-quaternary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-secondary)]"
+                >
+                  <NotebookPen size={11} />
+                </button>
+              </Tooltip>
             )}
             {/* The keep is a row on the server, so it is offered only where there is a row: not while the
                 answer is still arriving, and not over an older version paged back, whose text is not what

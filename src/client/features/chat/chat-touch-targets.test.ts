@@ -255,7 +255,7 @@ function denseSites(): DenseSite[] {
 }
 
 describe('the answer footer', () => {
-  it('pads the five word controls and the three icon controls it draws under 24 pixels', () => {
+  it('pads the eight icon controls it draws under 24 pixels', () => {
     mountAnswer()
     for (const key of FOOTER_CONTROLS) {
       expectPadded(byName(t(key)), DENSE_CHIP_PADDING)
