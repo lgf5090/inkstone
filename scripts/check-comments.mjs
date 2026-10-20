@@ -11279,6 +11279,7 @@ const allowed = new Map([
   ]],
   ["src/client/lib/dataview/conformance.test.ts", [
     "/**\n * Conformance against the reference plugin's own grammar corpus.\n *\n * The cases are the strings `obsidian-dataview`'s tests feed to its parser, plus the query shapes its\n * documentation uses. Each one is asserted here rather than printed, because the failure mode of a port\n * is a query that silently means something else: `LIST` + newline + `SORT file.name` once parsed `SORT`\n * as a variable and rejected the rest, which reads as a broken query to the author and as nothing at all\n * to the reader.\n */",
+    "/**\n     * The same table's answers, not just its names.\n     *\n     * Parsing `date(sow)` proves nothing about which day it lands on, and the week rule, the month ends\n     * and the ±1 day are exactly where a hand-rolled date helper and a shared one can disagree.\n     * Wednesday 2026-10-21 is a fixed Wednesday in a month that ends on a Sunday.\n     */",
   ]],
   ["src/client/lib/dataview/context.ts", [
     "/**\n * The expression evaluator.\n *\n * A `Context` is one query's worth of state: the settings that decide how values render, the link\n * handler that decides when two spellings of a note name are the same note, the globals (`this`,\n * `row`) and the field evaluator. Variable lookup, index semantics and function dispatch follow\n * Dataview exactly, including the two that users rely on most: indexing an array by a *string* maps\n * over the array (`file.tasks.text`), and indexing a link resolves the target note\n * (`[[Some note]].rating`).\n */",
@@ -11321,7 +11322,6 @@ const allowed = new Map([
   ["src/client/lib/dataview/expression.ts", [
     "/**\n * The expression language and the DQL query grammar.\n *\n * The grammar is written to match Dataview's own Parsimmon language rule for rule, because a query\n * copied out of the Dataview docs has to mean the same thing here. Two differences are deliberate:\n * IANA zone names inside a date literal (`2024-01-01[Asia/Shanghai]`) are not accepted, and the\n * `dateformat`/`durationformat` tokens are a documented subset rather than luxon's whole table.\n */",
     "/** Units are tried longest-first so `months` is never read as `month` plus a stray `s`. */",
-    "/** Weeks start on Monday, matching the calendar view and most readers' expectation. */",
     "/** Fold `13 months` into `1 year 1 month` the way `dur()` promises. */",
     "/**\n * A quoted string with backslash escapes. Only `\\\"` and `\\\\` are consumed as escapes — anything else\n * keeps its backslash, so `regexreplace(x, \"\\d\", \"\")` receives the pattern the author typed.\n */",
     "/** `#` then anything that is not punctuation or space, which is what makes `#a/b/c` one tag. */",
@@ -11345,6 +11345,7 @@ const allowed = new Map([
     "/**\n * The words the clause loop owns. A header field must not read `SORT` as a variable, or a query written\n * as `LIST` + newline + `SORT file.name DESC` — the shape the docs use — becomes a parse failure.\n */",
     "/**\n * `LIST` takes at most one field, and must not swallow a following comma — the clause loop owns that.\n */",
     "/** Parse a full DQL query; a missing `FROM` means every note, which is `Sources.everything()`. */",
+    "/** Dataview's week rules open on Monday, which is also what this app's calendar view draws. */",
   ]],
   ["src/client/lib/dataview/functions.ts", [
     "/**\n * The Dataview function library.\n *\n * Dispatch mirrors the reference project's `FunctionBuilder`: a function is a list of variants keyed\n * by argument *type names* with `*` as a wildcard, checked in declaration order, plus a per-arity\n * vectorisation rule that maps the variant over array arguments. Keeping that shape is what makes\n * `map(filter(rows.file.tasks, (t) => !t.completed), (t) => t.text)` behave the way the Dataview docs\n * say it does, including the corners (`length(null)` is 0, `link(\"a\", null)` is a link to a).\n *\n * Every variant implementation takes the context first, then its arguments positionally — the arity\n * the variant declared. `nullish()` adds the null-eats-null variants that most string and number\n * functions share instead of spelling them out eleven times.\n */",

@@ -16,7 +16,8 @@ import { extractTags, parseFrontMatter } from '@shared/markdown-utils'
 import type { TaskFields } from '../tasks'
 import { readEitherFormat } from '../tasks/line'
 import { DvLink, Values, type DataObject, type Literal } from './value'
-import { buildDate, normalizeDuration, parseInlineValue, stripTime } from './expression'
+import { buildDate, normalizeDuration, parseInlineValue } from './expression'
+import { startOfDay } from '../time'
 import { describeStatus, taskFieldEntries } from './task-fields'
 
 /** One `- [ ]` / `1. ` / `* ` line, with its children, its fields and the section it sits under. */
@@ -615,9 +616,9 @@ export function serializePage(page: PageMetadata, inLinks: DvLink[] = []): DataO
         lists,
         tasks,
         ctime: page.ctime,
-        cday: stripTime(page.ctime),
+        cday: startOfDay(page.ctime),
         mtime: page.mtime,
-        mday: stripTime(page.mtime),
+        mday: startOfDay(page.mtime),
         size: page.size,
         starred: page.starred,
         pinned: page.pinned,

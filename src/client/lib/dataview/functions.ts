@@ -14,7 +14,8 @@
 
 import { Fields, type BinaryOp } from './ast'
 import { DvLink, Values, compareValues, formatDateTokenized, type DataObject, type Literal, type LiteralTypeName } from './value'
-import { normalizeDuration, parseInlineValue, stripTime } from './expression'
+import { normalizeDuration, parseInlineValue } from './expression'
+import { startOfDay } from '../time'
 import { safePattern } from './regex'
 
 export interface QueryRuntimeSettings {
@@ -691,7 +692,7 @@ export namespace DefaultFunctions {
         .build()
 
     export const striptime: FunctionImpl = new Builder('striptime')
-        .add('date', (_context, value) => stripTime(value as Date))
+        .add('date', (_context, value) => startOfDay(value as Date))
         .vectorize(1, [0])
         .nullish(1)
         .build()
