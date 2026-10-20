@@ -1064,6 +1064,26 @@ const MODEL_UPDATES: readonly {
   { key: 'priceCurrency', column: 'price_currency', bind: (patch) => patch.priceCurrency },
 ]
 
+/**
+ * A task row's pending reminders as one comma-separated column.
+ *
+ * A correlated subquery rather than a second read for the page: a listing already loads tags and step
+ * counts, and a third round trip made the statement count grow with every page — the contract
+ * `tests/todos-server-filter.test.ts` pins. The `(user_id, task_id)` index answers it per row, and the
+ * values are parsed back into instants and sorted, because `group_concat` makes no ordering promise.
+ * Fired rows stay out: the panel shows what will happen next.
+ */
+const TASK_REMINDER_TIMES = `(
+  SELECT group_concat(r.remind_at, ',') FROM todos_reminders r
+   WHERE r.user_id = todos_tasks.user_id AND r.task_id = todos_tasks.id AND r.fired_at IS NULL
+) AS reminder_times`
+
+/** The instants `TASK_REMINDER_TIMES` packed into one column, or none. */
+function reminderTimesOf(packed: string | null): number[] {
+  if (!packed) return []
+  return normalizeReminderTimes(packed.split(',').map(Number))
+}
+
 export class AssistantStore {
   constructor(
     private readonly db: D1Database,
@@ -3862,7 +3882,8 @@ export class AssistantStore {
     const limit = q.add(Math.min(query.limit ?? pageSize, MAX_TASKS_PER_QUERY))
     const offset = query.offset && query.offset > 0 ? ` OFFSET ${q.add(Math.trunc(query.offset))}` : ''
     return await this.rows<TaskRow>(
-      `SELECT * FROM todos_tasks WHERE ${q.where} ORDER BY ${taskOrder(query.sort, query.view)} LIMIT ${limit}${offset}`,
+      `SELECT *, ${TASK_REMINDER_TIMES} FROM todos_tasks WHERE ${q.where}
+        ORDER BY ${taskOrder(query.sort, query.view)} LIMIT ${limit}${offset}`,
       ...q.binds,
     )
   }
@@ -3916,44 +3937,16 @@ export class AssistantStore {
     return out
   }
 
-  /**
-   * The pending reminders of many tasks in one query, keyed by task and ascending.
-   *
-   * Fired rows are history: the reader's panel shows what will happen next, and the sweep is the only
-   * reader of what already happened. One query for the page, like tags and step counts, so a list of
-   * a hundred tasks is not a hundred reminder reads.
-   */
-  private async remindersForTasks(ids: readonly string[]): Promise<Map<string, number[]>> {
-    if (!ids.length) return new Map()
-    const marks = ids.map((_, index) => `?${index + 2}`).join(', ')
-    const list = await this.rows<{ task_id: string; remind_at: number }>(
-      `SELECT task_id, remind_at FROM todos_reminders
-        WHERE user_id = ?1 AND fired_at IS NULL AND task_id IN (${marks})
-        ORDER BY remind_at ASC, id ASC`,
-      this.userId, ...ids,
-    )
-    const out = new Map<string, number[]>()
-    for (const row of list) {
-      const bucket = out.get(row.task_id) ?? []
-      bucket.push(row.remind_at)
-      out.set(row.task_id, bucket)
-    }
-    return out
-  }
-
   private async tasksWithDetails(rows: TaskRow[]): Promise<TodoTask[]> {
     if (!rows.length) return []
     const ids = rows.map((row) => row.id)
-    const [steps, tags, reminders] = await Promise.all([
-      this.stepCounts(ids),
-      this.tagsForTasks(ids),
-      this.remindersForTasks(ids),
-    ])
+    const [steps, tags] = await Promise.all([this.stepCounts(ids), this.tagsForTasks(ids)])
     return rows.map((row) => toTask(row, {
       tags: tags.get(row.id) ?? [],
       stepTotal: steps.get(row.id)?.total ?? 0,
       stepDone: steps.get(row.id)?.done ?? 0,
-      reminders: reminders.get(row.id) ?? [],
+      // The page's own select packed these in; no separate reminder read per listing.
+      reminders: reminderTimesOf(row.reminder_times),
     }))
   }
 
@@ -3962,7 +3955,10 @@ export class AssistantStore {
   }
 
   async getTask(id: string): Promise<TodoTask | null> {
-    const row = await this.one<TaskRow>(`SELECT * FROM todos_tasks WHERE user_id = ?1 AND id = ?2`, this.userId, id)
+    const row = await this.one<TaskRow>(
+      `SELECT *, ${TASK_REMINDER_TIMES} FROM todos_tasks WHERE user_id = ?1 AND id = ?2`,
+      this.userId, id,
+    )
     if (!row) return null
     const [task] = await this.tasksWithDetails([row])
     return task ?? null
@@ -4180,7 +4176,7 @@ export class AssistantStore {
     const direct = await this.getTask(ref)
     if (direct) return direct
     const list = await this.rows<TaskRow>(
-      `SELECT * FROM todos_tasks WHERE user_id = ?1 AND title LIKE ?2 ESCAPE '\\'
+      `SELECT *, ${TASK_REMINDER_TIMES} FROM todos_tasks WHERE user_id = ?1 AND title LIKE ?2 ESCAPE '\\'
         ORDER BY status = 'done', updated_at DESC LIMIT 2`,
       this.userId, containsPattern(ref),
     )
@@ -6736,6 +6732,8 @@ interface TaskRow {
   list_id: string | null
   starred: number | null
   repeat_rule: string | null
+  /** `TASK_REMINDER_TIMES`: the pending instants, comma-separated, or null when there are none. */
+  reminder_times: string | null
   planned_for: string | null
   note_id: string | null
   conversation_id: string | null

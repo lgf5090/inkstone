@@ -26,14 +26,11 @@ function database(): DatabaseSync {
 
 /** A task written the way the old code wrote it: one instant on the row, maybe already announced. */
 function seedLegacy(sqlite: DatabaseSync, options: { remindAt?: number | null; remindedAt?: number | null } = {}): void {
+  const remindAt = Object.hasOwn(options, 'remindAt') ? options.remindAt ?? null : REMIND_AT
   sqlite.prepare(
     `INSERT INTO todos_tasks (user_id, id, title, created_at, updated_at, remind_at, reminded_at)
      VALUES (?1, ?2, 'File the return', ?3, ?3, ?4, ?5)`,
-  ).run(
-    USER, TASK, Date.parse('2026-10-01T00:00:00Z'),
-    'remindAt' in options ? options.remindAt : REMIND_AT,
-    options.remindedAt ?? null,
-  )
+  ).run(USER, TASK, Date.parse('2026-10-01T00:00:00Z'), remindAt, options.remindedAt ?? null)
 }
 
 function reminderRows(sqlite: DatabaseSync): { task_id: string; remind_at: number; fired_at: number | null }[] {
