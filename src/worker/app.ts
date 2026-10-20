@@ -31,6 +31,7 @@ import { readerDiscoveryRoutes } from './routes/reader-discovery'
 import { rssRoutes } from './routes/rss'
 import { subscriptionRoutes } from './routes/subscriptions'
 import { todoRoutes } from './routes/todos'
+import { todoFeedRoutes } from './routes/todo-feeds'
 import { subscriptionInboundRoutes } from './routes/subscriptions-inbound'
 import type { AppBindings } from './env'
 import { selectAttachmentStorage } from './attachments/backend'
@@ -64,6 +65,10 @@ export function createApp() {
     await next()
   })
   app.use('/s/*', async (c, next) => {
+    c.set('database', await initializeDatabase(c.env))
+    await next()
+  })
+  app.use('/feeds/*', async (c, next) => {
     c.set('database', await initializeDatabase(c.env))
     await next()
   })
@@ -133,6 +138,7 @@ export function createApp() {
 
   app.route('/s', sharePageRoutes)
   app.route('/c', conversationSharePageRoutes)
+  app.route('/feeds', todoFeedRoutes)
   app.route('/', mcpAuthorizeRoutes)
 
 

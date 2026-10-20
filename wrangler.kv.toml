@@ -17,6 +17,7 @@ run_worker_first = [
   "/s/*",
   "/c",
   "/c/*",
+  "/feeds/*",
   "/authorize",
   "/authorize/*",
   "/oauth/*",
