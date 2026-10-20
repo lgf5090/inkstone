@@ -529,6 +529,25 @@ function shouldNotifyOtherTabs(path: string): boolean {
 export type PresenceStatus = { running: false, viewers: number } | { running: true, expiresAt: number, presence: PublicSharePresence, viewers: number }
 
 /**
+ * One calendar subscription as its owner's settings screen reads it.
+ *
+ * The worker's public reader (`routes/todo-feeds.ts`) owns the document; this is the management half:
+ * the untrusted slug, the address built from it, whether a passcode stands in front of it, and the two
+ * timestamps. A passcode hash has no field here and never travels — `hasPassword` is the whole marker.
+ *
+ * `url` is the route's answer for convenience, but the screen rebuilds the address from its own
+ * `window.location.origin`: behind a proxy the origin the worker saw is not necessarily the one the
+ * reader can reach, and a copied subscription has to be reachable from their calendar.
+ */
+export interface TodoFeedInfo {
+  slug: string
+  url: string
+  hasPassword: boolean
+  expiresAt: number | null
+  createdAt: number
+}
+
+/**
  * Uploads one chat attachment with a byte counter.
  *
  * `XMLHttpRequest` rather than `request()`: fetch reports nothing while the body is going out, and a
@@ -1164,6 +1183,21 @@ export const api = {
     updateTag: (id: string, body: { name?: string, color?: string | null }) =>
       request<{ tag: TaskTag }>(`/api/todos/tags/${id}`, { method: 'PATCH', body }),
     removeTag: (id: string) => request<{ deleted: true }>(`/api/todos/tags/${id}`, { method: 'DELETE' }),
+
+    /**
+     * The calendar subscriptions this account published.
+     *
+     * `create` mints a new address every time — a feed is never replaced, and revoking one never frees
+     * its slug. The passcode is an optional plaintext on the way in only; the answer carries the
+     * `hasPassword` marker, and a protected feed's subscriber appends `?key=` to the copied address.
+     */
+    feed: {
+      list: () => request<{ feeds: TodoFeedInfo[] }>('/api/todos/feed'),
+      create: (body: { password?: string | null, expiresIn?: number | null } = {}) =>
+        request<{ feed: TodoFeedInfo }>('/api/todos/feed', { method: 'POST', body }),
+      remove: (slug: string) =>
+        request<{ ok: true }>(`/api/todos/feed/${slug}`, { method: 'DELETE' }),
+    },
   },
 
   assistant: {

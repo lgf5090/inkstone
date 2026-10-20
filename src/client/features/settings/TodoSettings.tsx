@@ -25,6 +25,7 @@ import { Button } from '../../components/primitives'
 import { Input, Select, SettingRow, Switch } from '../../components/form'
 import { LoadingBlock } from '../../components/feedback'
 import { useSession } from '../../store/session'
+import { FeedSettings } from './FeedSettings'
 
 /** The hour a daily plan starts at before the reader picks one: the same default the chat's editor offers. */
 const DEFAULT_DIGEST_TIME = '09:00'
@@ -257,6 +258,7 @@ export function TodoSettings() {
           ))}
         </Select>
       </SettingRow>
+      <FeedSettings />
     </div>
   )
 }

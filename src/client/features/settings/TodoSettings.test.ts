@@ -19,12 +19,13 @@ import { TodoSettings } from './TodoSettings'
  * switch that would create a duplicate routine on the next press.
  */
 
-const { settingsMock, saveSettingsMock, automationsMock, createMock, updateMock } = vi.hoisted(() => ({
+const { settingsMock, saveSettingsMock, automationsMock, createMock, updateMock, feedListMock } = vi.hoisted(() => ({
   settingsMock: vi.fn(),
   saveSettingsMock: vi.fn(),
   automationsMock: vi.fn(),
   createMock: vi.fn(),
   updateMock: vi.fn(),
+  feedListMock: vi.fn(),
 }))
 
 vi.mock('../../lib/api', async (importOriginal) => {
@@ -39,6 +40,8 @@ vi.mock('../../lib/api', async (importOriginal) => {
         createAutomation: createMock,
         updateAutomation: updateMock,
       },
+      // The calendar block loads with the page; a case about the plan row must not trip over it.
+      todos: { feed: { list: feedListMock, create: vi.fn(), remove: vi.fn() } },
     },
   }
 })
@@ -118,6 +121,7 @@ beforeEach(async () => {
   updateMock.mockReset().mockImplementation(async (id: string, body: Partial<Automation>) => ({
     automation: automation({ id, ...body }),
   }))
+  feedListMock.mockReset().mockResolvedValue({ feeds: [] })
   useSession.setState({
     settings: { ...DEFAULT_SETTINGS, todo: { defaultRemind: null } },
     updateSettings: async () => undefined,
