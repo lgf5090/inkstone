@@ -17368,6 +17368,28 @@ const allowed = new Map([
     "/** A trailing block id, which survives a rewrite but is never part of the description. */",
     "/**\n   * Hashtags. The leading `(^|\\s)` is what keeps `http://example.com/a#b` from reading as tagged,\n   * and the negated class is what keeps `#1.5`, `#tag)` and `#tag,` from over-reaching.\n   */",
   ]],
+  ["src/client/lib/tasks/model/task.ts", [
+    "/**\n * One task, as it lives on a line of a note.\n *\n * A record rather than upstream's class: its many cloning getters exist to stop a mutable Moment\n * being shared between two instances, and a task date here is always a fresh immutable `Date`.\n */",
+    "/** The line exactly as read, which is what a rewrite refuses against when it no longer matches. */",
+    "/** ` ^some-id`, kept apart from the description so it survives a rewrite and stays last. */",
+    "/** Two or more trailing spaces, which Markdown reads as a hard line break. */",
+    "/** True when `scheduledDate` came from the note's filename rather than from the line. */",
+    "/** A day inferred from the note's name, used only when the line states no date at all. */",
+    "/** Split a line into the markdown around the checkbox, or null when it is not a task line. */",
+    "/**\n * Read one line as a task.\n *\n * Deliberately unaware of any global filter: what a note *says* should not depend on a setting, so\n * the filter is applied where results are chosen rather than here, and a query that opts out of it\n * sees the same tasks.\n */",
+    "/**\n * Build the rule last, from the dates that have all been read.\n *\n * `every week` needs a reference date to be anchored at all, and that date may appear anywhere in\n * the line, so the rule text is carried unparsed until now.\n */",
+    "/** Render the task back to a single markdown line, preserving everything the reader wrote. */",
+    "/** The dates a task is \"about\": the ones a reader would say they are running to. */",
+    "/** A position for a task a script invented, which can be listed but never written back. */",
+  ]],
+  ["src/client/lib/tasks/model/urgency.ts", [
+    "/** How much a due date is worth, by how far it has slipped. */",
+    "/**\n * How loudly a task should ask to be done, as a single number.\n *\n * A heuristic rather than a rule, and deliberately the same one the reference plugin uses: readers\n * move vaults between the two, and a different score would reorder their lists for no reason they\n * could name. `sort by urgency` is the default order for a reason — it puts the overdue thing in\n * front of the merely important one.\n */",
+  ]],
+  ["src/client/lib/tasks/serializer/dataview-format.ts", [
+    "/**\n * A field written as a Dataview inline field, in either bracket style.\n *\n * `[due:: 2026-10-04]` and `(due:: 2026-10-04)` both read, because readers use whichever one is\n * not already taken by a link on the same line. Only the square form is ever written.\n */",
+    "/**\n * The Dataview inline-field task format.\n *\n * Offered to readers who would rather write `due::` than an emoji, and to vaults imported from a\n * plain Dataview setup. It parses to exactly the same {@link TaskFields} as the emoji format, which\n * is what lets one query engine and one write path serve both.\n */",
+  ]],
   ["src/client/lib/tasks/serializer/emoji.ts", [
     "/** The characters allowed in a task id, and a comma-separated run of them. */",
     "/**\n * Build a pattern that strips one field off the end of the line.\n *\n * Every field is anchored at `$` because the reader may write them in any order: the parser peels\n * from the right until nothing recognisable is left, which is what lets `📅 … ✅ … #tag` and\n * `#tag ✅ … 📅 …` both parse. `\\uFE0F?` accepts the emoji either with or without its variation\n * selector, and the `u` flag is deliberately absent — with it, some engines refuse to match these\n * emoji at all.\n */",
@@ -17394,6 +17416,7 @@ const allowed = new Map([
     "/** Render everything after the checkbox, in the format's own field order. */",
     "/** Keep each field's symbol but drop its value, for a dense list. */",
     "/** Components the reader chose to hide, which must not come back on the next write. */",
+    "/**\n   * True when `scheduledDate` was inferred from the note's filename rather than written by the\n   * reader. An inferred date is never serialised: doing so would stamp a date onto the note that\n   * nobody typed, and it would then survive even after the reader turned the feature off.\n   */",
   ]],
   ["src/client/lib/tasks/status/registry.ts", [
     "/**\n * The statuses a vault recognises, and how one leads to the next.\n *\n * A checkbox character has no meaning on its own: `[-]` is \"cancelled\" only because something says\n * so. This registry is that something, and it is built from the reader's settings on every read so\n * no two callers can disagree about what a note says.\n */",
