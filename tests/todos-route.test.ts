@@ -14,11 +14,24 @@ import { testBindings } from './doubles/bindings'
 const USER = '0123456789abcdefghjkmnpqrs'
 const OTHER = '0123456789abcdefghjkmnpqrt'
 
-const mocks = vi.hoisted(() => ({ userId: '' }))
+const mocks = vi.hoisted(() => ({ userId: '', settingsRaw: '{}' }))
 
 vi.mock('../src/worker/middleware/auth', () => ({
-  requireAuth: async (c: { set: (key: string, value: string) => void }, next: () => Promise<void>) => {
+  requireAuth: async (
+    c: { get: (key: string) => unknown; set: (key: string, value: unknown) => void },
+    next: () => Promise<void>,
+  ) => {
     c.set('userId', mocks.userId)
+    c.set('user', {
+      id: mocks.userId,
+      username: mocks.userId,
+      login: mocks.userId,
+      name: '',
+      avatarUrl: '',
+      role: 'member',
+      createdAt: 1,
+      settingsRaw: mocks.settingsRaw,
+    })
     await next()
   },
 }))
@@ -54,6 +67,7 @@ async function create(body: Record<string, unknown>): Promise<TodoTask> {
 
 beforeEach(() => {
   mocks.userId = USER
+  mocks.settingsRaw = '{}'
   sqlite = new DatabaseSync(':memory:')
   sqlite.exec('PRAGMA journal_mode = OFF')
   sqlite.exec(SCHEMA_STATEMENTS.join(';'))
@@ -237,6 +251,60 @@ describe('reminders', () => {
     const task = await create({ title: 'One', reminders: [AT] })
     const cleared = await json<{ task: TodoTask }>(await send('PATCH', `/${task.id}`, { reminders: [] }))
     expect(cleared.task.reminders).toEqual([])
+  })
+})
+
+describe('the default reminder', () => {
+  const DUE = Date.parse('2026-11-10T09:00:00Z')
+  // The write budget is module-wide and keyed by caller; these cases spend their own minute so the
+  // cases above and below keep the one the fixture gave them.
+  let caller = 0
+
+  beforeEach(() => {
+    caller += 1
+    mocks.userId = `defaultremind${String(caller).padStart(14, '0')}`
+  })
+
+  it('adds one at the account default offset to a new task with a due date', async () => {
+    mocks.settingsRaw = JSON.stringify({ todo: { defaultRemind: 'due' } })
+    const task = await create({ title: 'Renew the lease', dueAt: DUE })
+    expect(task.reminders).toEqual([DUE])
+  })
+
+  it('does not override a reminder list the request spelled out', async () => {
+    mocks.settingsRaw = JSON.stringify({ todo: { defaultRemind: 'due' } })
+    const task = await create({ title: 'Mine', dueAt: DUE, reminders: [DUE - 15 * 60_000] })
+    expect(task.reminders).toEqual([DUE - 15 * 60_000])
+  })
+
+  it('takes an explicit none as no reminder', async () => {
+    mocks.settingsRaw = JSON.stringify({ todo: { defaultRemind: 'due' } })
+    const cleared = await create({ title: 'Empty list', dueAt: DUE, reminders: [] })
+    const offsetNone = await create({ title: 'Offset none', dueAt: DUE, remind: 'none' })
+    expect(cleared.reminders).toEqual([])
+    expect(offsetNone.reminders).toEqual([])
+  })
+
+  it('reads a remind offset the request sent instead of a list', async () => {
+    mocks.settingsRaw = JSON.stringify({ todo: { defaultRemind: 'due' } })
+    const task = await create({ title: 'Quarter hour', dueAt: DUE, remind: '15m' })
+    expect(task.reminders).toEqual([DUE - 15 * 60_000])
+  })
+
+  it('does nothing for a task without a due date', async () => {
+    mocks.settingsRaw = JSON.stringify({ todo: { defaultRemind: '1h' } })
+    const task = await create({ title: 'Someday' })
+    expect(task.reminders).toEqual([])
+  })
+
+  it('applies a changed default to the next task only', async () => {
+    mocks.settingsRaw = JSON.stringify({ todo: { defaultRemind: 'due' } })
+    const first = await create({ title: 'First', dueAt: DUE })
+    mocks.settingsRaw = JSON.stringify({ todo: { defaultRemind: '1h' } })
+    const second = await create({ title: 'Second', dueAt: DUE })
+
+    expect(first.reminders).toEqual([DUE])
+    expect(second.reminders).toEqual([DUE - 60 * 60_000])
   })
 })
 

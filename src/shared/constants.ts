@@ -23,6 +23,7 @@ import type {
   SavedDataviewQuery,
   SidebarTab,
   SkinTone,
+  TodoSettings,
   UserSettings,
   ViewKind,
 } from './types'
@@ -476,6 +477,9 @@ export const DEFAULT_SETTINGS: UserSettings = {
     aiEnabled: false,
     aiLanguage: 'interface',
   },
+  todo: {
+    defaultRemind: null,
+  },
 }
 
 /** The choices the RSS panel offers, spelled once so the merge and the panel cannot drift. */
@@ -788,6 +792,7 @@ export function mergeSettings(partial: unknown): UserSettings {
   const search = asRecord(src.search)
   const dataview = asRecord(src.dataview)
   const rss = asRecord(src.rss)
+  const todo = asRecord(src.todo)
 
   // the linter section is a nested record, so it is rebuilt from the reader's blob rather than
   // patched onto a default: an unknown rule or an oversized option has to be dropped, not stored
@@ -799,6 +804,7 @@ export function mergeSettings(partial: unknown): UserSettings {
     : base.notes.newNoteTemplate
   base.notes.syncTitleToFrontMatter = booleanValue(notes.syncTitleToFrontMatter, base.notes.syncTitleToFrontMatter)
   base.notes.syncFrontMatterTitle = booleanValue(notes.syncFrontMatterTitle, base.notes.syncFrontMatterTitle)
+  base.todo.defaultRemind = todoRemindOffset(todo.defaultRemind)
 
   base.appearance.theme = enumValue(appearance.theme, THEMES, base.appearance.theme)
   base.appearance.language = enumValue(
@@ -1436,7 +1442,7 @@ function draggerKnownStyleOrder(value: unknown, styleIds: readonly string[]): st
   return [...kept, ...styleIds.filter((id) => !seen.has(id))]
 }
 
-const SETTINGS_SECTIONS = ['appearance', 'editor', 'preview', 'properties', 'backup', 'sync', 'notes', 'search', 'dataview', 'linter', 'rss'] as const
+const SETTINGS_SECTIONS = ['appearance', 'editor', 'preview', 'properties', 'backup', 'sync', 'notes', 'search', 'dataview', 'linter', 'rss', 'todo'] as const
 
 export function normalizeTodoTags(value: unknown): string {
   if (typeof value !== 'string')
@@ -1450,6 +1456,11 @@ export function normalizeTodoTags(value: unknown): string {
       break
   }
   return [...seen].join(',')
+}
+
+function todoRemindOffset(value: unknown): TodoSettings['defaultRemind'] {
+  if (value === 'due' || value === '15m' || value === '1h' || value === '1d') return value
+  return null
 }
 
 function sameFlatRecord(a: Record<string, unknown>, b: Record<string, unknown>): boolean {
@@ -1522,6 +1533,7 @@ function cloneDefaultSettings(): UserSettings {
       savedQueries: [],
     },
     rss: { ...DEFAULT_SETTINGS.rss },
+    todo: { ...DEFAULT_SETTINGS.todo },
   }
 }
 

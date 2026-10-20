@@ -16,9 +16,11 @@ import { Hono, type Context } from 'hono'
 import type { AppBindings } from '../env'
 import { ApiError } from '../lib/errors'
 import { isValidId } from '../lib/id'
+import { storedObject } from '../lib/json'
 import { createMinuteBudget } from '../lib/rate-limit'
 import { JSON_BODY_LIMITS, readJson } from '../lib/request'
 import { requireAuth } from '../middleware/auth'
+import { mergeSettings } from '@shared/constants'
 import { localDate, localDayBounds, parseLocalTime } from '@shared/assistant-time'
 import { organizerColorOrNull } from '@shared/organizer-colors'
 import {
@@ -28,6 +30,7 @@ import {
   MAX_TAGS_PER_TASK,
   MAX_TAG_NAME_CHARS,
   MAX_TASKS_PER_QUERY,
+  REMIND_OFFSETS,
   isSnoozeMinutes,
   isTaskSort,
   isTaskStatsBucket,
@@ -35,6 +38,8 @@ import {
   normalizeReminderTimes,
   normalizeTagNames,
   parseRepeatRule,
+  remindAtFor,
+  type RemindOffset,
   type RepeatRule,
   type TaskSort,
   type TaskStatsBucket,
@@ -187,6 +192,34 @@ function reminderTimes(value: unknown): number[] | undefined {
     throw ApiError.badRequest(`A task can carry at most ${MAX_REMINDERS_PER_TASK} reminders.`)
   }
   return normalizeReminderTimes(value)
+}
+
+/**
+ * A reminder offset the request named, as the absolute instants the store takes.
+ *
+ * `none` is an explicit empty answer rather than a missing one — it suppresses the account's default.
+ * The four real offsets are measured from this task's due date, so without one there is no instant.
+ */
+function reminderOffsetTimes(value: unknown, dueAt: number | null): number[] {
+  if (typeof value !== 'string' || !REMIND_OFFSETS.includes(value as RemindOffset)) {
+    throw ApiError.badRequest('A reminder offset must be none, due, 15m, 1h or 1d.')
+  }
+  const at = remindAtFor(dueAt, value as RemindOffset)
+  return at === null ? [] : [at]
+}
+
+/**
+ * The reminder a create writes when the body named neither a list nor an offset.
+ *
+ * The account's to-do default is an offset, measured once against this task's own due date: editing
+ * the date later must not move a reminder the reader has already been given. A task with no date has
+ * nothing to measure from, and a reader who never chose a default has null, so both get no reminder.
+ */
+function defaultReminderTimes(settingsRaw: string, dueAt: number | null): number[] {
+  if (dueAt === null) return []
+  const offset = mergeSettings(storedObject(settingsRaw)).todo.defaultRemind
+  const at = offset === null ? null : remindAtFor(dueAt, offset)
+  return at === null ? [] : [at]
 }
 
 async function listRef(s: AssistantStore, value: unknown): Promise<string | null> {
@@ -364,6 +397,11 @@ todoRoutes.post('/', async (c) => {
   const settings = await s.getSettings()
   const body = await readJson<Record<string, unknown>>(c, BODY_LIMIT)
   const dueAt = parseDue(body.dueAt, settings.timezone)
+  const reminders = body.reminders !== undefined
+    ? reminderTimes(body.reminders)
+    : body.remind !== undefined
+      ? reminderOffsetTimes(body.remind, dueAt)
+      : defaultReminderTimes(c.get('user')?.settingsRaw ?? '', dueAt)
   const task = await s.createTask({
     title: text(body.title, TITLE_MAX, 'A task title'),
     description: optionalText(body.description, DESCRIPTION_MAX, 'A task note') ?? '',
@@ -374,7 +412,7 @@ todoRoutes.post('/', async (c) => {
     listId: await listRef(s, body.listId),
     starred: body.starred === undefined ? undefined : asBoolean(body.starred, 'starred'),
     repeat: asRepeat(body.repeat),
-    reminders: reminderTimes(body.reminders),
+    reminders,
     noteId: optionalId(body.noteId, 'noteId') ?? null,
     conversationId: optionalId(body.conversationId, 'conversationId') ?? null,
     tags: tagNames(body.tags),

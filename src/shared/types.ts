@@ -2,6 +2,7 @@
 
 
 import type { CoverPosition, CoverShape } from './property-decorations'
+import type { RemindOffset } from './todos/model'
 
 export type UserRole = 'owner' | 'member'
 
@@ -538,6 +539,18 @@ export interface UserSettings {
   search: SearchSettings
   dataview: DataviewSettings
   rss: RssSettings
+  todo: TodoSettings
+}
+
+/**
+ * The to-do app's own preferences.
+ *
+ * `defaultRemind` is a rule for tasks not yet written, so it stores an offset rather than an instant:
+ * there is no due date to measure from until one exists. Null means "no default reminder"; `none` is
+ * folded to null by the merge so there is one spelling for nothing.
+ */
+export interface TodoSettings {
+  defaultRemind: RemindOffset | null
 }
 
 /** Where an article's pictures come from. `relay` keeps the reader's browser off the author's host. */

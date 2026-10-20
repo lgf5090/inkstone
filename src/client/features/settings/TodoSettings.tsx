@@ -1,5 +1,5 @@
 /**
- * The to-do settings page, and the one value it cannot do without.
+ * The to-do settings page: the zone its days are read in, and the reminder a new task starts with.
  *
  * The worker answers `dayEnd` and every due-date comparison from a single stored zone, because "today" is
  * a span in the reader's own day rather than something a browser can compute once it is a thousand
@@ -10,15 +10,21 @@
  *
  * It stays one stored value rather than becoming a second, todo-shaped one: two zones for one account is
  * two answers to "what is today", and the app would have to pick which lie to show.
+ *
+ * The default reminder is the other value here and it is stored with the note settings, not with the
+ * assistant's: it is a rule for tasks the to-do app creates, and the worker reads it when a task arrives
+ * without a reminder of its own.
  */
 import { useEffect, useId, useMemo, useState } from 'react'
 import type { AssistantSettings } from '@shared/assistant'
 import { isValidTimeZone } from '@shared/assistant-schedule'
+import { REMIND_OFFSETS, type RemindOffset } from '@shared/todos/model'
 import { t, translateApiError } from '../../lib/i18n'
 import { api, ApiError } from '../../lib/api'
 import { Button } from '../../components/primitives'
 import { Select, SettingRow } from '../../components/form'
 import { LoadingBlock } from '../../components/feedback'
+import { useSession } from '../../store/session'
 
 /** What a failed read or write says to the reader: the code the server named when it has one. */
 function describeError(cause: unknown): string {
@@ -31,7 +37,10 @@ export function TodoSettings() {
   const [error, setError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
   const zoneId = useId()
+  const remindId = useId()
   const browserZone = Intl.DateTimeFormat().resolvedOptions().timeZone
+  const defaultRemind = useSession((state) => state.settings.todo.defaultRemind)
+  const updateSettings = useSession((state) => state.updateSettings)
 
   useEffect(() => {
     let wanted = true
@@ -60,6 +69,10 @@ export function TodoSettings() {
     } finally {
       setSaving(false)
     }
+  }
+
+  function saveDefaultRemind(offset: RemindOffset): void {
+    updateSettings({ todo: { defaultRemind: offset === 'none' ? null : offset } })
   }
 
   if (!settings && !error) return <LoadingBlock />
@@ -100,6 +113,24 @@ export function TodoSettings() {
           </div>
         </SettingRow>
       )}
+      <SettingRow
+        title={t('settings.todo_default_remind')}
+        description={t('settings.todo_default_remind_hint')}
+        controlId={remindId}
+      >
+        <Select
+          id={remindId}
+          value={defaultRemind ?? 'none'}
+          onChange={(event) => saveDefaultRemind(event.target.value as RemindOffset)}
+          className="max-w-[240px]"
+        >
+          {REMIND_OFFSETS.map((offset) => (
+            <option key={offset} value={offset}>
+              {offset === 'none' ? t('settings.todo_default_remind_none') : t(`todo.remind.${offset}`)}
+            </option>
+          ))}
+        </Select>
+      </SettingRow>
     </div>
   )
 }
