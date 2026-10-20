@@ -283,6 +283,74 @@ export interface ReferenceEntry {
   returnsKey?: string
   /** Code, not prose: examples are never run through the translation layer. */
   examples: string[]
-  /** Which of the three the reader has to be able to use for this to be more than documentation. */
+  /** Which capabilities the reader has to be able to use for this to be more than documentation. */
   requires?: (keyof Capabilities)[]
+}
+
+/**
+ * The shape the parser hands the compiler, and the compiler hands the interpreter.
+ *
+ * Splitting it here is what lets the parser, the VM host and the note-context builder be written by
+ * three people at once: `engine/parser.ts` needs no interpreter, `worker/vm.ts` needs no grammar, and
+ * neither has to agree with the other about anything but these four names.
+ *
+ * `source` is the whole template compiled into one async function body rather than a list of
+ * independent commands, because Templater's scope rule — a `function` declared in one execution
+ * command is visible to the next — cannot be honoured by evaluating commands separately.
+ */
+export interface ProgramSource {
+  /** The compiled body, ready for `evalCode`; the worker never parses. */
+  source: string
+  /** The template text the body was built from, kept so a reported line maps back to what the reader wrote. */
+  template: string
+  /** What line of `template` each command came from, so an error can name one instead of "somewhere". */
+  lineMap: ProgramLine[]
+  /** Byte length, which is what the output cap is checked against before anything is written. */
+  commandCount: number
+}
+
+export interface ProgramLine {
+  command: number
+  /** 1-based, matching how every editor and error list in this app counts lines. */
+  line: number
+  column: number
+}
+
+/** A cursor placeholder the parser found, before the note is written. */
+export interface CursorMarker {
+  /** The order the template asked for; `0` when the command took no argument. */
+  order: number
+  /** Where the marker text sits in the rendered output. */
+  start: number
+  end: number
+}
+
+/** Every marker sharing an order, which is what one jump moves to. */
+export interface CursorGroup {
+  order: number
+  markers: CursorMarker[]
+}
+
+/** What the parser produces for one template. */
+export interface ParserOutput {
+  /** Text and commands in source order; whitespace control has already been applied. */
+  segments: ParserSegment[]
+  /** Where the command began in the original text. */
+  origin: number
+  /** Line the command began on, 1-based. */
+  line: number
+}
+
+export type ParserSegment =
+  | { kind: 'text'; text: string }
+  | { kind: 'interpolate'; expression: string; origin: number; line: number }
+  | { kind: 'execute'; body: string; origin: number; line: number }
+
+/** A parse failure, carrying the position the reader has to navigate to. */
+export interface ParseFailure {
+  code: 'parse-unclosed' | 'parse-invalid'
+  /** 1-based. */
+  line: number
+  column: number
+  detail?: string
 }
