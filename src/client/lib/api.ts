@@ -106,7 +106,15 @@ import type {
   Project as AssistantProject,
   SavedMessage,
 } from '@shared/assistant'
-import type { TaskList, TaskPage, TaskStep, TaskTag, TodoTask } from '@shared/todos/model'
+import type {
+  TaskList,
+  TaskPage,
+  TaskStatsBucket,
+  TaskStep,
+  TaskTag,
+  TodoStats,
+  TodoTask,
+} from '@shared/todos/model'
 import { publishBroadcast } from './db'
 import { randomLocalId } from './random-id'
 import { getLocale, t, translateApiError } from './i18n'
@@ -1066,6 +1074,16 @@ export const api = {
     update: (id: string, body: Record<string, unknown>) =>
       request<{ task: TodoTask, next?: TodoTask }>(`/api/todos/${id}`, { method: 'PATCH', body }),
     remove: (id: string) => request<{ deleted: true }>(`/api/todos/${id}`, { method: 'DELETE' }),
+
+    /**
+     * One range of the account's statistics.
+     *
+     * The bounds are account-zone calendar days; leaving them out asks for the route's own default
+     * (the last 30 days), and the answer echoes the range it actually measured so the client never
+     * has to guess which days the numbers describe.
+     */
+    stats: (params: { from?: string, to?: string, bucket?: TaskStatsBucket } = {}) =>
+      request<TodoStats>(`/api/todos/stats${toQuery(params)}`),
 
     addStep: (id: string, text: string) =>
       request<{ step: TaskStep }>(`/api/todos/${id}/steps`, { method: 'POST', body: { text } }),
