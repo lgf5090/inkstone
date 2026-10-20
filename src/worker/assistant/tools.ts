@@ -479,7 +479,7 @@ export const TASK_TOOLS: ToolDefinition[] = [
         created: tasks.length,
         skipped,
         ...(ignored ? { ignored } : {}),
-        ...(remaining ? { remaining, note_limit: `Only ${MAX_TASKS_FROM_NOTE} were created; call again to take the rest.` } : {}),
+        ...(remaining ? { remaining, note_limit: `Only ${MAX_TASKS_FROM_NOTE} were created; the note has more boxes than one call takes. Tell the reader the rest can be taken on their next request.` } : {}),
         tasks,
       }
     },

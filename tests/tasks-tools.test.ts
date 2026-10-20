@@ -312,6 +312,13 @@ describe('decompose_task', () => {
       .rejects.toThrow(/at least one step/)
   })
 
+  it('checks the steps against the same declaration the model was given', async () => {
+    const created = await executor().execute('create_task', { title: 'One' }, 'call-1') as { created: { id: string } }
+
+    await expect(executor().execute('decompose_task', { task: created.created.id, steps: 'not a list' }, 'call-2'))
+      .rejects.toThrow(/"steps" must be a list/)
+  })
+
   it('names an unknown task instead of drafting for nothing', async () => {
     await expect(executor().execute('decompose_task', { task: 'no such task', steps: ['a'] }, 'call-1'))
       .rejects.toThrow(/No single task matches/)
@@ -407,6 +414,13 @@ describe('create_tasks_from_note', () => {
     expect(second.created).toBe(5)
     expect(second.remaining).toBeUndefined()
     expect(await store.listTasks({ view: 'all', status: 'all' })).toHaveLength(MAX_TASKS_FROM_NOTE + 5)
+  })
+
+  it('refuses a filter it does not know instead of guessing', async () => {
+    insertNote(NOTE, '- [ ] One')
+
+    await expect(executor().execute('create_tasks_from_note', { note: NOTE, filter: 'done' }, 'call-1'))
+      .rejects.toThrow(/"filter" must be one of open, all/)
   })
 
   it('answers 404 for another account\'s note and writes nothing', async () => {
