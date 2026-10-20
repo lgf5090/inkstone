@@ -5941,7 +5941,11 @@ const EXPORT_COLUMNS: Readonly<Record<string, readonly string[]>> = {
   // Every column the app reads travels, not only the ones the tool layer writes: a task restored
   // without its list, star, repeat or note link is a different task, and `reminded_at` is the one
   // exception — a restore is not a delivery, so the next sweep may announce it again.
-  todos_tasks: ['id', 'title', 'description', 'status', 'priority', 'due_at', 'project_id', 'list_id', 'starred', 'repeat_rule', 'remind_at', 'note_id', 'conversation_id', 'created_at', 'updated_at', 'completed_at'],
+  // `created_on` and `completed_on` are the statistics' day columns: a restore that dropped them
+  // would leave every restored task with no day until a boot backfilled it, and the fingerprint note
+  // means a boot after a restore does not come back through the repair. They are nullable, so an old
+  // backup without the keys still lands.
+  todos_tasks: ['id', 'title', 'description', 'status', 'priority', 'due_at', 'project_id', 'list_id', 'starred', 'repeat_rule', 'remind_at', 'note_id', 'conversation_id', 'created_at', 'updated_at', 'completed_at', 'created_on', 'completed_on'],
   todos_lists: ['id', 'name', 'icon', 'color', 'position', 'created_at', 'updated_at'],
   todos_steps: ['id', 'task_id', 'text', 'done', 'position', 'created_at'],
   todos_tags: ['id', 'name', 'color', 'created_at', 'updated_at'],
