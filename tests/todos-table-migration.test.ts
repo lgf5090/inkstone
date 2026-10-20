@@ -2,7 +2,7 @@
 import { DatabaseSync } from 'node:sqlite'
 import { describe, expect, it } from 'vitest'
 import { initializeDatabase } from '../src/worker/db/schema'
-import { TODOS_REQUIRED_INDEXES } from '../src/worker/todos/schema'
+import { TODOS_REQUIRED_COLUMNS, TODOS_REQUIRED_INDEXES } from '../src/worker/todos/schema'
 import { makeD1 } from './doubles/d1-sqlite'
 import { testBindings } from './doubles/bindings'
 
@@ -134,5 +134,23 @@ describe('the sort indexes', () => {
     expect(indexedColumns(sqlite, 'idx_todos_tasks_completed')).toEqual(['user_id', 'completed_at'])
     expect(TODOS_REQUIRED_INDEXES).toContain('idx_todos_tasks_created')
     expect(TODOS_REQUIRED_INDEXES).toContain('idx_todos_tasks_completed')
+  })
+})
+
+/**
+ * The row version a guarded edit names. A fresh install has to create it and the boot has to demand
+ * it, or a database that never got the column would serve edits no guard could see.
+ */
+describe('the task row version', () => {
+  it('is created by a fresh boot and listed as required', async () => {
+    const sqlite = new DatabaseSync(':memory:')
+    sqlite.exec('PRAGMA journal_mode = OFF')
+
+    await boot(sqlite)
+
+    const columns = sqlite.prepare(`SELECT name FROM pragma_table_info('todos_tasks')`).all()
+      .map((row) => (row as { name: string }).name)
+    expect(columns).toContain('rev')
+    expect(TODOS_REQUIRED_COLUMNS.todos_tasks).toContain('rev')
   })
 })
