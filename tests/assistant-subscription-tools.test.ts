@@ -146,6 +146,36 @@ describe('writing from a conversation', () => {
     expect(detail).toBeTruthy()
   })
 
+  /**
+   * The fields the row carries but the tools used to be unable to name.
+   *
+   * `update_subscription` read `startDate` without declaring it, so every attempt to move a plan's start
+   * was accepted, echoed back as success, and thrown away by the argument filter. A model cannot be blamed
+   * for reporting a change it was told had happened, which is why this asserts the stored row rather than
+   * the call's shape.
+   */
+  it('carries the flags the reader named into the stored row', async () => {
+    const created = await run('create_subscription', {
+      name: 'Nintendo',
+      expiryDate: '2027-01-08',
+      amount: 0,
+      startDate: '2026-10-01',
+      useLunar: true,
+      autoRenew: false,
+      isActive: false,
+      trialEndsAt: '2026-10-08',
+    }) as { created: { id: string; useLunar: boolean; autoRenew: boolean; isActive: boolean; startDate: string | null; trialEndsAt: string | null } }
+    expect(created.created).toMatchObject({ useLunar: true, autoRenew: false, isActive: false, startDate: '2026-10-01', trialEndsAt: '2026-10-08' })
+
+    const { store: subStore, context } = store()
+    const saved = (await subStore.list(context)).find((item) => item.name === 'Nintendo')
+    expect(saved, 'a switched-off plan stays off').toMatchObject({ useLunar: true, autoRenew: false, isActive: false })
+    expect(saved?.startDate?.slice(0, 10)).toBe('2026-10-01')
+
+    const moved = await run('update_subscription', { ref: 'Nintendo', startDate: '2026-11-11', useLunar: false }) as { updated: { startDate: string | null, useLunar: boolean } }
+    expect(moved.updated).toMatchObject({ startDate: '2026-11-11', useLunar: false })
+  })
+
   it('rejects a reminder it cannot express rather than dropping it quietly', async () => {
     await seedSubscription()
     await expect(run('set_subscription_reminders', { ref: 'Netflix', reminders: '7 days' }))
