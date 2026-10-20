@@ -31,6 +31,7 @@ import { DEFAULT_SEMANTIC_MODEL, MAX_ANSWER_VERSIONS, MAX_ARTIFACTS_PER_CONVERSA
 import { makeD1 } from './doubles/d1-sqlite'
 import { toBase64 } from '../src/worker/lib/encoding'
 import { purgeExpiredEphemeralConversations } from '../src/worker/assistant/store'
+import { isModelBestEndpoint, modelBestSocketUrl } from '../src/worker/assistant/realtime'
 import { testBindings, testDurableObjectNamespace, testR2Bucket } from './doubles/bindings'
 import { AI_EMBEDDING_MODEL } from '../src/worker/mcp/ai-search'
 
@@ -649,6 +650,57 @@ describe('realtime voice sessions', () => {
     const body = await response.json() as { error: { code: string, message: string } }
     expect(body.error.code).toBe('realtime_refused')
     expect(body.error.message).toContain('could not be reached')
+  })
+})
+
+describe('ModelBest realtime relay sessions', () => {
+  async function useModelBestRealtime() {
+    const { provider } = await call<{ provider: AssistantProvider }>('POST', '/api/assistant/providers', {
+      label: 'ModelBest Voice',
+      protocol: 'openai',
+      baseUrl: 'https://api.modelbest.cn/v1',
+      apiKey: 'sk-modelbest-test-1234',
+      models: ['MiniCPM-o-4.5-Realtime'],
+    })
+    const { models } = await call<{ models: AssistantModel[] }>('GET', '/api/assistant/models')
+    const model = models.find((entry) => entry.providerId === provider.id)!
+    await call('PATCH', `/api/assistant/models/${model.id}`, { purpose: 'realtime' })
+    return { ...model, purpose: 'realtime' as const }
+  }
+
+  it('describes a same-origin relay instead of minting a provider secret', async () => {
+    const model = await useModelBestRealtime()
+    const fetchSpy = vi.fn()
+    vi.stubGlobal('fetch', fetchSpy)
+    const result = await call<{ session: { transport: string, model: string, relayPath: string, expiresAt: null } }>(
+      'POST', '/api/assistant/realtime/session', {},
+    )
+    expect(result.session).toMatchObject({
+      transport: 'modelbest',
+      model: 'MiniCPM-o-4.5-Realtime',
+      relayPath: `/api/assistant/realtime/relay?modelId=${model.id}`,
+      expiresAt: null,
+    })
+    expect(fetchSpy).not.toHaveBeenCalled()
+    expect(JSON.stringify(result)).not.toContain('sk-modelbest-test-1234')
+  })
+
+  it('builds the socket URL the SDK documents', () => {
+    expect(isModelBestEndpoint('https://api.modelbest.cn/v1')).toBe(true)
+    expect(isModelBestEndpoint('https://api.example.com/v1')).toBe(false)
+    expect(modelBestSocketUrl('https://api.modelbest.cn', 'MiniCPM-o-4.5-Realtime'))
+      .toBe('wss://api.modelbest.cn/v1/realtime?mode=audio&model=MiniCPM-o-4.5-Realtime')
+    expect(modelBestSocketUrl('https://api.modelbest.cn/v1/', 'MiniCPM-o-4.5-Realtime'))
+      .toBe('wss://api.modelbest.cn/v1/realtime?mode=audio&model=MiniCPM-o-4.5-Realtime')
+  })
+
+  it('refuses a relay request that is not an upgrade, or names no realtime model', async () => {
+    expect(await status('GET', '/api/assistant/realtime/relay')).toBe(400)
+    const response = await app.fetch(new Request(
+      'http://localhost/api/assistant/realtime/relay?modelId=01hzzzzzzzzzzzzzzzzzzzzz00',
+      { headers: { Upgrade: 'websocket' } },
+    ), env, ctx)
+    expect(response.status).toBe(400)
   })
 })
 

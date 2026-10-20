@@ -247,6 +247,28 @@ export interface AssistantVendorModel {
 export const ASSISTANT_MODEL_PURPOSES = ['chat', 'image_generate', 'image_edit', 'realtime'] as const
 export type AssistantModelPurpose = (typeof ASSISTANT_MODEL_PURPOSES)[number]
 
+/**
+ * How a browser reaches a realtime voice session.
+ *
+ * OpenAI hands the browser a short-lived secret and the audio goes to the vendor directly. ModelBest
+ * authenticates the browser socket with the long-lived key itself, so that provider is reached through
+ * this deployment's relay and the browser is handed a same-origin path instead of a credential.
+ */
+export type AssistantRealtimeSession =
+  | {
+    transport: 'calls' | 'legacy'
+    clientSecret: string
+    model: string
+    baseUrl: string
+    expiresAt: number | null
+  }
+  | {
+    transport: 'modelbest'
+    model: string
+    relayPath: string
+    expiresAt: null
+  }
+
 /** The kind of endpoint behind the id: only `text` models can hold a conversation. */
 export const ASSISTANT_MODEL_KINDS = ['text', 'image', 'embedding', 'rerank'] as const
 export type AssistantModelKind = (typeof ASSISTANT_MODEL_KINDS)[number]

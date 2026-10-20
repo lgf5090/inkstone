@@ -33,13 +33,21 @@ import {
   RealtimeVoiceController,
   type RealtimeEvent,
   type RealtimeFailure,
-  type RealtimeSession,
   type RealtimeStatus,
 } from './voice-realtime'
+import { createVoiceAudioContext, createVoicePlayer, startVoiceCapture } from './voice-capture'
+import { ModelBestVoiceController } from './voice-modelbest'
 
 type Engine = 'realtime' | 'turn'
 type Phase = 'idle' | 'connecting' | 'listening' | 'thinking' | 'speaking' | 'error' | 'ended'
 type RealtimeSupport = 'ready' | 'insecure' | 'unsupported'
+type RealtimeKind = 'direct' | 'relay'
+
+interface RealtimeCallController {
+  start: () => Promise<void>
+  stop: () => void
+  setMuted: (muted: boolean) => void
+}
 
 interface Line {
   role: 'user' | 'assistant'
@@ -103,10 +111,11 @@ export function VoiceMode({ onClose }: { onClose: () => void }) {
   const [lines, setLines] = useState<Line[]>([])
   const [error, setError] = useState<string | null>(null)
   const [muted, setMuted] = useState(false)
+  const [realtimeKind, setRealtimeKind] = useState<RealtimeKind | null>(null)
   const mounted = useRef(true)
   const engineChosen = useRef(false)
   const turnRef = useRef<VoiceTurnController | null>(null)
-  const realtimeRef = useRef<RealtimeVoiceController | null>(null)
+  const realtimeRef = useRef<RealtimeCallController | null>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
   const language = settings?.language ?? 'en-US'
 
@@ -234,12 +243,71 @@ export function VoiceMode({ onClose }: { onClose: () => void }) {
     setError(null)
     setLines([])
     setMuted(false)
+    setRealtimeKind(null)
     setPhase('connecting')
+    // Created inside the Start press, because an AudioContext unlocked by this gesture is the one a
+    // strict autoplay policy lets play. The WebRTC branch closes it again unused.
+    let audioContext: AudioContext | null = null
+    try {
+      audioContext = createVoiceAudioContext()
+      void audioContext.resume()
+    } catch {
+      audioContext = null
+    }
+    let session: Awaited<ReturnType<typeof api.assistant.realtimeSession>>['session']
+    try {
+      session = (await api.assistant.realtimeSession(realtimeModelId)).session
+    } catch (failure) {
+      if (audioContext) void audioContext.close()
+      if (!mounted.current) return
+      setError(failure instanceof Error ? failure.message : t('assistant.voice.connect_failed'))
+      setPhase('error')
+      return
+    }
+    if (!mounted.current) {
+      if (audioContext) void audioContext.close()
+      return
+    }
+    if (session.transport === 'modelbest') {
+      if (!audioContext) {
+        setError(t('assistant.voice.audio_unsupported'))
+        setPhase('error')
+        return
+      }
+      setRealtimeKind('relay')
+      const socketUrl = new URL(session.relayPath, window.location.href)
+      socketUrl.protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
+      const controller = new ModelBestVoiceController({
+        socketUrl: socketUrl.toString(),
+        createSocket: (url) => new WebSocket(url),
+        getMedia: async (constraints) => {
+          try {
+            return await navigator.mediaDevices.getUserMedia(constraints)
+          } catch (failure) {
+            throw new Error(micFailure(failure))
+          }
+        },
+        createCapture: (context, stream, onChunk) => startVoiceCapture(context, stream, onChunk),
+        createPlayer: (context) => createVoicePlayer(context),
+        audioContext,
+        onEvent: (event) => { if (mounted.current) realtimeEvent(event) },
+        onStatus: (status) => { if (mounted.current) setPhase(REALTIME_STATUS[status]) },
+        onError: (detail) => {
+          if (!mounted.current) return
+          realtimeRef.current?.stop()
+          realtimeRef.current = null
+          setError(detail || t('assistant.voice.connect_failed'))
+          setPhase('error')
+        },
+      })
+      realtimeRef.current = controller
+      await controller.start()
+      return
+    }
+    if (audioContext) void audioContext.close()
+    setRealtimeKind('direct')
     const controller = new RealtimeVoiceController({
-      mint: async (): Promise<RealtimeSession> => {
-        const { session } = await api.assistant.realtimeSession(realtimeModelId)
-        return session
-      },
+      mint: async () => session,
       getMedia: async (constraints) => {
         try {
           return await navigator.mediaDevices.getUserMedia(constraints)
@@ -457,7 +525,11 @@ export function VoiceMode({ onClose }: { onClose: () => void }) {
               </IconButton>
             )}
             <span className="text-[length:var(--text-10-5)] text-[var(--text-quaternary)]">
-              {t(engine === 'realtime' ? 'assistant.voice.realtime_privacy' : 'assistant.voice.turn_privacy')}
+              {t(engine === 'realtime'
+                ? realtimeKind === 'relay'
+                  ? 'assistant.voice.relay_privacy'
+                  : realtimeKind === 'direct' ? 'assistant.voice.direct_privacy' : 'assistant.voice.realtime_privacy'
+                : 'assistant.voice.turn_privacy')}
             </span>
           </div>
         </div>

@@ -10,14 +10,9 @@
  * because jsdom has neither a peer connection nor a microphone and the state transitions are the part
  * worth testing.
  */
-export interface RealtimeSession {
-  clientSecret: string
-  model: string
-  baseUrl: string
-  /** Which SDP door the mint used: the GA `realtime/calls`, or the older `realtime?model=`. */
-  transport: 'calls' | 'legacy'
-  expiresAt?: number | null
-}
+import type { AssistantRealtimeSession } from '@shared/assistant'
+
+export type RealtimeSession = Extract<AssistantRealtimeSession, { transport: 'calls' | 'legacy' }>
 
 export type RealtimeStatus = 'connecting' | 'listening' | 'speaking' | 'ended' | 'error'
 

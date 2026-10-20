@@ -101,7 +101,16 @@ import { ArtifactVersionConflictError, AssistantStore, dayBefore, type Conversat
 import { MemoryHistoryService } from '../assistant/memory-service'
 import { AutomationService } from '../assistant/automations'
 import { AssistantRunner } from '../assistant/runner'
-import { mintRealtimeSession, RealtimeSessionError } from '../assistant/realtime'
+import {
+  MODELBEST_INIT_FALLBACK_MS,
+  MODELBEST_MAX_FRAME_CHARS,
+  isModelBestEndpoint,
+  mintRealtimeSession,
+  modelBestSessionInit,
+  modelBestSocketUrl,
+  RealtimeSessionError,
+  type RealtimeRelayDescriptor,
+} from '../assistant/realtime'
 import { cancelApprovedAction, runApprovedAction } from '../assistant/tools'
 import { exportAssistant, importAssistant } from '../assistant/backup'
 import { describeSubscription, pushConfigStatus, pushEndpointProblem, pushKeyProblem, vapidProblem, type PushSubscriptionView } from '../assistant/push'
@@ -3170,11 +3179,12 @@ function realtimeVoiceInstructions(settings: AssistantSettings): string {
 }
 
 /**
- * A short-lived credential for a voice session.
+ * The terms of a voice session.
  *
- * The response carries the provider's ephemeral secret, never the long-lived key this account stored.
- * The browser uses the secret for the WebRTC handshake and speaks audio directly to the provider; this
- * Worker does not proxy the call.
+ * For an OpenAI provider this is a short-lived provider secret the browser uses for WebRTC; the
+ * long-lived key never leaves this Worker. A ModelBest provider cannot be called that way — its browser
+ * handshake carries the key itself — so it answers with a relay path instead and the audio is proxied
+ * through this deployment.
  */
 assistantRoutes.post('/realtime/session', async (c) => {
   const s = store(c)
@@ -3196,6 +3206,15 @@ assistantRoutes.post('/realtime/session', async (c) => {
   }
   const key = await s.pickProviderKey(provider)
   if (!key) throw ApiError.badRequest('The voice provider has no API key.')
+  if (isModelBestEndpoint(provider.base_url)) {
+    const relay: RealtimeRelayDescriptor = {
+      transport: 'modelbest',
+      model: model.model,
+      relayPath: `/api/assistant/realtime/relay?modelId=${encodeURIComponent(model.id)}`,
+      expiresAt: null,
+    }
+    return c.json({ session: relay })
+  }
   try {
     const session = await mintRealtimeSession({
       baseUrl: provider.base_url,
@@ -3211,6 +3230,138 @@ assistantRoutes.post('/realtime/session', async (c) => {
     }
     throw error
   }
+})
+
+/**
+ * The bridge between a browser's voice socket and a ModelBest realtime session.
+ *
+ * The browser is untrusted input: it may ask for audio frames and a close, and nothing else. In
+ * particular it cannot write `session.init` — the system prompt belongs to this deployment — and it
+ * never sees the provider key, which is written into the upstream handshake here.
+ */
+assistantRoutes.get('/realtime/relay', async (c) => {
+  if (c.req.header('Upgrade')?.toLowerCase() !== 'websocket') {
+    throw ApiError.badRequest('This endpoint accepts only WebSocket upgrade requests.')
+  }
+  const origin = c.req.header('Origin')
+  if (origin && origin !== new URL(c.req.url).origin) {
+    throw ApiError.forbidden('The realtime connection origin is not trusted')
+  }
+  const modelId = c.req.query('modelId')
+  if (!modelId) throw ApiError.badRequest('A realtime voice model is required.')
+  const s = store(c)
+  const model = (await s.listModels()).find((entry) => entry.id === modelId && entry.enabled && entry.purpose === 'realtime')
+  if (!model) throw ApiError.badRequest('That model is not an enabled realtime voice model.')
+  const provider = await s.providerRecord(model.providerId)
+  if (!provider || !isModelBestEndpoint(provider.base_url)) {
+    throw ApiError.badRequest('This voice model is not served by a realtime WebSocket provider.')
+  }
+  const key = await s.pickProviderKey(provider)
+  if (!key) throw ApiError.badRequest('The voice provider has no API key.')
+  const settings = await s.getSettings()
+
+  assertRelayableEndpoint(provider.base_url)
+  const target = new URL(modelBestSocketUrl(provider.base_url, model.model))
+  // Workers fetch a WebSocket as an HTTP upgrade, not as a wss:// URL.
+  target.protocol = target.protocol === 'wss:' ? 'https:' : 'http:'
+  let upstreamResponse: Response
+  try {
+    upstreamResponse = await fetch(target.toString(), {
+      headers: { Upgrade: 'websocket', Authorization: `Bearer ${key.key}` },
+    })
+  } catch (error) {
+    console.warn('[inkstone] realtime relay could not reach the provider', error instanceof Error ? error.message : 'unknown')
+    throw new ApiError(502, 'realtime_refused', 'The realtime provider could not be reached.')
+  }
+  const upstream = upstreamResponse.webSocket
+  if (!upstream) {
+    console.warn('[inkstone] realtime relay was refused by the provider', upstreamResponse.status)
+    throw new ApiError(502, 'realtime_refused', `The realtime provider refused the voice connection (HTTP ${upstreamResponse.status}).`)
+  }
+  upstream.accept()
+
+  const pair = new WebSocketPair()
+  const [client, server] = [pair[0], pair[1]]
+  server.accept()
+  let initialized = false
+  let ready = false
+  let closed = false
+  const initFrame = modelBestSessionInit(realtimeVoiceInstructions(settings), settings.temperature)
+  const finish = (code: number, reason: string): void => {
+    if (closed) return
+    closed = true
+    clearTimeout(initTimer)
+    try { server.close(code, reason) } catch { /* already closed */ }
+    try { upstream.close(code, reason) } catch { /* already closed */ }
+  }
+  const initialize = (): void => {
+    if (initialized || closed) return
+    initialized = true
+    clearTimeout(initTimer)
+    try {
+      upstream.send(initFrame)
+    } catch {
+      finish(1011, 'init failed')
+    }
+  }
+  const initTimer = setTimeout(initialize, MODELBEST_INIT_FALLBACK_MS)
+
+  upstream.addEventListener('message', (event) => {
+    if (typeof event.data !== 'string') return
+    let type = ''
+    try { type = String((JSON.parse(event.data) as { type?: unknown }).type ?? '') } catch { /* forward opaque text as-is */ }
+    if (!initialized && (type === 'session.queue_done' || type === 'queue_done')) initialize()
+    else if (!initialized && (type === 'session.queued' || type === 'queued' || type === 'session.queue_update')) clearTimeout(initTimer)
+    if (type === 'session.created') ready = true
+    try {
+      server.send(event.data)
+    } catch {
+      finish(1011, 'client send failed')
+    }
+  })
+  upstream.addEventListener('close', () => finish(1000, 'provider closed'))
+  upstream.addEventListener('error', () => finish(1011, 'provider error'))
+
+  server.addEventListener('message', (event) => {
+    if (typeof event.data !== 'string' || event.data.length > MODELBEST_MAX_FRAME_CHARS) {
+      finish(1009, 'frame too large')
+      return
+    }
+    let frame: { type?: unknown, input?: { audio?: unknown } }
+    try { frame = JSON.parse(event.data) as { type?: unknown, input?: { audio?: unknown } } } catch { return }
+    if (frame.type === 'input.append') {
+      const audio = frame.input?.audio
+      if (typeof audio !== 'string' || !audio) {
+        finish(1008, 'invalid audio frame')
+        return
+      }
+      if (!ready) return
+      try {
+        upstream.send(JSON.stringify({ type: 'input.append', input: { audio } }))
+      } catch {
+        finish(1011, 'provider send failed')
+      }
+      return
+    }
+    if (frame.type === 'session.close') {
+      try { upstream.send(JSON.stringify({ type: 'session.close', reason: 'user_stop' })) } catch { /* closing anyway */ }
+      return
+    }
+    finish(1008, 'unsupported frame')
+  })
+  server.addEventListener('close', () => {
+    closed = true
+    clearTimeout(initTimer)
+    try { upstream.close(1000, 'client closed') } catch { /* already closed */ }
+  })
+
+  // The call is already live; a bookkeeping failure must not turn it into a refused upgrade.
+  try {
+    await s.markProviderKeyUsed(provider.id, key.keyId)
+  } catch (error) {
+    console.warn('[inkstone] realtime relay key usage was not recorded', error instanceof Error ? error.message : 'unknown')
+  }
+  return new Response(null, { status: 101, webSocket: client })
 })
 
 assistantRoutes.get('/usage', async (c) => {

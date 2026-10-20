@@ -94,6 +94,7 @@ import type {
   AssistantNotification,
   AssistantProvider,
   AssistantProviderKey,
+  AssistantRealtimeSession,
   AssistantSearchKey,
   AssistantSettings,
   AssistantUsage,
@@ -1433,7 +1434,7 @@ export const api = {
     models: () => request<{ models: AssistantModel[] }>('/api/assistant/models'),
     /** A short-lived credential for a realtime voice session; the long-lived provider key stays server-side. */
     realtimeSession: (modelId?: string) =>
-      request<{ session: { clientSecret: string, model: string, baseUrl: string, transport: 'calls' | 'legacy', expiresAt: number | null } }>(
+      request<{ session: AssistantRealtimeSession }>(
         '/api/assistant/realtime/session', { method: 'POST', body: modelId ? { modelId } : {} },
       ),
     /** The vendor's own list, asked through the worker so the key never reaches the browser. */

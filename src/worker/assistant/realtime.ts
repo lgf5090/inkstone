@@ -31,11 +31,76 @@ export interface RealtimeSession {
   expiresAt: number | null
 }
 
+/**
+ * A session the browser opens through this Worker rather than directly.
+ *
+ * ModelBest authenticates a browser socket by putting the long-lived key into a WebSocket subprotocol,
+ * which is the one place this app refuses to put it. The relay keeps the key server-side and the
+ * browser connects to the same origin it already trusts.
+ */
+export interface RealtimeRelayDescriptor {
+  transport: 'modelbest'
+  model: string
+  relayPath: string
+  expiresAt: null
+}
+
 export class RealtimeSessionError extends Error {
   constructor(readonly status: number, message: string) {
     super(message)
     this.name = 'RealtimeSessionError'
   }
+}
+
+/** How long a ModelBest socket waits for an explicit queue event before initializing anyway. */
+export const MODELBEST_INIT_FALLBACK_MS = 600
+
+/** The most one browser audio frame may carry. A 100 ms 16 kHz Float32 frame is about 8.6 KB. */
+export const MODELBEST_MAX_FRAME_CHARS = 256_000
+
+/** The voice model's own reply budget; speech is short, and the setting's ceiling is for text turns. */
+const MODELBEST_MAX_OUTPUT_TOKENS = 1024
+
+/** Whether this provider speaks the MiniCPM-o realtime WebSocket protocol rather than OpenAI's WebRTC. */
+export function isModelBestEndpoint(baseUrl: string): boolean {
+  try {
+    const host = new URL(baseUrl).hostname.toLowerCase()
+    return host === 'modelbest.cn' || host.endsWith('.modelbest.cn')
+  } catch {
+    return false
+  }
+}
+
+/**
+ * The upstream realtime socket for a ModelBest provider.
+ *
+ * The SDK's rule for a base URL is followed exactly: a path already ending in `/v1` keeps it, and any
+ * other base gets `/v1` appended before `/realtime`. Getting this wrong is a 404 that reads like a bad key.
+ */
+export function modelBestSocketUrl(baseUrl: string, model: string): string {
+  const url = new URL(baseUrl)
+  url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:'
+  const path = url.pathname.replace(/\/+$/, '')
+  url.pathname = path.endsWith('/v1') ? `${path}/realtime` : `${path}/v1/realtime`
+  url.search = ''
+  url.searchParams.set('mode', 'audio')
+  url.searchParams.set('model', model)
+  return url.toString()
+}
+
+/** The init frame the relay writes after the provider assigns a worker, before any audio is forwarded. */
+export function modelBestSessionInit(instructions: string, temperature: number): string {
+  return JSON.stringify({
+    type: 'session.init',
+    payload: {
+      system_prompt: instructions,
+      config: {
+        max_tokens: MODELBEST_MAX_OUTPUT_TOKENS,
+        temperature,
+        tts_enabled: true,
+      },
+    },
+  })
 }
 
 interface SessionShape {
