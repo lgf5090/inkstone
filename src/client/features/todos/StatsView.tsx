@@ -21,11 +21,12 @@ import type {
 import { Button } from '../../components/primitives'
 import { Empty, LoadingBlock } from '../../components/feedback'
 import { Segmented } from '../../components/form'
-import { localeTag, t } from '../../lib/i18n'
+import { localeTag, t, type MessageKey } from '../../lib/i18n'
 import { shiftDay } from './due-range'
 import {
   countDeltaPercent,
   previousRange,
+  rangeLengthDays,
   rateDeltaPoints,
   usePreviousStats,
   type PreviousStats,
@@ -231,6 +232,9 @@ function TrendChart({ stats }: { stats: TodoStats }) {
     completed: summary.completed,
     created: summary.created,
   })
+  // The reference line is only drawn when a point is a day: against weekly or monthly totals a
+  // per-day average would be a line the reader has to multiply in their head.
+  const dailyAverage = summary.completed / rangeLengthDays(range)
   return (
     <section aria-labelledby="todo-stats-trend" className="rounded-[var(--r-lg)] border border-[var(--border-subtle)] bg-[var(--bg-surface)] p-3">
       <h2 id="todo-stats-trend" className="text-[length:var(--text-12)] font-semibold text-[var(--text-secondary)]">
@@ -239,6 +243,9 @@ function TrendChart({ stats }: { stats: TodoStats }) {
       <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1">
         <Legend label={t('todo.stats.completed')} color="var(--accent)" />
         <Legend label={t('todo.stats.created')} color="var(--text-tertiary)" dashed />
+        {range.bucket === 'day' && dailyAverage > 0 && (
+          <Legend label={t('todo.stats.goal.line')} color="var(--text-quaternary)" dashed />
+        )}
       </div>
       <svg
         role="img"
@@ -276,6 +283,18 @@ function TrendChart({ stats }: { stats: TodoStats }) {
           vectorEffect="non-scaling-stroke"
           points={points('created')}
         />
+        {range.bucket === 'day' && dailyAverage > 0 && (
+          <line
+            x1={padX}
+            y1={y(dailyAverage)}
+            x2={width - padX}
+            y2={y(dailyAverage)}
+            stroke="var(--text-quaternary)"
+            strokeWidth="1"
+            strokeDasharray="2 4"
+            vectorEffect="non-scaling-stroke"
+          />
+        )}
         {series.length === 1 && (
           <circle cx={x(0)} cy={y(series[0]!.completed)} r="2.5" fill="var(--accent)" />
         )}
@@ -459,7 +478,7 @@ function Delta({ id, label, value }: { id: string; label: string; value: string 
 function Comparison({ stats, comparison }: { stats: TodoStats; comparison: PreviousStats }) {
   const { summary } = stats
   const previous = comparison.status === 'ready' ? comparison.stats : null
-  const window = comparison.range ?? previousRange(stats.range)
+  const earlier = comparison.range ?? previousRange(stats.range)
   const rows = [
     {
       id: 'completed',
@@ -500,7 +519,7 @@ function Comparison({ stats, comparison }: { stats: TodoStats; comparison: Previ
           {t('todo.stats.compare.title')}
         </h2>
         <p className="text-[length:var(--text-11)] tabular-nums text-[var(--text-quaternary)]">
-          {window.from} – {window.to}
+          {earlier.from} – {earlier.to}
         </p>
       </div>
       {comparison.status === 'loading' && (
@@ -523,11 +542,53 @@ function Comparison({ stats, comparison }: { stats: TodoStats; comparison: Previ
   )
 }
 
+/**
+ * The daily and weekly pace the range itself averaged.
+ *
+ * There is no stored goal to draw against: the settings schema has no to-do section, and adding one
+ * would be a migration for a line of text. So this is a read-only reference folded from the range's
+ * own completions — the screen says so, and nothing is written back. A later goal setting can take
+ * this component's place without changing the rest of the screen.
+ */
+function GoalReference({ stats }: { stats: TodoStats }) {
+  const days = rangeLengthDays(stats.range)
+  const daily = stats.summary.completed / days
+  return (
+    <section
+      aria-labelledby="todo-stats-goal"
+      data-stats-goal=""
+      className="rounded-[var(--r-lg)] border border-[var(--border-subtle)] bg-[var(--bg-surface)] p-3"
+    >
+      <h2 id="todo-stats-goal" className="text-[length:var(--text-12)] font-semibold text-[var(--text-secondary)]">
+        {t('todo.stats.goal.title')}
+      </h2>
+      <dl className="mt-2 grid grid-cols-2 gap-3">
+        <div data-stats-goal="daily">
+          <dt className="text-[length:var(--text-11)] text-[var(--text-tertiary)]">{t('todo.stats.goal.daily')}</dt>
+          <dd className="mt-0.5 text-[length:var(--text-16)] font-semibold tabular-nums text-[var(--text-primary)]">
+            {t('todo.stats.goal.per_day', { value: decimal(daily) })}
+          </dd>
+        </div>
+        <div data-stats-goal="weekly">
+          <dt className="text-[length:var(--text-11)] text-[var(--text-tertiary)]">{t('todo.stats.goal.weekly')}</dt>
+          <dd className="mt-0.5 text-[length:var(--text-16)] font-semibold tabular-nums text-[var(--text-primary)]">
+            {t('todo.stats.goal.per_week', { value: decimal(daily * 7) })}
+          </dd>
+        </div>
+      </dl>
+      <p className="mt-2 text-[length:var(--text-10-5)] leading-snug text-[var(--text-quaternary)]">
+        {t('todo.stats.goal.hint')}
+      </p>
+    </section>
+  )
+}
+
 function StatsBody({ stats, comparison }: { stats: TodoStats; comparison: PreviousStats }) {
   return (
     <div className="flex flex-col gap-5">
       <Kpis stats={stats} />
       <Comparison stats={stats} comparison={comparison} />
+      <GoalReference stats={stats} />
       <TrendChart stats={stats} />
       <Distributions stats={stats} />
       <Backlog stats={stats} />

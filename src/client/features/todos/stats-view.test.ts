@@ -428,6 +428,19 @@ describe('the CSV export', () => {
   })
 })
 
+describe('the goal reference', () => {
+  it('folds the range into daily and weekly averages and says they are not saved goals', async () => {
+    const container = await mount(`/todo?view=stats&from=${RANGE.from}&to=${RANGE.to}&bucket=${RANGE.bucket}`)
+
+    // 12 completions over the 30 inclusive days of the fixture range.
+    expect(container.querySelector('[data-stats-goal="daily"]')?.textContent)
+      .toContain(t('todo.stats.goal.per_day', { value: '0.4' }))
+    expect(container.querySelector('[data-stats-goal="weekly"]')?.textContent)
+      .toContain(t('todo.stats.goal.per_week', { value: '2.8' }))
+    expect(container.textContent).toContain(t('todo.stats.goal.hint'))
+  })
+})
+
 describe('the way in', () => {
   it('offers statistics in the sidebar but not as a fifth phone tab', async () => {
     stubBreakpoint(true)

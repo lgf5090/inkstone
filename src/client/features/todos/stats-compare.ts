@@ -88,12 +88,12 @@ export function usePreviousStats(range: StatsRangeQuery | null): PreviousStats {
       setAnswer({ status: 'idle', stats: null, range: null, error: null })
       return
     }
-    const window = previousRange({ from, to })
+    const earlier = previousRange({ from, to })
     let cancelled = false
-    setAnswer({ status: 'loading', stats: null, range: window, error: null })
-    api.todos.stats({ from: window.from, to: window.to, bucket }).then(
+    setAnswer({ status: 'loading', stats: null, range: earlier, error: null })
+    api.todos.stats({ from: earlier.from, to: earlier.to, bucket }).then(
       (stats) => {
-        if (!cancelled) setAnswer({ status: 'ready', stats, range: window, error: null })
+        if (!cancelled) setAnswer({ status: 'ready', stats, range: earlier, error: null })
       },
       (error: unknown) => {
         // The range's own numbers do not depend on this read, so the failure is reported inside the
@@ -102,7 +102,7 @@ export function usePreviousStats(range: StatsRangeQuery | null): PreviousStats {
           setAnswer({
             status: 'unavailable',
             stats: null,
-            range: window,
+            range: earlier,
             error: error instanceof Error ? error.message : String(error),
           })
         }
