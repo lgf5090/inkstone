@@ -29,6 +29,9 @@ export const TODOS_SCHEMA_STATEMENTS: readonly string[] = [
     list_id TEXT,
     starred INTEGER NOT NULL DEFAULT 0,
     repeat_rule TEXT,
+    -- Superseded by todos_reminders (待删). The pair is emptied by migrateTaskReminders and no code
+    -- reads or writes it after that; it stays only because dropping a column needs a migration number
+    -- this change deliberately does not spend.
     remind_at INTEGER,
     reminded_at INTEGER,
     -- The account's calendar day (YYYY-MM-DD) the reader picked this task into "today", or NULL when
@@ -68,6 +71,28 @@ export const TODOS_SCHEMA_STATEMENTS: readonly string[] = [
   // picked for. Migration 118 carries it to databases built before the column existed.
   `CREATE INDEX IF NOT EXISTS idx_todos_tasks_planned
      ON todos_tasks(user_id, planned_for)`,
+
+  // The reminders a task carries, one row each. The todos_tasks columns remind_at / reminded_at held
+  // the same idea as a single pair and are no longer read or written: the one-shot repair
+  // migrateTaskReminders moved their rows here, and they stay on the table only until a later
+  // migration drops them (待删). A row is claimed by stamping fired_at, so the sweep needs no
+  // scheduler of its own and two overlapping ticks cannot both deliver the same reminder.
+  `CREATE TABLE IF NOT EXISTS todos_reminders (
+    user_id TEXT NOT NULL,
+    id TEXT NOT NULL,
+    task_id TEXT NOT NULL,
+    remind_at INTEGER NOT NULL,
+    fired_at INTEGER,
+    created_at INTEGER NOT NULL,
+    PRIMARY KEY (user_id, id)
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_todos_reminders_task
+     ON todos_reminders(user_id, task_id)`,
+  // The sweep is the one cross-account reader: it asks every account's reminders what has come due,
+  // never one account's. The partial predicate keeps the index to the rows that can still fire, so a
+  // table full of history costs the tick nothing.
+  `CREATE INDEX IF NOT EXISTS idx_todos_reminders_due
+     ON todos_reminders(remind_at) WHERE fired_at IS NULL`,
 
   `CREATE TABLE IF NOT EXISTS todos_lists (
     user_id TEXT NOT NULL,
@@ -139,6 +164,7 @@ export const TODOS_SCHEMA_STATEMENTS: readonly string[] = [
 
 export const TODOS_REQUIRED_TABLES: readonly string[] = [
   'todos_tasks',
+  'todos_reminders',
   'todos_lists',
   'todos_steps',
   'todos_tags',
@@ -156,6 +182,8 @@ export const TODOS_REQUIRED_INDEXES: readonly string[] = [
   'idx_todos_tasks_completed',
   'idx_todos_tasks_completed_on',
   'idx_todos_tasks_planned',
+  'idx_todos_reminders_task',
+  'idx_todos_reminders_due',
   'idx_todos_lists_unique',
   'idx_todos_steps_task',
   'idx_todos_tags_unique',
@@ -165,12 +193,16 @@ export const TODOS_REQUIRED_INDEXES: readonly string[] = [
 ]
 
 export const TODOS_REQUIRED_COLUMNS: Readonly<Record<string, readonly string[]>> = {
+  // `remind_at` / `reminded_at` stay listed because a database that predates the reminders table
+  // still carries them and the boot guard compares the declared shape with the real one; nothing
+  // reads or writes them any more, and `migrateTaskReminders` is what empties them (待删).
   todos_tasks: [
     'user_id', 'id', 'title', 'description', 'status', 'priority', 'due_at', 'completed_at',
     'completed_on', 'created_on',
     'project_id', 'list_id', 'starred', 'repeat_rule', 'remind_at', 'reminded_at', 'planned_for', 'note_id',
     'conversation_id', 'created_at', 'updated_at',
   ],
+  todos_reminders: ['user_id', 'id', 'task_id', 'remind_at', 'fired_at', 'created_at'],
   todos_lists: ['user_id', 'id', 'name', 'icon', 'color', 'position', 'created_at', 'updated_at'],
   todos_steps: ['user_id', 'id', 'task_id', 'text', 'done', 'position', 'created_at'],
   todos_tags: ['user_id', 'id', 'name', 'color', 'created_at', 'updated_at'],

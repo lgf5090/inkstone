@@ -2046,6 +2046,7 @@ async function createSchema(db: D1Database): Promise<DatabaseState> {
   await repairReaderBookTenantKey(db)
   await migrateTaskTable(db)
   await migrateTodoDayColumns(db)
+  await migrateTaskReminders(db)
   if (initialized) {
     await runStatements(db, INDEX_SCHEMA_STATEMENTS)
   }
@@ -2256,6 +2257,57 @@ async function todoDayCounts(db: D1Database): Promise<{
     completedMissing: Number(row?.completed_missing ?? 0),
     completedFilled: Number(row?.completed_filled ?? 0),
   }
+}
+
+/**
+ * Moves the old single reminder into `todos_reminders`.
+ *
+ * `todos_tasks.remind_at` / `reminded_at` held one instant and its delivery fact. The table is now the
+ * only place a reminder lives, so a database that predates it has to hand its rows over exactly once:
+ * each `remind_at` becomes a row, and a non-null `reminded_at` becomes its `fired_at` — a reminder the
+ * reader was already told about must not be announced a second time by a deployment upgrade.
+ *
+ * Three properties make it safe to run on every boot:
+ *  - it only looks at rows whose `remind_at` is not null, and the same batch clears that column, so a
+ *    converged database pays one count and nothing else;
+ *  - the insert and the clear are one `db.batch`, which D1 runs as a transaction: a failure (a locked
+ *    table, a trigger, a restored backup with a conflicting id) leaves the old columns exactly as they
+ *    were, so no reminder is lost and the next boot tries again;
+ *  - the counts the batch answers with are compared with what was asked for. A mismatch stops the boot
+ *    with the numbers instead of serving a database whose reminders quietly differ from its tasks.
+ *
+ * The ids are `lower(hex(randomblob(13)))`: 26 hex characters, which is exactly the shape `isValidId`
+ * accepts and the alphabet `newId()` draws from — minted in SQL because the rows are copied in one
+ * statement rather than read into memory and written back one at a time.
+ */
+async function migrateTaskReminders(db: D1Database): Promise<void> {
+  const legacy = await db.prepare(
+    `SELECT COUNT(*) AS n FROM todos_tasks WHERE remind_at IS NOT NULL`,
+  ).first<{ n: number | null }>()
+  const expected = Number(legacy?.n ?? 0)
+  if (!expected) return
+
+  const results = await db.batch([
+    db.prepare(
+      `INSERT INTO todos_reminders (user_id, id, task_id, remind_at, fired_at, created_at)
+       SELECT user_id, lower(hex(randomblob(13))), id, remind_at, reminded_at, created_at
+         FROM todos_tasks WHERE remind_at IS NOT NULL`,
+    ),
+    db.prepare(
+      `UPDATE todos_tasks SET remind_at = NULL, reminded_at = NULL WHERE remind_at IS NOT NULL`,
+    ),
+  ])
+  const inserted = Number(results[0]?.meta?.changes ?? 0)
+  const cleared = Number(results[1]?.meta?.changes ?? 0)
+  if (inserted !== expected || cleared !== expected) {
+    throw new Error(
+      `The single task reminders could not be moved: ${inserted} of ${expected} rows reached ` +
+      `todos_reminders and ${cleared} were cleared. The move is one transaction, so the old columns are ` +
+      'either untouched or fully handed over; the boot stops here rather than serving reminders that ' +
+      'disagree with their tasks.',
+    )
+  }
+  console.warn(`[inkstone] Schema repair: moved ${inserted} single task reminder(s) into todos_reminders`)
 }
 
 /** The account's scheduling zone: the one `getSettings()` reads, or UTC when absent or unrecognised. */
