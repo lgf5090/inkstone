@@ -733,6 +733,25 @@ todoRoutes.patch('/lists/:id', async (c) => {
   const s = store(c)
   const id = requiredId(c.req.param('id'))
   const body = await readJson<Record<string, unknown>>(c, BODY_LIMIT)
+  const existing = await s.getTaskList(id)
+  if (!existing) throw ApiError.notFound('List not found')
+  // Grouping is one level deep. The parent is read first, so "that parent does not exist" is a 400
+  // about the request rather than a 404 that would confirm an id in another account; a child used as
+  // a parent, a list put under itself and a container moved under another list are all the same
+  // refusal, because each would make the tree more than one level tall.
+  let parentId: string | null | undefined
+  if (body.parentId !== undefined) {
+    parentId = optionalId(body.parentId, 'parentId')
+    if (parentId != null) {
+      if (parentId === id) throw ApiError.badRequest('A list cannot be grouped under itself.')
+      const parent = await s.getTaskList(parentId)
+      if (!parent) throw ApiError.badRequest('That parent list does not exist.')
+      if (parent.parentId !== null) throw ApiError.badRequest('Lists can only be grouped one level deep.')
+      if ((await s.countTaskListChildren(id)) > 0) {
+        throw ApiError.badRequest('A list with its own sub-lists cannot be grouped under another list.')
+      }
+    }
+  }
   const list = await s.updateTaskList(id, {
     ...(body.name !== undefined ? { name: text(body.name, MAX_LIST_NAME_CHARS, 'A list name') } : {}),
     ...(body.icon !== undefined ? { icon: iconValue(body.icon) ?? null } : {}),
@@ -741,6 +760,7 @@ todoRoutes.patch('/lists/:id', async (c) => {
     // The stamp is the moment the list left the working page. A false answer clears it instead of
     // writing a second value, so unarchiving restores exactly the state the list was in.
     ...(body.archived !== undefined ? { archivedAt: asBoolean(body.archived, 'archived') ? Date.now() : null } : {}),
+    ...(parentId !== undefined ? { parentId } : {}),
   })
   if (!list) throw ApiError.notFound('List not found')
   return c.json({ list })

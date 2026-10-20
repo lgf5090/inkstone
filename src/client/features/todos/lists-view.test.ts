@@ -62,7 +62,41 @@ function render(): void {
   view = renderElement(createElement(ListsView, { onOpen: () => {} }))
 }
 
+/** The row a list's open button belongs to. */
+function rowNamed(name: string): HTMLElement {
+  const button = view!.container.querySelector<HTMLButtonElement>(
+    `button[aria-label="${t('todo.action.view_list')} ${name}"]`,
+  )
+  expect(button, `no row for ${name}`).not.toBeNull()
+  return button!.closest('li') as HTMLElement
+}
+
 describe('the list tree', () => {
+  it('draws a child inside its parent and a root on its own', () => {
+    useTodos.setState({
+      lists: [
+        entry('travel', 'Travel', { position: 0 }),
+        entry('booking', 'Booking', { position: 1, parentId: 'travel' }),
+        entry('work', 'Work', { position: 2 }),
+      ],
+    })
+    render()
+
+    const parent = rowNamed('Travel')
+    const child = rowNamed('Booking')
+    const nested = parent.querySelector('ul')
+    expect(nested, 'the child list was not drawn inside its parent').not.toBeNull()
+    expect(nested!.contains(child)).toBe(true)
+    // The child appears once, and only under its parent: its nearest list is the one inside the
+    // parent's item, not the top-level list beside it.
+    const holder = child.closest('ul')!
+    expect(holder).toBe(nested)
+    expect(holder.closest('li')).toBe(parent)
+    expect(rowNamed('Work').querySelector('ul')).toBeNull()
+    // The two top-level lists are siblings; the child is not a third one.
+    expect(parent.parentElement!.children).toHaveLength(2)
+  })
+
   it('keeps the archive shelf collapsed until it is opened', async () => {
     useTodos.setState({
       lists: [entry('active', 'Active')],

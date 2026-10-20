@@ -51,7 +51,7 @@ import { useTodos } from './store'
 const NOW = Date.parse('2026-10-19T17:30:00Z')
 
 function list(id: string, name: string): TaskListEntry {
-  return { id, name, icon: null, color: null, position: 0, createdAt: 0, updatedAt: 0, openCount: 0, doneCount: 0, archivedAt: null }
+  return { id, name, icon: null, color: null, position: 0, createdAt: 0, updatedAt: 0, openCount: 0, doneCount: 0, archivedAt: null, parentId: null }
 }
 
 function counts(): TaskCounts {

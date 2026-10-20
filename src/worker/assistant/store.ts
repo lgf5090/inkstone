@@ -931,14 +931,15 @@ export interface NewTask {
 }
 
 /**
- * A list as the organizer page reads it: the shared list shape plus the archive stamp.
+ * A list as the organizer page reads it: the shared list shape plus where it sits.
  *
- * The shared model is what every surface reads, and archiving is an organizer fact rather than a
- * property of a list's tasks, so it travels beside it instead of widening the model every consumer
- * would have to learn. `archivedAt` is null while the list is in use.
+ * The shared model is what every surface reads; the archive stamp and the parent pointer are
+ * organizer facts rather than properties of a list's tasks, so they travel beside it instead of
+ * widening the model every consumer would have to learn. Both null mean "in use" and "top level".
  */
 export interface TaskListEntry extends TaskList {
   archivedAt: number | null
+  parentId: string | null
 }
 
 export interface TaskQuery {
@@ -4392,7 +4393,7 @@ export class AssistantStore {
     return created
   }
 
-  async updateTaskList(id: string, patch: { name?: string; icon?: string | null; color?: string | null; position?: number; archivedAt?: number | null }): Promise<TaskListEntry | null> {
+  async updateTaskList(id: string, patch: { name?: string; icon?: string | null; color?: string | null; position?: number; archivedAt?: number | null; parentId?: string | null }): Promise<TaskListEntry | null> {
     const existing = await this.getTaskList(id)
     if (!existing) return null
     const fields: (readonly [string, unknown])[] = []
@@ -4401,14 +4402,29 @@ export class AssistantStore {
     if (patch.color !== undefined) fields.push(['color', patch.color])
     if (patch.position !== undefined) fields.push(['position', Math.trunc(patch.position)])
     if (patch.archivedAt !== undefined) fields.push(['archived_at', patch.archivedAt])
+    if (patch.parentId !== undefined) fields.push(['parent_id', patch.parentId])
     fields.push(['updated_at', Date.now()])
     await this.partialUpdate('todos_lists', id, fields)
     return await this.getTaskList(id)
   }
 
-  /** Deletes a list. Its tasks are not deleted with it: they move to the inbox, where nothing is lost. */
+  /** How many lists call this one their container. Used to keep grouping one level deep. */
+  async countTaskListChildren(id: string): Promise<number> {
+    const row = await this.one<{ n: number }>(
+      `SELECT COUNT(*) AS n FROM todos_lists WHERE user_id = ?1 AND parent_id = ?2`,
+      this.userId, id,
+    )
+    return row?.n ?? 0
+  }
+
+  /**
+   * Deletes a list. Its tasks are not deleted with it: they move to the inbox, where nothing is lost.
+   * Its child lists are lifted to the top level for the same reason — deleting a container is not a
+   * statement about the lists inside it.
+   */
   async deleteTaskList(id: string): Promise<void> {
     await this.write(`UPDATE todos_tasks SET list_id = NULL, updated_at = ?3, rev = rev + 1 WHERE user_id = ?1 AND list_id = ?2`, id, Date.now())
+    await this.write(`UPDATE todos_lists SET parent_id = NULL, updated_at = ?3 WHERE user_id = ?1 AND parent_id = ?2`, id, Date.now())
     await this.write(`DELETE FROM todos_lists WHERE user_id = ?1 AND id = ?2`, id)
   }
 
@@ -6837,6 +6853,8 @@ interface TaskListRow {
   position: number
   /** When the reader put the list away; null while it is in use. */
   archived_at: number | null
+  /** The container this list sits under, or null for a top-level list. */
+  parent_id: string | null
   created_at: number
   updated_at: number
 }
@@ -6899,6 +6917,7 @@ function toTaskList(r: TaskListRow, counts: { open: number; done: number }): Tas
     color: r.color,
     position: r.position,
     archivedAt: r.archived_at ?? null,
+    parentId: r.parent_id ?? null,
     createdAt: r.created_at,
     updatedAt: r.updated_at,
     openCount: counts.open,

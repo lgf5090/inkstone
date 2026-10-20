@@ -288,17 +288,18 @@ describe('a boot onto a database whose ledger lies', () => {
     expect(indexesOf(sqlite)).toContain('idx_todos_tasks_completed_on')
   })
 
-  it('gives a list table built before archiving its stamp', async () => {
+  it('gives a list table built before archiving and grouping both columns', async () => {
     const sqlite = await installed()
+    sqlite.exec('ALTER TABLE todos_lists DROP COLUMN parent_id')
     sqlite.exec('ALTER TABLE todos_lists DROP COLUMN archived_at')
     expect(columnsOf(sqlite, 'todos_lists')).not.toContain('archived_at')
-    // The number stays spent: an older list table has to be healed by the shape, not by the note.
-    expect(sqlite.prepare(`SELECT version FROM schema_migrations WHERE version = 120`).get())
-      .toEqual({ version: 120 })
+    // Both numbers stay spent: an older list table has to be healed by the shape, not by the note.
+    expect(sqlite.prepare(`SELECT version FROM schema_migrations WHERE version IN (120, 121) ORDER BY version`).all())
+      .toEqual([{ version: 120 }, { version: 121 }])
 
     await reboot(sqlite)
 
-    expect(columnsOf(sqlite, 'todos_lists')).toContain('archived_at')
+    expect(columnsOf(sqlite, 'todos_lists')).toEqual(expect.arrayContaining(['archived_at', 'parent_id']))
   })
 
   it('is a no-op on a database that already matches', async () => {

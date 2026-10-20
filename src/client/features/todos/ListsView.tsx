@@ -6,12 +6,13 @@
  * being edited half visible.
  */
 
-import { useState } from 'react'
+import { useState, type ReactNode } from 'react'
 import { Archive, ArchiveRestore, ChevronDown, ChevronRight, Pencil, Plus } from 'lucide-react'
 import { t } from '../../lib/i18n'
 import { KanbanIconBadge } from '../../lib/markdown/kanban/ui/kanban-icon-badge'
+import { Select } from '../../components/form'
 import { listIconFor } from './todo-ui'
-import { useTodos } from './store'
+import { useTodos, type TaskListEntry } from './store'
 import { ListEditor, TagEditor } from './OrganizerEditors'
 import type { TaskList, TaskTag } from '@shared/todos/model'
 
@@ -31,6 +32,39 @@ export function ListsView({ onOpen }: { onOpen: (target: { listId?: string; tagI
     const next = !archivedOpen
     setArchivedOpen(next)
     if (next) void loadArchivedLists()
+  }
+
+  // One level, drawn from the flat answer: a list whose parent is not on the working page (archived
+  // or gone) is drawn at the top rather than disappearing with it.
+  const visibleIds = new Set(lists.map((list) => list.id))
+  const childrenOf = new Map<string, TaskListEntry[]>()
+  for (const list of lists) {
+    if (!list.parentId || !visibleIds.has(list.parentId)) continue
+    const bucket = childrenOf.get(list.parentId) ?? []
+    bucket.push(list)
+    childrenOf.set(list.parentId, bucket)
+  }
+  const roots = lists.filter((list) => !list.parentId || !visibleIds.has(list.parentId))
+
+  const parentPicker = (list: TaskListEntry, hasChildren: boolean) => {
+    const current = list.parentId && visibleIds.has(list.parentId) ? list.parentId : ''
+    // A container is already the top of a group; nesting it would make the tree two levels tall.
+    const eligible = hasChildren ? [] : roots.filter((root) => root.id !== list.id)
+    return (
+      <Select
+        aria-label={`${t('todo.list.parent_label')} ${list.name}`}
+        value={current}
+        disabled={hasChildren}
+        onChange={(event) => {
+          const next = event.target.value || null
+          if (next !== list.parentId) void updateList(list.id, { parentId: next })
+        }}
+        className="h-9 w-28 px-2 text-[length:var(--text-11)] md:h-7"
+      >
+        <option value="">{t('todo.list.top_level')}</option>
+        {eligible.map((root) => <option key={root.id} value={root.id}>{root.name}</option>)}
+      </Select>
+    )
   }
 
   return (
@@ -71,20 +105,46 @@ export function ListsView({ onOpen }: { onOpen: (target: { listId?: string; tagI
               color="var(--text-tertiary)"
               onOpen={() => onOpen({ listId: 'inbox' })}
             />
-            {lists.map((list) => (
-              <div key={list.id}>
-                <div className="h-px bg-[var(--border-subtle)]" />
-                <Row
-                  label={list.name}
-                  count={list.openCount}
-                  color={list.color ?? 'var(--accent)'}
-                  icon={list.icon}
-                  onOpen={() => onOpen({ listId: list.id })}
-                  onEdit={() => setListEditor({ open: true, list })}
-                  onArchive={() => { void updateList(list.id, { archived: true }) }}
-                />
-              </div>
-            ))}
+            <ul className="m-0 list-none p-0">
+              {roots.map((list) => {
+                const children = childrenOf.get(list.id) ?? []
+                return (
+                  <li key={list.id}>
+                    <div className="h-px bg-[var(--border-subtle)]" />
+                    <Row
+                      label={list.name}
+                      count={list.openCount}
+                      color={list.color ?? 'var(--accent)'}
+                      icon={list.icon}
+                      onOpen={() => onOpen({ listId: list.id })}
+                      onEdit={() => setListEditor({ open: true, list })}
+                      onArchive={() => { void updateList(list.id, { archived: true }) }}
+                      parentPicker={parentPicker(list, children.length > 0)}
+                    />
+                    {children.length > 0 && (
+                      <ul className="m-0 list-none p-0">
+                        {children.map((child) => (
+                          <li key={child.id}>
+                            <div className="h-px bg-[var(--border-subtle)]" />
+                            <Row
+                              nested
+                              label={child.name}
+                              count={child.openCount}
+                              color={child.color ?? 'var(--accent)'}
+                              icon={child.icon}
+                              onOpen={() => onOpen({ listId: child.id })}
+                              onEdit={() => setListEditor({ open: true, list: child })}
+                              onArchive={() => { void updateList(child.id, { archived: true }) }}
+                              parentPicker={parentPicker(child, false)}
+                            />
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </li>
+                )
+              })}
+            </ul>
           </div>
           <div className="mt-2 overflow-hidden rounded-[var(--r-lg)] border border-[var(--border-subtle)] bg-[var(--bg-surface)]">
             <button
@@ -152,18 +212,21 @@ export function ListsView({ onOpen }: { onOpen: (target: { listId?: string; tagI
   )
 }
 
-function Row({ label, count, color, icon, onOpen, onEdit, onArchive, onRestore }: {
+function Row({ label, count, color, icon, nested = false, parentPicker, onOpen, onEdit, onArchive, onRestore }: {
   label: string
   count: number
   color: string
   icon?: string | null
+  /** A child list, indented inside its parent's item. */
+  nested?: boolean
+  parentPicker?: ReactNode
   onOpen: () => void
   onEdit?: () => void
   onArchive?: () => void
   onRestore?: () => void
 }) {
   return (
-    <div className="flex min-h-11 items-center gap-2 pl-3 pr-1">
+    <div className={`flex min-h-11 items-center gap-2 pr-1 ${nested ? 'pl-9' : 'pl-3'}`}>
       <span className="flex size-6 shrink-0 items-center justify-center">
         {listIconFor(icon) ? <KanbanIconBadge icon={listIconFor(icon)} size={15} /> : <span className="size-2.5 rounded-full" style={{ backgroundColor: color }} />}
       </span>
@@ -171,6 +234,7 @@ function Row({ label, count, color, icon, onOpen, onEdit, onArchive, onRestore }
         {label}
       </button>
       <span className="shrink-0 text-[length:var(--text-11)] tabular-nums text-[var(--text-quaternary)]">{count}</span>
+      {parentPicker}
       {onEdit && (
         <button
           type="button"

@@ -50,6 +50,9 @@ import {
 
 export type TodoView = 'board' | 'today' | 'plan' | 'calendar' | 'starred' | 'completed' | 'list' | 'tag' | 'stats'
 
+/** The list shape this feature reads, re-exported so its screens do not reach the API module. */
+export type { TaskListEntry } from '../../lib/api'
+
 /** One step back: what the toast calls it, and the inverse writes that take it. */
 export interface TodoUndoEntry {
   label: string
@@ -183,7 +186,7 @@ interface TodosState {
   searchTasks: (query: string) => Promise<TodoTask[]>
 
   createList: (input: { name: string; icon?: string | null; color?: string | null }) => Promise<TaskListEntry | null>
-  updateList: (id: string, patch: { name?: string; icon?: string | null; color?: string | null; archived?: boolean }) => Promise<TaskListEntry | null>
+  updateList: (id: string, patch: { name?: string; icon?: string | null; color?: string | null; archived?: boolean; parentId?: string | null }) => Promise<TaskListEntry | null>
   removeList: (id: string) => Promise<void>
   /** Read the archive shelf; called when the reader opens it, not on every page load. */
   loadArchivedLists: () => Promise<void>
@@ -1050,7 +1053,11 @@ export const useTodos = create<TodosState>((set, get) => ({
     try {
       await api.todos.removeList(id)
       set((state) => ({
-        lists: state.lists.filter((entry) => entry.id !== id),
+        lists: state.lists
+          .filter((entry) => entry.id !== id)
+          // The server lifts a deleted container's children to the top level; the local copy follows
+          // so the tree does not keep pointing at a row that is gone.
+          .map((entry) => (entry.parentId === id ? { ...entry, parentId: null } : entry)),
         archivedLists: state.archivedLists.filter((entry) => entry.id !== id),
         tasks: state.tasks.map((task) => (task.listId === id ? { ...task, listId: null } : task)),
         view: state.view === 'list' && state.listId === id ? 'board' : state.view,

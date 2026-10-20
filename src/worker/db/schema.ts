@@ -1846,6 +1846,20 @@ export const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
       `ALTER TABLE todos_lists ADD COLUMN archived_at INTEGER`,
     ],
   },
+  {
+    // The one container a list may sit under.
+    //
+    // Grouping is deliberately one level: the organizer page draws a list inside its parent and a
+    // parent inside nothing, so the column names a root and a route refuses a parent that is itself a
+    // child. Nullable because most lists are roots, and no foreign key because deleting a container
+    // must not delete its lists — the app lifts its children to the top level instead. One column,
+    // one version.
+    version: 121,
+    skipIfColumnExists: { table: 'todos_lists', column: 'parent_id' },
+    statements: [
+      `ALTER TABLE todos_lists ADD COLUMN parent_id TEXT`,
+    ],
+  },
 ]
 
 const FTS_STATEMENT = `CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(

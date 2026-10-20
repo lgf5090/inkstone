@@ -254,16 +254,49 @@ describe('list archiving and grouping', () => {
     expect((await json<{ counts: TaskCounts }>(await send('GET', ''))).counts.all).toBe(1)
   })
 
-  it('does not archive another account’s list', async () => {
+  it('groups lists one level deep and refuses a loop or a grandchild', async () => {
+    const parent = await json<{ list: ListAnswer }>(await send('POST', '/lists', { name: 'Travel' })).then((body) => body.list)
+    const child = await json<{ list: ListAnswer }>(await send('POST', '/lists', { name: 'Booking' })).then((body) => body.list)
+    const other = await json<{ list: ListAnswer }>(await send('POST', '/lists', { name: 'Work' })).then((body) => body.list)
+
+    const grouped = await json<{ list: ListAnswer }>(await send('PATCH', `/lists/${child.id}`, { parentId: parent.id }))
+    expect(grouped.list.parentId).toBe(parent.id)
+    // The flat listing carries the pointer the organizer page groups by.
+    expect((await json<{ lists: ListAnswer[] }>(await send('GET', '/lists'))).lists
+      .find((entry) => entry.id === child.id)?.parentId).toBe(parent.id)
+
+    // A list is not its own parent.
+    expect((await send('PATCH', `/lists/${parent.id}`, { parentId: parent.id })).status).toBe(400)
+    // The child cannot become the parent of its own parent.
+    expect((await send('PATCH', `/lists/${parent.id}`, { parentId: child.id })).status).toBe(400)
+    // A child cannot be used as a container, because that would be a second level.
+    expect((await send('PATCH', `/lists/${other.id}`, { parentId: child.id })).status).toBe(400)
+    // A container cannot itself move under another list.
+    expect((await send('PATCH', `/lists/${parent.id}`, { parentId: other.id })).status).toBe(400)
+    // An unknown parent is a bad request about the list, not a silent move to the top level.
+    expect((await send('PATCH', `/lists/${other.id}`, { parentId: '0000000000abcdefghijklmnopqrzz' })).status).toBe(400)
+    // A parent that belongs to somebody else is no parent in this account.
+    const reader = mocks.userId
+    mocks.userId = `${reader}elsewhere`
+    const theirs = await json<{ list: ListAnswer }>(await send('POST', '/lists', { name: 'Elsewhere' })).then((body) => body.list)
+    mocks.userId = reader
+    expect((await send('PATCH', `/lists/${other.id}`, { parentId: theirs.id })).status).toBe(400)
+
+    const cleared = await json<{ list: ListAnswer }>(await send('PATCH', `/lists/${child.id}`, { parentId: null }))
+    expect(cleared.list.parentId).toBeNull()
+  })
+
+  it('does not archive or regroup another account’s list', async () => {
     const reader = mocks.userId
     const mine = await json<{ list: ListAnswer }>(await send('POST', '/lists', { name: 'Mine' })).then((body) => body.list)
     mocks.userId = `${reader}other`
 
     expect((await send('PATCH', `/lists/${mine.id}`, { archived: true })).status).toBe(404)
+    expect((await send('PATCH', `/lists/${mine.id}`, { parentId: null })).status).toBe(404)
 
     mocks.userId = reader
     const list = (await json<{ lists: ListAnswer[] }>(await send('GET', '/lists'))).lists.find((entry) => entry.id === mine.id)
-    expect(list).toMatchObject({ archivedAt: null })
+    expect(list).toMatchObject({ archivedAt: null, parentId: null })
   })
 })
 
