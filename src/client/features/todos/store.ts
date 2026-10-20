@@ -48,6 +48,12 @@ import {
 
 export type TodoView = 'board' | 'today' | 'plan' | 'starred' | 'completed' | 'list' | 'tag' | 'stats'
 
+/** One step back: what the toast calls it, and the inverse writes that take it. */
+export interface TodoUndoEntry {
+  label: string
+  undo: () => Promise<void>
+}
+
 /** What the editor is open on: an existing task, or a draft for a new one. */
 export interface TaskDraft {
   id?: string
@@ -112,10 +118,14 @@ interface TodosState {
   editorOpen: boolean
   draft: TaskDraft | null
   saving: boolean
+  /** The single step the toast is offering, if any. A new write replaces it rather than queuing. */
+  undo: TodoUndoEntry | null
 
   load: () => Promise<void>
   loadMore: () => Promise<void>
   refreshCounts: () => Promise<void>
+  /** Take the offered step back; a no-op when nothing is offered or the toast has gone. */
+  undoLast: () => Promise<void>
 
   setView: (view: TodoView, target?: { listId?: string; tagId?: string }) => void
   setQuery: (query: string) => void
@@ -167,6 +177,37 @@ function toastError(error: unknown): void {
     title: t('todo.toast.failed'),
     description: error instanceof Error ? error.message : String(error),
     tone: 'danger',
+  })
+}
+
+/**
+ * How long a step stays reachable, in milliseconds.
+ *
+ * The toast is the clock, so the store keeps no second one: the step is only taken while the toast
+ * that offers it is still on the rail. A dismissed or expired toast therefore closes the window in
+ * both places at once, and hovering — which pauses the toast — pauses the undo with it.
+ */
+const UNDO_WINDOW_MS = 6000
+
+/** The toast currently offering the step; a new write dismisses it rather than stacking a second. */
+let undoToastId: string | null = null
+/** Guards inverse writes: an undo that recorded an undo would offer a redo of the undo. */
+let undoing = false
+
+/** Puts the one step back on the toast rail, replacing whatever step was offered before. */
+function offerUndo(
+  set: (partial: Partial<TodosState>) => void,
+  get: () => TodosState,
+  label: string,
+  undo: () => Promise<void>,
+): void {
+  const ui = useUi.getState()
+  if (undoToastId) ui.dismissToast(undoToastId)
+  set({ undo: { label, undo } })
+  undoToastId = ui.toast({
+    title: label,
+    action: { label: t('common.undo'), run: () => { void get().undoLast() } },
+    duration: UNDO_WINDOW_MS,
   })
 }
 
@@ -403,6 +444,7 @@ export const useTodos = create<TodosState>((set, get) => ({
   editorOpen: false,
   draft: null,
   saving: false,
+  undo: null,
 
   load: async () => {
     if (get().status === 'idle') set({ status: 'loading' })
@@ -462,6 +504,24 @@ export const useTodos = create<TodosState>((set, get) => ({
       set({ counts: page.counts, dayEnd: page.dayEnd, timezone: page.timezone })
     } catch (error) {
       toastError(error)
+    }
+  },
+
+  undoLast: async () => {
+    const entry = get().undo
+    const toastId = undoToastId
+    const offered = toastId !== null && useUi.getState().toasts.some((item) => item.id === toastId)
+    undoToastId = null
+    set({ undo: null })
+    if (toastId) useUi.getState().dismissToast(toastId)
+    if (!entry || !offered) return
+    undoing = true
+    try {
+      await entry.undo()
+    } catch (error) {
+      toastError(error)
+    } finally {
+      undoing = false
     }
   },
 
@@ -669,6 +729,9 @@ export const useTodos = create<TodosState>((set, get) => ({
   },
 
   updateTask: async (id, patch) => {
+    const before = get().tasks.find((entry) => entry.id === id)
+      ?? get().completed.find((entry) => entry.id === id)
+      ?? null
     set({ saving: true })
     try {
       const { task, next } = await api.todos.update(id, patch)
@@ -685,6 +748,18 @@ export const useTodos = create<TodosState>((set, get) => ({
           : state.completed.filter((entry) => entry.id !== id),
         saving: false,
       }))
+      // A tick is the one write whose answer carries a second row, so its inverse owns both: the
+      // occurrence the server filed goes back first, and only then does the original reopen.
+      if (!undoing && before && before.status !== 'done' && patch.status === 'done') {
+        const restoreStatus = before.status
+        offerUndo(set, get, t('todo.toast.completed'), async () => {
+          if (next) {
+            await api.todos.remove(next.id)
+            set((state) => ({ tasks: state.tasks.filter((entry) => entry.id !== next.id) }))
+          }
+          await get().updateTask(id, { status: restoreStatus })
+        })
+      }
       void get().refreshCounts()
       return task
     } catch (error) {
