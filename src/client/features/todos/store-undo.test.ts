@@ -167,6 +167,24 @@ describe('undoing a completion', () => {
   })
 })
 
+describe('undoing a move', () => {
+  it('sends the row back to the list it came from', async () => {
+    const task = row('t1', 'File the return', { listId: 'work' })
+    hydrate([task])
+
+    await useTodos.getState().updateTask('t1', { listId: 'home' })
+    expect(useTodos.getState().tasks[0]?.listId).toBe('home')
+
+    await useTodos.getState().undoLast()
+
+    expect(service.updates).toEqual([
+      { id: 't1', body: { listId: 'home' } },
+      { id: 't1', body: { listId: 'work' } },
+    ])
+    expect(useTodos.getState().tasks[0]?.listId).toBe('work')
+  })
+})
+
 describe('the undo rail', () => {
   it('keeps only the latest step when two writes land', async () => {
     const first = row('a', 'First')

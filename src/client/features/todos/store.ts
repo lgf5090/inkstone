@@ -759,6 +759,12 @@ export const useTodos = create<TodosState>((set, get) => ({
           }
           await get().updateTask(id, { status: restoreStatus })
         })
+      } else if (!undoing && before && 'listId' in patch && (patch.listId ?? null) !== before.listId) {
+        // A list is a field on the row, so its inverse is the same PATCH with the old collection.
+        const listId = before.listId
+        offerUndo(set, get, t('todo.toast.moved'), async () => {
+          await get().updateTask(id, { listId })
+        })
       }
       void get().refreshCounts()
       return task
