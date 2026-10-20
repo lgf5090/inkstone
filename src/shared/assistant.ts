@@ -1814,6 +1814,7 @@ export interface AssistantMcpProblem {
  */
 export const ASSISTANT_TOOL_SPECS: readonly AssistantToolSpec[] = [
   { name: 'create_task', labelKey: 'assistant.tool.create_task', permission: 'write' },
+  { name: 'create_tasks_from_note', labelKey: 'assistant.tool.create_tasks_from_note', permission: 'write' },
   { name: 'list_tasks', labelKey: 'assistant.tool.list_tasks', permission: 'read' },
   { name: 'update_task', labelKey: 'assistant.tool.update_task', permission: 'write' },
   { name: 'complete_task', labelKey: 'assistant.tool.complete_task', permission: 'write' },
@@ -1823,6 +1824,7 @@ export const ASSISTANT_TOOL_SPECS: readonly AssistantToolSpec[] = [
   { name: 'create_task_list', labelKey: 'assistant.tool.create_task_list', permission: 'write' },
   { name: 'add_task_step', labelKey: 'assistant.tool.add_task_step', permission: 'write' },
   { name: 'check_task_step', labelKey: 'assistant.tool.check_task_step', permission: 'write' },
+  { name: 'decompose_task', labelKey: 'assistant.tool.decompose_task', permission: 'write' },
   { name: 'remember', labelKey: 'assistant.tool.remember', permission: 'write' },
   { name: 'search_memories', labelKey: 'assistant.tool.search_memories', permission: 'read' },
   { name: 'update_memory', labelKey: 'assistant.tool.update_memory', permission: 'write' },

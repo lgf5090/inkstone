@@ -14,7 +14,7 @@ import { beforeEach, describe, expect, it } from 'vitest'
 import { SCHEMA_STATEMENTS } from '../src/worker/db/schema'
 import { AssistantStore } from '../src/worker/assistant/store'
 import { DEFAULT_ASSISTANT_SETTINGS } from '../src/shared/assistant'
-import { ToolExecutor, type ToolContext } from '../src/worker/assistant/tools'
+import { MAX_TASKS_FROM_NOTE, ToolExecutor, type ToolContext } from '../src/worker/assistant/tools'
 import type { Env } from '../src/worker/env'
 import { makeD1 } from './doubles/d1-sqlite'
 import { testBindings } from './doubles/bindings'
@@ -23,6 +23,8 @@ const USER = 'user-alice'
 const OTHER = 'user-bob'
 const HOUR = 60 * 60 * 1000
 const DAY = 24 * HOUR
+const NOTE = '01hzzzzzzzzzzzzzzzzzzzzz20'
+const OTHER_NOTE = '01hzzzzzzzzzzzzzzzzzzzzz21'
 
 let sqlite: DatabaseSync
 let env: Env
@@ -57,6 +59,19 @@ function context(over: Partial<ToolContext> = {}): ToolContext {
 
 function executor(over: Partial<ToolContext> = {}): ToolExecutor {
   return new ToolExecutor(context(over), { maxToolCalls: 20 })
+}
+
+/** A note body straight into the table, because the tool reads the row and nothing above it. */
+function insertNote(id: string, content: string, user = USER, title = 'Weekly plan'): void {
+  sqlite.prepare(
+    `INSERT INTO notes (id, user_id, title, title_key, content, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, 1, 1)`,
+  ).run(id, user, title, title.toLowerCase(), content)
+}
+
+/** The end of a bare day in the account's zone (Asia/Shanghai in these fixtures), in UTC ms. */
+function endOfShanghaiDay(day: string): number {
+  return Date.parse(`${day}T15:59:00.000Z`)
 }
 
 describe('create_task', () => {
@@ -262,5 +277,143 @@ describe('list_tasks', () => {
 
     const listed = await theirs.execute('list_tasks', { view: 'open' }, 'call-1') as { count: number }
     expect(listed.count).toBe(0)
+  })
+})
+
+describe('decompose_task', () => {
+  it('answers with a draft and leaves the task exactly as it was', async () => {
+    const created = await executor().execute('create_task', { title: 'Plan the launch' }, 'call-1') as {
+      created: { id: string }
+    }
+    const before = await store.getTask(created.created.id)
+
+    const draft = await executor().execute('decompose_task', {
+      task: created.created.id,
+      steps: ['Pick a date', 'Write the copy'],
+      by: '2026-04-01',
+    }, 'call-2') as Record<string, unknown>
+
+    expect(draft).toMatchObject({
+      draft: true,
+      task: { id: created.created.id, title: 'Plan the launch', steps: 0 },
+      steps: ['Pick a date', 'Write the copy'],
+      due_at: endOfShanghaiDay('2026-04-01'),
+    })
+    expect(String(draft.note)).toMatch(/Nothing was saved/)
+    // The whole point of a draft: no step rows, and no edit to the task it was drafted for.
+    expect(await store.listSteps(created.created.id)).toEqual([])
+    expect((await store.getTask(created.created.id))?.updatedAt).toBe(before?.updatedAt)
+  })
+
+  it('refuses an empty breakdown rather than answering with nothing to accept', async () => {
+    const created = await executor().execute('create_task', { title: 'One' }, 'call-1') as { created: { id: string } }
+
+    await expect(executor().execute('decompose_task', { task: created.created.id, steps: [] }, 'call-2'))
+      .rejects.toThrow(/at least one step/)
+  })
+
+  it('names an unknown task instead of drafting for nothing', async () => {
+    await expect(executor().execute('decompose_task', { task: 'no such task', steps: ['a'] }, 'call-1'))
+      .rejects.toThrow(/No single task matches/)
+  })
+})
+
+describe('create_tasks_from_note', () => {
+  it('turns the open boxes into tasks, with the day each line carries', async () => {
+    insertNote(NOTE, [
+      '# Plan',
+      '- [ ] Buy milk [due:: 2026-03-01]',
+      '- [x] Call mom',
+      '* [ ] Ship it 📅 2026-01-15',
+      '- a plain bullet',
+      '```',
+      '- [ ] inside code',
+      '```',
+    ].join('\n'))
+
+    const result = await executor().execute('create_tasks_from_note', { note: NOTE }, 'call-1') as {
+      created: number
+      skipped: number
+      ignored?: number
+      tasks: { id: string, title: string }[]
+    }
+
+    expect(result.created).toBe(2)
+    expect(result.skipped).toBe(0)
+    expect(result.ignored).toBe(1)
+    expect(result.tasks.map((task) => task.title)).toEqual(['Buy milk', 'Ship it'])
+
+    const tasks = await store.listTasks({ view: 'all', status: 'all' })
+    expect(tasks).toHaveLength(2)
+    expect(tasks.every((task) => task.noteId === NOTE)).toBe(true)
+    const byTitle = new Map(tasks.map((task) => [task.title, task]))
+    expect(byTitle.get('Buy milk')?.dueAt).toBe(endOfShanghaiDay('2026-03-01'))
+    expect(byTitle.get('Ship it')?.dueAt).toBe(endOfShanghaiDay('2026-01-15'))
+  })
+
+  it('adds nothing on a second sweep of the same note', async () => {
+    insertNote(NOTE, '- [ ] Buy milk\n- [ ] Ship it')
+
+    const first = await executor().execute('create_tasks_from_note', { note: NOTE }, 'call-1') as { created: number }
+    const second = await executor().execute('create_tasks_from_note', { note: NOTE }, 'call-2') as {
+      created: number
+      skipped: number
+    }
+
+    expect(first.created).toBe(2)
+    expect(second).toMatchObject({ created: 0, skipped: 2 })
+    expect(await store.listTasks({ view: 'all', status: 'all' })).toHaveLength(2)
+  })
+
+  it('treats the same words written twice as one task', async () => {
+    insertNote(NOTE, '- [ ] Buy milk\n- [ ] buy   milk')
+
+    const result = await executor().execute('create_tasks_from_note', { note: NOTE }, 'call-1') as {
+      created: number
+      skipped: number
+    }
+
+    expect(result).toMatchObject({ created: 1, skipped: 1 })
+    expect(await store.listTasks({ view: 'all', status: 'all' })).toHaveLength(1)
+  })
+
+  it('files a ticked box as a completed task when asked for everything', async () => {
+    insertNote(NOTE, '- [x] Already done')
+
+    const result = await executor().execute('create_tasks_from_note', { note: NOTE, filter: 'all' }, 'call-1') as {
+      created: number
+      tasks: { id: string }[]
+    }
+
+    expect(result.created).toBe(1)
+    const task = await store.getTask(result.tasks[0]!.id)
+    expect(task).toMatchObject({ title: 'Already done', status: 'done', noteId: NOTE })
+    expect(task?.completedAt).not.toBeNull()
+  })
+
+  it('caps one sweep and leaves the rest for the next call', async () => {
+    insertNote(NOTE, Array.from({ length: MAX_TASKS_FROM_NOTE + 5 }, (_, index) => `- [ ] Task ${index + 1}`).join('\n'))
+
+    const first = await executor().execute('create_tasks_from_note', { note: NOTE }, 'call-1') as {
+      created: number
+      remaining?: number
+    }
+    const second = await executor().execute('create_tasks_from_note', { note: NOTE }, 'call-2') as {
+      created: number
+      remaining?: number
+    }
+
+    expect(first).toMatchObject({ created: MAX_TASKS_FROM_NOTE, remaining: 5 })
+    expect(second.created).toBe(5)
+    expect(second.remaining).toBeUndefined()
+    expect(await store.listTasks({ view: 'all', status: 'all' })).toHaveLength(MAX_TASKS_FROM_NOTE + 5)
+  })
+
+  it('answers 404 for another account\'s note and writes nothing', async () => {
+    insertNote(OTHER_NOTE, '- [ ] Their task', OTHER)
+
+    await expect(executor().execute('create_tasks_from_note', { note: OTHER_NOTE }, 'call-1'))
+      .rejects.toMatchObject({ status: 404 })
+    expect(await store.listTasks({ view: 'all', status: 'all' })).toHaveLength(0)
   })
 })

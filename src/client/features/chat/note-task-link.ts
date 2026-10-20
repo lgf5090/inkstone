@@ -19,22 +19,12 @@
 import { createElement } from 'react'
 import { CheckSquare } from 'lucide-react'
 import { toPlainText } from '@shared/markdown-utils'
+import { parseNoteCheckbox } from '@shared/todos/note-parse'
 import type { MenuItem } from '../../components/overlay'
 import { t } from '../../lib/i18n'
-import { extractDate, extractInlineFields } from '../../lib/dataview/metadata'
 import { useUi } from '../../store/ui'
 import { getActiveEditorView } from '../../editor/commands'
 import { useTodos } from '../todos/store'
-
-/** A task checkbox line: optional blockquote/list marker, a `[ ]`/`[x]` box, then the text. */
-const TASK_MARKER = /^((?:[ \t]*>[ \t]?)*[ \t]*(?:[-*+]|\d+[.)])[ \t]+\[)([ xX])\]/
-
-/**
- * A Tasks-plugin emoji date with its day. Matched with the `u` flag so the surrogate pair of each emoji
- * is one token, not two halves: `extractInlineFields` reports these emoji fields by byte index without
- * the flag, which is fine for reading the date but not for cutting the token back out of the title.
- */
-const EMOJI_DATE = /[⌛⌚🛫✕✅📅📆🗓]️?\s*\d{4}-\d{2}-\d{2}/gu
 
 export interface NoteTaskCheckbox {
   /** The checkbox's own words, with the marker and any inline date fields stripped. */
@@ -43,31 +33,24 @@ export interface NoteTaskCheckbox {
   dueAt: number | null
 }
 
-/** Whether the line is a task checkbox at all, and if so its title and any due date. */
+/**
+ * Whether the line is a task checkbox at all, and if so its title and any due date.
+ *
+ * The grammar is the shared one the worker's batch reader also uses (`@shared/todos/note-parse`), so a
+ * line offered from the menu and the same line swept up by the assistant produce the same task. Only
+ * the day's meaning is local here: a due day written without a zone is the reader's own.
+ */
 export function parseNoteTaskCheckbox(line: string): NoteTaskCheckbox | null {
-  const marker = TASK_MARKER.exec(line)
-  if (!marker) return null
-  const markerEnd = marker[0].length
-  const content = line.slice(markerEnd)
+  const checkbox = parseNoteCheckbox(line)
+  if (!checkbox) return null
+  return { title: checkbox.title, dueAt: endOfLocalDay(checkbox.due) }
+}
 
-  // One scan covers both spellings the vault reads (`[due:: …]` and the emoji dates), and the same ranges
-  // are then cut out of the title — a task's words should not carry the field markers they were parsed from.
-  const fields = extractInlineFields(line, true)
-  const due = fields.find((hit) => hit.key.toLowerCase() === 'due')
-  const dueDate = due ? extractDate(due.value) : null
-  const dueAt = dueDate
-    ? new Date(dueDate.getFullYear(), dueDate.getMonth(), dueDate.getDate(), 23, 59, 59, 999).getTime()
-    : null
-
-  let title = content
-  for (const hit of fields.filter((entry) => entry.wrapping === '[' || entry.wrapping === '(').sort((a, b) => b.start - a.start)) {
-    // Only the bracketed fields that live inside the text after the box, so nothing negative is spliced at.
-    if (hit.start < markerEnd || hit.end <= markerEnd) continue
-    title = `${title.slice(0, hit.start - markerEnd)}${title.slice(hit.end - markerEnd)}`
-  }
-  // The emoji dates are removed as whole tokens rather than by index (see EMOJI_DATE above).
-  title = title.replace(EMOJI_DATE, ' ').replace(/\s+/g, ' ').trim()
-  return { title, dueAt }
+/** The instant a bare `YYYY-MM-DD` ends in the browser's zone, which is what the task list compares against. */
+function endOfLocalDay(day: string | null): number | null {
+  if (!day) return null
+  const [year, month, date] = day.split('-').map(Number)
+  return new Date(year!, month! - 1, date!, 23, 59, 59, 999).getTime()
 }
 
 export interface NoteTaskInput {

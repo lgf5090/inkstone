@@ -20,6 +20,7 @@ import { ASSISTANT_TOOL_SPECS, MAX_TASK_TITLE_CHARS, TASK_PRIORITIES, TASK_STATU
 import { webSearchEngineFor } from '@shared/web-search-engines'
 import {
   MAX_LIST_NAME_CHARS,
+  MAX_STEPS_PER_TASK,
   MAX_STEP_TEXT_CHARS,
   MAX_TAGS_PER_TASK,
   REMIND_OFFSETS,
@@ -30,6 +31,7 @@ import {
   type TaskCounts,
   type TodoTask,
 } from '@shared/todos/model'
+import { parseNoteCheckboxes } from '@shared/todos/note-parse'
 import { MEMORY_CATEGORIES_FOR_TOOLS } from './memory-service'
 import { parseLocalTime, toLocalMinute } from '@shared/assistant-time'
 import { hasHistoricalIntent } from '@shared/assistant-memory'
@@ -37,7 +39,7 @@ import type { ScheduleSpec } from '@shared/assistant-schedule'
 import type { Env } from '../env'
 import type { McpWriteContext } from '../mcp/writes'
 import { createMcpNote, editMcpNote, trashMcpNote } from '../mcp/writes'
-import { readMcpNote, searchMcpNotes } from '../mcp/retrieval'
+import { readMcpNote, loadMcpNote, searchMcpNotes } from '../mcp/retrieval'
 import { ApiError } from '../lib/errors'
 import type { AssistantStore, MemoryScope } from './store'
 import {
@@ -362,6 +364,25 @@ async function tagSearchFilter(db: D1Database, userId: string, scope: NoteScope)
   return names.length ? { tags: names } : {}
 }
 
+/**
+ * How many tasks one sweep of a note may create.
+ *
+ * A note is a page, and a page of boxes is normally a handful; the ceiling is what keeps one call from
+ * turning a long checklist into an unbounded write. Anything past it is left for a second call, which
+ * is also what makes the cap honest: the boxes are named in `remaining` rather than dropped.
+ */
+export const MAX_TASKS_FROM_NOTE = 50
+
+/**
+ * The comparison an idempotency check uses: the same words, whatever the spacing and case.
+ *
+ * The title is the half of the key the reader wrote, so two spellings of one line must not become two
+ * tasks. This is deliberately a comparison key and not a stored value: the task keeps the box's words.
+ */
+function taskTitleKey(title: string): string {
+  return title.trim().replace(/\s+/g, ' ').toLowerCase()
+}
+
 export const TASK_TOOLS: ToolDefinition[] = [
   tool({
     name: 'create_task',
@@ -403,6 +424,64 @@ export const TASK_TOOLS: ToolDefinition[] = [
       })
       await ctx.store.recordActivity('task.created', task.title)
       return { created: presentTask(task) }
+    },
+  }),
+  tool({
+    name: 'create_tasks_from_note',
+    permission: 'write',
+    maxCallsPerTurn: 3,
+    description: 'Create tasks from the checkboxes in one note. Every box whose title is not already a task from this note becomes one, so calling it twice on the same note adds nothing. filter "open" (the default) takes unticked boxes only; "all" also takes ticked ones and files them as completed.',
+    fields: {
+      note: { type: 'string', description: 'The id of the note to read. Use search_notes or list_notes to find it.', minLength: 1, maxLength: 26 },
+      filter: { type: 'string', enum: ['open', 'all'], description: 'Which boxes to take. Defaults to open.', optional: true },
+    },
+    async run(args, ctx) {
+      const noteId = String(args.note)
+      await assertNoteReadable(ctx.env.DB, ctx.store.userId, noteId, await ctx.noteScope())
+      const note = await loadMcpNote(ctx.env.DB, ctx.store.userId, noteId)
+      const boxes = parseNoteCheckboxes(note.content)
+      const includeDone = args.filter === 'all'
+      // The idempotency key is the note the box came from plus the box's own words. It is loaded once
+      // rather than asked per box: a note with fifty boxes should cost one query, not fifty.
+      const existing = await ctx.env.DB.prepare(
+        `SELECT title FROM todos_tasks WHERE user_id = ?1 AND note_id = ?2`,
+      ).bind(ctx.store.userId, noteId).all<{ title: string }>()
+      const seen = new Set((existing.results ?? []).map((row) => taskTitleKey(row.title)))
+      const tasks: Array<{ id: string, title: string }> = []
+      let skipped = 0
+      let ignored = 0
+      let remaining = 0
+      for (const box of boxes) {
+        if (!box.title) { ignored++; continue }
+        // A ticked box is already done in the note; taking it by default would file finished work as
+        // something to do. `filter: 'all'` is the reader asking for the history too.
+        if (box.done && !includeDone) { ignored++; continue }
+        const key = taskTitleKey(box.title)
+        if (seen.has(key)) { skipped++; continue }
+        if (tasks.length >= MAX_TASKS_FROM_NOTE) { remaining++; continue }
+        const task = await ctx.store.createTask({
+          title: box.title,
+          noteId,
+          // The note writes a bare day; the account's zone is what that day means, the same zone the
+          // task list's own "today" is read in.
+          dueAt: box.due ? parseLocalTime(box.due, ctx.timezone) : null,
+          status: box.done ? 'done' : 'todo',
+          conversationId: ctx.conversationId ?? null,
+        }, ctx.timezone)
+        seen.add(key)
+        tasks.push({ id: task.id, title: task.title })
+      }
+      // One activity line for the sweep, not one per task: fifty rows would bury everything else the
+      // reader did that day in the activity list.
+      if (tasks.length) await ctx.store.recordActivity('task.created', `${tasks.length} task(s) from note “${note.title}”`)
+      return {
+        note: { id: note.id, title: note.title },
+        created: tasks.length,
+        skipped,
+        ...(ignored ? { ignored } : {}),
+        ...(remaining ? { remaining, note_limit: `Only ${MAX_TASKS_FROM_NOTE} were created; call again to take the rest.` } : {}),
+        tasks,
+      }
     },
   }),
   tool({
@@ -611,6 +690,33 @@ export const TASK_TOOLS: ToolDefinition[] = [
       const done = args.done !== false
       await ctx.store.updateStep(task.id, step.id, { done })
       return { step: step.text, done }
+    },
+  }),
+  tool({
+    name: 'decompose_task',
+    permission: 'write',
+    maxCallsPerTurn: 3,
+    description: 'Propose a step-by-step breakdown of one task, optionally with the day the whole thing should be finished by. This is a draft: it writes nothing. The reader accepts or edits the steps in the task editor, so do not add them one by one with add_task_step afterwards.',
+    fields: {
+      task: { type: 'string', description: 'Task id, or a title that matches exactly one task.', minLength: 1, maxLength: 300 },
+      steps: { type: 'array', items: 'string', maxItems: MAX_STEPS_PER_TASK, maxLength: MAX_STEP_TEXT_CHARS, description: 'The proposed steps, in the order they should be done.' },
+      by: localDateField('When the whole task should be finished.'),
+    },
+    async run(args, ctx) {
+      const task = await resolveTaskOrThrow(args.task, ctx)
+      const steps = (args.steps as string[]).filter(Boolean)
+      if (!steps.length) throw new ToolError('A breakdown needs at least one step.')
+      const byAt = dueMillis(args.by, ctx) ?? null
+      // A draft rather than a write: the steps are answered to the model and shown to the reader, and
+      // only the task editor's own save turns them into rows. The same rule as an approval card, for a
+      // change too small to deserve one.
+      return {
+        draft: true,
+        task: { id: task.id, title: task.title, steps: task.stepTotal },
+        steps,
+        ...(byAt !== null ? { due_at: byAt } : {}),
+        note: 'Nothing was saved: this is a proposal for the reader to accept or edit in the task editor. Do not call add_task_step for these steps unless the reader asks.',
+      }
     },
   }),
 ]
