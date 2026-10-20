@@ -7,12 +7,14 @@
  * 44px hit area; the visible circle is 20px, which is what the reference app shows.
  */
 
-import { CalendarMinus, Check, Star } from 'lucide-react'
+import { useRef, useState } from 'react'
+import { CalendarMinus, Check, MoreHorizontal, Star } from 'lucide-react'
 import { cn } from '../../lib/cn'
 import { t } from '../../lib/i18n'
-import { useTodos } from './store'
+import { Menu, type MenuItem } from '../../components/overlay'
+import { useTodos, snoozeLabel } from './store'
 import { dueLabel, priorityDot, priorityLabel } from './todo-ui'
-import type { TaskList, TodoTask } from '@shared/todos/model'
+import { SNOOZE_MINUTES, type TaskList, type TodoTask } from '@shared/todos/model'
 
 export function TaskCard({ task, lists, bounds, timezone, onOpen, onStar, onUnplan, compact = false }: {
   task: TodoTask
@@ -30,11 +32,24 @@ export function TaskCard({ task, lists, bounds, timezone, onOpen, onStar, onUnpl
   compact?: boolean
 }) {
   const toggle = useTodos((state) => state.toggleTask)
+  const snooze = useTodos((state) => state.snoozeTask)
   const list = task.listId ? lists.find((entry) => entry.id === task.listId) ?? null : null
   const colour = list?.color ?? 'var(--accent)'
   const due = dueLabel(task.dueAt, bounds, timezone)
   const done = task.status === 'done'
   const progress = task.stepTotal > 0 ? t('todo.steps.progress', { done: task.stepDone, total: task.stepTotal }) : null
+  const menuRef = useRef<HTMLButtonElement>(null)
+  const [menuOpen, setMenuOpen] = useState(false)
+  // The same four durations the editor and the notification row offer, so "10 minutes" means one
+  // thing wherever the reader reads it.
+  const snoozeItems: MenuItem[] = SNOOZE_MINUTES.map((minutes) => ({
+    id: `snooze-${minutes}`,
+    label: snoozeLabel(minutes),
+    onSelect: () => {
+      setMenuOpen(false)
+      void snooze(task.id, minutes)
+    },
+  }))
 
   return (
     <article
@@ -133,8 +148,8 @@ export function TaskCard({ task, lists, bounds, timezone, onOpen, onStar, onUnpl
           36px column on the right took so much of it that a four-character title wrapped one character
           per line; the reference card has an icon, a name and the rows, and the star is toggled where
           the task is read in full — the list rows and the editor. */}
-      {!compact && (
-        <span className="flex shrink-0 flex-col items-end gap-1">
+      <span className="flex shrink-0 flex-col items-end gap-1">
+        {!compact && (
           <button
             type="button"
             aria-label={task.starred ? t('todo.task.unstar') : t('todo.task.star')}
@@ -150,22 +165,38 @@ export function TaskCard({ task, lists, bounds, timezone, onOpen, onStar, onUnpl
           >
             <Star size={14} fill={task.starred ? 'currentColor' : 'none'} />
           </button>
-          {list && (
-            <span className="max-w-[84px] truncate pr-1 text-[length:var(--text-10-5)] text-[var(--text-quaternary)]">{list.name}</span>
-          )}
-          {onUnplan && (
-            <button
-              type="button"
-              aria-label={t('todo.today.remove', { title: task.title })}
-              title={t('todo.today.remove', { title: task.title })}
-              onClick={onUnplan}
-              className="flex size-9 items-center justify-center rounded-full text-[var(--text-quaternary)] hover:text-[var(--danger)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--accent)] md:size-7"
-            >
-              <CalendarMinus size={14} />
-            </button>
-          )}
-        </span>
-      )}
+        )}
+        {!compact && list && (
+          <span className="max-w-[84px] truncate pr-1 text-[length:var(--text-10-5)] text-[var(--text-quaternary)]">{list.name}</span>
+        )}
+        {!compact && onUnplan && (
+          <button
+            type="button"
+            aria-label={t('todo.today.remove', { title: task.title })}
+            title={t('todo.today.remove', { title: task.title })}
+            onClick={onUnplan}
+            className="flex size-9 items-center justify-center rounded-full text-[var(--text-quaternary)] hover:text-[var(--danger)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--accent)] md:size-7"
+          >
+            <CalendarMinus size={14} />
+          </button>
+        )}
+        {/* A finished task has nothing left to be reminded about; every other card offers the same
+            four durations the editor does. */}
+        {!done && (
+          <button
+            ref={menuRef}
+            type="button"
+            aria-label={`${t('todo.snooze.label')}: ${task.title}`}
+            aria-haspopup="menu"
+            aria-expanded={menuOpen}
+            onClick={() => setMenuOpen((value) => !value)}
+            className="flex size-9 items-center justify-center rounded-full text-[var(--text-quaternary)] transition-colors hover:text-[var(--text-secondary)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--accent)] md:size-7"
+          >
+            <MoreHorizontal size={14} />
+          </button>
+        )}
+      </span>
+      <Menu anchor={menuRef} open={menuOpen} onClose={() => setMenuOpen(false)} items={snoozeItems} align="end" width={184} label={t('todo.snooze.label')} />
     </article>
   )
 }

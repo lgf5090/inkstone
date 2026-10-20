@@ -23,9 +23,11 @@ import { t } from '../../lib/i18n'
 import { subscribeToAddress } from '../../lib/app-history'
 import { useUi } from '../../store/ui'
 import { parseQuickAdd } from '@shared/todos/quick-parse'
+import type { MessageKey } from '@shared/locales/en-US'
 import {
   toggledStatus,
   type RemindOffset,
+  type SnoozeMinutes,
   type TaskCounts,
   type TaskList,
   type TaskSort,
@@ -138,6 +140,8 @@ interface TodosState {
   restoreTask: (snapshot: TaskDraft) => Promise<void>
   /** Pick a task into an account-zone day, or clear the pick with `null`; re-reads the listing after. */
   planTask: (id: string, date: string | null) => Promise<TodoTask | null>
+  /** Append one reminder `minutes` from now; the task's existing reminders stay. */
+  snoozeTask: (id: string, minutes: SnoozeMinutes) => Promise<TodoTask | null>
   /** Open tasks matching a title search, for the today screen's picker. Errors are reported, not thrown. */
   searchTasks: (query: string) => Promise<TodoTask[]>
 
@@ -168,6 +172,18 @@ export function listNamed(lists: readonly TaskList[], name: string): TaskList | 
   const wanted = name.trim().toLowerCase()
   if (!wanted) return null
   return lists.find((list) => list.name.trim().toLowerCase() === wanted) ?? null
+}
+
+const SNOOZE_KEYS: Record<SnoozeMinutes, MessageKey> = {
+  10: 'todo.snooze.10m',
+  60: 'todo.snooze.1h',
+  540: 'todo.snooze.tonight',
+  1440: 'todo.snooze.tomorrow',
+}
+
+/** What one snooze duration reads as, shared by the card menu and the notification row. */
+export function snoozeLabel(minutes: SnoozeMinutes): string {
+  return t(SNOOZE_KEYS[minutes])
 }
 
 /** The offset a stored reminder stands for, as the forms and the create route speak it. */
@@ -713,6 +729,28 @@ export const useTodos = create<TodosState>((set, get) => ({
     try {
       const { task } = await api.todos.plan(id, date)
       await get().load()
+      return task
+    } catch (error) {
+      toastError(error)
+      return null
+    }
+  },
+
+  /**
+   * Snooze one task: append a reminder a fixed distance from now.
+   *
+   * The server answers with the whole pending list, so the store replaces the row with what landed
+   * rather than guessing one more timestamp. Both lists are patched because the notification centre
+   * can snooze a task that the completed page is showing.
+   */
+  snoozeTask: async (id, minutes) => {
+    try {
+      const { task } = await api.todos.snooze(id, minutes)
+      set((state) => ({
+        tasks: state.tasks.map((entry) => (entry.id === id ? task : entry)),
+        completed: state.completed.map((entry) => (entry.id === id ? task : entry)),
+      }))
+      useUi.getState().toast({ title: t('todo.toast.snoozed'), tone: 'success' })
       return task
     } catch (error) {
       toastError(error)

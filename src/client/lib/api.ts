@@ -108,6 +108,7 @@ import type {
 } from '@shared/assistant'
 import type {
   RemindOffset,
+  SnoozeMinutes,
   TaskList,
   TaskPage,
   TaskStatsBucket,
@@ -1113,6 +1114,12 @@ export const api = {
      */
     plan: (id: string, date: string | null) =>
       request<{ task: TodoTask }>(`/api/todos/${id}/plan`, { method: 'POST', body: { date } }),
+    /**
+     * "Remind me again": adds one reminder `minutes` from now and answers with the whole pending list.
+     * The earlier reminders stay — a snooze is a second chance, not a cancellation.
+     */
+    snooze: (id: string, minutes: SnoozeMinutes) =>
+      request<{ task: TodoTask, reminders: number[] }>(`/api/todos/${id}/snooze`, { method: 'POST', body: { minutes } }),
     remove: (id: string) => request<{ deleted: true }>(`/api/todos/${id}`, { method: 'DELETE' }),
 
     /**

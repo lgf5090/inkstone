@@ -240,6 +240,49 @@ describe('reminders', () => {
   })
 })
 
+describe('snooze', () => {
+  const AT = Date.parse('2026-10-20T09:00:00Z')
+  const before = Date.now()
+
+  it('appends a reminder and keeps the ones the task already had', async () => {
+    const task = await create({ title: 'Snooze me', reminders: [AT] })
+
+    const response = await send('POST', `/${task.id}/snooze`, { minutes: 10 })
+    expect(response.status).toBe(200)
+    const body = await json<{ task: TodoTask, reminders: number[] }>(response)
+
+    expect(body.reminders).toHaveLength(2)
+    // The original instant is still there: a snooze is a second chance, not a cancellation.
+    expect(body.reminders).toContain(AT)
+    const added = body.reminders.find((entry) => entry !== AT)!
+    expect(added).toBeGreaterThanOrEqual(before + 10 * 60_000)
+    expect(added).toBeLessThanOrEqual(Date.now() + 10 * 60_000)
+    expect(body.task.reminders).toEqual(body.reminders)
+  })
+
+  it('refuses a duration that is not one of the four steps', async () => {
+    const task = await create({ title: 'One' })
+    expect((await send('POST', `/${task.id}/snooze`, { minutes: 30 })).status).toBe(400)
+    expect((await send('POST', `/${task.id}/snooze`, { minutes: '10' })).status).toBe(400)
+    expect((await send('POST', `/${task.id}/snooze`, { until: new Date().toISOString() })).status).toBe(400)
+  })
+
+  it('refuses a finished task and a sixth reminder', async () => {
+    const done = await create({ title: 'Done' })
+    await send('PATCH', `/${done.id}`, { status: 'done' })
+    expect((await send('POST', `/${done.id}/snooze`, { minutes: 10 })).status).toBe(400)
+
+    const full = await create({ title: 'Full', reminders: [1, 2, 3, 4, 5].map((index) => AT + index * 60_000) })
+    expect((await send('POST', `/${full.id}/snooze`, { minutes: 10 })).status).toBe(400)
+  })
+
+  it('cannot snooze another account\'s task', async () => {
+    const task = await create({ title: 'Mine' })
+    mocks.userId = OTHER
+    expect((await send('POST', `/${task.id}/snooze`, { minutes: 10 })).status).toBe(404)
+  })
+})
+
 describe('another account', () => {
   it('cannot read or write a task by its id', async () => {
     const task = await create({ title: 'Mine' })

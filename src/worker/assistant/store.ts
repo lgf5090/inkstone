@@ -4028,6 +4028,27 @@ export class AssistantStore {
     await this.db.batch(statements)
   }
 
+  /**
+   * Adds one reminder to a task, leaving the ones it already carries in place.
+   *
+   * This is what a "remind me again" press means: a second chance at the same task, not a cancellation
+   * of the reminders the reader set earlier. The route owns the ceiling and the finished-task refusal;
+   * this answers with the row as it now reads, or null when the task is gone.
+   */
+  async snoozeTask(id: string, remindAt: number): Promise<TodoTask | null> {
+    const existing = await this.getTask(id)
+    if (!existing) return null
+    await this.db.batch([
+      this.db.prepare(
+        `INSERT INTO todos_reminders (user_id, id, task_id, remind_at, fired_at, created_at)
+         VALUES (?1, ?2, ?3, ?4, NULL, ?5)`,
+      ).bind(this.userId, newId(), id, Math.trunc(remindAt), Date.now()),
+      this.db.prepare(`UPDATE todos_tasks SET updated_at = ?3 WHERE user_id = ?1 AND id = ?2`)
+        .bind(this.userId, id, Date.now()),
+    ])
+    return await this.getTask(id)
+  }
+
   /** Moves every pending reminder with its due date, which is what editing the date used to do. */
   private async shiftTaskReminders(taskId: string, delta: number): Promise<void> {
     if (!delta) return

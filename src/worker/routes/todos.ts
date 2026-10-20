@@ -28,6 +28,7 @@ import {
   MAX_TAGS_PER_TASK,
   MAX_TAG_NAME_CHARS,
   MAX_TASKS_PER_QUERY,
+  isSnoozeMinutes,
   isTaskSort,
   isTaskStatsBucket,
   isTaskView,
@@ -397,6 +398,33 @@ todoRoutes.post('/:id/plan', async (c) => {
   const task = await s.planTask(id, plannedDay(body.date))
   if (!task) throw ApiError.notFound('Task not found')
   return c.json({ task })
+})
+
+/**
+ * "Remind me again": append one reminder some minutes from now.
+ *
+ * Appended, never substituted — a snooze is a second chance, and the reminder the reader set earlier
+ * is still theirs to receive. The four durations are the only body shape; absolute instants are what
+ * the task endpoints already take, and a second way to say the same thing would be a second validator
+ * to keep in step. A finished task is refused because nothing will ever be announced for it, and a
+ * task already at the five-reminder ceiling is refused rather than silently dropping one.
+ */
+todoRoutes.post('/:id/snooze', async (c) => {
+  const s = store(c)
+  const id = requiredId(c.req.param('id'))
+  const body = await readJson<Record<string, unknown>>(c, BODY_LIMIT)
+  if (!isSnoozeMinutes(body.minutes)) {
+    throw ApiError.badRequest('A snooze must be 10, 60, 540 or 1440 minutes.')
+  }
+  const existing = await s.getTask(id)
+  if (!existing) throw ApiError.notFound('Task not found')
+  if (existing.status === 'done') throw ApiError.badRequest('A finished task cannot be snoozed.')
+  if ((existing.reminders?.length ?? 0) >= MAX_REMINDERS_PER_TASK) {
+    throw ApiError.badRequest(`This task already has ${MAX_REMINDERS_PER_TASK} reminders.`)
+  }
+  const task = await s.snoozeTask(id, Date.now() + body.minutes * 60_000)
+  if (!task) throw ApiError.notFound('Task not found')
+  return c.json({ task, reminders: task.reminders ?? [] })
 })
 
 // ------------------------------------------------------------------- lists
