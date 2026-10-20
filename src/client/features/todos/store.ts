@@ -7,13 +7,28 @@
  * repeat that rolled forward or a due date the server re-read shows up as it actually is. And the
  * counts are re-read after a write instead of being adjusted by hand: they are a timezone-aware
  * aggregate, and a second implementation in the browser is a second answer waiting to be wrong.
+ *
+ * A fourth governs the view: which view is up, what it is filtered to, what is being searched for and
+ * which task the panel is open on are the address bar's, not the store's private business. The store
+ * reads the address when it is created, writes it back through `todo-address.ts` when the reader moves,
+ * and follows it when the browser moves on its own — so a reload, a back button and an address pasted
+ * into a chat all say the same thing about the screen they name.
  */
 
 import { create } from 'zustand'
 import { api } from '../../lib/api'
 import { t } from '../../lib/i18n'
+import { subscribeToAddress } from '../../lib/app-history'
 import { useUi } from '../../store/ui'
 import { toggledStatus, type TaskCounts, type TaskList, type TaskStep, type TaskTag, type TodoTask } from '@shared/todos/model'
+import {
+  pushTodoAddress,
+  pushTodoTaskAddress,
+  readTodoAddress,
+  replaceTodoAddress,
+  replaceTodoTaskAddress,
+  type TodoViewSelection,
+} from './todo-address'
 
 export type TodoView = 'board' | 'plan' | 'starred' | 'completed' | 'list' | 'tag'
 
@@ -62,6 +77,8 @@ interface TodosState {
 
   setView: (view: TodoView, target?: { listId?: string; tagId?: string }) => void
   setQuery: (query: string) => void
+  /** Put the store where the address bar says the screen is — what a back button asks of it. */
+  syncFromAddress: () => void
   select: (id: string | null) => void
   openEditor: (draft: TaskDraft) => void
   closeEditor: () => void
@@ -95,6 +112,14 @@ function toastError(error: unknown): void {
   })
 }
 
+/** The view part of the state, which is the part the query string carries. */
+function viewSelection(state: Pick<TodosState, 'view' | 'listId' | 'tagId' | 'query'>): TodoViewSelection {
+  return { view: state.view, listId: state.listId, tagId: state.tagId, query: state.query }
+}
+
+/** The screen the address bar names when the store is first asked for one — a reload opens where it left off. */
+const initialAddress = readTodoAddress()
+
 export const useTodos = create<TodosState>((set, get) => ({
   status: 'idle',
   error: null,
@@ -106,10 +131,10 @@ export const useTodos = create<TodosState>((set, get) => ({
   dayEnd: 0,
   timezone: 'UTC',
 
-  view: 'board',
-  listId: null,
-  tagId: null,
-  query: '',
+  view: initialAddress.view,
+  listId: initialAddress.listId,
+  tagId: initialAddress.tagId,
+  query: initialAddress.query,
 
   selectedId: null,
   editorOpen: false,
@@ -160,14 +185,53 @@ export const useTodos = create<TodosState>((set, get) => ({
 
   setView: (view, target) => {
     set({ view, listId: target?.listId ?? null, tagId: target?.tagId ?? null, selectedId: null })
+    // Opening a view is a move the reader made on purpose, so it gets a history entry: the back button
+    // walks the views they stood in instead of dumping them on the board.
+    pushTodoAddress(viewSelection(get()))
     if (view === 'completed' && !get().completed.length) void get().loadCompleted()
   },
 
-  setQuery: (query) => set({ query }),
+  // Typing is not a move: the address follows the text, but no extra back button is left behind for it.
+  setQuery: (query) => {
+    set({ query })
+    replaceTodoAddress(viewSelection(get()))
+  },
+
+  syncFromAddress: () => {
+    const address = readTodoAddress()
+    const state = get()
+    if (address.view !== state.view || address.listId !== state.listId || address.tagId !== state.tagId || address.query !== state.query) {
+      set({ view: address.view, listId: address.listId, tagId: address.tagId, query: address.query })
+    }
+    if (address.taskId) {
+      // The panel is either already on that task or on its way there; anything else is a screen the
+      // address names and the store has not caught up with.
+      const open = state.editorOpen && state.draft?.id === address.taskId
+      if (!open && state.selectedId !== address.taskId) void get().openTask(address.taskId)
+      return
+    }
+    // Nothing names a task, so a panel left open on one belongs to an address the reader has moved off.
+    if (state.editorOpen && state.draft?.id) set({ editorOpen: false, draft: null, selectedId: null })
+  },
+
   select: (id) => set({ selectedId: id }),
 
-  openEditor: (draft) => set({ editorOpen: true, draft }),
-  closeEditor: () => set({ editorOpen: false, draft: null }),
+  openEditor: (draft) => {
+    set({ editorOpen: true, draft })
+    // An existing task has an address of its own, so opening its panel goes there: what the reader can
+    // copy out of the bar is the task they are looking at, and back closes the panel. A draft for a new
+    // task names no task, so it takes the previous one out of the bar instead of leaving it claiming the
+    // screen the panel has stopped being.
+    if (draft.id) pushTodoTaskAddress(draft.id, viewSelection(get()))
+    else if (readTodoAddress().taskId) replaceTodoTaskAddress(viewSelection(get()))
+  },
+
+  closeEditor: () => {
+    set({ editorOpen: false, draft: null })
+    // The task screen is left behind rather than pushed: a back button after a close should go to where
+    // the reader came from, not to a panel they just shut.
+    if (readTodoAddress().taskId) replaceTodoTaskAddress(viewSelection(get()))
+  },
 
   /**
    * Open one task by id, wherever the reader came from.
@@ -175,8 +239,15 @@ export const useTodos = create<TodosState>((set, get) => ({
    * A chip in the chat names a task that may not be on the open page at all — it can be completed, or
    * older than the page the board loaded. The row is read on its own in that case, because the panel
    * edits from the store and an id it cannot find would open an empty form over a task that exists.
+   *
+   * The address is taken before the read, so a screen reached from two directions — a pasted link and a
+   * press — arrives at the same place, and the selection is written first so the second arrival is
+   * recognised as the same request rather than turned into a second fetch. A read that fails is corrected
+   * out loud: the id goes back out of the address, leaving the view it was opened from.
    */
   openTask: async (id) => {
+    set({ selectedId: id })
+    if (readTodoAddress().taskId !== id) pushTodoTaskAddress(id, viewSelection(get()))
     if (get().status !== 'ready') await get().load()
     const found = get().tasks.find((task) => task.id === id) ?? get().completed.find((task) => task.id === id)
     if (!found) {
@@ -187,6 +258,8 @@ export const useTodos = create<TodosState>((set, get) => ({
           : { tasks: [...state.tasks.filter((entry) => entry.id !== task.id), task] }))
       } catch (error) {
         toastError(error)
+        set({ selectedId: null })
+        if (readTodoAddress().taskId === id) replaceTodoTaskAddress(viewSelection(get()))
         return
       }
     }
@@ -291,6 +364,9 @@ export const useTodos = create<TodosState>((set, get) => ({
         view: state.view === 'list' && state.listId === id ? 'board' : state.view,
         listId: state.listId === id ? null : state.listId,
       }))
+      // A view that was taken away is not a screen the reader chose, so the address is corrected in place
+      // rather than given another entry to back out of.
+      if (get().view === 'board' && !get().listId) replaceTodoAddress(viewSelection(get()))
       void get().refreshCounts()
     } catch (error) {
       toastError(error)
@@ -334,6 +410,8 @@ export const useTodos = create<TodosState>((set, get) => ({
         view: state.view === 'tag' && state.tagId === id ? 'board' : state.view,
         tagId: state.tagId === id ? null : state.tagId,
       }))
+      // The same correction as a deleted list: the address must stop naming a tag that is gone.
+      if (get().view === 'board' && !get().tagId) replaceTodoAddress(viewSelection(get()))
       void get().refreshCounts()
     } catch (error) {
       toastError(error)
@@ -382,3 +460,19 @@ export const useTodos = create<TodosState>((set, get) => ({
     }
   },
 }))
+
+/**
+ * Follow the address bar when the browser moves it.
+ *
+ * `popstate` is the back button, a forward, and a history entry the reader picked out of the bar's own
+ * list — the moves the app was not asked for. A store that kept its own answer would leave the screen and
+ * the address describing two different places, which is the failure this state was moved out of memory to
+ * stop. The writers above announce their own changes through the same listener set, so the sync they
+ * trigger is a comparison that finds nothing to do.
+ *
+ * The guard is for a build without a window: nothing here renders in one today, and an import that threw
+ * on `addEventListener` would take the chat's task chips down with it, since they reach this store too.
+ */
+if (typeof window !== 'undefined') {
+  subscribeToAddress(() => { useTodos.getState().syncFromAddress() })
+}

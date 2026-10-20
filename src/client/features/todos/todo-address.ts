@@ -1,0 +1,124 @@
+/**
+ * The grammar of the to-do address, and nothing else.
+ *
+ * The app's screen is its address: `/todo` for the board, `?view=plan` for a smart view, `?list=<id>`
+ * or `?tag=<id>` for one collection, `&q=<text>` for a search on top of it, and `/todo/<task id>` for
+ * the one task the panel is open on. Two shapes are deliberately *not* written: the board, because it is
+ * what an empty address already means, and the view name beside a list or a tag, because the parameter
+ * that names the collection already says which view is up. An address the app never writes is an address
+ * nobody is reading, and a reader who types one anyway gets the board rather than a broken screen.
+ *
+ * Everything that reads or writes this address goes through here, so the store, the container and a link
+ * pasted into a chat cannot drift into three spellings of the same screen.
+ */
+import { currentPathname, currentSearch, navigateToAddress, replaceAddress } from '../../lib/app-history'
+import type { TodoView } from './store'
+
+/** The app's own address, and the prefix every screen under it hangs off. */
+export const TODO_PATH = '/todo'
+
+/** The views the container draws, which is what a `view=` parameter can name. */
+export const TODO_VIEWS: readonly TodoView[] = ['board', 'plan', 'starred', 'completed', 'list', 'tag']
+
+/** The part of the screen the query carries. */
+export interface TodoViewSelection {
+  view: TodoView
+  listId: string | null
+  tagId: string | null
+  query: string
+}
+
+/** The whole screen, as the address states it: which view, and which task is open on it. */
+export interface TodoAddress extends TodoViewSelection {
+  /** The task the path names, or null when the address names no single task. */
+  taskId: string | null
+}
+
+/** The address of one task's own screen. */
+export function todoPathForTask(id: string): string {
+  return `${TODO_PATH}/${encodeURIComponent(id)}`
+}
+
+/** The task a pathname names, or null: anything below `/todo` that is not one path segment names nothing. */
+function taskIdFromPathname(pathname: string): string | null {
+  if (!pathname.startsWith(`${TODO_PATH}/`)) return null
+  const rest = pathname.slice(TODO_PATH.length + 1).replace(/\/$/, '')
+  if (!rest || rest.includes('/')) return null
+  try {
+    return decodeURIComponent(rest)
+  } catch {
+    // A percent-escape the browser cannot read is not a task id, and the board is a better answer than
+    // an exception on the way to it.
+    return null
+  }
+}
+
+/** The state a pathname and a query name. Unrecognisable parts fall back rather than fail. */
+export function parseTodoAddress(pathname: string, search: string): TodoAddress {
+  if (pathname !== TODO_PATH && !pathname.startsWith(`${TODO_PATH}/`)) {
+    return { view: 'board', listId: null, tagId: null, query: '', taskId: null }
+  }
+  const params = new URLSearchParams(search.startsWith('?') ? search.slice(1) : search)
+  const listId = params.get('list')
+  const tagId = params.get('tag')
+  const named = params.get('view')
+  const query = params.get('q') ?? ''
+  // A collection names its own view, and it wins over a `view=` left beside it: the two spellings of the
+  // same screen have to have one reading, and the narrower one is the one a reader can paste.
+  if (listId) return { view: 'list', listId, tagId: null, query, taskId: taskIdFromPathname(pathname) }
+  if (tagId) return { view: 'tag', listId: null, tagId, query, taskId: taskIdFromPathname(pathname) }
+  const view: TodoView = TODO_VIEWS.includes(named as TodoView) ? (named as TodoView) : 'board'
+  return { view, listId: null, tagId: null, query, taskId: taskIdFromPathname(pathname) }
+}
+
+/** The query for one view state, in the one spelling this app writes. */
+export function writeTodoSearch(selection: TodoViewSelection): string {
+  const params = new URLSearchParams()
+  if (selection.view === 'list') {
+    if (selection.listId) params.set('list', selection.listId)
+  } else if (selection.view === 'tag') {
+    if (selection.tagId) params.set('tag', selection.tagId)
+  } else if (selection.view !== 'board') {
+    params.set('view', selection.view)
+  }
+  if (selection.query) params.set('q', selection.query)
+  return params.toString()
+}
+
+/** The screen the address bar is standing on right now. */
+export function readTodoAddress(): TodoAddress {
+  // The store reads this once when it is created, which in a build without a window — none today, and
+  // one guard rather than a crash if that changes — means the board.
+  if (typeof window === 'undefined') return { view: 'board', listId: null, tagId: null, query: '', taskId: null }
+  return parseTodoAddress(currentPathname(), currentSearch())
+}
+
+/** The path the address is standing on, keeping a task's own screen if one is open. */
+function currentTaskPath(taskId: string | null): string {
+  return taskId ? todoPathForTask(taskId) : TODO_PATH
+}
+
+/**
+ * Put a view state into the address as a deliberate move.
+ *
+ * The task part of the path is carried over rather than cleared: switching from the plan to a list while
+ * a panel is open leaves that panel's address standing, which is what the back button then goes back to.
+ */
+export function pushTodoAddress(selection: TodoViewSelection): void {
+  navigateToAddress(currentTaskPath(readTodoAddress().taskId), writeTodoSearch(selection))
+}
+
+/** The same screen, without another back button — the one for state that moves while the reader types. */
+export function replaceTodoAddress(selection: TodoViewSelection): void {
+  replaceAddress(currentTaskPath(readTodoAddress().taskId), writeTodoSearch(selection))
+}
+
+/** Take one task's screen into the address, with the view the reader was on still named. */
+export function pushTodoTaskAddress(taskId: string, selection: TodoViewSelection): void {
+  navigateToAddress(todoPathForTask(taskId), writeTodoSearch(selection))
+}
+
+/** Drop the task from the address, leaving the view it was open over. */
+export function replaceTodoTaskAddress(selection: TodoViewSelection): void {
+  replaceAddress(TODO_PATH, writeTodoSearch(selection))
+}

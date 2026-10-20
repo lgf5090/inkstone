@@ -56,6 +56,10 @@ export function TodosApp() {
   const contentRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
+    // The address names the screen, so it is read here before anything is drawn: a cold load of
+    // `/todo?view=plan`, or of one task's own address, has to open on the view or the panel it names
+    // rather than flash the board and wait for the reader to put it back.
+    useTodos.getState().syncFromAddress()
     if (useTodos.getState().status === 'idle') void load()
   }, [load])
 
