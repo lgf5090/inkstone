@@ -1,6 +1,20 @@
 import { McpServer, type ServerContext } from '@modelcontextprotocol/server'
 import { z } from 'zod'
 import type { McpServerToolInfo } from '@shared/types'
+import { MAX_TASK_TITLE_CHARS, TASK_PRIORITIES, TASK_STATUSES } from '@shared/assistant'
+import {
+  MAX_LIST_NAME_CHARS,
+  MAX_REPEAT_INTERVAL,
+  MAX_STEPS_PER_TASK,
+  MAX_STEP_TEXT_CHARS,
+  MAX_TAGS_PER_TASK,
+  MAX_TAG_NAME_CHARS,
+  MAX_TASKS_PER_QUERY,
+  MIN_REPEAT_INTERVAL,
+  REMIND_OFFSETS,
+  REPEAT_FREQUENCIES,
+  TASK_VIEWS,
+} from '@shared/todos/model'
 import type { Env } from '../env'
 import { ApiError } from '../lib/errors'
 import { isValidId } from '../lib/id'
@@ -50,6 +64,17 @@ import {
   trashMcpNote,
   type McpWriteContext,
 } from './writes'
+import {
+  MAX_TASK_DESCRIPTION_CHARS,
+  completeMcpTask,
+  createMcpTask,
+  deleteMcpTask,
+  getMcpTask,
+  listMcpTaskLists,
+  listMcpTasks,
+  type McpTodoContext,
+  updateMcpTask,
+} from './todos'
 
 export interface McpAuthProps {
   userId: string
@@ -82,12 +107,26 @@ Find and cite notes: Note IDs identify notes; titles can repeat. A private note 
 
 Work with content: Markdown is the source of truth. Use get_note_context for links, get_note_properties for typed front matter, and the version tools for history. Before editing or organizing, identify the exact note and read its current revision; use the required expected_rev or expected_updated_at for guarded writes. Prefer exact replace or section edits over replace_all. Preview tag renames or deletions and folder removal before applying them. Use a new operation_id for each distinct write; reuse it only to retry the identical request. If a revision conflicts, reread before deciding what to change.
 
-Respect access: Reads require notes:read; most writes require notes:write; moving a note to trash requires separately granted notes:trash and is reversible. A /s/<slug> URL is a public share, possibly password protected or expiring. Use get_note_share to inspect a share, and create or change public sharing only when the user explicitly asks. Read attachments in chunks; uploads have storage, quota, and rate limits. Backup tools can run existing targets but cannot reveal or change credentials. Permanent purge and account or authentication management are not exposed.`
+Respect access: Reads require notes:read; most writes require notes:write; moving a note to trash requires separately granted notes:trash and is reversible. A /s/<slug> URL is a public share, possibly password protected or expiring. Use get_note_share to inspect a share, and create or change public sharing only when the user explicitly asks. Read attachments in chunks; uploads have storage, quota, and rate limits. Backup tools can run existing targets but cannot reveal or change credentials. Permanent purge and account or authentication management are not exposed.
+
+Work with to-dos: The to-do family is a separate grant, not part of the note family — notes:read does not open a task, and todos:read does not open a note. list_todos, get_todo and list_todo_lists need todos:read; create_todo, update_todo and complete_todo need todos:write; delete_todo needs the separately consented todos:danger and removes the task for good. Stored dates are epoch milliseconds measured in the reader's own timezone, which a listing names; send dates as local text and a bare date means the end of that day. Completing a repeating task files its next occurrence and returns it as next, so say that new date rather than the old one. A task may reference a note by id: the to-do tools never return note text, and they name the note only when the call also holds notes:read.`
 
 const generalOutputSchema = z.object({ data: z.record(z.string(), z.unknown()) })
 const operationId = z.string().min(8).max(128).describe('Stable UUID or unique request key; reuse only for an exact retry')
 const noteId = z.string().refine(isValidId, 'Invalid Inkstone note id')
 const expectedRev = z.number().int().positive().describe('Current note rev returned by read_note or fetch')
+/** A task carries the same 26-character id shape as everything else in the account, and no more. */
+const taskId = z.string().refine(isValidId, 'Invalid Inkstone task id')
+/**
+ * A wall-clock reading in the reader's own zone, sized like the chat's own date fields.
+ *
+ * A date with no time means the end of that day, which is what the HTTP route and `parseLocalTime` give;
+ * the to-do tools parse with that one function rather than a second reading of the same text.
+ */
+const localTime = z.string().trim().min(1).max(32)
+  .describe('Local to the reader: YYYY-MM-DD, or YYYY-MM-DDTHH:MM for a time. A bare date is the end of that day.')
+/** The search substring the to-do app's own surface caps at; not a shared-model constant yet. */
+const MAX_TASK_QUERY_CHARS = 200
 
 export function createInkstoneMcpServer(options: InkstoneMcpServerOptions): McpServer {
   const mcp = new McpServer(
@@ -976,6 +1015,180 @@ export function createInkstoneMcpServer(options: InkstoneMcpServerOptions): McpS
     })),
   )
 
+  server.registerTool(
+    'list_todos',
+    {
+      title: 'List to-dos',
+      description: 'List the reader\'s tasks by view, list, tag, priority, star or text, with the account\'s own counts and the timezone they are measured in. Requires todos:read.',
+      inputSchema: z.object({
+        view: z.enum(TASK_VIEWS).default('open')
+          .describe('inbox, today, upcoming, overdue, open, completed, starred or all'),
+        list: z.string().trim().min(1).max(MAX_LIST_NAME_CHARS).optional()
+          .describe('A list name or id; see list_todo_lists for the names'),
+        tag: z.string().trim().min(1).max(MAX_TAG_NAME_CHARS).optional()
+          .describe('A tag name, with or without a leading #'),
+        priority: z.enum(TASK_PRIORITIES).optional(),
+        starred: z.boolean().optional(),
+        query: z.string().trim().min(1).max(MAX_TASK_QUERY_CHARS).optional()
+          .describe('A substring of a title or a task note'),
+        limit: z.number().int().min(1).max(MAX_TASKS_PER_QUERY).default(25),
+        offset: z.number().int().min(0).default(0),
+      }),
+      outputSchema: generalOutputSchema,
+      annotations: readOnlyAnnotations(),
+    },
+    async (input, ctx) => readTool(ctx, options, MCP_SCOPES.todoRead, () => listMcpTasks(
+      todoContext(ctx, options),
+      input,
+    )),
+  )
+
+  server.registerTool(
+    'get_todo',
+    {
+      title: 'Read one to-do',
+      description: 'Read one task with its steps in order, so a caller can see which step is done before changing it. Requires todos:read.',
+      inputSchema: z.object({ task_id: taskId }),
+      outputSchema: generalOutputSchema,
+      annotations: readOnlyAnnotations(),
+    },
+    async ({ task_id }, ctx) => readTool(ctx, options, MCP_SCOPES.todoRead, () => getMcpTask(
+      todoContext(ctx, options),
+      task_id,
+    )),
+  )
+
+  server.registerTool(
+    'list_todo_lists',
+    {
+      title: 'List to-do lists',
+      description: 'List the reader\'s to-do lists with how many tasks each still has open. Requires todos:read.',
+      inputSchema: z.object({}),
+      outputSchema: generalOutputSchema,
+      annotations: readOnlyAnnotations(),
+    },
+    async (_input, ctx) => readTool(ctx, options, MCP_SCOPES.todoRead, () => listMcpTaskLists(todoContext(ctx, options))),
+  )
+
+  server.registerTool(
+    'create_todo',
+    {
+      title: 'Create to-do',
+      description: 'Create a task in the reader\'s list. Use for an action, not for a fact. Requires todos:write and an operation_id for safe retry; a list or tag named by a value the account does not have is refused rather than filed in the inbox.',
+      inputSchema: z.object({
+        operation_id: operationId,
+        title: z.string().trim().min(1).max(MAX_TASK_TITLE_CHARS),
+        description: z.string().max(MAX_TASK_DESCRIPTION_CHARS).optional(),
+        priority: z.enum(TASK_PRIORITIES).optional().describe('Defaults to medium'),
+        due: localTime.optional(),
+        remind: z.enum(REMIND_OFFSETS).optional()
+          .describe('When to remind, measured back from the due time; needs a due date to be measured from'),
+        list: z.string().trim().min(1).max(MAX_LIST_NAME_CHARS).optional(),
+        tags: z.array(z.string().trim().min(1).max(MAX_TAG_NAME_CHARS)).max(MAX_TAGS_PER_TASK).optional()
+          .describe('Tag names; one the account does not have yet is created'),
+        steps: z.array(z.string().trim().min(1).max(MAX_STEP_TEXT_CHARS)).max(MAX_STEPS_PER_TASK).optional()
+          .describe('Sub-tasks, in order'),
+        repeat: z.enum(REPEAT_FREQUENCIES).optional().describe('Leave it out for a one-off'),
+        repeat_interval: z.number().int().min(MIN_REPEAT_INTERVAL).max(MAX_REPEAT_INTERVAL).optional()
+          .describe('Units of the frequency; defaults to 1'),
+        starred: z.boolean().optional(),
+        note: noteId.optional().describe('The id of a note this task came from; needs notes:read'),
+      }),
+      outputSchema: generalOutputSchema,
+      annotations: writeAnnotations(true),
+    },
+    async (input, ctx) => writeTool(ctx, options, MCP_SCOPES.todoWrite, () => createMcpTask(todoContext(ctx, options), {
+      operationId: input.operation_id,
+      title: input.title,
+      description: input.description,
+      priority: input.priority,
+      due: input.due,
+      remind: input.remind,
+      list: input.list,
+      tags: input.tags,
+      steps: input.steps,
+      repeat: input.repeat,
+      repeatInterval: input.repeat_interval,
+      starred: input.starred,
+      note: input.note,
+    })),
+  )
+
+  server.registerTool(
+    'update_todo',
+    {
+      title: 'Update to-do',
+      description: 'Change only the fields named: title, note, status, priority, due date, list, tags, repeat, reminder, star or source note. Requires todos:write. Naming `done` as the status completes the task, so a repeating one files its next occurrence.',
+      inputSchema: z.object({
+        operation_id: operationId,
+        task_id: taskId,
+        title: z.string().trim().min(1).max(MAX_TASK_TITLE_CHARS).optional(),
+        description: z.string().max(MAX_TASK_DESCRIPTION_CHARS).optional(),
+        status: z.enum(TASK_STATUSES).optional(),
+        priority: z.enum(TASK_PRIORITIES).optional(),
+        due: localTime.nullable().optional(),
+        list: z.string().trim().min(1).max(MAX_LIST_NAME_CHARS).nullable().optional()
+          .describe('A list name or id; null moves the task to the inbox'),
+        tags: z.array(z.string().trim().min(1).max(MAX_TAG_NAME_CHARS)).max(MAX_TAGS_PER_TASK).optional()
+          .describe('The task\'s tags, replacing the ones it has'),
+        repeat: z.enum([...REPEAT_FREQUENCIES, 'none']).optional()
+          .describe('Set or clear how often it comes back'),
+        repeat_interval: z.number().int().min(MIN_REPEAT_INTERVAL).max(MAX_REPEAT_INTERVAL).optional(),
+        remind: z.enum(REMIND_OFFSETS).optional(),
+        starred: z.boolean().optional(),
+        note: noteId.nullable().optional().describe('The id of a note this task came from; needs notes:read'),
+      }),
+      outputSchema: generalOutputSchema,
+      annotations: writeAnnotations(true),
+    },
+    async (input, ctx) => writeTool(ctx, options, MCP_SCOPES.todoWrite, () => updateMcpTask(todoContext(ctx, options), {
+      operationId: input.operation_id,
+      taskId: input.task_id,
+      title: input.title,
+      description: input.description,
+      status: input.status,
+      priority: input.priority,
+      due: input.due,
+      list: input.list,
+      tags: input.tags,
+      repeat: input.repeat,
+      repeatInterval: input.repeat_interval,
+      remind: input.remind,
+      starred: input.starred,
+      note: input.note,
+    })),
+  )
+
+  server.registerTool(
+    'complete_todo',
+    {
+      title: 'Complete to-do',
+      description: 'Mark one task done. A repeating task files its next occurrence and returns it as `next`; say that new date. Requires todos:write.',
+      inputSchema: z.object({ operation_id: operationId, task_id: taskId }),
+      outputSchema: generalOutputSchema,
+      annotations: writeAnnotations(true),
+    },
+    async ({ operation_id, task_id }, ctx) => writeTool(ctx, options, MCP_SCOPES.todoWrite, () => completeMcpTask(
+      todoContext(ctx, options),
+      { operationId: operation_id, taskId: task_id },
+    )),
+  )
+
+  server.registerTool(
+    'delete_todo',
+    {
+      title: 'Delete to-do',
+      description: 'Remove one task and its steps for good. Requires the separately consented todos:danger; unlike a note there is no trash to restore from.',
+      inputSchema: z.object({ operation_id: operationId, task_id: taskId }),
+      outputSchema: generalOutputSchema,
+      annotations: { ...writeAnnotations(true), destructiveHint: true },
+    },
+    async ({ operation_id, task_id }, ctx) => writeTool(ctx, options, MCP_SCOPES.todoDanger, () => deleteMcpTask(
+      todoContext(ctx, options),
+      { operationId: operation_id, taskId: task_id },
+    )),
+  )
+
   return mcp
 }
 
@@ -984,7 +1197,7 @@ export function createInkstoneMcpServer(options: InkstoneMcpServerOptions): McpS
  *
  * Not registering is the stronger of the two ways to hide a tool: `disable()` also keeps it out of
  * `tools/list`, but a tool that was never registered has no handler to reach through any other path either.
- * The proxy exists so that the forty registrations below read exactly as the SDK's own examples do, and so
+ * The proxy exists so that the registrations below read exactly as the SDK's own examples do, and so
  * that the catalog the settings screen shows is recorded from those same calls rather than kept in a second
  * list of names that would drift from the first.
  */
@@ -1025,10 +1238,25 @@ async function customTool(
   options: InkstoneMcpServerOptions,
   callback: () => Promise<unknown>,
 ) {
+  return readTool(ctx, options, MCP_SCOPES.read, callback)
+}
+
+/**
+ * A read under a named scope.
+ *
+ * The note tools and the to-do tools are one shape — check the grant, run the read, wrap the answer — but
+ * two different grants: a key that may read notes must not read tasks through the same door. `customTool`
+ * keeps its own name because that is what the note registrations already read as.
+ */
+async function readTool(
+  ctx: ServerContext,
+  options: InkstoneMcpServerOptions,
+  scope: string,
+  callback: () => Promise<unknown>,
+) {
   return safeTool(async () => {
-    requireScope(ctx, options.auth, MCP_SCOPES.read)
-    const value = await callback()
-    return structuredData(value)
+    requireScope(ctx, options.auth, scope)
+    return structuredData(await callback())
   })
 }
 
@@ -1041,19 +1269,36 @@ async function writeTool(
   return safeTool(async () => {
     requireScope(ctx, options.auth, scope)
     const preferences = await getMcpPreferencesCached(options.env.DB, options.auth.userId)
-    if (scope === MCP_SCOPES.write && !preferences.writeEnabled) {
+    // The two account switches answer for their whole family: a reader who has MCP writes switched off has
+    // not allowed an agent to change their tasks either, and the same for anything that removes rows.
+    if ((scope === MCP_SCOPES.write || scope === MCP_SCOPES.todoWrite) && !preferences.writeEnabled) {
       throw ApiError.forbidden('MCP writes are disabled in Inkstone settings')
     }
-    if (scope === MCP_SCOPES.trash && !preferences.trashEnabled) {
+    if ((scope === MCP_SCOPES.trash || scope === MCP_SCOPES.todoDanger) && !preferences.trashEnabled) {
       throw ApiError.forbidden('MCP trash access is disabled in Inkstone settings')
     }
     return structuredData(await callback())
   })
 }
 
+/**
+ * The scopes a call is answered under.
+ *
+ * The grant rides the request when the OAuth provider attached one and the server's own options otherwise,
+ * which is the API-key path. The scope check and the to-do tools' reference check both need this answer, so
+ * it is taken once here rather than derived twice in two shapes.
+ */
+function scopesOf(ctx: ServerContext, fallback: McpAuthProps): readonly string[] {
+  return ctx.http?.authInfo?.scopes?.length ? ctx.http.authInfo.scopes : fallback.scopes
+}
+
+/** The to-do tools' context: whose account, and what this call may name. */
+function todoContext(ctx: ServerContext, options: InkstoneMcpServerOptions): McpTodoContext {
+  return { env: options.env, userId: options.auth.userId, scopes: scopesOf(ctx, options.auth) }
+}
+
 function requireScope(ctx: ServerContext, fallback: McpAuthProps, required: string): void {
-  const scopes = ctx.http?.authInfo?.scopes?.length ? ctx.http.authInfo.scopes : fallback.scopes
-  if (!scopes.includes(required)) throw ApiError.forbidden(`OAuth scope required: ${required}`)
+  if (!scopesOf(ctx, fallback).includes(required)) throw ApiError.forbidden(`OAuth scope required: ${required}`)
 }
 
 async function safeTool(callback: () => Promise<ReturnType<typeof structured> | ReturnType<typeof structuredData>>) {

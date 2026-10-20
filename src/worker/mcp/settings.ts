@@ -4,7 +4,20 @@ export const MCP_SCOPES = {
   read: 'notes:read',
   write: 'notes:write',
   trash: 'notes:trash',
+  todoRead: 'todos:read',
+  todoWrite: 'todos:write',
+  todoDanger: 'todos:danger',
 } as const
+
+/**
+ * The note family: what a key carries when nobody named a scope.
+ *
+ * The to-do family is deliberately not in here. A key minted with "whatever this account allows" is what
+ * every client that predates the to-do tools asks for, and handing it a second data domain it never named
+ * would be the quiet widening this file exists to prevent. A to-do scope therefore only ever arrives by
+ * name — in the `requestedScopes` of a minted key, or in the boxes the reader ticks.
+ */
+export const MCP_NOTE_SCOPES = [MCP_SCOPES.read, MCP_SCOPES.write, MCP_SCOPES.trash]
 
 export const MCP_SUPPORTED_SCOPES = Object.values(MCP_SCOPES)
 
@@ -169,6 +182,12 @@ export function grantedMcpScopes(
   const granted: string[] = [MCP_SCOPES.read]
   if (preferences.writeEnabled && requestedSet.has(MCP_SCOPES.write)) granted.push(MCP_SCOPES.write)
   if (preferences.trashEnabled && requestedSet.has(MCP_SCOPES.trash)) granted.push(MCP_SCOPES.trash)
+  // The to-do family answers to the same two account switches as its note counterparts: a reader who has
+  // MCP writes switched off has not allowed an agent to change their tasks either, and the same for
+  // permanent deletion. Reads need no switch — the endpoint is for reading — but they do need naming.
+  if (requestedSet.has(MCP_SCOPES.todoRead)) granted.push(MCP_SCOPES.todoRead)
+  if (preferences.writeEnabled && requestedSet.has(MCP_SCOPES.todoWrite)) granted.push(MCP_SCOPES.todoWrite)
+  if (preferences.trashEnabled && requestedSet.has(MCP_SCOPES.todoDanger)) granted.push(MCP_SCOPES.todoDanger)
   return granted.filter((scope) => requestedSet.has(scope) || scope === MCP_SCOPES.read)
 }
 
