@@ -11171,6 +11171,7 @@ const allowed = new Map([
     "/**\n * Tick the task a checkbox in a result stands for. The payload is this module's own encoding, but it is\n * read back defensively because a note's text is in it: a bad line number or a missing path is refused\n * rather than handed to the writer.\n */",
     "/**\n * The attribute value a fence body travels in. Exported so `renderer.ts` and the share page build the\n * same encoding without reaching into the data-attribute helper twice.\n */",
     "/** A host the caller wants re-rendered now, ignoring the debounce — used after a settings change. */",
+    "/**\n * Draw a `tasks` block.\n *\n * The engine arrives by dynamic import on purpose: it pulls `rrule` and the date parser, and a note\n * that only ever uses `dataview` blocks must not pay for either. Everything the answer needs from the\n * host — the body element, the source text — is already in hand by the time the module lands.\n */",
   ]],
   ["src/client/lib/dataview/body.ts", [
     "/**\n * The fence-side half of a query block: what the Markdown renderer emits and how the block's own text\n * is found again in the note.\n *\n * The renderer's job here is deliberately small — an empty host that carries the query text — because\n * the answer depends on other notes, and those are behind a store and a throttled endpoint. Everything\n * that can be decided without them is decided here, in a string builder that runs inside the sanitizer\n * pass, so the host survives with its attributes intact and `blocks.ts` fills it in afterwards.\n */",
@@ -11179,6 +11180,7 @@ const allowed = new Map([
     "/** True when a fence line names a Dataview block, used by the editor's own fence readers. */",
     "/**\n * What a surface that cannot answer shows instead: the query's own text. A share page and a printed\n * sheet must not reach into another reader's notes, and a note card has no room for a table, so both\n * show what was asked rather than a placeholder that never resolves.\n */",
     "/**\n * The placeholder markup. `data-line` is how the block finds its fence again when a toolbar writes the\n * note back, and the body rides encoded for the same reason a chart's does — a query's own pipes and\n * quotes would otherwise be read back out of markup the sanitizer has already rewritten.\n */",
+    "/** A Tasks block: its own instruction language, answered over the same scanned index. */",
   ]],
   ["src/client/lib/dataview/conformance.test.ts", [
     "/**\n * Conformance against the reference plugin's own grammar corpus.\n *\n * The cases are the strings `obsidian-dataview`'s tests feed to its parser, plus the query shapes its\n * documentation uses. Each one is asserted here rather than printed, because the failure mode of a port\n * is a query that silently means something else: `LIST` + newline + `SORT file.name` once parsed `SORT`\n * as a variable and rejected the rest, which reads as a broken query to the author and as nothing at all\n * to the reader.\n */",
@@ -11547,6 +11549,12 @@ const allowed = new Map([
     "/**\n * Read a task line into the one shape every view agrees on.\n *\n * Both formats are tried because Inkstone notes already mix them: a vault where half the tasks say\n * `📅 2026-10-04` and half say `[due:: 2026-10-04]` should not have to pick an engine. The emoji\n * format wins where both found the same field, since it is the one that carries the rest of them.\n */",
     "/**\n * The task's fields as Dataview fields, so `WHERE due < today` and `TABLE priority` answer for a\n * task line the same way they do for a frontmatter property.\n *\n * `completion` is kept beside `done`: it is the name this project's Dataview port published, and\n * readers have queries written against it. Keys the note already set by hand are skipped, because\n * an explicit `[due:: …]` states what the author meant more directly than a symbol does.\n */",
     "/**\n * What a checkbox character means, as two flat fields.\n *\n * `completed` answers \"is the box ticked\", which is what a Dataview task table has always shown.\n * `statusType` answers \"is this task finished\", which is the question a `[-]` cancelled task asks\n * and `completed` cannot answer. Both stay on the page so a reader can filter either way.\n */",
+  ]],
+  ["src/client/lib/dataview/tasks-block.ts", [
+    "/**\n * Every task the index can see right now.\n *\n * Read off the scanned pages rather than re-parsing note bodies: the scanner already found the list\n * items, their line numbers and their sections, and a second parse would be a second opinion about\n * what a note says — the thing the single-source rule exists to prevent.\n */",
+    "/** Draw a `tasks` answer: group headings, then one row per task. */",
+    "/**\n * One task row, built to the shape the query module already owns.\n *\n * The `data-dataview-task` payload is the existing toggle contract, so a tick in a `tasks` block\n * writes back through the same handler as a tick in a DQL `TASK` result. Reusing it is what keeps\n * one write path rather than two that can disagree.\n */",
+    "/**\n * The date and identity pills, in the order a reader scans a task.\n *\n * Short mode keeps the field and drops its value: a dense list still shows that something is due,\n * just not on which day.\n */",
   ]],
   ["src/client/lib/dataview/tasks.test.ts", [
     "/**\n * The task rewrite: what a tick in a query result is allowed to do to another note's line. The refusals\n * matter as much as the edits, because the line the reader sees may no longer be the line in the file.\n */",
@@ -18171,6 +18179,9 @@ const allowed = new Map([
     "/* Presentation mode answers printing by hiding every child of <body> except its own sheet, and the\n     app root is one of those children. Without this the reader's paper is a blank page. */",
     "/* Every scroll box in the app clips what it holds, and the shell sizes its panes to the viewport. */",
     "/* A reading theme paints its paper by redefining tokens on the scroll box, so the tokens are what\n     has to be answered: an ink theme would otherwise print a black page with grey text on it. */",
+  ]],
+  ["src/client/styles/tasks.css", [
+    "/* The `tasks` block. Row, chip and checkbox styling is inherited from dataview.css; only the\n   parts with no Dataview equivalent are here. */",
   ]],
   ["src/client/styles/tokens.css", [
     "/* Small labels are used on both the editor and the darker sunken sidebar. */",

@@ -4794,6 +4794,11 @@ console.log(\`Hello, \${name}!\`)
     "dataview.js_crashed": "脚本无法执行。",
     "dataview.js_logs": "输出（{value0}）",
     "dataview.js_snapshot_short": "脚本只收到了前 {value0} 篇笔记的数据。",
+    "tasks.query_block": "任务查询",
+    "tasks.no_results": "没有匹配的任务。",
+    "tasks.result_count": "{value0} 个任务",
+    "tasks.explain": "这份列表是怎么来的",
+
     "workspace.dataview_query": "Dataview 查询",
     "workspace.dataview_js": "Dataview 脚本",
     "workspace.dataview_table": "笔记表格",

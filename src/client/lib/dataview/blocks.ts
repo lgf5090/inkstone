@@ -217,7 +217,8 @@ function build(host: HTMLElement, source: string, options: DataviewMountOptions)
     body.className = 'dataview-block-body'
     host.append(head, body)
 
-    const mount: Mount = { body, head, source, mode: host.dataset.dataviewMode === 'js' ? 'js' : 'query', showSource: false, token: 0, runningToken: null, bootLoads: 0, indexVersion: dataviewIndex.currentVersion }
+    const mode = readMode(host.dataset.dataviewMode)
+    const mount: Mount = { body, head, source, mode, showSource: false, token: 0, runningToken: null, bootLoads: 0, indexVersion: dataviewIndex.currentVersion }
     mounts.set(host, mount)
     if (!host.dataset.dataviewWired) {
         host.dataset.dataviewWired = '1'
@@ -337,6 +338,10 @@ function draw(host: HTMLElement, mount: Mount, source: string, options: Dataview
         drawJs(host, mount, source, options, settings.jsBlocks)
         return
     }
+    if (mount.mode === 'tasks') {
+        drawTasks(host, mount, source, options)
+        return
+    }
     if (!settings.enabled) {
         mount.body.append(renderNotice('warning', t('dataview.disabled'), undefined))
         mount.body.append(renderSource(source))
@@ -371,6 +376,47 @@ function draw(host: HTMLElement, mount: Mount, source: string, options: Dataview
     if (answer.truncatedRows || answer.truncatedBodies) {
         mount.body.append(renderTruncation(answer.shown, answer.matched, answer.truncatedBodies))
     }
+}
+
+function readMode(value: string | undefined): DataviewMode {
+    if (value === 'js') return 'js'
+    if (value === 'tasks') return 'tasks'
+    return 'query'
+}
+
+/**
+ * Draw a `tasks` block.
+ *
+ * The engine arrives by dynamic import on purpose: it pulls `rrule` and the date parser, and a note
+ * that only ever uses `dataview` blocks must not pay for either. Everything the answer needs from the
+ * host — the body element, the source text — is already in hand by the time the module lands.
+ */
+function drawTasks(host: HTMLElement, mount: Mount, source: string, options: DataviewMountOptions): void {
+    if (!dataviewSettings().enabled) {
+        mount.body.append(renderNotice('warning', t('dataview.disabled'), undefined))
+        mount.body.append(renderSource(source))
+        return
+    }
+    if (!source.trim()) {
+        mount.body.append(renderNotice('warning', t('dataview.empty_query')))
+        return
+    }
+    void import('./tasks-block').then(({ answerTasks, renderTasks }) => {
+        if (!host.isConnected || mounts.get(host) !== mount) return
+        mount.body.textContent = ''
+        const answer = answerTasks(source, options)
+        if (!answer.ok) {
+            host.classList.add('is-error')
+            mount.body.append(renderNotice('error', answer.title, dataviewSettings().showErrorDetails ? answer.detail : undefined))
+            return
+        }
+        host.classList.remove('is-error')
+        pending.add(host)
+        mount.body.append(renderTasks(answer.answer))
+    }).catch(() => {
+        if (!host.isConnected) return
+        mount.body.append(renderNotice('error', t('dataview.exec_failed')))
+    })
 }
 
 /**
