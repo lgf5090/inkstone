@@ -23,22 +23,34 @@ class BooleanField extends Field {
     return 'boolean'
   }
 
+  /**
+   * Accepts any of the four delimiter pairs, not just parentheses.
+   *
+   * The test is "does this contain a connective and does it parse", because a check written against
+   * one delimiter shape rejects `[a] XOR [b]` and `{a} AND {b}` — and a rejected line is not a
+   * filter that matches nothing, it is a line the engine reports as unknown.
+   */
   canCreateFilterForLine(line: string): boolean {
     const trimmed = line.trim()
-    if (!trimmed.startsWith('(') && !/\b(AND|OR|XOR|NOT)\b/i.test(trimmed)) return false
-    return /\)\s*(AND|OR|XOR)\s*\(|^(AND|OR|XOR|NOT)\b|\b(AND|OR|XOR|NOT)\s+($|\()/i.test(trimmed)
-      || trimmed.startsWith('(')
+    if (!/\b(AND|OR|XOR|NOT)\b/i.test(trimmed)) return false
+    return parseBooleanExpression(trimmed, new Date()) !== null
   }
 
   override createFilterOrErrorMessage(line: string, now?: Date): FilterOrErrorMessage {
-    const tokens = tokenize(line.trim())
-    if (tokens === null) return invalidFilter(`unbalanced delimiters in: ${line}`)
-    const parser = new Parser(tokens, now ?? new Date())
-    const node = parser.parseExpression()
+    const node = parseBooleanExpression(line.trim(), now ?? new Date())
     if (node === null) return invalidFilter(`unable to parse boolean expression: ${line}`)
-    if (!parser.atEnd()) return invalidFilter(`trailing text in: ${line}`)
     return { filter: (task, info) => evaluate(node, task, info), error: null }
   }
+}
+
+/** Parse, or return null so the caller can fall through to another field. */
+function parseBooleanExpression(line: string, now: Date): Node | null {
+  const tokens = tokenize(line)
+  if (tokens === null) return null
+  const parser = new Parser(tokens, now)
+  const node = parser.parseExpression()
+  if (node === null || !parser.atEnd()) return null
+  return node
 }
 
 const CLOSERS = new Set<string>([')', ']', '}'])
@@ -59,22 +71,45 @@ function tokenize(line: string): string[] | null {
       if (depth === 0) {
         flush()
         out.push(char)
-        depth += 1
-        continue
       }
-      buffer += char
+      else buffer += char
+      depth += 1
       continue
     }
-    if (depth > 0 && (CLOSERS.has(char) || char === '"')) {
+    if (CLOSERS.has(char) || char === '"') {
+      if (depth === 0) {
+        buffer += char
+        continue
+      }
+      depth -= 1
+      if (depth > 0) {
+        buffer += char
+        continue
+      }
       flush()
       out.push(char)
-      depth -= 1
       continue
     }
     buffer += char
   }
   flush()
   if (depth !== 0) return null
+  return expandConnectives(out)
+}
+
+/**
+ * Split `AND NOT` and `OR NOT` into two tokens.
+ *
+ * They are single instructions to a reader and two nodes to the parser; leaving them glued makes
+ * `a AND NOT b` an unrecognisable word, and the whole line then falls out of the boolean field.
+ */
+function expandConnectives(tokens: string[]): string[] {
+  const out: string[] = []
+  for (const token of tokens) {
+    const matched = /^(AND|OR)\s+NOT$/i.exec(token)
+    if (matched) out.push(matched[1]!.toUpperCase(), 'NOT')
+    else out.push(token)
+  }
   return out
 }
 
@@ -146,8 +181,15 @@ class Parser {
     if (CONNECTIVES.has(token.toUpperCase())) return null
     this.cursor += 1
     const parsed = parseSimpleFilterInstruction(token, this.now)
-    if (parsed === null || parsed.filter === null) return null
-    return { kind: 'leaf', filter: parsed.filter, explain: token }
+    if (parsed !== null && parsed.filter !== null) {
+      return { kind: 'leaf', filter: parsed.filter, explain: token }
+    }
+    // A nested expression arrives as one token, because the tokenizer keeps everything between the
+    // outer delimiters together. Re-parse it as an expression rather than calling it an unknown
+    // instruction, which is what makes `((a) AND (b)) OR (c)` work.
+    const nested = parseBooleanExpression(token, this.now)
+    if (nested === null) return null
+    return { kind: 'leaf', filter: (task, info) => evaluate(nested, task, info), explain: token }
   }
 
   private peekWord(): string | null {

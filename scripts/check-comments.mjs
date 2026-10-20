@@ -17401,6 +17401,12 @@ const allowed = new Map([
   ]],
   ["src/client/lib/tasks/query/boolean-field.ts", [
     "/**\n * `(a) AND (b)`, `NOT (a)`, and the rest of the algebra that combines filters.\n *\n * Written as a small recursive-descent parser rather than pulled in from an expression library:\n * the grammar is four connectives and four delimiter pairs, and a dependency would have to be\n * audited for every reader forever to save a hundred lines once.\n *\n * Precedence is `NOT` then `AND`/`XOR` then `OR`, which is what a reader typing a compound line\n * expects and what the reference plugin's answers agree with on every case in its own suite.\n */",
+    "/**\n   * Accepts any of the four delimiter pairs, not just parentheses.\n   *\n   * The test is \"does this contain a connective and does it parse\", because a check written against\n   * one delimiter shape rejects `[a] XOR [b]` and `{a} AND {b}` — and a rejected line is not a\n   * filter that matches nothing, it is a line the engine reports as unknown.\n   */",
+    "/** Parse, or return null so the caller can fall through to another field. */",
+    "/**\n * Split `AND NOT` and `OR NOT` into two tokens.\n *\n * They are single instructions to a reader and two nodes to the parser; leaving them glued makes\n * `a AND NOT b` an unrecognisable word, and the whole line then falls out of the boolean field.\n */",
+    "// A nested expression arrives as one token, because the tokenizer keeps everything between the",
+    "// outer delimiters together. Re-parse it as an expression rather than calling it an unknown",
+    "// instruction, which is what makes `((a) AND (b)) OR (c)` work.",
   ]],
   ["src/client/lib/tasks/query/date-fields.ts", [
     "/**\n * Longest first, so `due on or before x` is not read as `due on x`.\n *\n * The alternation is ordered rather than anchored cleverly because the whole point of the two-word\n * forms is that a reader means \"and everything up to\", and matching `on` first would silently\n * narrow it to a single day.\n */",
@@ -17427,7 +17433,6 @@ const allowed = new Map([
   ["src/client/lib/tasks/query/query.test.ts", [
     "/**\n * Built from code points rather than literals.\n *\n * An emoji pasted into source may or may not carry U+FE0F, and an escape can lose its backslash on\n * the way to disk; either way the fixture silently stops containing a date and every assertion\n * about dates fails for a reason that looks like a parser bug.\n */",
     "/**\n * Sorted, because a query answers a set and the engine applies its default sort chain.\n * Order-specific assertions use `ordered` so a sorting change cannot hide behind a set match.\n */",
-    "// UNVERIFIED: tracked as the pending-assertion list in the port plan; removed rather than left red.",
   ]],
   ["src/client/lib/tasks/query/query.ts", [
     "/** A line after continuations have been joined, kept with its original text for `explain`. */",
@@ -17448,6 +17453,8 @@ const allowed = new Map([
     "/**\n * `is blocked` and `is blocking`, which cannot be answered from one task.\n *\n * A dependency names an id, not a note, so the question \"is this waiting on anything\" is a question\n * about the whole result set. That is why `SearchInfo` carries every task: answering per-row would\n * make the result depend on which filters ran first.\n */",
     "/** Sort and group only: `urgency` is a score, not something a reader filters a line against. */",
     "/**\n * The order the parser tries, which is not alphabetical.\n *\n * A specific instruction must be reached before a looser one that would also match it: `has id`\n * before `id includes`, `tag` before any field whose name starts the same way.\n */",
+    "// Descending: urgency is a score where louder means more urgent, so the reader who asks",
+    "// for it wants the pressing task first rather than last.",
   ]],
   ["src/client/lib/tasks/query/values.ts", [
     "/**\n * What a task means to a query: the task itself plus the note-level facts a filter may need.\n *\n * `allTasks` is carried because `is blocked` cannot be answered from one task alone — it has to ask\n * whether the task id it depends on is finished anywhere in the result set.\n */",

@@ -117,7 +117,7 @@ class PriorityField extends Field {
   createFilterOrErrorMessage(line: string): FilterOrErrorMessage {
     const matched = this.filterRegExp().exec(line.trim())
     if (matched === null) return invalidFilter(`Priority must be one of: ${Object.values(PRIORITY_NAMES).join(', ')} - ${line}`)
-    const relation = (matched[2] ?? '').toLowerCase()
+    const relation = (matched[2] ?? '').trim().toLowerCase()
     const wanted = nameToPriority(matched[3]!)
     if (wanted === null) return invalidFilter(`unknown priority: ${matched[3]}`)
     const rank = Number(wanted)
@@ -286,7 +286,9 @@ class UrgencyField extends Field {
 
   override supportsSorting(): boolean { return true }
   comparator(): Comparator {
-    return (a, b, info) => urgencyOf(a, info.now) - urgencyOf(b, info.now)
+    // Descending: urgency is a score where louder means more urgent, so the reader who asks
+    // for it wants the pressing task first rather than last.
+    return (a, b, info) => urgencyOf(b, info.now) - urgencyOf(a, info.now)
   }
 
   override supportsGrouping(): boolean { return true }

@@ -3,6 +3,7 @@ import { EmojiTaskSerializer } from '../serializer/emoji'
 import { defaultStatusRegistry } from '../line'
 import { parseTaskLine, type Task } from '../model/task'
 import { unknownPosition } from '../model/task-location'
+import { urgencyOf } from '../model/urgency'
 import { parseTasksQuery, runTasksQuery, scanStatements, stripSortPrefix } from './query'
 
 const serializer = new EmojiTaskSerializer()
@@ -42,6 +43,10 @@ function ask(source: string, tasks: Task[]): Task[] {
   return runTasksQuery(tasks, parseTasksQuery(source, NOW), NOW).tasks
 }
 
+function ordered(result: Task[]): string[] {
+  return result.map((item) => item.fields.description)
+}
+
 /**
  * Sorted, because a query answers a set and the engine applies its default sort chain.
  * Order-specific assertions use `ordered` so a sorting change cannot hide behind a set match.
@@ -68,7 +73,6 @@ const SAMPLE: Task[] = [
 ]
 
 describe('statement scanner', () => {
-  // UNVERIFIED: tracked as the pending-assertion list in the port plan; removed rather than left red.
 
   it('drops blank lines', () => {
     expect(scanStatements('\n not done \n\n done \n')).toHaveLength(2)
@@ -76,7 +80,6 @@ describe('statement scanner', () => {
 })
 
 describe('filters', () => {
-  // UNVERIFIED: tracked as the pending-assertion list in the port plan; removed rather than left red.
 
   it('asks about presence rather than value', () => {
     expect(ask('has due date', SAMPLE)).toHaveLength(6)
@@ -88,7 +91,6 @@ describe('filters', () => {
     expect(ask('starts before 2026-01-01', SAMPLE)).toHaveLength(SAMPLE.length)
   })
 
-  // UNVERIFIED: tracked as the pending-assertion list in the port plan; removed rather than left red.
 
   it('separates done, not done and the status types', () => {
     expect(names(ask('done', SAMPLE))).toEqual(['done ship it'])
@@ -98,7 +100,6 @@ describe('filters', () => {
     expect(names(ask('status.name includes Cancelled', SAMPLE))).toEqual(['dropped old'])
   })
 
-  // UNVERIFIED: tracked as the pending-assertion list in the port plan; removed rather than left red.
 
   it('finds recurring tasks and text in the four ways', () => {
     expect(names(ask('is recurring', SAMPLE))).toEqual(['recurring water'])
@@ -140,9 +141,7 @@ describe('filters', () => {
 })
 
 describe('boolean combinations', () => {
-  // UNVERIFIED: tracked as the pending-assertion list in the port plan; removed rather than left red.
 
-  // UNVERIFIED: tracked as the pending-assertion list in the port plan; removed rather than left red.
 
   it('reports an unbalanced expression', () => {
     expect(errors('(not done AND (done)')).toHaveLength(1)
@@ -150,11 +149,8 @@ describe('boolean combinations', () => {
 })
 
 describe('sorting, grouping and limits', () => {
-  // UNVERIFIED: tracked as the pending-assertion list in the port plan; removed rather than left red.
 
-  // UNVERIFIED: tracked as the pending-assertion list in the port plan; removed rather than left red.
 
-  // UNVERIFIED: tracked as the pending-assertion list in the port plan; removed rather than left red.
 
   it('groups and hides the sort hint from the heading', () => {
     const result = runTasksQuery(SAMPLE, parseTasksQuery('group by status.type\nnot done', NOW), NOW)
@@ -188,5 +184,84 @@ describe('layout switches', () => {
 
   it('ignores comments', () => {
     expect(parseTasksQuery('# a note to self\nnot done', NOW).instructions).toEqual(['not done'])
+  })
+})
+
+describe('statement scanner, reconciled', () => {
+  it('joins a continuation with one space and keeps a literal backslash', () => {
+    expect(scanStatements('due before 2026-10-20 \\\n  and not done').map((item) => item.instruction))
+      .toEqual(['due before 2026-10-20 and not done'])
+    expect(scanStatements('path includes C:\\\\notes').map((item) => item.instruction))
+      .toEqual(['path includes C:\\notes'])
+  })
+})
+
+describe('filters, reconciled', () => {
+  it('answers the date relations in the engine default order', () => {
+    expect(ordered(ask('due before 2026-10-19', SAMPLE))).toEqual(['overdue pay rent', 'done ship it'])
+    expect(names(ask('due on 2026-10-19', SAMPLE))).toEqual(['today standup'])
+    expect(names(ask('due after 2026-10-19', SAMPLE))).toEqual(['mid draft #writing', 'recurring water', 'soon review'])
+    expect(names(ask('due on or before 2026-10-19', SAMPLE))).toHaveLength(3)
+  })
+
+  it('reads a relative span, and answers none when nothing falls in it', () => {
+    expect(names(ask('due this month', SAMPLE))).toEqual([
+      'done ship it', 'mid draft #writing', 'overdue pay rent', 'recurring water', 'soon review', 'today standup',
+    ])
+    expect(names(ask('due next month', SAMPLE))).toEqual([])
+  })
+
+  it('orders priority with above, below and not', () => {
+    expect(names(ask('priority is high', SAMPLE))).toEqual(['overdue pay rent'])
+    expect(names(ask('priority above none', SAMPLE))).toEqual(['overdue pay rent', 'today standup'])
+    expect(names(ask('priority below high', SAMPLE))).toHaveLength(8)
+    expect(names(ask('priority is not none', SAMPLE))).toHaveLength(3)
+  })
+})
+
+describe('boolean combinations, reconciled', () => {
+  it('works across all four delimiter pairs', () => {
+    expect(names(ask('(due before 2026-10-19) AND (priority is high)', SAMPLE))).toEqual(['overdue pay rent'])
+    expect(names(ask('(heading includes Plants) OR (status.type is CANCELLED)', SAMPLE))).toHaveLength(2)
+    expect(names(ask('[due on 2026-10-19] XOR [done]', SAMPLE))).toEqual(['done ship it', 'today standup'])
+    expect(names(ask('NOT (path includes Work)', SAMPLE))).toHaveLength(4)
+    expect(names(ask('{not done} AND (priority is high)', SAMPLE))).toHaveLength(1)
+  })
+
+  it('reads AND NOT as two connectives, not one unknown word', () => {
+    expect(names(ask('(due before 2026-10-19) AND NOT (priority is high)', SAMPLE))).toEqual(['done ship it'])
+  })
+
+  it('recurses into a nested expression', () => {
+    expect(names(ask('((not done) AND (path includes Work)) OR (status.type is CANCELLED)', SAMPLE))).toHaveLength(5)
+  })
+
+  it('reports an unbalanced expression instead of matching everything', () => {
+    const parsed = parseTasksQuery('(not done AND (done)', NOW)
+    expect(parsed.filters).toHaveLength(0)
+    expect(parsed.errors).toHaveLength(1)
+  })
+})
+
+describe('ordering, reconciled', () => {
+  it('leads the default chain with the open status type, not the most urgent task', () => {
+    const first = ordered(ask('not done', SAMPLE))[0]!
+    expect(first).toBe('mid draft #writing')
+  })
+
+  it('honours an explicit sort and its reverse', () => {
+    expect(ordered(ask('sort by path\nnot done', SAMPLE))[0]).toBe('dropped old')
+    expect(ordered(ask('sort by path reverse\nnot done', SAMPLE)).at(-1)).toBe('dropped old')
+  })
+
+  it('sorts by urgency monotonically', () => {
+    const sorted = ordered(ask('sort by urgency\nnot done', SAMPLE))
+    const scores = sorted.map((name) => urgencyOf(SAMPLE.find((item) => item.fields.description === name)!, NOW))
+    expect([...scores].sort((a, b) => b - a)).toEqual(scores)
+  })
+
+  it('orders groups by their hidden sort key', () => {
+    const result = runTasksQuery(SAMPLE, parseTasksQuery('group by status.type\nnot done', NOW), NOW)
+    expect(result.groups.map((group) => stripSortPrefix(group.path[0]!))).toEqual(['IN_PROGRESS', 'TODO', 'CANCELLED'])
   })
 })

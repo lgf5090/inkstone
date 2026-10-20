@@ -68,7 +68,7 @@ export function scanStatements(source: string): Statement[] {
     }
     if (trimmed === '') continue
     if (trimmed.endsWith('\\') && !trimmed.endsWith('\\\\')) {
-      pending = trimmed.slice(0, -1)
+      pending = trimmed.slice(0, -1).trimEnd()
       continue
     }
     out.push({ raw: trimmed, instruction: trimmed.replace(/\\\\/g, '\\').trim() })
