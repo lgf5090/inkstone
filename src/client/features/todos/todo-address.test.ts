@@ -70,6 +70,17 @@ describe('the to-do address grammar', () => {
     expect(parseTodoAddress('/todo', 'dueFrom=next%20week').dueFrom).toBeNull()
   })
 
+  it('narrows finished work to one collection without renaming the view', () => {
+    // `list=` alone still names the list view; beside `view=completed` it is the collection the
+    // finished page is scoped to, which is the one combination where the two spellings differ.
+    expect(parseTodoAddress('/todo', 'view=completed&list=work')).toMatchObject({ view: 'completed', listId: 'work' })
+    expect(parseTodoAddress('/todo', 'list=work&view=completed')).toMatchObject({ view: 'completed', listId: 'work' })
+    expect(parseTodoAddress('/todo', 'list=work').view).toBe('list')
+    expect(writeTodoSearch({
+      view: 'completed', listId: 'work', tagId: null, query: '', sort: null, dueFrom: null, dueTo: null,
+    })).toBe('view=completed&list=work')
+  })
+
   it('round-trips: a shape written and read again is the shape it started as', () => {
     const shapes = [
       { view: 'board' as const, listId: null, tagId: null, query: '', sort: null, dueFrom: null, dueTo: null },
@@ -77,6 +88,7 @@ describe('the to-do address grammar', () => {
       { view: 'list' as const, listId: 'work', tagId: null, query: '', sort: null, dueFrom: '2026-10-01T00:00', dueTo: '2026-10-31T00:00' },
       { view: 'tag' as const, listId: null, tagId: 'errands', query: 'a b', sort: 'created' as const, dueFrom: null, dueTo: null },
       { view: 'completed' as const, listId: null, tagId: null, query: '', sort: null, dueFrom: null, dueTo: null },
+      { view: 'completed' as const, listId: 'work', tagId: null, query: '', sort: null, dueFrom: null, dueTo: null },
     ]
     for (const shape of shapes) {
       expect(parseTodoAddress('/todo', writeTodoSearch(shape))).toMatchObject(shape)

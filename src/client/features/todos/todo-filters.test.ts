@@ -58,6 +58,11 @@ import { useTodos } from './store'
 const original = useTodos.getState()
 let view: RenderedElement | null = null
 
+/** The task rows on screen — the ones a reader would say they are looking at. */
+function openIds(container: HTMLElement): string[] {
+  return [...container.querySelectorAll('[data-todo-open]')].map((node) => node.getAttribute('data-todo-open') ?? '')
+}
+
 /** A row the way the route serialises one. */
 function task(id: string, title: string, extra: Partial<TodoTask> = {}): TodoTask {
   return {
@@ -269,5 +274,86 @@ describe('the due window a listing is read through', () => {
     expect(selectByLabel(container, t('todo.filter.due'))?.value).toBe('custom')
     expect(inputByLabel(container, t('todo.due.from'))?.value).toBe('2026-10-05')
     expect(inputByLabel(container, t('todo.due.to'))?.value).toBe('2026-10-09')
+  })
+})
+
+describe('the finished list’s own two filters', () => {
+  /** A finished row, the way the route serialises one. */
+  function done(id: string, day: string, listId: string | null = 'L1'): TodoTask {
+    return task(id, `Task ${id}`, {
+      status: 'done',
+      completedAt: Date.parse(`${day}T09:00:00Z`),
+      listId,
+    })
+  }
+
+  it('asks the server for the finished rows of the list the reader picked, and pages them there', async () => {
+    stubBreakpoint(true)
+    service.rows = [
+      ...Array.from({ length: 130 }, (_, index) => done(`l1-${index}`, '2026-10-18')),
+      done('l2-1', '2026-10-18', 'L2'),
+      done('inbox-1', '2026-10-18', null),
+    ]
+    const container = await mount('/todo?view=completed')
+
+    const select = selectByLabel(container, t('todo.task.list_label'))
+    expect(select, 'the finished list has no collection filter').not.toBeNull()
+    expect(select!.value).toBe('all')
+
+    choose(select!, 'L1')
+    await settle()
+
+    expect(lastRequest().view).toBe('completed')
+    expect(lastRequest().list, 'the collection filter never left the browser').toBe('L1')
+    expect(window.location.search).toContain('view=completed')
+    expect(window.location.search).toContain('list=L1')
+    expect(useTodos.getState().completedTotal).toBe(130)
+    expect(openIds(container).every((id) => id.startsWith('l1-'))).toBe(true)
+
+    const more = container.querySelector<HTMLButtonElement>('button[data-todo-more]')
+    expect(more, 'a scoped finished page leaves no way to read the rest').not.toBeNull()
+    await act(async () => { more!.click() })
+    await settle()
+
+    expect(lastRequest().offset).toBe(100)
+    expect(lastRequest().list).toBe('L1')
+    expect(useTodos.getState().completed).toHaveLength(130)
+  })
+
+  it('spells the inbox as the collection with no row behind it', async () => {
+    stubBreakpoint(true)
+    service.rows = [done('inbox-1', '2026-10-18', null), done('l1-1', '2026-10-18')]
+    const container = await mount('/todo?view=completed')
+
+    choose(selectByLabel(container, t('todo.task.list_label'))!, 'inbox')
+    await settle()
+
+    expect(lastRequest().view).toBe('completed')
+    expect(lastRequest().list).toBe('none')
+    expect(openIds(container)).toEqual(['inbox-1'])
+  })
+
+  it('keeps the year a page filter, because the route has no completion bound to carry it', async () => {
+    stubBreakpoint(true)
+    service.rows = [
+      done('a', '2025-05-01'),
+      done('b', '2025-06-01'),
+      done('c', '2026-01-01'),
+      done('d', '2026-02-01'),
+    ]
+    const container = await mount('/todo?view=completed&list=L1')
+    expect(lastRequest().list).toBe('L1')
+
+    const yearSelect = selectByLabel(container, t('todo.view.completed'))
+    expect(yearSelect, 'the finished list has no year filter').not.toBeNull()
+    const before = service.requests.length
+
+    choose(yearSelect!, '2025')
+    await settle()
+
+    // No request: `dueFrom`/`dueTo` bound a task's due date, not the day it was finished, so a year
+    // sent through them would drop every finished task with no due date and answer a different question.
+    expect(service.requests.length, 'a completion year was sent through a due-date bound').toBe(before)
+    expect(openIds(container).sort()).toEqual(['a', 'b'])
   })
 })

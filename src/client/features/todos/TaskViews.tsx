@@ -112,8 +112,9 @@ export function CompletedView() {
   const completed = useTodos((state) => state.completed)
   const lists = useTodos((state) => state.lists)
   const timezone = useTodos((state) => state.timezone)
+  const listId = useTodos((state) => state.listId)
+  const setView = useTodos((state) => state.setView)
   const [year, setYear] = useState('all')
-  const [listId, setListId] = useState('all')
 
   const years = useMemo(() => {
     const found = new Set<string>()
@@ -121,14 +122,19 @@ export function CompletedView() {
     return [...found].sort((a, b) => (a < b ? 1 : -1))
   }, [completed, timezone])
 
+  // The year stays a filter over the loaded pages. The route has no bound on when a task was
+  // finished — `dueFrom`/`dueTo` describe when it was owed, and a finished task with no due date is in
+  // no due window at all — so sending a completion year through them would silently drop rows and
+  // answer a different question. Until the route grows a completion bound, this one stays here, and
+  // the years it offers are the ones the pages on hand carry. The list and the paging are the server's.
+  const activeYear = year === 'all' || years.includes(year) ? year : 'all'
+
   const groups = useMemo(() => {
-    const rows = completed.filter((task) => {
-      if (year !== 'all' && localDate(task.completedAt ?? task.updatedAt, timezone).slice(0, 4) !== year) return false
-      if (listId === 'all') return true
-      return listId === 'inbox' ? task.listId === null : task.listId === listId
-    })
+    const rows = completed.filter((task) => (
+      activeYear === 'all' || localDate(task.completedAt ?? task.updatedAt, timezone).slice(0, 4) === activeYear
+    ))
     return groupCompleted(rows, timezone)
-  }, [completed, year, listId, timezone])
+  }, [completed, activeYear, timezone])
 
   const label = (key: string): string => {
     const [y, m, d] = key.split('-')
@@ -138,11 +144,23 @@ export function CompletedView() {
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <div className="flex shrink-0 flex-wrap items-center gap-2 px-3 pb-1 pt-2 md:px-5">
-        <Select value={year} onChange={(event) => setYear(event.target.value)} aria-label={t('todo.view.completed')} className="w-auto">
+        <Select value={activeYear} onChange={(event) => setYear(event.target.value)} aria-label={t('todo.view.completed')} className="w-auto">
           <option value="all">{t('todo.completed.year_all')}</option>
           {years.map((entry) => <option key={entry} value={entry}>{entry}</option>)}
         </Select>
-        <Select value={listId} onChange={(event) => setListId(event.target.value)} aria-label={t('todo.task.list_label')} className="w-auto">
+        {/* The collection is part of the question, so it is asked again rather than filtered here:
+            a page of finished work cannot be narrowed to a list it never received the rows of. */}
+        <Select
+          value={listId ?? 'all'}
+          onChange={(event) => {
+            // A year from the previous collection need not exist in this one, so the drop-down starts
+            // over rather than naming a year with no option behind it.
+            setYear('all')
+            setView('completed', { listId: event.target.value === 'all' ? undefined : event.target.value })
+          }}
+          aria-label={t('todo.task.list_label')}
+          className="w-auto"
+        >
           <option value="all">{t('todo.filter.all_lists')}</option>
           <option value="inbox">{t('todo.smart.inbox')}</option>
           {lists.map((list) => <option key={list.id} value={list.id}>{list.name}</option>)}
