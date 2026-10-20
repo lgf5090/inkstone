@@ -1575,6 +1575,23 @@ describe('offline chat', () => {
     expect(detail.conversation.title).toBe('Remind me to stretch')
   })
 
+  it('keeps the files the reader attached while offline', async () => {
+    await call('PATCH', '/api/assistant/settings', { offlineMode: true })
+    const attachmentId = '01hzzzzzzzzzzzzzzzzzzzzz20'
+    await env.DB.prepare(
+      `INSERT INTO chat_attachments (user_id, id, kind, filename, mime, size, key, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    ).bind(USER, attachmentId, 'image', 'plot.png', 'image/png', 12, `chat/images/${attachmentId}.png`, Date.now()).run()
+    const events = await chatEvents({ message: 'see this', attachments: [attachmentId] })
+    const conversationId = events.find((event) => event.type === 'start')!.conversationId!
+    const detail = await call<{
+      messages: { role: string, attachments: string[] }[]
+      attachments: { id: string }[]
+    }>('GET', `/api/assistant/conversations/${conversationId}`)
+    expect(detail.messages[0]!.attachments).toEqual([attachmentId])
+    expect(detail.attachments.map((row) => row.id)).toEqual([attachmentId])
+  })
+
   it('refuses a second turn while one holds the conversation', async () => {
     await call('PATCH', '/api/assistant/settings', { offlineMode: true })
     const created = await call<{ conversation: AssistantConversation }>('POST', '/api/assistant/conversations', { title: 'Busy' })
@@ -3965,6 +3982,25 @@ describe('external MCP servers', () => {
       'https://mcp.example.test/messages POST',
       'https://mcp.example.test/messages POST',
     ])
+  })
+
+  it('lists a switched-off server from its stored answers without calling it', async () => {
+    const fetches = vi.fn()
+    vi.stubGlobal('fetch', fetches)
+    const created = await call<{ server: { id: string } }>('POST', '/api/assistant/mcp', {
+      label: 'Off',
+      url: 'https://mcp.example.test/mcp',
+    })
+    await call('PATCH', `/api/assistant/mcp/${created.server.id}`, {
+      enabled: false,
+      toolModes: { 'remote-one': 'off', 'remote-two': 'auto' },
+    })
+    const listed = await catalog()
+    vi.unstubAllGlobals()
+    expect(fetches).not.toHaveBeenCalled()
+    expect(listed.problems).toEqual([])
+    const entry = listed.servers.find((row) => row.serverId === created.server.id)
+    expect(entry?.tools.map((tool) => [tool.remoteName, tool.mode])).toEqual([['remote-one', 'off'], ['remote-two', 'auto']])
   })
 
   it('stores a server, keeps its token out of every read, and lists its tools', async () => {

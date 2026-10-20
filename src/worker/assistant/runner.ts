@@ -2087,11 +2087,18 @@ export class AssistantRunner {
    * It exists so the whole surface — conversations, tools, the settings screen — can be exercised
    * before a key is configured, and it says plainly that no model was called rather than pretending.
    */
-  async offlineTurn(conversationId: string, content: string, scopes: AssistantTurnScope[] = []): Promise<AssistantMessage> {
+  async offlineTurn(
+    conversationId: string,
+    content: string,
+    scopes: AssistantTurnScope[] = [],
+    attachments: readonly string[] = [],
+  ): Promise<AssistantMessage> {
+    const attached = attachments.slice(0, MAX_CHAT_ATTACHMENTS)
     await this.store.addMessage({
       conversationId,
       role: 'user',
       content,
+      ...(attached.length ? { attachments: attached } : {}),
       ...(scopes.length ? { scopes: scopes.slice(0, MAX_TURN_SCOPES) } : {}),
     })
     return await this.store.addMessage({

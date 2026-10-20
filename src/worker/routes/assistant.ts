@@ -1667,7 +1667,7 @@ assistantRoutes.post('/chat', async (c) => {
         // The offline answer makes its own conversation and claims it, so the claim it took comes back
         // with the id: released at the end of the turn under that token, it cannot delete a claim a second
         // tab has since taken on the thread it just made.
-        const offline = await offlineTurn(s, runner, claimed || null, message, send, scopes)
+        const offline = await offlineTurn(s, runner, claimed || null, message, send, scopes, attachments)
         if (offline) {
           claimed = offline.conversationId
           if (offline.runToken !== null) claimedToken = offline.runToken
@@ -1761,6 +1761,8 @@ async function offlineTurn(
   send: (payload: unknown) => boolean,
   /** The pins the turn was asked under: an offline turn is still a turn, and the transcript says so. */
   scopes: AssistantTurnScope[] = [],
+  /** The files the route already proved are this account's; the offline bubble keeps them. */
+  attachments: readonly string[] = [],
 ): Promise<{ conversationId: string, runToken: number | null } | null> {
   const content = message.trim().slice(0, MAX_MESSAGE_CHARS)
   if (!content) {
@@ -1784,7 +1786,7 @@ async function offlineTurn(
       return null
     }
   }
-  const reply = await runner.offlineTurn(conversation.id, content, scopes)
+  const reply = await runner.offlineTurn(conversation.id, content, scopes, attachments)
   // The token goes out with the start event exactly as the streamed path sends it: the reader who stops
   // this turn is stopping the claim named here, and no other.
   await send({ type: 'start', conversationId: conversation.id, assistantMessageId: reply.id, ...(runToken === null ? {} : { runToken }) })

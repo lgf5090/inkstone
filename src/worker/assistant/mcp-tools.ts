@@ -158,13 +158,31 @@ export async function loadExternalTools(store: AssistantStore): Promise<External
  *
  * A server that is off at its own level is still listed: that is where its per-tool answers live, and a
  * reader who has just switched a server back on wants what they had already decided about its tools to
- * still be there. Each row carries the mode it is running under and the argument form the server
- * published, because "what would this one be allowed to do, and what would it take" is the question the
- * card exists to answer.
+ * still be there. It is not called, though: a switched-off third party must not stall the screen or take
+ * the worker down with it, so its rows come from the modes already stored on the server. An enabled
+ * server is listed live, and its rows carry the argument form the server published, because "what would
+ * this one be allowed to do, and what would it take" is the question the card exists to answer.
  */
 export async function listMcpCatalog(store: AssistantStore): Promise<{ servers: AssistantMcpCatalogEntry[], problems: AssistantMcpProblem[] }> {
+  const all = await store.listMcpServers()
   const servers: AssistantMcpCatalogEntry[] = []
-  const { problems } = await visitListings(store, await store.listMcpServers(), (server, _session, listing) => {
+  for (const server of all) {
+    if (server.enabled) continue
+    servers.push({
+      serverId: server.id,
+      serverLabel: server.label,
+      tools: Object.entries(server.toolModes).map(([remoteName, mode]) => ({
+        name: mcpToolName(server.id, remoteName),
+        remoteName,
+        serverId: server.id,
+        serverLabel: server.label,
+        description: '',
+        mode,
+        inputSchema: '',
+      })),
+    })
+  }
+  const { problems } = await visitListings(store, all.filter((server) => server.enabled), (server, _session, listing) => {
     servers.push({
       serverId: server.id,
       serverLabel: server.label,
