@@ -134,6 +134,141 @@ export interface TaskPage {
   timezone: string
 }
 
+/** The spans the statistics may bucket a range into. */
+export const TASK_STATS_BUCKETS = ['day', 'week', 'month'] as const
+export type TaskStatsBucket = (typeof TASK_STATS_BUCKETS)[number]
+
+/**
+ * What the statistics answer with.
+ *
+ * The range is echoed because every number below is measured in the account's own days: a reader who
+ * changes zone sees new days from then on, and the answer has to say which calendar it used. Rates are
+ * fractions (0–1) rather than percentages, so a client can format them in its own locale without
+ * parsing a rounded string back into a number.
+ */
+export interface TaskStatsRange {
+  /** First day counted, `YYYY-MM-DD` in the account's zone. */
+  from: string
+  /** Last day counted, inclusive. */
+  to: string
+  bucket: TaskStatsBucket
+  timezone: string
+}
+
+export interface TaskStatsSummary {
+  /** Finish events in the range: a repeated task counts once per completion, not once per task id. */
+  completed: number
+  /** Rows created in the range, whatever their status is now. */
+  created: number
+  /** `completed - created`; positive means the range retired more than it filed. */
+  net: number
+  /** Tasks still open when the statistics ran, the "unfinished" half of the completion rate. */
+  open: number
+  /** `completed / (completed + open)`, or 0 when there is nothing either way. */
+  completionRate: number
+  /** Finished in the range, by their own due date. */
+  onTime: number
+  /** Finished in the range that carried a due date: the on-time rate's denominator. */
+  onTimeDue: number
+  /** `onTime / onTimeDue`, or 0 when no finished task had a due date. */
+  onTimeRate: number
+  /** Median `created_at → completed_at` in milliseconds; null when nothing finished. */
+  medianLeadTimeMs: number | null
+  /** Consecutive days with a completion ending at the range's last day (or the day before, if it is still open). */
+  currentStreak: number
+  /** Longest run of consecutive completion days inside the range. */
+  longestStreak: number
+  /** Open tasks whose due date is already in the past. */
+  overdue: number
+}
+
+/** One point of the trend: a day, a week (its Monday), or a month (its first day). */
+export interface TaskStatsPoint {
+  day: string
+  completed: number
+  created: number
+}
+
+/**
+ * One slice of a distribution. `id` and `name` are null for the inbox, which has no row to name it:
+ * the client already has a translation for the collection every unfiled task lands in.
+ */
+export interface TaskStatsNamedCount {
+  id: string | null
+  name: string | null
+  completed: number
+  /** Share of the range's completions; tag shares may sum past 1 because a task can carry several. */
+  share: number
+}
+
+export interface TaskStatsPriorityCount {
+  priority: TaskPriority
+  completed: number
+  share: number
+}
+
+/** Completions by the account-zone weekday (0 = Sunday) and hour (0–23) of `completed_at`. */
+export interface TaskStatsWeekdayCount {
+  weekday: number
+  completed: number
+}
+
+export interface TaskStatsHourCount {
+  hour: number
+  completed: number
+}
+
+export interface TaskStatsDistributions {
+  byList: TaskStatsNamedCount[]
+  byTag: TaskStatsNamedCount[]
+  byPriority: TaskStatsPriorityCount[]
+  byWeekday: TaskStatsWeekdayCount[]
+  byHour: TaskStatsHourCount[]
+}
+
+export interface TaskStatsPriorityLead {
+  priority: TaskPriority
+  /** How many finished rows the average is measured over; 0 means `averageMs` is null. */
+  count: number
+  averageMs: number | null
+}
+
+export interface TaskStatsLeadTime {
+  /** Median and 90th percentile of `created_at → completed_at`, in milliseconds. */
+  p50: number | null
+  p90: number | null
+  byPriority: TaskStatsPriorityLead[]
+}
+
+/**
+ * How old the open workload is, aged from the due date when there is one and from the day it was
+ * filed otherwise. `none` is the row that carries neither a usable due date nor a creation time: it
+ * cannot be placed on that axis and is kept visible rather than dropped.
+ */
+export interface TaskStatsBacklog {
+  /** Less than 7 days old, including tasks not yet due. */
+  under7: number
+  /** 7 to 30 days old, both ends included. */
+  days7to30: number
+  /** More than 30 days old. */
+  over30: number
+  /** No due date and no creation time to age it by. */
+  none: number
+}
+
+export interface TodoStats {
+  range: TaskStatsRange
+  summary: TaskStatsSummary
+  series: TaskStatsPoint[]
+  distributions: TaskStatsDistributions
+  leadTime: TaskStatsLeadTime
+  backlog: TaskStatsBacklog
+}
+
+export function isTaskStatsBucket(value: unknown): value is TaskStatsBucket {
+  return typeof value === 'string' && (TASK_STATS_BUCKETS as readonly string[]).includes(value)
+}
+
 export function isTaskView(value: unknown): value is TaskView {
   return typeof value === 'string' && (TASK_VIEWS as readonly string[]).includes(value)
 }

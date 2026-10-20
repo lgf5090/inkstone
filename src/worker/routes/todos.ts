@@ -19,7 +19,7 @@ import { isValidId } from '../lib/id'
 import { createMinuteBudget } from '../lib/rate-limit'
 import { JSON_BODY_LIMITS, readJson } from '../lib/request'
 import { requireAuth } from '../middleware/auth'
-import { localDayBounds, parseLocalTime } from '@shared/assistant-time'
+import { localDate, localDayBounds, parseLocalTime } from '@shared/assistant-time'
 import { organizerColorOrNull } from '@shared/organizer-colors'
 import {
   MAX_LIST_NAME_CHARS,
@@ -28,6 +28,7 @@ import {
   MAX_TAG_NAME_CHARS,
   MAX_TASKS_PER_QUERY,
   isTaskSort,
+  isTaskStatsBucket,
   isTaskView,
   normalizeTagNames,
   parseRepeatRule,
@@ -35,9 +36,11 @@ import {
   type RemindOffset,
   type RepeatRule,
   type TaskSort,
+  type TaskStatsBucket,
 } from '@shared/todos/model'
 import type { TaskPriority, TaskStatus } from '@shared/assistant'
 import { AssistantStore, type TaskQuery } from '../assistant/store'
+import { addDays, isStatsDay, loadTodoStats } from '../todos/stats'
 
 const BODY_LIMIT = JSON_BODY_LIMITS.settings
 const TITLE_MAX = 300
@@ -253,6 +256,27 @@ function listingQuery(c: Ctx, timezone: string, dayEnd: number): TaskQuery {
   }
 }
 
+/**
+ * The range and granularity a statistics request asks for.
+ *
+ * `from` and `to` are calendar days in the account's zone, both inclusive; missing values mean the last
+ * 30 days, with `to` measured from the day the request lands on. A day that does not exist (30 February)
+ * or a range that runs backwards is a 400 rather than an empty answer, because the reader asked a
+ * different question than the one an empty range would answer. The comparison is lexical, which is exact
+ * for `YYYY-MM-DD` and needs no zone arithmetic.
+ */
+function statsRange(c: Ctx, timezone: string): { from: string; to: string; bucket: TaskStatsBucket } {
+  const today = localDate(Date.now(), timezone)
+  const to = c.req.query('to') || today
+  if (!isStatsDay(to)) throw ApiError.badRequest('A statistics range must end on a date like 2026-01-31.')
+  const from = c.req.query('from') || addDays(to, -29)
+  if (!isStatsDay(from)) throw ApiError.badRequest('A statistics range must start on a date like 2026-01-31.')
+  if (from > to) throw ApiError.badRequest('A statistics range cannot start after it ends.')
+  const bucket = c.req.query('bucket') ?? 'day'
+  if (!isTaskStatsBucket(bucket)) throw ApiError.badRequest('A bucket must be day, week or month.')
+  return { from, to, bucket }
+}
+
 todoRoutes.get('/', async (c) => {
   const s = store(c)
   const settings = await s.getSettings()
@@ -263,6 +287,24 @@ todoRoutes.get('/', async (c) => {
   // round trip made while the reader waits.
   const [tasks, total, counts] = await Promise.all([s.listTasks(query), s.countTasks(query), s.taskCounts(dayEnd)])
   return c.json({ tasks, total, counts, dayEnd, timezone: settings.timezone })
+})
+
+/**
+ * The statistics screen's one read.
+ *
+ * Registered before `/:id` so "stats" is a route and not a task id. Validation and the account's zone
+ * are all this handler adds; the rows, the arithmetic and the day boundaries live in `todos/stats`, which
+ * keeps every query out of the route file.
+ */
+todoRoutes.get('/stats', async (c) => {
+  const settings = await store(c).getSettings()
+  const range = statsRange(c, settings.timezone)
+  const stats = await loadTodoStats(c.env.DB, c.get('userId'), {
+    ...range,
+    timezone: settings.timezone,
+    now: Date.now(),
+  })
+  return c.json(stats)
 })
 
 todoRoutes.post('/', async (c) => {
