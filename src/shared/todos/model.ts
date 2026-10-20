@@ -60,6 +60,10 @@ export const MAX_TAG_NAME_CHARS = 40
 export const MAX_TAGS_PER_TASK = 8
 export const MAX_STEPS_PER_TASK = 50
 export const MAX_STEP_TEXT_CHARS = 200
+/** The longest task note a person may write through the to-do app's own HTTP form. */
+export const MAX_TASK_DESCRIPTION_CHARS = 10_000
+/** The longest substring a task listing searches for; the HTTP `q` and both task tool surfaces share it. */
+export const MAX_TASK_QUERY_CHARS = 200
 /** The most a single listing answers with; a page smaller than this is what a caller normally asks for. */
 export const MAX_TASKS_PER_QUERY = 500
 /** A completed list is history: the newest page is enough to answer "what did I finish". */

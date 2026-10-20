@@ -26,6 +26,8 @@ import {
 } from '../src/worker/mcp/settings'
 import { sha256Hex } from '../src/worker/lib/encoding'
 import { MAX_TASK_TITLE_CHARS } from '../src/shared/assistant'
+import { MAX_TASK_DESCRIPTION_CHARS } from '../src/shared/todos/model'
+import { MAX_TASK_TOOL_DESCRIPTION_CHARS } from '../src/worker/mcp/todos'
 import { makeD1 } from './doubles/d1-sqlite'
 import { testBindings } from './doubles/bindings'
 
@@ -312,6 +314,23 @@ describe('the answers use the model, not a second copy of it', () => {
     // 301 is spelled out rather than derived: this case must go red if the schema or the model constant is
     // raised, while the case above follows whatever number the model publishes.
     expect(JSON.stringify(outcome.body)).toContain(String(MAX_TASK_TITLE_CHARS))
+    expect(await store.listTasks({ view: 'all' })).toHaveLength(0)
+  })
+
+  it('refuses a description past the agent payload ceiling, which is not the HTTP form ceiling', async () => {
+    await switchPreferences(true, false)
+    const outcome = await callTool(WRITE, 'create_todo', {
+      operation_id: 'op-description-too-long-1',
+      title: 'Long note',
+      description: 'x'.repeat(MAX_TASK_TOOL_DESCRIPTION_CHARS + 1),
+    })
+    expect(outcome.ok).toBe(false)
+    // The number the refusal quotes is the MCP tools' own constant, so a schema that re-typed 2,000
+    // would fail here as soon as the two drifted apart.
+    expect(JSON.stringify(outcome.body)).toContain(String(MAX_TASK_TOOL_DESCRIPTION_CHARS))
+    // The agent ceiling is deliberately below the 10,000 a person may type into the to-do form; this
+    // case exists so the divergence stays a decision rather than becoming a second copy of one number.
+    expect(MAX_TASK_TOOL_DESCRIPTION_CHARS).toBeLessThan(MAX_TASK_DESCRIPTION_CHARS)
     expect(await store.listTasks({ view: 'all' })).toHaveLength(0)
   })
 

@@ -5,8 +5,9 @@
  * assistant's ten task tools call — so an external agent and the reader's own chat face one to-do model:
  * one set of field names, one set of enums, one timezone, and one rule about what a foreign id answers
  * with. Validation that the shared model already owns stays in the shared model: the limits below are
- * imported from `@shared/todos/model`, never re-stated as numbers. The one limit the model does not own
- * yet — how long a task description may be — is stated once beside the tools and marked as local.
+ * imported from `@shared/todos/model`, never re-stated as numbers. A description's ceiling is the one
+ * exception, stated once below: the agent payload's limit is smaller than the HTTP form's on purpose,
+ * so it is not the model's number at all.
  *
  * The one thing this surface does add is a scope check on references. A task carries a `note_id` and a
  * `conversation_id` because the app files tasks from notes and from chats, and both are pointers into
@@ -47,15 +48,16 @@ export interface McpTodoContext {
 }
 
 /**
- * How long a task description the tools accept.
+ * How long a task description the MCP tools accept.
  *
- * A local constant on purpose: `@shared/todos/model` has no description limit yet, and the two surfaces
- * that write one disagree. The to-do app's HTTP route accepts 10,000 characters (`DESCRIPTION_MAX` in
- * `src/worker/routes/todos.ts`), while the in-app assistant's `create_task` and `update_task` stop at
- * 2,000. These tools follow the assistant because the caller is an agent paying for its own payload;
- * once the model owns one number, this file should import it and both entry points should meet there.
+ * This is the agent payload's ceiling, 2,000 — the one the in-app assistant's `create_task` and
+ * `update_task` already use — not the 10,000 a person may type in the to-do app's form
+ * (`MAX_TASK_DESCRIPTION_CHARS` in `@shared/todos/model`). An agent pays for the payload it sends and
+ * receives, while the form is written at a keyboard, so the two entry points meet at different
+ * numbers on purpose. The constant stays here, beside the tools it governs, so neither limit is
+ * mistaken for the other.
  */
-export const MAX_TASK_DESCRIPTION_CHARS = 2_000
+export const MAX_TASK_TOOL_DESCRIPTION_CHARS = 2_000
 
 export interface McpTaskListing {
   view: TaskView

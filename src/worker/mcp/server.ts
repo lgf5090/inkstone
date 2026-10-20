@@ -10,6 +10,7 @@ import {
   MAX_TAGS_PER_TASK,
   MAX_TAG_NAME_CHARS,
   MAX_TASKS_PER_QUERY,
+  MAX_TASK_QUERY_CHARS,
   MIN_REPEAT_INTERVAL,
   REMIND_OFFSETS,
   REPEAT_FREQUENCIES,
@@ -65,7 +66,7 @@ import {
   type McpWriteContext,
 } from './writes'
 import {
-  MAX_TASK_DESCRIPTION_CHARS,
+  MAX_TASK_TOOL_DESCRIPTION_CHARS,
   completeMcpTask,
   createMcpTask,
   deleteMcpTask,
@@ -125,13 +126,6 @@ const taskId = z.string().refine(isValidId, 'Invalid Inkstone task id')
  */
 const localTime = z.string().trim().min(1).max(32)
   .describe('Local to the reader: YYYY-MM-DD, or YYYY-MM-DDTHH:MM for a time. A bare date is the end of that day.')
-/**
- * The longest search substring `list_todos` accepts.
- *
- * The shared model has no constant for it yet; the HTTP route's `q` and the assistant's `list_tasks` both
- * trim to the same 200, so the tool schema restates one agreed number rather than choosing its own.
- */
-const MAX_TASK_QUERY_CHARS = 200
 
 export function createInkstoneMcpServer(options: InkstoneMcpServerOptions): McpServer {
   const mcp = new McpServer(
@@ -1083,7 +1077,7 @@ export function createInkstoneMcpServer(options: InkstoneMcpServerOptions): McpS
       inputSchema: z.object({
         operation_id: operationId,
         title: z.string().trim().min(1).max(MAX_TASK_TITLE_CHARS),
-        description: z.string().max(MAX_TASK_DESCRIPTION_CHARS).optional(),
+        description: z.string().max(MAX_TASK_TOOL_DESCRIPTION_CHARS).optional(),
         priority: z.enum(TASK_PRIORITIES).optional().describe('Defaults to medium'),
         due: localTime.optional(),
         remind: z.enum(REMIND_OFFSETS).optional()
@@ -1128,7 +1122,7 @@ export function createInkstoneMcpServer(options: InkstoneMcpServerOptions): McpS
         operation_id: operationId,
         task_id: taskId,
         title: z.string().trim().min(1).max(MAX_TASK_TITLE_CHARS).optional(),
-        description: z.string().max(MAX_TASK_DESCRIPTION_CHARS).optional(),
+        description: z.string().max(MAX_TASK_TOOL_DESCRIPTION_CHARS).optional(),
         status: z.enum(TASK_STATUSES).optional(),
         priority: z.enum(TASK_PRIORITIES).optional(),
         due: localTime.nullable().optional(),
