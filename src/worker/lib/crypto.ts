@@ -7,11 +7,17 @@ const VAULT_NAME = 'primary'
 const VAULT_ORIGIN = 'https://credential-vault.internal'
 
 export class CryptoUnavailableError extends ApiError {
-  constructor() {
+  /**
+   * The default sentence is about the one thing only the operator can fix: no binding at all. A caller
+   * that got an answer and did not like it passes its own sentence instead — a refusal and an absent
+   * binding are different failures, and reporting a refusal as "the binding is missing" sends whoever
+   * reads it looking in the wrong place. Neither message carries the value that was being stored.
+   */
+  constructor(reason?: string) {
     super(
       503,
       'server_misconfigured',
-      'The server is missing the CREDENTIAL_VAULT Durable Object binding and cannot store sensitive credentials safely',
+      reason ?? 'The server is missing the CREDENTIAL_VAULT Durable Object binding and cannot store sensitive credentials safely',
     )
     this.name = 'CryptoUnavailableError'
   }
@@ -124,10 +130,14 @@ export async function decryptChannelConfig(
 
 async function encryptCredential(env: Env, scope: string, value: unknown): Promise<string> {
   const response = await vaultRequest(env, '/encrypt', { scope, value })
-  if (!response.ok) throw new CryptoUnavailableError()
+  if (!response.ok) {
+    throw new CryptoUnavailableError(
+      `The credential vault refused to store this configuration (${response.status}). The ${scope.split(':')[0]} scope's fields are not what it accepts.`,
+    )
+  }
   const body: unknown = await response.json().catch(() => null)
   const ciphertext = readStringField(body, 'ciphertext')
-  if (!ciphertext || ciphertext.length > 24 * 1024) throw new CryptoUnavailableError()
+  if (!ciphertext || ciphertext.length > 24 * 1024) throw new CryptoUnavailableError('The credential vault answered without a ciphertext.')
   return ciphertext
 }
 
