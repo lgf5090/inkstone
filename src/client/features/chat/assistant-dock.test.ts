@@ -118,8 +118,35 @@ describe('the docked assistant', () => {
   })
 
   it('says the open note is in context before the first question', async () => {
+    useUi.setState({ activeNoteId: 'n1' })
     await show({ loaded: true, activeId: null, messages: [], messagesReady: true })
     expect(document.body.textContent).toContain(t('assistant.dock.hint'))
+  })
+
+  /**
+   * The empty thread is the reader's first look at what a turn will carry, so it may only name a thing
+   * that is there. On the money page it used to promise the note under the reader's eyes — a note that
+   * page has no way to open — and offer to summarise it.
+   */
+  it('names the plan the money page handed over, by the name the page used', async () => {
+    await show(
+      { loaded: true, activeId: null, messages: [], messagesReady: true },
+      { surface: 'subscriptions', subscription: { id: 'sub-1', name: 'Netflix' } },
+    )
+    expect(document.body.textContent).toContain(t('assistant.dock.hint_plan', { name: 'Netflix' }))
+    expect(document.body.textContent).not.toContain(t('assistant.dock.hint'))
+  })
+
+  it('claims nothing on the money page when no plan is open, and asks the page\'s own questions', async () => {
+    await show(
+      { loaded: true, activeId: null, messages: [], messagesReady: true },
+      { surface: 'subscriptions', subscription: null },
+    )
+    const text = document.body.textContent ?? ''
+    expect(text).toContain(t('assistant.dock.hint_page'))
+    expect(text).not.toContain(t('assistant.dock.hint'))
+    expect(text).toContain(t('assistant.dock.suggest_due'))
+    expect(text).not.toContain(t('assistant.dock.suggest_summary'))
   })
 
   it('offers to write a selection request back into the note', async () => {

@@ -1070,6 +1070,7 @@ const allowed = new Map([
     "// are switched off there rather than borrowed. The surface also lands in the store, because the strip",
     "// and the outgoing turn read it there — a mount effect alone loses to the conversation paths that put",
     "// noteContextOn back to true.",
+    "/**\n   * What the empty thread says about itself.\n   *\n   * The guidance used to promise that the note under the reader's eyes was already in context on every\n   * surface, which in the money app named a thing that was not there and a chip that was deliberately not\n   * drawn. It now names what this dock is actually carrying: the plan, the note, or nothing yet.\n   */",
   ]],
   ["src/client/features/chat/AssistantHeader.tsx", [
     "/**\n * The title block every assistant page opens with.\n *\n * The surfaces behind the rail are one page with different contents, and each of them had written this\n * pair out for itself: a serif title at one size, and a line under it saying what the page is for. Three\n * copies drifted — one of them put its action beside the title and the others did not — so the shape\n * lives here. The action rides the title line, which is where a page's primary button belongs on a page\n * that also has a list under it.\n */",
@@ -2159,6 +2160,8 @@ const allowed = new Map([
     "/* The rows are one card rather than a stack of floating boxes: at 380px the per-row border\n                doubled the visible edges and made a short list read as three unrelated things. */",
     "/* A delivery about a plan can be opened; one from a routine cannot, and the control is not\n              offered when there is nothing behind it. */",
     "/**\n * The header control that opens the centre.\n *\n * Two surfaces wear one — the chat header and the subscriptions header — and the badge is the same\n * arithmetic in both, so it is written once here rather than in two toolbars that would drift. The count is\n * read on mount because the bell cannot be a quiet zero: on a plan nothing else ever asks for it, and on the\n * chat tab the container's own bootstrap asks in the same tick, where the store answers both with one read.\n */",
+    "// The reader pressed this to be taken somewhere else, and the centre covers the very",
+    "// panel the plan opens in, so it has to get out of the way first.",
   ]],
   ["src/client/features/chat/ProjectsView.tsx", [
     "/**\n * The projects screen: standing briefs the assistant answers under.\n *\n * A project is not another place to file things — conversations already live in the notebook's folders.\n * It is a brief and a knowledge selection that every conversation inside it inherits, which is what makes\n * it different from a folder: the folder says where a thread sits, the project says what it is about.\n *\n * Kept lean on purpose: the list, the editor, and which project the current conversation belongs to. The\n * editor is where the real content is — instructions and the folders whose notes the assistant may read —\n * so it gets the room and the list does not.\n */",
@@ -2424,6 +2427,7 @@ const allowed = new Map([
     "/**\n * What the dock claims about the page beside it.\n *\n * The dock is mounted by the notebook and by the money app alike, and the notebook's pointer — \"the note\n * you have open\" — is simply untrue while the reader is looking at their plans. These cases pin the two\n * halves of that: the notebook's pointers are not carried into the other app, and the plan the reader\n * actually opened is shown as something they can take back off.\n */",
     "/**\n   * The bug a fixed test object hides.\n   *\n   * The caller builds `{ id, name }` inline, so every render hands the dock a new object that says the same\n   * thing. An effect that depends on that object re-runs on every render and re-attaches what the reader\n   * just took off — the chip becomes impossible to remove. Mounting once with a literal cannot show it.\n   */",
     "// Same words, a different object, which is what a re-render from the page produces.",
+    "/**\n   * The empty thread is the reader's first look at what a turn will carry, so it may only name a thing\n   * that is there. On the money page it used to promise the note under the reader's eyes — a note that\n   * page has no way to open — and offer to summarise it.\n   */",
   ]],
   ["src/client/features/chat/assistant-icon-picker.test.ts", [
     "/**\n * The picker's contract: one press chooses a brand, the default clears an override, and an upload hands\n * back the mark the helper produced rather than the file itself.\n */",
@@ -10828,6 +10832,9 @@ const allowed = new Map([
     "/**\n   * Rename a label, and reload.\n   *\n   * The server rewrites every subscription that carried the old word, so the rows the browser is\n   * holding are stale the moment this succeeds — unlike a style change, this one has to refetch.\n   */",
     "/**\n   * One action over the selected rows, then a full reload.\n   *\n   * The reload is not laziness: `deactivate` changes every countdown colour and `set_category` moves\n   * rows between the rail's counts, and patching all of that locally would be a second implementation\n   * of the summary that can disagree with the first.\n   */",
     "/** Swap one registry list after the server hands back the whole thing it just changed. */",
+    "// The dashboard's numbers are computed by the server from these settings — the total currency, the",
+    "// ceiling, a pinned rate — so a saved setting that stops at this store leaves every figure on screen",
+    "// still saying what the older choice said. The bundle is read again for that reason.",
   ]],
   ["src/client/features/subscriptions/subscription-detail-spend.test.ts", [
     "/**\n * The money one plan has cost, drawn where the plan is read.\n *\n * The dashboard counts the account; this panel counts a single row, and the two are only trustworthy while\n * they mean the same thing. Pinned here: the receipts are counted per year and per currency rather than\n * merged into a number with no unit, and the yearly projection is the price the plan quotes times the times\n * it charges — not a sum of what happened to arrive.\n *\n * What jsdom cannot tell anyone: how wide the strip gets when four years of history wrap, and whether the\n * chips stay legible against the panel's background.\n */",

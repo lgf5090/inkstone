@@ -65,6 +65,8 @@ export function AssistantDock({ surface = 'notebook', subscription = null }: {
   const newConversation = useAssistant((state) => state.newConversation)
   const setNoteContext = useAssistant((state) => state.setNoteContext)
   const setFolderContext = useAssistant((state) => state.setFolderContext)
+  const noteContextOn = useAssistant((state) => state.noteContextOn)
+  const activeNoteId = useUi((state) => state.activeNoteId)
   const sendOnEnter = useAssistant((state) => state.settings?.sendOnEnter ?? true)
   const blocked = useAssistant((state) => !state.settings?.activeModelId && !state.settings?.offlineMode)
   const fileIndex = useAssistant((state) => state.fileIndex)
@@ -115,11 +117,22 @@ export function AssistantDock({ surface = 'notebook', subscription = null }: {
     if (el && stickToBottom.current) el.scrollTop = el.scrollHeight
   }, [messages.length, turnHere?.text, turnHere?.tools.length])
 
-  const suggestions = useMemo(() => [
-    'assistant.dock.suggest_summary',
-    'assistant.dock.suggest_questions',
-    'assistant.dock.suggest_next',
-  ] as const, [])
+  const suggestions = surface === 'subscriptions'
+    ? ['assistant.dock.suggest_due', 'assistant.dock.suggest_cost', 'assistant.dock.suggest_remind'] as const
+    : ['assistant.dock.suggest_summary', 'assistant.dock.suggest_questions', 'assistant.dock.suggest_next'] as const
+
+  /**
+   * What the empty thread says about itself.
+   *
+   * The guidance used to promise that the note under the reader's eyes was already in context on every
+   * surface, which in the money app named a thing that was not there and a chip that was deliberately not
+   * drawn. It now names what this dock is actually carrying: the plan, the note, or nothing yet.
+   */
+  const hint = attached
+    ? t('assistant.dock.hint_plan', { name: attached.name })
+    : surface === 'notebook' && noteContextOn && activeNoteId
+      ? t('assistant.dock.hint')
+      : t('assistant.dock.hint_page')
 
   return (
     <aside
@@ -182,7 +195,7 @@ export function AssistantDock({ surface = 'notebook', subscription = null }: {
         ) : empty ? (
           <div className="flex flex-col gap-3 px-3 py-6">
             <p className="text-[length:var(--text-12)] leading-relaxed text-[var(--text-tertiary)]">
-              {t('assistant.dock.hint')}
+              {hint}
             </p>
             <ul className="flex flex-col gap-1">
               {suggestions.map((key) => (
