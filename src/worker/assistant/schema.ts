@@ -473,6 +473,13 @@ export const ASSISTANT_SCHEMA_STATEMENTS: readonly string[] = [
    * nudge for this row, and it is what makes a later cron catch-up fire idempotent. Null means "no device
    * ever accepted one" — including every row written before Web Push existed, which is the honest reading
    * rather than a backfill that would claim a send that never happened.
+   *
+   * `link` is where the thing the notice is about lives, spelled `<app>:<id>` — `todo:<task id>` today. It
+   * is deliberately not a URL: a stored address would let whatever wrote the row point a reader's press at
+   * a site this deployment never chose, and the client is the one that knows how to reach a task, what a
+   * task it cannot read falls back to, and that the address it opens is same-origin by construction. Null
+   * means the notice is only a message — a digest, a finished run — and pressing it expands the row instead
+   * of moving the reader.
    */
   `CREATE TABLE IF NOT EXISTS chat_notifications (
     user_id TEXT NOT NULL,
@@ -480,6 +487,7 @@ export const ASSISTANT_SCHEMA_STATEMENTS: readonly string[] = [
     title TEXT NOT NULL,
     body TEXT NOT NULL DEFAULT '',
     automation_id TEXT,
+    link TEXT,
     read_at INTEGER,
     created_at INTEGER NOT NULL,
     pushed_at INTEGER,
@@ -767,7 +775,7 @@ export const ASSISTANT_REQUIRED_COLUMNS: Readonly<Record<string, readonly string
   chat_memory_reviews: ['user_id', 'id', 'memory_id', 'other_id', 'relationship', 'reason', 'created_at'],
   chat_automations: ['user_id', 'id', 'name', 'kind', 'message', 'schedule', 'enabled', 'status', 'next_run', 'last_run', 'last_result', 'last_error', 'run_count', 'claimed_at', 'target_folder_id', 'target_note_id', 'created_at', 'updated_at'],
   chat_runs: ['user_id', 'id', 'automation_id', 'automation_name', 'started_at', 'finished_at', 'status', 'result', 'error', 'note_id'],
-  chat_notifications: ['user_id', 'id', 'title', 'body', 'automation_id', 'read_at', 'created_at', 'pushed_at'],
+  chat_notifications: ['user_id', 'id', 'title', 'body', 'automation_id', 'link', 'read_at', 'created_at', 'pushed_at'],
   chat_push_subscriptions: ['user_id', 'id', 'endpoint', 'p256dh', 'auth', 'created_at', 'failures', 'last_error'],
   chat_pending_actions: ['user_id', 'id', 'conversation_id', 'tool', 'target_id', 'target_label', 'args', 'status', 'error', 'created_at', 'expires_at', 'resolved_at'],
   chat_usage_daily: ['user_id', 'day', 'requests', 'input_tokens', 'output_tokens', 'tool_calls', 'scheduled_runs', 'embeddings', 'errors'],

@@ -1702,6 +1702,24 @@ export const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
       `ALTER TABLE chat_messages ADD COLUMN suggestions TEXT NOT NULL DEFAULT '[]'`,
     ],
   },
+  {
+    // Where a delivered notice was about.
+    //
+    // A reminder said what had happened and whether the reader had looked, and nothing said where the thing
+    // itself lives — so pressing it could only ever open a list, which is the half of the loop that makes a
+    // reminder worth having. `link` carries `<app>:<id>`, `todo:<task id>` first, and it is an app-and-id
+    // pair rather than a URL on purpose: a stored address would let whatever wrote the row aim a reader's
+    // press at a site this deployment never chose, while the client resolves the pair inside its own origin
+    // and already knows what to do with a task it cannot read. Nullable with no default because a digest, a
+    // finished run and every row written before this column all genuinely point nowhere — an honest absence,
+    // and the reading the notification centre expands instead of navigating on. One column, one version; no
+    // index, since the only reader reaches the row by the primary key it already has.
+    version: 110,
+    skipIfColumnExists: { table: 'chat_notifications', column: 'link' },
+    statements: [
+      `ALTER TABLE chat_notifications ADD COLUMN link TEXT`,
+    ],
+  },
 ]
 
 const FTS_STATEMENT = `CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(

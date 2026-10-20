@@ -310,6 +310,16 @@ const ATTACHMENT_DELETE_BATCH = 200
  */
 const ID_READ_BATCH = 90
 
+/**
+ * How long a notification's pointer may be.
+ *
+ * The column holds `<app>:<id>`, which is a couple of dozen characters in every shape written today; the
+ * ceiling is there because the writer is a Worker that may be handed a string it did not build, and a
+ * pointer that has been allowed to become a paragraph is no longer a pointer. Clamped on the way in rather
+ * than refused, so one badly-formed pointer cannot cost the reader the notice it was carried with.
+ */
+const NOTIFICATION_LINK_MAX_CHARS = 200
+
 /** How much of a matched message the search row shows, on each side of the hit. */
 const SEARCH_SNIPPET_RADIUS = 40
 
@@ -4460,7 +4470,7 @@ export class AssistantStore {
 
   // ----------------------------------------------------------- notifications
 
-  async listNotifications(opts: { unreadOnly?: boolean, limit?: number } = {}): Promise<AssistantNotification[]> {
+  async listNotifications(opts: { unreadOnly?: boolean, limit?: number } = {}): Promise<AssistantNotificationWithLink[]> {
     const q = new Query(this.userId)
     if (opts.unreadOnly) q.raw(`read_at IS NULL`)
     const limit = q.add(opts.limit ?? 50)
@@ -4471,17 +4481,31 @@ export class AssistantStore {
     return list.map(toNotification)
   }
 
-  async createNotification(input: { title: string, body: string, automationId?: string | null }): Promise<AssistantNotification> {
+  async createNotification(input: {
+    title: string
+    body: string
+    automationId?: string | null
+    /**
+     * Where the notice is about, as `<app>:<id>` — `todo:<task id>` first.
+     *
+     * Not a URL, and not the caller's to shape: the client resolves the pair inside its own origin, so a
+     * writer cannot aim a reader's press somewhere this deployment never chose. Absent or blank is a notice
+     * that points nowhere — a digest, a finished run — which the notification centre expands instead of
+     * navigating on. Clamped like the title, because the column is a pointer and not a place to park text.
+     */
+    link?: string | null
+  }): Promise<AssistantNotificationWithLink> {
     const id = newId()
     const at = Date.now()
     const title = input.title.slice(0, 200)
     const body = input.body.slice(0, 8000)
+    const link = (input.link ?? '').trim().slice(0, NOTIFICATION_LINK_MAX_CHARS) || null
     await this.write(
-      `INSERT INTO chat_notifications (id, user_id, title, body, automation_id, created_at)
-       VALUES (?2, ?1, ?3, ?4, ?5, ?6)`,
-      id, title, body, input.automationId ?? null, at,
+      `INSERT INTO chat_notifications (id, user_id, title, body, automation_id, link, created_at)
+       VALUES (?2, ?1, ?3, ?4, ?5, ?6, ?7)`,
+      id, title, body, input.automationId ?? null, link, at,
     )
-    return { id, title, body, automationId: input.automationId ?? null, readAt: null, createdAt: at }
+    return { id, title, body, automationId: input.automationId ?? null, link, readAt: null, createdAt: at }
   }
 
   async unreadCount(): Promise<number> {
@@ -5831,7 +5855,12 @@ const EXPORT_COLUMNS: Readonly<Record<string, readonly string[]>> = {
   // notifications the new devices were never told about and a marker saying they were — the reader would get
   // no nudge for news they have not seen, which is the quiet direction of the mistake this table has made
   // twice before for the opposite reason.
-  chat_notifications: ['id', 'title', 'body', 'automation_id', 'read_at', 'created_at'],
+  //
+  // `link` does travel, and that is a decision rather than an oversight: it is the notice's own statement of
+  // what it was about, the reader's press is what reads it, and the tasks it points at are in this same file.
+  // A restore that brought back a reminder and threw away its pointer would leave a notice that looks the
+  // same and does less than the one the reader had.
+  chat_notifications: ['id', 'title', 'body', 'automation_id', 'link', 'read_at', 'created_at'],
 }
 
 /**
@@ -6579,16 +6608,28 @@ interface NotificationRow {
   title: string
   body: string | null
   automation_id: string | null
+  link: string | null
   read_at: number | null
   created_at: number
 }
 
-function toNotification(r: NotificationRow): AssistantNotification {
+/**
+ * A delivered notice, with the pointer it carries.
+ *
+ * `AssistantNotification` in `@shared/assistant` is the shape the client is typed against and does not name
+ * `link` yet, so the field is widened here rather than passed as an untyped extra the reader of a list cannot
+ * see. It is a local truth: every consumer of these two methods gets the pointer, and the shared interface
+ * catching up is what retires this name.
+ */
+type AssistantNotificationWithLink = AssistantNotification & { link: string | null }
+
+function toNotification(r: NotificationRow): AssistantNotificationWithLink {
   return {
     id: r.id,
     title: r.title,
     body: r.body ?? '',
     automationId: r.automation_id,
+    link: r.link ?? null,
     readAt: num(r.read_at),
     createdAt: r.created_at,
   }
