@@ -10,4 +10,9 @@ export const EN_US_TODO_NOTIFY = {
   title: 'Task reminder',
   due: 'Due {when}',
   noDue: 'A reminder for this task',
+  digestSummary: '{today} due today, {overdue} overdue',
+  digestOverdue: 'Overdue',
+  digestToday: 'Today',
+  digestNone: 'Nothing is due today.',
+  digestRest: '{count} more open',
 }
