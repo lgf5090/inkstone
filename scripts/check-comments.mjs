@@ -21438,6 +21438,14 @@ const allowed = new Map([
     "/** What a subscription looks like to the model: the fields a question about money or dates actually needs. */",
     "/**\n * The reminder shorthand, in both directions.\n *\n * A tool argument that is an array of objects would need `FieldSpec` to grow an array kind, and the model\n * would need to get three nested fields right per rule. `7d,3d,1d,on` is one string it can write from\n * what the reader said, and anything it cannot express is refused with the accepted shapes named back.\n */",
     "/** A subscription by id or by the name the reader used. Ambiguity is answered, never guessed at. */",
+    "// A reader who registered nothing gets the built-in presets instead, and saying so keeps the",
+    "// model from reporting an empty registry to somebody who has forty types on screen.",
+    "// The inbound token hint is deliberately left out: it is a fragment of a credential, and a tool",
+    "// result travels to the model provider with the rest of the turn.",
+    "// A ceiling is one of the few settings where \"no value\" is the answer the reader means, and a number",
+    "// field cannot carry that, so clearing it is its own verb rather than a zero.",
+    "// The bulk write reports the rows it touched, not the rows whose state moved, so a repeat of the",
+    "// same switch would answer \"done\" while changing nothing. The refusal is read off the row first.",
   ]],
   ["src/worker/assistant/upstream.ts", [
     "/** A JSON Schema object, built by `toolSchemaFor` from the tool's own declared parameters. */",
@@ -24665,6 +24673,7 @@ const allowed = new Map([
     "/**\n   * The destructive verb is the trash, not the erasure, and this pins that in both directions: the row\n   * and its receipts survive an approved delete, and `restore_subscription` puts it back.\n   */",
     "/**\n   * What a model can see of the trash.\n   *\n   * A live test asked for a restore and was told, confidently, that nothing had been deleted — because\n   * `list_subscriptions` had no word for the trash and the closest-sounding filter (`disabled`) is a\n   * different thing entirely. The reader can see the count in the rail; the assistant could not.\n   */",
     "/**\n   * The fields the row carries but the tools used to be unable to name.\n   *\n   * `update_subscription` read `startDate` without declaring it, so every attempt to move a plan's start\n   * was accepted, echoed back as success, and thrown away by the argument filter. A model cannot be blamed\n   * for reporting a change it was told had happened, which is why this asserts the stored row rather than\n   * the call's shape.\n   */",
+    "/**\n   * The two things a conversation could previously not ask about at all: which names the reader already\n   * uses, and how the app is configured. Both are on screen in the app itself, so a model that could not\n   * read them had to either refuse the question or invent an answer.\n   */",
   ]],
   ["tests/assistant-tag-search-shape.test.ts", [
     "/**\n * A pinned `#tag` has to narrow the keyword half of a note search, not empty it.\n *\n * A turn's scope keeps tags as *ids* — the shape the folder pins and the permission check use — while the\n * retriever filters both of its lists by tag *name*: the keyword half turns `tags` into `tag:\"…\"` terms,\n * and both halves then run the app's one tag-subtree rule (`tagScopePredicate()`, which `semanticWhere` in\n * `mcp/ai-search.ts` calls for the vector list too). Handing the ids over was therefore a filter no note\n * can satisfy: a reader pinning `#meeting` got a keyword half that was always empty, and on an index that\n * is switched on the only hits left came from the vector list, which is the \"it matched but nothing says\n * why\" answer.\n *\n * The vector half is switched off in every case below, so any hit at all can only have come from keywords.\n */",

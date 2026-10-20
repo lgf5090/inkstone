@@ -262,3 +262,48 @@ describe('deleting from a conversation', () => {
     await expect(run('restore_subscription', { ref: 'Spotify' })).rejects.toThrow(/Netflix/)
   })
 })
+
+describe('the account behind the rows', () => {
+  /**
+   * The two things a conversation could previously not ask about at all: which names the reader already
+   * uses, and how the app is configured. Both are on screen in the app itself, so a model that could not
+   * read them had to either refuse the question or invent an answer.
+   */
+  it('reads the registered label names, and says when the registry is empty', async () => {
+    await seedSubscription()
+    const types = await run('list_subscription_labels', { kind: 'type' }) as { labels: Array<{ name: string }>, note?: string }
+    expect(types.labels.map((label) => label.name)).toContain('流媒体')
+    expect(types.note, 'a populated registry gets no empty-state note').toBeUndefined()
+
+    const categories = await run('list_subscription_labels', { kind: 'category' }) as { labels: Array<{ name: string }> }
+    expect(categories.labels.map((label) => label.name)).toContain('娱乐')
+  })
+
+  it('sets the ceiling and the total currency, and refuses a zone that is not one', async () => {
+    const saved = await run('set_subscription_settings', { budgetMonthly: 300, baseCurrency: 'USD' }) as { budgetMonthly: number, baseCurrency: string }
+    expect(saved).toMatchObject({ budgetMonthly: 300, baseCurrency: 'USD' })
+    const read = await run('get_subscription_settings', {}) as { budgetMonthly: number, budgetNote?: string }
+    expect(read.budgetMonthly).toBe(300)
+
+    const cleared = await run('set_subscription_settings', { clearBudget: true }) as { budgetMonthly: number | null, budgetNote?: string }
+    expect(cleared.budgetMonthly, 'clearing is a real answer, not zero').toBeNull()
+    expect(cleared.budgetNote).toMatch(/No monthly ceiling/)
+
+    await expect(run('set_subscription_settings', { timezone: 'Shanghai' }))
+      .rejects.toThrow(/Asia\/Shanghai/)
+    await expect(run('set_subscription_settings', { notificationHours: '8,25' }))
+      .rejects.toThrow(/0 to 23/)
+    await expect(run('set_subscription_settings', {})).rejects.toThrow(/at least one setting/)
+  })
+
+  it('switches tracking off without touching the trash, and says so when nothing changed', async () => {
+    await seedSubscription()
+    const off = await run('set_subscription_active', { ref: 'Netflix', active: false }) as { updated: { isActive: boolean } }
+    expect(off.updated.isActive).toBe(false)
+    expect((await run('list_subscriptions', {})) as { total: number }).toBeTruthy()
+    await expect(run('set_subscription_active', { ref: 'Netflix', active: false }))
+      .rejects.toThrow(/already switched off/)
+    const on = await run('set_subscription_active', { ref: 'Netflix', active: true }) as { updated: { isActive: boolean } }
+    expect(on.updated.isActive).toBe(true)
+  })
+})

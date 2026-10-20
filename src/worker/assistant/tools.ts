@@ -28,7 +28,7 @@ import { createMcpNote, editMcpNote, trashMcpNote } from '../mcp/writes'
 import { readMcpNote, searchMcpNotes } from '../mcp/retrieval'
 import { buildOverview } from '../subscriptions/overview'
 import { normalizeColor, normalizeIcon } from '@shared/subscriptions/identity'
-import { listChannels, loadSettings } from '../subscriptions/settings'
+import { listChannels, loadSettings, saveSettings } from '../subscriptions/settings'
 import { SubscriptionsStore, storeContext, type StoreContext } from '../subscriptions/store'
 import {
   CURRENCY_CODES,
@@ -1712,6 +1712,135 @@ export const SUBSCRIPTION_TOOLS: ToolDefinition[] = [
       const label = await store.setLabelStyle(kind, name, { icon, color })
       if (!label) throw new ToolError('That label could not be saved.')
       return { label }
+    },
+  }),
+  tool({
+    name: 'list_subscription_labels',
+    permission: 'read',
+    maxCallsPerTurn: 2,
+    description: 'The type or category names the reader has registered, each with the icon and colour the app draws for it. Read this before naming a label in another tool: a type the reader already has, spelled differently, becomes a second identity for the same service.',
+    fields: {
+      kind: { type: 'string', enum: ['type', 'category'], description: 'Which list to read. A subscription has one type and may carry several categories.' },
+    },
+    async run(args, ctx) {
+      const { store } = await subscriptionAccess(ctx)
+      const kind = args.kind === 'category' ? 'category' : 'type'
+      const labels = await store.listLabels(kind)
+      return {
+        kind,
+        total: labels.length,
+        // A reader who registered nothing gets the built-in presets instead, and saying so keeps the
+        // model from reporting an empty registry to somebody who has forty types on screen.
+        note: labels.length === 0
+          ? 'Nothing is registered under this kind yet; the app is drawing its built-in suggestions.'
+          : undefined,
+        labels: labels.map((entry) => ({ name: entry.name, icon: entry.icon || null, color: entry.color || null })),
+      }
+    },
+  }),
+  tool({
+    name: 'get_subscription_settings',
+    permission: 'read',
+    maxCallsPerTurn: 2,
+    description: 'How the subscriptions app is configured for this reader: the time zone reminders are judged in, the hours it may send them in, whether dates are shown by the lunar calendar, how many receipts a row carries, the currency the dashboard totals in, and the monthly ceiling they set. Carrying no answer for one of these is a real fact about the account, so name it rather than guessing.',
+    fields: {},
+    async run(_args, ctx) {
+      const settings = await loadSettings(ctx.env.DB, ctx.store.userId)
+      // The inbound token hint is deliberately left out: it is a fragment of a credential, and a tool
+      // result travels to the model provider with the rest of the turn.
+      return {
+        timezone: settings.timezone,
+        notificationHours: settings.notificationHours,
+        showLunar: settings.showLunar,
+        paymentHistoryLimit: settings.paymentHistoryLimit,
+        locale: settings.locale,
+        baseCurrency: settings.baseCurrency,
+        budgetMonthly: settings.budgetMonthly,
+        budgetNote: settings.budgetMonthly === null
+          ? 'No monthly ceiling is set, so the dashboard never calls a month over budget.'
+          : undefined,
+      }
+    },
+  }),
+  tool({
+    name: 'set_subscription_settings',
+    permission: 'write',
+    maxCallsPerTurn: 2,
+    description: 'Change how the subscriptions app behaves for this reader. Only what is named is touched. `timezone` must be a real IANA zone such as Asia/Shanghai, and `notificationHours` is which hours of the reader\'s own day reminders may arrive in.',
+    fields: {
+      timezone: { type: 'string', maxLength: 40, optional: true, description: 'An IANA zone name, for example Asia/Shanghai or Europe/Berlin.' },
+      notificationHours: { type: 'string', maxLength: 80, optional: true, description: 'Comma-separated hours of the day the reader may be woken with a reminder, such as "9,10,19,20". Send "all" for no window, or "none" to stay quiet.' },
+      showLunar: { type: 'boolean', optional: true },
+      paymentHistoryLimit: { type: 'integer', minimum: 1, maximum: 200, optional: true },
+      baseCurrency: { type: 'string', enum: [...CURRENCY_CODES], optional: true },
+      budgetMonthly: { type: 'number', minimum: 0, maximum: 1e9, optional: true },
+      clearBudget: { type: 'boolean', optional: true, description: 'True removes the monthly ceiling altogether. Leave it out to keep or set one.' },
+    },
+    async run(args, ctx) {
+      const patch: Record<string, unknown> = {}
+      if (typeof args.timezone === 'string') patch.timezone = args.timezone
+      if (typeof args.showLunar === 'boolean') patch.showLunar = args.showLunar
+      if (args.paymentHistoryLimit !== undefined) patch.paymentHistoryLimit = Number(args.paymentHistoryLimit)
+      if (typeof args.baseCurrency === 'string') patch.baseCurrency = args.baseCurrency
+      if (typeof args.notificationHours === 'string') {
+        const text = args.notificationHours.trim().toLocaleLowerCase()
+        if (text === 'none') patch.notificationHours = []
+        else if (text === 'all' || !text) patch.notificationHours = Array.from({ length: 24 }, (_, hour) => String(hour))
+        else {
+          const hours = text.split(',').map((part) => part.trim()).filter(Boolean)
+          if (!hours.every((part) => /^\d{1,2}$/.test(part) && Number(part) >= 0 && Number(part) <= 23)) {
+            throw new ToolError(`"${args.notificationHours}" is not a list of hours. Name the hours as numbers 0 to 23, such as "9,10,19,20", or send "all" or "none".`)
+          }
+          patch.notificationHours = [...new Set(hours)]
+        }
+      }
+      // A ceiling is one of the few settings where "no value" is the answer the reader means, and a number
+      // field cannot carry that, so clearing it is its own verb rather than a zero.
+      if (args.clearBudget === true) patch.budgetMonthly = null
+      else if (args.budgetMonthly !== undefined) patch.budgetMonthly = Number(args.budgetMonthly)
+      if (!Object.keys(patch).length) throw new ToolError('Name at least one setting to change.')
+      let settings
+      try {
+        settings = await saveSettings(ctx.env.DB, ctx.store.userId, patch)
+      } catch (error) {
+        const reason = error instanceof Error ? error.message : String(error)
+        throw new ToolError(reason === 'invalid_timezone'
+          ? `"${String(args.timezone)}" is not a time zone the app accepts. Use an IANA name such as Asia/Shanghai, Europe/Berlin or America/New_York.`
+          : `That setting could not be saved: ${reason.slice(0, 160)}`)
+      }
+      return {
+        timezone: settings.timezone,
+        notificationHours: settings.notificationHours,
+        showLunar: settings.showLunar,
+        paymentHistoryLimit: settings.paymentHistoryLimit,
+        baseCurrency: settings.baseCurrency,
+        budgetMonthly: settings.budgetMonthly,
+        budgetNote: settings.budgetMonthly === null
+          ? 'No monthly ceiling is set, so the dashboard never calls a month over budget.'
+          : undefined,
+      }
+    },
+  }),
+  tool({
+    name: 'set_subscription_active',
+    permission: 'write',
+    maxCallsPerTurn: 3,
+    description: 'Switch one subscription\'s tracking on or off. Off keeps the row and its receipts and stops reminders for it — it is not the trash, which is what `delete_subscription` is for.',
+    fields: {
+      ref: { type: 'string', minLength: 1, maxLength: 120 },
+      active: { type: 'boolean', description: 'False stops reminders and renewal counting for it; true starts them again.' },
+    },
+    async run(args, ctx) {
+      const { store, context, detail } = await resolveSubscriptionOrThrow(args.ref, ctx)
+      const active = args.active === true
+      // The bulk write reports the rows it touched, not the rows whose state moved, so a repeat of the
+      // same switch would answer "done" while changing nothing. The refusal is read off the row first.
+      if (detail.item.isActive === active) {
+        throw new ToolError(`That subscription is already ${active ? 'switched on' : 'switched off'}.`)
+      }
+      await store.bulk([detail.item.id], active ? 'activate' : 'deactivate')
+      const after = await store.get(detail.item.id, context)
+      return { updated: after ? presentSubscription(after.item) : null }
     },
   }),
   tool({
