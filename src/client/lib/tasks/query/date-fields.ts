@@ -210,10 +210,6 @@ class HappensField extends DateField {
       .sort((a, b) => a.getTime() - b.getTime())
     return dates[0] ?? null
   }
-
-  override supportsGrouping(): boolean {
-    return false
-  }
 }
 
 export const happensDateField = new HappensField()

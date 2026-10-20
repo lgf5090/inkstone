@@ -17619,10 +17619,15 @@ const allowed = new Map([
     "/**\n * Run a parsed query over the tasks the index can see.\n *\n * `globalFilter` is the vault's own rule about which lines count as tasks at all: it is applied here\n * rather than in the scanner, because the scanner must still understand every checkbox in a note the\n * reader is editing, while a list can be scoped. A block that says `ignore global query` opts out.\n */",
     "// Tags are not one of the line's ordered components — they ride inside the words — so they get their",
     "// own switch rather than pretending to be a field the serializer writes.",
+    "/**\n * `sort by random`, the one order with no field behind it.\n *\n * The draw happens once per task per query, not once per comparison: a comparator that asked for a new\n * number each time would disagree with itself, and a sort that disagrees with itself lands anywhere.\n * The draw is a parameter for the same reason — a test can hand it a fixed sequence and assert the\n * order it produced.\n */",
+    "/** Apply one `hide`/`show` option, and say whether the name meant anything at all. */",
   ]],
   ["src/client/lib/tasks/query/status-fields.ts", [
-    "/** Ordered: `status.name` and `status.type` must be tried before the bare `status`. */",
     "/**\n * `done` and `not done`, the two instructions almost every task query opens with.\n *\n * `not done` is the complement of the status's own \"finished\" answer, so a cancelled task is *not*\n * listed: the two are finished to a reader's eye, and the list a `not done` query feeds is the one of\n * things still to act on. A reader who wants cancelled work back asks for it directly with\n * `status.type is not CANCELLED`, or filters on the `cancelled` date.\n */",
+    "/**\n * `sort by status` and `group by status`: the coarse question behind the two named fields.\n *\n * The bare spelling buckets by \"is this finished at all\" — everything a query counts as done groups as\n * `Done`, the rest as `Todo` — which is what readers of the older spelling expect; `status.type` is the\n * one that answers with the six types. It carries no filter of its own, because `done` / `not done`\n * above already answer it.\n */",
+    "// The unfinished bucket sorts first: a list asked to order itself by status is read as work",
+    "// remaining, and the reference implementation puts it there too.",
+    "/**\n * Ordered: `status.name` and `status.type` must be reached before the bare `status`, whose sorter\n * pattern is not anchored at the end and would otherwise swallow both.\n */",
   ]],
   ["src/client/lib/tasks/query/text-fields.ts", [
     "/** `has tag(s)` / `no tag(s)`, which the four text comparisons cannot express. */",
@@ -17631,6 +17636,14 @@ const allowed = new Map([
     "/**\n * The order the parser tries, which is not alphabetical.\n *\n * A specific instruction must be reached before a looser one that would also match it: `has id`\n * before `id includes`, `tag` before any field whose name starts the same way.\n */",
     "// Descending: urgency is a score where louder means more urgent, so the reader who asks",
     "// for it wants the pressing task first rather than last.",
+    "/** The instruction spells the field plural when it groups: `group by tags`. */",
+    "/** `sort by tag`, `sort by tag 2`, and either with `reverse`. */",
+    "/**\n * Order two tasks by their n-th tag, counting from one the way a reader names them.\n *\n * A task with fewer tags than `which` is asked for is placed after one that has that many: the reader\n * who sorts by the second tag wants the tasks that *have* one in front of the ones that cannot answer.\n */",
+    "// A task with no id is not \"before\" the named ones alphabetically — it has no place in that",
+    "// ordering at all, so it goes last rather than masquerading as the smallest string.",
+    "/**\n * `group by backlink`: the file a task was read out of, which is the label a grouped list already\n * prints next to each row.\n *\n * It has no filter of its own — `path includes …` says the same thing with an operator — so this is\n * one field that exists only to be grouped by.\n */",
+    "/**\n * `exclude sub-items`: keep the list items that are not nested under another one.\n *\n * A line indented under a bullet is somebody's sub-task, and the query that lists \"everything to do\"\n * does not want it twice. A blockquote's own `>` is not nesting, which is why the indentation is read\n * rather than simply tested for being empty.\n */",
+    "// One space after the `>` is how a blockquote is written; a second one is a nested list item.",
   ]],
   ["src/client/lib/tasks/query/values.ts", [
     "/**\n * What a task means to a query: the task itself plus the note-level facts a filter may need.\n *\n * `allTasks` is carried because `is blocked` cannot be answered from one task alone — it has to ask\n * whether the task id it depends on is finished anywhere in the result set.\n */",
@@ -26446,6 +26459,12 @@ const allowed = new Map([
   ["tests/tag-pin-route.test.ts", [
     "// Typed as the context `app.fetch` actually declares, so every field the route may read has to be",
     "// there: the ambient Workers interface is wider than hono needs and cannot be faked outside a Worker.",
+  ]],
+  ["tests/tasks-query-language.test.ts", [
+    "/**\n * The acceptance list for the `tasks` query language, as one runnable gate.\n *\n * §4.3 of the port plan is the contract this engine was written against, and a contract nobody can\n * re-check drifts. Every family there appears here at least once, and the lines the plan says the\n * engine does *not* implement are pinned as refusals — an instruction that starts being accepted is\n * a change to the language, and so is one that stops being.\n */",
+    "/** The same fields, spelled as the presence instructions spell them: `starts before`, but `has start date`. */",
+    "/** Every line the language owes its readers, generated rather than hand-picked so a family cannot be forgotten. */",
+    "// The relation keyword is optional in the reference grammar, so a bare date means \"on\".",
   ]],
   ["tests/template-library-route.test.ts", [
     "// Every field hono's request handler declares, so the fake cannot hand the route less than the real",

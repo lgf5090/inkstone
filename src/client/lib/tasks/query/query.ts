@@ -2,7 +2,7 @@ import { TaskLayoutComponent, TaskLayoutOptions } from '../layout/task-layout'
 import { expandPreset, type PresetContext } from './presets'
 import { booleanField } from './boolean-field'
 import { SIMPLE_FIELDS, parseSimpleFilterInstruction } from './instructions'
-import { compareGroupKeys, type Comparator, type Grouper, type SearchInfo, type Sorter } from './values'
+import { compareGroupKeys, makeSorter, type Comparator, type Grouper, type SearchInfo, type Sorter } from './values'
 import type { Task } from '../model/task'
 
 /** A line after continuations have been joined, kept with its original text for `explain`. */
@@ -162,7 +162,10 @@ function applyLine(parsed: ParsedQuery, line: string, now: Date): void {
 
   const hide = /^(hide|show) +(.*)$/i.exec(line)
   if (hide) {
-    applyVisibility(parsed.layout, hide[1]!.toLowerCase(), hide[2]!.trim().toLowerCase())
+    const option = hide[2]!.trim().toLowerCase()
+    if (!applyVisibility(parsed.layout, hide[1]!.toLowerCase(), option)) {
+      parsed.errors.push(`do not understand ${hide[1].toLowerCase()} option: ${hide[2]}`)
+    }
     return
   }
 
@@ -203,11 +206,35 @@ function parseFilterLine(line: string, now: Date) {
 }
 
 function createSorterFromLine(rest: string): Sorter | null {
+  const random = /^random( reverse)?$/i.exec(rest)
+  if (random !== null) return randomSorter(Boolean(random[1]))
   for (const field of SIMPLE_FIELDS) {
     const found = field.createSorterFromLine(`sort by ${rest}`)
     if (found !== null) return found
   }
   return null
+}
+
+/**
+ * `sort by random`, the one order with no field behind it.
+ *
+ * The draw happens once per task per query, not once per comparison: a comparator that asked for a new
+ * number each time would disagree with itself, and a sort that disagrees with itself lands anywhere.
+ * The draw is a parameter for the same reason — a test can hand it a fixed sequence and assert the
+ * order it produced.
+ */
+function randomSorter(reverse: boolean, draw: () => number = Math.random): Sorter {
+  const order = new Map<string, number>()
+  const rank = (task: Task): number => {
+    const key = `${task.location.path}:${task.location.lineNumber}:${task.fields.description}`
+    const seen = order.get(key)
+    if (seen !== undefined) return seen
+    const value = draw()
+    order.set(key, value)
+    return value
+  }
+  return makeSorter(`sort by random${reverse ? ' reverse' : ''}`, 'random',
+    (a, b) => (rank(a) - rank(b)) * (reverse ? -1 : 1), reverse)
 }
 
 function createGrouperFromLine(rest: string): Grouper | null {
@@ -218,27 +245,29 @@ function createGrouperFromLine(rest: string): Grouper | null {
   return null
 }
 
-function applyVisibility(layout: QueryLayout, verb: string, option: string): void {
+/** Apply one `hide`/`show` option, and say whether the name meant anything at all. */
+function applyVisibility(layout: QueryLayout, verb: string, option: string): boolean {
   const show = verb === 'show'
   // Tags are not one of the line's ordered components — they ride inside the words — so they get their
   // own switch rather than pretending to be a field the serializer writes.
   if (option.startsWith('tags')) {
     layout.taskLayout.setTagsVisibility(show)
-    return
+    return true
   }
   for (const [key, component] of HIDEABLE_COMPONENTS) {
     if (option.startsWith(key)) {
       layout.taskLayout.setVisibility(component, show)
-      return
+      return true
     }
   }
   for (const part of QUERY_PARTS) {
     if (option.startsWith(part)) {
       if (show) layout.hiddenQueryParts.delete(part)
       else layout.hiddenQueryParts.add(part)
-      return
+      return true
     }
   }
+  return false
 }
 
 /** `status.type`, then urgency, then due, then priority, then path. */

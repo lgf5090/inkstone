@@ -106,9 +106,50 @@ class StatusTypeField extends Field {
   }
 }
 
+/**
+ * `sort by status` and `group by status`: the coarse question behind the two named fields.
+ *
+ * The bare spelling buckets by "is this finished at all" — everything a query counts as done groups as
+ * `Done`, the rest as `Todo` — which is what readers of the older spelling expect; `status.type` is the
+ * one that answers with the six types. It carries no filter of its own, because `done` / `not done`
+ * above already answer it.
+ */
+class StatusField extends Field {
+  fieldName(): string { return 'status' }
+
+  createFilterOrErrorMessage(line: string): FilterOrErrorMessage {
+    return invalidFilter(`status is sorted or grouped by; filter with done, not done, status.name or status.type - ${line}`)
+  }
+
+  override canCreateFilterForLine(): boolean {
+    return false
+  }
+
+  override supportsSorting(): boolean { return true }
+  comparator(): Comparator {
+    return (a, b) => {
+      const left = a.status.isDone ? 'Done' : 'Todo'
+      const right = b.status.isDone ? 'Done' : 'Todo'
+      // The unfinished bucket sorts first: a list asked to order itself by status is read as work
+      // remaining, and the reference implementation puts it there too.
+      if (left === right) return 0
+      return left < right ? 1 : -1
+    }
+  }
+
+  override supportsGrouping(): boolean { return true }
+  override grouper(): GrouperFunction {
+    return (task) => [task.status.isDone ? 'Done' : 'Todo']
+  }
+}
+
 export const doneField = new DoneField()
 export const statusNameField = new StatusNameField()
 export const statusTypeField = new StatusTypeField()
+export const statusField = new StatusField()
 
-/** Ordered: `status.name` and `status.type` must be tried before the bare `status`. */
-export const STATUS_FIELDS: Field[] = [statusNameField, statusTypeField, doneField]
+/**
+ * Ordered: `status.name` and `status.type` must be reached before the bare `status`, whose sorter
+ * pattern is not anchored at the end and would otherwise swallow both.
+ */
+export const STATUS_FIELDS: Field[] = [statusNameField, statusTypeField, doneField, statusField]

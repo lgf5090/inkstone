@@ -3,7 +3,7 @@ import { urgencyOf } from '../model/urgency'
 import { PRIORITY_NAMES, Priority } from '../model/priority'
 import type { Task } from '../model/task'
 import { Field, MultiTextField, TextField } from './field'
-import { compareGroupKeys, invalidFilter, type Comparator, type FilterOrErrorMessage, type GrouperFunction, type SearchInfo } from './values'
+import { compareGroupKeys, invalidFilter, makeSorter, type Comparator, type FilterOrErrorMessage, type GrouperFunction, type SearchInfo, type Sorter } from './values'
 
 function textOf(read: (task: Task) => string): (task: Task) => string {
   return read
@@ -85,8 +85,54 @@ class TagsField extends MultiTextField {
     return true
   }
 
+  /** The instruction spells the field plural when it groups: `group by tags`. */
+  protected override grouperRegExp(): RegExp {
+    return /^group by tags?( reverse)?$/i
+  }
+
+  override supportsSorting(): boolean {
+    return true
+  }
+
+  /** `sort by tag`, `sort by tag 2`, and either with `reverse`. */
+  protected override sorterRegExp(): RegExp {
+    return /^sort by tag( reverse)?[\s]*(\d+)?/i
+  }
+
+  override createSorterFromLine(line: string): Sorter | null {
+    const matched = this.sorterRegExp().exec(line)
+    if (matched === null) return null
+    const reverse = Boolean(matched[1])
+    const which = matched[2] === undefined ? 1 : Number(matched[2])
+    return makeSorter(line, 'tag', tagComparator(which), reverse)
+  }
+
+  comparator(): Comparator {
+    return tagComparator(1)
+  }
+
   override grouper(): GrouperFunction {
     return (task) => (task.fields.tags.length > 0 ? task.fields.tags : ['(No tags)'])
+  }
+}
+
+/**
+ * Order two tasks by their n-th tag, counting from one the way a reader names them.
+ *
+ * A task with fewer tags than `which` is asked for is placed after one that has that many: the reader
+ * who sorts by the second tag wants the tasks that *have* one in front of the ones that cannot answer.
+ */
+function tagComparator(which: number): Comparator {
+  return (a, b) => {
+    const tagsA = a.fields.tags
+    const tagsB = b.fields.tags
+    if (tagsA.length === 0 && tagsB.length === 0) return 0
+    if (tagsA.length === 0) return 1
+    if (tagsB.length === 0) return -1
+    if (tagsA.length < which && tagsB.length >= which) return 1
+    if (tagsB.length < which && tagsA.length >= which) return -1
+    if (tagsA.length < which && tagsB.length < which) return 0
+    return tagsA[which - 1]!.localeCompare(tagsB[which - 1]!, undefined, { numeric: true })
   }
 }
 
@@ -182,6 +228,17 @@ class RecurrenceRuleField extends TextField {
 class IdField extends TextField {
   fieldName(): string { return 'id' }
   protected matcher() { return textOf((task) => task.fields.id) }
+  override supportsSorting(): boolean { return true }
+  comparator(): Comparator {
+    // A task with no id is not "before" the named ones alphabetically — it has no place in that
+    // ordering at all, so it goes last rather than masquerading as the smallest string.
+    return (a, b) => {
+      if (a.fields.id === b.fields.id) return 0
+      if (a.fields.id === '') return 1
+      if (b.fields.id === '') return -1
+      return compareGroupKeys(a.fields.id, b.fields.id)
+    }
+  }
   override supportsGrouping(): boolean { return true }
   override grouper(): GrouperFunction { return (task) => [task.fields.id === '' ? 'No id' : task.fields.id] }
 }
@@ -301,6 +358,59 @@ class UrgencyField extends Field {
   }
 }
 
+/**
+ * `group by backlink`: the file a task was read out of, which is the label a grouped list already
+ * prints next to each row.
+ *
+ * It has no filter of its own — `path includes …` says the same thing with an operator — so this is
+ * one field that exists only to be grouped by.
+ */
+class BacklinkField extends Field {
+  fieldName(): string { return 'backlink' }
+
+  createFilterOrErrorMessage(line: string): FilterOrErrorMessage {
+    return invalidFilter(`backlink cannot be filtered on; use path or filename - ${line}`)
+  }
+
+  override canCreateFilterForLine(): boolean {
+    return false
+  }
+
+  override supportsGrouping(): boolean { return true }
+  override grouper(): GrouperFunction {
+    return (task) => [task.location.path.split('/').pop() ?? task.location.path]
+  }
+}
+
+/**
+ * `exclude sub-items`: keep the list items that are not nested under another one.
+ *
+ * A line indented under a bullet is somebody's sub-task, and the query that lists "everything to do"
+ * does not want it twice. A blockquote's own `>` is not nesting, which is why the indentation is read
+ * rather than simply tested for being empty.
+ */
+class ExcludeSubItemsField extends Field {
+  fieldName(): string { return 'exclude sub-items' }
+
+  protected override filterRegExp(): RegExp {
+    return /^exclude sub-items$/i
+  }
+
+  createFilterOrErrorMessage(line: string): FilterOrErrorMessage {
+    const matched = this.filterRegExp().exec(line.trim())
+    if (matched === null) return invalidFilter(`unable to parse: ${line}`)
+    return { filter: (task) => !isSubItem(task.indentation), error: null }
+  }
+}
+
+function isSubItem(indentation: string): boolean {
+  if (indentation === '') return false
+  const lastQuote = indentation.lastIndexOf('>')
+  if (lastQuote === -1) return true
+  // One space after the `>` is how a blockquote is written; a second one is a nested list item.
+  return !/^ ?$/.test(indentation.slice(lastQuote + 1))
+}
+
 export const pathField = new PathField()
 export const folderField = new FolderField()
 export const rootField = new RootField()
@@ -317,6 +427,8 @@ export const hasIdField = new HasIdField()
 export const dependsOnField = new DependsOnField()
 export const blockingField = new BlockingField()
 export const urgencyField = new UrgencyField()
+export const backlinkField = new BacklinkField()
+export const excludeSubItemsField = new ExcludeSubItemsField()
 
 /**
  * The order the parser tries, which is not alphabetical.
@@ -341,4 +453,6 @@ export const TEXT_FIELDS: Field[] = [
   folderField,
   pathField,
   urgencyField,
+  backlinkField,
+  excludeSubItemsField,
 ]
