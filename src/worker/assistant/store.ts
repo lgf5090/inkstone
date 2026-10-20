@@ -65,6 +65,7 @@ import {
   type RepeatRule,
   type TaskCounts,
   type TaskList,
+  type TaskSort,
   type TaskStep,
   type TaskTag,
   type TaskView,
@@ -919,7 +920,8 @@ export interface NewTask {
 }
 
 export interface TaskQuery {
-  status?: TaskStatus | 'open' | 'all'
+  /** One status, the two words that stand for a set of them, or the set itself. */
+  status?: TaskStatus | 'open' | 'all' | readonly TaskStatus[]
   view?: TaskView
   projectId?: string
   /** `null` asks for the inbox; leaving it out applies no list filter at all. */
@@ -928,6 +930,12 @@ export interface TaskQuery {
   priority?: TaskPriority
   starred?: boolean
   query?: string
+  /** Only tasks due at or after this instant. An undated task is in no due range. */
+  dueFrom?: number
+  /** Only tasks due before this instant — the bound is the start of the day after the one asked for. */
+  dueTo?: number
+  /** The order the caller wants. Left out, the view decides, which is how a listing has always read. */
+  sort?: TaskSort
   limit?: number
   offset?: number
   /** End of the reader's local day, in UTC milliseconds. */
@@ -947,6 +955,31 @@ type UsageSeriesRow = {
 } & UsageCounters
 
 const TASK_PRIORITY_ORDER = `CASE priority WHEN 'urgent' THEN 0 WHEN 'high' THEN 1 WHEN 'medium' THEN 2 ELSE 3 END`
+
+/**
+ * The order each sort key names, with a tiebreaker written into all of them.
+ *
+ * A page is read by `LIMIT`/`OFFSET`, so rows that share a value have to come out in the same order
+ * twice running: without the `id` tail, the row a second page starts on is whichever one the engine
+ * happened to reach first, and the reader either loses it or reads it twice.
+ */
+const TASK_SORT_ORDERS: Record<TaskSort, string> = {
+  due: `CASE WHEN due_at IS NULL THEN 1 ELSE 0 END, due_at ASC, ${TASK_PRIORITY_ORDER}, created_at ASC, id ASC`,
+  priority: `${TASK_PRIORITY_ORDER}, created_at ASC, id ASC`,
+  created: `created_at DESC, id DESC`,
+  completed: `completed_at DESC, created_at DESC, id DESC`,
+}
+
+/**
+ * The order a listing answers in.
+ *
+ * With no key asked for, the view decides, which is the order a completed list has always had and the
+ * one a plan or a board is read in — dated rows first, soonest first, then anything undated.
+ */
+function taskOrder(sort: TaskSort | undefined, view: TaskView | undefined): string {
+  if (sort) return TASK_SORT_ORDERS[sort]
+  return view === 'completed' ? TASK_SORT_ORDERS.completed : TASK_SORT_ORDERS.due
+}
 
 /** How many rows one page of a backwards read carries, and the size of the newest page `messages` hands back. */
 const MESSAGE_READ_PAGE = 500
@@ -3700,15 +3733,18 @@ export class AssistantStore {
   // ------------------------------------------------------------------- tasks
 
   /**
-   * The rows a query matches, before tags and step counts are attached.
+   * The WHERE clause one query names, with its binds.
    *
-   * One builder rather than a query per view: the smart lists differ only in a WHERE clause, and a
-   * second copy of "what is due today" is how the app and the reminder sweep start disagreeing.
+   * One builder rather than a query per view: the smart lists differ only in this clause, and a second
+   * copy of "what is due today" is how the app and the reminder sweep start disagreeing. Both the page
+   * of rows and its count go through here, which is the only reason the two can be trusted to be about
+   * the same tasks.
    */
-  private async taskRows(query: TaskQuery = {}): Promise<TaskRow[]> {
+  private taskFilter(query: TaskQuery = {}): Query {
     const q = new Query(this.userId)
     const status = query.status ?? 'all'
-    if (status === 'open') q.raw(`status != 'done'`)
+    if (Array.isArray(status)) q.inList(`status`, status)
+    else if (status === 'open') q.raw(`status != 'done'`)
     else if (status !== 'all') q.eq(`status`, status)
     const now = Date.now()
     const dayEnd = query.dayEnd ?? now
@@ -3747,20 +3783,48 @@ export class AssistantStore {
     }
     if (query.priority) q.eq(`priority`, query.priority)
     if (query.starred) q.raw(`starred = 1`)
+    // An undated task is in no due window: a range asks when something is owed, and a task with no date
+    // answers that question with "not yet decided", not with "any time you like".
+    if (query.dueFrom !== undefined) q.raw(`due_at IS NOT NULL AND due_at >= ${q.add(query.dueFrom)}`)
+    if (query.dueTo !== undefined) q.raw(`due_at IS NOT NULL AND due_at < ${q.add(query.dueTo)}`)
     if (query.query) {
       const pattern = q.add(containsPattern(query.query))
       q.or([`title LIKE ${pattern} ESCAPE '\\'`, `description LIKE ${pattern} ESCAPE '\\'`])
     }
+    return q
+  }
+
+  /**
+   * The rows a query matches, before tags and step counts are attached.
+   *
+   * The page is cut here rather than in the caller: a reader scrolling for more is asking the database
+   * for the next rows, not asking for a bigger copy of the same answer.
+   */
+  private async taskRows(query: TaskQuery = {}): Promise<TaskRow[]> {
+    const q = this.taskFilter(query)
     const pageSize = query.view === 'completed' ? COMPLETED_PAGE_SIZE : MAX_TASKS_PER_QUERY
     const limit = q.add(Math.min(query.limit ?? pageSize, MAX_TASKS_PER_QUERY))
     const offset = query.offset && query.offset > 0 ? ` OFFSET ${q.add(Math.trunc(query.offset))}` : ''
-    const order = query.view === 'completed'
-      ? `completed_at DESC, created_at DESC`
-      : `CASE WHEN due_at IS NULL THEN 1 ELSE 0 END, due_at ASC, ${TASK_PRIORITY_ORDER}, created_at ASC`
     return await this.rows<TaskRow>(
-      `SELECT * FROM todos_tasks WHERE ${q.where} ORDER BY ${order} LIMIT ${limit}${offset}`,
+      `SELECT * FROM todos_tasks WHERE ${q.where} ORDER BY ${taskOrder(query.sort, query.view)} LIMIT ${limit}${offset}`,
       ...q.binds,
     )
+  }
+
+  /**
+   * How many tasks a filter matches, whichever page of them is being shown.
+   *
+   * The same clause the rows come from, so the number cannot describe a different question than the
+   * list beside it. It is one `COUNT`, not one per row or per page, and it is what lets a listing say
+   * "there is more" instead of leaving the reader to guess whether the screen is the whole answer.
+   */
+  async countTasks(query: TaskQuery = {}): Promise<number> {
+    const q = this.taskFilter(query)
+    const row = await this.one<{ n: number | null }>(
+      `SELECT COUNT(*) AS n FROM todos_tasks WHERE ${q.where}`,
+      ...q.binds,
+    )
+    return row?.n ?? 0
   }
 
   /** The step counts of many tasks in one query, so a listing is not a query per row. */
@@ -3938,7 +4002,9 @@ export class AssistantStore {
    * The counts every smart list and every sidebar row shows.
    *
    * Computed here rather than in the browser because "today" is a span in the reader's timezone:
-   * two implementations would disagree for exactly the hours around midnight.
+   * two implementations would disagree for exactly the hours around midnight. A list and a tag each
+   * carry an open and a finished number, because a collection's own view shows both groups and one
+   * number cannot be checked against either of them.
    */
   async taskCounts(dayEnd: number): Promise<TaskCounts> {
     const now = Date.now()
@@ -3973,14 +4039,19 @@ export class AssistantStore {
       else bucket.open += row.n
       byList[row.list_id] = bucket
     }
-    const perTag = await this.rows<{ tag_id: string; n: number }>(
-      `SELECT l.tag_id, COUNT(*) AS n FROM todos_tag_links l
+    const perTag = await this.rows<{ tag_id: string; status: string; n: number }>(
+      `SELECT l.tag_id, t.status, COUNT(*) AS n FROM todos_tag_links l
          JOIN todos_tasks t ON t.user_id = l.user_id AND t.id = l.task_id
-        WHERE l.user_id = ?1 AND t.status != 'done' GROUP BY l.tag_id`,
+        WHERE l.user_id = ?1 GROUP BY l.tag_id, t.status`,
       this.userId,
     )
-    const byTag: Record<string, number> = {}
-    for (const row of perTag) byTag[row.tag_id] = row.n
+    const byTag: Record<string, { open: number; done: number }> = {}
+    for (const row of perTag) {
+      const bucket = byTag[row.tag_id] ?? { open: 0, done: 0 }
+      if (row.status === 'done') bucket.done += row.n
+      else bucket.open += row.n
+      byTag[row.tag_id] = bucket
+    }
     return {
       inbox: totals?.inbox ?? 0,
       today: totals?.today ?? 0,

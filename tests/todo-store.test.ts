@@ -118,15 +118,17 @@ describe('the counts a sidebar and a card show', () => {
     await store.createTask({ title: 'Upcoming', dueAt: now + 3 * DAY, listId: list.id })
     await store.createTask({ title: 'Someday' })
     await store.createTask({ title: 'Starred', starred: true, tags: ['Focus'] })
-    const done = await store.createTask({ title: 'Done', listId: list.id })
+    const done = await store.createTask({ title: 'Done', listId: list.id, tags: ['Focus'] })
     await store.updateTask(done.id, { status: 'done' })
 
     const counts = await store.taskCounts(dayEnd)
 
     expect(counts).toMatchObject({ inbox: 4, today: 2, upcoming: 1, overdue: 1, all: 5, completed: 1, starred: 1 })
     expect(counts.byList[list.id]).toEqual({ open: 1, done: 1 })
+    // A tag carries the same pair a list does: its view shows the finished rows too, and one number
+    // could not be checked against either group in it.
     const tag = (await store.listTaskTags()).find((entry) => entry.name === 'Focus')!
-    expect(counts.byTag[tag.id]).toBe(1)
+    expect(counts.byTag[tag.id]).toEqual({ open: 1, done: 1 })
   })
 })
 

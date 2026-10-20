@@ -41,6 +41,16 @@ export type TaskView = (typeof TASK_VIEWS)[number]
  */
 export const UPCOMING_DAYS = 7
 
+/**
+ * The orders a listing can be asked to answer in.
+ *
+ * A named key rather than a column, because the caller is choosing a reading order and not a SQL
+ * expression: the store decides what each key means, including the tiebreaker that keeps two pages
+ * of the same query from disagreeing about rows that share a value.
+ */
+export const TASK_SORTS = ['due', 'priority', 'created', 'completed'] as const
+export type TaskSort = (typeof TASK_SORTS)[number]
+
 /** How long a reminder may be set before the due time. */
 export const REMIND_OFFSETS = ['none', 'due', '15m', '1h', '1d'] as const
 export type RemindOffset = (typeof REMIND_OFFSETS)[number]
@@ -50,7 +60,7 @@ export const MAX_TAG_NAME_CHARS = 40
 export const MAX_TAGS_PER_TASK = 8
 export const MAX_STEPS_PER_TASK = 50
 export const MAX_STEP_TEXT_CHARS = 200
-/** The most a single listing answers with. The board reads the open set once and slices it. */
+/** The most a single listing answers with; a page smaller than this is what a caller normally asks for. */
 export const MAX_TASKS_PER_QUERY = 500
 /** A completed list is history: the newest page is enough to answer "what did I finish". */
 export const COMPLETED_PAGE_SIZE = 200
@@ -108,20 +118,28 @@ export interface TaskCounts {
   completed: number
   starred: number
   byList: Record<string, { open: number; done: number }>
-  byTag: Record<string, number>
+  /** A tag carries both numbers for the same reason a list does: its view shows the finished rows too. */
+  byTag: Record<string, { open: number; done: number }>
 }
 
 /** What one page of tasks answers with, so the client never has to compute "today" itself. */
 export interface TaskPage {
   tasks: TodoTask[]
+  /** How many tasks the filter on this page matches, whatever the page itself carries. */
   total: number
   counts: TaskCounts
   /** End of the reader's local day, in UTC milliseconds. */
   dayEnd: number
+  /** The zone `dayEnd` was measured in, so the client reads the same calendar the server did. */
+  timezone: string
 }
 
 export function isTaskView(value: unknown): value is TaskView {
   return typeof value === 'string' && (TASK_VIEWS as readonly string[]).includes(value)
+}
+
+export function isTaskSort(value: unknown): value is TaskSort {
+  return typeof value === 'string' && (TASK_SORTS as readonly string[]).includes(value)
 }
 
 export function isRepeatFrequency(value: unknown): value is RepeatFrequency {

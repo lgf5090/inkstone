@@ -27,15 +27,17 @@ import {
   MAX_TAGS_PER_TASK,
   MAX_TAG_NAME_CHARS,
   MAX_TASKS_PER_QUERY,
+  isTaskSort,
   isTaskView,
   normalizeTagNames,
   parseRepeatRule,
   remindAtFor,
   type RemindOffset,
   type RepeatRule,
+  type TaskSort,
 } from '@shared/todos/model'
 import type { TaskPriority, TaskStatus } from '@shared/assistant'
-import { AssistantStore } from '../assistant/store'
+import { AssistantStore, type TaskQuery } from '../assistant/store'
 
 const BODY_LIMIT = JSON_BODY_LIMITS.settings
 const TITLE_MAX = 300
@@ -217,30 +219,50 @@ function iconValue(value: unknown): string | null | undefined {
 
 // ------------------------------------------------------------------- tasks
 
-todoRoutes.get('/', async (c) => {
-  const s = store(c)
-  const settings = await s.getSettings()
-  const view = c.req.query('view')
+/**
+ * The listing a request is asking for, in the shape the store reads it.
+ *
+ * Every filter the to-do app's screen can state is a parameter here, and this is the only place that
+ * decides whether a parameter is one the app has a meaning for: an unreadable status, sort or date is a
+ * 400 rather than a filter quietly dropped, because a listing that ignores the condition it was given
+ * answers a different question than the one the reader asked.
+ */
+function listingQuery(c: Ctx, timezone: string, dayEnd: number): TaskQuery {
   const list = c.req.query('list')
   const tag = c.req.query('tag')
   const priority = c.req.query('priority')
-  const starred = c.req.query('starred')
+  const view = c.req.query('view')
   const limit = Number(c.req.query('limit'))
   const offset = Number(c.req.query('offset'))
-  const dayEnd = readerDayEnd(settings.timezone)
-  const tasks = await s.listTasks({
+  return {
     status: taskStatusFilter(c.req.query('status')),
     view: isTaskView(view) ? view : 'all',
+    // The inbox is a collection with no row behind it, so the address spells it `none` rather than
+    // leaving the parameter out, which would mean "any list".
     listId: list === undefined ? undefined : list === 'none' ? null : requiredId(list),
     tagId: tag ? requiredId(tag) : undefined,
     priority: priority ? asPriority(priority) : undefined,
-    starred: starred === '1' ? true : undefined,
+    starred: c.req.query('starred') === '1' ? true : undefined,
     query: c.req.query('q')?.trim().slice(0, 200) || undefined,
+    dueFrom: optionalDue(c.req.query('dueFrom'), timezone),
+    dueTo: optionalDue(c.req.query('dueTo'), timezone),
+    sort: asSort(c.req.query('sort')),
     limit: Number.isFinite(limit) ? Math.max(1, Math.min(MAX_TASKS_PER_QUERY, Math.trunc(limit))) : undefined,
     offset: Number.isFinite(offset) ? Math.max(0, Math.trunc(offset)) : undefined,
     dayEnd,
-  })
-  return c.json({ tasks, counts: await s.taskCounts(dayEnd), dayEnd, timezone: settings.timezone })
+  }
+}
+
+todoRoutes.get('/', async (c) => {
+  const s = store(c)
+  const settings = await s.getSettings()
+  const dayEnd = readerDayEnd(settings.timezone)
+  const query = listingQuery(c, settings.timezone, dayEnd)
+  // The page, its count and the sidebar numbers are three reads of the same account and no shared
+  // transaction: a listing is allowed to be one write behind, and saying so is better than a fourth
+  // round trip made while the reader waits.
+  const [tasks, total, counts] = await Promise.all([s.listTasks(query), s.countTasks(query), s.taskCounts(dayEnd)])
+  return c.json({ tasks, total, counts, dayEnd, timezone: settings.timezone })
 })
 
 todoRoutes.post('/', async (c) => {
@@ -447,7 +469,25 @@ todoRoutes.delete('/:id/steps/:stepId', async (c) => {
   return c.json({ deleted: true })
 })
 
-function taskStatusFilter(value: string | undefined): TaskStatus | 'open' | 'all' {
+function taskStatusFilter(value: string | undefined): TaskQuery['status'] {
   if (!value || value === 'all' || value === 'open') return (value ?? 'all') as TaskStatus | 'open' | 'all'
-  return asStatus(value)
+  // One status answers with the single-value form, several with the set; either way an unknown word is a
+  // refusal and not a filter that happens to match everything.
+  const wanted = [...new Set(value.split(',').map((entry) => entry.trim()).filter(Boolean))].map(asStatus)
+  return wanted.length > 1 ? wanted : wanted[0] ?? 'all'
+}
+
+/** A due bound: a local date, a local date-time, or nothing at all. */
+function optionalDue(value: string | undefined, timezone: string): number | undefined {
+  if (value === undefined || value === '') return undefined
+  // `parseDue` reads a blank as "no date", which is the parameter being absent; a date it cannot read at
+  // all is the 400 it throws rather than a filter that silently matches everything.
+  return parseDue(value, timezone) ?? undefined
+}
+
+/** The order the caller asked the listing to be read in, or none. */
+function asSort(value: string | undefined): TaskSort | undefined {
+  if (value === undefined || value === '') return undefined
+  if (!isTaskSort(value)) throw ApiError.badRequest('A sort must be due, priority, created or completed.')
+  return value
 }
