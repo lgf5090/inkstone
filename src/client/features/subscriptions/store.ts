@@ -443,6 +443,10 @@ export const useSubscriptions = create<SubscriptionsState>()((set, get) => ({
     try {
       const { settings } = await api.subscriptions.saveSettings(patch)
       set({ settings })
+      // The dashboard's numbers are computed by the server from these settings — the total currency, the
+      // ceiling, a pinned rate — so a saved setting that stops at this store leaves every figure on screen
+      // still saying what the older choice said. The bundle is read again for that reason.
+      await get().refresh()
       return true
     } catch (error) {
       report(error, 'subscriptions.error.save')
