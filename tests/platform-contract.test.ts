@@ -2,6 +2,7 @@
 import { readFileSync } from 'node:fs'
 import { expect, it } from 'vitest'
 import { securityHeaders } from '../src/worker/lib/security-headers'
+import { isDrainFire, isHourStart } from '../src/worker/index'
 
 // Nothing else in this repository reads the deployment configs or the lockfile, so the
 // claims in SECURITY.md had no mechanical check at all. These assertions are that check.
@@ -31,6 +32,25 @@ it('no config leaves version preview URLs as a second public entry point', () =>
   for (const file of ['wrangler.toml', 'wrangler.kv.toml']) {
     expect(config(file), `${file} must disable preview URLs`).toContain('preview_urls = false')
   }
+})
+
+it('a reminder’s minute is a minute the cron actually fires, and only the sweeps ride it', () => {
+  // The cadence lives in a deployment file, so no Worker-side test could ever notice it drifting back to a
+  // pattern like `0,15,45 * * * *` — where a reminder set at :16 waits until :45 while every sweep still
+  // passes its own tests. Both halves are pinned: the pattern fires on every minute, and the extra fires
+  // buy nothing but sweeps.
+  for (const file of ['wrangler.toml', 'wrangler.kv.toml']) {
+    const declaration = /^crons = \[(.*)\]$/m.exec(config(file))
+    expect(declaration, `${file} must declare a cron trigger`).not.toBeNull()
+    const patterns = [...declaration![1]!.matchAll(/"([^"]+)"/g)].map((match) => match[1]!)
+    expect(patterns.length, `${file} must schedule something`).toBeGreaterThan(0)
+    for (const pattern of patterns) {
+      expect(pattern.split(' ')[0], `${file} fires ${pattern} on more than one minute an hour`).toBe('*')
+    }
+  }
+  const hour = Array.from({ length: 60 }, (_, minute) => Date.UTC(2026, 9, 18, 12, minute))
+  expect(hour.filter((time) => isDrainFire(time)), 'the drains must not run sixty times an hour').toHaveLength(3)
+  expect(hour.filter((time) => isHourStart(time)), 'the whole-library work must run once an hour').toHaveLength(1)
 })
 
 it('keeps lockfile sources on the pinned registries with content hashes', () => {

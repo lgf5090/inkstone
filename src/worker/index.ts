@@ -56,19 +56,17 @@ export default {
   async scheduled(event: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {
     ctx.waitUntil((async () => {
       const { ftsEnabled } = await initializeDatabase(env)
-      // Index drains run on every cron fire; whole-library work (backups, attachment
-      // cleanup, expired-record purges) only on the top of the hour, so a long backup
-      // cannot take the embedding drains down with it.
-      // The assistant's schedules are swept on every fire, including the minute-granular one, because
-      // a reminder that arrives a quarter-hour late is a broken reminder. The existing drains keep the
-      // cadence they had: they still run when they used to, not sixty times a day.
+      // The cron fires every minute: a reminder that arrives twenty-nine minutes late is a broken reminder,
+      // so the three sweeps below ride every fire. The drains keep the three fires an hour `isDrainFire`
+      // accepts and the whole-library work keeps the top of the hour, so the extra fires cost nothing beyond
+      // the sweeps themselves — `initializeDatabase` answers from its per-isolate cache.
       // The Web Push nudges a sweep queues are handed to `waitUntil` rather than awaited: the notification
       // rows are the delivery, and a push service that answers slowly must not hold up the tick that wrote
       // them. What the sends cost comes back in the sweep result's `push` tally.
       const assistantTick = runDueAssistantAutomations(env, Date.now(), (task) => { ctx.waitUntil(task) })
       // Subscription reminders share the every-fire cadence for the same reason the assistant's do: a
-      // reminder is cheap, and the sweep deduplicates by the reader's own local hour, so the second and
-      // third fires of an hour find their deliveries already claimed.
+      // reminder is cheap, and the sweep deduplicates by the reader's own local hour, so the fires that
+      // follow find their deliveries already claimed.
       const subscriptionTick = sweepSubscriptions(env, event.scheduledTime)
       // Task reminders ride the same every-fire cadence, for the same reason: the claim on the row is
       // what deduplicates them, so a second fire in the same minute finds nothing left to deliver.

@@ -10,7 +10,7 @@
  *
  * The shape behind the judgement is tested too: a column the migration ledger may have been told about
  * without the database ever getting it is the failure this repo has already been bitten by once, and a cron
- * that runs three times an hour reads a table that never shrinks, so its index has to be the partial one.
+ * that now fires every minute reads a table that never shrinks, so its index has to be the partial one.
  */
 import { DatabaseSync } from 'node:sqlite'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -105,13 +105,14 @@ function stubFetch(respond: (url: string, index: number) => Response): { bodies:
 
 const ok = () => new Response(null, { status: 201 })
 
-/** A cron fire at a minute this deployment's pattern actually produces. */
+/** A cron fire at one minute of the hour: the pattern fires on all sixty, and `isDrainFire` says which of
+ * them still owe the whole-library work. */
 async function fireCron(minute: number): Promise<void> {
   const at = new Date('2026-10-18T12:00:00.000Z')
   at.setUTCMinutes(minute)
   const tasks: Promise<unknown>[] = []
   const ctx = { waitUntil: (task: Promise<unknown>) => { tasks.push(task) } } as ExecutionContext
-  const event = { scheduledTime: at.getTime(), cron: '0,15,45 * * * *' } as ScheduledController
+  const event = { scheduledTime: at.getTime(), cron: '* * * * *' } as ScheduledController
   await worker.scheduled(event, env, ctx)
   // `scheduled()` hands everything to `waitUntil` and returns immediately, so the fire's work is the tasks.
   await Promise.all(tasks)

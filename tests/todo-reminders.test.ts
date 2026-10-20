@@ -14,6 +14,7 @@ import { SCHEMA_STATEMENTS } from '../src/worker/db/schema'
 import { normalizeAssistantSettings } from '../src/shared/assistant'
 import { AssistantStore } from '../src/worker/assistant/store'
 import { sweepTaskReminders } from '../src/worker/assistant/tasks'
+import worker from '../src/worker/index'
 import { EN_US_TODO_NOTIFY } from '../src/shared/locales/en-US-todo-notify'
 import { ZH_CN_TODO_NOTIFY } from '../src/shared/locales/zh-CN-todo-notify'
 import type { Env } from '../src/worker/env'
@@ -95,6 +96,27 @@ describe('sweepTaskReminders', () => {
 
     await sweepTaskReminders(env, NOW)
     expect((await notificationsOf(ALICE))[0]!.title.startsWith(EN_US_TODO_NOTIFY.title)).toBe(true)
+  })
+})
+
+describe('the cron fire that carries a reminder', () => {
+  // Everything above calls the sweep directly. This goes through the handler, because the thing that was
+  // actually broken was the cadence: on a cron that only fires at :00, :15 and :45, a reminder due at :30
+  // sat until :45 while every assertion above stayed green.
+  it('delivers at :37 a reminder that came due at :30', async () => {
+    await reminderTask(ALICE, { offsetMs: 30 * 60 * 1000, title: 'Pick up the prescription' })
+
+    const handedOff: Promise<unknown>[] = []
+    const ctx = { waitUntil: (task: Promise<unknown>) => { handedOff.push(task) } } as ExecutionContext
+    await worker.scheduled(
+      { scheduledTime: Date.parse('2026-10-20T09:37:00.000Z'), cron: '* * * * *' } as ScheduledController,
+      env,
+      ctx,
+    )
+    await Promise.all(handedOff)
+
+    expect((await notificationsOf(ALICE)).map((row) => row.title))
+      .toEqual([expect.stringContaining('Pick up the prescription')])
   })
 })
 
