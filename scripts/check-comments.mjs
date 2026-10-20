@@ -10577,11 +10577,30 @@ const allowed = new Map([
     "// The empty symbol is a real option — an unticked box — and two statuses can share a",
     "// name while not sharing a character, so the character is the key.",
   ]],
+  ["src/client/features/tasks/PostponeMenuHost.tsx", [
+    "/**\n * The overlay that shows the postpone rows.\n *\n * Mounted only while a row has asked for it, and it owns nothing but the menu: choosing a row closes it\n * first, so a slow write cannot leave a panel on screen whose dates are already stale.\n */",
+  ]],
   ["src/client/features/tasks/TaskEditorHost.tsx", [
     "/**\n * The one place the task edit form is mounted.\n *\n * A row in a query block, a line in the editor and a task in the reading preview all ask for the same\n * dialog, and none of them should have to own reading the note. The host takes the line, fetches the\n * text it needs, and writes back through the same remote-content path a tick uses — which is what lets\n * it flush unsaved edits in that note instead of racing them.\n */",
     "/**\n * The form for one request.\n *\n * Split from the host so the line is parsed and the draft built once per open rather than on every\n * keystroke — and so a note that turned out not to hold a task at that line is reported from an\n * effect, where leaving is allowed to happen, rather than in the middle of a render.\n */",
     "// The line the row pointed at is no longer a task: say so, rather than opening an empty form.",
     "// Rejecting keeps the form open with what the reader typed still in it.",
+  ]],
+  ["src/client/features/tasks/postpone-menu.test.ts", [
+    "/**\n * The rows a postpone button opens.\n *\n * Two things are worth pinning here: that every row states the day it will write, and that choosing one\n * writes that exact day and no other field. The overlay itself is the shared `Menu`'s business.\n */",
+    "// The inferred day is already past, so the offsets count from today — and the write moves the",
+    "// scheduled field, which is the one the note name had been supplying.",
+  ]],
+  ["src/client/features/tasks/postpone-menu.ts", [
+    "/**\n * The rows a postpone button opens, and the write behind each one.\n *\n * Built where the task already is — a `tasks` block row holds the parsed line — and handed to the host\n * as plain menu items. Every row computes its target date once, when the menu is drawn, and writes that\n * exact day: the reader clicks the date they can see, not a rule the code re-reads later.\n *\n * The write is the edit form's write. A postponement is a one-field draft change, so it goes through\n * `editTaskInNote` with the same line-and-words anchor, which is what keeps a row drawn from a stale\n * result from overwriting a note somebody else has since changed.\n */",
+    "/** The words each date field is called by, wherever a postpone has to name the one it moved. */",
+    "/**\n * The offsets counted from the day the task already names.\n *\n * One day is the \"tomorrow\" row instead, which counts from today: an overdue task postponed by a day\n * from its own date is still overdue. Six days is as far as a list is worth scrolling, and a month is\n * the one longer step a reader plans around.\n */",
+    "/** Open the menu for one task, anchored at the point the row passed. */",
+    "// A scheduled date the note's own name supplies is not in the line, so there is nothing to take out of",
+    "// it: the row says why rather than silently offering a click that cannot land.",
+  ]],
+  ["src/client/features/tasks/postpone-store.ts", [
+    "/**\n * The postpone menu a task row asked for.\n *\n * The rows arrive already built, because the row that was clicked is the only place the parsed task\n * exists: a `tasks` block is imperative DOM, and re-reading the note to redraw a menu the caller could\n * have handed over would be a network round trip for information already in hand. The host owns the\n * overlay — focus, escape, click-away — and nothing else.\n */",
   ]],
   ["src/client/features/tasks/store.ts", [
     "/**\n * The task the edit form was asked to open.\n *\n * `line` and `text` are the same two anchors a tick uses: the line says where to write and the words\n * say which line the reader was looking at, so a note that changed between opening the form and\n * saving it is refused rather than overwritten. Everything else — the current text, the parsed\n * fields — is read when the form opens, because a row can point into a note that is closed.\n */",
@@ -11630,6 +11649,8 @@ const allowed = new Map([
     "/**\n * The date and identity pills, in the order a reader scans a task.\n *\n * Short mode keeps the field and drops its value: a dense list still shows that something is due,\n * just not on which day.\n */",
     "// The row says which line of which note it was drawn from; the form reads that line again when",
     "// it opens, so a result that has gone stale is caught there rather than written over here.",
+    "// The row already holds the parsed task, so the menu is built from it rather than from a",
+    "// re-read: the dates a reader picks are the dates the row was drawn with.",
   ]],
   ["src/client/lib/dataview/value.ts", [
     "/**\n * The value model every Dataview expression speaks.\n *\n * A `Literal` is deliberately a closed union rather than `unknown`: the comparison order, the\n * truthiness rule and the rendering rule are all defined by *which* member of the union a value is,\n * and a query must give the same answer whether it ran in a table cell, a `WHERE` clause or a sort\n * key. Dates are plain `Date`s so they survive a structured clone into the DML worker; durations are\n * a class because `2 months` and `60 days` are not the same quantity.\n */",
@@ -17401,6 +17422,22 @@ const allowed = new Map([
     "/** A date that was written in the right shape but names no real day, such as `2022-02-30`. */",
     "/**\n * Order two task dates.\n *\n * Dated tasks come before undated ones, and among dated tasks the unparseable shape sorts first:\n * a reader scanning a list wants the broken dates where they can be seen, not parked at the end.\n */",
   ]],
+  ["src/client/lib/tasks/date/postpone.test.ts", [
+    "// `2022-02-30` reads as a date and is not one: moving it would invent a day, so it is left where it",
+    "// is and the undated start date is the one the click can move.",
+    "// Ahead of `NOW`, because a date already past is counted from today rather than from itself.",
+  ]],
+  ["src/client/lib/tasks/date/postpone.ts", [
+    "/**\n * Moving a task's own date later, without moving any other field.\n *\n * A postponement is measured from the day the task already names — unless that day is already past,\n * in which case it is measured from today. Counting six days from a due date three weeks overdue\n * leaves the task overdue, which is the opposite of what the click was for; the reference plugin\n * arrived at the same rule and it is kept here.\n */",
+    "/** The three dates a task happens on, in the order a postponement picks between them. */",
+    "/** Due first: it is the day a reader is late for, and the one a list sorts by. */",
+    "/** The steps the menu offers, and the unit a row counts. */",
+    "/** Whether a row counts from the day the task names or from today. */",
+    "/**\n * Which date the click would move: the first one the task has.\n *\n * Null means the task carries no date to move, and then there is nothing for the button to do.\n */",
+    "/** Offer the button only where a click would land: not finished, not broken, and with a date to move. */",
+    "/**\n * The day a postponement of `amount` units lands on, or null when the field names no day to move.\n *\n * `from-today` is what the \"today\" and \"tomorrow\" rows ask for: they name a day rather than an offset,\n * so an overdue task is brought to today instead of staying on the day it should already have happened.\n */",
+    "// An overdue date counts from today, not from itself: see the note at the top of this file.",
+  ]],
   ["src/client/lib/tasks/date/wall-clock.ts", [
     "/**\n * Wall-clock day transport between local time and UTC.\n *\n * `rrule` iterates over UTC instants and knows nothing about time zones, while a task's due date is\n * a civil day in the reader's calendar. Re-tagging the fields carries a day into `rrule`'s world and\n * back without ever letting an offset shift it onto the neighbouring day — which is the whole reason\n * a due date must not be stored as an instant.\n */",
     "/** A local civil day and clock, re-expressed as the same wall-clock fields in UTC. */",
@@ -17415,6 +17452,8 @@ const allowed = new Map([
     "// From Monday the 19th, `friday` is the 23rd: a reader adding a due date does not mean a past one.",
     "// The form is opened to fix a typo as often as to finish a task. Leaving the box on the status it",
     "// already had must not stamp a date, end the series, or birth the next occurrence.",
+    "// Without this the save reproduces the line it started from: the serializer leaves an inferred date",
+    "// out, so a postponement or a typed day would land nowhere and the reader would see nothing happen.",
   ]],
   ["src/client/lib/tasks/edit/task-editor.ts", [
     "/** The six dates a task carries, in the order the form shows them. */",
@@ -17433,6 +17472,10 @@ const allowed = new Map([
     "/**\n * Put the global filter back on the saved description.\n *\n * The form shows the description without it, because the filter is a convention rather than something\n * a reader means to type — so a save that took the stripped words literally would quietly unsubscribe\n * the task from every query that finds it. Anything the reader typed themselves already carries it.\n */",
     "/** What `moveToStatus` should treat as \"today\" for this status change. */",
     "/** The rule as the model would write it back, or why it cannot. */",
+    "// A scheduled date inferred from the note's own name is deliberately not written into the line, so",
+    "// moving it to another day has to stop being inferred — otherwise the save produces exactly the line",
+    "// it started with and the reader's click does nothing at all.",
+    "/** Whether the draft moved a scheduled date that the note's own name had supplied. */",
   ]],
   ["src/client/lib/tasks/index.ts", [
     "/**\n * Public surface of the task layer.\n *\n * The query module reads tasks through here and nothing else: it needs the line parser and the\n * status registry, not the query engine, so the two modules stay separable and the dependency only\n * ever points in this direction.\n */",

@@ -5,7 +5,7 @@ import { Recurrence } from '../model/recurrence'
 import { OnCompletion } from '../model/on-completion'
 import { Priority } from '../model/priority'
 import { moveToStatus, type ToggleSettings } from '../toggle'
-import { startOfDay } from '../../time'
+import { isSameDay, startOfDay } from '../../time'
 import type { Status } from '../status/status'
 import type { Task } from '../model/task'
 import type { TaskDateField, TaskFields } from '../serializer/index'
@@ -151,6 +151,10 @@ export function applyDraft(
   const edited: Task = {
     ...task,
     fields,
+    // A scheduled date inferred from the note's own name is deliberately not written into the line, so
+    // moving it to another day has to stop being inferred — otherwise the save produces exactly the line
+    // it started with and the reader's click does nothing at all.
+    scheduledDateIsInferred: task.scheduledDateIsInferred && !movedInferredSchedule(task, fields),
     // The rule is rebuilt from the dates as edited: the one the task arrived with was anchored to the
     // dates before the reader changed them, and ticking on would schedule from a day they undid.
     recurrence: fields.recurrenceRuleText === ''
@@ -161,6 +165,13 @@ export function applyDraft(
   // rather than today: editing a finished task must not silently move its finish date to now.
   const inferred = inferStatusDay(status, fields)
   return { tasks: moveToStatus(edited, status, settings, inferred).tasks, errors }
+}
+
+/** Whether the draft moved a scheduled date that the note's own name had supplied. */
+function movedInferredSchedule(task: Task, fields: TaskFields): boolean {
+  if (!task.scheduledDateIsInferred) return false
+  if (fields.scheduledDate === null || task.fields.scheduledDate === null) return false
+  return !isSameDay(fields.scheduledDate, task.fields.scheduledDate)
 }
 
 /**

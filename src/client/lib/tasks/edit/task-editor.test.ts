@@ -11,6 +11,7 @@ import { applyDraft, describeRecurrence, draftFromTask, type TaskDraft } from '.
 const NOW = new Date(2026, 9, 19) // a Monday
 const cp = (...codes: number[]): string => String.fromCodePoint(...codes)
 const DUE = cp(0x1F4C5)
+const SCHEDULED = cp(0x23F3)
 const DONE_MARK = cp(0x2705)
 const RECUR = cp(0x1F501)
 const HIGH = cp(0x23EB)
@@ -145,5 +146,34 @@ describe('the recurrence preview', () => {
     const out = edit('- [ ] x', (draft) => ({ ...draft, recurrenceRule: 'every week' }))
     expect(out.tasks).toEqual([])
     expect(out.errors.recurrence).toBe('needs-a-date')
+  })
+})
+
+describe('a scheduled date the note itself supplied', () => {
+  function inferredTask(): Task {
+    return parseTaskLine('- [ ] water the plants', unknownPosition('n1', 'Notes/2026-10-10.md'), {
+      registry,
+      serializer: new EmojiTaskSerializer(),
+      now: NOW,
+      fallbackDate: new Date(2026, 9, 10),
+    })!
+  }
+
+  it('stays out of the line when the reader did not move it', () => {
+    const task = inferredTask()
+    const out = applyDraft(task, draftFromTask(task), task.status, settings(), NOW)
+    expect(out.tasks[0]?.scheduledDateIsInferred).toBe(true)
+    expect(toMarkdownLine(out.tasks[0]!, settings().serializer)).toBe('- [ ] water the plants')
+  })
+
+  it('is written down once the reader moves it to another day', () => {
+    // Without this the save reproduces the line it started from: the serializer leaves an inferred date
+    // out, so a postponement or a typed day would land nowhere and the reader would see nothing happen.
+    const task = inferredTask()
+    const base = draftFromTask(task)
+    const draft = { ...base, dates: { ...base.dates, scheduledDate: '2026-10-24' } }
+    const out = applyDraft(task, draft, task.status, settings(), NOW)
+    expect(out.tasks[0]?.scheduledDateIsInferred).toBe(false)
+    expect(toMarkdownLine(out.tasks[0]!, settings().serializer)).toBe(`- [ ] water the plants ${SCHEDULED} 2026-10-24`)
   })
 })

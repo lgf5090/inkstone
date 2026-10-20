@@ -137,6 +137,16 @@ describe('rendering a tasks block', () => {
         expect(render('not done').querySelector('.tasks-explain')).toBeNull()
         expect(render('explain\nnot done').querySelector('.tasks-explain')).not.toBeNull()
     })
+
+    it('offers a postpone button on a dated, unfinished row', () => {
+        expect(render('not done').querySelector('button.dataview-task-postpone')?.textContent)
+            .toBe('tasks.postpone_action')
+    })
+
+    it('takes the postpone button away on its own', () => {
+        expect(render('hide postpone button\nnot done').querySelector('.dataview-task-postpone')).toBeNull()
+        expect(render('hide postpone button\nnot done').querySelector('.dataview-task-edit')).not.toBeNull()
+    })
 })
 
 describe('surfaces that must not answer', () => {

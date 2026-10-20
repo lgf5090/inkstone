@@ -7,6 +7,7 @@ import type { ParsedQuery } from '../tasks/query/query'
 import type { Task } from '../tasks/model/task'
 import { unknownPosition, type TaskLocation } from '../tasks/model/task-location'
 import { taskSettings } from '../tasks/service'
+import { shouldShowPostponeButton } from '../tasks/date/postpone'
 import { Occurrence } from '../tasks/model/occurrence'
 import { Recurrence } from '../tasks/model/recurrence'
 import type { ListItemData } from './metadata'
@@ -164,6 +165,22 @@ function renderTaskRow(task: Task, parsed: ParsedQuery): HTMLElement {
         source.className = 'dataview-task-source'
         source.textContent = task.location.path.split('/').pop() ?? task.location.path
         row.append(source)
+    }
+    if (!parsed.layout.hiddenQueryParts.has('postpone button') && task.location.noteId !== '' && shouldShowPostponeButton(task)) {
+        const postpone = document.createElement('button')
+        postpone.type = 'button'
+        postpone.className = 'dataview-task-postpone'
+        postpone.textContent = t('tasks.postpone_action')
+        postpone.addEventListener('click', (event) => {
+            event.stopPropagation()
+            // The row already holds the parsed task, so the menu is built from it rather than from a
+            // re-read: the dates a reader picks are the dates the row was drawn with.
+            const box = postpone.getBoundingClientRect()
+            void import('../../features/tasks/postpone-menu').then(({ openPostponeMenu }) => {
+                openPostponeMenu(task, { x: box.left, y: box.bottom + 5 })
+            })
+        })
+        row.append(postpone)
     }
     if (!parsed.layout.hiddenQueryParts.has('edit button') && task.location.noteId !== '') {
         const edit = document.createElement('button')

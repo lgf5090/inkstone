@@ -37,7 +37,8 @@
   font-size: var(--text-11);
 }
 
-.ink-prose .dataview-task-edit {
+.ink-prose .dataview-task-edit,
+.ink-prose .dataview-task-postpone {
   margin-left: var(--sp-2);
   padding: 0 var(--sp-2);
   min-height: 24px;
@@ -49,11 +50,13 @@
   cursor: pointer;
 }
 
-.ink-prose .dataview-task-edit:hover {
+.ink-prose .dataview-task-edit:hover,
+.ink-prose .dataview-task-postpone:hover {
   color: var(--text-primary);
 }
 
-.ink-prose .dataview-task-edit:focus-visible {
+.ink-prose .dataview-task-edit:focus-visible,
+.ink-prose .dataview-task-postpone:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 1px;
 }
