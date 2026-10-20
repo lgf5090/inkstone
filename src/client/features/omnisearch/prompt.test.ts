@@ -34,6 +34,12 @@ vi.mock('./conversation-results', () => ({
   useConversationSearch: () => ({ items: [], loading: false, error: null, retry: () => undefined }),
 }))
 
+// So is the money half: an unanswered request there would hold the empty state hostage, which is what
+// several cases below read as "the panel is reporting the index", not "a third category is pending".
+vi.mock('./subscription-results', () => ({
+  useSubscriptionSearch: () => ({ items: [], loading: false, error: null, retry: () => undefined }),
+}))
+
 vi.mock('../../store/notes', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../store/notes')>()),
   createContextualNote: vi.fn(async () => 'new-note'),

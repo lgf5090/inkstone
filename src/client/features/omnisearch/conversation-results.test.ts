@@ -175,6 +175,9 @@ beforeEach(async () => {
   vi.spyOn(omnisearchIndexer, 'getStatus').mockReturnValue(readyStatus)
   vi.spyOn(omnisearchIndexer, 'resolveBody').mockResolvedValue(null)
   conversations = vi.spyOn(api.assistant, 'conversations').mockResolvedValue(page([]))
+  // The subscriptions category is its own half of the panel. Left unmocked it would fail against the test
+  // server and draw a second alert, and "no alert on screen" is how several cases below read success.
+  vi.spyOn(api.subscriptions, 'search').mockResolvedValue({ items: [] })
   useNotes.setState({
     ...originalNotes,
     notes: { [note.id]: note },
@@ -276,6 +279,34 @@ describe('conversations as a global-search category', () => {
     await settle()
     expect(conversations).toHaveBeenCalledTimes(2)
     expect(document.querySelector('[role="alert"]')).toBeNull()
+  })
+
+  /**
+   * The same three states for the category this branch added.
+   *
+   * Each half of the panel fails on its own clock, so a refusal in one must not be read as the other
+   * coming back empty, and both refusals must be tellable apart on screen.
+   */
+  it('draws subscription matches under their own heading, beside the notes', async () => {
+    vi.mocked(api.subscriptions.search).mockResolvedValue({ items: [{ id: 's1', name: 'Netflix', amount: 60, currency: 'CNY', daysRemaining: 4 } as never] })
+    render(createElement(OmnisearchPrompt, { mode: 'vault', seed: '', noteId: null }))
+    type('netfl')
+    await settle()
+    expect(listbox().textContent).toContain(t('app.tabs.subscriptions'))
+    expect(optionTexts().join(' ')).toContain('Netflix')
+  })
+
+  it('keeps a refused subscription search apart from an empty one, and leaves the conversations alone', async () => {
+    vi.mocked(api.subscriptions.search).mockRejectedValue(new Error('HTTP 500'))
+    conversations.mockResolvedValue(page([conversation()]))
+    render(createElement(OmnisearchPrompt, { mode: 'vault', seed: '', noteId: null }))
+    type('netfl')
+    await settle()
+    const alerts = Array.from(document.querySelectorAll('[role="alert"]'))
+    expect(alerts, 'the half that refused says so').toHaveLength(1)
+    expect(alerts[0]!.textContent).toContain(t('omnisearch.subscriptions_failed'))
+    expect(listbox().textContent, 'the threads that did arrive stay listed').toContain(t('omnisearch.category_conversations'))
+    expect(listbox().textContent).not.toContain(t('omnisearch.no_results'))
   })
 
   it('says nothing found in the conversations without claiming the whole search came back empty', async () => {

@@ -5531,6 +5531,9 @@ const allowed = new Map([
     "/** The server's own answer shape, so a case can hand back a page without naming the cursor. */",
     "// The note row keeps its own place; the conversation arrives after it, and names the app it lands in.",
     "// A search hit names the turn its words were found in, so the thread opens around it.",
+    "// The subscriptions category is its own half of the panel. Left unmocked it would fail against the test",
+    "// server and draw a second alert, and \"no alert on screen\" is how several cases below read success.",
+    "/**\n   * The same three states for the category this branch added.\n   *\n   * Each half of the panel fails on its own clock, so a refusal in one must not be read as the other\n   * coming back empty, and both refusals must be tellable apart on screen.\n   */",
   ]],
   ["src/client/features/omnisearch/conversation-results.ts", [
     "/**\n * Conversations as a category of the global search.\n *\n * The prompt's index holds notes and nothing else, so a thread the reader has already had is invisible to\n * it. This does not copy that content anywhere: it asks the one endpoint the chat's own list already\n * uses — `GET /api/assistant/conversations?q=…`, which matches the title and the message bodies on the\n * server — and keeps the page it answers with.\n *\n * The two searches are independent state, so neither can overwrite the other's rows when the network\n * answers them out of order; each half only guards against being overtaken by its own newer query.\n */",
@@ -5625,6 +5628,8 @@ const allowed = new Map([
     "// the field's handler runs, and nothing in this panel marks itself `data-owns-escape`.",
     "// These cases are about the note index. The thread half of the answer is its own module, its own request",
     "// and its own rows, and it is proved in `conversation-results.test.ts`.",
+    "// So is the money half: an unanswered request there would hold the empty state hostage, which is what",
+    "// several cases below read as \"the panel is reporting the index\", not \"a third category is pending\".",
   ]],
   ["src/client/features/omnisearch/reveal.ts", [
     "/**\n * Moving the reader to a match. The index holds offsets into the note body, and the editor is the only\n * surface that can show one — so a result either lands the caret in the source or says nothing at all.\n */",
