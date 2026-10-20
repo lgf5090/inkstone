@@ -30,6 +30,7 @@ import {
   usePreviousStats,
   type PreviousStats,
 } from './stats-compare'
+import { downloadStatsCsv } from './stats-csv'
 import { PRIORITIES, listName, priorityLabel, tagName, weekdayName } from './stats-format'
 import { useTodos } from './store'
 
@@ -544,6 +545,32 @@ function StatsError({ error, onRetry }: { error: string | null; onRetry: () => v
   )
 }
 
+/**
+ * The CSV download, worded beside the range it describes.
+ *
+ * An empty range has no rows to hand over, so the button stays in place but disabled and the hint
+ * says why — a control that disappeared would leave the reader wondering whether they missed it.
+ */
+function StatsExport({ stats }: { stats: TodoStats }) {
+  const empty = stats.summary.completed === 0 && stats.summary.created === 0
+  return (
+    <div className="flex flex-wrap items-center gap-2">
+      <Button
+        size="lg"
+        className="min-h-11"
+        disabled={empty}
+        aria-describedby="todo-stats-export-hint"
+        onClick={() => { downloadStatsCsv(stats) }}
+      >
+        {t('todo.stats.export.label')}
+      </Button>
+      <p id="todo-stats-export-hint" className="text-[length:var(--text-11)] leading-relaxed text-[var(--text-quaternary)]">
+        {empty ? t('todo.stats.export.empty') : t('todo.stats.export.hint', { zone: stats.range.timezone })}
+      </p>
+    </div>
+  )
+}
+
 /** The range and the bucket controls, which are the only state the statistics screen owns. */
 function StatsControls({ stats, onRange, onBucket }: {
   stats: TodoStats
@@ -624,6 +651,7 @@ export function StatsView() {
       className="flex flex-col gap-4 px-3 pb-6 pt-3 md:px-5"
     >
       {stats && <StatsControls stats={stats} onRange={pickRange} onBucket={pickBucket} />}
+      {stats && <StatsExport stats={stats} />}
       {status === 'error' ? (
         <StatsError error={error} onRetry={() => { void loadStats() }} />
       ) : !stats ? (

@@ -15,6 +15,8 @@ import type { TaskStatsBucket, TodoStats } from '@shared/todos/model'
 import { initI18n, t } from '../../lib/i18n'
 import { renderElement, stubBreakpoint, type RenderedElement } from '../../lib/test-render'
 import { shiftDay } from './due-range'
+import { buildStatsCsv, statsCsvFilename } from './stats-csv'
+import { weekdayName } from './stats-format'
 
 interface StatsCall {
   from?: string
@@ -392,6 +394,37 @@ describe('the previous period', () => {
     expect(kpi(container, 'completed'), 'a failed comparison took the KPIs down with it').toContain('12')
     expect(container.textContent).toContain(t('todo.stats.compare.unavailable'))
     expect(delta(container, 'completed')).toBe('—')
+  })
+})
+
+describe('the CSV export', () => {
+  it('writes stable column names and both tables, with a BOM for spreadsheets', async () => {
+    const container = await mount(`/todo?view=stats&from=${RANGE.from}&to=${RANGE.to}&bucket=${RANGE.bucket}`)
+    const stats = fullStats()
+    const csv = buildStatsCsv(stats)
+
+    expect(csv.charCodeAt(0), 'the file must start with a UTF-8 BOM').toBe(0xfeff)
+    expect(csv).toContain('period,completed,created')
+    expect(csv).toContain('2026-10-05,8,6')
+    expect(csv).toContain('2026-10-12,4,3')
+    expect(csv).toContain('distribution,key,label,count')
+    expect(csv).toContain(`list,,${t('todo.smart.inbox')},3`)
+    expect(csv).toContain('list,L1,Work,9')
+    expect(csv).toContain('tag,T1,urgent,4')
+    expect(csv).toContain(`priority,high,${t('todo.priority.high')},4`)
+    expect(csv).toContain(`weekday,1,${weekdayName(1)},9`)
+    expect(csv).toContain('hour,9,09,7')
+    expect(statsCsvFilename(stats.range)).toBe('inkstone-todo-stats-2026-10-01_2026-10-30.csv')
+
+    expect(buttonFor(container, t('todo.stats.export.label')).disabled, 'a populated range cannot export').toBe(false)
+  })
+
+  it('keeps the export disabled and explains why when the range is empty', async () => {
+    service.payload = emptyStats()
+    const container = await mount(`/todo?view=stats&from=${RANGE.from}&to=${RANGE.to}&bucket=${RANGE.bucket}`)
+
+    expect(buttonFor(container, t('todo.stats.export.label')).disabled).toBe(true)
+    expect(container.textContent).toContain(t('todo.stats.export.empty'))
   })
 })
 
