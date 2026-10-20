@@ -10,12 +10,11 @@
  * schedule in the same breath, and the tab that shows them has to be current the moment it is opened.
  */
 import { useEffect, useMemo, useState } from 'react'
-import { Bell, BookMarked, Brain, CheckSquare, FolderKanban, LayoutList, MessageSquare, Settings2 } from 'lucide-react'
+import { BookMarked, Brain, CheckSquare, FolderKanban, LayoutList, MessageSquare, Settings2 } from 'lucide-react'
 import type { MessageKey } from '@shared/locales/en-US'
 import { cn } from '../../lib/cn'
 import { t } from '../../lib/i18n'
 import { Tooltip } from '../../components/overlay'
-import { IconButton } from '../../components/primitives'
 import { useAssistant, type AssistantView } from './assistant-store'
 import { ASSISTANT_VIEWS } from './assistant-store'
 import { ChatView } from './ChatView'
@@ -25,7 +24,7 @@ import { AutomationsView } from './AutomationsView'
 import { SkillsView } from './SkillsView'
 import { AssistantSettingsView } from './AssistantSettingsView'
 import { ProjectsView } from './ProjectsView'
-import { NotificationCenter } from './NotificationCenter'
+import { NotificationsBell } from './NotificationCenter'
 import { DeepResearchProgress } from './DeepResearchProgress'
 
 const VIEW_ICONS: Record<AssistantView, typeof MessageSquare> = {
@@ -69,7 +68,6 @@ export function ChatApp() {
   const bootstrap = useAssistant((state) => state.bootstrap)
   const loaded = useAssistant((state) => state.loaded)
   const error = useAssistant((state) => state.error)
-  const unread = useAssistant((state) => state.unread)
   const agentName = useAssistant((state) => state.settings?.agentName)
   const [notificationsOpen, setNotificationsOpen] = useState(false)
 
@@ -148,20 +146,11 @@ export function ChatApp() {
         <header className="flex h-11 shrink-0 items-center gap-2 border-b border-[var(--border-subtle)] bg-[var(--bg-sunken)] px-3">
           <span className="min-w-0 truncate text-[length:var(--text-13-5)] font-semibold text-[var(--text-primary)]">{title}</span>
           <div className="ml-auto flex shrink-0 items-center gap-1">
-            <Tooltip label={unread ? t('assistant.notifications.unread', { count: unread }) : t('assistant.notifications.title')}>
-              <IconButton label={t('assistant.notifications.title')} size="sm" onClick={() => setNotificationsOpen(true)}>
-                <span className="relative">
-                  <Bell size={15} />
-                  {unread > 0 && (
-                    <span
-                      className="absolute -right-1.5 -top-1.5 flex h-3.5 min-w-3.5 items-center justify-center rounded-full bg-[var(--danger)] px-[3px] text-[length:var(--text-9)] font-semibold text-white"
-                    >
-                      {unread > 9 ? '9+' : unread}
-                    </span>
-                  )}
-                </span>
-              </IconButton>
-            </Tooltip>
+            <NotificationsBell
+              open={notificationsOpen}
+              onOpen={() => setNotificationsOpen(true)}
+              onClose={() => setNotificationsOpen(false)}
+            />
           </div>
         </header>
 
@@ -216,8 +205,6 @@ export function ChatApp() {
           })}
         </nav>
       </div>
-
-      <NotificationCenter open={notificationsOpen} onClose={() => setNotificationsOpen(false)} />
     </section>
   )
 }

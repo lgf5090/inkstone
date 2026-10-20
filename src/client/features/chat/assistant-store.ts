@@ -697,6 +697,13 @@ interface AssistantState {
 const inflight = new Map<number, AbortController>()
 let turnSeq = 0
 let conversationRequest = 0
+/**
+ * The one list read in flight, so a header that carries a bell and a bootstrap behind it asks once.
+ *
+ * A failed read leaves nothing held: the count stays where it was, and the next mount asks again rather
+ * than treating a list it never read as an empty account.
+ */
+let notificationsRequest: Promise<void> | null = null
 
 /**
  * Why a write was refused, in the two lines a form can print.
@@ -3129,12 +3136,18 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
   },
 
   loadNotifications: async () => {
-    try {
-      const result = await api.assistant.notifications()
-      set({ notifications: result.notifications, unread: result.unread })
-    } catch (error) {
-      toast(error)
-    }
+    if (notificationsRequest) return notificationsRequest
+    notificationsRequest = (async () => {
+      try {
+        const result = await api.assistant.notifications()
+        set({ notifications: result.notifications, unread: result.unread })
+      } catch (error) {
+        toast(error)
+      } finally {
+        notificationsRequest = null
+      }
+    })()
+    return notificationsRequest
   },
 
   markRead: async (id) => {

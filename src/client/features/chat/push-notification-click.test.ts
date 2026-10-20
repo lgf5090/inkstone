@@ -31,12 +31,18 @@ vi.mock('./AutomationsView', () => ({ AutomationsView: () => null }))
 vi.mock('./SkillsView', () => ({ SkillsView: () => null }))
 vi.mock('./ProjectsView', () => ({ ProjectsView: () => null }))
 vi.mock('./AssistantSettingsView', () => ({ AssistantSettingsView: () => null }))
-vi.mock('./NotificationCenter', () => ({
-  NotificationCenter: ({ open }: { open: boolean }) => {
+vi.mock('./NotificationCenter', () => {
+  const center = ({ open }: { open: boolean }) => {
     if (!harness.opens.includes(open)) harness.opens.push(open)
     return open ? createElement('div', { 'data-notification-drawer': '1' }) : null
-  },
-}))
+  }
+  return {
+    NotificationCenter: center,
+    // The header wears the bell, and the bell is what mounts the centre; the stub delegates, so the push
+    // half — which is what this file is about — still lands on a drawer it can look at.
+    NotificationsBell: ({ open }: { open: boolean }) => createElement(center, { open }),
+  }
+})
 // The service worker half is not what this file is about, and `initializePwa` would register a real one.
 vi.mock('../../store/pwa', () => ({
   initializePwa: () => {},

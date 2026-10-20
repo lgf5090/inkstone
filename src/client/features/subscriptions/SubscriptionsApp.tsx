@@ -15,6 +15,7 @@ import { useSession } from '../../store/session'
 import { useUi } from '../../store/ui'
 import { useBreakpoint } from '../../lib/hooks'
 import { AssistantDock } from '../chat/AssistantDock'
+import { NotificationsBell } from '../chat/NotificationCenter'
 import { Button, IconButton } from '../../components/primitives'
 import { Drawer, Modal, Tooltip, confirm } from '../../components/overlay'
 import { Input } from '../../components/form'
@@ -69,6 +70,7 @@ export function SubscriptionsApp(): ReactElement {
   const [keysOpen, setKeysOpen] = useState(false)
   const [detailDrawer, setDetailDrawer] = useState(false)
   const [labelsOpen, setLabelsOpen] = useState(false)
+  const [notificationsOpen, setNotificationsOpen] = useState(false)
   const [selectMode, setSelectMode] = useState(false)
   const typeSuggestions = useLabelSuggestions('type')
   const categorySuggestions = useLabelSuggestions('category')
@@ -207,6 +209,14 @@ export function SubscriptionsApp(): ReactElement {
           {/* A touch screen has no keys to press, so the card is offered only where it can be used. */}
           <IconButton label={t('subscriptions.keys.title')} size="sm" className="hidden sm:inline-flex" onClick={() => setKeysOpen(true)}><CircleHelp size={15} /></IconButton>
         </Tooltip>
+        {/* A reminder that fires while the reader is on this page has nowhere to show up otherwise: the
+            bell that carries it is mounted on the chat tab alone, and the schedules that write those rows
+            belong to these plans. One bell per surface, one unread count between them. */}
+        <NotificationsBell
+          open={notificationsOpen}
+          onOpen={() => setNotificationsOpen(true)}
+          onClose={() => setNotificationsOpen(false)}
+        />
         {/* The dock is mounted here, but nothing on this page could open it: the only callers of
             `setAssistantDock` live in the notebook, so asking about a plan meant leaving for the chat tab
             first. This is that door. */}

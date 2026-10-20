@@ -2158,6 +2158,7 @@ const allowed = new Map([
     "// A collapsed row shows one line; expanding it must not re-parse the body on every keystroke.",
     "/* The rows are one card rather than a stack of floating boxes: at 380px the per-row border\n                doubled the visible edges and made a short list read as three unrelated things. */",
     "/* A delivery about a plan can be opened; one from a routine cannot, and the control is not\n              offered when there is nothing behind it. */",
+    "/**\n * The header control that opens the centre.\n *\n * Two surfaces wear one — the chat header and the subscriptions header — and the badge is the same\n * arithmetic in both, so it is written once here rather than in two toolbars that would drift. The count is\n * read on mount because the bell cannot be a quiet zero: on a plan nothing else ever asks for it, and on the\n * chat tab the container's own bootstrap asks in the same tick, where the store answers both with one read.\n */",
   ]],
   ["src/client/features/chat/ProjectsView.tsx", [
     "/**\n * The projects screen: standing briefs the assistant answers under.\n *\n * A project is not another place to file things — conversations already live in the notebook's folders.\n * It is a brief and a knowledge selection that every conversation inside it inherits, which is what makes\n * it different from a folder: the folder says where a thread sits, the project says what it is about.\n *\n * Kept lean on purpose: the list, the editor, and which project the current conversation belongs to. The\n * editor is where the real content is — instructions and the folders whose notes the assistant may read —\n * so it gets the room and the list does not.\n */",
@@ -2821,6 +2822,7 @@ const allowed = new Map([
     "/** The plan the money app has on screen, pushed by the dock that sits beside it. Null means nothing is attached. */",
     "// Named by id, not by title: two plans can share a name, and the reader pointed at one of them.",
     "/**\n   * Which app the assistant is docked beside right now.\n   *\n   * A mount effect that switches the notebook's pointers off is a race: opening, switching or starting a\n   * conversation puts noteContextOn back to true, and the reader is left with a note chip for a page\n   * that has no note on it. The surface is therefore checked where the chips are drawn and where the turn\n   * is sent, not only when the dock appears.\n   */",
+    "/**\n * The one list read in flight, so a header that carries a bell and a bootstrap behind it asks once.\n *\n * A failed read leaves nothing held: the count stays where it was, and the next mount asks again rather\n * than treating a list it never read as an empty account.\n */",
   ]],
   ["src/client/features/chat/assistant-stream-isolation.test.ts", [
     "/** Every send's stream, in the order the store asked for them. */",
@@ -4038,6 +4040,21 @@ const allowed = new Map([
     "// The note title is read at press time, not when the menu was built, so a rename while the menu sat",
     "// open does not stamp the task with the page's older name.",
   ]],
+  ["src/client/features/chat/notifications-bell.test.ts", [
+    "/**\n * The bell, and the centre it raises.\n *\n * Two headers wear this one control — the assistant's own and the subscriptions page — so what is pinned\n * here is what both of them promise: one badge arithmetic, one list read for the tick that asks twice, a\n * press that goes to whoever owns the drawer rather than to a copy of the open state.\n *\n * The rows are pinned for the one thing a delivery promises and a schedule cannot enforce: a notice about a\n * plan carries the door back to that plan, and a notice from a routine does not.\n */",
+    "/** What the endpoint answers, so the centre can be shown with rows the store has not just discarded. */",
+    "/** A delivery about a plan: the in-app channel writes the pointer, and the row is supposed to honour it. */",
+    "/** The same row from a routine that was never about anything the app can open. */",
+    "// The read a mounting bell kicks off answers with the same numbers the test asked the store for; other-",
+    "// wise it lands a second later and wipes the badge out from under the assertion.",
+    "/** Mounts the centre the way the bell does — open, with the rows the endpoint is answering. */",
+    "// Two bells, or one bell and a container bootstrapping behind it: whichever arrived first answers.",
+    "// Torn down before the store is told anything, and rebuilt after: a bell re-rendered in place keeps its",
+    "// mount effect, and the question this file asks of a bell is what it does when it arrives at a page. A",
+    "// store write with the older tree still subscribed is also an update React saw coming from nowhere.",
+    "// Drain a read the case below started and did not wait for: it would otherwise land after the tree is",
+    "// gone, and the warning would be charged to whichever case runs next.",
+  ]],
   ["src/client/features/chat/pdf-text.ts", [
     "/**\n * A PDF's words, read in the browser.\n *\n * The worker cannot pull text out of a PDF — it has no parser and no DOM — so the browser reads it at\n * upload time, where PDF.js already runs for the reading app, and sends the words along with the bytes.\n * The library is imported lazily so an attachment that is not a PDF never pays for it, and the\n * extraction is bounded so a nine-hundred-page manual does not arrive as one enormous prompt.\n */",
     "/** How much text a document may contribute; the worker clamps again on its side. */",
@@ -4154,6 +4171,8 @@ const allowed = new Map([
     "/** Every `open` the drawer was mounted with, in order, so a drawer that never opens is visible. */",
     "// The service worker half is not what this file is about, and `initializePwa` would register a real one.",
     "/** Stands up `navigator.serviceWorker` as an event target the worker's postMessage can reach. */",
+    "// The header wears the bell, and the bell is what mounts the centre; the stub delegates, so the push",
+    "// half — which is what this file is about — still lands on a drawer it can look at.",
   ]],
   ["src/client/features/chat/push-settings.test.ts", [
     "/** What each write answers with as the account's list. */",
@@ -10723,6 +10742,7 @@ const allowed = new Map([
     "/* Selecting applies to the list rows, so the press only exists where a box can appear. Offered in\n            the trash or the logs it would flip to \"exit selecting\" and change nothing on screen. */",
     "/* The same column the notebook mounts, under the same conditions: the assistant's thread is\n            global state, so opening it here and opening it there is one conversation rather than two.\n            Not on a phone, where chat already has a tab of its own. */",
     "/* The dock is mounted here, but nothing on this page could open it: the only callers of\n            `setAssistantDock` live in the notebook, so asking about a plan meant leaving for the chat tab\n            first. This is that door. */",
+    "/* A reminder that fires while the reader is on this page has nowhere to show up otherwise: the\n            bell that carries it is mounted on the chat tab alone, and the schedules that write those rows\n            belong to these plans. One bell per surface, one unread count between them. */",
   ]],
   ["src/client/features/subscriptions/TrashView.tsx", [
     "/**\n * The trash: what was deleted, and the two ways to deal with it.\n *\n * A separate view rather than another mode of the subscription list, because the list's whole organising\n * idea is *when does this expire* — the buckets, the countdown colour, the renew shortcut — and none of\n * that means anything for a row nobody is being reminded about. A trashed subscription is sorted by when\n * it was discarded and offers exactly two actions: put it back, or make it gone.\n *\n * Nothing else lives here. Editing, renewing or testing a trashed subscription would all have to decide\n * what happens when it is restored afterwards, and a trash that can be quietly modified is a trash whose\n * contents cannot be trusted.\n */",
