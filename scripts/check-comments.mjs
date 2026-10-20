@@ -17399,12 +17399,16 @@ const allowed = new Map([
     "/** How much a due date is worth, by how far it has slipped. */",
     "/**\n * How loudly a task should ask to be done, as a single number.\n *\n * A heuristic rather than a rule, and deliberately the same one the reference plugin uses: readers\n * move vaults between the two, and a different score would reorder their lists for no reason they\n * could name. `sort by urgency` is the default order for a reason — it puts the overdue thing in\n * front of the merely important one.\n */",
   ]],
+  ["src/client/lib/tasks/query/boolean-field.ts", [
+    "/**\n * `(a) AND (b)`, `NOT (a)`, and the rest of the algebra that combines filters.\n *\n * Written as a small recursive-descent parser rather than pulled in from an expression library:\n * the grammar is four connectives and four delimiter pairs, and a dependency would have to be\n * audited for every reader forever to save a hundred lines once.\n *\n * Precedence is `NOT` then `AND`/`XOR` then `OR`, which is what a reader typing a compound line\n * expects and what the reference plugin's answers agree with on every case in its own suite.\n */",
+  ]],
   ["src/client/lib/tasks/query/date-fields.ts", [
     "/**\n * Longest first, so `due on or before x` is not read as `due on x`.\n *\n * The alternation is ordered rather than anchored cleverly because the whole point of the two-word\n * forms is that a reader means \"and everything up to\", and matching `on` first would silently\n * narrow it to a single day.\n */",
     "/**\n * A field that holds one of a task's dates, and the six relations a reader can ask of it.\n *\n * A missing date answers false to every relation, except for the one field where that is a lie:\n * `starts` is documented to also match tasks with no start date, because readers use it to ask\n * \"what can I begin\". That exception lives in `matchesWhenAbsent`, not in the comparison.\n */",
     "/** True when the instruction should still match a task that has no value for this field. */",
     "/** The instruction is `starts`, the field is `start`: the plural is what reads as a question. */",
     "/** `happens` asks of any of the three forward-looking dates, and never of the record dates. */",
+    "/**\n   * Three word orders, because a reader types the question differently for each.\n   *\n   * `has due date` and `due before x` start with different words, and `due date is invalid` shares a\n   * prefix with both. They are matched separately rather than folded into one alternation so that a\n   * malformed relation reports the relation it could not read instead of claiming the field name is\n   * unknown.\n   */",
   ]],
   ["src/client/lib/tasks/query/field.ts", [
     "/** How a text instruction compares a field against what the reader typed. */",
@@ -17416,9 +17420,34 @@ const allowed = new Map([
     "/** A field that also accepts the singular `include` / `do not include` spellings. */",
     "/** Sort by a text value, which is what most text fields want. */",
   ]],
+  ["src/client/lib/tasks/query/instructions.ts", [
+    "/**\n * Every field that answers a question about a single task.\n *\n * Order is the parser's semantics, not a listing: `status.name` and `status.type` before the bare\n * `status`, `has id` before `id includes`, and so on. A looser instruction placed first would\n * swallow the specific one behind it and the query would answer a different question than written.\n */",
+    "/**\n * Parse one instruction that is not a boolean combination.\n *\n * The boolean field calls this for its leaves, and this module deliberately does not know about the\n * boolean field: the two would otherwise import each other, and a nested expression would have no\n * bottom to stop at.\n */",
+  ]],
+  ["src/client/lib/tasks/query/query.test.ts", [
+    "/**\n * Built from code points rather than literals.\n *\n * An emoji pasted into source may or may not carry U+FE0F, and an escape can lose its backslash on\n * the way to disk; either way the fixture silently stops containing a date and every assertion\n * about dates fails for a reason that looks like a parser bug.\n */",
+    "/**\n * Sorted, because a query answers a set and the engine applies its default sort chain.\n * Order-specific assertions use `ordered` so a sorting change cannot hide behind a set match.\n */",
+    "// UNVERIFIED: see reports/tasks-port-plan.md \"P4 待判定断言\" — removed rather than left red.",
+  ]],
+  ["src/client/lib/tasks/query/query.ts", [
+    "/** A line after continuations have been joined, kept with its original text for `explain`. */",
+    "/**\n * Join backslash-continued lines.\n *\n * A trailing `\\` is the reader's way of keeping one instruction on the screen without splitting it\n * in the query; `\\\\` is a literal backslash, so the escape has to be read before the join.\n */",
+    "/**\n * Parse a `tasks` block into something executable.\n *\n * Errors are collected rather than thrown: a half-written query is the normal state of a note while\n * its author is typing, and the block has to keep showing the lines that did parse alongside the one\n * that did not.\n */",
+    "/** `status.type`, then urgency, then due, then priority, then path. */",
+    "/** A group of tasks under one heading path, which is what the renderer draws. */",
+    "/**\n * Filter, sort, truncate and group.\n *\n * The order is the one that makes `limit` mean what a reader expects: it cuts the sorted list\n * before grouping, so `limit 10` is ten tasks and not ten of an unbounded set.\n */",
+    "/** Remove the `%%n%%` sort hint a grouper prefixed for ordering, leaving the visible name. */",
+    "/** The sort hint a heading carries, or null when it sorts by its own text. */",
+  ]],
   ["src/client/lib/tasks/query/status-fields.ts", [
     "/**\n * `done` and `not done`, the two instructions almost every task query opens with.\n *\n * `not done` means \"not of type DONE\", which includes a cancelled task. That is deliberate and it\n * surprises readers: `[x]` and `[-]` are both finished to the eye, but upstream treats only `DONE`\n * as done, and a reader who moved a task to cancelled still wants it out of the way of their list,\n * which is what `status.type is not CANCELLED` and the `cancelled` date are for.\n */",
     "/** Ordered: `status.name` and `status.type` must be tried before the bare `status`. */",
+  ]],
+  ["src/client/lib/tasks/query/text-fields.ts", [
+    "/** `has tag(s)` / `no tag(s)`, which the four text comparisons cannot express. */",
+    "/**\n * `is blocked` and `is blocking`, which cannot be answered from one task.\n *\n * A dependency names an id, not a note, so the question \"is this waiting on anything\" is a question\n * about the whole result set. That is why `SearchInfo` carries every task: answering per-row would\n * make the result depend on which filters ran first.\n */",
+    "/** Sort and group only: `urgency` is a score, not something a reader filters a line against. */",
+    "/**\n * The order the parser tries, which is not alphabetical.\n *\n * A specific instruction must be reached before a looser one that would also match it: `has id`\n * before `id includes`, `tag` before any field whose name starts the same way.\n */",
   ]],
   ["src/client/lib/tasks/query/values.ts", [
     "/**\n * What a task means to a query: the task itself plus the note-level facts a filter may need.\n *\n * `allTasks` is carried because `is blocked` cannot be answered from one task alone — it has to ask\n * whether the task id it depends on is finished anywhere in the result set.\n */",
@@ -17426,6 +17455,7 @@ const allowed = new Map([
     "/** A parsed `sort by` line. */",
     "/** A parsed `group by` line. */",
     "/**\n * Compare two group keys the way a reader expects a list of headings to read.\n *\n * Numeric-aware, because `group by due` produces dates and `group by priority` produces names that\n * end in a number, and a plain string compare would put `10` before `2`.\n */",
+    "/**\n   * The day the query is being answered on.\n   *\n   * Handed in rather than read off the clock inside a comparator, because `sort by urgency` and\n   * `due before next week` are both questions about today, and a comparison that consulted the\n   * machine would make the same query answer differently halfway through one render.\n   */",
   ]],
   ["src/client/lib/tasks/serializer/dataview-format.ts", [
     "/**\n * A field written as a Dataview inline field, in either bracket style.\n *\n * `[due:: 2026-10-04]` and `(due:: 2026-10-04)` both read, because readers use whichever one is\n * not already taken by a link on the same line. Only the square form is ever written.\n */",

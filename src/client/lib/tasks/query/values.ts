@@ -8,6 +8,14 @@ import type { Task } from '../model/task'
  */
 export interface SearchInfo {
   allTasks: Task[]
+  /**
+   * The day the query is being answered on.
+   *
+   * Handed in rather than read off the clock inside a comparator, because `sort by urgency` and
+   * `due before next week` are both questions about today, and a comparison that consulted the
+   * machine would make the same query answer differently halfway through one render.
+   */
+  now: Date
 }
 
 /** An instruction line that either filters, or explains itself to the reader. */
@@ -25,7 +33,7 @@ export function invalidFilter(error: string): FilterOrErrorMessage {
 }
 
 export type Comparator = (a: Task, b: Task, info: SearchInfo) => number
-export type GrouperFunction = (task: Task) => string[]
+export type GrouperFunction = (task: Task, info: SearchInfo) => string[]
 
 /** A parsed `sort by` line. */
 export interface Sorter {

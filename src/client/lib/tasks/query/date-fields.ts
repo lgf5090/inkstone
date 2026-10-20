@@ -38,33 +38,56 @@ export abstract class DateField extends Field {
 
   protected abstract instructionName(): string
 
-  protected override filterRegExp(): RegExp {
-    const name = this.instructionName()
-    return new RegExp(`^${name} (has|no|${RELATION_PATTERN})\\b(?: (.*))?`, 'i')
+  private presenceRegExp(): RegExp {
+    return new RegExp(`^(has|no) ${this.fieldNameSingular()} date$`, 'i')
   }
 
-  createFilterOrErrorMessage(line: string): FilterOrErrorMessage {
-    const pattern = this.filterRegExp()
-    const matched = pattern.exec(line)
-    if (matched === null) return invalidFilter(`unable to parse: ${line}`)
-    const relation = matched[1]!.toLowerCase()
-    const name = this.fieldNameSingular()
+  private invalidRegExp(): RegExp {
+    return new RegExp(`^${this.fieldNameSingular()} date is invalid$`, 'i')
+  }
 
-    if (relation === 'has' || relation === 'no') {
-      const want = relation === 'has'
+  private relationRegExp(): RegExp {
+    return new RegExp(`^${this.instructionName()} (${RELATION_PATTERN})? ?(.*)$`, 'i')
+  }
+
+  protected override filterRegExp(): RegExp {
+    return this.relationRegExp()
+  }
+
+  /**
+   * Three word orders, because a reader types the question differently for each.
+   *
+   * `has due date` and `due before x` start with different words, and `due date is invalid` shares a
+   * prefix with both. They are matched separately rather than folded into one alternation so that a
+   * malformed relation reports the relation it could not read instead of claiming the field name is
+   * unknown.
+   */
+  override canCreateFilterForLine(line: string): boolean {
+    const trimmed = line.trim()
+    return this.presenceRegExp().test(trimmed)
+      || this.invalidRegExp().test(trimmed)
+      || this.relationRegExp().test(trimmed)
+  }
+
+  override createFilterOrErrorMessage(line: string, now?: Date): FilterOrErrorMessage {
+    const trimmed = line.trim()
+
+    const presence = this.presenceRegExp().exec(trimmed)
+    if (presence !== null) {
+      const want = presence[1]!.toLowerCase() === 'has'
       return { filter: (task) => (this.dateOf(task) !== null) === want, error: null }
     }
 
-    if (relation === 'on' || relation === 'in') {
-      const invalid = `${name} date is invalid`
-      if (line.trim().toLowerCase().endsWith(invalid.toLowerCase())) {
-        return { filter: (task) => this.isBroken(task), error: null }
-      }
+    if (this.invalidRegExp().test(trimmed)) {
+      return { filter: (task) => this.isBroken(task), error: null }
     }
 
+    const matched = this.relationRegExp().exec(trimmed)
+    if (matched === null) return invalidFilter(`unable to parse: ${line}`)
+    const relation = (matched[1] ?? 'on').toLowerCase()
     const text = (matched[2] ?? '').trim()
     if (text === '') return invalidFilter(`Missing date after '${relation}' in: ${line}`)
-    const range = parseRange(text, new Date())
+    const range = parseRange(text, now ?? new Date())
     if (range === null || !range.isValid()) return invalidFilter(`cannot parse the date: ${text}`)
 
     const compare = comparatorFor(relation)

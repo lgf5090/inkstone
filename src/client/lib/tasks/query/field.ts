@@ -60,7 +60,7 @@ export abstract class Field {
     return pattern !== null && pattern.test(line)
   }
 
-  abstract createFilterOrErrorMessage(line: string): FilterOrErrorMessage
+  abstract createFilterOrErrorMessage(line: string, now?: Date): FilterOrErrorMessage
   abstract fieldName(): string
 
   /** The shape this field's filter instruction takes, or null when it cannot be filtered on. */
