@@ -776,17 +776,20 @@ export const useTodos = create<TodosState>((set, get) => ({
           }
           await get().updateTask(id, { status: restoreStatus })
         })
-      } else if (!undoing && before && 'listId' in patch && (patch.listId ?? null) !== before.listId) {
-        // A list is a field on the row, so its inverse is the same PATCH with the old collection.
-        const listId = before.listId
-        offerUndo(set, get, t('todo.toast.moved'), async () => {
-          await get().updateTask(id, { listId })
-        })
-      } else if (!undoing && before && 'priority' in patch && patch.priority !== before.priority) {
-        const priority = before.priority
-        offerUndo(set, get, t('todo.toast.priority'), async () => {
-          await get().updateTask(id, { priority })
-        })
+      } else if (!undoing && before) {
+        // A save may carry both fields at once, and half a step back is not a step back: one inverse
+        // puts back whatever the save changed of the two.
+        const listChanged = 'listId' in patch && (patch.listId ?? null) !== before.listId
+        const priorityChanged = 'priority' in patch && patch.priority !== before.priority
+        if (listChanged || priorityChanged) {
+          const inverse = {
+            ...(listChanged ? { listId: before.listId } : {}),
+            ...(priorityChanged ? { priority: before.priority } : {}),
+          }
+          offerUndo(set, get, t(listChanged ? 'todo.toast.moved' : 'todo.toast.priority'), async () => {
+            await get().updateTask(id, inverse)
+          })
+        }
       }
       void get().refreshCounts()
       return task

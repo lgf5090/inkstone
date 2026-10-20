@@ -201,6 +201,21 @@ describe('undoing a priority change', () => {
     ])
     expect(useTodos.getState().tasks[0]?.priority).toBe('high')
   })
+
+  it('takes both fields back when one save changed the list and the priority', async () => {
+    const task = row('t1', 'File the return', { listId: 'work', priority: 'high' })
+    hydrate([task])
+
+    await useTodos.getState().updateTask('t1', { listId: 'home', priority: 'urgent' })
+    await useTodos.getState().undoLast()
+
+    expect(service.updates).toEqual([
+      { id: 't1', body: { listId: 'home', priority: 'urgent' } },
+      { id: 't1', body: { listId: 'work', priority: 'high' } },
+    ])
+    expect(useTodos.getState().tasks[0]?.listId).toBe('work')
+    expect(useTodos.getState().tasks[0]?.priority).toBe('high')
+  })
 })
 
 describe('undoing a delete', () => {
