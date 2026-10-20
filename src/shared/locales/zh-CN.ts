@@ -4798,8 +4798,12 @@ console.log(\`Hello, \${name}!\`)
     "tasks.no_results": "没有匹配的任务。",
     "tasks.result_count": "{value0} 个任务",
     "tasks.explain": "这份列表是怎么来的",
-
     "workspace.dataview_query": "Dataview 查询",
+    "workspace.tasks_query": "任务查询",
+    "workspace.tasks_open": "未完成任务",
+    "workspace.tasks_overdue": "已逾期任务",
+    "workspace.tasks_by_folder": "按文件夹分组",
+
     "workspace.dataview_js": "Dataview 脚本",
     "workspace.dataview_table": "笔记表格",
     "workspace.dataview_tagged": "按标签的表格",

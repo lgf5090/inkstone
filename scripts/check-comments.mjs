@@ -655,6 +655,7 @@ const allowed = new Map([
     "// into bubbles — which is the type this entry is named for.",
     "/**\n * The starter queries behind the toolbar's Dataview submenu. Every body is a query the parser accepts\n * and the index can answer with nothing indexed yet — an empty result, not an error — because a\n * template that inserts a block reporting itself broken is worse than no template.\n */",
     "/** The DML starter: the shortest program that shows the `dv` object is working. */",
+    "/**\n * The starter queries behind the toolbar's Tasks submenu. Each body is an instruction set the\n * engine accepts and that answers with an empty list rather than an error while nothing is indexed,\n * because a template that inserts a block reporting itself broken is worse than no template.\n */",
   ]],
   ["src/client/editor/dragger/block-menu.tsx", [
     "/** Where the pointer asked for the block menu, and which block it was pointing at. */",
@@ -874,10 +875,10 @@ const allowed = new Map([
     "// `paste.ts` reaches the rules through `await import('../lib/linter')`, and that module reaches the",
     "// runner and the registry through two more dynamic imports of its own. Cold, those wait on the",
     "// bundler's transform queue, and a full-suite run is contended enough for the wait to outlast any",
-    "// timeout this file could reasonably carry — the paste then lands after the case has given up.",
-    "// Loading all three here puts them in the module graph, so the handler's own imports resolve on a",
-    "// tick. Warming only the index is what left this file failing in the full run: `lintPaste` never",
     "// touches `./runner` until it is called.",
+    "// bundler's transform queue, and a full-suite run is contended enough for the wait to cross the",
+    "// global 10 s hook budget it would otherwise inherit — the paste then lands after the case has",
+    "// given up. The file carries its own budget for the same reason the other heavy-import suites do.",
   ]],
   ["src/client/editor/paste.ts", [
     "// Two or more pictures pasted together become one layout block, each upload sitting on its own row line",

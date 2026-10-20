@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { dataviewModeOf, DATAVIEW_LANGUAGES, TASKS_LANGUAGES } from './body'
+import { dataviewHostMarkup, dataviewModeOf, DATAVIEW_LANGUAGES, showDataviewSource, TASKS_LANGUAGES } from './body'
 
 vi.mock('../i18n', () => ({
     t: (key: string, params?: Record<string, unknown>) => (params ? `${key}:${JSON.stringify(params)}` : key),
@@ -136,5 +136,17 @@ describe('rendering a tasks block', () => {
     it('adds the explanation tree only when asked', () => {
         expect(render('not done').querySelector('.tasks-explain')).toBeNull()
         expect(render('explain\nnot done').querySelector('.tasks-explain')).not.toBeNull()
+    })
+})
+
+describe('surfaces that must not answer', () => {
+    it('degrades a tasks host to its own source, leaving no checkbox or task data behind', () => {
+        const root = document.createElement('div')
+        root.innerHTML = dataviewHostMarkup('tasks', ' data-line="12"', 'not done\ndue before today')
+        showDataviewSource(root)
+        const block = root.querySelector<HTMLElement>('.dataview-block')!
+        expect(block.querySelector('.dataview-source')?.textContent).toContain('due before today')
+        expect(block.querySelector('input')).toBeNull()
+        expect(block.classList.contains('is-source')).toBe(true)
     })
 })
