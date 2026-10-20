@@ -27,6 +27,8 @@ import { testBindings } from './doubles/bindings'
 /** One account, seeded once through the store: nothing here writes over HTTP, so no write budget is spent. */
 const USER = '0123456789abcdefghjkmnpqrv'
 const FOREIGN = '0123456789abcdefghjkmnpqrw'
+/** A reader of their own, so the completion-window fixture does not move the bulk page's numbers. */
+const RANGE_USER = '0123456789abcdefghjkmnpqrx'
 const MINUTE = 60_000
 const HOUR = 60 * MINUTE
 /** The rows filed past the page the app used to read in one go. */
@@ -114,6 +116,10 @@ let needles: string[] = []
 /** The finished needle, and the finished bulk row filed in `workList`. */
 let needleDone = ''
 let bulkDone = ''
+/** The completion-window account's finished rows, by the day each one was filed under. */
+let finishedDays: { id: string; day: string }[] = []
+/** A finished row that has no completion day: the column was never filled, so no window can place it. */
+let undatedFinished = ''
 
 beforeAll(async () => {
   const sqlite = new DatabaseSync(':memory:')
@@ -146,6 +152,25 @@ beforeAll(async () => {
   const done = await store.createTask({ title: 'Bulk done', listId: workList.id })
   bulkDone = done.id
   await store.updateTask(done.id, { status: 'done' })
+
+  // A second reader whose finished rows carry known days: completion happens "now", so the columns
+  // are pinned afterwards rather than the clock being frozen for the whole file.
+  const ranged = new AssistantStore(env.DB as D1Database, RANGE_USER, env)
+  await ranged.saveSettings({ ...(await ranged.getSettings()), timezone: 'UTC' })
+  for (const day of ['2026-01-01', '2026-01-02', '2026-01-03']) {
+    const task = await ranged.createTask({ title: `Finished ${day}` })
+    await ranged.updateTask(task.id, { status: 'done' })
+    await env.DB.prepare(
+      `UPDATE todos_tasks SET completed_at = ?, completed_on = ? WHERE user_id = ? AND id = ?`,
+    ).bind(Date.parse(`${day}T09:00:00Z`), day, RANGE_USER, task.id).run()
+    finishedDays.push({ id: task.id, day })
+  }
+  const undated = await ranged.createTask({ title: 'Finished without a day' })
+  await ranged.updateTask(undated.id, { status: 'done' })
+  await env.DB.prepare(
+    `UPDATE todos_tasks SET completed_on = NULL WHERE user_id = ? AND id = ?`,
+  ).bind(RANGE_USER, undated.id).run()
+  undatedFinished = undated.id
 })
 
 beforeEach(() => {
@@ -326,6 +351,69 @@ describe('the filters the route takes', () => {
     expect(foreign.tasks).toEqual([])
     expect(foreign.total).toBe(0)
     expect(foreign.counts.byTag[focusTag.id] ?? null).toBeNull()
+  })
+})
+
+describe('a completion window', () => {
+  beforeEach(() => {
+    mocks.userId = RANGE_USER
+  })
+
+  it('starts on the first day and stops before the last', async () => {
+    const window = await page<Listing>('?view=completed&completedFrom=2026-01-01&completedTo=2026-01-03')
+    // The stored days are `YYYY-MM-DD`, so "from" is the first day included and "to" is the first day
+    // left out: the third finished row exists and is simply not in a window that ends where it starts.
+    expect(window.tasks.map((task) => task.title).sort()).toEqual(['Finished 2026-01-01', 'Finished 2026-01-02'])
+    expect(window.total).toBe(window.tasks.length)
+    expect(window.total).toBe(2)
+  })
+
+  it('leaves out a finished row that carries no completion day', async () => {
+    const all = await page<Listing>('?view=completed')
+    // Without a window the finished bucket is the whole finished bucket, and the sidebar number says
+    // the same thing about it.
+    expect(all.total).toBe(finishedDays.length + 1)
+    expect(all.total).toBe(all.counts.completed)
+    expect(all.tasks.map((task) => task.id)).toContain(undatedFinished)
+
+    const bounded = await page<Listing>('?view=completed&completedFrom=2025-01-01&completedTo=2027-01-01')
+    // There is no day to compare, so a row whose column was never filled is in no window at all.
+    expect(bounded.total).toBe(finishedDays.length)
+    expect(bounded.tasks.map((task) => task.id)).not.toContain(undatedFinished)
+    expect(bounded.total).toBe(bounded.tasks.length)
+  })
+
+  it('answers a zero-width or backwards window with nothing rather than a refusal', async () => {
+    for (const bounds of [
+      'completedFrom=2026-01-03&completedTo=2026-01-03',
+      'completedFrom=2026-01-05&completedTo=2026-01-01',
+    ]) {
+      const response = await app().request(`/api/todos?view=completed&${bounds}`, {}, env)
+      expect(response.status, bounds).toBe(200)
+      const body = await response.json() as Listing
+      expect(body.tasks, bounds).toEqual([])
+      expect(body.total, bounds).toBe(0)
+    }
+  })
+
+  it('keeps total at the whole match while the page is shorter', async () => {
+    const first = await page<Listing>('?view=completed&completedFrom=2026-01-01&completedTo=2026-01-04&limit=1')
+    expect(first.tasks).toHaveLength(1)
+    expect(first.total).toBe(finishedDays.length)
+    expect(first.total).toBe(3)
+
+    const last = await page<Listing>('?view=completed&completedFrom=2026-01-01&completedTo=2026-01-04&limit=1&offset=2')
+    expect(last.tasks).toHaveLength(1)
+    expect(last.total).toBe(3)
+  })
+
+  it('refuses the window outside the finished view, and a day it cannot read', async () => {
+    // A completion bound on a listing that is not about finished work would either be silently dropped
+    // or empty the open views; both answer a different question than the caller asked.
+    expect((await app().request('/api/todos?view=open&completedFrom=2026-01-01', {}, env)).status).toBe(400)
+    expect((await app().request('/api/todos?completedTo=2026-01-01', {}, env)).status).toBe(400)
+    expect((await app().request('/api/todos?view=completed&completedFrom=2026-02-30', {}, env)).status).toBe(400)
+    expect((await app().request('/api/todos?view=completed&completedTo=whenever', {}, env)).status).toBe(400)
   })
 })
 

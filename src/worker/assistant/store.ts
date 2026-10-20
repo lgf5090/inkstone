@@ -934,6 +934,15 @@ export interface TaskQuery {
   dueFrom?: number
   /** Only tasks due before this instant — the bound is the start of the day after the one asked for. */
   dueTo?: number
+  /**
+   * Completion-day bounds, as the account-zone `YYYY-MM-DD` the task was finished on.
+   *
+   * The route only accepts these on the finished view; the store applies them wherever they are set.
+   * They compare as strings because the column already holds a calendar day in a sortable form: no
+   * zone arithmetic at query time, and a row whose day was never filled is in no window.
+   */
+  completedFrom?: string
+  completedTo?: string
   /** The order the caller wants. Left out, the view decides, which is how a listing has always read. */
   sort?: TaskSort
   limit?: number
@@ -3787,6 +3796,11 @@ export class AssistantStore {
     // answers that question with "not yet decided", not with "any time you like".
     if (query.dueFrom !== undefined) q.raw(`due_at IS NOT NULL AND due_at >= ${q.add(query.dueFrom)}`)
     if (query.dueTo !== undefined) q.raw(`due_at IS NOT NULL AND due_at < ${q.add(query.dueTo)}`)
+    // A completion window is a calendar-day window on the day the row was finished, not a due window:
+    // the two ends are half-open and the comparison is lexical, which is exact for `YYYY-MM-DD`.
+    // `NULL` fails both comparisons, so a finished row with no recorded day is in no window.
+    if (query.completedFrom !== undefined) q.raw(`completed_on >= ${q.add(query.completedFrom)}`)
+    if (query.completedTo !== undefined) q.raw(`completed_on < ${q.add(query.completedTo)}`)
     if (query.query) {
       const pattern = q.add(containsPattern(query.query))
       // A tag's name is part of what a reader sees on the row, so it is part of what a search for

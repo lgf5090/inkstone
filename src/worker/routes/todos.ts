@@ -229,17 +229,27 @@ function iconValue(value: unknown): string | null | undefined {
  * decides whether a parameter is one the app has a meaning for: an unreadable status, sort or date is a
  * 400 rather than a filter quietly dropped, because a listing that ignores the condition it was given
  * answers a different question than the one the reader asked.
+ *
+ * A completion window belongs to the finished view alone. On any other view it would either be dropped
+ * (answering the unfiltered question) or empty the page (every open row has no completion day), so it is
+ * refused there instead.
  */
 function listingQuery(c: Ctx, timezone: string, dayEnd: number): TaskQuery {
   const list = c.req.query('list')
   const tag = c.req.query('tag')
   const priority = c.req.query('priority')
-  const view = c.req.query('view')
+  const namedView = c.req.query('view')
+  const view = isTaskView(namedView) ? namedView : 'all'
+  const completedFrom = completionDay(c.req.query('completedFrom'), 'completedFrom')
+  const completedTo = completionDay(c.req.query('completedTo'), 'completedTo')
+  if ((completedFrom !== undefined || completedTo !== undefined) && view !== 'completed') {
+    throw ApiError.badRequest('A completion window only applies to the completed view.')
+  }
   const limit = Number(c.req.query('limit'))
   const offset = Number(c.req.query('offset'))
   return {
     status: taskStatusFilter(c.req.query('status')),
-    view: isTaskView(view) ? view : 'all',
+    view,
     // The inbox is a collection with no row behind it, so the address spells it `none` rather than
     // leaving the parameter out, which would mean "any list".
     listId: list === undefined ? undefined : list === 'none' ? null : requiredId(list),
@@ -249,6 +259,8 @@ function listingQuery(c: Ctx, timezone: string, dayEnd: number): TaskQuery {
     query: c.req.query('q')?.trim().slice(0, 200) || undefined,
     dueFrom: optionalDue(c.req.query('dueFrom'), timezone),
     dueTo: optionalDue(c.req.query('dueTo'), timezone),
+    completedFrom,
+    completedTo,
     sort: asSort(c.req.query('sort')),
     limit: Number.isFinite(limit) ? Math.max(1, Math.min(MAX_TASKS_PER_QUERY, Math.trunc(limit))) : undefined,
     offset: Number.isFinite(offset) ? Math.max(0, Math.trunc(offset)) : undefined,
@@ -525,6 +537,18 @@ function optionalDue(value: string | undefined, timezone: string): number | unde
   // `parseDue` reads a blank as "no date", which is the parameter being absent; a date it cannot read at
   // all is the 400 it throws rather than a filter that silently matches everything.
   return parseDue(value, timezone) ?? undefined
+}
+
+/**
+ * A completion bound: one account-zone calendar day, or nothing at all.
+ *
+ * No range check is made on the pair — a window that ends before it starts matches no row, and saying
+ * "nothing was finished then" is the honest answer to a question with nothing in it, not a 400.
+ */
+function completionDay(value: string | undefined, field: string): string | undefined {
+  if (value === undefined || value === '') return undefined
+  if (!isStatsDay(value)) throw ApiError.badRequest(`${field} must be a date like 2026-01-31.`)
+  return value
 }
 
 /** The order the caller asked the listing to be read in, or none. */
