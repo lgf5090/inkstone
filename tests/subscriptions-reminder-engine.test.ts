@@ -13,6 +13,7 @@ function rule(overrides: Partial<ReminderRule> = {}): ReminderRule {
     unit: 'days',
     repeatInterval: null,
     repeatUntil: 'renewed',
+    acknowledgedAt: null,
     isEnabled: true,
     createdAt: '2026-01-01T00:00:00.000Z',
     ...overrides,
@@ -122,5 +123,49 @@ describe('the soonest rule', () => {
 
   it('returns nothing when every rule is spent', () => {
     expect(soonestFire([rule()], EXPIRY, '2027-01-01T00:00:00.000Z')).toBeNull()
+  })
+})
+
+/**
+ * `repeat_until` was stored from the first version and consulted by nothing — the reference project had
+ * the same dropdown and the same dead field, and its engine header claimed the scheduler filtered on it
+ * when the scheduler never did. These are the tests that make the control mean what it says.
+ */
+describe('acknowledgement', () => {
+  const overdue = { daysDiff: -3, hoursDiff: -70, lastFireAt: null, nowIso: '2026-06-04T00:00:00.000Z' }
+
+  it('stops an "until I mark it seen" rule once it has been seen', () => {
+    const decision = shouldFire(
+      rule({ type: 'after_expiry', repeatInterval: 24, repeatUntil: 'acknowledged', acknowledgedAt: '2026-06-03T00:00:00.000Z' }),
+      overdue,
+    )
+    expect(decision).toEqual({ fire: false, reason: 'acknowledged' })
+  })
+
+  it('keeps firing until it is seen', () => {
+    expect(shouldFire(rule({ type: 'after_expiry', repeatInterval: 24, repeatUntil: 'acknowledged' }), overdue).fire).toBe(true)
+  })
+
+  it('means nothing to a rule that said "until it renews"', () => {
+    const decision = shouldFire(
+      rule({ type: 'after_expiry', repeatInterval: 24, repeatUntil: 'renewed', acknowledgedAt: '2026-06-03T00:00:00.000Z' }),
+      overdue,
+    )
+    expect(decision.fire).toBe(true)
+  })
+
+  it('leaves a not-yet-due rule alone', () => {
+    const decision = shouldFire(
+      rule({ type: 'before_expiry', value: 7, unit: 'days', acknowledgedAt: '2026-05-20T00:00:00.000Z' }),
+      { daysDiff: 7, hoursDiff: 168, nowIso: NOW },
+    )
+    expect(decision.fire).toBe(true)
+  })
+
+  it('promises no next fire once muted', () => {
+    const muted = rule({ type: 'after_expiry', repeatInterval: 24, repeatUntil: 'acknowledged', acknowledgedAt: '2026-06-03T00:00:00.000Z' })
+    expect(getNextFireTime(muted, EXPIRY, '2026-06-04T00:00:00.000Z')).toBeNull()
+    // Before the expiry there is still a first reminder to come, muted or not.
+    expect(getNextFireTime(muted, EXPIRY, NOW)).toBe(EXPIRY)
   })
 })

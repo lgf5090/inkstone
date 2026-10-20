@@ -13,11 +13,14 @@ import { MoreHorizontal, PencilLine, Plus, RefreshCw, Send, Trash2 } from 'lucid
 import { cn } from '../../lib/cn'
 import { t } from '../../lib/i18n'
 import { Button, IconButton, SectionLabel } from '../../components/primitives'
+import { Checkbox } from '../../components/form'
 import { Empty, LoadingBlock } from '../../components/feedback'
 import { Menu, Tooltip, type MenuItem } from '../../components/overlay'
 import { daysState, daysStateKey, formatAmount, periodUnitKey } from '@shared/subscriptions/format'
 import { subscriptionStatus, type SubscriptionItem } from '@shared/subscriptions/model'
 import { StatusPill } from './StatusPill'
+import { iconComponentOf } from './label-icons'
+import { useLabelIdentity } from './label-identity'
 import { groupItems, type ListGroup } from './list-view'
 
 const GROUP_LABEL: Record<ListGroup, Parameters<typeof t>[0]> = {
@@ -32,7 +35,7 @@ export interface SubscriptionActions {
   onEdit: (item: SubscriptionItem) => void
   onRenew: (item: SubscriptionItem) => void
   onToggle: (item: SubscriptionItem) => void
-  onDelete: (item: SubscriptionItem) => void
+  onTrash: (item: SubscriptionItem) => void
   onTest: (item: SubscriptionItem) => void
 }
 
@@ -43,6 +46,9 @@ export function SubscriptionList({
   onSelect,
   onAdd,
   actions,
+  selectMode,
+  selection,
+  onCheck,
 }: {
   items: readonly SubscriptionItem[]
   selectedId: string | null
@@ -50,6 +56,9 @@ export function SubscriptionList({
   onSelect: (id: string) => void
   onAdd: () => void
   actions: SubscriptionActions
+  selectMode: boolean
+  selection: readonly string[]
+  onCheck: (id: string) => void
 }): ReactElement {
   if (loading) return <LoadingBlock label={t('subscriptions.loading')} />
   if (items.length === 0) {
@@ -79,6 +88,9 @@ export function SubscriptionList({
                 selected={item.id === selectedId}
                 onSelect={onSelect}
                 actions={actions}
+                selectMode={selectMode}
+                checked={selection.includes(item.id)}
+                onCheck={onCheck}
               />
             ))}
           </div>
@@ -93,11 +105,17 @@ function SubscriptionRow({
   selected,
   onSelect,
   actions,
+  selectMode,
+  checked,
+  onCheck,
 }: {
   item: SubscriptionItem
   selected: boolean
   onSelect: (id: string) => void
   actions: SubscriptionActions
+  selectMode: boolean
+  checked: boolean
+  onCheck: (id: string) => void
 }): ReactElement {
   const [menuOpen, setMenuOpen] = useState(false)
   const anchor = useRef<HTMLButtonElement>(null)
@@ -116,36 +134,40 @@ function SubscriptionRow({
       onSelect: () => actions.onToggle(item),
     },
     {
-      id: 'delete',
-      label: t('subscriptions.delete'),
+      // Not `danger`: this is the recoverable one, and reserving red for the row that cannot be undone
+      // is what makes the trash's own "delete forever" read as the serious choice it is.
+      id: 'trash',
+      label: t('subscriptions.trash.move'),
       icon: <Trash2 size={14} />,
-      tone: 'danger',
-      onSelect: () => actions.onDelete(item),
+      onSelect: () => actions.onTrash(item),
     },
   ]
 
   return (
     <div role="listitem" className={cn('group relative flex items-stretch rounded-[var(--r-md)]', selected && 'bg-[var(--accent-soft)]')}>
       {selected && <span aria-hidden="true" className="absolute inset-y-1.5 left-0 w-0.5 rounded-full bg-[var(--accent)]" />}
+      {/* The box is only in the tab order while a selection is being made, so a reader moving through
+          the list one row at a time is not asked to answer a question they never opened. */}
+      {selectMode && (
+        <Checkbox
+          className="shrink-0 pl-2.5"
+          checked={checked}
+          onChange={() => onCheck(item.id)}
+          label={<span className="sr-only">{t('subscriptions.bulk.pick', { name: item.name })}</span>}
+        />
+      )}
       <button
         type="button"
         onClick={() => onSelect(item.id)}
         aria-current={selected ? 'true' : undefined}
+        tabIndex={selectMode ? -1 : undefined}
         className={cn(
           'flex min-h-[56px] min-w-0 flex-1 items-center gap-2.5 rounded-[var(--r-md)] px-2.5 py-2 text-left',
           'transition-colors duration-[var(--dur-fast)] ease-[var(--ease-out)]',
           'hover:bg-[var(--bg-hover)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--accent)]',
         )}
       >
-        <span
-          aria-hidden="true"
-          className={cn(
-            'flex size-8 shrink-0 items-center justify-center rounded-full text-[length:var(--text-12)] font-semibold',
-            'bg-[var(--bg-inset)] text-[var(--text-secondary)]',
-          )}
-        >
-          {item.name.slice(0, 1).toUpperCase()}
-        </span>
+        <SubscriptionAvatar item={item} />
         <span className="min-w-0 flex-1">
           <span className="flex items-center gap-1.5">
             <span className="truncate text-[length:var(--text-13)] font-medium text-[var(--text-primary)]">{item.name}</span>
@@ -190,5 +212,32 @@ function SubscriptionRow({
         <Menu anchor={anchor} open={menuOpen} onClose={() => setMenuOpen(false)} items={menu} align="end" />
       </div>
     </div>
+  )
+}
+
+/**
+ * The row's face.
+ *
+ * A subscription with a type wears that type's icon in that type's colour, which is what lets a reader
+ * scan twelve rows and find the streaming ones without reading; a subscription with no type keeps the
+ * neutral initial tile rather than being assigned a colour by hash, because a colour that means
+ * "nothing was chosen" teaches the reader nothing and is indistinguishable from a choice they did make.
+ */
+function SubscriptionAvatar({ item }: { item: SubscriptionItem }): ReactElement {
+  const identityOf = useLabelIdentity()
+  const identity = item.customType ? identityOf('type', item.customType) : null
+  const Icon = identity ? iconComponentOf(identity.icon) : null
+  const tint = identity?.color ?? 'var(--text-secondary)'
+  return (
+    <span
+      aria-hidden="true"
+      className={cn(
+        'flex size-8 shrink-0 items-center justify-center rounded-full text-[length:var(--text-12)] font-semibold',
+        !identity && 'bg-[var(--bg-inset)]',
+      )}
+      style={identity ? { color: tint, background: `color-mix(in oklab, ${tint} 14%, transparent)` } : undefined}
+    >
+      {Icon ? <Icon size={15} /> : item.name.slice(0, 1).toUpperCase()}
+    </span>
   )
 }

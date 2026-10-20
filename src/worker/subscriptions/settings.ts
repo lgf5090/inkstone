@@ -11,9 +11,11 @@ import { channelHint, channelDefinition } from '@shared/subscriptions/channels'
 import {
   DEFAULT_SETTINGS,
   clampPaymentLimit,
+  isCurrencyCode,
   normalizeNotificationHours,
   type ChannelKind,
   type ChannelState,
+  type CurrencyCode,
   type NotifyLocale,
   type SubscriptionSettings,
 } from '@shared/subscriptions/model'
@@ -30,6 +32,8 @@ interface SettingsRow {
   show_lunar: number
   payment_history_limit: number
   locale: string
+  base_currency: string
+  budget_monthly: number | null
   inbound_token_hash: string
   inbound_token_hint: string
   updated_at: number
@@ -50,7 +54,7 @@ interface ChannelRow {
 }
 
 const SETTINGS_COLUMNS = `user_id, timezone, notification_hours, show_lunar, payment_history_limit,
-  locale, inbound_token_hash, inbound_token_hint, updated_at`
+  locale, base_currency, budget_monthly, inbound_token_hash, inbound_token_hint, updated_at`
 
 const CHANNEL_COLUMNS = `user_id, id, kind, enabled, config_ciphertext, config_hint, last_test_at,
   last_test_status, last_test_error, created_at, updated_at`
@@ -71,6 +75,8 @@ function toSettings(row: SettingsRow): SubscriptionSettings {
     showLunar: row.show_lunar === 1,
     paymentHistoryLimit: clampPaymentLimit(row.payment_history_limit),
     locale: row.locale === 'en-US' ? 'en-US' : 'zh-CN',
+    baseCurrency: isCurrencyCode(row.base_currency) ? row.base_currency : DEFAULT_SETTINGS.baseCurrency,
+    budgetMonthly: Number.isFinite(row.budget_monthly) && row.budget_monthly !== null ? row.budget_monthly : null,
     inboundTokenHint: row.inbound_token_hint,
   }
 }
@@ -95,6 +101,8 @@ export interface SettingsPatch {
   showLunar?: unknown
   paymentHistoryLimit?: unknown
   locale?: unknown
+  baseCurrency?: unknown
+  budgetMonthly?: unknown
 }
 
 /**
@@ -117,15 +125,27 @@ export async function saveSettings(db: D1Database, userId: string, patch: Settin
   const locale: NotifyLocale = patch.locale === undefined
     ? current.locale
     : patch.locale === 'en-US' ? 'en-US' : 'zh-CN'
+  // Refused rather than defaulted: a total silently converted to a currency the reader never picked is
+  // a number that looks right and is not.
+  if (patch.baseCurrency !== undefined && !isCurrencyCode(patch.baseCurrency)) throw new Error('invalid_base_currency')
+  const baseCurrency: CurrencyCode = patch.baseCurrency === undefined ? current.baseCurrency : patch.baseCurrency as CurrencyCode
+  // A budget that is absent, blank or not a number means "no ceiling", which is a different state from
+  // a ceiling of zero and has to survive the round trip as null.
+  const budgetRaw = patch.budgetMonthly === undefined ? current.budgetMonthly : Number(patch.budgetMonthly)
+  const budgetMonthly = budgetRaw !== null && Number.isFinite(budgetRaw) && budgetRaw > 0
+    ? Math.round(budgetRaw * 100) / 100
+    : null
 
   await db.prepare(
-    `INSERT INTO sub_settings (${SETTINGS_COLUMNS}) VALUES (?1, ?2, ?3, ?4, ?5, ?6, '', '', ?7)
+    `INSERT INTO sub_settings (${SETTINGS_COLUMNS}) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, '', '', ?9)
      ON CONFLICT(user_id) DO UPDATE SET
        timezone = excluded.timezone,
        notification_hours = excluded.notification_hours,
        show_lunar = excluded.show_lunar,
        payment_history_limit = excluded.payment_history_limit,
        locale = excluded.locale,
+       base_currency = excluded.base_currency,
+       budget_monthly = excluded.budget_monthly,
        updated_at = excluded.updated_at`,
   ).bind(
     userId,
@@ -134,10 +154,12 @@ export async function saveSettings(db: D1Database, userId: string, patch: Settin
     showLunar ? 1 : 0,
     limit,
     locale,
+    baseCurrency,
+    budgetMonthly,
     Date.now(),
   ).run()
 
-  return { timezone, notificationHours, showLunar, paymentHistoryLimit: limit, locale, inboundTokenHint: current.inboundTokenHint }
+  return { timezone, notificationHours, showLunar, paymentHistoryLimit: limit, locale, baseCurrency, budgetMonthly, inboundTokenHint: current.inboundTokenHint }
 }
 
 export async function listChannels(db: D1Database, userId: string): Promise<ChannelState[]> {
@@ -150,7 +172,8 @@ export async function listChannels(db: D1Database, userId: string): Promise<Chan
     return {
       kind,
       enabled: row?.enabled === 1,
-      configured: Boolean(row && row.config_ciphertext),
+      // A field-less kind is configured by the row existing: there is no bundle to have left unwritten.
+      configured: Boolean(row && (row.config_ciphertext || !channelHasSecrets(kind))),
       hint: row?.config_hint ?? '',
       lastTestAt: row?.last_test_at ? new Date(row.last_test_at).toISOString() : null,
       lastTestStatus: (row?.last_test_status === 'success' || row?.last_test_status === 'failed' ? row.last_test_status : '') as ChannelState['lastTestStatus'],
@@ -160,6 +183,7 @@ export async function listChannels(db: D1Database, userId: string): Promise<Chan
 }
 
 const CHANNEL_KIND_ORDER: Record<ChannelKind, true> = {
+  inapp: true,
   telegram: true,
   notifyx: true,
   webhook: true,
@@ -169,6 +193,18 @@ const CHANNEL_KIND_ORDER: Record<ChannelKind, true> = {
   gotify: true,
   serverchan: true,
   pushplus: true,
+}
+
+/**
+ * Whether a kind has anything to keep secret.
+ *
+ * The in-app channel has no fields, so it holds no credential — and a channel that stores nothing must not
+ * need the vault to be reachable before a reader can turn their own reminders on. The nine that do hold
+ * credentials keep the ciphertext requirement, including in `enabledChannels`: a channel whose secret bundle
+ * cannot be read is a channel that cannot send, and saying so is what the empty ciphertext already means.
+ */
+export function channelHasSecrets(kind: ChannelKind): boolean {
+  return channelDefinition(kind).fields.length > 0
 }
 
 /**
@@ -238,7 +274,7 @@ export async function saveChannel(
   if (problem) throw new Error(problem)
 
   const id = existing?.id ?? newId()
-  const ciphertext = await encryptChannelConfig(env, id, merged)
+  const ciphertext = channelHasSecrets(kind) ? await encryptChannelConfig(env, id, merged) : ''
   const hint = channelHint(kind, merged)
   const enabled = input.enabled === undefined ? existing?.enabled === 1 : input.enabled === true
   const now = Date.now()
@@ -292,12 +328,16 @@ export async function enabledChannels(
   userId: string,
 ): Promise<Array<{ kind: ChannelKind; config: Record<string, unknown> }>> {
   const { results } = await db.prepare(
-    `SELECT kind FROM sub_channel WHERE user_id = ?1 AND enabled = 1 AND config_ciphertext != ''`,
+    `SELECT kind FROM sub_channel WHERE user_id = ?1 AND enabled = 1`,
   ).bind(userId).all<{ kind: string }>()
   const out: Array<{ kind: ChannelKind; config: Record<string, unknown> }> = []
   for (const row of results) {
     const kind = row.kind as ChannelKind
     if (!(kind in CHANNEL_KIND_ORDER)) continue
+    if (!channelHasSecrets(kind)) {
+      out.push({ kind, config: {} })
+      continue
+    }
     const stored = await readChannelConfig(env, db, userId, kind)
     if (stored) out.push({ kind, config: stored.config })
   }
@@ -354,7 +394,7 @@ export async function rotateInboundToken(db: D1Database, userId: string): Promis
   const hash = await sha256Hex(token)
   const hint = token.slice(-4)
   await db.prepare(
-    `INSERT INTO sub_settings (${SETTINGS_COLUMNS}) VALUES (?1, ?2, '[]', 0, 100, 'zh-CN', ?3, ?4, ?5)
+    `INSERT INTO sub_settings (${SETTINGS_COLUMNS}) VALUES (?1, ?2, '[]', 0, 100, 'zh-CN', 'CNY', NULL, ?3, ?4, ?5)
      ON CONFLICT(user_id) DO UPDATE SET
        inbound_token_hash = excluded.inbound_token_hash,
        inbound_token_hint = excluded.inbound_token_hint,

@@ -1,9 +1,16 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { dispatch, testChannel } from '../src/worker/subscriptions/channels'
+import { ADAPTERS, dispatch, testChannel } from '../src/worker/subscriptions/channels'
 import { checkTarget, redact } from '../src/worker/subscriptions/channels/http'
+import { CHANNEL_KIND_ORDER } from '../src/worker/subscriptions/settings'
+import { CHANNEL_DEFINITIONS } from '@shared/subscriptions/channels'
+import { CHANNEL_KINDS } from '@shared/subscriptions/model'
+import { testBindings, testD1 } from './doubles/bindings'
+import type { DeliveryAccount } from '../src/worker/subscriptions/channels/inapp'
 
 const CONTEXT = { timezone: 'Asia/Shanghai', locale: 'zh-CN' as const, now: Date.parse('2026-05-24T00:00:00Z') }
 const PAYLOAD = { title: 'Netflix', content: '**到期** 还有 3 天' }
+// No delivery here writes into the reader's own inbox, so the account is only the shape every dispatch now demands.
+const ACCOUNT: DeliveryAccount = { env: testBindings(testD1()), userId: 'user-1' }
 
 interface Call {
   url: string
@@ -54,7 +61,7 @@ describe('the outbound guard', () => {
 
   it('does not follow a redirect', async () => {
     stubFetch(() => new Response(null, { status: 302, headers: { location: 'http://example.com/next' } }))
-    const result = await dispatch(PAYLOAD, [{ kind: 'gotify', config: { serverUrl: 'https://gotify.example.com', appToken: 't' } }], CONTEXT)
+    const result = await dispatch(PAYLOAD, [{ kind: 'gotify', config: { serverUrl: 'https://gotify.example.com', appToken: 't' } }], CONTEXT, ACCOUNT)
     expect(result.failedCount).toBe(1)
     expect(result.results[0]!.error).toMatch(/redirect/)
   })
@@ -68,7 +75,7 @@ describe('the outbound guard', () => {
 
 describe('telegram', () => {
   it('escapes the body and posts to the bot endpoint', async () => {
-    await dispatch(PAYLOAD, [{ kind: 'telegram', config: { botToken: 'abc', chatId: '42' } }], CONTEXT)
+    await dispatch(PAYLOAD, [{ kind: 'telegram', config: { botToken: 'abc', chatId: '42' } }], CONTEXT, ACCOUNT)
     expect(calls[0]!.url).toBe('https://api.telegram.org/botabc/sendMessage')
     expect(bodyOf().parse_mode).toBe('MarkdownV2')
     expect(String(bodyOf().text)).toContain('\\*\\*')
@@ -82,7 +89,7 @@ describe('telegram', () => {
         ? reply({ ok: false, description: "Bad Request: can't parse entities" }, 400)
         : reply({ ok: true })
     })
-    const result = await dispatch(PAYLOAD, [{ kind: 'telegram', config: { botToken: 'abc', chatId: '42' } }], CONTEXT)
+    const result = await dispatch(PAYLOAD, [{ kind: 'telegram', config: { botToken: 'abc', chatId: '42' } }], CONTEXT, ACCOUNT)
     expect(result.successCount).toBe(1)
     expect(count).toBe(2)
   })
@@ -91,17 +98,17 @@ describe('telegram', () => {
 describe('the channels that answer in their own vocabulary', () => {
   it('accepts NotifyX only when it queued the message', async () => {
     stubFetch(() => reply({ status: 'failed' }))
-    const failed = await dispatch(PAYLOAD, [{ kind: 'notifyx', config: { apiKey: 'k' } }], CONTEXT)
+    const failed = await dispatch(PAYLOAD, [{ kind: 'notifyx', config: { apiKey: 'k' } }], CONTEXT, ACCOUNT)
     expect(failed.failedCount).toBe(1)
 
     stubFetch(() => reply({ status: 'queued' }))
-    const ok = await dispatch(PAYLOAD, [{ kind: 'notifyx', config: { apiKey: 'k' } }], CONTEXT)
+    const ok = await dispatch(PAYLOAD, [{ kind: 'notifyx', config: { apiKey: 'k' } }], CONTEXT, ACCOUNT)
     expect(ok.successCount).toBe(1)
   })
 
   it('accepts WeCom only on errcode zero', async () => {
     stubFetch(() => reply({ errcode: 93000, errmsg: 'invalid webhook' }))
-    const failed = await dispatch(PAYLOAD, [{ kind: 'wechatbot', config: { webhook: 'https://qyapi.example.com/x' } }], CONTEXT)
+    const failed = await dispatch(PAYLOAD, [{ kind: 'wechatbot', config: { webhook: 'https://qyapi.example.com/x' } }], CONTEXT, ACCOUNT)
     expect(failed.results[0]!.error).toContain('93000')
   })
 
@@ -109,7 +116,7 @@ describe('the channels that answer in their own vocabulary', () => {
     await dispatch(PAYLOAD, [{
       kind: 'wechatbot',
       config: { webhook: 'https://qyapi.example.com/x', msgType: 'text', atAll: true },
-    }], CONTEXT)
+    }], CONTEXT, ACCOUNT)
     const body = bodyOf()
     expect(body.msgtype).toBe('text')
     expect((body.text as Record<string, unknown>).mentioned_list).toEqual(['@all'])
@@ -117,14 +124,14 @@ describe('the channels that answer in their own vocabulary', () => {
 
   it('accepts Bark only on code 200 and uses the custom path when there is one', async () => {
     stubFetch(() => reply({ code: 200 }))
-    await dispatch(PAYLOAD, [{ kind: 'bark', config: { server: 'https://bark.example.com/mykey' } }], CONTEXT)
+    await dispatch(PAYLOAD, [{ kind: 'bark', config: { server: 'https://bark.example.com/mykey' } }], CONTEXT, ACCOUNT)
     expect(calls[0]!.url).toBe('https://bark.example.com/mykey')
     expect(bodyOf().device_key).toBeUndefined()
   })
 
   it('posts the device key to the official Bark server', async () => {
     stubFetch(() => reply({ code: 200 }))
-    await dispatch(PAYLOAD, [{ kind: 'bark', config: { server: 'https://api.day.app', deviceKey: 'k1' } }], CONTEXT)
+    await dispatch(PAYLOAD, [{ kind: 'bark', config: { server: 'https://api.day.app', deviceKey: 'k1' } }], CONTEXT, ACCOUNT)
     expect(calls[0]!.url).toBe('https://api.day.app/push')
     expect(bodyOf().device_key).toBe('k1')
   })
@@ -132,7 +139,7 @@ describe('the channels that answer in their own vocabulary', () => {
   it('accepts ServerChan only on code zero, and shortens the title', async () => {
     stubFetch(() => reply({ code: 0 }))
     const long = { title: 'x'.repeat(80), content: 'body' }
-    const result = await dispatch(long, [{ kind: 'serverchan', config: { sendKey: 's' } }], CONTEXT)
+    const result = await dispatch(long, [{ kind: 'serverchan', config: { sendKey: 's' } }], CONTEXT, ACCOUNT)
     expect(result.successCount).toBe(1)
     const form = new URLSearchParams(String(calls[0]!.init.body))
     expect(form.get('title')).toHaveLength(32)
@@ -140,7 +147,7 @@ describe('the channels that answer in their own vocabulary', () => {
 
   it('accepts PushPlus only on code 200 and forwards the topic', async () => {
     stubFetch(() => reply({ code: 200 }))
-    await dispatch(PAYLOAD, [{ kind: 'pushplus', config: { token: 't', topic: 'group' } }], CONTEXT)
+    await dispatch(PAYLOAD, [{ kind: 'pushplus', config: { token: 't', topic: 'group' } }], CONTEXT, ACCOUNT)
     expect(bodyOf().topic).toBe('group')
   })
 })
@@ -150,12 +157,12 @@ describe('webhook', () => {
     await dispatch(PAYLOAD, [{
       kind: 'webhook',
       config: { url: 'https://example.com/hook', template: '{"text":"{{title}} / {{daysRemaining}}","tag":"{{ruleType}}"}' },
-    }], { ...CONTEXT })
+    }], { ...CONTEXT }, ACCOUNT)
     expect(bodyOf()).toEqual({ text: 'Netflix / ', tag: '' })
   })
 
   it('falls back to the default body when the template is unreadable', async () => {
-    const result = await dispatch(PAYLOAD, [{ kind: 'webhook', config: { url: 'https://example.com/hook', template: '{oops' } }], CONTEXT)
+    const result = await dispatch(PAYLOAD, [{ kind: 'webhook', config: { url: 'https://example.com/hook', template: '{oops' } }], CONTEXT, ACCOUNT)
     expect(result.successCount).toBe(1)
     expect(bodyOf().title).toBe('Netflix')
     expect(result.results[0]!.detail).toContain('default body')
@@ -165,7 +172,7 @@ describe('webhook', () => {
     await dispatch(PAYLOAD, [{
       kind: 'webhook',
       config: { url: 'https://example.com/hook', headers: '{"x-signature":"abc"}' },
-    }], CONTEXT)
+    }], CONTEXT, ACCOUNT)
     expect((calls[0]!.init.headers as Record<string, string>)['x-signature']).toBe('abc')
   })
 })
@@ -176,7 +183,7 @@ describe('email', () => {
     const result = await dispatch(PAYLOAD, [{
       kind: 'email',
       config: { apiKey: 're_1', from: 'a@example.com', fromName: 'Inkstone', to: 'b@example.com' },
-    }], CONTEXT)
+    }], CONTEXT, ACCOUNT)
     expect(result.successCount).toBe(1)
     expect(calls[0]!.url).toBe('https://api.resend.com/emails')
     const body = bodyOf()
@@ -195,7 +202,7 @@ describe('one broken channel does not take the others down', () => {
     const result = await dispatch(PAYLOAD, [
       { kind: 'telegram', config: { botToken: 'abc', chatId: '42' } },
       { kind: 'gotify', config: { serverUrl: 'https://gotify.example.com', appToken: 't' } },
-    ], CONTEXT)
+    ], CONTEXT, ACCOUNT)
     expect(result.attempted).toBe(2)
     expect(result.successCount).toBe(1)
     expect(result.failedCount).toBe(1)
@@ -204,7 +211,7 @@ describe('one broken channel does not take the others down', () => {
 
 describe('the test button', () => {
   it('sends the catalog copy for a test message', async () => {
-    await testChannel('gotify', { serverUrl: 'https://gotify.example.com', appToken: 't' }, CONTEXT)
+    await testChannel('gotify', { serverUrl: 'https://gotify.example.com', appToken: 't' }, CONTEXT, ACCOUNT)
     expect(bodyOf().message).toContain('测试')
   })
 
@@ -212,8 +219,24 @@ describe('the test button', () => {
     stubFetch(() => {
       throw new TypeError('network down')
     })
-    const result = await testChannel('gotify', { serverUrl: 'https://gotify.example.com', appToken: 't' }, CONTEXT)
+    const result = await testChannel('gotify', { serverUrl: 'https://gotify.example.com', appToken: 't' }, CONTEXT, ACCOUNT)
     expect(result.success).toBe(false)
     expect(result.error).toContain('network down')
+  })
+})
+
+describe('the channel list', () => {
+  it('has something behind every kind the database can store', () => {
+    // A kind with no sender answers every sweep with "Unknown channel", which the sweep then reports as a
+    // send that failed rather than as a channel nobody implemented. The shape is asserted where it is cheap.
+    const sendable = new Set<string>([...ADAPTERS.map((adapter) => adapter.kind), 'inapp'])
+    expect(CHANNEL_KINDS.filter((kind) => !sendable.has(kind))).toEqual([])
+  })
+
+  it('draws a settings row for every kind, in the order the list of kinds gives', () => {
+    // `enabledChannels` skips a kind the stored order does not name, so a missing entry there is a channel
+    // that can be switched on in the interface and never switched on in the sweep.
+    expect(CHANNEL_DEFINITIONS.map((definition) => definition.kind)).toEqual([...CHANNEL_KINDS])
+    expect(Object.keys(CHANNEL_KIND_ORDER)).toEqual([...CHANNEL_KINDS])
   })
 })

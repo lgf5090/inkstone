@@ -51,6 +51,7 @@ subscriptionInboundRoutes.post('/:token', async (c) => {
     { title, content, metadata: { tags } },
     channels,
     { timezone: settings.timezone, locale: settings.locale },
+    { env: c.env, userId },
   )
 
   for (const outcome of result.results) {

@@ -13,7 +13,10 @@ import type { MarkdownBackupManifest } from '@shared/backup-format'
 import type {
   ChannelKind,
   ChannelState,
+  BulkAction,
   CurrencyCode,
+  LabelEntry,
+  LabelKind,
   NextReminder,
   NotifyLocale,
   NotifyLogEntry,
@@ -25,6 +28,7 @@ import type {
   SubscriptionBundle,
   SubscriptionDetail,
   SubscriptionInput,
+  SubscriptionItem,
   SubscriptionSettings,
 } from '@shared/subscriptions/model'
 import type { ConversationShareInfo, PublicConversation } from '@shared/assistant'
@@ -331,6 +335,8 @@ export interface SettingsPatch {
   showLunar?: boolean
   paymentHistoryLimit?: number
   locale?: NotifyLocale
+  baseCurrency?: CurrencyCode
+  budgetMonthly?: number | null
 }
 
 async function request<T>(path: string, options: RequestOptions = {}): Promise<T> {
@@ -1493,6 +1499,12 @@ export const api = {
       request<SubscriptionDetail>(`/api/subscriptions/${encodeURIComponent(id)}`, { method: 'PUT', body: input }),
     remove: (id: string) =>
       request<{ ok: true }>(`/api/subscriptions/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+    trashList: () => request<{ items: SubscriptionItem[] }>('/api/subscriptions/trash'),
+    restore: (id: string) =>
+      request<SubscriptionDetail>(`/api/subscriptions/${encodeURIComponent(id)}/restore`, { method: 'POST' }),
+    purge: (id: string) =>
+      request<{ ok: true }>(`/api/subscriptions/${encodeURIComponent(id)}/purge`, { method: 'DELETE' }),
+    emptyTrash: () => request<{ purged: number }>('/api/subscriptions/trash/empty', { method: 'POST' }),
     toggle: (id: string, isActive: boolean) =>
       request<SubscriptionDetail>(`/api/subscriptions/${encodeURIComponent(id)}/toggle`, {
         method: 'POST',
@@ -1535,6 +1547,11 @@ export const api = {
         `/api/subscriptions/${encodeURIComponent(id)}/reminders/${encodeURIComponent(ruleId)}`,
         { method: 'PUT', body: patch },
       ),
+    acknowledgeRule: (id: string, ruleId: string) =>
+      request<{ rule: ReminderRule }>(
+        `/api/subscriptions/${encodeURIComponent(id)}/reminders/${encodeURIComponent(ruleId)}/acknowledge`,
+        { method: 'POST' },
+      ),
     deleteRule: (id: string, ruleId: string) =>
       request<{ ok: true }>(
         `/api/subscriptions/${encodeURIComponent(id)}/reminders/${encodeURIComponent(ruleId)}`,
@@ -1544,8 +1561,30 @@ export const api = {
       request<{ nextReminder: NextReminder | null; allUpcoming: NextReminder[] }>(
         `/api/subscriptions/${encodeURIComponent(id)}/next-reminder`,
       ),
-    addCategory: (name: string) =>
-      request<{ categories: string[] }>('/api/subscriptions/categories', { method: 'POST', body: { name } }),
+    bulk: (ids: string[], action: BulkAction, category?: string) =>
+      request<{ changed: number }>('/api/subscriptions/bulk', { method: 'POST', body: { ids, action, category } }),
+    importRows: (rows: Record<string, unknown>[]) =>
+      request<{ created: number; skipped: Array<{ row: number; reason: string }> }>(
+        '/api/subscriptions/import',
+        { method: 'POST', body: { rows } },
+      ),
+    addLabel: (kind: LabelKind, name: string) =>
+      request<{ labels: LabelEntry[] }>(`/api/subscriptions/labels/${kind}`, { method: 'POST', body: { name } }),
+    setLabelStyle: (kind: LabelKind, name: string, style: { icon?: string | null; color?: string | null }) =>
+      request<{ label: LabelEntry }>(`/api/subscriptions/labels/${kind}/style`, {
+        method: 'PUT',
+        body: { name, ...style },
+      }),
+    renameLabel: (kind: LabelKind, name: string, to: string) =>
+      request<{ labels: LabelEntry[] }>(`/api/subscriptions/labels/${kind}/rename`, {
+        method: 'PUT',
+        body: { name, to },
+      }),
+    removeLabel: (kind: LabelKind, name: string) =>
+      request<{ labels: LabelEntry[] }>(
+        `/api/subscriptions/labels/${kind}?name=${encodeURIComponent(name)}`,
+        { method: 'DELETE' },
+      ),
     saveSettings: (patch: SettingsPatch) =>
       request<{ settings: SubscriptionSettings }>('/api/subscriptions/settings', { method: 'PUT', body: patch }),
     saveChannel: (kind: ChannelKind, input: { enabled?: boolean; config: Record<string, unknown> }) =>

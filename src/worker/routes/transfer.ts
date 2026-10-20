@@ -45,6 +45,7 @@ import {
 import { createBackupArchive } from '../backup/archive'
 import { applyBackupTemplates } from '../backup/templates'
 import { applyBackupQuickAdd } from '../backup/quickadd'
+import { applyBackupSubscriptions } from '../subscriptions/backup'
 import { sha256Hex } from '../lib/encoding'
 import { ApiError } from '../lib/errors'
 import { isValidId, newId } from '../lib/id'
@@ -255,6 +256,9 @@ transferRoutes.post('/import', async (c) => {
           if (backup.manifest.automation) {
             expected.add(`${backup.rootPrefix}${backup.manifest.automation.path}`.toLowerCase())
           }
+          if (backup.manifest.subscriptions) {
+            expected.add(`${backup.rootPrefix}${backup.manifest.subscriptions.path}`.toLowerCase())
+          }
           const entries = await readZip(bytes, {
             ...zipOptions,
             maxEntryBytes: LIMITS.importUploadMaxBytes,
@@ -438,6 +442,7 @@ async function importBackupFileBatch(
   )
   const templatesByPath = manifest.templates?.path.toLowerCase() ?? null
   const automationByPath = manifest.automation?.path.toLowerCase() ?? null
+  const subscriptionsByPath = manifest.subscriptions?.path.toLowerCase() ?? null
   const seen = new Set<string>()
   const planned = selected.map(({ file, path }) => {
     if (!isSafeBackupPath(path)) throw new Error(`Invalid backup path: ${path}`)
@@ -448,8 +453,11 @@ async function importBackupFileBatch(
     const attachment = attachmentByPath.get(key)
     const templates = templatesByPath !== null && key === templatesByPath
     const automation = automationByPath !== null && key === automationByPath
-    if (!note && !attachment && !templates && !automation) throw new Error(`The file is not listed in the backup manifest: ${path}`)
-    return { file, path, note, attachment, templates, automation }
+    const subscriptions = subscriptionsByPath !== null && key === subscriptionsByPath
+    if (!note && !attachment && !templates && !automation && !subscriptions) {
+      throw new Error(`The file is not listed in the backup manifest: ${path}`)
+    }
+    return { file, path, note, attachment, templates, automation, subscriptions }
   })
 
   for (const item of planned) {
@@ -457,6 +465,7 @@ async function importBackupFileBatch(
       ?? item.attachment
       ?? (item.templates ? manifest.templates ?? null : null)
       ?? (item.automation ? manifest.automation ?? null : null)
+      ?? (item.subscriptions ? manifest.subscriptions ?? null : null)
     if (!entry) continue
     const bytes = new Uint8Array(await item.file.arrayBuffer())
     await verifyBackupEntry(
@@ -464,11 +473,12 @@ async function importBackupFileBatch(
       item.note ? item.note.bytes
         : item.attachment ? item.attachment.size
         : item.templates ? manifest.templates!.bytes
-        : manifest.automation!.bytes,
+        : item.automation ? manifest.automation!.bytes
+        : manifest.subscriptions!.bytes,
       entry.sha256,
       entry.path,
     )
-    if (item.note || item.templates || item.automation) {
+    if (item.note || item.templates || item.automation || item.subscriptions) {
       try {
         new TextDecoder('utf-8', { fatal: true, ignoreBOM: false }).decode(bytes)
       } catch {
@@ -510,6 +520,13 @@ async function importBackupFileBatch(
       new Uint8Array(await automationItem.file.arrayBuffer()),
     )
     await applyBackupQuickAdd(c.env.DB, userId, text)
+  }
+  const subscriptionsItem = planned.find((item) => item.subscriptions)
+  if (subscriptionsItem) {
+    const text = new TextDecoder('utf-8', { fatal: true, ignoreBOM: false }).decode(
+      new Uint8Array(await subscriptionsItem.file.arrayBuffer()),
+    )
+    await applyBackupSubscriptions(c.env.DB, userId, text)
   }
 }
 

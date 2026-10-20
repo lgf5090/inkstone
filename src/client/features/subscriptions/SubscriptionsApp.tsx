@@ -7,11 +7,14 @@
  * tab does not pay for a library they will not look at.
  */
 import { useEffect, useMemo, useState, type ReactElement } from 'react'
-import { CircleHelp, PanelLeftClose, PanelLeftOpen, Plus, Search, Settings2, Wallet } from 'lucide-react'
+import { CheckSquare, CircleHelp, PanelLeftClose, PanelLeftOpen, Plus, Search, Settings2, Tags, Wallet } from 'lucide-react'
 import { cn } from '../../lib/cn'
 import { t } from '../../lib/i18n'
 import { IS_DEMO_MODE } from '../../lib/runtime'
 import { useSession } from '../../store/session'
+import { useUi } from '../../store/ui'
+import { useBreakpoint } from '../../lib/hooks'
+import { AssistantDock } from '../chat/AssistantDock'
 import { Button, IconButton } from '../../components/primitives'
 import { Drawer, Modal, Tooltip, confirm } from '../../components/overlay'
 import { Input } from '../../components/form'
@@ -25,16 +28,24 @@ import { OverviewView } from './OverviewView'
 import { LogsView } from './LogsView'
 import { SubscriptionForm } from './SubscriptionForm'
 import { RenewDialog } from './RenewDialog'
+import { BulkBar } from './BulkBar'
 import { PaymentDialog } from './PaymentDialog'
+import { TrashView } from './TrashView'
+import { LabelManagerDialog } from './LabelManagerDialog'
+import { useLabelSuggestions } from './label-identity'
 import { SubscriptionSettings } from './SubscriptionSettings'
 import type { PaymentRecord, SubscriptionDetail as Detail, SubscriptionItem } from '@shared/subscriptions/model'
 
 export function SubscriptionsApp(): ReactElement {
   const userId = useSession((state) => state.user?.id ?? null)
+  const assistantDockOpen = useUi((state) => state.assistantDockOpen)
+  const isMobile = useBreakpoint() === 'mobile'
   const status = useSubscriptions((state) => state.status)
   const error = useSubscriptions((state) => state.error)
   const items = useSubscriptions((state) => state.items)
-  const categories = useSubscriptions((state) => state.categories)
+  const selection = useSubscriptions((state) => state.selection)
+  const trashItems = useSubscriptions((state) => state.trashItems)
+  const trashCount = useSubscriptions((state) => state.trashCount)
   const settings = useSubscriptions((state) => state.settings)
   const channels = useSubscriptions((state) => state.channels)
   const overview = useSubscriptions((state) => state.overview)
@@ -57,6 +68,10 @@ export function SubscriptionsApp(): ReactElement {
   const [diagnosticsOpen, setDiagnosticsOpen] = useState(false)
   const [keysOpen, setKeysOpen] = useState(false)
   const [detailDrawer, setDetailDrawer] = useState(false)
+  const [labelsOpen, setLabelsOpen] = useState(false)
+  const [selectMode, setSelectMode] = useState(false)
+  const typeSuggestions = useLabelSuggestions('type')
+  const categorySuggestions = useLabelSuggestions('category')
 
   useEffect(() => {
     void useSubscriptions.getState().load()
@@ -77,7 +92,14 @@ export function SubscriptionsApp(): ReactElement {
 
   const visible = useMemo(() => visibleItems(items, filter), [items, filter])
   const counts = useMemo(() => countItems(items), [items])
-  const overviewCurrency = 'CNY'
+  // The account's own total currency. This used to be a literal, so an account billed entirely in
+  // dollars was shown a yuan headline converted at a rate it never chose.
+  const overviewCurrency = settings?.baseCurrency ?? 'CNY'
+
+  // The bundle carries only the trash's count, so the rows are fetched when they are first looked at.
+  useEffect(() => {
+    if (view === 'trash' && trashItems.length === 0 && trashCount > 0) void useSubscriptions.getState().loadTrash()
+  }, [view, trashItems.length, trashCount])
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent): void => {
@@ -118,14 +140,34 @@ export function SubscriptionsApp(): ReactElement {
     if (!panelWide) setDetailDrawer(true)
   }
 
-  const onDelete = async (item: SubscriptionItem): Promise<void> => {
+  const onTrash = async (item: SubscriptionItem): Promise<void> => {
     const ok = await confirm({
-      title: t('subscriptions.delete'),
-      description: t('subscriptions.delete_confirm', { name: item.name }),
-      confirmLabel: t('subscriptions.delete'),
+      title: t('subscriptions.trash.move'),
+      description: t('subscriptions.trash.confirm', { name: item.name }),
+      confirmLabel: t('subscriptions.trash.move'),
+    })
+    if (ok) await useSubscriptions.getState().trash(item.id)
+  }
+
+  /** The one action in this app that cannot be undone, so it says so and asks for its own yes. */
+  const onPurge = async (item: SubscriptionItem): Promise<void> => {
+    const ok = await confirm({
+      title: t('subscriptions.trash.purge'),
+      description: t('subscriptions.trash.purge_confirm', { name: item.name }),
+      confirmLabel: t('subscriptions.trash.purge'),
       tone: 'danger',
     })
-    if (ok) await useSubscriptions.getState().remove(item.id)
+    if (ok) await useSubscriptions.getState().purge(item.id)
+  }
+
+  const onEmptyTrash = async (): Promise<void> => {
+    const ok = await confirm({
+      title: t('subscriptions.trash.empty'),
+      description: t('subscriptions.trash.empty_confirm', { count: trashCount }),
+      confirmLabel: t('subscriptions.trash.empty'),
+      tone: 'danger',
+    })
+    if (ok) await useSubscriptions.getState().emptyTrash()
   }
 
   const onDeletePayment = async (payment: PaymentRecord): Promise<void> => {
@@ -165,6 +207,26 @@ export function SubscriptionsApp(): ReactElement {
           {/* A touch screen has no keys to press, so the card is offered only where it can be used. */}
           <IconButton label={t('subscriptions.keys.title')} size="sm" className="hidden sm:inline-flex" onClick={() => setKeysOpen(true)}><CircleHelp size={15} /></IconButton>
         </Tooltip>
+        {/* Selecting applies to the list rows, so the press only exists where a box can appear. Offered in
+            the trash or the logs it would flip to "exit selecting" and change nothing on screen. */}
+        {view === 'list' && (
+          <Tooltip label={selectMode ? t('subscriptions.select_exit') : t('subscriptions.select')} side="bottom">
+            <IconButton
+              label={selectMode ? t('subscriptions.select_exit') : t('subscriptions.select')}
+              size="sm"
+              active={selectMode}
+              onClick={() => {
+                setSelectMode((value) => !value)
+                useSubscriptions.getState().clearSelection()
+              }}
+            >
+              <CheckSquare size={15} />
+            </IconButton>
+          </Tooltip>
+        )}
+        <Tooltip label={t('subscriptions.picker.manage')} side="bottom">
+          <IconButton label={t('subscriptions.picker.manage')} size="sm" onClick={() => setLabelsOpen(true)}><Tags size={15} /></IconButton>
+        </Tooltip>
         <Tooltip label={t('subscriptions.view.settings')} side="bottom">
           <IconButton label={t('subscriptions.view.settings')} size="sm" onClick={() => setSettingsOpen(true)}><Settings2 size={15} /></IconButton>
         </Tooltip>
@@ -198,7 +260,7 @@ export function SubscriptionsApp(): ReactElement {
         onEdit: () => setFormOpen(true),
         onRenew: () => { if (detail) setRenewTarget(detail) },
         onToggle: () => { if (detail) void useSubscriptions.getState().toggle(detail.item.id, !detail.item.isActive) },
-        onDelete: () => { if (detail) void onDelete(detail.item) },
+        onTrash: () => { if (detail) void onTrash(detail.item) },
         onAddRule: () => {
           if (!detail) return
           void useSubscriptions.getState().addRule(detail.item.id, { type: 'before_expiry', value: 3, unit: 'days' })
@@ -206,6 +268,7 @@ export function SubscriptionsApp(): ReactElement {
         onPresetRules: () => { if (detail) void useSubscriptions.getState().applyPreset(detail.item.id) },
         onUpdateRule: (rule, patch) => { if (detail) void useSubscriptions.getState().updateRule(detail.item.id, rule.id, patch) },
         onDeleteRule: (rule) => { if (detail) void useSubscriptions.getState().deleteRule(detail.item.id, rule.id) },
+        onAcknowledgeRule: (rule) => { if (detail) void useSubscriptions.getState().acknowledgeRule(detail.item.id, rule.id) },
         onEditPayment: (payment) => setPaymentTarget(payment),
         onDeletePayment: (payment) => void onDeletePayment(payment),
       }}
@@ -226,6 +289,7 @@ export function SubscriptionsApp(): ReactElement {
               items={items}
               counts={counts}
               channels={channels}
+              trashCount={trashCount}
               onView={(next) => useSubscriptions.getState().setView(next)}
               onStatus={(next) => useSubscriptions.getState().setFilter({ status: next })}
               onCategory={(next) => useSubscriptions.getState().setFilter({ category: next })}
@@ -261,9 +325,21 @@ export function SubscriptionsApp(): ReactElement {
                   })
                 },
                 onToggle: (item) => void useSubscriptions.getState().toggle(item.id, !item.isActive),
-                onDelete: (item) => void onDelete(item),
+                onTrash: (item) => void onTrash(item),
                 onTest: (item) => void useSubscriptions.getState().testNotify(item.id),
               }}
+              selectMode={selectMode}
+              selection={selection}
+              onCheck={(id) => useSubscriptions.getState().toggleSelected(id)}
+            />
+          )}
+          {view === 'list' && <BulkBar items={items} />}
+          {view === 'trash' && (
+            <TrashView
+              items={trashItems}
+              onRestore={(item) => void useSubscriptions.getState().restore(item.id)}
+              onPurge={(item) => void onPurge(item)}
+              onEmpty={() => void onEmptyTrash()}
             />
           )}
           {view === 'logs' && <LogsView logs={logs} items={items} onLoad={loadLogs} />}
@@ -274,6 +350,11 @@ export function SubscriptionsApp(): ReactElement {
             {detailPanel}
           </aside>
         )}
+
+        {/* The same column the notebook mounts, under the same conditions: the assistant's thread is
+            global state, so opening it here and opening it there is one conversation rather than two.
+            Not on a phone, where chat already has a tab of its own. */}
+        {assistantDockOpen && !isMobile && <AssistantDock />}
       </div>
 
       {!panelWide && (
@@ -291,6 +372,7 @@ export function SubscriptionsApp(): ReactElement {
             items={items}
             counts={counts}
             channels={channels}
+            trashCount={trashCount}
             onView={(next) => { useSubscriptions.getState().setView(next); setRailOpen(false) }}
             onStatus={(next) => useSubscriptions.getState().setFilter({ status: next })}
             onCategory={(next) => useSubscriptions.getState().setFilter({ category: next })}
@@ -305,8 +387,8 @@ export function SubscriptionsApp(): ReactElement {
           open
           detail={detail}
           timezone={settings?.timezone ?? 'Asia/Shanghai'}
-          categories={categories}
-          types={[...new Set(items.map((item) => item.customType).filter(Boolean))]}
+          categories={categorySuggestions}
+          types={typeSuggestions}
           saving={saving}
           onClose={() => setFormOpen(false)}
           onSubmit={async (input) => {
@@ -360,6 +442,10 @@ export function SubscriptionsApp(): ReactElement {
             onDiagnostics={() => setDiagnosticsOpen(true)}
           />
         </Modal>
+      )}
+
+      {labelsOpen && (
+        <LabelManagerDialog open onClose={() => setLabelsOpen(false)} />
       )}
 
       {diagnosticsOpen && (

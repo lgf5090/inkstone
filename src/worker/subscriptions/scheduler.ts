@@ -226,6 +226,7 @@ async function sweepAccount(env: Env, userId: string, now: number): Promise<Acco
     },
     channels,
     { timezone: settings.timezone, locale: settings.locale, now },
+    { env, userId },
   )
 
   for (const outcome of delivered.results) {

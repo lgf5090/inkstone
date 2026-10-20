@@ -8,10 +8,10 @@
 import { useState, type ReactElement } from 'react'
 import { t } from '../../lib/i18n'
 import { Button } from '../../components/primitives'
-import { Field, Input } from '../../components/form'
+import { Field, Input, Select } from '../../components/form'
 import { Modal } from '../../components/overlay'
 import { formatDateInputInTimezone } from '@shared/subscriptions/time'
-import type { PaymentRecord } from '@shared/subscriptions/model'
+import { CURRENCY_CODES, type CurrencyCode, type PaymentRecord } from '@shared/subscriptions/model'
 
 export function PaymentDialog({
   payment,
@@ -24,16 +24,18 @@ export function PaymentDialog({
   timezone: string
   saving: boolean
   onClose: () => void
-  onSubmit: (patch: { date: string; amount: number; note: string }) => Promise<boolean>
+  onSubmit: (patch: { date: string; amount: number; currency: CurrencyCode; note: string }) => Promise<boolean>
 }): ReactElement {
   const [date, setDate] = useState(formatDateInputInTimezone(payment.paidAt, timezone))
   const [amount, setAmount] = useState(String(payment.amount))
+  const [currency, setCurrency] = useState<CurrencyCode>(payment.currency)
   const [note, setNote] = useState(payment.note)
 
   const submit = async (): Promise<void> => {
     const ok = await onSubmit({
       date,
       amount: amount === '' ? 0 : Number(amount),
+      currency,
       note: note.trim(),
     })
     if (ok) onClose()
@@ -62,9 +64,19 @@ export function PaymentDialog({
             <Input type="number" min={0} step="0.01" value={amount} onChange={(event) => setAmount(event.target.value)} />
           </Field>
         </div>
-        <Field label={t('subscriptions.renew.note')}>
-          <Input value={note} onChange={(event) => setNote(event.target.value)} />
-        </Field>
+        {/* Charged in the wrong currency is as common a typo as the wrong amount — a plan billed in HKD
+            recorded as HKD-amount-in-CNY is a month of spending that reads high. The worker already
+            accepted a currency here; only this form had not offered one. */}
+        <div className="grid grid-cols-2 gap-2.5">
+          <Field label={t('subscriptions.form.currency')}>
+            <Select value={currency} onChange={(event) => setCurrency(event.target.value as CurrencyCode)}>
+              {CURRENCY_CODES.map((code) => <option key={code} value={code}>{code}</option>)}
+            </Select>
+          </Field>
+          <Field label={t('subscriptions.renew.note')}>
+            <Input value={note} onChange={(event) => setNote(event.target.value)} />
+          </Field>
+        </div>
       </div>
     </Modal>
   )

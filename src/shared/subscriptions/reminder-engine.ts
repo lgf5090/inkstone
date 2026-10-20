@@ -72,6 +72,11 @@ function decideOnExpiry(ctx: FireContext): FireDecision {
 
 function decideAfterExpiry(rule: ReminderRule, ctx: FireContext): FireDecision {
   if (ctx.daysDiff >= 0) return { fire: false, reason: 'not_expired_yet' }
+  // "Until I acknowledge" only means something once the acknowledgement is recorded, and it stops the
+  // repeat rather than deleting the rule: the next term has to be able to nag again on its own.
+  if (rule.repeatUntil === 'acknowledged' && rule.acknowledgedAt) {
+    return { fire: false, reason: 'acknowledged' }
+  }
   const interval = repeatHours(rule)
   if (!ctx.lastFireAt) return { fire: true, reason: 'after_expiry_first_fire' }
   const last = new Date(ctx.lastFireAt).getTime()
@@ -111,6 +116,9 @@ export function getNextFireTime(rule: ReminderRule, expiryIso: string, nowIso?: 
   }
   if (rule.type === 'after_expiry') {
     if (now < expiry) return new Date(expiry).toISOString()
+    // Nothing is coming if the reader already said they had seen it — the detail panel would otherwise
+    // promise a next reminder that the scheduler has been told not to send.
+    if (rule.repeatUntil === 'acknowledged' && rule.acknowledgedAt) return null
     const interval = repeatHours(rule)
     const periods = Math.ceil((now - expiry) / (interval * hour))
     return new Date(expiry + periods * interval * hour).toISOString()

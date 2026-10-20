@@ -11,22 +11,24 @@ import { Plus, RefreshCw, Sparkles, Trash2, X } from 'lucide-react'
 import { cn } from '../../lib/cn'
 import { t } from '../../lib/i18n'
 import { Button, IconButton, SectionLabel } from '../../components/primitives'
-import { Input, Select, Switch } from '../../components/form'
 import { Tooltip } from '../../components/overlay'
 import { LoadingBlock } from '../../components/feedback'
 import { daysState, daysStateKey, formatAmount, periodProgress, periodUnitKey } from '@shared/subscriptions/format'
-import { subscriptionStatus, type PaymentRecord, type ReminderRule, type SubscriptionDetail } from '@shared/subscriptions/model'
+import { labelNamesOf, subscriptionStatus, type PaymentRecord, type ReminderRule, type SubscriptionDetail } from '@shared/subscriptions/model'
 import { StatusPill } from './StatusPill'
+import { ReminderRuleRow } from './ReminderRuleRow'
+import { LabelChip } from './label-identity'
 
 export interface DetailCallbacks {
   onEdit: () => void
   onRenew: () => void
   onToggle: () => void
-  onDelete: () => void
+  onTrash: () => void
   onAddRule: () => void
   onPresetRules: () => void
   onUpdateRule: (rule: ReminderRule, patch: Partial<ReminderRule>) => void
   onDeleteRule: (rule: ReminderRule) => void
+  onAcknowledgeRule: (rule: ReminderRule) => void
   onEditPayment: (payment: PaymentRecord) => void
   onDeletePayment: (payment: PaymentRecord) => void
 }
@@ -65,9 +67,12 @@ export function SubscriptionDetail({
             <h2 className="truncate text-[length:var(--text-14)] font-semibold text-[var(--text-primary)]">{item.name}</h2>
             <StatusPill status={status} />
           </div>
-          <p className="mt-0.5 truncate text-[length:var(--text-11-5)] text-[var(--text-tertiary)]">
-            {[item.customType || t('subscriptions.detail.uncategorized'), item.category].filter(Boolean).join(' · ')}
-          </p>
+          <div className="mt-1 flex flex-wrap items-center gap-1.5">
+            <LabelChip kind="type" name={item.customType} fallbackLabel={t('subscriptions.detail.uncategorized')} />
+            {labelNamesOf(item.category, 'category').map((token) => (
+              <LabelChip key={token} kind="category" name={token} />
+            ))}
+          </div>
         </div>
         <Tooltip label={t('subscriptions.detail.close')} side="left">
           <IconButton label={t('subscriptions.detail.close')} size="sm" onClick={onClose} className="lg:hidden">
@@ -82,8 +87,8 @@ export function SubscriptionDetail({
         <Button size="sm" variant="ghost" onClick={callbacks.onToggle}>
           {item.isActive ? t('subscriptions.detail.toggle_off') : t('subscriptions.detail.toggle_on')}
         </Button>
-        <Tooltip label={t('subscriptions.delete')} side="bottom">
-          <IconButton label={t('subscriptions.delete')} size="sm" onClick={callbacks.onDelete} className="ml-auto text-[var(--danger)]">
+        <Tooltip label={t('subscriptions.trash.move')} side="bottom">
+          <IconButton label={t('subscriptions.trash.move')} size="sm" onClick={callbacks.onTrash} className="ml-auto">
             <Trash2 size={14} />
           </IconButton>
         </Tooltip>
@@ -103,6 +108,13 @@ export function SubscriptionDetail({
           <Fact label={t('subscriptions.detail.calendar')} value={item.useLunar ? t('subscriptions.detail.calendar_lunar') : t('subscriptions.detail.calendar_solar')} />
           <Fact label={t('subscriptions.detail.auto_renew')} value={item.autoRenew ? t('subscriptions.detail.yes') : t('subscriptions.detail.no')} />
           <Fact label={t('subscriptions.detail.paid_total')} value={formatAmount(item.paidTotal, item.currency)} />
+          {item.trialEndsAt && (
+            <Fact
+              label={t('subscriptions.detail.trial_ends')}
+              value={`${item.trialEndsAt.slice(0, 10)} · ${t('subscriptions.status.days_left', { count: item.trialDaysRemaining ?? 0 })}`}
+              tone={(item.trialDaysRemaining ?? 0) < 8 ? 'warning' : undefined}
+            />
+          )}
         </div>
 
         {progress !== null && (
@@ -159,7 +171,7 @@ export function SubscriptionDetail({
           : (
               <ul className="mt-1.5 space-y-1">
                 {detail.rules.map((rule) => (
-                  <RuleRow key={rule.id} rule={rule} callbacks={callbacks} />
+                  <RuleRow key={rule.id} rule={rule} expired={item.daysRemaining < 0} callbacks={callbacks} />
                 ))}
               </ul>
             )}
@@ -252,71 +264,18 @@ function Fact({
 /**
  * One rule, editable in place.
  *
- * The type decides which controls exist: a before-expiry rule has a number and a unit, an on-expiry rule
- * has neither (it is "that day"), and an after-expiry rule has an interval instead. Showing all three
- * controls for every kind would leave a reader guessing which of them the scheduler reads.
+ * The row itself is shared with the create form — the two differ only in what a change costs. Here it
+ * goes straight to the server, because the detail panel is looking at a saved subscription and a rule
+ * that changed on screen but not on the worker would be a lie the next reload corrects.
  */
-function RuleRow({ rule, callbacks }: { rule: ReminderRule; callbacks: DetailCallbacks }): ReactElement {
-  const isBefore = rule.type === 'before_expiry'
-  const isAfter = rule.type === 'after_expiry'
+function RuleRow({ rule, expired, callbacks }: { rule: ReminderRule; expired: boolean; callbacks: DetailCallbacks }): ReactElement {
   return (
-    <li className="flex items-center gap-1.5 rounded-[var(--r-md)] px-1 py-1 hover:bg-[var(--bg-hover)]">
-      <Select
-        aria-label={t('subscriptions.rules.title')}
-        value={rule.type}
-        onChange={(event) => callbacks.onUpdateRule(rule, { type: event.target.value as ReminderRule['type'] })}
-        className="h-7 w-[104px] shrink-0 text-[length:var(--text-11-5)]"
-      >
-        <option value="before_expiry">{t('subscriptions.rules.type_before')}</option>
-        <option value="on_expiry">{t('subscriptions.rules.type_on')}</option>
-        <option value="after_expiry">{t('subscriptions.rules.type_after')}</option>
-      </Select>
-      {isBefore && (
-        <>
-          <Input
-            aria-label={t('subscriptions.rules.value')}
-            type="number"
-            min={0}
-            max={3650}
-            value={rule.value}
-            onChange={(event) => callbacks.onUpdateRule(rule, { value: Number(event.target.value) })}
-            className="h-7 w-14 shrink-0 text-center text-[length:var(--text-11-5)] tabular-nums"
-          />
-          <Select
-            aria-label={t('subscriptions.rules.unit')}
-            value={rule.unit}
-            onChange={(event) => callbacks.onUpdateRule(rule, { unit: event.target.value as ReminderRule['unit'] })}
-            className="h-7 w-[72px] shrink-0 text-[length:var(--text-11-5)]"
-          >
-            <option value="days">{t('subscriptions.rules.unit_days')}</option>
-            <option value="hours">{t('subscriptions.rules.unit_hours')}</option>
-          </Select>
-        </>
-      )}
-      {isAfter && (
-        <span className="flex min-w-0 items-center gap-1">
-          <Input
-            aria-label={t('subscriptions.rules.repeat_every_value')}
-            type="number"
-            min={1}
-            max={720}
-            value={rule.repeatInterval ?? 24}
-            onChange={(event) => callbacks.onUpdateRule(rule, { repeatInterval: Number(event.target.value) })}
-            className="h-7 w-14 shrink-0 text-center text-[length:var(--text-11-5)] tabular-nums"
-          />
-          <span className="truncate text-[length:var(--text-10-5)] text-[var(--text-tertiary)]">{t('subscriptions.rules.unit_hours')}</span>
-        </span>
-      )}
-      <span className="ml-auto flex shrink-0 items-center gap-1">
-        <Switch
-          checked={rule.isEnabled}
-          onChange={(next) => callbacks.onUpdateRule(rule, { isEnabled: next })}
-          label={t('subscriptions.rules.enabled')}
-        />
-        <IconButton label={t('subscriptions.rules.remove')} size="xs" onClick={() => callbacks.onDeleteRule(rule)}>
-          <Trash2 size={12} />
-        </IconButton>
-      </span>
-    </li>
+    <ReminderRuleRow
+      rule={rule}
+      onPatch={(patch) => callbacks.onUpdateRule(rule, patch)}
+      onRemove={() => callbacks.onDeleteRule(rule)}
+      canAcknowledge={expired}
+      onAcknowledge={() => callbacks.onAcknowledgeRule(rule)}
+    />
   )
 }

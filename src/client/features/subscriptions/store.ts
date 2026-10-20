@@ -13,8 +13,11 @@ import { api, type PaymentPatch, type SettingsPatch } from '../../lib/api'
 import { useUi } from '../../store/ui'
 import { t } from '../../lib/i18n'
 import type {
+  BulkAction,
   ChannelKind,
   ChannelState,
+  LabelEntry,
+  LabelKind,
   NotifyLogEntry,
   NotifyLogFilter,
   ReminderRule,
@@ -29,7 +32,7 @@ import type {
   SubscriptionSettings,
 } from '@shared/subscriptions/model'
 
-export type SubscriptionsView = 'overview' | 'list' | 'logs'
+export type SubscriptionsView = 'overview' | 'list' | 'logs' | 'trash'
 
 export type StatusFilter = 'all' | 'soon' | 'expired' | 'disabled'
 
@@ -50,7 +53,11 @@ interface SubscriptionsState {
   status: 'idle' | 'loading' | 'ready' | 'error'
   error: string | null
   items: SubscriptionItem[]
-  categories: string[]
+  /** The trash, loaded on demand — the bundle carries only its count. */
+  trashItems: SubscriptionItem[]
+  trashCount: number
+  types: LabelEntry[]
+  categories: LabelEntry[]
   settings: SubscriptionSettings | null
   channels: ChannelState[]
   overview: SubscriptionOverview | null
@@ -70,7 +77,17 @@ interface SubscriptionsState {
 
   create: (input: SubscriptionInput) => Promise<SubscriptionDetail | null>
   update: (id: string, input: SubscriptionInput) => Promise<SubscriptionDetail | null>
-  remove: (id: string) => Promise<boolean>
+  trash: (id: string) => Promise<boolean>
+  loadTrash: () => Promise<void>
+  restore: (id: string) => Promise<boolean>
+  purge: (id: string) => Promise<boolean>
+  emptyTrash: () => Promise<boolean>
+
+  selection: string[]
+  toggleSelected: (id: string) => void
+  clearSelection: () => void
+  bulk: (action: BulkAction, category?: string) => Promise<number>
+  importRows: (rows: Record<string, unknown>[]) => Promise<{ created: number; skipped: Array<{ row: number; reason: string }> } | null>
   toggle: (id: string, isActive: boolean) => Promise<void>
   renew: (id: string, options: RenewOptions) => Promise<SubscriptionDetail | null>
   testNotify: (id: string) => Promise<void>
@@ -80,6 +97,7 @@ interface SubscriptionsState {
   addRule: (id: string, rule: ReminderRuleInput) => Promise<ReminderRule | null>
   updateRule: (id: string, ruleId: string, patch: ReminderRuleInput) => Promise<ReminderRule | null>
   deleteRule: (id: string, ruleId: string) => Promise<boolean>
+  acknowledgeRule: (id: string, ruleId: string) => Promise<boolean>
 
   updatePayment: (id: string, paymentId: string, patch: PaymentPatch) => Promise<SubscriptionDetail | null>
   deletePayment: (id: string, paymentId: string) => Promise<SubscriptionDetail | null>
@@ -89,6 +107,11 @@ interface SubscriptionsState {
   clearChannel: (kind: ChannelKind) => Promise<boolean>
   testChannel: (kind: ChannelKind) => Promise<void>
   rotateInboundToken: () => Promise<{ token: string; hint: string } | null>
+
+  addLabel: (kind: LabelKind, name: string) => Promise<boolean>
+  setLabelStyle: (kind: LabelKind, name: string, style: { icon?: string | null; color?: string | null }) => Promise<boolean>
+  renameLabel: (kind: LabelKind, from: string, to: string) => Promise<boolean>
+  removeLabel: (kind: LabelKind, name: string) => Promise<boolean>
 
   loadLogs: (filter?: NotifyLogFilter) => Promise<void>
   refresh: () => Promise<void>
@@ -108,6 +131,10 @@ export const useSubscriptions = create<SubscriptionsState>()((set, get) => ({
   status: 'idle',
   error: null,
   items: [],
+  trashItems: [],
+  trashCount: 0,
+  selection: [],
+  types: [],
   categories: [],
   settings: null,
   channels: [],
@@ -197,7 +224,7 @@ export const useSubscriptions = create<SubscriptionsState>()((set, get) => ({
     }
   },
 
-  async remove(id) {
+  async trash(id) {
     try {
       await api.subscriptions.remove(id)
       set({
@@ -205,6 +232,56 @@ export const useSubscriptions = create<SubscriptionsState>()((set, get) => ({
         selectedId: get().selectedId === id ? null : get().selectedId,
         detail: get().detail?.item.id === id ? null : get().detail,
       })
+      await get().refresh()
+      useUi.getState().toast({
+        title: t('subscriptions.trash.moved'),
+        description: t('subscriptions.trash.moved_hint'),
+        tone: 'success',
+      })
+      return true
+    } catch (error) {
+      report(error, 'subscriptions.error.save')
+      return false
+    }
+  },
+
+  async loadTrash() {
+    try {
+      const { items } = await api.subscriptions.trashList()
+      set({ trashItems: items })
+    } catch (error) {
+      report(error, 'subscriptions.error.load')
+    }
+  },
+
+  async restore(id) {
+    try {
+      await api.subscriptions.restore(id)
+      set({ trashItems: get().trashItems.filter((item) => item.id !== id) })
+      await get().refresh()
+      return true
+    } catch (error) {
+      report(error, 'subscriptions.error.save')
+      return false
+    }
+  },
+
+  async purge(id) {
+    try {
+      await api.subscriptions.purge(id)
+      set({ trashItems: get().trashItems.filter((item) => item.id !== id) })
+      await get().refresh()
+      return true
+    } catch (error) {
+      report(error, 'subscriptions.error.save')
+      return false
+    }
+  },
+
+  async emptyTrash() {
+    try {
+      await api.subscriptions.emptyTrash()
+      set({ trashItems: [] })
       await get().refresh()
       return true
     } catch (error) {
@@ -300,6 +377,27 @@ export const useSubscriptions = create<SubscriptionsState>()((set, get) => ({
     } catch (error) {
       report(error, 'subscriptions.error.save')
       return null
+    }
+  },
+
+  async acknowledgeRule(id, ruleId) {
+    try {
+      const { rule } = await api.subscriptions.acknowledgeRule(id, ruleId)
+      const detail = get().detail
+      if (detail && detail.item.id === id) {
+        set({
+          detail: {
+            ...detail,
+            rules: detail.rules.map((entry) => entry.id === ruleId ? rule : entry),
+            // The rule that just muted itself may have been the one the panel said was coming next.
+            nextReminder: detail.nextReminder && detail.nextReminder.ruleId === ruleId ? null : detail.nextReminder,
+          },
+        })
+      }
+      return true
+    } catch (error) {
+      report(error, 'subscriptions.error.save')
+      return false
     }
   },
 
@@ -401,6 +499,109 @@ export const useSubscriptions = create<SubscriptionsState>()((set, get) => ({
     }
   },
 
+  async addLabel(kind, name) {
+    try {
+      applyLabels(set, kind, await api.subscriptions.addLabel(kind, name))
+      return true
+    } catch (error) {
+      report(error, 'subscriptions.error.save')
+      return false
+    }
+  },
+
+  /**
+   * Give a label a face.
+   *
+   * Only the registry moves, so the list is swapped in place rather than reloaded — the subscriptions
+   * that wear the face are unchanged, and a reload would throw away the reader's selection and scroll
+   * for a colour change.
+   */
+  async setLabelStyle(kind, name, style) {
+    try {
+      const { label } = await api.subscriptions.setLabelStyle(kind, name, style)
+      const key = kind === 'type' ? 'types' : 'categories'
+      const list = get()[key]
+      const known = list.some((entry) => entry.name === label.name)
+      const next = known
+        ? list.map((entry) => (entry.name === label.name ? label : entry))
+        : [...list, label].sort((a, b) => a.name.localeCompare(b.name))
+      set({ [key]: next } as Partial<SubscriptionsState>)
+      return true
+    } catch (error) {
+      report(error, 'subscriptions.error.save')
+      return false
+    }
+  },
+
+  /**
+   * Rename a label, and reload.
+   *
+   * The server rewrites every subscription that carried the old word, so the rows the browser is
+   * holding are stale the moment this succeeds — unlike a style change, this one has to refetch.
+   */
+  async renameLabel(kind, from, to) {
+    try {
+      applyLabels(set, kind, await api.subscriptions.renameLabel(kind, from, to))
+      await get().refresh()
+      return true
+    } catch (error) {
+      report(error, 'subscriptions.error.save')
+      return false
+    }
+  },
+
+  async removeLabel(kind, name) {
+    try {
+      applyLabels(set, kind, await api.subscriptions.removeLabel(kind, name))
+      return true
+    } catch (error) {
+      report(error, 'subscriptions.error.save')
+      return false
+    }
+  },
+
+  toggleSelected(id) {
+    const current = get().selection
+    set({ selection: current.includes(id) ? current.filter((entry) => entry !== id) : [...current, id] })
+  },
+
+  clearSelection() {
+    set({ selection: [] })
+  },
+
+  /**
+   * One action over the selected rows, then a full reload.
+   *
+   * The reload is not laziness: `deactivate` changes every countdown colour and `set_category` moves
+   * rows between the rail's counts, and patching all of that locally would be a second implementation
+   * of the summary that can disagree with the first.
+   */
+  async bulk(action, category) {
+    const ids = get().selection
+    if (!ids.length) return 0
+    try {
+      const { changed } = await api.subscriptions.bulk(ids, action, category)
+      set({ selection: [] })
+      await get().refresh()
+      return changed
+    } catch (error) {
+      report(error, 'subscriptions.error.save')
+      return 0
+    }
+  },
+
+  async importRows(rows) {
+    if (!rows.length) return null
+    try {
+      const result = await api.subscriptions.importRows(rows)
+      await get().refresh()
+      return result
+    } catch (error) {
+      report(error, 'subscriptions.error.save')
+      return null
+    }
+  },
+
   async loadLogs(filter = {}) {
     set({ logs: { ...get().logs, loading: true, error: null } })
     try {
@@ -422,13 +623,24 @@ function applyBundle(set: (patch: Partial<SubscriptionsState>) => void, bundle: 
     status: 'ready',
     error: null,
     items: bundle.items,
+    types: bundle.types,
     categories: bundle.categories,
     settings: bundle.settings,
     channels: bundle.channels,
     overview: bundle.overview,
+    trashCount: bundle.trashCount,
   })
 }
 
 function mergeRules(detail: SubscriptionDetail | null, id: string, rules: ReminderRule[]): SubscriptionDetail | null {
   return detail && detail.item.id === id ? { ...detail, rules } : detail
+}
+
+/** Swap one registry list after the server hands back the whole thing it just changed. */
+function applyLabels(
+  set: (patch: Partial<SubscriptionsState>) => void,
+  kind: LabelKind,
+  response: { labels: LabelEntry[] },
+): void {
+  set(kind === 'type' ? { types: response.labels } : { categories: response.labels })
 }

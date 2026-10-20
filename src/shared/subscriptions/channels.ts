@@ -1,10 +1,13 @@
 /**
- * The nine delivery channels, described once.
+ * The ten delivery channels, described once.
  *
  * A channel is three things: a kind the database stores, a set of fields a person fills in, and an
  * adapter that turns a message into one HTTP request. The first two live here so the settings screen
  * can draw a form it was not hand-written for, and so the worker can validate the same fields against
  * the same required flags. The third lives beside the worker, because it needs `fetch`.
+ *
+ * One channel has no request to make: the app's own notification inbox. It is still a channel, because
+ * it is still a place a reader decides whether reminders reach them and a result the delivery log keeps.
  *
  * Secrets are marked as such. A `password` field is the only kind whose stored value is never sent back
  * to the browser, and the form treats an empty one as "keep what is there" — the reference project's
@@ -48,6 +51,12 @@ const MESSAGE_TYPE_OPTIONS: ChannelSelectOption[] = [
  * are configuring.
  */
 export const CHANNEL_DEFINITIONS: readonly ChannelDefinition[] = [
+  {
+    kind: 'inapp',
+    labelKey: 'subscriptions.channel.inapp',
+    // Nothing to fill in: this is the reader's own inbox, not a service holding a credential.
+    fields: [],
+  },
   {
     kind: 'telegram',
     labelKey: 'subscriptions.channel.telegram',

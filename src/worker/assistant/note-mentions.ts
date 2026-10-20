@@ -49,6 +49,9 @@ export function noteMentions(text: string): NoteMention[] {
     const target = (pipe >= 0 ? inner.slice(0, pipe) : inner).trim()
     const alias = pipe >= 0 ? inner.slice(pipe + 1).trim() : ''
     if (!target) continue
+    // A `sub:` target is a subscription's, resolved by `subscription-mentions`. Claiming it here would
+    // report a perfectly live subscription as a note that has been deleted.
+    if (target.startsWith('sub:')) continue
     const id = NOTE_ID.test(target) ? target : null
     const key = id ?? `title:${target.toLocaleLowerCase()}`
     if (seen.has(key)) continue

@@ -26,6 +26,24 @@ import type { Env } from '../env'
 import type { McpWriteContext } from '../mcp/writes'
 import { createMcpNote, editMcpNote, trashMcpNote } from '../mcp/writes'
 import { readMcpNote, searchMcpNotes } from '../mcp/retrieval'
+import { buildOverview } from '../subscriptions/overview'
+import { normalizeColor, normalizeIcon } from '@shared/subscriptions/identity'
+import { listChannels, loadSettings } from '../subscriptions/settings'
+import { SubscriptionsStore, storeContext, type StoreContext } from '../subscriptions/store'
+import {
+  CURRENCY_CODES,
+  labelNamesOf,
+  PERIOD_UNITS,
+  RULES_LIMIT,
+  SOON_DAYS,
+  type CurrencyCode,
+  type LabelKind,
+  type PeriodUnit,
+  type ReminderRuleInput,
+  type SubscriptionDetail,
+  type SubscriptionItem,
+  type SubscriptionMode,
+} from '@shared/subscriptions/model'
 import { ApiError } from '../lib/errors'
 import { ArtifactVersionConflictError, type AssistantStore, type MemoryScope } from './store'
 import {
@@ -1103,16 +1121,33 @@ export const SEARCH_TOOLS: ToolDefinition[] = [
     name: 'search',
     permission: 'read',
     maxCallsPerTurn: 2,
-    description: 'Search the reader\'s tasks, notes, memories and past conversations at once.',
+    description: 'Search the reader\'s tasks, notes, memories, subscriptions and past conversations at once.',
     fields: { query: { type: 'string', minLength: 1, maxLength: 200 } },
     async run(args, ctx) {
       const query = String(args.query)
-      const [tasks, memories, conversations] = await Promise.all([
+      const [tasks, memories, conversations, subscriptions] = await Promise.all([
         ctx.store.listTasks({ query, limit: 5 }),
         // Scoped like every other read of a memory: this tool answers inside a turn, and a turn does not
         // see another project's facts just because it asked a broader question.
         ctx.store.searchMemories(query, 5, 'all', ctx.memoryScope),
         ctx.store.listConversations(query, { limit: 5 }),
+        // A subscription is a fact about money and a date, which is exactly what a reader asks the
+        // assistant for when they do not want to open the app: "do I still have that gym thing?".
+        (async () => {
+          const { store, context } = await subscriptionAccess(ctx)
+          const folded = query.toLocaleLowerCase()
+          return (await store.list(context))
+            .filter((item) => `${item.name} ${item.customType} ${item.category} ${item.notes}`.toLocaleLowerCase().includes(folded))
+            .slice(0, 5)
+            .map((item) => ({
+              id: item.id,
+              name: item.name,
+              amount: item.amount,
+              currency: item.currency,
+              expiryDate: item.expiryDate.slice(0, 10),
+              daysRemaining: item.daysRemaining,
+            }))
+        })(),
       ])
       const scope = await ctx.noteScope()
       const tagFilter = await tagSearchFilter(ctx.env.DB, ctx.store.userId, scope)
@@ -1128,6 +1163,7 @@ export const SEARCH_TOOLS: ToolDefinition[] = [
         notes: notes.results.filter((hit) => allowed.has(hit.id))
           .map((hit) => ({ id: hit.id, title: hit.title, excerpt: hit.snippet.slice(0, 200) })),
         conversations: conversations.map((conversation) => ({ id: conversation.id, title: conversation.title })),
+        subscriptions,
       }
     },
   }),
@@ -1396,6 +1432,427 @@ export const WEB_TOOLS: ToolDefinition[] = [
   }),
 ]
 
+/**
+ * The subscriptions app, reachable from a conversation.
+ *
+ * The notes vault set the shape: the tools call the same store the HTTP routes call, with the account
+ * the session named, so tenancy is a property of how the store is built rather than a check somebody
+ * has to remember. A settings read per call is the price of not threading subscription state through
+ * `ToolContext`, and it is one indexed row.
+ *
+ * Deleting is the only destructive verb, and it is the trash rather than the erasure — which is the same
+ * choice the app itself makes, and means an approved action stays undoable after the card is dismissed.
+ */
+export const SUBSCRIPTION_TOOLS: ToolDefinition[] = [
+  tool({
+    name: 'list_subscriptions',
+    permission: 'read',
+    maxCallsPerTurn: 3,
+    description: 'List the reader\'s subscriptions with their price, cycle, expiry and how many days are left. Filter to what is due, overdue, switched off, sitting in the trash, or matching a word in a name, type, category or note. `trash` is the only way to see what has been deleted but not yet erased — ask for it before saying nothing was deleted.',
+    fields: {
+      status: { type: 'string', enum: ['all', 'soon', 'expired', 'active', 'disabled', 'trash'], optional: true, description: 'soon = due within a week. trash = deleted subscriptions that can still be restored. Defaults to all, which excludes the trash.' },
+      query: { type: 'string', maxLength: 120, optional: true },
+      category: { type: 'string', maxLength: 40, optional: true },
+      limit: { type: 'integer', minimum: 1, maximum: 50, optional: true },
+    },
+    async run(args, ctx) {
+      const { store, context } = await subscriptionAccess(ctx)
+      const status = (args.status as string) ?? 'all'
+      // The trash is a separate read rather than a filter on the live list: `store.list` excludes those
+      // rows in SQL, so a model that never learns the word `trash` cannot see them at all — which is how
+      // a restore attempt ended up reporting an empty trash that held one subscription.
+      const items = status === 'trash' ? await store.list(context, 'trash') : await store.list(context)
+      const query = typeof args.query === 'string' ? args.query.trim().toLocaleLowerCase() : ''
+      const category = typeof args.category === 'string' ? args.category.trim().toLocaleLowerCase() : ''
+      const matched = items.filter((item) => {
+        if (status === 'soon' && !(item.daysRemaining >= 0 && item.daysRemaining <= SOON_DAYS)) return false
+        if (status === 'expired' && item.daysRemaining >= 0) return false
+        if (status === 'active' && (item.daysRemaining < 0 || !item.isActive)) return false
+        if (status === 'disabled' && item.isActive) return false
+        if (category && !labelNamesOf(item.category, 'category').some((token) => token.toLocaleLowerCase() === category)) return false
+        if (query) {
+          const haystack = `${item.name} ${item.customType} ${item.category} ${item.notes}`.toLocaleLowerCase()
+          if (!haystack.includes(query)) return false
+        }
+        return true
+      }).sort((left, right) => left.daysRemaining - right.daysRemaining)
+      const limit = Number(args.limit ?? 15)
+      const page = matched.slice(0, limit)
+      return {
+        total: matched.length,
+        // Same honesty rule as the note list: a page is not the whole answer, and a model that is not
+        // told the difference will summarise fifteen subscriptions as if they were the account.
+        returned: page.length,
+        more: matched.length > page.length,
+        subscriptions: page.map(presentSubscription),
+      }
+    },
+  }),
+  tool({
+    name: 'get_subscription',
+    permission: 'read',
+    maxCallsPerTurn: 3,
+    description: 'Read one subscription in full: its reminder rules, when the next one fires, and its payment history with what each receipt bought.',
+    fields: { ref: { type: 'string', minLength: 1, maxLength: 120, description: 'The id, or the name the reader used.' } },
+    async run(args, ctx) {
+      const { detail } = await resolveSubscriptionOrThrow(args.ref, ctx)
+      return {
+        subscription: presentSubscription(detail.item),
+        notes: detail.item.notes.slice(0, 1000),
+        reminders: detail.rules.map((rule) => ({
+          id: rule.id,
+          type: rule.type,
+          value: rule.value,
+          unit: rule.unit,
+          repeatInterval: rule.repeatInterval,
+          repeatUntil: rule.repeatUntil,
+          muted: Boolean(rule.acknowledgedAt),
+          enabled: rule.isEnabled,
+        })),
+        nextReminder: detail.nextReminder,
+        payments: detail.payments.slice(0, 12).map((payment) => ({
+          id: payment.id,
+          paidAt: payment.paidAt.slice(0, 10),
+          amount: payment.amount,
+          currency: payment.currency,
+          kind: payment.kind,
+          note: payment.note,
+        })),
+        paymentCount: detail.payments.length,
+      }
+    },
+  }),
+  tool({
+    name: 'subscription_summary',
+    permission: 'read',
+    maxCallsPerTurn: 2,
+    description: 'The account\'s money picture in one call: what this month and this year have cost in the reader\'s total currency, how that compares with last month, the ceiling the reader set for a month and whether this month is over it, what the current plans commit for a year, which trials are about to start charging, which plans changed price, what renews in the next week, where the spending goes by type and by category, and whether the reminder scheduler is still running.',
+    fields: {},
+    async run(_args, ctx) {
+      const settings = await loadSettings(ctx.env.DB, ctx.store.userId)
+      const overview = await buildOverview(ctx.env, ctx.env.DB, ctx.store.userId, settings)
+      return {
+        totalCurrency: settings.baseCurrency,
+        timezone: settings.timezone,
+        monthly: overview.monthly,
+        yearly: overview.yearly,
+        // The ceiling is the reader's own number, and `limit: null` means they never set one — which is a
+        // different answer from "not over budget". Leaving it out made the tool unable to say either.
+        budget: overview.budget,
+        committedYearly: overview.committedYearly,
+        trials: overview.trials,
+        priceChanges: overview.priceChanges,
+        active: overview.active,
+        upcoming: overview.upcoming.slice(0, 8),
+        byType: overview.byType.slice(0, 6),
+        byCategory: overview.byCategory.slice(0, 6),
+        months: overview.months,
+        scheduler: overview.scheduler
+          ? { status: overview.scheduler.status, at: overview.scheduler.startedAt, sent: overview.scheduler.sentCount, reason: overview.scheduler.reason }
+          : { status: 'never', note: 'The reminder job has not run yet for this account.' },
+      }
+    },
+  }),
+  tool({
+    name: 'create_subscription',
+    permission: 'write',
+    maxCallsPerTurn: 3,
+    description: 'Add a subscription. `expiryDate` is the day it next ends, as YYYY-MM-DD in the reader\'s own time zone — ask them rather than inventing it, because a wrong date sends every reminder to the wrong day. Four reminders (7, 3 and 1 days before, plus the day itself) are set unless `reminders` says otherwise.',
+    fields: {
+      name: { type: 'string', minLength: 1, maxLength: 120 },
+      expiryDate: { type: 'string', minLength: 10, maxLength: 10, description: 'YYYY-MM-DD.' },
+      amount: { type: 'number', minimum: 0, maximum: 1e9, optional: true, description: 'Omit for a free plan; send 0 only for a plan that genuinely costs nothing.' },
+      currency: { type: 'string', enum: [...CURRENCY_CODES], optional: true },
+      type: { type: 'string', maxLength: 40, optional: true },
+      category: { type: 'string', maxLength: 40, optional: true, description: 'Several tags separated by "/".' },
+      periodValue: { type: 'integer', minimum: 1, maximum: 120, optional: true },
+      periodUnit: { type: 'string', enum: [...PERIOD_UNITS], optional: true },
+      mode: { type: 'string', enum: ['cycle', 'reset'], optional: true },
+      startDate: { type: 'string', maxLength: 10, optional: true },
+      notes: { type: 'string', maxLength: 2000, optional: true },
+      reminders: { type: 'string', maxLength: 200, optional: true, description: 'Comma-separated: "7d" or "12h" for that far ahead, "on" for the day itself, "after:24" to repeat every 24 hours once overdue.' },
+    },
+    async run(args, ctx) {
+      const { store, context } = await subscriptionAccess(ctx)
+      const created = await store.create({
+        name: String(args.name),
+        customType: typeof args.type === 'string' ? args.type : '',
+        category: typeof args.category === 'string' ? args.category : '',
+        amount: args.amount === undefined ? null : Number(args.amount),
+        currency: (args.currency as CurrencyCode) ?? 'CNY',
+        startDate: typeof args.startDate === 'string' && args.startDate ? args.startDate : null,
+        expiryDate: `${String(args.expiryDate)}T00:00:00Z`,
+        periodValue: args.periodValue === undefined ? 1 : Number(args.periodValue),
+        periodUnit: (args.periodUnit as PeriodUnit) ?? 'month',
+        subscriptionMode: (args.mode as SubscriptionMode) ?? 'cycle',
+        notes: typeof args.notes === 'string' ? args.notes : '',
+        reminderRules: typeof args.reminders === 'string' ? parseReminderSpec(args.reminders) : undefined,
+      }, context)
+      return { created: presentSubscription(created.item), reminders: created.rules.length }
+    },
+  }),
+  tool({
+    name: 'update_subscription',
+    permission: 'write',
+    maxCallsPerTurn: 3,
+    description: 'Change the fields of one subscription. Only what is named is touched, so leaving `amount` out keeps the price it has. Pass the whole current `expiryDate` unchanged when editing something else, because the server requires the field.',
+    fields: {
+      ref: { type: 'string', minLength: 1, maxLength: 120 },
+      name: { type: 'string', maxLength: 120, optional: true },
+      expiryDate: { type: 'string', maxLength: 10, optional: true },
+      amount: { type: 'number', minimum: 0, maximum: 1e9, optional: true },
+      currency: { type: 'string', enum: [...CURRENCY_CODES], optional: true },
+      type: { type: 'string', maxLength: 40, optional: true },
+      category: { type: 'string', maxLength: 40, optional: true },
+      periodValue: { type: 'integer', minimum: 1, maximum: 120, optional: true },
+      periodUnit: { type: 'string', enum: [...PERIOD_UNITS], optional: true },
+      mode: { type: 'string', enum: ['cycle', 'reset'], optional: true },
+      autoRenew: { type: 'boolean', optional: true },
+      notes: { type: 'string', maxLength: 2000, optional: true },
+    },
+    async run(args, ctx) {
+      const { store, context, detail } = await resolveSubscriptionOrThrow(args.ref, ctx)
+      const current = detail.item
+      const updated = await store.update(current.id, {
+        name: typeof args.name === 'string' ? args.name : current.name,
+        customType: typeof args.type === 'string' ? args.type : current.customType,
+        category: typeof args.category === 'string' ? args.category : current.category,
+        amount: args.amount === undefined ? current.amount : Number(args.amount),
+        currency: (args.currency as CurrencyCode) ?? current.currency,
+        startDate: typeof args.startDate === 'string' ? args.startDate : current.startDate,
+        expiryDate: `${(typeof args.expiryDate === 'string' && args.expiryDate ? args.expiryDate : current.expiryDate.slice(0, 10))}T00:00:00Z`,
+        periodValue: args.periodValue === undefined ? current.periodValue : Number(args.periodValue),
+        periodUnit: (args.periodUnit as PeriodUnit) ?? current.periodUnit,
+        subscriptionMode: (args.mode as SubscriptionMode) ?? current.subscriptionMode,
+        useLunar: current.useLunar,
+        isActive: current.isActive,
+        autoRenew: args.autoRenew === undefined ? current.autoRenew : args.autoRenew === true,
+        notes: typeof args.notes === 'string' ? args.notes : current.notes,
+      }, context)
+      if (!updated) throw new ToolError('That subscription is gone.')
+      return { updated: presentSubscription(updated.item) }
+    },
+  }),
+  tool({
+    name: 'renew_subscription',
+    permission: 'write',
+    maxCallsPerTurn: 3,
+    description: 'Record that a subscription was paid for again: it writes the receipt and moves the expiry date by the cycle. Use this rather than `update_subscription` when the reader says they just paid, because editing the date alone leaves the spending history wrong.',
+    fields: {
+      ref: { type: 'string', minLength: 1, maxLength: 120 },
+      paymentDate: { type: 'string', maxLength: 10, optional: true, description: 'YYYY-MM-DD. Defaults to today.' },
+      amount: { type: 'number', minimum: 0, maximum: 1e9, optional: true, description: 'Defaults to the price on file.' },
+      periods: { type: 'integer', minimum: 1, maximum: 120, optional: true, description: 'How many cycles this pays for, for an annual prepayment. Defaults to 1.' },
+      note: { type: 'string', maxLength: 200, optional: true },
+    },
+    async run(args, ctx) {
+      const { store, context, detail } = await resolveSubscriptionOrThrow(args.ref, ctx)
+      if (!detail.item.periodValue || !detail.item.periodUnit) {
+        throw new ToolError('That subscription has no cycle set, so there is nothing to extend it by. Give it a period first.')
+      }
+      const renewed = await store.renew(detail.item.id, {
+        paymentDate: typeof args.paymentDate === 'string' && args.paymentDate ? `${args.paymentDate}T00:00:00Z` : undefined,
+        amount: args.amount === undefined ? undefined : Number(args.amount),
+        periodMultiplier: args.periods === undefined ? 1 : Number(args.periods),
+        note: typeof args.note === 'string' ? args.note : undefined,
+      }, context)
+      if (!renewed) throw new ToolError('That subscription is gone.')
+      return { renewed: presentSubscription(renewed.item), payments: renewed.payments.length }
+    },
+  }),
+  tool({
+    name: 'set_subscription_reminders',
+    permission: 'write',
+    maxCallsPerTurn: 3,
+    description: 'Replace one subscription\'s reminder rules. Send an empty string to switch reminders off entirely.',
+    fields: {
+      ref: { type: 'string', minLength: 1, maxLength: 120 },
+      reminders: { type: 'string', maxLength: 200, description: 'Comma-separated: "7d", "12h", "on", "after:24". At most 10 rules.' },
+    },
+    async run(args, ctx) {
+      const { store, detail } = await resolveSubscriptionOrThrow(args.ref, ctx)
+      const rules = parseReminderSpec(String(args.reminders))
+      const saved = await store.replaceRules(detail.item.id, rules)
+      if (!saved) throw new ToolError('That subscription is gone.')
+      return { reminders: saved.map((rule) => ({ type: rule.type, value: rule.value, unit: rule.unit, repeatInterval: rule.repeatInterval })) }
+    },
+  }),
+  tool({
+    name: 'set_subscription_style',
+    permission: 'write',
+    maxCallsPerTurn: 4,
+    description: 'Give a subscription type or a category its icon and colour. The choice applies everywhere that name appears — the list, the filter rail, the spending bars, the detail header — and to every subscription wearing it, not just one row.',
+    fields: {
+      kind: { type: 'string', enum: ['type', 'category'] },
+      name: { type: 'string', minLength: 1, maxLength: 40 },
+      icon: { type: 'string', maxLength: 40, optional: true, description: 'As `lucide:<Name>`, e.g. lucide:Cloud. Send an empty string to go back to the default.' },
+      color: { type: 'string', maxLength: 7, optional: true, description: 'A palette hex such as #2563eb. Send an empty string for the derived default.' },
+    },
+    async run(args, ctx) {
+      const kind = args.kind as LabelKind
+      const name = String(args.name).trim()
+      // Checked here as well as in the route, because this is the other door into the same write. The
+      // store turns anything it does not recognise into "unset", which for a tool call would mean the
+      // model asked for a face, was told nothing went wrong, and quietly got the label cleared instead.
+      const icon = typeof args.icon === 'string' && args.icon ? args.icon : undefined
+      const color = typeof args.color === 'string' && args.color ? args.color : undefined
+      if (icon && !normalizeIcon(icon)) throw new ToolError(`"${icon}" is not an icon the app offers.`)
+      if (color && !normalizeColor(color)) throw new ToolError(`"${color}" is not a colour the app offers. Pick one of its sixteen.`)
+      const store = new SubscriptionsStore(ctx.env.DB, ctx.store.userId)
+      const label = await store.setLabelStyle(kind, name, { icon, color })
+      if (!label) throw new ToolError('That label could not be saved.')
+      return { label }
+    },
+  }),
+  tool({
+    name: 'restore_subscription',
+    permission: 'write',
+    maxCallsPerTurn: 3,
+    description: 'Put a subscription back from the trash. Its payment history and reminders were kept, so this returns it exactly as it was.',
+    fields: { ref: { type: 'string', minLength: 1, maxLength: 120 } },
+    async run(args, ctx) {
+      const { store, context } = await subscriptionAccess(ctx)
+      const wanted = String(args.ref).trim()
+      const trashed = await store.list(context, 'trash')
+      const folded = wanted.toLocaleLowerCase()
+      const match = trashed.find((item) => item.id === wanted)
+        ?? trashed.find((item) => item.name.toLocaleLowerCase() === folded)
+      if (!match) {
+        // Naming what is actually there turns a dead end into one more call. A count alone left the model
+        // reporting "nothing was deleted" about a trash that held one subscription it could not see.
+        const names = trashed.slice(0, 10).map((item) => item.name)
+        throw new ToolError(trashed.length === 0
+          ? 'The trash is empty, so there is nothing to restore.'
+          : `Nothing in the trash matches "${wanted.slice(0, 80)}". The trash holds ${trashed.length}: ${names.join(', ')}${trashed.length > names.length ? ', …' : ''}. Pass one of those names, or list with status "trash".`)
+      }
+      const restored = await store.restore(match.id, context)
+      if (!restored) throw new ToolError('That subscription could not be restored.')
+      return { restored: presentSubscription(restored.item) }
+    },
+  }),
+  tool({
+    name: 'delete_subscription',
+    permission: 'destructive',
+    maxCallsPerTurn: 3,
+    description: 'Propose moving a subscription to the trash. Nothing is removed until the reader approves it, and the trash keeps the payment history so it can be undone afterwards.',
+    fields: { ref: { type: 'string', minLength: 1, maxLength: 120 } },
+    async prepare(args, ctx) {
+      const { detail } = await resolveSubscriptionOrThrow(args.ref, ctx)
+      return { targetId: detail.item.id, targetLabel: quoted(detail.item.name) }
+    },
+    async commit(targetId, ctx) {
+      const { store, context } = await subscriptionAccess(ctx)
+      const done = await store.trash(targetId, context)
+      if (!done) throw new ToolError('This subscription no longer exists.')
+      return { trashed: true, note: 'It is in the trash and can be restored.' }
+    },
+  }),
+  tool({
+    name: 'subscription_channels',
+    permission: 'read',
+    maxCallsPerTurn: 2,
+    description: 'Which notification channels the account has set up, which are switched on, and whether the last test through each one worked. A reader asking "will I actually be told", "why did nothing arrive", or "which app is this pushing to" is asking about this. Only a redacted hint is ever returned — a token, password or device key never leaves the server.',
+    fields: {},
+    async run(_args, ctx) {
+      const channels = await listChannels(ctx.env.DB, ctx.store.userId)
+      const configured = channels.filter((channel) => channel.configured || channel.enabled)
+      return {
+        enabledCount: channels.filter((channel) => channel.enabled).length,
+        // A channel with no row is not a thing the reader set up, so the ten defaults are not listed at them.
+        channels: configured.map((channel) => ({
+          kind: channel.kind,
+          enabled: channel.enabled,
+          configured: channel.configured,
+          hint: channel.hint,
+          lastTest: channel.lastTestStatus
+            ? { status: channel.lastTestStatus, at: channel.lastTestAt, error: channel.lastTestError || undefined }
+            : null,
+        })),
+        note: configured.length === 0
+          ? 'No channel is configured, so reminders are computed and logged but nothing is delivered.'
+          : undefined,
+      }
+    },
+  }),
+]
+
+/** The store and the account's own date context, built the same way the HTTP route builds them. */
+async function subscriptionAccess(ctx: ToolContext): Promise<{ store: SubscriptionsStore; context: StoreContext; settings: Awaited<ReturnType<typeof loadSettings>> }> {
+  const settings = await loadSettings(ctx.env.DB, ctx.store.userId)
+  return {
+    store: new SubscriptionsStore(ctx.env.DB, ctx.store.userId),
+    context: storeContext(settings),
+    settings,
+  }
+}
+
+/** What a subscription looks like to the model: the fields a question about money or dates actually needs. */
+function presentSubscription(item: SubscriptionItem): Record<string, unknown> {
+  return {
+    id: item.id,
+    name: item.name,
+    type: item.customType,
+    category: item.category,
+    amount: item.amount,
+    currency: item.currency,
+    period: `${item.periodValue} ${item.periodUnit}`,
+    expiryDate: item.expiryDate.slice(0, 10),
+    daysRemaining: item.daysRemaining,
+    isActive: item.isActive,
+    autoRenew: item.autoRenew,
+    paidTotal: item.paidTotal,
+    paymentCount: item.paymentCount,
+    nextReminderAt: item.nextReminderAt,
+  }
+}
+
+/**
+ * The reminder shorthand, in both directions.
+ *
+ * A tool argument that is an array of objects would need `FieldSpec` to grow an array kind, and the model
+ * would need to get three nested fields right per rule. `7d,3d,1d,on` is one string it can write from
+ * what the reader said, and anything it cannot express is refused with the accepted shapes named back.
+ */
+function parseReminderSpec(spec: string): ReminderRuleInput[] {
+  const tokens = spec.split(',').map((token) => token.trim()).filter(Boolean)
+  if (tokens.length > RULES_LIMIT) throw new ToolError(`That is ${tokens.length} rules; one subscription carries at most ${RULES_LIMIT}.`)
+  return tokens.map((token): ReminderRuleInput => {
+    if (token === 'on') return { type: 'on_expiry', value: 0, unit: 'days', isEnabled: true }
+    const after = /^after:?(\d+)$/.exec(token)
+    if (after) return { type: 'after_expiry', value: 0, unit: 'days', repeatInterval: Number(after[1]), isEnabled: true }
+    const ahead = /^(\d+)([dh])$/.exec(token)
+    if (ahead) {
+      return {
+        type: 'before_expiry',
+        value: Number(ahead[1]),
+        unit: ahead[2] === 'h' ? 'hours' : 'days',
+        isEnabled: true,
+      }
+    }
+    throw new ToolError(`"${token}" is not a reminder. Use "7d", "12h", "on" or "after:24".`)
+  })
+}
+
+/** A subscription by id or by the name the reader used. Ambiguity is answered, never guessed at. */
+async function resolveSubscriptionOrThrow(ref: unknown, ctx: ToolContext): Promise<Awaited<ReturnType<typeof subscriptionAccess>> & { detail: SubscriptionDetail }> {
+  const access = await subscriptionAccess(ctx)
+  const wanted = String(ref).trim()
+  const direct = await access.store.get(wanted, access.context)
+  if (direct) return { ...access, detail: direct }
+  const items = await access.store.list(access.context)
+  const folded = wanted.toLocaleLowerCase()
+  const exact = items.filter((item) => item.name.toLocaleLowerCase() === folded)
+  const matches = exact.length ? exact : items.filter((item) => item.name.toLocaleLowerCase().includes(folded))
+  if (matches.length === 1) {
+    const detail = await access.store.get(matches[0].id, access.context)
+    if (detail) return { ...access, detail }
+  }
+  if (matches.length > 1) {
+    throw new ToolError(`"${wanted.slice(0, 80)}" matches ${matches.length} subscriptions: ${matches.slice(0, 5).map((item) => item.name).join(', ')}. Name one exactly.`)
+  }
+  throw new ToolError(`No subscription matches "${wanted.slice(0, 80)}". List them to find the exact name.`)
+}
+
 export const ALL_TOOLS: ToolDefinition[] = [
   ...TASK_TOOLS,
   ...MEMORY_TOOLS,
@@ -1407,6 +1864,7 @@ export const ALL_TOOLS: ToolDefinition[] = [
   ...IMAGE_TOOLS,
   ...CODE_TOOLS,
   ...WEB_TOOLS,
+  ...SUBSCRIPTION_TOOLS,
 ]
 
 const TOOL_BY_NAME = new Map(ALL_TOOLS.map((definition) => [definition.name, definition]))

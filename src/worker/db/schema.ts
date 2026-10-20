@@ -1792,6 +1792,99 @@ export const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
       `ALTER TABLE chat_models ADD COLUMN icon TEXT NOT NULL DEFAULT ''`,
     ],
   },
+  {
+    // The face a subscription type or category wears.
+    //
+    // `sub_category` existed as a bare name list, which is enough to autocomplete a form and nothing
+    // else: the reader who wants a streaming type to read as red-on-tv and a gym one as green-on-dumbbell
+    // has to put that choice somewhere, and a name is the wrong place to hang it because renaming the
+    // label would take the identity with it. An empty string means "nobody chose", which is deliberately
+    // not the same as a chosen value — a preset that changes later still reaches the accounts that never
+    // picked.
+    //
+    // Defaults rather than nullable because these columns ride in a backup, and a restore that binds a
+    // missing key NULL into a NOT NULL column loses the row to `INSERT OR IGNORE`.
+    version: 117,
+    skipIfColumnExists: { table: 'sub_category', column: 'icon' },
+    statements: [
+      `ALTER TABLE sub_category ADD COLUMN icon TEXT NOT NULL DEFAULT ''`,
+    ],
+  },
+  {
+    // One column, one version, as every other pair here: `skipIfColumnExists` can only guard one, and
+    // a version that added two would skip the second one on a database that had somehow acquired only
+    // the first.
+    version: 118,
+    skipIfColumnExists: { table: 'sub_category', column: 'color' },
+    statements: [
+      `ALTER TABLE sub_category ADD COLUMN color TEXT NOT NULL DEFAULT ''`,
+    ],
+  },
+  {
+    // Which currency the dashboard totals are added up in.
+    //
+    // It was fixed at CNY in the client, which is a defensible default for an app whose reference
+    // implementation was written for yuan and is an odd one for a reader whose every subscription is
+    // billed in dollars — they were shown a yuan total converted at a rate they never chose. The
+    // conversion itself lives in `app_meta`'s cached rate table; this is only the preference.
+    version: 119,
+    skipIfColumnExists: { table: 'sub_settings', column: 'base_currency' },
+    statements: [
+      `ALTER TABLE sub_settings ADD COLUMN base_currency TEXT NOT NULL DEFAULT 'CNY'`,
+    ],
+  },
+  {
+    // When the reader told an expired subscription's rule they had seen it.
+    //
+    // `repeat_until` has been stored since the first version and read by nothing — the reference project
+    // had the same dropdown and the same dead field, and its engine header even claimed the scheduler
+    // filtered on it, which the scheduler does not. `acknowledged` could not mean anything without a
+    // record of the acknowledgement, so this is the half that was missing rather than a new idea.
+    version: 120,
+    skipIfColumnExists: { table: 'sub_reminder_rule', column: 'acknowledged_at' },
+    statements: [
+      `ALTER TABLE sub_reminder_rule ADD COLUMN acknowledged_at INTEGER`,
+    ],
+  },
+  {
+    // The subscription trash.
+    //
+    // Deleting a subscription used to erase it and every receipt under it in one batch, which is a
+    // strange thing for the one table in this app that holds financial history: a mis-tap cost the reader
+    // a record they may have kept for years, and no confirm dialog is a substitute for being able to
+    // change one's mind. Nullable rather than a status flag, and shaped exactly like `notes.deleted_at`,
+    // so the two trashes are the same idea in one database.
+    version: 121,
+    skipIfColumnExists: { table: 'sub_item', column: 'deleted_at' },
+    statements: [
+      `ALTER TABLE sub_item ADD COLUMN deleted_at INTEGER`,
+    ],
+  },
+  {
+    // When a free trial stops being free.
+    //
+    // A trial is not a free subscription (`amount` null already means that) and not a zero-cost period
+    // either: it is a known date after which the real price starts biting, which makes it the single
+    // most worth-reminding-about thing in a subscription list. Nullable, because most rows are not
+    // trials and a sentinel would put a fake date in front of every reminder that reads this column.
+    version: 122,
+    skipIfColumnExists: { table: 'sub_item', column: 'trial_ends_at' },
+    statements: [
+      `ALTER TABLE sub_item ADD COLUMN trial_ends_at INTEGER`,
+    ],
+  },
+  {
+    // What a month of subscriptions is allowed to cost.
+    //
+    // The dashboard already says what was spent; the question a reader actually asks is whether that is
+    // too much, and that needs a number they supply rather than one the app invents. NULL is "no budget
+    // set", which is different from a budget of zero and must stay distinguishable in the column.
+    version: 123,
+    skipIfColumnExists: { table: 'sub_settings', column: 'budget_monthly' },
+    statements: [
+      `ALTER TABLE sub_settings ADD COLUMN budget_monthly REAL`,
+    ],
+  },
 ]
 
 const FTS_STATEMENT = `CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(

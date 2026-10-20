@@ -15,7 +15,7 @@ import { Button, IconButton, SectionLabel } from '../../components/primitives'
 import { Field, Input, Segmented, Select, Switch, Textarea } from '../../components/form'
 import { Modal } from '../../components/overlay'
 import { CHANNEL_DEFINITIONS, channelLabelKey, type ChannelField } from '@shared/subscriptions/channels'
-import type { ChannelKind, ChannelState, NotifyLocale, SubscriptionSettings } from '@shared/subscriptions/model'
+import { CURRENCY_CODES, type ChannelKind, type ChannelState, type CurrencyCode, type NotifyLocale, type SubscriptionSettings } from '@shared/subscriptions/model'
 
 const TIMEZONES = [
   'Asia/Shanghai', 'Asia/Hong_Kong', 'Asia/Taipei', 'Asia/Singapore', 'Asia/Tokyo', 'Asia/Seoul',
@@ -95,6 +95,24 @@ export function SubscriptionSettings({
                 <option value="zh-CN">{t('subscriptions.settings.language_zh')}</option>
                 <option value="en-US">{t('subscriptions.settings.language_en')}</option>
               </Select>
+            </Field>
+            <Field label={t('subscriptions.settings.base_currency')} hint={t('subscriptions.settings.base_currency_hint')}>
+              <Select value={settings.baseCurrency} onChange={(event) => void saveGeneral({ baseCurrency: event.target.value as CurrencyCode })}>
+                {CURRENCY_CODES.map((code) => <option key={code} value={code}>{code}</option>)}
+              </Select>
+            </Field>
+            {/* A ceiling the reader sets, not one the app infers: the dashboard already says what was
+                spent, and the number only means anything against a limit they chose themselves. */}
+            <Field label={t('subscriptions.settings.budget')} hint={t('subscriptions.settings.budget_hint')}>
+              <Input
+                type="number"
+                min={0}
+                step="1"
+                inputMode="decimal"
+                value={settings.budgetMonthly ?? ''}
+                placeholder={t('subscriptions.settings.budget_placeholder')}
+                onChange={(event) => void saveGeneral({ budgetMonthly: event.target.value === '' ? null : Number(event.target.value) })}
+              />
             </Field>
           </div>
 
@@ -191,7 +209,14 @@ function ChannelPanel({
   const [busy, setBusy] = useState(false)
 
   const configured = state?.configured ?? false
-  const summary = useMemo(() => (configured ? t('subscriptions.channel.configured', { hint: state?.hint ?? '' }) : t('subscriptions.channel.not_configured')), [configured, state?.hint])
+  // A channel with fields cannot send until they are filled in; one with none is ready as soon as it is
+  // switched on, so gating its switch on `configured` would ask the reader to configure nothing.
+  const needsConfiguration = fields.length > 0 && !configured
+  const summary = useMemo(() => {
+    if (!configured) return t('subscriptions.channel.not_configured')
+    // The hint says *which* server or token is stored; with nothing to name, the bare fact is the whole line.
+    return state?.hint ? t('subscriptions.channel.configured', { hint: state.hint }) : t('subscriptions.channel.configured_plain')
+  }, [configured, state?.hint])
 
   const save = async (): Promise<void> => {
     setBusy(true)
@@ -219,7 +244,7 @@ function ChannelPanel({
         </button>
         <Switch
           checked={enabled}
-          disabled={!configured}
+          disabled={needsConfiguration}
           onChange={(next) => { setEnabled(next); void onSave(kind, { enabled: next, config: {} }) }}
           label={t('subscriptions.channel.enable')}
         />
@@ -239,15 +264,19 @@ function ChannelPanel({
             <Button size="sm" variant="secondary" icon={<Send size={13} />} disabled={!configured} onClick={() => void onTest(kind)}>
               {t('subscriptions.channel.test')}
             </Button>
-            <IconButton
-              label={t('subscriptions.channel.clear')}
-              size="sm"
-              className="ml-auto text-[var(--danger)]"
-              disabled={!configured}
-              onClick={() => { void onClear(kind); setEnabled(false) }}
-            >
-              <Trash2 size={14} />
-            </IconButton>
+            {/* Clearing forgets a credential bundle. A channel with no fields never had one, so the only
+                honest way to stop it is the switch, and offering a press that changes nothing is a trap. */}
+            {fields.length > 0 && (
+              <IconButton
+                label={t('subscriptions.channel.clear')}
+                size="sm"
+                className="ml-auto text-[var(--danger)]"
+                disabled={!configured}
+                onClick={() => { void onClear(kind); setEnabled(false) }}
+              >
+                <Trash2 size={14} />
+              </IconButton>
+            )}
           </div>
         </div>
       )}

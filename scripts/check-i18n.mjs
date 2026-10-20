@@ -215,7 +215,11 @@ const inputVocabularyConstants = new Set(['SCATTER_HEADER_WORDS', 'EMOJI_ICON_CA
     // translation of it, so these are data about the language and not interface copy.
     'TARGET_LANGUAGES',
     // The chat composer's own punctuation table: the values are data the assistant edits, not copy.
-    'TITLE_BREAK_PUNCTUATION']);
+    'TITLE_BREAK_PUNCTUATION',
+    // What a CSV boolean column accepts as "yes". A file is the reader's artefact, not the interface's:
+    // the vocabulary has to hold whatever they or their spreadsheet wrote, whatever language the app
+    // happens to be in when the file is read back.
+    'CSV_YES_WORDS']);
 // The built-in note template bodies live in their own file so they stay out of the
 // start-up locale chunk. The gate reads them as one catalog with the rest, otherwise
 // the two languages would be proven against each other only for the keys that happen

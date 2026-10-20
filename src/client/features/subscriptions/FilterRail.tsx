@@ -7,13 +7,15 @@
  * before they have to open the settings.
  */
 import type { ReactElement } from 'react'
-import { AlertTriangle, CalendarClock, CircleSlash, LayoutDashboard, List, Tag } from 'lucide-react'
+import { AlertTriangle, CalendarClock, CircleSlash, LayoutDashboard, List, Tag, Trash2 } from 'lucide-react'
 import { cn } from '../../lib/cn'
 import { t } from '../../lib/i18n'
 import { SectionLabel } from '../../components/primitives'
 import { Tooltip } from '../../components/overlay'
 import type { ChannelState } from '@shared/subscriptions/model'
 import { categoryCounts, type ListCounts } from './list-view'
+import { iconComponentOf } from './label-icons'
+import { useLabelIdentity } from './label-identity'
 import type { StatusFilter, SubscriptionsView } from './store'
 import type { SubscriptionItem } from '@shared/subscriptions/model'
 
@@ -24,6 +26,7 @@ export function FilterRail({
   items,
   counts,
   channels,
+  trashCount,
   onView,
   onStatus,
   onCategory,
@@ -35,6 +38,7 @@ export function FilterRail({
   items: readonly SubscriptionItem[]
   counts: ListCounts
   channels: readonly ChannelState[]
+  trashCount: number
   onView: (view: SubscriptionsView) => void
   onStatus: (status: StatusFilter) => void
   onCategory: (category: string | null) => void
@@ -82,6 +86,17 @@ export function FilterRail({
         active={view === 'list' && status === 'disabled'}
         onClick={() => { onView('list'); onStatus('disabled'); onCategory(null) }}
       />
+      {/* Offered only once there is something in it: a permanent "trash, 0" row would be a dead end that
+          also implies the app might lose a subscription at any moment. */}
+      {trashCount > 0 && (
+        <RailRow
+          icon={<Trash2 size={15} />}
+          label={t('subscriptions.rail.trash')}
+          count={trashCount}
+          active={view === 'trash'}
+          onClick={() => onView('trash')}
+        />
+      )}
 
       {categories.length > 0 && (
         <div className="mt-3">
@@ -89,7 +104,7 @@ export function FilterRail({
           {categories.map((entry) => (
             <RailRow
               key={entry.name}
-              icon={<Tag size={14} />}
+              icon={<CategoryGlyph name={entry.name} />}
               label={entry.name}
               count={entry.count}
               active={view === 'list' && category === entry.name}
@@ -179,5 +194,23 @@ function RailRow({
         </span>
       )}
     </button>
+  )
+}
+
+/**
+ * A category's mark in the rail.
+ *
+ * Tinted whether or not it has an icon: the colour is the part that works at a glance down a list of
+ * eight, and falling back to the generic tag glyph keeps the row the same width as its neighbours. The
+ * glyph is decorative — the label beside it is the name — so it stays out of the accessible tree.
+ */
+function CategoryGlyph({ name }: { name: string }): ReactElement {
+  const identityOf = useLabelIdentity()
+  const identity = identityOf('category', name)
+  const Icon = iconComponentOf(identity.icon)
+  return (
+    <span style={{ color: identity.color }}>
+      {Icon ? <Icon size={13} /> : <Tag size={13} />}
+    </span>
   )
 }
