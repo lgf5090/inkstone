@@ -128,3 +128,19 @@ describe('the task day columns spend a number each', () => {
     ])
   })
 })
+
+/**
+ * The archive stamp a list gained.
+ *
+ * It arrives under its own number and carries a guard, so a database whose ledger already spent the
+ * number still gets the column and a fresh install replays it never twice.
+ */
+describe('the list archive column spends a number', () => {
+  it('adds the archive stamp under its own number', () => {
+    const migration = SCHEMA_MIGRATIONS.find((entry) => entry.version === 120)
+    expect(migration).toMatchObject({
+      skipIfColumnExists: { table: 'todos_lists', column: 'archived_at' },
+      statements: [`ALTER TABLE todos_lists ADD COLUMN archived_at INTEGER`],
+    })
+  })
+})

@@ -79,6 +79,12 @@ interface FeedAnswer {
   createdAt: number
 }
 
+/** A list as the routes serialise one: the shared shape plus where it sits and whether it is put away. */
+interface ListAnswer extends TaskList {
+  archivedAt: number | null
+  parentId: string | null
+}
+
 async function json<T>(response: Response): Promise<T> {
   return await response.json() as T
 }
@@ -211,6 +217,53 @@ describe('lists', () => {
     const first = await json<{ list: TaskList }>(await send('POST', '/lists', { name: 'Work' }))
     const again = await json<{ list: TaskList }>(await send('POST', '/lists', { name: 'work' }))
     expect(again.list.id).toBe(first.list.id)
+  })
+})
+
+describe('list archiving and grouping', () => {
+  // Each case spends a caller of its own: the write budget is module-wide and keyed by whoever is
+  // signed in, and these cases must not eat into what the list cases above already spent.
+  let caller = 0
+
+  beforeEach(() => {
+    caller += 1
+    mocks.userId = `listorgan${String(caller).padStart(15, '0')}`
+  })
+
+  it('hides an archived list and its tasks from the counts until the archive is asked for', async () => {
+    const list = await json<{ list: ListAnswer }>(await send('POST', '/lists', { name: 'Work' })).then((body) => body.list)
+    await create({ title: 'Still there', listId: list.id })
+
+    const archived = await json<{ list: ListAnswer }>(await send('PATCH', `/lists/${list.id}`, { archived: true }))
+    expect(archived.list.archivedAt).toBeGreaterThan(0)
+    expect((await json<{ lists: ListAnswer[] }>(await send('GET', '/lists'))).lists.map((entry) => entry.id))
+      .not.toContain(list.id)
+    expect((await json<{ lists: ListAnswer[] }>(await send('GET', '/lists?archived=1'))).lists.map((entry) => entry.id))
+      .toEqual([list.id])
+    // The task itself is not deleted: archiving is a statement about the list, not about its work.
+    const filed = await json<{ tasks: TodoTask[] }>(await send('GET', `?list=${list.id}`))
+    expect(filed.tasks.map((task) => task.title)).toEqual(['Still there'])
+    // Every count that reads the account's open work leaves the put-away list out.
+    expect((await json<{ counts: TaskCounts }>(await send('GET', ''))).counts.all).toBe(0)
+
+    const restored = await json<{ list: ListAnswer }>(await send('PATCH', `/lists/${list.id}`, { archived: false }))
+    expect(restored.list.archivedAt).toBeNull()
+    expect((await json<{ lists: ListAnswer[] }>(await send('GET', '/lists'))).lists.map((entry) => entry.id))
+      .toEqual([list.id])
+    expect((await json<{ lists: ListAnswer[] }>(await send('GET', '/lists?archived=1'))).lists).toEqual([])
+    expect((await json<{ counts: TaskCounts }>(await send('GET', ''))).counts.all).toBe(1)
+  })
+
+  it('does not archive another account’s list', async () => {
+    const reader = mocks.userId
+    const mine = await json<{ list: ListAnswer }>(await send('POST', '/lists', { name: 'Mine' })).then((body) => body.list)
+    mocks.userId = `${reader}other`
+
+    expect((await send('PATCH', `/lists/${mine.id}`, { archived: true })).status).toBe(404)
+
+    mocks.userId = reader
+    const list = (await json<{ lists: ListAnswer[] }>(await send('GET', '/lists'))).lists.find((entry) => entry.id === mine.id)
+    expect(list).toMatchObject({ archivedAt: null })
   })
 })
 

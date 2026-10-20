@@ -7,7 +7,7 @@
  */
 
 import { useState } from 'react'
-import { ChevronRight, Pencil, Plus } from 'lucide-react'
+import { Archive, ArchiveRestore, ChevronDown, ChevronRight, Pencil, Plus } from 'lucide-react'
 import { t } from '../../lib/i18n'
 import { KanbanIconBadge } from '../../lib/markdown/kanban/ui/kanban-icon-badge'
 import { listIconFor } from './todo-ui'
@@ -17,11 +17,21 @@ import type { TaskList, TaskTag } from '@shared/todos/model'
 
 export function ListsView({ onOpen }: { onOpen: (target: { listId?: string; tagId?: string }) => void }) {
   const lists = useTodos((state) => state.lists)
+  const archivedLists = useTodos((state) => state.archivedLists)
+  const loadArchivedLists = useTodos((state) => state.loadArchivedLists)
+  const updateList = useTodos((state) => state.updateList)
   const tags = useTodos((state) => state.tags)
   const counts = useTodos((state) => state.counts)
   const setView = useTodos((state) => state.setView)
+  const [archivedOpen, setArchivedOpen] = useState(false)
   const [listEditor, setListEditor] = useState<{ open: boolean; list: TaskList | null }>({ open: false, list: null })
   const [tagEditor, setTagEditor] = useState<{ open: boolean; tag: TaskTag | null }>({ open: false, tag: null })
+
+  const toggleArchive = (): void => {
+    const next = !archivedOpen
+    setArchivedOpen(next)
+    if (next) void loadArchivedLists()
+  }
 
   return (
     <div className="no-scrollbar min-h-0 flex-1 overflow-y-auto px-3 pb-24 pt-2 md:px-5 md:pb-6">
@@ -71,6 +81,33 @@ export function ListsView({ onOpen }: { onOpen: (target: { listId?: string; tagI
                   icon={list.icon}
                   onOpen={() => onOpen({ listId: list.id })}
                   onEdit={() => setListEditor({ open: true, list })}
+                  onArchive={() => { void updateList(list.id, { archived: true }) }}
+                />
+              </div>
+            ))}
+          </div>
+          <div className="mt-2 overflow-hidden rounded-[var(--r-lg)] border border-[var(--border-subtle)] bg-[var(--bg-surface)]">
+            <button
+              type="button"
+              onClick={toggleArchive}
+              aria-expanded={archivedOpen}
+              aria-label={t('todo.list.archived')}
+              className="flex min-h-11 w-full items-center gap-2 px-3 text-left text-[length:var(--text-12)] font-semibold text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]"
+            >
+              {archivedOpen ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
+              <span className="min-w-0 flex-1 truncate">{t('todo.list.archived')}</span>
+              <span className="text-[length:var(--text-11)] tabular-nums text-[var(--text-quaternary)]">{archivedLists.length}</span>
+            </button>
+            {archivedOpen && archivedLists.map((list) => (
+              <div key={list.id}>
+                <div className="h-px bg-[var(--border-subtle)]" />
+                <Row
+                  label={list.name}
+                  count={list.openCount}
+                  color={list.color ?? 'var(--text-quaternary)'}
+                  icon={list.icon}
+                  onOpen={() => onOpen({ listId: list.id })}
+                  onRestore={() => { void updateList(list.id, { archived: false }) }}
                 />
               </div>
             ))}
@@ -115,13 +152,15 @@ export function ListsView({ onOpen }: { onOpen: (target: { listId?: string; tagI
   )
 }
 
-function Row({ label, count, color, icon, onOpen, onEdit }: {
+function Row({ label, count, color, icon, onOpen, onEdit, onArchive, onRestore }: {
   label: string
   count: number
   color: string
   icon?: string | null
   onOpen: () => void
   onEdit?: () => void
+  onArchive?: () => void
+  onRestore?: () => void
 }) {
   return (
     <div className="flex min-h-11 items-center gap-2 pl-3 pr-1">
@@ -140,6 +179,26 @@ function Row({ label, count, color, icon, onOpen, onEdit }: {
           className="flex size-9 shrink-0 items-center justify-center rounded-full text-[var(--text-quaternary)] hover:text-[var(--text-secondary)] md:size-7"
         >
           <Pencil size={13} />
+        </button>
+      )}
+      {onArchive && (
+        <button
+          type="button"
+          onClick={onArchive}
+          aria-label={`${t('todo.action.archive')} ${label}`}
+          className="flex size-9 shrink-0 items-center justify-center rounded-full text-[var(--text-quaternary)] hover:text-[var(--text-secondary)] md:size-7"
+        >
+          <Archive size={13} />
+        </button>
+      )}
+      {onRestore && (
+        <button
+          type="button"
+          onClick={onRestore}
+          aria-label={`${t('todo.action.unarchive')} ${label}`}
+          className="flex size-9 shrink-0 items-center justify-center rounded-full text-[var(--text-quaternary)] hover:text-[var(--text-secondary)] md:size-7"
+        >
+          <ArchiveRestore size={13} />
         </button>
       )}
       <button

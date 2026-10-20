@@ -126,6 +126,17 @@ import { getLocale, t, translateApiError } from './i18n'
 
 export const CLIENT_ID = randomLocalId()
 
+/**
+ * A list as the organizer page reads it: the shared shape plus where it sits.
+ *
+ * `archivedAt` is the moment the reader put the list away, or null while it is in use; the store
+ * keeps the working page and the archive apart by it. Kept beside the API client rather than in the
+ * shared model because it is a field of this screen's answer, not a fact every task surface reads.
+ */
+export type TaskListEntry = TaskList & {
+  archivedAt: number | null
+}
+
 export class ApiError extends Error {
   constructor(
     readonly status: number,
@@ -1170,11 +1181,12 @@ export const api = {
     removeStep: (id: string, stepId: string) =>
       request<{ deleted: true }>(`/api/todos/${id}/steps/${stepId}`, { method: 'DELETE' }),
 
-    lists: () => request<{ lists: TaskList[] }>('/api/todos/lists'),
+    lists: (params: { archived?: '1' } = {}) =>
+      request<{ lists: TaskListEntry[] }>(`/api/todos/lists${toQuery(params)}`),
     createList: (body: { name: string, icon?: string | null, color?: string | null }) =>
-      request<{ list: TaskList }>('/api/todos/lists', { method: 'POST', body }),
-    updateList: (id: string, body: { name?: string, icon?: string | null, color?: string | null, position?: number }) =>
-      request<{ list: TaskList }>(`/api/todos/lists/${id}`, { method: 'PATCH', body }),
+      request<{ list: TaskListEntry }>('/api/todos/lists', { method: 'POST', body }),
+    updateList: (id: string, body: { name?: string, icon?: string | null, color?: string | null, position?: number, archived?: boolean }) =>
+      request<{ list: TaskListEntry }>(`/api/todos/lists/${id}`, { method: 'PATCH', body }),
     removeList: (id: string) => request<{ deleted: true }>(`/api/todos/lists/${id}`, { method: 'DELETE' }),
 
     tags: () => request<{ tags: TaskTag[] }>('/api/todos/tags'),

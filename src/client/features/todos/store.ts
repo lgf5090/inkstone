@@ -18,7 +18,7 @@
  */
 
 import { create } from 'zustand'
-import { api } from '../../lib/api'
+import { api, type TaskListEntry } from '../../lib/api'
 import { t } from '../../lib/i18n'
 import { subscribeToAddress } from '../../lib/app-history'
 import { useUi } from '../../store/ui'
@@ -89,7 +89,9 @@ interface TodosState {
   /** The same count for the finished page, which is the rows the completed view pages through. */
   completedTotal: number
   loadingMore: boolean
-  lists: TaskList[]
+  lists: TaskListEntry[]
+  /** The put-away lists, read only when the archive shelf is opened. */
+  archivedLists: TaskListEntry[]
   tags: TaskTag[]
   counts: TaskCounts | null
   dayEnd: number
@@ -180,9 +182,11 @@ interface TodosState {
   /** Open tasks matching a title search, for the today screen's picker. Errors are reported, not thrown. */
   searchTasks: (query: string) => Promise<TodoTask[]>
 
-  createList: (input: { name: string; icon?: string | null; color?: string | null }) => Promise<TaskList | null>
-  updateList: (id: string, patch: { name?: string; icon?: string | null; color?: string | null }) => Promise<TaskList | null>
+  createList: (input: { name: string; icon?: string | null; color?: string | null }) => Promise<TaskListEntry | null>
+  updateList: (id: string, patch: { name?: string; icon?: string | null; color?: string | null; archived?: boolean }) => Promise<TaskListEntry | null>
   removeList: (id: string) => Promise<void>
+  /** Read the archive shelf; called when the reader opens it, not on every page load. */
+  loadArchivedLists: () => Promise<void>
 
   createTag: (input: { name: string; color?: string | null }) => Promise<TaskTag | null>
   updateTag: (id: string, patch: { name?: string; color?: string | null }) => Promise<TaskTag | null>
@@ -255,6 +259,12 @@ export function listNamed(lists: readonly TaskList[], name: string): TaskList | 
   const wanted = name.trim().toLowerCase()
   if (!wanted) return null
   return lists.find((list) => list.name.trim().toLowerCase() === wanted) ?? null
+}
+
+/** The organizer order — position, then name — which is the order the route reads them in. */
+function sortLists(entries: TaskListEntry[]): TaskListEntry[] {
+  return [...entries].sort((left, right) =>
+    left.position - right.position || left.name.localeCompare(right.name, undefined, { sensitivity: 'base' }))
 }
 
 const SNOOZE_KEYS: Record<SnoozeMinutes, MessageKey> = {
@@ -467,6 +477,7 @@ export const useTodos = create<TodosState>((set, get) => ({
   completedTotal: 0,
   loadingMore: false,
   lists: [],
+  archivedLists: [],
   tags: [],
   counts: null,
   dayEnd: 0,
@@ -1005,7 +1016,7 @@ export const useTodos = create<TodosState>((set, get) => ({
   createList: async (input) => {
     try {
       const { list } = await api.todos.createList(input)
-      set((state) => ({ lists: [...state.lists.filter((entry) => entry.id !== list.id), list] }))
+      set((state) => ({ lists: sortLists([...state.lists.filter((entry) => entry.id !== list.id), list]) }))
       return list
     } catch (error) {
       toastError(error)
@@ -1016,7 +1027,18 @@ export const useTodos = create<TodosState>((set, get) => ({
   updateList: async (id, patch) => {
     try {
       const { list } = await api.todos.updateList(id, patch)
-      set((state) => ({ lists: state.lists.map((entry) => (entry.id === id ? list : entry)) }))
+      // Archiving moves the row between the working page and the shelf; the two arrays are the whole
+      // difference, so one write updates both and no reload is needed.
+      set((state) => ({
+        lists: list.archivedAt === null
+          ? sortLists([...state.lists.filter((entry) => entry.id !== id), list])
+          : state.lists.filter((entry) => entry.id !== id),
+        archivedLists: list.archivedAt !== null
+          ? sortLists([...state.archivedLists.filter((entry) => entry.id !== id), list])
+          : state.archivedLists.filter((entry) => entry.id !== id),
+      }))
+      // A put-away list leaves every account-wide count, so the badge has to be read again.
+      if (patch.archived !== undefined) void get().refreshCounts()
       return list
     } catch (error) {
       toastError(error)
@@ -1029,6 +1051,7 @@ export const useTodos = create<TodosState>((set, get) => ({
       await api.todos.removeList(id)
       set((state) => ({
         lists: state.lists.filter((entry) => entry.id !== id),
+        archivedLists: state.archivedLists.filter((entry) => entry.id !== id),
         tasks: state.tasks.map((task) => (task.listId === id ? { ...task, listId: null } : task)),
         view: state.view === 'list' && state.listId === id ? 'board' : state.view,
         listId: state.listId === id ? null : state.listId,
@@ -1037,6 +1060,15 @@ export const useTodos = create<TodosState>((set, get) => ({
       // rather than given another entry to back out of.
       if (get().view === 'board' && !get().listId) replaceTodoAddress(viewSelection(get()))
       void get().refreshCounts()
+    } catch (error) {
+      toastError(error)
+    }
+  },
+
+  loadArchivedLists: async () => {
+    try {
+      const { lists } = await api.todos.lists({ archived: '1' })
+      set({ archivedLists: lists })
     } catch (error) {
       toastError(error)
     }

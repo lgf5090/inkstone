@@ -105,6 +105,9 @@ export const TODOS_SCHEMA_STATEMENTS: readonly string[] = [
     icon TEXT,
     color TEXT,
     position INTEGER NOT NULL DEFAULT 0,
+    -- When the reader put the list away, or NULL while it is in use. Migration 120 carries it to
+    -- databases built before this line existed.
+    archived_at INTEGER,
     created_at INTEGER NOT NULL,
     updated_at INTEGER NOT NULL,
     PRIMARY KEY (user_id, id)
@@ -207,7 +210,7 @@ export const TODOS_REQUIRED_COLUMNS: Readonly<Record<string, readonly string[]>>
     'conversation_id', 'created_at', 'updated_at', 'rev',
   ],
   todos_reminders: ['user_id', 'id', 'task_id', 'remind_at', 'fired_at', 'created_at'],
-  todos_lists: ['user_id', 'id', 'name', 'icon', 'color', 'position', 'created_at', 'updated_at'],
+  todos_lists: ['user_id', 'id', 'name', 'icon', 'color', 'position', 'archived_at', 'created_at', 'updated_at'],
   todos_steps: ['user_id', 'id', 'task_id', 'text', 'done', 'position', 'created_at'],
   todos_tags: ['user_id', 'id', 'name', 'color', 'created_at', 'updated_at'],
   todos_tag_links: ['user_id', 'task_id', 'tag_id', 'created_at'],

@@ -707,8 +707,15 @@ todoRoutes.post('/:id/snooze', async (c) => {
 
 // ------------------------------------------------------------------- lists
 
+/**
+ * The account's lists: the working ones by default, the archive when it is asked for by name.
+ *
+ * Archiving is a shelf, not a deletion: a list asked for under `archived=1` still carries the tasks
+ * it holds, and the archive section is the only screen that reads that half. Every account-wide
+ * count leaves a put-away list's tasks out, so the badge and the working page agree.
+ */
 todoRoutes.get('/lists', async (c) => {
-  return c.json({ lists: await store(c).listTaskLists() })
+  return c.json({ lists: await store(c).listTaskLists({ archived: c.req.query('archived') === '1' }) })
 })
 
 todoRoutes.post('/lists', async (c) => {
@@ -731,6 +738,9 @@ todoRoutes.patch('/lists/:id', async (c) => {
     ...(body.icon !== undefined ? { icon: iconValue(body.icon) ?? null } : {}),
     ...(body.color !== undefined ? { color: colorValue(body.color) ?? null } : {}),
     ...(typeof body.position === 'number' ? { position: body.position } : {}),
+    // The stamp is the moment the list left the working page. A false answer clears it instead of
+    // writing a second value, so unarchiving restores exactly the state the list was in.
+    ...(body.archived !== undefined ? { archivedAt: asBoolean(body.archived, 'archived') ? Date.now() : null } : {}),
   })
   if (!list) throw ApiError.notFound('List not found')
   return c.json({ list })

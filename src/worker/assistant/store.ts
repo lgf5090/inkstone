@@ -930,6 +930,17 @@ export interface NewTask {
   steps?: string[]
 }
 
+/**
+ * A list as the organizer page reads it: the shared list shape plus the archive stamp.
+ *
+ * The shared model is what every surface reads, and archiving is an organizer fact rather than a
+ * property of a list's tasks, so it travels beside it instead of widening the model every consumer
+ * would have to learn. `archivedAt` is null while the list is in use.
+ */
+export interface TaskListEntry extends TaskList {
+  archivedAt: number | null
+}
+
 export interface TaskQuery {
   /** One status, the two words that stand for a set of them, or the set itself. */
   status?: TaskStatus | 'open' | 'all' | readonly TaskStatus[]
@@ -4258,17 +4269,22 @@ export class AssistantStore {
       inbox: number | null; today: number | null; upcoming: number | null; overdue: number | null
       open: number | null; completed: number | null; starred: number | null
     }>(
+      // A put-away list's work is out of every count this account shows: the shelf is not part of
+      // what the reader is looking at, and a badge that still counted it would point at a screen
+      // with no row for it. The join keeps inbox rows (no list) and rows whose list was deleted.
       `SELECT
-         SUM(CASE WHEN status != 'done' AND list_id IS NULL THEN 1 ELSE 0 END) AS inbox,
-         SUM(CASE WHEN status != 'done' AND ((due_at IS NOT NULL AND due_at < ?2)
-              OR (due_at IS NULL AND status = 'in_progress')
-              OR planned_for = ?5) THEN 1 ELSE 0 END) AS today,
-         SUM(CASE WHEN status != 'done' AND due_at IS NOT NULL AND due_at >= ?2 AND due_at < ?3 THEN 1 ELSE 0 END) AS upcoming,
-         SUM(CASE WHEN status != 'done' AND due_at IS NOT NULL AND due_at < ?4 THEN 1 ELSE 0 END) AS overdue,
-         SUM(CASE WHEN status != 'done' THEN 1 ELSE 0 END) AS open,
-         SUM(CASE WHEN status = 'done' THEN 1 ELSE 0 END) AS completed,
-         SUM(CASE WHEN status != 'done' AND starred = 1 THEN 1 ELSE 0 END) AS starred
-       FROM todos_tasks WHERE user_id = ?1`,
+         SUM(CASE WHEN t.status != 'done' AND t.list_id IS NULL THEN 1 ELSE 0 END) AS inbox,
+         SUM(CASE WHEN t.status != 'done' AND ((t.due_at IS NOT NULL AND t.due_at < ?2)
+              OR (t.due_at IS NULL AND t.status = 'in_progress')
+              OR t.planned_for = ?5) THEN 1 ELSE 0 END) AS today,
+         SUM(CASE WHEN t.status != 'done' AND t.due_at IS NOT NULL AND t.due_at >= ?2 AND t.due_at < ?3 THEN 1 ELSE 0 END) AS upcoming,
+         SUM(CASE WHEN t.status != 'done' AND t.due_at IS NOT NULL AND t.due_at < ?4 THEN 1 ELSE 0 END) AS overdue,
+         SUM(CASE WHEN t.status != 'done' THEN 1 ELSE 0 END) AS open,
+         SUM(CASE WHEN t.status = 'done' THEN 1 ELSE 0 END) AS completed,
+         SUM(CASE WHEN t.status != 'done' AND t.starred = 1 THEN 1 ELSE 0 END) AS starred
+       FROM todos_tasks t
+       LEFT JOIN todos_lists l ON l.user_id = t.user_id AND l.id = t.list_id
+       WHERE t.user_id = ?1 AND l.archived_at IS NULL`,
       this.userId, dayEnd, upcomingEnd, now, pickedFor,
     )
     // The inbox is folded in under its own key: a card shows the same `done / total` line whether
@@ -4313,9 +4329,10 @@ export class AssistantStore {
 
   // ------------------------------------------------------------------- lists
 
-  async listTaskLists(): Promise<TaskList[]> {
+  async listTaskLists(options: { archived?: boolean } = {}): Promise<TaskListEntry[]> {
+    const where = options.archived ? 'archived_at IS NOT NULL' : 'archived_at IS NULL'
     const lists = await this.rows<TaskListRow>(
-      `SELECT * FROM todos_lists WHERE user_id = ?1 ORDER BY position ASC, name COLLATE NOCASE ASC`,
+      `SELECT * FROM todos_lists WHERE user_id = ?1 AND ${where} ORDER BY position ASC, name COLLATE NOCASE ASC`,
       this.userId,
     )
     const counts = await this.rows<{ list_id: string; status: string; n: number }>(
@@ -4333,7 +4350,7 @@ export class AssistantStore {
     return lists.map((row) => toTaskList(row, byList.get(row.id) ?? { open: 0, done: 0 }))
   }
 
-  async getTaskList(id: string): Promise<TaskList | null> {
+  async getTaskList(id: string): Promise<TaskListEntry | null> {
     const row = await this.one<TaskListRow>(`SELECT * FROM todos_lists WHERE user_id = ?1 AND id = ?2`, this.userId, id)
     if (!row) return null
     const counts = await this.one<{ open: number | null; done: number | null }>(
@@ -4345,7 +4362,7 @@ export class AssistantStore {
     return toTaskList(row, { open: counts?.open ?? 0, done: counts?.done ?? 0 })
   }
 
-  async findTaskListByName(name: string): Promise<TaskList | null> {
+  async findTaskListByName(name: string): Promise<TaskListEntry | null> {
     const row = await this.one<TaskListRow>(
       `SELECT * FROM todos_lists WHERE user_id = ?1 AND lower(name) = lower(?2) LIMIT 1`,
       this.userId, name.trim(),
@@ -4353,11 +4370,11 @@ export class AssistantStore {
     return row ? await this.getTaskList(row.id) : null
   }
 
-  async resolveTaskList(ref: string): Promise<TaskList | null> {
+  async resolveTaskList(ref: string): Promise<TaskListEntry | null> {
     return (await this.getTaskList(ref)) ?? (await this.findTaskListByName(ref))
   }
 
-  async createTaskList(input: { name: string; icon?: string | null; color?: string | null }): Promise<TaskList> {
+  async createTaskList(input: { name: string; icon?: string | null; color?: string | null }): Promise<TaskListEntry> {
     const name = input.name.trim().slice(0, MAX_LIST_NAME_CHARS)
     if (!name) throw new Error('A list needs a name.')
     const existing = await this.findTaskListByName(name)
@@ -4375,7 +4392,7 @@ export class AssistantStore {
     return created
   }
 
-  async updateTaskList(id: string, patch: { name?: string; icon?: string | null; color?: string | null; position?: number }): Promise<TaskList | null> {
+  async updateTaskList(id: string, patch: { name?: string; icon?: string | null; color?: string | null; position?: number; archivedAt?: number | null }): Promise<TaskListEntry | null> {
     const existing = await this.getTaskList(id)
     if (!existing) return null
     const fields: (readonly [string, unknown])[] = []
@@ -4383,6 +4400,7 @@ export class AssistantStore {
     if (patch.icon !== undefined) fields.push(['icon', patch.icon])
     if (patch.color !== undefined) fields.push(['color', patch.color])
     if (patch.position !== undefined) fields.push(['position', Math.trunc(patch.position)])
+    if (patch.archivedAt !== undefined) fields.push(['archived_at', patch.archivedAt])
     fields.push(['updated_at', Date.now()])
     await this.partialUpdate('todos_lists', id, fields)
     return await this.getTaskList(id)
@@ -6817,6 +6835,8 @@ interface TaskListRow {
   icon: string | null
   color: string | null
   position: number
+  /** When the reader put the list away; null while it is in use. */
+  archived_at: number | null
   created_at: number
   updated_at: number
 }
@@ -6871,13 +6891,14 @@ function toTask(
   }
 }
 
-function toTaskList(r: TaskListRow, counts: { open: number; done: number }): TaskList {
+function toTaskList(r: TaskListRow, counts: { open: number; done: number }): TaskListEntry {
   return {
     id: r.id,
     name: r.name,
     icon: r.icon,
     color: r.color,
     position: r.position,
+    archivedAt: r.archived_at ?? null,
     createdAt: r.created_at,
     updatedAt: r.updated_at,
     openCount: counts.open,

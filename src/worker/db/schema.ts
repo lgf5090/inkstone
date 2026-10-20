@@ -1833,6 +1833,19 @@ export const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
       `ALTER TABLE todos_tasks ADD COLUMN rev INTEGER NOT NULL DEFAULT 1`,
     ],
   },
+  {
+    // When a list was put away, or null while it is in use.
+    //
+    // Archiving is a stamp rather than a boolean so the shelf can say when a list was put away, and
+    // nullable because every list that was never archived is an honest absence rather than a date.
+    // The lists endpoint reads it as the difference between the working page and the archive, and
+    // every account-wide count leaves a stamped list's tasks out. One column, one version.
+    version: 120,
+    skipIfColumnExists: { table: 'todos_lists', column: 'archived_at' },
+    statements: [
+      `ALTER TABLE todos_lists ADD COLUMN archived_at INTEGER`,
+    ],
+  },
 ]
 
 const FTS_STATEMENT = `CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(

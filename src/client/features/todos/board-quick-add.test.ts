@@ -15,7 +15,8 @@ import { act, createElement } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { initI18n, t } from '../../lib/i18n'
 import { renderElement, type RenderedElement } from '../../lib/test-render'
-import type { TaskCounts, TaskList, TodoTask } from '@shared/todos/model'
+import type { TaskCounts, TodoTask } from '@shared/todos/model'
+import type { TaskListEntry } from '../../lib/api'
 
 const service = vi.hoisted(() => ({
   creates: [] as Record<string, unknown>[],
@@ -49,8 +50,8 @@ import { useTodos } from './store'
 /** 01:30 on Tuesday 2026-10-20 in Shanghai, which is still Monday in London. */
 const NOW = Date.parse('2026-10-19T17:30:00Z')
 
-function list(id: string, name: string): TaskList {
-  return { id, name, icon: null, color: null, position: 0, createdAt: 0, updatedAt: 0, openCount: 0, doneCount: 0 }
+function list(id: string, name: string): TaskListEntry {
+  return { id, name, icon: null, color: null, position: 0, createdAt: 0, updatedAt: 0, openCount: 0, doneCount: 0, archivedAt: null }
 }
 
 function counts(): TaskCounts {

@@ -288,6 +288,19 @@ describe('a boot onto a database whose ledger lies', () => {
     expect(indexesOf(sqlite)).toContain('idx_todos_tasks_completed_on')
   })
 
+  it('gives a list table built before archiving its stamp', async () => {
+    const sqlite = await installed()
+    sqlite.exec('ALTER TABLE todos_lists DROP COLUMN archived_at')
+    expect(columnsOf(sqlite, 'todos_lists')).not.toContain('archived_at')
+    // The number stays spent: an older list table has to be healed by the shape, not by the note.
+    expect(sqlite.prepare(`SELECT version FROM schema_migrations WHERE version = 120`).get())
+      .toEqual({ version: 120 })
+
+    await reboot(sqlite)
+
+    expect(columnsOf(sqlite, 'todos_lists')).toContain('archived_at')
+  })
+
   it('is a no-op on a database that already matches', async () => {
     const sqlite = await installed()
     const before = tablesOf(sqlite).join(',')
