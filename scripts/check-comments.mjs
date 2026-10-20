@@ -1060,6 +1060,9 @@ const allowed = new Map([
     "// reader's eyes; in the money app the same pointer still names a note they are not looking at, and a",
     "// turn answered from it reads as \"summarise this\" about the wrong thing. So the notebook's pointers",
     "// are switched off there rather than borrowed.",
+    "/** The plan the money app has open, so \"what will this cost me this year\" has an answer. */",
+    "// The dock hands the plan over and takes it back as the reader moves through the list; the chip below is",
+    "// what makes that visible, because context the reader cannot see is context they cannot remove.",
   ]],
   ["src/client/features/chat/AssistantHeader.tsx", [
     "/**\n * The title block every assistant page opens with.\n *\n * The surfaces behind the rail are one page with different contents, and each of them had written this\n * pair out for itself: a serif title at one size, and a line under it saying what the page is for. Three\n * copies drifted — one of them put its action beside the title and the others did not — so the shape\n * lives here. The action rides the title line, which is where a page's primary button belongs on a page\n * that also has a list under it.\n */",
@@ -2801,6 +2804,8 @@ const allowed = new Map([
     "// enough to ask again.",
     "/** The reader's own models that can answer a chat turn: enabled, and for conversation. */",
     "/**\n * Which model the next turn would answer with, as an `AttachmentTarget`.\n *\n * Read off `activeModelId` because that is the one the composer sends with, and the provider is consulted\n * through `modelWire` — the same rule the worker builds its request from — so a model that follows its\n * provider's wire is judged on that wire here rather than on a guess.\n *\n * Filtered through `chatModels` for the same reason the worker's `loadModelAndProvider` answers `no_model`\n * for a disabled row: the question is which model *would* pick these bytes up, and one that is switched off\n * answers nothing.\n *\n * The gate judges the model that answers the main pane. Side panes are asked with the same attachment ids\n * and the worker decides what each side model can actually be shown, so one composer never promises a file\n * to a model it has not checked.\n */",
+    "/** The plan the money app has on screen, pushed by the dock that sits beside it. Null means nothing is attached. */",
+    "// Named by id, not by title: two plans can share a name, and the reader pointed at one of them.",
   ]],
   ["src/client/features/chat/assistant-stream-isolation.test.ts", [
     "/** Every send's stream, in the order the store asked for them. */",
@@ -20573,6 +20578,9 @@ const allowed = new Map([
     "// The draft each finished call changed, so the loop can put it on the wire as its own frame. A map",
     "// keyed by the call's position keeps a slow call from being attributed to a faster one beside it.",
     "/**\n * The draft a tool wrote, if it wrote one.\n *\n * Only the two artifact tools can produce this receipt, and an update that changed nothing is not a\n * change to send: the panel would flash a version that does not exist. The full row is read by the\n * caller after this, because the tool's answer to the model is deliberately just the receipt.\n */",
+    "/** The subscription the reader has open in the money app, when the question is asked beside it. */",
+    "// The plan on screen is carried even when the sentence names nothing: \"what will this cost me",
+    "// this year\" is a question about the row the reader is looking at, not a mention of one.",
   ]],
   ["src/worker/assistant/scheduler.ts", [
     "/** How many automations one sweep will start, so a backlog cannot monopolise the cron invocation. */",
@@ -21369,6 +21377,10 @@ const allowed = new Map([
     "/**\n * The block a turn carries for the subscriptions it mentioned, or an empty string for none.\n *\n * A name that matches two rows is named as ambiguous rather than one being picked: \"what does my Netflix\n * cost\" answered from the standard plan when the reader meant the premium one is worse than no answer,\n * and the reader can say which they meant in the next message.\n */",
     "// The id first, because it cannot point at the wrong row. A name is looked up over the live list,",
     "// and only the row that survives is re-read for its detail.",
+    "/**\n * The plan the reader is looking at, as a context block.\n *\n * A mention has to be named in the sentence; this one is pointed at by the app, so an id is enough and\n * there is no ambiguity to resolve. It says whose plan it is in the header, because a model that cannot\n * tell \"the row on screen\" from \"a row the reader mentioned\" answers a question about the wrong thing.\n */",
+    "// `get` answers for a trashed row too, and the trash is not \"on the screen\" of the list the dock sits",
+    "// beside. The client only ever sends a live selection; the server does not take that on trust, because",
+    "// what lands here is read into a turn that leaves for the model provider.",
   ]],
   ["src/worker/assistant/tools.ts", [
     "/**\n * The tools the assistant can reach, and the executor that runs them.\n *\n * Three things are enforced here rather than asked of the model, because a model that is confident and\n * wrong is the failure mode this app has to survive:\n *  - **budgets** — a per-turn call cap, a per-tool cap and a duplicate-call refusal, so a reasoning\n *    loop cannot spend the reader's AI quota or write a hundred tasks;\n *  - **validation** — arguments are checked against the same declaration that generates the JSON\n *    Schema the provider is given, so the two can never disagree;\n *  - **approval** — a destructive tool never runs during the turn. `prepare` resolves the exact target\n *    and writes a pending action; `commit` runs only when the reader presses Approve, once, on that\n *    target. The model can propose; it cannot delete.\n *\n * Scheduled runs get read-only tools plus `notify_reader`, so a routine that has drifted cannot edit\n * the vault while nobody is watching.\n */",
@@ -24711,6 +24723,7 @@ const allowed = new Map([
     "/** The two resolvers must partition the space, or a subscription is reported as a deleted note. */",
     "// The notes column is where a reader may have written anything; a mention of a row is not a licence",
     "// to pull their prose into a turn.",
+    "/**\n   * Context the reader pointed at rather than named.\n   *\n   * The block has to arrive under its own heading: a model that cannot tell \"the row they have open\" from\n   * \"a row they mentioned in passing\" will answer a question about one with the other's numbers.\n   */",
   ]],
   ["tests/assistant-subscription-tools.test.ts", [
     "/**\n * The subscription tools, run the way the model runs them.\n *\n * `assistant-rules.test.ts` already proves every one of these names is registered, permissioned and\n * labelled in both languages. That is the cheap half. This file drives the executor against a real\n * database, because the failures that matter here are invisible to a registry test: a tool that answers\n * `{}` for a reader who asked a good question, a name that matches two subscriptions and silently picks\n * one, a delete that erases instead of trashing, or a store built without the session's account and\n * therefore reading somebody else's money.\n */",

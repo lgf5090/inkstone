@@ -19,7 +19,7 @@ import { ARTIFACT_CONTEXT_HEAD_CHARS, ARTIFACT_CONTEXT_TAIL_CHARS, contextBudget
 import { hasHistoricalIntent, memoryTokenBudget } from '@shared/assistant-memory'
 import { ATTACHMENT_MARKER, expandChatAttachments, type AttachmentPayload } from './attachments'
 import { resolveNoteMentions } from './note-mentions'
-import { resolveSubscriptionMentions } from './subscription-mentions'
+import { resolveSubscriptionMentions, subscriptionContextById } from './subscription-mentions'
 import { loadExternalTools, type ExternalToolsResult } from './mcp-tools'
 import { buildSystemPrompt, namingPrompt, offlineAnswer, promptCatalog, summarizerPrompt } from '@shared/assistant-prompt'
 import { describeLocalTime, localDayBounds } from '@shared/assistant-time'
@@ -211,6 +211,8 @@ export interface TurnInput {
    */
   contextNoteId?: string
   contextFolderId?: string
+  /** The subscription the reader has open in the money app, when the question is asked beside it. */
+  contextSubscriptionId?: string
   /**
    * The draft the reader has open in the canvas.
    *
@@ -370,6 +372,7 @@ export class AssistantRunner {
   /** What the reader had on screen, held for the turn so the prompt and the scope agree. */
   private contextNoteId: string | null = null
   private contextFolderId: string | null = null
+  private contextSubscriptionId: string | null = null
   private contextPromise: Promise<{ openNote: { id: string, title: string } | null, browsingFolder: string | null }> | null = null
   /** The draft the reader has open, read once after the conversation it must belong to is known. */
   private contextArtifactId: string | null = null
@@ -444,6 +447,7 @@ export class AssistantRunner {
     this.contextNoteId = isValidId(input.contextNoteId ?? '') ? input.contextNoteId! : null
     this.originNoteId = isValidId(input.originNoteId ?? '') ? input.originNoteId! : null
     this.contextFolderId = isValidId(input.contextFolderId ?? '') ? input.contextFolderId! : null
+    this.contextSubscriptionId = isValidId(input.contextSubscriptionId ?? '') ? input.contextSubscriptionId! : null
     // A malformed id is no draft at all. A well-formed one is checked against the conversation below,
     // once the turn knows which conversation that is — including one this turn is about to create.
     this.contextArtifactId = isValidId(input.activeArtifactId ?? '') ? input.activeArtifactId! : null
@@ -1627,7 +1631,12 @@ export class AssistantRunner {
     if (lastUser) {
       const block = await resolveNoteMentions(this.deps.env.DB, this.store.userId, lastUser.content, await this.noteScope())
       const subscriptionBlock = await resolveSubscriptionMentions(this.deps.env.DB, this.store.userId, lastUser.content)
-      const carried = [block, subscriptionBlock].filter(Boolean).join('\n\n')
+      // The plan on screen is carried even when the sentence names nothing: "what will this cost me
+      // this year" is a question about the row the reader is looking at, not a mention of one.
+      const screen = this.contextSubscriptionId
+        ? await subscriptionContextById(this.deps.env.DB, this.store.userId, this.contextSubscriptionId)
+        : ''
+      const carried = [block, subscriptionBlock, screen].filter(Boolean).join('\n\n')
       if (carried) lastUser.content = `${lastUser.content}\n\n${carried}`
     }
     return entries

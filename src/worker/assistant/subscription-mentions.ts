@@ -94,6 +94,30 @@ export async function resolveSubscriptionMentions(
   return sections.length ? `[mentioned subscriptions]\n\n${sections.join('\n\n')}` : ''
 }
 
+/**
+ * The plan the reader is looking at, as a context block.
+ *
+ * A mention has to be named in the sentence; this one is pointed at by the app, so an id is enough and
+ * there is no ambiguity to resolve. It says whose plan it is in the header, because a model that cannot
+ * tell "the row on screen" from "a row the reader mentioned" answers a question about the wrong thing.
+ */
+export async function subscriptionContextById(
+  db: D1Database,
+  userId: string,
+  id: string,
+  now = Date.now(),
+): Promise<string> {
+  if (!id) return ''
+  const settings = await loadSettings(db, userId)
+  const store = new SubscriptionsStore(db, userId)
+  const detail = await store.get(id, storeContext(settings, now))
+  // `get` answers for a trashed row too, and the trash is not "on the screen" of the list the dock sits
+  // beside. The client only ever sends a live selection; the server does not take that on trust, because
+  // what lands here is read into a turn that leaves for the model provider.
+  if (!detail || detail.item.deletedAt) return ''
+  return `[subscription on the reader's screen]\n\n${present(detail.item, detail.rules, detail.payments)}`
+}
+
 function present(
   item: {
     name: string

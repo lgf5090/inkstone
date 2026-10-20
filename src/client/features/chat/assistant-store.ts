@@ -243,6 +243,8 @@ interface AssistantState {
    * can take off, and these two flags are what the chip and the send path both read.
    */
   noteContextOn: boolean
+  /** The plan the money app has on screen, pushed by the dock that sits beside it. Null means nothing is attached. */
+  subscriptionContext: { id: string, name: string } | null
   folderContextOn: boolean
   /**
    * Whether the draft open in the canvas rides along with the next turn.
@@ -253,6 +255,7 @@ interface AssistantState {
    */
   canvasContextOn: boolean
   setNoteContext: (on: boolean) => void
+  setSubscriptionContext: (value: { id: string, name: string } | null) => void
   setFolderContext: (on: boolean) => void
   setCanvasContext: (on: boolean) => void
   /**
@@ -1408,6 +1411,7 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
   tagNodes: [],
   webSearch: false,
   noteContextOn: true,
+  subscriptionContext: null,
   folderContextOn: true,
   canvasContextOn: true,
   composerSeed: null,
@@ -2361,6 +2365,7 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
    * would be there waiting for the next time the reader turns the switch on.
    */
   setNoteContext: (on) => set({ noteContextOn: on }),
+  setSubscriptionContext: (value) => set({ subscriptionContext: value }),
 
   setFolderContext: (on) => set({ folderContextOn: on }),
 
@@ -2574,6 +2579,8 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
           ...(retry || continuing ? {} : {
             ...(state.noteContextOn && ui.activeNoteId ? { contextNoteId: ui.activeNoteId } : {}),
             ...(state.folderContextOn && ui.folderId ? { contextFolderId: ui.folderId } : {}),
+            // Named by id, not by title: two plans can share a name, and the reader pointed at one of them.
+            ...(state.subscriptionContext ? { contextSubscriptionId: state.subscriptionContext.id } : {}),
             // The canvas chip is the visible half of this: a draft the reader can see on screen but
             // cannot see in the context row is one they cannot take back off the next question.
             ...(state.canvasOpen && state.canvasContextOn && state.activeArtifactId ? { activeArtifactId: state.activeArtifactId } : {}),
