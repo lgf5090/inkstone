@@ -179,7 +179,11 @@ export function TasksSettings() {
         <h3 className="text-[length:var(--text-13)] font-semibold text-[var(--text-primary)]">
           {t('settings.tasks_heading_lists')}
         </h3>
-        <SettingRow title={t('settings.tasks_default_hidden')} description={t('settings.tasks_default_hidden_desc')}>
+        <SettingRow
+          title={t('settings.tasks_default_hidden')}
+          description={t('settings.tasks_default_hidden_desc')}
+          className="md:flex-col md:items-stretch"
+        >
           <div className="flex w-full flex-wrap gap-x-4 gap-y-2">
             {TASK_HIDEABLE_FIELDS.map((field) => (
               <Checkbox

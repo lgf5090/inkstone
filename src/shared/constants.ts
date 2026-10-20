@@ -1515,7 +1515,13 @@ function draggerKnownStyleOrder(value: unknown, styleIds: readonly string[]): st
   return [...kept, ...styleIds.filter((id) => !seen.has(id))]
 }
 
-const SETTINGS_SECTIONS = ['appearance', 'editor', 'preview', 'properties', 'backup', 'sync', 'notes', 'search', 'dataview', 'linter', 'rss'] as const
+/**
+ * Every group a settings patch may carry.
+ *
+ * Read off the defaults rather than written out by hand: a group named here and not there is a panel
+ * whose switches move and never save, which is exactly how `tasks` was lost the first time.
+ */
+const SETTINGS_SECTIONS = Object.keys(DEFAULT_SETTINGS) as (keyof UserSettings)[]
 
 export function normalizeTodoTags(value: unknown): string {
   if (typeof value !== 'string')

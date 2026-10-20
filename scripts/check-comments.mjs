@@ -19013,6 +19013,7 @@ const allowed = new Map([
     "// note they tick, so each row is checked to the shape the status registry accepts: one character for",
     "// the symbol and its successor, a type from the fixed list, and no symbol twice. Anything else is",
     "// dropped rather than repaired, because a half-valid status row would decide what a click does.",
+    "/**\n * Every group a settings patch may carry.\n *\n * Read off the defaults rather than written out by hand: a group named here and not there is a panel\n * whose switches move and never save, which is exactly how `tasks` was lost the first time.\n */",
   ]],
   ["src/shared/linter.test.ts", [
     "/**\n * The settings blob's boundary.\n *\n * A reader can bring this object into the app from a backup restore as well as from the settings\n * page, and the panel's own refusals are not in the way then. So everything that a lint run will\n * later compile or iterate is checked here: the shape, the size, and the flags. A value the\n * normaliser cannot recognise is dropped rather than passed on, because the alternative is a stored\n * string reaching `new RegExp` or a rule's option.\n */",
@@ -19425,6 +19426,9 @@ const allowed = new Map([
   ["src/shared/settings-preview-chart.test.ts", [
     "/**\n * Each renderer switch is reached by its own accessible label, and a switch is found by name by a screen\n * reader and by a browser driver alike. `settings.diagram` already carried the same two-character word\n * for \"chart\" in Chinese that a naive `settings.chart` would, which gave two adjacent switches one name:\n * the panel then toggled the wrong one while looking correct. That is how this came to be checked at all.\n */",
     "/**\n * A stored settings object is older than any given key, so every renderer switch has to arrive through\n * `mergeSettings` rather than be read off the JSON: a stored `preview` that predates `chart` must come\n * back as the default, not as `undefined` coerced to \"off\" — that would silently stop drawing charts for\n * every account that existed before the switch shipped, with nothing wrong in the note.\n */",
+  ]],
+  ["src/shared/settings-sections.test.ts", [
+    "/**\n * The store's own contract: a patch naming one field of one group has to arrive.\n *\n * `mergeSettingsPatch` walks a list of groups, and a group missing from that list is a settings panel\n * whose switches move on screen and never save — the reader sees nothing wrong. Probing one field per\n * group is what makes that failure answer in words rather than in a bug report.\n */",
   ]],
   ["src/shared/share-presence.ts", [
     "/** Where a show is, as the channel carries it: the same three axes the presenter's own session uses. */",
