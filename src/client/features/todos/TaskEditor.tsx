@@ -15,7 +15,8 @@ import { MessagesSquare, Plus, Sparkles, Star, Trash2, X } from 'lucide-react'
 import { t } from '../../lib/i18n'
 import { cn } from '../../lib/cn'
 import { Button, IconButton } from '../../components/primitives'
-import { Input, Select, Textarea, Field } from '../../components/form'
+import { Input, Select, Segmented, Textarea, Field } from '../../components/form'
+import { renderMarkdown } from '../../lib/markdown/renderer'
 import { DatePicker } from '../../components/date-picker'
 import { Modal, confirm } from '../../components/overlay'
 import { api } from '../../lib/api'
@@ -52,6 +53,7 @@ export function TaskEditor() {
 
   const [title, setTitle] = useState('')
   const [notes, setNotes] = useState('')
+  const [notesMode, setNotesMode] = useState<'edit' | 'preview'>('edit')
   const [priority, setPriority] = useState<TodoPriority>('medium')
   const [starred, setStarred] = useState(false)
   const [dueText, setDueText] = useState('')
@@ -71,6 +73,7 @@ export function TaskEditor() {
     const sourceDueAt = task ? task.dueAt : typeof source.dueAt === 'number' ? source.dueAt : null
     setTitle(task?.title ?? source.title ?? '')
     setNotes(task?.description ?? source.description ?? '')
+    setNotesMode('edit')
     setPriority(task?.priority ?? source.priority ?? 'medium')
     setStarred(task?.starred ?? source.starred ?? false)
     setDueText(task
@@ -96,6 +99,14 @@ export function TaskEditor() {
     }
     return undefined
   }, [open, draft, tasks, completed, timezone])
+
+  // Rendered only while the preview face is up: a note is prose, so the sanitized pipeline is the
+  // only thing allowed to produce markup for it, and there is no reason to run it per keystroke on
+  // the editing face.
+  const notesHtml = useMemo(
+    () => (notesMode === 'preview' && notes.trim() ? renderMarkdown(notes).html : ''),
+    [notesMode, notes],
+  )
 
   const save = async (): Promise<void> => {
     const body = {
@@ -193,13 +204,42 @@ export function TaskEditor() {
           />
         </div>
 
-        <Textarea
-          value={notes}
-          rows={3}
-          placeholder={t('todo.task.notes_label')}
-          aria-label={t('todo.task.notes_label')}
-          onChange={(event) => setNotes(event.target.value)}
-        />
+        <div className="flex flex-col gap-1.5">
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-[length:var(--text-11)] font-medium text-[var(--text-secondary)]">{t('todo.task.notes_label')}</span>
+            <Segmented
+              size="sm"
+              value={notesMode}
+              onChange={setNotesMode}
+              label={t('todo.task.notes_view')}
+              options={[
+                { value: 'edit', label: t('todo.action.edit') },
+                { value: 'preview', label: t('common.preview') },
+              ]}
+            />
+          </div>
+          {notesMode === 'edit' ? (
+            <Textarea
+              value={notes}
+              rows={3}
+              placeholder={t('todo.task.notes_label')}
+              aria-label={t('todo.task.notes_label')}
+              onChange={(event) => setNotes(event.target.value)}
+            />
+          ) : (
+            // `notesHtml` is what `renderMarkdown` sanitized, never the note text: the same hand-off
+            // every chat message and preview card makes.
+            <div
+              role="region"
+              aria-label={t('todo.task.notes_preview')}
+              className="min-h-10 rounded-[var(--r-md)] border border-[var(--border-subtle)] bg-[var(--bg-sunken)] px-3 py-2"
+            >
+              {notesHtml
+                ? <div className="ink-prose text-[length:var(--text-12-5)] text-[var(--text-primary)]" dangerouslySetInnerHTML={{ __html: notesHtml }} />
+                : <span className="text-[length:var(--text-11-5)] text-[var(--text-quaternary)]">{t('todo.task.notes_preview_empty')}</span>}
+            </div>
+          )}
+        </div>
 
         {/* Where the task came from, and the way back into a conversation about it. Both close the
             panel first: the chat tab is a different container, and a dialog left open over it would
