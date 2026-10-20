@@ -5,7 +5,8 @@
  * assistant's ten task tools call — so an external agent and the reader's own chat face one to-do model:
  * one set of field names, one set of enums, one timezone, and one rule about what a foreign id answers
  * with. Validation that the shared model already owns stays in the shared model: the limits below are
- * imported from `@shared/todos/model`, never re-stated as numbers.
+ * imported from `@shared/todos/model`, never re-stated as numbers. The one limit the model does not own
+ * yet — how long a task description may be — is stated once beside the tools and marked as local.
  *
  * The one thing this surface does add is a scope check on references. A task carries a `note_id` and a
  * `conversation_id` because the app files tasks from notes and from chats, and both are pointers into
@@ -46,12 +47,13 @@ export interface McpTodoContext {
 }
 
 /**
- * How long a task note the tools accept.
+ * How long a task description the tools accept.
  *
- * The store caps a title with the shared constant but writes a description through untouched, and the
- * assistant's own `create_task` field has always stopped at this length. The to-do app's HTTP surface
- * allows more, so the number belongs in `@shared/todos/model` rather than in a second place per entry;
- * until it moves there, this is the one copy.
+ * A local constant on purpose: `@shared/todos/model` has no description limit yet, and the two surfaces
+ * that write one disagree. The to-do app's HTTP route accepts 10,000 characters (`DESCRIPTION_MAX` in
+ * `src/worker/routes/todos.ts`), while the in-app assistant's `create_task` and `update_task` stop at
+ * 2,000. These tools follow the assistant because the caller is an agent paying for its own payload;
+ * once the model owns one number, this file should import it and both entry points should meet there.
  */
 export const MAX_TASK_DESCRIPTION_CHARS = 2_000
 

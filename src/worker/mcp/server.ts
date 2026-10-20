@@ -125,7 +125,12 @@ const taskId = z.string().refine(isValidId, 'Invalid Inkstone task id')
  */
 const localTime = z.string().trim().min(1).max(32)
   .describe('Local to the reader: YYYY-MM-DD, or YYYY-MM-DDTHH:MM for a time. A bare date is the end of that day.')
-/** The search substring the to-do app's own surface caps at; not a shared-model constant yet. */
+/**
+ * The longest search substring `list_todos` accepts.
+ *
+ * The shared model has no constant for it yet; the HTTP route's `q` and the assistant's `list_tasks` both
+ * trim to the same 200, so the tool schema restates one agreed number rather than choosing its own.
+ */
 const MAX_TASK_QUERY_CHARS = 200
 
 export function createInkstoneMcpServer(options: InkstoneMcpServerOptions): McpServer {
