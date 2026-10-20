@@ -3,9 +3,8 @@ import {
   extractDate, extractFullLineField, extractInlineFields, parseFrontmatterValue, parseNote, pathOfNote, serializePage,
   type NoteInput,
 } from './metadata'
-import { readTaskFields } from './task-fields'
+import { formatTaskDate, readEitherFormat } from '../tasks/line'
 import { DvDuration, DvLink, Values } from './value'
-import { formatTaskDate } from '../tasks/line'
 
 function input(overrides: Partial<NoteInput> = {}): NoteInput {
   return {
@@ -51,7 +50,7 @@ describe('inline field extraction', () => {
 
   it('reads task emoji through the one task parser rather than the inline-field scanner', () => {
     expect(extractInlineFields('ship it 📅 2024-05-06 ✅ 2024-05-07')).toHaveLength(0)
-    const fields = readTaskFields('ship it 📅 2024-05-06 ✅ 2024-05-07')
+    const fields = readEitherFormat('ship it 📅 2024-05-06 ✅ 2024-05-07')
     expect(formatTaskDate(fields.dueDate)).toBe('2024-05-06')
     expect(formatTaskDate(fields.doneDate)).toBe('2024-05-07')
   })

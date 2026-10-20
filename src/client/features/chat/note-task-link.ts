@@ -22,7 +22,7 @@ import type { MenuItem } from '../../components/overlay'
 import { t } from '../../lib/i18n'
 import { api } from '../../lib/api'
 import { extractInlineFields } from '../../lib/dataview/metadata'
-import { readTaskFields } from '../../lib/dataview/task-fields'
+import { readEitherFormat } from '../../lib/tasks/line'
 import { useNotes } from '../../store/notes'
 import { useUi } from '../../store/ui'
 import { useAssistant } from './assistant-store'
@@ -55,7 +55,7 @@ export function parseNoteTaskCheckbox(line: string): NoteTaskCheckbox | null {
   // the title — a task's words should not carry the field markers they were parsed from. The due date
   // itself comes from the task parser, so `📅`, `📆` and `[due:: …]` all answer the same question.
   const fields = extractInlineFields(line)
-  const dueDate = readTaskFields(content).dueDate
+  const dueDate = readEitherFormat(content).dueDate
   const dueAt = dueDate !== null && Number.isFinite(dueDate.getTime())
     ? new Date(dueDate.getFullYear(), dueDate.getMonth(), dueDate.getDate(), 23, 59, 59, 999).getTime()
     : null

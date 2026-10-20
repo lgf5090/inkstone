@@ -622,6 +622,9 @@ const allowed = new Map([
     "/** An empty layout block, with the caret left on the row the reader is about to fill. */",
     "// The caret lands on the row line, one past whatever the header the defaults actually spell says.",
     "/** Take the block the cursor sits inside apart, leaving its pictures as the ordinary lines they were. */",
+    "// Every box in the selection moves one step along the reader's own status cycle, through the same",
+    "// primitive a click uses: `[/]` advances rather than being forced to `x`, a recurring task produces",
+    "// its next instance, and a sub-tree follows its parent when the reader asked for that.",
   ]],
   ["src/client/editor/completion.ts", [
     "/**\n * closeBrackets() already paired the `[[` the user typed, so the caret usually sits in front of\n * a `]]` that is already there; appending another one produced `[[Title]]]]`.\n */",
@@ -900,6 +903,10 @@ const allowed = new Map([
     "// placeholder is replaced by the in-document failure marker naming the file, which is what the",
     "// reader sees in the note. Letting this rejection out would leave the placeholder sitting there",
     "// instead, and every sibling upload in the same paste would lose its replacement too.",
+  ]],
+  ["src/client/editor/task-tick.ts", [
+    "/**\n * Move the checkboxes a reader selected, through the one primitive every other surface uses.\n *\n * The writer knows status cycles, recurrence and sub-task cascades; this module only decides which\n * lines to hand it and how to put the result back into the document without rewriting the lines that\n * did not change. The task module is loaded on demand because a note that holds no recurring task has\n * no reason to download a recurrence library.\n */",
+    "/**\n * Replace only the lines a rewrite actually changed.\n *\n * Dispatching the whole new document would touch every line the reader can see and coarsen the undo\n * granularity of a single tick. For a plain tick that is one line; for a recurring task, two.\n */",
   ]],
   ["src/client/editor/text-format.test.ts", [
     "/** Every case below reads as \"select the whole note, press the button\". */",
@@ -7802,6 +7809,9 @@ const allowed = new Map([
     "// A heading id is percent-encoded by the renderer, but a hand-written href may hold a bare",
     "// `%`, which is not a valid escape; falling back to the raw fragment is what a browser does,",
     "// so a failed decode is not worth reporting.",
+    "// The same primitive the editor and the query results use, so a tick here advances the",
+    "// reader's status cycle rather than forcing the box to `x` regardless of what it was.",
+    "// Only the module import is async; the rewrite itself is a pure string function.",
   ]],
   ["src/client/features/preview/PropertyDecorations.tsx", [
     "// The app's submenu renderer: the bare row list it replaces drew straight onto the",
@@ -11173,6 +11183,8 @@ const allowed = new Map([
     "/**\n * The attribute value a fence body travels in. Exported so `renderer.ts` and the share page build the\n * same encoding without reaching into the data-attribute helper twice.\n */",
     "/** A host the caller wants re-rendered now, ignoring the debounce — used after a settings change. */",
     "/**\n * Draw a `tasks` block.\n *\n * The engine arrives by dynamic import on purpose: it pulls `rrule` and the date parser, and a note\n * that only ever uses `dataview` blocks must not pay for either. Everything the answer needs from the\n * host — the body element, the source text — is already in hand by the time the module lands.\n */",
+    "// A tick is a step along the reader's status cycle, not a flip to checked. `[/]` still reads as",
+    "// open, so the box is set from what the registry says comes next rather than from the click.",
   ]],
   ["src/client/lib/dataview/body.ts", [
     "/**\n * The fence-side half of a query block: what the Markdown renderer emits and how the block's own text\n * is found again in the note.\n *\n * The renderer's job here is deliberately small — an empty host that carries the query text — because\n * the answer depends on other notes, and those are behind a store and a throttled endpoint. Everything\n * that can be decided without them is decided here, in a string builder that runs inside the sanitizer\n * pass, so the host survives with its attributes intact and `blocks.ts` fills it in afterwards.\n */",
@@ -11535,6 +11547,8 @@ const allowed = new Map([
     "/** The line a block prints under its answer when the reader asked for the tally. */",
     "/** The footer a list carries when the settings ceiling clipped it, or the body ceiling did. */",
     "/**\n * The task fields shown as pills, in the order a reader scans them.\n *\n * Driven by a list rather than a fixed five because the task parser now supplies more than dates:\n * `priority` and `recurrence` are the two a reader wants next to a due date. `completion` is left\n * out on purpose — it is the same value as `done`, kept only so existing queries keep answering.\n */",
+    "// The status character, so a click can show the right box before the note comes",
+    "// back: a cycle moves [ ] to [/], which is still unchecked.",
   ]],
   ["src/client/lib/dataview/service.ts", [
     "/**\n * The Dataview service: the index, wired to this app's note store and its three body sources.\n *\n * A note's summary is already in memory for every note the reader has, so the snapshot is built from\n * it and no request is made until a query actually needs a body. Bodies then come from the editor's\n * copy first (the only place an uncommitted edit exists), the search index's on-disk bodies second, and\n * the batched note endpoint last — in chunks of forty, which is what that endpoint will hand over in\n * one call, and with the response's own `missing` list remembered so a note the backend will not\n * supply is not asked for again on every keystroke.\n *\n * The store's tag list is written by the server from the note's own content, so a `FROM #tag` clause is\n * answered from the summary alone.\n */",
@@ -11543,11 +11557,8 @@ const allowed = new Map([
     "/** The one index the app queries. Tests build their own `DataviewIndex` over a fake adapter. */",
     "/**\n * Start feeding the index from the stores. Kept lazy and shared: a note without a `dataview` block\n * never causes a sync, because the first block to render is what starts this.\n */",
     "/** Fold one note's newest content in immediately, so a saved edit refreshes blocks without a debounce. */",
-    "/** Whether a tick landed, was refused because the note moved, or could not be read at all. */",
-    "/**\n * Tick a task the reader sees in a result, in the note it came from.\n *\n * The target note is usually closed, so the write goes through the store's remote-content path: anything\n * still unsaved in that note's editor is flushed first, and the rewrite runs against the copy the server\n * holds now. Refusing a line whose text no longer matches is what makes a stale result a no-op rather\n * than an edit to somebody else's task.\n */",
   ]],
   ["src/client/lib/dataview/task-fields.ts", [
-    "/**\n * Read a task line into the one shape every view agrees on.\n *\n * Both formats are tried because Inkstone notes already mix them: a vault where half the tasks say\n * `📅 2026-10-04` and half say `[due:: 2026-10-04]` should not have to pick an engine. The emoji\n * format wins where both found the same field, since it is the one that carries the rest of them.\n */",
     "/**\n * The task's fields as Dataview fields, so `WHERE due < today` and `TABLE priority` answer for a\n * task line the same way they do for a frontmatter property.\n *\n * `completion` is kept beside `done`: it is the name this project's Dataview port published, and\n * readers have queries written against it. Keys the note already set by hand are skipped, because\n * an explicit `[due:: …]` states what the author meant more directly than a symbol does.\n */",
     "/**\n * What a checkbox character means, as two flat fields.\n *\n * `completed` answers \"is the box ticked\", which is what a Dataview task table has always shown.\n * `statusType` answers \"is this task finished\", which is the question a `[-]` cancelled task asks\n * and `completed` cannot answer. Both stay on the page so a reader can filter either way.\n */",
   ]],
@@ -11556,24 +11567,6 @@ const allowed = new Map([
     "/** Draw a `tasks` answer: group headings, then one row per task. */",
     "/**\n * One task row, built to the shape the query module already owns.\n *\n * The `data-dataview-task` payload is the existing toggle contract, so a tick in a `tasks` block\n * writes back through the same handler as a tick in a DQL `TASK` result. Reusing it is what keeps\n * one write path rather than two that can disagree.\n */",
     "/**\n * The date and identity pills, in the order a reader scans a task.\n *\n * Short mode keeps the field and drops its value: a dense list still shows that something is due,\n * just not on which day.\n */",
-  ]],
-  ["src/client/lib/dataview/tasks.test.ts", [
-    "/**\n * The task rewrite: what a tick in a query result is allowed to do to another note's line. The refusals\n * matter as much as the edits, because the line the reader sees may no longer be the line in the file.\n */",
-  ]],
-  ["src/client/lib/dataview/tasks.ts", [
-    "/**\n * Rewriting a task line in a note the reader is not currently editing.\n *\n * A query result is a picture of another note's line, so ticking its checkbox has to edit that line and\n * nothing else. The reference plugin does the same, and the rules that matter are the safety checks: the\n * line must still be the list item the result was built from, its text must still match, and the bullet\n * character and indentation belong to the author rather than to this code.\n *\n * Everything here is pure over a string so the rewrite can be tested without a store or a DOM.\n */",
-    "/** Add or remove the completion marker whenever a task changes state. */",
-    "/** Write `✅ YYYY-MM-DD` rather than `[completion:: YYYY-MM-DD]`. */",
-    "/** The inline field name the marker uses when it is not the emoji. */",
-    "/** Pattern for the date, in the same token language the query language uses. */",
-    "/** Carry the change down to the task's own sub-tasks. */",
-    "/** Zero-based line index the result was extracted from. */",
-    "/** The task's text as the reader saw it, used to refuse a stale line. */",
-    "/** Rewrite one task line to `completed`, plus its completion marker and (optionally) its children. */",
-    "/**\n * The lines below `index` that belong to it: deeper indentation, until something shallow enough or a\n * blank-then-shallow run ends the subtree. Sub-tasks of a sub-task go too, which is what \"recursive\"\n * means to a reader who just ticked a parent.\n */",
-    "/** One line's status, its completion marker, and nothing else about it. */",
-    "/** Add today's date to the completion marker, or take it away. */",
-    "/**\n * Replace, append or remove one `[key:: value]` on a line. Removal is what un-ticking a task means, and\n * it has to leave the rest of the line's prose exactly as the author wrote it.\n */",
   ]],
   ["src/client/lib/dataview/value.ts", [
     "/**\n * The value model every Dataview expression speaks.\n *\n * A `Literal` is deliberately a closed union rather than `unknown`: the comparison order, the\n * truthiness rule and the rendering rule are all defined by *which* member of the union a value is,\n * and a query must give the same answer whether it ran in a table cell, a `WHERE` clause or a sort\n * key. Dates are plain `Date`s so they survive a structured clone into the DML worker; durations are\n * a class because `2 months` and `60 days` are not the same quantity.\n */",
@@ -11606,6 +11599,8 @@ const allowed = new Map([
     "// has nothing new to answer.",
     "// Let the block's own first load land before taking a row away, so the two draws cannot race.",
     "// A notification that did not move the version must not spawn another run.",
+    "// The tick writer is a lazy chunk, and loading it inside a click costs seconds in a unit run, so",
+    "// it is loaded here and the click's own round-trips are what the assertions wait on.",
   ]],
   ["src/client/lib/db.ts", [
     "/** The store slices a shell snapshot is built from; identities decide whether to re-write. */",
@@ -17490,6 +17485,13 @@ const allowed = new Map([
     "/**\n * Compare two group keys the way a reader expects a list of headings to read.\n *\n * Numeric-aware, because `group by due` produces dates and `group by priority` produces names that\n * end in a number, and a plain string compare would put `10` before `2`.\n */",
     "/**\n   * The day the query is being answered on.\n   *\n   * Handed in rather than read off the clock inside a comparator, because `sort by urgency` and\n   * `due before next week` are both questions about today, and a comparison that consulted the\n   * machine would make the same query answer differently halfway through one render.\n   */",
   ]],
+  ["src/client/lib/tasks/serializer/compat.ts", [
+    "/**\n * Read a task's fields from whichever format wrote each of them.\n *\n * A vault is not a single format: notes written by the query module say `[due:: 2026-10-04]` while the\n * task feature says `📅 2026-10-04`, and a reader can mix the two inside one line. Reading only the\n * format the reader picked for their completion stamps would leave a `🔁 every week` line unread for\n * anyone who chose inline fields, and ticking it would finish the instance without producing the next\n * one. So each format is asked in turn what it can see at the end of the line, until neither can peel\n * any more; what is written back is one shape, and the reader's own format decides its spelling.\n */",
+    "// Six field kinds across two formats, and one field may sit in front of another the other format",
+    "// owns; a handful of passes covers any order a reader can type without an unbounded loop.",
+    "/** Take a field from a format that saw it, leaving alone anything already answered. */",
+    "/** {@link readEitherFormat} for the reading half, with one chosen format for the writing half. */",
+  ]],
   ["src/client/lib/tasks/serializer/dataview-format.ts", [
     "/**\n * A field written as a Dataview inline field, in either bracket style.\n *\n * `[due:: 2026-10-04]` and `(due:: 2026-10-04)` both read, because readers use whichever one is\n * not already taken by a link on the same line. Only the square form is ever written.\n */",
     "/**\n * The Dataview inline-field task format.\n *\n * Offered to readers who would rather write `due::` than an emoji, and to vaults imported from a\n * plain Dataview setup. It parses to exactly the same {@link TaskFields} as the emoji format, which\n * is what lets one query engine and one write path serve both.\n */",
@@ -17522,6 +17524,18 @@ const allowed = new Map([
     "/** Components the reader chose to hide, which must not come back on the next write. */",
     "/**\n   * True when `scheduledDate` was inferred from the note's filename rather than written by the\n   * reader. An inferred date is never serialised: doing so would stamp a date onto the note that\n   * nobody typed, and it would then survive even after the reader turned the feature off.\n   */",
   ]],
+  ["src/client/lib/tasks/service.test.ts", [
+    "// The default stamps a date as `[completion:: …]`, which cannot read `🔁`; a tick that honoured",
+    "// only the stamp format would finish a weekly task and never produce its next instance.",
+  ]],
+  ["src/client/lib/tasks/service.ts", [
+    "/**\n * The statuses this reader defined, or the four everyone gets.\n *\n * Rebuilt only when the stored table changes, because the registry is consulted for every checkbox\n * in every rendered result and rebuilding it per click would parse the settings on each one.\n */",
+    "/**\n * How a tick is written, assembled from the reader's settings.\n *\n * The completion-marker settings the query module already had decide which *format* a tick speaks:\n * a reader who chose `[completion:: …]` over `✅ …` gets their own spelling back, rather than one\n * format imposed on every note. Reading is deliberately not limited to that format — see\n * {@link CompatTaskSerializer} — because a `🔁` line a reader cannot switch out of is a line whose\n * recurrence silently stops.\n */",
+    "// The reader-defined status table and the two date stamps land with the settings screen;",
+    "// until then a tick uses the four statuses everyone gets and the defaults the reference plugin ships.",
+    "/**\n * Advance one checkbox in a note the reader may not be editing.\n *\n * The rewrite runs against the copy the server holds now, inside the store's queued write, so a\n * result drawn from an older read cannot overwrite a newer edit. Refusing a line whose text no\n * longer matches is what makes a stale result a no-op rather than an edit to somebody else's task.\n */",
+    "/**\n * Advance the checkboxes on the given lines of a source the caller already holds.\n *\n * The editor and the reading preview both have the whole text in hand and know which lines their boxes\n * came from, so the staleness guard a query result needs is meaningless here — the lines they are\n * looking at are the lines they are about to write. Bottom-up, because a recurring task inserts a line\n * and `on completion: delete` removes one: working from the end means no edit can move a line that is\n * still to come. And a tick is a step along the reader's own cycle, so a `[/]` or `[-]` moves here just\n * as it does in the preview.\n */",
+  ]],
   ["src/client/lib/tasks/status/registry.ts", [
     "/**\n * The statuses a vault recognises, and how one leads to the next.\n *\n * A checkbox character has no meaning on its own: `[-]` is \"cancelled\" only because something says\n * so. This registry is that something, and it is built from the reader's settings on every read so\n * no two callers can disagree about what a note says.\n */",
     "/** Never fails: an unregistered character still gets a type, so old notes keep reading. */",
@@ -17540,6 +17554,10 @@ const allowed = new Map([
     "/** How this status reads in a checkbox the reader is looking at. */",
     "/** The type a symbol carries when the reader never registered it, so old notes still read. */",
   ]],
+  ["src/client/lib/tasks/toggle.test.ts", [
+    "/** The serializer a reader picks for their ticks decides what the line is read as, not what is kept. */",
+    "// The date the reader's own format cannot read stays in the line as prose rather than vanishing.",
+  ]],
   ["src/client/lib/tasks/toggle.ts", [
     "/** Stamp today onto `done` when a task reaches a done-type status. */",
     "/** Stamp today onto `cancelled` when a task reaches a cancelled-type status. */",
@@ -17549,7 +17567,6 @@ const allowed = new Map([
     "/** Zero-based line index the row was extracted from. */",
     "/** The task's text as the reader saw it, which is what refuses a stale line. */",
     "/**\n * The one way a checkbox changes a note.\n *\n * Three surfaces tick a task — the live editor, the reading preview and a query result — and each\n * used to own its own edit. That is how `[/]` and `[-]` ended up unclickable in the editor while the\n * preview accepted them: one path knew about status characters and two did not. Every surface calls\n * here now, so a tick means the same thing wherever the reader happened to see the box.\n *\n * Pure over a string, so all of it is testable without a store or a DOM.\n */",
-    "/**\n * Replace one line with the lines that take its place.\n *\n * A recurring task becomes two lines — the instance just finished and the one the rule produced —\n * and `on completion: delete` becomes none, so this returns a list.\n *\n * `expect` is the staleness guard: a query result is a picture of a line from some earlier moment,\n * and if the author has since retyped it, writing would edit words the reader never clicked on.\n */",
     "/**\n * Move a task to the next status, and produce what that implies.\n *\n * A recurring task does not simply become done and leave its own series: the instance is finished\n * and a fresh one is born from the rule. The newborn's status is not just the next one in the cycle\n * — in a vault whose `[x]` points back at `[x]` that would birth it already finished, invisible to\n * every `not done` search — so the registry is asked for the first open status down that chain.\n */",
     "// The box the reader just clicked moves one step along the cycle, whatever else happens. The",
     "// recurrence status is a different question — it names the status the *next* instance is born",
@@ -17557,7 +17574,14 @@ const allowed = new Map([
     "/** `on completion: delete` removes the finished instance, leaving only what the rule produced. */",
     "/** The dates a status change writes, clears, or leaves alone. */",
     "/** The dates of a newly produced occurrence: the rule's shifted dates, and no history. */",
-    "/** Carry the new state down to the lines that belong to this one. */",
+    "// The status the reader just moved the clicked line to is what the subtree is carried down to, and",
+    "// the subtree starts after the last line that was written. `on completion: delete` leaves no line",
+    "// to anchor it on, so a deleted task carries nothing down.",
+    "/** What one click does to one line, and the status the reader put it into. */",
+    "/**\n * Read one line and say what takes its place.\n *\n * A recurring task becomes two lines — the instance just finished and the one the rule produced —\n * and `on completion: delete` becomes none, so this returns a list.\n *\n * `expect` is the staleness guard: a query result is a picture of a line from some earlier moment,\n * and if the author has since retyped it, writing would edit words the reader never clicked on.\n */",
+    "/**\n * Carry the clicked line's new state down to the lines that belong to it.\n *\n * A descendant is moved only when it does not already show that state, so ticking a parent twice\n * cannot walk its children down the status cycle twice over — which matters the moment one command\n * ticks a whole selection, where a child would otherwise be advanced by itself and again by its parent.\n */",
+    "/**\n * The words a reader clicked, with every field format taken back off.\n *\n * The caller's serializer decides what this line is read as, and the text being compared against was\n * read by whatever parser built the row — so the two sides can be in different formats even before a\n * reader mixes them inside one line. Stripping both leaves the prose the reader actually clicked, and a\n * stale line still fails the guard because its words moved.\n */",
+    "// Two formats, in either order on the line: each pass strips what it recognises until the text settles.",
   ]],
   ["src/client/lib/template-notes.ts", [
     "/**\n * Create a note from a gallery template and open it, returning the new id.\n *\n * The template's `{{cursor}}` is handed to the editor through `createNote`, so\n * the marker is stripped from the body and the caret lands where the author\n * pointed it rather than at the end of the front matter. Placement follows the\n * same rules as the `+` button — the open folder, else the inbox — because a\n * template note is still just a new note.\n */",

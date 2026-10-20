@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { DataviewTaskSerializer } from './serializer/dataview-format'
 import { EmojiTaskSerializer } from './serializer/emoji'
 import { StatusRegistry } from './status/registry'
 import { applyTaskToggle, type ToggleSettings } from './toggle'
@@ -27,6 +28,38 @@ const CANCEL_MARK = cp(0x274C)
 function toggle(source: string, line: number, text: string, config = settings()): string | null {
   return applyTaskToggle(source, { line, text }, config, NOW)
 }
+
+/** The serializer a reader picks for their ticks decides what the line is read as, not what is kept. */
+function brackets(overrides: Partial<ToggleSettings> = {}): ToggleSettings {
+  return settings({ serializer: new DataviewTaskSerializer(), ...overrides })
+}
+
+describe('the guard across formats', () => {
+  it('ticks an emoji line for a reader who writes inline fields', () => {
+    const out = toggle(`- [ ] buy milk ${DUE} 2026-10-05`, 0, 'buy milk', brackets())
+    expect(out).not.toBeNull()
+    expect(out).toContain('[x]')
+    // The date the reader's own format cannot read stays in the line as prose rather than vanishing.
+    expect(out).toContain(`${DUE} 2026-10-05`)
+  })
+
+  it('ticks an inline-field line for a reader who writes emoji', () => {
+    const out = toggle('- [ ] buy milk [due:: 2026-10-05]', 0, 'buy milk')
+    expect(out).not.toBeNull()
+    expect(out).toContain('[x]')
+    expect(out).toContain('[due:: 2026-10-05]')
+  })
+
+  it('reads a row that stripped both formats off the same line', () => {
+    const out = toggle(`- [ ] buy milk [priority:: high] ${DUE} 2026-10-05`, 0, 'buy milk', brackets())
+    expect(out).not.toBeNull()
+    expect(out).toContain('[x]')
+  })
+
+  it('still refuses a line whose words moved, whatever the formats', () => {
+    expect(toggle(`- [ ] buy milk ${DUE} 2026-10-05`, 0, 'sell milk', brackets())).toBeNull()
+  })
+})
 
 describe('the status cycle', () => {
   it('ticks an open task to done and stamps the completion date', () => {
@@ -154,5 +187,29 @@ describe('sub-task cascade', () => {
     const source = ['- [ ] parent', '    - [ ] child', '- [ ] sibling'].join('\n')
     const out = applyTaskToggle(source, { line: 0, text: 'parent' }, settings({ recursiveSubTaskCompletion: true }), NOW)!
     expect(out.split('\n')[2]).toBe('- [ ] sibling')
+  })
+
+  it('leaves a child that already shows the new state alone', () => {
+    const source = ['- [ ] parent', `    - [x] child ${DONE_MARK} 2026-10-11`].join('\n')
+    const out = applyTaskToggle(source, { line: 0, text: 'parent' }, settings({ recursiveSubTaskCompletion: true }), NOW)!
+    expect(out).toContain(`- [x] child ${DONE_MARK} 2026-10-11`)
+  })
+
+  it('carries the parent down to the open children when the parent is un-ticked', () => {
+    const source = [`- [x] parent ${DONE_MARK} 2026-10-11`, `    - [x] child ${DONE_MARK} 2026-10-11`].join('\n')
+    const out = applyTaskToggle(source, { line: 0, text: 'parent' }, settings({ recursiveSubTaskCompletion: true }), NOW)!
+    expect(out).toBe('- [ ] parent\n    - [ ] child')
+  })
+
+  it('gives a child the state the reader clicked into, not the one the rule produced', () => {
+    const source = [`- [ ] chores ${RECUR} every week ${DUE} 2026-10-19`, '    - [ ] put the bins out'].join('\n')
+    const out = applyTaskToggle(
+      source,
+      { line: 0, text: 'chores' },
+      settings({ recursiveSubTaskCompletion: true, recurrenceOnNextLine: true }),
+      NOW,
+    )!
+    const child = out.split('\n').find((line) => line.includes('put the bins out'))!
+    expect(child).toContain('[x]')
   })
 })

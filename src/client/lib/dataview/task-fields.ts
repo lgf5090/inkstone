@@ -1,34 +1,5 @@
-import { DataviewTaskSerializer, defaultStatusRegistry, EmojiTaskSerializer, PRIORITY_NAMES, Priority, type TaskDateField, type TaskFields } from '../tasks/line'
+import { defaultStatusRegistry, PRIORITY_NAMES, Priority, type TaskFields } from '../tasks/line'
 import type { Literal } from './value'
-
-const emoji = new EmojiTaskSerializer()
-const inline = new DataviewTaskSerializer()
-
-const DATE_FIELDS: TaskDateField[] = ['createdDate', 'startDate', 'scheduledDate', 'dueDate', 'cancelledDate', 'doneDate']
-
-/**
- * Read a task line into the one shape every view agrees on.
- *
- * Both formats are tried because Inkstone notes already mix them: a vault where half the tasks say
- * `📅 2026-10-04` and half say `[due:: 2026-10-04]` should not have to pick an engine. The emoji
- * format wins where both found the same field, since it is the one that carries the rest of them.
- */
-export function readTaskFields(body: string): TaskFields {
-    const fromEmoji = emoji.deserialize(body)
-    const fromInline = inline.deserialize(body)
-    const merged: TaskFields = { ...fromEmoji }
-    for (const field of DATE_FIELDS) {
-        if (merged[field] === null && fromInline[field] !== null) {
-            merged[field] = fromInline[field]
-            if (fromInline.invalidDates[field] !== undefined) merged.invalidDates[field] = fromInline.invalidDates[field]
-        }
-    }
-    if (merged.priority === Priority.None && fromInline.priority !== Priority.None) merged.priority = fromInline.priority
-    if (merged.recurrenceRuleText === '') merged.recurrenceRuleText = fromInline.recurrenceRuleText
-    if (merged.id === '') merged.id = fromInline.id
-    if (merged.dependsOn.length === 0) merged.dependsOn = fromInline.dependsOn
-    return merged
-}
 
 /**
  * The task's fields as Dataview fields, so `WHERE due < today` and `TABLE priority` answer for a

@@ -147,7 +147,15 @@ function renderTasks(result: TaskResult, context: RenderContext): HTMLElement {
             input.type = 'checkbox'
             input.checked = completed
             input.setAttribute('aria-label', taskAriaLabel(task))
-            input.dataset.dataviewTask = encodeDataValue(JSON.stringify({ path, line, text: taskText, completed }))
+            input.dataset.dataviewTask = encodeDataValue(JSON.stringify({
+                path,
+                line,
+                text: taskText,
+                completed,
+                // The status character, so a click can show the right box before the note comes
+                // back: a cycle moves [ ] to [/], which is still unchecked.
+                status: typeof task.status === 'string' ? task.status : null,
+            }))
         } else {
             checkbox.setAttribute('role', 'img')
             checkbox.setAttribute('aria-label', completed ? t('dataview.task_done') : t('dataview.task_open'))

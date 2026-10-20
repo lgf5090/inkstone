@@ -19,7 +19,7 @@ import { ParseFailure } from './grammar'
 import { Context } from './context'
 import { executeQuery, type QueryResult } from './engine'
 import { renderNotice, renderResult, renderTruncation } from './render'
-import { querySettings, dataviewIndex, dataviewSettings, startDataview, toggleTask } from './service'
+import { querySettings, dataviewIndex, dataviewSettings, startDataview } from './service'
 import { renderDataviewInline, rerunInlineQueries, takeInlineJsLines, type InlineContext } from './inline'
 import type { DataObject } from './value'
 import { decodeDataValue, encodeDataValue } from '../markdown/data-attr'
@@ -666,7 +666,7 @@ async function openNote(noteId: string): Promise<void> {
  */
 async function toggleTaskRow(box: HTMLInputElement): Promise<void> {
     if (box.dataset.dataviewBusy === '1') return
-    let payload: { path?: unknown; line?: unknown; text?: unknown; completed?: unknown }
+    let payload: { path?: unknown; line?: unknown; text?: unknown; completed?: unknown; status?: unknown }
     try {
         payload = JSON.parse(decodeDataValue(box.dataset.dataviewTask ?? '')) as typeof payload
     } catch {
@@ -682,12 +682,19 @@ async function toggleTaskRow(box: HTMLInputElement): Promise<void> {
         return
     }
     box.dataset.dataviewBusy = '1'
-    const result = await toggleTask(noteId, line, text, payload.completed !== true)
+    const { toggleSettings, toggleTaskLine } = await import('../tasks/service')
+    const result = await toggleTaskLine(noteId, line, text)
     delete box.dataset.dataviewBusy
     if (result !== 'written') {
         box.checked = payload.completed === true
         await notice(result === 'conflict' ? 'dataview.task_moved' : 'dataview.task_unavailable')
+        return
     }
+    // A tick is a step along the reader's status cycle, not a flip to checked. `[/]` still reads as
+    // open, so the box is set from what the registry says comes next rather than from the click.
+    const registry = toggleSettings().registry
+    const symbol = typeof payload.status === 'string' ? payload.status : ' '
+    box.checked = registry.getNextStatusOrCreate(registry.bySymbolOrCreate(symbol)).isDone
 }
 
 async function notice(key: Parameters<typeof t>[0]): Promise<void> {

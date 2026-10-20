@@ -7,6 +7,7 @@
  */
 export { EmojiTaskSerializer } from './serializer/emoji'
 export { DataviewTaskSerializer } from './serializer/dataview-format'
+export { CompatTaskSerializer, readEitherFormat } from './serializer/compat'
 export type { TaskFields, TaskDateField, TaskSerializer, SerializeOptions } from './serializer/index'
 export { Status } from './status/status'
 export { StatusRegistry, DEFAULT_STATUS_CONFIGURATIONS, validateStatusConfigurations } from './status/registry'

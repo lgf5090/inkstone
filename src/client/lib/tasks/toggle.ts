@@ -1,7 +1,9 @@
 import { startOfDay } from '../../lib/time'
 import { OnCompletion } from './model/on-completion'
-import { extractTaskComponents, parseTaskLine, toMarkdownLine, type Task } from './model/task'
+import { parseTaskLine, toMarkdownLine, type Task } from './model/task'
 import { unknownPosition } from './model/task-location'
+import { DataviewTaskSerializer } from './serializer/dataview-format'
+import { EmojiTaskSerializer } from './serializer/emoji'
 import type { Status } from './status/status'
 import type { StatusRegistry } from './status/registry'
 import type { TaskFields, TaskSerializer } from './serializer/index'
@@ -43,18 +45,28 @@ export function applyTaskToggle(source: string, target: ToggleTarget, settings: 
   const lines = source.split(/\r?\n/u)
   if (lines.length <= target.line) return null
 
-  const replacement = rewriteLine(lines[target.line]!, settings, now, target.text)
-  if (replacement === null) return null
+  const produced = advanceLine(lines[target.line]!, settings, now, target.text)
+  if (produced === null) return null
+  const replacement = produced.tasks.map((task) => toMarkdownLine(task, settings.serializer))
   lines.splice(target.line, 1, ...replacement)
 
-  if (settings.recursiveSubTaskCompletion) {
-    cascadeChildren(lines, target.line + replacement.length - 1, settings, now)
+  if (settings.recursiveSubTaskCompletion && replacement.length > 0) {
+    // The status the reader just moved the clicked line to is what the subtree is carried down to, and
+    // the subtree starts after the last line that was written. `on completion: delete` leaves no line
+    // to anchor it on, so a deleted task carries nothing down.
+    cascadeChildren(lines, target.line + replacement.length - 1, produced.clicked, settings, now)
   }
   return lines.join(eol)
 }
 
+/** What one click does to one line, and the status the reader put it into. */
+export interface ToggledLine {
+  tasks: Task[]
+  clicked: Status
+}
+
 /**
- * Replace one line with the lines that take its place.
+ * Read one line and say what takes its place.
  *
  * A recurring task becomes two lines — the instance just finished and the one the rule produced —
  * and `on completion: delete` becomes none, so this returns a list.
@@ -62,17 +74,16 @@ export function applyTaskToggle(source: string, target: ToggleTarget, settings: 
  * `expect` is the staleness guard: a query result is a picture of a line from some earlier moment,
  * and if the author has since retyped it, writing would edit words the reader never clicked on.
  */
-function rewriteLine(line: string, settings: ToggleSettings, now: Date, expect?: string): string[] | null {
+function advanceLine(line: string, settings: ToggleSettings, now: Date, expect?: string): ToggledLine | null {
   const task = parseTaskLine(line, unknownPosition('', ''), {
     registry: settings.registry,
     serializer: settings.serializer,
     now,
   })
   if (task === null) return null
-  if (expect !== undefined && normalize(task.fields.description) !== normalize(expect)) return null
+  if (expect !== undefined && prose(task.fields.description) !== prose(expect)) return null
 
-  const next = advanceStatus(task, settings, now)
-  return next.map((item) => toMarkdownLine(item, settings.serializer))
+  return advanceStatus(task, settings, now)
 }
 
 /**
@@ -83,7 +94,7 @@ function rewriteLine(line: string, settings: ToggleSettings, now: Date, expect?:
  * — in a vault whose `[x]` points back at `[x]` that would birth it already finished, invisible to
  * every `not done` search — so the registry is asked for the first open status down that chain.
  */
-export function advanceStatus(task: Task, settings: ToggleSettings, now: Date): Task[] {
+export function advanceStatus(task: Task, settings: ToggleSettings, now: Date): ToggledLine {
   const finishing = !task.status.isCompletedType
   // The box the reader just clicked moves one step along the cycle, whatever else happens. The
   // recurrence status is a different question — it names the status the *next* instance is born
@@ -100,7 +111,7 @@ export function advanceStatus(task: Task, settings: ToggleSettings, now: Date): 
   }
 
   if (!finishing || task.recurrence === null) {
-    return keepOrDrop(task, [finished])
+    return { tasks: keepOrDrop(task, [finished]), clicked }
   }
 
   const occurrence = task.recurrence.next(now)
@@ -112,7 +123,7 @@ export function advanceStatus(task: Task, settings: ToggleSettings, now: Date): 
     scheduledDateIsInferred: false,
   }
   const ordered = settings.recurrenceOnNextLine ? [finished, born] : [born, finished]
-  return keepOrDrop(task, ordered)
+  return { tasks: keepOrDrop(task, ordered), clicked }
 }
 
 /** `on completion: delete` removes the finished instance, leaving only what the rule produced. */
@@ -152,16 +163,30 @@ function freshFields(fields: TaskFields, occurrence: { startDate: Date | null; s
   return out
 }
 
-/** Carry the new state down to the lines that belong to this one. */
-function cascadeChildren(lines: string[], index: number, settings: ToggleSettings, now: Date): void {
+/**
+ * Carry the clicked line's new state down to the lines that belong to it.
+ *
+ * A descendant is moved only when it does not already show that state, so ticking a parent twice
+ * cannot walk its children down the status cycle twice over — which matters the moment one command
+ * ticks a whole selection, where a child would otherwise be advanced by itself and again by its parent.
+ */
+function cascadeChildren(lines: string[], index: number, target: Status, settings: ToggleSettings, now: Date): void {
   const base = indentOf(lines[index] ?? '')
   for (let cursor = index + 1; cursor < lines.length; cursor++) {
     const line = lines[cursor]!
     if (!line.trim()) continue
     if (indentOf(line) <= base) break
-    if (extractTaskComponents(line) === null) continue
-    const rewritten = rewriteLine(line, settings, now)
-    if (rewritten !== null && rewritten.length === 1) lines[cursor] = rewritten[0]!
+    const task = parseTaskLine(line, unknownPosition('', ''), {
+      registry: settings.registry,
+      serializer: settings.serializer,
+      now,
+    })
+    if (task === null || task.status.isDone === target.isDone) continue
+    lines[cursor] = toMarkdownLine({
+      ...task,
+      status: target,
+      fields: stampDates(task.fields, task.status.type, target.type, settings, now),
+    }, settings.serializer)
   }
 }
 
@@ -172,4 +197,26 @@ function indentOf(line: string): number {
 
 function normalize(text: string): string {
   return text.trim().replace(/\s+/gu, ' ')
+}
+
+const emojiFormat = new EmojiTaskSerializer()
+const bracketFormat = new DataviewTaskSerializer()
+
+/**
+ * The words a reader clicked, with every field format taken back off.
+ *
+ * The caller's serializer decides what this line is read as, and the text being compared against was
+ * read by whatever parser built the row — so the two sides can be in different formats even before a
+ * reader mixes them inside one line. Stripping both leaves the prose the reader actually clicked, and a
+ * stale line still fails the guard because its words moved.
+ */
+function prose(text: string): string {
+  let out = text
+  // Two formats, in either order on the line: each pass strips what it recognises until the text settles.
+  for (let pass = 0; pass < 3; pass++) {
+    const next = bracketFormat.deserialize(emojiFormat.deserialize(out).description).description
+    if (next === out) break
+    out = next
+  }
+  return normalize(out)
 }

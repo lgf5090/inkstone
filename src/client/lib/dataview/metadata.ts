@@ -14,9 +14,10 @@
 
 import { extractTags, parseFrontMatter } from '@shared/markdown-utils'
 import type { TaskFields } from '../tasks'
+import { readEitherFormat } from '../tasks/line'
 import { DvLink, Values, type DataObject, type Literal } from './value'
 import { buildDate, normalizeDuration, parseInlineValue, stripTime } from './expression'
-import { describeStatus, readTaskFields, taskFieldEntries } from './task-fields'
+import { describeStatus, taskFieldEntries } from './task-fields'
 
 /** One `- [ ]` / `1. ` / `* ` line, with its children, its fields and the section it sits under. */
 export interface ListItemData {
@@ -460,7 +461,7 @@ function scanLists(
                 completed: status !== ' ',
                 fullyCompleted: status === 'x' || status === 'X',
                 ...describeStatus(status),
-                fields: readTaskFields(match[5] ?? ''),
+                fields: readEitherFormat(match[5] ?? ''),
             },
             fields: new Map(),
         }

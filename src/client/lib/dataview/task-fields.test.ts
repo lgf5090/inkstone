@@ -47,9 +47,9 @@ describe('task fields on the page object', () => {
     expect(task.priority).toBe('high')
   })
 
-  it('resolves fields only from the trailing format, which is the documented rule', () => {
+  it('reads a line that mixes the two formats', () => {
     const task = firstTask(`- [ ] ship it ${DUE} 2024-05-06 [priority:: high]`)
-    expect(task.due).toBeUndefined()
+    expect(formatTaskDate(task.due as Date)).toBe('2024-05-06')
     expect(task.priority).toBe('high')
   })
 

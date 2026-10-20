@@ -146,6 +146,7 @@ function renderTaskRow(task: Task, parsed: ParsedQuery): HTMLElement {
         line: task.location.lineNumber,
         text: task.fields.description,
         completed,
+        status: task.status.symbol,
     }))
 
     const text = document.createElement('span')
