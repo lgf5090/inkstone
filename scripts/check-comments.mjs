@@ -10692,7 +10692,6 @@ const allowed = new Map([
   ["src/client/features/todos/TodosApp.tsx", [
     "/**\n * The to-do container: the rail's `/todo` address, and the frame every view sits in.\n *\n * Two layouts, one state. A desktop gets a fixed sidebar and a board with room for three columns; a\n * phone gets a large title, the same board in two columns, a floating bottom bar for the three\n * cross-cutting views, and a button that adds a task. The breakpoint is a `matchMedia` query rather\n * than CSS alone because the two layouts differ in structure, not only in spacing.\n */",
     "/* A finger's height on a phone even though the glyph stays small: these two are the only way\n            to reach the lists page and to add a task from the header. */",
-    "/* The board is the home view, and on a phone it is the only one the three aggregate views do\n                not lead back to: without this tab, a reader who opened the plan had no way home at all. */",
     "// On a phone the header has no room for a box that is only sometimes used, so the search is one tap",
     "// away rather than absent: the toggle opens the same field a wide window keeps on screen.",
     "// The address names the screen, so it is read here before anything is drawn: a cold load of",
@@ -10702,6 +10701,7 @@ const allowed = new Map([
     "// the field's own handler answers first.",
     "/** Escape in the box is the reader taking the words back out — and, on a phone, the box with them. */",
     "/* A finger's height: on a phone this is the only way to reach a search at all. */",
+    "/* Order, glyphs, labels and the one badge all come from the surface table, so a view that\n                earns a tab on the phone is added there rather than here. */",
   ]],
   ["src/client/features/todos/open-task.ts", [
     "/**\n * Opening one task by its address, from anywhere.\n *\n * A chip in a tool result, a saved message, a note selection, the row of a notification centre — each of\n * them names a task by id, and each has to land the reader in the same place: the to-do tab, that task's\n * own address, its panel open. That place is now a real address (`/todo/<id>`), which means the callers do\n * not have to know anything about the to-do app's state: they ask for a task, and the address bar does the\n * moving. The container's own first paint reads the same address, so a link pasted into another tab, or\n * held on a phone and opened from a reminder, arrives at the same screen a press inside the app does.\n *\n * The tab is put right before the task address is written, because the tab is instant and the read behind\n * it is not: the reader sees the app they asked for while the row is being fetched, rather than a chat that\n * appears to ignore the press. What the store then does — read the row if the open page does not hold it,\n * and open the panel on it — is the half that can fail, and it says so with a toast and an address that no\n * longer names a task, rather than a panel over nothing.\n */",
@@ -10839,6 +10839,21 @@ const allowed = new Map([
     "/**\n * The two layouts the container promises.\n *\n * A phone gets the cross-cutting views as a bottom bar and a button that adds a task; a wide window\n * gets a sidebar with every list and no bottom bar. The store is stubbed at the API boundary so the\n * case is about structure rather than about a fetch that never lands.\n */",
     "// The first paint is the loading block; the stubbed page lands one microtask later.",
     "// No sidebar: the list panel is a page of its own on a phone.",
+    "// The store outlives a render, so a case that expects a fresh load has to hand it back the idle state;",
+    "// without this the first case's counts answer for every case after it.",
+    "// The sidebar calls the board \"All\" and puts starred above it; the phone calls the board \"Board\" and",
+    "// leads with it. Those are two different readings of one list of surfaces, so both directions are",
+    "// pinned: a registry that quietly reordered them would look right in one layout and wrong in the other.",
+    "// Today's work is the only number the phone's bar carries: three badges on four tabs is noise.",
+  ]],
+  ["src/client/features/todos/views/registry.tsx", [
+    "/**\n * The surfaces the to-do container can show, and the two navs that reach them.\n *\n * Everything that differs per view — its content, its glyph, the badge, and the words each nav uses —\n * lives in one entry here. The container keeps the frame (header, sidebar, phone tabs, keyboard) and asks\n * this table what to draw, so adding a calendar or a stats page is one entry and one component rather\n * than edits in the header, the sidebar, the phone bar and the content switch at once.\n *\n * The two navs are deliberately not the same list: a phone shows the board first because it is the only\n * way back home from an aggregate view, while the sidebar labels the board \"All\" and puts the starred\n * list above it. Each surface therefore names its own label per nav, and one that only earns a badge on\n * the phone (`plan`, whose count is today's work) says so — a badge on every sidebar row would be three\n * numbers the reader did not ask for.\n */",
+    "/** What every glyph in this table accepts; lucide icons all match it. */",
+    "/** Lower comes first. Kept explicit so the sidebar's order can differ from the phone's. */",
+    "/** Absent means the surface is not reachable from that nav. */",
+    "// The one number a phone's nav carries: today's work is the reason the plan tab is pressed.",
+    "/** The badge a surface shows in one nav, or 0 for none. */",
+    "/**\n * What the frame draws for one address.\n *\n * The lists page is not a surface: it is reached from the header and from the sidebar's own footer, it\n * has no tab of its own, and it is not a `TodoView`. A `list` or `tag` view is the task list filtered by\n * the address's own id, which is why both fall through to the same component.\n */",
   ]],
   ["src/client/features/workspace/BacklinksPanel.tsx", [
     "// Debounced refresh on note revision changes; unrelated sync traffic",
