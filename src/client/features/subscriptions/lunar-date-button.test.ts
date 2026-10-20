@@ -161,6 +161,21 @@ describe('the lunar picker', () => {
     }
   })
 
+  it('takes the caret when it opens and hands it back to the trigger when it closes', async () => {
+    mount('2024-02-10')
+    const trigger = document.querySelector<HTMLButtonElement>(`[aria-label="${t('subscriptions.lunar.pick')}"]`)
+    expect(trigger).toBeTruthy()
+
+    await open()
+    // Tab has to start inside the panel the reader is looking at. Left on the trigger, the first Tab lands
+    // on whatever follows it in the document and the three lists are behind a page of markup.
+    expect(document.activeElement).toBe(field(YEAR))
+
+    const cancel = [...document.querySelectorAll('button')].find((node) => node.textContent?.trim() === t('subscriptions.cancel'))
+    await press(cancel, 'the cancel button')
+    expect(document.activeElement).toBe(trigger)
+  })
+
   it('drops a leap month the new year does not have, rather than refusing to fill', async () => {
     mount('2023-03-22')
     await open()

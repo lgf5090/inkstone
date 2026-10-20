@@ -8,8 +8,9 @@
  * hover and the focus ring all stay where the reader looks.
  *
  * jsdom has no layout engine, so nothing here measures a box: these assertions read the class list and the
- * element that carries it. The stylesheet rule itself is `.ink-tap-pad` in `chat.css`, and the floor it
- * aims at is `--tap-min` in `tokens.css`, both read here as structure rather than as painted pixels.
+ * element that carries it. The stylesheet rule itself is `.ink-tap-pad` in `app.css` (the whole app pays
+ * for the floor, not the chat alone), and the floor it aims at is `--tap-min` in `tokens.css`, both read
+ * here as structure rather than as painted pixels.
  */
 import { act, createElement } from 'react'
 import { createRoot, type Root } from 'react-dom/client'

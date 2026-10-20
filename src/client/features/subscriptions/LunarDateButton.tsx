@@ -27,7 +27,7 @@ import {
 } from '@shared/subscriptions/lunar'
 import { Button, IconButton } from '../../components/primitives'
 import { Select } from '../../components/form'
-import { useClickOutside, useEscape } from '../../components/overlay'
+import { useClickOutside, useEscape, usePanelCaret } from '../../components/overlay'
 import { getLocale, t } from '../../lib/i18n'
 import { Z_INDEX } from '../../lib/z-index'
 import { cn } from '../../lib/cn'
@@ -74,6 +74,8 @@ export function LunarDateButton({ value, onPick }: {
   // language only.
   const locale = getLocale()
   const wrapRef = useRef<HTMLDivElement>(null)
+  const panelRef = useRef<HTMLDivElement>(null)
+  const triggerRef = useRef<HTMLButtonElement>(null)
   const today = new Date()
   const [year, setYear] = useState(() => Number(value.slice(0, 4)) || today.getFullYear())
   const [month, setMonth] = useState(1)
@@ -82,6 +84,7 @@ export function LunarDateButton({ value, onPick }: {
 
   useEscape(open, () => setOpen(false))
   useClickOutside([wrapRef], open, () => setOpen(false))
+  usePanelCaret(open, panelRef, triggerRef)
 
   // Opening reads the field it sits beside, so the lunar date on screen is the one already chosen
   // rather than wherever the control was left after the last subscription.
@@ -127,11 +130,12 @@ export function LunarDateButton({ value, onPick }: {
 
   return (
     <div ref={wrapRef} className="relative">
-      <IconButton label={t('subscriptions.lunar.pick')} size="sm" active={open} onClick={openAt}>
+      <IconButton ref={triggerRef} label={t('subscriptions.lunar.pick')} size="sm" active={open} onClick={openAt}>
         <Moon size={13} />
       </IconButton>
       {open && (
         <div
+          ref={panelRef}
           className="absolute right-0 top-[calc(100%+4px)] rounded-[var(--r-lg)] border border-[var(--border-default)] bg-[var(--bg-overlay)] p-2 shadow-[var(--shadow-pop)]"
           style={{ width: PANEL_WIDTH, zIndex: Z_INDEX.pop }}
           role="group"

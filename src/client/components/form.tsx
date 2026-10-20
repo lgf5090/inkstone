@@ -154,7 +154,9 @@ export function Switch({
       disabled={disabled}
       onClick={() => onChange(!checked)}
       className={cn(
-        'relative h-6 w-11 shrink-0 rounded-full transition-colors duration-[var(--dur-base)] ease-[var(--ease-out)] md:h-[20px] md:w-[34px]',
+        // The desktop track is drawn 20px tall to sit in a dense row, which is under the 24px pointer
+        // floor; the pad buys the missing area back without repainting the switch.
+        'ink-tap-pad relative h-6 w-11 shrink-0 rounded-full transition-colors duration-[var(--dur-base)] ease-[var(--ease-out)] md:h-[20px] md:w-[34px]',
         'disabled:opacity-45',
         checked ? 'bg-[var(--accent)]' : 'bg-[var(--border-strong)]',
       )}

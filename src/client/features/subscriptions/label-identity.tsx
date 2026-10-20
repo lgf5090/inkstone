@@ -25,7 +25,7 @@ import {
   type IconSpec,
 } from '@shared/subscriptions/identity'
 import type { LabelEntry, LabelKind } from '@shared/subscriptions/model'
-import { useClickOutside, useEscape } from '../../components/overlay'
+import { useClickOutside, useEscape, usePanelCaret } from '../../components/overlay'
 import { Swatch } from '../../components/color-swatch'
 import { cn } from '../../lib/cn'
 import { t, useLocale, useLocaleRepaint } from '../../lib/i18n'
@@ -179,6 +179,7 @@ export function LabelStylePicker({ kind, name, onPick }: {
 
   useEscape(open, () => setOpen(false))
   useClickOutside([wrapRef, panelRef], open, () => setOpen(false))
+  usePanelCaret(open, panelRef, triggerRef)
   useEffect(() => {
     if (!name) setOpen(false)
   }, [name])
