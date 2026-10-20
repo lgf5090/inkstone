@@ -7,6 +7,7 @@ import type { NoteScope } from '../src/worker/assistant/note-scope'
 import type { AssistantStore } from '../src/worker/assistant/store'
 import type { Env } from '../src/worker/env'
 import { SubscriptionsStore, storeContext } from '../src/worker/subscriptions/store'
+import { writeNotifyLog } from '../src/worker/subscriptions/logs'
 import { makeD1 } from './doubles/d1-sqlite'
 
 /**
@@ -260,6 +261,64 @@ describe('deleting from a conversation', () => {
     await subStore.trash(created.item.id, ctx)
 
     await expect(run('restore_subscription', { ref: 'Spotify' })).rejects.toThrow(/Netflix/)
+  })
+})
+
+describe('the money history and the deliveries', () => {
+  /**
+   * "Did the app tell me?" is a question the reader asks out loud, and until now a conversation could not
+   * answer it: the schedule and the delivery attempts were on screen in the app and nowhere in the tool
+   * surface. An empty log has to read differently from "nothing was due", or the model reports a quiet
+   * month as a working one.
+   */
+  it('reports what was delivered, and says an empty log is not an empty month', async () => {
+    const created = await seedSubscription()
+    const quiet = await run('subscription_logs', {}) as { total: number, note?: string, sweeps: unknown[] }
+    expect(quiet.total).toBe(0)
+    expect(quiet.note).toMatch(/No delivery has been attempted yet/)
+
+    await writeNotifyLog(env.DB, ALICE, {
+      subscriptionId: created.item.id, ruleId: 'r1', channel: 'bark', status: 'failed',
+      title: 't', body: 'b', error: 'HTTP 500', detail: 'upstream said no',
+    })
+    const answer = await run('subscription_logs', { ref: 'netflix' }) as {
+      total: number, deliveries: Array<{ subscription: string, channel: string, status: string, error: string | null, detail: string | null }>
+    }
+    expect(answer.total).toBe(1)
+    expect(answer.deliveries[0]).toMatchObject({ subscription: 'Netflix', channel: 'bark', status: 'failed', error: 'HTTP 500' })
+    expect(answer.deliveries[0]!.detail, 'the reason a reader can act on survives').toBe('upstream said no')
+  })
+
+  it('corrects a receipt without inventing a second one', async () => {
+    const created = await seedSubscription({ amount: 60 })
+    const read = await run('get_subscription', { ref: 'Netflix' }) as { payments: Array<{ id: string, amount: number }> }
+    expect(read.payments).toHaveLength(1)
+
+    const edited = await run('edit_subscription_payment', { ref: 'Netflix', payment: read.payments[0]!.id, amount: 88 }) as { payments: number }
+    expect(edited.payments, 'a correction replaces the record rather than adding one').toBe(1)
+    const after = await run('get_subscription', { ref: 'Netflix' }) as { payments: Array<{ amount: number }> }
+    expect(after.payments[0]!.amount).toBe(88)
+
+    await expect(run('edit_subscription_payment', { ref: 'Netflix', payment: 'nope', amount: 1 }))
+      .rejects.toThrow(/nope/)
+    await expect(run('edit_subscription_payment', { ref: 'Netflix', payment: read.payments[0]!.id }))
+      .rejects.toThrow(/at least one part/)
+  })
+
+  it('erases one receipt only after approval, and leaves the subscription standing', async () => {
+    const created = await seedSubscription({ amount: 60 })
+    const read = await run('get_subscription', { ref: 'Netflix' }) as { payments: Array<{ id: string }> }
+    const executor = new ToolExecutor(
+      { ...context(ALICE), conversationId: 'conv-1', settings: { ...DEFAULT_ASSISTANT_SETTINGS, toolModes: { read: 'auto', write: 'auto', destructive: 'auto' } } },
+      { maxToolCalls: 8 },
+    )
+    const prepared = await executor.execute('delete_subscription_payment', { ref: 'Netflix', payment: read.payments[0]!.id }, 'call-erase') as { deleted: boolean, payments: number }
+    expect(prepared).toMatchObject({ deleted: true, payments: 0 })
+
+    const { store: subStore, context: ctx } = store()
+    const detail = await subStore.get(created.item.id, ctx)
+    expect(detail?.payments).toHaveLength(0)
+    expect(detail?.item.name, 'the subscription itself is untouched').toBe('Netflix')
   })
 })
 

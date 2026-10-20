@@ -1986,6 +1986,9 @@ export const ASSISTANT_TOOL_SPECS: readonly AssistantToolSpec[] = [
   { name: 'get_subscription_settings', labelKey: 'assistant.tool.get_subscription_settings', permission: 'read' },
   { name: 'set_subscription_settings', labelKey: 'assistant.tool.set_subscription_settings', permission: 'write' },
   { name: 'set_subscription_active', labelKey: 'assistant.tool.set_subscription_active', permission: 'write' },
+  { name: 'subscription_logs', labelKey: 'assistant.tool.subscription_logs', permission: 'read' },
+  { name: 'edit_subscription_payment', labelKey: 'assistant.tool.edit_subscription_payment', permission: 'write' },
+  { name: 'delete_subscription_payment', labelKey: 'assistant.tool.delete_subscription_payment', approvalKey: 'assistant.approval.delete_subscription_payment', permission: 'destructive' },
 ]
 
 /** A page the model actually consulted, as the vendor reported it. */

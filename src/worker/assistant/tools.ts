@@ -30,6 +30,8 @@ import { buildOverview } from '../subscriptions/overview'
 import { normalizeColor, normalizeIcon } from '@shared/subscriptions/identity'
 import { matchesSubscriptionSearch } from '@shared/subscriptions/search'
 import { listChannels, loadSettings, saveSettings } from '../subscriptions/settings'
+import { queryNotifyLogs, recentScheduleLogs } from '../subscriptions/logs'
+import { formatAmount } from '@shared/subscriptions/format'
 import { SubscriptionsStore, storeContext, type StoreContext } from '../subscriptions/store'
 import {
   CURRENCY_CODES,
@@ -1839,6 +1841,133 @@ export const SUBSCRIPTION_TOOLS: ToolDefinition[] = [
       await store.bulk([detail.item.id], active ? 'activate' : 'deactivate')
       const after = await store.get(detail.item.id, context)
       return { updated: after ? presentSubscription(after.item) : null }
+    },
+  }),
+  tool({
+    name: 'subscription_logs',
+    permission: 'read',
+    maxCallsPerTurn: 2,
+    description: 'What the reminder scheduler actually did: the deliveries it attempted per channel with the reason for each failure, and the sweeps that ran — how many subscriptions it looked at, how many matched, how many were silenced as duplicates. `subscription_summary` answers what is due; this answers whether the app told the reader about it. Titles and bodies are omitted on purpose: the reader can read them in the notification.',
+    fields: {
+      ref: { type: 'string', maxLength: 120, optional: true, description: 'Limit the deliveries to one subscription, named as the reader named it.' },
+      status: { type: 'string', enum: ['all', 'success', 'failed'], optional: true },
+      limit: { type: 'integer', minimum: 1, maximum: 50, optional: true },
+    },
+    async run(args, ctx) {
+      const limit = Number(args.limit ?? 15)
+      let subscriptionId: string | undefined
+      if (typeof args.ref === 'string' && args.ref.trim()) {
+        const { detail } = await resolveSubscriptionOrThrow(args.ref, ctx)
+        subscriptionId = detail.item.id
+      }
+      const status = args.status === 'success' || args.status === 'failed' ? args.status : undefined
+      const [deliveries, sweeps] = await Promise.all([
+        queryNotifyLogs(ctx.env.DB, ctx.store.userId, { subscriptionId, status, limit }),
+        recentScheduleLogs(ctx.env.DB, ctx.store.userId, 5),
+      ])
+      return {
+        total: deliveries.length,
+        more: deliveries.length === limit,
+        deliveries: deliveries.map((entry) => ({
+          subscription: entry.subscriptionName,
+          channel: entry.channel,
+          status: entry.status,
+          at: entry.createdAt,
+          // The two fields that turn "failed" into something the reader can act on.
+          error: entry.error || null,
+          detail: entry.detail || null,
+        })),
+        sweeps: sweeps.map((entry) => ({
+          startedAt: entry.startedAt,
+          status: entry.status,
+          inWindow: entry.inWindow,
+          checked: entry.checkedCount,
+          matched: entry.matchedCount,
+          deduped: entry.dedupedCount,
+          sent: entry.sentCount,
+          reason: entry.reason || null,
+        })),
+        note: deliveries.length === 0
+          ? 'No delivery has been attempted yet, which is different from nothing being due — check the reminders and the notification window.'
+          : undefined,
+      }
+    },
+  }),
+  tool({
+    name: 'edit_subscription_payment',
+    permission: 'write',
+    maxCallsPerTurn: 3,
+    description: 'Correct one receipt that was already paid: its date, amount, currency or note. Use this rather than `renew_subscription` when the reader says the record is wrong, because renewing writes a second receipt and doubles what the dashboard says they spent. The receipt ids come from `get_subscription`.',
+    fields: {
+      ref: { type: 'string', minLength: 1, maxLength: 120 },
+      payment: { type: 'string', minLength: 1, maxLength: 40, description: 'The receipt\'s id, as `get_subscription` returned it.' },
+      date: { type: 'string', maxLength: 10, optional: true, description: 'YYYY-MM-DD.' },
+      amount: { type: 'number', minimum: 0, maximum: 1e9, optional: true },
+      currency: { type: 'string', enum: [...CURRENCY_CODES], optional: true },
+      note: { type: 'string', maxLength: 200, optional: true, description: 'Send an empty string to clear the note.' },
+    },
+    async run(args, ctx) {
+      const { store, context, detail } = await resolveSubscriptionOrThrow(args.ref, ctx)
+      const wanted = String(args.payment).trim()
+      const payment = detail.payments.find((entry) => entry.id === wanted)
+      if (!payment) {
+        const held = detail.payments.slice(0, 5).map((entry) => `${entry.id} (${entry.paidAt.slice(0, 10)} ${formatAmount(entry.amount, entry.currency)})`)
+        throw new ToolError(`No receipt ${held.length ? 'of this subscription matches' : 'exists to edit'} "${wanted.slice(0, 40)}".${held.length ? ` It holds: ${held.join(', ')}.` : ''} Read the subscription first to get the id.`)
+      }
+      const patch: { date?: string; amount?: number; currency?: string; note?: string } = {}
+      if (typeof args.date === 'string' && args.date) patch.date = `${args.date.slice(0, 10)}T00:00:00Z`
+      if (args.amount !== undefined) patch.amount = Number(args.amount)
+      if (typeof args.currency === 'string') patch.currency = args.currency
+      if (typeof args.note === 'string') patch.note = args.note
+      if (!Object.keys(patch).length) throw new ToolError('Name at least one part of the receipt to change.')
+      const updated = await store.updatePayment(detail.item.id, payment.id, patch, context)
+      if (!updated) throw new ToolError('That receipt is gone.')
+      return {
+        updated: presentSubscription(updated.item),
+        payment: {
+          id: payment.id,
+          date: (patch.date ?? payment.paidAt).slice(0, 10),
+          amount: patch.amount ?? payment.amount,
+          currency: patch.currency ?? payment.currency,
+          note: patch.note ?? payment.note,
+        },
+        payments: updated.payments.length,
+      }
+    },
+  }),
+  tool({
+    name: 'delete_subscription_payment',
+    permission: 'destructive',
+    maxCallsPerTurn: 2,
+    description: 'Erase one receipt from a subscription\'s history. This is not undoable and it changes what the reader has been told they spent, so it is proposed for approval rather than run.',
+    fields: {
+      ref: { type: 'string', minLength: 1, maxLength: 120 },
+      payment: { type: 'string', minLength: 1, maxLength: 40 },
+    },
+    async prepare(args, ctx) {
+      const { detail } = await resolveSubscriptionOrThrow(args.ref, ctx)
+      const wanted = String(args.payment).trim()
+      const payment = detail.payments.find((entry) => entry.id === wanted)
+      if (!payment) throw new ToolError(`No receipt of "${detail.item.name}" matches "${wanted.slice(0, 40)}". Read the subscription to get its ids.`)
+      return {
+        targetId: `${detail.item.id}:${payment.id}`,
+        targetLabel: `${detail.item.name} — ${formatAmount(payment.amount, payment.currency)} on ${payment.paidAt.slice(0, 10)}`,
+      }
+    },
+    async commit(targetId, ctx, args) {
+      const { store, context, detail } = await resolveSubscriptionOrThrow(String(args.ref), ctx)
+      const paymentId = targetId.split(':')[1] ?? ''
+      if (!detail.payments.some((entry) => entry.id === paymentId)) {
+        throw new ToolError(`That receipt is no longer on ${detail.item.name}, so nothing was erased.`)
+      }
+      const updated = await store.deletePayment(detail.item.id, paymentId, context)
+      if (!updated) throw new ToolError('That receipt is gone.')
+      return {
+        deleted: true,
+        subscription: presentSubscription(updated.item),
+        payments: updated.payments.length,
+        note: 'The receipt is erased; the subscription and its remaining history are untouched.',
+      }
     },
   }),
   tool({
