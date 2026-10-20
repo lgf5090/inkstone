@@ -7,20 +7,26 @@
  * 44px hit area; the visible circle is 20px, which is what the reference app shows.
  */
 
-import { Check, Star } from 'lucide-react'
+import { CalendarMinus, Check, Star } from 'lucide-react'
 import { cn } from '../../lib/cn'
 import { t } from '../../lib/i18n'
 import { useTodos } from './store'
 import { dueLabel, priorityDot, priorityLabel } from './todo-ui'
 import type { TaskList, TodoTask } from '@shared/todos/model'
 
-export function TaskCard({ task, lists, bounds, timezone, onOpen, onStar, compact = false }: {
+export function TaskCard({ task, lists, bounds, timezone, onOpen, onStar, onUnplan, compact = false }: {
   task: TodoTask
   lists: readonly TaskList[]
   bounds: { dayEnd: number; now: number }
   timezone: string
   onOpen: () => void
   onStar?: () => void
+  /**
+   * Takes a task the reader picked out of today. Only the today screen passes it, and only for rows
+   * whose membership is the pick itself — a task merely due today has no plan to clear, and a button
+   * that left it on screen would be a lie.
+   */
+  onUnplan?: () => void
   compact?: boolean
 }) {
   const toggle = useTodos((state) => state.toggleTask)
@@ -146,6 +152,17 @@ export function TaskCard({ task, lists, bounds, timezone, onOpen, onStar, compac
           </button>
           {list && (
             <span className="max-w-[84px] truncate pr-1 text-[length:var(--text-10-5)] text-[var(--text-quaternary)]">{list.name}</span>
+          )}
+          {onUnplan && (
+            <button
+              type="button"
+              aria-label={t('todo.today.remove', { title: task.title })}
+              title={t('todo.today.remove', { title: task.title })}
+              onClick={onUnplan}
+              className="flex size-9 items-center justify-center rounded-full text-[var(--text-quaternary)] hover:text-[var(--danger)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--accent)] md:size-7"
+            >
+              <CalendarMinus size={14} />
+            </button>
           )}
         </span>
       )}

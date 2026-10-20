@@ -65,6 +65,7 @@ function row(title: string, listId: string | null): TodoTask {
     id: 'created', title, description: '', status: 'todo', priority: 'medium',
     dueAt: null, remindAt: null, completedAt: null, createdAt: 0, updatedAt: 0,
     listId, tags: [], starred: false, repeat: null, remindedAt: null,
+    plannedFor: null,
     noteId: null, conversationId: null, projectId: null, stepTotal: 0, stepDone: 0,
   }
 }

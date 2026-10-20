@@ -1074,6 +1074,14 @@ export const api = {
     /** `next` is present when the patch finished a repeating task and it filed the next occurrence. */
     update: (id: string, body: Record<string, unknown>) =>
       request<{ task: TodoTask, next?: TodoTask }>(`/api/todos/${id}`, { method: 'PATCH', body }),
+    /**
+     * Picks a task into a day, or takes it back out with `null`.
+     *
+     * The day is an account-zone `YYYY-MM-DD`, not an instant: "planned for today" is a calendar
+     * membership that lapses on its own when the day changes, not a timestamp that has to be cleared.
+     */
+    plan: (id: string, date: string | null) =>
+      request<{ task: TodoTask }>(`/api/todos/${id}/plan`, { method: 'POST', body: { date } }),
     remove: (id: string) => request<{ deleted: true }>(`/api/todos/${id}`, { method: 'DELETE' }),
 
     /**

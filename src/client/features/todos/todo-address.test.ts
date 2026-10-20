@@ -37,9 +37,13 @@ describe('the to-do address grammar', () => {
   })
 
   it('names a smart view by the word the container answers to', () => {
+    expect(parseTodoAddress('/todo', 'view=today')).toMatchObject({ view: 'today', listId: null, tagId: null })
     expect(parseTodoAddress('/todo', 'view=plan')).toMatchObject({ view: 'plan', listId: null, tagId: null })
     expect(parseTodoAddress('/todo', 'view=starred')).toMatchObject({ view: 'starred' })
     expect(parseTodoAddress('/todo', 'view=completed')).toMatchObject({ view: 'completed' })
+    // The one spelling this app writes for its own screen.
+    expect(writeTodoSearch({ view: 'today', listId: null, tagId: null, query: '', sort: null, dueFrom: null, dueTo: null }))
+      .toBe('view=today')
   })
 
   it('names a list or a tag by its own parameter, which is what makes the view implicit', () => {
@@ -98,6 +102,7 @@ describe('the to-do address grammar', () => {
   it('round-trips: a shape written and read again is the shape it started as', () => {
     const shapes = [
       { view: 'board' as const, listId: null, tagId: null, query: '', sort: null, dueFrom: null, dueTo: null },
+      { view: 'today' as const, listId: null, tagId: null, query: '', sort: null, dueFrom: null, dueTo: null },
       { view: 'plan' as const, listId: null, tagId: null, query: 'tax', sort: 'priority' as const, dueFrom: null, dueTo: null },
       { view: 'list' as const, listId: 'work', tagId: null, query: '', sort: null, dueFrom: '2026-10-01T00:00', dueTo: '2026-10-31T00:00' },
       { view: 'tag' as const, listId: null, tagId: 'errands', query: 'a b', sort: 'created' as const, dueFrom: null, dueTo: null },

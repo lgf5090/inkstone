@@ -8,7 +8,7 @@
  */
 
 import { useEffect, useRef, useState } from 'react'
-import { ChartNoAxesColumn, ListChecks, Plus, Search, Settings2 } from 'lucide-react'
+import { ChartNoAxesColumn, ListChecks, Plus, Search, Settings2, Sun } from 'lucide-react'
 import { cn } from '../../lib/cn'
 import { t } from '../../lib/i18n'
 import { IS_DEMO_MODE } from '../../lib/runtime'
@@ -144,6 +144,20 @@ export function TodosApp() {
           /* A finger's height: on a phone this is the only way to reach a search at all. */
           <IconButton label={t('todo.action.search')} size="sm" className="size-11" onClick={() => setSearchOpen(true)}>
             <Search size={15} />
+          </IconButton>
+        )}
+        {/* "My Day" is the fifth surface, and the phone's bottom bar has four tabs already: it is
+            reached here, from any view, the same way statistics is. */}
+        {!wide && (
+          <IconButton
+            label={t('todo.view.today')}
+            size="sm"
+            className="size-11"
+            active={view === 'today'}
+            data-today-entry=""
+            onClick={() => { setPage('main'); setView('today') }}
+          >
+            <Sun size={15} />
           </IconButton>
         )}
         {/* The statistics screen is a fifth surface, and a fourth phone tab would be one too many:

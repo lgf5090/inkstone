@@ -44,7 +44,7 @@ import {
   type TodoViewSelection,
 } from './todo-address'
 
-export type TodoView = 'board' | 'plan' | 'starred' | 'completed' | 'list' | 'tag' | 'stats'
+export type TodoView = 'board' | 'today' | 'plan' | 'starred' | 'completed' | 'list' | 'tag' | 'stats'
 
 /** What the editor is open on: an existing task, or a draft for a new one. */
 export interface TaskDraft {
@@ -136,6 +136,10 @@ interface TodosState {
   toggleTask: (task: TodoTask) => Promise<void>
   removeTask: (id: string) => Promise<boolean>
   restoreTask: (snapshot: TaskDraft) => Promise<void>
+  /** Pick a task into an account-zone day, or clear the pick with `null`; re-reads the listing after. */
+  planTask: (id: string, date: string | null) => Promise<TodoTask | null>
+  /** Open tasks matching a title search, for the today screen's picker. Errors are reported, not thrown. */
+  searchTasks: (query: string) => Promise<TodoTask[]>
 
   createList: (input: { name: string; icon?: string | null; color?: string | null }) => Promise<TaskList | null>
   updateList: (id: string, patch: { name?: string; icon?: string | null; color?: string | null }) => Promise<TaskList | null>
@@ -245,11 +249,20 @@ const PAGE_SIZE = 100
 const SEARCH_DEBOUNCE_MS = 250
 
 /** The server-side view each aggregate screen reads. A list or a tag names its own collection instead. */
-const SERVER_VIEWS: Record<'board' | 'plan' | 'starred', string> = {
+const SERVER_VIEWS: Record<'board' | 'today' | 'plan' | 'starred', string> = {
   board: 'open',
+  today: 'today',
   plan: 'today',
   starred: 'starred',
 }
+
+/**
+ * How many candidate rows the today screen's picker asks for.
+ *
+ * Eight is about what fits under the field without turning a picker into a second listing; a reader
+ * who does not see the task narrows the words rather than scrolling.
+ */
+const PICKER_LIMIT = 8
 
 type ListingParams = Parameters<typeof api.todos.list>[0]
 
@@ -686,6 +699,45 @@ export const useTodos = create<TodosState>((set, get) => ({
   restoreTask: async (snapshot) => {
     const restored = await get().createTask(snapshot)
     if (restored) useUi.getState().toast({ title: t('todo.toast.restored'), tone: 'success' })
+  },
+
+  /**
+   * Pick a task into today, or take it back out.
+   *
+   * The pick is a write like any other, so the listing is asked for again rather than patched here:
+   * a row that leaves today because its plan was cleared and a row that enters it because of one are
+   * the same question, and the server already answers it. The task's own answer is returned so the
+   * caller can tell a landed pick from a refused one.
+   */
+  planTask: async (id, date) => {
+    try {
+      const { task } = await api.todos.plan(id, date)
+      await get().load()
+      return task
+    } catch (error) {
+      toastError(error)
+      return null
+    }
+  },
+
+  /**
+   * The picker's search: open tasks whose title (or note, or tag) says what the reader typed.
+   *
+   * A read on its own, not the page's listing: the picker is looking across the whole shelf while the
+   * page behind it stays scoped to today. A failure is reported through the same toast every other
+   * failed read uses and answers with nothing, so the field stays usable rather than throwing inside
+   * an effect.
+   */
+  searchTasks: async (query) => {
+    const text = query.trim()
+    if (!text) return []
+    try {
+      const page = await api.todos.list({ view: 'open', q: text, limit: PICKER_LIMIT })
+      return page.tasks
+    } catch (error) {
+      toastError(error)
+      return []
+    }
   },
 
   createList: async (input) => {

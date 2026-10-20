@@ -11,6 +11,9 @@ import { UPCOMING_DAYS, type TaskPriority, type TodoTask } from '@shared/todos/m
 
 export type PlanGroupKey = 'overdue' | 'today' | 'upcoming' | 'later' | 'none'
 
+/** The three reasons a row is in "today", which is also the order the screen reads them in. */
+export type TodayGroupKey = 'planned' | 'today' | 'overdue'
+
 export interface TaskGroup<K extends string = string> {
   key: K
   tasks: TodoTask[]
@@ -52,6 +55,31 @@ export function groupByPlan(tasks: readonly TodoTask[], bounds: { dayEnd: number
     else groups.later.push(task)
   }
   return (['overdue', 'today', 'upcoming', 'later', 'none'] as const)
+    .map((key) => ({ key, tasks: groups[key].sort(compareTasks) }))
+    .filter((group) => group.tasks.length > 0)
+}
+
+/**
+ * The today screen's three groups.
+ *
+ * A row is filed under the first reason it is here: picked for today, then due today (or an
+ * in-progress task with no date, which the server also counts as today), then overdue. Planned comes
+ * first on purpose — that group is the one whose rows carry "remove from today", and a task that was
+ * both picked and due today belongs with the pick so removing it moves it to the due group rather
+ * than leaving it in place under a button that did nothing.
+ */
+export function groupToday(
+  tasks: readonly TodoTask[],
+  bounds: { dayEnd: number; now: number; today: string },
+): TaskGroup<TodayGroupKey>[] {
+  const groups: Record<TodayGroupKey, TodoTask[]> = { planned: [], today: [], overdue: [] }
+  for (const task of tasks) {
+    if (task.status === 'done') continue
+    if (task.plannedFor === bounds.today) groups.planned.push(task)
+    else if (task.dueAt !== null && task.dueAt < bounds.now) groups.overdue.push(task)
+    else groups.today.push(task)
+  }
+  return (['planned', 'today', 'overdue'] as const)
     .map((key) => ({ key, tasks: groups[key].sort(compareTasks) }))
     .filter((group) => group.tasks.length > 0)
 }

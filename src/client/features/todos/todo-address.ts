@@ -53,7 +53,7 @@ export function taskIdFromNotificationLink(link: string | null | undefined): str
 }
 
 /** The views the container draws, which is what a `view=` parameter can name. */
-export const TODO_VIEWS: readonly TodoView[] = ['board', 'plan', 'starred', 'completed', 'list', 'tag', 'stats']
+export const TODO_VIEWS: readonly TodoView[] = ['board', 'today', 'plan', 'starred', 'completed', 'list', 'tag', 'stats']
 
 /** The orders a `sort=` parameter may name, which are the ones the route reads. */
 export const TODO_SORTS: readonly TaskSort[] = TASK_SORTS

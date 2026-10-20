@@ -10,15 +10,17 @@
  * way back home from an aggregate view, while the sidebar labels the board "All" and puts the starred
  * list above it. Each surface therefore names its own label per nav, and one that only earns a badge on
  * the phone (`plan`, whose count is today's work) says so — a badge on every sidebar row would be three
- * numbers the reader did not ask for.
+ * numbers the reader did not ask for. Since "My Day" arrived, the sidebar's today badge is the one
+ * number for both "picked for today" and "due by today", and the plan row beside it carries none.
  */
 import type { ComponentType, ReactNode } from 'react'
-import { CalendarDays, ChartNoAxesColumn, CheckCircle2, LayoutGrid, Star } from 'lucide-react'
+import { CalendarDays, ChartNoAxesColumn, CheckCircle2, LayoutGrid, Star, Sun } from 'lucide-react'
 import type { TaskCounts } from '@shared/todos/model'
 import type { MessageKey } from '../../../lib/i18n'
 import { useTodos, type TodoView } from '../store'
 import { BoardView } from '../BoardView'
 import { CompletedView, ListTaskView, PlanView, StarredView } from '../TaskViews'
+import { TodayView } from '../TodayView'
 import { ListsView } from '../ListsView'
 import { StatsView } from '../StatsView'
 
@@ -45,23 +47,30 @@ const NONE = (): number => 0
 
 export const TODO_SURFACES: readonly TodoSurface[] = [
   {
+    view: 'today',
+    icon: Sun,
+    // The one row that answers "what am I doing today": the badge counts the page it opens.
+    sidebar: { order: 1, labelKey: 'todo.view.today', badge: (counts) => counts?.today ?? 0 },
+    render: () => <TodayView />,
+  },
+  {
     view: 'board',
     icon: LayoutGrid,
-    sidebar: { order: 3, labelKey: 'todo.smart.all', badge: (counts) => counts?.all ?? 0 },
+    sidebar: { order: 4, labelKey: 'todo.smart.all', badge: (counts) => counts?.all ?? 0 },
     phone: { order: 1, labelKey: 'todo.view.board' },
     render: ({ onOpenList }) => <BoardView onOpenList={onOpenList} />,
   },
   {
     view: 'starred',
     icon: Star,
-    sidebar: { order: 1, labelKey: 'todo.view.starred', badge: (counts) => counts?.starred ?? 0 },
+    sidebar: { order: 2, labelKey: 'todo.view.starred', badge: (counts) => counts?.starred ?? 0 },
     phone: { order: 2, labelKey: 'todo.view.starred' },
     render: () => <div className="no-scrollbar min-h-0 flex-1 overflow-y-auto"><StarredView /></div>,
   },
   {
     view: 'plan',
     icon: CalendarDays,
-    sidebar: { order: 2, labelKey: 'todo.view.plan', badge: (counts) => counts?.today ?? 0 },
+    sidebar: { order: 3, labelKey: 'todo.view.plan' },
     // The one number a phone's nav carries: today's work is the reason the plan tab is pressed.
     phone: { order: 3, labelKey: 'todo.view.plan', badge: (counts) => counts?.today ?? 0 },
     render: () => <div className="no-scrollbar min-h-0 flex-1 overflow-y-auto"><PlanView /></div>,
@@ -69,7 +78,7 @@ export const TODO_SURFACES: readonly TodoSurface[] = [
   {
     view: 'completed',
     icon: CheckCircle2,
-    sidebar: { order: 4, labelKey: 'todo.smart.completed', badge: (counts) => counts?.completed ?? 0 },
+    sidebar: { order: 5, labelKey: 'todo.smart.completed', badge: (counts) => counts?.completed ?? 0 },
     phone: { order: 4, labelKey: 'todo.view.completed' },
     render: () => <CompletedView />,
   },
@@ -78,7 +87,7 @@ export const TODO_SURFACES: readonly TodoSurface[] = [
     icon: ChartNoAxesColumn,
     // A wide window has room for a fifth row. A phone's bottom bar does not: four tabs are what a
     // thumb can reach, so the phone reaches this screen from the header instead.
-    sidebar: { order: 5, labelKey: 'todo.view.stats' },
+    sidebar: { order: 6, labelKey: 'todo.view.stats' },
     render: () => <div className="no-scrollbar min-h-0 flex-1 overflow-y-auto"><StatsView /></div>,
   },
 ]

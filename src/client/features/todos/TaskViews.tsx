@@ -24,7 +24,7 @@ import type { TodoTask } from '@shared/todos/model'
  * A view still decides which group a row belongs to, but when the reader chose an order the order
  * inside a group is that choice; sorting the group again here would quietly overrule it.
  */
-function inServerOrder(groups: TaskGroup[], tasks: readonly TodoTask[]): TaskGroup[] {
+export function inServerOrder(groups: TaskGroup[], tasks: readonly TodoTask[]): TaskGroup[] {
   const position = new Map(tasks.map((task, index) => [task.id, index]))
   return groups.map((group) => ({
     key: group.key,
@@ -32,10 +32,20 @@ function inServerOrder(groups: TaskGroup[], tasks: readonly TodoTask[]): TaskGro
   }))
 }
 
-function GroupedTaskList({ groups, label, empty }: {
+/**
+ * The grouped list every reading view draws.
+ *
+ * `onUnplan` is the today screen's own row action: the other views have no plan to take a task out
+ * of, so they pass nothing and the card draws no such button. `canUnplan` narrows it further, because
+ * a row can be in today for its due date and still carry a plan for some other day — clearing that
+ * plan would not take it off this screen, and a button that does nothing is worse than no button.
+ */
+export function GroupedTaskList({ groups, label, empty, onUnplan, canUnplan }: {
   groups: TaskGroup[]
   label: (key: string) => string
   empty: { title: string; description: string }
+  onUnplan?: (task: TodoTask) => void
+  canUnplan?: (task: TodoTask) => boolean
 }) {
   const lists = useTodos((state) => state.lists)
   const dayEnd = useTodos((state) => state.dayEnd)
@@ -75,6 +85,7 @@ function GroupedTaskList({ groups, label, empty }: {
                   timezone={timezone}
                   onOpen={() => openEditor({ id: task.id })}
                   onStar={() => { void updateTask(task.id, { starred: !task.starred }) }}
+                  {...(onUnplan && (!canUnplan || canUnplan(task)) ? { onUnplan: () => onUnplan(task) } : {})}
                 />
               ))}
             </div>
@@ -236,6 +247,7 @@ export function useViewTitle(): string {
   const tags = useTodos((state) => state.tags)
   if (view === 'list') return listId === 'inbox' ? t('todo.smart.inbox') : lists.find((list) => list.id === listId)?.name ?? t('todo.view.list')
   if (view === 'tag') return tags.find((tag) => tag.id === tagId)?.name ?? t('todo.view.tag')
+  if (view === 'today') return t('todo.view.today')
   if (view === 'plan') return t('todo.view.plan')
   if (view === 'starred') return t('todo.view.starred')
   if (view === 'completed') return t('todo.view.completed')
