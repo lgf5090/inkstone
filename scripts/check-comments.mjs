@@ -10432,6 +10432,19 @@ const allowed = new Map([
   ["src/client/features/subscriptions/LogsView.tsx", [
     "/**\n * What was sent, and what the sweep did.\n *\n * The two halves answer different questions and are deliberately on one screen: \"did this channel\n * deliver that message\" is the delivery log, and \"did the sweep run at all\" is the schedule log. A\n * reader whose reminders stopped needs the second the moment the first is empty — a page that only\n * listed deliveries would show nothing and explain nothing.\n */",
   ]],
+  ["src/client/features/subscriptions/LunarDateButton.tsx", [
+    "/**\n * Picking a date by its lunar calendar name.\n *\n * The form's date field is the browser's own, which is the right control for a Gregorian date — it is\n * keyboard accessible, it is what a phone gives you, and it localises itself. What it cannot do is let a\n * reader name a month by its lunar sequence, which is how a birthday or an anniversary is actually\n * remembered for half the accounts this app serves. So the native field stays and this sits beside it.\n *\n * The day list is rebuilt from the month, not fixed at thirty: a lunar month is 29 or 30 days depending\n * on the year, and the thirtieth of the last month does not exist in most of them. Offering a day that\n * cannot be converted is how a reader ends up with a date that silently means something else.\n */",
+    "/** Years the picker opens with: a decade either side of today, with the full table behind a scroll. */",
+    "/** The solar date currently in the field, as YYYY-MM-DD. */",
+    "// Opening reads the field it sits beside, so the lunar date on screen is the one already chosen",
+    "// rather than wherever the control was left after the last subscription.",
+    "/**\n * The month list's own marker for a leap month.\n *\n * A leap month takes the number of the month it follows, so the plain second month and the leap second\n * month are two different dates wearing the same number — which is why they are two options rather than a\n * list plus a checkbox. The checkbox shape let a reader mark \"leap\" against a month that has none, and the\n * only honest answer to that combination was a picker that refuses to fill anything.\n */",
+    "// A month that has no leap of its own, or a day the shorter month lost, must not linger selected:",
+    "// moving the year is allowed to drop a choice, but not to leave one on screen that means nothing.",
+    "// The leap month is listed where it falls in the sequence rather than pinned to the top,",
+    "// so counting down the list lands on the month a reader is looking for.",
+    "/**\n * The panel's width, and the three columns inside it.\n *\n * The month column gets the flexible space because a leap month is named with three characters — the\n * leap marker (U+95F0) plus the two of the month it follows. At an equal three-column split the panel\n * clipped that name to two characters at exactly the year where it is the only correct answer. Year and\n * day only ever hold four digits or two characters, so they are pinned.\n */",
+  ]],
   ["src/client/features/subscriptions/OverviewView.tsx", [
     "/**\n * The dashboard: what this costs, what is about to renew, and whether the reminders are running.\n *\n * The four cards answer the questions a reader opens the app with, in the order they ask them. The bar\n * chart is six months of receipts rather than a projection, because a subscription app's whole value is\n * knowing what was actually charged. Every bar is a plain box with a height — a charting library would\n * be a second rendering stack for six rectangles, and it would draw on a canvas a screen reader cannot\n * read.\n */",
   ]],
@@ -10496,6 +10509,17 @@ const allowed = new Map([
     "/** What the rail prints beside each view, counted off the same rows the list draws. */",
     "/** How many subscriptions name each category, for the rail's category list. */",
     "/** Everything the list shows for one filter, in one call. */",
+  ]],
+  ["src/client/features/subscriptions/lunar-date-button.test.ts", [
+    "// Keys, not labels: the catalog is only loaded once `initI18n` resolves, so a label read at module scope",
+    "// would be the key itself and every selector built from it would find nothing.",
+    "/** The solar date on screen, in the form the native field beside this one takes. */",
+    "// Two readings of \"month two\" are a month apart in the solar calendar, so they cannot share an option.",
+    "// 2024 has no leap month. The choice has to go on its own; a picker stuck on an impossible combination",
+    "// would show a date it can never write.",
+    "/**\n * The lunar date picker that sits beside the form's native date field.\n *\n * The almanac table behind it is proved on its own in `tests/subscriptions-lunar.test.ts`; what is proved\n * here is the promise the control makes on top of that table: it never offers a day the table refuses, and\n * what it writes back is the day it is showing.\n *\n * Two facts outside this codebase anchor the fixtures, because a test that only re-reads the table would\n * pass even if the table were wrong. 2024-02-10 is the first day of the lunar year that begins in 2024,\n * published anywhere, and that year's first month has 29 days — so a thirtieth does not exist to be\n * picked. 2023-03-22 is the first day of that year's leap second month, which is the one case where a\n * month number names two different solar dates.\n */",
+    "// The first month of the 2024 lunar year has 29 days. A list that ran to thirty would offer a date no",
+    "// month has.",
   ]],
   ["src/client/features/subscriptions/store.ts", [
     "/**\n * The subscription app's state, and the only place it is written.\n *\n * Two rules shape it. A mutation never guesses what the server did — every write answers with the\n * subscription it produced, and that answer replaces the row in place, so a screen and a database\n * cannot disagree about a date the server rolled forward. And a write that moves money reloads the\n * bundle instead of patching the overview by hand: the dashboard's totals are a year of receipts\n * aggregated in the account's time zone, and a second implementation of that arithmetic in the browser\n * is a second answer waiting to be wrong.\n */",
