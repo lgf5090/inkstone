@@ -16,15 +16,20 @@
  * without a reminder of its own.
  */
 import { useEffect, useId, useMemo, useState } from 'react'
-import type { AssistantSettings } from '@shared/assistant'
+import type { AssistantSettings, Automation } from '@shared/assistant'
 import { isValidTimeZone } from '@shared/assistant-schedule'
 import { REMIND_OFFSETS, type RemindOffset } from '@shared/todos/model'
 import { t, translateApiError } from '../../lib/i18n'
 import { api, ApiError } from '../../lib/api'
 import { Button } from '../../components/primitives'
-import { Select, SettingRow } from '../../components/form'
+import { Input, Select, SettingRow, Switch } from '../../components/form'
 import { LoadingBlock } from '../../components/feedback'
 import { useSession } from '../../store/session'
+
+/** The hour a daily plan starts at before the reader picks one: the same default the chat's editor offers. */
+const DEFAULT_DIGEST_TIME = '09:00'
+/** `HH:MM`, 24h — the wall clock a `daily` automation carries. */
+const TIME_OF_DAY = /^([01]\d|2[0-3]):[0-5]\d$/
 
 /** What a failed read or write says to the reader: the code the server named when it has one. */
 function describeError(cause: unknown): string {
@@ -36,8 +41,14 @@ export function TodoSettings() {
   const [settings, setSettings] = useState<AssistantSettings | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
+  const [digest, setDigest] = useState<Automation | null>(null)
+  const [digestTime, setDigestTime] = useState(DEFAULT_DIGEST_TIME)
+  const [digestState, setDigestState] = useState<'loading' | 'ready' | 'failed'>('loading')
+  const [digestError, setDigestError] = useState<string | null>(null)
+  const [digestBusy, setDigestBusy] = useState(false)
   const zoneId = useId()
   const remindId = useId()
+  const digestHintId = useId()
   const browserZone = Intl.DateTimeFormat().resolvedOptions().timeZone
   const defaultRemind = useSession((state) => state.settings.todo.defaultRemind)
   const updateSettings = useSession((state) => state.updateSettings)
@@ -48,6 +59,36 @@ export function TodoSettings() {
       .then((answer) => { if (wanted) { setSettings(answer.settings); setError(null) } })
       .catch((cause: unknown) => { if (wanted) setError(describeError(cause)) })
     return () => { wanted = false }
+  }, [])
+
+  /**
+   * The daily plan is the assistant's own `task_digest` routine, read as the automation it is.
+   *
+   * The settings page cannot keep a second schedule of its own: the worker fires the automation, and a
+   * page that stored "09:00" somewhere else would be a second answer to when the digest runs. A failed
+   * read is told apart from an absent routine — the switch stays disabled until the list has answered,
+   * because "no digest" and "could not ask" would otherwise both look like an off switch that creates one.
+   */
+  const loadDigest = async (): Promise<void> => {
+    setDigestState('loading')
+    try {
+      const { automations } = await api.assistant.automations()
+      const found = automations.find((entry) => entry.kind === 'task_digest') ?? null
+      setDigest(found)
+      const stored = found?.schedule.time
+      if (stored && TIME_OF_DAY.test(stored)) setDigestTime(stored)
+      setDigestError(null)
+      setDigestState('ready')
+    } catch (cause) {
+      setDigestError(describeError(cause))
+      setDigestState('failed')
+    }
+  }
+
+  useEffect(() => {
+    // Once per visit: a routine the reader edits in the chat while this page is open is re-read by the
+    // retry, and a background poll here would fight that editor for no visible gain.
+    void loadDigest()
   }, [])
 
   const zones = useMemo(() => {
@@ -73,6 +114,57 @@ export function TodoSettings() {
 
   function saveDefaultRemind(offset: RemindOffset): void {
     updateSettings({ todo: { defaultRemind: offset === 'none' ? null : offset } })
+  }
+
+  /**
+   * Turns the daily plan on or off on the automation the worker already fires.
+   *
+   * There is no digest yet — the first press creates the routine the chat's own editor would create:
+   * a `task_digest` at the chosen wall time, with no model behind it. Every later press is a PATCH, so
+   * the row never ends up with two routines that both notify at nine.
+   */
+  async function saveDigestEnabled(next: boolean): Promise<void> {
+    if (!digest && !next) return
+    setDigestBusy(true)
+    try {
+      if (!digest) {
+        const answer = await api.assistant.createAutomation({
+          name: t('settings.todo_digest'),
+          kind: 'task_digest',
+          message: '',
+          schedule: { type: 'daily', time: digestTime },
+          enabled: true,
+        })
+        setDigest(answer.automation)
+      } else {
+        const answer = await api.assistant.updateAutomation(digest.id, { enabled: next })
+        setDigest(answer.automation)
+      }
+      setDigestError(null)
+    } catch (cause) {
+      setDigestError(describeError(cause))
+    } finally {
+      setDigestBusy(false)
+    }
+  }
+
+  /** Writes the picked wall time as a daily schedule; the worker arms it in the account's own zone. */
+  async function saveDigestTime(next: string): Promise<void> {
+    setDigestTime(next)
+    if (!TIME_OF_DAY.test(next) || !digest) return
+    setDigestBusy(true)
+    try {
+      const answer = await api.assistant.updateAutomation(digest.id, { schedule: { type: 'daily', time: next } })
+      setDigest(answer.automation)
+      setDigestError(null)
+    } catch (cause) {
+      setDigestError(describeError(cause))
+      // The field goes back to what is stored, so a refused write cannot look like a saved one.
+      const stored = digest.schedule.time
+      if (stored && TIME_OF_DAY.test(stored)) setDigestTime(stored)
+    } finally {
+      setDigestBusy(false)
+    }
   }
 
   if (!settings && !error) return <LoadingBlock />
@@ -113,6 +205,40 @@ export function TodoSettings() {
           </div>
         </SettingRow>
       )}
+      <SettingRow
+        title={t('settings.todo_digest')}
+        description={(
+          <div className="flex flex-col gap-1">
+            <span id={digestHintId}>
+              {t('settings.todo_digest_hint', { zone: settings?.timezone ?? browserZone })}
+            </span>
+            {digestError && <span role="alert" className="text-[var(--danger)]">{digestError}</span>}
+          </div>
+        )}
+      >
+        <div className="flex items-center gap-2">
+          {digestState === 'failed' && (
+            <Button size="sm" variant="ghost" disabled={digestBusy} onClick={() => void loadDigest()}>
+              {t('common.retry')}
+            </Button>
+          )}
+          <Input
+            type="time"
+            aria-label={t('settings.todo_digest_time')}
+            aria-describedby={digestHintId}
+            value={digestTime}
+            disabled={digestBusy || digestState !== 'ready'}
+            onChange={(event) => void saveDigestTime(event.target.value)}
+            className="w-[132px]"
+          />
+          <Switch
+            checked={digest?.enabled ?? false}
+            disabled={digestBusy || digestState !== 'ready'}
+            label={t('settings.todo_digest')}
+            onChange={(next) => void saveDigestEnabled(next)}
+          />
+        </div>
+      </SettingRow>
       <SettingRow
         title={t('settings.todo_default_remind')}
         description={t('settings.todo_default_remind_hint')}
