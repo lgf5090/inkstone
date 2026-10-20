@@ -1722,9 +1722,9 @@ const allowed = new Map([
     "/* The conversation's resources — links, files, tools and drafts — in the slot beside the\n                thread. It follows the calendar of the open conversation, not the account. */",
     "// The workspace's layout is this thread's: switching conversations puts the previous thread's panes",
     "// away and brings the new thread's own arrangement back.",
-    "// Beside the money app the notebook's pointers name a document the reader is not looking at, so the",
-    "// strip carries the plan they opened instead. Mutating the list rather than returning early keeps every",
-    "// hook above on the same path.",
+    "// Beside the money app the notebook's pointers name a document the reader is not looking at, so nothing",
+    "// of ours is drawn here; the dock draws the plan the reader opened. Mutating the list rather than",
+    "// returning early keeps every hook above on the same path.",
   ]],
   ["src/client/features/chat/ComposerControls.tsx", [
     "/** The token count, spelled the way the reference's slider spells it: 32K, 128K, 262K. */",
