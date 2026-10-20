@@ -231,6 +231,7 @@ export class EmojiTaskSerializer implements TaskSerializer {
     for (const field of WRITE_ORDER) {
       const date = fields[field]
       if (date === null) continue
+      if (field === 'scheduledDate' && options.scheduledDateIsInferred === true) continue
       const symbol = EMOJI_SYMBOLS[field].write
       const broken = fields.invalidDates[field]
       // An unreadable date goes back exactly as it was found rather than dropped or "fixed", so the

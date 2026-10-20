@@ -68,4 +68,10 @@ export interface SerializeOptions {
   shortMode?: boolean
   /** Components the reader chose to hide, which must not come back on the next write. */
   hiddenComponents?: string[]
+  /**
+   * True when `scheduledDate` was inferred from the note's filename rather than written by the
+   * reader. An inferred date is never serialised: doing so would stamp a date onto the note that
+   * nobody typed, and it would then survive even after the reader turned the feature off.
+   */
+  scheduledDateIsInferred?: boolean
 }
