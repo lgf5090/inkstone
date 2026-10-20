@@ -302,6 +302,19 @@ describe('the answers use the model, not a second copy of it', () => {
     expect(await store.listTasks({ view: 'all' })).toHaveLength(0)
   })
 
+  it('refuses a literal 301-character title, so the tool schema cannot be looser than the model', async () => {
+    await switchPreferences(true, false)
+    const outcome = await callTool(WRITE, 'create_todo', {
+      operation_id: 'op-title-301-literal',
+      title: 'x'.repeat(301),
+    })
+    expect(outcome.ok).toBe(false)
+    // 301 is spelled out rather than derived: this case must go red if the schema or the model constant is
+    // raised, while the case above follows whatever number the model publishes.
+    expect(JSON.stringify(outcome.body)).toContain(String(MAX_TASK_TITLE_CHARS))
+    expect(await store.listTasks({ view: 'all' })).toHaveLength(0)
+  })
+
   it('reads a bare due date as the end of the reader local day, the way the HTTP route does', async () => {
     await switchPreferences(true, false)
     const outcome = await callTool(WRITE, 'create_todo', {
