@@ -24,6 +24,7 @@ import { mergeSettings } from '@shared/constants'
 import { localDate, localDayBounds, parseLocalTime } from '@shared/assistant-time'
 import { organizerColorOrNull } from '@shared/organizer-colors'
 import {
+  MAX_BATCH_TASKS,
   MAX_LIST_NAME_CHARS,
   MAX_REMINDERS_PER_TASK,
   MAX_STEP_TEXT_CHARS,
@@ -32,6 +33,7 @@ import {
   MAX_TASKS_PER_QUERY,
   REMIND_OFFSETS,
   isSnoozeMinutes,
+  isTaskBatchOp,
   isTaskSort,
   isTaskStatsBucket,
   isTaskView,
@@ -260,6 +262,38 @@ function tagNames(value: unknown): string[] | undefined {
   return normalizeTagNames(value).slice(0, MAX_TAGS_PER_TASK)
 }
 
+/**
+ * The ids a batch names: one to a hundred strings, in the order given, each once.
+ *
+ * A repeated id is one task, and completing or deleting it twice is not what the caller meant. The
+ * ceiling is measured before deduplication, so a request that names 101 copies of one id is refused
+ * rather than quietly answered — the limit is about what the client sent, not about what survived.
+ */
+function batchIds(value: unknown): string[] {
+  if (!Array.isArray(value) || value.length === 0) {
+    throw ApiError.badRequest('A batch needs at least one task id.')
+  }
+  if (value.length > MAX_BATCH_TASKS) {
+    throw ApiError.badRequest(`A batch may name at most ${MAX_BATCH_TASKS} tasks.`)
+  }
+  const ids: string[] = []
+  const seen = new Set<string>()
+  for (const entry of value) {
+    if (typeof entry !== 'string') throw ApiError.badRequest('Each task id must be text.')
+    if (seen.has(entry)) continue
+    seen.add(entry)
+    ids.push(entry)
+  }
+  return ids
+}
+
+/** The flag a star batch sets. Absent means "star them", which is the gesture the bar offers. */
+function batchStarValue(value: unknown): boolean {
+  if (value === undefined || value === null || value === true || value === 'true') return true
+  if (value === false || value === 'false') return false
+  throw ApiError.badRequest('A star batch takes true or false.')
+}
+
 function colorValue(value: unknown): string | null | undefined {
   if (value === undefined) return undefined
   if (value === null || value === '') return null
@@ -390,6 +424,115 @@ todoRoutes.get('/stats', async (c) => {
     now: Date.now(),
   })
   return c.json(stats)
+})
+
+/**
+ * One change applied to every task the caller picked.
+ *
+ * A batch is not a transaction: the rows that can change do, and the rows that cannot are named with
+ * the reason they did not. That is what lets a selection survive a row another tab finished and a
+ * stale id: a 200 that says ninety-nine changed and one was gone is a more useful answer than a 409
+ * that leaves the reader guessing which. Ids are scoped by the store, so another account's id is
+ * `not found` here exactly as it is on the single-task routes; the answer never says whether it exists
+ * somewhere else.
+ *
+ * The write bucket counts the call once, through the middleware every other write already passes: a
+ * batch is one gesture from the client, and a second, unmetered door for it is how a batch becomes a
+ * bypass. The work inside is bounded by `MAX_BATCH_TASKS`.
+ */
+todoRoutes.post('/batch', async (c) => {
+  const s = store(c)
+  const settings = await s.getSettings()
+  const body = await readJson<Record<string, unknown>>(c, BODY_LIMIT)
+  if (!isTaskBatchOp(body.op)) {
+    throw ApiError.badRequest('A batch operation must be complete, delete, move, priority, star or tag.')
+  }
+  const op = body.op
+  const ids = batchIds(body.ids)
+  // The target is validated once, before any row changes: a list that does not exist is a bad request
+  // about the batch, not a failure of each row inside it.
+  let moveListId: string | null = null
+  let priority: TaskPriority = 'medium'
+  let starred = true
+  let tagAdd: string[] = []
+  switch (op) {
+    case 'move':
+      if (body.value === undefined) throw ApiError.badRequest('A move needs a list id, or null for the inbox.')
+      moveListId = await listRef(s, body.value)
+      break
+    case 'priority':
+      priority = asPriority(body.value)
+      break
+    case 'star':
+      starred = batchStarValue(body.value)
+      break
+    case 'tag':
+      if (typeof body.value !== 'string' && !Array.isArray(body.value)) {
+        throw ApiError.badRequest('Tags must be a list of names.')
+      }
+      tagAdd = normalizeTagNames(body.value)
+      if (!tagAdd.length) throw ApiError.badRequest('A tag batch needs at least one tag name.')
+      break
+    default:
+      break
+  }
+
+  const done: string[] = []
+  const failed: { id: string; reason: string }[] = []
+  for (const id of ids) {
+    try {
+      const existing = await s.getTask(id)
+      if (!existing) {
+        failed.push({ id, reason: 'not found' })
+        continue
+      }
+      switch (op) {
+        case 'complete':
+          // The store method, not a status column: a repeating task has to file its next occurrence,
+          // and that happens in exactly one place.
+          if (!(await s.completeTask(id, settings.timezone))) {
+            failed.push({ id, reason: 'not found' })
+            continue
+          }
+          break
+        case 'delete':
+          await s.deleteTask(id)
+          break
+        case 'move':
+          if (!(await s.updateTask(id, { listId: moveListId }))) {
+            failed.push({ id, reason: 'not found' })
+            continue
+          }
+          break
+        case 'priority':
+          if (!(await s.updateTask(id, { priority }))) {
+            failed.push({ id, reason: 'not found' })
+            continue
+          }
+          break
+        case 'star':
+          if (!(await s.updateTask(id, { starred }))) {
+            failed.push({ id, reason: 'not found' })
+            continue
+          }
+          break
+        case 'tag':
+          // `setTaskTags` replaces, so the row's own words go back in front of the new ones: the bar's
+          // action is "add a tag", not "set this row's whole vocabulary".
+          await s.setTaskTags(id, [...existing.tags.map((tag) => tag.name), ...tagAdd])
+          break
+      }
+      done.push(id)
+    } catch (error) {
+      if (!(error instanceof ApiError)) {
+        // Reported per row below; the log is what tells an operator a batch failure was the database
+        // rather than the id.
+        console.error(`[inkstone] batch ${op} failed for task ${id}:`, error)
+      }
+      failed.push({ id, reason: error instanceof Error ? error.message : 'failed' })
+    }
+  }
+  return c.json({ done, failed })
 })
 
 todoRoutes.post('/', async (c) => {

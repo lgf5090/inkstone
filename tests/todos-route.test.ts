@@ -7,7 +7,15 @@ import { errorResponse } from '../src/worker/lib/errors'
 import type { AppBindings, Env } from '../src/worker/env'
 import { todoRoutes, WRITE_BUDGET_PER_MINUTE } from '../src/worker/routes/todos'
 import { AssistantStore } from '../src/worker/assistant/store'
-import type { TaskCounts, TaskList, TaskStep, TaskTag, TodoTask } from '../src/shared/todos/model'
+import {
+  MAX_BATCH_TASKS,
+  type TaskBatchResult,
+  type TaskCounts,
+  type TaskList,
+  type TaskStep,
+  type TaskTag,
+  type TodoTask,
+} from '../src/shared/todos/model'
 import { makeD1 } from './doubles/d1-sqlite'
 import { testBindings } from './doubles/bindings'
 
@@ -218,6 +226,88 @@ describe('steps', () => {
 
     expect((await send('DELETE', `/${task.id}/steps/${added.step.id}`)).status).toBe(200)
     expect((await send('PATCH', `/${task.id}/steps/${added.step.id}`, { done: true })).status).toBe(404)
+  })
+})
+
+describe('a batch of tasks', () => {
+  // The write budget is module-wide and keyed by caller, so these cases spend a caller of their own
+  // rather than the one every later case in this file shares.
+  let caller = 0
+
+  beforeEach(() => {
+    caller += 1
+    mocks.userId = `batchroute${String(caller).padStart(14, '0')}`
+  })
+
+  it('completes each row and files the next occurrence of a repeating one', async () => {
+    const due = Date.parse('2026-10-21T02:00:00Z')
+    const weekly = await create({ title: 'Weekly report', dueAt: due, repeat: { freq: 'weekly', interval: 1 } })
+    const plain = await create({ title: 'Plain' })
+
+    const response = await send('POST', '/batch', { ids: [weekly.id, plain.id], op: 'complete' })
+    expect(response.status).toBe(200)
+    expect(await json<TaskBatchResult>(response)).toEqual({ done: [weekly.id, plain.id], failed: [] })
+
+    // The same press means the same thing here as it does on one card: the occurrence the repeat
+    // files is a real row, not a status the batch wrote by hand.
+    const open = await json<{ tasks: TodoTask[] }>(await send('GET', '?status=open'))
+    expect(open.tasks).toHaveLength(1)
+    expect(open.tasks[0]!.title).toBe('Weekly report')
+    expect(open.tasks[0]!.id).not.toBe(weekly.id)
+    expect(open.tasks[0]!.dueAt).toBe(due + 7 * 24 * 60 * 60 * 1000)
+    const finished = await json<{ tasks: TodoTask[] }>(await send('GET', '?view=completed'))
+    expect(finished.tasks.map((task) => task.id).sort()).toEqual([weekly.id, plain.id].sort())
+  })
+
+  it('keeps the rows it changed and names the ones it could not', async () => {
+    const reader = mocks.userId
+    const mine = await create({ title: 'Mine' })
+    mocks.userId = OTHER
+    const theirs = await create({ title: 'Theirs' })
+    mocks.userId = reader
+
+    const response = await send('POST', '/batch', {
+      ids: [mine.id, theirs.id, 'not-a-task'],
+      op: 'priority',
+      value: 'urgent',
+    })
+    expect(response.status).toBe(200)
+    expect(await json<TaskBatchResult>(response)).toEqual({
+      done: [mine.id],
+      failed: [
+        { id: theirs.id, reason: 'not found' },
+        { id: 'not-a-task', reason: 'not found' },
+      ],
+    })
+    expect((await json<{ task: TodoTask }>(await send('GET', `/${mine.id}`))).task.priority).toBe('urgent')
+
+    // Another account's row was not touched just because this batch could not see it.
+    mocks.userId = OTHER
+    expect((await json<{ task: TodoTask }>(await send('GET', `/${theirs.id}`))).task.priority).toBe('medium')
+  })
+
+  it('refuses more than a hundred ids, an empty list and an operation it does not know', async () => {
+    const tooMany = Array.from({ length: MAX_BATCH_TASKS + 1 }, (_, index) => `batch-task-${index}`)
+    expect((await send('POST', '/batch', { ids: tooMany, op: 'complete' })).status).toBe(400)
+    expect((await send('POST', '/batch', { ids: [], op: 'complete' })).status).toBe(400)
+    expect((await send('POST', '/batch', { ids: ['x'], op: 'archive' })).status).toBe(400)
+    expect((await send('POST', '/batch', { ids: ['x'], op: 'move' })).status).toBe(400)
+    expect((await send('POST', '/batch', { ids: ['x'], op: 'priority', value: 'someday' })).status).toBe(400)
+  })
+
+  it('moves, prioritises, stars and tags the rows it names', async () => {
+    const list = await json<{ list: TaskList }>(await send('POST', '/lists', { name: 'Work' })).then((body) => body.list)
+    const task = await create({ title: 'One', tags: ['Home'] })
+
+    expect((await send('POST', '/batch', { ids: [task.id], op: 'move', value: list.id })).status).toBe(200)
+    expect((await send('POST', '/batch', { ids: [task.id], op: 'priority', value: 'urgent' })).status).toBe(200)
+    expect((await send('POST', '/batch', { ids: [task.id], op: 'star', value: 'true' })).status).toBe(200)
+    expect((await send('POST', '/batch', { ids: [task.id], op: 'tag', value: 'Work' })).status).toBe(200)
+
+    const detail = await json<{ task: TodoTask }>(await send('GET', `/${task.id}`))
+    expect(detail.task).toMatchObject({ listId: list.id, priority: 'urgent', starred: true })
+    // Tagging adds the word instead of replacing the vocabulary the row already carried.
+    expect(detail.task.tags.map((tag) => tag.name).sort()).toEqual(['Home', 'Work'])
   })
 })
 
@@ -459,5 +549,24 @@ describe('the write budget', () => {
     // The block belongs to whoever burst, and it stands for the rest of that minute.
     mocks.userId = burst
     expect((await send('POST', '', { title: 'Still blocked' })).status).toBe(429)
+  })
+
+  it('spends one write per batch call, whatever the batch touches', async () => {
+    freshCaller()
+    const first = await createTask('One')
+    const second = await createTask('Two')
+    const third = await createTask('Three')
+    while (spent < WRITE_BUDGET_PER_MINUTE - 1) {
+      expect(spent, 'the fill is not running away').toBeLessThan(1_000)
+      expect((await write('POST', '', { title: `Filler ${spent + 1}` })).status).toBe(201)
+    }
+
+    // The batch is the minute's sixtieth spend even though it changes three rows: a batch is one call
+    // by the client, so it is one spend on the same bucket every other write already uses — not a
+    // hundred, and not an unmetered door.
+    expect((await write('POST', '/batch', {
+      ids: [first.id, second.id, third.id], op: 'priority', value: 'high',
+    })).status).toBe(200)
+    expect((await write('DELETE', `/${first.id}`)).status).toBe(429)
   })
 })

@@ -84,6 +84,44 @@ export const MAX_TASKS_PER_QUERY = 500
 /** A completed list is history: the newest page is enough to answer "what did I finish". */
 export const COMPLETED_PAGE_SIZE = 200
 
+/**
+ * The most tasks one batch may name.
+ *
+ * A batch is a gesture over a selection a person made on screen, and a hundred rows is more than one
+ * screen holds. The ceiling is also what keeps the request body inside the route's usual limit and the
+ * work behind one press bounded: a client that needs to change more than this is scripting, and a
+ * script can send two batches.
+ */
+export const MAX_BATCH_TASKS = 100
+
+/** The changes a batch can make. One operation for the whole batch, so a mixed request has no order to guess. */
+export const TASK_BATCH_OPS = ['complete', 'delete', 'move', 'priority', 'star', 'tag'] as const
+export type TaskBatchOp = (typeof TASK_BATCH_OPS)[number]
+
+export function isTaskBatchOp(value: unknown): value is TaskBatchOp {
+  return typeof value === 'string' && (TASK_BATCH_OPS as readonly string[]).includes(value)
+}
+
+/** One task a batch could not change, and the reason it was left as it was. */
+export interface TaskBatchFailure {
+  id: string
+  reason: string
+}
+
+/**
+ * What a batch answers with.
+ *
+ * Both lists are always present, because a batch is allowed to be partly true: the rows that changed
+ * are named, the rows that did not are named with their reason, and the status stays 200 either way —
+ * one account's bad id is not a server failure of the other ninety-nine. An id that names no task of
+ * this account is `not found`, exactly as the single-task routes answer it, so a refusal never tells
+ * the caller whether an id exists somewhere else.
+ */
+export interface TaskBatchResult {
+  done: string[]
+  failed: TaskBatchFailure[]
+}
+
 export interface TaskList {
   id: string
   name: string
