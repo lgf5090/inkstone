@@ -17335,6 +17335,9 @@ const allowed = new Map([
     "/**\n * Which components a query draws, and how much of each.\n *\n * `shortMode` keeps a field's symbol and drops its value, which is how a dense list still shows\n * that a task is overdue without spending a column on the date.\n */",
     "/** Components in declaration order, which is also the order they are written back in. */",
   ]],
+  ["src/client/lib/tasks/line.ts", [
+    "/**\n * The narrow seam for \"what does this task line say\".\n *\n * `index.ts` is the module's full surface and reaches the query engine, the recurrence rules and the\n * natural-language date parser. A caller that only reads a line must not pay for any of that: this\n * file is the second, deliberate entry point for that reader, and it pulls in neither `rrule` nor\n * `chrono-node`. It is a declared entry of the task module, not a deep path into its internals.\n */",
+  ]],
   ["src/client/lib/tasks/model/occurrence.ts", [
     "/**\n * The three dates a recurrence rule moves together.\n *\n * Only these three: `created`, `done` and `cancelled` describe what already happened to an\n * instance, so carrying them into the next occurrence would be rewriting history.\n */",
     "/**\n   * Whether the reader asked for the scheduled date to be dropped on each new occurrence.\n   *\n   * It changes which date the rule is anchored to, not merely which dates get written: if the\n   * scheduled date is going to be deleted anyway, anchoring to it would drift the whole series.\n   */",

@@ -1,5 +1,4 @@
-import { DataviewTaskSerializer, EmojiTaskSerializer, type TaskDateField, type TaskFields } from '../tasks'
-import { PRIORITY_NAMES, Priority } from '../tasks'
+import { DataviewTaskSerializer, EmojiTaskSerializer, PRIORITY_NAMES, Priority, type TaskDateField, type TaskFields } from '../tasks/line'
 import type { Literal } from './value'
 
 const emoji = new EmojiTaskSerializer()

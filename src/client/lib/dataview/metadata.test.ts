@@ -4,8 +4,8 @@ import {
   type NoteInput,
 } from './metadata'
 import { readTaskFields } from './task-fields'
-import { formatTaskDate } from '../tasks'
 import { DvDuration, DvLink, Values } from './value'
+import { formatTaskDate } from '../tasks/line'
 
 function input(overrides: Partial<NoteInput> = {}): NoteInput {
   return {
