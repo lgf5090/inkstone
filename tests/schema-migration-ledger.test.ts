@@ -75,3 +75,26 @@ describe('the migration ledger spends each version number once', () => {
     expect(overSpentVersions(fixed)).toEqual([])
   })
 })
+
+/**
+ * The two sort orders added after the list shipped — `sort=created` and `sort=completed` — each read a
+ * column no index led with, so every page of a long-lived account sorted its whole table. One number per
+ * index, as everywhere else: reusing a number would collapse the ledger row and hide the second index
+ * from every boot after the first.
+ */
+describe('the task sort indexes spend a number each', () => {
+  function statementsAt(version: number): string[] {
+    return SCHEMA_MIGRATIONS
+      .filter((migration) => migration.version === version)
+      .flatMap((migration) => migration.statements)
+  }
+
+  it('gives the created and completed orders one index apiece', () => {
+    expect(statementsAt(111)).toEqual([
+      expect.stringMatching(/CREATE INDEX IF NOT EXISTS idx_todos_tasks_created\s+ON todos_tasks\(user_id, created_at\)/),
+    ])
+    expect(statementsAt(112)).toEqual([
+      expect.stringMatching(/CREATE INDEX IF NOT EXISTS idx_todos_tasks_completed\s+ON todos_tasks\(user_id, completed_at\)/),
+    ])
+  })
+})

@@ -252,6 +252,25 @@ describe('a boot onto a database whose ledger lies', () => {
     expect(columns).toContain('name')
   })
 
+  it('gives an older database the two indexes its new sort orders read', async () => {
+    const sqlite = await installed()
+    // The shape a database built before versions 111 and 112 has: neither index, and neither number
+    // spent. Both sort paths order by a column only the account scopes, so the index has to exist on
+    // the left of them or every page of a long-lived account sorts its whole table.
+    sqlite.exec('DROP INDEX idx_todos_tasks_created')
+    sqlite.exec('DROP INDEX idx_todos_tasks_completed')
+    sqlite.exec('DELETE FROM schema_migrations WHERE version IN (111, 112)')
+    expect(indexesOf(sqlite)).not.toContain('idx_todos_tasks_created')
+
+    await reboot(sqlite)
+
+    expect(indexesOf(sqlite)).toContain('idx_todos_tasks_created')
+    expect(indexesOf(sqlite)).toContain('idx_todos_tasks_completed')
+    // One number per index, recorded, so the boot after this one does not replay them.
+    expect(sqlite.prepare(`SELECT version FROM schema_migrations WHERE version IN (111, 112) ORDER BY version`).all())
+      .toEqual([{ version: 111 }, { version: 112 }])
+  })
+
   it('is a no-op on a database that already matches', async () => {
     const sqlite = await installed()
     const before = tablesOf(sqlite).join(',')

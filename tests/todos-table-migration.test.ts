@@ -2,6 +2,7 @@
 import { DatabaseSync } from 'node:sqlite'
 import { describe, expect, it } from 'vitest'
 import { initializeDatabase } from '../src/worker/db/schema'
+import { TODOS_REQUIRED_INDEXES } from '../src/worker/todos/schema'
 import { makeD1 } from './doubles/d1-sqlite'
 import { testBindings } from './doubles/bindings'
 
@@ -108,5 +109,30 @@ describe('moving the task table', () => {
 
     expect(hasTable(sqlite, 'chat_tasks')).toBe(false)
     expect(count(sqlite, 'todos_tasks')).toBe(0)
+  })
+})
+
+/**
+ * The two orders the list gained, `sort=created` and `sort=completed`, read `created_at` and
+ * `completed_at`; without an index leading with the account, a large shelf sorts in full on every page.
+ * The index has to exist on a fresh install and be demanded by the boot, or the next schema drift
+ * would silently take it back.
+ */
+describe('the sort indexes', () => {
+  function indexedColumns(sqlite: DatabaseSync, index: string): string[] {
+    return sqlite.prepare(`SELECT name FROM pragma_index_info(?) ORDER BY seqno`).all(index)
+      .map((row) => (row as { name: string }).name)
+  }
+
+  it('creates both on a fresh database and lists them as required', async () => {
+    const sqlite = new DatabaseSync(':memory:')
+    sqlite.exec('PRAGMA journal_mode = OFF')
+
+    await boot(sqlite)
+
+    expect(indexedColumns(sqlite, 'idx_todos_tasks_created')).toEqual(['user_id', 'created_at'])
+    expect(indexedColumns(sqlite, 'idx_todos_tasks_completed')).toEqual(['user_id', 'completed_at'])
+    expect(TODOS_REQUIRED_INDEXES).toContain('idx_todos_tasks_created')
+    expect(TODOS_REQUIRED_INDEXES).toContain('idx_todos_tasks_completed')
   })
 })

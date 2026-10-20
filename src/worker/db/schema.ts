@@ -1720,6 +1720,34 @@ export const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
       `ALTER TABLE chat_notifications ADD COLUMN link TEXT`,
     ],
   },
+  {
+    // The newest-first order the task list gained — `sort=created` — for one account at a time.
+    //
+    // The table's indexes are all built around what a view filters on (`status, due_at`, `list_id,
+    // status`), and none of them can produce `ORDER BY created_at`, so the sort was a full build over
+    // the account's whole shelf on every page: the larger the history, the slower each first page
+    // became. A separate number is what lets a database built before the order existed get the index
+    // on its next boot. The same statement lives in `todos/schema.ts`, so a fresh install creates it
+    // without replaying this history.
+    version: 111,
+    statements: [
+      `CREATE INDEX IF NOT EXISTS idx_todos_tasks_created
+     ON todos_tasks(user_id, created_at)`,
+    ],
+  },
+  {
+    // The other order the list gained — `sort=completed` — and the same shape of gap as 111.
+    //
+    // Finished tasks are read newest-finish first, and `completed_at` had no index at all: SQLite had
+    // to visit every row the account owns and sort it, even though the view shows one page. Keyed on
+    // the account first for the reason every index here is, so the walk never crosses into another
+    // account's rows. One index, one version.
+    version: 112,
+    statements: [
+      `CREATE INDEX IF NOT EXISTS idx_todos_tasks_completed
+     ON todos_tasks(user_id, completed_at)`,
+    ],
+  },
 ]
 
 const FTS_STATEMENT = `CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(

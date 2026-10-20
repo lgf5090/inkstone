@@ -42,6 +42,14 @@ export const TODOS_SCHEMA_STATEMENTS: readonly string[] = [
      ON todos_tasks(user_id, starred, status)`,
   `CREATE INDEX IF NOT EXISTS idx_todos_tasks_remind
      ON todos_tasks(remind_at) WHERE remind_at IS NOT NULL`,
+  // The two orders the list gained after it shipped — `sort=created` and `sort=completed` — walk one
+  // account's tasks by a column no index above leads with. Without these, every page of a long-lived
+  // account sorted its whole table; the migration numbers 111 and 112 carry them to databases built
+  // before this line existed.
+  `CREATE INDEX IF NOT EXISTS idx_todos_tasks_created
+     ON todos_tasks(user_id, created_at)`,
+  `CREATE INDEX IF NOT EXISTS idx_todos_tasks_completed
+     ON todos_tasks(user_id, completed_at)`,
 
   `CREATE TABLE IF NOT EXISTS todos_lists (
     user_id TEXT NOT NULL,
@@ -126,6 +134,8 @@ export const TODOS_REQUIRED_INDEXES: readonly string[] = [
   'idx_todos_tasks_project',
   'idx_todos_tasks_star',
   'idx_todos_tasks_remind',
+  'idx_todos_tasks_created',
+  'idx_todos_tasks_completed',
   'idx_todos_lists_unique',
   'idx_todos_steps_task',
   'idx_todos_tags_unique',
