@@ -86,3 +86,18 @@ export function openTemplaterPicker(mode: TemplaterPickerMode): boolean {
   useUi.getState().openPanel('templates')
   return false
 }
+
+/**
+ * Ask for the chooser *for one folder*, the way a folder's menu does.
+ *
+ * The folder is not carried on the request. The chooser reads the folder the explorer is on when it mounts
+ * (`defaultFolderId` in `./template-picker.tsx`), so the caller moves the explorer first and the reader's
+ * screen and the run's destination are the same fact once. Two channels each holding "which folder" is how
+ * they start to disagree.
+ */
+export function openTemplaterPickerForFolder(mode: TemplaterPickerMode, folderId: string): void {
+  const ui = useUi.getState()
+  ui.openExplorer(folderId)
+  ui.expandFolder(folderId)
+  openTemplaterPicker(mode)
+}
