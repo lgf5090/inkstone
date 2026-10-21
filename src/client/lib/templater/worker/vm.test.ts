@@ -34,6 +34,7 @@ function context(overrides: Partial<TemplateRunContext> = {}): TemplateRunContex
     folders: [{ id: 'folder-1', name: 'Reading', parentId: null, path: 'Reading' }],
     libraryTemplates: [{ id: 'tpl-1', name: 'Idea', content: 'from the library' } as never],
     locale: 'en-US',
+    selection: '',
     ...overrides,
   }
 }

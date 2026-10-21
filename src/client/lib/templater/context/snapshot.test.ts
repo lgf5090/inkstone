@@ -123,10 +123,14 @@ describe('snapshot shape', () => {
       'locale',
       'mode',
       'runId',
+      'selection',
       'startedAt',
       'target',
       'template',
     ])
+    // A snapshot taken with no selection says so with the empty string, which is what `tp.file.selection()`
+    // answers for a run started from a command with no editor in front of it.
+    expect(context.selection).toBe('')
     expect(context.runId).toBe('run-1')
     expect(context.mode).toBe('overwrite-active')
     expect(context.capabilities).toBe('local')

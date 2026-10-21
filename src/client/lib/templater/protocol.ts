@@ -84,6 +84,16 @@ export interface TemplateRunContext {
   libraryTemplates: NoteTemplate[]
   /** The reader's language, so date names and error text match the interface they are reading. */
   locale: string
+  /**
+   * The first selection range of the note in front of the reader, taken when the run started.
+   *
+   * `tp.file.selection()` reads this rather than asking the page: upstream's own signature is a *synchronous*
+   * string (`InternalModuleFile.ts:299`), and a template writes `<% tp.file.selection() %>` without an
+   * `await` — a host call would print `[object Promise]` into the reader's note. The page captures the
+   * selection into the snapshot, which also matches upstream's behaviour of reporting the selection the run
+   * began with, not whatever the reader has dragged over since. Empty when nothing is selected.
+   */
+  selection: string
 }
 
 /** A note as the interpreter sees it: identifiers and text, never a store handle. */
@@ -206,6 +216,7 @@ export const HOST_METHODS = [
   'note.rename',
   'note.delete',
   'note.exists',
+  'note.renderInclude',
   'folder.list',
   'folder.create',
   'template.read',
@@ -233,6 +244,10 @@ export const HOST_METHOD_CAPABILITY: Record<HostMethod, keyof Capabilities> = {
   'note.rename': 'moveNotes',
   'note.delete': 'writeActiveNote',
   'note.exists': 'readOtherNotes',
+  // Rendering another note's text is reading it and then running what was read, so it cannot be wider than
+  // the read: a preview or a gallery template that could render-include would copy a private vault out one
+  // included note at a time while `readOtherNotes` says it may not read one.
+  'note.renderInclude': 'readOtherNotes',
   'folder.list': 'readOtherNotes',
   'folder.create': 'createNotes',
   'template.read': 'readOtherNotes',
@@ -337,6 +352,31 @@ export const CAPABILITY_PROFILES: Record<CapabilityProfile, Capabilities> = {
  */
 export function capabilitiesFor(profile: CapabilityProfile): Capabilities {
   return { ...CAPABILITY_PROFILES[profile] }
+}
+
+/**
+ * What `note.renderInclude` asks the page to do: render one thing into text.
+ *
+ * `tp.file.include` and `<% tp.file.create_new(template, …) %>` are not reads. Upstream parses what it
+ * read, so the commands *inside* an included note run, and a nested `create_new` renders the template into
+ * the note it just made. The worker cannot do that itself — it holds no parser and one interpreter per run —
+ * so the page compiles and runs a nested template and answers its finished text, which is also the only
+ * place a `#Heading` or `#^block` subpath can be sliced, because slicing needs the parse positions the
+ * snapshot deliberately does not carry. `depth` travels so the page can own `MAX_TEMPLATE_DEPTH`: the
+ * counter that limits nesting has to live where the nested runs are started.
+ */
+export interface RenderIncludeRequest {
+  /** The virtual path, already normalised and validated by the page's own resolver. */
+  path: string
+  /** A heading or block reference inside that note, or nothing for the whole body. */
+  subpath?: { kind: 'heading' | 'block'; text: string } | null
+  /** How deep this render sits under the run the reader started, counting from 1. */
+  depth: number
+}
+
+/** What the page answers a {@link RenderIncludeRequest} with: the rendered text, markers included. */
+export interface RenderIncludeResult {
+  content: string
 }
 
 /**

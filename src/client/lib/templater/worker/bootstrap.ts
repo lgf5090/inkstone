@@ -70,9 +70,11 @@ const PRELUDE = `(() => {
   const stamp = (epoch) => (typeof epoch === 'number' && isFinite(epoch)
     ? moment(epoch).format('YYYYMMDDHHMMSS') : '')
 
-  // What the run was told about itself before any template text ran: the instant the page took, and the
-  // reader's language. Installed with the snapshot, because a template must not be able to move either.
-  const run = { startedAt: 0, locale: '' }
+  // What the run was told about itself before any template text ran: the instant the page took, the
+  // reader's language, and the selection the reader had made. Installed with the snapshot, because a
+  // template must not be able to move any of the three, and \`tp.file.selection()\` has to answer the
+  // selection the run *began* with rather than whatever the reader dragged over while it was running.
+  const run = { startedAt: 0, locale: '', selection: '' }
 
   // Upstream reads a live clock; this port reads the one instant the page took, which is what
   // \`TemplateRunContext.startedAt\` exists for — without it two commands in one template can straddle
@@ -460,12 +462,11 @@ const PRELUDE = `(() => {
     },
     find_tfile: (filename) => findByTitle(requirePath('file.find_tfile', filename)),
     include: includeFile,
-    // The selection lives in the editor, and the frozen host method list carries no way to read it back —
-    // \`cursor.append\` only writes. So this names the refusal instead of answering the whole note, which is
-    // the plausible-looking wrong answer this layer exists to avoid.
-    selection: () => {
-      throw hostError('not-supported', 'tp.file.selection')
-    },
+    // The selection the run arrived with. Synchronous, as upstream's is: the page took it into the snapshot
+    // before the program started, so a template writing \`<% tp.file.selection() %>\` without an \`await\` gets
+    // text rather than \`[object Promise]\`, and a reader who drags over something else mid-run does not
+    // change what the note says.
+    selection: () => run.selection,
   }
 
   // Derived from Templater 2.26.0 (AGPL-3.0-only)
@@ -666,6 +667,7 @@ const PRELUDE = `(() => {
     const data = typeof encoded === 'string' ? JSON.parse(encoded) : encoded
     run.startedAt = typeof data.startedAt === 'number' ? data.startedAt : 0
     run.locale = typeof data.locale === 'string' ? data.locale : ''
+    run.selection = typeof data.selection === 'string' ? data.selection : ''
     index.notes = Array.isArray(data.notes) ? data.notes : []
     index.folders = Array.isArray(data.folders) ? data.folders : []
     index.templates = Array.isArray(data.templates) ? data.templates : []
@@ -835,12 +837,13 @@ export function createBootstrap(options: BootstrapOptions): Bootstrap {
         template: virtualTemplate(snapshot.template, snapshot.index),
         runMode: runModeNumber(snapshot.mode),
         targetContent: snapshot.target?.content ?? '',
-        // Three things the prelude cannot derive for itself: the instant every date in the run is measured
-        // from, the title the page froze before anything ran, and the reader's language, which is what an
-        // argument-less `tp.web.daily_quote` resolves to.
+        // Four things the prelude cannot derive for itself: the instant every date in the run is measured
+        // from, the title the page froze before anything ran, the reader's language, which is what an
+        // argument-less `tp.web.daily_quote` resolves to, and the selection the reader had made.
         startedAt: snapshot.startedAt,
         frozenTitle: snapshot.frozenTitle,
         locale: snapshot.locale,
+        selection: snapshot.selection,
       }))
       // `install` returns `true`; the handle is this side's to free, and the result of a failed install is
       // a run that never starts, which the caller reports.

@@ -59,6 +59,12 @@ export interface RunSnapshotInput {
   startedAt: number
   /** The name a note is about to get, which is the title a create run freezes. */
   frozenTitle?: string
+  /**
+   * The first selection in the note the reader is looking at, as the page saw it at the moment the run
+   * started. Optional because a run can be started from a command with no editor at all — the batch runner,
+   * a startup template, a note being created — where upstream's `tp.file.selection()` reads nothing.
+   */
+  selection?: string
 }
 
 /**
@@ -166,6 +172,7 @@ export function buildRunSnapshot(input: RunSnapshotInput): TemplateRunContext {
     folders: index.folders,
     libraryTemplates: copyTemplates(input.templates),
     locale: rules.locale,
+    selection: input.selection ?? '',
   }
 }
 

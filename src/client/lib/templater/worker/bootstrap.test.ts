@@ -65,6 +65,7 @@ function context(overrides: Partial<TemplateRunContext> = {}): TemplateRunContex
     folders: [{ id: 'folder-1', name: 'Reading', parentId: null, path: 'Reading' }],
     libraryTemplates: [{ id: 'tpl-1', name: 'Idea', content: 'from the library' } as never],
     locale: 'en-US',
+    selection: 'the text the reader dragged over',
     ...overrides,
   }
 }
@@ -714,11 +715,16 @@ describe('tp.file', () => {
   tR += done`, answer)).toBe('11')
   })
 
-  it('names the selection it has no way to read, instead of answering the note', async () => {
+  it('answers the selection the run arrived with, synchronously and without asking the page', async () => {
     const seen = await namespace()
-    expect(await failureOf(seen, 'tp.file.selection()')).toBe('not-supported:tp.file.selection')
-    // The refusal is made here, so nothing is asked of the page and no text is invented for it.
+    // Upstream's `tp.file.selection()` is a synchronous string, so the snapshot carries it: a template that
+    // writes `<% tp.file.selection() %>` with no `await` has to get the text, not `[object Promise]`.
+    expect(await seen.evaluate('tp.file.selection()')).toBe('the text the reader dragged over')
+    expect(await seen.evaluate('`${ tp.file.selection() }`')).toBe('the text the reader dragged over')
     expect(seen.calls).toHaveLength(0)
+    // Nothing selected is the empty string, not the whole note and not a refusal.
+    const none = await namespace({ snapshot: context({ selection: '' }) })
+    expect(await none.evaluate('tp.file.selection()')).toBe('')
   })
 
   it('answers date helpers with a failure rather than with the clock when there is no note', async () => {

@@ -29,6 +29,7 @@ function context(): TemplateRunContext {
     folders: [],
     libraryTemplates: [],
     locale: 'en-US',
+    selection: '',
   }
 }
 
