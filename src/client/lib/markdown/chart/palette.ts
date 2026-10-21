@@ -161,14 +161,12 @@ function placeStop(stop: Stop, placed: { l: number, h: number }[], floor: number
 }
 
 /**
- * A categorical palette anchored on `accent`: the first entry is the accent exactly, and the rest are
- * the group it belongs to — its own tint and shade, a saturated spot at the complement, a lean toward
- * the complement's neighbour, and pale siblings of each.
+ * The `count` oklch colours of the accent's designed group.
  *
- * `dark` picks the band, because a colour that separates cleanly on paper can sit inside the background
- * on a dark canvas.
+ * Series one is the accent at its own lightness, so a pale accent and a deep one both move the whole
+ * group around them rather than colliding with it.
  */
-export function accentPalette(accent: Oklch, count: number, dark: boolean): string[] {
+function accentStops(accent: Oklch, count: number, dark: boolean): Oklch[] {
     const [floor, ceiling] = dark ? BAND.dark : BAND.light;
     const anchor = clamp(accent.l, floor, ceiling);
     const placed: { l: number, h: number }[] = [];
@@ -180,42 +178,76 @@ export function accentPalette(accent: Oklch, count: number, dark: boolean): stri
         // A dark canvas washes colour out, so the chroma is held up a little rather than copied flat.
         const c = Math.max(stop.floor ?? 0, accent.c * stop.chroma * (dark ? 1.06 : 1));
         placed.push({ l, h: stop.hue });
-        return toRgb({ l, c, h: hue });
+        return { l, c, h: hue };
     });
+}
+
+/**
+ * A categorical palette anchored on `accent`: the first entry is the accent exactly, and the rest are
+ * the group it belongs to — its own tint and shade, a saturated spot at the complement, a lean toward
+ * the complement's neighbour, and pale siblings of each.
+ *
+ * `dark` picks the band, because a colour that separates cleanly on paper can sit inside the background
+ * on a dark canvas.
+ */
+export function accentPalette(accent: Oklch, count: number, dark: boolean): string[] {
+    return accentStops(accent, count, dark).map(toRgb);
 }
 
 /** How many series a palette is generated for. The engine cycles past the end; ten covers a real chart. */
 export const PALETTE_SIZE = 10;
 
 /**
- * The angle between neighbours of an identity ramp.
+ * How far apart in Oklab two identity colours have to be to read as two colours rather than one.
  *
- * A series ramp may put its two reds beside each other — a legend is read one row at a time — but an
- * identity colour is not: any two of them can end up as neighbouring slices of the same ring. A fixed
- * stride repeats a hue as soon as it wraps, while stepping by the golden angle keeps the first ten hues
- * at least thirty degrees apart.
+ * Twelve hundredths is where a pair stops being "the same colour at two depths" and starts being two
+ * colours; below it a mid mauve and a pale mauve both survive and a rail ends up naming two things the
+ * same shade. Pushed higher the group thins out too much to cover a real dashboard, so this is the
+ * point where the last of the near-duplicates go and eight slots still stand.
  */
-const GOLDEN_ANGLE = 137.508;
+const IDENTITY_MIN_DELTA = 0.12;
 
-/** Where each of the ten identity colours stands in the band, in the same units as `Stop.position`. */
-const IDENTITY_LADDER = [0.42, 0.78, 0.16, 0.6, 0.92, 0.3, 0.7, 0.05, 0.5, 0.86];
-
-/** A grey accent still has to yield categories a reader can tell apart, so the ramp keeps this much colour. */
-const IDENTITY_CHROMA_FLOOR = 0.1;
+function toLinear(channel: number): number {
+    return channel <= 0.04045 ? channel / 12.92 : ((channel + 0.055) / 1.055) ** 2.4;
+}
 
 /**
- * A ramp for colours a reader will learn to recognise, anchored on `accent` and spread around its wheel.
+ * Oklab coordinates of a hex colour, which is where "can these two be told apart" can be answered.
  *
- * The first entry is the accent itself, so the largest thing on a chart always wears the colour the page
- * already has; the rest keep their distance in hue *and* in lightness, which is what lets a five-slice
- * ring read as five. `dark` moves the band exactly as it does for the series ramp.
+ * The distance is measured on the colour that comes *out* rather than the oklch that went in, because
+ * walking chroma down to fit sRGB moves two stops toward each other: a sky blue and a pale blue far
+ * apart in the ramp arrive as `#aad2ff` and `#a8e8f6`, which is one colour wearing two names.
+ */
+function toOklab(hex: string): number[] {
+    const bits = Number.parseInt(hex.slice(1), 16);
+    const [r, g, b] = [toLinear(((bits >> 16) & 255) / 255), toLinear(((bits >> 8) & 255) / 255), toLinear((bits & 255) / 255)];
+    const [l, m, s] = [
+        0.4122214708 * r + 0.5363325363 * g + 0.0514459929 * b,
+        0.2119034982 * r + 0.6806995451 * g + 0.1073969566 * b,
+        0.0883024619 * r + 0.2817188376 * g + 0.6299787005 * b,
+    ].map((axis) => (axis > 0 ? Math.cbrt(axis) : 0));
+    return [
+        0.2104542553 * l! + 0.793617785 * m! - 0.0040720468 * s!,
+        1.9779984951 * l! - 2.428592205 * m! + 0.4505937099 * s!,
+        0.0259040371 * l! + 0.7827717662 * m! - 0.808675766 * s!,
+    ];
+}
+
+/**
+ * The accent's designed group, narrowed to colours that survive any pairing.
+ *
+ * A series ramp is only ever compared with its neighbours in a fixed order, so a grey accent may keep two
+ * near-identical dark greys at positions 0 and 7. An identity colour may not: hashing can hand those two
+ * to slices beside each other in one ring, and one category would be drawn twice. Dropping the colliding
+ * members costs a slot or two out of ten and keeps the only promise an identity colour makes.
  */
 export function identityPalette(accent: Oklch, count: number, dark: boolean): string[] {
-    const [floor, ceiling] = dark ? BAND.dark : BAND.light;
-    const chroma = Math.max(IDENTITY_CHROMA_FLOOR, accent.c * 0.92);
-    return Array.from({ length: count }, (_, index) => {
-        const position = IDENTITY_LADDER[index % IDENTITY_LADDER.length]!;
-        const l = index === 0 ? clamp(accent.l, floor, ceiling) : floor + (ceiling - floor) * position;
-        return toRgb({ l, c: index === 0 ? accent.c : chroma, h: accent.h + index * GOLDEN_ANGLE });
+    const kept: number[][] = [];
+    return accentStops(accent, count, dark).map(toRgb).filter((color) => {
+        const lab = toOklab(color);
+        if (!kept.every((entry) => Math.hypot(...entry.map((channel, axis) => channel - lab[axis]!)) >= IDENTITY_MIN_DELTA))
+            return false;
+        kept.push(lab);
+        return true;
     });
 }

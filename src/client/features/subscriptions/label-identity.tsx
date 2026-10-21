@@ -112,20 +112,18 @@ export function useLabelIdentity(): (kind: LabelKind, name: string) => LabelIden
 /**
  * Which slot of the accent ramp each name of one kind stands in.
  *
- * A name asks for the slot its own hash lands on, which is what keeps a service the same colour as its
- * spend moves up and down a list. Two names can ask for the same slot, and a ring that then draws them
- * beside each other shows one colour twice — so the later name takes the next free slot. Only colliding
- * names ever move, and a registry larger than the ramp has to share what is left.
+ * Ordered by name, not hashed. A chart has to start on the accent — that is what makes it read as this
+ * page rather than as somebody else's palette — and a hash is free to hand every one of a warm account's
+ * categories a cool slot, which is exactly what it did.
+ *
+ * Order is stable in the only way that matters: it moves when the reader adds or renames a label, a thing
+ * they did on purpose and will therefore expect, rather than every month as spending overtakes another
+ * category, which is how the reference project made its colours unlearnable.
  */
 function identitySlots(names: readonly string[], count: number, locale: string): Map<string, number> {
-  const taken = new Set<number>()
   const slots = new Map<string, number>()
-  for (const name of [...names].sort((left, right) => left.localeCompare(right, locale))) {
-    let slot = colorIndexOf(name, count)
-    for (let probe = 0; probe < count && taken.has(slot); probe += 1) slot = (slot + 1) % count
-    taken.add(slot)
-    slots.set(name, slot)
-  }
+  const ordered = [...names].sort((left, right) => left.localeCompare(right, locale))
+  ordered.forEach((name, index) => slots.set(name, index % count))
   return slots
 }
 

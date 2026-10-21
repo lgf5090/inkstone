@@ -14,6 +14,7 @@ import type { SubscriptionOverview } from '@shared/subscriptions/model'
 import { HEAT_WEEKS } from '@shared/subscriptions/model'
 import { formatAmount } from '@shared/subscriptions/format'
 import { initI18n, t } from '../../lib/i18n'
+import { chartIdentityPalette } from '../../lib/markdown/chart/accent'
 import { installTestGlobals } from '../../lib/test-render'
 import { OverviewView } from './OverviewView'
 import { useSubscriptions } from './store'
@@ -271,11 +272,22 @@ describe('the share rings', () => {
         { label: 'hosting', amount: 240, percentage: 17 },
       ],
     })
-    const tints = [...document.querySelectorAll<HTMLElement>('[data-share-list] li div > div')].map((bar) => bar.style.background)
+    const rows = [...document.querySelectorAll<HTMLElement>('[data-share-list] li')]
+    const tints = rows.map((row) => row.querySelector<HTMLElement>('div > div')!.style.background)
     expect(tints).toHaveLength(4)
-    // Two names may hash to the same slot of the ramp; the later one moves, and a ring that drew them the
-    // same colour would be showing one slice for two things.
+    // The ramp is walked in name order, so no two of them can be the same colour and the first category
+    // in the list — not the biggest spender — is the one that wears the accent.
     expect(new Set(tints).size, 'two categories drew the same colour').toBe(tints.length)
+    // jsdom carries no `data-theme`, which is the same reading `useThemeDark` makes of it, and it hands
+    // back an inline colour as `rgb()` rather than as the hex the component was given.
+    const palette = chartIdentityPalette((document.documentElement.dataset.theme ?? 'dark') === 'dark')
+    const rgbOf = (hex: string): string => {
+      const bits = Number.parseInt(hex.slice(1), 16)
+      return `rgb(${(bits >> 16) & 255}, ${(bits >> 8) & 255}, ${bits & 255})`
+    }
+    const rowFor = (label: string) => rows.findIndex((row) => (row.textContent || '').includes(label))
+    expect(tints[rowFor('hosting')], 'the first name in the ramp starts on the accent').toBe(rgbOf(palette[0]!))
+    expect(tints[rowFor('streaming')], 'and the ramp then walks in order').toBe(rgbOf(palette[2]!))
   })
 
   it('leaves a colour the reader picked alone, wherever the accent goes', () => {

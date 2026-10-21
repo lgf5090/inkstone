@@ -530,17 +530,16 @@ function SpendHeatmap({ daily, currency, weeks }: {
     <div className="mt-2">
       <div className="flex gap-[var(--sp-0-5)] overflow-x-auto no-scrollbar" aria-hidden="true" data-heat-grid="">
         {grid.map((week) => (
-          // A fixed square rather than a column that stretches to the card: half a year of a few receipts
-          // spread across 1400 pixels is a wall of empty boxes, and the pattern that lives in the spacing
-          // is the whole reason to draw it.
-          <div key={week[0]!.key} className="flex w-3 shrink-0 flex-col gap-[var(--sp-0-5)]">
+          // The columns share the card's width: a heat grid that stops a third of the way across leaves
+          // the reader wondering whether the rest of the window was drawn or simply never arrived.
+          <div key={week[0]!.key} className="flex min-w-0 flex-1 flex-col gap-[var(--sp-0-5)]">
             {week.map((cell) => (
               <span
                 key={cell.key}
                 // Every tile keeps an outline, not only the charged ones: the ramp is mixed into the card's
                 // own surface, so a quiet day is otherwise invisible and the grid stops being a grid.
                 className={cn(
-                  'size-3 rounded-[var(--r-2)] ring-1 ring-inset',
+                  'aspect-square w-full rounded-[var(--r-2)] ring-1 ring-inset',
                   cell.count > 0 ? 'ring-[var(--border-strong)]' : 'ring-[var(--border-subtle)]',
                 )}
                 style={heatCell(cell.level)}
