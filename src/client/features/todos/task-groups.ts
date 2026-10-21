@@ -98,9 +98,16 @@ export function groupToday(
     .filter((group) => group.tasks.length > 0)
 }
 
-/** The tasks of one list, in the order a list is read: open first, finished last. */
+/**
+ * The tasks of one list, in the order a list is read: open first, finished last.
+ *
+ * Open rows keep the page's own order. That order is the server's answer — the reader's stored places
+ * first, then the view's default sort — and sorting again here would overrule a drag or a move that
+ * the server had just accepted. The finished rows are not moved by the reader, so they read newest
+ * first.
+ */
 export function groupByList(tasks: readonly TodoTask[]): TaskGroup<'open' | 'done'>[] {
-  const open = tasks.filter((task) => task.status !== 'done').sort(compareTasks)
+  const open = tasks.filter((task) => task.status !== 'done')
   const done = tasks.filter((task) => task.status === 'done').sort((a, b) => (b.completedAt ?? 0) - (a.completedAt ?? 0))
   return [
     ...(open.length ? [{ key: 'open' as const, tasks: open }] : []),

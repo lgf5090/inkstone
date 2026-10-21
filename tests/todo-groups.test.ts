@@ -61,16 +61,24 @@ describe('the plan view', () => {
 })
 
 describe('a list', () => {
-  it('reads open tasks first and finished ones last', () => {
+  it('reads open tasks first and finished ones last, in the page order', () => {
     const groups = groupByList([
       task('done', { status: 'done', completedAt: 5 }),
       task('later', { dueAt: NOW + 5 * DAY }),
       task('sooner', { dueAt: NOW + DAY }),
     ])
     expect(groups.map((group) => [group.key, group.tasks.map((entry) => entry.id)])).toEqual([
-      ['open', ['sooner', 'later']],
+      ['open', ['later', 'sooner']],
       ['done', ['done']],
     ])
+  })
+
+  it('keeps the stored order a drag just wrote, rather than sorting it away', () => {
+    const groups = groupByList([
+      task('moved-to-top', { dueAt: NOW + 9 * DAY }),
+      task('dated-first'),
+    ])
+    expect(groups[0]!.tasks.map((entry) => entry.id)).toEqual(['moved-to-top', 'dated-first'])
   })
 })
 
