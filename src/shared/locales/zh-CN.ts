@@ -6752,6 +6752,8 @@ console.log(\`Hello, \${name}!\`)
     "assistant.tool.add_task_step": "正在添加步骤",
     "assistant.tool.check_task_step": "正在勾选步骤",
     "assistant.tool.decompose_task": "正在拆解任务步骤",
+    "assistant.tool.plan_today": "正在安排今天的待办",
+    "assistant.tool.task_stats": "正在读取待办统计",
     "assistant.tool.remember": "正在写入记忆",
     "assistant.tool.search_memories": "正在回忆",
     "assistant.tool.update_memory": "正在更新记忆",

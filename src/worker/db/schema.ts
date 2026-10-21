@@ -1860,6 +1860,24 @@ export const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
       `ALTER TABLE todos_lists ADD COLUMN parent_id TEXT`,
     ],
   },
+  {
+    // When a task was moved to the trash, or null while it is live.
+    //
+    // Deleting a task is now a stamp rather than a row removal, so an accidental delete can be taken
+    // back with the row's steps, tags and reminders intact. Nullable because a task that was never
+    // deleted has no deletion day — an honest absence rather than a sentinel. Every task read names
+    // `deleted_at IS NULL` through the predicate in `assistant/store.ts`, and the stamp is what the
+    // trash list and the 30-day sweep read instead. The index pairs the account with the stamp: the
+    // sweep asks for every account's expired rows at once, and the trash page reads one account's
+    // newest first, so the account has to lead. One column and its index, one version.
+    version: 122,
+    skipIfColumnExists: { table: 'todos_tasks', column: 'deleted_at' },
+    statements: [
+      `ALTER TABLE todos_tasks ADD COLUMN deleted_at INTEGER`,
+      `CREATE INDEX IF NOT EXISTS idx_todos_tasks_trash
+     ON todos_tasks(user_id, deleted_at)`,
+    ],
+  },
 ]
 
 const FTS_STATEMENT = `CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(

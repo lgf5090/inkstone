@@ -430,6 +430,47 @@ class Query {
   }
 }
 
+/**
+ * The predicate every read of `todos_tasks` that means "the reader's tasks" has to carry.
+ *
+ * Deleting a task stamps `deleted_at` instead of removing the row, so a query that forgets this
+ * clause brings the task back into a listing, a badge, a statistic, a calendar or the reminder sweep.
+ * The rule is stated once here and imported by the reads that live outside this module (`todos/stats`,
+ * `todos/feeds`, `assistant/tasks`), rather than spelled again at each call: a bare `FROM todos_tasks`
+ * anywhere in this repo is the bug this constant exists to prevent, and a reviewer should read it as
+ * one. The trash list and the retention sweep are the only reads that ask for the opposite and use
+ * `TASK_TRASHED_PREDICATE` instead.
+ */
+export const TASK_LIVE_PREDICATE = 'deleted_at IS NULL'
+
+/** The same rule for a statement that gives `todos_tasks` an alias. */
+export function taskLive(alias = 'todos_tasks'): string {
+  return `${alias}.deleted_at IS NULL`
+}
+
+/** The opposite read: the rows the trash page lists and the retention sweep removes. */
+export const TASK_TRASHED_PREDICATE = 'deleted_at IS NOT NULL'
+
+/**
+ * How long a deleted task stays restorable.
+ *
+ * Thirty days is long enough to notice a mistake a week later and short enough that the trash does not
+ * become a second task list. The sweep reads this one constant, and the surfaces that speak about the
+ * window (the trash page, its copy) name the same number rather than their own.
+ */
+export const TODO_TRASH_RETENTION_DAYS = 30
+
+/**
+ * How many expired rows one cron fire purges.
+ *
+ * A backlog is worked off over several ticks: the sweep is a maintenance job, and a deployment with
+ * years of trash must not spend the whole fire deleting it. Two hundred rows is four bounded batches
+ * per account represented in the page, which keeps one invocation inside the platform's budget.
+ */
+export const TODO_TRASH_PURGE_LIMIT = 200
+
+const DAY_MS = 24 * 60 * 60 * 1000
+
 function decodeAction(value: unknown): PendingAction | null {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null
   const raw = value as Record<string, unknown>
@@ -3793,6 +3834,17 @@ export class AssistantStore {
   // ------------------------------------------------------------------- tasks
 
   /**
+   * The starting clause every task read shares: this account, and only rows that are not in the trash.
+   *
+   * The one place a query about the reader's tasks is opened. A statement that begins from `Query`
+   * itself instead is how a soft-deleted row stays visible somewhere while every test of the app's
+   * main list still passes.
+   */
+  private taskQuery(): Query {
+    return new Query(this.userId).raw(TASK_LIVE_PREDICATE)
+  }
+
+  /**
    * The WHERE clause one query names, with its binds.
    *
    * One builder rather than a query per view: the smart lists differ only in this clause, and a second
@@ -3806,7 +3858,7 @@ export class AssistantStore {
    * midnight.
    */
   private async taskFilter(query: TaskQuery = {}): Promise<Query> {
-    const q = new Query(this.userId)
+    const q = this.taskQuery()
     const status = query.status ?? 'all'
     if (Array.isArray(status)) q.inList(`status`, status)
     else if (status === 'open') q.raw(`status != 'done'`)
@@ -3968,9 +4020,10 @@ export class AssistantStore {
   }
 
   async getTask(id: string): Promise<TodoTask | null> {
+    const q = this.taskQuery().eq('id', id)
     const row = await this.one<TaskRow>(
-      `SELECT *, ${TASK_REMINDER_TIMES} FROM todos_tasks WHERE user_id = ?1 AND id = ?2`,
-      this.userId, id,
+      `SELECT *, ${TASK_REMINDER_TIMES} FROM todos_tasks WHERE ${q.where}`,
+      ...q.binds,
     )
     if (!row) return null
     const [task] = await this.tasksWithDetails([row])
@@ -4006,7 +4059,7 @@ export class AssistantStore {
     const guard = expectedRev === undefined ? '' : ` AND rev = ?${fields.length + 3}`
     return await this.write(
       `UPDATE todos_tasks SET ${sets.join(', ')}
-        WHERE user_id = ?1 AND id = ?${fields.length + 2}${guard}`,
+        WHERE user_id = ?1 AND id = ?${fields.length + 2} AND ${TASK_LIVE_PREDICATE}${guard}`,
       ...fields.map(([, value]) => value), id, ...(expectedRev === undefined ? [] : [expectedRev]),
     )
   }
@@ -4170,13 +4223,81 @@ export class AssistantStore {
     return await this.getTask(id)
   }
 
+  /**
+   * Moves one task to the trash.
+   *
+   * The row stays, stamped, with its steps, tag links and pending reminders untouched: that is what
+   * makes a restore the same task rather than a copy, and what lets an undo after a delete put the
+   * original row back instead of minting a second one. The stamp and the revision move together, so a
+   * client holding the row sees a changed version. Every task read filters the stamp out; the reminder
+   * sweep joins the task and skips a trashed one, so a pending reminder cannot be delivered while the
+   * task is away.
+   */
   async deleteTask(id: string): Promise<void> {
-    await this.write(`DELETE FROM todos_steps WHERE user_id = ?1 AND task_id = ?2`, id)
-    await this.write(`DELETE FROM todos_tag_links WHERE user_id = ?1 AND task_id = ?2`, id)
-    // The reminders go with the task: a row left behind would be swept, find no task to join, and sit
-    // in the table forever. Fired rows are deleted too — there is no task left for one to point at.
-    await this.write(`DELETE FROM todos_reminders WHERE user_id = ?1 AND task_id = ?2`, id)
-    await this.write(`DELETE FROM todos_tasks WHERE user_id = ?1 AND id = ?2`, id)
+    const at = Date.now()
+    await this.write(
+      `UPDATE todos_tasks SET deleted_at = ?3, updated_at = ?3, rev = rev + 1
+        WHERE user_id = ?1 AND id = ?2 AND ${TASK_LIVE_PREDICATE}`,
+      id, at,
+    )
+  }
+
+  /**
+   * Takes one trashed task back out of the trash.
+   *
+   * Only a stamped row matches, so restoring a live task is a 404 at the route rather than a silent
+   * success that suggests it had been deleted. Nothing is re-created: the same row — with its steps,
+   * tags, reminders and original id — becomes visible again to every read.
+   */
+  async restoreTask(id: string): Promise<TodoTask | null> {
+    const changed = await this.write(
+      `UPDATE todos_tasks SET deleted_at = NULL, updated_at = ?3, rev = rev + 1
+        WHERE user_id = ?1 AND id = ?2 AND ${TASK_TRASHED_PREDICATE}`,
+      id, Date.now(),
+    )
+    if (!changed) return null
+    return await this.getTask(id)
+  }
+
+  /**
+   * One page of the trash, newest deletion first.
+   *
+   * A separate read rather than a view on `listTasks`: these are the rows every other query hides, and
+   * they carry when they were deleted so the screen can say how long is left. The account and the stamp
+   * are the index `idx_todos_tasks_trash`, and the page is read and counted in the same shape the main
+   * listing uses so `total` is the size of the whole trash and not of the page.
+   */
+  async listTrash(options: { limit?: number, offset?: number } = {}): Promise<{ tasks: TodoTask[], total: number }> {
+    const totalRow = await this.one<{ n: number | null }>(
+      `SELECT COUNT(*) AS n FROM todos_tasks WHERE user_id = ?1 AND ${TASK_TRASHED_PREDICATE}`,
+      this.userId,
+    )
+    const q = new Query(this.userId).raw(TASK_TRASHED_PREDICATE)
+    const limit = Math.min(Math.max(1, Math.trunc(options.limit ?? MAX_TASKS_PER_QUERY)), MAX_TASKS_PER_QUERY)
+    const offset = Math.max(0, Math.trunc(options.offset ?? 0))
+    const rows = await this.rows<TaskRow>(
+      `SELECT *, ${TASK_REMINDER_TIMES} FROM todos_tasks WHERE ${q.where}
+        ORDER BY deleted_at DESC, id DESC LIMIT ${q.add(limit)} OFFSET ${q.add(offset)}`,
+      ...q.binds,
+    )
+    return { tasks: await this.tasksWithDetails(rows), total: totalRow?.n ?? 0 }
+  }
+
+  /**
+   * Removes one trashed task for good.
+   *
+   * Only a stamped row qualifies: the endpoint is the trash's own door, and a live task sent here is a
+   * 404 rather than a delete that bypasses the trash. The four statements run as one batch, so a
+   * task cannot lose its steps while keeping its row.
+   */
+  async purgeTask(id: string): Promise<boolean> {
+    const row = await this.one<{ id: string }>(
+      `SELECT id FROM todos_tasks WHERE user_id = ?1 AND id = ?2 AND ${TASK_TRASHED_PREDICATE}`,
+      this.userId, id,
+    )
+    if (!row) return false
+    await this.db.batch(purgeTaskStatements(this.db, this.userId, [id]))
+    return true
   }
 
   /**
@@ -4240,10 +4361,12 @@ export class AssistantStore {
   async resolveTask(ref: string): Promise<TodoTask | null> {
     const direct = await this.getTask(ref)
     if (direct) return direct
+    const q = this.taskQuery()
+    q.raw(`title LIKE ${q.add(containsPattern(ref))} ESCAPE '\\'`)
     const list = await this.rows<TaskRow>(
-      `SELECT *, ${TASK_REMINDER_TIMES} FROM todos_tasks WHERE user_id = ?1 AND title LIKE ?2 ESCAPE '\\'
+      `SELECT *, ${TASK_REMINDER_TIMES} FROM todos_tasks WHERE ${q.where}
         ORDER BY status = 'done', updated_at DESC LIMIT 2`,
-      this.userId, containsPattern(ref),
+      ...q.binds,
     )
     if (list.length !== 1) return null
     const [task] = await this.tasksWithDetails(list)
@@ -4285,14 +4408,14 @@ export class AssistantStore {
          SUM(CASE WHEN t.status != 'done' AND t.starred = 1 THEN 1 ELSE 0 END) AS starred
        FROM todos_tasks t
        LEFT JOIN todos_lists l ON l.user_id = t.user_id AND l.id = t.list_id
-       WHERE t.user_id = ?1 AND l.archived_at IS NULL`,
+       WHERE t.user_id = ?1 AND l.archived_at IS NULL AND ${taskLive('t')}`,
       this.userId, dayEnd, upcomingEnd, now, pickedFor,
     )
     // The inbox is folded in under its own key: a card shows the same `done / total` line whether
     // the list is the reader's or the one every unfiled task lands in.
     const perList = await this.rows<{ list_id: string; status: string; n: number }>(
       `SELECT COALESCE(list_id, 'inbox') AS list_id, status, COUNT(*) AS n FROM todos_tasks
-        WHERE user_id = ?1 GROUP BY COALESCE(list_id, 'inbox'), status`,
+        WHERE user_id = ?1 AND ${TASK_LIVE_PREDICATE} GROUP BY COALESCE(list_id, 'inbox'), status`,
       this.userId,
     )
     const byList: Record<string, { open: number; done: number }> = {}
@@ -4305,7 +4428,7 @@ export class AssistantStore {
     const perTag = await this.rows<{ tag_id: string; status: string; n: number }>(
       `SELECT l.tag_id, t.status, COUNT(*) AS n FROM todos_tag_links l
          JOIN todos_tasks t ON t.user_id = l.user_id AND t.id = l.task_id
-        WHERE l.user_id = ?1 GROUP BY l.tag_id, t.status`,
+        WHERE l.user_id = ?1 AND ${taskLive('t')} GROUP BY l.tag_id, t.status`,
       this.userId,
     )
     const byTag: Record<string, { open: number; done: number }> = {}
@@ -4338,7 +4461,7 @@ export class AssistantStore {
     )
     const counts = await this.rows<{ list_id: string; status: string; n: number }>(
       `SELECT list_id, status, COUNT(*) AS n FROM todos_tasks
-        WHERE user_id = ?1 AND list_id IS NOT NULL GROUP BY list_id, status`,
+        WHERE user_id = ?1 AND list_id IS NOT NULL AND ${TASK_LIVE_PREDICATE} GROUP BY list_id, status`,
       this.userId,
     )
     const byList = new Map<string, { open: number; done: number }>()
@@ -4357,7 +4480,7 @@ export class AssistantStore {
     const counts = await this.one<{ open: number | null; done: number | null }>(
       `SELECT SUM(CASE WHEN status = 'done' THEN 1 ELSE 0 END) AS done,
               SUM(CASE WHEN status != 'done' THEN 1 ELSE 0 END) AS open
-         FROM todos_tasks WHERE user_id = ?1 AND list_id = ?2`,
+         FROM todos_tasks WHERE user_id = ?1 AND list_id = ?2 AND ${TASK_LIVE_PREDICATE}`,
       this.userId, id,
     )
     return toTaskList(row, { open: counts?.open ?? 0, done: counts?.done ?? 0 })
@@ -4446,7 +4569,7 @@ export class AssistantStore {
     const counts = await this.rows<{ tag_id: string; n: number }>(
       `SELECT l.tag_id, COUNT(*) AS n FROM todos_tag_links l
          JOIN todos_tasks t ON t.user_id = l.user_id AND t.id = l.task_id
-        WHERE l.user_id = ?1 AND t.status != 'done' GROUP BY l.tag_id`,
+        WHERE l.user_id = ?1 AND t.status != 'done' AND ${taskLive('t')} GROUP BY l.tag_id`,
       this.userId,
     )
     const byTag = new Map(counts.map((row) => [row.tag_id, row.n]))
@@ -6165,14 +6288,19 @@ export class AssistantStore {
     const onlyKept = 'conversation_id IN (SELECT id FROM chat_conversations WHERE user_id = ?1 AND ephemeral = 0)'
     const select = (table: string, extra = '') => this.db.prepare(`SELECT * FROM ${table} WHERE user_id = ?1 ${extra} ORDER BY created_at`)
       .bind(this.userId).all<Record<string, unknown>>().then((r) => r.results ?? [])
-    const tasks = await select('todos_tasks')
+    // The trash is not part of a backup. A file is a snapshot of what the account still has; a task
+    // the reader deleted is on its way out (the retention sweep will remove it within 30 days), and a
+    // restore must not bring back what they deliberately put away. The children follow their task, so
+    // filtering the task alone would leave orphaned steps, links and reminders in the file.
+    const liveTask = `task_id IN (SELECT id FROM todos_tasks WHERE user_id = ?1 AND ${TASK_LIVE_PREDICATE})`
+    const tasks = await select('todos_tasks', `AND ${TASK_LIVE_PREDICATE}`)
     // A reminder travels on its task. The backup format has one row per task and no table for these,
     // so the first pending instant is written into the `remind_at` field the format already had; the
     // import reads it back as a row of `todos_reminders`. Fired rows stay behind: a restore is not a
     // delivery, and history the file does not need is not a reason to write it into another account.
     // The task row's own `remind_at` column is not read — it is superseded and this value is derived
     // from the reminder rows, then overwritten either way.
-    const pending = await select('todos_reminders', 'AND fired_at IS NULL')
+    const pending = await select('todos_reminders', `AND fired_at IS NULL AND ${liveTask}`)
     const byTask = new Map<string, number[]>()
     for (const row of pending) {
       const taskId = typeof row.task_id === 'string' ? row.task_id : ''
@@ -6195,9 +6323,9 @@ export class AssistantStore {
       memories: await select('chat_memories'),
       tasks,
       task_lists: await select('todos_lists'),
-      task_steps: await select('todos_steps'),
+      task_steps: await select('todos_steps', `AND ${liveTask}`),
       task_tags: await select('todos_tags'),
-      task_tag_links: await select('todos_tag_links'),
+      task_tag_links: await select('todos_tag_links', `AND ${liveTask}`),
       projects: await select('chat_projects'),
       automations: await select('chat_automations'),
       notifications: await select('chat_notifications'),
@@ -6259,6 +6387,8 @@ const EXPORT_COLUMNS: Readonly<Record<string, readonly string[]>> = {
   // `remind_at` is deliberately absent: the single reminder column is superseded by `todos_reminders`,
   // and a restore turns the backup's `remind_at` field into a row of that table instead of writing a
   // column nothing reads. The field still travels in the file, because that is the format's shape.
+  // `deleted_at` is absent for a different reason: trashed rows are not exported at all (see
+  // `exportTables`), so a column that would only ever be null is not part of the format.
   todos_tasks: ['id', 'title', 'description', 'status', 'priority', 'due_at', 'project_id', 'list_id', 'starred', 'repeat_rule', 'note_id', 'conversation_id', 'created_at', 'updated_at', 'completed_at', 'created_on', 'completed_on'],
   todos_lists: ['id', 'name', 'icon', 'color', 'position', 'created_at', 'updated_at'],
   todos_steps: ['id', 'task_id', 'text', 'done', 'position', 'created_at'],
@@ -6366,6 +6496,65 @@ export async function purgeExpiredEphemeralConversations(
   let removed = 0
   for (const row of results ?? []) {
     removed += await new AssistantStore(db, row.user_id, env).purgeEphemeral(before)
+  }
+  return removed
+}
+
+/**
+ * The four statements that remove one account's trashed tasks for good.
+ *
+ * Shared by the endpoint and the retention sweep so the trash is emptied one way: steps, tag links and
+ * reminders go with their task, and the task delete repeats the trash predicate so a live row can never
+ * be caught by a stale id. The `IN` list is built here from ids the account already owns, one place
+ * after a scoped read.
+ */
+function purgeTaskStatements(db: D1Database, userId: string, ids: readonly string[]): D1PreparedStatement[] {
+  if (!ids.length) return []
+  const marks = ids.map((_, index) => `?${index + 2}`).join(', ')
+  const binds = [userId, ...ids]
+  return [
+    db.prepare(`DELETE FROM todos_steps WHERE user_id = ?1 AND task_id IN (${marks})`).bind(...binds),
+    db.prepare(`DELETE FROM todos_tag_links WHERE user_id = ?1 AND task_id IN (${marks})`).bind(...binds),
+    db.prepare(`DELETE FROM todos_reminders WHERE user_id = ?1 AND task_id IN (${marks})`).bind(...binds),
+    db.prepare(
+      `DELETE FROM todos_tasks WHERE user_id = ?1 AND id IN (${marks}) AND ${TASK_TRASHED_PREDICATE}`,
+    ).bind(...binds),
+  ]
+}
+
+/**
+ * Empties the trash that has outlived its retention window, oldest deletion first.
+ *
+ * The hourly cron is the only caller and it spans every account, so this is another query in the
+ * module that is not scoped to one reader — hence the returned ids and the per-account batches below,
+ * the shape `purgeExpiredEphemeralConversations` already uses. The work is bounded per fire: a backlog
+ * is drained over several ticks rather than in one invocation nobody is watching, and the ceiling is
+ * a named constant so a test can pin it.
+ */
+export async function purgeExpiredTodoTrash(
+  db: D1Database,
+  now = Date.now(),
+  limit = TODO_TRASH_PURGE_LIMIT,
+): Promise<number> {
+  const cutoff = now - TODO_TRASH_RETENTION_DAYS * DAY_MS
+  const capped = Math.min(TODO_TRASH_PURGE_LIMIT, Math.max(1, Math.trunc(limit)))
+  const { results } = await db.prepare(
+    `SELECT user_id, id FROM todos_tasks
+      WHERE ${TASK_TRASHED_PREDICATE} AND deleted_at < ?1
+      ORDER BY deleted_at ASC, id ASC LIMIT ?2`,
+  ).bind(cutoff, capped).all<{ user_id: string, id: string }>()
+
+  // One account is one batch of four statements, however many of its rows the page holds.
+  const byUser = new Map<string, string[]>()
+  for (const row of results ?? []) {
+    const bucket = byUser.get(row.user_id) ?? []
+    bucket.push(row.id)
+    byUser.set(row.user_id, bucket)
+  }
+  let removed = 0
+  for (const [userId, ids] of byUser) {
+    await db.batch(purgeTaskStatements(db, userId, ids))
+    removed += ids.length
   }
   return removed
 }
@@ -6843,6 +7032,8 @@ interface TaskRow {
   completed_at: number | null
   /** The row's version: 1 when written, moved on by every write path. */
   rev: number
+  /** When the row was moved to the trash, or null while it is live. */
+  deleted_at: number | null
 }
 
 interface TaskListRow {
@@ -6906,6 +7097,7 @@ function toTask(
     updatedAt: r.updated_at,
     completedAt: num(r.completed_at),
     rev: r.rev,
+    deletedAt: num(r.deleted_at),
   }
 }
 

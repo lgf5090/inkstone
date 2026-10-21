@@ -14,7 +14,14 @@ import { beforeEach, describe, expect, it } from 'vitest'
 import { SCHEMA_STATEMENTS } from '../src/worker/db/schema'
 import { AssistantStore } from '../src/worker/assistant/store'
 import { DEFAULT_ASSISTANT_SETTINGS } from '../src/shared/assistant'
-import { MAX_TASKS_FROM_NOTE, ToolExecutor, type ToolContext } from '../src/worker/assistant/tools'
+import { localDate } from '../src/shared/assistant-time'
+import { addDays, loadTodoStats } from '../src/worker/todos/stats'
+import {
+  MAX_PLAN_TODAY_SUGGESTIONS,
+  MAX_TASKS_FROM_NOTE,
+  ToolExecutor,
+  type ToolContext,
+} from '../src/worker/assistant/tools'
 import type { Env } from '../src/worker/env'
 import { makeD1 } from './doubles/d1-sqlite'
 import { testBindings } from './doubles/bindings'
@@ -429,5 +436,148 @@ describe('create_tasks_from_note', () => {
     await expect(executor().execute('create_tasks_from_note', { note: OTHER_NOTE }, 'call-1'))
       .rejects.toMatchObject({ status: 404 })
     expect(await store.listTasks({ view: 'all', status: 'all' })).toHaveLength(0)
+  })
+})
+
+/** The account-zone day the tool plans into, read the way the tool reads it. */
+function today(): string {
+  return localDate(Date.now(), 'Asia/Shanghai')
+}
+
+describe('plan_today', () => {
+  it('drafts the open candidates and writes no plan', async () => {
+    const day = today()
+    const overdue = await store.createTask({ title: 'Pay rent', dueAt: Date.now() - DAY })
+    const starred = await store.createTask({ title: 'Book flights', dueAt: Date.now() + 2 * DAY, starred: true })
+    const unscheduled = await store.createTask({ title: 'Read the report' })
+    const picked = await store.createTask({ title: 'Already picked' })
+    await store.planTask(picked.id, day)
+    const ahead = await store.createTask({ title: 'Planned ahead', dueAt: Date.now() + 3 * DAY })
+    await store.planTask(ahead.id, addDays(day, 1))
+    const done = await store.createTask({ title: 'Finished' })
+    await store.completeTask(done.id, 'Asia/Shanghai')
+    const deleted = await store.createTask({ title: 'Gone' })
+    await store.deleteTask(deleted.id)
+
+    const result = await executor().execute('plan_today', {}, 'call-1') as {
+      draft: boolean
+      suggestions: { id: string, title: string, reason: string }[]
+    }
+
+    expect(result.draft).toBe(true)
+    // Completed, deleted, picked-for-today and planned-for-tomorrow rows are all absent: the first two
+    // are not work, the last two are already on the screen.
+    expect(result.suggestions.map((entry) => entry.title)).toEqual(['Pay rent', 'Book flights', 'Read the report'])
+    expect(result.suggestions.map((entry) => entry.reason)).toEqual(['overdue', 'starred_due', 'unscheduled'])
+    expect(result.suggestions.map((entry) => entry.id)).toEqual([overdue.id, starred.id, unscheduled.id])
+    // The whole point of a draft: nothing was planned by the call.
+    for (const entry of result.suggestions) expect((await store.getTask(entry.id))?.plannedFor).toBeNull()
+    expect((await store.getTask(picked.id))?.plannedFor).toBe(day)
+    expect((await store.getTask(ahead.id))?.plannedFor).toBe(addDays(day, 1))
+  })
+
+  it('caps the answer with the named ceiling whatever the model asks for', async () => {
+    for (let index = 0; index < MAX_PLAN_TODAY_SUGGESTIONS + 3; index++) {
+      await store.createTask({ title: `Task ${index + 1}` })
+    }
+
+    const result = await executor().execute('plan_today', { limit: 999 }, 'call-1') as {
+      suggestions: unknown[]
+    }
+
+    expect(result.suggestions).toHaveLength(MAX_PLAN_TODAY_SUGGESTIONS)
+  })
+
+  it('honours a smaller limit and refuses one that is not a number', async () => {
+    await store.createTask({ title: 'One' })
+    await store.createTask({ title: 'Two' })
+    await store.createTask({ title: 'Three' })
+
+    const two = await executor().execute('plan_today', { limit: 2 }, 'call-1') as {
+      suggestions: unknown[]
+    }
+    expect(two.suggestions).toHaveLength(2)
+
+    await expect(executor().execute('plan_today', { limit: 'lots' }, 'call-2'))
+      .rejects.toThrow(/"limit" must be a number/)
+  })
+
+  it('never offers another account\'s tasks', async () => {
+    await new AssistantStore(env.DB as D1Database, OTHER, env).createTask({ title: 'Their task' })
+
+    const result = await executor().execute('plan_today', {}, 'call-1') as {
+      suggestions: unknown[]
+    }
+
+    expect(result.suggestions).toEqual([])
+  })
+})
+
+describe('task_stats', () => {
+  it('reports the same numbers the statistics aggregate reads for the range', async () => {
+    const day = today()
+    const done = await store.createTask({
+      title: 'Shipped it',
+      dueAt: Date.parse('2020-01-01T00:00:00Z'),
+    }, 'Asia/Shanghai')
+    await store.completeTask(done.id, 'Asia/Shanghai')
+    await store.createTask({ title: 'Still open' }, 'Asia/Shanghai')
+
+    const result = await executor().execute('task_stats', {}, 'call-1') as {
+      range: Record<string, unknown>
+      summary: Record<string, number>
+      by_list: unknown[]
+    }
+    const from = addDays(day, -6)
+    const expected = await loadTodoStats(env.DB as D1Database, USER, {
+      from,
+      to: day,
+      bucket: 'day',
+      timezone: 'Asia/Shanghai',
+      now: Date.now(),
+    })
+
+    expect(result.range).toMatchObject({ from, to: day, bucket: 'day', timezone: 'Asia/Shanghai' })
+    expect(result.summary).toMatchObject({
+      completed: expected.summary.completed,
+      created: expected.summary.created,
+      open: expected.summary.open,
+      completionRate: expected.summary.completionRate,
+      onTime: expected.summary.onTime,
+      onTimeDue: expected.summary.onTimeDue,
+      onTimeRate: expected.summary.onTimeRate,
+      currentStreak: expected.summary.currentStreak,
+      longestStreak: expected.summary.longestStreak,
+    })
+    expect(result.summary.completed).toBe(1)
+    expect(result.by_list).toEqual(expected.distributions.byList)
+  })
+
+  it('reads an explicit range exactly as asked', async () => {
+    const day = today()
+    const from = addDays(day, -2)
+
+    const result = await executor().execute('task_stats', { from, to: day }, 'call-1') as {
+      range: Record<string, unknown>
+    }
+
+    expect(result.range).toMatchObject({ from, to: day })
+  })
+
+  it('refuses a range that is not a pair of calendar days', async () => {
+    await expect(executor().execute('task_stats', { from: '2026-02-30' }, 'call-1'))
+      .rejects.toThrow(/calendar days/)
+    await expect(executor().execute('task_stats', { from: '2026-10-10', to: '2026-10-01' }, 'call-2'))
+      .rejects.toThrow(/must not be after/)
+  })
+
+  it('answers a scheduled review turn, which is how a weekly review runs', async () => {
+    const scheduled = new ToolExecutor(context({ mode: 'scheduled' }), { maxToolCalls: 4 })
+
+    const result = await scheduled.execute('task_stats', {}, 'call-1') as {
+      summary: { completed: number }
+    }
+
+    expect(result.summary.completed).toBe(0)
   })
 })

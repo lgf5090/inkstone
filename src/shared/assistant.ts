@@ -1825,6 +1825,8 @@ export const ASSISTANT_TOOL_SPECS: readonly AssistantToolSpec[] = [
   { name: 'add_task_step', labelKey: 'assistant.tool.add_task_step', permission: 'write' },
   { name: 'check_task_step', labelKey: 'assistant.tool.check_task_step', permission: 'write' },
   { name: 'decompose_task', labelKey: 'assistant.tool.decompose_task', permission: 'write' },
+  { name: 'plan_today', labelKey: 'assistant.tool.plan_today', permission: 'write' },
+  { name: 'task_stats', labelKey: 'assistant.tool.task_stats', permission: 'read' },
   { name: 'remember', labelKey: 'assistant.tool.remember', permission: 'write' },
   { name: 'search_memories', labelKey: 'assistant.tool.search_memories', permission: 'read' },
   { name: 'update_memory', labelKey: 'assistant.tool.update_memory', permission: 'write' },

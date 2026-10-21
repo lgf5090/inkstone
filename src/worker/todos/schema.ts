@@ -46,6 +46,11 @@ export const TODOS_SCHEMA_STATEMENTS: readonly string[] = [
     -- read, and a write naming an older one is refused instead of replacing an edit it never saw.
     -- Migration 119 carries the column to databases built before this line existed.
     rev INTEGER NOT NULL DEFAULT 1,
+    -- When the task was moved to the trash, or NULL while it is live. Deleting stamps this column
+    -- instead of removing the row, so a restore brings back the same steps, tags and reminders; every
+    -- task read filters on it through TASK_LIVE_PREDICATE in assistant/store.ts. Migration 122
+    -- carries the column to databases built before this line existed.
+    deleted_at INTEGER,
     PRIMARY KEY (user_id, id)
   )`,
   `CREATE INDEX IF NOT EXISTS idx_todos_tasks_status_due
@@ -75,6 +80,11 @@ export const TODOS_SCHEMA_STATEMENTS: readonly string[] = [
   // picked for. Migration 118 carries it to databases built before the column existed.
   `CREATE INDEX IF NOT EXISTS idx_todos_tasks_planned
      ON todos_tasks(user_id, planned_for)`,
+  // What the trash page and the retention sweep read: the account leads, then the deletion stamp, so
+  // one account's newest trash is an ordered range and the hourly sweep can ask across accounts in
+  // stamp order. Migration 122 carries it to databases built before the column existed.
+  `CREATE INDEX IF NOT EXISTS idx_todos_tasks_trash
+     ON todos_tasks(user_id, deleted_at)`,
 
   // The reminders a task carries, one row each. The todos_tasks columns remind_at / reminded_at held
   // the same idea as a single pair and are no longer read or written: the one-shot repair
@@ -192,6 +202,7 @@ export const TODOS_REQUIRED_INDEXES: readonly string[] = [
   'idx_todos_tasks_completed',
   'idx_todos_tasks_completed_on',
   'idx_todos_tasks_planned',
+  'idx_todos_tasks_trash',
   'idx_todos_reminders_task',
   'idx_todos_reminders_due',
   'idx_todos_lists_unique',
@@ -210,7 +221,7 @@ export const TODOS_REQUIRED_COLUMNS: Readonly<Record<string, readonly string[]>>
     'user_id', 'id', 'title', 'description', 'status', 'priority', 'due_at', 'completed_at',
     'completed_on', 'created_on',
     'project_id', 'list_id', 'starred', 'repeat_rule', 'remind_at', 'reminded_at', 'planned_for', 'note_id',
-    'conversation_id', 'created_at', 'updated_at', 'rev',
+    'conversation_id', 'created_at', 'updated_at', 'rev', 'deleted_at',
   ],
   todos_reminders: ['user_id', 'id', 'task_id', 'remind_at', 'fired_at', 'created_at'],
   todos_lists: ['user_id', 'id', 'name', 'icon', 'color', 'position', 'archived_at', 'parent_id', 'created_at', 'updated_at'],
