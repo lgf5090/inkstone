@@ -10727,6 +10727,7 @@ const allowed = new Map([
     "// also the only cross-list gesture the board offers without opening a list.",
     "/* The row commits when focus leaves the whole group, not the field: the voice\n                      button is part of the same line, and focusing it must not submit the draft\n                      the reader is about to speak into. */",
     "/* Listening and a refused microphone are states the reader has to hear, not only\n                      see: the same line is the live region a screen reader announces. */",
+    "/* No standalone first-run note here: the inbox is always one of the cards below, so a centred\n            \"create your first list\" line beside it reads as a contradiction. The card's own empty body\n            and the sidebar's + carry that guidance instead. */",
   ]],
   ["src/client/features/todos/ListsView.tsx", [
     "/**\n * The management page: every list and every tag, with the counts that make them worth managing.\n *\n * It is a page rather than a drawer because it is where a reader goes when they are rearranging,\n * not while they are working, and because on a phone a drawer over the board would leave the thing\n * being edited half visible.\n */",

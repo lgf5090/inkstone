@@ -311,12 +311,9 @@ export function BoardView({ onOpenList }: { onOpenList: (listId: string) => void
       </div>
 
       <div className="no-scrollbar min-h-0 flex-1 overflow-y-auto px-3 pb-24 pt-1 md:px-5 md:pb-6">
-        {lists.length === 0 && (
-          <div className="px-2 py-10 text-center">
-            <p className="text-[length:var(--text-13)] font-medium text-[var(--text-secondary)]">{t('todo.empty.board')}</p>
-            <p className="mt-1.5 text-[length:var(--text-12)] text-[var(--text-quaternary)]">{t('todo.empty.board_hint')}</p>
-          </div>
-        )}
+        {/* No standalone first-run note here: the inbox is always one of the cards below, so a centred
+            "create your first list" line beside it reads as a contradiction. The card's own empty body
+            and the sidebar's + carry that guidance instead. */}
         <div className="grid grid-cols-1 gap-2.5 min-[360px]:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4" role="list" aria-label={t('todo.a11y.list_cards')}>
           {cards.map((card) => (
             <section

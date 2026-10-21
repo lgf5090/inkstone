@@ -7487,8 +7487,6 @@ console.log(\`Hello, \${name}!\`)
     "todo.group.none": "无日期",
     "todo.group.planned": "已排",
     "todo.board.empty_column": "暂无任务",
-    "todo.empty.board": "还没有清单",
-    "todo.empty.board_hint": "新建一个清单，开始安排。",
     "todo.empty.plan": "没有安排",
     "todo.empty.plan_hint": "有日期的待办会出现在这里。",
     "todo.empty.today": "今天还没有安排",
