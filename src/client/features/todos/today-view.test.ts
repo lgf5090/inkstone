@@ -1,12 +1,13 @@
 // @vitest-environment jsdom
 /**
- * "My Day" as a screen: the pick reaches the plan endpoint, and the address names the view.
+ * "My Day" and the plan as screens: the pick, the shift and the address reach what they name.
  *
  * The server half is pinned in `tests/todos-today.test.ts`; what this file watches is the wiring the
  * server cannot see — that typing into the picker asks for candidates, that pressing one sends the
- * task id and today's account-zone day to `POST /:id/plan`, and that a cold `/todo?view=today`
- * opens on the same screen a reload expects. The API is stubbed at the boundary, so a picker rendered
- * but never wired would fail here rather than pass as "it looks right".
+ * task id and today's account-zone day to `POST /:id/plan`, that an overdue banner sends the due
+ * batch, and that a cold `/todo?view=today` opens on the same screen a reload expects. The API is
+ * stubbed at the boundary, so a picker rendered but never wired would fail here rather than pass as
+ * "it looks right".
  */
 import { act, createElement } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -325,5 +326,29 @@ describe('the today screen', () => {
     // The batch route names at most a hundred rows; the second chunk carries the rest.
     expect(service.batches.map((batch) => batch.ids.length)).toEqual([100, 1])
     expect(service.batches.every((batch) => batch.op === 'due')).toBe(true)
+  })
+})
+
+describe('the plan screen', () => {
+  it('puts the same overdue shift above the plan, wired to the due batch', async () => {
+    stubBreakpoint(true)
+    service.overdueRows = [row('late-1', 'Pay rent', { dueAt: Date.now() - 86_400_000 })]
+    service.pageRows = [...service.overdueRows]
+
+    const container = await mount('/todo?view=plan')
+    // The plan's listing is the today listing on the server; the screen is what the address names.
+    expect(lastRequest().view).toBe('today')
+    expect(useTodos.getState().view).toBe('plan')
+    const shift = container.querySelector<HTMLButtonElement>('[data-todo-overdue-shift]')
+    expect(shift, 'the plan screen offers no overdue shift').not.toBeNull()
+    expect(shift!.textContent).toContain('1')
+
+    await act(async () => {
+      shift!.click()
+      await Promise.resolve()
+    })
+    await settle()
+
+    expect(service.batches).toEqual([{ ids: ['late-1'], op: 'due' }])
   })
 })
