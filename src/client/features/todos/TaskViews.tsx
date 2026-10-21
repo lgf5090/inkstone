@@ -12,7 +12,7 @@ import { api } from '../../lib/api'
 import { t } from '../../lib/i18n'
 import { useMediaQuery } from '../../lib/hooks'
 import { Empty } from '../../components/feedback'
-import { Select } from '../../components/form'
+import { SelectMenu } from '../../components/select-menu'
 import { Button } from '../../components/primitives'
 import { useUi } from '../../store/ui'
 import { TodoPageFooter } from './TodoPageFooter'
@@ -256,37 +256,40 @@ export function CompletedView() {
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <div className="flex shrink-0 flex-wrap items-center gap-2 px-3 pb-1 pt-2 md:px-5">
-        <Select
+        <SelectMenu
+          size="sm"
+          className="w-auto min-w-[112px]"
+          label={t('todo.view.completed')}
           value={activeYear}
-          onChange={(event) => {
-            const year = event.target.value
+          onChange={(year) => {
             // A year is the half-open window 1 January → next 1 January on the day the task was
             // finished, which is what the route bounds; it is asked again rather than filtered here.
             setCompletedRange(year === 'all'
               ? { from: null, to: null }
               : { from: `${year}-01-01`, to: `${Number(year) + 1}-01-01` })
           }}
-          aria-label={t('todo.view.completed')}
-          className="w-auto"
-        >
-          <option value="all">{t('todo.completed.year_all')}</option>
-          {years.map((entry) => <option key={entry} value={entry}>{entry}</option>)}
-        </Select>
+          options={[
+            { value: 'all', label: t('todo.completed.year_all') },
+            ...years.map((entry) => ({ value: entry, label: entry })),
+          ]}
+        />
         {/* The collection is part of the question, so it is asked again rather than filtered here:
             a page of finished work cannot be narrowed to a list it never received the rows of. */}
-        <Select
+        <SelectMenu
+          size="sm"
+          className="w-auto min-w-[132px]"
+          label={t('todo.task.list_label')}
           value={listId ?? 'all'}
-          onChange={(event) => {
+          onChange={(next) => {
             // Moving to another collection starts over at all years; `setView` clears the window.
-            setView('completed', { listId: event.target.value === 'all' ? undefined : event.target.value })
+            setView('completed', { listId: next === 'all' ? undefined : next })
           }}
-          aria-label={t('todo.task.list_label')}
-          className="w-auto"
-        >
-          <option value="all">{t('todo.filter.all_lists')}</option>
-          <option value="inbox">{t('todo.smart.inbox')}</option>
-          {lists.map((list) => <option key={list.id} value={list.id}>{list.name}</option>)}
-        </Select>
+          options={[
+            { value: 'all', label: t('todo.filter.all_lists') },
+            { value: 'inbox', label: t('todo.smart.inbox') },
+            ...lists.map((list) => ({ value: list.id, label: list.name })),
+          ]}
+        />
       </div>
       <div className="no-scrollbar min-h-0 flex-1 overflow-y-auto">
         <GroupedTaskList

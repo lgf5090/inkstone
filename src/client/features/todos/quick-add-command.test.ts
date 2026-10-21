@@ -11,6 +11,7 @@ import { act, createElement } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { initI18n, t } from '../../lib/i18n'
 import { renderElement, type RenderedElement } from '../../lib/test-render'
+import { selectedLabel } from '../../lib/test-menu'
 import type { TaskListEntry } from '../../lib/api'
 // The export helpers pull KaTeX's stylesheet in with `?inline`, which Vite refuses to read through
 // this checkout's symlinked `node_modules`; nothing under test exports a note, so the module is a stub.
@@ -81,10 +82,12 @@ describe('the new-task command', () => {
     const title = document.querySelector<HTMLInputElement>(`input[aria-label="${t('todo.task.title_label')}"]`)
     expect(title?.value).toBe('交周报')
 
-    // Priority, list, remind, repeat, in the order the dialog lays them out.
-    const selects = [...document.querySelectorAll<HTMLSelectElement>('select')]
-    expect(selects[0]?.value).toBe('high')
-    expect(selects[1]?.value).toBe('L1')
-    expect(selects[2]?.value, 'the reminder was parsed but lost before the form').toBe('15m')
+    // Priority is a radio group, and the list and the reminder are select-menus: each is read the way
+    // a reader reads it — the pressed radio's word, and the trigger's own label.
+    const pressed = [...document.querySelectorAll<HTMLElement>('[role="radio"][aria-checked="true"]')]
+      .map((node) => (node.textContent ?? '').trim())
+    expect(pressed).toContain(t('todo.priority.high'))
+    expect(selectedLabel(document.body, t('todo.task.list_label'))).toBe('工作')
+    expect(selectedLabel(document.body, t('todo.task.reminder_preset')), 'the reminder was parsed but lost before the form').toBe(t('todo.remind.15m'))
   })
 })

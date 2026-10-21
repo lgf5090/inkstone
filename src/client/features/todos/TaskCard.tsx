@@ -14,10 +14,12 @@ import { t } from '../../lib/i18n'
 import { api } from '../../lib/api'
 import { useDropState } from '../../lib/drop-state'
 import { useMediaQuery } from '../../lib/hooks'
+import { TagPill } from '../../components/TagChip'
 import { Menu, MenuSubmenuList, type MenuItem } from '../../components/overlay'
 import { useUi } from '../../store/ui'
 import { useTodos, snoozeLabel } from './store'
 import { dueLabel, priorityDot, priorityLabel } from './todo-ui'
+import { ListIcon } from './list-icons'
 import { SNOOZE_MINUTES, type TaskList, type TodoTask } from '@shared/todos/model'
 
 /** How long a finger has to stay down before the row joins a selection instead of opening. */
@@ -400,15 +402,14 @@ export function TaskCard({ task, lists, bounds, timezone, onOpen, onStar, onUnpl
       >
         <span
           className={cn(
-            'block break-words text-[length:var(--text-13)] leading-snug',
+            'line-clamp-2 block break-words text-[length:var(--text-13)] leading-snug',
             done ? 'text-[var(--text-tertiary)] line-through' : 'text-[var(--text-primary)]',
           )}
-          style={{ display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}
         >
           {task.title}
         </span>
         {!compact && task.description && (
-          <span className="mt-0.5 block truncate text-[length:var(--text-11-5)] text-[var(--text-tertiary)]">
+          <span className="mt-0.5 line-clamp-1 break-words text-[length:var(--text-11-5)] text-[var(--text-tertiary)]">
             {task.description}
           </span>
         )}
@@ -443,21 +444,20 @@ export function TaskCard({ task, lists, bounds, timezone, onOpen, onStar, onUnpl
           )}
           {showList && !compact && list && (
             <span className="inline-flex max-w-[130px] min-w-0 items-center gap-1 text-[length:var(--text-10-5)] text-[var(--text-quaternary)]">
-              <span className="size-1.5 shrink-0 rounded-full" style={{ backgroundColor: colour }} aria-hidden="true" />
+              {list.icon
+                ? <ListIcon icon={list.icon} size={11} className="shrink-0" />
+                : <span className="size-1.5 shrink-0 rounded-full" style={{ backgroundColor: colour }} aria-hidden="true" />}
               <span className="truncate">{list.name}</span>
             </span>
           )}
           {task.tags.slice(0, 2).map((tag) => (
-            <span
+            <TagPill
               key={tag.id}
-              className="max-w-[120px] truncate rounded-[var(--r-sm)] px-1.5 py-px text-[length:var(--text-10-5)]"
-              style={{
-                color: tag.color ?? 'var(--text-tertiary)',
-                backgroundColor: `color-mix(in oklab, ${tag.color ?? 'var(--text-tertiary)'} 12%, transparent)`,
-              }}
-            >
-              {tag.name}
-            </span>
+              tone="tinted"
+              label={tag.name}
+              color={tag.color}
+              className="max-w-[120px]"
+            />
           ))}
           {task.tags.length > 2 && (
             <span className="text-[length:var(--text-10-5)] text-[var(--text-quaternary)]">+{task.tags.length - 2}</span>

@@ -8,15 +8,17 @@
  */
 
 import { useEffect, useRef, useState } from 'react'
-import { CalendarRange, ChartNoAxesColumn, Filter, ListChecks, Plus, Search, Settings2, Sparkles, Sun, X } from 'lucide-react'
+import { CalendarRange, ChartNoAxesColumn, Filter, ListChecks, MoreHorizontal, PanelLeft, Plus, Search, Settings2, Sparkles, Sun, X } from 'lucide-react'
 import type { SavedTodoFilter } from '@shared/types'
 import { cn } from '../../lib/cn'
 import { t } from '../../lib/i18n'
 import { IS_DEMO_MODE } from '../../lib/runtime'
 import { isEditableTarget } from '../../lib/hotkeys'
 import { isImeComposing } from '../../lib/ime'
+import { useMediaQuery } from '../../lib/hooks'
 import { IconButton } from '../../components/primitives'
 import { Input } from '../../components/form'
+import { Menu, type MenuItem } from '../../components/overlay'
 import { LoadingBlock } from '../../components/feedback'
 import { useSession } from '../../store/session'
 import { useUi } from '../../store/ui'
@@ -28,12 +30,23 @@ import { BatchBar } from './BatchBar'
 import { TaskEditor } from './TaskEditor'
 import { useViewTitle } from './TaskViews'
 import { TodoFilters } from './TodoFilters'
+import { ListIcon } from './list-icons'
 import { TodoContent, surfaceBadge, surfacesFor } from './views/registry'
 
 type Page = 'main' | 'lists'
 
 /** The empty list a settings object without the field reads as; one instance, so the selector is stable. */
 const NO_SAVED_FILTERS: SavedTodoFilter[] = []
+
+/**
+ * The phone's fixed chrome, in one place.
+ *
+ * The floating button sits above the tab bar rather than on top of it, and the bar adds the bottom safe
+ * area to its own height — two numbers that used to be written as `76px` and `64px` in three different
+ * expressions, where changing one left the button overlapping the bar.
+ */
+const PHONE_TAB_BAR_CLASS = 'h-[calc(64px+env(safe-area-inset-bottom))]'
+const PHONE_FAB_CLASS = 'bottom-[calc(76px+env(safe-area-inset-bottom))]'
 
 const TODO_WRITE_TOOLS = new Set([
   'create_task',
@@ -57,14 +70,7 @@ const TODO_WRITE_TOOLS = new Set([
 ])
 
 function useWide(): boolean {
-  const [wide, setWide] = useState(() => typeof window !== 'undefined' && window.matchMedia('(min-width: 768px)').matches)
-  useEffect(() => {
-    const query = window.matchMedia('(min-width: 768px)')
-    const onChange = (): void => setWide(query.matches)
-    query.addEventListener('change', onChange)
-    return () => query.removeEventListener('change', onChange)
-  }, [])
-  return wide
+  return useMediaQuery('(min-width: 768px)')
 }
 
 export function TodosApp() {
@@ -102,6 +108,9 @@ export function TodosApp() {
   // away rather than absent: the toggle opens the same field a wide window keeps on screen.
   const [searchOpen, setSearchOpen] = useState(false)
   const searchRef = useRef<HTMLInputElement>(null)
+  /** The phone's overflow: the surfaces that do not fit beside the title. */
+  const moreRef = useRef<HTMLButtonElement>(null)
+  const [moreOpen, setMoreOpen] = useState(false)
   const contentRef = useRef<HTMLDivElement>(null)
   const lastAssistantScreen = useRef<string | null>(null)
   const refreshedTurn = useRef<number | null>(null)
@@ -221,82 +230,139 @@ export function TodosApp() {
     />
   )
 
+  /**
+   * What the phone's `⋯` opens.
+   *
+   * These four used to be header buttons; on a 360px screen they pushed the title down to a few
+   * characters. Each row is the same surface the sidebar names on a wide window, so the two layouts
+   * offer one vocabulary in two shapes.
+   */
+  const phoneMoreItems: MenuItem[] = [
+    {
+      id: 'today',
+      label: t('todo.view.today'),
+      icon: <Sun size={14} />,
+      onSelect: () => { setPage('main'); setView('today') },
+    },
+    {
+      id: 'stats',
+      label: t('todo.view.stats'),
+      icon: <ChartNoAxesColumn size={14} />,
+      onSelect: () => { setPage('main'); setView('stats') },
+    },
+    {
+      id: 'lists',
+      label: t('todo.action.lists'),
+      icon: <ListChecks size={14} />,
+      separatorBefore: true,
+      onSelect: () => setPage('lists'),
+    },
+    ...(IS_DEMO_MODE
+      ? []
+      : [{
+          id: 'assistant',
+          label: t('todo.action.ask_assistant'),
+          icon: <Sparkles size={14} />,
+          onSelect: () => useUi.getState().setAssistantDock(!assistantDockOpen),
+        }]),
+  ]
+
   const header = (
-    <header data-print="hide" className="flex h-11 shrink-0 items-center gap-2 border-b border-[var(--border-subtle)] bg-[var(--bg-sunken)] px-3 pt-[env(safe-area-inset-top)]">
-      <span className="min-w-0 shrink truncate text-[length:var(--text-13-5)] font-semibold text-[var(--text-primary)]">
-        {page === 'lists' ? t('todo.action.lists') : title}
-      </span>
-      <div className="ml-auto flex min-w-0 items-center gap-1">
+    <header
+      data-print="hide"
+      className="flex h-[calc(44px+env(safe-area-inset-top))] shrink-0 items-center gap-1.5 border-b border-[var(--border-subtle)] bg-[var(--bg-sunken)] px-2 pt-[env(safe-area-inset-top)] md:h-11 md:px-3"
+    >
+      {/* The search takes the title's place while it is open on a phone, rather than sharing a 360px
+          row with it: a field squeezed to 180px is a field nobody can read what they typed in. */}
+      {!(searchOpen && !wide) && (
+        <span className="min-w-0 shrink truncate text-[length:var(--text-13-5)] font-semibold text-[var(--text-primary)]">
+          {page === 'lists' ? t('todo.action.lists') : title}
+        </span>
+      )}
+      <div className="ml-auto flex min-w-0 items-center gap-0.5">
         {wide ? (
-          <div className="relative min-w-0">{searchField}</div>
-        ) : searchOpen ? (
-          <div className="relative flex min-w-0 flex-1">{searchField}</div>
+          <>
+            <div className="relative min-w-0">{searchField}</div>
+            <IconButton
+              label={t('todo.action.toggle_sidebar')}
+              size="sm"
+              className="size-7"
+              active={sidebarOpen}
+              onClick={() => setSidebarOpen((open) => !open)}
+            >
+              <PanelLeft size={15} />
+            </IconButton>
+            {!IS_DEMO_MODE && (
+              <IconButton
+                label={t('todo.action.ask_assistant')}
+                size="sm"
+                className="size-7"
+                active={assistantDockOpen}
+                onClick={() => useUi.getState().setAssistantDock(!assistantDockOpen)}
+              >
+                <Sparkles size={15} />
+              </IconButton>
+            )}
+            <IconButton label={t('todo.action.lists')} size="sm" className="size-7" active={page === 'lists'} onClick={() => setPage(page === 'lists' ? 'main' : 'lists')}>
+              <ListChecks size={15} />
+            </IconButton>
+            <IconButton label={t('todo.action.new_task')} size="sm" className="size-7" onClick={newTask}>
+              <Plus size={15} />
+            </IconButton>
+          </>
         ) : (
-          /* A finger's height: on a phone this is the only way to reach a search at all. */
-          <IconButton label={t('todo.action.search')} size="sm" className="size-11" onClick={() => setSearchOpen(true)}>
-            <Search size={15} />
-          </IconButton>
+          <>
+            {searchOpen ? (
+              <div className="relative flex min-w-0 flex-1">{searchField}</div>
+            ) : (
+              /* A finger's height: on a phone this is the only way to reach a search at all. */
+              <IconButton label={t('todo.action.search')} size="sm" className="size-11" onClick={() => setSearchOpen(true)}>
+                <Search size={16} />
+              </IconButton>
+            )}
+            {!searchOpen && (
+              <>
+                {/* The calendar keeps a button of its own: it is the surface a phone reaches most often
+                    from wherever it is standing. Today, statistics and the lists page fold into the
+                    menu beside it — four glyphs plus a title do not fit across 360px. */}
+                <IconButton
+                  label={t('todo.view.calendar')}
+                  size="sm"
+                  className="size-11"
+                  active={view === 'calendar'}
+                  data-calendar-entry=""
+                  onClick={() => { setPage('main'); setView('calendar') }}
+                >
+                  <CalendarRange size={16} />
+                </IconButton>
+                <IconButton
+                  ref={moreRef}
+                  label={t('todo.action.more')}
+                  size="sm"
+                  className="size-11"
+                  active={moreOpen}
+                  aria-haspopup="menu"
+                  aria-expanded={moreOpen}
+                  onClick={() => setMoreOpen((open) => !open)}
+                >
+                  <MoreHorizontal size={16} />
+                </IconButton>
+              </>
+            )}
+          </>
         )}
-        {wide && !IS_DEMO_MODE && (
-          <IconButton
-            label={t('todo.action.ask_assistant')}
-            size="sm"
-            className="size-11 md:size-6"
-            active={assistantDockOpen}
-            onClick={() => useUi.getState().setAssistantDock(!assistantDockOpen)}
-          >
-            <Sparkles size={15} />
-          </IconButton>
-        )}
-        {/* "My Day" is the fifth surface, and the phone's bottom bar has four tabs already: it is
-            reached here, from any view, the same way statistics is. */}
-        {!wide && (
-          <IconButton
-            label={t('todo.view.today')}
-            size="sm"
-            className="size-11"
-            active={view === 'today'}
-            data-today-entry=""
-            onClick={() => { setPage('main'); setView('today') }}
-          >
-            <Sun size={15} />
-          </IconButton>
-        )}
-        {/* The statistics screen is a fifth surface, and a fourth phone tab would be one too many:
-            on a phone it is reached here, beside search, from any view the reader is standing on. */}
-        {!wide && (
-          <IconButton
-            label={t('todo.view.stats')}
-            size="sm"
-            className="size-11"
-            active={view === 'stats'}
-            data-stats-entry=""
-            onClick={() => { setPage('main'); setView('stats') }}
-          >
-            <ChartNoAxesColumn size={15} />
-          </IconButton>
-        )}
-        {!wide && (
-          <IconButton
-            label={t('todo.view.calendar')}
-            size="sm"
-            className="size-11"
-            active={view === 'calendar'}
-            data-calendar-entry=""
-            onClick={() => { setPage('main'); setView('calendar') }}
-          >
-            <CalendarRange size={15} />
-          </IconButton>
-        )}
-        {/* A finger's height on a phone even though the glyph stays small: these two are the only way
-            to reach the lists page and to add a task from the header. */}
-        <IconButton label={t('todo.action.lists')} size="sm" className="size-11 md:size-6" active={page === 'lists'} onClick={() => setPage(page === 'lists' ? 'main' : 'lists')}>
-          <ListChecks size={15} />
-        </IconButton>
-        <IconButton label={t('todo.action.new_task')} size="sm" className="size-11 md:size-6" onClick={newTask}>
-          <Plus size={15} />
-        </IconButton>
       </div>
+      {!wide && (
+        <Menu
+          anchor={moreRef}
+          open={moreOpen}
+          onClose={() => setMoreOpen(false)}
+          items={phoneMoreItems}
+          align="end"
+          width={200}
+          label={t('todo.action.more')}
+        />
+      )}
     </header>
   )
 
@@ -315,7 +381,7 @@ export function TodosApp() {
   }
 
   const sidebar = (
-    <nav aria-label={t('todo.a11y.lists')} className="flex h-full w-[240px] shrink-0 flex-col gap-4 overflow-y-auto border-r border-[var(--border-subtle)] bg-[var(--bg-sunken)] px-2 py-3">
+    <nav aria-label={t('todo.a11y.lists')} className="flex h-full w-[232px] shrink-0 flex-col gap-4 overflow-y-auto border-r border-[var(--border-subtle)] bg-[var(--bg-sunken)] px-2 py-3">
       <div className="flex flex-col gap-0.5">
         {surfacesFor('sidebar').map((surface) => {
           const Icon = surface.icon
@@ -341,7 +407,9 @@ export function TodosApp() {
         {lists.map((list) => (
           <SidebarRow
             key={list.id}
-            icon={<span className="size-2 rounded-full" style={{ backgroundColor: list.color ?? 'var(--accent)' }} />}
+            icon={list.icon
+              ? <ListIcon icon={list.icon} size={13} />
+              : <span className="size-2 rounded-full" style={{ backgroundColor: list.color ?? 'var(--accent)' }} />}
             label={list.name}
             count={list.openCount}
             active={view === 'list' && listId === list.id}
@@ -445,13 +513,13 @@ export function TodosApp() {
             type="button"
             onClick={newTask}
             aria-label={t('todo.action.new_task')}
-            className="fixed bottom-[calc(76px+env(safe-area-inset-bottom))] right-4 z-[var(--z-float)] flex size-14 items-center justify-center rounded-full bg-[var(--accent)] text-[var(--accent-contrast)] shadow-[var(--shadow-modal)] active:scale-95"
+            className={cn('fixed right-4 z-[var(--z-float)] flex size-14 items-center justify-center rounded-full bg-[var(--accent)] text-[var(--accent-contrast)] shadow-[var(--shadow-modal)] active:scale-95', PHONE_FAB_CLASS)}
           >
             <Plus size={24} />
           </button>}
           <nav
             aria-label={t('todo.app.navigation')}
-            className="flex h-[calc(64px+env(safe-area-inset-bottom))] shrink-0 items-stretch justify-around border-t border-[var(--border-subtle)] bg-[var(--bg-surface)] pb-[env(safe-area-inset-bottom)]"
+            className={cn('flex shrink-0 items-stretch justify-around border-t border-[var(--border-subtle)] bg-[var(--bg-surface)] pb-[env(safe-area-inset-bottom)]', PHONE_TAB_BAR_CLASS)}
           >
             {/* Order, glyphs, labels and the one badge all come from the surface table, so a view that
                 earns a tab on the phone is added there rather than here. */}

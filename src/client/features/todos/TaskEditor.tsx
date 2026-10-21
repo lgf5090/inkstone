@@ -14,18 +14,22 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { ChevronDown, ChevronUp, MessagesSquare, Plus, Sparkles, Star, Trash2, X } from 'lucide-react'
 import { t } from '../../lib/i18n'
 import { cn } from '../../lib/cn'
+import { addDaysKey } from '../../lib/time'
 import { Button, IconButton } from '../../components/primitives'
-import { Checkbox, Input, Select, Segmented, Textarea, Field } from '../../components/form'
+import { Checkbox, Input, Segmented, Textarea, Field } from '../../components/form'
+import { SelectMenu } from '../../components/select-menu'
+import { TagPill } from '../../components/TagChip'
 import { renderMarkdown } from '../../lib/markdown/renderer'
 import { DatePicker } from '../../components/date-picker'
-import { Modal, confirm } from '../../components/overlay'
+import { Menu, Modal, confirm } from '../../components/overlay'
 import { api } from '../../lib/api'
 import { useUi } from '../../store/ui'
 import { useTodos, remindOffsetOf } from './store'
-import { dueValue } from './todo-ui'
+import { dueValue, priorityDot, priorityLabel } from './todo-ui'
+import { ListIcon } from './list-icons'
 import { openConversationInChat, startChatAboutTask } from '../chat/start-chat'
 import { sendForAnswerDetailed, type AnswerResult } from '../chat/editor-ai'
-import { parseLocalTime } from '@shared/assistant-time'
+import { parseLocalTime, localDate } from '@shared/assistant-time'
 import type { MessageKey } from '@shared/locales/en-US'
 import {
   MAX_REMINDERS_PER_TASK,
@@ -117,6 +121,21 @@ export function TaskEditor() {
     return tasks.find((task) => task.id === draft.id) ?? completed.find((task) => task.id === draft.id) ?? null
   }, [draft?.id, tasks, completed])
 
+  /**
+   * The three days a reader sets most often, as one press each.
+   *
+   * They write the same `YYYY-MM-DD` the picker writes — an all-day due date — so the chips and the
+   * field can never disagree about what "tomorrow" means.
+   */
+  const quickDates = useMemo(() => {
+    const today = localDate(Date.now(), timezone)
+    return [
+      { key: 'today', label: t('todo.date.today'), value: today },
+      { key: 'tomorrow', label: t('todo.date.tomorrow'), value: addDaysKey(today, 1) },
+      { key: 'nextWeek', label: t('todo.date.next_week'), value: addDaysKey(today, 7) },
+    ]
+  }, [timezone])
+
   const [title, setTitle] = useState('')
   const [notes, setNotes] = useState('')
   const [notesMode, setNotesMode] = useState<'edit' | 'preview'>('edit')
@@ -140,6 +159,9 @@ export function TaskEditor() {
   const [reminders, setReminders] = useState<number[]>([])
   const [tagNames, setTagNames] = useState<string[]>([])
   const [tagInput, setTagInput] = useState('')
+  /** The account's tags this task does not wear yet — the menu's rows. */
+  const tagRef = useRef<HTMLInputElement>(null)
+  const [tagMenuOpen, setTagMenuOpen] = useState(false)
   const [steps, setSteps] = useState<TaskStep[]>([])
   const [stepInput, setStepInput] = useState('')
   /** One move at a time: two presses in flight would each resolve against the order before the other. */
@@ -184,12 +206,23 @@ export function TaskEditor() {
     setTagNames(task ? task.tags.map((tag) => tag.name) : source.tags ?? [])
     setStepInput('')
     setTagInput('')
+    setTagMenuOpen(false)
     setSteps([])
     setAskQuestion('')
     setAskState({ status: 'idle' })
     if (task) {
       let alive = true
-      void api.todos.get(task.id).then(({ steps: rows }) => { if (alive) setSteps(rows) }).catch(() => { if (alive) setSteps([]) })
+      void api.todos.get(task.id).then(({ steps: rows }) => { if (alive) setSteps(rows) }).catch((error: unknown) => {
+        if (!alive) return
+        // An empty list and a list that could not be read are different answers: the panel keeps the
+        // empty one but says which it is, rather than letting a failed read read as "no steps".
+        setSteps([])
+        useUi.getState().toast({
+          title: t('todo.task.steps_failed'),
+          description: error instanceof Error ? error.message : String(error),
+          tone: 'danger',
+        })
+      })
       return () => { alive = false }
     }
     return undefined
@@ -201,6 +234,12 @@ export function TaskEditor() {
   const notesHtml = useMemo(
     () => (notesMode === 'preview' && notes.trim() ? renderMarkdown(notes).html : ''),
     [notesMode, notes],
+  )
+
+  /** The tags the account already has and this task does not: the rows the field offers. */
+  const tagSuggestions = useMemo(
+    () => tags.filter((tag) => !tagNames.some((name) => name.toLowerCase() === tag.name.toLowerCase())),
+    [tags, tagNames],
   )
 
   const save = async (): Promise<void> => {
@@ -260,6 +299,7 @@ export function TaskEditor() {
     if (!name) return
     setTagNames((current) => (current.some((entry) => entry.toLowerCase() === name.toLowerCase()) ? current : [...current, name]))
     setTagInput('')
+    setTagMenuOpen(false)
   }
 
   /**
@@ -509,20 +549,72 @@ export function TaskEditor() {
           </section>
         )}
 
-        <div className="grid grid-cols-2 gap-2">
+        {/* One column on a phone: two date pickers across 360px leave each one too narrow to read. */}
+        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
           <Field label={t('todo.task.priority_label')}>
-            <Select value={priority} onChange={(event) => setPriority(event.target.value as TodoPriority)}>
-              {PRIORITIES.map((entry) => <option key={entry} value={entry}>{t(`todo.priority.${entry}`)}</option>)}
-            </Select>
+            <Segmented<TodoPriority>
+              value={priority}
+              onChange={setPriority}
+              label={t('todo.task.priority_label')}
+              className="w-full [&_button]:flex-1"
+              options={PRIORITIES.map((entry) => ({
+                value: entry,
+                label: (
+                  <span className="inline-flex items-center gap-1.5">
+                    <span className={cn('size-1.5 shrink-0 rounded-full', priorityDot(entry))} aria-hidden="true" />
+                    {priorityLabel(entry)}
+                  </span>
+                ),
+              }))}
+            />
           </Field>
           <Field label={t('todo.task.list_label')}>
-            <Select value={listId} onChange={(event) => setListId(event.target.value)}>
-              <option value="">{t('todo.smart.inbox')}</option>
-              {lists.map((list) => <option key={list.id} value={list.id}>{list.name}</option>)}
-            </Select>
+            <SelectMenu
+              label={t('todo.task.list_label')}
+              value={listId}
+              onChange={setListId}
+              options={[
+                { value: '', label: t('todo.smart.inbox') },
+                ...lists.map((list) => ({
+                  value: list.id,
+                  label: list.name,
+                  icon: list.icon
+                    ? <ListIcon icon={list.icon} size={13} />
+                    : <span className="size-2 rounded-full" style={{ backgroundColor: list.color ?? 'var(--accent)' }} aria-hidden="true" />,
+                })),
+              ]}
+            />
           </Field>
           <Field label={t('todo.task.due_label')}>
-            <DatePicker label={t('todo.task.due_label')} value={dueText} withTime onChange={setDueText} />
+            <div className="flex flex-col gap-1.5">
+              <DatePicker label={t('todo.task.due_label')} value={dueText} withTime onChange={setDueText} />
+              <div className="flex flex-wrap items-center gap-1">
+                {quickDates.map((choice) => (
+                  <button
+                    key={choice.key}
+                    type="button"
+                    onClick={() => setDueText(choice.value)}
+                    className={cn(
+                      'inline-flex min-h-9 items-center rounded-full border px-2.5 text-[length:var(--text-11)] transition-colors',
+                      dueText.slice(0, 10) === choice.value
+                        ? 'border-[var(--accent)] bg-[var(--accent-soft)] text-[var(--accent-on-soft)]'
+                        : 'border-[var(--border-subtle)] text-[var(--text-secondary)] hover:border-[var(--border-strong)] hover:text-[var(--text-primary)]',
+                    )}
+                  >
+                    {choice.label}
+                  </button>
+                ))}
+                {dueText && (
+                  <button
+                    type="button"
+                    onClick={() => setDueText('')}
+                    className="inline-flex min-h-9 items-center rounded-full px-2 text-[length:var(--text-11)] text-[var(--text-tertiary)] hover:text-[var(--danger)]"
+                  >
+                    {t('todo.date.clear')}
+                  </button>
+                )}
+              </div>
+            </div>
           </Field>
           {/* The day the work becomes available, separate from the day it is owed. Left empty is the
               ordinary case: a task is actionable from the moment it is filed. */}
@@ -532,17 +624,26 @@ export function TaskEditor() {
           {/* The select sits where the single-reminder field always did and adds one instant to the
               list below; the list, not the select, is what the task saves. */}
           <Field label={t('todo.task.reminder_preset')}>
-            <Select value={remind} onChange={(event) => addPreset(event.target.value as RemindOffset)}>
-              {REMIND_OFFSETS.map((entry) => <option key={entry} value={entry}>{t(`todo.remind.${entry}`)}</option>)}
-            </Select>
+            <SelectMenu
+              label={t('todo.task.reminder_preset')}
+              value={remind}
+              onChange={(next) => addPreset(next as RemindOffset)}
+              options={REMIND_OFFSETS.map((entry) => ({ value: entry, label: t(`todo.remind.${entry}`) }))}
+            />
           </Field>
           <Field label={t('todo.task.repeat_label')}>
             <div className="flex flex-col gap-1.5">
               <div className="flex items-center gap-1.5">
-                <Select value={repeat} onChange={(event) => setRepeat(event.target.value as 'none' | RepeatFrequency)}>
-                  <option value="none">{t('todo.repeat.none')}</option>
-                  {REPEAT_FREQUENCIES.map((entry) => <option key={entry} value={entry}>{t(`todo.repeat.${entry}`)}</option>)}
-                </Select>
+                <SelectMenu
+                  className="flex-1"
+                  label={t('todo.task.repeat_label')}
+                  value={repeat}
+                  onChange={(next) => setRepeat(next as 'none' | RepeatFrequency)}
+                  options={[
+                    { value: 'none', label: t('todo.repeat.none') },
+                    ...REPEAT_FREQUENCIES.map((entry) => ({ value: entry, label: t(`todo.repeat.${entry}`) })),
+                  ]}
+                />
                 {repeat !== 'none' && (
                   <Input
                     type="number"
@@ -570,7 +671,7 @@ export function TaskEditor() {
                         onClick={() => setWeekdays((current) => (active
                           ? current.filter((day) => day !== choice.day)
                           : [...current, choice.day]))}
-                        className="flex size-7 items-center justify-center rounded-[var(--r-sm)] border border-[var(--border-subtle)] text-[length:var(--text-11)] text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--accent)] aria-pressed:border-[var(--accent)] aria-pressed:bg-[var(--accent-soft)] aria-pressed:text-[var(--accent-on-soft)]"
+                        className="flex size-9 items-center justify-center rounded-[var(--r-sm)] border border-[var(--border-subtle)] text-[length:var(--text-11)] text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--accent)] aria-pressed:border-[var(--accent)] aria-pressed:bg-[var(--accent-soft)] aria-pressed:text-[var(--accent-on-soft)] md:size-7"
                       >
                         {t(choice.label)}
                       </button>
@@ -579,14 +680,15 @@ export function TaskEditor() {
                 </div>
               )}
               {repeat === 'monthly' && (
-                <Select
+                <SelectMenu
+                  label={t('todo.repeat.monthly_mode')}
                   value={monthlyMode}
-                  aria-label={t('todo.task.repeat_label')}
-                  onChange={(event) => setMonthlyMode(event.target.value === 'lastDay' ? 'lastDay' : 'day')}
-                >
-                  <option value="day">{t('todo.repeat.monthly_day')}</option>
-                  <option value="lastDay">{t('todo.repeat.last_day')}</option>
-                </Select>
+                  onChange={(next) => setMonthlyMode(next === 'lastDay' ? 'lastDay' : 'day')}
+                  options={[
+                    { value: 'day', label: t('todo.repeat.monthly_day') },
+                    { value: 'lastDay', label: t('todo.repeat.last_day') },
+                  ]}
+                />
               )}
             </div>
           </Field>
@@ -648,40 +750,59 @@ export function TaskEditor() {
             {tagNames.map((name) => {
               const known = tags.find((tag) => tag.name.toLowerCase() === name.toLowerCase())
               return (
-                <span
+                <TagPill
                   key={name}
-                  className="inline-flex items-center gap-1 rounded-[var(--r-sm)] px-1.5 py-0.5 text-[length:var(--text-11)]"
-                  style={{
-                    color: known?.color ?? 'var(--text-secondary)',
-                    backgroundColor: `color-mix(in oklab, ${known?.color ?? 'var(--text-secondary)'} 12%, transparent)`,
-                  }}
-                >
-                  {name}
-                  <button
-                    type="button"
-                    aria-label={`${t('todo.action.delete')} ${name}`}
-                    onClick={() => setTagNames((current) => current.filter((entry) => entry !== name))}
-                    className="text-[var(--text-quaternary)] hover:text-[var(--danger)]"
-                  >
-                    <X size={11} />
-                  </button>
-                </span>
+                  tone="tinted"
+                  label={name}
+                  color={known?.color ?? 'var(--text-secondary)'}
+                  trailing={(
+                    <button
+                      type="button"
+                      aria-label={`${t('todo.action.delete')} ${name}`}
+                      onClick={() => setTagNames((current) => current.filter((entry) => entry !== name))}
+                      className="ml-0.5 flex size-4 items-center justify-center rounded-full text-current opacity-60 hover:opacity-100"
+                    >
+                      <X size={10} />
+                    </button>
+                  )}
+                />
               )
             })}
             <Input
+              ref={tagRef}
               value={tagInput}
-              list="todo-tag-options"
               placeholder={t('todo.task.tags_label')}
               aria-label={t('todo.task.tags_label')}
-              onChange={(event) => setTagInput(event.target.value)}
+              aria-expanded={tagMenuOpen && tagSuggestions.length > 0}
+              aria-haspopup="menu"
+              onChange={(event) => { setTagInput(event.target.value); setTagMenuOpen(true) }}
+              onFocus={() => setTagMenuOpen(true)}
               onKeyDown={(event) => {
-                if (event.key === 'Enter' && !event.nativeEvent.isComposing) { event.preventDefault(); addTag() }
+                if (event.key === 'Enter' && !event.nativeEvent.isComposing) { event.preventDefault(); addTag(); setTagMenuOpen(false) }
+                if (event.key === 'Escape') setTagMenuOpen(false)
               }}
               className="w-32"
             />
-            <datalist id="todo-tag-options">
-              {tags.map((tag) => <option key={tag.id} value={tag.name} />)}
-            </datalist>
+            {/* The notebook's tag list, offered as the menu a `<datalist>` could not be: real rows with
+                the tag's colour, reachable by keyboard, and no native popup in the middle of a dialog. */}
+            <Menu
+              anchor={tagRef}
+              open={tagMenuOpen && tagSuggestions.length > 0}
+              onClose={() => setTagMenuOpen(false)}
+              align="start"
+              width={200}
+              label={t('todo.task.tags_label')}
+              items={tagSuggestions.map((tag) => ({
+                id: tag.id,
+                label: tag.name,
+                icon: <span className="size-2 rounded-full" style={{ backgroundColor: tag.color ?? 'var(--accent)' }} aria-hidden="true" />,
+                onSelect: () => {
+                  setTagNames((current) => [...current, tag.name])
+                  setTagInput('')
+                  setTagMenuOpen(false)
+                },
+              }))}
+            />
           </div>
         </div>
 

@@ -502,9 +502,15 @@ describe('the way in', () => {
     expect(tabs?.querySelectorAll('button')).toHaveLength(5)
     expect(tabs?.textContent, 'the assistant is the fifth phone tab, not statistics').not.toContain(t('todo.view.stats'))
 
-    const entry = [...phone.querySelectorAll('button')]
-      .find((node) => node.getAttribute('aria-label') === t('todo.view.stats'))
-    expect(entry, 'a phone has no way into the statistics screen').not.toBeNull()
+    // The phone reaches it from the header's `⋯`: four glyphs plus a title do not fit across 360px.
+    const more = [...phone.querySelectorAll<HTMLButtonElement>('button')]
+      .find((node) => node.getAttribute('aria-label') === t('todo.action.more'))
+    expect(more, 'a phone has no overflow menu').not.toBeNull()
+    act(() => { more!.click() })
+    await settle()
+    const entry = [...document.querySelectorAll<HTMLButtonElement>('[role="menu"] button')]
+      .find((node) => (node.textContent ?? '').trim() === t('todo.view.stats'))
+    expect(entry, 'a phone has no way into the statistics screen').not.toBeUndefined()
 
     act(() => { entry!.click() })
     await settle()

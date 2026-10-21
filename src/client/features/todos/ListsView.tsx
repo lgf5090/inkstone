@@ -4,17 +4,21 @@
  * It is a page rather than a drawer because it is where a reader goes when they are rearranging,
  * not while they are working, and because on a phone a drawer over the board would leave the thing
  * being edited half visible.
+ *
+ * A row is a name and a count; everything a row can do — rename, re-parent, archive — lives in one
+ * menu at its end. The parent picker used to be a `<select>` on every row, which on a 360px screen took
+ * a third of the width and pushed the row's own actions off the edge.
  */
-
-import { useState, type ReactNode } from 'react'
-import { Archive, ArchiveRestore, ChevronDown, ChevronRight, Pencil, Plus, Trash2 } from 'lucide-react'
+import { useRef, useState, type ReactNode } from 'react'
+import { Archive, ArchiveRestore, ChevronDown, ChevronRight, MoreHorizontal, Pencil, Plus, Trash2 } from 'lucide-react'
 import { t } from '../../lib/i18n'
-import { KanbanIconBadge } from '../../lib/markdown/kanban/ui/kanban-icon-badge'
-import { Select } from '../../components/form'
-import { listIconFor } from './todo-ui'
+import { cn } from '../../lib/cn'
+import { IconButton } from '../../components/primitives'
+import { Menu, type MenuItem } from '../../components/overlay'
 import { useTodos, type TaskListEntry } from './store'
 import { ListEditor, TagEditor } from './OrganizerEditors'
 import { TrashPanel } from './TrashPanel'
+import { ListIcon } from './list-icons'
 import type { TaskList, TaskTag } from '@shared/todos/model'
 
 export function ListsView({ onOpen }: { onOpen: (target: { listId?: string; tagId?: string }) => void }) {
@@ -48,43 +52,28 @@ export function ListsView({ onOpen }: { onOpen: (target: { listId?: string; tagI
   }
   const roots = lists.filter((list) => !list.parentId || !visibleIds.has(list.parentId))
 
-  const parentPicker = (list: TaskListEntry, hasChildren: boolean) => {
-    const current = list.parentId && visibleIds.has(list.parentId) ? list.parentId : ''
-    // A container is already the top of a group; nesting it would make the tree two levels tall.
+  /** The roots a list may move under: itself and any container are excluded. */
+  const parentOptions = (list: TaskListEntry, hasChildren: boolean) => {
     const eligible = hasChildren ? [] : roots.filter((root) => root.id !== list.id)
-    return (
-      <Select
-        aria-label={`${t('todo.list.parent_label')} ${list.name}`}
-        value={current}
-        disabled={hasChildren}
-        onChange={(event) => {
-          const next = event.target.value || null
-          if (next !== list.parentId) void updateList(list.id, { parentId: next })
-        }}
-        className="h-9 w-28 px-2 text-[length:var(--text-11)] md:h-7"
-      >
-        <option value="">{t('todo.list.top_level')}</option>
-        {eligible.map((root) => <option key={root.id} value={root.id}>{root.name}</option>)}
-      </Select>
-    )
+    return eligible
   }
 
   return (
-    <div className="no-scrollbar min-h-0 flex-1 overflow-y-auto px-3 pb-24 pt-2 md:px-5 md:pb-6">
+    <div className="no-scrollbar min-h-0 flex-1 overflow-y-auto px-3 pb-28 pt-2 md:px-5 md:pb-6">
       <div className="mx-auto flex w-full max-w-[640px] flex-col gap-5">
         <section>
-          <h2 className="mb-1.5 px-1 text-[length:var(--text-12)] font-semibold text-[var(--text-secondary)]">{t('todo.smart.all')}</h2>
+          <h2 className="mb-1.5 px-1 text-[length:var(--text-12)] font-semibold text-[var(--text-secondary)]">{t('todo.lists.views')}</h2>
           <div className="overflow-hidden rounded-[var(--r-lg)] border border-[var(--border-subtle)] bg-[var(--bg-surface)]">
             <button type="button" onClick={() => setView('plan')} className="flex min-h-11 w-full items-center gap-2 px-3 text-left hover:bg-[var(--bg-hover)]">
               <span className="min-w-0 flex-1 truncate text-[length:var(--text-13)]">{t('todo.view.plan')}</span>
               <span className="text-[length:var(--text-11)] tabular-nums text-[var(--text-quaternary)]">{counts?.all ?? 0}</span>
-              <ChevronRight size={13} className="text-[var(--text-quaternary)]" />
+              <ChevronRight size={13} className="text-[var(--text-quaternary)]" aria-hidden="true" />
             </button>
             <div className="h-px bg-[var(--border-subtle)]" />
             <button type="button" onClick={() => setView('completed')} className="flex min-h-11 w-full items-center gap-2 px-3 text-left hover:bg-[var(--bg-hover)]">
               <span className="min-w-0 flex-1 truncate text-[length:var(--text-13)]">{t('todo.smart.completed')}</span>
               <span className="text-[length:var(--text-11)] tabular-nums text-[var(--text-quaternary)]">{counts?.completed ?? 0}</span>
-              <ChevronRight size={13} className="text-[var(--text-quaternary)]" />
+              <ChevronRight size={13} className="text-[var(--text-quaternary)]" aria-hidden="true" />
             </button>
           </div>
         </section>
@@ -95,7 +84,7 @@ export function ListsView({ onOpen }: { onOpen: (target: { listId?: string; tagI
             <button
               type="button"
               onClick={() => setListEditor({ open: true, list: null })}
-              className="inline-flex items-center gap-0.5 text-[length:var(--text-11-5)] text-[var(--accent)]"
+              className="inline-flex min-h-9 items-center gap-0.5 text-[length:var(--text-11-5)] text-[var(--accent)]"
             >
               <Plus size={12} />{t('todo.action.new_list')}
             </button>
@@ -121,7 +110,9 @@ export function ListsView({ onOpen }: { onOpen: (target: { listId?: string; tagI
                       onOpen={() => onOpen({ listId: list.id })}
                       onEdit={() => setListEditor({ open: true, list })}
                       onArchive={() => { void updateList(list.id, { archived: true }) }}
-                      parentPicker={parentPicker(list, children.length > 0)}
+                      parents={parentOptions(list, children.length > 0)}
+                      parentId={list.parentId}
+                      onReparent={(next) => { void updateList(list.id, { parentId: next }) }}
                     />
                     {children.length > 0 && (
                       <ul className="m-0 list-none p-0">
@@ -137,7 +128,9 @@ export function ListsView({ onOpen }: { onOpen: (target: { listId?: string; tagI
                               onOpen={() => onOpen({ listId: child.id })}
                               onEdit={() => setListEditor({ open: true, list: child })}
                               onArchive={() => { void updateList(child.id, { archived: true }) }}
-                              parentPicker={parentPicker(child, false)}
+                              parents={parentOptions(child, false)}
+                              parentId={child.parentId}
+                              onReparent={(next) => { void updateList(child.id, { parentId: next }) }}
                             />
                           </li>
                         ))}
@@ -156,7 +149,7 @@ export function ListsView({ onOpen }: { onOpen: (target: { listId?: string; tagI
               aria-label={t('todo.list.archived')}
               className="flex min-h-11 w-full items-center gap-2 px-3 text-left text-[length:var(--text-12)] font-semibold text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]"
             >
-              {archivedOpen ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
+              {archivedOpen ? <ChevronDown size={13} aria-hidden="true" /> : <ChevronRight size={13} aria-hidden="true" />}
               <span className="min-w-0 flex-1 truncate">{t('todo.list.archived')}</span>
               <span className="text-[length:var(--text-11)] tabular-nums text-[var(--text-quaternary)]">{archivedLists.length}</span>
             </button>
@@ -184,9 +177,9 @@ export function ListsView({ onOpen }: { onOpen: (target: { listId?: string; tagI
               aria-label={t('todo.trash.title')}
               className="flex min-h-11 w-full items-center gap-2 px-3 text-left hover:bg-[var(--bg-hover)]"
             >
-              <Trash2 size={14} className="text-[var(--text-tertiary)]" />
+              <Trash2 size={14} className="text-[var(--text-tertiary)]" aria-hidden="true" />
               <span className="min-w-0 flex-1 truncate text-[length:var(--text-13)]">{t('todo.trash.title')}</span>
-              <ChevronRight size={13} className="text-[var(--text-quaternary)]" />
+              <ChevronRight size={13} className="text-[var(--text-quaternary)]" aria-hidden="true" />
             </button>
           </div>
         </section>
@@ -197,13 +190,13 @@ export function ListsView({ onOpen }: { onOpen: (target: { listId?: string; tagI
             <button
               type="button"
               onClick={() => setTagEditor({ open: true, tag: null })}
-              className="inline-flex items-center gap-0.5 text-[length:var(--text-11-5)] text-[var(--accent)]"
+              className="inline-flex min-h-9 items-center gap-0.5 text-[length:var(--text-11-5)] text-[var(--accent)]"
             >
               <Plus size={12} />{t('todo.action.new_tag')}
             </button>
           </div>
           {tags.length === 0 ? (
-            <p className="px-1 text-[length:var(--text-11-5)] text-[var(--text-quaternary)]">{t('todo.task.tags_label')}</p>
+            <p className="px-1 text-[length:var(--text-11-5)] text-[var(--text-quaternary)]">{t('todo.tag.empty')}</p>
           ) : (
             <div className="overflow-hidden rounded-[var(--r-lg)] border border-[var(--border-subtle)] bg-[var(--bg-surface)]">
               {tags.map((tag, index) => (
@@ -213,6 +206,7 @@ export function ListsView({ onOpen }: { onOpen: (target: { listId?: string; tagI
                     label={tag.name}
                     count={tag.openCount}
                     color={tag.color ?? 'var(--accent)'}
+                    tag
                     onOpen={() => onOpen({ tagId: tag.id })}
                     onEdit={() => setTagEditor({ open: true, tag })}
                   />
@@ -230,67 +224,85 @@ export function ListsView({ onOpen }: { onOpen: (target: { listId?: string; tagI
   )
 }
 
-function Row({ label, count, color, icon, nested = false, parentPicker, onOpen, onEdit, onArchive, onRestore }: {
+function Row({ label, count, color, icon, tag = false, nested = false, parents, parentId, onOpen, onEdit, onArchive, onRestore, onReparent }: {
   label: string
   count: number
   color: string
   icon?: string | null
+  /** A tag's glyph is its `#`, not a list icon. */
+  tag?: boolean
   /** A child list, indented inside its parent's item. */
   nested?: boolean
-  parentPicker?: ReactNode
+  /** The lists this row may move under; empty or absent means the row cannot be re-parented. */
+  parents?: TaskListEntry[]
+  parentId?: string | null
   onOpen: () => void
   onEdit?: () => void
   onArchive?: () => void
   onRestore?: () => void
+  onReparent?: (parentId: string | null) => void
 }) {
+  const menuRef = useRef<HTMLButtonElement>(null)
+  const [menuOpen, setMenuOpen] = useState(false)
+  const items: MenuItem[] = [
+    ...(onEdit ? [{ id: 'edit', label: t('todo.action.edit'), icon: <Pencil size={13} />, onSelect: onEdit }] : []),
+    ...(onReparent && parents && parents.length > 0
+      ? [{
+          id: 'parent',
+          label: t('todo.list.parent_label'),
+          icon: <ChevronRight size={13} />,
+          submenu: ({ closeMenu }: { closeMenu: () => void }): ReactNode => (
+            <div role="menu" aria-label={t('todo.list.parent_label')} className="rounded-[var(--r-lg)] border border-[var(--border-default)] bg-[var(--bg-overlay)] p-1 shadow-[var(--shadow-pop)]">
+              {[{ id: '', name: t('todo.list.top_level') }, ...parents.map((parent) => ({ id: parent.id, name: parent.name }))].map((option) => (
+                <button
+                  key={option.id || 'root'}
+                  type="button"
+                  role="menuitemradio"
+                  aria-checked={(parentId ?? '') === option.id}
+                  onClick={() => { closeMenu(); onReparent(option.id || null) }}
+                  className={cn(
+                    'flex w-full items-center gap-2 rounded-[var(--r-sm)] px-2 py-1.5 text-left text-[length:var(--text-12-5)]',
+                    (parentId ?? '') === option.id ? 'bg-[var(--accent-soft)] text-[var(--accent-on-soft)]' : 'text-[var(--text-primary)] hover:bg-[var(--bg-hover)]',
+                  )}
+                >
+                  <span className="min-w-0 flex-1 truncate">{option.name}</span>
+                </button>
+              ))}
+            </div>
+          ),
+        }]
+      : []),
+    ...(onArchive ? [{ id: 'archive', label: t('todo.action.archive'), icon: <Archive size={13} />, separatorBefore: true, onSelect: onArchive }] : []),
+    ...(onRestore ? [{ id: 'restore', label: t('todo.action.unarchive'), icon: <ArchiveRestore size={13} />, onSelect: onRestore }] : []),
+  ]
+
   return (
-    <div className={`flex min-h-11 items-center gap-2 pr-1 ${nested ? 'pl-9' : 'pl-3'}`}>
+    <div className={cn('flex min-h-11 items-center gap-2 pr-1', nested ? 'pl-9' : 'pl-3')}>
       <span className="flex size-6 shrink-0 items-center justify-center">
-        {listIconFor(icon) ? <KanbanIconBadge icon={listIconFor(icon)} size={15} /> : <span className="size-2.5 rounded-full" style={{ backgroundColor: color }} />}
+        {tag
+          ? <span className="text-[length:var(--text-13)] font-medium" style={{ color }} aria-hidden="true">#</span>
+          : icon
+            ? <ListIcon icon={icon} size={15} />
+            : <span className="size-2.5 rounded-full" style={{ backgroundColor: color }} aria-hidden="true" />}
       </span>
-      <button type="button" onClick={onOpen} className="min-w-0 flex-1 truncate text-left text-[length:var(--text-13)] text-[var(--text-primary)]">
-        {label}
-      </button>
-      <span className="shrink-0 text-[length:var(--text-11)] tabular-nums text-[var(--text-quaternary)]">{count}</span>
-      {parentPicker}
-      {onEdit && (
-        <button
-          type="button"
-          onClick={onEdit}
-          aria-label={`${t('todo.action.edit')} ${label}`}
-          className="flex size-9 shrink-0 items-center justify-center rounded-full text-[var(--text-quaternary)] hover:text-[var(--text-secondary)] md:size-7"
-        >
-          <Pencil size={13} />
-        </button>
-      )}
-      {onArchive && (
-        <button
-          type="button"
-          onClick={onArchive}
-          aria-label={`${t('todo.action.archive')} ${label}`}
-          className="flex size-9 shrink-0 items-center justify-center rounded-full text-[var(--text-quaternary)] hover:text-[var(--text-secondary)] md:size-7"
-        >
-          <Archive size={13} />
-        </button>
-      )}
-      {onRestore && (
-        <button
-          type="button"
-          onClick={onRestore}
-          aria-label={`${t('todo.action.unarchive')} ${label}`}
-          className="flex size-9 shrink-0 items-center justify-center rounded-full text-[var(--text-quaternary)] hover:text-[var(--text-secondary)] md:size-7"
-        >
-          <ArchiveRestore size={13} />
-        </button>
-      )}
       <button
         type="button"
         onClick={onOpen}
         aria-label={`${t('todo.action.view_list')} ${label}`}
-        className="flex size-9 shrink-0 items-center justify-center rounded-full text-[var(--text-quaternary)] md:size-7"
+        className="min-w-0 flex-1 truncate text-left text-[length:var(--text-13)] text-[var(--text-primary)]"
       >
-        <ChevronRight size={13} />
+        {label}
       </button>
+      <span className="shrink-0 text-[length:var(--text-11)] tabular-nums text-[var(--text-quaternary)]">{count}</span>
+      {items.length > 0 && (
+        <>
+          <IconButton ref={menuRef} label={`${t('todo.task.actions')}: ${label}`} size="sm" className="size-9 md:size-7" onClick={() => setMenuOpen((open) => !open)}>
+            <MoreHorizontal size={14} />
+          </IconButton>
+          <Menu anchor={menuRef} open={menuOpen} onClose={() => setMenuOpen(false)} items={items} align="end" width={188} label={`${t('todo.task.actions')}: ${label}`} />
+        </>
+      )}
+      <ChevronRight size={13} className="shrink-0 text-[var(--text-quaternary)] md:hidden" aria-hidden="true" />
     </div>
   )
 }

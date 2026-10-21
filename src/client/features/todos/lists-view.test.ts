@@ -134,12 +134,21 @@ describe('the list tree', () => {
     })
     render()
 
-    const button = view!.container.querySelector<HTMLButtonElement>(
-      `button[aria-label="${t('todo.action.archive')} Active"]`,
+    // Archiving lives in the row's own menu now: one `⋯` per row instead of three buttons that took a
+    // third of a phone's width.
+    const menuButton = view!.container.querySelector<HTMLButtonElement>(
+      `button[aria-label="${t('todo.task.actions')}: Active"]`,
     )
-    expect(button).not.toBeNull()
+    expect(menuButton, 'the row offers no actions').not.toBeNull()
     await act(async () => {
-      button!.click()
+      menuButton!.click()
+      await Promise.resolve()
+    })
+    const archive = [...document.querySelectorAll<HTMLButtonElement>('[role="menu"] button')]
+      .find((node) => (node.textContent ?? '').trim() === t('todo.action.archive'))
+    expect(archive, 'the row menu offers no archive').not.toBeUndefined()
+    await act(async () => {
+      archive!.click()
       await Promise.resolve()
     })
 

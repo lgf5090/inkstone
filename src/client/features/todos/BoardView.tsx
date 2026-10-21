@@ -11,12 +11,12 @@ import { ChevronRight, ListChecks, Mic, Plus, Square } from 'lucide-react'
 import { cn } from '../../lib/cn'
 import { getLocale, t } from '../../lib/i18n'
 import { useDropState } from '../../lib/drop-state'
-import { KanbanIconBadge } from '../../lib/markdown/kanban/ui/kanban-icon-badge'
 import { useTodos, listNamed, quickAddDraft, remindOffsetOf } from './store'
 import { useUi } from '../../store/ui'
 import { TodoPageFooter } from './TodoPageFooter'
 import { Input } from '../../components/form'
-import { listIconFor, priorityLabel, repeatLabel } from './todo-ui'
+import { ListIcon } from './list-icons'
+import { priorityLabel, repeatLabel } from './todo-ui'
 import { TaskCard, isTodoTaskDrag, moveTodoTask, readTodoTaskDrag, useTaskMoves } from './TaskCard'
 import { parseQuickAdd, type QuickAddParse } from '@shared/todos/quick-parse'
 import { toLocalMinute } from '@shared/assistant-time'
@@ -314,7 +314,7 @@ export function BoardView({ onOpenList }: { onOpenList: (listId: string) => void
               'hover:border-[var(--border-strong)] hover:text-[var(--text-primary)]',
             )}
           >
-            {listIconFor(card.icon) ? <KanbanIconBadge icon={listIconFor(card.icon)} size={12} /> : <ListChecks size={12} style={{ color: card.color }} />}
+            {card.icon ? <ListIcon icon={card.icon} size={12} /> : <ListChecks size={12} style={{ color: card.color }} />}
             <span className="max-w-[140px] truncate">{card.name}</span>
           </button>
         ))}
@@ -324,7 +324,7 @@ export function BoardView({ onOpenList }: { onOpenList: (listId: string) => void
         {/* No standalone first-run note here: the inbox is always one of the cards below, so a centred
             "create your first list" line beside it reads as a contradiction. The card's own empty body
             and the sidebar's + carry that guidance instead. */}
-        <div className="grid grid-cols-1 gap-2.5 min-[360px]:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4" role="list" aria-label={t('todo.a11y.list_cards')}>
+        <div className="grid grid-cols-1 gap-2.5 min-[420px]:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4" role="list" aria-label={t('todo.a11y.list_cards')}>
           {cards.map((card) => (
             <section
               key={card.id}
@@ -360,8 +360,8 @@ export function BoardView({ onOpenList }: { onOpenList: (listId: string) => void
                 className="flex min-h-11 items-center gap-1.5 px-2.5 py-2 text-left"
                 style={{ backgroundColor: `color-mix(in oklab, ${card.color} 10%, transparent)` }}
               >
-                {listIconFor(card.icon)
-                  ? <KanbanIconBadge icon={listIconFor(card.icon)} size={14} />
+                {card.icon
+                  ? <ListIcon icon={card.icon} size={14} />
                   : <ListChecks size={14} style={{ color: card.color }} />}
                 <span className="min-w-0 flex-1 truncate text-[length:var(--text-12-5)] font-medium text-[var(--text-primary)]">{card.name}</span>
                 <span className="shrink-0 text-[length:var(--text-10-5)] tabular-nums text-[var(--text-tertiary)]">{card.done}/{card.open + card.done}</span>

@@ -19,8 +19,25 @@ export const ORGANIZER_COLOR_MESSAGE_KEYS = {
   '#92400e': 'color.brown',
   '#78716c': 'color.stone',
   '#64748b': 'color.slate',
+  '#ef4444': 'color.red',
+  '#f97316': 'color.orange',
+  '#eab308': 'color.amber',
+  '#84cc16': 'color.lime',
+  '#14b8a6': 'color.teal',
+  '#0ea5e9': 'color.sky',
+  '#6366f1': 'color.indigo',
+  '#d946ef': 'color.fuchsia',
 } as const satisfies Record<(typeof ORGANIZER_COLORS)[number], MessageKey>
 
+/**
+ * The palette folders, note tags, to-do lists and QuickAdd all share.
+ *
+ * The first sixteen are the deep tones the app shipped with — they carry enough contrast to be read as
+ * a 2px border on a white surface. The last eight are the same hues one step brighter, for surfaces
+ * that paint a dot or a bar rather than text, so a reader who wants "a red" can pick the deep one or the
+ * vivid one instead of reaching for a custom hex. Order is the ramp's, not the array's, because the
+ * picker draws the two groups under their own labels.
+ */
 export const ORGANIZER_COLORS = [
   '#dc2626',
   '#e11d48',
@@ -38,7 +55,18 @@ export const ORGANIZER_COLORS = [
   '#92400e',
   '#78716c',
   '#64748b',
+  '#ef4444',
+  '#f97316',
+  '#eab308',
+  '#84cc16',
+  '#14b8a6',
+  '#0ea5e9',
+  '#6366f1',
+  '#d946ef',
 ] as const
+
+/** How many of {@link ORGANIZER_COLORS} are the original deep tones. */
+export const ORGANIZER_CLASSIC_COUNT = 16
 
 export type OrganizerColor = (typeof ORGANIZER_COLORS)[number]
 

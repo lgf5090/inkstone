@@ -15,7 +15,8 @@ import { useState } from 'react'
 import { localDate } from '@shared/assistant-time'
 import { TASK_SORTS, type TaskSort } from '@shared/todos/model'
 import type { MessageKey } from '@shared/locales/en-US'
-import { Input, Select } from '../../components/form'
+import { Input } from '../../components/form'
+import { SelectMenu } from '../../components/select-menu'
 import { t } from '../../lib/i18n'
 import { boundDay, daysToRange, endDayOf, presetOf, presetRange, type DueRangePreset, type DuePreset } from './due-range'
 import { useTodos, type TodoView } from './store'
@@ -54,26 +55,28 @@ export function TodoFilters() {
 
   return (
     <div data-todo-filters="" className="flex shrink-0 flex-wrap items-center gap-2 border-b border-[var(--border-subtle)] px-3 py-1.5 md:px-5">
-      <Select
-        aria-label={t('todo.filter.sort')}
+      <SelectMenu
+        size="sm"
+        label={t('todo.filter.sort')}
         value={sort ?? defaultSortFor(view)}
-        onChange={(event) => setSort(event.target.value as TaskSort)}
-        className="w-auto"
-      >
-        {TASK_SORTS.map((key) => <option key={key} value={key}>{t(SORT_LABELS[key])}</option>)}
-      </Select>
-      <Select
-        aria-label={t('todo.filter.due')}
+        onChange={(next) => setSort(next as TaskSort)}
+        className="w-auto min-w-[116px]"
+        options={TASK_SORTS.map((key) => ({ value: key, label: t(SORT_LABELS[key]) }))}
+      />
+      <SelectMenu
+        size="sm"
+        label={t('todo.filter.due')}
         value={duePreset}
-        onChange={(event) => onDuePreset(event.target.value as DueRangePreset)}
-        className="w-auto"
-      >
-        <option value="any">{t('todo.due.any')}</option>
-        <option value="today">{t('todo.smart.today')}</option>
-        <option value="week">{t('todo.due.week')}</option>
-        <option value="next30">{t('todo.due.next30')}</option>
-        <option value="custom">{t('todo.due.custom')}</option>
-      </Select>
+        onChange={(next) => onDuePreset(next as DueRangePreset)}
+        className="w-auto min-w-[116px]"
+        options={[
+          { value: 'any', label: t('todo.due.any') },
+          { value: 'today', label: t('todo.smart.today') },
+          { value: 'week', label: t('todo.due.week') },
+          { value: 'next30', label: t('todo.due.next30') },
+          { value: 'custom', label: t('todo.due.custom') },
+        ]}
+      />
       {duePreset === 'custom' && (
         <>
           <Input

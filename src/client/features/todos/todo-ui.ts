@@ -73,20 +73,13 @@ export function dueValue(dueAt: number | null, timezone: string): string {
   return minute.endsWith('T23:59') ? minute.slice(0, 10) : minute
 }
 
-/** The longest a freeform icon may be and still be one a reader picked — an emoji, not a word. */
-const ICON_TEXT_MAX = 3
-
 /**
- * The list icon a badge can actually draw, or null.
+ * The colour a new list starts on: the palette's blue, named rather than indexed.
  *
- * The picker writes `lucide:<Name>` for the thirteen icons it offers and the emoji itself for the
- * rest, so those are the two shapes a list icon has. A bare word — which only the API can let in, since
- * nothing in the app writes one — is neither: the badge would draw its first three letters as text, and
- * "Bri" beside a list named Work reads as a typo rather than as a missing icon. Returning null lets the
- * caller draw its own default, which is the honest answer for a value this app cannot render.
+ * These used to be `ORGANIZER_COLORS[8]` / `[10]`, which meant inserting a colour into the ramp silently
+ * changed every new list's default. The ramp is shared with folders and note tags, so that is a change
+ * this module must not absorb by accident.
  */
-export function listIconFor(icon: string | null | undefined): string | null {
-  if (!icon) return null
-  if (icon.startsWith('lucide:')) return icon
-  return [...icon].length <= ICON_TEXT_MAX ? icon : null
-}
+export const DEFAULT_LIST_COLOR = '#2563eb'
+/** The colour a new tag starts on: the palette's purple. */
+export const DEFAULT_TAG_COLOR = '#9333ea'

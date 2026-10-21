@@ -12,6 +12,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { initI18n, t } from '../../lib/i18n'
 import { localDate } from '@shared/assistant-time'
 import { renderElement, stubBreakpoint, type RenderedElement } from '../../lib/test-render'
+import { chooseOption, selectedLabel, selectTrigger } from '../../lib/test-menu'
 import type { TodoTask } from '@shared/todos/model'
 
 const service = vi.hoisted(() => ({
@@ -120,17 +121,20 @@ function lastRequest(): Record<string, unknown> {
   return service.requests.at(-1) ?? {}
 }
 
-function selectByLabel(container: HTMLElement, label: string): HTMLSelectElement | null {
-  return [...container.querySelectorAll('select')].find((node) => node.getAttribute('aria-label') === label) ?? null
-}
-
-function choose(select: HTMLSelectElement, value: string): void {
-  const setter = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value')?.set
-  act(() => {
-    setter?.call(select, value)
-    select.dispatchEvent(new Event('change', { bubbles: true }))
-  })
-}
+/** The words a select-menu shows for the values these cases choose. */
+const SORT_WORDS = {
+  due: 'todo.sort.due',
+  priority: 'todo.sort.priority',
+  created: 'todo.sort.created',
+  completed: 'todo.sort.completed',
+} as const
+const DUE_WORDS = {
+  any: 'todo.due.any',
+  today: 'todo.smart.today',
+  week: 'todo.due.week',
+  next30: 'todo.due.next30',
+  custom: 'todo.due.custom',
+} as const
 
 function typeInto(input: HTMLInputElement, value: string): void {
   const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set
@@ -180,13 +184,13 @@ describe('the order a listing is read in', () => {
     stubBreakpoint(true)
     const container = await mount()
 
-    const select = selectByLabel(container, t('todo.filter.sort'))
+    const select = selectTrigger(container, t('todo.filter.sort'))
     expect(select, 'the board has no way to ask for an order').not.toBeNull()
     // The default is the server's own: no parameter, and the word for the order the server uses.
-    expect(select!.value).toBe('due')
+    expect(selectedLabel(container, t('todo.filter.sort'))).toBe(t(SORT_WORDS.due))
     expect(lastRequest().sort, 'the default order was sent as if it were a choice').toBeUndefined()
 
-    choose(select!, 'priority')
+    await chooseOption(container, t('todo.filter.sort'), t(SORT_WORDS.priority))
     await settle()
 
     expect(lastRequest().sort, 'the order never left the browser').toBe('priority')
@@ -198,8 +202,7 @@ describe('the order a listing is read in', () => {
     const container = await mount('/todo?sort=created')
 
     expect(lastRequest().sort).toBe('created')
-    const select = selectByLabel(container, t('todo.filter.sort'))
-    expect(select?.value).toBe('created')
+    expect(selectedLabel(container, t('todo.filter.sort'))).toBe(t(SORT_WORDS.created))
   })
 
   it('sends the order from the plan and keeps the answer’s own order inside a group', async () => {
@@ -215,7 +218,7 @@ describe('the order a listing is read in', () => {
 
     expect(openIds(container)).toEqual(['medium-first', 'urgent-later'])
 
-    choose(selectByLabel(container, t('todo.filter.sort'))!, 'priority')
+    await chooseOption(container, t('todo.filter.sort'), t(SORT_WORDS.priority))
     await settle()
 
     expect(lastRequest().sort, 'the plan’s order never left the browser').toBe('priority')
@@ -240,14 +243,14 @@ describe('the order a listing is read in', () => {
       task('open-later', 'Open later', { dueAt: now + 2 * 60 * 60_000 }),
       task('open-sooner', 'Open sooner', { dueAt: now + 60 * 60_000 }),
     ]
-    choose(selectByLabel(container, t('todo.filter.sort'))!, 'priority')
+    await chooseOption(container, t('todo.filter.sort'), t(SORT_WORDS.priority))
     await settle()
     expect(lastRequest().sort, 'the list’s order never left the browser').toBe('priority')
     expect(openIds(container)).toEqual(['open-later', 'open-sooner'])
 
     await act(async () => { useTodos.getState().setView('tag', { tagId: 'T1' }) })
     await settle()
-    choose(selectByLabel(container, t('todo.filter.sort'))!, 'created')
+    await chooseOption(container, t('todo.filter.sort'), t(SORT_WORDS.created))
     await settle()
     expect(lastRequest().tag).toBe('T1')
     expect(lastRequest().sort, 'the tag view’s order never left the browser').toBe('created')
@@ -259,14 +262,14 @@ describe('the order a listing is read in', () => {
     const container = await mount('/todo?view=completed')
 
     expect(lastRequest().sort, 'the completed view’s default was overridden').toBeUndefined()
-    expect(selectByLabel(container, t('todo.filter.sort'))?.value).toBe('completed')
+    expect(selectedLabel(container, t('todo.filter.sort'))).toBe(t(SORT_WORDS.completed))
   })
 
   it('gives a phone the same control, in the tab order', async () => {
     stubBreakpoint(false)
     const container = await mount('/todo?list=L1')
 
-    const select = selectByLabel(container, t('todo.filter.sort'))
+    const select = selectTrigger(container, t('todo.filter.sort'))
     expect(select, 'the order is unreachable on a phone').not.toBeNull()
     act(() => { select!.focus() })
     expect(document.activeElement).toBe(select)
@@ -278,28 +281,27 @@ describe('the due window a listing is read through', () => {
     stubBreakpoint(true)
     const container = await mount()
     const today = localDate(Date.now(), 'UTC')
-    const due = selectByLabel(container, t('todo.filter.due'))
-    expect(due, 'a due window cannot be chosen at all').not.toBeNull()
-    expect(due!.value).toBe('any')
+    expect(selectTrigger(container, t('todo.filter.due')), 'a due window cannot be chosen at all').not.toBeNull()
+    expect(selectedLabel(container, t('todo.filter.due'))).toBe(t(DUE_WORDS.any))
 
-    choose(due!, 'today')
+    await chooseOption(container, t('todo.filter.due'), t(DUE_WORDS.today))
     await settle()
     expect(lastRequest().dueFrom, 'today’s window never left the browser').toBe(`${today}T00:00`)
     expect(lastRequest().dueTo).toBe(`${shift(today, 1)}T00:00`)
     expect(window.location.search).toContain('dueFrom=')
 
-    choose(due!, 'week')
+    await chooseOption(container, t('todo.filter.due'), t(DUE_WORDS.week))
     await settle()
     const monday = mondayOf(today)
     expect(lastRequest().dueFrom).toBe(`${monday}T00:00`)
     expect(lastRequest().dueTo).toBe(`${shift(monday, 7)}T00:00`)
 
-    choose(due!, 'next30')
+    await chooseOption(container, t('todo.filter.due'), t(DUE_WORDS.next30))
     await settle()
     expect(lastRequest().dueFrom).toBe(`${today}T00:00`)
     expect(lastRequest().dueTo).toBe(`${shift(today, 30)}T00:00`)
 
-    choose(due!, 'any')
+    await chooseOption(container, t('todo.filter.due'), t(DUE_WORDS.any))
     await settle()
     expect(lastRequest().dueFrom, 'clearing the window left the bound behind').toBeUndefined()
     expect(lastRequest().dueTo).toBeUndefined()
@@ -309,7 +311,7 @@ describe('the due window a listing is read through', () => {
   it('takes a custom start and end, with the end day included', async () => {
     stubBreakpoint(true)
     const container = await mount()
-    choose(selectByLabel(container, t('todo.filter.due'))!, 'custom')
+    await chooseOption(container, t('todo.filter.due'), t(DUE_WORDS.custom))
     await settle()
 
     const from = inputByLabel(container, t('todo.due.from'))
@@ -333,7 +335,7 @@ describe('the due window a listing is read through', () => {
 
     expect(lastRequest().dueFrom).toBe('2026-10-05T00:00')
     expect(lastRequest().dueTo).toBe('2026-10-10T00:00')
-    expect(selectByLabel(container, t('todo.filter.due'))?.value).toBe('custom')
+    expect(selectedLabel(container, t('todo.filter.due'))).toBe(t(DUE_WORDS.custom))
     expect(inputByLabel(container, t('todo.due.from'))?.value).toBe('2026-10-05')
     expect(inputByLabel(container, t('todo.due.to'))?.value).toBe('2026-10-09')
   })
@@ -367,11 +369,10 @@ describe('the finished list’s own two filters', () => {
     ]
     const container = await mount('/todo?view=completed')
 
-    const select = selectByLabel(container, t('todo.task.list_label'))
-    expect(select, 'the finished list has no collection filter').not.toBeNull()
-    expect(select!.value).toBe('all')
+    expect(selectTrigger(container, t('todo.task.list_label')), 'the finished list has no collection filter').not.toBeNull()
+    expect(selectedLabel(container, t('todo.task.list_label'))).toBe(t('todo.filter.all_lists'))
 
-    choose(select!, 'L1')
+    await chooseOption(container, t('todo.task.list_label'), 'Work')
     await settle()
 
     expect(lastRequest().view).toBe('completed')
@@ -396,7 +397,7 @@ describe('the finished list’s own two filters', () => {
     service.rows = [done('inbox-1', '2026-10-18', null), done('l1-1', '2026-10-18')]
     const container = await mount('/todo?view=completed')
 
-    choose(selectByLabel(container, t('todo.task.list_label'))!, 'inbox')
+    await chooseOption(container, t('todo.task.list_label'), t('todo.smart.inbox'))
     await settle()
 
     expect(lastRequest().view).toBe('completed')
@@ -415,9 +416,8 @@ describe('the finished list’s own two filters', () => {
     const container = await mount('/todo?view=completed&list=L1')
     expect(lastRequest().list).toBe('L1')
 
-    const yearSelect = selectByLabel(container, t('todo.view.completed'))
-    expect(yearSelect, 'the finished list has no year filter').not.toBeNull()
-    choose(yearSelect!, '2025')
+    expect(selectTrigger(container, t('todo.view.completed')), 'the finished list has no year filter').not.toBeNull()
+    await chooseOption(container, t('todo.view.completed'), '2025')
     await settle()
 
     // A year is a half-open day window on the day each task was finished: 1 January included, the next
@@ -430,9 +430,14 @@ describe('the finished list’s own two filters', () => {
     expect(openIds(container).sort()).toEqual(['a', 'b'])
     expect(useTodos.getState().completedTotal).toBe(2)
     // The year the filter excluded is still offered: the page it would have come from is not loaded.
-    expect([...(yearSelect!.querySelectorAll('option') ?? [])].map((option) => option.value)).toContain('2026')
+    await act(async () => { selectTrigger(container, t('todo.view.completed'))!.click(); await Promise.resolve() })
+    expect([...document.querySelectorAll('[role="menu"] button')].map((node) => (node.textContent ?? '').trim())).toContain('2026')
+    await act(async () => {
+      document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+      await Promise.resolve()
+    })
 
-    choose(yearSelect!, 'all')
+    await chooseOption(container, t('todo.view.completed'), t('todo.completed.year_all'))
     await settle()
     expect(lastRequest().completedFrom, 'clearing the year left the bound behind').toBeUndefined()
     expect(lastRequest().completedTo).toBeUndefined()
@@ -446,7 +451,7 @@ describe('the finished list’s own two filters', () => {
 
     expect(lastRequest().completedFrom).toBe('2025-01-01')
     expect(lastRequest().completedTo).toBe('2026-01-01')
-    expect(selectByLabel(container, t('todo.view.completed'))?.value).toBe('2025')
+    expect(selectedLabel(container, t('todo.view.completed'))).toBe('2025')
     expect(openIds(container)).toEqual(['a'])
   })
 })

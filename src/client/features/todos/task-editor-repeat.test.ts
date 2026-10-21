@@ -10,6 +10,7 @@ import { act, createElement } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { initI18n, t } from '../../lib/i18n'
 import { renderElement, type RenderedElement } from '../../lib/test-render'
+import { chooseOption } from '../../lib/test-menu'
 
 // The export helpers inline KaTeX's stylesheet, which Vite refuses through this checkout's symlinked
 // `node_modules`; nothing here exports a note or renders math.
@@ -57,20 +58,11 @@ afterEach(() => {
   useTodos.setState(original, true)
 })
 
-/** The select whose options carry the frequency, whichever cell of the form it sits in. */
-function frequencySelect(): HTMLSelectElement {
-  const select = [...document.querySelectorAll<HTMLSelectElement>('select')]
-    .find((element) => [...element.options].some((option) => option.value === 'weekly'))
-  if (!select) throw new Error('the editor offers no repeat frequency')
-  return select
-}
-
-function choose(select: HTMLSelectElement, value: string): void {
-  const setter = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value')?.set
-  act(() => {
-    setter?.call(select, value)
-    select.dispatchEvent(new Event('change', { bubbles: true }))
-  })
+/** The editor's own container, which is where a select-menu's trigger lives. */
+function panel(): HTMLElement {
+  const dialog = document.querySelector<HTMLElement>('[role="dialog"]')
+  if (!dialog) throw new Error('the editor did not open')
+  return dialog
 }
 
 function weekdayGroup(): HTMLElement {
@@ -102,7 +94,7 @@ function savedRepeat(): unknown {
 describe('the repeat controls', () => {
   it('saves the weekdays a weekly rule names', async () => {
     view = renderElement(createElement(TaskEditor))
-    choose(frequencySelect(), 'weekly')
+    await chooseOption(panel(), t('todo.task.repeat_label'), t('todo.repeat.weekly'))
 
     for (const label of ['assistant.weekday.1', 'assistant.weekday.3', 'assistant.weekday.5'] as MessageKey[]) {
       act(() => { weekdayButton(t(label)).click() })
@@ -116,11 +108,8 @@ describe('the repeat controls', () => {
 
   it('saves a monthly rule that lands on the last day', async () => {
     view = renderElement(createElement(TaskEditor))
-    choose(frequencySelect(), 'monthly')
-    const mode = [...document.querySelectorAll<HTMLSelectElement>('select')]
-      .find((element) => [...element.options].some((option) => option.value === 'lastDay'))
-    if (!mode) throw new Error('a monthly rule offers no landing-day choice')
-    choose(mode, 'lastDay')
+    await chooseOption(panel(), t('todo.task.repeat_label'), t('todo.repeat.monthly'))
+    await chooseOption(panel(), t('todo.repeat.monthly_mode'), t('todo.repeat.last_day'))
 
     await save()
     expect(savedRepeat()).toEqual({ freq: 'monthly', interval: 1, monthlyMode: 'lastDay' })
