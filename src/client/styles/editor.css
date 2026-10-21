@@ -201,6 +201,24 @@
   text-decoration-color: var(--text-quaternary);
 }
 
+/* Templater commands: text the reader wrote but the renderer replaces. Only the editor's own marks are
+   painted here, so a template's edge stays legible inside running prose without touching the text.
+   The body borrows the inline-code colour because that is what it is; the delimiters take the syntax
+   punctuation token, and an execution command's delimiters take the keyword one so a block of code
+   reads as a block at a glance. */
+.cm-templater-delimiter {
+  color: var(--syntax-punctuation);
+}
+.cm-templater-body {
+  color: var(--code-inline-fg);
+  background: var(--accent-softer);
+  border-radius: var(--r-xs);
+}
+.cm-templater-execute.cm-templater-delimiter,
+.cm-templater-dynamic.cm-templater-delimiter {
+  color: var(--syntax-keyword);
+}
+
 
 .cm-md-codeblock-line {
   background: var(--bg-inset);

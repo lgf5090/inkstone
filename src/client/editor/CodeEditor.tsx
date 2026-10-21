@@ -19,6 +19,8 @@ import { outlinerChrome, outlinerEnter, outlinerFoldSupport, outlinerNoteLine, o
 import { createDraggerHost, draggerExtensions, draggerOptionsChanged, draggerPaintKey, DraggerBlockMenuAt, DRAGGER_HANDLE_CLASS, isTouchPointer, type DraggerBlockMenuRequest } from './dragger';
 import { editorKeymap } from './shortcuts';
 import { liveBlockContextMenu, liveLinkGesture, livePreview } from './live-preview';
+// Aliased: the prop that carries the reader's switch is named for what it turns on.
+import { templaterHighlight as templaterHighlightExt } from './templater';
 import { linkHoverExtension, linkHoverFacet } from './link-hover-plugin';
 import { runRenderedLinkGesture, runSourceLinkGesture } from '../features/links/use-link-editor';
 import { registerLinkEditorNote } from '../features/links/store';
@@ -61,6 +63,14 @@ export interface CodeEditorProps {
     onSelectionChange?: (selection: EditorSelectionInfo | null) => void;
     /** Ask the host to open the note's context menu at a pointer position. */
     onRequestContextMenu?: (request: { x: number; y: number; editor: EditorContext }) => void;
+    /**
+     * Mark Templater tags — `<% … %>` — as template code rather than prose.
+     *
+     * The caller decides, because the answer is a reader's setting and this component has no view of the
+     * settings store: the note editor passes the desktop or mobile switch, and a surface that is not editing
+     * a note's body (the canvas) leaves it off.
+     */
+    templaterHighlight?: boolean;
     placeholder?: string;
     className?: string;
 }
@@ -72,7 +82,7 @@ export function DeferredCodeEditor({ visible, ...props }: CodeEditorProps & { vi
     // Preserve undo history across mode changes once editing has started.
     return visible || initialized ? <CodeEditor {...props}/> : null;
 }
-export function CodeEditor({ value, live = false, noteId, noteTitle = '', onHeadings, onChange, settings, sources, handlers, onReady, onScroll, onCursorLine, onSelectionChange, onRequestContextMenu, placeholder = t("editor.start_writing"), className, }: CodeEditorProps) {
+export function CodeEditor({ value, live = false, noteId, noteTitle = '', onHeadings, onChange, settings, sources, handlers, onReady, onScroll, onCursorLine, onSelectionChange, onRequestContextMenu, templaterHighlight = false, placeholder = t("editor.start_writing"), className, }: CodeEditorProps) {
     const hostRef = useRef<HTMLDivElement>(null);
     const [tagMenu, setTagMenu] = useState<TagMenuRequest | null>(null);
     const [blockMenu, setBlockMenu] = useState<DraggerBlockMenuRequest | null>(null);
@@ -80,8 +90,8 @@ export function CodeEditor({ value, live = false, noteId, noteTitle = '', onHead
     tagMenuRef.current = setTagMenu;
     const viewRef = useRef<EditorView | null>(null);
 
-    const cbRef = useRef({ onChange, onScroll, onCursorLine, onSelectionChange, sources, handlers, onHeadings, noteTitle, onRequestContextMenu });
-    cbRef.current = { onChange, onScroll, onCursorLine, onSelectionChange, sources, handlers, onHeadings, noteTitle, onRequestContextMenu };
+    const cbRef = useRef({ onChange, onScroll, onCursorLine, onSelectionChange, sources, handlers, onHeadings, noteTitle, onRequestContextMenu, templaterHighlight });
+    cbRef.current = { onChange, onScroll, onCursorLine, onSelectionChange, sources, handlers, onHeadings, noteTitle, onRequestContextMenu, templaterHighlight };
     const { hover, handlePin } = useLinkHoverHost(noteId ?? null);
     const longPress = useLongPress((point, target) => {
         // A long press on a handle is the phone's version of right-clicking it: the block's own menu,
@@ -152,6 +162,7 @@ export function CodeEditor({ value, live = false, noteId, noteTitle = '', onHead
     const tabSizeCompartment = useRef(new Compartment());
     const placeholderCompartment = useRef(new Compartment());
     const outlinerFoldCompartment = useRef(new Compartment());
+    const templaterCompartment = useRef(new Compartment());
     const outlinerRef = useRef(settings);
     outlinerRef.current = settings;
     const configuredDisplay = useRef({ live, lineNumbers: settings.lineNumbers });
@@ -196,6 +207,7 @@ export function CodeEditor({ value, live = false, noteId, noteTitle = '', onHead
             }),
             editorTheme(),
             markdownDecorations,
+            templaterCompartment.current.of(templaterHighlightExt({ enabled: () => cbRef.current.templaterHighlight })),
             liveCompartment.current.of(live ? livePreview((headings) => cbRef.current.onHeadings?.(headings), () => cbRef.current.noteTitle) : []),
             focusModePlugin,
             typewriterPlugin,
@@ -361,6 +373,17 @@ export function CodeEditor({ value, live = false, noteId, noteTitle = '', onHead
         outlinerFoldOn.current = settings.outliner;
         view.dispatch({ effects: outlinerFoldCompartment.current.reconfigure(settings.outliner ? outlinerFoldSupport : []) });
     }, [settings.outliner]);
+
+    const templaterOn = useRef(templaterHighlight);
+    useEffect(() => {
+        const view = viewRef.current;
+        // Reconfigure rather than wait for a keystroke: the reader who turns this switch over in the
+        // settings panel is looking at a note they are not typing in, and marks that appear only once they
+        // press a key are marks the switch looks like it ignored.
+        if (!view || templaterOn.current === templaterHighlight) return;
+        templaterOn.current = templaterHighlight;
+        view.dispatch({ effects: templaterCompartment.current.reconfigure(templaterHighlightExt({ enabled: () => cbRef.current.templaterHighlight })) });
+    }, [templaterHighlight]);
 
     const outlinerPaint = useRef(JSON.stringify(outlinerOptionsFrom(settings)));
     useEffect(() => {
