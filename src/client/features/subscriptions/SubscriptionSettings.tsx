@@ -74,6 +74,9 @@ export function SubscriptionSettings({
   // Built once: the address the copy button puts on the clipboard and the line that shows it to the reader
   // must not be two strings that can drift.
   const inboundAddress = token ? `${location.origin}${INBOUND_HOOK_PATH}/${token}` : ''
+  // The calendar link carries the same token: a calendar client polls a URL and sends no header anybody
+  // could ask it to keep the secret out of the address bar of its own logs.
+  const calendarAddress = token ? `${location.origin}${INBOUND_HOOK_PATH}/calendar/${token}` : ''
 
   /**
    * Send the pins as one map, because the boxes above are the whole map.
@@ -260,6 +263,29 @@ export function SubscriptionSettings({
               <p className="mt-1 break-all rounded-[var(--r-xs)] bg-[var(--bg-inset)] px-2 py-1 font-mono text-[length:var(--text-10-5)] text-[var(--warning)]">
                 {t('subscriptions.settings.inbound_once', { token: inboundAddress })}
               </p>
+            )}
+            {token && (
+              <div className="mt-2 border-t border-[var(--border-subtle)] pt-2">
+                <p className="text-[length:var(--text-12)] font-medium text-[var(--text-secondary)]">{t('subscriptions.settings.calendar')}</p>
+                <p className="mt-1 text-[length:var(--text-11)] leading-relaxed text-[var(--text-quaternary)]">
+                  {t('subscriptions.settings.calendar_hint')}
+                </p>
+                <div className="mt-1.5 flex items-center gap-1.5">
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    icon={<Copy size={13} />}
+                    onClick={() => void copyText(calendarAddress).then((taken) => {
+                      if (!taken) useUi.getState().toast({ title: t('subscriptions.settings.copy_failed'), tone: 'danger' })
+                    })}
+                  >
+                    {t('subscriptions.settings.calendar_copy')}
+                  </Button>
+                </div>
+                <p className="mt-1 break-all rounded-[var(--r-xs)] bg-[var(--bg-inset)] px-2 py-1 font-mono text-[length:var(--text-10-5)] text-[var(--warning)]">
+                  {calendarAddress}
+                </p>
+              </div>
             )}
           </div>
 

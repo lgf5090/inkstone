@@ -10763,6 +10763,8 @@ const allowed = new Map([
     "// Built once: the address the copy button puts on the clipboard and the line that shows it to the reader",
     "// must not be two strings that can drift.",
     "/**\n * Which currencies get a box.\n *\n * Not every currency the app can be told in: thirty boxes is a wall, and a reader pins a rate because a\n * number on their own dashboard is wrong, so the currencies they are actually billed in are the ones that\n * belong here — plus anything they have already pinned, plus the currency the totals are added up in, in\n * case that one is the number nobody can find. Anything else is one choice away in the add list.\n */",
+    "// The calendar link carries the same token: a calendar client polls a URL and sends no header anybody",
+    "// could ask it to keep the secret out of the address bar of its own logs.",
   ]],
   ["src/client/features/subscriptions/SubscriptionsApp.tsx", [
     "/**\n * The subscription app: the frame the rail, the list, the dashboard and the detail panel share.\n *\n * It owns nothing but the wiring — every rule lives in the store or in a component — and it owns the\n * responsive decision the other containers make too: three panes when there is room, one pane and a\n * drawer when there is not. Loading is on mount rather than at boot, so a reader who never opens this\n * tab does not pay for a library they will not look at.\n */",
@@ -23482,6 +23484,10 @@ const allowed = new Map([
   ["src/worker/routes/subscriptions-inbound.ts", [
     "/**\n * The one way in from outside: a script, a cron job, a phone shortcut.\n *\n * It is mounted at `/hooks/subscriptions` rather than under `/api` for a specific reason: every `/api`\n * POST requires the client-identification header this app's own browser sends, which is a CSRF guard and\n * exactly the wrong thing to ask a third-party `curl` for. Nothing here is authenticated by a session;\n * the token in the path is the credential, and it is compared against a stored digest.\n *\n * The budget is per token rather than per address, because the token is what identifies the caller and\n * an attacker who has it does not need to be polite about which address they use.\n */",
     "/** `Authorization: Bearer <token>` wins over the path, so a caller can keep the token out of a URL log. */",
+    "/** A calendar that polls more than this is not a calendar; the budget is per token, as above. */",
+    "/**\n * The renewal dates as a calendar a phone or a web calendar can subscribe to.\n *\n * Same door, same credential as the POST above: a calendar client is exactly the third party that has no\n * session and no client header, so the token in the path is the whole authorisation. Unlike the POST, this\n * one cannot accept a bearer header — a client that polls a URL for updates sends no headers it is not\n * asked to — so this address is a link that carries a secret, and the settings screen says so where the\n * reader copies it from.\n *\n * Nothing personal is in the answer. A plan's notes are the one field a reader may have used for anything,\n * and they are not in the file; what is there is the name, the date, the cycle and the price.\n */",
+    "// Every fetch is rebuilt from the rows, and a cached copy would be a calendar that quietly stops",
+    "// agreeing with the app it came from.",
   ]],
   ["src/worker/routes/subscriptions.ts", [
     "/**\n * The subscription app's HTTP surface.\n *\n * Static paths are registered before `/:id`, because Hono matches in registration order and\n * `/settings` would otherwise be read as the id of a subscription named \"settings\". Everything below\n * the first `use` requires a session, and every query goes through the store, which scopes by the\n * account the session named — an id from another account is a 404 rather than a 403, because a refusal\n * that confirms an id exists is still a leak.\n *\n * Validation lives here rather than in the store: the store's job is the rules that must hold whatever\n * the caller sent, while \"a name is required and at most 120 characters\" is a property of the request.\n */",
@@ -23630,6 +23636,19 @@ const allowed = new Map([
     "/**\n * A settings field the archive carries as the column's own text — an hour list, a rate map.\n *\n * The document is a dump of rows, so these arrive as the JSON string the column holds, not as the value\n * the app works with. Read straight, a window written as `[\"08\",\"20\"]` would be split on its commas and\n * become two hours that match nothing, and every reminder after a restore would fall silent.\n */",
     "// null is the caller's \"this archive holds nothing readable\", which it already has to answer: the",
     "// whole document is checked before a single row is written.",
+  ]],
+  ["src/worker/subscriptions/calendar.ts", [
+    "/**\n * The account's renewal dates, as a calendar somebody else can subscribe to.\n *\n * The app already tells a reader when a plan is about to charge, but only to a reader who opens the app.\n * A calendar file is the same answer carried into the place a person already looks at every morning, and\n * it costs nothing to keep in step: the events are derived from the rows on every request, so a corrected\n * expiry date is the next fetch.\n *\n * Two rules hold here. The text is what RFC 5545 asks for — CRLF endings, escaped values, long lines\n * folded — because a calendar client that cannot parse one line tends to discard the whole file rather\n * than say so. And nothing personal travels: a plan's notes are the one field a reader may have used for\n * anything, and a subscription URL is a bearer credential that outlives this browser session, so the\n * payload stops at the name, the price and the cycle.\n */",
+    "/** Stable across fetches, so a client updates the event instead of duplicating it. */",
+    "/** The day something happens, as YYYY-MM-DD. */",
+    "/** Escape what the format reserves: a backslash, a semicolon, a comma, and a line break. */",
+    "/** Fold one content line at the byte limit, continuing with a space as the format requires. */",
+    "// Measured in UTF-8 bytes, not characters: the limit is octets, and a plan named in Chinese is over it",
+    "// far sooner than its length suggests.",
+    "// Re-encode rather than count: a multi-byte character must not be split across two lines.",
+    "/** The day before, as the exclusive end of an all-day event; a whole number of days is what makes it safe. */",
+    "/** One all-day event per plan still running. A stopped plan has no date the reader is waiting for. */",
+    "/**\n * The whole document, ready to serve.\n *\n * `stamp` is the moment the file was written, not the moment anything renews: a client uses it to decide\n * whether its copy is older, and a fixed value would make every fetch look stale.\n */",
   ]],
   ["src/worker/subscriptions/channels/adapters.ts", [
     "/**\n * The nine ways a reminder leaves the building.\n *\n * Each adapter is a small function with the same shape: read the configuration it was given, build one\n * request, ask `outbound` to send it, and decide from the far end's own vocabulary whether it worked.\n * The decision is the part that cannot be generalized — Telegram says `ok`, WeCom says `errcode: 0`,\n * Bark says `code: 200` — so each one states its own predicate rather than sharing a hopeful `res.ok`.\n *\n * All nine are deliberately tolerant of a missing field: `saveChannel` refuses to store a channel that\n * cannot send, so an adapter reaching a blank value means the row was edited outside this app, and the\n * honest answer is a failed delivery with a reason rather than a throw that takes the sweep down.\n */",
@@ -26928,6 +26947,12 @@ const allowed = new Map([
     "// The reader reconnects it. What must not happen is a restore that quietly re-arms a channel from",
     "// a file that should never have held the key in the first place.",
     "/**\n   * The settings row is a dump of columns, so the fields the database stores as text arrive as text.\n   *\n   * Read straight, a window written as `[\"08\",\"20\"]` splits on its own commas and comes back as two hour\n   * names that match nothing — which silences every reminder after a restore, the one thing a reader has\n   * no way to see. The pinned rates are the same shape one field over, so both are named here.\n   */",
+  ]],
+  ["tests/subscriptions-calendar.test.ts", [
+    "/**\n * The calendar a reader pastes into a calendar app.\n *\n * Two things are worth holding still here. The file has to parse in a client nobody in this repository\n * controls, which means the format's own rules — CRLF, escaped text, folded lines — are features rather\n * than pedantry; and the link carries a token, so what it hands out has to stop at the plan's name,\n * price and date. A note is the one field a reader may have used for anything.\n */",
+    "// A floating event would be drawn at some hour the reader never chose.",
+    "// The link is a bearer credential; the note is the one field a reader may have used for anything.",
+    "// The brake is keyed by link, so a second device with its own token is not punished for the first.",
   ]],
   ["tests/subscriptions-channel-vault.test.ts", [
     "/**\n * Whether the credential vault would actually accept what the channel forms produce.\n *\n * Every notification channel's configuration is stored as one ciphertext, so the vault's own field policy\n * is on the save path of all ten of them. The channel routes' tests cannot see a mismatch, because they\n * run against a vault double that encrypts anything — which is exactly how `channel:` came to be missing\n * from the accepted scopes while every other scope was listed, and how the field whitelist that guards\n * *backup* credentials was the one judging channel bundles. Both rejections surfaced as \"the vault binding\n * is missing\", which is a sentence that points at the deployment rather than at this file.\n *\n * So this builds a configuration for every declared channel out of the channel definition itself and asks\n * the real predicate. Adding a channel with a field name the vault would refuse fails here, not on a\n * reader's save press.\n */",
