@@ -18,13 +18,16 @@
  */
 
 import { create } from 'zustand'
-import { api, type TaskListEntry } from '../../lib/api'
+import { ApiError, CLIENT_ID, api, type TaskListEntry } from '../../lib/api'
+import { localDb, type OutboxItem } from '../../lib/db'
 import { t } from '../../lib/i18n'
 import { subscribeToAddress } from '../../lib/app-history'
+import { parseLocalTime } from '@shared/assistant-time'
 import { useUi } from '../../store/ui'
 import { parseQuickAdd } from '@shared/todos/quick-parse'
 import type { MessageKey } from '@shared/locales/en-US'
 import {
+  isSnoozeMinutes,
   toggledStatus,
   type RemindOffset,
   type SnoozeMinutes,
@@ -280,7 +283,6 @@ async function resolveRevisionConflict(
  * both places at once, and hovering — which pauses the toast — pauses the undo with it.
  */
 const UNDO_WINDOW_MS = 6000
-
 /** The toast currently offering the step; a new write dismisses it rather than stacking a second. */
 let undoToastId: string | null = null
 /** Guards inverse writes: an undo that recorded an undo would offer a redo of the undo. */
@@ -432,7 +434,419 @@ const SERVER_VIEWS: Record<'board' | 'today' | 'plan' | 'starred', string> = {
  */
 const PICKER_LIMIT = 8
 
+/** What one queued task write asks the server to do. The queue row's `entity` already says "task". */
+type TodoOutboxOp = 'create' | 'update' | 'delete' | 'plan' | 'snooze'
+
+type TodoOutboxPayload = {
+  op: TodoOutboxOp
+  /** The body a create posts; the optimistic row's id is this item's `entityId`, not part of it. */
+  task?: Record<string, unknown>
+  patch?: Record<string, unknown>
+  /** The revision the write was made against, when the row had one. */
+  rev?: number
+  date?: string | null
+  minutes?: SnoozeMinutes
+}
+
+/** How a replay pass ended for one row; the note store's loop acts on it. */
+export type TodoOutboxOutcome =
+  | { status: 'done'; retarget?: { from: string; to: string } }
+  | { status: 'retry' }
+  | { status: 'offline' }
+
+function isTodoOutboxPayload(value: Record<string, unknown>): value is TodoOutboxPayload {
+  return value.op === 'create' || value.op === 'update' || value.op === 'delete'
+    || value.op === 'plan' || value.op === 'snooze'
+}
+
+/** The revision a queued write names, or undefined when the row was created offline. */
+function todoQueuedRev(payload: TodoOutboxPayload): number | undefined {
+  return typeof payload.rev === 'number' && Number.isSafeInteger(payload.rev) && payload.rev >= 1
+    ? payload.rev
+    : undefined
+}
+
+/**
+ * Put one server row into the lists, moving it between the open and finished buckets.
+ *
+ * Only rows already on screen are replaced by default: a delta or a replay of a row the current
+ * filter never asked for must not be pasted into a listing it does not match. A create (and the next
+ * occurrence a completion files) is explicitly new, so `addIfMissing` puts it on the open page.
+ */
+function storeServerTask(task: TodoTask, options: { addIfMissing?: boolean; replaceId?: string } = {}): void {
+  const present = useTodos.getState().tasks.some((entry) => entry.id === (options.replaceId ?? task.id))
+    || useTodos.getState().completed.some((entry) => entry.id === (options.replaceId ?? task.id))
+  if (!present && !options.addIfMissing) return
+  useTodos.setState((state) => {
+    const without = (entry: TodoTask) => entry.id !== task.id && entry.id !== options.replaceId
+    const tasks = task.status === 'done'
+      ? state.tasks.filter(without)
+      : [...state.tasks.filter(without), task]
+    const completed = task.status === 'done'
+      ? [task, ...state.completed.filter(without)]
+      : state.completed.filter(without)
+    return {
+      tasks,
+      completed,
+      total: task.status === 'done' || present ? state.total : state.total + 1,
+      selectedId: options.replaceId && state.selectedId === options.replaceId ? task.id : state.selectedId,
+      draft: options.replaceId && state.draft?.id === options.replaceId
+        ? { ...state.draft, id: task.id }
+        : state.draft,
+    }
+  })
+}
+
+function removeServerTask(id: string): void {
+  useTodos.setState((state) => ({
+    tasks: state.tasks.filter((entry) => entry.id !== id),
+    completed: state.completed.filter((entry) => entry.id !== id),
+    selectedId: state.selectedId === id ? null : state.selectedId,
+    selectedIds: state.selectedIds.has(id)
+      ? new Set([...state.selectedIds].filter((entry) => entry !== id))
+      : state.selectedIds,
+  }))
+}
+
+/** Move the queued writes that were made against the revision a landed write replaced. */
+async function advanceTodoDependents(
+  item: OutboxItem,
+  payload: TodoOutboxPayload,
+  nextRev: number,
+  siblings: OutboxItem[],
+): Promise<void> {
+  const rev = todoQueuedRev(payload)
+  if (rev === undefined || nextRev <= rev) return
+  await localDb.advanceOutboxEntityRevisions('todo', item.entityId, nextRev).catch(() => {})
+  // The batch was loaded before this write landed; without the in-memory move the later edits in it
+  // would still carry the old revision and report a conflict this tab itself created.
+  for (const sibling of siblings) {
+    if (sibling === item || sibling.entity !== 'todo' || sibling.entityId !== item.entityId) continue
+    const queuedRev = sibling.payload.rev
+    if (typeof queuedRev === 'number' && queuedRev < nextRev)
+      sibling.payload = { ...sibling.payload, rev: nextRev }
+  }
+}
+
+/**
+ * What a replayed 409 offers, and what each answer does here.
+ *
+ * The row the server holds is read first, then the same two answers the live write offers: adopt it,
+ * or send the queued edit again against the revision it reported. Until the reader answers, the
+ * optimistic row stays exactly as it was painted — a conflict is not permission to overwrite it.
+ */
+async function resolveTodoReplayConflict(
+  item: OutboxItem,
+  payload: TodoOutboxPayload,
+  siblings: OutboxItem[],
+): Promise<'retry' | 'adopted' | 'failed'> {
+  let server: TodoTask
+  try {
+    server = (await api.todos.get(item.entityId)).task
+  } catch (error) {
+    toastError(error)
+    return 'failed'
+  }
+  const { confirm } = await import('../../components/overlay')
+  const retry = await confirm({
+    title: t('todo.conflict.title'),
+    description: t('todo.conflict.description'),
+    confirmLabel: t('todo.conflict.retry'),
+    cancelLabel: t('todo.conflict.use_server'),
+  })
+  if (retry) {
+    // The queued row itself moves to the revision the server reported, so the next pass is a retry
+    // of the same edit rather than a second conflict.
+    await localDb.updateOutboxRevision(item.id, item.writeId, server.rev ?? 1)
+    item.payload = { ...item.payload, rev: server.rev ?? 1 }
+    payload.rev = server.rev ?? 1
+    return 'retry'
+  }
+  storeServerTask(server, { addIfMissing: true })
+  await advanceTodoDependents(item, payload, server.rev ?? 1, siblings)
+  return 'adopted'
+}
+
+/**
+ * Replay one queued task write.
+ *
+ * The note store owns the queue's lease and hands each task row here. Success leaves the row in the
+ * queue for that loop to complete after this call returns; `retry` leaves it for a later pass, and
+ * `offline` stops the whole pass because nothing behind it can land either.
+ */
+export async function replayTodoOutboxItem(
+  item: OutboxItem,
+  siblings: OutboxItem[] = [],
+): Promise<TodoOutboxOutcome> {
+  const payload = item.payload
+  if (!isTodoOutboxPayload(payload)) {
+    await localDb.markOutboxFailure(item.id, item.writeId, 'invalid offline task write').catch(() => {})
+    return { status: 'retry' }
+  }
+  const id = item.entityId
+  try {
+    switch (payload.op) {
+      case 'create': {
+        const body = payload.task ?? {}
+        const { task } = await api.todos.create(body)
+        storeServerTask(task, { addIfMissing: true, replaceId: id })
+        // Every later queued write for the row this create just minted names the local id. Move them
+        // together, or they would edit a task that never existed.
+        await localDb.retargetOutboxEntity('todo', id, task.id).catch(() => {})
+        return { status: 'done', retarget: { from: id, to: task.id } }
+      }
+      case 'update': {
+        const patch = payload.patch ?? {}
+        const { task, next } = await api.todos.update(id, patch, todoQueuedRev(payload))
+        storeServerTask(task, { addIfMissing: true })
+        if (next) storeServerTask(next, { addIfMissing: true })
+        await advanceTodoDependents(item, payload, task.rev ?? 1, siblings)
+        return { status: 'done' }
+      }
+      case 'delete': {
+        try {
+          await api.todos.remove(id)
+        } catch (error) {
+          // The dequeued row is a tombstone: the point of queueing a delete rather than an update is
+          // that a row already gone is the outcome this write wanted, not a failure.
+          if (!(error instanceof ApiError && error.status === 404)) throw error
+        }
+        removeServerTask(id)
+        return { status: 'done' }
+      }
+      case 'plan': {
+        const { task } = await api.todos.plan(id, payload.date ?? null)
+        storeServerTask(task, { addIfMissing: true })
+        await advanceTodoDependents(item, payload, task.rev ?? 1, siblings)
+        return { status: 'done' }
+      }
+      case 'snooze': {
+        const minutes = payload.minutes
+        if (!isSnoozeMinutes(minutes)) {
+          await localDb.markOutboxFailure(item.id, item.writeId, 'invalid snooze duration').catch(() => {})
+          return { status: 'retry' }
+        }
+        const { task } = await api.todos.snooze(id, minutes)
+        storeServerTask(task, { addIfMissing: true })
+        return { status: 'done' }
+      }
+    }
+  } catch (error) {
+    if (error instanceof ApiError) {
+      if (error.isOffline) return { status: 'offline' }
+      if (error.isAuth) {
+        location.reload()
+        return { status: 'retry' }
+      }
+      if (error.isConflict) {
+        const resolved = await resolveTodoReplayConflict(item, payload, siblings)
+        if (resolved === 'retry') return { status: 'retry' }
+        if (resolved === 'adopted') return { status: 'done' }
+      }
+      if (error.status === 404 && payload.op === 'delete') {
+        removeServerTask(id)
+        return { status: 'done' }
+      }
+    }
+    toastError(error)
+    await localDb.markOutboxFailure(
+      item.id,
+      item.writeId,
+      error instanceof Error ? error.message : String(error),
+    ).catch(() => {})
+    return { status: 'retry' }
+  }
+}
+
 type ListingParams = Parameters<typeof api.todos.list>[0]
+
+/** Whether this document already knows it has no network; the API's own failures are handled live. */
+function offlineNow(): boolean {
+  return typeof navigator !== 'undefined' && navigator.onLine === false
+}
+
+/**
+ * The queue is byte-for-byte FIFO for one task: two edits typed in the same millisecond must not
+ * replay in the order their random ids happen to sort in.
+ */
+let lastTodoQueuedAt = 0
+
+function todoQueueId(entityId: string, writeId: string): string {
+  return `todo:${CLIENT_ID}:${entityId}:${writeId}`
+}
+
+function newTodoWriteId(): string {
+  return typeof crypto !== 'undefined' && 'randomUUID' in crypto
+    ? crypto.randomUUID()
+    : `${Date.now()}-${Math.random().toString(36).slice(2)}`
+}
+
+function newLocalTodoId(): string {
+  return `local-${newTodoWriteId()}`
+}
+
+function queuedTodoItem(entityId: string, payload: TodoOutboxPayload): OutboxItem {
+  const writeId = newTodoWriteId()
+  const createdAt = Math.max(Date.now(), lastTodoQueuedAt + 1)
+  lastTodoQueuedAt = createdAt
+  return {
+    id: todoQueueId(entityId, writeId),
+    clientId: CLIENT_ID,
+    writeId,
+    entity: 'todo',
+    entityId,
+    payload,
+    attempts: 0,
+    createdAt,
+  }
+}
+
+/** The tag chips a patch names, reusing the account's own tag rows where the names already exist. */
+function tagsForNames(names: readonly string[]): TaskTag[] {
+  const known = new Map(useTodos.getState().tags.map((tag) => [tag.name, tag]))
+  return names.map((name) => known.get(name) ?? {
+    id: `local-tag-${name}`,
+    name,
+    color: null,
+    createdAt: 0,
+    updatedAt: 0,
+    openCount: 0,
+  })
+}
+
+/**
+ * What a patch looks like on screen before the server has seen it.
+ *
+ * Only the fields the form writes are mapped; everything else keeps the row it had. A due date given
+ * as wall-clock text is read in the account's zone, which is the same reading the route will apply.
+ */
+function applyTodoPatch(task: TodoTask, patch: Record<string, unknown>): TodoTask {
+  const now = Date.now()
+  const next: TodoTask = { ...task, updatedAt: now }
+  if (typeof patch.title === 'string') next.title = patch.title
+  if (typeof patch.description === 'string') next.description = patch.description
+  if (patch.status === 'todo' || patch.status === 'in_progress' || patch.status === 'done') {
+    next.status = patch.status
+    next.completedAt = patch.status === 'done' ? (task.completedAt ?? now) : null
+  }
+  if (patch.priority === 'low' || patch.priority === 'medium' || patch.priority === 'high' || patch.priority === 'urgent')
+    next.priority = patch.priority
+  if (patch.dueAt === null || patch.dueAt === '') next.dueAt = null
+  else if (typeof patch.dueAt === 'number' && Number.isFinite(patch.dueAt)) next.dueAt = Math.trunc(patch.dueAt)
+  else if (typeof patch.dueAt === 'string') next.dueAt = parseLocalTime(patch.dueAt, useTodos.getState().timezone)
+  if (patch.listId === null) next.listId = null
+  else if (typeof patch.listId === 'string') next.listId = patch.listId
+  if (patch.noteId === null) next.noteId = null
+  else if (typeof patch.noteId === 'string') next.noteId = patch.noteId
+  if (patch.conversationId === null) next.conversationId = null
+  else if (typeof patch.conversationId === 'string') next.conversationId = patch.conversationId
+  if (patch.projectId === null) next.projectId = null
+  else if (typeof patch.projectId === 'string') next.projectId = patch.projectId
+  if (typeof patch.starred === 'boolean') next.starred = patch.starred
+  if (Array.isArray(patch.tags)) next.tags = tagsForNames(patch.tags.filter((tag): tag is string => typeof tag === 'string'))
+  if (Array.isArray(patch.reminders)) {
+    const reminders = patch.reminders.filter((at): at is number => typeof at === 'number' && Number.isFinite(at))
+    next.reminders = reminders
+    next.remindAt = reminders[0] ?? null
+  }
+  return next
+}
+
+/** The optimistic row a task created offline is shown as, with the ids only the server can mint left out. */
+function optimisticTask(id: string, input: TaskDraft): TodoTask {
+  const now = Date.now()
+  const dueAt = typeof input.dueAt === 'number'
+    ? input.dueAt
+    : typeof input.dueAt === 'string'
+      ? parseLocalTime(input.dueAt, useTodos.getState().timezone)
+      : null
+  const reminders = input.reminders ?? (input.remindAt != null ? [input.remindAt] : [])
+  return {
+    id,
+    title: input.title ?? '',
+    description: input.description ?? '',
+    status: 'todo',
+    priority: input.priority ?? 'medium',
+    dueAt,
+    projectId: null,
+    createdAt: now,
+    updatedAt: now,
+    completedAt: null,
+    listId: input.listId ?? null,
+    tags: tagsForNames(input.tags ?? []),
+    starred: input.starred ?? false,
+    repeat: input.repeat ?? null,
+    reminders,
+    remindAt: reminders[0] ?? null,
+    remindedAt: null,
+    plannedFor: null,
+    noteId: input.noteId ?? null,
+    conversationId: input.conversationId ?? null,
+    stepTotal: 0,
+    stepDone: 0,
+  }
+}
+
+/** The views whose page can take a task this tab never asked for: an open listing, not a date window. */
+function acceptsNewTasks(view: TodosState['view']): boolean {
+  return view === 'board' || view === 'list' || view === 'tag'
+}
+
+/** The optimistic row a create/edit shows, re-implemented for the queue because the server answered nothing. */
+function storeOptimisticTask(task: TodoTask, replaceId?: string): void {
+  storeServerTask(task, { addIfMissing: true, ...(replaceId ? { replaceId } : {}) })
+}
+
+/**
+ * Fold a server delta into the listing every tab holds.
+ *
+ * Rows already on screen are replaced in place, a row that changed bucket moves, and deleted ids
+ * leave both lists. A task the current filter never asked for is not pasted into it — except on the
+ * open listings, where a task created on another device is exactly what the board is for. Counts move
+ * by the same one-for-one arithmetic; the next refresh still owns the authoritative aggregate.
+ */
+export function applyTodoSync(payload: { todos: TodoTask[]; deleted: string[] }): void {
+  const deleted = new Set(payload.deleted)
+  if (!payload.todos.length && !deleted.size) return
+  useTodos.setState((state) => {
+    let tasks = state.tasks.filter((entry) => !deleted.has(entry.id))
+    let completed = state.completed.filter((entry) => !deleted.has(entry.id))
+    let total = state.total - (state.tasks.length - tasks.length)
+    let completedTotal = state.completedTotal - (state.completed.length - completed.length)
+    for (const task of payload.todos) {
+      if (deleted.has(task.id)) continue
+      const inTasks = tasks.some((entry) => entry.id === task.id)
+      const inCompleted = completed.some((entry) => entry.id === task.id)
+      if (task.status === 'done') {
+        if (inTasks) {
+          tasks = tasks.filter((entry) => entry.id !== task.id)
+          total -= 1
+        }
+        if (inCompleted) completed = completed.map((entry) => (entry.id === task.id ? task : entry))
+        else if (state.view === 'completed') {
+          completed = [task, ...completed]
+          completedTotal += 1
+        }
+      } else {
+        if (inCompleted) {
+          completed = completed.filter((entry) => entry.id !== task.id)
+          completedTotal -= 1
+        }
+        if (inTasks) tasks = tasks.map((entry) => (entry.id === task.id ? task : entry))
+        else if (acceptsNewTasks(state.view)) {
+          tasks = [task, ...tasks]
+          total += 1
+        }
+      }
+    }
+    return {
+      tasks,
+      completed,
+      total: Math.max(0, total),
+      completedTotal: Math.max(0, completedTotal),
+    }
+  })
+}
 
 /**
  * The listing the screen states, as the route reads it.
@@ -609,6 +1023,9 @@ export const useTodos = create<TodosState>((set, get) => ({
   },
 
   refreshCounts: async () => {
+    // Counts are the server's aggregate; an offline read would replace them with a toast and nothing
+    // else, so the numbers from the last landed pull stay on screen.
+    if (offlineNow()) return
     try {
       const page = await api.todos.list({ limit: 1 })
       set({ counts: page.counts, dayEnd: page.dayEnd, timezone: page.timezone })
@@ -840,6 +1257,24 @@ export const useTodos = create<TodosState>((set, get) => ({
 
   createTask: async (input) => {
     set({ saving: true })
+    if (offlineNow()) {
+      const id = newLocalTodoId()
+      const { id: _ignored, ...body } = input
+      const task = optimisticTask(id, input)
+      storeOptimisticTask(task)
+      try {
+        await localDb.enqueueOutbox(queuedTodoItem(id, { op: 'create', task: body as Record<string, unknown> }))
+        set({ saving: false })
+        return task
+      } catch (error) {
+        // A queue write that could not be stored has nothing behind it: take the optimistic row back
+        // rather than leave a task on screen that no replay will ever send.
+        removeServerTask(id)
+        set({ saving: false })
+        toastError(error)
+        return null
+      }
+    }
     try {
       const { id: _ignored, ...body } = input
       const { task } = await api.todos.create(body as Record<string, unknown>)
@@ -860,6 +1295,23 @@ export const useTodos = create<TodosState>((set, get) => ({
     // The guard names the row the reader is looking at. A caller that hands one in (the conflict
     // retry) wins, because the row on screen is the stale one in that case.
     const expectedRev = rev ?? before?.rev
+    if (offlineNow()) {
+      const optimistic = before ? applyTodoPatch(before, patch) : null
+      if (optimistic) storeOptimisticTask(optimistic)
+      try {
+        await localDb.enqueueOutbox(queuedTodoItem(id, {
+          op: 'update',
+          patch,
+          ...(expectedRev !== undefined ? { rev: expectedRev } : {}),
+        }))
+        set({ saving: false })
+        return optimistic
+      } catch (error) {
+        set({ saving: false })
+        toastError(error)
+        return null
+      }
+    }
     set({ saving: true })
     try {
       const { task, next } = await api.todos.update(id, patch, expectedRev)
@@ -922,6 +1374,24 @@ export const useTodos = create<TodosState>((set, get) => ({
   },
 
   removeTask: async (id) => {
+    if (offlineNow()) {
+      const row = get().tasks.find((entry) => entry.id === id)
+        ?? get().completed.find((entry) => entry.id === id)
+        ?? null
+      try {
+        // A delete is queued as a delete, not as an update of a row that may already be gone by the
+        // time the queue drains: a tombstone replays idempotently, an edit does not.
+        await localDb.enqueueOutbox(queuedTodoItem(id, {
+          op: 'delete',
+          ...(row?.rev !== undefined ? { rev: row.rev } : {}),
+        }))
+      } catch (error) {
+        toastError(error)
+        return false
+      }
+      removeServerTask(id)
+      return true
+    }
     try {
       await api.todos.remove(id)
       set((state) => ({
@@ -1017,6 +1487,24 @@ export const useTodos = create<TodosState>((set, get) => ({
    * caller can tell a landed pick from a refused one.
    */
   planTask: async (id, date) => {
+    if (offlineNow()) {
+      const before = get().tasks.find((entry) => entry.id === id)
+        ?? get().completed.find((entry) => entry.id === id)
+        ?? null
+      const task = before ? { ...before, plannedFor: date, updatedAt: Date.now() } : null
+      if (task) storeOptimisticTask(task)
+      try {
+        await localDb.enqueueOutbox(queuedTodoItem(id, {
+          op: 'plan',
+          date,
+          ...(before?.rev !== undefined ? { rev: before.rev } : {}),
+        }))
+        return task
+      } catch (error) {
+        toastError(error)
+        return null
+      }
+    }
     try {
       const { task } = await api.todos.plan(id, date)
       await get().load()
@@ -1035,6 +1523,29 @@ export const useTodos = create<TodosState>((set, get) => ({
    * can snooze a task that the completed page is showing.
    */
   snoozeTask: async (id, minutes) => {
+    if (offlineNow()) {
+      const before = get().tasks.find((entry) => entry.id === id)
+        ?? get().completed.find((entry) => entry.id === id)
+        ?? null
+      let task: TodoTask | null = null
+      if (before) {
+        const reminders = [...(before.reminders ?? []), Date.now() + minutes * 60_000]
+        task = { ...before, reminders, remindAt: reminders[0] ?? null, updatedAt: Date.now() }
+        storeOptimisticTask(task)
+      }
+      try {
+        await localDb.enqueueOutbox(queuedTodoItem(id, {
+          op: 'snooze',
+          minutes,
+          ...(before?.rev !== undefined ? { rev: before.rev } : {}),
+        }))
+        useUi.getState().toast({ title: t('todo.toast.snoozed'), tone: 'success' })
+        return task
+      } catch (error) {
+        toastError(error)
+        return null
+      }
+    }
     try {
       const { task } = await api.todos.snooze(id, minutes)
       set((state) => ({

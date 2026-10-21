@@ -20,6 +20,7 @@ const KEY = {
   folders: 'folders',
   tags: 'tags',
   cursor: 'cursor',
+  todosCursor: 'todosCursor',
   content: (id: string) => `note:${id}`,
   omnisearchBody: (id: string) => `omnisearchBody:${id}`,
   omnisearchCache: 'omnisearchCache',
@@ -59,12 +60,17 @@ let activeUserId: string | null = null
 const supportsUserNamespaces = typeof entries === 'function' && typeof delMany === 'function'
 let forceUserNamespaces = false
 
+/** The kind of record a queued write names; replay dispatches on it. */
+export type OutboxEntity = 'note' | 'todo'
+
 export interface OutboxItem {
   id: string
   clientId: string
   writeId: string
   dependsOnWriteId?: string
-  noteId: string
+  entity: OutboxEntity
+  /** The note or task the write names; `noteId` in queues written before the queue was shared. */
+  entityId: string
   payload: Record<string, unknown>
   attempts: number
   createdAt: number
@@ -101,23 +107,58 @@ export interface QuickAddData {
   pendingPush: boolean
 }
 
+/**
+ * One queue row, with the pre-`entity` shape folded into the shared one.
+ *
+ * Queues written before tasks were queued carry `noteId` and no `entity`. They are note writes — the
+ * only kind that existed — and are migrated in memory on every read: an unreadable row is dropped, as
+ * before, but an old row is never dropped just for being old.
+ */
+export function normalizeOutboxItem(value: unknown): OutboxItem | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null
+  const candidate = value as Partial<OutboxItem> & { noteId?: unknown }
+  if (candidate.entity !== undefined && candidate.entity !== 'note' && candidate.entity !== 'todo') return null
+  const entity: OutboxEntity = candidate.entity === 'todo' ? 'todo' : 'note'
+  const entityId = typeof candidate.entityId === 'string'
+    ? candidate.entityId
+    : typeof candidate.noteId === 'string'
+      ? candidate.noteId
+      : null
+  if (
+    typeof candidate.id !== 'string' ||
+    typeof candidate.clientId !== 'string' ||
+    typeof candidate.writeId !== 'string' ||
+    entityId === null ||
+    !candidate.payload ||
+    typeof candidate.payload !== 'object' ||
+    Array.isArray(candidate.payload) ||
+    typeof candidate.attempts !== 'number' ||
+    !Number.isInteger(candidate.attempts) ||
+    typeof candidate.createdAt !== 'number' ||
+    !Number.isFinite(candidate.createdAt)
+  ) return null
+  return {
+    id: candidate.id,
+    clientId: candidate.clientId,
+    writeId: candidate.writeId,
+    ...(typeof candidate.dependsOnWriteId === 'string' ? { dependsOnWriteId: candidate.dependsOnWriteId } : {}),
+    entity,
+    entityId,
+    payload: candidate.payload as Record<string, unknown>,
+    attempts: candidate.attempts,
+    createdAt: candidate.createdAt,
+    ...(typeof candidate.lastError === 'string' ? { lastError: candidate.lastError } : {}),
+  }
+}
+
 function normalizeOutbox(value: unknown): OutboxItem[] {
   if (!Array.isArray(value)) return []
-  return value.filter((item): item is OutboxItem => {
-    if (!item || typeof item !== 'object') return false
-    const candidate = item as Partial<OutboxItem>
-    return typeof candidate.id === 'string' &&
-      typeof candidate.clientId === 'string' &&
-      typeof candidate.writeId === 'string' &&
-      typeof candidate.noteId === 'string' &&
-      Boolean(candidate.payload) &&
-      typeof candidate.payload === 'object' &&
-      !Array.isArray(candidate.payload) &&
-      typeof candidate.attempts === 'number' &&
-      Number.isInteger(candidate.attempts) &&
-      typeof candidate.createdAt === 'number' &&
-      Number.isFinite(candidate.createdAt)
-  })
+  const items: OutboxItem[] = []
+  for (const valueItem of value) {
+    const item = normalizeOutboxItem(valueItem)
+    if (item) items.push(item)
+  }
+  return items
 }
 
 async function safeGet<T>(key: string): Promise<T | undefined> {
@@ -565,7 +606,7 @@ export const localDb = {
   },
 
   advanceOutboxDependents(
-    noteId: string,
+    entityId: string,
     sourceWriteId: string,
     expectedRev: number,
     nextRev: number,
@@ -573,9 +614,46 @@ export const localDb = {
     return update<OutboxItem[]>(
       userScopedKey(KEY.outbox),
       (current) => normalizeOutbox(current)
-        .map((item) => item.noteId === noteId &&
+        .map((item) => item.entityId === entityId &&
             item.dependsOnWriteId === sourceWriteId &&
             item.payload.rev === expectedRev
+          ? { ...item, dependsOnWriteId: undefined, payload: { ...item.payload, rev: nextRev } }
+          : item),
+      store,
+    )
+  },
+
+  /**
+   * Re-names the queued writes of one entity after a create landed.
+   *
+   * A task created offline is addressed by a local id until the server mints the real one. Every
+   * later queued write for that task names the local id, so they all move together: leaving one
+   * behind would replay an edit against a row that never existed.
+   */
+  retargetOutboxEntity(entity: OutboxEntity, fromId: string, toId: string): Promise<void> {
+    return update<OutboxItem[]>(
+      userScopedKey(KEY.outbox),
+      (current) => normalizeOutbox(current)
+        .map((item) => item.entity === entity && item.entityId === fromId
+          ? { ...item, entityId: toId }
+          : item),
+      store,
+    )
+  },
+
+  /**
+   * Move every queued write of one task that still names an older revision up to `nextRev`.
+   *
+   * The task queue is strictly ordered, so a later edit was typed on top of the row an earlier write
+   * produced. Without this, replaying three offline edits would make the second and third conflict
+   * with the first one's own result — a conflict this device caused and can settle itself.
+   */
+  advanceOutboxEntityRevisions(entity: OutboxEntity, entityId: string, nextRev: number): Promise<void> {
+    return update<OutboxItem[]>(
+      userScopedKey(KEY.outbox),
+      (current) => normalizeOutbox(current)
+        .map((item) => item.entity === entity && item.entityId === entityId &&
+            typeof item.payload.rev === 'number' && item.payload.rev < nextRev
           ? { ...item, dependsOnWriteId: undefined, payload: { ...item.payload, rev: nextRev } }
           : item),
       store,
@@ -663,6 +741,18 @@ export const localDb = {
       ).catch(() => {})
     }
   },
+
+  /**
+   * How far the task delta has been read, as the newest `updated_at` the server has sent.
+   *
+   * Stored apart from the note cursor because the two streams move on different clocks: notes page
+   * on a change sequence, tasks on their own write timestamps.
+   */
+  async getTodosCursor(): Promise<number> {
+    const value = await safeGet<unknown>(userScopedKey(KEY.todosCursor))
+    return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0 ? value : 0
+  },
+  setTodosCursor: (value: number) => safeSet(userScopedKey(KEY.todosCursor), value),
 
   async bindUser(userId: string): Promise<void> {
     await bindLocalUser(userId)
@@ -799,6 +889,7 @@ function isTag(value: unknown): value is Tag {
 export type BroadcastPayload = (
   | { type: 'local-write'; clientId: string }
   | { type: 'pulled'; cursor: number; clientId: string }
+  | { type: 'todos-pulled'; clientId: string; cursor: number }
   | { type: 'claim-leader'; clientId: string; at: number }
   | { type: 'settings-changed'; clientId: string }
   | { type: 'template-library-changed'; clientId: string }
