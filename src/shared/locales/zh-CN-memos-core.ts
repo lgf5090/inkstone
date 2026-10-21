@@ -157,6 +157,8 @@ export const ZH_CN_MEMOS_CORE = {
     "memos.attachments.download": "下载 {name}",
     "memos.attachments.file": "文件",
     "memos.attachments.more": "还有 {count} 个附件",
+    "memos.link_preview.loading": "正在加载链接预览…",
+    "memos.link_preview.new_tab": "在新标签页打开",
     "memos.reactions.label": "反应",
     "memos.reactions.add": "添加反应",
     "memos.reactions.react_with": "用 {emoji} 回应",

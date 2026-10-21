@@ -211,6 +211,11 @@ export function MemoFeedPage({
                   editing={editingId === memo.id}
                   tagRules={preferences.preferences.tagRules}
                   reactionOptions={preferences.preferences.reactions}
+                  enableLinkPreview={
+                    preferences.status === 'ready'
+                    && display.linkPreview
+                    && preferences.preferences.enableLinkPreview
+                  }
                   doubleClickEdit={preferences.preferences.enableDoubleClickEdit}
                   onOpen={onOpen}
                   onStartEdit={() => setEditingId(memo.id)}

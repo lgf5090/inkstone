@@ -28,6 +28,10 @@ const api = vi.hoisted(() => ({
 
 vi.mock('../api', () => ({ memosApi: api }))
 
+const linkMeta = vi.hoisted(() => ({ fetchMemoLinkMetadata: vi.fn() }))
+
+vi.mock('../link-meta-client', () => linkMeta)
+
 function memo(overrides: Partial<Memo> = {}): Memo {
   return {
     id: 'memo-1',
@@ -64,6 +68,7 @@ interface CardProps {
   editing?: boolean
   tagRules?: readonly MemoTagRule[]
   reactionOptions?: readonly string[]
+  enableLinkPreview?: boolean
   doubleClickEdit?: boolean
   onOpen?: (id: string) => void
   onStartEdit?: () => void
@@ -131,6 +136,10 @@ beforeEach(async () => {
     enableLinkPreview: true,
     enableReverseGeocoding: false,
   })
+  linkMeta.fetchMemoLinkMetadata.mockReset()
+  linkMeta.fetchMemoLinkMetadata.mockImplementation((urls: readonly string[]) => Promise.resolve(
+    urls.map((url) => ({ url, title: '', description: '', image: '' })),
+  ))
 })
 
 afterEach(() => {
@@ -330,5 +339,40 @@ describe('the memo card', () => {
       .map((item) => item.textContent ?? '')
     expect(labels.some((label) => label.includes(t('memos.reactions.react_with', { emoji: '🔥' })))).toBe(true)
     expect(labels.some((label) => label.includes(t('memos.reactions.react_with', { emoji: '👍' })))).toBe(false)
+  })
+
+  it('shows a link preview below the body when the preference allows it', async () => {
+    linkMeta.fetchMemoLinkMetadata.mockResolvedValue([{
+      url: 'https://example.com/post',
+      title: 'Example post',
+      description: '',
+      image: '',
+    }])
+    const rendered = render({
+      memo: memo({ content: 'read https://example.com/post' }),
+      enableLinkPreview: true,
+    })
+    await flush()
+
+    expect(linkMeta.fetchMemoLinkMetadata).toHaveBeenCalledWith(
+      ['https://example.com/post'],
+      expect.any(AbortSignal),
+    )
+    const previews = rendered.container.querySelector('[data-memo-link-previews]')
+    const anchor = previews?.querySelector<HTMLAnchorElement>('a[href="https://example.com/post"]')
+    expect(anchor?.textContent).toContain('Example post')
+    expect(anchor?.getAttribute('target')).toBe('_blank')
+    expect(anchor?.getAttribute('rel')).toBe('noopener noreferrer')
+  })
+
+  it('hides link previews when the preference is off', async () => {
+    const rendered = render({
+      memo: memo({ content: 'read https://example.com/post' }),
+      enableLinkPreview: false,
+    })
+    await flush()
+
+    expect(linkMeta.fetchMemoLinkMetadata).not.toHaveBeenCalled()
+    expect(rendered.container.querySelector('[data-memo-link-previews]')).toBeNull()
   })
 })

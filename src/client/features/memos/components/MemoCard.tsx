@@ -13,6 +13,7 @@ import { useMemoTaskToggle } from '../use-memo-task-toggle'
 import { MemoAttachments } from './MemoAttachments'
 import { MemoCardActions } from './MemoCardActions'
 import { MemoComposer } from './MemoComposer'
+import { MemoLinkPreviews } from './MemoLinkPreviews'
 import { MemoMaskedBody } from './MemoMaskedBody'
 import { MemoReactions } from './MemoReactions'
 
@@ -39,6 +40,7 @@ export interface MemoCardProps {
   editing: boolean
   tagRules?: readonly MemoTagRule[]
   reactionOptions?: readonly string[]
+  enableLinkPreview?: boolean
   doubleClickEdit?: boolean
   onOpen: (id: string) => void
   onStartEdit: () => void
@@ -55,6 +57,7 @@ export function MemoCard({
   editing,
   tagRules,
   reactionOptions,
+  enableLinkPreview = true,
   doubleClickEdit = false,
   onOpen,
   onStartEdit,
@@ -156,6 +159,15 @@ export function MemoCard({
             </div>
           ) : null}
           <MemoAttachments attachments={memo.attachments} compact className="mt-2" />
+          <MemoLinkPreviews
+            content={memo.content}
+            enabled={enableLinkPreview && !blurred}
+            excludeUrls={memo.attachments.flatMap((attachment) => (
+              attachment.thumbnailUrl ? [attachment.url, attachment.thumbnailUrl] : [attachment.url]
+            ))}
+            compact
+            className="mt-2"
+          />
           <footer className="mt-2 flex flex-wrap items-center gap-1.5 border-t border-[var(--border-subtle)] pt-1.5">
             <MemoReactions
               memo={memo}

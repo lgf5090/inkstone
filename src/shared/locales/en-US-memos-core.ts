@@ -157,6 +157,8 @@ export const EN_US_MEMOS_CORE = {
     "memos.attachments.download": "Download {name}",
     "memos.attachments.file": "File",
     "memos.attachments.more": "{count} more attachments",
+    "memos.link_preview.loading": "Loading link previews…",
+    "memos.link_preview.new_tab": "Opens in a new tab",
     "memos.reactions.label": "Reactions",
     "memos.reactions.add": "Add reaction",
     "memos.reactions.react_with": "React with {emoji}",

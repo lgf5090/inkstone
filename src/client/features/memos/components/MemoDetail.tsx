@@ -17,6 +17,7 @@ import { MemoAttachments } from './MemoAttachments'
 import { MemoCardActions } from './MemoCardActions'
 import { MemoComments } from './MemoComments'
 import { MemoComposer } from './MemoComposer'
+import { MemoLinkPreviews } from './MemoLinkPreviews'
 import { MemoMaskedBody } from './MemoMaskedBody'
 import { MemoReactions } from './MemoReactions'
 import { MemoRelations } from './MemoRelations'
@@ -214,6 +215,19 @@ export function MemoDetail({
           />
         )}
         <MemoAttachments attachments={memo.attachments} className="mt-3" />
+        <MemoLinkPreviews
+          content={memo.content}
+          enabled={
+            preferences.status === 'ready'
+            && preferences.preferences.enableLinkPreview
+            && !blurred
+            && !editing
+          }
+          excludeUrls={memo.attachments.flatMap((attachment) => (
+            attachment.thumbnailUrl ? [attachment.url, attachment.thumbnailUrl] : [attachment.url]
+          ))}
+          className="mt-3"
+        />
         {memo.tags.length > 0 ? (
           <div className="mt-3 flex flex-wrap items-center gap-1">
             {memo.tags.map((tag) => (
