@@ -305,4 +305,25 @@ describe('the today screen', () => {
 
     expect(service.batches).toEqual([{ ids: ['late-1', 'late-2'], op: 'due' }])
   })
+
+  it('sends a long overdue shelf in batches of a hundred', async () => {
+    stubBreakpoint(true)
+    service.overdueRows = Array.from({ length: 101 }, (_, index) =>
+      row(`late-${index}`, `Late ${index}`, { dueAt: Date.now() - 60_000 }))
+    service.pageRows = [service.overdueRows[0]!]
+
+    const container = await mount('/todo?view=today')
+    const shift = container.querySelector<HTMLButtonElement>('[data-todo-overdue-shift]')
+    expect(shift, 'the today screen offers no overdue shift').not.toBeNull()
+
+    await act(async () => {
+      shift!.click()
+      await Promise.resolve()
+    })
+    await settle()
+
+    // The batch route names at most a hundred rows; the second chunk carries the rest.
+    expect(service.batches.map((batch) => batch.ids.length)).toEqual([100, 1])
+    expect(service.batches.every((batch) => batch.op === 'due')).toBe(true)
+  })
 })

@@ -123,6 +123,25 @@ describe('the start date on a task', () => {
 
     expect((await send('PATCH', `/${task.id}`, { startAt: 'not a day' })).status).toBe(400)
   })
+
+  it('keeps the lead time on the next occurrence of a repeating task', async () => {
+    const due = Date.parse('2026-12-31T18:00:00Z')
+    const start = Date.parse('2026-12-01T09:00:00Z')
+    const task = await create({
+      title: 'Monthly close',
+      startAt: start,
+      dueAt: due,
+      repeat: { freq: 'monthly', interval: 1 },
+    })
+
+    const finished = await json<{ task: TodoTask, next: TodoTask }>(
+      await send('PATCH', `/${task.id}`, { status: 'done' }),
+    )
+    const nextDue = parseLocalTime('2027-01-31T18:00', 'UTC')
+    expect(finished.next.dueAt).toBe(nextDue)
+    // The copy starts as far before its own due date as the row it came from did.
+    expect(finished.next.startAt).toBe(nextDue - (due - start))
+  })
 })
 
 describe('the plan view and a start date', () => {
