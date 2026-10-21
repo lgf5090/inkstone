@@ -425,10 +425,34 @@ export interface TaskStatsBacklog {
   none: number
 }
 
+/**
+ * One bucket of the cumulative flow: how much work stood in each status when the bucket ended.
+ *
+ * The three numbers always add up to the work that existed at that moment, because every task is in
+ * exactly one status. They are replayed from the event table rather than counted from the rows: the
+ * rows only say where a task is now, and the question the chart answers is where the backlog was.
+ */
+export interface TaskStatsFlowPoint {
+  day: string
+  todo: number
+  inProgress: number
+  done: number
+}
+
 export interface TodoStats {
   range: TaskStatsRange
   summary: TaskStatsSummary
   series: TaskStatsPoint[]
+  /** The same buckets as `series`, holding the status of the whole backlog rather than the day's work. */
+  flow: TaskStatsFlowPoint[]
+  /**
+   * The first day in the range on which a task is known to have entered `in_progress`, or null.
+   *
+   * Before the event table existed there was no record of a task being started, so a chart drawn
+   * further back would show a `todo` band that silently includes work already under way. The line
+   * marks where that reading stops being an approximation.
+   */
+  flowTrackedSince: string | null
   distributions: TaskStatsDistributions
   leadTime: TaskStatsLeadTime
   backlog: TaskStatsBacklog

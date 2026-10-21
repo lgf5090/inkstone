@@ -8,9 +8,10 @@
  * work left is turning `completed_at` into a weekday and an hour for the heatmaps.
  *
  * The SQL lives here rather than in `routes/todos.ts` because `tests/worker-layering.test.ts` counts
- * every `.prepare(` under the route directory. Five statements feed one answer — finished rows, created
- * rows grouped by day, open rows, list names, and tag counts — so the count is a constant whatever the
- * range holds; everything else is a pure function over those rows.
+ * every `.prepare(` under the route directory. Seven statements feed one answer — finished rows,
+ * created rows grouped by day, open rows, list names, tag counts, the stock the flow replay starts
+ * from, and the events it replays — so the count is a constant whatever the range holds; everything
+ * else is a pure function over those rows.
  */
 import { getZonedParts, isValidCalendarDate } from '@shared/assistant-schedule'
 import { TASK_LIVE_PREDICATE, taskLive } from '../assistant/store'
@@ -19,9 +20,11 @@ import type {
   TaskStatsBacklog,
   TaskStatsBucket,
   TaskStatsDistributions,
+  TaskStatsFlowPoint,
   TaskStatsLeadTime,
   TaskStatsPoint,
   TaskStatsSummary,
+  TaskStatus,
   TodoStats,
 } from '@shared/todos/model'
 
@@ -64,6 +67,39 @@ export interface StatsTagRow {
   count: number
 }
 
+/**
+ * The account's stock on the day before the range starts, which the flow replay counts from.
+ *
+ * `doneBefore` is read from the completion day, so a task finished and then reopened stops counting
+ * as done — the row says where it is now, and the replay takes over from there. Two corrections keep
+ * the seed consistent with the events the replay is about to apply, because the current columns alone
+ * would count the same task twice:
+ *
+ * - a task done before the range and reopened inside it has no `completed_on` any more, so the day
+ *   column misses it while its reopen event subtracts a `done` the seed never held. The read adds it
+ *   back when the task carries a reopen in the range with no completion ahead of that reopen;
+ * - `inProgressNow` reads today's status, which already counts a task started inside the range. Its
+ *   start event would then add a second `in_progress`, so the read leaves out the tasks whose start
+ *   falls inside the range — they enter the band through their own event instead.
+ *
+ * What remains is the honest approximation: a task started before the event table existed carries no
+ * start event, so it is taken as already running. That is what `flowTrackedSince` marks.
+ */
+export interface StatsFlowSeed {
+  createdBefore: number
+  doneBefore: number
+  inProgressNow: number
+}
+
+/** One row of the event table, as the flow replay reads it. */
+export interface StatsFlowEvent {
+  kind: 'born' | 'status'
+  fromStatus: TaskStatus | null
+  toStatus: TaskStatus
+  at: number
+  onDay: string
+}
+
 /** Everything `computeTodoStats` needs, so the arithmetic can be tested without a database. */
 export interface StatsInput {
   completed: StatsCompletedRow[]
@@ -71,6 +107,8 @@ export interface StatsInput {
   open: StatsOpenRow[]
   lists: StatsListRow[]
   tags: StatsTagRow[]
+  flowSeed: StatsFlowSeed
+  flowEvents: StatsFlowEvent[]
   from: string
   to: string
   bucket: TaskStatsBucket
@@ -187,6 +225,54 @@ function streaks(days: Set<string>, to: string): { current: number; longest: num
   return { current, longest }
 }
 
+/**
+ * The cumulative flow: the stock of each status at the end of every bucket.
+ *
+ * One event is one move — the status it left loses one, the status it entered gains one — and a birth
+ * only ever adds, because it has no `from_status`. The counts start from the seed, the stock on the
+ * day before the range, so the first point describes the range's first day.
+ *
+ * Events are filed under the bucket of their `on_day`, the account's calendar day recorded when the
+ * event was written. The instant decides the order inside a bucket, and a birth sorts before a status
+ * event at the same instant: a task logged already finished was born and completed in one breath, and
+ * applying the completion first would subtract from a `todo` count that never held it. Every count is
+ * clamped at zero, because the seed's `in_progress` is today's status and a replay from a number that
+ * disagrees with the rest of the seed must not report negative work.
+ */
+export function computeTodoFlow(
+  seed: StatsFlowSeed,
+  events: readonly StatsFlowEvent[],
+  range: { from: string; to: string; bucket: TaskStatsBucket },
+): TaskStatsFlowPoint[] {
+  const starts = bucketStarts(range.from, range.to, range.bucket)
+  const counts = {
+    todo: Math.max(0, seed.createdBefore - seed.doneBefore - seed.inProgressNow),
+    inProgress: seed.inProgressNow,
+    done: seed.doneBefore,
+  }
+  const rank = (event: StatsFlowEvent): number => (event.kind === 'born' ? 0 : 1)
+  const ordered = [...events].sort((left, right) => left.at - right.at || rank(left) - rank(right))
+  const byBucket = new Map<string, StatsFlowEvent[]>(starts.map((day) => [day, []]))
+  for (const event of ordered) {
+    // An event whose day falls outside the buckets was outside the range the query asked for; a
+    // direct caller can still hand one over, and dropping it is the answer the boundary already gives.
+    byBucket.get(bucketStart(event.onDay, range.bucket))?.push(event)
+  }
+  const points: TaskStatsFlowPoint[] = []
+  for (const day of starts) {
+    for (const event of byBucket.get(day)!) {
+      if (event.fromStatus === 'todo') counts.todo = Math.max(0, counts.todo - 1)
+      else if (event.fromStatus === 'in_progress') counts.inProgress = Math.max(0, counts.inProgress - 1)
+      else if (event.fromStatus === 'done') counts.done = Math.max(0, counts.done - 1)
+      if (event.toStatus === 'todo') counts.todo += 1
+      else if (event.toStatus === 'in_progress') counts.inProgress += 1
+      else counts.done += 1
+    }
+    points.push({ day, todo: counts.todo, inProgress: counts.inProgress, done: counts.done })
+  }
+  return points
+}
+
 /** The whole answer, from rows that were read in the range and the account's zone. */
 export function computeTodoStats(input: StatsInput): TodoStats {
   const completed = input.completed.filter((row) => row.completedOn >= input.from && row.completedOn <= input.to)
@@ -232,6 +318,19 @@ export function computeTodoStats(input: StatsInput): TodoStats {
     completed: completedByBucket.get(day) ?? 0,
     created: createdByBucket.get(day) ?? 0,
   }))
+
+  const flow = computeTodoFlow(input.flowSeed, input.flowEvents, {
+    from: input.from,
+    to: input.to,
+    bucket: input.bucket,
+  })
+  // The earliest arrival into `in_progress` is the first moment the chart's `todo` band is known to
+  // be exact; the events are already in `at` order from the query, but a caller need not be.
+  const tracked = input.flowEvents.reduce<StatsFlowEvent | null>((first, event) => {
+    if (event.toStatus !== 'in_progress') return first
+    if (event.onDay < input.from || event.onDay > input.to) return first
+    return first === null || event.at < first.at ? event : first
+  }, null)
 
   const byPriority = PRIORITIES.map((priority) => {
     const count = completed.filter((row) => priorityOf(row.priority) === priority).length
@@ -318,6 +417,8 @@ export function computeTodoStats(input: StatsInput): TodoStats {
     range: { from: input.from, to: input.to, bucket: input.bucket, timezone: input.timezone },
     summary,
     series,
+    flow,
+    flowTrackedSince: tracked?.onDay ?? null,
     distributions,
     leadTime,
     backlog,
@@ -338,18 +439,22 @@ type CreatedDbRow = { day: string; n: number }
 type OpenDbRow = { due_at: number | null; created_at: number }
 type ListDbRow = { id: string; name: string }
 type TagDbRow = { id: string; name: string; n: number }
+type FlowSeedDbRow = { created_before: number | null; done_before: number | null; in_progress_now: number | null }
+type FlowEventDbRow = { kind: string; from_status: string | null; to_status: string; at: number; on_day: string }
 
 /**
  * Reads one range and answers the whole statistics object.
  *
- * Five statements, none of which depends on how many rows the range holds. The finished rows are read
+ * Seven statements, none of which depends on how many rows the range holds. The finished rows are read
  * as rows rather than pre-aggregated because a median, a weekday/hour heatmap and an on-time comparison
  * all need each completion's own timestamps; grouping those in SQL would still need the raw rows for
- * the rest, and running both would be a sixth statement for no gain.
+ * the rest, and running both would be a sixth statement for no gain. The last two are the flow's: one
+ * row of stock for the day before the range, and the events inside it, both read whole rather than
+ * bucketed because the replay is a pure function that a test can run without a database.
  */
 export async function loadTodoStats(db: D1Database, userId: string, query: TodoStatsQuery): Promise<TodoStats> {
   const end = addDays(query.to, 1)
-  const [completed, created, open, lists, tags] = await Promise.all([
+  const [completed, created, open, lists, tags, flowSeed, flowEvents] = await Promise.all([
     db.prepare(
       `SELECT id, list_id, priority, due_at, created_at, completed_at, completed_on
          FROM todos_tasks
@@ -379,6 +484,33 @@ export async function loadTodoStats(db: D1Database, userId: string, query: TodoS
           AND k.completed_on IS NOT NULL AND k.completed_on >= ?2 AND k.completed_on < ?3
         GROUP BY t.id, t.name`,
     ).bind(userId, query.from, end).all<TagDbRow>(),
+    db.prepare(
+      `SELECT
+         SUM(CASE WHEN t.created_on IS NOT NULL AND t.created_on < ?2 THEN 1 ELSE 0 END) AS created_before,
+         SUM(CASE WHEN t.completed_on IS NOT NULL AND t.completed_on < ?2 THEN 1 ELSE 0 END)
+           + SUM(CASE WHEN EXISTS (
+               SELECT 1 FROM todos_task_events e
+                WHERE e.user_id = t.user_id AND e.task_id = t.id AND e.kind = 'status'
+                  AND e.from_status = 'done' AND e.on_day >= ?2 AND e.on_day < ?3
+                  AND NOT EXISTS (
+                    SELECT 1 FROM todos_task_events d
+                     WHERE d.user_id = e.user_id AND d.task_id = e.task_id AND d.kind = 'status'
+                       AND d.to_status = 'done' AND d.on_day >= ?2 AND d.at <= e.at)
+             ) THEN 1 ELSE 0 END) AS done_before,
+         SUM(CASE WHEN t.status = 'in_progress' AND NOT EXISTS (
+               SELECT 1 FROM todos_task_events s
+                WHERE s.user_id = t.user_id AND s.task_id = t.id
+                  AND s.to_status = 'in_progress' AND s.on_day >= ?2 AND s.on_day < ?3
+             ) THEN 1 ELSE 0 END) AS in_progress_now
+         FROM todos_tasks t
+        WHERE t.user_id = ?1 AND ${TASK_LIVE_PREDICATE}`,
+    ).bind(userId, query.from, end).all<FlowSeedDbRow>(),
+    db.prepare(
+      `SELECT kind, from_status, to_status, at, on_day
+         FROM todos_task_events
+        WHERE user_id = ?1 AND on_day >= ?2 AND on_day < ?3
+        ORDER BY at ASC`,
+    ).bind(userId, query.from, end).all<FlowEventDbRow>(),
   ])
 
   return computeTodoStats({
@@ -398,6 +530,18 @@ export async function loadTodoStats(db: D1Database, userId: string, query: TodoS
     })),
     lists: (lists.results ?? []).map((row) => ({ id: row.id, name: row.name })),
     tags: (tags.results ?? []).map((row) => ({ id: row.id, name: row.name, count: Number(row.n) })),
+    flowSeed: {
+      createdBefore: Number(flowSeed.results?.[0]?.created_before ?? 0),
+      doneBefore: Number(flowSeed.results?.[0]?.done_before ?? 0),
+      inProgressNow: Number(flowSeed.results?.[0]?.in_progress_now ?? 0),
+    },
+    flowEvents: (flowEvents.results ?? []).map((row) => ({
+      kind: row.kind === 'born' ? 'born' : 'status',
+      fromStatus: row.from_status === null ? null : (row.from_status as TaskStatus),
+      toStatus: row.to_status as TaskStatus,
+      at: Number(row.at),
+      onDay: row.on_day,
+    })),
     from: query.from,
     to: query.to,
     bucket: query.bucket,

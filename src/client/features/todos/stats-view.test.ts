@@ -127,6 +127,11 @@ function fullStats(): TodoStats {
       { day: '2026-10-05', completed: 8, created: 6 },
       { day: '2026-10-12', completed: 4, created: 3 },
     ],
+    flow: [
+      { day: '2026-10-05', todo: 5, inProgress: 2, done: 8 },
+      { day: '2026-10-12', todo: 3, inProgress: 1, done: 12 },
+    ],
+    flowTrackedSince: '2026-10-06',
     distributions: {
       byList: [
         { id: null, name: null, completed: 3, share: 0.25 },
@@ -187,6 +192,8 @@ function emptyStats(): TodoStats {
     series: RANGE.bucket === 'week'
       ? [{ day: '2026-10-05', completed: 0, created: 0 }]
       : [],
+    flow: [],
+    flowTrackedSince: null,
     distributions: {
       byList: [],
       byTag: [],

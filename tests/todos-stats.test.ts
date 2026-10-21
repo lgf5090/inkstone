@@ -18,8 +18,10 @@ import { SCHEMA_STATEMENTS } from '../src/worker/db/schema'
 import { errorResponse } from '../src/worker/lib/errors'
 import type { AppBindings, Env } from '../src/worker/env'
 import { todoRoutes } from '../src/worker/routes/todos'
+import { computeTodoFlow } from '../src/worker/todos/stats'
+import type { StatsFlowEvent } from '../src/worker/todos/stats'
 import { AssistantStore } from '../src/worker/assistant/store'
-import type { TodoStats, TodoTask } from '../src/shared/todos/model'
+import type { TaskStatus, TodoStats, TodoTask } from '../src/shared/todos/model'
 import { makeD1 } from './doubles/d1-sqlite'
 import { testBindings } from './doubles/bindings'
 
@@ -105,6 +107,17 @@ async function seedCompleted(options: {
 /** Pins the clock the store reads, so a completion lands on a day this test names. */
 function clock(instant: string): void {
   vi.useFakeTimers({ now: new Date(instant) })
+}
+
+/** One event row in the shape the replay reads, with the instant written as ISO for readability. */
+function flowEvent(
+  kind: 'born' | 'status',
+  from: TaskStatus | null,
+  to: TaskStatus,
+  at: string,
+  onDay: string,
+): StatsFlowEvent {
+  return { kind, fromStatus: from, toStatus: to, at: Date.parse(at), onDay }
 }
 
 beforeEach(() => {
@@ -311,6 +324,127 @@ describe('what counts as one completion', () => {
     expect(answer.summary.onTimeDue).toBe(0)
     expect(answer.summary.onTimeRate).toBe(0)
     expect(answer.summary.medianLeadTimeMs).toBe(0)
+  })
+})
+
+describe('the cumulative flow replay', () => {
+  const ONE_DAY = { from: '2026-03-02', to: '2026-03-02', bucket: 'day' as const }
+  const EMPTY = { createdBefore: 0, doneBefore: 0, inProgressNow: 0 }
+
+  it('holds the seed across a range with no events', () => {
+    const points = computeTodoFlow({ createdBefore: 10, doneBefore: 4, inProgressNow: 2 }, [], ONE_DAY)
+
+    expect(points).toEqual([{ day: '2026-03-02', todo: 4, inProgress: 2, done: 4 }])
+  })
+
+  it('adds a birth to todo, because a birth has nothing to leave', () => {
+    const points = computeTodoFlow(EMPTY, [
+      flowEvent('born', null, 'todo', '2026-03-02T09:00:00Z', '2026-03-02'),
+    ], ONE_DAY)
+
+    expect(points).toEqual([{ day: '2026-03-02', todo: 1, inProgress: 0, done: 0 }])
+  })
+
+  it('moves a finished task out of todo and into done', () => {
+    const points = computeTodoFlow({ createdBefore: 1, doneBefore: 0, inProgressNow: 0 }, [
+      flowEvent('status', 'todo', 'done', '2026-03-02T09:00:00Z', '2026-03-02'),
+    ], ONE_DAY)
+
+    expect(points).toEqual([{ day: '2026-03-02', todo: 0, inProgress: 0, done: 1 }])
+  })
+
+  it('moves a started task out of todo and into in progress', () => {
+    const points = computeTodoFlow({ createdBefore: 1, doneBefore: 0, inProgressNow: 0 }, [
+      flowEvent('status', 'todo', 'in_progress', '2026-03-02T09:00:00Z', '2026-03-02'),
+    ], ONE_DAY)
+
+    expect(points).toEqual([{ day: '2026-03-02', todo: 0, inProgress: 1, done: 0 }])
+  })
+
+  it('moves a reopened task back to todo', () => {
+    const points = computeTodoFlow({ createdBefore: 1, doneBefore: 1, inProgressNow: 0 }, [
+      flowEvent('status', 'done', 'todo', '2026-03-02T09:00:00Z', '2026-03-02'),
+    ], ONE_DAY)
+
+    expect(points).toEqual([{ day: '2026-03-02', todo: 1, inProgress: 0, done: 0 }])
+  })
+
+  it('applies a birth before a completion at the same instant', () => {
+    // A task logged already finished: the completion is listed first on purpose, and the replay has
+    // to sort the birth ahead of it or the subtraction would hit a `todo` count that never held it.
+    const points = computeTodoFlow(EMPTY, [
+      flowEvent('status', 'todo', 'done', '2026-03-02T09:00:00Z', '2026-03-02'),
+      flowEvent('born', null, 'todo', '2026-03-02T09:00:00Z', '2026-03-02'),
+    ], ONE_DAY)
+
+    expect(points).toEqual([{ day: '2026-03-02', todo: 0, inProgress: 0, done: 1 }])
+  })
+
+  it('files an event under the bucket of its own day, not of the range start', () => {
+    // The range is one week starting Monday 2026-01-05; the event lands on Sunday the 11th.
+    const points = computeTodoFlow(EMPTY, [
+      flowEvent('born', null, 'todo', '2026-01-11T20:00:00Z', '2026-01-11'),
+    ], { from: '2026-01-05', to: '2026-01-11', bucket: 'week' })
+
+    expect(points).toEqual([{ day: '2026-01-05', todo: 1, inProgress: 0, done: 0 }])
+  })
+
+  it('clamps a seed that disagrees with itself instead of reporting negative work', () => {
+    // `inProgressNow` is today's status: a dirty seed can claim more running tasks than the created
+    // and finished columns leave room for. The todo band starts at zero rather than below it.
+    const points = computeTodoFlow({ createdBefore: 3, doneBefore: 3, inProgressNow: 2 }, [], ONE_DAY)
+
+    expect(points[0]?.todo).toBe(0)
+  })
+})
+
+describe('the cumulative flow on the wire', () => {
+  it('marks the day the first start was recorded, and answers null when none was', async () => {
+    clock('2026-03-02T09:00:00Z')
+    const store = await withZone('UTC')
+    const first = await store.createTask({ title: 'First' }, 'UTC')
+    await store.updateTask(first.id, { status: 'in_progress' }, 'UTC')
+    vi.setSystemTime(new Date('2026-03-04T09:00:00Z'))
+    const second = await store.createTask({ title: 'Second' }, 'UTC')
+    await store.updateTask(second.id, { status: 'in_progress' }, 'UTC')
+
+    const answer = await stats('?from=2026-03-01&to=2026-03-05')
+    expect(answer.flowTrackedSince).toBe('2026-03-02')
+
+    // A range that holds no start event has nothing to mark, even though the tasks are running now.
+    const earlier = await stats('?from=2026-02-01&to=2026-02-02')
+    expect(earlier.flowTrackedSince).toBeNull()
+  })
+
+  it('does not count a task started inside the range twice', async () => {
+    clock('2026-03-01T09:00:00Z')
+    const store = await withZone('UTC')
+    const task = await store.createTask({ title: 'Started later' }, 'UTC')
+    vi.setSystemTime(new Date('2026-03-03T09:00:00Z'))
+    await store.updateTask(task.id, { status: 'in_progress' }, 'UTC')
+
+    const answer = await stats('?from=2026-03-02&to=2026-03-03')
+
+    // The seed already reads today's in-progress status; the start event must move the task rather
+    // than add a second one. Without the seed's correction the band would read 1 then 2.
+    expect(answer.flow.map((point) => point.inProgress)).toEqual([0, 1])
+    expect(answer.flow.map((point) => point.todo)).toEqual([1, 0])
+  })
+
+  it('counts a task reopened inside the range as done when the range opened', async () => {
+    clock('2026-03-01T09:00:00Z')
+    const store = await withZone('UTC')
+    const task = await store.createTask({ title: 'Reopened' }, 'UTC')
+    await store.completeTask(task.id, 'UTC')
+    vi.setSystemTime(new Date('2026-03-03T09:00:00Z'))
+    await store.updateTask(task.id, { status: 'todo' }, 'UTC')
+
+    const answer = await stats('?from=2026-03-02&to=2026-03-03')
+
+    // Reopening cleared `completed_on`, so the day column alone would file the task under todo and
+    // the reopen event would add a second todo. The seed restores it to done from the event itself.
+    expect(answer.flow.map((point) => point.todo)).toEqual([0, 1])
+    expect(answer.flow.map((point) => point.done)).toEqual([1, 0])
   })
 })
 
