@@ -26,8 +26,8 @@
 import type { Note, NoteTemplate } from '@shared/types'
 import type { MessageKey } from '@shared/locales/en-US'
 import type { TemplaterHosts } from '../../lib/templater'
-import type { RunMode } from '../../lib/templater/protocol'
-import { templaterErrorText } from '../../lib/templater/errors'
+import type { CapabilityProfile, RunMode } from '../../lib/templater/protocol'
+import { templaterErrorText, type TemplaterErrorCode } from '../../lib/templater/errors'
 import { virtualBasename, virtualFolderSegment, virtualNoteName } from '../../lib/templater/context/file-wrapper'
 import {
   runTemplateOnNote,
@@ -166,8 +166,13 @@ function report(result: RunTemplateResult, success: MessageKey): boolean {
 }
 
 /** The rows every mode shares: the library, the reader's language, and the moment this run means by "now". */
-function contextFor(mode: RunMode, target: Note | null, active: Note | null, selection: EditorSelectionSnapshot | null)
-  : Omit<RunTemplateInput, 'template'> {
+function contextFor(
+  mode: RunMode,
+  target: Note | null,
+  active: Note | null,
+  selection: EditorSelectionSnapshot | null,
+  profile: CapabilityProfile = 'local',
+): Omit<RunTemplateInput, 'template'> {
   return {
     mode,
     target,
@@ -176,7 +181,7 @@ function contextFor(mode: RunMode, target: Note | null, active: Note | null, sel
     // Every row this chooser offers is the reader's own library entry, so the run carries the rights they
     // gave their own templates. Narrowing them by where a row came from is the engine's call, not a guess
     // made at a call site.
-    capabilities: 'local',
+    capabilities: profile,
     locale: localeTag(),
     startedAt: Date.now(),
     selection,
@@ -242,6 +247,26 @@ export async function createNoteFromTemplate(template: NoteTemplate, destination
     },
     'templates.created_note_from_template',
   )
+}
+
+/**
+ * One startup template, run for its effects and never for its text.
+ *
+ * The `startup` mode discards what the template produced (`host/write.ts` has no subject to write into), so
+ * this answers with the run's own code instead of a toast: a batch is reported by `host/startup.ts`'s caller,
+ * once per template that failed, with the name the reader gave it beside the reason. Silence on success is
+ * deliberate — a note the reader did not ask to open, with a notice about it, is a worse morning than a
+ * template that quietly did its work.
+ */
+export async function runStartupTemplate(template: NoteTemplate): Promise<{ ok: boolean; code?: TemplaterErrorCode; detail?: string }> {
+  const result = await runTemplateOnNote(
+    {
+      ...contextFor('startup', null, await activeRow(), null, 'startup'),
+      template: { kind: 'library', row: template },
+    },
+    await templaterPorts(),
+  )
+  return result.ok ? { ok: true } : { ok: false, code: result.code, detail: result.detail }
 }
 
 /** A title that is nothing a path segment can hold: the engine's own sentence, not a made-up one. */

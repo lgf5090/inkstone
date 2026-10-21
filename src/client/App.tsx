@@ -9,6 +9,7 @@ import { LoginPage } from './features/auth/LoginPage'
 import { dismissBootScreen } from './lib/boot'
 import { peekPropertyDecoration, subscribePropertyDecoration } from './lib/property-commands'
 import { peekTemplateSlotJob, subscribeTemplateSlotJob } from './features/chat/template-slot-job'
+import { useTemplaterStartup } from './features/templater/startup-bridge'
 import { t, useLocale } from './lib/i18n'
 import { initializePwa, requestOfflineWarmup, usePwa } from './store/pwa'
 import { usePresentation } from './store/presentation'
@@ -117,6 +118,11 @@ export function App() {
     if (isPresenter) return
     initializePwa()
   }, [isPresenter])
+
+  // The reader's startup templates, once, after the account and the library have both arrived. The hook
+  // decides nothing on its own — a device switch has to say yes first — so this line costs a subscription
+  // and no work for the overwhelming majority of readers.
+  useTemplaterStartup()
 
   useEffect(() => {
     if ((shareSlug || conversationShareSlug || isPresenter) || status !== 'loading') return
