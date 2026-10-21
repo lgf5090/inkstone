@@ -3,10 +3,9 @@ import { Maximize2, Minus, Plus } from 'lucide-react'
 import L from 'leaflet'
 import 'leaflet.markercluster'
 import 'leaflet.markercluster/dist/MarkerCluster.css'
-import 'leaflet.markercluster/dist/MarkerCluster.Default.css'
 import { Button, IconButton } from '../../../components/primitives'
 import { t, useLocale } from '../../../lib/i18n'
-import { createMemoLeafletMap } from '../leaflet-map'
+import { createMemoLeafletMap, prefersReducedMotion } from '../leaflet-map'
 import {
   MEMO_MAP_FOCUS_ZOOM,
   memoMapPinKind,
@@ -22,13 +21,13 @@ const MAP_CLUSTER_RADIUS = 60
 const MAP_PIN_VISUAL_CLASS = [
   'flex size-full items-center justify-center overflow-hidden rounded-full border-2',
   'border-[var(--bg-surface)] bg-[var(--accent)] text-[length:var(--text-12)] font-semibold',
-  'text-[var(--accent-contrast)] shadow-[var(--shadow-raised)]',
+  'text-[var(--accent-contrast)] shadow-[var(--shadow-soft)]',
 ].join(' ')
 const MAP_PIN_DOT_CLASS = 'size-2.5 rounded-full bg-[var(--accent-contrast)]'
 const MAP_CLUSTER_CLASS = [
   'flex size-full items-center justify-center rounded-full border border-[var(--bg-surface)]',
   'bg-[var(--accent)] text-[length:var(--text-12)] font-semibold tabular',
-  'text-[var(--accent-contrast)] shadow-[var(--shadow-raised)]',
+  'text-[var(--accent-contrast)] shadow-[var(--shadow-soft)]',
 ].join(' ')
 const MAP_BADGE_CLASS = [
   'absolute -right-1 -top-1 inline-flex min-w-[18px] items-center justify-center rounded-full',
@@ -154,6 +153,7 @@ export function MemoMap({
       showCoverageOnHover: false,
       maxClusterRadius: MAP_CLUSTER_RADIUS,
       chunkedLoading: true,
+      animate: !prefersReducedMotion(),
       iconCreateFunction: createClusterIcon,
     })
     mapRef.current = map

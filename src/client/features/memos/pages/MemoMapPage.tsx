@@ -244,7 +244,7 @@ export function MemoMapPage({ onOpenMemo }: MemoMapPageProps): ReactElement {
   } else {
     body = (
       <div className="flex min-h-0 flex-1 flex-col lg:flex-row">
-        <div className="relative min-h-[320px] flex-1 lg:min-h-0">
+        <div className="relative min-h-80 flex-1 lg:min-h-0">
           <InlineErrorBoundary label={t('memos.map.unavailable')}>
             <Suspense fallback={<LoadingBlock label={t('memos.common.loading')} />}>
               <MemoMap
@@ -260,7 +260,7 @@ export function MemoMapPage({ onOpenMemo }: MemoMapPageProps): ReactElement {
         </div>
         <aside
           aria-labelledby={listHeadingId}
-          className="flex max-h-[45vh] w-full shrink-0 flex-col border-t border-[var(--border-subtle)] bg-[var(--bg-sunken)] lg:max-h-none lg:w-[340px] lg:border-l lg:border-t-0"
+          className="flex max-h-[45vh] w-full shrink-0 flex-col border-t border-[var(--border-subtle)] bg-[var(--bg-sunken)] lg:max-h-none lg:w-80 lg:border-l lg:border-t-0"
         >
           <div className="min-h-0 flex-1 overflow-y-auto p-2">
             {selection ? (

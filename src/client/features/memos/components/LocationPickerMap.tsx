@@ -10,7 +10,7 @@ import { MEMO_MAP_FOCUS_ZOOM, MEMO_MAP_WORLD_VIEW } from '../map-state'
 const LOCATION_PIN_SIZE = 22
 const LOCATION_PIN_CLASS = [
   'block size-full rounded-full border-2 border-[var(--bg-surface)] bg-[var(--accent)]',
-  'shadow-[var(--shadow-raised)]',
+  'shadow-[var(--shadow-soft)]',
 ].join(' ')
 
 export interface LocationPickerPoint {

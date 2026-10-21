@@ -138,7 +138,7 @@ export function LocationPicker({
       )}
     >
       <div className="space-y-3">
-        <div className="h-[240px] overflow-hidden rounded-[var(--r-md)] border border-[var(--border-default)]">
+        <div className="h-60 overflow-hidden rounded-[var(--r-md)] border border-[var(--border-default)]">
           <InlineErrorBoundary label={t('memos.map.unavailable')}>
             <Suspense fallback={<LoadingBlock label={t('memos.common.loading')} />}>
               <LocationPickerMap
