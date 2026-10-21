@@ -20,6 +20,7 @@ const OTHER = '0123456789abcdefghjkmnpqrt'
 const OPENAI_KEY = 'sk-test-transcribe-openai-0001'
 const GEMINI_KEY = 'sk-test-transcribe-gemini-0002'
 const TRANSCRIBE_URL = 'http://localhost/api/memos/ai/transcribe'
+const PROVIDERS_URL = 'http://localhost/api/memos/ai/providers'
 const AUDIO = new TextEncoder().encode('audio-bytes-for-transcription')
 
 let sqlite: DatabaseSync
@@ -156,6 +157,51 @@ beforeEach(async () => {
 afterEach(() => {
   vi.unstubAllGlobals()
   sqlite.close()
+})
+
+describe('listing the providers a recording may use', () => {
+  interface ProviderListing {
+    providers: Array<{ id: string, label: string, protocol: string, models: string[] }>
+  }
+
+  async function listProviders(userId: string | null): Promise<Response> {
+    return await app.request(PROVIDERS_URL, {
+      headers: userId ? { 'x-test-user': userId } : {},
+    }, env)
+  }
+
+  it('answers with the account’s providers, their text models and no key material', async () => {
+    await ownerStore.createModel({ providerId: openAiProviderId, model: 'whisper-1', label: 'Whisper' })
+    await ownerStore.createModel({ providerId: openAiProviderId, model: 'gpt-4o-mini' })
+    await ownerStore.createModel({ providerId: geminiProviderId, model: 'gemini-2.5-flash' })
+    const disabled = await ownerStore.createModel({ providerId: geminiProviderId, model: 'gemini-old' })
+    await ownerStore.updateModel(disabled.id, { enabled: false })
+
+    const response = await listProviders(OWNER)
+    expect(response.status).toBe(200)
+    const body = await response.json() as ProviderListing
+    expect(body.providers).toEqual([
+      { id: openAiProviderId, label: 'OpenAI', protocol: 'openai', models: ['whisper-1', 'gpt-4o-mini'] },
+      { id: geminiProviderId, label: 'Gemini', protocol: 'gemini', models: ['gemini-2.5-flash'] },
+    ])
+    const answer = JSON.stringify(body)
+    expect(answer).not.toContain(OPENAI_KEY)
+    expect(answer).not.toContain(GEMINI_KEY)
+    expect(answer).not.toContain('keyHint')
+    expect(answer).not.toContain('hasKey')
+  })
+
+  it('keeps another account’s providers out of the listing', async () => {
+    const response = await listProviders(OTHER)
+    expect(response.status).toBe(200)
+    const body = await response.json() as ProviderListing
+    expect(body.providers.map((provider) => provider.label)).toEqual(['Other'])
+  })
+
+  it('requires a signed-in account', async () => {
+    const response = await listProviders(null)
+    expect(response.status).toBe(401)
+  })
 })
 
 describe('transcribing through a configured provider', () => {

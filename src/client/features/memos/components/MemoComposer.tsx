@@ -1,5 +1,5 @@
 import { useEffect, useId, useMemo, useRef, useState, type FormEvent, type ReactElement } from 'react'
-import { CalendarClock, Eye, EyeOff, MapPin, Maximize2, Minimize2, Paperclip, X } from 'lucide-react'
+import { CalendarClock, Eye, EyeOff, MapPin, Maximize2, Mic, Minimize2, Paperclip, Square, X } from 'lucide-react'
 import {
   MEMO_ATTACHMENT_MAX_BYTES,
   MEMO_CONTENT_MAX_BYTES,
@@ -23,13 +23,16 @@ import { t, type MessageKey } from '../../../lib/i18n'
 import { fullTime } from '../../../lib/time'
 import { useSession } from '../../../store/session'
 import { useUi } from '../../../store/ui'
+import { memoAi, memoTranscriptionTarget } from '../ai-client'
 import { memosApi } from '../api'
-import { memoErrorMessage } from '../errors'
+import { memoErrorMessage, memoIsAbortError } from '../errors'
 import { prepareMemoAttachment } from '../image-metadata'
 import { memoPlaceLabel } from '../location'
+import { formatMediaDuration } from '../media'
 import { loadMemoDraft, useMemos } from '../state'
 import { useMemoDraft } from '../use-memo-draft'
 import { useMemoPreferences } from '../use-memo-preferences'
+import { useMemoRecorder } from '../use-memo-recorder'
 import { useMemoSpaces } from '../use-memo-spaces'
 import { attachmentMarkdown } from './memo-editor-format'
 import { memoDateValue, memoLocalTimestamp, memoTimeValue } from './memo-time'
@@ -119,9 +122,29 @@ export function MemoComposer({
   const [dragActive, setDragActive] = useState(false)
   const [attempted, setAttempted] = useState(false)
   const [saveError, setSaveError] = useState<string | null>(null)
+  const recorder = useMemoRecorder()
+  const [transcribing, setTranscribing] = useState(false)
+  const transcribeAbort = useRef<AbortController | null>(null)
+  const mountedRef = useRef(true)
   const conflict = useMemos((state) => state.conflict)
   const clearConflict = useMemos((state) => state.clearConflict)
   const conflictHere = editing && conflict?.memoId === memo.id ? conflict : null
+
+  useEffect(() => {
+    mountedRef.current = true
+    return () => {
+      mountedRef.current = false
+      transcribeAbort.current?.abort()
+    }
+  }, [])
+
+  const { error: recorderError, clearError: clearRecorderError } = recorder
+
+  useEffect(() => {
+    if (!recorderError) return
+    useUi.getState().toast({ title: t(recorderError), tone: 'warning' })
+    clearRecorderError()
+  }, [recorderError, clearRecorderError])
 
   useEffect(() => {
     if (memo) revRef.current = memo.rev
@@ -148,14 +171,16 @@ export function MemoComposer({
   const isEmpty = text.trim().length === 0
   const tooLarge = byteLength > MEMO_CONTENT_MAX_BYTES
   const uploadPending = uploading.length > 0
-  const saveDisabled = saving || uploadPending || tooLarge || isEmpty || Boolean(conflictHere)
+  const saveDisabled = saving || uploadPending || transcribing || tooLarge || isEmpty || Boolean(conflictHere)
   const disabledReason = tooLarge
     ? t('memos.composer.too_large')
     : uploadPending
       ? t('memos.composer.uploading_hint')
-      : isEmpty && attempted
-        ? t('memos.composer.empty')
-        : null
+      : transcribing
+        ? t('memos.composer.voice_transcribing')
+        : isEmpty && attempted
+          ? t('memos.composer.empty')
+          : null
 
   const dateValue = memoDateValue(createdAt)
   const timeValue = memoTimeValue(createdAt)
@@ -177,6 +202,63 @@ export function MemoComposer({
       return
     }
     setText((current) => (current.trim() ? `${current.replace(/\s+$/, '')}\n${snippet}` : snippet))
+  }
+
+  const transcribeRecording = async (file: File): Promise<void> => {
+    const controller = new AbortController()
+    transcribeAbort.current = controller
+    setTranscribing(true)
+    try {
+      const target = memoTranscriptionTarget(await memoAi.providers(controller.signal))
+      if (!target) {
+        useUi.getState().toast({
+          title: t('memos.composer.voice_no_provider'),
+          description: t('memos.composer.voice_no_provider_hint'),
+          tone: 'warning',
+        })
+        return
+      }
+      const form = new FormData()
+      form.set('file', file)
+      form.set('providerId', target.providerId)
+      form.set('model', target.model)
+      const result = await memoAi.transcribe(form, controller.signal)
+      if (controller.signal.aborted) return
+      if (!result.text.trim()) {
+        useUi.getState().toast({ title: t('memos.composer.voice_empty'), tone: 'warning' })
+        return
+      }
+      appendSnippet(result.text)
+      useUi.getState().toast({ title: t('memos.composer.voice_transcribed'), tone: 'success' })
+    } catch (error) {
+      if (memoIsAbortError(error) || controller.signal.aborted) return
+      useUi.getState().toast({
+        title: t('memos.composer.voice_failed'),
+        description: memoErrorMessage(error),
+        tone: 'danger',
+      })
+    } finally {
+      if (transcribeAbort.current === controller) transcribeAbort.current = null
+      if (mountedRef.current) setTranscribing(false)
+    }
+  }
+
+  const toggleRecording = async (): Promise<void> => {
+    if (recorder.status === 'recording') {
+      const file = await recorder.stop()
+      if (!mountedRef.current) return
+      if (!file) {
+        useUi.getState().toast({ title: t('memos.composer.voice_empty'), tone: 'warning' })
+        return
+      }
+      await transcribeRecording(file)
+      return
+    }
+    if (recorder.status !== 'idle' || saving || uploadPending || transcribing) return
+    const refusal = await recorder.start()
+    if (refusal && mountedRef.current) {
+      useUi.getState().toast({ title: t(refusal), tone: 'warning' })
+    }
   }
 
   const uploadOne = async (file: File): Promise<void> => {
@@ -243,7 +325,7 @@ export function MemoComposer({
   const submit = async (): Promise<void> => {
     setAttempted(true)
     setSaveError(null)
-    if (saving || uploadingRef.current > 0 || tooLarge || isEmpty || conflictHere) return
+    if (saving || uploadingRef.current > 0 || transcribing || tooLarge || isEmpty || conflictHere) return
     setSaving(true)
     const state = useMemos.getState()
     let saved: Memo | null
@@ -351,6 +433,36 @@ export function MemoComposer({
           disabled={saving}
         />
       )}
+      {recorder.status !== 'idle' || transcribing ? (
+        <div
+          role="status"
+          aria-live="polite"
+          className="mt-1.5 flex min-w-0 items-center gap-1.5 text-[length:var(--text-11)] text-[var(--text-tertiary)]"
+        >
+          {recorder.status === 'recording' ? (
+            <span aria-hidden="true" className="size-1.5 shrink-0 rounded-full bg-[var(--danger)]" />
+          ) : (
+            <Spinner size={12} />
+          )}
+          <span className="min-w-0 truncate">
+            {recorder.status === 'starting'
+              ? t('memos.composer.voice_requesting')
+              : recorder.status === 'stopping'
+                ? t('memos.composer.voice_stopping')
+                : recorder.status === 'recording'
+                  ? t('memos.composer.voice_recording')
+                  : t('memos.composer.voice_transcribing')}
+          </span>
+          {recorder.status === 'recording' ? (
+            <time
+              aria-hidden="true"
+              className="shrink-0 tabular-nums text-[var(--text-quaternary)]"
+            >
+              {formatMediaDuration(recorder.seconds)}
+            </time>
+          ) : null}
+        </div>
+      ) : null}
       {uploading.length > 0 ? (
         <div
           role="status"
@@ -447,6 +559,25 @@ export function MemoComposer({
           </span>
         ) : null}
         <div className="ml-auto flex shrink-0 items-center gap-0.5">
+          <IconButton
+            label={t(
+              recorder.status === 'recording' || recorder.status === 'stopping'
+                ? 'memos.composer.voice_stop'
+                : 'memos.composer.voice_record',
+            )}
+            size="sm"
+            active={recorder.status === 'recording' || recorder.status === 'stopping'}
+            disabled={saving
+              || uploadPending
+              || transcribing
+              || recorder.status === 'starting'
+              || recorder.status === 'stopping'}
+            onClick={() => void toggleRecording()}
+          >
+            {recorder.status === 'recording' || recorder.status === 'stopping'
+              ? <Square size={13} />
+              : <Mic size={14} />}
+          </IconButton>
           <IconButton
             label={t('memos.composer.location')}
             size="sm"

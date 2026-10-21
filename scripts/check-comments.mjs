@@ -5430,6 +5430,34 @@ const allowed = new Map([
     "// `calendar-activity.test.ts` can hold the fast answer against this slow oracle.",
     "/** The newest edit the note list could actually show (archived and deleted are out); null when nothing qualifies. */",
   ]],
+  ["src/client/features/memos/ai-client.test.ts", [
+    "// The browser owns the multipart boundary; naming a JSON content type would break the upload.",
+  ]],
+  ["src/client/features/memos/ai-client.ts", [
+    "/**\n * The memo app's calls into the account's assistant providers.\n *\n * `api.ts` owns the memo REST surface and is closed to new groups, so the microphone's two calls live\n * here — built on the same `memoRequest` transport, which keeps the shared client headers, the abort\n * signal and the `ApiError` shape the surfaces already know how to report.\n *\n * The provider shape is restated rather than imported from the worker: the display layer may not reach\n * into `src/worker`, and `tests/memos-ai.test.ts` reads the route's own answer so the two cannot drift.\n * Nothing here carries a credential, because the route does not send one.\n */",
+    "/** The protocols the transcription call can put a recording through. */",
+    "/** One provider `GET /api/memos/ai/providers` describes, narrowed to what a recording needs. */",
+    "/** The enabled text models that may answer the transcription call, in the reader's own order. */",
+    "/** The provider and model one recording is sent to. */",
+    "/**\n * The first provider and model a recording can be sent to, or null when the account has none.\n *\n * Anthropic has no audio endpoint this app can call, so a listing that only holds one is the same\n * answer as an empty listing: the caller says which settings to fill in rather than spending a request\n * that is certain to be refused. The first model is the reader's first choice — the listing is already\n * in the order their provider screen shows.\n */",
+  ]],
+  ["src/client/features/memos/use-memo-recorder.ts", [
+    "/**\n * The browser's own voice recorder, as much of it as the memo composer uses.\n *\n * It owns exactly one microphone session at a time: the permission prompt, the `MediaRecorder`, the\n * elapsed-time clock and the tracks behind them. Whatever the recording is for — transcription, in this\n * app — is the caller's business, so `stop()` answers with a `File` and no request is made here.\n *\n * Every way the session can end goes through one teardown: the stop button, a recorder error, and the\n * composer unmounting while the microphone is live. That is what keeps a denied prompt from leaving a\n * stream open — the case a browser shows as a recording indicator that never goes away.\n */",
+    "/**\n * Offered in this order: Opus in WebM is what Chromium and Firefox produce, and it is the smallest\n * recording for a given minute. Safari records MP4 instead, which the worker's supported list accepts.\n */",
+    "/** Whole seconds since this session began recording; zero while idle. */",
+    "/** Asks for the microphone and begins recording. Null means it started; otherwise, what to tell. */",
+    "/** Ends the session. Resolves with the recording, or null when nothing usable was captured. */",
+    "/**\n * Why a permission prompt produced no microphone, in the sentence the composer shows.\n *\n * A refusal the browser names is answered by name — the reader can act on \"denied\" differently from\n * \"no device\" — and anything else falls back to the general failure rather than disappearing.\n */",
+    "// The recorder ending itself between the check and the call is the one throw here, and the",
+    "// session is over either way; the tracks below are what would otherwise stay open.",
+    "// The browser said it could record and then refused the constructor: nothing will capture, so",
+    "// the press has to be reported rather than leaving a lit button and no session.",
+    "// A second press before the recorder has packaged the blob must wait for the same session, not",
+    "// start a second one: `MediaRecorder.state` is already `inactive` by then, so a fresh call would",
+    "// answer null and read as an empty recording.",
+    "/** Why a session ended without a recording, for the caller to report once; null when all is well. */",
+    "/** Marks the last `error` as reported, so the same failure can be raised again next time. */",
+  ]],
   ["src/client/features/mindmap/MindmapNotePicker.test.ts", [
     "// Spied rather than replaced: the folder path is what the list shows under each title, and how",
     "// many times it is asked for is the whole point of the tests below.",
@@ -24038,6 +24066,9 @@ const allowed = new Map([
   ["src/worker/routes/memos.ts", [
     "// The mutation is already committed; without a waitUntil the delivery runs on its own and may be cut",
     "// short, which is the same best-effort outcome as a receiver that does not answer.",
+  ]],
+  ["src/worker/routes/memos/ai.ts", [
+    "/**\n * The account's providers as the composer's microphone may spend them.\n *\n * A recording has no picker of its own: the composer takes the first provider and model this answers\n * with, so the listing carries only what a transcription call could use — an enabled text model — and\n * otherwise stays in the order the reader's own provider list has. The protocol travels as stored,\n * because the caller is what knows an Anthropic provider has no audio endpoint to send to.\n *\n * Only the label, protocol and model ids travel: the ciphertext, the key hint and the base address\n * stay in the worker, because a browser has nothing to do with any of them.\n */",
   ]],
   ["src/worker/routes/notes.ts", [
     "/** Ids per dependent-table delete when emptying the trash. */",
