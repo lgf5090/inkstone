@@ -370,11 +370,11 @@ export function TaskCard({ task, lists, bounds, timezone, onOpen, onStar, onUnpl
             ? t('todo.a11y.mark_open', { title: task.title })
             : t('todo.a11y.mark_done', { title: task.title })}
           onClick={() => { void toggle(task) }}
-          className="mt-0.5 flex size-11 shrink-0 items-center justify-center rounded-full focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--accent)] md:size-7"
+          className="mt-0.5 flex size-11 shrink-0 items-center justify-center rounded-full transition-transform duration-[var(--dur-fast)] active:scale-90 motion-reduce:transform-none focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--accent)] md:size-7"
         >
           <span
             className={cn(
-              'flex size-5 items-center justify-center rounded-full border-2 transition-colors',
+              'flex size-5 items-center justify-center rounded-full border-2 transition-[background-color,border-color,transform] duration-[var(--dur-base)] ease-[var(--ease-spring)]',
               done ? 'border-transparent text-[var(--accent-contrast)]' : 'bg-transparent',
             )}
             style={{ borderColor: colour, backgroundColor: done ? colour : undefined }}

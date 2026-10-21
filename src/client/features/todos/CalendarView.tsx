@@ -231,7 +231,6 @@ function MonthWeek({ cells, tasks, lists, timezone, compact, almanac, display, d
           return (
             <div
               key={cell.key}
-              role="gridcell"
               data-calendar-cell={cell.key}
               onDragOver={(event) => {
                 if (!isTodoTaskDrag(event)) return

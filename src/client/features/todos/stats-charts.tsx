@@ -164,6 +164,9 @@ export function TrendChart({ series, bucket, goal, from, to }: {
                   vectorEffect="non-scaling-stroke"
                 />
               )}
+              {series.length === 1 && !hidden.completed && (
+                <circle cx={x(0)} cy={y(series[0]!.completed)} r="2.5" fill="var(--accent)" />
+              )}
               {hovered && hover !== null && (
                 <>
                   <line
@@ -264,7 +267,8 @@ export function DeltaChip({ id, value, points = false }: { id?: string; value: n
   return (
     <span
       data-stats-delta={id}
-      className={cn('inline-flex items-center gap-0.5 rounded-full px-1.5 py-px text-[length:var(--text-10-5)] tabular font-medium', tone, rounded !== 0 && 'bg-[color-mix(in_oklab,currentColor_10%,transparent)]')}
+      className={cn('inline-flex items-center gap-0.5 rounded-full px-1.5 py-px text-[length:var(--text-10-5)] tabular font-medium', tone)}
+      style={rounded === 0 ? undefined : { backgroundColor: 'color-mix(in oklab, currentColor 10%, transparent)' }}
     >
       {rounded !== 0 && (
         <svg aria-hidden="true" width="8" height="8" viewBox="0 0 8 8" className={rounded < 0 ? 'rotate-180' : undefined}>
@@ -274,6 +278,19 @@ export function DeltaChip({ id, value, points = false }: { id?: string; value: n
       {points ? t('todo.stats.compare.points', { value: signed }) : `${signed}%`}
     </span>
   )
+}
+
+/**
+ * The five steps of the heat ramp.
+ *
+ * Painted as a value rather than as five Tailwind classes: a `color-mix()` inside an arbitrary value
+ * works, but it is opaque to a reader and to anything that greps for a colour; this says what the
+ * percentage means in one place.
+ */
+function heatFill(step: number): string {
+  if (step <= 0) return 'var(--bg-inset)'
+  const share = [0, 22, 42, 66, 100][step] ?? 100
+  return share >= 100 ? 'var(--accent)' : `color-mix(in oklab, var(--accent) ${share}%, var(--bg-inset))`
 }
 
 /**
@@ -324,14 +341,8 @@ export function WeekHourHeatmap({ cells }: { cells: readonly TaskStatsWeekdayHou
                   <span
                     key={hour}
                     title={value > 0 ? t('todo.stats.heatmap.cell', { weekday: new Intl.DateTimeFormat(localeTag(), { weekday: 'short', timeZone: 'UTC' }).format(new Date(Date.UTC(2023, 0, 1 + weekday))), hour: String(hour).padStart(2, '0'), count: value }) : undefined}
-                    className={cn(
-                      'h-3.5 rounded-[2px]',
-                      step === 0 && 'bg-[var(--bg-inset)]',
-                      step === 1 && 'bg-[color-mix(in_oklab,var(--accent)_22%,var(--bg-inset))]',
-                      step === 2 && 'bg-[color-mix(in_oklab,var(--accent)_42%,var(--bg-inset))]',
-                      step === 3 && 'bg-[color-mix(in_oklab,var(--accent)_66%,var(--bg-inset))]',
-                      step === 4 && 'bg-[var(--accent)]',
-                    )}
+                    className="h-3.5 rounded-[2px]"
+                    style={{ backgroundColor: heatFill(step) }}
                   />
                 )
               })}
@@ -342,14 +353,7 @@ export function WeekHourHeatmap({ cells }: { cells: readonly TaskStatsWeekdayHou
       <div className="flex items-center justify-end gap-1 text-[length:var(--text-9)] text-[var(--text-quaternary)]" aria-hidden="true">
         <span>{t('todo.stats.heatmap.less')}</span>
         {[0, 1, 2, 3, 4].map((step) => (
-          <span key={step} className={cn(
-            'size-2.5 rounded-[2px]',
-            step === 0 && 'bg-[var(--bg-inset)]',
-            step === 1 && 'bg-[color-mix(in_oklab,var(--accent)_22%,var(--bg-inset))]',
-            step === 2 && 'bg-[color-mix(in_oklab,var(--accent)_42%,var(--bg-inset))]',
-            step === 3 && 'bg-[color-mix(in_oklab,var(--accent)_66%,var(--bg-inset))]',
-            step === 4 && 'bg-[var(--accent)]',
-          )} />
+          <span key={step} className="size-2.5 rounded-[2px]" style={{ backgroundColor: heatFill(step) }} />
         ))}
         <span>{t('todo.stats.heatmap.more')}</span>
       </div>
