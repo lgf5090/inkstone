@@ -23,6 +23,7 @@ const api = vi.hoisted(() => ({
   preferences: { get: vi.fn(), patch: vi.fn() },
   spaces: { list: vi.fn(), create: vi.fn(), update: vi.fn(), delete: vi.fn() },
   attachments: { list: vi.fn(), upload: vi.fn(), delete: vi.fn(), batchDelete: vi.fn(), prune: vi.fn() },
+  stats: { get: vi.fn() },
 }))
 
 vi.mock('./api', () => ({ memosApi: api }))
@@ -93,6 +94,15 @@ beforeEach(async () => {
   api.list.mockResolvedValue(emptyList())
   api.spaces.list.mockResolvedValue({ spaces: [] })
   api.views.list.mockResolvedValue({ views: [] })
+  api.stats.get.mockResolvedValue({
+    total: 0,
+    archived: 0,
+    comments: 0,
+    attachmentBytes: 0,
+    tagCounts: {},
+    typeCounts: { link: 0, code: 0, todo: 0, undo: 0 },
+    dayCounts: {},
+  })
   api.comments.list.mockResolvedValue(emptyList())
   api.relations.get.mockResolvedValue({ outgoing: [], incoming: [] })
   api.get.mockResolvedValue(memo())

@@ -1,5 +1,5 @@
 import type { ReactElement } from 'react'
-import { ListFilter } from 'lucide-react'
+import { ListFilter, Settings2 } from 'lucide-react'
 import { MEMOS_APP_PATH } from '@shared/memos/constants'
 import type { MemoView } from '@shared/memos/types'
 import { Button, SectionLabel } from '../../../components/primitives'
@@ -65,6 +65,14 @@ export function ViewsSection({ search, onNavigate }: ViewsSectionProps): ReactEl
           })}
         </div>
       ) : null}
+      <SidebarLink
+        href={`${MEMOS_APP_PATH}/views`}
+        active={false}
+        icon={<Settings2 size={13} />}
+        label={t('memos.views.manage')}
+        onActivate={() => navigateMemoUrl(`${MEMOS_APP_PATH}/views`, '')}
+        onNavigate={onNavigate}
+      />
     </div>
   )
 }
