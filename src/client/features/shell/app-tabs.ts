@@ -11,11 +11,12 @@
  * worker's Content-Security-Policy. tests/app-tab-routes.test.ts is what says so out loud.
  */
 import type { ComponentType } from 'react'
-import { BookOpen, CalendarDays, Compass, FileText, FolderKanban, ListChecks, MessageSquare, Music, Rss, Wallet, Wrench } from 'lucide-react'
+import { BookOpen, CalendarDays, Compass, FileText, FolderKanban, ListChecks, MessageSquare, Music, Rss, StickyNote, Wallet, Wrench } from 'lucide-react'
 import type { MessageKey } from '@shared/locales/en-US'
 
 export type AppTabId =
   | 'notes'
+  | 'memos'
   | 'calendar'
   | 'todo'
   | 'projects'
@@ -37,6 +38,7 @@ export interface AppTab {
 
 export const APP_TABS: readonly AppTab[] = [
   { id: 'notes', path: '/notes', labelKey: 'app.tabs.notes', icon: FileText },
+  { id: 'memos', path: '/memos', labelKey: 'app.tabs.memos', icon: StickyNote },
   { id: 'calendar', path: '/calendar', labelKey: 'app.tabs.calendar', icon: CalendarDays },
   { id: 'todo', path: '/todo', labelKey: 'app.tabs.todo', icon: ListChecks },
   { id: 'projects', path: '/projects', labelKey: 'app.tabs.projects', icon: FolderKanban },
@@ -57,7 +59,10 @@ export const APP_TABS: readonly AppTab[] = [
 export const DEFAULT_APP_TAB: AppTabId = 'notes'
 
 /** Containers that own their own sub-addresses, so a deep link stays on the tab that made it. */
-const NESTED_TAB_PATHS: readonly [prefix: string, id: AppTabId][] = [['/reading/', 'reading']]
+const NESTED_TAB_PATHS: readonly [prefix: string, id: AppTabId][] = [
+  ['/reading/', 'reading'],
+  ['/memos/', 'memos'],
+]
 
 const TAB_BY_PATH = new Map(APP_TABS.map((tab) => [tab.path, tab.id]))
 
