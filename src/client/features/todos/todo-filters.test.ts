@@ -228,13 +228,18 @@ describe('the order a listing is read in', () => {
     stubBreakpoint(true)
     const now = Date.now()
     service.rows = [
+      task('open-sooner', 'Open sooner', { dueAt: now + 60 * 60_000 }),
+      task('open-later', 'Open later', { dueAt: now + 2 * 60 * 60_000 }),
+    ]
+    const container = await mount('/todo?list=L1')
+    // Without a chosen order the list keeps the page's order; the route already answered soonest first.
+    expect(openIds(container)).toEqual(['open-sooner', 'open-later'])
+
+    // The chosen order is the server's answer: the stand-in changes the page it hands back.
+    service.rows = [
       task('open-later', 'Open later', { dueAt: now + 2 * 60 * 60_000 }),
       task('open-sooner', 'Open sooner', { dueAt: now + 60 * 60_000 }),
     ]
-    const container = await mount('/todo?list=L1')
-    // Without a chosen order the list reads soonest first, whatever order the page arrived in.
-    expect(openIds(container)).toEqual(['open-sooner', 'open-later'])
-
     choose(selectByLabel(container, t('todo.filter.sort'))!, 'priority')
     await settle()
     expect(lastRequest().sort, 'the list’s order never left the browser').toBe('priority')

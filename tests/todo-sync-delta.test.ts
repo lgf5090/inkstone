@@ -7,6 +7,7 @@ import type { AppBindings } from '../src/worker/env'
 import type { SyncResponse, TodosSyncResponse } from '../src/shared/types'
 import type { TodoTask } from '../src/shared/todos/model'
 import { makeD1 } from './doubles/d1-sqlite'
+import { testBindings } from './doubles/bindings'
 import { applyTodoSync, useTodos } from '../src/client/features/todos/store'
 
 const USER = 'user-a'
@@ -52,7 +53,7 @@ function insertReminder(taskId: string, id: string, at: number): void {
 }
 
 async function get(path: string): Promise<unknown> {
-  const response = await app.fetch(new Request(`http://localhost${path}`), { DB: db } as never)
+  const response = await app.fetch(new Request(`http://localhost${path}`), testBindings(db))
   return await response.json()
 }
 
