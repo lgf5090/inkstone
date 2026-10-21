@@ -2,7 +2,7 @@
 
 
 import type { CoverPosition, CoverShape } from './property-decorations'
-import type { RemindOffset } from './todos/model'
+import type { RemindOffset, TodoTask } from './todos/model'
 
 export type UserRole = 'owner' | 'member'
 
@@ -949,6 +949,25 @@ export interface SyncResponse {
   folders: Folder[]
   tags: Tag[]
   deletions: SyncDeletion[]
+  /**
+   * The task delta, present when the request named `todosSince` (or on a full snapshot).
+   *
+   * Tasks move on their own clock: `updated_at` is the cursor, not the change-log sequence notes use.
+   * A deleted row is still a row (a soft tombstone), so the delta names it in `todosDeleted` rather
+   * than shipping a task the client should never show.
+   */
+  todos?: TodoTask[]
+  todosDeleted?: string[]
+  todosCursor?: number
+  serverTime: number
+}
+
+/** One page of the task delta, served on its own so a poll never re-reads the note library. */
+export interface TodosSyncResponse {
+  todos: TodoTask[]
+  deleted: string[]
+  /** The newest `updated_at` in this page; send it back as `todosSince`. */
+  cursor: number
   serverTime: number
 }
 
