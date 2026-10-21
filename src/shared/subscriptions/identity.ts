@@ -181,50 +181,47 @@ export const SUBSCRIPTION_COLORS: readonly OrganizerColor[] = ORGANIZER_COLORS
 export interface LabelPreset {
   key: MessageKey
   icon: string
-  color: OrganizerColor
 }
 
 export const TYPE_PRESETS: readonly LabelPreset[] = [
-  { key: 'subscriptions.type.streaming', icon: 'Tv', color: '#e11d48' },
-  { key: 'subscriptions.type.video', icon: 'Clapperboard', color: '#dc2626' },
-  { key: 'subscriptions.type.music', icon: 'Music', color: '#9333ea' },
-  { key: 'subscriptions.type.cloud', icon: 'Cloud', color: '#2563eb' },
-  { key: 'subscriptions.type.software', icon: 'AppWindow', color: '#4f46e5' },
-  { key: 'subscriptions.type.domain', icon: 'Globe', color: '#0891b2' },
-  { key: 'subscriptions.type.server', icon: 'Server', color: '#92400e' },
-  { key: 'subscriptions.type.membership', icon: 'Crown', color: '#ca8a04' },
-  { key: 'subscriptions.type.learning', icon: 'BookOpen', color: '#65a30d' },
-  { key: 'subscriptions.type.fitness', icon: 'Dumbbell', color: '#059669' },
-  { key: 'subscriptions.type.gaming', icon: 'Gamepad2', color: '#c026d3' },
-  { key: 'subscriptions.type.news', icon: 'Newspaper', color: '#64748b' },
-  { key: 'subscriptions.type.ai', icon: 'Bot', color: '#0d9488' },
-  { key: 'subscriptions.type.birthday', icon: 'Cake', color: '#db2777' },
-  { key: 'subscriptions.type.anniversary', icon: 'Gift', color: '#e11d48' },
-  { key: 'subscriptions.type.other', icon: 'Tag', color: '#78716c' },
+  { key: 'subscriptions.type.streaming', icon: 'Tv' },
+  { key: 'subscriptions.type.video', icon: 'Clapperboard' },
+  { key: 'subscriptions.type.music', icon: 'Music' },
+  { key: 'subscriptions.type.cloud', icon: 'Cloud' },
+  { key: 'subscriptions.type.software', icon: 'AppWindow' },
+  { key: 'subscriptions.type.domain', icon: 'Globe' },
+  { key: 'subscriptions.type.server', icon: 'Server' },
+  { key: 'subscriptions.type.membership', icon: 'Crown' },
+  { key: 'subscriptions.type.learning', icon: 'BookOpen' },
+  { key: 'subscriptions.type.fitness', icon: 'Dumbbell' },
+  { key: 'subscriptions.type.gaming', icon: 'Gamepad2' },
+  { key: 'subscriptions.type.news', icon: 'Newspaper' },
+  { key: 'subscriptions.type.ai', icon: 'Bot' },
+  { key: 'subscriptions.type.birthday', icon: 'Cake' },
+  { key: 'subscriptions.type.anniversary', icon: 'Gift' },
+  { key: 'subscriptions.type.other', icon: 'Tag' },
 ]
 
 export const CATEGORY_PRESETS: readonly LabelPreset[] = [
-  { key: 'subscriptions.category.personal', icon: 'User', color: '#2563eb' },
-  { key: 'subscriptions.category.family', icon: 'Home', color: '#059669' },
-  { key: 'subscriptions.category.work', icon: 'Briefcase', color: '#92400e' },
-  { key: 'subscriptions.category.company', icon: 'Building2', color: '#64748b' },
-  { key: 'subscriptions.category.entertainment', icon: 'Clapperboard', color: '#e11d48' },
-  { key: 'subscriptions.category.study', icon: 'GraduationCap', color: '#65a30d' },
-  { key: 'subscriptions.category.development', icon: 'Code', color: '#4f46e5' },
-  { key: 'subscriptions.category.productivity', icon: 'PenLine', color: '#0891b2' },
-  { key: 'subscriptions.category.social', icon: 'MessageCircle', color: '#c026d3' },
-  { key: 'subscriptions.category.health', icon: 'HeartPulse', color: '#dc2626' },
-  { key: 'subscriptions.category.finance', icon: 'CreditCard', color: '#ca8a04' },
-  { key: 'subscriptions.category.other', icon: 'Tag', color: '#78716c' },
+  { key: 'subscriptions.category.personal', icon: 'User' },
+  { key: 'subscriptions.category.family', icon: 'Home' },
+  { key: 'subscriptions.category.work', icon: 'Briefcase' },
+  { key: 'subscriptions.category.company', icon: 'Building2' },
+  { key: 'subscriptions.category.entertainment', icon: 'Clapperboard' },
+  { key: 'subscriptions.category.study', icon: 'GraduationCap' },
+  { key: 'subscriptions.category.development', icon: 'Code' },
+  { key: 'subscriptions.category.productivity', icon: 'PenLine' },
+  { key: 'subscriptions.category.social', icon: 'MessageCircle' },
+  { key: 'subscriptions.category.health', icon: 'HeartPulse' },
+  { key: 'subscriptions.category.finance', icon: 'CreditCard' },
+  { key: 'subscriptions.category.other', icon: 'Tag' },
 ]
 
 /**
- * The face a label should have when nobody chose one.
+ * The built-in face a saved name matches, or null.
  *
  * A preset wins where the reader's saved text is exactly what a preset was called in their language,
- * which is the common case and the one that should look designed. Everything else — a service the
- * reader named themselves — hashes into the palette, so it still gets the same colour on every device
- * and in every language without a row existing yet.
+ * which is the common case and the one that should look designed rather than derived.
  *
  * `resolve` turns a preset key into its label; the caller owns the catalog, this module does not
  * import the browser.
@@ -244,20 +241,21 @@ export function presetFor(
 }
 
 /**
- * A stable colour for a label that has no preset.
+ * The slot a label wants in a ramp of `count`, chosen by hashing its name.
  *
- * FNV-1a over code points, then modulo the palette. Any deterministic hash would do; this one is a
- * few multiplies and needs no dependency. Stability is the whole point: the reference project coloured
- * by rank, so a service changed colour whenever another overtook it in spend, and a reader who learns
- * an app by its colour loses that every month.
+ * FNV-1a over code points. Any deterministic hash would do; this one is a few multiplies and needs no
+ * dependency. Stability is the whole point: the reference project coloured by rank, so a service changed
+ * colour whenever another overtook it in spend, and a reader who learns an app by its colour loses that
+ * every month. A caller that must not repeat a colour within one set probes forward from here, which
+ * keeps the churn to the labels that actually collide.
  */
-export function hashColorOf(label: string): OrganizerColor {
+export function colorIndexOf(label: string, count: number): number {
   let hash = 0x811c9dc5
   for (const point of label.trim()) {
     hash ^= point.codePointAt(0) ?? 0
     hash = Math.imul(hash, 0x01000193)
   }
-  return ORGANIZER_COLORS[Math.abs(hash) % ORGANIZER_COLORS.length] ?? ORGANIZER_COLORS[0]
+  return count > 0 ? Math.abs(hash) % count : 0
 }
 
 /**
@@ -276,6 +274,10 @@ export function presetIconOf(label: string, kind: 'type' | 'category', resolve: 
  * `stored` is what the registry holds — either may be empty. The tiers are applied per axis, so a
  * reader who picked a colour but no icon keeps the preset's icon rather than losing it to their own
  * half-finished choice.
+ *
+ * A colour of `null` means nobody picked one, which is not the same as a colour that was not found:
+ * what an unpicked label looks like belongs to the account's accent, and only the surface drawing it
+ * can say what that accent is right now.
  */
 export function resolveIdentity(input: {
   label: string
@@ -283,14 +285,11 @@ export function resolveIdentity(input: {
   storedIcon?: string | null
   storedColor?: string | null
   resolve: (key: MessageKey) => string
-}): { icon: string | null; color: string } {
+}): { icon: string | null; color: OrganizerColor | null } {
   const icon = normalizeIcon(input.storedIcon)
     ?? (() => {
       const name = presetIconOf(input.label, input.kind, input.resolve)
       return name ? iconValueOf(name) : null
     })()
-  const color = normalizeColor(input.storedColor)
-    ?? presetFor(input.label, input.kind, input.resolve)?.color
-    ?? hashColorOf(input.label)
-  return { icon, color }
+  return { icon, color: normalizeColor(input.storedColor) }
 }

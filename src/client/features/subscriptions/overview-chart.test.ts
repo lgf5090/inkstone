@@ -134,7 +134,7 @@ describe('the month chart', () => {
     const line = budgetLine()
     expect(line, 'a chart about a budget with no budget line cannot be read against the number it is about').toBeTruthy()
     // The fixture's ceiling is ¥200 against a ¥300 peak, so the line sits two thirds up the plot.
-    expect(line!.style.bottom).toBe('64px')
+    expect(line!.style.bottom).toBe('96px')
     expect(line!.textContent).toContain('¥200.00')
     const found = bars()
     expect(found[3]!.className, '240 over a 200 ceiling').toContain('danger')
@@ -247,10 +247,49 @@ describe('the share rings', () => {
     expect(canvas, 'the ring is a picture that names nothing').toBeTruthy()
     expect(canvas!.getAttribute('aria-label')).toContain('By category')
     // The numbers stay written out beside it: a canvas a reader cannot see is not where the figures live.
-    expect(list(), 'the ring replaced the list it is supposed to sit above').toBeTruthy()
+    expect(list(), 'the ring replaced the list it is supposed to sit beside').toBeTruthy()
     expect(list()!.querySelectorAll('li')).toHaveLength(2)
     expect(list()!.textContent).toContain('¥600.00')
     expect(list()!.textContent).toContain('60%')
+  })
+
+  it('tints every slice of one ring differently, from the accent rather than a fixed ramp', () => {
+    // The registry is what the slot assignment walks, and in the app every drawn label is in it.
+    useSubscriptions.setState({
+      categories: [
+        { name: 'streaming', icon: '', color: '' },
+        { name: 'tools', icon: '', color: '' },
+        { name: 'news', icon: '', color: '' },
+        { name: 'hosting', icon: '', color: '' },
+      ],
+    })
+    mountChart({
+      byCategory: [
+        { label: 'streaming', amount: 600, percentage: 42 },
+        { label: 'tools', amount: 300, percentage: 21 },
+        { label: 'news', amount: 290, percentage: 20 },
+        { label: 'hosting', amount: 240, percentage: 17 },
+      ],
+    })
+    const tints = [...document.querySelectorAll<HTMLElement>('[data-share-list] li div > div')].map((bar) => bar.style.background)
+    expect(tints).toHaveLength(4)
+    // Two names may hash to the same slot of the ramp; the later one moves, and a ring that drew them the
+    // same colour would be showing one slice for two things.
+    expect(new Set(tints).size, 'two categories drew the same colour').toBe(tints.length)
+  })
+
+  it('leaves a colour the reader picked alone, wherever the accent goes', () => {
+    useSubscriptions.setState({ categories: [{ name: 'streaming', icon: '', color: '#059669' }] })
+    mountChart({
+      byCategory: [
+        { label: 'streaming', amount: 600, percentage: 60 },
+        { label: 'tools', amount: 400, percentage: 40 },
+      ],
+    })
+    // jsdom serializes the inline colour it was handed, so compare against that rather than the hex.
+    const tints = [...document.querySelectorAll<HTMLElement>('[data-share-list] li div > div')].map((bar) => bar.style.background)
+    expect(tints[0], 'a chosen colour is the reader\'s, not the ramp\'s').toBe('rgb(5, 150, 105)')
+    expect(tints[1]).not.toBe(tints[0])
   })
 
   it('draws no ring for a single slice, which is the whole total wearing a circle', () => {

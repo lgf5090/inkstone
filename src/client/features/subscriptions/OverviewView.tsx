@@ -37,7 +37,7 @@ import { useLabelIdentity } from './label-identity'
  * column also holds its month label, so it is sized by its content, and a percentage height resolving
  * against a content-sized parent is zero — which drew six labels and no chart.
  */
-const PLOT_HEIGHT = 96
+const PLOT_HEIGHT = 144
 
 /**
  * A month with no receipts draws nothing.
@@ -460,7 +460,9 @@ function TrendChart({ months, currency, budget }: {
             </span>
           </div>
         )}
-        <div className="flex items-end gap-1" style={{ height: PLOT_HEIGHT }} data-trend-bars="">
+        {/* The bars have no axis of their own, so the plot keeps a baseline: without one a row of short
+            bars over white reads as floating chips rather than as a series measured from zero. */}
+        <div className="flex items-end gap-1 border-b border-[var(--border-subtle)]" style={{ height: PLOT_HEIGHT }} data-trend-bars="">
           {months.map((month, index) => (
             <div
               key={month.month}
@@ -528,15 +530,17 @@ function SpendHeatmap({ daily, currency, weeks }: {
     <div className="mt-2">
       <div className="flex gap-[var(--sp-0-5)] overflow-x-auto no-scrollbar" aria-hidden="true" data-heat-grid="">
         {grid.map((week) => (
-          <div key={week[0]!.key} className="flex min-w-0 flex-1 flex-col gap-[var(--sp-0-5)]">
+          // A fixed square rather than a column that stretches to the card: half a year of a few receipts
+          // spread across 1400 pixels is a wall of empty boxes, and the pattern that lives in the spacing
+          // is the whole reason to draw it.
+          <div key={week[0]!.key} className="flex w-3 shrink-0 flex-col gap-[var(--sp-0-5)]">
             {week.map((cell) => (
               <span
                 key={cell.key}
                 // Every tile keeps an outline, not only the charged ones: the ramp is mixed into the card's
-                // own surface, so a quiet week would otherwise be four floating squares with nothing to
-                // read their spacing against.
+                // own surface, so a quiet day is otherwise invisible and the grid stops being a grid.
                 className={cn(
-                  'aspect-square w-full rounded-[var(--r-2)] ring-1 ring-inset',
+                  'size-3 rounded-[var(--r-2)] ring-1 ring-inset',
                   cell.count > 0 ? 'ring-[var(--border-strong)]' : 'ring-[var(--border-subtle)]',
                 )}
                 style={heatCell(cell.level)}
@@ -639,7 +643,7 @@ function ShareDoughnut({ shares, currency, kind, label }: {
       },
     },
   }), [signature, currency])
-  return <div className="h-32 mt-2" data-share-ring=""><ChartCanvas height="h-full" label={label} build={build} /></div>
+  return <div className="size-32 shrink-0 self-center sm:self-auto" data-share-ring=""><ChartCanvas height="h-full" label={label} build={build} /></div>
 }
 
 function ShareBars({
@@ -659,10 +663,12 @@ function ShareBars({
   const identityOf = useLabelIdentity()
   if (shares.length === 0) return <p className="mt-2 text-[length:var(--text-12)] text-[var(--text-quaternary)]">{emptyLabel}</p>
   return (
-    <>
+    // The ring is a square the list stands beside: centred above it, a doughnut sized by the card's
+    // height left most of the card's width empty, which reads as a missing chart rather than a legend.
+    <div className={cn('mt-2 flex flex-col gap-3 sm:flex-row sm:items-center', shares.length === 1 && 'sm:items-start')}>
       {/* One slice is not a proportion, it is the whole thing, and the number under it already says so. */}
       {shares.length > 1 && <ShareDoughnut shares={shares} currency={currency} kind={kind} label={chartLabel} />}
-      <ul className={cn('space-y-1.5', shares.length > 1 && 'mt-2')} data-share-list="">
+      <ul className="min-w-0 flex-1 space-y-1.5" data-share-list="">
         {shares.map((share) => {
           const face = shareFace(identityOf, kind, share.label)
           const color = face.color || 'var(--accent)'
@@ -683,7 +689,7 @@ function ShareBars({
           )
         })}
       </ul>
-    </>
+    </div>
   )
 }
 

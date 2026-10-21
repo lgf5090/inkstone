@@ -186,3 +186,36 @@ export function accentPalette(accent: Oklch, count: number, dark: boolean): stri
 
 /** How many series a palette is generated for. The engine cycles past the end; ten covers a real chart. */
 export const PALETTE_SIZE = 10;
+
+/**
+ * The angle between neighbours of an identity ramp.
+ *
+ * A series ramp may put its two reds beside each other — a legend is read one row at a time — but an
+ * identity colour is not: any two of them can end up as neighbouring slices of the same ring. A fixed
+ * stride repeats a hue as soon as it wraps, while stepping by the golden angle keeps the first ten hues
+ * at least thirty degrees apart.
+ */
+const GOLDEN_ANGLE = 137.508;
+
+/** Where each of the ten identity colours stands in the band, in the same units as `Stop.position`. */
+const IDENTITY_LADDER = [0.42, 0.78, 0.16, 0.6, 0.92, 0.3, 0.7, 0.05, 0.5, 0.86];
+
+/** A grey accent still has to yield categories a reader can tell apart, so the ramp keeps this much colour. */
+const IDENTITY_CHROMA_FLOOR = 0.1;
+
+/**
+ * A ramp for colours a reader will learn to recognise, anchored on `accent` and spread around its wheel.
+ *
+ * The first entry is the accent itself, so the largest thing on a chart always wears the colour the page
+ * already has; the rest keep their distance in hue *and* in lightness, which is what lets a five-slice
+ * ring read as five. `dark` moves the band exactly as it does for the series ramp.
+ */
+export function identityPalette(accent: Oklch, count: number, dark: boolean): string[] {
+    const [floor, ceiling] = dark ? BAND.dark : BAND.light;
+    const chroma = Math.max(IDENTITY_CHROMA_FLOOR, accent.c * 0.92);
+    return Array.from({ length: count }, (_, index) => {
+        const position = IDENTITY_LADDER[index % IDENTITY_LADDER.length]!;
+        const l = index === 0 ? clamp(accent.l, floor, ceiling) : floor + (ceiling - floor) * position;
+        return toRgb({ l, c: index === 0 ? accent.c : chroma, h: accent.h + index * GOLDEN_ANGLE });
+    });
+}

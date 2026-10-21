@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { PALETTE_SIZE, accentPalette, parseOklch, toRgb } from './palette';
+import { PALETTE_SIZE, accentPalette, identityPalette, parseOklch, toRgb } from './palette';
 
 const CINNABAR = { l: 0.54, c: 0.15, h: 30 };
 
@@ -48,5 +48,33 @@ describe('the accent palette a chart draws with', () => {
         const palette = accentPalette({ l: 0.5, c: 0, h: 0 }, PALETTE_SIZE, false);
         const chroma = palette.map((hex) => Number.parseInt(hex.slice(1, 3), 16) - Number.parseInt(hex.slice(3, 5), 16));
         expect(chroma.some((gap) => Math.abs(gap) > 8)).toBe(true);
+    });
+});
+
+describe('the identity ramp a label is tinted with', () => {
+    it('answers ten distinct hex colours in either theme', () => {
+        for (const dark of [false, true]) {
+            const ramp = identityPalette(CINNABAR, PALETTE_SIZE, dark);
+            expect(new Set(ramp).size).toBe(PALETTE_SIZE);
+            for (const color of ramp)
+                expect(color).toMatch(/^#[0-9a-f]{6}$/);
+        }
+    });
+
+    it('starts on the accent, so the page and its biggest label agree', () => {
+        expect(identityPalette(CINNABAR, PALETTE_SIZE, false)[0]).toBe(toRgb(CINNABAR));
+    });
+
+    it('rotates with the accent rather than repeating it', () => {
+        const warm = identityPalette(CINNABAR, PALETTE_SIZE, false);
+        const cool = identityPalette({ l: 0.52, c: 0.14, h: 252 }, PALETTE_SIZE, false);
+        expect(cool.slice(1)).not.toEqual(warm.slice(1));
+    });
+
+    it('gives a grey accent hues rather than ten greys', () => {
+        const ramp = identityPalette({ l: 0.38, c: 0.03, h: 250 }, PALETTE_SIZE, false);
+        expect(new Set(ramp).size).toBe(PALETTE_SIZE);
+        const spread = ramp.slice(1).map((hex) => Number.parseInt(hex.slice(1, 3), 16) - Number.parseInt(hex.slice(3, 5), 16));
+        expect(spread.some((gap) => Math.abs(gap) > 8)).toBe(true);
     });
 });
