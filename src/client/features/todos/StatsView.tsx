@@ -13,6 +13,7 @@
  * are named in a legend and in the table's header.
  */
 import { useEffect } from 'react'
+import { Check } from 'lucide-react'
 import { localDate } from '@shared/assistant-time'
 import type {
   TaskStatsBucket,
@@ -22,6 +23,7 @@ import { Button } from '../../components/primitives'
 import { Empty, LoadingBlock } from '../../components/feedback'
 import { Segmented } from '../../components/form'
 import { localeTag, t, type MessageKey } from '../../lib/i18n'
+import { useSession } from '../../store/session'
 import { shiftDay } from './due-range'
 import {
   countDeltaPercent,
@@ -210,7 +212,7 @@ function Legend({ label, color, dashed = false }: { label: string; color: string
   )
 }
 
-function TrendChart({ stats }: { stats: TodoStats }) {
+function TrendChart({ stats, dailyGoal }: { stats: TodoStats; dailyGoal: number | null }) {
   const { series, summary, range } = stats
   const width = 640
   const height = 160
@@ -218,7 +220,11 @@ function TrendChart({ stats }: { stats: TodoStats }) {
   const padTop = 8
   const plotWidth = width - padX * 2
   const plotHeight = height - padTop
-  const max = Math.max(1, ...series.flatMap((point) => [point.completed, point.created]))
+  // The reference line is only drawn when a point is a day: against weekly or monthly totals a
+  // per-day goal would be a line the reader has to multiply in their head. The axis stretches to
+  // hold the goal, or a goal above every point would be drawn outside the chart.
+  const reference = range.bucket === 'day' ? dailyGoal : null
+  const max = Math.max(1, reference ?? 0, ...series.flatMap((point) => [point.completed, point.created]))
   const x = (index: number): number => (
     series.length <= 1 ? padX + plotWidth / 2 : padX + (index / (series.length - 1)) * plotWidth
   )
@@ -232,9 +238,6 @@ function TrendChart({ stats }: { stats: TodoStats }) {
     completed: summary.completed,
     created: summary.created,
   })
-  // The reference line is only drawn when a point is a day: against weekly or monthly totals a
-  // per-day average would be a line the reader has to multiply in their head.
-  const dailyAverage = summary.completed / rangeLengthDays(range)
   return (
     <section aria-labelledby="todo-stats-trend" className="rounded-[var(--r-lg)] border border-[var(--border-subtle)] bg-[var(--bg-surface)] p-3">
       <h2 id="todo-stats-trend" className="text-[length:var(--text-12)] font-semibold text-[var(--text-secondary)]">
@@ -243,7 +246,7 @@ function TrendChart({ stats }: { stats: TodoStats }) {
       <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1">
         <Legend label={t('todo.stats.completed')} color="var(--accent)" />
         <Legend label={t('todo.stats.created')} color="var(--text-tertiary)" dashed />
-        {range.bucket === 'day' && dailyAverage > 0 && (
+        {reference !== null && (
           <Legend label={t('todo.stats.goal.line')} color="var(--text-quaternary)" dashed />
         )}
       </div>
@@ -283,12 +286,12 @@ function TrendChart({ stats }: { stats: TodoStats }) {
           vectorEffect="non-scaling-stroke"
           points={points('created')}
         />
-        {range.bucket === 'day' && dailyAverage > 0 && (
+        {reference !== null && (
           <line
             x1={padX}
-            y1={y(dailyAverage)}
+            y1={y(reference)}
             x2={width - padX}
-            y2={y(dailyAverage)}
+            y2={y(reference)}
             stroke="var(--text-quaternary)"
             strokeWidth="1"
             strokeDasharray="2 4"
@@ -542,17 +545,66 @@ function Comparison({ stats, comparison }: { stats: TodoStats; comparison: Previ
   )
 }
 
+/** The two goals the account saved, already folded to null for "off" by the settings merge. */
+interface TodoGoals {
+  daily: number | null
+  weekly: number | null
+}
+
 /**
- * The daily and weekly pace the range itself averaged.
+ * A pace printed to one decimal — the same number the verdict is measured on.
  *
- * There is no stored goal to draw against: the settings schema has no to-do section, and adding one
- * would be a migration for a line of text. So this is a read-only reference folded from the range's
- * own completions — the screen says so, and nothing is written back. A later goal setting can take
- * this component's place without changing the rest of the screen.
+ * A goal is judged against what the row prints, not against a hidden remainder: 0.96 a day against a
+ * goal of 1 is drawn as "1 / day · goal 1 / day", and a "missed" beside that would contradict itself.
  */
-function GoalReference({ stats }: { stats: TodoStats }) {
+function goalPace(value: number): number {
+  return Math.round(value * 10) / 10
+}
+
+/** One saved goal against the pace the range averaged, with the verdict spelled out beside it. */
+function GoalRow({ id, label, pace, goal, format }: {
+  id: 'daily' | 'weekly'
+  label: string
+  pace: number
+  goal: number
+  format: (value: number) => string
+}) {
+  const reached = pace >= goal
+  return (
+    <div data-stats-goal={id} data-stats-goal-state={reached ? 'reached' : 'missed'}>
+      <dt className="text-[length:var(--text-11)] text-[var(--text-tertiary)]">{label}</dt>
+      <dd className="mt-0.5 text-[length:var(--text-16)] font-semibold tabular-nums text-[var(--text-primary)]">
+        {t('todo.stats.goal.against', { done: format(pace), goal: format(goal) })}
+      </dd>
+      <dd className="mt-1 flex items-center gap-1 text-[length:var(--text-11)] tabular-nums text-[var(--text-tertiary)]">
+        {reached ? (
+          <>
+            <span data-stats-goal-check="" aria-hidden="true" className="inline-flex text-[var(--accent)]">
+              <Check size={12} strokeWidth={3} />
+            </span>
+            {t('todo.stats.goal.reached')}
+          </>
+        ) : (
+          t('todo.stats.goal.short', { value: format(goalPace(goal - pace)) })
+        )}
+      </dd>
+    </div>
+  )
+}
+
+/**
+ * The daily and weekly goals the reader saved, measured against the range's own pace.
+ *
+ * The block exists only while a goal does: a section that said "no goal" in three places would take
+ * space from the numbers the screen is actually about. A day and a week are both read from the same
+ * average, so the two rows cannot disagree about the same completions.
+ */
+function GoalReference({ stats, goals }: { stats: TodoStats; goals: TodoGoals }) {
+  const { daily, weekly } = goals
+  if (daily === null && weekly === null) return null
   const days = rangeLengthDays(stats.range)
-  const daily = stats.summary.completed / days
+  const perDay = goalPace(stats.summary.completed / days)
+  const perWeek = goalPace((stats.summary.completed / days) * 7)
   return (
     <section
       aria-labelledby="todo-stats-goal"
@@ -563,18 +615,24 @@ function GoalReference({ stats }: { stats: TodoStats }) {
         {t('todo.stats.goal.title')}
       </h2>
       <dl className="mt-2 grid grid-cols-2 gap-3">
-        <div data-stats-goal="daily">
-          <dt className="text-[length:var(--text-11)] text-[var(--text-tertiary)]">{t('todo.stats.goal.daily')}</dt>
-          <dd className="mt-0.5 text-[length:var(--text-16)] font-semibold tabular-nums text-[var(--text-primary)]">
-            {t('todo.stats.goal.per_day', { value: decimal(daily) })}
-          </dd>
-        </div>
-        <div data-stats-goal="weekly">
-          <dt className="text-[length:var(--text-11)] text-[var(--text-tertiary)]">{t('todo.stats.goal.weekly')}</dt>
-          <dd className="mt-0.5 text-[length:var(--text-16)] font-semibold tabular-nums text-[var(--text-primary)]">
-            {t('todo.stats.goal.per_week', { value: decimal(daily * 7) })}
-          </dd>
-        </div>
+        {daily !== null && (
+          <GoalRow
+            id="daily"
+            label={t('todo.stats.goal.daily')}
+            pace={perDay}
+            goal={daily}
+            format={(value) => t('todo.stats.goal.per_day', { value: decimal(value) })}
+          />
+        )}
+        {weekly !== null && (
+          <GoalRow
+            id="weekly"
+            label={t('todo.stats.goal.weekly')}
+            pace={perWeek}
+            goal={weekly}
+            format={(value) => t('todo.stats.goal.per_week', { value: decimal(value) })}
+          />
+        )}
       </dl>
       <p className="mt-2 text-[length:var(--text-10-5)] leading-snug text-[var(--text-quaternary)]">
         {t('todo.stats.goal.hint')}
@@ -583,13 +641,13 @@ function GoalReference({ stats }: { stats: TodoStats }) {
   )
 }
 
-function StatsBody({ stats, comparison }: { stats: TodoStats; comparison: PreviousStats }) {
+function StatsBody({ stats, comparison, goals }: { stats: TodoStats; comparison: PreviousStats; goals: TodoGoals }) {
   return (
     <div className="flex flex-col gap-5">
       <Kpis stats={stats} />
       <Comparison stats={stats} comparison={comparison} />
-      <GoalReference stats={stats} />
-      <TrendChart stats={stats} />
+      <GoalReference stats={stats} goals={goals} />
+      <TrendChart stats={stats} dailyGoal={goals.daily} />
       <Distributions stats={stats} />
       <Backlog stats={stats} />
     </div>
@@ -678,6 +736,8 @@ export function StatsView() {
   const statsBucket = useTodos((state) => state.statsBucket)
   const loadStats = useTodos((state) => state.loadStats)
   const setStatsRange = useTodos((state) => state.setStatsRange)
+  const dailyGoal = useSession((state) => state.settings.todo.dailyGoal) ?? null
+  const weeklyGoal = useSession((state) => state.settings.todo.weeklyGoal) ?? null
 
   // The comparison reads the range the address names, not the range the last answer described: on a
   // move it must leave together with the new request, not wait for it to echo the days back. A shared
@@ -720,7 +780,7 @@ export function StatsView() {
       ) : stats.summary.completed === 0 && stats.summary.created === 0 ? (
         <Empty title={t('todo.stats.empty')} description={t('todo.stats.empty_hint')} />
       ) : (
-        <StatsBody stats={stats} comparison={comparison} />
+        <StatsBody stats={stats} comparison={comparison} goals={{ daily: dailyGoal, weekly: weeklyGoal }} />
       )}
     </div>
   )

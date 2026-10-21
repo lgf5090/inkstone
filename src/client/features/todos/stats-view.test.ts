@@ -11,9 +11,11 @@
 import { act, createElement } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { localDate } from '@shared/assistant-time'
+import { mergeSettings } from '@shared/constants'
 import type { TaskStatsBucket, TodoStats } from '@shared/todos/model'
 import { initI18n, t } from '../../lib/i18n'
 import { renderElement, stubBreakpoint, type RenderedElement } from '../../lib/test-render'
+import { useSession } from '../../store/session'
 import { shiftDay } from './due-range'
 import { buildStatsCsv, statsCsvFilename } from './stats-csv'
 import { weekdayName } from './stats-format'
@@ -81,6 +83,7 @@ import { TodosApp } from './TodosApp'
 import { useTodos } from './store'
 
 const original = useTodos.getState()
+const originalSession = useSession.getState()
 let view: RenderedElement | null = null
 
 const RANGE = { from: '2026-10-01', to: '2026-10-30', bucket: 'week' as const }
@@ -230,6 +233,11 @@ function releaseHeld(): void {
   act(() => { for (const resolve of waiting) resolve() })
 }
 
+/** The account settings the statistics screen reads its goals from. */
+function setGoals(dailyGoal: number | null, weeklyGoal: number | null): void {
+  useSession.setState({ settings: mergeSettings({ todo: { dailyGoal, weeklyGoal } }) })
+}
+
 beforeEach(async () => {
   localStorage.clear()
   await initI18n()
@@ -241,6 +249,7 @@ beforeEach(async () => {
   service.payload = fullStats()
   service.byRange = {}
   useTodos.setState(original, true)
+  useSession.setState(originalSession, true)
   window.history.replaceState(null, '', '/todo')
 })
 
@@ -251,6 +260,7 @@ afterEach(() => {
   window.history.replaceState(null, '', '/todo')
   vi.unstubAllGlobals()
   useTodos.setState(original, true)
+  useSession.setState(originalSession, true)
 })
 
 describe('the statistics range', () => {
@@ -428,16 +438,50 @@ describe('the CSV export', () => {
   })
 })
 
-describe('the goal reference', () => {
-  it('folds the range into daily and weekly averages and says they are not saved goals', async () => {
+describe('the goals the reader saved', () => {
+  it('measures the range against each saved goal and words both states, not only colouring them', async () => {
+    // 12 completions over the 30 days of the fixture: 0.4 a day against 1, 2.8 a week against 2.
+    setGoals(1, 2)
     const container = await mount(`/todo?view=stats&from=${RANGE.from}&to=${RANGE.to}&bucket=${RANGE.bucket}`)
 
-    // 12 completions over the 30 inclusive days of the fixture range.
-    expect(container.querySelector('[data-stats-goal="daily"]')?.textContent)
-      .toContain(t('todo.stats.goal.per_day', { value: '0.4' }))
-    expect(container.querySelector('[data-stats-goal="weekly"]')?.textContent)
-      .toContain(t('todo.stats.goal.per_week', { value: '2.8' }))
+    const daily = container.querySelector('[data-stats-goal="daily"]')
+    const weekly = container.querySelector('[data-stats-goal="weekly"]')
+    expect(daily?.getAttribute('data-stats-goal-state'), '0.4 a day met a goal of 1').toBe('missed')
+    expect(daily?.textContent).toContain(t('todo.stats.goal.against', {
+      done: t('todo.stats.goal.per_day', { value: '0.4' }),
+      goal: t('todo.stats.goal.per_day', { value: '1' }),
+    }))
+    expect(daily?.textContent).toContain(t('todo.stats.goal.short', {
+      value: t('todo.stats.goal.per_day', { value: '0.6' }),
+    }))
+
+    expect(weekly?.getAttribute('data-stats-goal-state')).toBe('reached')
+    expect(weekly?.textContent).toContain(t('todo.stats.goal.reached'))
+    // The reached row says so in words and carries a check glyph, so the bar's colour is not the
+    // only thing telling the two states apart.
+    expect(weekly?.querySelector('[data-stats-goal-check]'), 'the reached row has no glyph').not.toBeNull()
+    expect(daily?.querySelector('[data-stats-goal-check]')).toBeNull()
     expect(container.textContent).toContain(t('todo.stats.goal.hint'))
+  })
+
+  it('keeps the block off the screen when the reader saved no goal', async () => {
+    const container = await mount(`/todo?view=stats&from=${RANGE.from}&to=${RANGE.to}&bucket=${RANGE.bucket}`)
+
+    expect(container.querySelector('[data-stats-goal]'), 'an empty goal block was drawn').toBeNull()
+    expect(container.textContent).not.toContain(t('todo.stats.goal.title'))
+  })
+
+  it('draws the trend reference at the daily goal rather than the range average', async () => {
+    setGoals(2, null)
+    const today = localDate(Date.now(), 'UTC')
+    const from = shiftDay(today, -6)
+    const container = await mount(`/todo?view=stats&from=${from}&to=${today}&bucket=day`)
+
+    expect(container.textContent).toContain(t('todo.stats.goal.line'))
+    expect(
+      container.querySelector('svg[role="img"] line[stroke-dasharray="2 4"]'),
+      'the trend has no line at the saved daily goal',
+    ).not.toBeNull()
   })
 })
 
