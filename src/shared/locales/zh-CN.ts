@@ -7928,7 +7928,7 @@ console.log(\`Hello, \${name}!\`)
     "templater.notice.output_discarded": "启动时运行的模板不写入内容，它的输出已被丢弃",
     "templater.group": "模板引擎",
     "templater.cmd.insert": "插入模板到当前笔记",
-    "templater.cmd.create": "从模板新建笔记",
+    "templater.cmd.create": "从 Templater 模板新建笔记",
     "templater.cmd.replace": "用模板替换当前笔记",
     "templater.cmd.jump": "跳到下一个光标位置",
     "templater.replaced_note": "已用模板替换这篇笔记",
