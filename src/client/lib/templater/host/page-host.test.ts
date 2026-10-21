@@ -3,6 +3,7 @@ import type { Folder, Note, NoteTemplate } from '@shared/types'
 import { HOST_METHOD_CAPABILITY, HOST_METHODS, capabilitiesFor, type CapabilityProfile, type HostResult, type ProgramSource, type RenderIncludeRequest, type TemplateRunContext } from '../protocol'
 import { MAX_HOST_ARG_CHARS, MAX_OUTPUT_CHARS } from '../limits'
 import { buildRunSnapshot, type RunSnapshotInput } from '../context/snapshot'
+import { createNoteIndexCache } from './note-index-cache'
 import { createPageHost, MAX_TRACKED_RUNS, OWNED_METHODS, type NestedRenderOutcome, type PageHost, type PageHostDeps } from './page-host'
 
 /**
@@ -212,6 +213,10 @@ function fakeStores(input = rows()): FakeStore {
           store.cancelled.push(runId)
         },
       },
+      // The same cache the app's wiring hands the page host, so every case above is also a case about it: a
+      // store that moves between two runs has to move the index too, or the run answers from a tree it never
+      // saw. A host built over bare `deps` instead still takes the plain per-run rebuild.
+      indexCache: createNoteIndexCache(),
     },
     notes,
     folders,

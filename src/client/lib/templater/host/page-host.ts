@@ -31,8 +31,10 @@
  * carries a `runId` and nothing else, and `renderTemplate` does not notify the host. So the page registers
  * the context it starts a run with (`beginRun`) and releases it when the outcome arrives (`endRun`), and a
  * call naming a run that was never registered is refused rather than answered under somebody else's
- * rights. The index the calls resolve against is rebuilt lazily from that context — `noteIndexFor` is
- * linear in rows, and a run that never touches a note should not pay for one.
+ * rights. The index the calls resolve against is built lazily, on the first lookup a run actually makes, and
+ * then taken from the page's index cache (`./note-index-cache.ts`) rather than rebuilt per run when the page
+ * has given this host one: building it is linear in the library's rows, which is a price a batch of templates
+ * should pay once and not once per note it writes.
  */
 import type { Folder, Note, NoteTemplate } from '@shared/types'
 import { LIMITS } from '@shared/constants'
@@ -44,6 +46,7 @@ import { compileTemplate } from '../engine/program'
 import { HOST_METHOD_CAPABILITY, HOST_METHODS, capabilitiesFor, type HostCall, type HostMethod, type HostResult, type NoteIndexEntry, type ProgramSource, type TemplateRunContext } from '../protocol'
 import { MAX_HOST_ARG_CHARS, MAX_OUTPUT_CHARS, MAX_TEMPLATE_DEPTH } from '../limits'
 import { isTemplaterErrorCode, type TemplaterErrorCode } from '../errors'
+import { runIndexRows, runProjectionIds, type NoteIndexCache } from './note-index-cache'
 import { buildChildContext, NestedRunRegistry, parseRenderIncludeRequest, sliceIncludeSubpath } from './nested-render'
 import { validateNotePath } from './write'
 
@@ -133,6 +136,17 @@ export interface PageHostDeps {
     render(args: { program: ProgramSource; context: TemplateRunContext; deadlineMs: number }): Promise<NestedRenderOutcome>
     cancel(runId: string): void
   }
+  /**
+   * The page's note-index cache: the index every run of one library version resolves through.
+   *
+   * Building an index is linear in the library's rows — 20,000 notes measured at 214.6 ms on this machine —
+   * and `context/snapshot.ts` has already paid that price to freeze those rows into the context this host is
+   * handed, so rebuilding one per run is the same library indexed again on the page's hot path. The cache
+   * takes the run's rows and its projections and answers an index; the wiring owns it, because the cache has
+   * to be told what a library version is and only the page holding the rows can say. Absent is the plain
+   * answer, not a wrong one: every run indexes its own rows from its own context, exactly as before.
+   */
+  indexCache?: NoteIndexCache
 }
 
 /**
@@ -163,7 +177,7 @@ export const OWNED_METHODS: readonly HostMethod[] = [
 /** One run the page is answering for: its context, and the writes this run has already made. */
 interface LiveRun {
   context: TemplateRunContext
-  /** Rebuilt from the context on first lookup, then kept. */
+  /** The index this run resolves through: asked for on the first lookup, then kept for the rest of the run. */
   index: NoteIndex | null
   /**
    * Paths this run changed, winning over the snapshot until the run ends.
@@ -240,6 +254,7 @@ export function createPageHost(deps: PageHostDeps): PageHost {
   // Which nested render sits at which depth under which run. Lives beside `runs` rather than in a
   // `LiveRun` because a child outlives its registration on a cancel and the cascade needs the edges.
   const nested = new NestedRunRegistry()
+  const indexCache = deps.indexCache ?? null
 
   function beginRun(context: TemplateRunContext): void {
     // A second registration for one id is the page re-using it, not two runs sharing it: keeping the newer
@@ -270,9 +285,13 @@ export function createPageHost(deps: PageHostDeps): PageHost {
     return { context, index: null, written: new Map(), createdFolders: new Map() }
   }
 
-  /** The run's index, built once per run rather than once per call. */
+  /** The run's index, taken from the page's cache when it has one and built from the context when it has not. */
   function indexFor(run: LiveRun): NoteIndex {
-    if (run.index === null) run.index = noteIndexFor(run.context)
+    if (run.index === null) {
+      run.index = indexCache === null
+        ? noteIndexFor(run.context)
+        : indexCache.indexFor(runIndexRows(run.context), runProjectionIds(run.context))
+    }
     return run.index
   }
 
@@ -554,7 +573,7 @@ export function createPageHost(deps: PageHostDeps): PageHost {
     const paths = folderPathsOf(folders)
     // The library folder is not a row, and a run that lists folders and then reads `Templates/<name>.md`
     // has to be told it exists: `folderPathsOf` cannot supply a path for a folder no table holds, so the
-    // projection owns it — the same entry `noteIndexFor` rebuilt the index over.
+    // projection owns it — the same entry the run's index is built over.
     const entries = folders.map((folder) => folderIndexEntry(folder, paths.get(folder.id) ?? ''))
     if (!folders.some((folder) => folder.id === TEMPLATES_FOLDER_ID)) entries.push(templatesFolderEntry())
     return succeed(entries)

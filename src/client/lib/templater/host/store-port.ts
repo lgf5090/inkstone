@@ -21,13 +21,14 @@
  *   it has not seen; a 409 from the route is `conflict`, a 404 is `not-found`, and any other failure is left
  *   to throw, because the host's answer for a throw is a code and a console line rather than a guess.
  */
-import type { Folder, Note, PatchNoteBody } from '@shared/types'
+import type { Folder, Note, NoteTemplate, PatchNoteBody } from '@shared/types'
 import { api, ApiError } from '../../../lib/api'
 import { findNoteByTitle, noteById, useNotes } from '../../../store/notes'
 import { useUi } from '../../../store/ui'
 import { useNoteTemplates } from '../../../store/note-templates'
 import { syncTitleIntoFrontMatter } from '../../../store/new-note'
 import { getActiveEditorView, insertText } from '../../../editor/commands'
+import { createNoteIndexCache, libraryVersion } from './note-index-cache'
 import type { PageHostChanges, PageHostDeps, PageHostWrite } from './page-host'
 
 /** Whether a pane is holding this note, which is the difference between a buffer and a row. */
@@ -265,8 +266,30 @@ function appendAtEditorCursor(text: string): boolean {
  * first nested `include`. `tests/templater-protocol-purity.test.ts` forbids it, and the wiring hands both
  * functions over here instead.
  */
+/**
+ * Every row a run may resolve a path against, as the page holds it right now.
+ *
+ * The one assembly of the three stores: `features/templater/run-shell.ts` builds a run's input from it and
+ * the index cache above derives a library version from it, and two copies is how one of them ends up
+ * filtering something the other does not. No bodies are read — an index is rows, and a note's text is
+ * fetched by the one call that needs it.
+ */
+export function libraryRows(): { notes: Note[]; folders: Folder[]; templates: NoteTemplate[] } {
+  const state = useNotes.getState()
+  return {
+    notes: Object.values(state.notes)
+      .filter((summary) => summary.deletedAt === null)
+      .map((summary): Note => ({ ...summary, content: '' })),
+    folders: state.folders,
+    templates: useNoteTemplates.getState().templates,
+  }
+}
+
 export function storePageHostPorts(nested: PageHostDeps['nested']): PageHostDeps {
   return {
+    // One cache for the host this call builds, keyed off the page's own rows: a batch of templates that
+    // writes ten notes indexes the library once instead of ten times. See `./page-host.ts`'s `indexFor`.
+    indexCache: createNoteIndexCache({ version: () => libraryVersion(libraryRows()) }),
     notes: {
       read: readBody,
       write: writeBody,

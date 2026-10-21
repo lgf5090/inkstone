@@ -23,7 +23,7 @@
  *   showing it, so an unsaved keystroke is in what the template sees and in what the write is guarded
  *   against. A run with no such editor is refused here rather than answered from a stale row.
  */
-import type { Folder, Note, NoteTemplate } from '@shared/types'
+import type { Note, NoteTemplate } from '@shared/types'
 import type { MessageKey } from '@shared/locales/en-US'
 import type { TemplaterHosts } from '../../lib/templater'
 import type { RunMode } from '../../lib/templater/protocol'
@@ -36,12 +36,12 @@ import {
   type RunTemplateResult,
 } from '../../lib/templater/host/run-template'
 import { WRITE_NOTICE_MESSAGES } from '../../lib/templater/host/write'
+import { libraryRows } from '../../lib/templater/host/store-port'
 import { confirm } from '../../components/overlay'
 import { api } from '../../lib/api'
 import { folderPath } from '../../lib/folders'
 import { localeTag, t } from '../../lib/i18n'
 import { useNotes } from '../../store/notes'
-import { useNoteTemplates } from '../../store/note-templates'
 import { useSession } from '../../store/session'
 import { useUi } from '../../store/ui'
 import { requireOpenNote, selectionOf, writableNoteEditor, type EditorSelectionSnapshot } from './editor-surface'
@@ -82,18 +82,6 @@ async function templaterPorts(): Promise<RunTemplatePorts> {
     requestCarets: (noteId, carets) => {
       useUi.getState().requestTemplateInsert({ noteId, content: '', cursor: carets })
     },
-  }
-}
-
-/** Every row the run may resolve a path against. The index needs no bodies, so none are read for it. */
-function libraryRows(): { notes: Note[]; folders: Folder[]; templates: NoteTemplate[] } {
-  const state = useNotes.getState()
-  return {
-    notes: Object.values(state.notes)
-      .filter((summary) => summary.deletedAt === null)
-      .map((summary): Note => ({ ...summary, content: '' })),
-    folders: state.folders,
-    templates: useNoteTemplates.getState().templates,
   }
 }
 
