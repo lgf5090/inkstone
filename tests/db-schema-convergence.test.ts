@@ -394,6 +394,16 @@ const ACCOUNT_GLOBAL_KEYS = new Map<string, string>([
   // note id is already `newId()`-random and account-owned, so `target_key` cannot name another
   // account's edge. Reads scope by `user_id` (idx_links_user_source).
   ['links', 'composite (source_note_id, target_key) on account-owned notes'],
+  ['memos_spaces', 'id is a 26-character newId(); every read binds user_id'],
+  ['memos_items', 'id is a 26-character newId(); every read binds user_id'],
+  ['memos_reactions', 'id is a 26-character newId(); every read binds user_id'],
+  ['memos_attachments', 'id is a 26-character newId(); every read binds user_id'],
+  ['memos_shares', 'id is a 26-character newId(); every read binds user_id'],
+  ['memos_views', 'id is a 26-character newId(); every read binds user_id'],
+  ['memos_tokens', 'id is a 26-character newId(); every read binds user_id'],
+  ['memos_webhooks', 'id is a 26-character newId(); every read binds user_id'],
+  ['memos_import_sessions', 'id is a 26-character newId(); every read binds user_id'],
+  ['memos_changes', 'seq INTEGER PRIMARY KEY AUTOINCREMENT, every read filters on user_id'],
 ])
 
 /** The tables that carry a `user_id` column yet key on something else. */

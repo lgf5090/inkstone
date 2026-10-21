@@ -14,6 +14,12 @@ import {
   SUBSCRIPTIONS_REQUIRED_TABLES,
   SUBSCRIPTIONS_SCHEMA_STATEMENTS,
 } from '../subscriptions/schema'
+import {
+  MEMOS_REQUIRED_COLUMNS,
+  MEMOS_REQUIRED_INDEXES,
+  MEMOS_REQUIRED_TABLES,
+  MEMOS_SCHEMA_STATEMENTS,
+} from '../memos/schema'
 
 const BACKUP_ARCHIVES_TABLE = `CREATE TABLE IF NOT EXISTS backup_archives (
   user_id TEXT NOT NULL,
@@ -509,6 +515,7 @@ export const SCHEMA_STATEMENTS: readonly string[] = [
   ...RSS_LIBRARY_STATEMENTS,
   ...ASSISTANT_SCHEMA_STATEMENTS,
   ...SUBSCRIPTIONS_SCHEMA_STATEMENTS,
+  ...MEMOS_SCHEMA_STATEMENTS,
 ]
 
 export interface SchemaMigration {
@@ -1933,6 +1940,10 @@ export const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
       `ALTER TABLE sub_settings ADD COLUMN budget_categories TEXT NOT NULL DEFAULT '{}'`,
     ],
   },
+  {
+    version: 128,
+    statements: MEMOS_SCHEMA_STATEMENTS,
+  },
 ]
 
 const FTS_STATEMENT = `CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(
@@ -1991,6 +2002,7 @@ export const REQUIRED_COLUMNS: Readonly<Record<string, readonly string[]>> = {
   rss_state: ['user_id', 'last_channel', 'saved_at'],
   ...ASSISTANT_REQUIRED_COLUMNS,
   ...SUBSCRIPTIONS_REQUIRED_COLUMNS,
+  ...MEMOS_REQUIRED_COLUMNS,
 } as const
 
 export const REQUIRED_TABLES = [
@@ -2041,6 +2053,7 @@ export const REQUIRED_TABLES = [
   'rss_state',
   ...ASSISTANT_REQUIRED_TABLES,
   ...SUBSCRIPTIONS_REQUIRED_TABLES,
+  ...MEMOS_REQUIRED_TABLES,
 ] as const
 
 export const REQUIRED_INDEXES = [
@@ -2102,6 +2115,7 @@ export const REQUIRED_INDEXES = [
   'idx_rss_mark_recent',
   ...ASSISTANT_REQUIRED_INDEXES,
   ...SUBSCRIPTIONS_REQUIRED_INDEXES,
+  ...MEMOS_REQUIRED_INDEXES,
 ] as const
 
 
