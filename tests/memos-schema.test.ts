@@ -15,6 +15,7 @@ import {
   MEMOS_SCHEMA_STATEMENTS,
 } from '../src/worker/memos/schema'
 import { makeD1 } from './doubles/d1-sqlite'
+import { testBindings } from './doubles/bindings'
 
 const MEMOS_MIGRATION_VERSION = 130
 
@@ -34,7 +35,7 @@ function columnsOf(sqlite: DatabaseSync, table: string): Set<string> {
 }
 
 async function boot(sqlite: DatabaseSync): Promise<void> {
-  await initializeDatabase({ DB: makeD1(sqlite) } as never)
+  await initializeDatabase(testBindings(makeD1(sqlite)))
 }
 
 async function installed(): Promise<DatabaseSync> {

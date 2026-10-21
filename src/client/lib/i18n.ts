@@ -95,7 +95,9 @@ export async function initI18n(): Promise<void> {
         if (locale !== 'en-US') await ensureLocaleLoaded(locale);
         // Preload the other locale in background for instant switching, but don't block init
         const other: AppLocale = locale === 'en-US' ? 'zh-CN' : 'en-US';
-        if (!loadedLocales.has(other)) void ensureLocaleLoaded(other);
+        if (!loadedLocales.has(other)) void ensureLocaleLoaded(other).catch((error) => {
+            console.error('locale preload failed', other, error)
+        });
         applyLocaleToDom();
     })();
     return initPromise;
@@ -199,6 +201,8 @@ export function setLocale(next: AppLocale, persist = true): void {
     void ensureLocaleLoaded(next).then(() => {
         applyLocaleToDom();
         listeners.forEach((listener) => listener());
+    }).catch((error) => {
+        console.error('locale switch failed', next, error);
     });
 }
 export async function setLocaleAsync(next: AppLocale, persist = true): Promise<void> {
