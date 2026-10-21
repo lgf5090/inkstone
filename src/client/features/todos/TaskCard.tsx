@@ -117,7 +117,7 @@ export function useTaskMoves(enabled: boolean): (task: TodoTask) => TaskMoveCont
   }
 }
 
-export function TaskCard({ task, lists, bounds, timezone, onOpen, onStar, onUnplan, move, compact = false }: {
+export function TaskCard({ task, lists, bounds, timezone, onOpen, onStar, onUnplan, move, compact = false, showList = true }: {
   task: TodoTask
   lists: readonly TaskList[]
   bounds: { dayEnd: number; now: number }
@@ -136,6 +136,11 @@ export function TaskCard({ task, lists, bounds, timezone, onOpen, onStar, onUnpl
    */
   move?: TaskMoveControls
   compact?: boolean
+  /**
+   * Whether the row names its list. A row on one list is already inside that list, so repeating the
+   * name on every line is noise; the aggregate views (all, starred, plan, finished, tag) keep it.
+   */
+  showList?: boolean
 }) {
   const toggle = useTodos((state) => state.toggleTask)
   const snooze = useTodos((state) => state.snoozeTask)
@@ -318,7 +323,7 @@ export function TaskCard({ task, lists, bounds, timezone, onOpen, onStar, onUnpl
         else move.onDropBefore(draggedId)
       }}
       className={cn(
-        'group relative flex min-w-0 items-start gap-2 rounded-[var(--r-md)] px-2 py-1.5 transition-colors duration-[var(--dur-fast)]',
+        'group relative flex min-w-0 items-start gap-2 rounded-[var(--r-md)] border-b border-[var(--border-subtle)] px-2 py-1.5 transition-colors duration-[var(--dur-fast)] last:border-b-0',
         'hover:bg-[var(--bg-hover)]',
         selected ? 'bg-[var(--accent-soft)]' : '',
         compact ? 'py-1' : 'py-1.5',
@@ -436,6 +441,12 @@ export function TaskCard({ task, lists, bounds, timezone, onOpen, onStar, onUnpl
           {progress && (
             <span className="text-[length:var(--text-11)] tabular-nums text-[var(--text-quaternary)]">{progress}</span>
           )}
+          {showList && !compact && list && (
+            <span className="inline-flex max-w-[130px] min-w-0 items-center gap-1 text-[length:var(--text-10-5)] text-[var(--text-quaternary)]">
+              <span className="size-1.5 shrink-0 rounded-full" style={{ backgroundColor: colour }} aria-hidden="true" />
+              <span className="truncate">{list.name}</span>
+            </span>
+          )}
           {task.tags.slice(0, 2).map((tag) => (
             <span
               key={tag.id}
@@ -458,7 +469,7 @@ export function TaskCard({ task, lists, bounds, timezone, onOpen, onStar, onUnpl
           36px column on the right took so much of it that a four-character title wrapped one character
           per line; the reference card has an icon, a name and the rows, and the star is toggled where
           the task is read in full — the list rows and the editor. */}
-      <span className="flex shrink-0 flex-col items-end gap-1">
+      <span className="flex shrink-0 items-center gap-0.5">
         {/* A row being picked for a batch offers no single-row writes: the star, the unplan and the
             snooze menu would each act on one task while the bar acts on all of them. */}
         {!selectionMode && !compact && (
@@ -477,9 +488,6 @@ export function TaskCard({ task, lists, bounds, timezone, onOpen, onStar, onUnpl
           >
             <Star size={14} fill={task.starred ? 'currentColor' : 'none'} />
           </button>
-        )}
-        {!compact && list && (
-          <span className="max-w-[84px] truncate pr-1 text-[length:var(--text-10-5)] text-[var(--text-quaternary)]">{list.name}</span>
         )}
         {!selectionMode && !compact && onUnplan && (
           <button

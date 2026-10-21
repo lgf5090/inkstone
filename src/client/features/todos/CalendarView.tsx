@@ -1,20 +1,24 @@
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from 'react'
-import { ChevronLeft, ChevronRight } from 'lucide-react'
-import { localDate } from '@shared/assistant-time'
+import { CalendarDays, ChevronLeft, ChevronRight, Plus } from 'lucide-react'
+import { localDate, toLocalMinute } from '@shared/assistant-time'
 import type { TodoTask } from '@shared/todos/model'
 import { MonthGrid, buildMonthGridCells } from '../../components/calendar-grids'
+import { Segmented } from '../../components/form'
 import { LoadingBlock } from '../../components/feedback'
 import { Button, IconButton } from '../../components/primitives'
 import { api } from '../../lib/api'
 import { cn } from '../../lib/cn'
+import { useMediaQuery } from '../../lib/hooks'
 import { localeTag, t, useLocale } from '../../lib/i18n'
+import { useAlmanac, type AlmanacApi } from '../../lib/lunar/almanac-loader'
+import { resolveDisplay, resolveWeekStart, useCalendarDisplayPrefs, type CalendarDisplayView } from '../../lib/calendar-display-prefs'
 import {
   addDaysKey,
   dateKey,
   formatDateKey,
   narrowWeekdayLabels,
   startOfWeek,
-  weekStartFor,
+  weekOrdinal,
   type WeekStartDay,
 } from '../../lib/time'
 import { useTodos } from './store'
@@ -63,17 +67,31 @@ function dayLabel(key: string, count: number): string {
   return t('todo.calendar.day_aria', { date: formatDateKey(key), count })
 }
 
-function CalendarDay({ cell, tasks, weekday, focusable, tall, onActivate, onFocus }: {
+function CalendarDay({ cell, tasks, weekday, focusable, tall, compact, almanac, display, colorOf, timeOf, onActivate, onFocus }: {
   cell: CalendarDayCell
   tasks: readonly TodoTask[]
   weekday?: string
   focusable: boolean
   tall?: boolean
+  compact?: boolean
+  almanac: AlmanacApi | null
+  display: CalendarDisplayView
+  colorOf: (task: TodoTask) => string
+  timeOf: (task: TodoTask) => string | null
   onActivate: (key: string) => void
   onFocus: (key: string) => void
 }) {
+  if (!cell.inMonth && !display.showAdjacentDays) {
+    return <span aria-hidden="true" className={cn('w-full rounded-[var(--r-md)] bg-[var(--bg-sunken)]/40', tall ? 'min-h-48' : compact ? 'min-h-[72px]' : 'min-h-24')} />
+  }
   const shown = tasks.slice(0, TITLES_PER_DAY)
   const hidden = tasks.length - shown.length
+  const almanacDay = cell.inMonth ? almanac?.almanacOf(cell.date) ?? null : null
+  const named = display.festivals ? almanacDay?.highlight ?? null : null
+  const almanacText = named ? almanacDay?.highlightShort ?? named : display.lunar ? almanacDay?.short ?? null : null
+  const weekend = display.weekendTint && cell.inMonth && tasks.length === 0
+    && (cell.date.getDay() === 0 || cell.date.getDay() === 6)
+  const compactMonth = compact && !tall
   return (
     <button
       type="button"
@@ -88,33 +106,67 @@ function CalendarDay({ cell, tasks, weekday, focusable, tall, onActivate, onFocu
         onActivate(cell.key)
       }}
       className={cn(
-        'flex min-h-11 w-full flex-col items-stretch gap-0.5 overflow-hidden rounded-[var(--r-md)] border p-1 text-left align-top',
+        'group flex w-full min-w-0 flex-col items-stretch gap-0.5 overflow-hidden rounded-[var(--r-md)] border p-1.5 text-left align-top',
         'focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--accent)]',
         cell.inMonth
           ? 'border-[var(--border-subtle)] bg-[var(--bg-surface)] text-[var(--text-primary)] hover:bg-[var(--bg-hover)]'
-          : 'border-transparent bg-[var(--bg-sunken)] text-[var(--text-quaternary)]',
+          : 'border-transparent bg-[var(--bg-sunken)]/60 text-[var(--text-quaternary)]',
+        weekend && 'bg-[var(--bg-sunken)]',
         cell.today && 'ring-1 ring-inset ring-[var(--accent)]',
-        tall && 'min-h-24',
+        tall ? 'min-h-48' : compactMonth ? 'min-h-[72px]' : 'min-h-24',
       )}
     >
-      <span className="flex w-full items-baseline justify-between gap-1">
-        {weekday && <span className="text-[length:var(--text-9)] font-medium uppercase text-[var(--text-quaternary)]">{weekday}</span>}
-        <span className={cn('tabular-nums text-[length:var(--text-11)]', cell.today && 'font-semibold text-[var(--accent)]')}>{cell.day}</span>
+      <span className="flex w-full min-w-0 items-center gap-1">
+        {weekday && <span className="shrink-0 text-[length:var(--text-9)] font-medium uppercase text-[var(--text-quaternary)]">{weekday}</span>}
+        <span className={cn(
+          'flex size-5 shrink-0 items-center justify-center rounded-full tabular text-[length:var(--text-11)]',
+          cell.today ? 'bg-[var(--accent)] font-semibold text-[var(--accent-contrast)]' : 'text-[var(--text-secondary)]',
+        )}>{cell.day}</span>
+        <span aria-hidden="true" className="ml-auto hidden shrink-0 text-[var(--text-quaternary)] opacity-0 transition-opacity duration-[var(--dur-fast)] group-hover:opacity-100 md:inline">
+          <Plus size={11} />
+        </span>
       </span>
-      {shown.map((task) => (
-        <span key={task.id} className="w-full truncate text-[length:var(--text-9-5)] leading-tight">{task.title}</span>
-      ))}
-      {hidden > 0 && <span className="text-[length:var(--text-9)] leading-tight text-[var(--text-tertiary)]">+{hidden}</span>}
+      {almanacText && (
+        <span className={cn('w-full truncate text-[length:var(--text-8-5)] leading-tight', named ? 'text-[var(--accent)]' : 'text-[var(--text-quaternary)]')}>
+          {almanacText}
+        </span>
+      )}
+      {compactMonth ? (
+        tasks.length > 0 && (
+          <span className="mt-auto flex w-full min-w-0 items-center gap-0.5 pt-1">
+            {tasks.slice(0, 3).map((task) => (
+              <span key={task.id} className="size-1.5 shrink-0 rounded-full" style={{ backgroundColor: colorOf(task) }} aria-hidden="true" />
+            ))}
+            {tasks.length > 3 && <span className="text-[length:var(--text-8)] leading-none text-[var(--text-quaternary)]">+{tasks.length - 3}</span>}
+          </span>
+        )
+      ) : (
+        <>
+          {shown.map((task) => (
+            <span key={task.id} className="flex w-full min-w-0 items-center gap-1.5">
+              <span className="h-3 w-[3px] shrink-0 rounded-full" style={{ backgroundColor: colorOf(task) }} aria-hidden="true" />
+              {tall && timeOf(task) && <span className="shrink-0 tabular text-[length:var(--text-9)] text-[var(--text-quaternary)]">{timeOf(task)}</span>}
+              <span className="truncate text-[length:var(--text-10-5)] leading-tight text-[var(--text-secondary)]">{task.title}</span>
+            </span>
+          ))}
+          {hidden > 0 && <span className="text-[length:var(--text-9)] leading-tight text-[var(--text-tertiary)]">+{hidden}</span>}
+        </>
+      )}
     </button>
   )
 }
 
 export function CalendarView() {
   const timezone = useTodos((state) => state.timezone)
+  const lists = useTodos((state) => state.lists)
   const openEditor = useTodos((state) => state.openEditor)
   const editorOpen = useTodos((state) => state.editorOpen)
   const locale = useLocale()
-  const weekStart = weekStartFor(locale)
+  const wide = useMediaQuery('(min-width: 1024px)')
+  const prefs = useCalendarDisplayPrefs()
+  const weekStart = resolveWeekStart(prefs.weekStart, locale)
+  const display = useMemo(() => resolveDisplay(prefs, locale), [prefs, locale])
+  const almanac = useAlmanac(display.lunar || display.festivals)
   const weekdayLabels = useMemo(() => narrowWeekdayLabels(locale, weekStart), [locale, weekStart])
   const todayKey = useMemo(() => localDate(Date.now(), timezone), [timezone])
 
@@ -157,6 +209,17 @@ export function CalendarView() {
     return grouped
   }, [tasks, timezone])
 
+  const colorOf = useMemo(() => (task: TodoTask): string => {
+    if (!task.listId) return 'var(--text-tertiary)'
+    return lists.find((list) => list.id === task.listId)?.color ?? 'var(--accent)'
+  }, [lists])
+
+  const timeOf = useMemo(() => (task: TodoTask): string | null => {
+    if (task.dueAt === null) return null
+    const minute = toLocalMinute(task.dueAt, timezone)
+    return minute.endsWith('T23:59') ? null : minute.slice(11)
+  }, [timezone])
+
   const sequence = useRef(0)
   useEffect(() => {
     const id = ++sequence.current
@@ -185,6 +248,11 @@ export function CalendarView() {
 
   const move = (delta: number): void => {
     setAnchor((current) => (mode === 'month' ? shiftMonths(current, delta) : shiftDays(current, delta * WEEK_LENGTH)))
+  }
+
+  const goToday = (): void => {
+    setAnchor(new Date())
+    setFocusKey(todayKey)
   }
 
   const onGridKeyDown = (event: ReactKeyboardEvent<Element>): void => {
@@ -218,8 +286,9 @@ export function CalendarView() {
       : (
         <div className="no-scrollbar min-h-0 flex-1 overflow-y-auto">
           {tasks.length === 0 && (
-            <p className="mx-3 mb-2 rounded-[var(--r-md)] border border-dashed border-[var(--border-subtle)] px-3 py-2 text-[length:var(--text-12)] text-[var(--text-tertiary)] md:mx-5">
-              {t('todo.empty.plan')} · {t('todo.empty.plan_hint')}
+            <p className="mx-3 mb-2 flex items-center gap-1.5 rounded-[var(--r-md)] border border-dashed border-[var(--border-subtle)] px-3 py-2 text-[length:var(--text-12)] text-[var(--text-tertiary)] md:mx-5">
+              <CalendarDays size={13} className="shrink-0" aria-hidden="true" />
+              <span className="min-w-0">{t('todo.empty.plan')} · {t('todo.empty.plan_hint')}</span>
             </p>
           )}
           {mode === 'month' ? (
@@ -231,36 +300,58 @@ export function CalendarView() {
               todayKey={todayKey}
               ariaLabel={`${t('todo.view.calendar')} · ${title}`}
               onKeyDown={onGridKeyDown}
-              className="px-3 pb-4 md:px-5"
+              className="px-3 pb-4 pt-1 md:px-5"
+              renderRowHeader={display.weekNumbers && wide
+                ? (_rowIndex, row) => {
+                    const { week: weekNumber } = weekOrdinal(row[0]!.date, weekStart)
+                    return (
+                      <span aria-hidden="true" className="flex items-center justify-center text-[length:var(--text-8-5)] tabular text-[var(--text-quaternary)]">
+                        {weekNumber}
+                      </span>
+                    )
+                  }
+                : undefined}
               renderCell={(cell) => (
                 <CalendarDay
                   cell={cell}
                   tasks={byDay.get(cell.key) ?? []}
                   focusable={cell.key === activeFocusKey}
+                  compact={!wide}
+                  almanac={almanac}
+                  display={display}
+                  colorOf={colorOf}
+                  timeOf={timeOf}
                   onActivate={activateDay}
                   onFocus={setFocusKey}
                 />
               )}
             />
           ) : (
-            <div
-              role="group"
-              aria-label={`${t('todo.view.calendar')} · ${title}`}
-              onKeyDown={onGridKeyDown}
-              className="grid grid-cols-7 gap-[var(--sp-0-5)] px-3 pb-4 md:px-5"
-            >
-              {week.map((cell, index) => (
-                <CalendarDay
-                  key={cell.key}
-                  cell={cell}
-                  tasks={byDay.get(cell.key) ?? []}
-                  weekday={weekdayLabels[index]}
-                  focusable={cell.key === activeFocusKey}
-                  tall
-                  onActivate={activateDay}
-                  onFocus={setFocusKey}
-                />
-              ))}
+            <div className="no-scrollbar overflow-x-auto">
+              <div
+                role="group"
+                aria-label={`${t('todo.view.calendar')} · ${title}`}
+                onKeyDown={onGridKeyDown}
+                className={cn('grid grid-cols-7 gap-[var(--sp-0-5)] px-3 pb-4 md:px-5', !wide && 'min-w-[840px]')}
+              >
+                {week.map((cell, index) => (
+                  <CalendarDay
+                    key={cell.key}
+                    cell={cell}
+                    tasks={byDay.get(cell.key) ?? []}
+                    weekday={weekdayLabels[index]}
+                    focusable={cell.key === activeFocusKey}
+                    tall
+                    compact={!wide}
+                    almanac={almanac}
+                    display={display}
+                    colorOf={colorOf}
+                    timeOf={timeOf}
+                    onActivate={activateDay}
+                    onFocus={setFocusKey}
+                  />
+                ))}
+              </div>
             </div>
           )}
         </div>
@@ -268,33 +359,26 @@ export function CalendarView() {
 
   return (
     <div className="flex min-h-0 flex-1 flex-col" data-todo-calendar={mode}>
-      <div className="flex shrink-0 flex-wrap items-center gap-2 px-3 pb-1 pt-2 md:px-5">
-        <div className="flex items-center gap-1">
+      <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 px-3 pb-2 pt-3 md:px-5">
+        <h2 className="min-w-0 truncate text-[length:var(--text-15)] font-semibold tracking-[-0.012em] text-[var(--text-primary)]">{title}</h2>
+        <div className="flex items-center gap-1.5">
+          <Segmented
+            value={mode}
+            onChange={setMode}
+            size="md"
+            label={t('todo.view.calendar')}
+            options={[
+              { value: 'month', label: t('preview.kanban_calendar_month') },
+              { value: 'week', label: t('preview.kanban_calendar_week') },
+            ]}
+          />
+          <Button variant="secondary" onClick={goToday}>{t('preview.kanban_today')}</Button>
           <IconButton label={t('todo.calendar.previous')} size="sm" className="size-11 md:size-7" onClick={() => move(-1)}>
             <ChevronLeft size={15} />
           </IconButton>
           <IconButton label={t('todo.calendar.next')} size="sm" className="size-11 md:size-7" onClick={() => move(1)}>
             <ChevronRight size={15} />
           </IconButton>
-        </div>
-        <h2 className="min-w-0 truncate text-[length:var(--text-13)] font-semibold text-[var(--text-primary)]">{title}</h2>
-        <div role="group" aria-label={t('todo.view.calendar')} className="ml-auto flex items-center gap-1">
-          {(['month', 'week'] as const).map((value) => (
-            <button
-              key={value}
-              type="button"
-              aria-pressed={mode === value}
-              onClick={() => setMode(value)}
-              className={cn(
-                'min-h-11 rounded-[var(--r-md)] px-3 text-[length:var(--text-11-5)] font-medium md:min-h-7',
-                mode === value
-                  ? 'bg-[var(--accent-soft)] text-[var(--accent-on-soft)]'
-                  : 'text-[var(--text-tertiary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-secondary)]',
-              )}
-            >
-              {t(value === 'month' ? 'preview.kanban_calendar_month' : 'preview.kanban_calendar_week')}
-            </button>
-          ))}
         </div>
       </div>
       {body}

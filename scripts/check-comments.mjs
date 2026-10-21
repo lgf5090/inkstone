@@ -10809,6 +10809,7 @@ const allowed = new Map([
     "// phone cannot drag and a keyboard never could: this is the equivalent path, not a secondary one.",
     "// The row owns the drop it is under: without this the board card behind it would append the",
     "// task to the list instead of placing it where the reader pointed.",
+    "/**\n   * Whether the row names its list. A row on one list is already inside that list, so repeating the\n   * name on every line is noise; the aggregate views (all, starred, plan, finished, tag) keep it.\n   */",
   ]],
   ["src/client/features/todos/TaskEditor.tsx", [
     "/**\n * The task editor: one dialog for a new task and for an existing one.\n *\n * It is a `Modal`, which already renders as a bottom sheet on a phone and a centred dialog on a\n * desktop — the two shapes the reference app has, without a second component. Fields are saved\n * together rather than on every keystroke: a title is edited in one pass, and a save per character\n * would be a write per character.\n *\n * Steps are the exception, and only for a task that already exists: adding a step is its own request\n * because the row it produces has to come back with an id the panel can tick.\n */",
@@ -10868,6 +10869,7 @@ const allowed = new Map([
     "// same rule every other write in this feature follows.",
     "// The manual order is the list's own reading. An explicit sort replaces it, so the controls that",
     "// would write a place are not offered while that sort is up.",
+    "/** Whether rows name their list; one list's own page does not repeat it on every row. */",
   ]],
   ["src/client/features/todos/TodayView.tsx", [
     "/**\n * \"My Day\": what the reader picked for today, beside what is already owed today.\n *\n * The screen is a pick and a list. The pick searches the open shelf by title and lands the row in\n * today through `POST /:id/plan`; the list groups what came back by the reason it is here — planned,\n * due today, overdue — because the same row can be here for any of the three and \"remove from today\"\n * only makes sense for the first. The day itself is the account's, read from the server's `dayEnd`\n * and `timezone` rather than the browser's clock.\n */",

@@ -5,7 +5,7 @@ import type { TodoTask } from '@shared/todos/model'
 import { buildMonthGridCells } from '../../components/calendar-grids'
 import { initI18n, localeTag, t } from '../../lib/i18n'
 import { addDaysKey, daysBetweenKeys, weekStartFor } from '../../lib/time'
-import { renderElement, type RenderedElement } from '../../lib/test-render'
+import { renderElement, stubBreakpoint, type RenderedElement } from '../../lib/test-render'
 import { CalendarView } from './CalendarView'
 import { useTodos } from './store'
 
@@ -103,6 +103,7 @@ afterEach(() => {
 
 describe('the calendar view', () => {
   it('draws a month of day cells and at most three titles per day', async () => {
+    stubBreakpoint(true)
     const due = Date.UTC(YEAR, MONTH, 5, 9)
     service.rows = [
       row('a', 'Alpha', due),
@@ -126,6 +127,23 @@ describe('the calendar view', () => {
     expect(cell!.textContent).toContain('+1')
     expect(service.requests[0]?.limit).toBe(500)
     expect(service.requests[0]?.view).toBe('open')
+  })
+
+  it('draws colour dots and a count on a phone instead of unreadable titles', async () => {
+    stubBreakpoint(false)
+    const due = Date.UTC(YEAR, MONTH, 5, 9)
+    service.rows = [
+      row('a', 'Alpha', due),
+      row('b', 'Bravo', due),
+      row('c', 'Charlie', due),
+      row('d', 'Delta', due),
+    ]
+    const container = await mount()
+    const cell = container.querySelector<HTMLElement>(`[data-calendar-day="${dayKey(YEAR, MONTH, 5)}"]`)
+    expect(cell, 'the fifth day has no cell').not.toBeNull()
+    expect(cell!.textContent).not.toContain('Alpha')
+    expect(cell!.textContent).toContain('+1')
+    expect(cell!.getAttribute('aria-label')).toContain('4')
   })
 
   it('asks for the neighbouring month when the reader moves on', async () => {

@@ -104,6 +104,7 @@ export function StatusBoard({ tasks }: { tasks: readonly TodoTask[] }) {
                         lists={lists}
                         bounds={bounds}
                         timezone={timezone}
+                        showList={false}
                         onOpen={() => openEditor({ id: task.id })}
                         onStar={() => { void updateTask(task.id, { starred: !task.starred }) }}
                         {...(moveFor(task) ? { move: moveFor(task)! } : {})}

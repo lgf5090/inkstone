@@ -45,7 +45,7 @@ export function inServerOrder(groups: TaskGroup[], tasks: readonly TodoTask[]): 
  * a row can be in today for its due date and still carry a plan for some other day — clearing that
  * plan would not take it off this screen, and a button that does nothing is worse than no button.
  */
-export function GroupedTaskList({ groups, label, empty, onUnplan, canUnplan, moveFor }: {
+export function GroupedTaskList({ groups, label, empty, onUnplan, canUnplan, moveFor, showList = true }: {
   groups: TaskGroup[]
   label: (key: string) => string
   empty: { title: string; description: string }
@@ -57,6 +57,8 @@ export function GroupedTaskList({ groups, label, empty, onUnplan, canUnplan, mov
    * to land. An explicit sort also passes nothing, because that order is the reader's own choice.
    */
   moveFor?: (task: TodoTask) => TaskMoveControls | null
+  /** Whether rows name their list; one list's own page does not repeat it on every row. */
+  showList?: boolean
 }) {
   const lists = useTodos((state) => state.lists)
   const dayEnd = useTodos((state) => state.dayEnd)
@@ -94,6 +96,7 @@ export function GroupedTaskList({ groups, label, empty, onUnplan, canUnplan, mov
                   lists={lists}
                   bounds={bounds}
                   timezone={timezone}
+                  showList={showList}
                   onOpen={() => openEditor({ id: task.id })}
                   onStar={() => { void updateTask(task.id, { starred: !task.starred }) }}
                   {...(moveFor?.(task) ? { move: moveFor(task)! } : {})}
@@ -325,6 +328,7 @@ export function ListTaskView() {
           label={label}
           empty={{ title: t('todo.empty.list'), description: t('todo.empty.list_hint') }}
           moveFor={moveFor}
+          showList={view !== 'list'}
         />
       )}
     </div>
