@@ -19,6 +19,10 @@ const api = vi.hoisted(() => ({
 
 vi.mock('../api', () => ({ memosApi: api }))
 
+vi.mock('../webhook-client', () => ({
+  memoWebhooksClient: { list: vi.fn(() => Promise.resolve([])) },
+}))
+
 let currentPreferences: MemoPreferences
 let tokenItems: MemoToken[] = []
 let rendered: RenderedElement | null = null
@@ -135,6 +139,7 @@ describe('the memo settings page', () => {
       'memos.settings.reactions',
       'memos.settings.tags',
       'memos.settings.tokens',
+      'memos.settings.webhooks',
       'memos.settings.about',
       'memos.settings.account',
     ] as const) {
@@ -142,6 +147,7 @@ describe('the memo settings page', () => {
     }
     expect(host.querySelector('#memos-settings-general')).not.toBeNull()
     expect(host.querySelector('#memos-settings-tokens')).not.toBeNull()
+    expect(host.querySelector('#memos-settings-webhooks')).not.toBeNull()
     expect(host.textContent).toContain(t('memos.settings.about_license'))
     expect(host.textContent).toContain(t('memos.settings.tokens_empty'))
     expect(host.textContent).toContain(t('memos.settings.about_version', { version: APP_VERSION }))
