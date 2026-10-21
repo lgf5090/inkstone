@@ -2187,6 +2187,7 @@ async function createSchema(db: D1Database): Promise<DatabaseState> {
   await migrateTaskTable(db)
   await migrateTodoDayColumns(db)
   await migrateTaskReminders(db)
+  await migrateTaskEvents(db)
   if (initialized) {
     await runStatements(db, INDEX_SCHEMA_STATEMENTS)
   }
@@ -2448,6 +2449,83 @@ async function migrateTaskReminders(db: D1Database): Promise<void> {
     )
   }
   console.warn(`[inkstone] Schema repair: moved ${inserted} single task reminder(s) into todos_reminders`)
+}
+
+/**
+ * Seeds an older database's task history from the rows it already holds.
+ *
+ * `todos_task_events` records every status change from the day the table existed; a database that
+ * predates it holds tasks with no history at all, and the cumulative flow would open on an empty
+ * range. Two kinds of row can still be told from the task table alone, and both are filed here: a
+ * `born` for every task (at `created_at`, under `created_on`) and a completion for every task that
+ * is done now (at `completed_at`, under `completed_on`). The day columns already carry the
+ * account's zone, so no row is dated a second time. What cannot be told is left alone: a task
+ * that was started and reopened before this table existed moved through states nothing recorded,
+ * so a completion's `from_status` is the documented approximation `'todo'`, and the flow's
+ * `trackedSince` line marks where the real record begins.
+ *
+ * Three properties make it safe to run on every boot, the ones `migrateTaskReminders` set:
+ *  - each insert only fills the rows its `NOT EXISTS` guard says are missing, so a converged
+ *    database pays two counts and nothing else, and a second boot has nothing left to write;
+ *  - the two inserts are one `db.batch`, which D1 runs as a transaction: a failure (a locked
+ *    table, a restored backup with a conflicting id) leaves the events exactly as they were, so no
+ *    history is lost and the next boot tries again;
+ *  - the rows the batch answers with are compared with what was missing. A mismatch stops the boot
+ *    with the numbers instead of serving a flow that quietly disagrees with its tasks.
+ *
+ * The ids are `lower(hex(randomblob(13)))` for the reason the reminder move gives: 26 hex
+ * characters, the shape `isValidId` accepts, minted in SQL because the rows are copied in one
+ * statement rather than read into memory and written back one at a time.
+ */
+async function migrateTaskEvents(db: D1Database): Promise<void> {
+  const gaps = await taskEventGaps(db)
+  if (!gaps.born && !gaps.done) return
+
+  const results = await db.batch([
+    db.prepare(
+      `INSERT INTO todos_task_events (id, user_id, task_id, at, on_day, kind, from_status, to_status)
+       SELECT lower(hex(randomblob(13))), user_id, id, created_at, created_on, 'born', NULL, status
+         FROM todos_tasks t
+        WHERE NOT EXISTS (SELECT 1 FROM todos_task_events e WHERE e.task_id = t.id AND e.kind = 'born')`,
+    ),
+    db.prepare(
+      `INSERT INTO todos_task_events (id, user_id, task_id, at, on_day, kind, from_status, to_status)
+       SELECT lower(hex(randomblob(13))), user_id, id, completed_at, completed_on, 'status', 'todo', 'done'
+         FROM todos_tasks t
+        WHERE t.completed_at IS NOT NULL AND t.status = 'done'
+          AND NOT EXISTS (SELECT 1 FROM todos_task_events e
+                           WHERE e.task_id = t.id AND e.kind = 'status' AND e.at = t.completed_at
+                             AND e.to_status = 'done')`,
+    ),
+  ])
+  const bornFilled = Number(results[0]?.meta?.changes ?? 0)
+  const doneFilled = Number(results[1]?.meta?.changes ?? 0)
+  if (bornFilled !== gaps.born || doneFilled !== gaps.done) {
+    throw new Error(
+      `The task history could not be backfilled: ${bornFilled} of ${gaps.born} born event(s) and ` +
+      `${doneFilled} of ${gaps.done} completion event(s) landed. The two inserts are one transaction, ` +
+      'so the events are either untouched or fully written; the boot stops here rather than serving a ' +
+      'cumulative flow that disagrees with its tasks.',
+    )
+  }
+  console.warn(
+    `[inkstone] Schema repair: backfilled ${bornFilled} born and ${doneFilled} completion task event(s)`,
+  )
+}
+
+/** The rows the backfill still owes, counted under the same guards its two inserts carry. */
+async function taskEventGaps(db: D1Database): Promise<{ born: number; done: number }> {
+  const row = await db.prepare(
+    `SELECT
+       (SELECT COUNT(*) FROM todos_tasks t
+          WHERE NOT EXISTS (SELECT 1 FROM todos_task_events e WHERE e.task_id = t.id AND e.kind = 'born')) AS born,
+       (SELECT COUNT(*) FROM todos_tasks t
+          WHERE t.completed_at IS NOT NULL AND t.status = 'done'
+            AND NOT EXISTS (SELECT 1 FROM todos_task_events e
+                             WHERE e.task_id = t.id AND e.kind = 'status' AND e.at = t.completed_at
+                               AND e.to_status = 'done')) AS done`,
+  ).first<{ born: number | null; done: number | null }>()
+  return { born: Number(row?.born ?? 0), done: Number(row?.done ?? 0) }
 }
 
 /** The account's scheduling zone: the one `getSettings()` reads, or UTC when absent or unrecognised. */

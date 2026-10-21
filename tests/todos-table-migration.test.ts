@@ -2,7 +2,7 @@
 import { DatabaseSync } from 'node:sqlite'
 import { describe, expect, it } from 'vitest'
 import { initializeDatabase } from '../src/worker/db/schema'
-import { TODOS_REQUIRED_COLUMNS, TODOS_REQUIRED_INDEXES } from '../src/worker/todos/schema'
+import { TODOS_REQUIRED_COLUMNS, TODOS_REQUIRED_INDEXES, TODOS_REQUIRED_TABLES } from '../src/worker/todos/schema'
 import { makeD1 } from './doubles/d1-sqlite'
 import { testBindings } from './doubles/bindings'
 
@@ -152,6 +152,52 @@ describe('the task row version', () => {
       .map((row) => (row as { name: string }).name)
     expect(columns).toContain('rev')
     expect(TODOS_REQUIRED_COLUMNS.todos_tasks).toContain('rev')
+  })
+})
+
+/**
+ * The table the task history is replayed from.
+ *
+ * A fresh install creates it, the boot demands it and its two indexes, and the key leads with the
+ * account like every table an account owns rows in — or a database that never got the table would
+ * serve a cumulative flow with nothing to replay, and one account's history could name another's.
+ */
+describe('the task event table', () => {
+  function columnsOf(sqlite: DatabaseSync): string[] {
+    return sqlite.prepare(`SELECT name FROM pragma_table_info('todos_task_events')`).all()
+      .map((row) => (row as { name: string }).name)
+  }
+
+  function keyColumnsOf(sqlite: DatabaseSync): string[] {
+    return sqlite.prepare(`SELECT name FROM pragma_table_info('todos_task_events') WHERE pk > 0 ORDER BY pk`).all()
+      .map((row) => (row as { name: string }).name)
+  }
+
+  function indexesOf(sqlite: DatabaseSync): string[] {
+    return sqlite.prepare(`SELECT name FROM sqlite_master WHERE type = 'index'`).all()
+      .map((row) => (row as { name: string }).name)
+  }
+
+  it('is created by a fresh boot, with its indexes, and listed as required', async () => {
+    const sqlite = new DatabaseSync(':memory:')
+    sqlite.exec('PRAGMA journal_mode = OFF')
+
+    await boot(sqlite)
+
+    expect(columnsOf(sqlite)).toEqual([
+      'user_id', 'id', 'task_id', 'at', 'on_day', 'kind', 'from_status', 'to_status',
+    ])
+    expect(TODOS_REQUIRED_COLUMNS.todos_task_events).toEqual(columnsOf(sqlite))
+    expect(TODOS_REQUIRED_TABLES).toContain('todos_task_events')
+    expect(keyColumnsOf(sqlite)).toEqual(['user_id', 'id'])
+    for (const index of ['idx_todos_task_events_user_day', 'idx_todos_task_events_task']) {
+      expect(indexesOf(sqlite)).toContain(index)
+      expect(TODOS_REQUIRED_INDEXES).toContain(index)
+    }
+    expect(sqlite.prepare(`SELECT name FROM pragma_index_info('idx_todos_task_events_user_day') ORDER BY seqno`).all())
+      .toEqual([{ name: 'user_id' }, { name: 'on_day' }])
+    expect(sqlite.prepare(`SELECT name FROM pragma_index_info('idx_todos_task_events_task') ORDER BY seqno`).all())
+      .toEqual([{ name: 'task_id' }])
   })
 })
 

@@ -131,6 +131,41 @@ export const TODOS_SCHEMA_STATEMENTS: readonly string[] = [
   `CREATE INDEX IF NOT EXISTS idx_todos_reminders_due
      ON todos_reminders(remind_at) WHERE fired_at IS NULL`,
 
+  // Every status change a task has ever made, one row each — the only place the app's own history
+  // lives. `todos_tasks` records where a task is, never where it has been: a reopened task leaves
+  // no trace on its row, so the cumulative flow the statistics draw is replayed from these rows
+  // rather than read off the table. Append-only — nothing here is updated or rewritten, and a
+  // task's rows leave only with the task itself (the trash keeps them; history is not the trash's
+  // to take). The one-shot `migrateTaskEvents` seeds an older database from the rows it already
+  // holds, and every write after that records its own.
+  //
+  // `at` is the instant of the change and `on_day` the account's calendar day it fell on, computed
+  // when the row was written for the reason `created_on` / `completed_on` are: a day derived at
+  // query time drifts across DST and files a task under the wrong date. `kind` says whether the
+  // row is a task's birth or a status change, `from_status` the state it left (NULL for a birth,
+  // which only ever adds) and `to_status` the one it entered — one event moves one task one step,
+  // which is what makes the replay a subtraction and an addition rather than a switch. The key
+  // leads with the account like every other table an account owns rows in.
+  `CREATE TABLE IF NOT EXISTS todos_task_events (
+    user_id TEXT NOT NULL,
+    id TEXT NOT NULL,
+    task_id TEXT NOT NULL,
+    at INTEGER NOT NULL,
+    on_day TEXT NOT NULL,
+    kind TEXT NOT NULL,
+    from_status TEXT,
+    to_status TEXT NOT NULL,
+    PRIMARY KEY (user_id, id)
+  )`,
+  // What the statistics group by: one account's events by the day they happened, so a range read
+  // is an ordered walk rather than a scan of the whole history.
+  `CREATE INDEX IF NOT EXISTS idx_todos_task_events_user_day
+     ON todos_task_events(user_id, on_day)`,
+  // What the backfill's guard and a purge ask: every event of one task. Without it each probe of
+  // "has this task a birth event yet" would walk the account's whole history.
+  `CREATE INDEX IF NOT EXISTS idx_todos_task_events_task
+     ON todos_task_events(task_id)`,
+
   `CREATE TABLE IF NOT EXISTS todos_lists (
     user_id TEXT NOT NULL,
     id TEXT NOT NULL,
@@ -247,6 +282,7 @@ export const TODOS_SCHEMA_STATEMENTS: readonly string[] = [
 export const TODOS_REQUIRED_TABLES: readonly string[] = [
   'todos_tasks',
   'todos_reminders',
+  'todos_task_events',
   'todos_lists',
   'todos_steps',
   'todos_attachments',
@@ -271,6 +307,8 @@ export const TODOS_REQUIRED_INDEXES: readonly string[] = [
   'idx_todos_tasks_trash',
   'idx_todos_reminders_task',
   'idx_todos_reminders_due',
+  'idx_todos_task_events_user_day',
+  'idx_todos_task_events_task',
   'idx_todos_lists_unique',
   'idx_todos_steps_task',
   'idx_todos_tags_unique',
@@ -291,6 +329,7 @@ export const TODOS_REQUIRED_COLUMNS: Readonly<Record<string, readonly string[]>>
     'conversation_id', 'created_at', 'updated_at', 'rev', 'deleted_at',
   ],
   todos_reminders: ['user_id', 'id', 'task_id', 'remind_at', 'fired_at', 'created_at'],
+  todos_task_events: ['user_id', 'id', 'task_id', 'at', 'on_day', 'kind', 'from_status', 'to_status'],
   todos_lists: ['user_id', 'id', 'name', 'icon', 'color', 'position', 'archived_at', 'parent_id', 'created_at', 'updated_at'],
   todos_steps: ['user_id', 'id', 'task_id', 'text', 'done', 'position', 'created_at'],
   todos_attachments: ['user_id', 'task_id', 'attachment_id', 'created_at'],
