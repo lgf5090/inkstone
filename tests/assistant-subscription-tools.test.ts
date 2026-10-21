@@ -68,7 +68,7 @@ async function seedSubscription(overrides: Record<string, unknown> = {}, userId 
 }
 
 function store(userId = ALICE) {
-  return { store: new SubscriptionsStore(env.DB, userId), context: storeContext({ timezone: 'Asia/Shanghai', paymentHistoryLimit: 100, locale: 'zh-CN', notificationHours: [], showLunar: false, baseCurrency: 'CNY', budgetMonthly: null, budgetYearly: null, rateOverrides: {}, inboundTokenHint: '' }, NOW) }
+  return { store: new SubscriptionsStore(env.DB, userId), context: storeContext({ timezone: 'Asia/Shanghai', paymentHistoryLimit: 100, locale: 'zh-CN', notificationHours: [], showLunar: false, baseCurrency: 'CNY', budgetMonthly: null, budgetYearly: null, budgetCategories: {}, rateOverrides: {}, inboundTokenHint: '' }, NOW) }
 }
 
 beforeEach(() => {
@@ -437,6 +437,41 @@ describe('the account behind the rows', () => {
     }
     expect(summary.yearlyBudget.limit, 'a cleared ceiling is said, not left blank').toBeNull()
     expect(summary.budget.limit).toBe(300)
+  })
+
+  it('caps categories one name at a time, and lets a name go uncapped again', async () => {
+    const set = await run('set_subscription_settings', { categoryBudgets: 'streaming:600, books:200' }) as {
+      budgetCategories: Record<string, number>
+      categoryBudgetsNote?: string
+    }
+    expect(set.budgetCategories).toEqual({ streaming: 600, books: 200 })
+    expect(set.categoryBudgetsNote, 'a ceiling that is set needs no sentence about it').toBeUndefined()
+
+    const merged = await run('set_subscription_settings', { categoryBudgets: 'games:300' }) as {
+      budgetCategories: Record<string, number>
+    }
+    expect(merged.budgetCategories, 'naming one category does not give up the others').toEqual({ streaming: 600, books: 200, games: 300 })
+
+    // Nothing in this account is filed under those names, so the dashboard still lists all three ceilings
+    // and says each has spent nothing — which is the answer to "is the cap holding".
+    const summary = await run('subscription_summary', {}) as { categoryBudgets: Array<{ label: string; amount: number }> }
+    expect(summary.categoryBudgets.map((row) => row.label).sort()).toEqual(['books', 'games', 'streaming'])
+    expect(summary.categoryBudgets.every((row) => row.amount === 0)).toBe(true)
+
+    const uncapped = await run('set_subscription_settings', { categoryBudgets: 'books:none' }) as {
+      budgetCategories: Record<string, number>
+    }
+    expect(uncapped.budgetCategories).toEqual({ streaming: 600, games: 300 })
+
+    const cleared = await run('set_subscription_settings', { clearCategoryBudgets: true }) as {
+      budgetCategories: Record<string, number>
+      categoryBudgetsNote?: string
+    }
+    expect(cleared.budgetCategories).toEqual({})
+    expect(cleared.categoryBudgetsNote).toMatch(/No category is capped/)
+
+    await expect(run('set_subscription_settings', { categoryBudgets: '' })).rejects.toThrow(/Name a category/)
+    await expect(run('set_subscription_settings', { categoryBudgets: 'streaming:cheap' })).rejects.toThrow(/is not a ceiling/)
   })
 
   /**

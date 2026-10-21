@@ -180,6 +180,16 @@ describe('the bundle', () => {
     // was set for it.
     expect(bundle.overview.budget.over).toBe(false)
   })
+
+  it('lists every ceiling the account set, including the category that has spent nothing', async () => {
+    await create({ amount: 300 })
+    await send('PUT', '/settings', { budgetCategories: { family: 500, books: 100 } })
+    const bundle = await json<any>(await send('GET', '/'))
+    expect(bundle.overview.categoryBudgets).toEqual([
+      { label: 'family', limit: 500, amount: 300, over: false },
+      { label: 'books', limit: 100, amount: 0, over: false },
+    ])
+  })
 })
 
 describe('updating', () => {
@@ -311,6 +321,23 @@ describe('settings', () => {
     const half = await json<any>(await send('PUT', '/settings', { budgetMonthly: null }))
     expect(half.settings.budgetMonthly).toBeNull()
     expect(half.settings.budgetYearly).toBe(900)
+  })
+
+  it('saves the category ceilings as the whole map the editor shows', async () => {
+    const saved = await json<any>(await send('PUT', '/settings', { budgetCategories: { streaming: 600, books: 200 } }))
+    expect(saved.settings.budgetCategories).toEqual({ streaming: 600, books: 200 })
+    // A second save is the map again rather than a merge: leaving a name out is the reader removing its ceiling.
+    const changed = await json<any>(await send('PUT', '/settings', { budgetCategories: { streaming: 900 } }))
+    expect(changed.settings.budgetCategories).toEqual({ streaming: 900 })
+    expect((await json<any>(await send('GET', '/settings'))).settings.budgetCategories).toEqual({ streaming: 900 })
+    expect((await json<any>(await send('PUT', '/settings', { budgetCategories: {} }))).settings.budgetCategories).toEqual({})
+  })
+
+  it('refuses a ceiling the app could not enforce with', async () => {
+    expect((await send('PUT', '/settings', { budgetCategories: { streaming: 'cheap' } })).status).toBe(400)
+    expect((await send('PUT', '/settings', { budgetCategories: 'streaming:600' })).status).toBe(400)
+    // The account keeps what it had rather than half-adopting what did not land.
+    expect((await json<any>(await send('GET', '/settings'))).settings.budgetCategories).toEqual({})
   })
 
   it('rotates an inbound token and never stores it in the clear', async () => {

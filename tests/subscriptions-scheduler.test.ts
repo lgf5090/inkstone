@@ -54,6 +54,7 @@ async function seed(userId: string, options: { name?: string; days: number; hour
     baseCurrency: 'CNY' as const,
     budgetMonthly: null,
     budgetYearly: null,
+    budgetCategories: {},
     rateOverrides: {},
     inboundTokenHint: '',
   }

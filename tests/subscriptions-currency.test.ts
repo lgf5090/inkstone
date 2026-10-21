@@ -4,6 +4,7 @@ import {
   annualisedCost,
   calculateMonthlyExpense,
   calculateYearlyExpense,
+  categoryBudgetsOf,
   convertToBase,
   expenseByMonth,
   findPriceChanges,
@@ -23,6 +24,7 @@ import {
   type PaymentSample,
 } from '../src/shared/subscriptions/currency'
 import { formatPaid } from '../src/shared/subscriptions/format'
+import { normalizeBudgetCategories } from '../src/shared/subscriptions/model'
 import type { SubscriptionItem } from '../src/shared/subscriptions/model'
 
 const SHANGHAI = 'Asia/Shanghai'
@@ -252,6 +254,53 @@ describe('the six-month series', () => {
       '2025-12', '2026-01', '2026-02', '2026-03', '2026-04', '2026-05',
     ])
     expect(series.map((entry) => entry.amount)).toEqual([0, 30, 0, 0, 0, 60])
+  })
+})
+
+/**
+ * The ceilings a reader names for their own categories, and the year each one is measured against.
+ *
+ * Two separate promises: what goes into the account's settings is only what the app can enforce with, and
+ * what comes out of the dashboard lists every ceiling — including the one whose category has spent nothing.
+ */
+describe('a ceiling on one category', () => {
+  it('keeps the names as written and the numbers as money', () => {
+    expect(normalizeBudgetCategories({ streaming: '600.004', music: 200 })).toEqual({ streaming: 600, music: 200 })
+  })
+
+  it('drops what the app could not enforce, and never guesses a number in', () => {
+    const tooLong = 'x'.repeat(41)
+    expect(normalizeBudgetCategories({ '  ': 100, tools: 0, games: -5, art: 'cheap', [tooLong]: 100 })).toEqual({})
+  })
+
+  it('reads a missing, blank or non-object cell as no ceilings at all', () => {
+    for (const raw of [null, undefined, '', '[]', [], 7]) {
+      expect(normalizeBudgetCategories(raw)).toEqual({})
+    }
+  })
+
+  it('lists every ceiling, including the category that has spent nothing', () => {
+    const rows = categoryBudgetsOf([{ label: 'streaming', amount: 500, percentage: 100 }], { streaming: 600, books: 200 })
+    expect(rows).toEqual([
+      { label: 'streaming', limit: 600, amount: 500, over: false },
+      { label: 'books', limit: 200, amount: 0, over: false },
+    ])
+  })
+
+  it('puts the spent ones first, then the biggest, then the name', () => {
+    const rows = categoryBudgetsOf([
+      { label: 'a', amount: 900, percentage: 40 },
+      { label: 'b', amount: 100, percentage: 10 },
+      { label: 'z', amount: 50, percentage: 5 },
+      { label: 'm', amount: 100, percentage: 10 },
+    ], { a: 999, b: 90, z: 40, m: 90 })
+    expect(rows.map((row) => row.label)).toEqual(['b', 'm', 'z', 'a'])
+    expect(rows.map((row) => row.over)).toEqual([true, true, true, false])
+  })
+
+  it('says a category is over rather than promising it has room', () => {
+    const rows = categoryBudgetsOf([{ label: 'games', amount: 300, percentage: 100 }], { games: 300 })
+    expect(rows[0]).toEqual({ label: 'games', limit: 300, amount: 300, over: false })
   })
 })
 

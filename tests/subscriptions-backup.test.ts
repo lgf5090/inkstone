@@ -66,7 +66,14 @@ async function seed(): Promise<void> {
     periodValue: 1,
     periodUnit: 'year',
   }, context)
-  await saveSettings(env.DB, USER, { timezone: 'Asia/Tokyo', notificationHours: ['08', '20'], baseCurrency: 'JPY', budgetMonthly: 5000, budgetYearly: 60000 })
+  await saveSettings(env.DB, USER, {
+    timezone: 'Asia/Tokyo',
+    notificationHours: ['08', '20'],
+    baseCurrency: 'JPY',
+    budgetMonthly: 5000,
+    budgetYearly: 60000,
+    budgetCategories: { family: 500, travel: 1200 },
+  })
   await store.setLabelStyle('type', '流媒体', { icon: 'lucide:Tv', color: '#e11d48' })
 }
 
@@ -180,13 +187,18 @@ describe('restore', () => {
   it('carries both ceilings out and back', async () => {
     await seed()
     const text = await readBackupSubscriptions(env.DB, USER)
-    expect(JSON.parse(text!).settings.budget_yearly).toBe(60000)
+    const payload = JSON.parse(text!)
+    expect(payload.settings.budget_yearly).toBe(60000)
+    // A map cell travels as text and comes back as a map, the same way the notification window does.
+    expect(typeof payload.settings.budget_categories).toBe('string')
+    expect(JSON.parse(payload.settings.budget_categories)).toEqual({ family: 500, travel: 1200 })
 
-    await saveSettings(env.DB, USER, { budgetMonthly: null, budgetYearly: null })
+    await saveSettings(env.DB, USER, { budgetMonthly: null, budgetYearly: null, budgetCategories: {} })
     await applyBackupSubscriptions(env.DB, USER, text)
     const restored = await loadSettings(env.DB, USER)
     expect(restored.budgetMonthly).toBe(5000)
     expect(restored.budgetYearly, 'the year is its own ceiling, not twelve of the month').toBe(60000)
+    expect(restored.budgetCategories).toEqual({ family: 500, travel: 1200 })
   })
 
   it('replaces the current library rather than adding to it', async () => {
