@@ -10,6 +10,9 @@ interface DatePickerProps {
   /**
    * The property this picker edits. The visible text is only the date, so a
    * table row of dates would read as bare numbers; the name goes in beside it.
+   *
+   * A caller that wraps the picker in a `Field` passes `aria-labelledby` as well, and then this copy is
+   * dropped rather than spoken twice.
    */
   label: string
   value?: string
@@ -20,6 +23,19 @@ interface DatePickerProps {
    * a schedule field does not need the browser's own `datetime-local` control.
    */
   withTime?: boolean
+  /**
+   * The attributes a surrounding `Field` writes onto the control it names.
+   *
+   * They land on the trigger rather than on the box around it, because the box is not something a label
+   * can point at: a `for` that names a `div` is a dangling reference that gives a reader nothing.
+   */
+  id?: string
+  'aria-labelledby'?: string
+  'aria-describedby'?: string
+  /** The field is waiting for an answer that is not there. */
+  invalid?: boolean
+  /** Where the picker has to share a row, or size itself by its container. */
+  className?: string
 }
 
 const DEFAULT_TIME = '09:00'
@@ -505,6 +521,11 @@ export function DatePicker({
   placeholder,
   onChange,
   withTime = false,
+  id,
+  'aria-labelledby': labelledBy,
+  'aria-describedby': describedBy,
+  invalid = false,
+  className,
 }: DatePickerProps) {
   const [open, setOpen] = useState(false)
   const containerRef = useRef<HTMLDivElement>(null)
@@ -514,17 +535,27 @@ export function DatePicker({
   return (
     <div
       ref={containerRef}
-      className='relative flex h-8 w-full items-center justify-between rounded-[var(--r-md)] border border-[var(--border-default)] bg-[var(--bg-surface)] px-2.5 transition-colors hover:border-[var(--border-strong)]'
+      className={cn(
+        'relative flex h-11 w-full items-center justify-between rounded-[var(--r-md)] border bg-[var(--bg-surface)] px-2.5 transition-colors hover:border-[var(--border-strong)] md:h-[34px]',
+        invalid ? 'border-[var(--danger)]' : 'border-[var(--border-default)]',
+        className,
+      )}
     >
       <button
+        id={id}
         type='button'
         onClick={() => setOpen((o) => !o)}
         className='flex flex-1 items-center gap-1.5 truncate text-left text-[length:var(--text-12)] text-[var(--text-primary)]'
         aria-haspopup='dialog'
         aria-expanded={open}
+        aria-labelledby={labelledBy}
+        aria-describedby={describedBy}
+        aria-invalid={invalid || undefined}
         {...(open ? { 'aria-controls': panelId } : {})}
       >
-        <span className='sr-only'>{label}</span>
+        {/* A `Field` above this picker already names it, and a second copy of the same words would be
+            read out twice. Without one, this span is the only name the button has. */}
+        {!labelledBy && <span className='sr-only'>{label}</span>}
         <CalendarIcon size={13} className='shrink-0 text-[var(--text-tertiary)]' />
         <span className={value ? 'text-[var(--text-primary)] font-medium' : 'text-[var(--text-quaternary)]'}>
           {shown}

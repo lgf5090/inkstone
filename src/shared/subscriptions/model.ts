@@ -123,6 +123,29 @@ export type SubscriptionStatus = 'active' | 'soon' | 'today' | 'expired' | 'disa
 /** How many days ahead the list calls something "soon" and the overview counts as expiring. */
 export const SOON_DAYS = 7
 
+/**
+ * How many calendar months the dashboard's trend is drawn across.
+ *
+ * Twelve, not six: the question a subscription reader asks of a trend is whether this year is heavier than
+ * last one, and a window shorter than a year cannot show the month that charges once a year at all.
+ */
+export const TREND_MONTHS = 12
+
+/**
+ * How many weeks the day-by-day heat grid covers, and the window the day buckets are built for.
+ *
+ * Half a year: long enough that a quarterly or annual charge appears more than once, short enough that a
+ * week reads as a week rather than as one pixel in a wall. The server cuts its buckets at this number, so
+ * the grid can never draw weeks whose data was never sent.
+ */
+export const HEAT_WEEKS = 26
+
+/** One day's receipts, in the total currency. Only days that charged something are listed. */
+export interface DayExpense {
+  date: string
+  amount: number
+}
+
 /** The most rules one subscription may carry. Ten is already more than a person reads. */
 export const RULES_LIMIT = 10
 
@@ -453,6 +476,8 @@ export interface SubscriptionOverview {
   byType: ExpenseShare[]
   byCategory: ExpenseShare[]
   months: MonthExpense[]
+  /** The last `HEAT_WEEKS` weeks, day by day, for the grid that shows when the money actually left. */
+  daily: DayExpense[]
   timezone: string
   scheduler: ScheduleLogEntry | null
   history: ScheduleLogEntry[]

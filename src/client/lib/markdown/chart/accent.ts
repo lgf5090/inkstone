@@ -5,7 +5,7 @@
  * math stays testable without a DOM. Every call re-reads: a chart's colours must follow the accent the
  * account has now, not the one that happened to be set when the module was first loaded.
  */
-import { PALETTE_SIZE, accentPalette, parseOklch, type Oklch } from './palette';
+import { PALETTE_SIZE, accentPalette, identityPalette, parseOklch, type Oklch } from './palette';
 
 /** cinnabar, the accent the token layer ships with. Only reached with no stylesheet in reach. */
 const FALLBACK_ACCENT: Oklch = { l: 0.49, c: 0.15, h: 30 };
@@ -22,6 +22,17 @@ export function chartAccent(): Oklch {
 
 export function chartPalette(dark: boolean): string[] {
     return accentPalette(chartAccent(), PALETTE_SIZE, dark);
+}
+
+/**
+ * The same accent as a set of identities rather than a set of series.
+ *
+ * Anything that gives a thing a colour the reader has to learn — a category's face, a label's chip —
+ * reads from here, so the whole page moves together when the accent moves and a ring's slices stay
+ * tellable apart however they are sorted.
+ */
+export function chartIdentityPalette(dark: boolean): string[] {
+    return identityPalette(chartAccent(), PALETTE_SIZE, dark);
 }
 
 /**

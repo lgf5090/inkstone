@@ -4,6 +4,7 @@ import {
   annualisedCost,
   calculateMonthlyExpense,
   calculateYearlyExpense,
+  dailySpend,
   categoryBudgetsOf,
   convertToBase,
   expenseByMonth,
@@ -441,5 +442,43 @@ describe('the price history of one plan', () => {
   it('turns a numeric instant into the day the chart prints', () => {
     const points = priceHistory([{ paidAt: Date.parse('2026-05-06T04:00:00Z'), amount: 60, currency: 'CNY' }], 'CNY')
     expect(points[0]?.at.startsWith('2026-05-06')).toBe(true)
+  })
+})
+
+/**
+ * The day-level buckets behind the heat grid.
+ *
+ * The window and the day boundary are the two things a reader cannot see from a picture of squares, so
+ * both are pinned: a charge that lands at one in the morning belongs to the day they remember, and a day
+ * outside the window must not be drawn at all.
+ */
+describe('the days the money left', () => {
+  it('buckets by the reader day and leaves the empty ones out', () => {
+    const days = dailySpend([
+      payment({ paidAt: Date.parse('2026-05-24T02:00:00Z'), amount: 60 }),
+      payment({ paidAt: Date.parse('2026-05-23T17:00:00Z'), amount: 40 }),
+      payment({ paidAt: Date.parse('2026-05-20T00:00:00Z'), amount: 10 }),
+      payment({ paidAt: Date.parse('2026-05-20T00:00:00Z'), amount: 0 }),
+    ], SHANGHAI, FALLBACK_RATES, NOW)
+    expect(days).toEqual([
+      { date: '2026-05-20', amount: 10 },
+      { date: '2026-05-24', amount: 100 },
+    ])
+  })
+
+  it('converts a foreign receipt and keeps it on the day it was charged', () => {
+    expect(dailySpend([payment({ paidAt: Date.parse('2026-05-22T00:00:00Z'), amount: 20, currency: 'USD' })], SHANGHAI, FALLBACK_RATES, NOW))
+      .toEqual([{ date: '2026-05-22', amount: 139.6 }])
+  })
+
+  it('cuts the window at the day count, keeping today and dropping the far edge', () => {
+    const inside = dailySpend([payment({ paidAt: Date.parse('2026-05-18T00:00:00Z'), amount: 5 })], SHANGHAI, FALLBACK_RATES, NOW, 7)
+    const outside = dailySpend([payment({ paidAt: Date.parse('2026-05-17T00:00:00Z'), amount: 5 })], SHANGHAI, FALLBACK_RATES, NOW, 7)
+    expect(inside).toHaveLength(1)
+    expect(outside, 'a day older than the window is not in the picture').toHaveLength(0)
+  })
+
+  it('draws no day that has not happened yet', () => {
+    expect(dailySpend([payment({ paidAt: Date.parse('2026-06-02T00:00:00Z'), amount: 5 })], SHANGHAI, FALLBACK_RATES, NOW)).toEqual([])
   })
 })

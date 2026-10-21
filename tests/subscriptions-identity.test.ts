@@ -9,7 +9,7 @@
 import { describe, expect, it } from 'vitest'
 import { ORGANIZER_COLORS } from '../src/shared/organizer-colors'
 import {
-  hashColorOf,
+  colorIndexOf,
   normalizeColor,
   normalizeIcon,
   resolveIdentity,
@@ -67,15 +67,17 @@ describe('normalizeColor', () => {
   })
 })
 
-describe('hashColorOf', () => {
-  it('answers the same colour for the same name, always', () => {
-    expect(hashColorOf('Figma')).toBe(hashColorOf('Figma'))
-    expect(hashColorOf('  Figma  ')).toBe(hashColorOf('Figma'))
+describe('colorIndexOf', () => {
+  it('answers the same slot for the same name, always', () => {
+    expect(colorIndexOf('Figma', 10)).toBe(colorIndexOf('Figma', 10))
+    expect(colorIndexOf('  Figma  ', 10)).toBe(colorIndexOf('Figma', 10))
   })
 
-  it('only ever answers a palette colour', () => {
+  it('answers a slot the ramp has', () => {
     for (const name of ['', 'Netflix', '阿里云', 'a'.repeat(LABEL_MAX), '🎬']) {
-      expect(ORGANIZER_COLORS).toContain(hashColorOf(name))
+      const slot = colorIndexOf(name, ORGANIZER_COLORS.length)
+      expect(slot).toBeGreaterThanOrEqual(0)
+      expect(slot).toBeLessThan(ORGANIZER_COLORS.length)
     }
   })
 })
@@ -96,17 +98,17 @@ describe('resolveIdentity', () => {
     expect(resolveIdentity({ label: 'Streaming', kind: 'type', storedIcon: null, storedColor: '#059669', resolve: EN }))
       .toEqual({ icon: 'lucide:Tv', color: '#059669' })
     expect(resolveIdentity({ label: 'Streaming', kind: 'type', storedIcon: 'lucide:Gem', storedColor: '', resolve: EN }))
-      .toEqual({ icon: 'lucide:Gem', color: '#e11d48' })
+      .toEqual({ icon: 'lucide:Gem', color: null })
   })
 
-  it('hashes a colour for a name no preset knows, and leaves its icon unset', () => {
+  it('leaves the colour to the surface that draws it, and the icon unset for a name no preset knows', () => {
     const resolved = resolveIdentity({ label: 'Figma', kind: 'type', resolve: EN })
     expect(resolved.icon).toBeNull()
-    expect(resolved.color).toBe(hashColorOf('Figma'))
+    expect(resolved.color).toBeNull()
   })
 
   it('does not treat a label as a preset in the wrong list', () => {
-    // `Family` is a category preset, not a type one, so as a type it must fall through to the hash.
+    // `Family` is a category preset, not a type one, so as a type it gets no icon at all.
     expect(resolveIdentity({ label: 'Family', kind: 'type', resolve: EN }).icon).toBeNull()
     expect(resolveIdentity({ label: 'Family', kind: 'category', resolve: EN }).icon).toBe('lucide:Home')
   })

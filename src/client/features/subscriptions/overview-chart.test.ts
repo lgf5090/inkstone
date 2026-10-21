@@ -11,6 +11,7 @@ import { act, createElement } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import type { SubscriptionOverview } from '@shared/subscriptions/model'
+import { HEAT_WEEKS } from '@shared/subscriptions/model'
 import { formatAmount } from '@shared/subscriptions/format'
 import { initI18n, t } from '../../lib/i18n'
 import { installTestGlobals } from '../../lib/test-render'
@@ -30,6 +31,7 @@ function overview(overrides: Partial<SubscriptionOverview> = {}): SubscriptionOv
     byType: [],
     byCategory: [],
     months: MONTHS.map((month, index) => ({ month, amount: AMOUNTS[index] })),
+    daily: [],
     timezone: 'Asia/Shanghai',
     scheduler: null,
     history: [],
@@ -58,19 +60,23 @@ afterEach(() => {
   document.body.innerHTML = ''
 })
 
-/** The chart's `role=img` block: it is a picture of six numbers, described rather than read cell by cell. */
-function chart(): HTMLElement {
-  const host = document.querySelector<HTMLElement>('[role=img]')
-  expect(host, 'the month chart is not rendered').toBeTruthy()
-  return host!
-}
-
+/**
+ * The bars themselves.
+ *
+ * Not `role=img`: the ring in the share card is a picture too, and a query that reaches for "the image"
+ * now finds a canvas instead of the month chart. These hooks name the thing they want.
+ */
 function bars(): HTMLElement[] {
-  return [...chart().querySelectorAll<HTMLElement>('[title]')] as HTMLElement[]
+  return [...document.querySelectorAll<HTMLElement>('[data-trend-bars] > div')]
 }
 
-function plotHeights(): string[] {
-  return bars().map((bar) => (bar.parentElement as HTMLElement).style.height)
+/** The same figures written out for a reader who cannot see the bars. */
+function barValues(): HTMLElement[] {
+  return [...document.querySelectorAll<HTMLElement>('[data-trend-values] > li')]
+}
+
+function budgetLine(): HTMLElement | null {
+  return document.querySelector<HTMLElement>('[data-trend-budget]')
 }
 
 function mountChart(overrides: Partial<SubscriptionOverview> = {}): void {
@@ -95,18 +101,17 @@ describe('the month chart', () => {
   it('draws one bar per month, and every bar states a height that can resolve', () => {
     mountChart()
     const found = bars()
-    expect(found).toHaveLength(MONTHS.length)
+    expect(found, 'the month chart drew no bars').toHaveLength(MONTHS.length)
     for (const bar of found) expect(bar.getAttribute('title'), 'each bar says what it costs').toBeTruthy()
     for (const bar of found) {
       expect(bar.style.height, 'a percentage against a content-sized column is zero, which is how the chart vanished').toMatch(/^\d+px$/)
     }
-    for (const height of plotHeights()) expect(height).toMatch(/^\d+px$/)
   })
 
   it('scales the peak month to the whole plot and draws nothing for a month with no receipts', () => {
     mountChart()
     const found = bars()
-    const plot = Number.parseInt(plotHeights()[0]!, 10)
+    const plot = Number.parseInt(found[0]!.parentElement!.style.height, 10)
     expect(Number.parseInt(found[5]!.style.height, 10), 'the tallest month fills the plot').toBe(plot)
     expect(Number.parseInt(found[3]!.style.height, 10)).toBe(Math.round((240 / 300) * plot))
     // A stub here used to be two pixels, and five of them joined into a line that read as an axis.
@@ -114,11 +119,44 @@ describe('the month chart', () => {
     expect(Number.parseInt(found[2]!.style.height, 10)).toBe(0)
   })
 
-  it('names the chart once instead of reading six numbers at a reader who cannot see them', () => {
+  it('lists the same figures for a reader who cannot see the bars', () => {
     mountChart()
-    const block = chart()
-    expect(block.getAttribute('aria-label')).toBeTruthy()
-    expect(bars().every((bar) => bar.getAttribute('title'))).toBe(true)
+    const values = barValues()
+    expect(values).toHaveLength(MONTHS.length)
+    expect(values[1]!.textContent).toContain('2026-06')
+    expect(values[1]!.textContent).toContain('¥120.00')
+    // The picture is decoration once the numbers are written out; reading both would say everything twice.
+    expect(document.querySelector('[data-trend-bars]')!.closest('[aria-hidden="true"]')).toBeTruthy()
+  })
+
+  it('rules the monthly ceiling across the plot and marks the months that passed it', () => {
+    mountChart()
+    const line = budgetLine()
+    expect(line, 'a chart about a budget with no budget line cannot be read against the number it is about').toBeTruthy()
+    // The fixture's ceiling is ¥200 against a ¥300 peak, so the line sits two thirds up the plot.
+    expect(line!.style.bottom).toBe('96px')
+    expect(line!.textContent).toContain('¥200.00')
+    const found = bars()
+    expect(found[3]!.className, '240 over a 200 ceiling').toContain('danger')
+    expect(found[5]!.className, '300 over a 200 ceiling').toContain('danger')
+    expect(found[1]!.className).not.toContain('danger')
+    expect(barValues()[3]!.textContent).toContain('over the monthly budget')
+    expect(barValues()[1]!.textContent).not.toContain('over the monthly budget')
+  })
+
+  it('draws no line and no colour when the reader set no ceiling', () => {
+    mountChart({ budget: { limit: null, amount: 300, over: false } })
+    expect(budgetLine()).toBeNull()
+    for (const bar of bars()) expect(bar.className).not.toContain('danger')
+    for (const value of barValues()) expect(value.textContent).not.toContain('over the monthly budget')
+  })
+
+  it('lays a whole year out without collapsing the columns', () => {
+    const months = Array.from({ length: 12 }, (_, index) => `2025-${String(index + 1).padStart(2, '0')}`)
+    mountChart({ months: months.map((month) => ({ month, amount: 10 })) })
+    expect(bars()).toHaveLength(12)
+    expect(barValues()).toHaveLength(12)
+    for (const bar of bars()) expect(bar.className, 'a fixed-width column would push the twelfth off the card').toContain('flex-1')
   })
 })
 
@@ -189,5 +227,128 @@ describe('the category ceilings', () => {
     mountChart()
     expect(rows()).toHaveLength(0)
     expect(words()).not.toContain(t('subscriptions.overview.category_ceilings'))
+  })
+})
+
+describe('the share rings', () => {
+  const rings = () => [...document.querySelectorAll<HTMLElement>('[data-share-ring]')]
+  const list = () => document.querySelector('[data-share-list]')
+
+  it('draws a ring over the list without replacing it', () => {
+    mountChart({
+      byCategory: [
+        { label: 'streaming', amount: 600, percentage: 60 },
+        { label: 'tools', amount: 400, percentage: 40 },
+      ],
+    })
+    const ring = rings()[0]
+    expect(ring, 'a two-way split drew no ring').toBeTruthy()
+    const canvas = ring.querySelector('canvas[role="img"]')
+    expect(canvas, 'the ring is a picture that names nothing').toBeTruthy()
+    expect(canvas!.getAttribute('aria-label')).toContain('By category')
+    // The numbers stay written out beside it: a canvas a reader cannot see is not where the figures live.
+    expect(list(), 'the ring replaced the list it is supposed to sit beside').toBeTruthy()
+    expect(list()!.querySelectorAll('li')).toHaveLength(2)
+    expect(list()!.textContent).toContain('¥600.00')
+    expect(list()!.textContent).toContain('60%')
+  })
+
+  it('tints every slice of one ring differently, from the accent rather than a fixed ramp', () => {
+    // The registry is what the slot assignment walks, and in the app every drawn label is in it.
+    useSubscriptions.setState({
+      categories: [
+        { name: 'streaming', icon: '', color: '' },
+        { name: 'tools', icon: '', color: '' },
+        { name: 'news', icon: '', color: '' },
+        { name: 'hosting', icon: '', color: '' },
+      ],
+    })
+    mountChart({
+      byCategory: [
+        { label: 'streaming', amount: 600, percentage: 42 },
+        { label: 'tools', amount: 300, percentage: 21 },
+        { label: 'news', amount: 290, percentage: 20 },
+        { label: 'hosting', amount: 240, percentage: 17 },
+      ],
+    })
+    const tints = [...document.querySelectorAll<HTMLElement>('[data-share-list] li div > div')].map((bar) => bar.style.background)
+    expect(tints).toHaveLength(4)
+    // Two names may hash to the same slot of the ramp; the later one moves, and a ring that drew them the
+    // same colour would be showing one slice for two things.
+    expect(new Set(tints).size, 'two categories drew the same colour').toBe(tints.length)
+  })
+
+  it('leaves a colour the reader picked alone, wherever the accent goes', () => {
+    useSubscriptions.setState({ categories: [{ name: 'streaming', icon: '', color: '#059669' }] })
+    mountChart({
+      byCategory: [
+        { label: 'streaming', amount: 600, percentage: 60 },
+        { label: 'tools', amount: 400, percentage: 40 },
+      ],
+    })
+    // jsdom serializes the inline colour it was handed, so compare against that rather than the hex.
+    const tints = [...document.querySelectorAll<HTMLElement>('[data-share-list] li div > div')].map((bar) => bar.style.background)
+    expect(tints[0], 'a chosen colour is the reader\'s, not the ramp\'s').toBe('rgb(5, 150, 105)')
+    expect(tints[1]).not.toBe(tints[0])
+  })
+
+  it('draws no ring for a single slice, which is the whole total wearing a circle', () => {
+    mountChart({ byCategory: [{ label: 'streaming', amount: 600, percentage: 100 }] })
+    expect(rings()).toHaveLength(0)
+    expect(list()!.textContent).toContain('¥600.00')
+  })
+
+  it('draws nothing at all when there is no spending to split', () => {
+    mountChart({ byCategory: [], byType: [] })
+    expect(rings()).toHaveLength(0)
+    expect(list()).toBeNull()
+    expect(document.body.textContent).toContain('Nothing charged this year')
+  })
+})
+
+describe('the spending heat grid', () => {
+  /** The grid is built from the real clock, so the fixture's days are counted back from today. */
+  const dayKey = (back: number): string => {
+    const date = new Date()
+    date.setDate(date.getDate() - back)
+    return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
+  }
+  const cells = () => [...document.querySelectorAll<HTMLElement>('[data-heat-grid] span')]
+  /** A charged tile names its amount in its tooltip; a quiet one only names the day. */
+  const charged = () => cells().filter((cell) => (cell.getAttribute('title') ?? '').includes('¥'))
+  const summary = () => document.querySelector('[data-heat-summary]')?.textContent?.replace(/\s+/g, ' ').trim() ?? ''
+
+  it('lays whole weeks of tiles across the window and marks only the days that charged', () => {
+    mountChart({ daily: [{ date: dayKey(0), amount: 60 }, { date: dayKey(3), amount: 240 }] })
+    const found = cells()
+    // Whole columns of seven, at least the window's worth: the strip aligns its first column to the start
+    // of the week, so it can lead with days from before the window rather than a ragged half column.
+    expect(found.length % 7).toBe(0)
+    expect(found.length).toBeGreaterThanOrEqual(HEAT_WEEKS * 7)
+    expect(charged()).toHaveLength(2)
+    // The ramp is mixed into the card's own surface, so an unoutlined quiet tile is invisible and the grid
+    // stops being a grid — the spacing is the part that carries "nothing happened this week".
+    expect(found.every((cell) => /ring-inset/.test(cell.className))).toBe(true)
+    expect(summary()).toContain(String(HEAT_WEEKS))
+    expect(summary()).toContain('2')
+    expect(summary()).toContain('¥300.00')
+    expect(summary()).toContain(`${dayKey(3)} ¥240.00`)
+  })
+
+  it('lists the charged days for a reader who cannot see the tiles', () => {
+    mountChart({ daily: [{ date: dayKey(1), amount: 12 }] })
+    const list = [...document.querySelectorAll('[data-heat-days] li')]
+    expect(list).toHaveLength(1)
+    expect(list[0]!.textContent).toContain(dayKey(1))
+    expect(list[0]!.textContent).toContain('¥12.00')
+  })
+
+  it('says so when nothing charged, rather than drawing an empty wall', () => {
+    mountChart({ daily: [] })
+    expect(cells().length % 7).toBe(0)
+    expect(charged()).toHaveLength(0)
+    expect(cells().every((cell) => /ring-inset/.test(cell.className))).toBe(true)
+    expect(document.querySelector('[data-heat-days]')).toBeNull()
+    expect(summary()).toContain(String(HEAT_WEEKS))
   })
 })

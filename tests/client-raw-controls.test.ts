@@ -960,6 +960,86 @@ const CLIENT_CATCH_BASELINE = new Map<string, { sites: number; reason: string }>
   ['src/client/store/update.ts', { sites: 1, reason: 'writeIgnoredVersion records a dismissal the reader already got; if storage refuses, the same update offer returns on the next check, which is the safe direction.' }],
 ])
 
+/**
+ * A date is picked with `DatePicker`, never with the browser's own field.
+ *
+ * `<input type="date">` is a native control in the sense AGENTS.md rule 10 means: the calendar it opens
+ * is the operating system's, so it cannot be themed, cannot be pointed at a lunar calendar, cannot carry
+ * the app's own wording, and on the five subscription fields that used it it drew a 32px box between
+ * 34px inputs. `DatePicker` already exists (`src/client/components/date-picker.tsx`), is what the
+ * kanban, the tasks plugin, the automations and the model editor use, and is keyboard reachable through
+ * real `<button>` cells.
+ *
+ * The read takes the whole written `type` attribute, so a field that switches between a native date and
+ * free text is caught the same way a plain one is — the switch is the interesting half of the shape. And
+ * it reads both spellings of the element: the raw `<input>`, and the `Input` primitive that forwards
+ * `type` straight through to it, which is how all five subscription fields were actually written.
+ * What it cannot see is a type assembled from a variable, which is the same limit every other rule here
+ * accepts, and which the browser gates do not share.
+ */
+const NATIVE_DATE_TYPES = ['date', 'datetime-local', 'time', 'month', 'week'] as const
+/** The elements that hand a `type` through to a real input. */
+const INPUT_ELEMENTS = new Set(['input', 'Input'])
+
+/** Sites that keep a native date field, each with the reason it was not converged. */
+const NATIVE_DATE_BASELINE = new Map<string, { sites: number; reason: string }>([
+  [
+    'src/client/features/quickadd/prompts.tsx',
+    {
+      sites: 1,
+      reason: 'The date prompt answers a free-text draft as well as a picked day: while the reader is typing it switches the element to `text`, and a `DatePicker` has no way to hold a half-typed value. Converging it means teaching the shared picker to carry a draft string, which is a bigger change than this prompt is worth.',
+    },
+  ],
+])
+
+/** Every native date input the client tree writes, keyed by file. */
+function nativeDateSites(): Map<string, number> {
+  const counts = new Map<string, number>()
+  for (const file of walkFiles(CLIENT_DIR)) {
+    if (!/\.tsx$/.test(file)) continue
+    const name = relative(file)
+    if (name === 'src/client/components/date-picker.tsx') continue
+    const text = readText(file)
+    if (text === null) continue
+    const source = ts.createSourceFile(name, text, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX)
+    const visit = (node: ts.Node): void => {
+      if ((ts.isJsxOpeningElement(node) || ts.isJsxSelfClosingElement(node)) && INPUT_ELEMENTS.has(node.tagName.getText())) {
+        const written = attributeText(attributesOf(node).get('type'))
+        if (NATIVE_DATE_TYPES.some((type) => written.includes(`'${type}'`) || written.includes(`"${type}"`))) {
+          counts.set(name, (counts.get(name) ?? 0) + 1)
+        }
+      }
+      ts.forEachChild(node, visit)
+    }
+    visit(source)
+  }
+  return counts
+}
+
+describe('date fields keep using the shared DatePicker', () => {
+  const SITES = nativeDateSites()
+
+  it('fails when a client file writes a native date input instead of DatePicker', () => {
+    const lines: string[] = []
+    for (const [file, sites] of SITES) {
+      const allowed = NATIVE_DATE_BASELINE.get(file)
+      if (allowed === undefined) lines.push(`${file}: ${sites} native date input(s) — use DatePicker or baseline this with a reason`)
+      else if (sites > allowed.sites) lines.push(`${file}: ${sites} native date input(s), the baseline allows ${allowed.sites}`)
+    }
+    for (const [file, allowed] of NATIVE_DATE_BASELINE) {
+      if (!SITES.has(file)) lines.push(`${file}: baseline allows ${allowed.sites} native date input(s) but the file writes none — delete the entry`)
+    }
+    expect(lines, `${lines.length} file(s) changed their native date-field count.`).toEqual([])
+  })
+
+  it('keeps the native date exceptions honest', () => {
+    for (const [file, { reason }] of NATIVE_DATE_BASELINE) {
+      expect(reason.length, `${file} has no reason written`).toBeGreaterThan(40)
+      expect(SITES.has(file), `${file} is listed but writes no native date input`).toBe(true)
+    }
+  })
+})
+
 describe('client swallows state their reason beside the catch', () => {
   it('fails when a client catch ignores a rejection without a comment', () => {
     const found = silentClientCatches()

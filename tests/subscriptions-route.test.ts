@@ -7,7 +7,7 @@ import { errorResponse } from '../src/worker/lib/errors'
 import type { AppBindings } from '../src/worker/env'
 import { subscriptionRoutes } from '../src/worker/routes/subscriptions'
 import { enabledChannels } from '../src/worker/subscriptions/settings'
-import { BULK_LIMIT } from '../src/shared/subscriptions/model'
+import { BULK_LIMIT, TREND_MONTHS } from '../src/shared/subscriptions/model'
 import { makeD1 } from './doubles/d1-sqlite'
 
 const ALICE = 'user-alice'
@@ -156,7 +156,10 @@ describe('the bundle', () => {
     ])
     expect(bundle.channels.every((channel: any) => channel.configured === false)).toBe(true)
     expect(bundle.overview.active.total).toBe(1)
-    expect(bundle.overview.months).toHaveLength(6)
+    expect(bundle.overview.months).toHaveLength(TREND_MONTHS)
+    // One charged day — the opening receipt — and the window's own calendar day is what the unit tests
+    // over `dailySpend` pin, so this only checks the field is wired and converted.
+    expect(bundle.overview.daily).toEqual([{ date: expect.any(String), amount: 60 }])
     expect(bundle.overview.timezone).toBe('Asia/Shanghai')
   })
 

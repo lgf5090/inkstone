@@ -10,7 +10,7 @@
  * per-currency amount stays beside each row for the reader who wants it.
  */
 import { MS_PER_DAY, formatLocalDate, getDaysBetween, getNowInTimezone, getTimezoneDateParts } from './time'
-import { labelNamesOf, roundMoney, type CategoryBudget, type CategoryBudgets, type CurrencyCode, type ExpenseShare, type MonthExpense, type PriceChange, type RateOverrides, type SubscriptionItem, type TrialEnding, type UpcomingRenewal, type YearSpend } from './model'
+import { HEAT_WEEKS, labelNamesOf, roundMoney, type CategoryBudget, type CategoryBudgets, type CurrencyCode, type DayExpense, type ExpenseShare, type MonthExpense, type PriceChange, type RateOverrides, type SubscriptionItem, type TrialEnding, type UpcomingRenewal, type YearSpend } from './model'
 
 /**
  * `1 unit of the currency = N CNY`, with CNY itself as the base. Used when the rate service is down.
@@ -407,6 +407,37 @@ export function categoryBudgetsOf(
     .sort((left, right) => (right.over ? 1 : 0) - (left.over ? 1 : 0)
       || right.amount - left.amount
       || (left.label < right.label ? -1 : left.label > right.label ? 1 : 0))
+}
+
+/**
+ * The last `days` calendar days of spending, oldest first, for the heat grid.
+ *
+ * Days with no receipt are left out rather than drawn as an explicit zero: the grid is half a year of days
+ * and a reader who paid for nothing on a Tuesday gains nothing from being told so. The day is the reader's
+ * own calendar day and not UTC — a charge that lands at one in the morning in Shanghai belongs to the day
+ * they remember it happening.
+ */
+export function dailySpend(
+  payments: readonly PaymentSample[],
+  timezone: string,
+  rates: RateTable,
+  now: Date = new Date(),
+  days = HEAT_WEEKS * 7,
+): DayExpense[] {
+  const end = getTimezoneDateParts(now, timezone)
+  const endStamp = Date.UTC(end.year, end.month - 1, end.day)
+  const totals = new Map<string, number>()
+  for (const payment of payments) {
+    if (!(payment.amount > 0)) continue
+    const parts = getTimezoneDateParts(payment.paidAt, timezone)
+    const age = Math.round((endStamp - Date.UTC(parts.year, parts.month - 1, parts.day)) / MS_PER_DAY)
+    if (age < 0 || age >= days) continue
+    const key = `${parts.year}-${String(parts.month).padStart(2, '0')}-${String(parts.day).padStart(2, '0')}`
+    totals.set(key, (totals.get(key) ?? 0) + convertToBase(payment.amount, payment.currency, rates))
+  }
+  return [...totals.entries()]
+    .map(([date, amount]) => ({ date, amount: roundMoney(amount) }))
+    .sort((left, right) => (left.date < right.date ? -1 : left.date > right.date ? 1 : 0))
 }
 
 /** How many times a plan charges inside twelve months: a 3-month plan bills four times, an 18-month one twice. */

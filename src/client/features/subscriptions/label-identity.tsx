@@ -7,8 +7,9 @@
  * reasonable alone and together they meant a reader could not learn what anything looks like, which is
  * the whole point of giving a label a face.
  *
- * Resolution order lives in `@shared/subscriptions/identity` so the worker's notification body can
- * pick the same colour as the browser's row. This file only caches it per render.
+ * Resolution order lives here rather than in `@shared/subscriptions/identity` because the colour a label
+ * wears when nobody picked one is the accent's own ramp: only the browser knows what the accent is right
+ * now, and a worker would have to be told before it could answer.
  */
 import { useEffect, useMemo, useRef, useState, type ReactElement } from 'react'
 import { createPortal } from 'react-dom'
@@ -16,7 +17,7 @@ import { Check, Palette, Slash } from 'lucide-react'
 import { organizerColorLabel } from '@shared/organizer-colors'
 import {
   CATEGORY_PRESETS,
-  hashColorOf,
+  colorIndexOf,
   presetFor,
   SUBSCRIPTION_COLORS,
   SUBSCRIPTION_ICON_GROUPS,
@@ -28,16 +29,21 @@ import type { LabelEntry, LabelKind } from '@shared/subscriptions/model'
 import { useClickOutside, useEscape, usePanelCaret } from '../../components/overlay'
 import { Swatch } from '../../components/color-swatch'
 import { cn } from '../../lib/cn'
+import { useThemeDark } from '../../lib/hooks'
 import { t, useLocale, useLocaleRepaint } from '../../lib/i18n'
+import { chartIdentityPalette } from '../../lib/markdown/chart/accent'
 import { Z_INDEX } from '../../lib/z-index'
+import { useUi } from '../../store/ui'
 import { iconComponentOf } from './label-icons'
 import { useSubscriptions } from './store'
 
 export interface LabelIdentity {
   /** `lucide:<Name>` or null when nothing matches and an initial should draw instead. */
   icon: string | null
-  /** A palette hex, always — a label with no choice still has a derived colour. */
+  /** A colour to draw with, always: a label nobody tinted wears one from the account's accent. */
   color: string
+  /** Whether the reader picked that colour or the accent ramp did. The picker's reset tile reads it. */
+  chosen: boolean
 }
 
 /**
@@ -71,14 +77,24 @@ export function useLabelSuggestions(kind: LabelKind): string[] {
 export function useLabelIdentity(): (kind: LabelKind, name: string) => LabelIdentity {
   const types = useSubscriptions((state) => state.types)
   const categories = useSubscriptions((state) => state.categories)
+  const locale = useLocale()
   // Nothing here reads the locale directly, but `t` does inside the preset lookup — a re-render on
   // switch is what keeps a label named in one language from resolving against the other list.
   useLocaleRepaint()
+  const dark = useThemeDark()
+  // The store, not the document attribute: `data-accent` is written *from* this state, so reading it
+  // back would leave a label's colour stale until something else happened to re-render the page.
+  const accent = useUi((state) => state.accent)
 
   return useMemo(() => {
+    const palette = chartIdentityPalette(dark)
     const index = new Map<string, LabelIdentity>()
     const seed = (kind: LabelKind, list: readonly LabelEntry[]) => {
-      for (const entry of list) index.set(`${kind}:${entry.name}`, resolve(entry, kind))
+      const slots = identitySlots(list.map((entry) => entry.name), palette.length, locale)
+      for (const entry of list) {
+        const slot = slots.get(entry.name) ?? 0
+        index.set(`${kind}:${entry.name}`, resolve(entry, kind, palette[slot] ?? palette[0]!))
+      }
     }
     seed('type', types)
     seed('category', categories)
@@ -86,11 +102,31 @@ export function useLabelIdentity(): (kind: LabelKind, name: string) => LabelIden
       const key = `${kind}:${name}`
       const known = index.get(key)
       if (known) return known
-      const derived = resolve({ name, icon: '', color: '' }, kind)
+      const derived = resolve({ name, icon: '', color: '' }, kind, palette[colorIndexOf(name, palette.length)] ?? palette[0]!)
       index.set(key, derived)
       return derived
     }
-  }, [types, categories])
+  }, [types, categories, dark, accent, locale])
+}
+
+/**
+ * Which slot of the accent ramp each name of one kind stands in.
+ *
+ * A name asks for the slot its own hash lands on, which is what keeps a service the same colour as its
+ * spend moves up and down a list. Two names can ask for the same slot, and a ring that then draws them
+ * beside each other shows one colour twice — so the later name takes the next free slot. Only colliding
+ * names ever move, and a registry larger than the ramp has to share what is left.
+ */
+function identitySlots(names: readonly string[], count: number, locale: string): Map<string, number> {
+  const taken = new Set<number>()
+  const slots = new Map<string, number>()
+  for (const name of [...names].sort((left, right) => left.localeCompare(right, locale))) {
+    let slot = colorIndexOf(name, count)
+    for (let probe = 0; probe < count && taken.has(slot); probe += 1) slot = (slot + 1) % count
+    taken.add(slot)
+    slots.set(name, slot)
+  }
+  return slots
 }
 
 /**
@@ -102,16 +138,17 @@ export function useLabelIdentity(): (kind: LabelKind, name: string) => LabelIden
  * be stored happily and draw nothing — falling through to the preset is the safer answer to a question
  * only the client can ask.
  */
-function resolve(entry: LabelEntry, kind: LabelKind): LabelIdentity {
+function resolve(entry: LabelEntry, kind: LabelKind, derived: string): LabelIdentity {
   const chosenIcon = entry.icon ? iconComponentOf(entry.icon) : null
   const chosenColor = SUBSCRIPTION_COLORS.includes(entry.color as (typeof SUBSCRIPTION_COLORS)[number])
     ? entry.color
     : null
-  if (chosenIcon && chosenColor) return { icon: entry.icon, color: chosenColor }
+  if (chosenIcon && chosenColor) return { icon: entry.icon, color: chosenColor, chosen: true }
   const preset = presetFor(entry.name, kind, (key) => t(key))
   return {
     icon: chosenIcon ? entry.icon : preset ? iconValueOf(preset.icon) : null,
-    color: chosenColor ?? preset?.color ?? hashColorOf(entry.name),
+    color: chosenColor ?? derived,
+    chosen: chosenColor !== null,
   }
 }
 
@@ -245,7 +282,7 @@ export function LabelStylePicker({ kind, name, onPick }: {
             <Swatch
               color={null}
               label={t('subscriptions.picker.reset')}
-              active={!identity.color}
+              active={!identity.chosen}
               onPick={() => onPick({ color: null })}
               icon={<Slash size={11} />}
             />

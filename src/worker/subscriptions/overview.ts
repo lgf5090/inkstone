@@ -17,6 +17,7 @@ import {
   calculateMonthlyExpense,
   calculateYearlyExpense,
   categoryBudgetsOf,
+  dailySpend,
   expenseByMonth,
   findPriceChanges,
   getExpenseByCategory,
@@ -32,7 +33,7 @@ import {
   type PaymentSample,
   type RateTable,
 } from '@shared/subscriptions/currency'
-import { SOON_DAYS, type SubscriptionOverview, type SubscriptionSettings } from '@shared/subscriptions/model'
+import { SOON_DAYS, TREND_MONTHS, type SubscriptionOverview, type SubscriptionSettings } from '@shared/subscriptions/model'
 import { recentScheduleLogs } from './logs'
 import { SubscriptionsStore } from './store'
 
@@ -160,7 +161,8 @@ export async function buildOverview(
     byType: getExpenseByType(items, samples, settings.timezone, rates, at),
     byCategory,
     categoryBudgets: categoryBudgetsOf(byCategory, settings.budgetCategories),
-    months: expenseByMonth(samples, settings.timezone, rates, at),
+    months: expenseByMonth(samples, settings.timezone, rates, at, TREND_MONTHS),
+    daily: dailySpend(samples, settings.timezone, rates, at),
     timezone: settings.timezone,
     scheduler: history[0] ?? null,
     history,
