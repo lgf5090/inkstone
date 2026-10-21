@@ -1,4 +1,4 @@
-import { LIMITS } from '@shared/constants'
+import { LIMITS, SETTINGS_REQUEST_BUDGET_BYTES } from '@shared/constants'
 import { MAX_ARTIFACT_CONTENT_CHARS, MAX_SKILL_BUNDLE_SKILLS, MAX_SKILL_CONTENT_CHARS } from '@shared/assistant'
 import { utf8ByteLength } from '@shared/text-utils'
 import { ApiError } from './errors'
@@ -6,7 +6,8 @@ import { ApiError } from './errors'
 
 export const JSON_BODY_LIMITS = {
   small: 8 * 1024,
-  settings: 16 * 1024,
+  // The shared number, because the settings lists in `@shared/constants` were sized against it.
+  settings: SETTINGS_REQUEST_BUDGET_BYTES,
   templateLibrary: 1024 * 1024,
   quickAdd: 1024 * 1024,
   backup: 32 * 1024,

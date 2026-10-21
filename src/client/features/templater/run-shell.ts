@@ -42,6 +42,7 @@ import { folderPath } from '../../lib/folders'
 import { localeTag, t } from '../../lib/i18n'
 import { useNotes } from '../../store/notes'
 import { useNoteTemplates } from '../../store/note-templates'
+import { useSession } from '../../store/session'
 import { useUi } from '../../store/ui'
 import { requireOpenNote, selectionOf, writableNoteEditor, type EditorSelectionSnapshot } from './editor-surface'
 
@@ -59,7 +60,17 @@ let installed: { door: TemplaterDoor; hosts: TemplaterHosts } | null = null
  */
 async function templaterPorts(): Promise<RunTemplatePorts> {
   const door = await import('../../lib/templater')
-  if (installed === null || !door.templaterConfigured()) installed = { door, hosts: door.installTemplaterHost() }
+  if (installed === null || !door.templaterConfigured()) {
+    installed = {
+      door,
+      // Read per call rather than copied at install: the host is installed once and the reader can flip the
+      // web switch between two runs, and a template's `tp.web.request` must answer to the switch as it is
+      // then, not as it was when the first template of the session ran.
+      hosts: door.installTemplaterHost({
+        webRequestsEnabled: () => useSession.getState().settings.templater.webRequestsEnabled,
+      }),
+    }
+  }
   const hosts = installed.hosts
   return {
     render: (args) => door.renderTemplate(args),

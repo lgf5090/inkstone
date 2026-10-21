@@ -15,6 +15,7 @@ import { setActiveEditorView } from '../../editor/commands'
 import { initI18n, t } from '../../lib/i18n'
 import { useNotes } from '../../store/notes'
 import { useNoteTemplates } from '../../store/note-templates'
+import { useSession } from '../../store/session'
 import { useUi } from '../../store/ui'
 import { registerLinkEditorNote } from '../links/store'
 import { createNoteFromTemplate, insertTemplateIntoActiveNote, replaceActiveNoteWithTemplate } from './run-shell'
@@ -25,6 +26,10 @@ const engine = vi.hoisted(() => ({
   renderFailure: null as null | { code: string; detail: string },
   writeRefusal: null as null | 'conflict' | 'not-found' | 'failed',
   installs: 0,
+  /** Whether the stand-in door reports itself configured; a run re-installs the host when it does not. */
+  configured: true,
+  /** What the shell handed each `installTemplaterHost` call, so the switches can be read back. */
+  hostOptions: [] as Array<{ webRequestsEnabled?: () => boolean }>,
   renders: [] as { context: { mode: string; selection: string; frozenTitle: string; target: unknown } }[],
   writes: [] as { id: string; content: string }[],
   creates: [] as { title: string; content: string; folderId: string | null }[],
@@ -33,9 +38,10 @@ const engine = vi.hoisted(() => ({
 }))
 
 vi.mock('../../lib/templater', () => ({
-  templaterConfigured: () => true,
-  installTemplaterHost: () => {
+  templaterConfigured: () => engine.configured,
+  installTemplaterHost: (options?: { webRequestsEnabled?: () => boolean }) => {
     engine.installs += 1
+    engine.hostOptions.push(options ?? {})
     return {
       page: {
         async createTarget(context: { runId: string }, path: string) {
@@ -155,6 +161,8 @@ beforeEach(() => {
   engine.writes = []
   engine.creates = []
   engine.targets = []
+  engine.hostOptions = []
+  engine.configured = true
   engine.opened = []
   document.body.replaceChildren()
   view = null
@@ -183,6 +191,28 @@ describe('the door', () => {
     await insertTemplateIntoActiveNote(TEMPLATE)
     await createNoteFromTemplate(TEMPLATE, { folderId: null, title: 'Second' })
     expect(engine.installs).toBe(1)
+  })
+
+  it('hands the host the web switch as a reading, not as this moment\'s answer', async () => {
+    mountEditor('one two', 0, 0)
+    // Force a fresh install so this case sees the arguments of its own call rather than the first run's.
+    engine.configured = false
+    await insertTemplateIntoActiveNote(TEMPLATE)
+    const options = engine.hostOptions.at(-1)!
+    expect(typeof options.webRequestsEnabled).toBe('function')
+    expect(options.webRequestsEnabled!()).toBe(false)
+    const settings = useSession.getState().settings
+    useSession.setState({
+      settings: { ...settings, templater: { ...settings.templater, webRequestsEnabled: true } },
+    })
+    try {
+      // The host lives for the whole session, so a reader who turns the switch on afterwards must not have
+      // to reload the app for `tp.web.request` to start answering.
+      expect(options.webRequestsEnabled!()).toBe(true)
+    }
+    finally {
+      useSession.setState({ settings })
+    }
   })
 })
 
