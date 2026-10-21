@@ -22,6 +22,10 @@ export const TODOS_SCHEMA_STATEMENTS: readonly string[] = [
     description TEXT NOT NULL DEFAULT '',
     status TEXT NOT NULL DEFAULT 'todo',
     priority TEXT NOT NULL DEFAULT 'medium',
+    -- Where the reader placed this task among its list's rows, or NULL while nobody has moved it.
+    -- REAL because a drop between two neighbours folds their midpoint, and an integer runs out of
+    -- room after one drop into the same gap. Migration 125 carries the column to older databases.
+    position REAL,
     due_at INTEGER,
     -- When the task may be begun, or NULL when the reader named no start. Migration 123 carries the
     -- column to databases built before this line existed.
@@ -87,6 +91,11 @@ export const TODOS_SCHEMA_STATEMENTS: readonly string[] = [
   // picked for. Migration 118 carries it to databases built before the column existed.
   `CREATE INDEX IF NOT EXISTS idx_todos_tasks_planned
      ON todos_tasks(user_id, planned_for)`,
+  // The manual order a drag or the move menu writes, read in the scope a move is made in: one
+  // account's rows in one list, by the place the reader gave them. Migration 125 carries it to
+  // databases built before the column existed.
+  `CREATE INDEX IF NOT EXISTS idx_todos_tasks_position
+     ON todos_tasks(user_id, list_id, position)`,
   // What the trash page and the retention sweep read: the account leads, then the deletion stamp, so
   // one account's newest trash is an ordered range and the hourly sweep can ask across accounts in
   // stamp order. Migration 122 carries it to databases built before the column existed.
@@ -223,6 +232,7 @@ export const TODOS_REQUIRED_INDEXES: readonly string[] = [
   'idx_todos_tasks_completed',
   'idx_todos_tasks_completed_on',
   'idx_todos_tasks_planned',
+  'idx_todos_tasks_position',
   'idx_todos_tasks_trash',
   'idx_todos_reminders_task',
   'idx_todos_reminders_due',
@@ -239,7 +249,7 @@ export const TODOS_REQUIRED_COLUMNS: Readonly<Record<string, readonly string[]>>
   // still carries them and the boot guard compares the declared shape with the real one; nothing
   // reads or writes them any more, and `migrateTaskReminders` is what empties them (pending removal).
   todos_tasks: [
-    'user_id', 'id', 'title', 'description', 'status', 'priority', 'due_at', 'start_at', 'completed_at',
+    'user_id', 'id', 'title', 'description', 'status', 'priority', 'position', 'due_at', 'start_at', 'completed_at',
     'completed_on', 'created_on',
     'project_id', 'list_id', 'starred', 'repeat_rule', 'remind_at', 'reminded_at', 'planned_for', 'note_id',
     'conversation_id', 'created_at', 'updated_at', 'rev', 'deleted_at',

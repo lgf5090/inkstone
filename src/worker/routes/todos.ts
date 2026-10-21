@@ -810,6 +810,45 @@ todoRoutes.post('/:id/plan', async (c) => {
 })
 
 /**
+ * Where a move wants the task: before this row, or at the end with null.
+ *
+ * The anchor is required rather than optional, because an absent field would make an empty body mean
+ * "append" — silently moving a task the caller forgot to describe. A missing anchor is a 400, the
+ * same way a malformed one is.
+ */
+function moveAnchor(value: unknown, taskId: string): string | null {
+  if (value === undefined) throw ApiError.badRequest('A move needs beforeId, or null for the end.')
+  if (value === null) return null
+  if (!isValidId(value)) throw ApiError.badRequest('beforeId must be a task id, or null.')
+  if (value === taskId) throw ApiError.badRequest('A task cannot be placed before itself.')
+  return value
+}
+
+/**
+ * Places one task before another row, optionally in another list.
+ *
+ * A route of its own rather than a field on PATCH: a move is one answer about order (and maybe one
+ * collection), while PATCH owns the row's content. The anchor is scoped by the store, so another
+ * account's task is a 404 and an anchor outside the destination is a 400 that names the request.
+ * `listId` absent keeps the task where it is; null is the inbox, the same reading every other list
+ * field in this file gives it.
+ */
+todoRoutes.post('/:id/move', async (c) => {
+  const s = store(c)
+  const id = requiredId(c.req.param('id'))
+  const body = await readJson<Record<string, unknown>>(c, BODY_LIMIT)
+  const beforeId = moveAnchor(body.beforeId, id)
+  const existing = await s.getTask(id)
+  if (!existing) throw ApiError.notFound('Task not found')
+  const expectedRev = requestRevision(c, body)
+  if (expectedRev !== undefined && existing.rev !== expectedRev) throw revisionConflict(id, existing.rev)
+  const listId = body.listId === undefined ? undefined : await listRef(s, body.listId)
+  const task = await s.moveTask(id, { beforeId, listId })
+  if (!task) throw ApiError.notFound('Task not found')
+  return c.json({ task })
+})
+
+/**
  * "Remind me again": append one reminder some minutes from now.
  *
  * Appended, never substituted — a snooze is a second chance, and the reminder the reader set earlier

@@ -1040,6 +1040,19 @@ type UsageSeriesRow = {
 const TASK_PRIORITY_ORDER = `CASE priority WHEN 'urgent' THEN 0 WHEN 'high' THEN 1 WHEN 'medium' THEN 2 ELSE 3 END`
 
 /**
+ * The reader's own order, ahead of whatever order the view would otherwise use.
+ *
+ * A row that carries a place is read first, by that place; a row nobody has moved carries null and
+ * follows in the view's existing order. That is the whole reading of "position ?? sort key": the
+ * stored place wins where it exists, and its absence costs nothing. The first move materialises the
+ * target list's current order, so the boundary between the two groups never splits a list in half.
+ */
+const TASK_MANUAL_ORDER = `CASE WHEN position IS NULL THEN 1 ELSE 0 END, position ASC`
+
+/** The room between two written places: an append is a whole step past the end, a drop is the midpoint. */
+const TASK_POSITION_STEP = 1000
+
+/**
  * The order each sort key names, with a tiebreaker written into all of them.
  *
  * A page is read by `LIMIT`/`OFFSET`, so rows that share a value have to come out in the same order
@@ -1057,11 +1070,14 @@ const TASK_SORT_ORDERS: Record<TaskSort, string> = {
  * The order a listing answers in.
  *
  * With no key asked for, the view decides, which is the order a completed list has always had and the
- * one a plan or a board is read in — dated rows first, soonest first, then anything undated.
+ * one a plan or a board is read in — dated rows first, soonest first, then anything undated. A stored
+ * manual place leads that order (see `TASK_MANUAL_ORDER`); an explicit sort is the caller's chosen
+ * reading and is not second-guessed by a place the reader left behind in another mode.
  */
 function taskOrder(sort: TaskSort | undefined, view: TaskView | undefined): string {
   if (sort) return TASK_SORT_ORDERS[sort]
-  return view === 'completed' ? TASK_SORT_ORDERS.completed : TASK_SORT_ORDERS.due
+  const fallback = view === 'completed' ? TASK_SORT_ORDERS.completed : TASK_SORT_ORDERS.due
+  return `${TASK_MANUAL_ORDER}, ${fallback}`
 }
 
 /** How many rows one page of a backwards read carries, and the size of the newest page `messages` hands back. */
@@ -4227,6 +4243,75 @@ export class AssistantStore {
   }
 
   /**
+   * Places one task before another in a list, or at the end when the anchor is null.
+   *
+   * The anchor is a task id rather than an index because two devices can move rows between the read
+   * and the write: "before this row" means the same thing after somebody else's drop, while "index
+   * three" has already moved. The target collection is the task's own unless the caller names one,
+   * and naming it is what makes a cross-list move one write rather than a move followed by a patch.
+   *
+   * Positions are REAL and folded between the two neighbours, exactly as folders already do it. A
+   * target whose rows have never been moved has no places at all, so the first move writes the order
+   * the list reads in today — otherwise the moved row would sort ahead of every unplaced sibling and
+   * jump to the top of a list the reader only nudged. A gap with no room left is renumbered the same
+   * way and then folded again; a second failure is a conflict rather than a duplicated place.
+   */
+  async moveTask(
+    id: string,
+    placement: { beforeId: string | null; listId?: string | null },
+  ): Promise<TodoTask | null> {
+    const existing = await this.getTask(id)
+    if (!existing) return null
+    const listId = placement.listId === undefined ? existing.listId : placement.listId
+    // `IS` rather than `=` so an inbox move (null) is one shape with a list move, and the order is the
+    // one a listing reads before any manual place exists.
+    const siblings = await this.rows<{ id: string; position: number | null }>(
+      `SELECT id, position FROM todos_tasks
+        WHERE user_id = ?1 AND list_id IS ?2 AND id != ?3 AND ${TASK_LIVE_PREDICATE}
+        ORDER BY ${TASK_MANUAL_ORDER}, ${TASK_SORT_ORDERS.due}`,
+      this.userId, listId, id,
+    )
+    const index = placement.beforeId === null
+      ? siblings.length
+      : siblings.findIndex((row) => row.id === placement.beforeId)
+    if (index < 0) throw ApiError.badRequest('The task to land before is not in that list.')
+
+    if (siblings.some((row) => row.position === null)) await this.materializeTaskPositions(siblings)
+    let position = insertionPosition(siblings[index - 1]?.position ?? undefined, siblings[index]?.position ?? undefined)
+    if (position === null) {
+      await this.materializeTaskPositions(siblings)
+      position = insertionPosition(siblings[index - 1]?.position ?? undefined, siblings[index]?.position ?? undefined)
+      if (position === null) throw ApiError.conflict('The task order changed. Try again.')
+    }
+
+    const changes = await this.updateTaskRow(id, [
+      ['position', position],
+      ['list_id', listId],
+      ['updated_at', Date.now()],
+    ])
+    if (!changes) return null
+    return await this.getTask(id)
+  }
+
+  /**
+   * Writes a whole sibling run as evenly spaced places, in the order it was read.
+   *
+   * This is bookkeeping rather than an edit: no revision moves, because a reader holding one of these
+   * rows did not change it and a conflict would be a lie. The caller has already put the run in the
+   * order the listing reads, so the numbers only make that order explicit.
+   */
+  private async materializeTaskPositions(rows: { id: string; position: number | null }[]): Promise<void> {
+    const statements = rows.map((row, index) => {
+      const position = (index + 1) * TASK_POSITION_STEP
+      row.position = position
+      return this.db.prepare(
+        `UPDATE todos_tasks SET position = ?3 WHERE user_id = ?1 AND id = ?2`,
+      ).bind(this.userId, row.id, position)
+    })
+    if (statements.length) await this.db.batch(statements)
+  }
+
+  /**
    * Moves one task to the trash.
    *
    * The row stays, stamped, with its steps, tag links and pending reminders untouched: that is what
@@ -4753,7 +4838,7 @@ export class AssistantStore {
     }
     if (index === movingAt) return toTaskStep(rows[movingAt]!)
 
-    let position = stepInsertionPosition(siblings[index - 1]?.position, siblings[index]?.position)
+    let position = insertionPosition(siblings[index - 1]?.position, siblings[index]?.position)
     if (position === null) {
       // The neighbours sit on the same value, or too close for another midpoint. Renumbering to
       // whole thousands keeps the order the reader is looking at and opens a gap again.
@@ -4768,7 +4853,7 @@ export class AssistantStore {
         if (!changes) throw ApiError.conflict('The step order changed. Try again.')
         sibling.position = next
       }
-      position = stepInsertionPosition(siblings[index - 1]?.position, siblings[index]?.position)
+      position = insertionPosition(siblings[index - 1]?.position, siblings[index]?.position)
       if (position === null) throw ApiError.conflict('The step order changed. Try again.')
     }
 
@@ -7098,6 +7183,8 @@ interface TaskRow {
   description: string | null
   status: string
   priority: string
+  /** The reader's place among the list's rows, or null while nobody has moved it. */
+  position: number | null
   due_at: number | null
   start_at: number | null
   project_id: string | null
@@ -7159,6 +7246,7 @@ function toTask(
     description: r.description ?? '',
     status: pickEnum(r.status, TASK_STATUS_VALUES, 'todo'),
     priority: pickEnum(r.priority, TASK_PRIORITY_VALUES, 'medium'),
+    position: num(r.position),
     dueAt: num(r.due_at),
     startAt: num(r.start_at),
     projectId: r.project_id,
@@ -7223,12 +7311,13 @@ function toTaskStep(r: TaskStepRow): TaskStep {
 }
 
 /**
- * A step position strictly between two neighbours, or null when that gap has no room left.
+ * A position strictly between two neighbours, or null when that gap has no room left.
  *
  * An undefined neighbour is an end: a run's first slot starts at 1000 and an append is a whole
- * thousand past the last, so the ordinary case does not depend on the midpoint at all.
+ * thousand past the last, so the ordinary case does not depend on the midpoint at all. Steps and
+ * tasks share the rule because both store a REAL order and both fold a drop between two rows.
  */
-function stepInsertionPosition(previous: number | undefined, next: number | undefined): number | null {
+function insertionPosition(previous: number | undefined, next: number | undefined): number | null {
   if (previous === undefined && next === undefined) return 1000
   if (previous === undefined) return next! - 1000
   if (next === undefined) return previous + 1000

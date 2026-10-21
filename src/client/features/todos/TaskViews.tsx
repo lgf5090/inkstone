@@ -17,7 +17,7 @@ import { Button } from '../../components/primitives'
 import { useUi } from '../../store/ui'
 import { TodoPageFooter } from './TodoPageFooter'
 import { useTodos } from './store'
-import { TaskCard } from './TaskCard'
+import { TaskCard, useTaskMoves, type TaskMoveControls } from './TaskCard'
 import { LIST_COLUMNS_QUERY, ListLayoutToggle, StatusBoard, useListLayout } from './status-board'
 import { groupByPlan, groupCompleted, groupByList, type TaskGroup, type PlanGroupKey } from './task-groups'
 import type { MessageKey } from '@shared/locales/en-US'
@@ -45,12 +45,18 @@ export function inServerOrder(groups: TaskGroup[], tasks: readonly TodoTask[]): 
  * a row can be in today for its due date and still carry a plan for some other day — clearing that
  * plan would not take it off this screen, and a button that does nothing is worse than no button.
  */
-export function GroupedTaskList({ groups, label, empty, onUnplan, canUnplan }: {
+export function GroupedTaskList({ groups, label, empty, onUnplan, canUnplan, moveFor }: {
   groups: TaskGroup[]
   label: (key: string) => string
   empty: { title: string; description: string }
   onUnplan?: (task: TodoTask) => void
   canUnplan?: (task: TodoTask) => boolean
+  /**
+   * The manual-order controls for a row, when this page's order belongs to the reader. The plan and
+   * the finished view pass nothing: their groups are dates, and a drop between two days has no place
+   * to land. An explicit sort also passes nothing, because that order is the reader's own choice.
+   */
+  moveFor?: (task: TodoTask) => TaskMoveControls | null
 }) {
   const lists = useTodos((state) => state.lists)
   const dayEnd = useTodos((state) => state.dayEnd)
@@ -90,6 +96,7 @@ export function GroupedTaskList({ groups, label, empty, onUnplan, canUnplan }: {
                   timezone={timezone}
                   onOpen={() => openEditor({ id: task.id })}
                   onStar={() => { void updateTask(task.id, { starred: !task.starred }) }}
+                  {...(moveFor?.(task) ? { move: moveFor(task)! } : {})}
                   {...(onUnplan && (!canUnplan || canUnplan(task)) ? { onUnplan: () => onUnplan(task) } : {})}
                 />
               ))}
@@ -301,6 +308,9 @@ export function ListTaskView() {
     const grouped = groupByList(tasks)
     return sort ? inServerOrder(grouped, tasks) : grouped
   }, [tasks, sort])
+  // The manual order is the list's own reading. An explicit sort replaces it, so the controls that
+  // would write a place are not offered while that sort is up.
+  const moveFor = useTaskMoves(view === 'list' && !sort)
 
   const label = (key: string): string => (key === 'done' ? t('todo.group.done') : t('todo.group.open'))
 
@@ -314,6 +324,7 @@ export function ListTaskView() {
           groups={groups}
           label={label}
           empty={{ title: t('todo.empty.list'), description: t('todo.empty.list_hint') }}
+          moveFor={moveFor}
         />
       )}
     </div>

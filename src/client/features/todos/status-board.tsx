@@ -11,7 +11,7 @@ import { useSearch } from '../../lib/app-history'
 import { Segmented } from '../../components/form'
 import { t } from '../../lib/i18n'
 import { useTodos } from './store'
-import { TaskCard } from './TaskCard'
+import { TaskCard, useTaskMoves } from './TaskCard'
 import { TodoPageFooter } from './TodoPageFooter'
 import { setTodoLayout, todoLayoutFromSearch, type TodoLayout } from './todo-address'
 import type { MessageKey } from '@shared/locales/en-US'
@@ -69,8 +69,10 @@ export function StatusBoard({ tasks }: { tasks: readonly TodoTask[] }) {
   const lists = useTodos((state) => state.lists)
   const dayEnd = useTodos((state) => state.dayEnd)
   const timezone = useTodos((state) => state.timezone)
+  const sort = useTodos((state) => state.sort)
   const openEditor = useTodos((state) => state.openEditor)
   const updateTask = useTodos((state) => state.updateTask)
+  const moveFor = useTaskMoves(!sort)
   const bounds = { dayEnd, now: Date.now() }
 
   return (
@@ -104,6 +106,7 @@ export function StatusBoard({ tasks }: { tasks: readonly TodoTask[] }) {
                         timezone={timezone}
                         onOpen={() => openEditor({ id: task.id })}
                         onStar={() => { void updateTask(task.id, { starred: !task.starred }) }}
+                        {...(moveFor(task) ? { move: moveFor(task)! } : {})}
                       />
                     </li>
                   ))}

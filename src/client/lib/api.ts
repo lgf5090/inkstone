@@ -1167,6 +1167,15 @@ export const api = {
     plan: (id: string, date: string | null) =>
       request<{ task: TodoTask }>(`/api/todos/${id}/plan`, { method: 'POST', body: { date } }),
     /**
+     * Places a task before another row, or at the end when `beforeId` is null.
+     *
+     * `listId` is absent for a move inside the task's own list, null for the inbox, and an id for a
+     * cross-list move — the destination and the place land in one write, so a task never sits in the
+     * old list with a position meant for the new one.
+     */
+    move: (id: string, body: { beforeId: string | null, listId?: string | null }) =>
+      request<{ task: TodoTask }>(`/api/todos/${id}/move`, { method: 'POST', body }),
+    /**
      * "Remind me again": adds one reminder `minutes` from now and answers with the whole pending list.
      * The earlier reminders stay — a snooze is a second chance, not a cancellation.
      */

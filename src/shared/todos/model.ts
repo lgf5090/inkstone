@@ -178,6 +178,15 @@ export interface TaskStep {
 
 export interface TodoTask extends Task {
   listId: string | null
+  /**
+   * Where the reader placed this task among its list's rows, or null while nobody has moved it.
+   *
+   * Only the default listing reads it: rows carrying a place are read in that order first, and rows
+   * without one follow in the view's own order. An explicit `sort` is the reader's chosen reading and
+   * ignores it. Optional because an older answer, or a fixture written before the column existed,
+   * simply has no place to speak of.
+   */
+  position?: number | null
   tags: TaskTag[]
   starred: boolean
   repeat: RepeatRule | null

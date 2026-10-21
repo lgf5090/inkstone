@@ -953,3 +953,129 @@ describe('a conditional write', () => {
     expect((await json<{ task: TodoTask }>(await send('GET', `/${moved.id}`))).task.starred).toBe(false)
   })
 })
+
+/**
+ * Manual order: one column, one anchor and the half-fold every drag lands on.
+ *
+ * The contract pinned here is the one the client draws against: a row is placed before the row it
+ * names (or at the end), a position is folded between its two neighbours when the gap allows it, and
+ * a listing read without a sort answers in that manual order first while rows nobody has placed keep
+ * the order the view has always used. An explicit sort is the reader's chosen reading and ignores the
+ * stored position entirely.
+ */
+describe('the task order', () => {
+  // The write budget is module-wide and keyed by caller, so these cases spend a caller of their own.
+  let caller = 0
+
+  beforeEach(() => {
+    caller += 1
+    mocks.userId = `taskorder${String(caller).padStart(14, '0')}`
+  })
+
+  async function order(path = ''): Promise<string[]> {
+    return (await json<{ tasks: TodoTask[] }>(await send('GET', path))).tasks.map((task) => task.title)
+  }
+
+  async function positionOf(id: string): Promise<number | null> {
+    const row = sqlite.prepare('SELECT position FROM todos_tasks WHERE id = ?').get(id) as { position: number | null }
+    return row.position
+  }
+
+  it('lands a row before an anchor and folds its position between the neighbours', async () => {
+    const a = await create({ title: 'A' })
+    const b = await create({ title: 'B' })
+    await create({ title: 'C' })
+
+    // The first move makes the list's current order explicit, then puts C in front of A.
+    const first = await send('POST', `/${(await json<{ tasks: TodoTask[] }>(await send('GET', ''))).tasks[2]!.id}/move`, { beforeId: a.id })
+    expect(first.status).toBe(200)
+    expect(await order()).toEqual(['C', 'A', 'B'])
+
+    // B between C (0) and A (1000) is the folded midpoint, not an appended integer.
+    const moved = await send('POST', `/${b.id}/move`, { beforeId: a.id })
+    expect(moved.status).toBe(200)
+    expect(await order()).toEqual(['C', 'B', 'A'])
+    const cPosition = await positionOf((await json<{ tasks: TodoTask[] }>(await send('GET', ''))).tasks[0]!.id)
+    const bPosition = await positionOf(b.id)
+    const aPosition = await positionOf(a.id)
+    expect(bPosition).toBeGreaterThan(cPosition!)
+    expect(bPosition).toBeLessThan(aPosition!)
+    expect(bPosition! - cPosition!).toBe(500)
+  })
+
+  it('keeps both ends when a row moves to the front or the end', async () => {
+    const a = await create({ title: 'A' })
+    const b = await create({ title: 'B' })
+    const c = await create({ title: 'C' })
+
+    expect((await send('POST', `/${c.id}/move`, { beforeId: a.id })).status).toBe(200)
+    expect(await order()).toEqual(['C', 'A', 'B'])
+
+    // A null anchor is the end, which is how the last "move down" lands.
+    expect((await send('POST', `/${a.id}/move`, { beforeId: null })).status).toBe(200)
+    expect(await order()).toEqual(['C', 'B', 'A'])
+
+    // And the front is an anchor rather than an index, so it does not depend on the row's old slot.
+    expect((await send('POST', `/${a.id}/move`, { beforeId: c.id })).status).toBe(200)
+    expect(await order()).toEqual(['A', 'C', 'B'])
+    // The stored places are strictly ascending in the order the list now reads.
+    const ordered = (await json<{ tasks: TodoTask[] }>(await send('GET', ''))).tasks
+    const positions = await Promise.all(ordered.map((task) => positionOf(task.id)))
+    expect(positions).toEqual([...positions].sort((left, right) => left! - right!))
+  })
+
+  it('moves a task between lists and writes the destination with its place', async () => {
+    const source = await json<{ list: TaskList }>(await send('POST', '/lists', { name: 'Source' })).then((body) => body.list)
+    const target = await json<{ list: TaskList }>(await send('POST', '/lists', { name: 'Target' })).then((body) => body.list)
+    const one = await create({ title: 'One', listId: source.id })
+    await create({ title: 'Two', listId: target.id })
+    const three = await create({ title: 'Three', listId: target.id })
+
+    const moved = await json<{ task: TodoTask }>(await send('POST', `/${one.id}/move`, {
+      beforeId: three.id,
+      listId: target.id,
+    }))
+    expect(moved.task.listId).toBe(target.id)
+    expect(await order(`?list=${target.id}`)).toEqual(['Two', 'One', 'Three'])
+    expect(await order(`?list=${source.id}`)).toEqual([])
+  })
+
+  it('refuses an anchor outside the destination, itself, and a body with no anchor field', async () => {
+    const mine = await create({ title: 'Mine' })
+    const sibling = await create({ title: 'Sibling' })
+    const otherList = await json<{ list: TaskList }>(await send('POST', '/lists', { name: 'Other' })).then((body) => body.list)
+    const elsewhere = await create({ title: 'Elsewhere', listId: otherList.id })
+
+    expect((await send('POST', `/${mine.id}/move`, { beforeId: mine.id })).status).toBe(400)
+    expect((await send('POST', `/${mine.id}/move`, { beforeId: elsewhere.id })).status).toBe(400)
+    expect((await send('POST', `/${mine.id}/move`, {})).status).toBe(400)
+    expect((await send('POST', `/${mine.id}/move`, { beforeId: sibling.id, listId: '0000000000abcdefghijklmnopqrzz' })).status).toBe(400)
+    // A refused move writes nothing: the list still reads in the order it had.
+    expect(await order(`?list=${otherList.id}`)).toEqual(['Elsewhere'])
+    expect((await json<{ tasks: TodoTask[] }>(await send('GET', '?list=none'))).tasks.map((task) => task.title))
+      .toEqual(['Mine', 'Sibling'])
+  })
+
+  it('cannot reorder another account’s task', async () => {
+    const mine = await create({ title: 'Mine' })
+    mocks.userId = `${mocks.userId}other`
+    expect((await send('POST', `/${mine.id}/move`, { beforeId: null })).status).toBe(404)
+  })
+
+  it('reads manual order by default and leaves an explicit sort alone', async () => {
+    const list = await json<{ list: TaskList }>(await send('POST', '/lists', { name: 'Dated' })).then((body) => body.list)
+    const a = await create({ title: 'A', listId: list.id, dueAt: Date.parse('2026-10-01T09:00:00Z') })
+    const b = await create({ title: 'B', listId: list.id, dueAt: Date.parse('2026-10-02T09:00:00Z') })
+    const c = await create({ title: 'C', listId: list.id, dueAt: Date.parse('2026-10-03T09:00:00Z') })
+
+    expect((await send('POST', `/${c.id}/move`, { beforeId: a.id })).status).toBe(200)
+    expect(await order(`?list=${list.id}`)).toEqual(['C', 'A', 'B'])
+    // The sort control is the reader's own reading: a stored place does not overrule it.
+    expect(await order(`?list=${list.id}&sort=due`)).toEqual(['A', 'B', 'C'])
+
+    // A row nobody dragged carries no position, so it follows the placed rows in the view's order.
+    await create({ title: 'D', listId: list.id, dueAt: Date.parse('2026-09-01T09:00:00Z') })
+    expect(await order(`?list=${list.id}`)).toEqual(['C', 'A', 'B', 'D'])
+    expect(b.id).toBeTruthy()
+  })
+})

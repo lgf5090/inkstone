@@ -1905,6 +1905,25 @@ export const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
       `ALTER TABLE mcp_preferences ADD COLUMN todo_read_enabled INTEGER NOT NULL DEFAULT 1`,
     ],
   },
+  {
+    // Where a task sits in the reader's own order, or null while nobody has placed it.
+    //
+    // The to-do list has only ever been read in an order the app computed — due date first — and the
+    // drag and the phone's move menu need the reader's own answer stored somewhere. REAL rather than
+    // INTEGER because a row lands between two neighbours by folding their midpoint: an integer would
+    // run out of room after one drop into the same gap. Nullable with no default because a task
+    // nobody placed is an honest absence, and every read keeps its old order until the first move.
+    // The index leads with the account and the list, which is the scope a move and a listing read,
+    // so a manual order is an ordered range rather than a sort of the whole shelf. One column and its
+    // index, one version.
+    version: 125,
+    skipIfColumnExists: { table: 'todos_tasks', column: 'position' },
+    statements: [
+      `ALTER TABLE todos_tasks ADD COLUMN position REAL`,
+      `CREATE INDEX IF NOT EXISTS idx_todos_tasks_position
+     ON todos_tasks(user_id, list_id, position)`,
+    ],
+  },
 ]
 
 const FTS_STATEMENT = `CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(

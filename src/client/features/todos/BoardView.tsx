@@ -10,12 +10,13 @@ import { useState, type ReactNode } from 'react'
 import { ChevronRight, ListChecks, Plus } from 'lucide-react'
 import { cn } from '../../lib/cn'
 import { getLocale, t } from '../../lib/i18n'
+import { useDropState } from '../../lib/drop-state'
 import { KanbanIconBadge } from '../../lib/markdown/kanban/ui/kanban-icon-badge'
 import { useTodos, listNamed, quickAddDraft, remindOffsetOf } from './store'
 import { TodoPageFooter } from './TodoPageFooter'
 import { Input } from '../../components/form'
 import { listIconFor, priorityLabel, repeatLabel } from './todo-ui'
-import { TaskCard } from './TaskCard'
+import { TaskCard, isTodoTaskDrag, moveTodoTask, readTodoTaskDrag, useTaskMoves } from './TaskCard'
 import { parseQuickAdd, type QuickAddParse } from '@shared/todos/quick-parse'
 import { toLocalMinute } from '@shared/assistant-time'
 import type { MessageKey } from '@shared/locales/en-US'
@@ -119,8 +120,13 @@ export function BoardView({ onOpenList }: { onOpenList: (listId: string) => void
   const createTask = useTodos((state) => state.createTask)
   const openEditor = useTodos((state) => state.openEditor)
   const updateTask = useTodos((state) => state.updateTask)
+  const sort = useTodos((state) => state.sort)
   const [adding, setAdding] = useState<string | null>(null)
   const [draft, setDraft] = useState('')
+  // The card a drag is hovering, so the whole collection lights up as the drop target it is. A drop
+  // on a row is handled by the row itself and never reaches this; a drop on the card appends.
+  const [dropCard, setDropCard] = useDropState<string | null>(null)
+  const moveFor = useTaskMoves(!sort)
 
   const bounds = { dayEnd, now: Date.now() }
   // A card keeps the order the page arrived in: the server read it in the order the sort control
@@ -203,7 +209,30 @@ export function BoardView({ onOpenList }: { onOpenList: (listId: string) => void
             <section
               key={card.id}
               aria-label={card.name}
-              className="flex min-w-0 flex-col overflow-hidden rounded-[var(--r-lg)] border border-[var(--border-subtle)] bg-[var(--bg-surface)]"
+              data-todo-card-drop={dropCard === card.id ? '' : undefined}
+              onDragOver={(event) => {
+                if (!isTodoTaskDrag(event)) return
+                event.preventDefault()
+                event.dataTransfer.dropEffect = 'move'
+                setDropCard(card.id)
+              }}
+              onDragLeave={(event) => {
+                const next = event.relatedTarget
+                if (!(next instanceof Node) || !event.currentTarget.contains(next)) setDropCard(null)
+              }}
+              onDrop={(event) => {
+                if (!isTodoTaskDrag(event)) return
+                event.preventDefault()
+                setDropCard(null)
+                const draggedId = readTodoTaskDrag(event)
+                // A card is a collection, not a place: dropping on it appends to that list, which is
+                // also the only cross-list gesture the board offers without opening a list.
+                if (draggedId) void moveTodoTask(draggedId, { beforeId: null, listId: card.listId })
+              }}
+              className={cn(
+                'flex min-w-0 flex-col overflow-hidden rounded-[var(--r-lg)] border bg-[var(--bg-surface)]',
+                dropCard === card.id ? 'border-[var(--accent)] ring-1 ring-[var(--accent)]' : 'border-[var(--border-subtle)]',
+              )}
             >
               <button
                 type="button"
@@ -228,6 +257,7 @@ export function BoardView({ onOpenList }: { onOpenList: (listId: string) => void
                     bounds={bounds}
                     timezone={timezone}
                     compact
+                    move={moveFor(task) ?? undefined}
                     onOpen={() => openEditor({ id: task.id })}
                     onStar={() => { void updateTask(task.id, { starred: !task.starred }) }}
                   />

@@ -8,10 +8,14 @@
  */
 
 import { useEffect, useRef, useState } from 'react'
-import { CalendarMinus, Check, CircleDot, MoreHorizontal, Star } from 'lucide-react'
+import { ArrowDown, ArrowUp, CalendarMinus, Check, CircleDot, FolderInput, MoreHorizontal, Star } from 'lucide-react'
 import { cn } from '../../lib/cn'
 import { t } from '../../lib/i18n'
-import { Menu, type MenuItem } from '../../components/overlay'
+import { api } from '../../lib/api'
+import { useDropState } from '../../lib/drop-state'
+import { useMediaQuery } from '../../lib/hooks'
+import { Menu, MenuSubmenuList, type MenuItem } from '../../components/overlay'
+import { useUi } from '../../store/ui'
 import { useTodos, snoozeLabel } from './store'
 import { dueLabel, priorityDot, priorityLabel } from './todo-ui'
 import { SNOOZE_MINUTES, type TaskList, type TodoTask } from '@shared/todos/model'
@@ -19,7 +23,99 @@ import { SNOOZE_MINUTES, type TaskList, type TodoTask } from '@shared/todos/mode
 /** How long a finger has to stay down before the row joins a selection instead of opening. */
 const LONG_PRESS_MS = 500
 
-export function TaskCard({ task, lists, bounds, timezone, onOpen, onStar, onUnplan, compact = false }: {
+/** What a dragged task carries. The note tree uses the same shape for the same reason. */
+export const TODO_DRAG_TYPE = 'application/x-inkstone-todo'
+
+/** Whether a drag over this surface is one of ours rather than a file from the desktop. */
+export function isTodoTaskDrag(event: React.DragEvent): boolean {
+  return Array.from(event.dataTransfer.types).includes(TODO_DRAG_TYPE)
+}
+
+/** The task a drop is carrying, or an empty string for a drag that is not ours. */
+export function readTodoTaskDrag(event: React.DragEvent): string {
+  return event.dataTransfer.getData(TODO_DRAG_TYPE)
+}
+
+/**
+ * One write behind both the drag and the menu.
+ *
+ * The listing is read again rather than patched in place: a move changes the row's list and its
+ * place relative to rows this page may not have read, and the server's order is the only one that
+ * can say where it landed. The API layer is the only thing touched here; no view sorts locally.
+ */
+export async function moveTodoTask(
+  id: string,
+  placement: { beforeId: string | null; listId?: string | null },
+): Promise<void> {
+  try {
+    await api.todos.move(id, placement)
+    await useTodos.getState().load()
+  } catch (error) {
+    useUi.getState().toast({
+      title: t('todo.toast.failed'),
+      description: error instanceof Error ? error.message : String(error),
+      tone: 'danger',
+    })
+  }
+}
+
+/**
+ * What a card's move menu may do, and whether it may be dragged.
+ *
+ * The siblings are the rows of the card's own list in the order the page arrived in, which is the
+ * order the server read. Up and down therefore name the visible neighbour, and "move down" anchors
+ * the row before the sibling *after* that neighbour — the same "before this row" grammar a drop
+ * uses. Dragging needs a fine pointer: a phone gets the menu instead, which is why the controls are
+ * built whether or not the pointer can drag.
+ */
+export interface TaskMoveControls {
+  dragEnabled: boolean
+  canMoveUp: boolean
+  canMoveDown: boolean
+  onMoveUp: () => void
+  onMoveDown: () => void
+  onMoveToList: (listId: string | null) => void
+  onDropBefore: (draggedId: string) => void
+  onDropAfter: (draggedId: string) => void
+}
+
+export function useTaskMoves(enabled: boolean): (task: TodoTask) => TaskMoveControls | null {
+  const tasks = useTodos((state) => state.tasks)
+  const finePointer = useMediaQuery('(hover: hover) and (pointer: fine)')
+  return (task) => {
+    if (!enabled) return null
+    const siblings = tasks.filter((entry) => entry.listId === task.listId)
+    const index = siblings.findIndex((entry) => entry.id === task.id)
+    if (index < 0) return null
+    const placeBefore = (draggedId: string, beforeId: string | null): void => {
+      if (draggedId === task.id) return
+      const dragged = tasks.find((entry) => entry.id === draggedId)
+      if (!dragged) return
+      void moveTodoTask(draggedId, {
+        beforeId,
+        ...(dragged.listId === task.listId ? {} : { listId: task.listId }),
+      })
+    }
+    return {
+      dragEnabled: finePointer,
+      canMoveUp: index > 0,
+      canMoveDown: index < siblings.length - 1,
+      onMoveUp: () => {
+        if (index > 0) void moveTodoTask(task.id, { beforeId: siblings[index - 1]!.id })
+      },
+      onMoveDown: () => {
+        if (index < siblings.length - 1) {
+          void moveTodoTask(task.id, { beforeId: siblings[index + 2]?.id ?? null })
+        }
+      },
+      onMoveToList: (listId) => { void moveTodoTask(task.id, { beforeId: null, listId }) },
+      onDropBefore: (draggedId) => placeBefore(draggedId, task.id),
+      onDropAfter: (draggedId) => placeBefore(draggedId, siblings[index + 1]?.id ?? null),
+    }
+  }
+}
+
+export function TaskCard({ task, lists, bounds, timezone, onOpen, onStar, onUnplan, move, compact = false }: {
   task: TodoTask
   lists: readonly TaskList[]
   bounds: { dayEnd: number; now: number }
@@ -32,6 +128,11 @@ export function TaskCard({ task, lists, bounds, timezone, onOpen, onStar, onUnpl
    * that left it on screen would be a lie.
    */
   onUnplan?: () => void
+  /**
+   * The manual-order controls: drag on a desktop, the same moves in the card menu everywhere. Absent
+   * where the order is not the reader's — the plan groups by day, and an explicit sort has its own.
+   */
+  move?: TaskMoveControls
   compact?: boolean
 }) {
   const toggle = useTodos((state) => state.toggleTask)
@@ -47,6 +148,8 @@ export function TaskCard({ task, lists, bounds, timezone, onOpen, onStar, onUnpl
   const progress = task.stepTotal > 0 ? t('todo.steps.progress', { done: task.stepDone, total: task.stepTotal }) : null
   const menuRef = useRef<HTMLButtonElement>(null)
   const [menuOpen, setMenuOpen] = useState(false)
+  /** The row highlight a drag paints: the same before/after grammar the note tree uses. */
+  const [dropState, setDropState] = useDropState<'none' | 'before' | 'after'>('none')
   /**
    * The long press a phone uses to enter selection mode.
    *
@@ -109,27 +212,122 @@ export function TaskCard({ task, lists, bounds, timezone, onOpen, onStar, onUnpl
           },
         }]
       : []
+  // The manual-order rows. They live in the menu rather than on a draggable handle alone because a
+  // phone cannot drag and a keyboard never could: this is the equivalent path, not a secondary one.
+  const moveTargets: { id: string; name: string }[] = move
+    ? [
+        ...(task.listId !== null ? [{ id: 'inbox', name: t('todo.smart.inbox') }] : []),
+        ...lists
+          .filter((list) => list.id !== task.listId)
+          .map((list) => ({ id: list.id, name: list.name })),
+      ]
+    : []
+  const moveItems: MenuItem[] = move
+    ? [
+        {
+          id: 'move-up',
+          label: t('todo.move.up'),
+          icon: <ArrowUp size={13} />,
+          disabled: !move.canMoveUp,
+          separatorBefore: statusItems.length > 0,
+          onSelect: () => {
+            setMenuOpen(false)
+            move.onMoveUp()
+          },
+        },
+        {
+          id: 'move-down',
+          label: t('todo.move.down'),
+          icon: <ArrowDown size={13} />,
+          disabled: !move.canMoveDown,
+          onSelect: () => {
+            setMenuOpen(false)
+            move.onMoveDown()
+          },
+        },
+        {
+          id: 'move-to-list',
+          label: t('todo.move.to_list'),
+          icon: <FolderInput size={13} />,
+          disabled: moveTargets.length === 0,
+          submenu: ({ closeMenu }) => (
+            <MenuSubmenuList
+              label={t('todo.move.to_list')}
+              items={moveTargets.map((target) => ({
+                id: `move-to-${target.id}`,
+                label: target.name,
+                onSelect: () => {
+                  closeMenu()
+                  move.onMoveToList(target.id === 'inbox' ? null : target.id)
+                },
+              }))}
+            />
+          ),
+        },
+      ]
+    : []
   const snoozeItems: MenuItem[] = SNOOZE_MINUTES.map((minutes, index) => ({
     id: `snooze-${minutes}`,
     label: snoozeLabel(minutes),
-    separatorBefore: index === 0 && statusItems.length > 0,
+    separatorBefore: index === 0 && statusItems.length + moveItems.length > 0,
     onSelect: () => {
       setMenuOpen(false)
       void snooze(task.id, minutes)
     },
   }))
-  const menuItems = [...statusItems, ...snoozeItems]
+  const menuItems = [...statusItems, ...moveItems, ...snoozeItems]
 
   return (
     <article
       data-todo-selected={selected ? '' : undefined}
+      data-todo-draggable={move?.dragEnabled ? '' : undefined}
+      draggable={move?.dragEnabled && !selectionMode ? true : undefined}
+      onDragStart={(event) => {
+        if (!move?.dragEnabled) {
+          event.preventDefault()
+          return
+        }
+        event.dataTransfer.setData(TODO_DRAG_TYPE, task.id)
+        event.dataTransfer.effectAllowed = 'move'
+      }}
+      onDragOver={(event) => {
+        if (!move?.dragEnabled || !isTodoTaskDrag(event)) return
+        // The row owns the drop it is under: without this the board card behind it would append the
+        // task to the list instead of placing it where the reader pointed.
+        event.preventDefault()
+        event.stopPropagation()
+        event.dataTransfer.dropEffect = 'move'
+        const rect = event.currentTarget.getBoundingClientRect()
+        const ratio = rect.height ? (event.clientY - rect.top) / rect.height : 0.5
+        setDropState(ratio < 0.5 ? 'before' : 'after')
+      }}
+      onDragLeave={(event) => {
+        const next = event.relatedTarget
+        if (!(next instanceof Node) || !event.currentTarget.contains(next)) setDropState('none')
+      }}
+      onDrop={(event) => {
+        if (!move?.dragEnabled) return
+        event.preventDefault()
+        event.stopPropagation()
+        setDropState('none')
+        const draggedId = readTodoTaskDrag(event)
+        if (!draggedId || draggedId === task.id) return
+        if (dropState === 'after') move.onDropAfter(draggedId)
+        else move.onDropBefore(draggedId)
+      }}
       className={cn(
-        'group flex min-w-0 items-start gap-2 rounded-[var(--r-md)] px-2 py-1.5 transition-colors duration-[var(--dur-fast)]',
+        'group relative flex min-w-0 items-start gap-2 rounded-[var(--r-md)] px-2 py-1.5 transition-colors duration-[var(--dur-fast)]',
         'hover:bg-[var(--bg-hover)]',
         selected ? 'bg-[var(--accent-soft)]' : '',
         compact ? 'py-1' : 'py-1.5',
       )}
     >
+      {dropState === 'before' && (
+        <span aria-hidden="true" className="pointer-events-none absolute top-0 right-1 left-1 h-0.5 rounded-full bg-[var(--accent)]" />
+      )}
+      {dropState === 'after' && (
+        <span aria-hidden="true" className="pointer-events-none absolute right-1 bottom-0 left-1 h-0.5 rounded-full bg-[var(--accent)]" />
+      )}
       {selectionMode ? (
         // The selection tick takes the completion box's place rather than sitting beside it: while the
         // mode is on, a press on the left of a row means "pick this row", never "finish it".
