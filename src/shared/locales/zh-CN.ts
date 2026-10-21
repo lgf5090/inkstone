@@ -7491,6 +7491,7 @@ console.log(\`Hello, \${name}!\`)
     "todo.calendar.zoom": "粒度",
     "todo.calendar.zoom_hour": "小时",
     "todo.calendar.zoom_half": "半小时",
+    "todo.calendar.drag_hint": "在时间列空白处拖动可框选创建时间段，松开打开编辑器；按 Esc 取消",
     "todo.smart.inbox": "收件箱",
     "todo.smart.today": "今天",
     "todo.smart.all": "全部",

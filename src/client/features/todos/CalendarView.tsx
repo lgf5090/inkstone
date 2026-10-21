@@ -42,6 +42,8 @@ import {
   timeBlocksForDay,
   HOUR_H,
   minuteForSlot,
+  minuteFromPointer,
+  selectionFromDrag,
   slotCountFor,
   slotHeightFor,
   type CalendarZoom,
@@ -59,6 +61,20 @@ const WEEK_LENGTH = 7
 const DAY_HEADER_H = 26
 const LANE_H = 18
 const HOURS = Array.from({ length: 24 }, (_, hour) => hour)
+/** How far the pointer travels before a press on the axis counts as a drag rather than a click. */
+const DRAG_SLOP_PX = 4
+
+/** A box-select in progress: the column it started in, and where the pointer has got to. */
+interface DragState {
+  dayKey: string
+  fromMinute: number
+  toMinute: number
+  /** The press's clientY, so a drag that never moved can be told from a click. */
+  fromY: number
+  /** The pressed column's box, so a pointer that wanders off still measures against it. */
+  top: number
+  height: number
+}
 
 interface WeekDayCell {
   key: string
@@ -393,18 +409,69 @@ function WeekTimeGrid({ week, tasks, lists, timezone, todayKey, now, dragEnabled
   dragEnabled: boolean
   zoom: CalendarZoom
   onOpenDay: (key: string) => void
-  onAdd: (key: string, minute: number) => void
+  /** A slot press names one minute; a box-select names the range it drew. */
+  onAdd: (key: string, startMinute?: number, endMinute?: number) => void
   onOpenTask: (task: TodoTask) => void
   /** `null` makes the task all-day; a number lands it at that hour. */
   onReschedule: (taskId: string, dayKey: string, hour: number | null) => void
 }) {
   const scroller = useRef<HTMLDivElement>(null)
   const [dropKey, setDropKey] = useState<string | null>(null)
+  /** The box-select being drawn, or null when the pointer is only passing through. */
+  const [drag, setDrag] = useState<DragState | null>(null)
+  /**
+   * Set when a box-select has just created a task, so the click that follows the same press — the
+   * pointer went down and came up inside one slot — does not create a second one at that slot.
+   * A ref because nothing renders on it: it is cleared by the next press, which every click in
+   * this column is preceded by.
+   */
+  const suppressClick = useRef(false)
   // The working day is where a calendar should open; midnight is a scroll away in both directions.
   // `scrollTo` is absent in jsdom, where this is a render rather than a layout.
   useEffect(() => {
     scroller.current?.scrollTo?.({ top: 7 * HOUR_H })
   }, [])
+  /**
+   * The drag listens on the window rather than on the column it started in, so a selection survives
+   * a pointer that wanders off that column while it is down — the column stays where the range is
+   * measured, which is also what keeps a drag from ever creating across two days.
+   */
+  useEffect(() => {
+    if (!drag) return
+    const finish = (clientY: number): void => {
+      const minute = minuteFromPointer(clientY - drag.top, drag.height)
+      const selection = Math.abs(clientY - drag.fromY) >= DRAG_SLOP_PX
+        ? selectionFromDrag({ zoom, fromMinute: drag.fromMinute, toMinute: minute })
+        : null
+      // A press that never travelled is a click on the slot under it, and that slot's own button
+      // answers it; creating here as well would file the task twice.
+      if (selection) {
+        suppressClick.current = true
+        onAdd(drag.dayKey, selection.startMinute, selection.endMinute)
+      }
+      setDrag(null)
+    }
+    const onMove = (event: PointerEvent): void => {
+      setDrag((current) => (current
+        ? { ...current, toMinute: minuteFromPointer(event.clientY - current.top, current.height) }
+        : current))
+    }
+    const onUp = (event: PointerEvent): void => finish(event.clientY)
+    const onCancel = (): void => setDrag(null)
+    const onKey = (event: KeyboardEvent): void => {
+      if (event.key === 'Escape') setDrag(null)
+    }
+    window.addEventListener('pointermove', onMove)
+    window.addEventListener('pointerup', onUp)
+    window.addEventListener('pointercancel', onCancel)
+    window.addEventListener('keydown', onKey)
+    return () => {
+      window.removeEventListener('pointermove', onMove)
+      window.removeEventListener('pointerup', onUp)
+      window.removeEventListener('pointercancel', onCancel)
+      window.removeEventListener('keydown', onKey)
+    }
+  }, [drag, zoom, onAdd])
   const nowMinute = useMemo(() => {
     const minute = toLocalMinute(now, timezone)
     const [hour, min] = minute.slice(11).split(':').map(Number)
@@ -496,10 +563,27 @@ function WeekTimeGrid({ week, tasks, lists, timezone, todayKey, now, dragEnabled
           {week.map((day) => {
             const blocks = timeBlocksForDay(tasks, day.key, timezone)
             const lanes = blocks.reduce((max, block) => Math.max(max, block.lane + 1), 1)
+            /**
+             * Arms a box-select on the column.
+             *
+             * The slots tile the column, so the press itself cannot tell a drag from a click — the
+             * pointer's travel does. A press on a task block is left alone: that block carries its
+             * own HTML5 drag to move the task, and one press must not answer to both.
+             */
+            const startDrag = (event: React.PointerEvent<HTMLDivElement>): void => {
+              if (!dragEnabled || event.button !== 0) return
+              const target = event.target
+              if (target instanceof Element && target.closest('[data-calendar-block]')) return
+              const rect = event.currentTarget.getBoundingClientRect()
+              const minute = minuteFromPointer(event.clientY - rect.top, rect.height)
+              suppressClick.current = false
+              setDrag({ dayKey: day.key, fromMinute: minute, toMinute: minute, fromY: event.clientY, top: rect.top, height: rect.height })
+            }
             return (
               <div
                 key={day.key}
                 className="relative border-l border-[var(--border-subtle)]"
+                onPointerDown={startDrag}
                 onDragOver={(event) => {
                   if (!isTodoTaskDrag(event)) return
                   event.preventDefault()
@@ -521,10 +605,28 @@ function WeekTimeGrid({ week, tasks, lists, timezone, todayKey, now, dragEnabled
                     key={minute}
                     type="button"
                     aria-label={t('todo.calendar.add_at', { date: formatDateKey(day.key), time: mmClock(minute) })}
-                    onClick={() => onAdd(day.key, minute)}
+                    onClick={() => {
+                      // A box-select that ended inside this slot has already filed the task; the
+                      // click that follows the same press is its echo, not a second request.
+                      if (suppressClick.current) {
+                        suppressClick.current = false
+                        return
+                      }
+                      onAdd(day.key, minute)
+                    }}
                     className="block h-[var(--slot-h)] w-full border-b border-[var(--border-subtle)]/60 transition-colors hover:bg-[var(--bg-hover)] focus-visible:bg-[var(--accent-soft)] focus-visible:outline-none"
                   />
                 ))}
+                {drag !== null && drag.dayKey === day.key && (
+                  <span
+                    aria-hidden="true"
+                    className="pointer-events-none absolute inset-x-0 rounded-[var(--r-xs)] bg-[var(--accent-soft)]"
+                    style={{
+                      top: (Math.min(drag.fromMinute, drag.toMinute) / 60) * HOUR_H,
+                      height: Math.max(2, (Math.abs(drag.toMinute - drag.fromMinute) / 60) * HOUR_H),
+                    }}
+                  />
+                )}
                 {day.key === todayKey && (
                   <span aria-hidden="true" className="pointer-events-none absolute inset-x-0 z-10" style={{ top: (nowMinute / 60) * HOUR_H }}>
                     <span className="absolute -left-0.5 size-1.5 -translate-y-1/2 rounded-full bg-[var(--danger)]" />
@@ -536,6 +638,7 @@ function WeekTimeGrid({ week, tasks, lists, timezone, todayKey, now, dragEnabled
                     key={block.task.id}
                     type="button"
                     draggable={dragEnabled ? true : undefined}
+                    data-calendar-block={block.task.id}
                     onDragStart={(event) => {
                       event.dataTransfer.setData(TODO_DRAG_TYPE, block.task.id)
                       event.dataTransfer.effectAllowed = 'move'
@@ -851,6 +954,9 @@ export function CalendarView() {
           </IconButton>
         </div>
       </div>
+      {mode === 'week' && (
+        <p className="shrink-0 px-3 pb-1.5 text-[length:var(--text-9)] text-[var(--text-quaternary)] md:px-5">{t('todo.calendar.drag_hint')}</p>
+      )}
       {body}
       <DayAgenda
         open={agendaKey !== null}
