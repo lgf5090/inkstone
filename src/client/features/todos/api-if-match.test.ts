@@ -1,0 +1,54 @@
+// @vitest-environment jsdom
+/**
+ * The revision a task write travels with.
+ *
+ * The route refuses a stale write by comparing `If-Match` with the row's revision, so the guard is only
+ * real if the client actually puts the header on the request. This pins the wire shape: the third
+ * argument of `api.todos.update` becomes `If-Match`, and a write that names no revision stays
+ * unconditional, which is what the older surfaces (the assistant's tools, an undo) still send.
+ */
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { api } from '../../lib/api'
+
+const requests: Array<{ url: string; init: RequestInit }> = []
+
+function stubFetch(): void {
+  requests.length = 0
+  vi.stubGlobal('fetch', vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+    requests.push({ url: String(input), init: init ?? {} })
+    return new Response(JSON.stringify({ task: { id: 'task-1' } }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    })
+  }))
+}
+
+function headersOf(index = 0): Record<string, string> {
+  return (requests[index]!.init.headers ?? {}) as Record<string, string>
+}
+
+afterEach(() => {
+  vi.unstubAllGlobals()
+})
+
+describe('a guarded task write', () => {
+  it('sends the revision as If-Match', async () => {
+    stubFetch()
+
+    await api.todos.update('task-1', { title: 'Edited' }, 7)
+
+    expect(requests).toHaveLength(1)
+    expect(requests[0]!.url).toBe('/api/todos/task-1')
+    expect(requests[0]!.init.method).toBe('PATCH')
+    expect(headersOf()['If-Match']).toBe('7')
+    expect(JSON.parse(String(requests[0]!.init.body))).toEqual({ title: 'Edited' })
+  })
+
+  it('leaves the guard off a write that names no revision', async () => {
+    stubFetch()
+
+    await api.todos.update('task-1', { title: 'Edited' })
+
+    expect(headersOf()).not.toHaveProperty('If-Match')
+  })
+})

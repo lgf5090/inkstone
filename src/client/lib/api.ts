@@ -327,6 +327,11 @@ interface RequestOptions {
    * answered with, including on the 304 that carries no body, so the next beat can send it back.
    */
   ifNoneMatch?: string
+  /**
+   * A conditional write's precondition: the revision the caller read. Sent as `If-Match`, which the
+   * task routes compare with the row's own revision before they write.
+   */
+  ifMatch?: string
   onEtag?: (etag: string | null) => void
   /** A question about *now* must not be answered from the cache; a stored "where is the talk" is a
    * different question's answer. */
@@ -358,7 +363,7 @@ export interface SettingsPatch {
 }
 
 async function request<T>(path: string, options: RequestOptions = {}): Promise<T> {
-  const { method = 'GET', body, signal, formData, timeoutMs, ifNoneMatch, onEtag, cache } = options
+  const { method = 'GET', body, signal, formData, timeoutMs, ifNoneMatch, ifMatch, onEtag, cache } = options
 
   const headers: Record<string, string> = {
     [CLIENT_HEADER]: '1',
@@ -366,6 +371,7 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
     'Accept-Language': getLocale(),
   }
   if (ifNoneMatch) headers['If-None-Match'] = ifNoneMatch
+  if (ifMatch) headers['If-Match'] = ifMatch
   let payload: BodyInit | undefined
   if (formData) {
     payload = formData
@@ -1138,9 +1144,18 @@ export const api = {
     get: (id: string) => request<{ task: TodoTask, steps: TaskStep[] }>(`/api/todos/${id}`),
     create: (body: Record<string, unknown>) =>
       request<{ task: TodoTask }>('/api/todos', { method: 'POST', body: withReminderList(body) }),
-    /** `next` is present when the patch finished a repeating task and it filed the next occurrence. */
-    update: (id: string, body: Record<string, unknown>) =>
-      request<{ task: TodoTask, next?: TodoTask }>(`/api/todos/${id}`, { method: 'PATCH', body: withReminderList(body) }),
+    /**
+     * `next` is present when the patch finished a repeating task and it filed the next occurrence.
+     *
+     * `rev` is the revision the row was read at. Naming it makes the write conditional: a stale one is
+     * refused with a 409 instead of replacing an edit this client never saw.
+     */
+    update: (id: string, body: Record<string, unknown>, rev?: number) =>
+      request<{ task: TodoTask, next?: TodoTask }>(`/api/todos/${id}`, {
+        method: 'PATCH',
+        body: withReminderList(body),
+        ...(rev === undefined ? {} : { ifMatch: String(rev) }),
+      }),
     /**
      * Picks a task into a day, or takes it back out with `null`.
      *
