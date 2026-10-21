@@ -131,7 +131,7 @@ describe('the memos container', () => {
     expect(host.querySelector('[data-memos-feed="home"]')).not.toBeNull()
     const home = link(host, t('memos.nav.home'))
     expect(home.getAttribute('aria-current')).toBe('page')
-    expect(host.querySelector('textarea')).not.toBeNull()
+    expect(host.querySelector('[data-memo-composer] .cm-content')).not.toBeNull()
     expect(api.list).toHaveBeenCalledTimes(1)
     expect(api.list.mock.calls[0]?.[0]).toMatchObject({ state: 'normal', orderBy: 'created', order: 'desc' })
   })
