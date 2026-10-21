@@ -4072,25 +4072,61 @@ export class AssistantStore {
   }
 
   /**
+   * One row of a task's history: its birth, or one step from one status to another.
+   *
+   * The event is written in the same batch as the row that caused it, which is the whole point of
+   * the table: a task holding a status its history does not explain would replay as work that
+   * vanished from the flow, and a birth that never landed would make the replay subtract a task it
+   * never counted. `on_day` is the account's calendar day of `at`, computed here at write time for
+   * the reason `created_on` is — a day derived at query time drifts across DST and files the event
+   * under the wrong one. A birth's `from_status` is NULL: it only ever adds.
+   */
+  private taskEvent(
+    taskId: string,
+    at: number,
+    onDay: string,
+    kind: 'born' | 'status',
+    fromStatus: TaskStatus | null,
+    toStatus: TaskStatus,
+  ): D1PreparedStatement {
+    return this.db.prepare(
+      `INSERT INTO todos_task_events (user_id, id, task_id, at, on_day, kind, from_status, to_status)
+       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)`,
+    ).bind(this.userId, newId(), taskId, at, onDay, kind, fromStatus, toStatus)
+  }
+
+  /**
    * Writes one task's named columns and moves its revision on.
    *
    * The bump rides in the same statement as the edit, so a revision can never describe a row that did
    * not move with it. With `expectedRev` the statement also matches that revision: a stale caller
    * changes no row, and the caller above turns the empty result into a conflict.
+   *
+   * `also` carries the statements that must land with the edit or not at all — today the one history
+   * event a status change owes. They ride in the same `db.batch`, so a task can never hold a status
+   * its event table does not explain.
    */
   private async updateTaskRow(
     id: string,
     fields: readonly (readonly [column: string, value: unknown])[],
     expectedRev?: number,
+    also?: readonly D1PreparedStatement[],
   ): Promise<number> {
     const sets = fields.map(([column], index) => `${column} = ?${index + 2}`)
     sets.push('rev = rev + 1')
     const guard = expectedRev === undefined ? '' : ` AND rev = ?${fields.length + 3}`
-    return await this.write(
-      `UPDATE todos_tasks SET ${sets.join(', ')}
-        WHERE user_id = ?1 AND id = ?${fields.length + 2} AND ${TASK_LIVE_PREDICATE}${guard}`,
-      ...fields.map(([, value]) => value), id, ...(expectedRev === undefined ? [] : [expectedRev]),
+    const sql = `UPDATE todos_tasks SET ${sets.join(', ')}
+        WHERE user_id = ?1 AND id = ?${fields.length + 2} AND ${TASK_LIVE_PREDICATE}${guard}`
+    assertScoped(sql)
+    const update = this.db.prepare(sql).bind(
+      this.userId, ...fields.map(([, value]) => value), id, ...(expectedRev === undefined ? [] : [expectedRev]),
     )
+    if (also?.length) {
+      const results = await this.db.batch([update, ...also])
+      return Number(results[0]?.meta?.changes ?? 0)
+    }
+    const result = await update.run()
+    return result.meta?.changes ?? 0
   }
 
   /**
@@ -4112,19 +4148,23 @@ export class AssistantStore {
     const status = input.status ?? 'todo'
     const repeat = input.repeat ?? null
     const createdOn = await this.taskDay(at, timeZone)
-    await this.write(
+    // The task's birth rides in the same batch as the row it opens: a task whose history starts
+    // late would replay as work the flow never saw arrive.
+    const insert = this.db.prepare(
       `INSERT INTO todos_tasks
          (id, user_id, title, description, status, priority, due_at, start_at, project_id, list_id,
           icon, color, starred, repeat_rule, note_id, conversation_id, created_at, updated_at,
           completed_at, created_on, completed_on)
        VALUES (?2, ?1, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21)`,
-      id, input.title.trim().slice(0, 300), input.description ?? '', status, input.priority ?? 'medium',
+    ).bind(
+      this.userId, id, input.title.trim().slice(0, 300), input.description ?? '', status, input.priority ?? 'medium',
       input.dueAt ?? null, input.startAt ?? null, input.projectId ?? null, input.listId ?? null,
       taskIconOrNull(input.icon), taskColorOrNull(input.color), input.starred ? 1 : 0,
       repeat ? JSON.stringify(repeat) : null, input.noteId ?? null,
       input.conversationId ?? null, at, at, status === 'done' ? at : null,
       createdOn, status === 'done' ? createdOn : null,
     )
+    await this.db.batch([insert, this.taskEvent(id, at, createdOn, 'born', null, status)])
     if (input.tags?.length) await this.replaceTaskTags(id, input.tags)
     for (const text of input.steps ?? []) await this.addStep(id, text)
     const reminders = input.reminders ?? (input.remindAt != null ? [input.remindAt] : [])
@@ -4223,6 +4263,7 @@ export class AssistantStore {
     if (patch.repeat !== undefined) fields.push(['repeat_rule', patch.repeat ? JSON.stringify(patch.repeat) : null])
     if (patch.noteId !== undefined) fields.push(['note_id', patch.noteId])
     if (patch.conversationId !== undefined) fields.push(['conversation_id', patch.conversationId])
+    let event: D1PreparedStatement | null = null
     if (patch.status !== undefined) {
       const completedAt = patch.status === 'done' ? (existing.completedAt ?? at) : null
       fields.push(['status', patch.status])
@@ -4231,14 +4272,25 @@ export class AssistantStore {
       // reader's day. Left untouched when the status did not change, so a zone edit never rewrites a
       // day that was already recorded.
       if (patch.status !== existing.status) {
-        fields.push([
-          'completed_on',
-          completedAt === null ? null : await this.taskDay(completedAt, timeZone),
-        ])
+        const completedOn = completedAt === null ? null : await this.taskDay(completedAt, timeZone)
+        fields.push(['completed_on', completedOn])
+        // One event per real transition, written with the row it explains. Its instant is the one
+        // the row records — the completion's own moment when it has one, the write's otherwise —
+        // and its day is the account's calendar day of that instant, so a completion's row and its
+        // event cannot disagree about when it happened. A patch naming the status the row already
+        // has moves nothing and records nothing.
+        event = this.taskEvent(
+          id,
+          completedAt ?? at,
+          completedOn ?? (await this.taskDay(at, timeZone)),
+          'status',
+          existing.status,
+          patch.status,
+        )
       }
     }
     fields.push(['updated_at', at])
-    const changes = await this.updateTaskRow(id, fields, expectedRev)
+    const changes = await this.updateTaskRow(id, fields, expectedRev, event ? [event] : undefined)
     if (!changes) {
       // The row was gone, or (with a guard) moved between the read and the write. Re-read so the
       // conflict names the revision that actually stands; the guarded statement wrote nothing.
@@ -4392,7 +4444,7 @@ export class AssistantStore {
    * Removes one trashed task for good.
    *
    * Only a stamped row qualifies: the endpoint is the trash's own door, and a live task sent here is a
-   * 404 rather than a delete that bypasses the trash. The four statements run as one batch, so a
+   * 404 rather than a delete that bypasses the trash. The five statements run as one batch, so a
    * task cannot lose its steps while keeping its row.
    */
   async purgeTask(id: string): Promise<boolean> {
@@ -6684,13 +6736,15 @@ export async function purgeExpiredEphemeralConversations(
 }
 
 /**
- * The four statements that remove one account's trashed tasks for good.
+ * The five statements that remove one account's trashed tasks for good.
  *
- * Shared by the endpoint and the retention sweep so the trash is emptied one way: steps, tag links and
- * reminders go with their task, and the task delete repeats the trash predicate so a live row can never
- * be caught by a stale id. The `IN` list is built here from ids the account already owns, one place
- * after a scoped read — and cut into chunks, because a sweep page (`TODO_TRASH_PURGE_LIMIT`) names
- * more ids than one statement may bind.
+ * Shared by the endpoint and the retention sweep so the trash is emptied one way: steps, tag links,
+ * reminders and the task's history go with their task, and the task delete repeats the trash
+ * predicate so a live row can never be caught by a stale id. The `IN` list is built here from ids
+ * the account already owns, one place after a scoped read — and cut into chunks, because a sweep
+ * page (`TODO_TRASH_PURGE_LIMIT`) names more ids than one statement may bind. The history goes and
+ * the trash's soft delete does not: a trashed task still happened, and only a purge says it did
+ * not.
  */
 function purgeTaskStatements(db: D1Database, userId: string, ids: readonly string[]): D1PreparedStatement[] {
   if (!ids.length) return []
@@ -6702,6 +6756,15 @@ function purgeTaskStatements(db: D1Database, userId: string, ids: readonly strin
       db.prepare(`DELETE FROM todos_steps WHERE user_id = ?1 AND task_id IN (${marks})`).bind(...binds),
       db.prepare(`DELETE FROM todos_tag_links WHERE user_id = ?1 AND task_id IN (${marks})`).bind(...binds),
       db.prepare(`DELETE FROM todos_reminders WHERE user_id = ?1 AND task_id IN (${marks})`).bind(...binds),
+      // The history asks the trash the same question the task delete does, and for the same reason:
+      // a stale id must not be able to catch a live row. Without the predicate, a restore that won
+      // the race would keep its task while the batch erased the past the task came back with.
+      db.prepare(
+        `DELETE FROM todos_task_events
+          WHERE user_id = ?1 AND task_id IN (
+            SELECT id FROM todos_tasks WHERE user_id = ?1 AND id IN (${marks}) AND ${TASK_TRASHED_PREDICATE}
+          )`,
+      ).bind(...binds),
       db.prepare(
         `DELETE FROM todos_tasks WHERE user_id = ?1 AND id IN (${marks}) AND ${TASK_TRASHED_PREDICATE}`,
       ).bind(...binds),
@@ -6732,7 +6795,7 @@ export async function purgeExpiredTodoTrash(
       ORDER BY deleted_at ASC, id ASC LIMIT ?2`,
   ).bind(cutoff, capped).all<{ user_id: string, id: string }>()
 
-  // One account is one batch of four statements, however many of its rows the page holds.
+  // One account is one batch of five statements, however many of its rows the page holds.
   const byUser = new Map<string, string[]>()
   for (const row of results ?? []) {
     const bucket = byUser.get(row.user_id) ?? []
