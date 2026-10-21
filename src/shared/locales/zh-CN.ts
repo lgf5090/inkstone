@@ -2227,6 +2227,8 @@ export const ZH_CN_MESSAGES = {
     "settings.mcp_scope_write": "写入",
     "settings.mcp_trash_access": "允许移入回收站",
     "settings.mcp_trash_access_desc": "这是独立的高风险权限，只能软删除；MCP 永远不提供永久清除功能。",
+    "settings.mcp_todo_read_access": "允许读取待办",
+    "settings.mcp_todo_read_access_desc": "持有 todos:read 的密钥可以读取你的任务。关闭后所有密钥同时失去该权限；待办的写入与删除仍由各自的开关决定。",
     "settings.mcp_tools": "工具",
     "settings.mcp_tools_desc": "可关闭本服务对外提供的 {count} 个工具。被关闭的工具不会注册，客户端在工具列表里根本看不到它。",
     "settings.mcp_tool_enabled": "提供 {name}",

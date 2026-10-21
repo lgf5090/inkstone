@@ -2227,6 +2227,8 @@ export const EN_US_MESSAGES = {
     "settings.mcp_scope_write": "Write",
     "settings.mcp_trash_access": "Allow moving notes to trash",
     "settings.mcp_trash_access_desc": "Separate high-risk permission for soft-delete only. MCP never exposes permanent purge.",
+    "settings.mcp_todo_read_access": "Allow reading to-dos",
+    "settings.mcp_todo_read_access_desc": "Let a key that names todos:read list your tasks. Turning it off withholds the scope from every key at once; to-do writes and deletes keep their own switches.",
     "settings.mcp_tools": "Tools",
     "settings.mcp_tools_desc": "Switch off any of the {count} tools this server publishes. A switched-off tool is not registered at all, so clients never see it in their tool list.",
     "settings.mcp_tool_enabled": "Offer {name}",
